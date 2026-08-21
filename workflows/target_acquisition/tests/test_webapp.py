@@ -1666,3 +1666,37 @@ def test_a_live_connection_that_fails_halfway_leaves_nothing_running(tmp_path, m
     assert session.disconnected, "the microscope was left connected"
     assert second_engine.shut_down, "the analysis engine was left running"
     assert flow.session is None and flow.completed == []
+
+
+def test_only_so_many_views_may_watch_one_run():
+    """Each open view costs a thread, so their number is bounded.
+
+    A tab watching the run holds a server thread and a queue of its own for as
+    long as it lives. One operator needs a handful; nothing stopped a confused
+    or hostile local script from opening them until the machine ran out of
+    threads. Refusing is kinder than accepting a view that cannot be served —
+    the browser retries by itself.
+    """
+    from workflow.webapp import _host
+
+    hub = WidgetHub()
+    accepted = [hub.add_client() for _ in range(_host._MAX_EVENT_STREAMS)]
+    assert all(client is not None for client in accepted)
+    assert hub.add_client() is None, "the number of watching views was not bounded"
+
+    # A view going away makes room again, so refreshing a tab keeps working.
+    hub.remove_client(accepted[0])
+    replacement = hub.add_client()
+    assert replacement is not None
+    hub.remove_client(replacement)
+
+
+def test_a_refused_view_is_told_plainly_over_http(demo_server, monkeypatch):
+    """The refusal reaches the browser as an answer, not a dropped connection."""
+    import urllib.error
+
+    base, hub, _flow = demo_server
+    monkeypatch.setattr(hub, "add_client", lambda: None)
+    with pytest.raises(urllib.error.HTTPError) as caught:
+        urllib.request.urlopen(base + "/events", timeout=10)
+    assert caught.value.code == 503

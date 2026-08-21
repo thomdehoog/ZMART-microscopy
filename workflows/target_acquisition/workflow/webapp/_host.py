@@ -54,6 +54,15 @@ _BUFFER_CAP_BYTES = 192 * 1024 * 1024
 # client must not be able to queue enough stale Acquire/Measure/Sync requests
 # that they keep firing after the operator's original run has finished.
 _WORK_QUEUE_CAP = 256
+
+#: How many browser views may watch one run at once. Each open view holds a
+#: server thread and a queue of its own for as long as it lives, and nothing
+#: else limits how many there can be. One operator needs a handful — a tab on
+#: the microscope PC, perhaps a second to watch from. This leaves generous room
+#: for that, and for the brief overlap while a refreshed tab's old connection
+#: is still being tidied up, but stops a confused or hostile local script from
+#: opening views until the machine runs out of threads.
+_MAX_EVENT_STREAMS = 24
 _COALESCED_MESSAGE_KINDS = {"acquire", "acquire_selected", "measure", "sync"}
 _HARDWARE_MESSAGE_KINDS = {"acquire", "acquire_selected", "measure"}
 _STALE_HARDWARE_MESSAGE_S = 2.0
@@ -187,9 +196,12 @@ class WidgetHub:
                 # A tab that stopped reading gets dropped, not waited on.
                 self.remove_client(client)
 
-    def add_client(self) -> queue.Queue[str | None]:
+    def add_client(self) -> queue.Queue[str | None] | None:
+        """Start watching this run, or ``None`` when too many already are."""
         client: queue.Queue[str | None] = queue.Queue(maxsize=4096)
         with self._clients_lock:
+            if len(self._clients) >= _MAX_EVENT_STREAMS:
+                return None
             self._clients.append(client)
         return client
 
