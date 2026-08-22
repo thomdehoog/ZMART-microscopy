@@ -2,3 +2,9 @@ node_modules/
 dist/
 test-results/
 playwright-report/
+
+# A mock scan written by `mock_picture.py` for rehearsing the picture beneath
+# the plan. Generated from whatever plan the page made, so it belongs to
+# whoever is rehearsing rather than to the repository.
+public/mock-scan
+public/mock-scan-exported

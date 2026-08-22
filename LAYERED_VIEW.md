@@ -326,14 +326,67 @@ somewhere else entirely.
 
 ---
 
+## Wired into the target-acquisition window
+
+Both halves are now in the operator window itself, not only in the comparison
+panel.
+
+**The canvas draws a stack of thirteen layers.** Everything that used to be a
+run of statements with an `if` in front of it is now a layer with a name, a
+control, its own fade and a click path: Background, Stage, Carrier, Tiles,
+Heatmap, Plan, Cells, Targets, Focus, Test field, Editing, Where the stage is,
+Scale bar. The three checkboxes that used to sit in the canvas foot are gone.
+
+The last five stay solid — they survive the shared fade and any window, because
+a reading you can half see through is a reading you cannot trust and where the
+microscope actually is should never be the thing that went faint.
+
+**The scan is drawn beneath the plan**, by `jpeg-under`, on its own surface.
+Point the page at a folder of small pictures with `?picture=<folder>`.
+
+Two things had to be true for that to work, and neither was:
+
+- **The picture surface was on top of the plan, not beneath it**, which is why
+  the two were swapped by hiding one. A picture on top can never show *through*
+  the plan whatever the layers do.
+- **The page's own background was painted outside the stack**, so a window cut
+  through the layers left the grey sitting exactly where the picture would be.
+  It is the bottom layer now, cut by the same window in the same pass.
+
+The two surfaces are drawn by different code and agree about where things are
+to within **0.0000 px**, measured at every zoom and after panning — the plan
+owns the gestures and hands the view down, so they cannot argue.
+
+### Rehearsing it without a microscope
+
+    # 1. drive the page to a plan, and ask it where it means to send the stage
+    #    (window.__theStageCanvas.plan())
+    # 2. build a scan at exactly those places
+    python workflows/target_acquisition/mock_picture.py plan.json \
+        --into webapp-ui/public/mock-scan --um-per-pixel 5.2
+    # 3. point the page at it
+    #    http://localhost:5174/?picture=/mock-scan
+
+`mock_picture.py` writes the same filenames the Leica driver writes, one plane
+per file, with the same OME description carrying the pixel size and saying
+nothing about position. Only the source of the pixels is invented — so wiring a
+microscope in means replacing where the pixels come from and changing nothing
+else.
+
+The positions are handed in rather than read from the files, which is the
+arrangement being rehearsed as much as anything else: **a microscope's files do
+not say where they were taken**, so the run's own record is the only answer.
+
 ## What is **not** done, and is the next thing
 
-`jpeg-under` and the layer stack are wired into `src/canvas/panel.js`, which is
-the engine **comparison** panel. The operator window has its own canvas —
-`#stage-canvas` with `#overview-canvas` (deck.gl + Viv) underneath — and its own
-layer bar. Putting the picture under *that* canvas, and moving its layers onto
-this stack, is the remaining work, and it belongs in whichever operator window
-you are actually using.
+- **Where the layer controls live, and what they look like.** What is in the
+  canvas foot is the machinery in the place the old checkboxes were, not a
+  settled design.
+- **When the ground gets opened during a run.** The mechanism works and the
+  tests drive it, but nothing decides the policy for an operator yet.
+- **The carrier is the one layer that is not sparse** — it fills its wells, so
+  it hides the picture where no window is cut. Whether it should thin out once
+  there is a picture is a design call; the window already does it.
 
 Two smaller things also left:
 
