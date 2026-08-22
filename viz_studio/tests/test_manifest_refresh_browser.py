@@ -126,12 +126,17 @@ def _operator_state(page):
           opacity: Number(document.querySelector(
             '[aria-label="opacity live (linked) channel 0"]').value),
           group: window.zmartConfig.groups[0],
-          // What the chooser says the channel is painted with. It reads its
-          // face rather than a form value because the chooser is a list of
-          // colours now, not a dropdown of words.
-          lut: document.querySelector(
-            '[aria-label="colormap live (linked) channel 0"]')
-            .textContent.replace(/▾/g, '').trim(),
+          // What the channel is painted with, read off the square itself.
+          // The square IS the control now -- press it and the list of
+          // colours opens -- so it carries no words to read, and what it
+          // shows is a flat colour or a whole run of them.
+          lut: (() => {
+            const square = document.querySelector(
+              '[aria-label="colour live (linked) channel 0"]');
+            const seen = getComputedStyle(square);
+            return seen.backgroundImage !== 'none'
+              ? seen.backgroundImage : seen.backgroundColor;
+          })(),
         })"""
     )
 
@@ -176,7 +181,16 @@ def _assert_operator_state(before, after):
     assert after["max"] == 3500
     assert after["opacity"] == 0.83
     assert after["group"] == before["group"]
-    assert after["lut"] == "viridis"
+    # Viridis, said the way the square says it: a run of colours rather than
+    # the word. What matters is that the choice made before the commit is
+    # still the choice after it, so it is compared against what was read
+    # then, with a check that it really is a colour map and not a flat
+    # colour left over from the default.
+    assert "gradient" in after["lut"], (
+        f"the channel is painted {after['lut']}, which is not the colour map "
+        "that was chosen before the run moved on"
+    )
+    assert after["lut"] == before["lut"]
 
 
 def test_positions_and_replacement_appear_from_commits_and_keep_operator_state(

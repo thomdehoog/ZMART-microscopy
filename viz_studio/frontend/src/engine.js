@@ -1249,6 +1249,29 @@ export function putTheViewBack(viewer) {
   return showTheWholePicture(viewer);
 }
 
+/**
+ * How much of the drawing area's right-hand edge the depth slider stands over.
+ *
+ * The slider is drawn on top of the picture rather than beside it, so the
+ * area the engine believes it has is wider than the area an operator can
+ * actually see into. Centring the picture on the whole of it therefore
+ * leaves it sitting partly behind the slider, off to the right of where the
+ * eye expects it. Measuring the column the slider occupies lets the framing
+ * treat that strip as gone: the picture is fitted and centred in what is
+ * left of the window (asked for 2026-08-22).
+ *
+ * The answer is in screen pixels, and zero whenever the slider is not there
+ * -- a single-plane image has none, and neither does the volume view.
+ */
+function theColumnTheDepthSliderTakes() {
+  const canvas = document.querySelector("canvas")?.getBoundingClientRect();
+  const slider = document
+    .querySelector("[data-beside-the-picture]")
+    ?.getBoundingClientRect();
+  if (!canvas || !slider || !slider.width || !slider.height) return 0;
+  return Math.max(0, Math.min(canvas.width / 2, canvas.right - slider.left));
+}
+
 export function showTheWholePicture(viewer) {
   const { position } = viewer.navigationState;
   const space = position.coordinateSpace.value;
@@ -1285,15 +1308,36 @@ export function showTheWholePicture(viewer) {
     else if ("sliceViews" in panel) volume = panel.renderViewport;
   }
 
+  // The strip the depth slider stands over is not room the picture can use,
+  // so it comes off the width before anything is fitted into it.
+  const behindTheSlider = theColumnTheDepthSliderTakes();
+  const roomAcross = Math.max(1, (flat?.logicalWidth ?? 0) - behindTheSlider);
+
   let fit = 0;
   drawn.slice(0, 2).forEach((axis, slot) => {
     const across = extent(axis);
-    const pixels = slot === 0 ? flat?.logicalWidth : flat?.logicalHeight;
+    const pixels = slot === 0 ? (flat ? roomAcross : 0) : flat?.logicalHeight;
     if (across === null || !pixels) return;
     fit = Math.max(fit, (across * render.canonicalVoxelFactors[slot]) / pixels);
   });
-  if (fit > 0) viewer.navigationState.zoomFactor.value = fit * OVERVIEW_MARGIN;
-  else viewer.navigationState.zoomFactor.reset();
+  if (fit > 0) {
+    const zoom = fit * OVERVIEW_MARGIN;
+    viewer.navigationState.zoomFactor.value = zoom;
+    // And the middle moves with the width. The view is centred on whatever
+    // point the position names, so putting the picture in the middle of the
+    // room LEFT means naming a point half the slider's width to the right of
+    // the picture's own middle. Done after the zoom, because how far half a
+    // strip of screen reaches into the specimen depends on it.
+    if (behindTheSlider > 0 && drawn.length) {
+      const sideways = drawn[0];
+      const factor = render.canonicalVoxelFactors[0] || 1;
+      const settled = Float32Array.from(position.value);
+      settled[sideways] += (behindTheSlider / 2) * zoom / factor;
+      position.value = settled;
+    }
+  } else {
+    viewer.navigationState.zoomFactor.reset();
+  }
 
   let boxFit = 0;
   const smaller = Math.min(volume?.logicalWidth ?? 0, volume?.logicalHeight ?? 0);
