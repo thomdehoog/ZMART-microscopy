@@ -1923,6 +1923,37 @@ import scanfieldsWidget, { presetInk } from "./widgets/scanfields.js";
 
     return [
       {
+        key: "ground",
+        label: "Background",
+        explains: "The page's own surface, under everything else the canvas draws. Turn it "
+          + "off and the picture underneath shows through everywhere; leave it on and the "
+          + "picture shows only where a window has been opened.",
+        /* **This is the layer that decides whether a picture underneath can be
+           seen at all**, and it is worth being plain about why it is a layer
+           rather than a fill.
+        
+           The scan itself is drawn on a surface of its own, beneath this one.
+           Anything painted here covers it. So if this were painted outside the
+           stack — which is how it was written first — a window cut through the
+           layers would have nothing to reveal: the drawing above would go, and
+           the page's own grey would still be sitting on top of the picture.
+        
+           As the bottom layer of the stack it is cut by the same window as
+           everything above it, by the same rule and in the same pass. Open a
+           window over the fields that have landed and the scan appears there,
+           through every layer including this one. Turn this off altogether and
+           the scan is simply visible everywhere.
+        
+           It is a flat fill and therefore the one layer that is not sparse, but
+           that is exactly its job: it is the ground, and ground is not sparse. */
+        shown: true,
+        paint: ({ context: ctx, width, height }) => {
+          ctx.fillStyle = css("--screen");
+          ctx.fillRect(0, 0, width, height);
+        },
+      },
+
+      {
         key: "limits",
         label: "Stage",
         explains: "The edge of where the stage can travel. Context for everything else "
@@ -2207,12 +2238,10 @@ import scanfieldsWidget, { presetInk } from "./widgets/scanfields.js";
     const ctx = stageCv.getContext("2d");
     const w = stageCv.cssW, h = stageCv.cssH;
 
-    /* The stage is the page's own surface — empty travel, nothing in it. What
-       the carrier declares sits a shade off that, so the areas a sample can be
-       in read as the only part of the stage that is anything. */
+    /* Cleared to nothing. The page's own surface is painted by the bottom
+       layer of the stack rather than here, and that is not tidiness — it is
+       what lets a picture be seen underneath at all. See the `ground` layer. */
     ctx.clearRect(0, 0, w, h);
-    ctx.fillStyle = css("--screen");
-    ctx.fillRect(0, 0, w, h);
 
     /* The canvas only shows what the run actually knows. Before a session is
        open it knows nothing, so it is empty; the stage limits are a readout
@@ -2389,7 +2418,29 @@ import scanfieldsWidget, { presetInk } from "./widgets/scanfields.js";
       h: t.frameUm,
       letThrough: howMuch,
     }));
+    drawStage();
   }
+
+  /**
+   * What the canvas will answer to, from outside it.
+   *
+   * There is no picture drawn beneath this canvas yet — that is the next piece
+   * of work — so nothing on the page calls these. They are here rather than
+   * held back because they are what the picture will be shown *through*, and
+   * because a rule nobody can exercise is a rule nobody can check. The browser
+   * tests drive them.
+   */
+  window.__theStageCanvas = {
+    /** Open the ground the scan has covered, so a picture beneath shows there. */
+    openScannedGround: openTheGroundThatHasBeenScanned,
+    /** Close every window again. */
+    closeTheGround() { seeThroughGround = []; drawStage(); },
+    /** Open one named piece of the sample, in micrometres in the carrier's frame. */
+    openThisGround(windows) { seeThroughGround = windows ?? []; drawStage(); },
+    /** Which layers there are, and which are being drawn. */
+    layers: () => theStack.map(({ key, label, shown, staysSolid }) =>
+      ({ key, label, shown, staysSolid: !!staysSolid })),
+  };
 
   /* Carrier coordinates for the editor: it places fields inside the carrier,
      so it is handed where the pointer is in that frame rather than where it is
