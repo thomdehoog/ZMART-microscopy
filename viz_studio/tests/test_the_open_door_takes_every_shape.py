@@ -546,3 +546,58 @@ def test_the_awkward_run_rehearses_through_the_experimental_door(page_on):
     page.wait_for_timeout(3000)
     assert fraction_lit(page) > 0.02, (
         f"{heading} rehearsed but put nothing on screen")
+
+
+def test_auto_reads_the_tiles_and_not_the_ground_between_them(page_on):
+    """Auto measures the specimen on screen, and skips the gaps.
+
+    This run is three tiles with unimaged ground between them, so most of
+    what is on screen is nothing at all. The pixels that ARE specimen run
+    from 1200 to 3000 and never go near zero (see ``_specimen``), which is
+    what makes the two answers tell apart: a measurement that counted the
+    empty ground would put the window's floor at or near zero, and the
+    specimen would then be drawn in the top half of the ramp -- washed out,
+    with the contrast an operator pressed Auto to get thrown away on
+    brightness nothing occupies.
+
+    So the floor Auto sets has to land near the dimmest pixel of the
+    SPECIMEN. The bar below was chosen by falsifying this gate rather than by
+    taste: counting the empty ground in (both places contrast.py drops it,
+    turned off) moves the answer from a window of [1200, 2999] to [0, 2995].
+    The bar sits in the gap between those two, and the gate has been watched
+    to fail.
+    """
+    page, root = page_on
+    heading = _open(page, root, "odd")
+    # Nothing else open. The viewer starts on a single tile whose channels are
+    # named the same as this run's, and with both on screen a press meant for
+    # one of them lands on the other -- which is how this gate first passed
+    # while measuring the wrong picture entirely.
+    for other in page.evaluate("() => window.zmartConfig.groups"):
+        if other != heading:
+            page.locator(f"[aria-label='close {other}']").click()
+            page.wait_for_timeout(600)
+    page.get_by_role("button", name="Overview", exact=True).click()
+    page.wait_for_timeout(2500)
+
+    channel = page.evaluate(
+        "(heading) => window.zmartConfig.layers.find("
+        "  (one) => (one.group || '') === heading).name", heading)
+    page.locator(f"[aria-label='toggle {channel}']").first.click()
+    page.locator(f"[aria-label='toggle {channel}']").first.click()
+    page.wait_for_timeout(400)
+    page.locator(f"[aria-label='auto contrast {channel}']").click()
+    page.wait_for_timeout(2500)
+
+    window_ = page.evaluate(
+        """(name) => {
+          const layer = window.zmartViewer.state.toJSON().layers.find(
+            (one) => one.name.endsWith(name));
+          return (layer.shaderControls || {}).normalized.range;
+        }""", channel)
+    assert window_[0] > 600, (
+        f"Auto set the window to {window_}. Its floor is down near zero, "
+        "which is the brightness of the ground nobody imaged -- the empty "
+        "space between the tiles has been counted as though it were specimen"
+    )
+    assert window_[1] > window_[0], f"Auto set an empty window: {window_}"
