@@ -1267,3 +1267,24 @@ canvas.livecv[hidden] { display: none; }
   :root:not([data-theme="light"]) .layer-chip[aria-pressed="true"] { color: #04121d; }
 }
 #stage-layers { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+
+
+/* The bar under the canvas, taken off the screen while a better home for what
+   was in it is decided. `display` is set on it elsewhere, and a rule that sets
+   display always beats the `hidden` attribute — which is exactly the kind of
+   quiet nothing-happened that costs an afternoon. */
+.canvas-foot[hidden] { display: none; }
+
+/* Fit, in the corner of the canvas. The strip under the canvas is gone and this
+   is the one control from it that belongs with the picture rather than beside
+   it: it is about where you are looking, not about what is drawn.
+   
+   Top right: clear of the scale bar, which is drawn bottom right, and out of
+   the way of the sample, which sits in the middle. */
+.fit-on-canvas {
+  position: absolute; right: 12px; top: 12px; z-index: 3;
+  background: var(--surface-2); border: 1px solid var(--line-strong);
+  border-radius: 8px; padding: 5px 12px; font-weight: 600; font-size: 12.5px;
+  color: var(--ink-2); cursor: pointer;
+}
+.fit-on-canvas:hover { color: var(--ink); background: var(--surface-3); }

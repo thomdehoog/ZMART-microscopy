@@ -48,6 +48,20 @@
                  `?picture=`; the drawing engine builds its own surfaces inside
                  it. See `viz_studio/options/jpeg-under/`. -->
             <div class="plot picturecv" id="picture-host"></div>
+            <!-- Framing the whole thing again is the one control that earns a
+                 place on the canvas rather than in a strip beneath it. It is
+                 about what you are looking at rather than about what is drawn,
+                 an operator reaches for it constantly, and it is the way back
+                 when a pan has gone somewhere unrecognisable.
+
+                 Called "Back to overview" rather than "Fit". Two reasons, and
+                 the second is the one that matters. "Fit" says what the
+                 arithmetic does; this says what you get. And "Back to" says it
+                 is a return rather than a place — which keeps it clear of the
+                 overview *scan*, the thing steps 3 and 5 are about, that the
+                 microscope actually produces. One word would have collided
+                 with that; three do not. -->
+            <button class="ghost fit-on-canvas" id="fit-btn">Back to overview</button>
             <div class="live-note" id="overview-note" hidden></div>
             <div class="tip" id="stage-tip"></div>
           </div>
@@ -59,7 +73,22 @@
                aria-orientation="vertical" aria-label="resize the channel" hidden></div>
           <aside class="canvas-side" id="canvas-side" hidden></aside>
         </div>
-        <div class="canvas-foot">
+        <!-- **Taken off the screen, not taken out.**
+
+             The bar under the canvas held the layer controls, the channel
+             switches, the depth slider, the Fit button and the coordinate
+             readout. It is hidden while a better home for those is decided —
+             a strip of controls under a picture is where things go when nobody
+             has decided where they go.
+
+             Hidden rather than deleted because the things in it are not all
+             finished questions. Fit, the depth slider and the channels are
+             working controls for working features, and deleting them would be
+             deciding those features do not need controls, which is a different
+             decision from deciding this bar is the wrong place for them. The
+             page still builds them, and whatever replaces this can reach them
+             where they are. -->
+        <div class="canvas-foot" hidden>
         <div class="toolbar">
           <!-- The layers, built from whatever the step being stood on says
                belongs above the picture. Three fixed checkboxes lived here
@@ -88,7 +117,6 @@
             <span class="readout" id="overview-plane-readout">1 / 1</span>
           </div>
           <div class="sep"></div>
-          <button class="ghost" id="fit-btn">Fit</button>
           <div class="readout" id="stage-readout">—</div>
         </div>
           <div class="panel-foot" id="foot-canvas"></div>

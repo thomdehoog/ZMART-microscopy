@@ -2051,6 +2051,10 @@ import scanfieldsWidget, { presetInk } from "./widgets/scanfields.js";
         label: "Stage",
         explains: "The edge of where the stage can travel. Context for everything else "
           + "rather than a thing the run produced, which is why it is drawn faintly.",
+        /* From the start, before anything is connected. It is the edge of the
+           canvas itself — where anything can be at all — and an operator
+           looking at an empty page should be able to see the shape of the room
+           the run will happen in rather than a blank rectangle. */
         shown: true,
         paint: ({ context: ctx }) => drawStageLimits(ctx),
       },
@@ -2307,6 +2311,9 @@ import scanfieldsWidget, { presetInk } from "./widgets/scanfields.js";
         explains: "A crosshair on the position the stage is standing at. Always solid: it "
           + "is where the microscope actually is, and that should never be the thing that "
           + "went faint.",
+        /* From the start. Where the stage is standing is the one thing that is
+           true before anything else has been decided, and it is the only mark
+           on an otherwise empty canvas. */
         shown: true,
         staysSolid: true,
         paint: ({ context: ctx }) => drawWhereTheStageIs(ctx),
@@ -2318,7 +2325,9 @@ import scanfieldsWidget, { presetInk } from "./widgets/scanfields.js";
         explains: "How far a stretch of screen is on the sample. A reading rather than a "
           + "drawing, so it stays solid — a scale bar you can half see through is a scale "
           + "bar you cannot trust.",
-        shown: true,
+        /* A reading about a stage nobody has connected to yet would be a
+           reading about nothing. */
+        shown: state.done.has("connect"),
         staysSolid: true,
         paint: ({ context: ctx }) => drawScaleBar(ctx, w, h),
       },
@@ -2340,8 +2349,15 @@ import scanfieldsWidget, { presetInk } from "./widgets/scanfields.js";
        open it knows nothing, so it is empty; the stage limits are a readout
        from the connected microscope's configuration, so they appear with the
        session; the carrier appears at its own step, when the run is told what
-       the sample is mounted in. */
-    if (!state.done.has("connect")) return;
+       the sample is mounted in.
+
+       **Each layer decides that for itself, and the drawing never stops early.**
+       It used to return here, before anything had been drawn, which was right
+       while this surface was opaque and wrong the moment a picture was put
+       beneath it: returning skipped the background along with everything else,
+       so a scan the run had not got to yet was showing through an empty canvas
+       before the operator had even connected. A layer with nothing to say draws
+       nothing; the ground is still ground. */
 
     /* One projection for everything that sits in the carrier: the carrier
        itself and every tile, cell and target the run put inside it. Handed
