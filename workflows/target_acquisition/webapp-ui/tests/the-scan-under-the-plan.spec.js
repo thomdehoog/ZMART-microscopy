@@ -194,8 +194,15 @@ test("shows only where the drawing above it has been opened up", async ({ page }
     .toBeLessThan(0.002);
 
   /* And the blunt way: turn the bottom layer off and the scan is simply there.
-     A window is for looking at part of it; this is for looking at all of it. */
-  await page.locator('#stage-layers .layer-chip[data-layer="ground"]').click();
+     A window is for looking at part of it; this is for looking at all of it.
+
+     Asked of the canvas rather than pressed on a button, because the strip of
+     controls that held those buttons has been taken off the screen while a
+     better home for it is decided. What is being checked here is the canvas,
+     not the button — and a test that could only reach the canvas through a
+     control somebody was still designing would have to be rewritten every time
+     the design moved. */
+  await page.evaluate(() => window.__theStageCanvas.showLayer("ground", false));
   await page.waitForTimeout(500);
   expect(await howMuchIsOpen(page), "turning the background off did not show the scan")
     .toBeGreaterThan(0.4);
