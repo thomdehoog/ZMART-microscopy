@@ -113,6 +113,7 @@ _STEPS = [
 
 # Which widget mounts inside which step's section.
 _WIDGET_SECTIONS = {
+    "canvas": "run_overview",
     "overview": "run_overview",
     "focus": "load_positions",
     "explorer": "discover_targets",
@@ -125,7 +126,7 @@ def _sections_html() -> str:
     for step_id, title, meaning, button, auto_collapse in _STEPS:
         widget_holes = "".join(
             f'<div class="widget" id="widget-{widget}"'
-            f'{" hidden" if widget == "overview" else ""}></div>'
+            f'{" hidden" if widget in ("overview", "canvas") else ""}></div>'
             for widget, section in _WIDGET_SECTIONS.items()
             if section == step_id
         )
@@ -472,6 +473,7 @@ function setNewRunAvailable(available) {
 
 function showOverview() {
   document.getElementById("widget-overview").hidden = false;
+  document.getElementById("widget-canvas").hidden = false;
 }
 
 // Open a section because the page decided to show it, rather than because the
@@ -610,6 +612,7 @@ async function applySnapshot() {
   const overviewStarted = completed.includes("run_overview")
     || Boolean(snapshot.widgets.overview?.status);
   document.getElementById("widget-overview").hidden = !overviewStarted;
+  document.getElementById("widget-canvas").hidden = !overviewStarted;
   setNewRunAvailable(completed.includes("connect"));
   if (snapshot.flow.demo) document.getElementById("demo-banner").hidden = false;
   return snapshot;

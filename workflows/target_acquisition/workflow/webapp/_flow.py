@@ -90,6 +90,22 @@ class RunFlow:
         hub.add_widget("status", self.status_widget)
         self.viewer = wreact.view_overview()
         hub.add_widget("overview", self.viewer)
+        # One picture of the slide, with everything about it in the same
+        # coordinates: the imagery, the fields to be scanned, the focus points
+        # and the cells found. The imagery is the bottom layer, which is what
+        # a different image engine would take over later without touching
+        # anything drawn above it.
+        self.canvas = wreact.canvas(
+            [
+                {"kind": "images", "id": "imagery", "label": "imagery"},
+                {"kind": "shapes", "id": "fields", "label": "scan fields", "interactive": True},
+                {"kind": "points", "id": "focus", "label": "focus points",
+                 "dimmable": False, "interactive": True},
+                {"kind": "points", "id": "targets", "label": "cells found",
+                 "dimmable": False, "interactive": True},
+            ]
+        )
+        hub.add_widget("canvas", self.canvas)
 
         self._steps: dict[str, Callable[[], str]] = {
             "connect": self._connect,
@@ -351,10 +367,82 @@ class RunFlow:
             )
             self.ns["picker"] = self.picker
             self.hub.add_widget("focus", self.picker)
+        self._draw_scan_fields(positions)
         return (
             f"{len(positions)} overview positions loaded — click focus points on "
             "the map below, then press Measure"
         )
+
+    # --- keeping the one picture of the slide up to date ------------------------
+
+    def _draw_scan_fields(self, positions: list[dict]) -> None:
+        """Show where the overview will be taken, before it is taken.
+
+        A position is the middle of a field and the field's size, so the
+        rectangle drawn here is exactly the piece of sample that field will
+        cover. Seeing them laid over the carrier is how an operator checks the
+        scan covers what they meant before anything is imaged.
+        """
+        fields = []
+        for position in positions:
+            size = position.get("tile_size") or {}
+            width = float(size.get("x") or 0.0)
+            height = float(size.get("y") or 0.0)
+            if not (width and height):
+                continue
+            fields.append(
+                {
+                    "bounds": [
+                        float(position["x"]) - width / 2.0,
+                        float(position["y"]) - height / 2.0,
+                        width,
+                        height,
+                    ],
+                    "stroke": "#38bdf8",
+                    "fill": "rgba(56,189,248,0.08)",
+                }
+            )
+        self.canvas.set_layer("fields", shapes=fields)
+        self.canvas.fit_extent()
+        if fields:
+            xs = [f["bounds"][0] + f["bounds"][2] / 2.0 for f in fields]
+            ys = [f["bounds"][1] + f["bounds"][3] / 2.0 for f in fields]
+            self.canvas.look_at(sum(xs) / len(xs), sum(ys) / len(ys))
+
+    def _draw_focus_points(self) -> None:
+        """Show where the focus was measured, so the surface can be judged."""
+        points = []
+        for point in list(getattr(self.picker, "points", []) or []):
+            points.append(
+                {"x": float(point["x"]), "y": float(point["y"]), "stroke": "#fbbf24"}
+            )
+        self.canvas.set_layer("focus", points=points)
+
+    def _record_overview_tile(self, index: int, position: dict, record: dict) -> dict:
+        """Take one finished tile into both views of the run.
+
+        The map composites the tile's channels into a picture the operator can
+        adjust; the canvas shows that same picture in its place on the sample,
+        beneath everything else drawn about the slide. The compositing is done
+        once and the result shared, rather than each view doing its own.
+        """
+        overview = self.viewer.add_acquisition(index, position, record)
+        entry = self.viewer._tile_entries[-1]
+        self.canvas.show_picture(
+            len(self.viewer._tile_entries) - 1,
+            [entry["x0"], entry["y0"], entry["w"], entry["h"]],
+            entry["image"],
+        )
+        return overview
+
+    def _draw_targets(self) -> None:
+        """Show the cells discovery found, in their places on the sample."""
+        points = []
+        for target in list(self.targets or []):
+            points.append(
+                {"x": float(target["x"]), "y": float(target["y"]), "stroke": "#f472b6"}
+            )
+        self.canvas.set_layer("targets", points=points)
 
     def _focus(self) -> Any:
         self._require(
@@ -374,12 +462,13 @@ class RunFlow:
         self._require(self.positions is not None, "load the positions first")
         focus = self._focus()
         self.viewer.expect_tiles(len(self.positions))
+        self._draw_focus_points()
         records = run_overview(
             self.session,
             self.positions,
             state=self.overview_state,
             focus=focus,
-            on_record=self.viewer.add_acquisition,
+            on_record=self._record_overview_tile,
             output_root=self.root,
         )
         self.overview_records = records
@@ -398,6 +487,7 @@ class RunFlow:
         self._require(targets, "discovery found no cells in the overview tiles")
         self.targets = targets
         self.ns["targets"] = targets
+        self._draw_targets()
         if self.explorer is None:
             self.explorer = wreact.explore_targets(targets, self.overviews)
             self.ns["explorer"] = self.explorer

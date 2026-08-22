@@ -112,7 +112,9 @@ def test_reset_requires_connection_then_safely_disconnects_and_starts_fresh(tmp_
     assert flow.completed == []
     assert flow.session is None and flow.engine is None and flow.root is None
     assert flow.viewer is not first_viewer
-    assert set(hub.state_snapshot()) == {"status", "overview"}
+    # A fresh run starts with the checklist, the map and the one picture
+    # of the slide; the rest appear as the run reaches them.
+    assert set(hub.state_snapshot()) == {"status", "overview", "canvas"}
     assert hub.widget("focus") is None
     assert hub.widget("explorer") is None
     assert hub.widget("gallery") is None
@@ -542,7 +544,7 @@ def test_reset_endpoint_refuses_unconnected_run_then_safely_resets_active_run(de
     assert first_session.disconnected and first_engine.shut_down
     state = json.loads(_get(base, "/state"))
     assert state["flow"] == {"completed": [], "demo": True}
-    assert set(state["widgets"]) == {"status", "overview"}
+    assert set(state["widgets"]) == {"status", "overview", "canvas"}
     assert flow.session is None and flow.root is None
 
 
@@ -1700,3 +1702,84 @@ def test_a_refused_view_is_told_plainly_over_http(demo_server, monkeypatch):
     with pytest.raises(urllib.error.HTTPError) as caught:
         urllib.request.urlopen(base + "/events", timeout=10)
     assert caught.value.code == 503
+
+
+def test_the_run_keeps_one_picture_of_the_slide_up_to_date(tmp_path):
+    """Everything the run learns about the slide lands on the same picture.
+
+    The scan fields appear as soon as the positions are known, so an operator
+    can see the scan covers what they meant before anything is imaged; the
+    focus points appear once measured; each field's imagery arrives as it is
+    taken; and the cells appear where discovery found them. All in the same
+    coordinates, so they line up.
+    """
+    hub = WidgetHub()
+    flow = RunFlow(hub, demo=True, demo_root=tmp_path / "run")
+    canvas = flow.canvas
+
+    def layer(name):
+        return next(la for la in canvas.layers if la["id"] == name)
+
+    for step in _ORDERED_STEPS[:5]:
+        flow.run_step(step)
+    hub.drain(60)
+    fields = layer("fields").get("shapes") or []
+    assert len(fields) == len(flow.positions), "the fields to be scanned were not drawn"
+    # A field is drawn where it will actually be taken: its middle is the
+    # position, and its size is that position's field size.
+    first, position = fields[0], flow.positions[0]
+    size = position["tile_size"]
+    assert first["bounds"][2] == pytest.approx(size["x"])
+    assert first["bounds"][0] + first["bounds"][2] / 2 == pytest.approx(position["x"])
+
+    hub.dispatch_message("focus", {"type": "measure"})
+    hub.drain(120)
+    flow.run_step("run_overview")
+    hub.drain(180)
+    assert layer("focus").get("points"), "the measured focus points were not drawn"
+    assert len(canvas.images) == len(flow.positions), "the imagery did not reach the picture"
+    assert all(p for p in canvas._pictures), "some fields arrived with no pixels"
+
+    flow.run_step("discover_targets")
+    hub.drain(180)
+    assert len(layer("targets").get("points") or []) == len(flow.targets)
+
+    flow.run_step("disconnect")
+    hub.drain(60)
+
+
+def test_a_browser_arriving_late_is_sent_the_imagery_it_missed(tmp_path):
+    """Opening the page part-way through a run must not show empty frames.
+
+    The pixels are sent as each field is taken. A browser that was not yet
+    open missed them, and has only the description of where each picture
+    belongs — so it asks for them again as it mounts, and must be given them.
+    """
+    hub = WidgetHub()
+    flow = RunFlow(hub, demo=True, demo_root=tmp_path / "run")
+    for step in _ORDERED_STEPS[:5]:
+        flow.run_step(step)
+    hub.drain(60)
+    hub.dispatch_message("focus", {"type": "measure"})
+    hub.drain(120)
+    flow.run_step("run_overview")
+    hub.drain(180)
+
+    sent = []
+    original = flow.canvas.send
+    flow.canvas.send = lambda content, buffers=None, **kw: (
+        sent.append((content.get("type"), len(buffers or []))),
+        original(content, buffers, **kw),
+    )[1]
+
+    # This is what a freshly mounted view asks for.
+    hub.dispatch_message("canvas", {"type": "sync"})
+    hub.drain(60)
+
+    kinds = [kind for kind, _n in sent]
+    assert kinds[0] == "image:reset", "the replay did not start cleanly"
+    assert kinds.count("image") == len(flow.positions), "not every field was sent again"
+    assert all(n == 1 for kind, n in sent if kind == "image"), "a picture was replayed with no pixels"
+
+    flow.run_step("disconnect")
+    hub.drain(60)
