@@ -102,13 +102,19 @@ def test_a_moved_run_redeclares_its_picture_at_its_new_home(tmp_path):
     the move that name is a folder that no longer exists, and trusting it
     would serve yesterday's address; the registry notices and declares
     afresh at the new home -- bake and all -- on the first bind there.
+
+    The bake is asked for here rather than assumed. A live run is served
+    unbaked unless somebody says otherwise, and the baked road is the one
+    with something to lose in a move: real files, written at the old home,
+    which have to be written again at the new one.
     """
+    baking = (lambda run_root: True)
     run = a_live_run(tmp_path / "was")
     run.write_and_publish("posA", some_specimen(700))
 
     library = Library()
     library.open(run.folder, names=["views/live/live.ome.zarr"], watch=False)
-    registry = LiveRegistry(library)
+    registry = LiveRegistry(library, wants_the_bake=baking)
     bindings, _ = registry.refresh()
     assert len(bindings) == 1, registry.errors
     old_picture = run.folder / LIVE_PICTURE
@@ -120,7 +126,7 @@ def test_a_moved_run_redeclares_its_picture_at_its_new_home(tmp_path):
 
     library = Library()
     library.open(moved, names=["views/live/live.ome.zarr"], watch=False)
-    registry = LiveRegistry(library)
+    registry = LiveRegistry(library, wants_the_bake=baking)
     bindings, _ = registry.refresh()
     assert len(bindings) == 1, (
         f"the moved run did not bind: {registry.errors}"
