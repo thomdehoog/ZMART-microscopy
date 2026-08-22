@@ -2262,3 +2262,449 @@ export default mount(App);
 
     def handle_message(self, content: dict) -> None:
         self.status = f"unknown message: {content.get('type')}"
+
+
+class CanvasReact(_ZmartWidget):
+    """One picture of the sample, built from layers that move as one.
+
+    Everything the operator needs to see about a slide sits in the same place
+    and the same coordinates: the imagery itself, the carrier or plate it sits
+    in, where the tiles will be taken, where the focus was measured, and any
+    heat map drawn over the top. This widget holds those as separate *layers*
+    that share one view, so panning or zooming moves all of them together and
+    they can never drift apart.
+
+    **The camera is the single source of truth.** Nothing stores its own
+    position. ``camera`` says where the middle of the frame is, in
+    micrometres on the sample, and how many screen pixels one micrometre
+    takes. Every layer is drawn from that one description. This is what makes
+    it possible to put a different image engine underneath later — one that
+    draws with the graphics card and keeps its own camera, and so cannot
+    simply be moved with the rest. Such an engine reads this camera instead of
+    inventing its own, which is a matter of plugging it in rather than
+    rewriting everything above it. The empty ``"engine"`` layer kind below is
+    that slot.
+
+    **Each layer decides three things for itself**, and they are deliberately
+    separate:
+
+    ``visible``
+        Whether it is drawn at all. Switching a layer off removes it, rather
+        than making it invisible: an unseen layer should cost nothing and
+        should not quietly swallow clicks meant for something else.
+    ``opacity``
+        How solid it is on its own, from 0 to 1.
+    ``dimmable``
+        Whether the *shared* fade applies to it. Turning the shared fade down
+        is how the operator sees the imagery through everything drawn over it
+        — so anything they are working with by hand, like focus points, is
+        usually better left out of it. Otherwise fading enough to see the
+        sample would fade away the very thing being placed. The bottom layer
+        is never dimmable for the same reason from the other direction: it is
+        the thing being looked *at*.
+    ``interactive``
+        Whether clicks reach it. A heat map is there to be read, not clicked,
+        and if it accepted clicks it would silently swallow every attempt to
+        place a focus point underneath it.
+
+    **The fade can vary across the sample.** ``opacity_map`` describes areas
+    that should be more transparent than the rest — a few wells shown through
+    while the surrounding layout stays solid, say. Those areas are given in
+    micrometres on the sample, not in pixels on the screen, so a window onto
+    the imagery stays over the same piece of sample as the view is panned and
+    zoomed, instead of sliding about like a hole cut in the screen.
+    """
+
+    #: Where the middle of the frame is on the sample, and how big things are
+    #: drawn: ``cx``/``cy`` in micrometres, ``scale`` in screen pixels per
+    #: micrometre. Written by the operator's dragging and scrolling, and read
+    #: by every layer — including, later, an image engine that draws its own.
+    camera = traitlets.Dict({"cx": 0.0, "cy": 0.0, "scale": 1.0}).tag(sync=True)
+
+    #: The layers, bottom first. Each is ``{id, kind, label, visible, opacity,
+    #: dimmable, interactive}`` plus whatever that kind draws.
+    layers = traitlets.List().tag(sync=True)
+
+    #: The shared fade, from 0 (gone) to 1 (fully solid). It reaches only the
+    #: layers that asked for it by being ``dimmable``.
+    dim = traitlets.Float(1.0).tag(sync=True)
+
+    #: Where the sample should show through more than elsewhere. ``kind`` is
+    #: ``"none"`` or ``"regions"``; regions are given in micrometres.
+    opacity_map = traitlets.Dict({"kind": "none"}).tag(sync=True)
+
+    #: How far down a window reaches. The point of opening one is to see the
+    #: imagery, and a window through a single layer would only reveal the next
+    #: layer down — so by default it goes all the way:
+    #:
+    #: ``"all"``
+    #:     Cut through everything above the bottom layer, whatever each layer
+    #:     says for itself. The sample really shows through. Anything drawn
+    #:     over the top, focus points included, is cut away inside the window
+    #:     too, which is the price of an uninterrupted look at the sample.
+    #: ``"chosen"``
+    #:     Each layer decides for itself, through its own ``windowed``
+    #:     setting. Use this to keep something over the window on purpose —
+    #:     the carrier outline so the operator keeps their bearings, or the
+    #:     focus points they are placing.
+    window_reaches = traitlets.Unicode("all").tag(sync=True)
+
+    #: The last place the pointer was, in micrometres — shown under the
+    #: picture, and what a panel on the right reads to place something.
+    cursor = traitlets.Dict().tag(sync=True)
+
+    _read_only_input_traits = ("camera", "dim")
+
+    _esm = (
+        REACT_PRELUDE
+        + """
+// One shared view. Every layer is drawn from this and nothing else, so they
+// cannot drift apart — and an image engine that keeps its own camera can be
+// handed these same numbers rather than being moved along with the others.
+function screenFrom(camera, W, H) {
+  const scale = Number(camera.scale) > 0 ? Number(camera.scale) : 1;
+  return { scale,
+           tx: W / 2 - (Number(camera.cx) || 0) * scale,
+           ty: H / 2 - (Number(camera.cy) || 0) * scale };
+}
+
+// How solid one layer ends up: its own setting, and the shared fade only if
+// that layer asked to follow it.
+function solidity(layer, dim) {
+  const own = layer.opacity === undefined ? 1 : Number(layer.opacity);
+  const shared = layer.dimmable ? (Number(dim) === 0 ? 0 : Number(dim) || 1) : 1;
+  return Math.max(0, Math.min(1, own * shared));
+}
+
+// The see-through areas, drawn as a mask in SAMPLE coordinates. Because the
+// mask sits inside the same moving frame as everything else, a window onto
+// the imagery stays over the same piece of sample while the view moves,
+// instead of sliding about like a hole cut in the screen.
+function maskFor(omap, id) {
+  const regions = (omap && omap.kind === "regions" && omap.regions) || [];
+  if (!regions.length) return null;
+  const outside = omap.outside === undefined ? 1 : Number(omap.outside);
+  const bounds = omap.extent || [-1e6, -1e6, 2e6, 2e6];
+  return h("svg", { width: 0, height: 0, style: { position: "absolute" } },
+    h("defs", null,
+      h("mask", { id, maskUnits: "userSpaceOnUse" },
+        // White keeps a layer, black lets the sample through.
+        h("rect", { x: bounds[0], y: bounds[1], width: bounds[2], height: bounds[3],
+                    fill: `rgb(${outside * 255},${outside * 255},${outside * 255})` }),
+        regions.map((r, i) => {
+          const keep = (r.opacity === undefined ? 0 : Number(r.opacity)) * 255;
+          const paint = `rgb(${keep},${keep},${keep})`;
+          if (r.shape === "polygon" && Array.isArray(r.points)) {
+            return h("polygon", { key: i, fill: paint,
+              points: r.points.map((p) => `${p[0]},${p[1]}`).join(" ") });
+          }
+          const b = r.bounds || [0, 0, 0, 0];
+          return h("rect", { key: i, x: b[0], y: b[1], width: b[2], height: b[3],
+                             fill: paint });
+        }))));
+}
+
+function LayerBody({ layer }) {
+  if (layer.kind === "engine") {
+    // The slot for an image engine that draws with the graphics card. It is
+    // deliberately empty: it reads the shared camera when one is plugged in.
+    return h("div", { style: { position: "absolute", inset: 0,
+        display: "grid", placeItems: "center", color: T.dim, fontSize: 12 } },
+      layer.label || "image engine — not plugged in");
+  }
+  if (layer.kind === "images") {
+    return (layer.images || []).map((im, i) =>
+      h("img", { key: i, src: im.src, draggable: false, style: {
+        position: "absolute", left: im.x0, top: im.y0, width: im.w, height: im.h,
+        imageRendering: "pixelated" } }));
+  }
+  if (layer.kind === "shapes") {
+    return (layer.shapes || []).map((s, i) => {
+      if (s.shape === "polygon" && Array.isArray(s.points)) {
+        const xs = s.points.map((p) => p[0]), ys = s.points.map((p) => p[1]);
+        const x0 = Math.min(...xs), y0 = Math.min(...ys);
+        return h("svg", { key: i, style: { position: "absolute", left: x0, top: y0,
+            overflow: "visible", width: 0, height: 0 } },
+          h("polygon", { points: s.points.map((p) => `${p[0] - x0},${p[1] - y0}`).join(" "),
+            fill: s.fill || "none", stroke: s.stroke || "none",
+            strokeWidth: s.stroke_um || 1, vectorEffect: "non-scaling-stroke" }));
+      }
+      const b = s.bounds || [0, 0, 0, 0];
+      return h("div", { key: i, title: s.label || undefined, style: {
+        position: "absolute", left: b[0], top: b[1], width: b[2], height: b[3],
+        background: s.fill || "transparent", boxSizing: "border-box",
+        border: s.stroke ? `1px solid ${s.stroke}` : "none" } });
+    });
+  }
+  if (layer.kind === "points") {
+    // Points keep their size on screen rather than growing with the zoom, so
+    // a focus point stays clickable however far out the view is.
+    return (layer.points || []).map((p, i) =>
+      h("div", { key: i, "data-point": i, title: p.label || undefined, style: {
+        position: "absolute", left: p.x, top: p.y, width: 0, height: 0 } },
+        h("div", { style: {
+          position: "absolute", left: "-6px", top: "-6px", width: 12, height: 12,
+          transform: "scale(var(--zmart-inverse-zoom, 1))", transformOrigin: "6px 6px",
+          borderRadius: 999, boxSizing: "border-box",
+          background: p.fill || "transparent",
+          border: `2px solid ${p.stroke || T.accent}` } })));
+  }
+  return null;
+}
+
+function App({ model }) {
+  const [camera, setCamera] = useTrait(model, "camera");
+  const [layers] = useTrait(model, "layers");
+  const [dim] = useTrait(model, "dim");
+  const [omap] = useTrait(model, "opacity_map");
+  const [windowReaches] = useTrait(model, "window_reaches");
+  const [status] = useTrait(model, "status");
+  const [readOnly] = useTrait(model, "read_only");
+  const box = React.useRef(null);
+  const drag = React.useRef(null);
+  const [cursor, setCursor] = React.useState(null);
+  const W = widgetPx(760), H = widgetPx(560);
+  const view = screenFrom(camera, W, H);
+  const maskId = "zmart-canvas-window";
+  const mask = maskFor(omap, maskId);
+
+  const sampleAt = (e) => {
+    const r = box.current.getBoundingClientRect();
+    return { x: (e.clientX - r.left - view.tx) / view.scale,
+             y: (e.clientY - r.top - view.ty) / view.scale };
+  };
+
+  useWheel(box, (e) => {
+    if (readOnly) return;
+    const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
+    const at = sampleAt(e);
+    const r = box.current.getBoundingClientRect();
+    const scale = view.scale * factor;
+    // Keep the sample point under the pointer exactly where it was.
+    setCamera({ ...camera, scale,
+                cx: at.x + (W / 2 - (e.clientX - r.left)) / scale,
+                cy: at.y + (H / 2 - (e.clientY - r.top)) / scale });
+  });
+
+  const onDown = (e) => { if (!readOnly) drag.current = { x: e.clientX, y: e.clientY }; };
+  const onMove = (e) => {
+    const at = sampleAt(e);
+    setCursor(at);
+    if (!drag.current) return;
+    setCamera({ ...camera,
+                cx: (Number(camera.cx) || 0) - (e.clientX - drag.current.x) / view.scale,
+                cy: (Number(camera.cy) || 0) - (e.clientY - drag.current.y) / view.scale });
+    drag.current = { x: e.clientX, y: e.clientY };
+  };
+  const letGo = () => (drag.current = null);
+
+  const shown = (layers || []).filter((l) => l.visible !== false);
+  // The bottom layer is what a window is opened to reveal, so it is never cut.
+  const baseId = (layers || []).length ? (layers[0].id || 0) : null;
+  const cutsThrough = (layer) =>
+    windowReaches === "all" ? (layer.id || 0) !== baseId : Boolean(layer.windowed);
+
+  return h("div", { style: { ...card, display: "flex", gap: 12 } },
+    h("div", {
+        ref: box, onPointerDown: onDown, onPointerMove: onMove,
+        onPointerUp: letGo,
+        onPointerLeave: () => { letGo(); setCursor(null); },
+        style: { width: W, height: H, background: "#000", borderRadius: 10,
+                 overflow: "hidden", position: "relative", cursor: "grab",
+                 flex: "none" } },
+      mask,
+      // One moving frame. Everything below sits in sample coordinates and is
+      // carried by this single transform, so no layer can drift from another.
+      h("div", { style: { position: "absolute", left: 0, top: 0,
+          transformOrigin: "0 0",
+          ["--zmart-inverse-zoom"]: 1 / view.scale,
+          transform: `translate(${view.tx}px, ${view.ty}px) scale(${view.scale})` } },
+        shown.map((layer, i) =>
+          h("div", { key: layer.id || i, style: {
+              position: "absolute", left: 0, top: 0, width: 0, height: 0,
+              opacity: solidity(layer, dim),
+              // The window is cut through EVERY layer that follows it, all
+              // at once — a window through one layer alone would reveal the
+              // next layer down rather than the sample, which is the whole
+              // point of it. The bottom layer is never cut: it is the thing
+              // meant to show through.
+              ...(cutsThrough(layer) && mask
+                  ? { mask: `url(#${maskId})`, WebkitMask: `url(#${maskId})` }
+                  : {}),
+              pointerEvents: layer.interactive ? "auto" : "none" } },
+            h(LayerBody, { layer })))),
+      h("div", { style: { position: "absolute", left: 10, bottom: 8, display: "flex",
+                          gap: 6 } },
+        pill(`${shown.length} of ${(layers || []).length} layer(s)`),
+        cursor ? pill(`x ${cursor.x.toFixed(0)} um · y ${cursor.y.toFixed(0)} um`) : null)),
+    h("div", { style: { width: 230 } },
+      h("div", { style: { fontWeight: 700, marginBottom: 8 } }, "layers"),
+      (layers || []).map((layer, i) =>
+        h("div", { key: layer.id || i, style: { display: "flex", alignItems: "center",
+            gap: 6, marginBottom: 6 } },
+          h("button", { style: { ...btn(false), padding: "2px 8px",
+              background: layer.visible === false ? T.edge : T.accent },
+            onClick: () => model.send({ type: "toggle", id: layer.id }) },
+            layer.visible === false ? "off" : "on"),
+          h("span", { style: { flex: 1 } }, layer.label || layer.kind),
+          layer.dimmable ? pill("fades") : null)),
+      h("div", { style: { marginTop: 10, color: T.dim, fontSize: 12 } },
+        `shared fade ${Math.round((Number(dim) || 0) * 100)}%`),
+      h("input", { type: "range", min: 0, max: 100, value: Math.round((Number(dim) || 0) * 100),
+        disabled: readOnly, style: { width: "100%" },
+        onChange: (e) => model.send({ type: "dim", value: Number(e.target.value) / 100 }) }),
+      h("div", { style: { color: T.dim, fontSize: 12, marginTop: 10 } }, status || "")));
+}
+export default mount(App);
+"""
+    )
+
+    def __init__(self, layers: list[dict] | None = None, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self.layers = [self._layer_defaults(layer) for layer in (layers or [])]
+        self.status = "drag to move, scroll to zoom — every layer moves together"
+
+    @staticmethod
+    def _layer_defaults(layer: dict) -> dict:
+        """Fill in a layer's three choices, so a caller need only say what it is.
+
+        The bottom layer is the thing being looked at, so it never follows the
+        shared fade — stated here once rather than special-cased later.
+        """
+        filled = {
+            "id": layer.get("id") or layer.get("kind", "layer"),
+            "kind": layer.get("kind", "shapes"),
+            "label": layer.get("label", ""),
+            "visible": bool(layer.get("visible", True)),
+            "opacity": float(layer.get("opacity", 1.0)),
+            "dimmable": bool(layer.get("dimmable", True)),
+            "interactive": bool(layer.get("interactive", False)),
+            **{k: v for k, v in layer.items() if k not in _LAYER_CHOICES},
+        }
+        if filled["kind"] in ("engine", "images"):
+            filled["dimmable"] = bool(layer.get("dimmable", False))
+        # Following the dial and being cut by the window are separate
+        # questions, though the answer is usually the same. A carrier outline
+        # is the case where they differ: it may be worth keeping solid even
+        # inside the window, so the operator does not lose their bearings
+        # while looking at what shows through.
+        filled["windowed"] = bool(layer.get("windowed", filled["dimmable"]))
+        return filled
+
+    # --- the layers ------------------------------------------------------------
+
+    def set_layer(self, layer_id: str, **changes: Any) -> None:
+        """Change one layer, leaving the rest of the picture exactly as it is."""
+        updated = []
+        for layer in self.layers:
+            updated.append({**layer, **changes} if layer["id"] == layer_id else layer)
+        self.layers = updated
+
+    def add_layer(self, layer: dict, *, above: str | None = None) -> None:
+        """Put a new layer into the stack, on top unless told otherwise."""
+        filled = self._layer_defaults(layer)
+        layers = [dict(existing) for existing in self.layers]
+        if above is None:
+            layers.append(filled)
+        else:
+            index = next((i for i, la in enumerate(layers) if la["id"] == above), len(layers) - 1)
+            layers.insert(index + 1, filled)
+        self.layers = layers
+
+    def show_layer(self, layer_id: str, visible: bool = True) -> None:
+        """Switch one layer on or off; off means not drawn at all."""
+        self.set_layer(layer_id, visible=bool(visible))
+
+    def look_at(self, cx: float, cy: float, scale: float | None = None) -> None:
+        """Point the view at a place on the sample, in micrometres."""
+        camera = {**self.camera, "cx": float(cx), "cy": float(cy)}
+        if scale is not None:
+            camera["scale"] = max(1e-9, float(scale))
+        self.camera = camera
+
+    def see_through(self, regions: list[dict] | None, *, outside: float = 1.0) -> None:
+        """Make some areas of the sample show through the layers that fade.
+
+        Each region is given in micrometres on the sample, so the window stays
+        over the same piece of sample as the view is moved. Pass ``None`` to
+        make everything solid again.
+        """
+        if not regions:
+            self.opacity_map = {"kind": "none"}
+            return
+        self.opacity_map = {
+            "kind": "regions",
+            "regions": [dict(region) for region in regions],
+            "outside": float(outside),
+        }
+
+    def see_through_fields(
+        self,
+        layer_id: str,
+        indices: list[int] | None = None,
+        *,
+        opacity: float = 0.0,
+        outside: float = 1.0,
+    ) -> None:
+        """Show the imagery through some or all of a layer's fields.
+
+        The usual thing an operator wants is not a hand-drawn window but a
+        real one: "let me see the sample under these scan fields". This takes
+        the fields straight from a layer already on the canvas — the scan
+        fields, the wells of a carrier, whatever that layer draws — and makes
+        those the see-through areas.
+
+        ``indices`` picks which of them; leave it out for all of them.
+        ``opacity`` is how much of the covering layers is left over each field,
+        so 0 shows the sample completely and 0.3 leaves a faint veil.
+        ``outside`` is what happens everywhere else, normally fully solid.
+        """
+        layer = next((la for la in self.layers if la["id"] == layer_id), None)
+        if layer is None:
+            raise ValueError(f"there is no {layer_id!r} layer to take fields from")
+        fields = layer.get("shapes") or layer.get("images") or []
+        chosen = range(len(fields)) if indices is None else indices
+        regions = []
+        for index in chosen:
+            if not 0 <= index < len(fields):
+                raise ValueError(f"there is no field {index} on the {layer_id!r} layer")
+            field = fields[index]
+            bounds = field.get("bounds")
+            if bounds is None and "x0" in field:
+                bounds = [field["x0"], field["y0"], field["w"], field["h"]]
+            if bounds is None:
+                continue
+            regions.append({"shape": "rect", "bounds": list(bounds), "opacity": float(opacity)})
+        self.see_through(regions, outside=outside)
+
+    def handle_message(self, content: dict) -> None:
+        kind = content.get("type")
+        if kind == "toggle":
+            layer_id = content.get("id")
+            current = next((la for la in self.layers if la["id"] == layer_id), None)
+            if current is not None:
+                self.show_layer(layer_id, not current.get("visible", True))
+            return
+        if kind == "dim":
+            try:
+                value = float(content.get("value"))
+            except (TypeError, ValueError):
+                return
+            if math.isfinite(value):
+                self.dim = min(1.0, max(0.0, value))
+            return
+        self.status = f"unknown message: {content.get('type')}"
+
+
+#: The three choices every layer makes, plus its name — kept apart from
+#: whatever that layer actually draws.
+_LAYER_CHOICES = {
+    "id",
+    "kind",
+    "label",
+    "visible",
+    "opacity",
+    "dimmable",
+    "windowed",
+    "interactive",
+}

@@ -42,6 +42,7 @@ _needs_node = pytest.mark.skipif(_NODE is None, reason="Node is not installed he
 #: Every widget whose browser code is generated. Named individually so a
 #: failure says which panel of the interface is broken.
 _WIDGETS = {
+    "canvas": wreact.CanvasReact,
     "overview map": wreact.OverviewViewerReact,
     "focus picker": wreact.FocusPickerReact,
     "cell explorer": wreact.TargetExplorerReact,
