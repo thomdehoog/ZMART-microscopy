@@ -73,7 +73,8 @@ from contrast import (
     measure,
 )
 from library import Library
-from live_config import LiveRegistry, capture_live_state, live_rows
+from live_config import (LIVE_PICTURE, LiveRegistry, capture_live_state,
+                         live_rows, the_live_picture_declared)
 from stores import (
     is_store,
     DESCRIPTION_FILES,
@@ -90,7 +91,7 @@ from stores import (
     zarr_scheme,
 )
 
-from zmart_live.gateway import answer_from_a_live_run
+from zmart_live.gateway import answer_from_a_live_run, live_run_holding
 
 # Where the two kinds of content live on disk. Both are resolved to absolute
 # paths so the server behaves the same regardless of the working directory it
@@ -189,6 +190,36 @@ def group_labels(datasets) -> dict[int, str]:
 # viewer asks for several quite different things down one address — the page, the
 # image, and a handful of short questions in JSON — and its own sections say which
 # is which.
+
+
+def the_store_a_live_run_is_opened_by(target: Path) -> list[str] | None:
+    """The one store inside a live run's folder that the viewer should open.
+
+    A live run's folder is not an ordinary folder of images. Beside the raw
+    positions the microscope wrote, it holds the picture those positions are
+    laid out into -- the whole specimen as one image, at
+    ``views/live/picture.ome.zarr`` -- and that picture is what the operator
+    watches assemble. So when the run's folder is opened, that picture is
+    what gets named.
+
+    Naming it also settles a question of timing. The run's other view, the
+    map of pointers an outside tool can read, is written when the run
+    finishes, because keeping it current after every position costs most of
+    the time a large acquisition spends publishing. Opening the picture
+    instead means a run still being imaged opens exactly as a finished one
+    does, and nothing reaches for a file the microscope has not written yet.
+
+    The picture is declared here if this run has not been watched before;
+    that takes a moment on a large run, and it has to happen before the
+    library reads the store.
+
+    ``None`` means the target is not a live run's folder, and the caller
+    carries on opening it in the ordinary way.
+    """
+    if live_run_holding(target) != Path(target).resolve():
+        return None
+    the_live_picture_declared(Path(target))
+    return [LIVE_PICTURE]
 
 
 class _StoppedByTheOperator(Exception):
@@ -1502,7 +1533,8 @@ class _Handler(SimpleHTTPRequestHandler):
             # an ordinary folder, and a timelapse replay would offer its
             # whole declared time room before any of it had landed.
             self._library.open(
-                str(run_folder), names=["views/live/live.ome.zarr"],
+                str(run_folder),
+                names=the_store_a_live_run_is_opened_by(run_folder),
                 name=f"{data_path.name} replay")
         except (FileNotFoundError, ValueError, OSError) as exc:
             self._send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
@@ -1687,9 +1719,7 @@ class _Handler(SimpleHTTPRequestHandler):
         # Handed to the library bare it answered "no OME-Zarr image was
         # found", which cost every finished replay its promised reopening
         # (found on the workstation, 2026-08-19).
-        served_view = None
-        if (target / "views" / "live" / "live.ome.zarr").is_dir():
-            served_view = ["views/live/live.ome.zarr"]
+        served_view = the_store_a_live_run_is_opened_by(target)
         try:
             if served_view is not None:
                 self._library.open(str(target), names=served_view)

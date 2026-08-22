@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from contrast import intensity_histogram
-from stores import channels, zarr_scheme
+from stores import described_channels, zarr_scheme
 
 # ``zmart_live`` is a package of the checkout rather than of this folder, so it
 # is reachable only when the checkout's own root is on the path. Put there here
@@ -37,6 +37,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 from zmart_live.gateway import live_run_holding  # noqa: E402
 from zmart_live.live_state import LiveStateSnapshot, LiveStateTracker
 from zmart_live.model import ZmartLiveError
+from zmart_live.omezarr import the_channels_described
 
 # The governed-picture declaration comes from the building folder, which sits
 # beside the backend rather than among its modules -- the same arrangement, and
@@ -379,8 +380,30 @@ def live_state_document(
     }
 
 
-def _display_for(store: Path, channel_index: int, chosen_window) -> dict:
-    described = channels(store)
+def the_runs_channels(run_root: Path) -> list[dict]:
+    """What this run says about its colours: their names, tints and windows.
+
+    A run settles all of that when its profile is sealed, before the first
+    position is imaged, and writes the same description into every position
+    it saves. The panel reads it from the profile rather than from a store,
+    for two reasons. It is there from the run's first moment, before any
+    picture exists to read. And the picture built over a run of one colour
+    carries no colour axis at all -- there being nothing to tell apart -- so
+    a reader that went looking for the description there found nothing, and
+    the run's one channel arrived on screen with no tint and no brightness
+    window, which is to say invisible (measured 2026-08-22).
+    """
+    from zmart_live.gateway import _LiveRun
+
+    profile = _LiveRun(run_root)._geometry()[1]
+    return described_channels(
+        the_channels_described(profile.channels, profile.dtype),
+        len(profile.channels),
+    )
+
+
+def _display_for(described: list[dict], store: Path, channel_index: int,
+                 chosen_window) -> dict:
     channel = described[channel_index] if channel_index < len(described) else {}
     window = (
         {"low": float(chosen_window[0]), "high": float(chosen_window[1])}
@@ -423,10 +446,9 @@ def live_rows(
     """Rows for one compiled scene, bounded by views and channels.
 
     The row's addresses name the governed picture (see
-    :func:`_the_url_served_for`); its display -- colour and window -- is still
-    read from the store the scene compiled, because that is where the run's
-    writer records what the operator asked for, and the declared picture does
-    not carry it.
+    :func:`_the_url_served_for`). Its colours and brightness window come from
+    the run's own sealed description (see :func:`the_runs_channels`), and the
+    histogram beside them is measured from the picture actually served.
     """
     snapshot = snapshot or binding.tracker.snapshot()
     scene = snapshot.scene
@@ -436,13 +458,15 @@ def live_rows(
         source.source_id: source for source in snapshot.state.sources
     }
     compiled_sources = {source.source_id: source for source in scene.sources}
+    described = the_runs_channels(binding.run_root)
     rows = []
     for layer in scene.layers:
         source_states = [frontend_sources[source_id] for source_id in layer.source_ids]
         sources = [compiled_sources[source_id] for source_id in layer.source_ids]
         urls = [binding.source_url(_the_url_served_for(source)) for source in sources]
-        first_store = binding._source_store(sources[0].url)
-        display = _display_for(first_store, layer.channel_index, chosen_window)
+        first_store = binding._source_store(_the_url_served_for(sources[0]))
+        display = _display_for(described, first_store, layer.channel_index,
+                               chosen_window)
         available = [
             {"start": start, "stop": stop}
             for start, stop in source_states[0].committed_time_ranges

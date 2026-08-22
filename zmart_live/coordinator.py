@@ -207,6 +207,24 @@ class LivePublisher:
     #: live picture is served from the positions' own stores either way, so
     #: deferring changes what outside tools see during a run — never what the
     #: operator sees on screen.
+    #:
+    #: Deferring is what a large survey wants. Keeping the map true after every
+    #: commit costs a pass over the WHOLE survey, and at 12,769 positions that
+    #: measured about 13 seconds of a 16-second publish, while a publish that
+    #: writes only its own position stays flat however long the run gets. The
+    #: operator asked for it (2026-08-21), on the grounds that nothing in their
+    #: lab opens a run's files while the microscope is still going.
+    #:
+    #: It is nevertheless NOT the default yet, and the reason is on the record.
+    #: Made the default on 2026-08-22, a replay driven through the viewer's own
+    #: server stopped after its first position every time, the second position
+    #: complaining that its zoomed-out copies had not been written. The same
+    #: replay driven straight through this class published all four positions
+    #: happily, so the fault lies in how the two meet and is not yet
+    #: understood. A default that breaks a road we drive every day is not worth
+    #: the seconds it saves, so this stays as it was until that is explained.
+    #: Ask for ``"at_run_end"`` where the saving matters and nothing outside is
+    #: reading along.
     linked_view: str = "per_publish"
     manifest: RunManifest = field(init=False)
     layout: SceneLayoutRevision = field(init=False)
