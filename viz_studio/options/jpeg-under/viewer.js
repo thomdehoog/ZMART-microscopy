@@ -1,113 +1,88 @@
 /**
- * The scan drawn from small JPEGs, one per field, with the operator's drawing
- * above and below it.
+ * A scan of ten thousand fields, drawn from one small JPEG per field.
  *
- * The other engines read the microscope's own files and do the hard work in
- * the browser. This one does not: the fields have already been turned into
- * small JPEGs by `viz_studio/backend/jpeg_tiles.py`, and all this has to do is
- * put them in the right places. That is the whole idea. A scan of ten thousand
- * fields is tens of gigabytes of TIFF and a few tens of megabytes of JPEG, and
- * the difference between those two numbers is the difference between a picture
- * that opens and one that does not.
+ * The other engines here read the microscope's own files and do the hard work
+ * in the browser. This one does almost nothing: the fields have already been
+ * turned into small JPEGs by `viz_studio/backend/jpeg_tiles.py`, and all this
+ * has to do is put each one in its place. That is the whole idea. A scan of
+ * ten thousand fields is tens of gigabytes of TIFF and about a hundred
+ * megabytes of JPEG, and the difference between those two numbers is the
+ * difference between a picture that opens and one that does not.
  *
- * It is deliberately the plainest engine here. No WebGL, no image pyramid, no
- * chunk fetching — a canvas, some pictures, and a rectangle each. What makes it
- * work at ten thousand is not cleverness but leaving things out: only the
- * fields actually on screen are ever drawn, and only those are ever decoded.
+ * ## What makes ten thousand workable
+ *
+ * Three rules, and nothing else:
+ *
+ * 1. Only the fields actually on screen are drawn. The cost of a frame follows
+ *    what is visible, not what exists.
+ * 2. A field too small on screen to show anything is drawn as the one colour
+ *    its note carries, and its picture is never fetched. Zoomed out to a whole
+ *    scan that is every field at once, which is why a scan of ten thousand
+ *    opens with no pictures fetched at all.
+ * 3. Only so many pictures are kept decoded, because a decoded picture costs
+ *    far more memory than the JPEG it came from.
  *
  * ## Where the pictures come from, and what they are not
  *
- * A folder of small JPEGs and a `tiles.json` beside them saying where each
- * belongs, in micrometres. Nothing here opens a TIFF, and nothing here works
- * out where a field is: a TIFF does not say where it was taken, so that
+ * A folder of small JPEGs with a `tiles.json` beside them saying where each
+ * one belongs, in micrometres. Nothing here opens a TIFF, and nothing here
+ * works out where a field is: a TIFF does not say where it was taken, so that
  * question was settled when the pictures were made, by the run that knew.
  *
- * These are display copies. They are lossy, they are stretched for legibility,
- * and nothing should ever be measured from them.
+ * These are display copies. They are lossy, they are brightened for
+ * legibility, and nothing should ever be measured from them.
  *
  * ## The picture is underneath
  *
- * This engine keeps three drawing surfaces stacked in the box it was given:
- * the operator's drawing, then the scan, then the operator's drawing again. So
- * `drawUnder` really is under the picture here, which is not true of every
- * engine, and `drawsUnder` says so honestly.
- *
- * That is also why swapping this for neuroglancer later is a change of engine
- * and nothing else. Both put the scan at the bottom and take the same two
- * drawings around it; the page hands over the same run, the same view and the
- * same two paint functions either way.
+ * Three drawing surfaces are stacked in the box: the operator's drawing, then
+ * the scan, then the operator's drawing again. So `drawUnder` really is under
+ * the picture here, which is not true of every engine, and `drawsUnder` says
+ * so honestly. That is also what makes swapping this for neuroglancer later a
+ * change of engine and nothing else — both put the scan at the bottom and take
+ * the same two drawings around it.
  *
  * ## Fields arriving while somebody is watching
  *
- * A scan is drawn while it is still being taken, so `tiles.json` grows. The
- * page says `tilesMayHaveLanded()` when it thinks something new has been
- * written and this reads the note again. It is asked rather than told for the
- * reason the whole project keeps meeting: nothing on disk announces itself,
- * and a picture that waits to be notified waits for ever.
+ * A scan is looked at while it is still being taken, so `tiles.json` grows.
+ * The page says `tilesMayHaveLanded()` when it thinks something new has been
+ * written, and this reads the note again. It is asked rather than told for the
+ * reason this project keeps meeting: nothing on disk announces itself, and a
+ * picture that waits to be notified waits for ever.
  */
 
 import { onlyPanAndZoom } from "../gestures.js";
 
 /**
- * How many decoded pictures to keep, and so how many to ask for.
+ * How many decoded pictures to keep at once.
  *
- * A decoded picture costs far more memory than the JPEG it came from, so they
- * cannot all be kept — that would give back exactly the problem this engine
- * exists to avoid. Only what is on screen is decoded, and this many are kept
- * afterwards so that panning back and forth does not decode the same field
- * over and over.
- *
- * The same number bounds how many are asked for, which matters more than it
- * looks. Ask for more pictures than can be kept and every frame throws away
- * pictures the next frame immediately asks for again: the scan flickers, the
- * network never settles, and it gets worse the further out you zoom. So when
- * more fields are on screen than can be held, the ones nearest the middle of
- * the view get their real picture and the rest stay at the one colour their
- * note gives for them. What you are looking at is sharp, the edges are honest,
- * and nothing is fetched twice.
+ * A field kept at 128 pixels is four kilobytes as a JPEG and sixty-four
+ * decoded, so they cannot all be held. A thousand is a few tens of megabytes,
+ * which measured out as the point where panning still runs at a full sixty
+ * frames a second.
  */
-const HOW_MANY_TO_KEEP_DECODED = 400;
+const HOW_MANY_TO_KEEP_DECODED = 1000;
 
 /**
- * How small a field has to get before its picture stops being worth fetching.
+ * How large a field has to be drawn before its real picture is worth fetching.
  *
- * Zoomed out to a whole scan, every field is on screen at once — culling saves
- * nothing, because nothing is off screen. Ten thousand fields drawn seven
- * pixels wide would mean ten thousand pictures fetched and decoded to paint
- * almost nothing, which is precisely the grinding open this engine exists to
- * avoid.
+ * Worked out from the size of the window rather than fixed, so that no more
+ * fields can qualify at once than can be kept decoded. That is the whole
+ * reason it is a calculation and not a number: with a fixed one, zooming to
+ * where a thousand fields all deserved a picture would give pictures to
+ * whichever ones were asked for first and flat colours to the rest, drawing
+ * the memory limit onto the screen as a patch of sharpness. Deciding by size
+ * means the scan looks the same everywhere at every zoom.
  *
- * So below this many pixels a field is painted as the one colour its note
- * gives for it, and no picture is fetched at all. Zoom in until a field is
- * worth looking at and the real one arrives. The number is small on purpose:
- * at twelve pixels a field there is nothing in a picture that its average does
- * not already tell you.
+ * The two thirds is room for the ring of half-visible fields around the edge
+ * of the screen, which need a picture each just like the whole ones do.
  */
-const TOO_SMALL_TO_BOTHER = 12;
-
-/**
- * How many pictures may be sent for in one frame.
- *
- * Between "too small to be worth a picture" and "a screenful of them" lies a
- * band where hundreds of fields are each large enough to deserve their real
- * picture. Asking for all of them at once leaves the canvas blank while they
- * arrive, which is the failure this project keeps meeting: a picture that is
- * still loading looks exactly like one that is broken.
- *
- * So the summary colour is drawn for every field first — the scan is complete
- * and readable from the very first frame — and the real pictures are asked for
- * a few at a time, nearest the middle of the view first, filling in over the
- * next second or so. Nothing is ever blank, and nothing is ever waited for.
- */
-const HOW_MANY_TO_SEND_FOR_AT_ONCE = 24;
+function bigEnoughForItsPicture(width, height) {
+  return Math.sqrt((width * height) / (HOW_MANY_TO_KEEP_DECODED * (2 / 3)));
+}
 
 /** Open the viewer inside `element`. See `viz_studio/options/contract.md`. */
 export async function openViewer(element, options = {}) {
-  const {
-    acquisitions = [],
-    background = "#05070d",
-    onViewChanged = null,
-  } = options;
+  const { acquisitions = [], background = "#05070d", onViewChanged = null } = options;
 
   const own = {
     element,
@@ -115,9 +90,8 @@ export async function openViewer(element, options = {}) {
     onViewChanged,
     destroyed: false,
     tiles: [],
-    sources: [],
-    decoded: new Map(),      // src -> ImageBitmap or the promise for one
-    order: [],               // which was decoded least recently
+    sources: acquisitions.map((a) => a.url).filter(Boolean),
+    decoded: new Map(),   // src -> picture, or the promise for one; oldest first
     showing: true,
     paintUnder: null,
     paintOver: null,
@@ -128,7 +102,6 @@ export async function openViewer(element, options = {}) {
   };
 
   buildTheThreeSurfaces(own);
-  own.sources = acquisitions.map((a) => a.url).filter(Boolean);
   await readTheNotes(own);
   fitToWhatThereIs(own);
 
@@ -156,21 +129,17 @@ export async function openViewer(element, options = {}) {
     theDepthItCanShow() { return null; },
     setPlane() {},
     setMoment() {},
-
-    showPicture(on) {
-      own.showing = !!on;
-      askForAFrame(own);
-    },
+    setChannel() {},
 
     canShowVolume: false,
     canShowVolumeBecause:
       "the pictures are one flat JPEG per field, already flattened over every " +
       "colour and depth, so there is no stack left to draw as a volume.",
 
-    /* The colours were decided when the pictures were made, and a JPEG has no
-       channels left to set. A page asking for one is told, rather than being
-       silently ignored. */
-    setChannel() {},
+    showPicture(on) {
+      own.showing = !!on;
+      askForAFrame(own);
+    },
 
     handDragsTo(handler) {
       own.gestures?.handDragsTo?.(handler);
@@ -196,6 +165,11 @@ export async function openViewer(element, options = {}) {
       return whereThingsAre(own);
     },
 
+    /* How many pictures may be held decoded at once. Said out loud because it
+       is what decides how far out a field still gets its real picture, so a
+       test that checks the scan looks even should not have to guess it. */
+    howManyPicturesAreKept() { return HOW_MANY_TO_KEEP_DECODED; },
+
     async tilesMayHaveLanded() {
       if (own.destroyed) return;
       await readTheNotes(own);
@@ -220,20 +194,13 @@ export async function openViewer(element, options = {}) {
 function buildTheThreeSurfaces(own) {
   const box = document.createElement("div");
   Object.assign(box.style, {
-    position: "absolute",
-    inset: "0",
-    background: own.background,
-    overflow: "hidden",
+    position: "absolute", inset: "0", background: own.background, overflow: "hidden",
   });
 
   const make = () => {
     const canvas = document.createElement("canvas");
     Object.assign(canvas.style, {
-      position: "absolute",
-      inset: "0",
-      width: "100%",
-      height: "100%",
-      display: "block",
+      position: "absolute", inset: "0", width: "100%", height: "100%", display: "block",
     });
     box.append(canvas);
     return canvas;
@@ -260,10 +227,9 @@ function fitTheSurfaces(own) {
 /**
  * Read every acquisition's note of where its pictures belong.
  *
- * Called again whenever the page thinks fields may have landed, so a scan
- * being watched grows. A note that cannot be read is skipped rather than
- * thrown: during a run the file is being written, and half a file read at the
- * wrong moment is an ordinary event, not a failure.
+ * A note that cannot be read is passed over rather than thrown. During a run
+ * the file is being written, and catching it half-written is an ordinary
+ * event, not a failure.
  */
 async function readTheNotes(own) {
   const tiles = [];
@@ -349,22 +315,23 @@ function askForAFrame(own) {
 }
 
 /**
- * Decode one picture, keeping only so many decoded at a time.
+ * The picture for one field, fetching it the first time it is wanted.
  *
- * A decoded picture is far larger than its JPEG, so keeping all of them would
- * hand back the very problem this engine exists to avoid. The least recently
- * wanted are let go once there are too many.
+ * Returns the decoded picture once it is ready, and before that the promise
+ * for it, which the drawing simply skips. Nothing is ever waited for: the
+ * field is drawn as its one colour meanwhile, and the frame that follows the
+ * picture's arrival draws it properly.
+ *
+ * Asking for a picture also moves it to the back of the queue of what to let
+ * go. A Map hands its keys back in the order they went in, so taking one out
+ * and putting it straight back is enough to say "still wanted" — no second
+ * list to keep in step, and it costs the same however many are being kept.
  */
-function keepingIt(own, src) {
-  const at = own.order.indexOf(src);
-  if (at >= 0) own.order.splice(at, 1);
-  own.order.push(src);
-}
-
 function pictureFor(own, src) {
   const already = own.decoded.get(src);
   if (already) {
-    keepingIt(own, src);
+    own.decoded.delete(src);
+    own.decoded.set(src, already);
     return already;
   }
 
@@ -383,11 +350,9 @@ function pictureFor(own, src) {
     .catch(() => null);
 
   own.decoded.set(src, coming);
-  own.order.push(src);
-  while (own.order.length > HOW_MANY_TO_KEEP_DECODED) {
-    const oldest = own.order.shift();
-    const picture = own.decoded.get(oldest);
-    if (picture && typeof picture.close === "function") picture.close();
+  while (own.decoded.size > HOW_MANY_TO_KEEP_DECODED) {
+    const oldest = own.decoded.keys().next().value;
+    own.decoded.get(oldest)?.close?.();
     own.decoded.delete(oldest);
   }
   return coming;
@@ -396,16 +361,16 @@ function pictureFor(own, src) {
 /**
  * Draw the three surfaces.
  *
- * **Only the fields on screen are drawn, and only those are decoded.** That
- * one sentence is what makes ten thousand of them workable: the cost of a
- * frame follows what is visible, not what exists, so a scan of ten thousand
- * costs the same to look at as a scan of fifty once you are close enough to
- * see either.
+ * Every field on screen is drawn exactly once: as its real picture if there is
+ * one and it is large enough to be worth having, and as the one colour its
+ * note carries otherwise. So the scan is complete from the very first frame
+ * and only sharpens — which matters because a picture that is still loading
+ * looks exactly like one that is broken.
  */
 function drawEverything(own) {
   fitTheSurfaces(own);
   const where = whereThingsAre(own);
-  const { density } = own.size;
+  const { width, height, density } = own.size;
 
   const clear = (canvas) => {
     const ctx = canvas.getContext("2d");
@@ -420,58 +385,28 @@ function drawEverything(own) {
 
   const picture = clear(own.surfaces.picture);
   if (own.showing) {
-    const { width, height } = own.size;
-    // Everything on screen, and how far each is from the middle of it. What is
-    // being looked at deserves its real picture before what is at the edge.
-    const onScreen = [];
+    const worthIt = bigEnoughForItsPicture(width, height);
     for (const tile of own.tiles) {
       const [left, top] = where.project(tile.x0, tile.y0);
       const across = tile.w / where.zoom;
       const down = tile.h / where.zoom;
       if (left + across < 0 || top + down < 0 || left > width || top > height) continue;
-      onScreen.push({
-        tile, left, top, across, down,
-        fromMiddle: Math.hypot(left + across / 2 - width / 2, top + down / 2 - height / 2),
-      });
-    }
 
-    // Every field gets its summary colour first, so the scan is complete and
-    // readable from the very first frame rather than filling in from blank.
-    for (const { tile, left, top, across, down } of onScreen) {
-      const grey = Number.isFinite(tile.grey) ? tile.grey : 40;
-      picture.fillStyle = `rgb(${grey},${grey},${grey})`;
-      picture.fillRect(left, top, Math.max(1, across), Math.max(1, down));
-    }
-
-    // Then the real pictures, over the top, nearest the middle of the view
-    // first — and only as many as can be kept, so nothing is fetched twice.
-    onScreen.sort((a, b) => a.fromMiddle - b.fromMiddle);
-    let sentFor = 0;
-    let given = 0;
-    for (const { tile, left, top, across, down } of onScreen) {
-      if (Math.max(across, down) < TOO_SMALL_TO_BOTHER) continue;
-      if (given >= HOW_MANY_TO_KEEP_DECODED) break;
-      given += 1;
-      const ready = own.decoded.get(tile.src);
-      let drawable = ready;
-      if (ready) {
-        keepingIt(own, tile.src);
-      } else {
-        if (sentFor >= HOW_MANY_TO_SEND_FOR_AT_ONCE) continue;
-        sentFor += 1;
-        drawable = pictureFor(own, tile.src);
-      }
-      if (drawable && typeof drawable.width === "number") {
+      const ready = Math.max(across, down) >= worthIt ? pictureFor(own, tile.src) : null;
+      if (ready && typeof ready.width === "number") {
         // Smoothing on while a picture is being made smaller, off once it is
         // being made much larger. Shrinking without it means the browser picks
         // out single pixels rather than averaging them, and on a picture of
-        // sparse bright specks on dark ground that mostly picks the ground:
-        // the field comes out darker than the one colour its note gives for
-        // it, so the scan visibly changes as pictures arrive, and shimmers
-        // while somebody pans. Magnifying with it on is the opposite mistake —
-        // a blur that looks like detail the microscope never took.
-        picture.imageSmoothingEnabled = across < 2 * drawable.width;
-        picture.drawImage(drawable, left, top, across, down);
+        // sparse bright specks that mostly picks the dark ground between them:
+        // the field comes out darker than the colour standing for it, and
+        // shimmers while somebody pans. Magnifying with it on is the opposite
+        // mistake — a blur that looks like detail nobody took.
+        picture.imageSmoothingEnabled = across < 2 * ready.width;
+        picture.drawImage(ready, left, top, across, down);
+      } else {
+        const grey = Number.isFinite(tile.grey) ? tile.grey : 40;
+        picture.fillStyle = `rgb(${grey},${grey},${grey})`;
+        picture.fillRect(left, top, Math.max(1, across), Math.max(1, down));
       }
     }
   }
