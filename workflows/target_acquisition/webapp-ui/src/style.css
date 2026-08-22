@@ -1269,11 +1269,13 @@ canvas.livecv[hidden] { display: none; }
 #stage-layers { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 
 
-/* The bar under the canvas, taken off the screen while a better home for what
-   was in it is decided. `display` is set on it elsewhere, and a rule that sets
-   display always beats the `hidden` attribute — which is exactly the kind of
-   quiet nothing-happened that costs an afternoon. */
-.canvas-foot[hidden] { display: none; }
+/* The strip of controls under the canvas, taken off the screen while a better
+   home for what was in it is decided. `display` is set on it elsewhere, and a
+   rule that sets display always beats the `hidden` attribute — which is exactly
+   the kind of quiet nothing-happened that costs an afternoon.
+
+   The foot *around* it stays: each step's own Run button is in there too. */
+.canvas-foot > .toolbar[hidden] { display: none; }
 
 /* Fit, in the corner of the canvas. The strip under the canvas is gone and this
    is the one control from it that belongs with the picture rather than beside
