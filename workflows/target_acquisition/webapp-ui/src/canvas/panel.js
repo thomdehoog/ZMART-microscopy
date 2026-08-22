@@ -74,6 +74,7 @@
 
 import { theGroundBeneath, theOperatorsMarks } from "./demonstration-drawings.js";
 import { describeEngine, enginesOnOffer, openerFor, whyOneIsMissing } from "./engines.js";
+import { theDrawingAbove, whoIsAt } from "./layers-above.js";
 // What a strict reader will refuse in a store's own description, so bad news
 // can name a cause instead of reporting a silence. See that file for why the
 // engine cannot be asked directly.
@@ -141,8 +142,16 @@ const HOW_LONG_TO_WAIT_FOR_AN_ENGINE = 25_000;
  */
 const paintNothingAtAll = () => {};
 
-/** The three layers, bottom to top, as the buttons name them on screen. */
-const THE_LAYERS = [
+/**
+ * The two fixed slots, which every canvas has whatever workflow it is in.
+ *
+ * Everything above the picture is a stack instead, and the stack is not fixed:
+ * a workflow adds to it as it goes — the carrier, the positions, the focus
+ * points, the targets once they have been found, the refined targets after
+ * that — and each one gets a button of its own here. See {@link THE_STACK_ABOVE}
+ * for what a layer in that stack is.
+ */
+const THE_FIXED_SLOTS = [
   {
     key: "beneath",
     label: "Beneath",
@@ -159,13 +168,44 @@ const THE_LAYERS = [
       "with no acquisition at all, which is what an operator sees before a run has " +
       "started.",
   },
-  {
-    key: "above",
-    label: "Above",
-    explains: "The operator's own drawing, above the picture. This is where anything that " +
-      "has to stay visible over the acquisition belongs.",
-  },
 ];
+
+/**
+ * What a layer above the picture is, and what a workflow may say about one.
+ *
+ * ```js
+ * { key, label, explains, paint, reaches, shown, opacity, staysSolid }
+ * ```
+ *
+ * - `key` — its name in the buttons and in what a test reads back.
+ * - `label` — the word on its button.
+ * - `explains` — one sentence, shown when the pointer rests on the button.
+ * - `paint(frame)` — how it draws, exactly as any canvas drawing does: in
+ *   micrometres on the sample, so it pans and magnifies with the picture.
+ * - `reaches(at)` — what of it is at a place on the sample, or nothing. This is
+ *   what makes a layer something an operator can work with rather than look at:
+ *   clicking a position opens the field it stands for, clicking a target picks
+ *   it. Optional; a layer that is only there to be seen leaves it out.
+ * - `shown`, `opacity`, `staysSolid` — see `layers-above.js`.
+ *
+ * The canvas is never told which step of a workflow it is in. It is told what
+ * to draw, and the step decides that. That is what keeps this movable from one
+ * workflow into the next, and it is why this list is handed in rather than
+ * written here.
+ */
+
+/**
+ * The one layer the demonstration puts above the picture when nobody says
+ * otherwise, so that the canvas has something to show on a page that is only
+ * looking at it.
+ */
+const THE_DEMONSTRATION_LAYER = {
+  key: "above",
+  label: "Above",
+  explains: "The operator's own drawing, above the picture. This is where anything that " +
+    "has to stay visible over the acquisition belongs.",
+  paint: theOperatorsMarks,
+};
 
 /**
  * Wait for a promise, but not for ever.
@@ -273,6 +313,15 @@ async function beforeWeGiveUp(promise, sayWhat) {
 export function putTheCanvasIn({
   box, note, chooser, layers, why, readout, name, acquisitions, engine,
   depth, plane, planeReadout, volume,
+  /* What the workflow wants drawn above the picture, bottom of the stack
+     first. Left empty by a page that is only looking at the canvas, which then
+     gets the demonstration's one layer so that there is something to see. */
+  layersAbove = [],
+  /* Told what an operator clicked, when a layer claims the click:
+     `({ layer, what, at }) => …`. This is how clicking a position opens the
+     field it stands for. The canvas does not act on the click itself — what a
+     click means belongs to the workflow. */
+  onTouched = null,
 }) {
   /* What can be drawn with here, which is not always everything this page was
      built with — `engines.js` explains why. Asking for one that is not on offer
@@ -313,7 +362,30 @@ export function putTheCanvasIn({
      down, clear it every frame or carry it to the graphics card. It is also the
      state to open on, because the first thing worth seeing is the acquisition on
      its own. */
-  const showing = { beneath: false, picture: true, above: false };
+  const showing = { beneath: false, picture: true };
+
+  /* The layers above the picture, in drawing order. Each carries its own
+     `shown`, so turning the heatmap off leaves the focus points exactly where
+     they were — which is the whole reason they are separate layers rather than
+     one drawing.
+
+     Copied rather than used in place, because the canvas writes `shown` on them
+     and a workflow's own list should not change under it. */
+  let stackAbove = (layersAbove.length ? layersAbove : [THE_DEMONSTRATION_LAYER])
+    .map((layer) => ({ shown: false, ...layer }));
+
+  /* How much of the whole stack above to keep, 0 to 1. One control for all of
+     them, because "let me see the picture" is one thought and should be one
+     movement. It only ever fades: a layer already set faint does not become
+     solid when this is turned up. */
+  let dial = 1;
+
+  /* Ground where the drawing above is made see-through, in micrometres. This is
+     how "let me see these particular fields" is said, and it is what the fields
+     landing during a run use: as each one arrives, the plan over it is opened
+     up so the picture that just appeared can be seen. */
+  let seeThrough = [];
+
   const buttons = new Map();
 
   const say = (text) => {
@@ -382,11 +454,15 @@ export function putTheCanvasIn({
 
     if (!viewer) {
       why.textContent = opening ? "waiting for the picture…" : "";
+    } else if (locked) {
+      why.textContent =
+        "The layers are locked, so nothing can be picked or moved. Panning and " +
+        "zooming still work.";
     } else if (warning) {
       why.textContent = showing.beneath
         ? `Beneath is being drawn and you will not see it. ${viewer.drawsUnderBecause}`
         : `This engine cannot show anything beneath the picture. ${viewer.drawsUnderBecause}`;
-    } else if (!showing.picture && !showing.beneath && !showing.above) {
+    } else if (!showing.picture && !showing.beneath && !stackAbove.some((l) => l.shown)) {
       why.textContent =
         "Nothing is being drawn at all, which is why the box is empty. Turn a layer back on.";
     } else if (!showing.picture) {
@@ -422,7 +498,7 @@ export function putTheCanvasIn({
        the only way out was to reload the page. An engine that cannot do one
        thing should cost you that one thing, not the panel. */
     for (const [key, button] of buttons) {
-      button.setAttribute("aria-pressed", String(showing[key]));
+      button.setAttribute("aria-pressed", String(isShowing(key)));
       /* The picture cannot be turned on when this page was never pointed at a
          run: there would be nothing to turn on, and a button that does nothing
          is a worse answer than a button that is plainly unavailable. */
@@ -443,7 +519,75 @@ export function putTheCanvasIn({
     if (!picture) return;
     const nothingToDraw = openedJustNow ? null : paintNothingAtAll;
     picture.drawUnder(showing.beneath ? theGroundBeneath : nothingToDraw);
-    picture.drawOver(showing.above ? theOperatorsMarks : nothingToDraw);
+    /* The whole stack above the picture arrives as one drawing, because that is
+       what the interface takes: one function per slot. Which layers are in it,
+       how faint each is and where it has been opened up are all settled here
+       and the engine never learns about any of it — which is what makes all of
+       this cost nothing per engine and behave the same whichever one is
+       drawing. */
+    picture.drawOver(theDrawingAbove(stackAbove, { dial, seeThrough }) ?? nothingToDraw);
+  }
+
+  /**
+   * Turn a press that did not travel into a touch on whichever layer it reached.
+   *
+   * A press that *did* travel was a pan, and must not also count as a click —
+   * an operator who drags the picture across the screen and lands on a position
+   * has not chosen that position. So the distance is measured and anything
+   * beyond a few pixels is left alone. A few rather than none because a hand on
+   * a trackpad is never quite still, and demanding stillness would make the
+   * layers feel unreliable to click.
+   *
+   * The place is turned into micrometres on the sample before any layer is
+   * asked, so every layer answers about the same piece of specimen however the
+   * view happens to be sitting.
+   */
+  const A_PRESS_THAT_DID_NOT_TRAVEL = 4;   // browser pixels
+  let pressedAt = null;
+
+  /**
+   * Whether the layers may be touched at all.
+   *
+   * Locked, the canvas is something to look at: it still pans and zooms, and
+   * every button still works, but a click reaches nothing and nothing can be
+   * picked, moved or drawn by accident.
+   *
+   * This is worth having for a plain reason. An operator spends a long time
+   * looking at a plan they have already settled — checking it, showing it to
+   * somebody, panning around it while the run goes — and in all that time a
+   * stray click can only do harm. Locking says "I am reading, not editing", and
+   * it is the same idea as the lock on any drawing tool: not a restriction, a
+   * way of putting the tools down without putting the picture away.
+   *
+   * It starts unlocked, because a canvas that quietly ignores clicks is a
+   * canvas an operator will decide is broken.
+   */
+  let locked = false;
+
+  box.addEventListener("pointerdown", (event) => {
+    pressedAt = { x: event.clientX, y: event.clientY };
+  });
+
+  box.addEventListener("click", (event) => {
+    const from = pressedAt;
+    pressedAt = null;
+    if (locked || !from || !viewer || !onTouched) return;
+    if (Math.hypot(event.clientX - from.x, event.clientY - from.y) > A_PRESS_THAT_DID_NOT_TRAVEL) {
+      return;
+    }
+    const where = viewer.whereThingsAreDrawn?.();
+    if (!where?.unproject) return;
+    const bounds = box.getBoundingClientRect();
+    const at = where.unproject(event.clientX - bounds.left, event.clientY - bounds.top);
+    const found = whoIsAt(stackAbove, at);
+    if (found) onTouched({ ...found, at });
+  });
+
+  /** Redraw the stack above after something about it has changed. */
+  function theStackAboveChanged() {
+    handTheSlotsTheirDrawings();
+    markTheButtons();
+    sayWhatTheLayersAreDoing();
   }
 
   /** Open the chosen engine on the run, and put the view where it was. */
@@ -707,12 +851,38 @@ export function putTheCanvasIn({
    * opening — 26.7 seconds a press, both presses, with the picture never going
    * off. What looked like a slow button was a button that did nothing.
    */
+  /** Whether the named layer is being drawn, whichever kind of layer it is. */
+  function isShowing(key) {
+    if (key in showing) return showing[key];
+    return stackAbove.find((layer) => layer.key === key)?.shown ?? false;
+  }
+
   async function showTheLayer(key, on) {
-    if (destroyed || opening || !viewer || showing[key] === on) return;
-    showing[key] = on;
-    if (key === "picture") viewer.showPicture(on);
-    else handTheSlotsTheirDrawings();
+    if (destroyed || opening || !viewer || isShowing(key) === on) return;
+    if (key in showing) {
+      showing[key] = on;
+      if (key === "picture") viewer.showPicture(on);
+      else handTheSlotsTheirDrawings();
+    } else {
+      const layer = stackAbove.find((one) => one.key === key);
+      if (!layer) return;
+      layer.shown = on;
+      handTheSlotsTheirDrawings();
+    }
     markTheButtons();
+    sayWhatTheLayersAreDoing();
+  }
+
+  /**
+   * How solid the whole stack above the picture is drawn, 0 to 1.
+   *
+   * Kept even while there is no picture, so that reopening on another engine
+   * comes back the way the operator left it rather than the way it happens to
+   * start.
+   */
+  function fadeTo(howSolid) {
+    dial = Math.min(1, Math.max(0, Number(howSolid)));
+    handTheSlotsTheirDrawings();
     sayWhatTheLayersAreDoing();
   }
 
@@ -727,18 +897,100 @@ export function putTheCanvasIn({
     chooser.append(button);
   }
 
-  for (const layer of THE_LAYERS) {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.disabled = true;      // until there is a picture to change
-    button.setAttribute("aria-pressed", String(showing[layer.key]));
-    button.dataset.layer = layer.key;
-    button.title = layer.explains;
-    button.textContent = layer.label;
-    button.addEventListener("click", () => showTheLayer(layer.key, !showing[layer.key]));
-    buttons.set(layer.key, button);
-    layers.append(button);
+  /**
+   * Put a button on screen for every layer there is, and a dial beside them.
+   *
+   * Built again from scratch whenever the stack changes, because the stack
+   * grows while an operator is working — targets appear when discovery
+   * finishes, refined targets after that — and a row of buttons that does not
+   * grow with it would leave a layer on screen with no way to turn it off.
+   */
+  function buildTheLayerButtons() {
+    layers.textContent = "";
+    /* The strip beside the buttons is rebuilt with them, so a stack that grew
+       does not leave two fades and two locks behind it. */
+    layers.parentElement?.querySelectorAll(":scope > .layer-extra")
+      .forEach((old) => old.remove());
+    buttons.clear();
+
+    const addButton = (key, label, explains, pressed) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.disabled = true;      // until there is a picture to change
+      button.setAttribute("aria-pressed", String(pressed));
+      button.dataset.layer = key;
+      button.title = explains;
+      button.textContent = label;
+      button.addEventListener("click", () => showTheLayer(key, !isShowing(key)));
+      buttons.set(key, button);
+      layers.append(button);
+    };
+
+    for (const slot of THE_FIXED_SLOTS) {
+      addButton(slot.key, slot.label, slot.explains, showing[slot.key]);
+    }
+    for (const layer of stackAbove) {
+      addButton(
+        layer.key,
+        layer.label ?? layer.key,
+        layer.explains ?? "One of the operator's own layers, above the picture.",
+        layer.shown,
+      );
+    }
+
+    /* The fade and the lock go in a strip of their own beside the buttons
+       rather than inside them. The buttons are a joined row of switches — one
+       shape, one border, read as a single control — and a slider dropped into
+       the middle of that reads as something having gone wrong with the page. */
+    const beside = document.createElement("div");
+    beside.className = "layer-extra";
+    layers.after(beside);
+
+    /* The shared fade. A slider rather than a button because it is not a yes or
+       a no: what an operator wants is usually to see both the picture and their
+       own drawing over it, and finding the balance is a thing you do by moving
+       something and looking. */
+    const fade = document.createElement("label");
+    fade.className = "layer-fade";
+    fade.title =
+      "How solid everything above the picture is drawn. Turn it down to see the " +
+      "picture through your own drawing. Layers marked to stay solid — the focus " +
+      "points, say — are not affected.";
+    const slider = document.createElement("input");
+    slider.type = "range";
+    slider.min = "0";
+    slider.max = "100";
+    slider.step = "1";
+    slider.value = String(Math.round(dial * 100));
+    slider.dataset.layerFade = "";
+    slider.setAttribute("aria-label", "How solid the layers above the picture are");
+    slider.addEventListener("input", () => fadeTo(Number(slider.value) / 100));
+    fade.append(document.createTextNode("Fade"), slider);
+    beside.append(fade);
+
+    /* The lock, at the end of the row. Last because it is about the whole
+       canvas rather than about any one layer, and because it is the control an
+       operator reaches for least often and wants to find in the same place
+       every time. */
+    lockButton = document.createElement("button");
+    lockButton.type = "button";
+    lockButton.dataset.lock = "";
+    lockButton.setAttribute("aria-pressed", String(locked));
+    lockButton.title =
+      "Lock the layers so that nothing can be picked or moved by accident. " +
+      "Panning and zooming go on working — this only stops a click reaching " +
+      "your own drawing, which is what you want while you are reading a plan " +
+      "rather than changing one.";
+    lockButton.textContent = "Lock";
+    lockButton.addEventListener("click", () => handle.lock(!locked));
+    beside.append(lockButton);
   }
+
+  /* The lock's own button, remembered so its state can be shown when the lock
+     is changed from somewhere other than the button itself. */
+  let lockButton = null;
+
+  buildTheLayerButtons();
 
   const handle = {
     /** Which engine is drawing now. */
@@ -748,7 +1000,92 @@ export function putTheCanvasIn({
     get open() { return !!viewer; },
 
     /** Which layers are being drawn, for a test to read back. */
-    get layers() { return { ...showing }; },
+    get layers() {
+      const state = { ...showing };
+      for (const layer of stackAbove) state[layer.key] = layer.shown;
+      return state;
+    },
+
+    /** How solid the stack above the picture is drawn, and a way to change it. */
+    get fade() { return dial; },
+    fadeTo,
+
+    /**
+     * Whether the layers may be touched, and a way to lock or unlock them.
+     *
+     * Locking leaves panning and zooming exactly as they were — the canvas is
+     * still something to move around in — and only stops clicks reaching the
+     * layers. See the note where the lock is declared for why that is the
+     * useful half to be able to switch off.
+     */
+    get locked() { return locked; },
+    lock(on = true) {
+      locked = !!on;
+      box.classList.toggle("locked", locked);
+      if (lockButton) lockButton.setAttribute("aria-pressed", String(locked));
+      sayWhatTheLayersAreDoing();
+    },
+
+    /**
+     * Say what belongs above the picture now.
+     *
+     * The stack grows while an operator works: targets appear when discovery
+     * finishes, refined targets after refinement, and each wants a button of
+     * its own. So the whole list is handed in again rather than added to one
+     * layer at a time — a workflow step says what should be above the picture
+     * while it is standing, and the canvas makes that true.
+     *
+     * A layer that was already there keeps whether it was being shown. Losing
+     * that would be its own small betrayal: an operator who turned the carrier
+     * off should not find it back on because a target was discovered somewhere
+     * else entirely.
+     */
+    setLayersAbove(list = []) {
+      const before = new Map(stackAbove.map((layer) => [layer.key, layer.shown]));
+      stackAbove = (list.length ? list : [THE_DEMONSTRATION_LAYER]).map((layer) => ({
+        ...layer,
+        shown: before.has(layer.key) ? before.get(layer.key) : (layer.shown ?? false),
+      }));
+      buildTheLayerButtons();
+      theStackAboveChanged();
+    },
+
+    /** The stack as it stands, for a workflow that wants to add one to it. */
+    get layersAbove() { return stackAbove.map((layer) => ({ ...layer })); },
+
+    /**
+     * Where the drawing above the picture is opened up, in micrometres.
+     *
+     * Each entry is `{ x, y, w, h, letThrough }` — a piece of sample, and how
+     * much of the picture to reveal there. This is what the fields landing
+     * during a run use: as each one arrives, the plan drawn over it is opened
+     * so that the picture which just appeared can actually be seen.
+     *
+     * Given in micrometres because it describes a piece of specimen, so it
+     * travels with the specimen when the view is panned and grows when the view
+     * is magnified — like everything else drawn here.
+     */
+    seeThrough(windows = []) {
+      seeThrough = windows;
+      handTheSlotsTheirDrawings();
+    },
+
+    /**
+     * The pictures inside the viewer itself, which is the bottom layer.
+     *
+     * A run is looked at as more than one picture — the survey of the whole
+     * slide, and the detail scans taken from places found in it — and an
+     * operator wants either on its own or both together. These are plainer than
+     * the layers above on purpose: drawn or not drawn, with nothing in between.
+     * Everything see-through lives above the picture, which is what lets the
+     * arrangement survive being handed to an engine that cannot be made
+     * see-through at all.
+     *
+     * Empty for an engine that does not offer them, rather than throwing, so
+     * that a page can ask any engine and show what there is.
+     */
+    picturesInside() { return viewer?.picturesInside?.() ?? []; },
+    showPictureInside(name, on) { viewer?.showPictureInside?.(name, on); },
 
     /**
      * Where this picture is looking, and a way to put it somewhere else.
@@ -789,17 +1126,29 @@ export function putTheCanvasIn({
          means to ask the picture to move. */
       if (!destroyed) window.__theCanvas = handle;
       if (destroyed || viewer || opening) return;
+      /* A canvas with no run is opened all the same, rather than refused.
+         **It used to refuse**, and that was wrong for the ordinary case: an
+         operator lays a plan out on an empty plate before anything has been
+         scanned, so the first steps of a workflow have no acquisition to look
+         at and still need the canvas — the carrier, the positions, the focus
+         points all belong to the layers above the picture, and none of them
+         needs a picture to be drawn over. Refusing left those steps with a box
+         that said "no run" and could draw nothing.
+
+         What is said on the page is unchanged, because somebody who expected a
+         run and does not have one still needs telling. It is now a note beside
+         a working canvas instead of a note instead of one. */
       if (!acquisitions.length) {
         say(
-          "this page was not given a run to look at. Add the address of one to " +
+          "this page was not given a run to look at, so there is no picture — " +
+            "your own layers are drawn on their own. Add the address of one to " +
             "the page's own address — ?overview=http://host:port/run.ome.zarr — " +
             "and reload. `live_overview_demo.py` writes a run and prints the " +
             "address to use.",
         );
-        return;
       }
       opening = true;
-      say(`opening ${wanted}…`);
+      if (acquisitions.length) say(`opening ${wanted}…`);
       sayWhatTheLayersAreDoing();
       try {
         /* Dragging pans and the plain wheel zooms, and nothing else moves the

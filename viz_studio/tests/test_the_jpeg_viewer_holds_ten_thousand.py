@@ -291,7 +291,8 @@ def test_fields_that_land_later_appear_without_the_view_moving(browser, a_served
 
     after = page.evaluate("() => window.__viewer.getView()")
     assert after["zoom"] == pytest.approx(before["zoom"])
-    assert after["centre"] == pytest.approx(before["centre"])
+    assert after["centre"]["x"] == pytest.approx(before["centre"]["x"])
+    assert after["centre"]["y"] == pytest.approx(before["centre"]["y"])
 
     now_drawn = float((_what_was_drawn(page) > 8).mean())
     assert now_drawn > was_drawn + 0.05, (
@@ -318,9 +319,9 @@ def test_a_drawing_handed_to_the_bottom_slot_really_is_beneath_the_picture(brows
     # A block of white below the picture, and a block of white above it, in the
     # same place. If the bottom one is really underneath, the picture hides it.
     page.evaluate("""() => {
-      const paint = (ctx, where) => {
-        ctx.fillStyle = 'white';
-        ctx.fillRect(0, 0, where.width, where.height);
+      const paint = (frame) => {
+        frame.context.fillStyle = 'white';
+        frame.context.fillRect(0, 0, frame.width, frame.height);
       };
       window.__viewer.drawUnder(paint);
     }""")
@@ -331,3 +332,84 @@ def test_a_drawing_handed_to_the_bottom_slot_really_is_beneath_the_picture(brows
         "landed on top of the picture"
     )
     page.close()
+
+
+def test_dragging_the_picture_moves_it_by_exactly_what_the_hand_moved(browser, a_served_scan):
+    """The gesture code is shared, so the viewer has to speak its language.
+
+    Every engine here is panned and zoomed by one piece of code in
+    `viz_studio/options/gestures.js`, which reads the view back through
+    ``getView`` and hands a new one to ``setView``. That only works if a view
+    means the same thing on both sides of the conversation, and this viewer
+    once got it wrong: it kept a centre as a plain pair while everything else
+    used a pair of named numbers, so its own numbers agreed with each other
+    perfectly and dragging produced nothing at all.
+
+    That is the shape of fault this checks for, and it is worth a test of its
+    own because it is invisible from inside. Everything a test can *ask* the
+    viewer answers correctly; only the dragging is broken.
+
+    A drag of so many screen pixels should move the specimen by exactly that
+    many pixels' worth, because what an operator expects when they take hold of
+    a picture is that the point under their finger stays under their finger.
+    """
+    root, url, note = a_served_scan
+    _write_a_note_of(root, 100, note)
+
+    page, _ = _open(browser, url)
+    before = page.evaluate("() => window.__viewer.getView()")
+
+    box = page.locator("#box").bounding_box()
+    middle = (box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+    page.mouse.move(*middle)
+    page.mouse.down()
+    page.mouse.move(middle[0] - 120, middle[1] - 80, steps=6)
+    page.mouse.up()
+    page.wait_for_timeout(300)
+
+    after = page.evaluate("() => window.__viewer.getView()")
+    assert after["zoom"] == pytest.approx(before["zoom"]), "a drag must not change the zoom"
+    assert after["centre"]["x"] == pytest.approx(before["centre"]["x"] + 120 * before["zoom"], rel=0.02)
+    assert after["centre"]["y"] == pytest.approx(before["centre"]["y"] + 80 * before["zoom"], rel=0.02)
+
+
+def test_the_drawings_are_handed_the_frame_every_other_engine_hands_them(browser, a_served_scan):
+    """One piece of drawing code has to work over every engine.
+
+    The application draws the carrier, the positions and everything else once,
+    and each engine calls that same drawing. So the thing an engine hands it is
+    settled in `viz_studio/options/contract.md` and is not this engine's to
+    choose: one object holding the view, the size of the box, a drawing context
+    and a way of turning micrometres into screen pixels.
+
+    Checked here rather than left to the day somebody swaps engines, because a
+    drawing handed the wrong shape does not complain — it draws nothing, or
+    draws in the corner, and looks like an engine that is broken.
+    """
+    root, url, note = a_served_scan
+    _write_a_note_of(root, 9, note)
+
+    page, _ = _open(browser, url)
+    seen = page.evaluate("""() => new Promise((done) => {
+      window.__viewer.drawOver((frame) => {
+        const spot = frame.project(1000, 500);
+        const back = frame.unproject(spot.x, spot.y);
+        done({
+          keys: Object.keys(frame).sort(),
+          hasContext: typeof frame.context?.fillRect === "function",
+          centreIsNamed: typeof frame.centre?.x === "number",
+          projectIsNamed: typeof spot?.x === "number",
+          roundTripX: back.x,
+          roundTripY: back.y,
+        });
+      });
+    })""")
+
+    assert seen["hasContext"], "no drawing context was handed over"
+    assert seen["centreIsNamed"], "the view's centre is not a pair of named numbers"
+    assert seen["projectIsNamed"], "project did not answer with a pair of named numbers"
+    for wanted in ("centre", "zoom", "width", "height", "density", "project", "unproject"):
+        assert wanted in seen["keys"], f"the frame has no {wanted}"
+    # Micrometres out and back again should land where they started.
+    assert seen["roundTripX"] == pytest.approx(1000)
+    assert seen["roundTripY"] == pytest.approx(500)

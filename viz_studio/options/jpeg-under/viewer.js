@@ -89,13 +89,25 @@ export async function openViewer(element, options = {}) {
     background,
     onViewChanged,
     destroyed: false,
-    tiles: [],
-    sources: acquisitions.map((a) => a.url).filter(Boolean),
+    /* One entry per acquisition, in the order the page gave them, each holding
+       its own fields and whether it is being shown. Kept apart rather than
+       poured into one list because a run is looked at as more than one picture:
+       a survey of the whole slide, and later the detail scans taken from it.
+       Which of those you are looking at is a question an operator asks
+       constantly, and it can only be answered if they were never mixed. */
+    pictures: acquisitions
+      .filter((a) => a?.url)
+      .map((a) => ({
+        name: a.name || String(a.url).split("/").filter(Boolean).pop() || "picture",
+        url: a.url,
+        tiles: [],
+        shown: true,
+      })),
     decoded: new Map(),   // src -> picture, or the promise for one; oldest first
     showing: true,
     paintUnder: null,
     paintOver: null,
-    view: { centre: [0, 0], zoom: 1 },
+    view: { centre: { x: 0, y: 0 }, zoom: 1 },
     surfaces: null,
     gestures: null,
     frameAsked: false,
@@ -113,14 +125,16 @@ export async function openViewer(element, options = {}) {
   const handle = {
     setView({ centre, zoom } = {}) {
       if (own.destroyed) return;
-      if (Array.isArray(centre)) own.view.centre = [Number(centre[0]), Number(centre[1])];
+      if (centre && Number.isFinite(centre.x) && Number.isFinite(centre.y)) {
+        own.view.centre = { x: Number(centre.x), y: Number(centre.y) };
+      }
       if (Number.isFinite(zoom) && zoom > 0) own.view.zoom = Number(zoom);
       askForAFrame(own);
       settled(own);
     },
 
     getView() {
-      return { centre: [...own.view.centre], zoom: own.view.zoom };
+      return { centre: { ...own.view.centre }, zoom: own.view.zoom };
     },
 
     /* Flat by construction: the pictures are one per field, already flattened
@@ -138,6 +152,35 @@ export async function openViewer(element, options = {}) {
 
     showPicture(on) {
       own.showing = !!on;
+      askForAFrame(own);
+    },
+
+    /**
+     * The pictures this viewer is holding, and whether each is being drawn.
+     *
+     * A run is looked at as more than one picture. There is the survey of the
+     * whole slide, and later the detail scans taken from places found in it,
+     * and an operator wants to see either on its own or both together. So the
+     * viewer keeps them apart and offers them by name, in the order they are
+     * drawn — bottom of the stack first, so a detail scan lands over the survey
+     * it came from.
+     *
+     * This is the bottom layer of the canvas, and the pictures in it are
+     * deliberately plainer than the layers above: they are drawn or they are
+     * not, and nothing here fades. Everything see-through lives above the
+     * picture, which is what `viz_studio/LAYERS.md` settles and what lets the
+     * whole arrangement survive being handed to an engine that cannot be made
+     * see-through at all.
+     */
+    picturesInside() {
+      return own.pictures.map(({ name, shown }) => ({ name, shown }));
+    },
+
+    /** Draw one of those pictures, or stop drawing it. Unknown names are ignored. */
+    showPictureInside(name, on) {
+      const picture = own.pictures.find((p) => p.name === name);
+      if (!picture) return;
+      picture.shown = !!on;
       askForAFrame(own);
     },
 
@@ -232,9 +275,8 @@ function fitTheSurfaces(own) {
  * event, not a failure.
  */
 async function readTheNotes(own) {
-  const tiles = [];
-  for (const source of own.sources) {
-    const at = String(source).replace(/\/+$/, "");
+  for (const picture of own.pictures) {
+    const at = String(picture.url).replace(/\/+$/, "");
     let note;
     try {
       const answer = await fetch(`${at}/tiles.json`, { cache: "no-store" });
@@ -243,31 +285,39 @@ async function readTheNotes(own) {
     } catch {
       continue;
     }
-    for (const tile of note?.tiles || []) {
-      tiles.push({
-        src: `${at}/${tile.src}`,
-        grey: Number(tile.grey),
-        x0: Number(tile.x0),
-        y0: Number(tile.y0),
-        w: Number(tile.w),
-        h: Number(tile.h),
-      });
-    }
+    picture.tiles = (note?.tiles || []).map((tile) => ({
+      src: `${at}/${tile.src}`,
+      grey: Number(tile.grey),
+      x0: Number(tile.x0),
+      y0: Number(tile.y0),
+      w: Number(tile.w),
+      h: Number(tile.h),
+    }));
   }
-  own.tiles = tiles;
+}
+
+/** Every field of every picture that is being shown, bottom of the stack first. */
+function* everyFieldOnShow(own) {
+  for (const picture of own.pictures) {
+    if (!picture.shown) continue;
+    for (const tile of picture.tiles) yield tile;
+  }
 }
 
 /** The piece of sample every field together covers, in micrometres. */
 function theWholeScan(own) {
-  if (!own.tiles.length) return null;
   let left = Infinity, top = Infinity, right = -Infinity, bottom = -Infinity;
-  for (const tile of own.tiles) {
-    left = Math.min(left, tile.x0);
-    top = Math.min(top, tile.y0);
-    right = Math.max(right, tile.x0 + tile.w);
-    bottom = Math.max(bottom, tile.y0 + tile.h);
+  let any = false;
+  for (const picture of own.pictures) {
+    for (const tile of picture.tiles) {
+      any = true;
+      left = Math.min(left, tile.x0);
+      top = Math.min(top, tile.y0);
+      right = Math.max(right, tile.x0 + tile.w);
+      bottom = Math.max(bottom, tile.y0 + tile.h);
+    }
   }
-  return { left, top, right, bottom };
+  return any ? { left, top, right, bottom } : null;
 }
 
 function fitToWhatThereIs(own) {
@@ -278,24 +328,33 @@ function fitToWhatThereIs(own) {
   const across = Math.max(1e-9, scan.right - scan.left);
   const down = Math.max(1e-9, scan.bottom - scan.top);
   own.view = {
-    centre: [(scan.left + scan.right) / 2, (scan.top + scan.bottom) / 2],
+    centre: { x: (scan.left + scan.right) / 2, y: (scan.top + scan.bottom) / 2 },
     zoom: Math.max(across / Math.max(1, width), down / Math.max(1, height)) * 1.05,
   };
 }
 
-/** Where a point on the sample lands in the box, and back again. */
+/**
+ * Where a point on the sample lands in the box, and back again.
+ *
+ * Micrometres in, browser pixels from the top-left of the box out. Positions
+ * are pairs of named numbers rather than pairs in a list, because that is what
+ * `viz_studio/options/contract.md` settles on and what the shared gesture code
+ * and every drawing the application hands over already expect. Getting this
+ * wrong is quiet: a viewer whose own numbers agree with each other draws
+ * perfectly well on its own and stops dead the moment somebody drags it.
+ */
 function whereThingsAre(own) {
   const { width = 0, height = 0, density = 1 } = own.size || {};
   const { centre, zoom } = own.view;
-  const project = (x, y) => [
-    width / 2 + (x - centre[0]) / zoom,
-    height / 2 + (y - centre[1]) / zoom,
-  ];
-  const unproject = (px, py) => [
-    centre[0] + (px - width / 2) * zoom,
-    centre[1] + (py - height / 2) * zoom,
-  ];
-  return { centre: [...centre], zoom, width, height, density, project, unproject };
+  const project = (x, y) => ({
+    x: width / 2 + (x - centre.x) / zoom,
+    y: height / 2 + (y - centre.y) / zoom,
+  });
+  const unproject = (x, y) => ({
+    x: centre.x + (x - width / 2) * zoom,
+    y: centre.y + (y - height / 2) * zoom,
+  });
+  return { centre: { ...centre }, zoom, width, height, density, project, unproject };
 }
 
 function settled(own) {
@@ -380,14 +439,16 @@ function drawEverything(own) {
     return ctx;
   };
 
+  // Cleared whether or not there is anything to draw. An empty slot still has
+  // to leave an empty surface, or a drawing switched off stays on screen.
   const under = clear(own.surfaces.under);
-  own.paintUnder?.(under, where);
+  own.paintUnder?.({ ...where, context: under, coverage: null });
 
   const picture = clear(own.surfaces.picture);
   if (own.showing) {
     const worthIt = bigEnoughForItsPicture(width, height);
-    for (const tile of own.tiles) {
-      const [left, top] = where.project(tile.x0, tile.y0);
+    for (const tile of everyFieldOnShow(own)) {
+      const { x: left, y: top } = where.project(tile.x0, tile.y0);
       const across = tile.w / where.zoom;
       const down = tile.h / where.zoom;
       if (left + across < 0 || top + down < 0 || left > width || top > height) continue;
@@ -412,5 +473,5 @@ function drawEverything(own) {
   }
 
   const over = clear(own.surfaces.over);
-  own.paintOver?.(over, where);
+  own.paintOver?.({ ...where, context: over, coverage: null });
 }

@@ -31,8 +31,13 @@ function pageOpenedFrom(protocol) {
 afterEach(() => { delete globalThis.location; });
 
 describe("what the page was built with", () => {
-  it("carries both engines, so the two can be compared", () => {
-    expect(enginesBuiltIn()).toEqual(["viv-under", "neuroglancer-under"]);
+  it("carries every engine, so they can be compared", () => {
+    /* Written out rather than counted, so that adding one is a decision
+       somebody made here and not something that happened. The three do
+       genuinely different things: two read the microscope's own store and draw
+       it in the browser, and `jpeg-under` reads small pictures made ahead of
+       time, which is the one that opens a scan of ten thousand fields. */
+    expect(enginesBuiltIn()).toEqual(["viv-under", "neuroglancer-under", "jpeg-under"]);
   });
 
   it("says in plain words what each one does, for the note beside the buttons", () => {
@@ -61,7 +66,9 @@ describe("what the page offers, which depends on where it was opened from", () =
 
   it("leaves out the engine that needs a background program when opened off the disk", () => {
     pageOpenedFrom("file:");
-    expect(enginesOnOffer()).toEqual(["viv-under"]);
+    // Only neuroglancer needs one. The other two are ordinary JavaScript and
+    // draw perfectly well in a page opened straight off the disk.
+    expect(enginesOnOffer()).toEqual(["viv-under", "jpeg-under"]);
   });
 
   it("says which engine is missing and what to do about it", () => {
