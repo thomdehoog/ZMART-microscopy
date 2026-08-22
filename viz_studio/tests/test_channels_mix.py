@@ -120,9 +120,14 @@ def _choose(page, channel):
 
 
 def _recolour(page, channel, colour):
-    """Paint a channel a named colour, through the chooser an operator uses."""
+    """Paint a channel a named colour, the way an operator does it.
+
+    The colour a channel is painted in is also the control that changes it:
+    press the square on its row and the list of everything it could be
+    painted in opens under it.
+    """
     _choose(page, channel)
-    page.locator(f"[aria-label='colormap {channel}']").click()
+    page.locator(f"[aria-label='colour {channel}']").click()
     page.wait_for_timeout(200)
     page.locator(f"[aria-label='{colour} for {channel}']").click()
     page.wait_for_timeout(900)
