@@ -535,7 +535,7 @@ function stretchedUnevenly(displayScales, mode) {
  * anything but text. That costs the keyboard nothing: each entry is a real
  * button, so tabbing walks them and Enter picks, and Escape closes the list.
  */
-function ColourChooser({ layer, entry, names, onPick, where = "" }) {
+function ColourChooser({ layer, entry, names, onPick, named = null }) {
   // Where the list is drawn, in window coordinates rather than inside the
   // square. The channel list it may be opened from scrolls, and anything
   // drawn inside a box that scrolls is cut off at that box's edge -- opened
@@ -575,6 +575,12 @@ function ColourChooser({ layer, entry, names, onPick, where = "" }) {
   // A colour picked by hand belongs to no entry in the list, and saying the
   // nearest name would tell the operator they chose something they did not.
   const naming = chosen ? chosen.name : "picked";
+  // What to call the channel in the labels a screen reader reads out.
+  // The row says its own name; the settings block says "the chosen
+  // channel", because the name is written beside it already -- and
+  // because a label that CONTAINS another label makes the two
+  // impossible to tell apart (found by a browser gate, 2026-08-22).
+  const about = named || layer.name;
   // Closed as soon as the focus leaves the whole chooser. Asking about the
   // chooser rather than about the button pressed means pressing an entry does
   // not close the list out from under the press.
@@ -595,7 +601,7 @@ function ColourChooser({ layer, entry, names, onPick, where = "" }) {
         type="button"
         onClick={(event) => (open ? setOpenAt(null) : openBeside(event.currentTarget))}
         onBlur={closeOnLeaving}
-        aria-label={`colour ${layer.name}${where}`}
+        aria-label={`colour ${about}`}
         aria-expanded={open}
         title={`Painted ${naming}. Press to choose another colour`}
         style={{ ...styles.swatch, ...styles.swatchButton, background: painted }}
@@ -622,7 +628,7 @@ function ColourChooser({ layer, entry, names, onPick, where = "" }) {
                 onPick({ rgb: rgbOf(event.target.value), lut: null });
                 setOpen(false);
               }}
-              aria-label={`choose a colour for ${layer.name}${where}`}
+              aria-label={`choose a colour for ${about}`}
               style={styles.hiddenPicker}
             />
           </label>
@@ -632,7 +638,7 @@ function ColourChooser({ layer, entry, names, onPick, where = "" }) {
               type="button"
               role="option"
               aria-selected={chosen?.key === choice.key}
-              aria-label={`${choice.name} for ${layer.name}${where}`}
+              aria-label={`${choice.name} for ${about}`}
               onBlur={closeOnLeaving}
               onClick={() => {
                 onPick(choice);
@@ -737,7 +743,7 @@ function ChannelControls({ layer, index, entry, mode, lookupTables, onWindow, on
             onClick={() => onToggle?.(index)}
             style={{ ...styles.eye, opacity: entry.visible ? 1 : 0.4 }}
             title={entry.visible ? "Hide this channel" : "Show this channel"}
-            aria-label={`toggle ${layer.name} here`}
+            aria-label="toggle the chosen channel"
           >
             <Eye open={entry.visible} />
           </button>
@@ -745,7 +751,7 @@ function ChannelControls({ layer, index, entry, mode, lookupTables, onWindow, on
             layer={layer}
             entry={entry}
             names={lookupTables}
-            where=", display settings"
+            named="the chosen channel"
             onPick={(choice) => {
               if (choice.lut) {
                 onLut?.(index, choice.lut);

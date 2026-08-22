@@ -1095,8 +1095,9 @@ def test_the_settings_name_the_channel_above_the_histogram(two_channel_page):
     said = page.evaluate("""() => {
       const settings = document.querySelector("[aria-label='channel controls']");
       const picture = settings.querySelector("[aria-label^='histogram']");
-      const eye = settings.querySelector("[aria-label$='here']");
-      const square = settings.querySelector("[aria-label*='display settings']");
+      const eye = settings.querySelector("[aria-label='toggle the chosen channel']");
+      const square = settings.querySelector(
+        "[aria-label='colour the chosen channel']");
       const above = (one) => one && picture
         && one.getBoundingClientRect().bottom <= picture.getBoundingClientRect().top;
       return {text: settings.innerText.split('\\n').slice(0, 2),
