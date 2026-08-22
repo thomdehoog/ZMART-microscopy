@@ -1721,11 +1721,12 @@ export default function App() {
             meaningful in both. Neither appears unless the image actually has that
             axis with more than one step along it -- a still image gets no time
             slider, and a single plane gets no Z slider. */}
-        {/* Marked so the framing can leave room for it: the depth slider
-            stands over the right-hand edge of the drawing area, and a
-            picture centred on the whole area sits partly behind it. See
-            theColumnTheDepthSliderTakes in engine.js. */}
-        <div style={styles.depthControl} data-beside-the-picture="">
+        {/* The depth slider stands OVER the right-hand edge of the drawing
+            area rather than beside it, so a picture centred on the whole
+            area sits a little behind it. Framing around that strip was
+            tried on 2026-08-22 and put back; see the note in
+            showTheWholePicture for what it cost. */}
+        <div style={styles.depthControl}>
           {mode === "flat" && (
             <AxisSlider viewer={viewer} axis="z" label="Z" orientation="vertical" />
           )}
