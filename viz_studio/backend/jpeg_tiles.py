@@ -32,6 +32,17 @@ survey's corner instead — which is how the viewers next door were once found
 to be 898 micrometres out. Placement is therefore something a caller states,
 never something this module guesses.
 
+## The other thing that is easy to get wrong
+
+**Every field has to be brightened the same way.** These pictures are stretched
+to make them legible, and it is tempting to stretch each field over its own
+range. That reads the scan backwards: an empty field has its faint background
+pulled up until it fills the grey scale and comes out *pale*, while its
+neighbour holding brilliant cells has everything but those cells squashed down
+to black. An operator looking for signal would be sent to exactly the wrong
+places. So one dark point and one bright point are settled from the whole scan
+and shared by every field in it.
+
 ## What the microscope's files look like
 
 The Leica driver writes one plane per file, with everything flat — every
@@ -74,6 +85,21 @@ SMALL_ENOUGH = 64 * 64
 #: channels tinted and added together, and JPEG's usual colour shortcut smears
 #: those across edges.
 GOOD_ENOUGH = 85
+
+#: How much to lift the dim end of the grey scale when showing these pictures.
+#:
+#: Fluorescence is mostly dark ground with sparse bright things in it, so a
+#: picture that maps brightness straight onto grey spends almost the whole
+#: scale on the few brightest pixels and shows a scan of real signal as a black
+#: square. Lifting the dim end is the ordinary answer, and the same one a
+#: photograph gets before it is shown on a screen: it is called gamma, and it
+#: means the dim half of the range is given more of the grey scale than the
+#: bright half.
+#:
+#: It does not change which field is brighter than which — only how much of
+#: that difference you can see. Nothing is measured from these pictures, so
+#: making them legible costs nothing and is the whole point of them.
+EASY_TO_SEE = 0.45
 
 
 @dataclass(frozen=True)
@@ -162,13 +188,19 @@ def _flatten(planes: list[Plane]) -> Any:
     copy: the point is that a cell present in any channel or at any depth can
     be seen at a glance, not that the channels stay apart. Anything wanting
     the channels apart wants the TIFFs.
+
+    The numbers are left in whatever the microscope wrote them as, rather than
+    being widened to decimals. That is partly to save memory — a scan of ten
+    thousand fields is held in small copies while the brightening is worked out
+    — and partly because widening them would suggest a precision that taking a
+    brightest-of does not have.
     """
     import numpy as np
     import tifffile
 
     stack = None
     for plane in planes:
-        frame = np.asarray(tifffile.imread(plane.path), dtype=np.float32)
+        frame = np.asarray(tifffile.imread(plane.path))
         while frame.ndim > 2:
             frame = frame.max(axis=0)
         stack = frame if stack is None else np.maximum(stack, frame)
@@ -190,17 +222,103 @@ def _shrink_to(array: Any, budget_px: int) -> Any:
     return array[::step, ::step]
 
 
-def _as_jpeg(array: Any, quality: int) -> bytes:
-    """Encode one field's picture, stretched over its own range so it reads."""
+def _one_brightening_for_the_whole_scan(pictures: list[Any]) -> tuple[float, float]:
+    """Pick one dark point and one bright point for every field to share.
+
+    This is the part that is easy to get wrong, and getting it wrong is what
+    makes a scan look like a chessboard. If each field were brightened over its
+    own range, an empty field would be stretched until its background filled
+    the whole grey scale and came out *bright*, while its neighbour holding a
+    few brilliant cells would have everything but those cells squashed down to
+    black. The scan would read exactly backwards: empty pale, full dark.
+
+    So the whole scan is brightened the same way. One dark point and one bright
+    point are worked out from all the fields together and every field is then
+    stretched between them, which is what makes two fields comparable at a
+    glance — brighter really does mean more signal.
+
+    They are percentiles rather than the darkest and brightest pixels found,
+    because a single hot pixel or a single dead one would otherwise decide the
+    brightening for the entire scan and flatten everything else into the middle.
+
+    Only a sample of each field's pixels is looked at. Reading every pixel of
+    ten thousand fields to settle two numbers would cost far more than the two
+    numbers are worth, and a sample settles them to well within a grey level.
+    """
+    import numpy as np
+
+    if not pictures:
+        return 0.0, 1.0
+
+    #: At most this many pixels are gathered from the whole scan to settle the
+    #: two points. A few million is far more than enough for a percentile and
+    #: still only a handful of megabytes.
+    enough_to_judge_by = 2_000_000
+    from_each = max(1, enough_to_judge_by // max(1, len(pictures)))
+
+    sample = []
+    for picture in pictures:
+        flat = np.asarray(picture).reshape(-1)
+        step = max(1, flat.size // from_each)
+        sample.append(flat[::step])
+    pooled = np.concatenate(sample).astype(np.float32)
+
+    low = float(np.percentile(pooled, 0.5))
+    high = float(np.percentile(pooled, 99.9))
+    if not high > low:
+        high = low + 1.0
+    return low, high
+
+
+def _stretch(array: Any, low: float, high: float, gamma: float = EASY_TO_SEE) -> Any:
+    """Brighten one field between the scan's shared dark and bright points.
+
+    Two steps, and they do different jobs. The first spreads the scan's own
+    range of brightnesses across the grey scale, and uses the same two points
+    for every field so that two fields can be compared. The second lifts the
+    dim end, so that a picture which is mostly dark ground with a few bright
+    things in it — which is what fluorescence usually looks like — can be seen
+    at all. See ``EASY_TO_SEE``.
+    """
+    import numpy as np
+
+    values = np.asarray(array, dtype=np.float32)
+    span = high - low if high > low else 1.0
+    spread = np.clip((values - low) / span, 0.0, 1.0)
+    return np.power(spread, gamma) * 255.0
+
+
+def _how_bright(stretched: Any) -> int:
+    """How bright this field is overall, 0 to 255.
+
+    A whole scan zoomed out draws every field a few pixels wide, and decoding a
+    picture to paint seven pixels is work thrown away — at ten thousand fields
+    it is the difference between a picture that opens at once and one that
+    grinds. So each field also carries one number standing for it, and a field
+    too small on screen to show anything is drawn as that one colour instead of
+    being decoded at all.
+
+    The number is the field's average, taken *after* the scan's shared
+    brightening, for one reason above all: that is what the field will look
+    like when its real picture does arrive. Shrinking a picture down to a few
+    pixels averages it, so an average is the honest answer to "what colour is
+    this field from far away". Anything else and the scan visibly changes as
+    the pictures fill in, which an operator reads as a fault even though every
+    field is in its right place.
+    """
+    import numpy as np
+
+    return int(round(float(np.asarray(stretched, dtype=np.float32).mean())))
+
+
+def _as_jpeg(stretched: Any, quality: int) -> bytes:
+    """Encode one field's already-brightened picture."""
     import io
 
     import numpy as np
     from PIL import Image
 
-    values = np.asarray(array, dtype=np.float32)
-    low, high = float(values.min()), float(values.max())
-    span = high - low if high > low else 1.0
-    eight_bit = ((values - low) / span * 255.0).astype(np.uint8)
+    eight_bit = np.asarray(stretched, dtype=np.float32).round().astype(np.uint8)
     buffer = io.BytesIO()
     Image.fromarray(eight_bit, mode="L").save(
         buffer, format="JPEG", quality=quality, subsampling=0
@@ -219,51 +337,84 @@ def make_small_pictures(
     """Make one small JPEG per field, and a note of where each one belongs.
 
     ``where_each_field_is`` maps a field's label — the one in the file names —
-    to the middle of that field in micrometres, as the run recorded sending
-    the stage there. It is required, because the files do not say (see the
-    note at the top of this file). A field whose place is not given is left
-    out and named in the result, rather than being drawn somewhere invented.
+    to the middle of that field in micrometres, as the run recorded sending the
+    stage there. It is required, because the files do not say (see the note at
+    the top of this file). A field whose place is not given is left out and
+    named in the result, rather than being drawn somewhere invented.
 
     Returns the note that is also written to ``tiles.json`` beside the
-    pictures: every field, the file holding its picture, and the piece of
-    sample that picture covers in micrometres. That is everything a viewer
-    needs to draw the scan, and it is deliberately all it gets — a viewer that
-    had to open a TIFF to find out where to put something would be back to
-    reading ten thousand large files.
+    pictures: every field, the file holding its picture, the piece of sample
+    that picture covers in micrometres, and one colour standing for the field
+    when it is too small on screen to be worth drawing properly. That is
+    everything a viewer needs to draw the scan, and it is deliberately all it
+    gets — a viewer that had to open a TIFF to find out where to put something
+    would be back to reading ten thousand large files.
+
+    The work happens in two passes. The first reads each field and shrinks it;
+    the second brightens and saves them. They are separate because the
+    brightening has to be the same for every field, and that cannot be settled
+    until every field has been seen. Only the shrunken copies are held between
+    the passes, so the memory this needs follows ``budget_px`` rather than the
+    size of the scan's real pixels — a few tens of megabytes for ten thousand
+    fields, instead of the tens of gigabytes the TIFFs weigh.
     """
     into = Path(into)
     into.mkdir(parents=True, exist_ok=True)
     fields = group_by_field(read_planes(folder))
 
-    tiles = []
+    # First pass: read every field once, and keep only a small copy of each.
     placed_nowhere = []
+    small_copies = []
     for label, planes in sorted(fields.items()):
         if label not in where_each_field_is:
             placed_nowhere.append(label)
             continue
-        picture = _shrink_to(_flatten(planes), budget_px)
-        name = f"{label}.jpg"
-        (into / name).write_bytes(_as_jpeg(picture, quality))
-
+        whole = _flatten(planes)
+        full_height, full_width = whole.shape[:2]
         um_per_pixel = pixel_size_um(planes[0].path)
-        full_height, full_width = _flatten(planes[:1]).shape[:2]
-        width_um = full_width * um_per_pixel
-        height_um = full_height * um_per_pixel
-        centre_x, centre_y = where_each_field_is[label]
-        tiles.append(
+        small_copies.append(
             {
                 "label": label,
+                "picture": _shrink_to(whole, budget_px),
+                "width_um": full_width * um_per_pixel,
+                "height_um": full_height * um_per_pixel,
+            }
+        )
+
+    # Now that every field has been seen, one brightening can be settled for
+    # all of them — which is what makes two fields comparable at a glance.
+    low, high = _one_brightening_for_the_whole_scan([c["picture"] for c in small_copies])
+
+    # Second pass: brighten, save, and note where each picture belongs.
+    tiles = []
+    for copy in small_copies:
+        stretched = _stretch(copy["picture"], low, high)
+        name = f"{copy['label']}.jpg"
+        (into / name).write_bytes(_as_jpeg(stretched, quality))
+        centre_x, centre_y = where_each_field_is[copy["label"]]
+        tiles.append(
+            {
+                "label": copy["label"],
                 "src": name,
-                "x0": centre_x - width_um / 2.0,
-                "y0": centre_y - height_um / 2.0,
-                "w": width_um,
-                "h": height_um,
+                "x0": centre_x - copy["width_um"] / 2.0,
+                "y0": centre_y - copy["height_um"] / 2.0,
+                "w": copy["width_um"],
+                "h": copy["height_um"],
+                "grey": _how_bright(stretched),
             }
         )
 
     note = {
         "units": "um",
-        "made_for": "display only — the real pixels stay in the TIFFs",
+        "grey_is": "one colour standing for each field, for drawing it when it is too "
+                   "small on screen to be worth decoding. It is the field's average "
+                   "after brightening, which is what the field looks like from far "
+                   "away, so nothing changes as the real pictures arrive",
+        "brightened_between": [low, high],
+        "brightening_is": "the same for every field in the scan, so a brighter field "
+                          "really does hold more signal than a dimmer one",
+        "dim_end_lifted_by": EASY_TO_SEE,
+        "made_for": "display only \u2014 the real pixels stay in the TIFFs",
         "tiles": tiles,
         "fields_with_no_stated_place": placed_nowhere,
     }
