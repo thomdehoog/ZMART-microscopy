@@ -1,5 +1,6 @@
 import "./style.css";
 import { blockedBecause, isReachable, panelsFor } from "./frame/steps.js";
+import { theDrawingAbove, whoIsAt } from "./canvas/layers-above.js";
 /* The workflows this page offers, declared once in `workflows/index.js` and
    read here. The unit tests read the same file, so a workflow the tests can see
    is a workflow the operator can choose. It used to be written out again in
@@ -1851,6 +1852,226 @@ import scanfieldsWidget, { presetInk } from "./widgets/scanfields.js";
     ctx.fillRect(sx, sy, sz + 0.6, sz + 0.6);
   }
 
+  /**
+   * What the run has put on the stage, as a stack of layers.
+   *
+   * Everything above the carrier used to be one long run of drawing with an
+   * `if` in front of each piece, and three checkboxes deciding three of those
+   * `if`s. Turning it into a list is not tidiness. It is what makes each layer
+   * fadeable on its own, the whole stack fadeable together, ground openable so
+   * the picture underneath shows through, and a layer that a later step
+   * produces — the targets, the refined targets — simply addable. None of that
+   * was reachable from a sequence of statements.
+   *
+   * Bottom of the stack first. Each layer draws in the same way every canvas
+   * drawing in this project does: it is handed one frame holding the view, the
+   * box, a drawing context and a way of turning micrometres into screen pixels.
+   * See `viz_studio/options/contract.md`, and `src/canvas/layers-above.js` for
+   * what `staysSolid` and the windows mean.
+   *
+   * `shown` here is what the *run* knows, not what an operator has switched on:
+   * a layer for something that has not happened yet has nothing to draw. What
+   * the operator switched on is remembered separately, in `layersOff`, so that
+   * a layer they hid stays hidden when the run gives it something new to say.
+   */
+  const layersOff = new Set();
+  let layerFade = 1;
+  let layersLocked = false;
+  let seeThroughGround = [];
+  /* The stack as it was last drawn, so the controls and a click can ask about
+     it without drawing a frame to find out. */
+  let theStack = [];
+
+  function theStageLayers({ place, shown, ch0, ch1, w, h, editing }) {
+    const activeMode = step(state.activeIdx).mode;
+
+    return [
+      {
+        key: "tiles",
+        label: "Tiles",
+        explains: "The fields the scan has taken, in the order it wrote them, with the "
+          + "tissue each one found. This is what the run has actually seen.",
+        shown: shown > 0,
+        paint: ({ context: ctx }) => {
+          ctx.save();
+          const done = state.plan.slice(0, shown);
+          for (const t of done) tileTexture(ctx, t, place);
+          /* Tissue is drawn inside the tiles that have been taken, because an
+             image is the only way the run knows it is there. */
+          ctx.globalCompositeOperation = "lighter";
+          for (const t of done) {
+            const d = density(t.x, t.y);
+            if (d < 0.02) continue;
+            const [bx, by] = place(t.x, t.y);
+            const br = (t.frameUm * 0.75) * view.scale;
+            const g = ctx.createRadialGradient(bx, by, 0, bx, by, br);
+            if (ch0) g.addColorStop(0, `rgba(34,211,238,${0.34 * d})`);
+            g.addColorStop(0.55, ch1 ? `rgba(245,158,11,${0.16 * d})` : `rgba(34,211,238,${0.12 * d})`);
+            g.addColorStop(1, "rgba(0,0,0,0)");
+            ctx.fillStyle = g;
+            ctx.beginPath(); ctx.arc(bx, by, br, 0, Math.PI * 2); ctx.fill();
+          }
+          ctx.restore();
+
+          // ---- scan frontier: the tile the stage is standing on
+          if (state.running === "scan" && state.plan[shown]) {
+            const t = state.plan[shown];
+            const [fx, fy] = place(t.x - t.frameUm / 2, t.y - t.frameUm / 2);
+            ctx.strokeStyle = css("--accent");
+            ctx.lineWidth = 2;
+            ctx.setLineDash([5, 4]);
+            ctx.strokeRect(fx, fy, t.frameUm * view.scale, t.frameUm * view.scale);
+            ctx.setLineDash([]);
+          }
+
+          /* ---- sample bounds: the edge of what has been imaged, so it exists
+             once something has been. Drawn from the first tile it was a second
+             square sitting in the plate's corner before any of this had
+             happened, which says the run has a sample somewhere it does not yet
+             have one. */
+          if (sample.bounds) {
+            const b = sample.bounds;
+            const [bx, by] = place(b.xMin, b.yMin);
+            ctx.strokeStyle = css("--line-strong");
+            ctx.lineWidth = 1;
+            ctx.strokeRect(bx, by, (b.xMax - b.xMin) * view.scale, (b.yMax - b.yMin) * view.scale);
+          }
+        },
+        /* A click on a taken field is a click on that field. This is what
+           opening a position from the picture will hang off. */
+        reaches: (at) => {
+          const half = (t) => t.frameUm / 2;
+          return state.plan.slice(0, shown).find(
+            (t) => Math.abs(at.x - t.x) <= half(t) && Math.abs(at.y - t.y) <= half(t),
+          ) ?? null;
+        },
+      },
+
+      {
+        key: "plan",
+        label: "Plan",
+        explains: "The positions the microscope was told to visit. It stays readable once "
+          + "the tiles start landing on top of it, dimmed, because by then the images "
+          + "are the answer and this is only the question.",
+        /* Not before the step that says where to scan. Walking back to the
+           carrier is walking back to a question the plan is an answer to — the
+           fields were placed against these areas, and drawing them over a plate
+           that is still being changed shows a plan for a carrier that may be
+           about to stop existing. The fields are kept, not discarded: coming
+           forward again finds them where they were. */
+        shown: state.activeIdx >= indexOfStep("scanfields"),
+        paint: ({ context: ctx }) => {
+          scanfieldsWidget.drawOn(ctx, {
+            fields: state.fields, preset: activePreset(), carrier: state.carrier,
+            toScreen: place, scale: view.scale, dim: shown > 0,
+            marked: editing?.marked(),
+          });
+        },
+      },
+
+      {
+        key: "cells",
+        label: "Cells",
+        explains: "What detection found. The ones that passed the gate are ringed, so which "
+          + "is which does not rest on colour alone.",
+        shown: state.cellsShown,
+        paint: ({ context: ctx }) => {
+          const ctxRad = Math.max(1.1, 1.4 * Math.sqrt(view.scale / 0.03));
+          ctx.fillStyle = css("--mark-context");
+          ctx.globalAlpha = 0.55;
+          ctx.beginPath();
+          for (const c of sample.cells) {
+            if (!state.detected.has(c.id) || state.gated.has(c.id)) continue;
+            const [x, y] = place(c.x, c.y);
+            if (x < -8 || y < -8 || x > w + 8 || y > h + 8) continue;
+            ctx.moveTo(x + ctxRad, y);
+            ctx.arc(x, y, ctxRad, 0, Math.PI * 2);
+          }
+          ctx.fill();
+          ctx.globalAlpha = 1;
+
+          // gated cells — ringed, so identity is not carried by colour alone
+          const gr = Math.max(3, 4.2 * Math.sqrt(view.scale / 0.03));
+          for (const c of sample.cells) {
+            if (!state.gated.has(c.id)) continue;
+            const [x, y] = place(c.x, c.y);
+            if (x < -10 || y < -10 || x > w + 10 || y > h + 10) continue;
+            ctx.beginPath(); ctx.arc(x, y, gr, 0, Math.PI * 2);
+            ctx.fillStyle = "#0284c7"; ctx.fill();
+            ctx.lineWidth = 1.5; ctx.strokeStyle = css("--screen"); ctx.stroke();
+          }
+        },
+        reaches: (at) => {
+          let best = 12 / view.scale, hit = null;
+          for (const c of sample.cells) {
+            if (!state.detected.has(c.id)) continue;
+            const d = Math.hypot(c.x - at.x, c.y - at.y);
+            if (d < best) { best = d; hit = c; }
+          }
+          return hit;
+        },
+      },
+
+      {
+        key: "targets",
+        label: "Targets",
+        explains: "The cells that have been imaged at high resolution.",
+        shown: state.acquired.length > 0,
+        paint: ({ context: ctx }) => {
+          for (const id of state.acquired) {
+            const c = sample.cells[id - 1];
+            const [x, y] = place(c.x, c.y);
+            const rr = Math.max(7, 9 * Math.sqrt(view.scale / 0.03));
+            ctx.beginPath(); ctx.arc(x, y, rr, 0, Math.PI * 2);
+            ctx.strokeStyle = "#16a34a"; ctx.lineWidth = 2.2; ctx.stroke();
+            ctx.beginPath(); ctx.arc(x, y, 2.2, 0, Math.PI * 2);
+            ctx.fillStyle = "#16a34a"; ctx.fill();
+          }
+        },
+      },
+
+      {
+        key: "focus",
+        label: "Focus",
+        explains: "Where the microscope will focus, and what it has measured there. Stays "
+          + "solid however far the rest is faded: fading the plan to see the picture is "
+          + "not a request to lose the focus points too.",
+        /* Only while standing on that step — walking away leaves the canvas the
+           plain picture every other step reads. */
+        shown: activeMode === "focus",
+        staysSolid: true,
+        paint: ({ context: ctx }) => drawFocusLayer(ctx, place, view.scale, w, h),
+      },
+
+      {
+        key: "detect",
+        label: "Test field",
+        explains: "The one position detection is being tuned on, so the canvas says which "
+          + "tile the channel's preview is of.",
+        shown: activeMode === "detect" && !!state.plan[state.detect.tile],
+        staysSolid: true,
+        paint: ({ context: ctx }) => {
+          const t = state.plan[state.detect.tile];
+          const half = t.frameUm / 2;
+          const [x, y] = place(t.x - half, t.y - half);
+          ctx.strokeStyle = css("--accent");
+          ctx.lineWidth = 2;
+          ctx.strokeRect(x, y, t.frameUm * view.scale, t.frameUm * view.scale);
+        },
+      },
+
+      {
+        key: "editing",
+        label: "Editing",
+        explains: "The handles and guides of whatever is being drawn by hand. Always solid "
+          + "and always on top: you cannot edit what you cannot see.",
+        shown: !!editing,
+        staysSolid: true,
+        paint: ({ context: ctx }) => editing.drawChrome(ctx, { toScreen: place, scale: view.scale }),
+      },
+    ];
+  }
+
   function drawStage() {
     if (!sizeCanvas(stageCv)) return;
     if (!view.fitted) fitView();
@@ -1889,147 +2110,168 @@ import scanfieldsWidget, { presetInk } from "./widgets/scanfields.js";
       colour: css("--ink-3"), fill: css("--surface-3"),
     });
 
-    const showTiles = el("lay-tiles").checked;
-    const showCells = el("lay-cells").checked;
-    const showTargets = el("lay-targets").checked;
-    const ch0 = el("ch-0").checked, ch1 = el("ch-1").checked;
-
-    // ---- tiles, in the order the scan writes them
-    const shown = Math.max(state.tilesShown, 0);
-    if (showTiles && shown > 0) {
-      ctx.save();
-      const done = state.plan.slice(0, shown);
-      for (const t of done) tileTexture(ctx, t, place);
-      /* Tissue is drawn inside the tiles that have been taken, because an
-         image is the only way the run knows it is there. */
-      ctx.globalCompositeOperation = "lighter";
-      for (const t of done) {
-        const d = density(t.x, t.y);
-        if (d < 0.02) continue;
-        const [bx, by] = place(t.x, t.y);
-        const br = (t.frameUm * 0.75) * view.scale;
-        const g = ctx.createRadialGradient(bx, by, 0, bx, by, br);
-        if (ch0) g.addColorStop(0, `rgba(34,211,238,${0.34 * d})`);
-        g.addColorStop(0.55, ch1 ? `rgba(245,158,11,${0.16 * d})` : `rgba(34,211,238,${0.12 * d})`);
-        g.addColorStop(1, "rgba(0,0,0,0)");
-        ctx.fillStyle = g;
-        ctx.beginPath(); ctx.arc(bx, by, br, 0, Math.PI * 2); ctx.fill();
-      }
-      ctx.restore();
-    }
-
-    // ---- scan frontier: the tile the stage is standing on
-    if (state.running === "scan" && showTiles && state.plan[shown]) {
-      const t = state.plan[shown];
-      const [fx, fy] = place(t.x - t.frameUm / 2, t.y - t.frameUm / 2);
-      ctx.strokeStyle = css("--accent");
-      ctx.lineWidth = 2;
-      ctx.setLineDash([5, 4]);
-      ctx.strokeRect(fx, fy, t.frameUm * view.scale, t.frameUm * view.scale);
-      ctx.setLineDash([]);
-    }
-
-    /* ---- sample bounds: the edge of what has been imaged, so it exists once
-       something has been. Drawn from the first tile it was a second square
-       sitting in the plate's corner before any of this had happened, which
-       says the run has a sample somewhere it does not yet have one. */
-    if (shown > 0 && sample.bounds) {
-      const b = sample.bounds;
-      const [bx, by] = place(b.xMin, b.yMin);
-      ctx.strokeStyle = css("--line-strong");
-      ctx.lineWidth = 1;
-      ctx.strokeRect(bx, by, (b.xMax - b.xMin) * view.scale, (b.yMax - b.yMin) * view.scale);
-    }
-
-    // ---- cells
-    if (showCells && state.cellsShown) {
-      const ctxRad = Math.max(1.1, 1.4 * Math.sqrt(view.scale / 0.03));
-      ctx.fillStyle = css("--mark-context");
-      ctx.globalAlpha = 0.55;
-      ctx.beginPath();
-      for (const c of sample.cells) {
-        if (!state.detected.has(c.id) || state.gated.has(c.id)) continue;
-        const [x, y] = place(c.x, c.y);
-        if (x < -8 || y < -8 || x > w + 8 || y > h + 8) continue;
-        ctx.moveTo(x + ctxRad, y);
-        ctx.arc(x, y, ctxRad, 0, Math.PI * 2);
-      }
-      ctx.fill();
-      ctx.globalAlpha = 1;
-
-      // gated cells — ringed, so identity is not carried by colour alone
-      const gr = Math.max(3, 4.2 * Math.sqrt(view.scale / 0.03));
-      for (const c of sample.cells) {
-        if (!state.gated.has(c.id)) continue;
-        const [x, y] = place(c.x, c.y);
-        if (x < -10 || y < -10 || x > w + 10 || y > h + 10) continue;
-        ctx.beginPath(); ctx.arc(x, y, gr, 0, Math.PI * 2);
-        ctx.fillStyle = "#0284c7"; ctx.fill();
-        ctx.lineWidth = 1.5; ctx.strokeStyle = css("--screen"); ctx.stroke();
-      }
-    }
-
-    // ---- acquired targets
-    if (showTargets && state.acquired.length) {
-      for (const id of state.acquired) {
-        const c = sample.cells[id - 1];
-        const [x, y] = place(c.x, c.y);
-        const rr = Math.max(7, 9 * Math.sqrt(view.scale / 0.03));
-        ctx.beginPath(); ctx.arc(x, y, rr, 0, Math.PI * 2);
-        ctx.strokeStyle = "#16a34a"; ctx.lineWidth = 2.2; ctx.stroke();
-        ctx.beginPath(); ctx.arc(x, y, 2.2, 0, Math.PI * 2);
-        ctx.fillStyle = "#16a34a"; ctx.fill();
-      }
-    }
-
-    /* The plan, under whatever the run has since produced: it is what the run
-       was told to do, so it stays readable once the tiles start landing on top
-       of it. Dimmed once the scan has begun, because by then the images are
-       the answer and this is only the question. */
-    /* The focus map goes over the plan, before the editing chrome: it is what
-       the run knows about the plate, and the plan is what it is going to do
-       with it. Only while standing on that step — walking away leaves the
-       canvas the plain picture every other step reads. */
-    if (step(state.activeIdx).mode === "focus") drawFocusLayer(ctx, place, view.scale, w, h);
-
     const editing = sideWidget()?.id === "scanfields" ? state.editor : null;
-    /* Not before the step that says where to scan. Walking back to the carrier
-       is walking back to a question the plan is an answer to — the fields were
-       placed against these areas, and drawing them over a plate that is still
-       being changed shows a plan for a carrier that may be about to stop
-       existing. The fields are kept, not discarded: coming forward again finds
-       them where they were. */
-    if (state.activeIdx >= indexOfStep("scanfields")) {
-      scanfieldsWidget.drawOn(ctx, {
-        fields: state.fields, preset: activePreset(), carrier: state.carrier,
-        toScreen: place, scale: view.scale, dim: shown > 0,
-        marked: editing?.marked(),
-      });
-    }
+    const stack = theStageLayers({
+      place,
+      shown: Math.max(state.tilesShown, 0),
+      ch0: el("ch-0").checked,
+      ch1: el("ch-1").checked,
+      w, h, editing,
+    });
+    /* Two different questions, and they must not be run together. `hasSomething`
+       is whether the *run* has anything for this layer — no cells have been
+       found, no targets imaged — and it decides whether the layer gets a
+       control at all. `shown` is what reaches the screen, which is that answer
+       and then whatever the operator hid.
 
-    /* The test position, while detection is being tuned on it: the channel's
-       preview is this one tile, and the canvas says which one that is. Only
-       while standing on the step, the same rule the focus map follows. */
-    if (step(state.activeIdx).mode === "detect" && state.plan[state.detect.tile]) {
-      const t = state.plan[state.detect.tile];
-      const half = t.frameUm / 2;
-      const [x, y] = place(t.x - half, t.y - half);
-      ctx.strokeStyle = css("--accent");
-      ctx.lineWidth = 2;
-      ctx.strokeRect(x, y, t.frameUm * view.scale, t.frameUm * view.scale);
+       Conflating them was wrong in both directions: a layer the operator hid
+       lost its own button, so there was no way to bring it back; and a layer
+       the run had nothing for still offered a button that did nothing. */
+    for (const layer of stack) {
+      layer.hasSomething = layer.shown !== false;
+      if (layersOff.has(layer.key)) layer.shown = false;
     }
+    theStack = stack;
 
-    // and the editing itself only while somebody is standing in it
-    if (editing) {
-      editing.drawChrome(ctx, { toScreen: place, scale: view.scale });
-      /* Set here rather than on the pointer alone, so a tool armed from the
-         panel or a key says so before the mouse is moved to find out. */
-      stageCv.style.cursor = editing.cursor();
-    } else {
-      stageCv.style.cursor = "";
-    }
+    /* The whole stack in one drawing, faded and cut through as the controls
+       say. Micrometres in the carrier's own frame, which is where the tiles,
+       the cells and the targets all live — so a window given in those numbers
+       lands on the fields it names. */
+    theDrawingAbove(stack, { dial: layerFade, seeThrough: seeThroughGround })?.({
+      context: ctx,
+      centre: { x: 0, y: 0 },
+      zoom: 1 / view.scale,
+      width: w,
+      height: h,
+      density: 1,
+      project: (x, y) => { const [px, py] = place(x, y); return { x: px, y: py }; },
+      unproject: (px, py) => { const [wx, wy] = toWorld(px, py); return { x: wx - ox, y: wy - oy }; },
+    });
+
+    /* Set here rather than on the pointer alone, so a tool armed from the panel
+       or a key says so before the mouse is moved to find out. */
+    stageCv.style.cursor = editing ? editing.cursor() : "";
 
     drawOverEverything(ctx, w, h);
+    renderStageLayerControls();
+  }
+
+  /**
+   * The controls for the stack, built again whenever the stack changes.
+   *
+   * Built rather than written into the markup, because the stack is not fixed:
+   * it grows as a run goes — the cells appear when detection has found some,
+   * the targets when any have been imaged — and a row of controls written out
+   * in advance would either name layers that do not exist yet or leave a layer
+   * on screen with no way to turn it off.
+   *
+   * A layer the run has nothing for is left out entirely rather than shown
+   * unavailable. There is no useful difference for an operator between a
+   * control that cannot be pressed and a control that is not there, and the
+   * second takes less room in a bar that has other things to say.
+   */
+  let barSaysThis = "";
+
+  function renderStageLayerControls() {
+    const stageLayerBar = el("stage-layers");
+    if (!stageLayerBar) return;
+    const here = theStack.filter((layer) => layer.paint && layer.hasSomething);
+    /* Rebuilt only when the set of layers actually changes. A run redraws the
+       canvas many times a second while scanning, and rebuilding a row of
+       buttons that often would take the press an operator was in the middle
+       of. */
+    const signature = here.map((l) => `${l.key}:${layersOff.has(l.key)}`).join("|")
+      + `|${layerFade}|${layersLocked}`;
+    if (signature === barSaysThis) return;
+    barSaysThis = signature;
+    stageLayerBar.textContent = "";
+    if (!here.length) return;
+
+    const title = document.createElement("span");
+    title.style.cssText = "font-weight:600;color:var(--ink-3)";
+    title.textContent = "Layers";
+    stageLayerBar.append(title);
+
+    for (const layer of here) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "layer-chip";
+      button.dataset.layer = layer.key;
+      button.setAttribute("aria-pressed", String(!layersOff.has(layer.key)));
+      button.title = layer.explains ?? "";
+      button.textContent = layer.label ?? layer.key;
+      button.addEventListener("click", () => {
+        if (layersOff.has(layer.key)) layersOff.delete(layer.key);
+        else layersOff.add(layer.key);
+        drawStage();
+      });
+      stageLayerBar.append(button);
+    }
+
+    /* One dial for the whole stack. "Let me see what is underneath" is one
+       thought and should be one movement, not a visit to every layer in turn.
+       It only ever fades: a layer already set faint does not become solid
+       because this is turned up. */
+    const fade = document.createElement("label");
+    fade.className = "layer-fade";
+    fade.title = "How solid the layers are drawn. Turn it down to see what is underneath "
+      + "them. Layers that stay solid — the focus points, the editing handles — are not "
+      + "affected.";
+    const slider = document.createElement("input");
+    slider.type = "range";
+    slider.min = "0"; slider.max = "100"; slider.step = "1";
+    slider.value = String(Math.round(layerFade * 100));
+    slider.id = "layer-fade";
+    slider.setAttribute("aria-label", "How solid the layers are drawn");
+    slider.addEventListener("input", () => {
+      layerFade = Number(slider.value) / 100;
+      barSaysThis = "";
+      drawStage();
+    });
+    fade.append(document.createTextNode("Fade"), slider);
+    stageLayerBar.append(fade);
+
+    /* The lock. An operator spends a long time looking at a plan they have
+       already settled — checking it, showing it to somebody, panning around it
+       while the run goes — and in all that time a stray click can only do harm.
+       Locking leaves panning and zooming exactly as they were and stops only
+       the picking. */
+    const lock = document.createElement("button");
+    lock.type = "button";
+    lock.className = "layer-chip";
+    lock.id = "layers-lock";
+    lock.setAttribute("aria-pressed", String(layersLocked));
+    lock.title = "Lock the layers so nothing can be picked, moved or drawn by accident. "
+      + "Panning and zooming go on working.";
+    lock.textContent = "Lock";
+    lock.addEventListener("click", () => {
+      layersLocked = !layersLocked;
+      barSaysThis = "";
+      drawStage();
+    });
+    stageLayerBar.append(lock);
+  }
+
+  /**
+   * Open the ground the scan has already covered, so the picture shows through.
+   *
+   * Called as fields land. The plan, the tiles and everything else drawn over a
+   * field that has been taken is opened up there, which is how an operator
+   * watches the scan appear through their own drawing rather than beside it.
+   *
+   * In micrometres in the carrier's own frame, which is where the fields are,
+   * so the window travels with the sample when the view is panned and grows
+   * when it is magnified.
+   */
+  function openTheGroundThatHasBeenScanned(howMuch = 1) {
+    const shown = Math.max(state.tilesShown, 0);
+    seeThroughGround = state.plan.slice(0, shown).map((t) => ({
+      x: t.x - t.frameUm / 2,
+      y: t.y - t.frameUm / 2,
+      w: t.frameUm,
+      h: t.frameUm,
+      letThrough: howMuch,
+    }));
   }
 
   /* Carrier coordinates for the editor: it places fields inside the carrier,
@@ -2045,6 +2287,9 @@ import scanfieldsWidget, { presetInk } from "./widgets/scanfields.js";
      it turns down pans or picks, so drawing a region does not drag the stage
      out from under the shape being drawn. */
   function editorTook(kind, e) {
+    /* Locked, nothing can be drawn or moved by accident. Panning and zooming
+       are untouched — the lock is about picking, not about looking. */
+    if (layersLocked) return false;
     if (sideWidget()?.id !== "scanfields" || !state.editor) return false;
     const { x, y } = toCarrier(e.offsetX, e.offsetY);
     const took = state.editor.pointer(kind, { x, y, shift: e.shiftKey, scale: view.scale });
@@ -2132,7 +2377,7 @@ import scanfieldsWidget, { presetInk } from "./widgets/scanfields.js";
 
     // hover the nearest visible cell
     let hit = null;
-    if (state.cellsShown && el("lay-cells").checked) {
+    if (state.cellsShown && !layersOff.has("cells")) {
       const [ox, oy] = carrierOriginUm();
       let best = 12 / view.scale;
       for (const c of sample.cells) {
@@ -2162,7 +2407,9 @@ import scanfieldsWidget, { presetInk } from "./widgets/scanfields.js";
     if (dragging) {
       const still = !panMoved;
       endDrag(e);
-      if (still) focusPressed(e.offsetX, e.offsetY) || detectPressed(e.offsetX, e.offsetY);
+      if (still && !layersLocked) {
+        focusPressed(e.offsetX, e.offsetY) || detectPressed(e.offsetX, e.offsetY);
+      }
       return;
     }
     if (editorTook("up", e)) {
@@ -2197,7 +2444,7 @@ import scanfieldsWidget, { presetInk } from "./widgets/scanfields.js";
     if (liveOverview.showing) { liveOverview.fit(); return; }
     fitView(); drawStage();
   });
-  for (const id of ["lay-tiles", "lay-cells", "lay-targets", "ch-0", "ch-1"]) {
+  for (const id of ["ch-0", "ch-1"]) {
     el(id).addEventListener("change", drawStage);
   }
 
