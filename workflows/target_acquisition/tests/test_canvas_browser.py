@@ -256,22 +256,29 @@ def test_a_window_cuts_through_the_stack_but_never_the_bottom_layer(drawn):
         """() => {
              const frame = [...document.querySelectorAll("#here div")]
                .find((d) => (d.style.transform || "").includes("translate("));
-             return [...frame.children].map((c) =>
-               Boolean(c.style.mask || c.style.webkitMask));
+             return [...frame.children].map((c) => Boolean(c.style.mask));
            }"""
     )
     assert masked[0] is False, "the bottom layer was cut, so nothing shows through"
     assert all(masked[1:]), "the window did not reach every layer above the bottom"
 
     # The mask really is drawn, in sample units, where the field is.
+    # The window is drawn where the scan field really is. A mask is measured
+    # from the corner of what it masks, so the field's place on the sample is
+    # shifted by the canvas's own corner — and the size is untouched.
     window_rect = page.evaluate(
         """() => {
              const r = document.querySelector("mask rect:nth-of-type(2)");
              return r ? [r.getAttribute("x"), r.getAttribute("y"),
-                         r.getAttribute("width"), r.getAttribute("height")] : null;
+                         r.getAttribute("width"), r.getAttribute("height")]
+                         .map(Number) : null;
            }"""
     )
-    assert window_rect == ["0", "0", "100", "100"], window_rect
+    extent = canvas.extent
+    field = canvas.layers[2]["shapes"][0]["bounds"]
+    assert window_rect == pytest.approx(
+        [field[0] - extent[0], field[1] - extent[1], field[2], field[3]]
+    ), window_rect
     assert errors == []
 
 
@@ -315,3 +322,90 @@ def test_the_shared_dial_fades_only_what_follows_it(drawn):
     assert by_id["focus"] == pytest.approx(1.0), (
         "focus points faded, so dimming to see the sample would hide what you are placing"
     )
+
+
+def test_opening_a_window_really_shows_the_imagery(tmp_path):
+    """The proof that matters: the pixels change, and only where they should.
+
+    Everything else about the window can look right while nothing happens on
+    screen — the style can be set, the mask can be in the page, and the layer
+    can still be drawn exactly as before. So this looks at the picture itself.
+    A window is opened over one field and not its neighbour, and the colours
+    are read back from both.
+    """
+    import numpy as np
+    from PIL import Image
+    from workflow.react._support import jpeg_data_url
+
+    # A plainly red picture, so "the sample showed through" is unmistakable
+    # against the blue cover over it.
+    red = np.zeros((8, 8, 3), dtype=np.float32)
+    red[..., 0] = 1.0
+    imagery = jpeg_data_url(red)
+    canvas = wreact.canvas(
+        [
+            {
+                "kind": "images",
+                "id": "imagery",
+                "label": "imagery",
+                "images": [
+                    {"x0": 0, "y0": 0, "w": 100, "h": 100, "src": imagery},
+                    {"x0": 100, "y0": 0, "w": 100, "h": 100, "src": imagery},
+                ],
+            },
+            {
+                "kind": "shapes",
+                "id": "cover",
+                "label": "cover",
+                "shapes": [{"bounds": [0, 0, 200, 100], "fill": "rgb(0,0,255)"}],
+            },
+        ]
+    )
+    canvas.look_at(100.0, 50.0, scale=2.0)
+
+    with widget_in_a_browser(canvas) as base, playwright_api.sync_playwright() as pw:
+        browser = _launch(pw)
+        page = browser.new_page(viewport={"width": 1200, "height": 900})
+        page.goto(base, wait_until="domcontentloaded")
+        page.wait_for_function("window.__mounted === true", timeout=30_000)
+        page.wait_for_timeout(300)
+
+        # Where each field actually is on screen. Taking fractions of the
+        # moving frame would be wrong: that frame spans the whole piece of
+        # sample the canvas covers, most of which is outside the visible part.
+        centres = page.evaluate(
+            """() => [...document.querySelectorAll("#here img")].map((im) => {
+                 const r = im.getBoundingClientRect();
+                 return [Math.round(r.left + r.width / 2), Math.round(r.top + r.height / 2)];
+               })"""
+        )
+        assert len(centres) == 2, f"expected two fields on screen, found {len(centres)}"
+        (left_at, right_at) = sorted(centres)
+
+        def colours():
+            shot = tmp_path / "canvas.png"
+            page.screenshot(path=str(shot))
+            with Image.open(shot) as picture:
+                pixels = picture.convert("RGB")
+                return pixels.getpixel(tuple(left_at)), pixels.getpixel(tuple(right_at))
+
+        covered_left, covered_right = colours()
+        assert covered_left[2] > covered_left[0], "the cover should be blue over both fields"
+        assert covered_right[2] > covered_right[0]
+
+        # Open a window over the left-hand field only.
+        canvas.see_through([{"shape": "rect", "bounds": [0, 0, 100, 100], "opacity": 0.0}])
+        page.evaluate("m => window.__setTrait('opacity_map', m)", canvas.opacity_map)
+        page.wait_for_timeout(300)
+        opened_left, opened_right = colours()
+
+        assert opened_left != covered_left, (
+            "the window changed nothing on screen — the imagery never showed through"
+        )
+        assert opened_left[0] > opened_left[2], (
+            f"the sample should show through the window, got {opened_left}"
+        )
+        assert opened_right == covered_right, (
+            f"the window reached a field it was not opened over, got {opened_right}"
+        )
+        browser.close()

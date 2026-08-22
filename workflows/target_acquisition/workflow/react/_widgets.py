@@ -2349,6 +2349,13 @@ class CanvasReact(_ZmartWidget):
     #:     focus points they are placing.
     window_reaches = traitlets.Unicode("all").tag(sync=True)
 
+    #: The piece of sample the layers cover, ``[x0, y0, width, height]`` in
+    #: micrometres. Each layer is given this as its own area, which is what a
+    #: window is then cut out of — a layer with no area of its own would have
+    #: nothing to cut. Recomputed from the layers as they change, so a caller
+    #: does not have to think about it.
+    extent = traitlets.List([-1000.0, -1000.0, 2000.0, 2000.0]).tag(sync=True)
+
     #: The last place the pointer was, in micrometres — shown under the
     #: picture, and what a panel on the right reads to place something.
     cursor = traitlets.Dict().tag(sync=True)
@@ -2380,31 +2387,38 @@ function solidity(layer, dim) {
 // mask sits inside the same moving frame as everything else, a window onto
 // the imagery stays over the same piece of sample while the view moves,
 // instead of sliding about like a hole cut in the screen.
-function maskFor(omap, id) {
+function maskFor(omap, id, extent) {
   const regions = (omap && omap.kind === "regions" && omap.regions) || [];
   if (!regions.length) return null;
   const outside = omap.outside === undefined ? 1 : Number(omap.outside);
-  const bounds = omap.extent || [-1e6, -1e6, 2e6, 2e6];
-  return h("svg", { width: 0, height: 0, style: { position: "absolute" } },
+  const [ox, oy, ew, eh] = extent;
+  // A mask is measured from the corner of the thing it is masking, and each
+  // layer's corner is the canvas's own corner — so the areas, which are given
+  // as places on the sample, are moved to match.
+  const grey = (v) => `rgb(${v * 255},${v * 255},${v * 255})`;
+  return h("svg", { width: 0, height: 0, style: { position: "absolute" },
+                    "aria-hidden": "true" },
     h("defs", null,
-      h("mask", { id, maskUnits: "userSpaceOnUse" },
-        // White keeps a layer, black lets the sample through.
-        h("rect", { x: bounds[0], y: bounds[1], width: bounds[2], height: bounds[3],
-                    fill: `rgb(${outside * 255},${outside * 255},${outside * 255})` }),
+      // The area the mask covers has to be stated outright. Left unsaid it
+      // is worked out as a share of the drawing's own size, and this drawing
+      // has none — which would leave an empty mask and hide every layer.
+      h("mask", { id, maskUnits: "userSpaceOnUse", maskContentUnits: "userSpaceOnUse",
+                  x: 0, y: 0, width: ew, height: eh },
+        // White keeps a layer as it is; black lets the sample through.
+        h("rect", { x: 0, y: 0, width: ew, height: eh, fill: grey(outside) }),
         regions.map((r, i) => {
-          const keep = (r.opacity === undefined ? 0 : Number(r.opacity)) * 255;
-          const paint = `rgb(${keep},${keep},${keep})`;
+          const paint = grey(r.opacity === undefined ? 0 : Number(r.opacity));
           if (r.shape === "polygon" && Array.isArray(r.points)) {
             return h("polygon", { key: i, fill: paint,
-              points: r.points.map((p) => `${p[0]},${p[1]}`).join(" ") });
+              points: r.points.map((p) => `${p[0] - ox},${p[1] - oy}`).join(" ") });
           }
           const b = r.bounds || [0, 0, 0, 0];
-          return h("rect", { key: i, x: b[0], y: b[1], width: b[2], height: b[3],
-                             fill: paint });
+          return h("rect", { key: i, x: b[0] - ox, y: b[1] - oy,
+                             width: b[2], height: b[3], fill: paint });
         }))));
 }
 
-function LayerBody({ layer }) {
+function LayerBody({ layer, ox, oy }) {
   if (layer.kind === "engine") {
     // The slot for an image engine that draws with the graphics card. It is
     // deliberately empty: it reads the shared camera when one is plugged in.
@@ -2415,7 +2429,8 @@ function LayerBody({ layer }) {
   if (layer.kind === "images") {
     return (layer.images || []).map((im, i) =>
       h("img", { key: i, src: im.src, draggable: false, style: {
-        position: "absolute", left: im.x0, top: im.y0, width: im.w, height: im.h,
+        position: "absolute", left: im.x0 - ox, top: im.y0 - oy,
+        width: im.w, height: im.h,
         imageRendering: "pixelated" } }));
   }
   if (layer.kind === "shapes") {
@@ -2423,7 +2438,7 @@ function LayerBody({ layer }) {
       if (s.shape === "polygon" && Array.isArray(s.points)) {
         const xs = s.points.map((p) => p[0]), ys = s.points.map((p) => p[1]);
         const x0 = Math.min(...xs), y0 = Math.min(...ys);
-        return h("svg", { key: i, style: { position: "absolute", left: x0, top: y0,
+        return h("svg", { key: i, style: { position: "absolute", left: x0 - ox, top: y0 - oy,
             overflow: "visible", width: 0, height: 0 } },
           h("polygon", { points: s.points.map((p) => `${p[0] - x0},${p[1] - y0}`).join(" "),
             fill: s.fill || "none", stroke: s.stroke || "none",
@@ -2431,7 +2446,7 @@ function LayerBody({ layer }) {
       }
       const b = s.bounds || [0, 0, 0, 0];
       return h("div", { key: i, title: s.label || undefined, style: {
-        position: "absolute", left: b[0], top: b[1], width: b[2], height: b[3],
+        position: "absolute", left: b[0] - ox, top: b[1] - oy, width: b[2], height: b[3],
         background: s.fill || "transparent", boxSizing: "border-box",
         border: s.stroke ? `1px solid ${s.stroke}` : "none" } });
     });
@@ -2441,7 +2456,7 @@ function LayerBody({ layer }) {
     // a focus point stays clickable however far out the view is.
     return (layer.points || []).map((p, i) =>
       h("div", { key: i, "data-point": i, title: p.label || undefined, style: {
-        position: "absolute", left: p.x, top: p.y, width: 0, height: 0 } },
+        position: "absolute", left: p.x - ox, top: p.y - oy, width: 0, height: 0 } },
         h("div", { style: {
           position: "absolute", left: "-6px", top: "-6px", width: 12, height: 12,
           transform: "scale(var(--zmart-inverse-zoom, 1))", transformOrigin: "6px 6px",
@@ -2458,6 +2473,7 @@ function App({ model }) {
   const [dim] = useTrait(model, "dim");
   const [omap] = useTrait(model, "opacity_map");
   const [windowReaches] = useTrait(model, "window_reaches");
+  const [extentTrait] = useTrait(model, "extent");
   const [status] = useTrait(model, "status");
   const [readOnly] = useTrait(model, "read_only");
   const box = React.useRef(null);
@@ -2466,7 +2482,10 @@ function App({ model }) {
   const W = widgetPx(760), H = widgetPx(560);
   const view = screenFrom(camera, W, H);
   const maskId = "zmart-canvas-window";
-  const mask = maskFor(omap, maskId);
+  const extent = (extentTrait && extentTrait.length === 4)
+    ? extentTrait.map(Number) : [-1000, -1000, 2000, 2000];
+  const [ox, oy, ew, eh] = extent;
+  const mask = maskFor(omap, maskId, extent);
 
   const sampleAt = (e) => {
     const r = box.current.getBoundingClientRect();
@@ -2521,7 +2540,7 @@ function App({ model }) {
           transform: `translate(${view.tx}px, ${view.ty}px) scale(${view.scale})` } },
         shown.map((layer, i) =>
           h("div", { key: layer.id || i, style: {
-              position: "absolute", left: 0, top: 0, width: 0, height: 0,
+              position: "absolute", left: ox, top: oy, width: ew, height: eh,
               opacity: solidity(layer, dim),
               // The window is cut through EVERY layer that follows it, all
               // at once — a window through one layer alone would reveal the
@@ -2529,25 +2548,39 @@ function App({ model }) {
               // point of it. The bottom layer is never cut: it is the thing
               // meant to show through.
               ...(cutsThrough(layer) && mask
-                  ? { mask: `url(#${maskId})`, WebkitMask: `url(#${maskId})` }
+                  // Only the standard property. The old prefixed one treats
+                  // this as a picture to go and fetch rather than a mask drawn
+                  // in the page, finds nothing, and hides the layer entirely.
+                  ? { mask: `url(#${maskId})` }
                   : {}),
               pointerEvents: layer.interactive ? "auto" : "none" } },
-            h(LayerBody, { layer })))),
+            h(LayerBody, { layer, ox, oy })))),
       h("div", { style: { position: "absolute", left: 10, bottom: 8, display: "flex",
                           gap: 6 } },
         pill(`${shown.length} of ${(layers || []).length} layer(s)`),
         cursor ? pill(`x ${cursor.x.toFixed(0)} um · y ${cursor.y.toFixed(0)} um`) : null)),
     h("div", { style: { width: 230 } },
       h("div", { style: { fontWeight: 700, marginBottom: 8 } }, "layers"),
-      (layers || []).map((layer, i) =>
-        h("div", { key: layer.id || i, style: { display: "flex", alignItems: "center",
-            gap: 6, marginBottom: 6 } },
-          h("button", { style: { ...btn(false), padding: "2px 8px",
-              background: layer.visible === false ? T.edge : T.accent },
+      (layers || []).map((layer, i) => {
+        const hidden = layer.visible === false;
+        return h("div", { key: layer.id || i, style: { display: "flex", alignItems: "center",
+            gap: 8, marginBottom: 6 } },
+          // One button per layer, saying what it will do rather than what the
+          // layer currently is — an operator reads a button as an instruction.
+          h("button", {
+            title: hidden ? "draw this layer again" : "take this layer off the picture",
+            "aria-pressed": hidden ? "false" : "true",
+            disabled: readOnly,
+            style: { ...btn(readOnly), padding: "3px 10px", minWidth: 58,
+                     background: readOnly ? T.edge : (hidden ? T.edge : T.accent),
+                     color: hidden ? T.ink : "#ffffff" },
             onClick: () => model.send({ type: "toggle", id: layer.id }) },
-            layer.visible === false ? "off" : "on"),
-          h("span", { style: { flex: 1 } }, layer.label || layer.kind),
-          layer.dimmable ? pill("fades") : null)),
+            hidden ? "Show" : "Hide"),
+          h("span", { style: { flex: 1, color: hidden ? T.dim : T.ink,
+                               textDecoration: hidden ? "line-through" : "none" } },
+            layer.label || layer.kind),
+          layer.dimmable ? pill("fades") : null);
+      }),
       h("div", { style: { marginTop: 10, color: T.dim, fontSize: 12 } },
         `shared fade ${Math.round((Number(dim) || 0) * 100)}%`),
       h("input", { type: "range", min: 0, max: 100, value: Math.round((Number(dim) || 0) * 100),
@@ -2562,6 +2595,7 @@ export default mount(App);
     def __init__(self, layers: list[dict] | None = None, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self.layers = [self._layer_defaults(layer) for layer in (layers or [])]
+        self.fit_extent()
         self.status = "drag to move, scroll to zoom — every layer moves together"
 
     @staticmethod
@@ -2610,6 +2644,7 @@ export default mount(App);
             index = next((i for i, la in enumerate(layers) if la["id"] == above), len(layers) - 1)
             layers.insert(index + 1, filled)
         self.layers = layers
+        self.fit_extent()
 
     def show_layer(self, layer_id: str, visible: bool = True) -> None:
         """Switch one layer on or off; off means not drawn at all."""
@@ -2637,6 +2672,50 @@ export default mount(App);
             "regions": [dict(region) for region in regions],
             "outside": float(outside),
         }
+
+    def fit_extent(self, margin: float = 200.0) -> None:
+        """Work out the piece of sample the layers cover, with room to spare.
+
+        Each layer is given this area as its own, which is what a window is
+        cut out of; a layer with no area of its own has nothing to cut, and
+        the window would quietly do nothing. Recomputed whenever the layers
+        change, so a caller never has to set it by hand.
+        """
+        boxes = []
+        for layer in self.layers:
+            for item in list(layer.get("shapes") or []) + list(layer.get("images") or []):
+                bounds = item.get("bounds")
+                if bounds is None and "x0" in item:
+                    bounds = [item["x0"], item["y0"], item["w"], item["h"]]
+                if bounds:
+                    boxes.append([float(v) for v in bounds])
+            for point in layer.get("points") or []:
+                boxes.append([float(point["x"]), float(point["y"]), 0.0, 0.0])
+        if not boxes:
+            return
+        x0 = min(b[0] for b in boxes) - margin
+        y0 = min(b[1] for b in boxes) - margin
+        x1 = max(b[0] + b[2] for b in boxes) + margin
+        y1 = max(b[1] + b[3] for b in boxes) + margin
+        self.extent = [x0, y0, x1 - x0, y1 - y0]
+
+    def set_images(self, layer_id: str, images: list[dict]) -> None:
+        """Put pictures on a layer, each in its place on the sample.
+
+        Every entry says where its picture belongs in micrometres —
+        ``{"x0", "y0", "w", "h", "src"}`` — so the pictures land on the sample
+        rather than on the screen, and are carried by the shared view like
+        everything else. ``src`` is the picture itself; several entries may
+        share one, in which case the browser decodes it once.
+        """
+        placed = []
+        for image in images:
+            missing = {"x0", "y0", "w", "h", "src"} - set(image)
+            if missing:
+                raise ValueError(f"a picture is missing {sorted(missing)}")
+            placed.append(dict(image))
+        self.set_layer(layer_id, images=placed)
+        self.fit_extent()
 
     def see_through_fields(
         self,
