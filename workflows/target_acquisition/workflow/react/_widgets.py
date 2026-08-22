@@ -28,6 +28,7 @@ from __future__ import annotations
 import copy
 import math
 import time
+from collections.abc import Callable
 from typing import Any
 
 from ._support import (
@@ -2733,6 +2734,11 @@ export default mount(App);
         super().__init__(**kwargs)
         self.layers = [self._layer_defaults(layer) for layer in (layers or [])]
         self._pictures: list[bytes] = []
+        #: Called after the operator changes something on the picture, as
+        #: ``on_edit(what, layer_id, details)`` — "place", "remove" or "move".
+        #: The run sets this so a focus point put down here becomes one the
+        #: microscope will actually measure, rather than only a drawing.
+        self.on_edit: Callable[[str, str, dict], None] | None = None
         self.fit_extent()
         self.status = "drag to move, scroll to zoom — every layer moves together"
 
@@ -3050,6 +3056,15 @@ export default mount(App);
     #: The layer a focus point is put on when the operator clicks bare sample.
     focus_layer = "focus"
 
+    def _tell_the_run(self, what: str, layer_id: str, details: dict) -> None:
+        """Pass one edit on to the run, without letting a mistake there stop the page."""
+        if self.on_edit is None:
+            return
+        try:
+            self.on_edit(what, layer_id, details)
+        except Exception as exc:  # noqa: BLE001 -- the operator hears it, the page lives
+            self.status = f"could not apply that: {exc}"
+
     def handle_message(self, content: dict) -> None:
         kind = content.get("type")
         if kind == "tool":
@@ -3067,6 +3082,7 @@ export default mount(App);
                 self.pick(layer_id, index)
             elif kind == "remove":
                 self.remove_point(layer_id, index)
+                self._tell_the_run("remove", layer_id, {"index": index})
             else:
                 try:
                     dx, dy = float(content.get("dx")), float(content.get("dy"))
@@ -3074,6 +3090,7 @@ export default mount(App);
                     return
                 if math.isfinite(dx) and math.isfinite(dy):
                     self.move_item(layer_id, index, dx, dy)
+                    self._tell_the_run("move", layer_id, {"index": index, "dx": dx, "dy": dy})
             return
         if kind == "place":
             try:
@@ -3082,6 +3099,7 @@ export default mount(App);
                 return
             if math.isfinite(x) and math.isfinite(y):
                 self.place_point(self.focus_layer, x, y)
+                self._tell_the_run("place", self.focus_layer, {"x": x, "y": y})
             return
         if kind == "toggle":
             layer_id = content.get("id")

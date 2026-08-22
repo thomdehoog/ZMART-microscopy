@@ -113,7 +113,7 @@ _STEPS = [
 
 # Which widget mounts inside which step's section.
 _WIDGET_SECTIONS = {
-    "canvas": "run_overview",
+    "canvas": "load_positions",
     "overview": "run_overview",
     "focus": "load_positions",
     "explorer": "discover_targets",
@@ -473,6 +473,9 @@ function setNewRunAvailable(available) {
 
 function showOverview() {
   document.getElementById("widget-overview").hidden = false;
+}
+
+function showCanvas() {
   document.getElementById("widget-canvas").hidden = false;
 }
 
@@ -522,6 +525,7 @@ function flowUpdate(ev) {
     note.textContent = ev.message;
     note.className = "step-note ok";
     markDone(ev.step);
+    if (ev.step === "load_positions") showCanvas();
     const section = document.getElementById(`step-${ev.step}`);
     if (section?.dataset.collapse === "true") openNextStep(ev.step);
     if (ev.step === "connect") setNewRunAvailable(true);
@@ -612,7 +616,8 @@ async function applySnapshot() {
   const overviewStarted = completed.includes("run_overview")
     || Boolean(snapshot.widgets.overview?.status);
   document.getElementById("widget-overview").hidden = !overviewStarted;
-  document.getElementById("widget-canvas").hidden = !overviewStarted;
+  document.getElementById("widget-canvas").hidden =
+    !(completed.includes("load_positions") || overviewStarted);
   setNewRunAvailable(completed.includes("connect"));
   if (snapshot.flow.demo) document.getElementById("demo-banner").hidden = false;
   return snapshot;
