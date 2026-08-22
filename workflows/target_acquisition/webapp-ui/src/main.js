@@ -1462,6 +1462,93 @@ import scanfieldsWidget, { presetInk } from "./widgets/scanfields.js";
      what it does and why it has to exist. */
   const SEE_THROUGH = new URLSearchParams(location.search).get("seethrough") === "1";
 
+  /**
+   * The scan itself, drawn beneath the plan by one of the drawing engines.
+   *
+   * Pointed at with `?picture=<folder>`, which is a folder of small JPEGs and a
+   * `tiles.json` saying where each belongs — what
+   * `viz_studio/backend/jpeg_tiles.py` makes from the files a microscope
+   * exports. Nothing is opened unless the page was given one, because an engine
+   * is a large thing to fetch and a page nobody pointed at a scan has no use
+   * for it.
+   *
+   * ## The view is not shared, it is handed down
+   *
+   * The plan's canvas owns the gestures and this follows it. That is a
+   * deliberate choice between two arrangements that look equally reasonable:
+   * both surfaces could listen and each move the other, and then a drag would
+   * be answered twice and the two would argue about rounding for ever. One
+   * listens, one follows, and they cannot disagree.
+   *
+   * The two speak different dialects of the same thing, and converting between
+   * them is the whole of the wiring. The plan places a point in the carrier's
+   * frame at `x * scale + tx` browser pixels; the engine places it at
+   * `width/2 + (x - centre) / zoom`. Setting `zoom = 1 / scale` and the centre
+   * to whatever puts the middle of the box in the same place makes the two
+   * projections identical, which is why the scan sits under the plan rather
+   * than merely near it.
+   */
+  const thePicture = (() => {
+    const asked = new URLSearchParams(location.search).get("picture");
+    const host = el("picture-host");
+    let viewer = null;
+    let opening = false;
+
+    async function open() {
+      if (!asked || viewer || opening) return;
+      opening = true;
+      try {
+        const { openViewer } = await import("../../../../viz_studio/options/jpeg-under/viewer.js");
+        viewer = await openViewer(host, {
+          acquisitions: [{ url: asked, name: asked.split("/").filter(Boolean).pop() ?? "scan" }],
+          /* The same colour the page paints, so the seam between the scan's own
+             background and the ground above it never shows. */
+          background: css("--screen"),
+        });
+        /* Left where a test can reach it. What matters about a picture is what
+           reached the screen, and a viewer that reports itself perfectly opened
+           while drawing nothing is the failure this project keeps meeting — so
+           the tests photograph the box, and this is only the way to ask it
+           where it is looking. */
+        window.__thePicture = viewer;
+        followTheStage();
+      } catch (e) {
+        console.error(`the scan at ${asked} could not be opened — ${e.message}`);
+      } finally {
+        opening = false;
+      }
+    }
+
+    /** Put the scan where the plan is looking, exactly. */
+    function followTheStage() {
+      if (!viewer) return;
+      const box = host.getBoundingClientRect();
+      const [ox, oy] = carrierOriginUm();
+      viewer.setView({
+        zoom: 1 / view.scale,
+        centre: {
+          x: (box.width / 2 - view.tx) / view.scale - ox,
+          y: (box.height / 2 - view.ty) / view.scale - oy,
+        },
+      });
+    }
+
+    return {
+      /** Whether this page was pointed at a scan at all. */
+      get asked() { return !!asked; },
+      open,
+      followTheStage,
+      /** A field has landed, so there may be more of the scan to read. */
+      mayHaveLanded() { viewer?.tilesMayHaveLanded?.(); },
+    };
+  })();
+
+  /* Opened at once when the page was pointed at a scan. It is not opened lazily
+     on the first draw, because the first draw is also the first thing an
+     operator sees, and a picture that arrives a moment after everything else
+     reads as the page having stumbled. */
+  thePicture.open();
+
   const liveOverview = (() => {
     const cv = el("overview-canvas");
     const note = el("overview-note");
@@ -1560,7 +1647,13 @@ import scanfieldsWidget, { presetInk } from "./widgets/scanfields.js";
       },
 
       /** A position has been saved, so there may be more picture to read. */
-      tileMayHaveLanded() { picture?.tileMayHaveLanded(); },
+      tileMayHaveLanded() {
+        picture?.tileMayHaveLanded();
+        /* The scan drawn beneath the plan reads its own note again. Nothing on
+           disk announces a new field, so it is asked rather than told — the
+           same reason the overview above has to be asked. */
+        thePicture.mayHaveLanded();
+      },
 
       /** Frame the whole overview again, for the Fit button. */
       fit() { picture?.fit(); },
@@ -2299,6 +2392,10 @@ import scanfieldsWidget, { presetInk } from "./widgets/scanfields.js";
        or a key says so before the mouse is moved to find out. */
     stageCv.style.cursor = editing ? editing.cursor() : "";
 
+    /* The scan beneath follows the view the plan was just drawn with, so the
+       two are never a frame apart. Cheap: it is two divisions and a setView,
+       and the engine only redraws if something actually moved. */
+    thePicture.followTheStage();
     renderStageLayerControls();
   }
 
@@ -2440,6 +2537,33 @@ import scanfieldsWidget, { presetInk } from "./widgets/scanfields.js";
     /** Which layers there are, and which are being drawn. */
     layers: () => theStack.map(({ key, label, shown, staysSolid }) =>
       ({ key, label, shown, staysSolid: !!staysSolid })),
+    /**
+     * Where the run means to send the stage, in micrometres in the carrier's
+     * own frame.
+     *
+     * This is the pairing the whole arrangement rests on, and it is worth
+     * saying plainly where it shows up: **the files a microscope writes do not
+     * say where they were taken.** The run knows, because it is the run that
+     * sent the stage there. So making the small pictures for a scan means
+     * handing these positions in alongside the files, and this is where a
+     * rehearsal gets them from — exactly as the real thing will.
+     */
+    plan: () => state.plan.map(({ x, y, frameUm }) => ({ x, y, frameUm })),
+    /**
+     * Where a place on the sample lands on screen, as the plan itself works it
+     * out.
+     *
+     * Here so that a test can ask the plan and the scan the same question and
+     * compare their answers. That comparison is the one that matters: the two
+     * are drawn by different code on different surfaces, and the only thing
+     * making them one picture is that they agree about where things are. A
+     * difference of a few pixels would look like a slightly blurry scan and be
+     * a run pointed at the wrong place.
+     */
+    project: (x, y) => {
+      const [ox, oy] = carrierOriginUm();
+      return toScreen(x + ox, y + oy);
+    },
   };
 
   /* Carrier coordinates for the editor: it places fields inside the carrier,

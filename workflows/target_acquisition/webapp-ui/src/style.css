@@ -591,6 +591,13 @@ canvas.stagecv { cursor: default; }
    window through it, is what lets this show. */
 canvas.stagecv { position: absolute; inset: 0; z-index: 1; }
 canvas.livecv { position: absolute; inset: 0; z-index: 0; background: #05070d; }
+
+/* The scan, drawn by whichever engine is chosen, at the very bottom. The engine
+   builds its own canvases inside this box, so it is a plain container rather
+   than a canvas of its own — and it takes no pointer events, because the plan
+   above it owns the gestures and hands the view down. One canvas listening and
+   one following is the only arrangement in which the two cannot disagree. */
+.picturecv { position: absolute; inset: 0; z-index: 0; pointer-events: none; }
 canvas.livecv[hidden] { display: none; }
 
 /* The box the canvas draws in, on the step that is nothing but the canvas. It

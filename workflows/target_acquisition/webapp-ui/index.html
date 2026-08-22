@@ -43,6 +43,11 @@
                  being looked at, and is only there at all when the page was
                  given a run to watch. -->
             <canvas class="plot livecv" id="overview-canvas" hidden></canvas>
+            <!-- Where the scan itself is drawn, beneath the plan. Empty unless
+                 the page was pointed at a folder of small pictures with
+                 `?picture=`; the drawing engine builds its own surfaces inside
+                 it. See `viz_studio/options/jpeg-under/`. -->
+            <div class="plot picturecv" id="picture-host"></div>
             <div class="live-note" id="overview-note" hidden></div>
             <div class="tip" id="stage-tip"></div>
           </div>
