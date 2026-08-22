@@ -1819,10 +1819,15 @@ import scanfieldsWidget, { presetInk } from "./widgets/scanfields.js";
      picture is, and where the microscope is standing in it. Both are true of
      the stage rather than of anything the run has produced, so they are drawn
      from the one place instead of at each of the points the drawing can stop. */
-  function drawOverEverything(ctx, w, h) {
-    drawWhereTheStageIs(ctx);
-    drawScaleBar(ctx, w, h);
-  }
+  /* Where the stage is and how far a stretch of screen reaches used to be
+     drawn here, after everything else, by a function called for that purpose.
+     They are two layers at the top of the stack now, which is a better answer
+     for the same reason every other piece became one: a layer draws only where
+     it has something to draw, so a crosshair and a bar cost nothing but the
+     few pixels they cover, and being in the stack means they can be turned off
+     by somebody who does not want them. Both are marked to stay solid, because
+     neither is a drawing an operator would want faded — one says where the
+     microscope actually is, and the other is a measurement. */
 
   /* Where the stage ends. Drawn first and faintly: it is the edge of what any
      of this can reach, which is context for everything else rather than a
@@ -1882,10 +1887,67 @@ import scanfieldsWidget, { presetInk } from "./widgets/scanfields.js";
      it without drawing a frame to find out. */
   let theStack = [];
 
+  /**
+   * How many cells detection found in each field that has been taken.
+   *
+   * Worked out here rather than inside the drawing, because the drawing is
+   * asked for many times a second while a scan runs and walking every cell for
+   * every field each time would show as a stutter on a plate of any size.
+   * Remembered until either the fields or what has been detected changes.
+   */
+  let countedLast = { key: "", fields: [], most: 0 };
+  function countedPerField() {
+    const shown = Math.max(state.tilesShown, 0);
+    const key = `${shown}|${state.detected.size}|${state.plan.length}`;
+    if (key === countedLast.key) return countedLast;
+
+    const fields = state.plan.slice(0, shown).map((tile) => ({ tile, count: 0 }));
+    let most = 0;
+    for (const c of sample.cells) {
+      if (!state.detected.has(c.id)) continue;
+      for (const entry of fields) {
+        const half = entry.tile.frameUm / 2;
+        if (Math.abs(c.x - entry.tile.x) <= half && Math.abs(c.y - entry.tile.y) <= half) {
+          entry.count += 1;
+          if (entry.count > most) most = entry.count;
+          break;
+        }
+      }
+    }
+    countedLast = { key, fields, most };
+    return countedLast;
+  }
+
   function theStageLayers({ place, shown, ch0, ch1, w, h, editing }) {
     const activeMode = step(state.activeIdx).mode;
 
     return [
+      {
+        key: "limits",
+        label: "Stage",
+        explains: "The edge of where the stage can travel. Context for everything else "
+          + "rather than a thing the run produced, which is why it is drawn faintly.",
+        shown: true,
+        paint: ({ context: ctx }) => drawStageLimits(ctx),
+      },
+
+      {
+        key: "carrier",
+        label: "Carrier",
+        explains: "The plate the sample is mounted in — its outline and its wells. The "
+          + "room the run happens in.",
+        shown: state.done.has("carrier"),
+        paint: ({ context: ctx }) => {
+          /* Grey, not the accent: the carrier is the room the run happens in,
+             not a thing the run produced. Dark enough to read against the stage
+             behind it, which is grey too. */
+          carrierWidget.drawOn(ctx, {
+            config: state.carrier, toScreen: place, scale: view.scale,
+            colour: css("--ink-3"), fill: css("--surface-3"),
+          });
+        },
+      },
+
       {
         key: "tiles",
         label: "Tiles",
@@ -1944,6 +2006,51 @@ import scanfieldsWidget, { presetInk } from "./widgets/scanfields.js";
           return state.plan.slice(0, shown).find(
             (t) => Math.abs(at.x - t.x) <= half(t) && Math.abs(at.y - t.y) <= half(t),
           ) ?? null;
+        },
+      },
+
+      {
+        key: "heatmap",
+        label: "Heatmap",
+        explains: "How much detection found in each field, as one tinted square per field. "
+          + "It is for deciding where to look next, so it says nothing at all about ground "
+          + "no field covers — there is no reading there to give.",
+        /* Nothing to say until detection has found something. A heatmap of a
+           scan nobody has looked at yet is a picture of zero. */
+        shown: state.cellsShown && shown > 0,
+        /* Faint by its own choosing rather than by the operator's. This is a
+           wash meant to be read *through* — the fields underneath it are what
+           an operator is judging, and a solid heatmap would be judging them
+           for them. Turning the shared dial down fades it further, which is
+           right: it fades with everything else it is drawn among. */
+        opacity: 0.5,
+        paint: ({ context: ctx }) => {
+          /* One square per field, and only where a field is. Between the
+             fields nothing is drawn at all, so the plate and whatever is
+             beneath show through — a heatmap that washed the whole plate would
+             be claiming a reading for ground the microscope never visited. */
+          const counted = countedPerField();
+          if (!counted.most) return;
+          for (const { tile, count } of counted.fields) {
+            if (!count) continue;
+            const share = count / counted.most;
+            const [x, y] = place(tile.x - tile.frameUm / 2, tile.y - tile.frameUm / 2);
+            const side = tile.frameUm * view.scale;
+            /* Cold to hot, and the same scale over the whole plate: a colour
+               that meant something different in each well would be worse than
+               no colour at all. */
+            const hot = Math.round(255 * share);
+            const cold = Math.round(160 * (1 - share));
+            ctx.fillStyle = `rgb(${hot},${cold},${Math.round(200 * (1 - share))})`;
+            ctx.fillRect(x, y, side, side);
+          }
+        },
+        reaches: (at) => {
+          const found = countedPerField().fields.find(
+            ({ tile }) => Math.abs(at.x - tile.x) <= tile.frameUm / 2
+              && Math.abs(at.y - tile.y) <= tile.frameUm / 2,
+          );
+          return found?.count ? found : null;
         },
       },
 
@@ -2069,6 +2176,28 @@ import scanfieldsWidget, { presetInk } from "./widgets/scanfields.js";
         staysSolid: true,
         paint: ({ context: ctx }) => editing.drawChrome(ctx, { toScreen: place, scale: view.scale }),
       },
+
+      {
+        key: "stage",
+        label: "Where the stage is",
+        explains: "A crosshair on the position the stage is standing at. Always solid: it "
+          + "is where the microscope actually is, and that should never be the thing that "
+          + "went faint.",
+        shown: true,
+        staysSolid: true,
+        paint: ({ context: ctx }) => drawWhereTheStageIs(ctx),
+      },
+
+      {
+        key: "scale",
+        label: "Scale bar",
+        explains: "How far a stretch of screen is on the sample. A reading rather than a "
+          + "drawing, so it stays solid — a scale bar you can half see through is a scale "
+          + "bar you cannot trust.",
+        shown: true,
+        staysSolid: true,
+        paint: ({ context: ctx }) => drawScaleBar(ctx, w, h),
+      },
     ];
   }
 
@@ -2091,7 +2220,6 @@ import scanfieldsWidget, { presetInk } from "./widgets/scanfields.js";
        session; the carrier appears at its own step, when the run is told what
        the sample is mounted in. */
     if (!state.done.has("connect")) return;
-    drawStageLimits(ctx);
 
     /* One projection for everything that sits in the carrier: the carrier
        itself and every tile, cell and target the run put inside it. Handed
@@ -2099,16 +2227,6 @@ import scanfieldsWidget, { presetInk } from "./widgets/scanfields.js";
        one place and nothing can be drawn against a different answer. */
     const [ox, oy] = carrierOriginUm();
     const place = (x, y) => toScreen(x + ox, y + oy);
-
-    if (!state.done.has("carrier")) { drawOverEverything(ctx, w, h); return; }
-
-    /* Grey, not the accent: the carrier is the room the run happens in, not a
-       thing the run produced. Dark enough to read against the stage behind it,
-       which is grey too. */
-    carrierWidget.drawOn(ctx, {
-      config: state.carrier, toScreen: place, scale: view.scale,
-      colour: css("--ink-3"), fill: css("--surface-3"),
-    });
 
     const editing = sideWidget()?.id === "scanfields" ? state.editor : null;
     const stack = theStageLayers({
@@ -2152,7 +2270,6 @@ import scanfieldsWidget, { presetInk } from "./widgets/scanfields.js";
        or a key says so before the mouse is moved to find out. */
     stageCv.style.cursor = editing ? editing.cursor() : "";
 
-    drawOverEverything(ctx, w, h);
     renderStageLayerControls();
   }
 
