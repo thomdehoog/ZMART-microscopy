@@ -56,12 +56,18 @@
         </div>
         <div class="canvas-foot">
         <div class="toolbar">
-          <div class="group">
-            <span style="font-weight:600;color:var(--ink-3)">Layers</span>
-            <label><input type="checkbox" id="lay-tiles" checked> Tiles</label>
-            <label><input type="checkbox" id="lay-cells" checked> Cells</label>
-            <label><input type="checkbox" id="lay-targets" checked> Targets</label>
-          </div>
+          <!-- The layers, built from whatever the step being stood on says
+               belongs above the picture. Three fixed checkboxes lived here
+               before: they could only be on or off, they could not be faded,
+               nothing could be seen through them, and a layer a later step
+               produced — the targets, the refined targets — had nowhere to
+               appear. What fills this now is the stack itself, so the list
+               grows with the run. See `src/canvas/layers-above.js`.
+
+               Where these controls should live and what they should look like
+               is still open; this is the machinery in the place the old
+               checkboxes were, not a settled design. -->
+          <div class="group" id="stage-layers"></div>
           <div class="sep"></div>
           <div class="group">
             <span style="font-weight:600;color:var(--ink-3)">Channels</span>
