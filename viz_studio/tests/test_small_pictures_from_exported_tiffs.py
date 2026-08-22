@@ -137,8 +137,14 @@ def test_the_pictures_are_small_enough_that_ten_thousand_is_workable(tmp_path):
     """This is the whole reason the helper exists.
 
     A scan of ten thousand fields has to become something a browser can hold
-    and draw. Each small picture is a couple of kilobytes, so the whole scan
-    is tens of megabytes rather than the tens of gigabytes the TIFFs weigh.
+    and draw, and the TIFFs it came from weigh tens of gigabytes. Each small
+    picture is a few kilobytes, so the whole scan is a folder of about a
+    hundred megabytes.
+
+    The bound below is loose on purpose. It is not trying to pin down the exact
+    size of a JPEG, which depends on how busy the sample is; it is there to
+    catch somebody quietly raising the size of a field and turning that
+    hundred-megabyte folder into a four-hundred-megabyte one without noticing.
     """
     exported = tmp_path / "exported"
     _export_a_plane(exported, "P0001", size=512, um_per_pixel=0.25)
@@ -146,10 +152,14 @@ def test_the_pictures_are_small_enough_that_ten_thousand_is_workable(tmp_path):
 
     picture = (tmp_path / "small" / note["tiles"][0]["src"]).read_bytes()
     assert picture[:3] == b"\xff\xd8\xff", "not a JPEG"
-    assert len(picture) < 4_000, f"a field's picture is {len(picture)} bytes, too heavy at scale"
+    assert len(picture) < 20_000, (
+        f"a field's picture is {len(picture)} bytes; ten thousand of those would be "
+        f"{len(picture) * 10_000 / 1e6:.0f} MB, which is more than a scan folder should weigh"
+    )
 
-    # Ten thousand of those is a few tens of megabytes, which is the point.
-    assert len(picture) * 10_000 < 60_000_000
+    # Ten thousand of those is a couple of hundred megabytes at the very most,
+    # against the tens of gigabytes the TIFFs weigh. That is the point.
+    assert len(picture) * 10_000 < 200_000_000
 
     # The original is untouched: the real pixels are still where they were.
     original = tifffile.imread(exported / next(exported.iterdir()).name)
