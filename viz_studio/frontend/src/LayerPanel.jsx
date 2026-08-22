@@ -536,7 +536,23 @@ function stretchedUnevenly(displayScales, mode) {
  * button, so tabbing walks them and Enter picks, and Escape closes the list.
  */
 function ColourChooser({ layer, entry, names, onPick, where = "" }) {
-  const [open, setOpen] = React.useState(false);
+  // Where the list is drawn, in window coordinates rather than inside the
+  // square. The channel list it may be opened from scrolls, and anything
+  // drawn inside a box that scrolls is cut off at that box's edge -- opened
+  // from a row, the list showed two of its twelve entries (seen 2026-08-22).
+  // Placed against the window instead, it escapes that box entirely.
+  const [openAt, setOpenAt] = React.useState(null);
+  const open = openAt !== null;
+  const setOpen = (want) => setOpenAt(want ? openAt : null);
+  const openBeside = (square) => {
+    const box = square.getBoundingClientRect();
+    // Above the square where there is no room beneath it, so the list is
+    // never half off the bottom of the screen.
+    const room = window.innerHeight - box.bottom;
+    setOpenAt(room < LIST_TALL_AT_MOST + 8
+      ? { left: box.left, bottom: window.innerHeight - box.top + 2 }
+      : { left: box.left, top: box.bottom + 2 });
+  };
   const choices = [
     ...PALETTE.map((one) => ({
       key: `flat:${one.name}`,
@@ -577,7 +593,7 @@ function ColourChooser({ layer, entry, names, onPick, where = "" }) {
           the operator is already looking, says the same in less room. */}
       <button
         type="button"
-        onClick={() => setOpen((was) => !was)}
+        onClick={(event) => (open ? setOpenAt(null) : openBeside(event.currentTarget))}
         onBlur={closeOnLeaving}
         aria-label={`colour ${layer.name}${where}`}
         aria-expanded={open}
@@ -585,7 +601,7 @@ function ColourChooser({ layer, entry, names, onPick, where = "" }) {
         style={{ ...styles.swatch, ...styles.swatchButton, background: painted }}
       />
       {open && (
-        <span role="listbox" style={styles.chooserList}>
+        <span role="listbox" style={{ ...styles.chooserList, ...openAt }}>
           {/* Any colour at all, first in the list, because an operator who
               wants one is not looking for it among the named ones. The
               browser's own picker opens on it -- the one they already know. */}
@@ -1186,6 +1202,11 @@ const BLOCK = {
 // the two cannot drift apart.
 const CHOSEN_GROUND = "#1b2431";
 
+// How tall the colour list may grow before it scrolls. Named, because the
+// list also asks "is there room for me below the square?", and the two have
+// to be the same number.
+const LIST_TALL_AT_MOST = 220;
+
 const styles = {
   empty: {
     margin: "0 12px 12px",
@@ -1371,7 +1392,16 @@ const styles = {
     textOverflow: "ellipsis",
     whiteSpace: "nowrap",
   },
-  controlsGroup: { color: "#8b95a3", font: "10px/1 system-ui, sans-serif" },
+  // The acquisition, written exactly as the list above writes it, so the two
+  // read as one name in two places rather than two labels.
+  controlsGroup: {
+    font: "600 12px/1 system-ui, sans-serif",
+    letterSpacing: ".02em",
+    color: "#c9d1d9",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  },
   row: { position: "relative", display: "flex", alignItems: "center", gap: 8, padding: "5px 12px" },
   eye: { background: "none", border: "none", color: "#c9d1d9", cursor: "pointer", fontSize: 13, padding: 0 },
   swatch: { width: 13, height: 13, borderRadius: 3, border: "1px solid #39424e", display: "inline-block", flexShrink: 0 },
@@ -1416,9 +1446,7 @@ const styles = {
   // Above everything else in the panel, and scrolling once the list is longer
   // than the room beneath it.
   chooserList: {
-    position: "absolute",
-    top: "calc(100% + 2px)",
-    left: 0,
+    position: "fixed",
     minWidth: 116,
     zIndex: 40,
     display: "flex",
@@ -1427,7 +1455,7 @@ const styles = {
     border: "1px solid #303a46",
     borderRadius: 3,
     boxShadow: "0 6px 18px rgba(0, 0, 0, 0.5)",
-    maxHeight: 220,
+    maxHeight: LIST_TALL_AT_MOST,
     overflowY: "auto",
   },
   chooserEntry: {
