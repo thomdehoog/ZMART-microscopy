@@ -190,3 +190,103 @@ def test_everything_taken_at_one_place_shows_in_its_picture(tmp_path):
     with Image.open(tmp_path / "small" / "P0001.jpg") as picture:
         seen = np.asarray(picture.convert("L"))
     assert seen.max() > 200, "the bright spot from the second colour never reached the picture"
+
+
+def _export_a_flat_field(folder: Path, label: str, value: int, *, size: int = 64) -> None:
+    """One field of a single, known brightness, so brightness can be reasoned about."""
+    folder.mkdir(parents=True, exist_ok=True)
+    described = (
+        '<OME xmlns="http://www.openmicroscopy.org/Schemas/OME/2016-06">'
+        f'<Image><Pixels DimensionOrder="XYCZT" Type="uint16" SizeX="{size}" SizeY="{size}" '
+        'SizeC="1" SizeZ="1" SizeT="1" PhysicalSizeX="1.0" PhysicalSizeY="1.0"/></Image></OME>'
+    )
+    tifffile.imwrite(
+        folder / f"overview_a1b2c3_{label}_T000000_C00_Z00000.ome.tiff",
+        np.full((size, size), value, dtype=np.uint16),
+        description=described,
+    )
+
+
+def test_a_dim_field_stays_dimmer_than_a_bright_one(tmp_path):
+    """The whole scan is brightened the same way, so fields can be compared.
+
+    This is the mistake that makes a scan read like a chessboard. If each field
+    were brightened over its own range, an empty field would have its faint
+    background stretched until it filled the grey scale and came out *bright*,
+    while a field holding brilliant cells would have everything but those cells
+    squashed to black. The scan would say the opposite of the truth, and an
+    operator would go looking in exactly the wrong places.
+    """
+    exported = tmp_path / "exported"
+    _export_a_flat_field(exported, "P0001", 300)     # nearly empty
+    _export_a_flat_field(exported, "P0002", 8000)    # plenty of signal
+    _export_a_flat_field(exported, "P0003", 20000)   # more still
+
+    note = make_small_pictures(
+        exported,
+        {"P0001": (0.0, 0.0), "P0002": (64.0, 0.0), "P0003": (128.0, 0.0)},
+        tmp_path / "small",
+    )
+    by_label = {t["label"]: t for t in note["tiles"]}
+    assert by_label["P0001"]["grey"] < by_label["P0002"]["grey"] < by_label["P0003"]["grey"], (
+        "brighter fields must read brighter — each field brightened over its own "
+        "range would put them in the wrong order"
+    )
+
+    from PIL import Image
+
+    seen = {}
+    for label in by_label:
+        with Image.open(tmp_path / "small" / f"{label}.jpg") as picture:
+            seen[label] = float(np.asarray(picture.convert("L"), dtype=np.float32).mean())
+    assert seen["P0001"] < seen["P0002"] < seen["P0003"], (
+        "the pictures themselves must be in the same order as their summary colours"
+    )
+    assert seen["P0001"] < 60, "a nearly empty field should still look nearly empty"
+
+
+def test_the_summary_colour_is_what_the_field_looks_like_from_far_away(tmp_path):
+    """Nothing should visibly change when a field's real picture arrives.
+
+    Zoomed out, a field is drawn as the one colour its note gives for it; zoom
+    in a little and the real picture is fetched and drawn instead. If those two
+    disagree the scan lurches as pictures land, and an operator reads that as a
+    fault even though every field is in its right place. So the colour is the
+    field's own average, which is exactly what a picture shrunk to a few pixels
+    looks like.
+    """
+    from PIL import Image
+
+    exported = tmp_path / "exported"
+    for index, label in enumerate(["P0001", "P0002", "P0003", "P0004"]):
+        _export_a_plane(exported, label, size=128, seed=index)
+    places = {f"P{n:04d}": (float(n) * 64.0, 0.0) for n in range(1, 5)}
+
+    note = make_small_pictures(exported, places, tmp_path / "small")
+    for tile in note["tiles"]:
+        with Image.open(tmp_path / "small" / tile["src"]) as picture:
+            average = float(np.asarray(picture.convert("L"), dtype=np.float32).mean())
+        assert abs(average - tile["grey"]) <= 3, (
+            f"{tile['label']}: the colour standing for the field is {tile['grey']} but the "
+            f"picture averages {average:.1f}, so the scan would change as it arrives"
+        )
+
+
+def test_the_note_says_how_the_scan_was_brightened(tmp_path):
+    """Whoever looks at these later should be able to see what was done to them.
+
+    These are display copies, and every one of them has been stretched and
+    lifted to make it legible. Saying so beside the pictures is what keeps
+    somebody from mistaking them for measurements later on.
+    """
+    exported = tmp_path / "exported"
+    _export_a_flat_field(exported, "P0001", 500)
+    _export_a_flat_field(exported, "P0002", 9000)
+
+    note = make_small_pictures(
+        exported, {"P0001": (0.0, 0.0), "P0002": (64.0, 0.0)}, tmp_path / "small"
+    )
+    low, high = note["brightened_between"]
+    assert low < high
+    assert 0.0 < note["dim_end_lifted_by"] <= 1.0
+    assert "display only" in note["made_for"]

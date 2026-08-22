@@ -49,16 +49,57 @@
 import { onlyPanAndZoom } from "../gestures.js";
 
 /**
- * How many decoded pictures to keep.
+ * How many decoded pictures to keep, and so how many to ask for.
  *
  * A decoded picture costs far more memory than the JPEG it came from, so they
  * cannot all be kept — that would give back exactly the problem this engine
  * exists to avoid. Only what is on screen is decoded, and this many are kept
  * afterwards so that panning back and forth does not decode the same field
- * over and over. A screenful is a few dozen fields; this is generous next to
- * that and still bounded far below ten thousand.
+ * over and over.
+ *
+ * The same number bounds how many are asked for, which matters more than it
+ * looks. Ask for more pictures than can be kept and every frame throws away
+ * pictures the next frame immediately asks for again: the scan flickers, the
+ * network never settles, and it gets worse the further out you zoom. So when
+ * more fields are on screen than can be held, the ones nearest the middle of
+ * the view get their real picture and the rest stay at the one colour their
+ * note gives for them. What you are looking at is sharp, the edges are honest,
+ * and nothing is fetched twice.
  */
 const HOW_MANY_TO_KEEP_DECODED = 400;
+
+/**
+ * How small a field has to get before its picture stops being worth fetching.
+ *
+ * Zoomed out to a whole scan, every field is on screen at once — culling saves
+ * nothing, because nothing is off screen. Ten thousand fields drawn seven
+ * pixels wide would mean ten thousand pictures fetched and decoded to paint
+ * almost nothing, which is precisely the grinding open this engine exists to
+ * avoid.
+ *
+ * So below this many pixels a field is painted as the one colour its note
+ * gives for it, and no picture is fetched at all. Zoom in until a field is
+ * worth looking at and the real one arrives. The number is small on purpose:
+ * at twelve pixels a field there is nothing in a picture that its average does
+ * not already tell you.
+ */
+const TOO_SMALL_TO_BOTHER = 12;
+
+/**
+ * How many pictures may be sent for in one frame.
+ *
+ * Between "too small to be worth a picture" and "a screenful of them" lies a
+ * band where hundreds of fields are each large enough to deserve their real
+ * picture. Asking for all of them at once leaves the canvas blank while they
+ * arrive, which is the failure this project keeps meeting: a picture that is
+ * still loading looks exactly like one that is broken.
+ *
+ * So the summary colour is drawn for every field first — the scan is complete
+ * and readable from the very first frame — and the real pictures are asked for
+ * a few at a time, nearest the middle of the view first, filling in over the
+ * next second or so. Nothing is ever blank, and nothing is ever waited for.
+ */
+const HOW_MANY_TO_SEND_FOR_AT_ONCE = 24;
 
 /** Open the viewer inside `element`. See `viz_studio/options/contract.md`. */
 export async function openViewer(element, options = {}) {
@@ -239,6 +280,7 @@ async function readTheNotes(own) {
     for (const tile of note?.tiles || []) {
       tiles.push({
         src: `${at}/${tile.src}`,
+        grey: Number(tile.grey),
         x0: Number(tile.x0),
         y0: Number(tile.y0),
         w: Number(tile.w),
@@ -313,12 +355,16 @@ function askForAFrame(own) {
  * hand back the very problem this engine exists to avoid. The least recently
  * wanted are let go once there are too many.
  */
+function keepingIt(own, src) {
+  const at = own.order.indexOf(src);
+  if (at >= 0) own.order.splice(at, 1);
+  own.order.push(src);
+}
+
 function pictureFor(own, src) {
   const already = own.decoded.get(src);
   if (already) {
-    const at = own.order.indexOf(src);
-    if (at >= 0) own.order.splice(at, 1);
-    own.order.push(src);
+    keepingIt(own, src);
     return already;
   }
 
@@ -375,16 +421,56 @@ function drawEverything(own) {
   const picture = clear(own.surfaces.picture);
   if (own.showing) {
     const { width, height } = own.size;
+    // Everything on screen, and how far each is from the middle of it. What is
+    // being looked at deserves its real picture before what is at the edge.
+    const onScreen = [];
     for (const tile of own.tiles) {
       const [left, top] = where.project(tile.x0, tile.y0);
       const across = tile.w / where.zoom;
       const down = tile.h / where.zoom;
-      // Off screen: not drawn, and never decoded.
       if (left + across < 0 || top + down < 0 || left > width || top > height) continue;
+      onScreen.push({
+        tile, left, top, across, down,
+        fromMiddle: Math.hypot(left + across / 2 - width / 2, top + down / 2 - height / 2),
+      });
+    }
+
+    // Every field gets its summary colour first, so the scan is complete and
+    // readable from the very first frame rather than filling in from blank.
+    for (const { tile, left, top, across, down } of onScreen) {
+      const grey = Number.isFinite(tile.grey) ? tile.grey : 40;
+      picture.fillStyle = `rgb(${grey},${grey},${grey})`;
+      picture.fillRect(left, top, Math.max(1, across), Math.max(1, down));
+    }
+
+    // Then the real pictures, over the top, nearest the middle of the view
+    // first — and only as many as can be kept, so nothing is fetched twice.
+    onScreen.sort((a, b) => a.fromMiddle - b.fromMiddle);
+    let sentFor = 0;
+    let given = 0;
+    for (const { tile, left, top, across, down } of onScreen) {
+      if (Math.max(across, down) < TOO_SMALL_TO_BOTHER) continue;
+      if (given >= HOW_MANY_TO_KEEP_DECODED) break;
+      given += 1;
       const ready = own.decoded.get(tile.src);
-      const drawable = ready && typeof ready.width === "number" ? ready : pictureFor(own, tile.src);
+      let drawable = ready;
+      if (ready) {
+        keepingIt(own, tile.src);
+      } else {
+        if (sentFor >= HOW_MANY_TO_SEND_FOR_AT_ONCE) continue;
+        sentFor += 1;
+        drawable = pictureFor(own, tile.src);
+      }
       if (drawable && typeof drawable.width === "number") {
-        picture.imageSmoothingEnabled = across > 2 * drawable.width;
+        // Smoothing on while a picture is being made smaller, off once it is
+        // being made much larger. Shrinking without it means the browser picks
+        // out single pixels rather than averaging them, and on a picture of
+        // sparse bright specks on dark ground that mostly picks the ground:
+        // the field comes out darker than the one colour its note gives for
+        // it, so the scan visibly changes as pictures arrive, and shimmers
+        // while somebody pans. Magnifying with it on is the opposite mistake —
+        // a blur that looks like detail the microscope never took.
+        picture.imageSmoothingEnabled = across < 2 * drawable.width;
         picture.drawImage(drawable, left, top, across, down);
       }
     }
