@@ -27,6 +27,20 @@
  * offers: it drew the operator's layer inside the engine as a texture, so every
  * change to that layer cost an engine frame. It is still in the comparison there.
  *
+ * ## What each engine wants to be pointed at
+ *
+ * The two under-engines read the microscope's own store and do the work of
+ * drawing it in the browser. `jpeg-under` does not: it wants a folder of small
+ * JPEGs with a `tiles.json` beside them, one picture per field, made ahead of
+ * time by `viz_studio/backend/jpeg_tiles.py`. That is why it is here at all —
+ * a scan of ten thousand fields is tens of gigabytes as TIFFs and about a
+ * hundred megabytes as JPEGs, and only one of those two numbers opens.
+ *
+ * So the address in `?overview=` has to suit the engine being asked for. An
+ * engine given a folder of the wrong kind finds no picture and says so on the
+ * page rather than leaving a black box, which is the behaviour this file exists
+ * to protect.
+ *
  * ## Neuroglancer, and what it costs to have it here
  *
  * `viv-under` is ordinary JavaScript and lives entirely inside the page.
@@ -86,6 +100,7 @@ const HOW_TO_OPEN = {
   "viv-under": () => import("../../../../../viz_studio/options/viv-under/viewer.js"),
   "neuroglancer-under": () =>
     import("../../../../../viz_studio/options/neuroglancer-under/viewer.js"),
+  "jpeg-under": () => import("../../../../../viz_studio/options/jpeg-under/viewer.js"),
 };
 
 /**
@@ -97,6 +112,9 @@ const WHAT_IT_IS = {
   "neuroglancer-under":
     "neuroglancer draws the picture underneath, the operator's own drawing on a " +
     "second surface above it",
+  "jpeg-under":
+    "one small JPEG per field, made from the run's TIFFs before anything is " +
+    "drawn, so that a scan of ten thousand fields opens at once",
 };
 
 /**

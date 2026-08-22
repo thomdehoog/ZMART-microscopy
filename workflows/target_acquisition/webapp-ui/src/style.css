@@ -1199,3 +1199,32 @@ canvas.livecv[hidden] { display: none; }
   margin-top: auto; padding: 12px 14px; border-top: 1px solid var(--line);
   font-size: 12px; font-family: var(--mono); color: var(--ink-2);
 }
+
+/* The fade and the lock, in a strip beside the row of layer buttons.
+   Separate from that row on purpose: the buttons are a joined set of switches
+   and read as one control, and a slider dropped into the middle of them reads
+   as something having gone wrong with the page. */
+.layer-extra { display: inline-flex; align-items: center; gap: 8px; margin-left: 8px; }
+.layer-fade {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 12.5px; font-weight: 600; color: var(--ink-3);
+}
+.layer-fade input[type="range"] { width: 96px; accent-color: var(--accent); }
+/* The lock is a switch like the layer buttons, so it is given their look
+   rather than a look of its own — an operator should not have to learn two
+   kinds of switch in one toolbar. */
+.layer-extra button[data-lock] {
+  font: inherit; font-size: 12.5px; font-weight: 600; color: var(--ink-3);
+  background: var(--surface-2); border: 1px solid var(--line-strong);
+  border-radius: 8px; padding: 4px 10px; cursor: pointer;
+}
+.layer-extra button[data-lock]:hover { color: var(--ink); background: var(--surface-3); }
+.layer-extra button[data-lock][aria-pressed="true"] {
+  background: var(--accent); color: #fff; border-color: var(--accent);
+}
+:root[data-theme="dark"] .layer-extra button[data-lock][aria-pressed="true"] { color: #04121d; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .layer-extra button[data-lock][aria-pressed="true"] {
+    color: #04121d;
+  }
+}
