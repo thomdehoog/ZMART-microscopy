@@ -2349,6 +2349,11 @@ class CanvasReact(_ZmartWidget):
     #:     focus points they are placing.
     window_reaches = traitlets.Unicode("all").tag(sync=True)
 
+    #: The pictures on the imagery layer, as metadata only. Their pixels
+    #: travel separately, one binary message per picture, so a scan of
+    #: thousands of fields never becomes one enormous page.
+    images = traitlets.List().tag(sync=True)
+
     #: The piece of sample the layers cover, ``[x0, y0, width, height]`` in
     #: micrometres. Each layer is given this as its own area, which is what a
     #: window is then cut out of — a layer with no area of its own would have
@@ -2418,7 +2423,7 @@ function maskFor(omap, id, extent) {
         }))));
 }
 
-function LayerBody({ layer, ox, oy }) {
+function LayerBody({ layer, ox, oy, pics }) {
   if (layer.kind === "engine") {
     // The slot for an image engine that draws with the graphics card. It is
     // deliberately empty: it reads the shared camera when one is plugged in.
@@ -2427,7 +2432,8 @@ function LayerBody({ layer, ox, oy }) {
       layer.label || "image engine — not plugged in");
   }
   if (layer.kind === "images") {
-    return (layer.images || []).map((im, i) =>
+    const pictures = pics && pics.length ? pics : (layer.images || []);
+    return pictures.map((im, i) =>
       h("img", { key: i, src: im.src, draggable: false, style: {
         position: "absolute", left: im.x0 - ox, top: im.y0 - oy,
         width: im.w, height: im.h,
@@ -2474,13 +2480,30 @@ function App({ model }) {
   const [omap] = useTrait(model, "opacity_map");
   const [windowReaches] = useTrait(model, "window_reaches");
   const [extentTrait] = useTrait(model, "extent");
+  // Pictures arrive one at a time as the scan runs, rather than all at once.
+  const streamed = useStream(model, "images", "image");
   const [status] = useTrait(model, "status");
   const [readOnly] = useTrait(model, "read_only");
   const box = React.useRef(null);
   const drag = React.useRef(null);
+  const moved = React.useRef(false);
   const [cursor, setCursor] = React.useState(null);
   const W = widgetPx(760), H = widgetPx(560);
-  const view = screenFrom(camera, W, H);
+  // Until the operator moves the view themselves, keep the whole sample in
+  // sight — a run that opens showing an empty corner of the slide is no use.
+  const fitted = React.useMemo(() => {
+    if (!extentTrait || extentTrait.length !== 4) return null;
+    const [x0, y0, ew0, eh0] = extentTrait.map(Number);
+    if (!(ew0 > 0 && eh0 > 0)) return null;
+    return { cx: x0 + ew0 / 2, cy: y0 + eh0 / 2,
+             scale: Math.min(W / ew0, H / eh0) * 0.92 };
+  }, [extentTrait, W, H]);
+  // Whichever view is actually on screen — the fitted one until the operator
+  // takes over, theirs afterwards. Every handler works from this, so taking
+  // over continues from what they were looking at instead of jumping back to
+  // a view they never chose.
+  const active = (moved.current || !fitted) ? camera : fitted;
+  const view = screenFrom(active, W, H);
   const maskId = "zmart-canvas-window";
   const extent = (extentTrait && extentTrait.length === 4)
     ? extentTrait.map(Number) : [-1000, -1000, 2000, 2000];
@@ -2495,24 +2518,29 @@ function App({ model }) {
 
   useWheel(box, (e) => {
     if (readOnly) return;
+    moved.current = true;
     const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
     const at = sampleAt(e);
     const r = box.current.getBoundingClientRect();
     const scale = view.scale * factor;
     // Keep the sample point under the pointer exactly where it was.
-    setCamera({ ...camera, scale,
+    setCamera({ ...active, scale,
                 cx: at.x + (W / 2 - (e.clientX - r.left)) / scale,
                 cy: at.y + (H / 2 - (e.clientY - r.top)) / scale });
   });
 
-  const onDown = (e) => { if (!readOnly) drag.current = { x: e.clientX, y: e.clientY }; };
+  const onDown = (e) => {
+    if (readOnly) return;
+    moved.current = true;
+    drag.current = { x: e.clientX, y: e.clientY };
+  };
   const onMove = (e) => {
     const at = sampleAt(e);
     setCursor(at);
     if (!drag.current) return;
-    setCamera({ ...camera,
-                cx: (Number(camera.cx) || 0) - (e.clientX - drag.current.x) / view.scale,
-                cy: (Number(camera.cy) || 0) - (e.clientY - drag.current.y) / view.scale });
+    setCamera({ ...active,
+                cx: (Number(active.cx) || 0) - (e.clientX - drag.current.x) / view.scale,
+                cy: (Number(active.cy) || 0) - (e.clientY - drag.current.y) / view.scale });
     drag.current = { x: e.clientX, y: e.clientY };
   };
   const letGo = () => (drag.current = null);
@@ -2554,7 +2582,7 @@ function App({ model }) {
                   ? { mask: `url(#${maskId})` }
                   : {}),
               pointerEvents: layer.interactive ? "auto" : "none" } },
-            h(LayerBody, { layer, ox, oy })))),
+            h(LayerBody, { layer, ox, oy, pics: streamed })))),
       h("div", { style: { position: "absolute", left: 10, bottom: 8, display: "flex",
                           gap: 6 } },
         pill(`${shown.length} of ${(layers || []).length} layer(s)`),
@@ -2595,6 +2623,7 @@ export default mount(App);
     def __init__(self, layers: list[dict] | None = None, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self.layers = [self._layer_defaults(layer) for layer in (layers or [])]
+        self._pictures: list[bytes] = []
         self.fit_extent()
         self.status = "drag to move, scroll to zoom — every layer moves together"
 
@@ -2673,7 +2702,80 @@ export default mount(App);
             "outside": float(outside),
         }
 
-    def fit_extent(self, margin: float = 200.0) -> None:
+    def show_picture(self, index: int, bounds: list[float], picture: bytes) -> None:
+        """Put one picture on the imagery layer, as it becomes available.
+
+        Called once per field as a scan produces it. The pixels travel as
+        their own binary message rather than inside the page's description of
+        itself, which is what keeps a scan of thousands of fields workable.
+        """
+        x0, y0, w, h = (float(v) for v in bounds)
+        entry = {"x0": x0, "y0": y0, "w": w, "h": h}
+        placed = [dict(image) for image in self.images]
+        while len(placed) <= index:
+            placed.append({})
+        placed[index] = {**entry, "src": ""}
+        self.images = placed
+        while len(self._pictures) <= index:
+            self._pictures.append(b"")
+        self._pictures[index] = picture
+        self.send(
+            {
+                "type": "image",
+                "index": index,
+                "entry": {**entry, "src": ""},
+                "buffer_keys": ["src"],
+                "mime": "image/jpeg",
+            },
+            buffers=[picture],
+        )
+
+    def push_snapshot(self) -> None:
+        """Send every picture again, for a view that has only just opened.
+
+        A browser opening part-way through a run — a refresh, a second tab —
+        has the description of where each picture belongs but none of the
+        pixels, because those were sent while it was not listening. Without
+        this it would show empty frames where the sample should be.
+        """
+        self.send({"type": "image:reset", "preserve": True, "length": len(self._pictures)})
+        for index, picture in enumerate(self._pictures):
+            if not picture:
+                continue
+            entry = dict(self.images[index]) if index < len(self.images) else {}
+            entry.pop("src", None)
+            self.send(
+                {
+                    "type": "image",
+                    "index": index,
+                    "entry": {**entry, "src": ""},
+                    "buffer_keys": ["src"],
+                    "mime": "image/jpeg",
+                },
+                buffers=[picture],
+            )
+
+    def use_engine(self, label: str = "image engine") -> None:
+        """Draw the imagery with an image engine instead of flat pictures.
+
+        This is the whole of plugging in an engine that draws with the
+        graphics card: the bottom layer changes kind, and everything above it
+        is untouched, because nothing above it holds a position of its own —
+        they all read the shared view, and so does the engine.
+        """
+        base = self.layers[0]["id"] if self.layers else None
+        if base is None:
+            raise ValueError("there is no bottom layer to draw the imagery with")
+        self.set_layer(base, kind="engine", label=label)
+
+    def use_pictures(self, label: str = "imagery") -> None:
+        """Go back to drawing the imagery as flat pictures."""
+        base = self.layers[0]["id"] if self.layers else None
+        if base is None:
+            raise ValueError("there is no bottom layer to draw the imagery with")
+        self.set_layer(base, kind="images", label=label)
+
+    def fit_extent(self, margin: float | None = None) -> None:
         """Work out the piece of sample the layers cover, with room to spare.
 
         Each layer is given this area as its own, which is what a window is
@@ -2683,7 +2785,10 @@ export default mount(App);
         """
         boxes = []
         for layer in self.layers:
-            for item in list(layer.get("shapes") or []) + list(layer.get("images") or []):
+            pictures = list(layer.get("images") or [])
+            if layer.get("kind") in ("images", "engine"):
+                pictures += list(self.images)
+            for item in list(layer.get("shapes") or []) + pictures:
                 bounds = item.get("bounds")
                 if bounds is None and "x0" in item:
                     bounds = [item["x0"], item["y0"], item["w"], item["h"]]
@@ -2693,6 +2798,15 @@ export default mount(App);
                 boxes.append([float(point["x"]), float(point["y"]), 0.0, 0.0])
         if not boxes:
             return
+        if margin is None:
+            # A little breathing room around whatever is there, in proportion
+            # to it. A fixed margin looks right for a slide and swamps a scan
+            # of four fields, which would then sit tiny in the middle.
+            span = max(
+                max(b[0] + b[2] for b in boxes) - min(b[0] for b in boxes),
+                max(b[1] + b[3] for b in boxes) - min(b[1] for b in boxes),
+            )
+            margin = max(span * 0.04, 1.0)
         x0 = min(b[0] for b in boxes) - margin
         y0 = min(b[1] for b in boxes) - margin
         x1 = max(b[0] + b[2] for b in boxes) + margin
