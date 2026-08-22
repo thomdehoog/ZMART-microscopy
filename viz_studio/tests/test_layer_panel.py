@@ -1111,3 +1111,39 @@ def test_the_settings_name_the_channel_above_the_histogram(two_channel_page):
     )
     assert said["eyeAbove"], "the channel's eye is not above the histogram"
     assert said["squareAbove"], "the channel's colour is not above the histogram"
+
+
+def test_the_colour_list_is_not_cut_off_by_the_list_it_opens_from(two_channel_page):
+    """Every colour on offer can be seen, wherever the square was pressed.
+
+    The channel list scrolls, because a picture of many channels would
+    otherwise push everything below it off the panel. Anything drawn inside a
+    box that scrolls is cut off at that box's edge -- so opening the colour
+    list from a channel's ROW showed two of its twelve entries and no way to
+    reach the rest (seen 2026-08-22). Drawn against the window instead, it
+    escapes that box.
+    """
+    page = two_channel_page
+    page.locator("[aria-label='colour Ch488']").click()
+    page.wait_for_timeout(300)
+    seen = page.evaluate("""() => {
+      const list = document.querySelector("[role='listbox']");
+      const entries = [...list.children].map((one) => one.getBoundingClientRect());
+      return {
+        offered: entries.length,
+        showing: entries.filter((box) => box.height > 4
+          && box.top >= 0 && box.bottom <= window.innerHeight).length,
+        reach: Math.round(entries[entries.length - 1].bottom - entries[0].top),
+      };
+    }""")
+    assert seen["offered"] > 8, (
+        f"only {seen['offered']} colours are on offer at all"
+    )
+    assert seen["showing"] == seen["offered"], (
+        f"{seen['offered']} colours are offered but {seen['showing']} can be "
+        "seen; the list is being cut off by something around it"
+    )
+    assert seen["reach"] > 150, (
+        f"the list is only {seen['reach']} pixels tall for {seen['offered']} "
+        "entries, so it has been squashed rather than shown"
+    )
