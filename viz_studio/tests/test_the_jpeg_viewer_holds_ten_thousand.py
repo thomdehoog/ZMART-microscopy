@@ -207,54 +207,64 @@ def test_the_whole_scan_is_there_in_the_very_first_frame(browser, a_served_scan)
     page.close()
 
 
-def test_no_more_pictures_are_asked_for_than_can_be_kept(browser, a_served_scan):
-    """Asking for more than can be held means asking for the same ones for ever.
+def test_the_scan_looks_the_same_everywhere_at_any_zoom(browser, a_served_scan):
+    """No part of the scan may be sharp because it happened to be in the middle.
 
-    Decoded pictures cost far more memory than the JPEGs they came from, so
-    only so many are kept. If a frame asks for more than that, every frame
-    throws away pictures the next frame immediately asks for again: the scan
-    flickers, the network never settles, and it gets worse the further out you
-    zoom. So the fields nearest the middle of the view get their real picture
-    and the rest keep their summary colour.
+    Only so many pictures can be kept decoded at once. An earlier version gave
+    them to the fields nearest the middle of the view until it ran out of room,
+    which drew a disc of sharpness in the centre of the scan — a memory limit
+    showing through onto the screen, which is not something an operator should
+    ever be shown.
 
-    The view here is set deliberately, not fitted, because this only goes wrong
-    in one band: fields large enough on screen to deserve a real picture, and
-    far more of them at once than can be kept. Twenty pixels a field puts well
-    over a thousand of them on screen, which is comfortably inside it.
+    So whether a field gets its real picture is decided by how large it is
+    drawn, and that size is worked out from the window such that no more fields
+    can qualify at once than can be kept. Either every field on screen has its
+    picture or none of them does, and this checks both halves of that.
     """
     root, url, note = a_served_scan
     _write_a_note_of(root, 2_500, note)
+    a_field_is = note["tiles"][0]["w"]
 
     page, asked = _open(browser, url)
-    a_field_is = note["tiles"][0]["w"]
-    page.evaluate(
-        """(zoom) => {
-          const v = window.__viewer.getView();
-          window.__viewer.setView({ centre: v.centre, zoom });
-        }""",
-        a_field_is / 20.0,
+    kept = page.evaluate("() => window.__viewer.howManyPicturesAreKept()")
+    switches_at = ((A_WINDOW["width"] * A_WINDOW["height"]) / (kept * 2 / 3)) ** 0.5
+
+    # Comfortably below the size at which pictures start: nothing is fetched,
+    # so the whole scan is drawn from the colours in its note.
+    # The middle of the scan, so the screen is full of fields and the count
+    # below is a fair one.
+    middle = page.evaluate("() => window.__viewer.getView().centre")
+    page.evaluate("([centre, zoom]) => window.__viewer.setView({centre, zoom})",
+                  [middle, a_field_is / (switches_at * 0.7)])
+    page.wait_for_timeout(2500)
+    assert asked == [], (
+        f"{len(asked)} pictures were fetched for fields too small to show anything"
     )
-    page.wait_for_timeout(4000)
+
+    # Comfortably above it: every field on screen gets a picture, and the total
+    # still fits in what can be kept, so nothing is fetched twice.
+    page.evaluate("([centre, zoom]) => window.__viewer.setView({centre, zoom})",
+                  [middle, a_field_is / (switches_at * 1.3)])
+    page.wait_for_timeout(5000)
 
     on_screen = page.evaluate(
         """(fieldUm) => {
           const where = window.__viewer.whereThingsAreDrawn();
-          const sideInPixels = fieldUm / where.zoom;
-          return Math.round((where.width / sideInPixels) * (where.height / sideInPixels));
+          const side = fieldUm / where.zoom;
+          return Math.round((where.width / side) * (where.height / side));
         }""",
         a_field_is,
     )
-    assert on_screen > 400, (
-        f"only about {on_screen} fields are on screen, which is fewer than can be "
-        "kept decoded — this test is not in the band where the mistake shows"
+    assert len(set(asked)) >= on_screen * 0.9, (
+        f"about {on_screen} fields are on screen but only {len(set(asked))} got a "
+        "picture, so part of the scan is sharp and part of it is not"
     )
-
     assert len(asked) == len(set(asked)), (
-        "a picture was fetched more than once, which is the thrash this guards against"
+        "a picture was fetched more than once, which means pictures are being "
+        "thrown away and immediately asked for again"
     )
-    assert len(asked) <= 400, (
-        f"{len(asked)} pictures were asked for, more than the {400} that can be kept "
-        "decoded — every frame would throw away pictures the next frame asks for again"
+    assert len(set(asked)) <= kept, (
+        f"{len(set(asked))} pictures were asked for but only {kept} can be kept decoded"
     )
     page.close()
 
