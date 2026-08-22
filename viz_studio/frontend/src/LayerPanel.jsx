@@ -88,6 +88,41 @@ const css = (rgb) =>
  * the boxes may be pushed: a twelve-bit camera cannot produce 5000, so an
  * axis drawn to it would be room that can never hold anything.
  */
+// Where the window's two edges sit along the histogram, as fractions of its
+// width. The stretch of brightness being shown takes the middle of the
+// picture and leaves a seventh of it beyond each edge -- enough to see what
+// is being clipped at both ends, and enough of a reference to adjust
+// against. The operator asked for exactly this (2026-08-22): "the blue bars
+// should be at fifteen and eighty five per cent along the histogram, so
+// that's important to know for how to adjust the values."
+const WINDOW_SITS_FROM = 0.15;
+
+/**
+ * The stretch of brightness to draw so that a window sits across the middle.
+ *
+ * Given the window a channel was handed -- the one its file declared when it
+ * opened, or the one Auto just measured -- this says how far the picture
+ * beneath it should reach on either side. The answer is only ever taken when
+ * a window is GIVEN, never while a handle is being dragged: an axis that
+ * moved with the handle would mean the operator could never see what their
+ * drag had done.
+ *
+ * The axis never starts below zero, however much room the fifteen per cent
+ * would otherwise ask for. There are no darker-than-nothing pixels, so that
+ * part of the track could hold nothing and would only push the specimen to
+ * the right (the operator's own instruction, 2026-08-22).
+ */
+function frameTheWindow(window_, declared = null) {
+  if (!window_ || !(window_.high > window_.low)) return null;
+  const across = (window_.high - window_.low) / (1 - 2 * WINDOW_SITS_FROM);
+  const beyond = across * WINDOW_SITS_FROM;
+  const ceiling = declared && Number.isFinite(declared.high) ? declared.high : Infinity;
+  return {
+    low: Math.max(0, window_.low - beyond),
+    high: Math.min(ceiling, window_.high + beyond),
+  };
+}
+
 function contrastRange(layer, window_, shown = null) {
   const measured = layer.histogram;
   const declared = layer.range;
@@ -132,7 +167,6 @@ function Histogram({ layer, window_, color, onWindow, scale = "linear", axis = n
   const dragging = React.useRef(null);
   const counts = layer.histogram?.counts;
   if (!counts?.length) return null;
-  const peak = Math.max(...counts, 1);
   const measured = layer.histogram;
   // The box spans the AXIS -- the camera's whole range when the store's
   // numbers have one -- and the bars sit at the brightness they were
@@ -152,6 +186,19 @@ function Histogram({ layer, window_, color, onWindow, scale = "linear", axis = n
     Math.min(Math.max((value - low) / span, 0), 1) * counts.length;
   const left = at(window_.low);
   const right = at(window_.high);
+
+  // Which bin each count belongs to, in the brightness the server counted.
+  const bins = measured.high - measured.low || 1;
+  const brightnessOf = (index) =>
+    measured.low + ((index + 0.5) * bins) / counts.length;
+  // The tallest bar is measured over the bars actually DRAWN, not over every
+  // bin the server counted. The axis may stop well short of the dimmest or
+  // brightest pixels, and a background peak sitting outside it used to set
+  // the scale for everything inside -- which left the specimen a line one
+  // pixel high under an empty picture.
+  const drawn = counts.filter(
+    (_count, index) => brightnessOf(index) >= low && brightnessOf(index) <= low + span);
+  const peak = Math.max(...(drawn.length ? drawn : counts), 1);
 
   // Where a pointer event sits on the measured brightness scale.
   const valueUnder = (event) => {
@@ -209,10 +256,9 @@ function Histogram({ layer, window_, color, onWindow, scale = "linear", axis = n
         const height = share * 22;
         // The bins live in MEASURED brightness -- that is what the server
         // counted -- and only their places are mapped through the axis, which
-        // may run far past them to the camera's ceiling.
-        const bins = measured.high - measured.low || 1;
-        const centre = measured.low + ((index + 0.5) * bins) / counts.length;
-        const shown = centre >= window_.low && centre <= window_.high;
+        // may run past them, or stop short of them.
+        const shown = brightnessOf(index) >= window_.low
+          && brightnessOf(index) <= window_.high;
         const starts = at(measured.low + (index * bins) / counts.length);
         const ends = at(measured.low + ((index + 1) * bins) / counts.length);
         return (
@@ -472,21 +518,24 @@ function stretchedUnevenly(displayScales, mode) {
 }
 
 /**
- * Choosing what a channel is painted with, showing each choice as it looks.
+ * The square a channel is painted in, which is also how the colour is chosen.
  *
- * A plain dropdown can only offer words, and the word "magma" tells a
- * microscopist meeting it nothing at all -- which is why the old one had to
- * spell out "(black -> purple -> cream)" beside every map and still left an
- * operator picking by trial. Here every entry carries its own colour beside
- * it, a block for a flat colour and the run of colours for a map, so the
- * choice is made by eye. With that on show the explanations are not needed
- * and are gone.
+ * Press it and a list opens showing every choice as it actually looks: a
+ * block for a flat colour, and the whole run of colours for a map. That is
+ * the point of drawing them. A plain dropdown can only offer words, and the
+ * word "magma" tells a microscopist meeting it nothing at all -- the version
+ * before this one had to spell out "(black -> purple -> cream)" beside every
+ * map and still left an operator picking by trial.
+ *
+ * "Custom" heads the list and opens the browser's own colour picker, because
+ * an operator who wants a particular colour is not going to find it among
+ * the named ones.
  *
  * It is a list of buttons rather than a select because a select cannot draw
  * anything but text. That costs the keyboard nothing: each entry is a real
  * button, so tabbing walks them and Enter picks, and Escape closes the list.
  */
-function ColormapChooser({ layer, entry, names, onPick }) {
+function ColourChooser({ layer, entry, names, onPick, where = "" }) {
   const [open, setOpen] = React.useState(false);
   const choices = [
     ...PALETTE.map((one) => ({
@@ -506,45 +555,69 @@ function ColormapChooser({ layer, entry, names, onPick }) {
   const chosen = entry.lut
     ? choices.find((one) => one.lut === entry.lut)
     : choices.find((one) => !one.lut && css(one.rgb) === css(entry.color));
+  const painted = (entry.lut && LUT_GRADIENTS[entry.lut]) || css(entry.color);
   // A colour picked by hand belongs to no entry in the list, and saying the
   // nearest name would tell the operator they chose something they did not.
   const naming = chosen ? chosen.name : "picked";
+  // Closed as soon as the focus leaves the whole chooser. Asking about the
+  // chooser rather than about the button pressed means pressing an entry does
+  // not close the list out from under the press.
+  const closeOnLeaving = (event) => {
+    if (!event.currentTarget.closest("[data-chooser]")
+      ?.contains(event.relatedTarget)) {
+      setOpen(false);
+    }
+  };
   return (
-    <span style={styles.chooser}>
+    <span style={styles.chooser} data-chooser="">
+      {/* The colour itself is the control: press the square a channel is
+          painted in and the list of everything it could be painted in opens
+          under it. There was a row of its own for this, labelled COLORMAP,
+          with the square beside a named dropdown; one thing to press, where
+          the operator is already looking, says the same in less room. */}
       <button
         type="button"
         onClick={() => setOpen((was) => !was)}
-        onBlur={(event) => {
-          // Closed when the focus leaves the whole chooser, not merely this
-          // button -- otherwise pressing an entry closes the list before the
-          // press lands on it.
-          if (!event.currentTarget.parentElement.contains(event.relatedTarget)) {
-            setOpen(false);
-          }
-        }}
-        aria-label={`colormap ${layer.name}`}
+        onBlur={closeOnLeaving}
+        aria-label={`colour ${layer.name}${where}`}
         aria-expanded={open}
-        title="What this channel is painted with"
-        style={styles.chooserButton}
-      >
-        <span style={styles.chooserName}>{naming}</span>
-        <span aria-hidden="true" style={styles.chooserCaret}>▾</span>
-      </button>
+        title={`Painted ${naming}. Press to choose another colour`}
+        style={{ ...styles.swatch, ...styles.swatchButton, background: painted }}
+      />
       {open && (
         <span role="listbox" style={styles.chooserList}>
+          {/* Any colour at all, first in the list, because an operator who
+              wants one is not looking for it among the named ones. The
+              browser's own picker opens on it -- the one they already know. */}
+          <label
+            style={{ ...styles.chooserEntry, ...styles.chooserCustom }}
+            title="Choose any colour"
+          >
+            {/* Left empty on purpose: this entry stands for a colour not
+                chosen yet, so showing the current one would say the channel
+                is already painted it. An empty well is the invitation. */}
+            <span style={{ ...styles.chooserSwatch, background: "transparent" }} />
+            custom
+            <input
+              type="color"
+              value={hexOf(entry.color)}
+              onBlur={closeOnLeaving}
+              onChange={(event) => {
+                onPick({ rgb: rgbOf(event.target.value), lut: null });
+                setOpen(false);
+              }}
+              aria-label={`choose a colour for ${layer.name}${where}`}
+              style={styles.hiddenPicker}
+            />
+          </label>
           {choices.map((choice) => (
             <button
               key={choice.key}
               type="button"
               role="option"
               aria-selected={chosen?.key === choice.key}
-              aria-label={`${choice.name} for ${layer.name}`}
-              onBlur={(event) => {
-                if (!event.currentTarget.parentElement.parentElement
-                  .contains(event.relatedTarget)) {
-                  setOpen(false);
-                }
-              }}
+              aria-label={`${choice.name} for ${layer.name}${where}`}
+              onBlur={closeOnLeaving}
               onClick={() => {
                 onPick(choice);
                 setOpen(false);
@@ -565,7 +638,7 @@ function ColormapChooser({ layer, entry, names, onPick }) {
 }
 
 
-function ChannelControls({ layer, index, entry, mode, lookupTables, onWindow, onOpacity,
+function ChannelControls({ layer, index, entry, mode, lookupTables, onWindow, onOpacity, onToggle,
                           onColor, onLut, onMeasureHere = null,
                           displayScales = { x: 1, y: 1, z: 1 } }) {
   // The brightness of the part of the picture on screen, once Auto has asked
@@ -582,12 +655,23 @@ function ChannelControls({ layer, index, entry, mode, lookupTables, onWindow, on
   // otherwise, and their answer is kept per channel for as long as the panel
   // is showing it.
   const [shown, setShown] = React.useState(null);
+  // The stretch of brightness the picture draws when the operator has not
+  // said otherwise: settled from the window this channel was handed, and
+  // settled again whenever Auto hands it another. Held in between, so that
+  // dragging a handle moves the handle rather than the ground under it.
+  const [framed, setFramed] = React.useState(() => frameTheWindow(window_, layer.range));
+  const frameAround = (given) => {
+    const around = frameTheWindow(given, layer.range);
+    if (!around) return;
+    setShown(null);
+    setFramed(around);
+  };
   // The channel as measured: the same layer, but wearing the reading Auto
   // last took where the operator was looking. Substituted whole so that the
   // axis, the bars and the Auto light all describe one measurement instead
   // of disagreeing about which picture they are talking about.
   const seen = here ? { ...layer, histogram: here } : layer;
-  const { min, max } = contrastRange(seen, window_, shown);
+  const { min, max } = contrastRange(seen, window_, shown || framed);
   // The two handles are kept at least one count apart. A window of no width makes
   // every value in the image land on the same shade, so the picture goes flat and
   // it is not obvious why.
@@ -624,13 +708,44 @@ function ChannelControls({ layer, index, entry, mode, lookupTables, onWindow, on
       <div style={styles.headingRow}>
         <span style={styles.heading}>display settings</span>
       </div>
+      {/* Which channel these settings are about, said the same way the list
+          above says it: the acquisition it belongs to, and under that the
+          channel's own row -- eye, colour, name. Reading the same shape in
+          both places is what makes the pairing obvious, and without it the
+          sliders adjust something the operator has to remember rather than
+          read. */}
       <div style={styles.controlsHead}>
-        {/* Which channel these settings are about. Without it, the sliders would
-            be adjusting something the operator has to remember rather than read. */}
-        <span style={styles.controlsName} title={layer.name}>
-          {layer.name}
-        </span>
-        <span style={styles.controlsGroup}>{layer.group}</span>
+        <span style={styles.controlsGroup} title={layer.group}>{layer.group}</span>
+        <div style={styles.controlsChannel}>
+          <button
+            onClick={() => onToggle?.(index)}
+            style={{ ...styles.eye, opacity: entry.visible ? 1 : 0.4 }}
+            title={entry.visible ? "Hide this channel" : "Show this channel"}
+            aria-label={`toggle ${layer.name} here`}
+          >
+            <Eye open={entry.visible} />
+          </button>
+          <ColourChooser
+            layer={layer}
+            entry={entry}
+            names={lookupTables}
+            where=", display settings"
+            onPick={(choice) => {
+              if (choice.lut) {
+                onLut?.(index, choice.lut);
+              } else {
+                // A flat colour replaces whatever map was on, or the square
+                // would go on showing a run of colours the channel is no
+                // longer painted in.
+                onLut?.(index, null);
+                onColor(index, choice.rgb);
+              }
+            }}
+          />
+          <span style={styles.controlsName} title={layer.name}>
+            {layer.name}
+          </span>
+        </div>
       </div>
       {isMask ? (
         <div style={styles.maskNote}>objects, each in its own colour</div>
@@ -690,9 +805,16 @@ function ChannelControls({ layer, index, entry, mode, lookupTables, onWindow, on
                   const answer = onMeasureHere ? await onMeasureHere(index) : null;
                   if (answer?.histogram) {
                     setHere(answer.histogram);
+                    // A fresh reading is a fresh picture, so the axis is laid
+                    // out again around the window it produced -- the bars land
+                    // at fifteen and eighty five per cent of the width, exactly
+                    // as they do when a channel first opens.
+                    frameAround(answer.window);
                     return;
                   }
-                  onWindow(index, autoWindow || layer.window);
+                  const fallingBackOn = autoWindow || layer.window;
+                  onWindow(index, fallingBackOn);
+                  frameAround(fallingBackOn);
                 }}
                 disabled={!onMeasureHere && !autoWindow && !layer.window}
                 aria-label={`auto contrast ${layer.name}`}
@@ -806,57 +928,6 @@ function ChannelControls({ layer, index, entry, mode, lookupTables, onWindow, on
           label={`opacity value ${layer.name}`}
         />
       </label>
-      {/* How the channel is painted, in one row: what it looks like now, a
-          way to choose any colour at all, and the named colours and maps.
-          The preview is the choice made visible -- a flat colour as a block,
-          a map as its own run of colours -- and it is also the button that
-          opens the colour picker, so an operator can see what they have while
-          they change it rather than only afterwards. */}
-        <label style={styles.control}>
-          <span
-            style={styles.controlLabel}
-            title="How this channel is painted: one flat colour, or a run of colours that shows more detail"
-          >
-            colormap
-          </span>
-          <span style={{ ...styles.colourRow, gridColumn: "2 / -1" }}>
-            <span
-              style={{
-                ...styles.preview,
-                background: (entry.lut && LUT_GRADIENTS[entry.lut])
-                  || css(entry.color),
-              }}
-              title="What this channel is painted with. Press to choose any colour"
-            >
-              <input
-                type="color"
-                value={hexOf(entry.color)}
-                onChange={(event) => {
-                  // A colour chosen by hand is a flat colour, so whatever map
-                  // was on gives way to it -- the preview would otherwise go on
-                  // showing a run of colours the channel is no longer painted in.
-                  onLut?.(index, null);
-                  onColor(index, rgbOf(event.target.value));
-                }}
-                aria-label={`choose a colour for ${layer.name}`}
-                style={styles.hiddenPicker}
-              />
-            </span>
-            <ColormapChooser
-              layer={layer}
-              entry={entry}
-              names={lookupTables}
-              onPick={(choice) => {
-                if (choice.lut) {
-                  onLut?.(index, choice.lut);
-                } else {
-                  onLut?.(index, null);
-                  onColor(index, choice.rgb);
-                }
-              }}
-            />
-          </span>
-        </label>
     </div>
   );
 }
@@ -917,7 +988,7 @@ export default function LayerPanel({
   // every row, three channels filled a tall screen and six could not be seen at
   // all. Adjusting one channel at a time is also how the work actually goes.
   const renderRow = ({ layer, index }) => {
-    const { visible, color, lut } = state[index];
+    const { visible } = state[index];
     const chosen = index === selected;
     return (
       <div
@@ -935,14 +1006,20 @@ export default function LayerPanel({
           >
             <Eye open={visible} />
           </button>
-          {/* A read-out, not a control: the colour is chosen in the display
-              settings, and this swatch follows the choice. */}
-          <span
-            style={{ ...styles.swatch,
-                     background: (lut && LUT_GRADIENTS[lut]) || css(color) }}
-            title="How this channel is painted -- choose it in the display settings"
-            aria-label={`colour ${layer.name}`}
-            role="img"
+          {/* The colour, and the way to change it: press the square and the
+              list of everything this channel could be painted in opens. */}
+          <ColourChooser
+            layer={layer}
+            entry={state[index]}
+            names={lookupTables}
+            onPick={(choice) => {
+              if (choice.lut) {
+                onLut?.(index, choice.lut);
+              } else {
+                onLut?.(index, null);
+                onColor?.(index, choice.rgb);
+              }
+            }}
           />
           <span style={styles.name} title={layer.name}>
             {layer.name}
@@ -1051,6 +1128,7 @@ export default function LayerPanel({
           index={selected}
           entry={state[selected]}
           mode={mode}
+          onToggle={onToggle}
           lookupTables={lookupTables}
           onWindow={onWindow}
           onMeasureHere={onMeasureHere}
@@ -1102,6 +1180,11 @@ const BLOCK = {
   paddingBottom: 8,
   marginBottom: 12,
 };
+
+// The ground under the channel being adjusted, in both the places it is
+// named: its row in the list, and its row above the histogram. One value, so
+// the two cannot drift apart.
+const CHOSEN_GROUND = "#1b2431";
 
 const styles = {
   empty: {
@@ -1239,25 +1322,47 @@ const styles = {
     position: "relative",
     padding: "1px 0",
     cursor: "pointer",
-    borderLeft: "2px solid transparent",
+    // The highlight below stops where the histogram does, so the row picked
+    // out and the picture it belongs to share a right-hand edge.
+    marginRight: 12,
+    borderRadius: 3,
   },
   // The channel the controls below are acting on. It has to be unmistakable:
-  // otherwise a slider appears to do nothing because it is adjusting a different
-  // channel from the one being looked at.
-  layerChosen: { background: "#1b2431", borderLeftColor: "#2f81f7" },
+  // otherwise a slider appears to do nothing because it is adjusting a
+  // different channel from the one being looked at. A tinted ground says that
+  // on its own; there was a blue bar down the left of it as well, which said
+  // the same thing twice and drew the eye to the panel's edge rather than to
+  // the row.
+  layerChosen: { background: CHOSEN_GROUND },
   // Directly below the list of channels, so the two things that belong
   // together -- the highlighted row naming the channel and the controls
   // adjusting it -- end up next to each other rather than at opposite ends
   // of the bar.
   // The clear space above the block is what separates it from the list at a
   // glance; the section rule alone was too easy to read past.
-  controls: { ...BLOCK, marginTop: 16, paddingBottom: 12, background: "#141922", flexShrink: 0 },
+  // Every section is separated from the next by the darker panel ground
+  // showing between the cards, and by the same amount: what set this one
+  // apart with extra room above was making the settings look like a
+  // different kind of thing from the list they belong to.
+  controls: { ...BLOCK, paddingBottom: 12, background: "#141922", flexShrink: 0 },
   controlsHead: {
     display: "flex",
-    alignItems: "baseline",
-    justifyContent: "space-between",
-    gap: 8,
+    flexDirection: "column",
+    gap: 3,
     padding: "0 12px 6px",
+  },
+  // The channel's own row, built like the rows in the list above so the two
+  // read as the same thing said twice: eye, colour, name -- on the same
+  // tinted ground the chosen row carries up there, which is what ties the
+  // two together at a glance.
+  controlsChannel: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    minWidth: 0,
+    background: CHOSEN_GROUND,
+    borderRadius: 3,
+    padding: "4px 6px",
   },
   controlsName: {
     color: "#e6edf3",
@@ -1270,8 +1375,9 @@ const styles = {
   row: { position: "relative", display: "flex", alignItems: "center", gap: 8, padding: "5px 12px" },
   eye: { background: "none", border: "none", color: "#c9d1d9", cursor: "pointer", fontSize: 13, padding: 0 },
   swatch: { width: 13, height: 13, borderRadius: 3, border: "1px solid #39424e", display: "inline-block", flexShrink: 0 },
-  // The colour row: what the channel is painted with, then how to change it.
-  colourRow: { display: "flex", alignItems: "center", gap: 5, minWidth: 0 },
+  // The square is a button now, so it needs a button's manners taken off it:
+  // no browser chrome, no text metrics, just the colour.
+  swatchButton: { padding: 0, cursor: "pointer", appearance: "none" },
   // Under the histogram and exactly as wide: the same grid as the row above,
   // so the ends of the axis sit under the ends of the picture they describe.
   // Written as the same template rather than as a padding that happens to
@@ -1304,30 +1410,16 @@ const styles = {
   // their column. An edge that does not quite line up reads as a mistake
   // even when nobody can say which pixel is wrong (2026-08-20).
   axisBox: { width: ROW_ITEM, flexShrink: 0 },
-  chooser: { position: "relative", flex: 1, minWidth: 0 },
-  chooserButton: {
-    width: "100%",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 4,
-    background: "#1b222b",
-    color: "#aab4c0",
-    border: "1px solid #303a46",
-    borderRadius: 3,
-    font: "10px system-ui, sans-serif",
-    padding: "3px 4px",
-    cursor: "pointer",
-  },
-  chooserName: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
-  chooserCaret: { opacity: 0.7, flexShrink: 0 },
+  // Only as wide as the square it holds, since the square is now the whole
+  // control; the list beneath it is free to be wider.
+  chooser: { position: "relative", flexShrink: 0, lineHeight: 0 },
   // Above everything else in the panel, and scrolling once the list is longer
   // than the room beneath it.
   chooserList: {
     position: "absolute",
     top: "calc(100% + 2px)",
     left: 0,
-    right: 0,
+    minWidth: 116,
     zIndex: 40,
     display: "flex",
     flexDirection: "column",
@@ -1351,6 +1443,9 @@ const styles = {
     textAlign: "left",
   },
   chooserEntryOn: { background: "#243040", color: "#e8edf3" },
+  // The custom entry holds the browser's own picker, invisible and filling
+  // it, so pressing the entry opens the picker rather than a control of ours.
+  chooserCustom: { position: "relative", cursor: "pointer" },
   chooserSwatch: {
     width: 22,
     height: 11,
@@ -1358,21 +1453,10 @@ const styles = {
     border: "1px solid #39424e",
     flexShrink: 0,
   },
-  // Bigger than the row swatch, because this one has to show a whole run of
-  // colours legibly rather than just say which one is chosen.
-  preview: {
-    position: "relative",
-    width: 30,
-    height: 16,
-    borderRadius: 3,
-    border: "1px solid #39424e",
-    flexShrink: 0,
-    cursor: "pointer",
-    overflow: "hidden",
-  },
-  // The picker itself is invisible and fills the preview, so the preview IS
-  // the button: the browser's own colour dialog opens on it, which is the one
-  // an operator already knows and needs no widget of ours to maintain.
+  // The picker itself is invisible and fills the entry that holds it, so
+  // that entry IS the button: the browser's own colour dialog opens on it,
+  // which is the one an operator already knows and needs no widget of ours
+  // to maintain.
   hiddenPicker: {
     position: "absolute",
     inset: 0,

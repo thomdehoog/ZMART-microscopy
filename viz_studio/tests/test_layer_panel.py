@@ -13,7 +13,7 @@ import threading
 
 import pytest
 from server import make_server
-from driving import colormap_now, pick_colormap  # noqa: E402
+from driving import colour_shown, pick_colormap  # noqa: E402
 
 # What the engine ended up holding, read back from the engine itself rather than
 # from the panel. The contrast window is deliberately *not* part of the shader
@@ -124,12 +124,7 @@ def test_showing_it_again_restores_it(two_channel_page):
 
 
 def test_recolouring_a_layer_reaches_the_shader(two_channel_page):
-    """The colour is chosen in the display settings, not on the row.
-
-    The palette dots sit with the other settings for the selected channel;
-    the little swatch on the row only *shows* the choice. One place to
-    change it, every place reflecting it.
-    """
+    """Choosing a colour paints the channel with it."""
     before = two_channel_page.evaluate(_ENGINE_LAYERS)[0]["shader"]
     pick_colormap(two_channel_page, "Ch488", "cyan")
     layer = two_channel_page.evaluate(_ENGINE_LAYERS)[0]
@@ -140,20 +135,27 @@ def test_recolouring_a_layer_reaches_the_shader(two_channel_page):
     )
 
 
-def test_the_row_swatch_shows_the_choice_and_is_not_a_control(two_channel_page):
-    """The swatch beside the channel's name follows the palette."""
+def test_the_row_swatch_shows_the_choice_and_opens_the_list(two_channel_page):
+    """The square beside a channel's name is both what it says and how to say it.
+
+    It used to be a read-out only, with the choosing done in a row of its own
+    labelled COLORMAP down in the display settings. The operator asked for
+    that row to go and for the colour itself to be the control (2026-08-22):
+    press the square you are already looking at, and the list of everything
+    the channel could be painted in opens under it.
+    """
     pick_colormap(two_channel_page, "Ch488", "cyan")
     swatch = two_channel_page.locator("[aria-label='colour Ch488']")
     background = swatch.evaluate("(el) => getComputedStyle(el).backgroundColor")
     assert background == "rgb(51, 204, 255)", (
         f"the row swatch shows {background}, not the cyan just chosen"
     )
-    assert swatch.evaluate("(el) => el.tagName") != "BUTTON", (
-        "the swatch is a read-out; choosing the colour lives in the display "
-        "settings"
+    assert swatch.evaluate("(el) => el.tagName") == "BUTTON", (
+        "the square is the control now, so it has to be something a keyboard "
+        "can reach and press"
     )
-    # And a chosen colour MAP shows on the swatch too, as its own gradient --
-    # the swatch always mirrors the one lookup-table control.
+    # And a chosen colour MAP shows on the square too, as its own gradient --
+    # the square always mirrors the one lookup-table control.
     pick_colormap(two_channel_page, "Ch488", "viridis")
     background = swatch.evaluate("(el) => getComputedStyle(el).backgroundImage")
     assert "gradient" in background, (
@@ -666,34 +668,40 @@ def test_channels_of_one_picture_blend_like_light(browser, built_dist,
         thread.join(timeout=5)
 
 
-def test_the_colour_control_is_called_a_colormap(two_channel_page):
-    """The control says what a microscopist calls it.
+def test_the_colour_control_is_the_colour_itself(two_channel_page):
+    """No label at all: the square a channel is painted in is the control.
 
-    "Lookup table" is what the graphics literature calls it and what nobody at
-    a microscope says. The word an operator uses is colormap, and a control
-    named for the implementation is a control they have to translate before
-    they can use it.
+    It carried a name for a while -- COLORMAP, which is what a microscopist
+    says where the literature says "lookup table" -- on a row of its own in
+    the display settings. The operator asked for that row to go (2026-08-22),
+    on the grounds that a colour needs no label: press the colour, choose
+    another. What must never come back is the implementation's own word.
     """
     page = two_channel_page
-    assert page.locator("[aria-label='colormap Ch488']").count() == 1
+    assert page.locator("[aria-label='colour Ch488']").count() == 1
     # Spelled out of one piece so that a later sweep renaming the control
     # cannot quietly rewrite the very name this line exists to forbid.
     old_name = " ".join(["lookup", "table", "Ch488"])
     assert page.locator(f"[aria-label='{old_name}']").count() == 0, (
         "the old name is still on the page, so there are two names for one thing"
     )
-    assert "colormap" in page.locator("text=colormap").first.inner_text().lower()
+    assert page.locator("[aria-label='layer panel']").get_by_text(
+        "colormap", exact=False).count() == 0, (
+        "the labelled row is back; the colour is meant to be its own control"
+    )
 
 
 def test_a_channel_can_be_painted_any_colour_at_all(two_channel_page):
-    """A colour picker beside the chooser, so the named list is not the limit.
+    """"Custom" at the head of the list, so the named colours are not the limit.
 
-    Six named colours are a quick pick, not the whole of what a specimen might
-    need -- and on a picture of many channels the named list runs out long
-    before the channels do. The preview beside the chooser is the button: it
-    shows what the channel is painted with now, and opens the picker.
+    Seven named colours are a quick pick, not the whole of what a specimen
+    might need -- and on a picture of many channels the named list runs out
+    long before the channels do. So the list opens with "custom", which hands
+    over the browser's own colour picker.
     """
     page = two_channel_page
+    page.locator("[aria-label='colour Ch488']").click()
+    page.wait_for_timeout(200)
     picker = page.locator("[aria-label='choose a colour for Ch488']")
     assert picker.count() == 1, "there is no way to choose a colour of one's own"
     picker.evaluate("""(element) => {
@@ -721,6 +729,8 @@ def test_picking_a_colour_puts_aside_the_colour_map(two_channel_page):
     page = two_channel_page
     pick_colormap(page, "Ch488", "viridis")
     assert "zmartLut" in page.evaluate(_ENGINE_LAYERS)[0]["shader"]
+    page.locator("[aria-label='colour Ch488']").click()
+    page.wait_for_timeout(200)
     page.locator("[aria-label='choose a colour for Ch488']").evaluate("""(element) => {
       const setter = Object.getOwnPropertyDescriptor(
         HTMLInputElement.prototype, 'value').set;
@@ -737,7 +747,7 @@ def test_picking_a_colour_puts_aside_the_colour_map(two_channel_page):
 def test_red_is_among_the_named_colours(two_channel_page):
     """The colour a microscopist reaches for first was not on the list."""
     page = two_channel_page
-    page.locator("[aria-label='colormap Ch488']").click()
+    page.locator("[aria-label='colour Ch488']").click()
     page.wait_for_timeout(200)
     assert page.locator("[aria-label='red for Ch488']").count() == 1, (
         "red is not among the colours a channel can be painted"
@@ -745,14 +755,17 @@ def test_red_is_among_the_named_colours(two_channel_page):
 
 
 def test_a_picked_colour_is_never_shown_under_a_name_it_is_not(two_channel_page):
-    """The chooser says "picked", rather than the nearest name in its list.
+    """A colour chosen by hand is claimed by no entry in the list.
 
     A select whose value matches none of its options shows the FIRST one, so a
     channel painted a hand-picked red read as "green" while being red -- seen
     on the plate, 2026-08-20. The panel may not tell an operator they chose
-    something they did not.
+    something they did not, and the place it could still do so is the tick
+    beside an entry.
     """
     page = two_channel_page
+    page.locator("[aria-label='colour Ch488']").click()
+    page.wait_for_timeout(200)
     page.locator("[aria-label='choose a colour for Ch488']").evaluate("""(element) => {
       const setter = Object.getOwnPropertyDescriptor(
         HTMLInputElement.prototype, 'value').set;
@@ -761,8 +774,16 @@ def test_a_picked_colour_is_never_shown_under_a_name_it_is_not(two_channel_page)
       element.dispatchEvent(new Event('change', { bubbles: true }));
     }""")
     page.wait_for_timeout(800)
-    assert colormap_now(page, "Ch488").startswith("picked"), (
-        "the chooser is showing a named colour for a colour picked by hand"
+    assert colour_shown(page, "Ch488") == "rgb(255, 59, 48)", (
+        f"the square shows {colour_shown(page, 'Ch488')}, not the red picked by hand"
+    )
+    page.locator("[aria-label='colour Ch488']").click()
+    page.wait_for_timeout(200)
+    claimed = page.eval_on_selector_all(
+        "[role='option'][aria-selected='true']", "els => els.map(e => e.innerText.trim())")
+    assert claimed == [], (
+        f"a colour picked by hand is being shown as {claimed}, which is a "
+        "name the operator never chose"
     )
     assert page.evaluate(_ENGINE_LAYERS)[0]["controls"]["color"] == "#ff3b30"
 
@@ -776,7 +797,7 @@ def test_every_entry_shows_the_colour_it_would_paint(two_channel_page):
     it is the only way to choose a colour without trying it first.
     """
     page = two_channel_page
-    page.locator("[aria-label='colormap Ch488']").click()
+    page.locator("[aria-label='colour Ch488']").click()
     page.wait_for_timeout(250)
     for name in ("green", "red", "viridis", "magma"):
         entry = page.locator(f"[aria-label='{name} for Ch488']")
@@ -803,36 +824,43 @@ _BARS = """() => Array.from(
  }))"""
 
 
-def test_the_brightness_axis_opens_on_the_data(two_channel_page):
-    """From the dimmest pixel present to the brightest, and no further.
+def test_the_brightness_axis_opens_around_the_window(two_channel_page):
+    """Laid out around the window in use, and nowhere near the camera's ceiling.
 
     An axis drawn to what the camera COULD have written puts a real specimen
     in the first few per cent of the track and leaves the rest as headroom
-    nothing occupies. The pixels that are actually there are what an operator
-    is adjusting, so that is the axis they get, and anything wider is theirs
-    to ask for in the boxes beneath it.
+    nothing occupies. It was the data's own span for a while, which is better;
+    it is now the window's own span with a seventh of the picture beyond each
+    edge, so the two marks land at 15% and 85% and an operator can see what is
+    being clipped at both ends (asked for 2026-08-22, and measured properly in
+    test_the_histogram_opens_where_the_run_says.py).
+
+    What has never changed, and is the point of the gate, is that the track is
+    the brightness being looked at rather than the brightness a camera could
+    in principle produce.
     """
     page = two_channel_page
-    measured = page.evaluate("() => window.zmartConfig.layers[0].histogram")
     _choose(page, "Ch488")
     window_ = _window_in_engine(page)
     reach = page.locator("[aria-label='max Ch488']").evaluate(
         "(element) => ({ min: Number(element.min), max: Number(element.max) })")
-    # The data's own span, widened only by whatever window is in use -- a run
-    # may declare a window wider than its brightest pixel, and a handle
-    # stranded past the end of its track is worse than a little slack.
-    wanted = max(measured["high"], window_[1])
-    assert reach["max"] == pytest.approx(wanted, rel=0.02), (
-        f"the handles travel to {reach['max']}, not to the {wanted} that the "
-        "channel's pixels and window between them ask for"
-    )
     assert reach["max"] < 65535, (
         "the axis is drawn to what the camera could have written, which is "
         "mostly headroom nothing occupies"
     )
-    assert reach["min"] == pytest.approx(min(measured["low"], window_[0]), abs=1.0), (
-        f"the handles start at {reach['min']}, not at the dimmest pixel "
-        f"({measured['low']})"
+    assert reach["min"] <= window_[0] and reach["max"] >= window_[1], (
+        f"the handles travel over {reach}, which does not contain the window "
+        f"{window_} they are meant to set -- a handle stranded past the end of "
+        "its track cannot be moved"
+    )
+    assert reach["min"] >= 0, (
+        f"the axis starts at {reach['min']}, which is darker than nothing"
+    )
+    across = reach["max"] - reach["min"]
+    beyond = (window_[1] - window_[0]) / across
+    assert beyond == pytest.approx(0.7, abs=0.02) or reach["min"] == 0, (
+        f"the window fills {beyond:.0%} of the track rather than the middle "
+        "70%, so its marks are not where the operator asked for them"
     )
 
 
@@ -986,3 +1014,100 @@ def test_the_row_under_the_histogram_lines_up_with_it(two_channel_page):
         f"Log ends at {pair_ends}, the slider track at "
         f"{track['x'] + track['width']}"
     )
+
+
+def test_the_panel_reads_as_three_evenly_spaced_sections(two_channel_page):
+    """The three sections are separated by the same amount of space.
+
+    The settings used to carry extra room above them, which set them apart
+    from the list they belong to and made the panel read as two things rather
+    than three sections of one. The operator asked for the gaps to match
+    (2026-08-22).
+    """
+    page = two_channel_page
+    cards = page.evaluate("""() => [...document.querySelectorAll(
+        "[aria-label='layer panel'] > div")].map((card) => {
+      const box = card.getBoundingClientRect();
+      return {head: (card.innerText || '').split('\\n')[0],
+              top: Math.round(box.top), bottom: Math.round(box.bottom)};
+    })""")
+    named = [card["head"] for card in cards]
+    assert named[:3] == ["LOAD DATA", "IMAGE DATA", "DISPLAY SETTINGS"], named
+    gaps = [second["top"] - first["bottom"]
+            for first, second in zip(cards, cards[1:])]
+    assert len(set(gaps[:2])) == 1, (
+        f"the sections are {gaps[:2]} pixels apart, so the panel reads as "
+        "two blocks rather than three sections of one"
+    )
+
+
+def test_the_chosen_channel_is_marked_by_its_ground_and_nothing_else(
+        two_channel_page):
+    """A tinted row, no blue bar, and a right edge shared with the histogram.
+
+    The row picked out has to be unmistakable, because a slider that is
+    adjusting a different channel from the one being looked at appears to do
+    nothing. A tinted ground says that on its own; a blue bar down the panel's
+    left edge said the same thing twice and drew the eye away from the row.
+    Ending the tint where the histogram ends ties the row to the picture its
+    settings act on (2026-08-22).
+    """
+    page = two_channel_page
+    page.click("[aria-label='toggle Ch488']")  # anything to settle the panel
+    page.click("[aria-label='toggle Ch488']")
+    marked = page.evaluate("""() => {
+      const row = document.querySelector("[aria-current='true']");
+      const picture = document.querySelector("[aria-label^='histogram']");
+      // The room the histogram fills, rather than the svg's own box: asking
+      // an svg for its rectangle answers about what it has drawn, which is a
+      // pixel or two wider than the space it was given.
+      const holder = picture.parentElement;
+      const spare = parseFloat(getComputedStyle(holder).paddingRight);
+      const seen = getComputedStyle(row);
+      return {
+        tinted: seen.backgroundColor,
+        leftBar: seen.borderLeftWidth,
+        rowRight: Math.round(row.getBoundingClientRect().right),
+        pictureRight: Math.round(holder.getBoundingClientRect().right - spare),
+      };
+    }""")
+    assert marked["tinted"] not in ("rgba(0, 0, 0, 0)", "transparent"), (
+        "the chosen channel's row has no ground of its own, so nothing says "
+        "which channel the settings below are adjusting"
+    )
+    assert marked["leftBar"] in ("0px", ""), (
+        f"the chosen row still carries a {marked['leftBar']} bar down its left"
+    )
+    assert abs(marked["rowRight"] - marked["pictureRight"]) <= 1, (
+        f"the tinted row ends at {marked['rowRight']} and the histogram at "
+        f"{marked['pictureRight']}; they are meant to share a right edge"
+    )
+
+
+def test_the_settings_name_the_channel_above_the_histogram(two_channel_page):
+    """Acquisition, then the channel's own row, then the picture.
+
+    Said the same way the list above says it -- eye, colour, name -- so the
+    pairing between the highlighted row and the sliders can be read rather
+    than remembered (2026-08-22).
+    """
+    page = two_channel_page
+    said = page.evaluate("""() => {
+      const settings = document.querySelector("[aria-label='channel controls']");
+      const picture = settings.querySelector("[aria-label^='histogram']");
+      const eye = settings.querySelector("[aria-label$='here']");
+      const square = settings.querySelector("[aria-label*='display settings']");
+      const above = (one) => one && picture
+        && one.getBoundingClientRect().bottom <= picture.getBoundingClientRect().top;
+      return {text: settings.innerText.split('\\n').slice(0, 2),
+              eyeAbove: above(eye), squareAbove: above(square)};
+    }""")
+    assert said["text"][0] == "DISPLAY SETTINGS", said["text"]
+    named = page.evaluate(
+        "() => window.zmartConfig.layers[0].group || ''")
+    assert said["text"][1].strip() == named, (
+        f"the acquisition ({named!r}) should head the block; it says "
+        f"{said['text'][1]!r}"
+    )
+    assert said["eyeAbove"], "the channel's eye is not above the histogram"
+    assert said["squareAbove"], "the channel's colour is not above the histogram"

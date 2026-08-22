@@ -13,27 +13,36 @@ from __future__ import annotations
 def pick_colormap(page, channel: str, name: str) -> None:
     """Paint a channel with a colour or a lookup table, by name.
 
-    The chooser is a small list rather than a dropdown, because every entry
-    shows its own colour beside its name and a dropdown can only offer words.
-    So this opens it and presses an entry. ``name`` is what the entry says --
-    "green", "viridis" -- with no ``flat:`` in front of the flat colours: that
-    prefix is how the panel tells its own entries apart, not something an
-    operator ever sees.
+    The colour a channel is painted in is also the control that changes it:
+    press the little square and a list opens under it. The list is a list
+    rather than a dropdown because every entry shows its own colour beside
+    its name, and a dropdown can only offer words. ``name`` is what the entry
+    says -- "green", "viridis" -- with no ``flat:`` in front of the flat
+    colours: that prefix is how the panel tells its own entries apart, not
+    something an operator ever sees.
+
+    The square appears twice for the channel being adjusted: once on its row
+    in the list, and once above the histogram. This presses the one on the
+    row, which is the one every channel has.
     """
-    page.locator(f"[aria-label='colormap {channel}']").click()
+    page.locator(f"[aria-label='colour {channel}']").click()
     page.wait_for_timeout(200)
     page.locator(f"[aria-label='{name} for {channel}']").click()
     page.wait_for_timeout(600)
 
 
-def colormap_now(page, channel: str) -> str:
-    """What the chooser says a channel is painted with.
+def colour_shown(page, channel: str) -> str:
+    """The colour the panel is showing for a channel, as the browser paints it.
 
-    Without the little caret: that is the chooser saying it opens, not part
-    of the name of anything.
+    Read from the square itself rather than from any name beside it, because
+    the square is now the whole of what the panel says: a flat colour comes
+    back as ``rgb(r, g, b)`` and a colour map as a gradient.
     """
-    face = page.locator(f"[aria-label='colormap {channel}']").inner_text()
-    return face.replace("▾", "").strip()
+    square = page.locator(f"[aria-label='colour {channel}']")
+    painted = square.evaluate("(el) => getComputedStyle(el).backgroundImage")
+    if painted and painted != "none":
+        return painted
+    return square.evaluate("(el) => getComputedStyle(el).backgroundColor")
 
 
 # -- the load window -----------------------------------------------------------
