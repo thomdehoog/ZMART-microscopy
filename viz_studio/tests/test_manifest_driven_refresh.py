@@ -187,7 +187,10 @@ def test_a_timelapse_run_binds_and_serves_its_grown_picture(tmp_path):
     run.write_and_publish("posA", some_specimen(700))
     library = Library()
     library.open(run.folder, names=["views/live/live.ome.zarr"], watch=False)
-    registry = LiveRegistry(library)
+    # With the bake asked for, since the bake is the part of this that a
+    # grown run once refused outright. A live run is served unbaked unless
+    # somebody says otherwise.
+    registry = LiveRegistry(library, wants_the_bake=lambda run_root: True)
 
     bindings, governed = registry.refresh()
     assert governed == {0}
@@ -203,9 +206,9 @@ def test_a_timelapse_run_binds_and_serves_its_grown_picture(tmp_path):
     )
     assert (run.folder / LIVE_PICTURE / "baked.json").is_file(), (
         "a grown live picture bakes like a flat one now -- the stamp is the "
-        "durable mark of a finished bake, and its absence means the run's "
-        "cold opens would compose every coarse piece in front of the "
-        "operator"
+        "durable mark of a finished bake, and its absence means the bake "
+        "asked for here never happened, so the run's cold opens would "
+        "compose every coarse piece in front of the operator"
     )
 
 
@@ -335,6 +338,14 @@ def test_live_registry_follows_the_production_open_and_close_routes(tmp_path):
 
 
 def test_binding_a_live_run_declares_the_baked_picture_exactly_once(tmp_path, monkeypatch):
+    """Declaring is expensive, so a run that already has its picture keeps it.
+
+    The bake is asked for here because that is the expensive case: a run
+    served unbaked is declared in no time, while a bake at scale is seconds
+    to minutes, and re-doing it on every look at what is open would put that
+    cost in front of the operator over and over.
+    """
+    baking = (lambda run_root: True)
     run = a_live_run(tmp_path)
     run.write_and_publish("posA", some_specimen(700))
     declared = []
@@ -347,7 +358,7 @@ def test_binding_a_live_run_declares_the_baked_picture_exactly_once(tmp_path, mo
     monkeypatch.setattr(live_config, "declare_a_governed_picture", counting)
     library = Library()
     library.open(run.folder, names=["views/live/live.ome.zarr"], watch=False)
-    registry = LiveRegistry(library)
+    registry = LiveRegistry(library, wants_the_bake=baking)
 
     bindings, governed = registry.refresh()
     assert len(bindings) == 1 and governed == {0}
@@ -360,7 +371,7 @@ def test_binding_a_live_run_declares_the_baked_picture_exactly_once(tmp_path, mo
     assert len(bindings) == 1
     assert len(declared) == 1, "a second refresh must not re-declare"
 
-    restarted = LiveRegistry(library)
+    restarted = LiveRegistry(library, wants_the_bake=baking)
     bindings, _ = restarted.refresh()
     assert len(bindings) == 1
     assert len(declared) == 1, "a fresh registry must recognise the store on disk"
