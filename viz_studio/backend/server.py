@@ -192,7 +192,8 @@ def group_labels(datasets) -> dict[int, str]:
 # is which.
 
 
-def the_store_a_live_run_is_opened_by(target: Path) -> list[str] | None:
+def the_store_a_live_run_is_opened_by(target: Path, *,
+                                     bake: bool = False) -> list[str] | None:
     """The one store inside a live run's folder that the viewer should open.
 
     A live run's folder is not an ordinary folder of images. Beside the raw
@@ -211,14 +212,16 @@ def the_store_a_live_run_is_opened_by(target: Path) -> list[str] | None:
 
     The picture is declared here if this run has not been watched before;
     that takes a moment on a large run, and it has to happen before the
-    library reads the store.
+    library reads the store. ``bake`` decides how much of it is written now
+    rather than composed when looked at -- off unless it was asked for, the
+    same as on the door that builds a view over raw positions.
 
     ``None`` means the target is not a live run's folder, and the caller
     carries on opening it in the ordinary way.
     """
     if live_run_holding(target) != Path(target).resolve():
         return None
-    the_live_picture_declared(Path(target))
+    the_live_picture_declared(Path(target), bake=bake)
     return [LIVE_PICTURE]
 
 
@@ -1534,7 +1537,9 @@ class _Handler(SimpleHTTPRequestHandler):
             # whole declared time room before any of it had landed.
             self._library.open(
                 str(run_folder),
-                names=the_store_a_live_run_is_opened_by(run_folder),
+                names=the_store_a_live_run_is_opened_by(
+                    run_folder, bake=self._asked_for_the_live_bake(run_folder,
+                                                                  asked)),
                 name=f"{data_path.name} replay")
         except (FileNotFoundError, ValueError, OSError) as exc:
             self._send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
@@ -1719,7 +1724,8 @@ class _Handler(SimpleHTTPRequestHandler):
         # Handed to the library bare it answered "no OME-Zarr image was
         # found", which cost every finished replay its promised reopening
         # (found on the workstation, 2026-08-19).
-        served_view = the_store_a_live_run_is_opened_by(target)
+        served_view = the_store_a_live_run_is_opened_by(
+            target, bake=self._asked_for_the_live_bake(target, payload))
         try:
             if served_view is not None:
                 self._library.open(str(target), names=served_view)
@@ -1732,6 +1738,23 @@ class _Handler(SimpleHTTPRequestHandler):
             self._send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
             return
         self._send_json(self._config())
+
+    def _asked_for_the_live_bake(self, run_folder: Path, payload: object) -> bool:
+        """Whether this run was opened with a bake asked for, and remember it.
+
+        A live run is served unbaked: the picture is declared and every piece
+        of it is composed when somebody looks at it. Asking for the bake
+        writes the pieces instead, which is what a real acquisition wants at
+        scale and what costs real time up front. The answer is remembered
+        beside the run so that the registry, which declares the picture again
+        whenever the run is bound afresh, asks for the same thing rather than
+        quietly taking a bake away.
+        """
+        asked = payload if isinstance(payload, dict) else {}
+        baking = self._scratch.setdefault("bake_live", set())
+        if bool(asked.get("bake")):
+            baking.add(Path(run_folder).resolve())
+        return Path(run_folder).resolve() in baking
 
     def _serve_close(self, payload: object) -> None:
         """Close an acquisition type, and answer with what is left."""
@@ -2026,7 +2049,17 @@ def make_server(
         when_changed=(building.catch_up_governed_runs
                       if building is not None else None)
     )
-    live_registry = LiveRegistry(library)
+    # Small things this server remembers between requests: where the
+    # scenes it composed were put, and which live runs were opened with
+    # a bake asked for. Declared here because the live registry below
+    # reads it the moment it first looks at what is open.
+    scratch: dict = {}
+
+    live_registry = LiveRegistry(
+        library,
+        wants_the_bake=lambda run_root: (
+            Path(run_root).resolve() in scratch.get("bake_live", ())),
+    )
     live_registry.refresh()
     watchers = []
     if live:
@@ -2506,7 +2539,6 @@ def make_server(
     # Where this viewer composes the pictures it makes for itself, and what
     # the shutdown below empties. Held here rather than per request so that
     # one run opened twice is composed once.
-    scratch: dict = {}
 
     class _Server(ThreadingHTTPServer):
         # The engine opens several connections at once and asks for pieces in

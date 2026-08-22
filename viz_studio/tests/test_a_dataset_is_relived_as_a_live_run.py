@@ -1056,3 +1056,97 @@ def test_opening_it_again_after_closing_it_shows_the_same_picture(
         page.close()
         server.shutdown()
         thread.join(timeout=5)
+
+
+def _a_replay_photographed(browser, built_dist, tmp_path, *, bake):
+    """Replay one scan through the live door and photograph what it draws."""
+    import numpy as np
+    from PIL import Image
+
+    first = tmp_path / "overview"
+    first.mkdir(parents=True)
+    from test_open_and_close import _store
+    _store(first / "overview_pos001.ome.zarr", channels=1)
+    _a_grid_scan(tmp_path / "scan")
+
+    server = make_server(port=0, data_dir=first, site_dir=built_dist,
+                         store="overview_pos001.ome.zarr")
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    page = browser.new_page(viewport={"width": 1300, "height": 1000})
+    try:
+        page.goto(f"http://127.0.0.1:{server.server_address[1]}",
+                  wait_until="domcontentloaded")
+        page.wait_for_function("() => window.zmartConfig !== undefined", timeout=30_000)
+        page.get_by_title("Hide this acquisition").first.click()
+        page.wait_for_timeout(500)
+        # Straight to the door's own request, so the bake can be asked for
+        # exactly as the load window would ask for it.
+        page.evaluate("""async ([where, bake]) => {
+          await fetch('/api/stores/replay', {method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({path: where, every: 0, bake})});
+        }""", [str(tmp_path / "scan"), bake])
+        for _ in range(300):
+            done = page.evaluate("""async () => {
+              const answer = await fetch('/api/stores/replay-status',
+                {method: 'POST', headers: {'Content-Type': 'application/json'},
+                 body: '{}'});
+              return (await answer.json()).state;
+            }""")
+            if done in ("done", "error"):
+                break
+            page.wait_for_timeout(150)
+        assert done == "done", f"the replay did not finish: {done}"
+        page.wait_for_function(
+            "() => (window.zmartConfig.groups || []).some((g) => g.includes('scan'))",
+            timeout=30_000)
+        page.wait_for_timeout(7000)
+        page.get_by_role("button", name="Overview", exact=True).click()
+        page.wait_for_timeout(3000)
+        canvas = page.locator("canvas").first.bounding_box()
+        shot = page.screenshot(clip={
+            "x": canvas["x"] + canvas["width"] * 0.15,
+            "y": canvas["y"] + canvas["height"] * 0.15,
+            "width": canvas["width"] * 0.7, "height": canvas["height"] * 0.7})
+        import io
+        return np.asarray(
+            Image.open(io.BytesIO(shot)).convert("L"), dtype=float)
+    finally:
+        page.close()
+        server.shutdown()
+        thread.join(timeout=5)
+
+
+def test_a_live_run_draws_the_same_picture_baked_or_not(browser, built_dist,
+                                                        tmp_path):
+    """The live view is unbaked unless asked, and both roads show one picture.
+
+    Baking on the fly is what lets a real acquisition scale: the pieces are
+    written as the run goes, so a cold open reads files and each commit
+    patches only its own footprint. It also costs real time up front, and an
+    operator watching a rehearsal does not want to pay it -- so the viewer
+    serves a live run unbaked and the bake is asked for, the same way it is
+    asked for on the door that builds a view over raw positions.
+
+    What must not differ is the picture. A bake is a promise about speed and
+    about nothing else, so the two are photographed and compared rather than
+    reasoned about: the ways a bake can quietly go wrong -- a level built
+    from the wrong copy, a piece written with fill where a tile reaches --
+    all look perfectly plausible alone and only show up side by side.
+    """
+    import numpy as np
+
+    plain = _a_replay_photographed(browser, built_dist, tmp_path / "plain",
+                                   bake=False)
+    baked = _a_replay_photographed(browser, built_dist, tmp_path / "baked",
+                                   bake=True)
+    assert plain.shape == baked.shape, (
+        f"the two pictures are different sizes: {plain.shape} against {baked.shape}")
+    assert float(plain.max()) > 40, "the unbaked replay drew nothing at all"
+    assert float(baked.max()) > 40, "the baked replay drew nothing at all"
+    apart = float(np.abs(plain - baked).mean())
+    assert apart < 2.0, (
+        f"baked and unbaked differ by {apart:.2f} levels per pixel on average "
+        "-- the bake must change how fast the picture arrives and nothing "
+        "about what it shows")

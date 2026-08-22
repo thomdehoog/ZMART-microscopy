@@ -65,15 +65,18 @@ LIVE_PICTURE = "views/live/picture.ome.zarr"
 _DECLARE_RETRY_S = 2.0
 
 
-def the_live_picture_declared(run_root: Path) -> Path:
+def the_live_picture_declared(run_root: Path, *, bake: bool = False) -> Path:
     """The governed picture this run is served by, declared if needed.
 
-    Every run is declared with the bake, so its cold open reads files and
-    every commit patches its own footprint -- the one live path the
-    2026-08-13 decision settles on. A run grown along (t, c) bakes one
-    file per (moment, channel) frame, kept true per commit exactly as a
-    flat run's files are; the last bake refusal retired with
-    ``test_a_grown_run_is_baked_per_commit``.
+    ``bake`` decides how much is written now. Without it -- which is what an
+    ordinary open asks for -- only the declaration is written, and every
+    piece of the picture is composed on the fly when somebody looks at it.
+    With it, the pieces themselves are computed and kept, which is what lets
+    a real smart-microscopy run scale: the cold open then reads files, and
+    every commit patches its own footprint rather than the whole picture
+    being made again. That costs real time up front on real data, so it is
+    asked for rather than assumed -- the same bargain, and the same word, as
+    on the door that builds a view over raw positions.
 
     Declaring can take seconds to minutes at scale, so it happens once, on
     the binding's first creation: a store already declared FROM THIS RUN in
@@ -83,7 +86,7 @@ def the_live_picture_declared(run_root: Path) -> Path:
     """
     store = run_root / LIVE_PICTURE
     grown = _the_run_is_grown(run_root)
-    if _already_this_runs_picture(store, run_root, grown):
+    if _already_this_runs_picture(store, run_root, grown, bake):
         return store
     if declare_a_governed_picture is None:
         raise RuntimeError(
@@ -92,10 +95,11 @@ def the_live_picture_declared(run_root: Path) -> Path:
         )
     began = time.perf_counter()
     made = declare_a_governed_picture(
-        run_root / "views" / "live", run_root, name="picture", bake=True
+        run_root / "views" / "live", run_root, name="picture", bake=bake
     )
     print(
-        f"declared the {'grown, ' if grown else ''}baked live picture "
+        f"declared the {'grown, ' if grown else ''}"
+        f"{'baked' if bake else 'unbaked'} live picture "
         f"{made} in {time.perf_counter() - began:.1f} s",
         flush=True,
     )
@@ -129,17 +133,21 @@ def _the_run_is_grown(run_root: Path) -> bool:
 
 
 def _already_this_runs_picture(store: Path, run_root: Path,
-                               grown: bool) -> bool:
-    """Whether the store already is this run's picture, in today's shape.
+                               grown: bool, bake: bool) -> bool:
+    """Whether the store already is this run's picture, in the shape asked for.
 
-    The durable mark is ``baked.json`` -- written only by a finished bake,
-    flat and grown alike. A grown picture declared in the days it composed
-    on request carries no stamp, so it is quietly re-declared with its
-    bake the first time it binds. The shape has to match what the run
-    needs TODAY as well: a picture declared flat before its run grew axes
-    would silently truncate every later moment, so it is re-declared
-    instead. Anything unreadable answers ``False`` -- the re-declaration
-    overwrites cleanly, which is the fail-closed direction.
+    The shape has to match what the run needs TODAY: a picture declared flat
+    before its run grew axes would silently truncate every later moment, so
+    it is re-declared instead.
+
+    A bake that was asked for has to be there as well, and ``baked.json`` --
+    written only by a finished bake -- is what says it is. Asking for no bake
+    accepts a picture either way rather than declaring again to take the
+    baked files away: an operator who paid for them once should not lose them
+    by reopening the run.
+
+    Anything unreadable answers ``False`` -- the re-declaration overwrites
+    cleanly, which is the fail-closed direction.
     """
     try:
         described = json.loads((store / "zarr.json").read_text(encoding="utf-8"))
@@ -157,9 +165,8 @@ def _already_this_runs_picture(store: Path, run_root: Path,
     axes = [axis.get("name") for axis in
             ((described.get("attributes") or {}).get("ome") or {})
             .get("multiscales", [{}])[0].get("axes", [])]
-    if grown:
-        return axes[:2] == ["t", "c"]
-    return axes[:1] == ["z"] and (store / "baked.json").is_file()
+    right_shape = axes[:2] == ["t", "c"] if grown else axes[:1] == ["z"]
+    return right_shape and (not bake or (store / "baked.json").is_file())
 
 
 @dataclass(frozen=True)
@@ -216,8 +223,12 @@ class LiveRegistry:
     One tracker is shared if the same run is intentionally opened twice.
     """
 
-    def __init__(self, library) -> None:
+    def __init__(self, library, wants_the_bake=None) -> None:
         self._library = library
+        # Whether a given run was opened with a bake asked for. A live run
+        # is served unbaked unless somebody said otherwise, so the default
+        # answer is no.
+        self._wants_the_bake = wants_the_bake or (lambda run_root: False)
         self._lock = threading.RLock()
         self._trackers_by_root: dict[Path, LiveStateTracker] = {}
         self._pictures: dict[Path, Path] = {}
@@ -318,7 +329,8 @@ class LiveRegistry:
                 return stumbled[1]
             del self._picture_refused[run_root]
         try:
-            made = the_live_picture_declared(run_root)
+            made = the_live_picture_declared(
+                run_root, bake=self._wants_the_bake(run_root))
         except Exception as why:  # noqa: BLE001 - reported and retried, never hidden
             self._picture_refused[run_root] = (time.monotonic(), str(why))
             return str(why)
