@@ -194,3 +194,58 @@ again. A plan fixed at the moment the operator presses save is comfortable there
 Tile rectangles that turn from *planned* to *acquiring* to *done* every few
 seconds are not, and belong to the application whichever route is taken. The order
 in the table above holds either way.
+
+---
+
+## The picture is solid, and everything see-through is above it
+
+Written 2026-08-22, while the JPEG viewer was being built.
+
+The engine's picture is **always the bottom layer, and always solid**. It is
+never faded, and no window is ever cut through it. Everything that decides what
+shows through is drawn above it.
+
+This falls out of one fact and one preference.
+
+The fact: **the engine has to be at the bottom.** Neuroglancer draws with the
+graphics card into a surface of its own and cannot be made see-through, and it
+is the engine this is heading towards. Anything that has to work with
+neuroglancer has to work with an opaque bottom layer, so that is the shape
+everything else is designed around — and the JPEG viewer, which could easily
+have been transparent, is deliberately built the same way rather than being
+allowed to depend on something its successor cannot do.
+
+The preference follows from the fact, and it is the part worth remembering:
+**since nothing is beneath the bottom layer, transparency in it buys nothing.**
+There is no picture underneath for it to reveal. A see-through engine would
+only ever reveal the page's background, and in exchange it would make the
+picture ambiguous — half-transparent images, and no clear answer to where the
+engine is see-through and where it is not. Two things would then decide what an
+operator sees, and neither would be readable on its own.
+
+So the arrangement is: **a solid picture at the bottom, and layers above it
+that say exactly where it shows through.** Where the operator's drawing is
+faded, the picture appears; where it is not, it does not. One place makes the
+decision, and it is a place that can be stated in micrometres on the sample.
+
+### What this settles
+
+- The viewer interface does **not** grow an opacity or a region. `showPicture`
+  stays the only control over the picture, and it has two states: drawn, or
+  not drawn at all. Nothing in between.
+- Per-layer opacity, a shared fade, and a see-through window over chosen
+  ground all belong to the application's own drawing, above the picture. None
+  of them needs anything from the engine.
+- Which means they cost nothing to implement per engine, and behave identically
+  whichever engine is drawing. That is the practical prize.
+
+### The one thing it changes about the bottom slot
+
+`drawUnder` — the application's drawing *beneath* the picture — keeps a
+narrower job than its name suggests: **the ground the scan has not covered.** A
+solid picture hides whatever is under it wherever a field exists, so a drawing
+handed to the bottom slot can only ever appear where there is no field. That is
+still worth having, and it is where a carrier outline beyond the scanned area
+belongs. It is not a general layer, and treating it as one leads to drawings
+that are visible in a rehearsal with no acquisition and vanish the moment a run
+starts.
