@@ -180,6 +180,20 @@ def png_data_url_ranged(array: Any, display_range: tuple[float, float] | None) -
     return png_to_data_url(buffer.getvalue())
 
 
+def jpeg_data_url(array: Any, quality: int = 85) -> str:
+    """Encode an image array straight to a ``data:image/jpeg`` URL.
+
+    Useful where a picture travels inside the page's own description rather
+    than being fetched separately — a handful of pictures, or the same one
+    shown in many places, where the browser decodes it once and re-uses it.
+    A map of thousands of different tiles should still send its pixels as
+    separate binary messages instead, so the page stays small.
+    """
+    import base64
+
+    return "data:image/jpeg;base64," + base64.b64encode(jpeg_bytes(array, quality)).decode("ascii")
+
+
 def png_data_url(array: Any) -> str:
     """Encode an image array straight to a ``data:image/png`` URL."""
     return png_to_data_url(png_bytes(array))
