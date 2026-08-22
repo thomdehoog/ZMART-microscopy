@@ -73,12 +73,23 @@ _PLANE_NAME = re.compile(
     r"\.ome\.tiffs?$"
 )
 
-#: How many pixels one field's small copy may have. A field shown as part of a
-#: whole slide is a few dozen pixels across, so this is already generous — it
-#: is chosen so a field still reads when the operator zooms into it a little,
-#: not so it stands up to inspection. Looking closely is what the real TIFF is
-#: for.
-SMALL_ENOUGH = 64 * 64
+#: How many pixels one field's small copy may have.
+#:
+#: Chosen by measuring rather than by argument, because the obvious worry turns
+#: out not to be the real one. A scan of ten thousand fields draws at a steady
+#: sixty frames a second whether each field is kept at 32 pixels or at 256, and
+#: opens in about the same thirty milliseconds either way: what a viewer has to
+#: work at is the *number* of fields on screen, not how many pixels each one
+#: holds. So the choice comes down to what the folder weighs and how far the
+#: operator can zoom before it goes soft.
+#:
+#: At 128 pixels a field, ten thousand fields are about a hundred megabytes and
+#: take under a minute to make — and a field stays readable until it fills a
+#: fair part of the screen. Half that size saves seventy megabytes and starts
+#: looking blocky sooner; twice it costs four times the disk for detail that
+#: only appears once one field fills a quarter of the screen, which is the
+#: point at which the real TIFF is what you want anyway.
+SMALL_ENOUGH = 128 * 128
 
 #: How hard to compress. 85 keeps cell-sized detail while giving most of the
 #: saving; colour is kept at full resolution because these pictures are
