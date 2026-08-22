@@ -105,6 +105,7 @@ class RunFlow:
                  "dimmable": False, "interactive": True},
             ]
         )
+        self.canvas.on_edit = self._canvas_edited
         hub.add_widget("canvas", self.canvas)
 
         self._steps: dict[str, Callable[[], str]] = {
@@ -366,6 +367,7 @@ class RunFlow:
                 af_job=self.af_job,
             )
             self.ns["picker"] = self.picker
+            self.picker.observe(lambda _change: self._draw_focus_points(), names="points")
             self.hub.add_widget("focus", self.picker)
         self._draw_scan_fields(positions)
         return (
@@ -408,6 +410,75 @@ class RunFlow:
             xs = [f["bounds"][0] + f["bounds"][2] / 2.0 for f in fields]
             ys = [f["bounds"][1] + f["bounds"][3] / 2.0 for f in fields]
             self.canvas.look_at(sum(xs) / len(xs), sum(ys) / len(ys))
+
+    def _canvas_edited(self, what: str, layer_id: str, details: dict) -> None:
+        """Carry what the operator did on the picture back into the run.
+
+        Without this the picture would be a drawing: a focus point put down on
+        it would never be measured, and a scan field moved on it would not
+        change where the microscope goes. Each edit is applied to the thing
+        that actually drives the hardware, and the picture is then redrawn
+        from that, so the two can never disagree.
+        """
+        if layer_id == self.canvas.focus_layer:
+            self._focus_point_edited(what, details)
+        elif layer_id == "fields" and what == "move":
+            self._scan_field_moved(details)
+
+    def _focus_point_edited(self, what: str, details: dict) -> None:
+        """A focus point placed or taken away is one the microscope will use."""
+        if self.picker is None:
+            raise FlowError("load the positions first — the focus map needs them")
+        if self.picker._busy:
+            raise FlowError("wait for the focus measurement to finish")
+        points = [dict(p) for p in self.picker.points]
+        if what == "place":
+            points.append({"x": float(details["x"]), "y": float(details["y"])})
+        elif what == "remove":
+            index = int(details["index"])
+            if not 0 <= index < len(points):
+                return
+            points.pop(index)
+        elif what == "move":
+            index = int(details["index"])
+            if not 0 <= index < len(points):
+                return
+            points[index] = {
+                "x": float(points[index]["x"]) + float(details["dx"]),
+                "y": float(points[index]["y"]) + float(details["dy"]),
+            }
+        self.picker.points = points
+        self._draw_focus_points()
+
+    def _scan_field_moved(self, details: dict) -> None:
+        """Moving a scan field moves where the microscope will actually image.
+
+        Only before the overview is taken. Afterwards the tiles on the picture
+        were imaged where the fields used to be, so moving one would leave the
+        drawing disagreeing with the sample underneath it — and the positions
+        would no longer describe the run that happened.
+        """
+        with self._state_lock:
+            already_scanned = "run_overview" in self.completed
+        if already_scanned:
+            raise FlowError(
+                "the overview has already been taken — the fields cannot be moved now"
+            )
+        if not self.positions:
+            raise FlowError("load the positions first")
+        index = int(details["index"])
+        if not 0 <= index < len(self.positions):
+            return
+        moved = [dict(p) for p in self.positions]
+        moved[index] = {
+            **moved[index],
+            "x": float(moved[index]["x"]) + float(details["dx"]),
+            "y": float(moved[index]["y"]) + float(details["dy"]),
+        }
+        self.positions = moved
+        self.ns["positions"] = moved
+        self._draw_scan_fields(moved)
+        self.canvas.status = f"scan field {index + 1} moved — it will be imaged there"
 
     def _draw_focus_points(self) -> None:
         """Show where the focus was measured, so the surface can be judged."""

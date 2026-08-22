@@ -1783,3 +1783,93 @@ def test_a_browser_arriving_late_is_sent_the_imagery_it_missed(tmp_path):
 
     flow.run_step("disconnect")
     hub.drain(60)
+
+
+def test_a_focus_point_placed_on_the_picture_is_one_the_microscope_measures(tmp_path):
+    """The picture must drive the run, not merely illustrate it.
+
+    A focus point put down on the picture has to become one the microscope
+    will actually visit. If it were only drawn, the operator would place
+    points, press Measure, and have the microscope go somewhere else entirely.
+    """
+    hub = WidgetHub()
+    flow = RunFlow(hub, demo=True, demo_root=tmp_path / "run")
+    for step in _ORDERED_STEPS[:5]:
+        flow.run_step(step)
+    hub.drain(60)
+    picker, canvas = flow.picker, flow.canvas
+    started_with = len(picker.points)
+
+    hub.dispatch_message("canvas", {"type": "place", "x": 12.0, "y": -30.0})
+    hub.drain(30)
+    assert len(picker.points) == started_with + 1
+    assert picker.points[-1] == {"x": 12.0, "y": -30.0}
+
+    hub.dispatch_message("canvas", {"type": "remove", "layer": "focus", "index": 0})
+    hub.drain(30)
+    assert len(picker.points) == started_with
+
+    # The focus map and the picture are two views of one set of points, so
+    # editing either has to show in both.
+    picker.points = [{"x": 1.0, "y": 2.0}, {"x": 3.0, "y": 4.0}]
+    hub.drain(30)
+    drawn = next(la for la in canvas.layers if la["id"] == "focus")["points"]
+    assert [(p["x"], p["y"]) for p in drawn] == [(1.0, 2.0), (3.0, 4.0)]
+
+    flow.run_step("disconnect")
+    hub.drain(60)
+
+
+def test_moving_a_scan_field_moves_where_the_microscope_will_image(tmp_path):
+    """Placing the fields by hand is the point of showing them before the scan."""
+    hub = WidgetHub()
+    flow = RunFlow(hub, demo=True, demo_root=tmp_path / "run")
+    for step in _ORDERED_STEPS[:5]:
+        flow.run_step(step)
+    hub.drain(60)
+    before = float(flow.positions[0]["x"])
+
+    hub.dispatch_message(
+        "canvas", {"type": "move", "layer": "fields", "index": 0, "dx": 25.0, "dy": -10.0}
+    )
+    hub.drain(30)
+    assert flow.positions[0]["x"] == pytest.approx(before + 25.0)
+    assert flow.ns["positions"][0]["x"] == pytest.approx(before + 25.0)
+    # The drawing follows the positions, so the two cannot disagree.
+    field = next(la for la in flow.canvas.layers if la["id"] == "fields")["shapes"][0]
+    size = flow.positions[0]["tile_size"]
+    assert field["bounds"][0] + field["bounds"][2] / 2 == pytest.approx(before + 25.0)
+    assert field["bounds"][2] == pytest.approx(size["x"])
+
+    flow.run_step("disconnect")
+    hub.drain(60)
+
+
+def test_a_scan_field_cannot_be_moved_once_the_overview_is_taken(tmp_path):
+    """Afterwards the tiles were imaged where the fields used to be.
+
+    Moving one then would leave the drawing disagreeing with the sample
+    underneath it, and the positions would no longer describe the run that
+    actually happened. The operator is told so rather than being allowed to
+    make the record wrong.
+    """
+    hub = WidgetHub()
+    flow = RunFlow(hub, demo=True, demo_root=tmp_path / "run")
+    for step in _ORDERED_STEPS[:5]:
+        flow.run_step(step)
+    hub.drain(60)
+    hub.dispatch_message("focus", {"type": "measure"})
+    hub.drain(120)
+    flow.run_step("run_overview")
+    hub.drain(180)
+    settled = float(flow.positions[0]["x"])
+
+    hub.dispatch_message(
+        "canvas", {"type": "move", "layer": "fields", "index": 0, "dx": 50.0, "dy": 0.0}
+    )
+    hub.drain(30)
+    assert flow.positions[0]["x"] == pytest.approx(settled), "a field moved after the scan"
+    assert "already been taken" in flow.canvas.status
+
+    flow.run_step("disconnect")
+    hub.drain(60)
