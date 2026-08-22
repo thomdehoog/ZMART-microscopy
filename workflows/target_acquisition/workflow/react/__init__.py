@@ -30,6 +30,7 @@ from typing import Any
 
 from ._widgets import (
     AcquisitionGalleryReact,
+    CanvasReact,
     FocusPickerReact,
     OverviewViewerReact,
     RunStatusReact,
@@ -37,6 +38,7 @@ from ._widgets import (
 )
 
 __all__ = [
+    "canvas",
     "view_overview",
     "pick_focus_points",
     "explore_targets",
@@ -46,6 +48,7 @@ __all__ = [
     "FocusPickerReact",
     "TargetExplorerReact",
     "AcquisitionGalleryReact",
+    "CanvasReact",
     "RunStatusReact",
 ]
 
@@ -135,3 +138,16 @@ def run_status(ns: dict | None = None) -> RunStatusReact:
     if ns is not None:
         status.refresh(ns)
     return status
+
+
+def canvas(layers: list[dict] | None = None) -> CanvasReact:
+    """The layered picture of the sample; see :class:`CanvasReact`.
+
+    Give it layers bottom-first. Each needs a ``kind`` — ``"engine"`` for an
+    image engine plugged in underneath, ``"images"`` for pictures placed on
+    the sample, ``"shapes"`` for outlines like a carrier or the scan fields,
+    ``"points"`` for things like focus points — and may say whether it starts
+    visible, how solid it is, whether the shared fade reaches it, and whether
+    it accepts clicks.
+    """
+    return CanvasReact(layers)
