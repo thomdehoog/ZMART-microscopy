@@ -186,6 +186,146 @@ movable from one workflow into the next.
 
 ---
 
+## The ideas behind it, as they were settled
+
+These were worked out in conversation and are written down because the reasoning
+matters more than the code: anybody wiring this into a different window will meet
+the same questions, and the answers are not obvious.
+
+### Why the picture is solid, and everything see-through sits above it
+
+The engine has to be at the bottom. Neuroglancer draws with the graphics card
+into a surface of its own and cannot be made see-through, and it is where this is
+heading. Anything that has to work with neuroglancer has to work with an opaque
+bottom layer — so the JPEG viewer, which could easily have been transparent, is
+deliberately built the same way rather than being allowed to depend on something
+its successor cannot do.
+
+And since nothing is beneath the bottom layer, transparency there buys nothing.
+There is no picture underneath for it to reveal. A see-through engine would only
+ever reveal the page's background, and in exchange the picture would become
+ambiguous — half-transparent images, and no clear answer to where the engine is
+see-through and where it is not. Two things would then decide what an operator
+sees and neither would be readable on its own.
+
+So: **a solid picture at the bottom, and layers above it that say exactly where
+it shows through.** One place makes the decision, and it is a place that can be
+stated in micrometres on the sample.
+
+The practical prize is that none of this costs anything per engine. Per-layer
+opacity, a shared fade and a window over chosen ground all belong to the
+application's own drawing, and they behave identically whichever engine is
+drawing underneath.
+
+### The three kinds of transparency, and why there are three
+
+They answer three different questions and none of them replaces another.
+
+**A layer's own opacity** answers "how present should *this* thing be?" A carrier
+outline you want faintly there and a set of positions you want solid are two
+different numbers, and neither should have to move when the other does. Set once,
+per layer, usually by whoever declared the layer.
+
+**The shared dial** answers "let me see the picture." That is one thought and it
+should be one movement, not a visit to every layer in turn. It multiplies what is
+already there rather than replacing it, so a layer set faint stays relatively
+fainter — and it only ever reduces. Turning the dial up does not make a
+deliberately faint layer solid.
+
+**A window over chosen ground** answers "let me see *these* fields." It is a list
+of rectangles in micrometres, so it describes a piece of specimen rather than a
+piece of screen: it travels with the sample when the view is panned and grows
+when the view is magnified. This is the one the run itself drives — as each field
+lands, the plan drawn over it is opened up, so the picture that just appeared can
+actually be seen.
+
+### A window cuts through everything below it
+
+If one layer is made see-through, should the ones below go too? Here they do, and
+it is not a detail. A window that only removed the top layer would reveal the
+*next drawing down* rather than the picture — and revealing the picture is the
+entire purpose. So a window takes away everything drawn before it.
+
+A layer that should survive says `staysSolid: true`. It is drawn after the
+windows are cut and the dial does not reach it. **Focus points are what this is
+for**: they mark where the microscope will focus, they have to stay readable
+whatever else is going on, and an operator fading the plan to see the picture
+underneath has not asked to lose them.
+
+That is also why the heatmap and the focus points are separate layers rather than
+one drawing. Turning the heatmap off is not a request to lose the focus points
+with it, and the only way to keep that promise is to make them two things.
+
+### Inside the viewer, transparency is deliberately absent
+
+The bottom layer can hold more than one picture — the survey of the whole slide,
+and later the detail scans taken from places found in it. An operator wants
+either on its own or both together, so they are kept apart and offered by name.
+
+But they are drawn or not drawn, with nothing in between. That is not laziness;
+it is the same constraint as above. An engine that cannot be made see-through
+cannot promise anything else, and building a fade there would be building
+something the next engine cannot honour.
+
+### Layers are things an operator works with, not decoration
+
+A layer may say what of it is at a given place on the sample, and the canvas asks
+the layers **from the top down** — so what an operator can see is what their
+click reaches. A target drawn over a position belongs to the target when you
+click it, because the target is what is under the pointer. A layer that is
+switched off is never asked; something invisible that still catches clicks is
+among the more baffling things a page can do.
+
+A press that *travelled* was a pan, and must not also count as a click: an
+operator who drags the picture across the screen and lands on a position has not
+chosen that position. A few pixels of slack, because a hand on a trackpad is
+never quite still.
+
+### The lock, and what it is really for
+
+Interactivity can be switched off as a whole. Locked, the canvas is something to
+look at: it still pans and zooms, every button still works, but a click reaches
+nothing and nothing can be picked or moved by accident.
+
+An operator spends a long time looking at a plan they have already settled —
+checking it, showing it to somebody, panning around it while the run goes — and
+in all that time a stray click can only do harm. It is the same idea as the lock
+on any drawing tool: not a restriction, a way of putting the tools down without
+putting the picture away. It starts unlocked, because a canvas that quietly
+ignores clicks is a canvas an operator will decide is broken.
+
+### The stack is not fixed, and the workflow owns it
+
+An arbitrary number of layers, added and hidden as a run goes: where the
+microscope is now, the carrier, the scan fields, the focus points, the heatmap,
+the targets once discovery has found them, the refined targets after refinement,
+and the acquired images after that. Each with a button, each fadeable, each
+touchable.
+
+The canvas is **never told which step it is in**. It is told what to draw, and
+the step decides that. That one rule is what keeps the canvas movable from one
+workflow to the next, and it is why the layer list is handed in rather than
+written inside the canvas. A picture that has learned the shape of one workflow
+cannot be moved into the next one without being taken apart again.
+
+A step hands in the whole list rather than adding one layer at a time, and a
+layer that was already there keeps whether it was being shown — an operator who
+turned the carrier off should not find it back on because a target was discovered
+somewhere else entirely.
+
+### Which files each idea lives in
+
+| idea | where it lives |
+|---|---|
+| per-layer opacity, the shared dial, windows, `staysSolid` | `layers-above.js` → `theDrawingAbove` |
+| clicks find the top layer that claims them | `layers-above.js` → `whoIsAt` |
+| the buttons, the fade slider, the lock, click routing | `panel.js` |
+| the look of the fade and lock | `style.css` |
+| the picture is solid and at the bottom | `jpeg-under/viewer.js`, and `viz_studio/LAYERS.md` for the reasoning |
+| more than one picture inside the viewer | `jpeg-under/viewer.js` → `picturesInside`, `showPictureInside` |
+
+---
+
 ## What is **not** done, and is the next thing
 
 `jpeg-under` and the layer stack are wired into `src/canvas/panel.js`, which is

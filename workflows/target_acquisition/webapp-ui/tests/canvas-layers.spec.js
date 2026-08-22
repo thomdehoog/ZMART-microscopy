@@ -154,8 +154,8 @@ test("fades the whole stack with one control, and leaves the solid ones solid", 
   const before = await howMuchIs(page, THE_TILES);
   const focusBefore = await howMuchIs(page, THE_FOCUS);
 
-  await page.locator("#layers input[data-layer-fade]").fill("25");
-  await page.locator("#layers input[data-layer-fade]").dispatchEvent("input");
+  await page.locator(".layer-extra input[data-layer-fade]").fill("25");
+  await page.locator(".layer-extra input[data-layer-fade]").dispatchEvent("input");
   await page.waitForTimeout(200);
 
   expect(await howMuchIs(page, THE_TILES), "the tiles did not fade").toBeLessThan(before / 2);
@@ -212,8 +212,8 @@ test("a drag pans the picture and is not also a click", async ({ page }) => {
 
 test("locks the layers so nothing can be picked, and still pans", async ({ page }) => {
   await page.locator('#layers button[data-layer="focus"]').click();
-  await page.locator("#layers button[data-lock]").click();
-  expect(await page.locator("#layers button[data-lock]").getAttribute("aria-pressed"))
+  await page.locator(".layer-extra button[data-lock]").click();
+  expect(await page.locator(".layer-extra button[data-lock]").getAttribute("aria-pressed"))
     .toBe("true");
 
   const at = await onScreen(page, ...WHERE_ALL_THREE_OVERLAP);
@@ -230,7 +230,7 @@ test("locks the layers so nothing can be picked, and still pans", async ({ page 
   const after = await page.evaluate(() => window.__canvas.view);
   expect(after.centre.x).not.toBeCloseTo(before.centre.x, 3);
 
-  await page.locator("#layers button[data-lock]").click();
+  await page.locator(".layer-extra button[data-lock]").click();
   // The view moved while panning, so ask again where that piece of sample is.
   const nowAt = await onScreen(page, ...WHERE_ALL_THREE_OVERLAP);
   await page.mouse.click(nowAt.x, nowAt.y);
