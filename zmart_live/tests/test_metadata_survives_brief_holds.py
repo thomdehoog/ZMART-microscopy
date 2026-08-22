@@ -123,6 +123,9 @@ def test_a_commit_lands_while_a_reader_holds_the_views_description(tmp_path):
         profile,
         run_id="held-run",
         cells={GridCell(0, 0): "posA", GridCell(0, 1): "posB"},
+        # A reader holding the VIEW's description mid-run is the situation
+        # this gate is named for, so the view has to be written mid-run.
+        linked_view="per_publish",
     )
     run.write_and_publish("posA", some_specimen(1000))
 

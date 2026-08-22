@@ -614,6 +614,22 @@ def channels(store: Path) -> list[dict]:
         # No channel axis at all: the store is one image, so it is one layer.
         return [{"name": _short_name(store.name), "color": None}]
 
+    return described_channels(described, count)
+
+
+def described_channels(described: list[dict], count: int) -> list[dict]:
+    """Turn a description's channel entries into what a layer list shows.
+
+    Split out from :func:`channels` because the entries do not always come
+    from a store's own file. A live run settles its colours when its profile
+    is sealed, and the picture built over a single-colour run carries no
+    colour axis for a reader to find -- so the live adapter reads the run's
+    description instead and hands it here, and both roads end up describing
+    a channel in exactly the same way.
+
+    ``count`` is how many channels there really are, which the caller knows
+    better than the description does.
+    """
     out = []
     for index in range(count):
         entry = described[index] if index < len(described) else {}

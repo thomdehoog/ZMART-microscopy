@@ -29,6 +29,12 @@ def a_live_run(folder, *, timepoints=1):
         profile,
         run_id="gateway-run",
         cells={GridCell(0, 0): "posA", GridCell(0, 1): "posB"},
+        # This whole file is about the gateway completing the linked view's
+        # route while a run is going, so the map has to be kept true while it
+        # goes. It stopped being the default when the operator confirmed
+        # nothing in the lab reads a run's files mid-acquisition; asked for
+        # here because these gates are the exception that does.
+        linked_view="per_publish",
     )
 
 

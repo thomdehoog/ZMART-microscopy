@@ -340,7 +340,8 @@ def _the_brightest_a_pixel_can_be(dtype: str) -> int:
     return 1
 
 
-def _the_channels(channels: Sequence[str | Channel], dtype: str) -> list[dict]:
+def the_channels_described(channels: Sequence[str | Channel],
+                           dtype: str) -> list[dict]:
     """Name and colour each channel, in the form a reader expects.
 
     The colours and the brightness window are built by
@@ -467,7 +468,9 @@ def the_image_description(
         "multiscales": [multiscale],
     }
     if channels:
-        described["omero"] = {"channels": _the_channels(channels, profile.dtype)}
+        described["omero"] = {
+            "channels": the_channels_described(channels, profile.dtype)
+        }
     return described
 
 

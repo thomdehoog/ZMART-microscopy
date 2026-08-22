@@ -66,11 +66,24 @@ def a_profile_with_room():
 
 @pytest.fixture
 def run(tmp_path, profile):
+    """A run whose linked view is kept true after every commit.
+
+    Asked for rather than taken, because it stopped being the default when
+    the operator confirmed nothing in the lab reads a run's files while the
+    microscope is going: the map costs a pass over the whole survey, and it
+    is the one cost that grows as a run does.
+
+    These gates want it all the same. Many of them ask the gateway which
+    store a piece of the view resolves to -- that being how you check a
+    route points where it should -- and a view written only at the end has
+    no route to ask about until then.
+    """
     return LivePublisher(
         tmp_path,
         profile,
         run_id="run-1",
         cells={GridCell(0, 0): "posA", GridCell(0, 1): "posB"},
+        linked_view="per_publish",
     )
 
 
@@ -806,6 +819,7 @@ class TestOneMomentAtATimeIsWhatGetsChecked:
             a_profile_with_room(3),
             run_id="run-first-named",
             cells={GridCell(0, 0): "posA", GridCell(0, 1): "posB"},
+            linked_view="per_publish",
         )
         event = run.write_and_publish("posA", some_specimen(1500), timepoint=0)
         assert event.event_type == "position_committed"
@@ -833,6 +847,7 @@ class TestOneMomentAtATimeIsWhatGetsChecked:
             a_profile_with_room(2),
             run_id="run-moment-leak",
             cells={GridCell(0, 0): "posA", GridCell(0, 1): "posB"},
+            linked_view="per_publish",
         )
         run.write_and_publish("posA", some_specimen(1000))
         run.write_a_position("posA", some_specimen(4242), timepoint=1)
@@ -857,7 +872,8 @@ class TestSharedViewsAdvanceIncrementally:
             GridCell(0, 1): "posB",
             GridCell(0, 2): "posC",
         }
-        run = LivePublisher(tmp_path, profile, run_id="incremental", cells=cells)
+        run = LivePublisher(tmp_path, profile, run_id="incremental",
+                            cells=cells, linked_view="per_publish")
         for position, value in (("posA", 1000), ("posB", 2000), ("posC", 3000)):
             run.write_a_position(position, some_specimen(value))
 
@@ -1069,7 +1085,8 @@ class TestTheOuterEdgeOfTheMosaicSurvives:
         from zmart_live.gateway import answer_from_a_live_run
 
         run = LivePublisher(
-            tmp_path, profile, run_id="run-lone", cells={GridCell(0, 0): "posA"}
+            tmp_path, profile, run_id="run-lone",
+            cells={GridCell(0, 0): "posA"}, linked_view="per_publish",
         )
         run.write_and_publish("posA", some_specimen(1000))
 
@@ -1122,7 +1139,8 @@ class TestEveryPlaneAndEveryColourIsItsOwn:
 
         stack, _ = plan_the_writing("overview", frame=FRAME, z_planes=3)
         run = LivePublisher(
-            tmp_path, stack, run_id="run-stack", cells={GridCell(0, 0): "posA"}
+            tmp_path, stack, run_id="run-stack",
+            cells={GridCell(0, 0): "posA"}, linked_view="per_publish",
         )
         pixels = np.stack(
             [np.full((FRAME, FRAME), value, "uint16") for value in (111, 222, 333)]
@@ -1172,6 +1190,7 @@ class TestEveryPlaneAndEveryColourIsItsOwn:
             run_id="run-colours-2",
             cells={GridCell(0, 0): "posA"},
             channels=("green", "red"),
+            linked_view="per_publish",
         )
         run.write_and_publish(
             "posA", np.stack([some_specimen(1000), some_specimen(2000)])
@@ -1399,12 +1418,14 @@ class TestPublishedPixelsStayAsTheyWerePublished:
         from zmart_live.gateway import answer_from_a_live_run, forget_live_run
 
         cells = {GridCell(0, 0): "posA"}
-        first = LivePublisher(tmp_path, profile, run_id="run-restart", cells=cells)
+        first = LivePublisher(tmp_path, profile, run_id="run-restart",
+                              cells=cells, linked_view="per_publish")
         first.write_and_publish("posA", some_specimen(1000))
         replacement = first.replace_a_position("posA", some_specimen(2000))
         assert replacement.position_generation == 1
 
-        restarted = LivePublisher(tmp_path, profile, run_id="run-restart", cells=cells)
+        restarted = LivePublisher(tmp_path, profile, run_id="run-restart",
+                                  cells=cells, linked_view="per_publish")
         assert restarted.generations == {"posA": 1}
         assert restarted.position_store("posA").name == "posA.generation-1"
 
@@ -1495,7 +1516,8 @@ class TestALinkedViewDeferredToRunEnd:
         deferred.write_and_publish("posB", some_specimen(900))
         deferred.finish_the_run()
 
-        strict = LivePublisher(tmp_path, profile, run_id="run-1", cells=cells)
+        strict = LivePublisher(tmp_path, profile, run_id="run-1", cells=cells,
+                               linked_view="per_publish")
         for position_id in ("posA", "posB"):
             found = strict.inspect(position_id)
             assert found.everything_checks_out, found.describe()

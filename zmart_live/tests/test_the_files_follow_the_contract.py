@@ -57,6 +57,12 @@ def experiment(tmp_path):
     overview = LivePublisher(
         folder / "acquisitions" / "overview", profile, run_id="contract-overview",
         cells={GridCell(0, 0): "posA", GridCell(0, 1): "posB"},
+        # The contract below is drawn for a run whose linked view is kept true
+        # as it goes, which is no longer the default -- see the gate under
+        # this one for the folder a DEFAULT run shows mid-flight. Both are
+        # written down because both now happen, and a contract that described
+        # only one of them would mislead whoever wrote to it.
+        linked_view="per_publish",
     )
     overview.write_and_publish("posA", a_specimen(1))
     overview.write_and_publish("posB", a_specimen(2))
@@ -106,6 +112,38 @@ def test_the_views_folder_holds_exactly_the_view_and_its_metadata(experiment):
         "events.jsonl", "links.json", "locations", "locations.json",
         "profiles", "publication.lock", "signed.json",
     ]
+
+
+def test_a_run_that_defers_its_view_has_none_to_show_until_it_finishes(tmp_path):
+    """The same folder for a run whose view is written at the end.
+
+    A run asked to defer its view keeps all of its bookkeeping true as it
+    goes, and simply has not written the view beside it yet. Nothing is
+    missing -- what a viewer draws mid-run is the governed picture, on its
+    own route -- but a reader who went looking for plain files would find
+    none until the run finishes, which is the whole of what was traded for a
+    publish that does not slow down as the survey grows.
+    """
+    profile, _ = plan_the_writing("overview", frame=FRAME, z_planes=1)
+    run = LivePublisher(
+        tmp_path / "run", profile, run_id="contract-default",
+        cells={GridCell(0, 0): "posA"}, linked_view="at_run_end",
+    )
+    run.write_and_publish("posA", a_specimen(1))
+
+    live = tmp_path / "run" / "views" / "live"
+    assert names_inside(live) == ["metadata"], (
+        "a deferring run writes its view at the end, so mid-flight the view "
+        f"folder holds its bookkeeping and nothing else; saw {names_inside(live)}")
+    assert names_inside(live / "metadata") == [
+        "events.jsonl", "locations", "locations.json",
+        "profiles", "publication.lock", "signed.json",
+    ], "everything the contract asks for except the route map, which the view takes with it"
+
+    run.finish_the_run()
+    assert names_inside(live) == ["live.ome.zarr", "metadata"], (
+        "and the run ends with the view the contract draws")
+    assert "links.json" in names_inside(live / "metadata")
 
 
 def test_only_complete_current_generations_are_declared(experiment):
