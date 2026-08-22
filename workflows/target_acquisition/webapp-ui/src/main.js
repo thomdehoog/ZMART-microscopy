@@ -2554,6 +2554,27 @@ import scanfieldsWidget, { presetInk } from "./widgets/scanfields.js";
     layers: () => theStack.map(({ key, label, shown, staysSolid }) =>
       ({ key, label, shown, staysSolid: !!staysSolid })),
     /**
+     * Draw one of the layers, or stop drawing it.
+     *
+     * The same thing the controls in the canvas foot did before that strip was
+     * taken off the screen. Here rather than only on a button because turning a
+     * layer on and off is a thing the canvas can do, and it should not stop
+     * being possible because nobody has yet decided where the button for it
+     * belongs.
+     */
+    showLayer(key, on) {
+      if (on) layersOff.delete(key);
+      else layersOff.add(key);
+      barSaysThis = "";
+      drawStage();
+    },
+    /** How solid the layers are drawn, 0 to 1. */
+    fadeTo(howSolid) {
+      layerFade = Math.min(1, Math.max(0, Number(howSolid)));
+      barSaysThis = "";
+      drawStage();
+    },
+    /**
      * Where the run means to send the stage, in micrometres in the carrier's
      * own frame.
      *
