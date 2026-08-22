@@ -283,17 +283,37 @@ def test_a_window_cuts_through_the_stack_but_never_the_bottom_layer(drawn):
 
 
 def test_a_layer_that_takes_no_clicks_lets_them_through(drawn):
-    """A layer drawn to be read must not swallow clicks meant for one below."""
+    """Only what a layer draws can be clicked, and only if it takes clicks.
+
+    A layer's own container covers the whole sample. If that took clicks, an
+    interactive layer would swallow every click meant for the layers beneath
+    it — anywhere it happened to have drawn nothing, which is most of it.
+    """
     page, _canvas_obj, _errors = drawn
-    events = page.evaluate(
+    containers = page.evaluate(
         """() => {
              const frame = [...document.querySelectorAll("#here div")]
                .find((d) => (d.style.transform || "").includes("translate("));
              return [...frame.children].map((c) => c.style.pointerEvents);
            }"""
     )
-    # engine and carrier are for looking at; fields and focus are worked with.
-    assert events == ["none", "none", "auto", "auto"]
+    assert containers == ["none", "none", "none", "none"], (
+        "a layer's container takes clicks, so it blocks the layers below it"
+    )
+
+    # The scan fields are worked with, so what they draw does take clicks;
+    # the carrier is only there to be read, so what it draws does not.
+    drawn_things = page.evaluate(
+        """() => {
+             const out = {};
+             for (const el of document.querySelectorAll("[data-layer]")) {
+               out[el.getAttribute("data-layer")] = el.style.pointerEvents;
+             }
+             return out;
+           }"""
+    )
+    assert drawn_things["fields"] == "auto"
+    assert drawn_things["carrier"] == "none"
 
 
 def test_the_shared_dial_fades_only_what_follows_it(drawn):
@@ -409,3 +429,191 @@ def test_opening_a_window_really_shows_the_imagery(tmp_path):
             f"the window reached a field it was not opened over, got {opened_right}"
         )
         browser.close()
+
+
+@pytest.fixture()
+def workable():
+    """A canvas the operator can work on: scan fields and focus points."""
+    canvas = wreact.canvas(
+        [
+            {
+                "kind": "shapes",
+                "id": "fields",
+                "label": "scan fields",
+                "interactive": True,
+                "shapes": [
+                    {"bounds": [0, 0, 100, 100], "stroke": "#38bdf8"},
+                    {"bounds": [120, 0, 100, 100], "stroke": "#38bdf8"},
+                ],
+            },
+            {
+                "kind": "points",
+                "id": "focus",
+                "label": "focus points",
+                "dimmable": False,
+                "interactive": True,
+                "points": [{"x": 60.0, "y": 170.0}],
+            },
+        ]
+    )
+    with widget_in_a_browser(canvas) as base, playwright_api.sync_playwright() as pw:
+        browser = _launch(pw)
+        page = browser.new_page(viewport={"width": 1500, "height": 1200})
+        errors: list[str] = []
+        page.on("pageerror", lambda err: errors.append(str(err)))
+        page.goto(base, wait_until="domcontentloaded")
+        page.wait_for_function("window.__mounted === true", timeout=30_000)
+        page.wait_for_timeout(200)
+        try:
+            yield page, canvas, errors
+        finally:
+            browser.close()
+
+
+def _sent(page):
+    return page.evaluate("() => window.__sent")
+
+
+def _centre(page, selector):
+    box = page.locator(selector).first.bounding_box()
+    assert box is not None, f"{selector} is not on screen"
+    return box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
+
+
+def test_the_pointer_does_one_thing_at_a_time(workable):
+    """Which tool is chosen decides what a click means, so none is guessed at."""
+    page, canvas, _errors = workable
+    page.get_by_title("drag to move the view").click()
+    assert _sent(page)[-1] == {"type": "tool", "value": "pan"}
+
+    page.get_by_title("click to add a focus point, click one to take it away").click()
+    assert _sent(page)[-1] == {"type": "tool", "value": "focus"}
+
+
+def test_clicking_a_scan_field_picks_it_out(workable):
+    """Choosing a field is how a panel on the right knows what to talk about."""
+    page, canvas, errors = workable
+    page.evaluate("() => window.__setTrait('tool', 'move')")
+    page.wait_for_timeout(80)
+
+    x, y = _centre(page, "[data-shape='1']")
+    page.mouse.click(x, y)
+    page.wait_for_timeout(120)
+
+    assert _sent(page)[-1] == {"type": "pick", "layer": "fields", "index": 1}
+    canvas.pick("fields", 1)
+    page.evaluate("s => window.__setTrait('selection', s)", canvas.selection)
+    page.wait_for_timeout(120)
+    outline = page.evaluate(
+        "() => document.querySelector(\"[data-shape='1']\").style.border"
+    )
+    assert "#ffffff" in outline.replace("rgb(255, 255, 255)", "#ffffff"), outline
+    assert errors == []
+
+
+def test_dragging_a_scan_field_moves_it_and_a_click_does_not(workable):
+    """A hand never holds quite still, so a click must not nudge the field.
+
+    Anything shorter than a few pixels is a click; further than that is a
+    move, reported as the distance across the sample rather than across the
+    screen, because that is what it means on the microscope.
+    """
+    page, canvas, errors = workable
+    page.evaluate("() => window.__setTrait('tool', 'move')")
+    page.wait_for_timeout(80)
+
+    # A click with the tiniest wobble must still read as a click.
+    x, y = _centre(page, "[data-shape='0']")
+    page.mouse.move(x, y)
+    page.mouse.down()
+    page.mouse.move(x + 2, y + 1, steps=2)
+    page.mouse.up()
+    page.wait_for_timeout(120)
+    assert _sent(page)[-1]["type"] == "pick", "a small wobble moved the field"
+
+    # A real drag moves it, by a distance measured on the sample.
+    page.mouse.move(x, y)
+    page.mouse.down()
+    page.mouse.move(x + 60, y + 30, steps=8)
+    page.mouse.up()
+    page.wait_for_timeout(150)
+    moved = _sent(page)[-1]
+    assert moved["type"] == "move" and moved["layer"] == "fields" and moved["index"] == 0
+    scale = page.evaluate(
+        """() => {
+             const frame = [...document.querySelectorAll("#here div")]
+               .find((d) => (d.style.transform || "").includes("translate("));
+             return Number(frame.style.transform.match(/scale\\(([-0-9.]+)\\)/)[1]);
+           }"""
+    )
+    assert moved["dx"] == pytest.approx(60 / scale, abs=1.0), moved
+    assert moved["dy"] == pytest.approx(30 / scale, abs=1.0), moved
+
+    canvas.move_item("fields", 0, moved["dx"], moved["dy"])
+    assert canvas.layers[0]["shapes"][0]["bounds"][0] == pytest.approx(60 / scale, abs=1.0)
+    assert errors == []
+
+
+def test_placing_and_taking_away_a_focus_point(workable):
+    """Click bare sample to add one; click one to take it away again.
+
+    The same two gestures the focus map has always used, so an operator who
+    knows one knows the other.
+    """
+    page, canvas, errors = workable
+    page.evaluate("() => window.__setTrait('tool', 'focus')")
+    page.wait_for_timeout(80)
+
+    # Somewhere on the picture with nothing drawn on it — found rather than
+    # guessed, so the click really lands on bare sample.
+    empty = page.evaluate(
+        """() => {
+             const frame = [...document.querySelectorAll("#here div")]
+               .find((d) => (d.style.transform || "").includes("translate("));
+             const view = frame.parentElement.getBoundingClientRect();
+             for (let y = view.top + 12; y < view.bottom - 12; y += 9) {
+               for (let x = view.left + 12; x < view.right - 12; x += 9) {
+                 const el = document.elementFromPoint(x, y);
+                 if (el && !el.closest("[data-shape], [data-point]")) return [x, y];
+               }
+             }
+             return null;
+           }"""
+    )
+    assert empty, "the whole picture is covered — nowhere to place a point"
+    page.mouse.click(empty[0], empty[1])
+    page.wait_for_timeout(120)
+    placed = _sent(page)[-1]
+    assert placed["type"] == "place", placed
+    before = len(canvas.layers[1]["points"])
+    canvas.place_point("focus", placed["x"], placed["y"])
+    assert len(canvas.layers[1]["points"]) == before + 1
+
+    # Clicking an existing point takes it away.
+    x, y = _centre(page, "[data-point='0']")
+    page.mouse.click(x, y)
+    page.wait_for_timeout(120)
+    assert _sent(page)[-1] == {"type": "remove", "layer": "focus", "index": 0}
+    canvas.remove_point("focus", 0)
+    assert len(canvas.layers[1]["points"]) == before
+    assert errors == []
+
+
+def test_moving_the_view_never_disturbs_what_is_on_it(workable):
+    """With the view tool chosen, dragging pans and touches nothing else."""
+    page, canvas, errors = workable
+    page.evaluate("() => window.__setTrait('tool', 'pan')")
+    page.wait_for_timeout(80)
+
+    x, y = _centre(page, "[data-shape='0']")
+    page.mouse.move(x, y)
+    page.mouse.down()
+    page.mouse.move(x + 50, y + 20, steps=6)
+    page.mouse.up()
+    page.wait_for_timeout(150)
+
+    kinds = [m["type"] for m in _sent(page)]
+    assert "move" not in kinds and "pick" not in kinds, (
+        f"panning disturbed the scan fields: {kinds}"
+    )
+    assert errors == []

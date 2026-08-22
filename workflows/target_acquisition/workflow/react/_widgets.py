@@ -369,6 +369,7 @@ function App({ model }) {
   const view = React.useRef({ scale: 1, tx: 0, ty: 0, fitted: 0, user: false });
   const [, bump] = React.useReducer((n) => n + 1, 0);
   const [cursor, setCursor] = React.useState(null);
+  const [holding, setHolding] = React.useState(null);
   const box = React.useRef(null);
   const W = widgetPx(640), H = widgetPx(520);
 
@@ -2361,11 +2362,21 @@ class CanvasReact(_ZmartWidget):
     #: does not have to think about it.
     extent = traitlets.List([-1000.0, -1000.0, 2000.0, 2000.0]).tag(sync=True)
 
+    #: What the pointer does on the picture. ``"pan"`` moves the view;
+    #: ``"focus"`` places and removes focus points; ``"move"`` picks a scan
+    #: field up and puts it somewhere else. Only one at a time, so a click
+    #: never has to be guessed at.
+    tool = traitlets.Unicode("pan").tag(sync=True)
+
+    #: What is picked out at the moment, as ``{"layer", "index"}`` — drawn
+    #: brighter, and what a panel on the right reads to say more about it.
+    selection = traitlets.Dict().tag(sync=True)
+
     #: The last place the pointer was, in micrometres — shown under the
     #: picture, and what a panel on the right reads to place something.
     cursor = traitlets.Dict().tag(sync=True)
 
-    _read_only_input_traits = ("camera", "dim")
+    _read_only_input_traits = ("camera", "dim", "tool", "selection")
 
     _esm = (
         REACT_PRELUDE
@@ -2423,7 +2434,7 @@ function maskFor(omap, id, extent) {
         }))));
 }
 
-function LayerBody({ layer, ox, oy, pics }) {
+function LayerBody({ layer, ox, oy, pics, picked, grabbed }) {
   if (layer.kind === "engine") {
     // The slot for an image engine that draws with the graphics card. It is
     // deliberately empty: it reads the shared camera when one is plugged in.
@@ -2441,6 +2452,9 @@ function LayerBody({ layer, ox, oy, pics }) {
   }
   if (layer.kind === "shapes") {
     return (layer.shapes || []).map((s, i) => {
+      const chosen = picked && picked.layer === layer.id && picked.index === i;
+      const held = grabbed && grabbed.layer === layer.id && grabbed.index === i;
+      const shift = held ? grabbed.by : { x: 0, y: 0 };
       if (s.shape === "polygon" && Array.isArray(s.points)) {
         const xs = s.points.map((p) => p[0]), ys = s.points.map((p) => p[1]);
         const x0 = Math.min(...xs), y0 = Math.min(...ys);
@@ -2451,24 +2465,36 @@ function LayerBody({ layer, ox, oy, pics }) {
             strokeWidth: s.stroke_um || 1, vectorEffect: "non-scaling-stroke" }));
       }
       const b = s.bounds || [0, 0, 0, 0];
-      return h("div", { key: i, title: s.label || undefined, style: {
-        position: "absolute", left: b[0] - ox, top: b[1] - oy, width: b[2], height: b[3],
-        background: s.fill || "transparent", boxSizing: "border-box",
-        border: s.stroke ? `1px solid ${s.stroke}` : "none" } });
+      return h("div", { key: i, title: s.label || undefined,
+        "data-shape": i, "data-layer": layer.id, style: {
+        pointerEvents: layer.interactive ? "auto" : "none",
+        position: "absolute", left: b[0] - ox + shift.x, top: b[1] - oy + shift.y,
+        width: b[2], height: b[3],
+        background: chosen ? "rgba(255,255,255,0.18)" : (s.fill || "transparent"),
+        boxSizing: "border-box", opacity: held ? 0.75 : 1,
+        border: chosen ? "2px solid #ffffff"
+                       : (s.stroke ? `1px solid ${s.stroke}` : "none") } });
     });
   }
   if (layer.kind === "points") {
     // Points keep their size on screen rather than growing with the zoom, so
     // a focus point stays clickable however far out the view is.
-    return (layer.points || []).map((p, i) =>
-      h("div", { key: i, "data-point": i, title: p.label || undefined, style: {
-        position: "absolute", left: p.x - ox, top: p.y - oy, width: 0, height: 0 } },
+    return (layer.points || []).map((p, i) => {
+      const chosen = picked && picked.layer === layer.id && picked.index === i;
+      const held = grabbed && grabbed.layer === layer.id && grabbed.index === i;
+      const shift = held ? grabbed.by : { x: 0, y: 0 };
+      return h("div", { key: i, "data-point": i, "data-layer": layer.id,
+        title: p.label || undefined, style: {
+        position: "absolute", left: p.x - ox + shift.x, top: p.y - oy + shift.y,
+        width: 0, height: 0 } },
         h("div", { style: {
           position: "absolute", left: "-6px", top: "-6px", width: 12, height: 12,
           transform: "scale(var(--zmart-inverse-zoom, 1))", transformOrigin: "6px 6px",
           borderRadius: 999, boxSizing: "border-box",
-          background: p.fill || "transparent",
-          border: `2px solid ${p.stroke || T.accent}` } })));
+          pointerEvents: layer.interactive ? "auto" : "none",
+          background: chosen ? "#ffffff" : (p.fill || "transparent"),
+          border: `2px solid ${chosen ? "#ffffff" : (p.stroke || T.accent)}` } }));
+    });
   }
   return null;
 }
@@ -2480,6 +2506,8 @@ function App({ model }) {
   const [omap] = useTrait(model, "opacity_map");
   const [windowReaches] = useTrait(model, "window_reaches");
   const [extentTrait] = useTrait(model, "extent");
+  const [tool] = useTrait(model, "tool");
+  const [selection] = useTrait(model, "selection");
   // Pictures arrive one at a time as the scan runs, rather than all at once.
   const streamed = useStream(model, "images", "image");
   const [status] = useTrait(model, "status");
@@ -2488,6 +2516,7 @@ function App({ model }) {
   const drag = React.useRef(null);
   const moved = React.useRef(false);
   const [cursor, setCursor] = React.useState(null);
+  const [holding, setHolding] = React.useState(null);
   const W = widgetPx(760), H = widgetPx(560);
   // Until the operator moves the view themselves, keep the whole sample in
   // sight — a run that opens showing an empty corner of the slide is no use.
@@ -2529,21 +2558,83 @@ function App({ model }) {
                 cy: at.y + (H / 2 - (e.clientY - r.top)) / scale });
   });
 
+  // A hand never holds perfectly still, so a click would otherwise register
+  // as a tiny drag and nudge whatever was under it. Anything shorter than
+  // this is treated as a click.
+  const SLIP = 4;
+
+  // What is under the pointer, if it belongs to a layer that takes clicks.
+  const thingUnder = (e) => {
+    const el = e.target.closest("[data-shape], [data-point]");
+    if (!el) return null;
+    const id = el.getAttribute("data-layer");
+    const layer = (layers || []).find((l) => l.id === id);
+    if (!layer || !layer.interactive || layer.visible === false) return null;
+    const shape = el.getAttribute("data-shape");
+    return { layer: id, index: Number(shape === null ? el.getAttribute("data-point") : shape),
+             kind: shape === null ? "point" : "shape" };
+  };
+
   const onDown = (e) => {
     if (readOnly) return;
+    const under = tool === "pan" ? null : thingUnder(e);
+    if (under) {
+      // Take hold of it. Whether this turns out to be a click or a move is
+      // only known when the pointer is let go.
+      setHolding({ ...under, by: { x: 0, y: 0 } });
+      drag.current = { x: e.clientX, y: e.clientY, from: e.clientX, fromY: e.clientY, on: under };
+      e.currentTarget.setPointerCapture?.(e.pointerId);
+      return;
+    }
     moved.current = true;
-    drag.current = { x: e.clientX, y: e.clientY };
+    drag.current = { x: e.clientX, y: e.clientY, from: e.clientX, fromY: e.clientY, on: null };
   };
+
   const onMove = (e) => {
     const at = sampleAt(e);
     setCursor(at);
     if (!drag.current) return;
+    if (drag.current.on) {
+      // Carrying something: show it under the pointer, and tell Python only
+      // once it is put down.
+      setHolding({ ...drag.current.on,
+                   by: { x: (e.clientX - drag.current.from) / view.scale,
+                         y: (e.clientY - drag.current.fromY) / view.scale } });
+      return;
+    }
     setCamera({ ...active,
                 cx: (Number(active.cx) || 0) - (e.clientX - drag.current.x) / view.scale,
                 cy: (Number(active.cy) || 0) - (e.clientY - drag.current.y) / view.scale });
-    drag.current = { x: e.clientX, y: e.clientY };
+    drag.current = { ...drag.current, x: e.clientX, y: e.clientY };
   };
-  const letGo = () => (drag.current = null);
+
+  const letGo = (e) => {
+    const held = drag.current;
+    drag.current = null;
+    setHolding(null);
+    if (readOnly || !held) return;
+    const slipped = Math.hypot(e.clientX - held.from, e.clientY - held.fromY);
+    if (held.on) {
+      if (slipped <= SLIP) {
+        // A click on something: pick it out, or take a focus point away.
+        if (tool === "focus" && held.on.kind === "point") {
+          model.send({ type: "remove", layer: held.on.layer, index: held.on.index });
+        } else {
+          model.send({ type: "pick", layer: held.on.layer, index: held.on.index });
+        }
+      } else {
+        model.send({ type: "move", layer: held.on.layer, index: held.on.index,
+                     dx: (e.clientX - held.from) / view.scale,
+                     dy: (e.clientY - held.fromY) / view.scale });
+      }
+      return;
+    }
+    // A click on the bare picture, with the focus tool, puts a point there.
+    if (tool === "focus" && slipped <= SLIP) {
+      const at = sampleAt(e);
+      model.send({ type: "place", x: at.x, y: at.y });
+    }
+  };
 
   const shown = (layers || []).filter((l) => l.visible !== false);
   // The bottom layer is what a window is opened to reveal, so it is never cut.
@@ -2555,9 +2646,11 @@ function App({ model }) {
     h("div", {
         ref: box, onPointerDown: onDown, onPointerMove: onMove,
         onPointerUp: letGo,
-        onPointerLeave: () => { letGo(); setCursor(null); },
+        onPointerCancel: letGo,
+        onPointerLeave: (e) => { letGo(e); setCursor(null); },
         style: { width: W, height: H, background: "#000", borderRadius: 10,
-                 overflow: "hidden", position: "relative", cursor: "grab",
+                 overflow: "hidden", position: "relative",
+                 cursor: tool === "pan" ? "grab" : "crosshair",
                  flex: "none" } },
       mask,
       // One moving frame. Everything below sits in sample coordinates and is
@@ -2581,13 +2674,29 @@ function App({ model }) {
                   // in the page, finds nothing, and hides the layer entirely.
                   ? { mask: `url(#${maskId})` }
                   : {}),
-              pointerEvents: layer.interactive ? "auto" : "none" } },
-            h(LayerBody, { layer, ox, oy, pics: streamed })))),
+              // Never the container itself — it covers the whole sample and
+              // would block every layer below it. Only what a layer actually
+              // draws can be clicked, and only when that layer takes clicks.
+              pointerEvents: "none" } },
+            h(LayerBody, { layer, ox, oy, pics: streamed, picked: selection,
+                           grabbed: holding })))),
       h("div", { style: { position: "absolute", left: 10, bottom: 8, display: "flex",
                           gap: 6 } },
         pill(`${shown.length} of ${(layers || []).length} layer(s)`),
         cursor ? pill(`x ${cursor.x.toFixed(0)} um · y ${cursor.y.toFixed(0)} um`) : null)),
     h("div", { style: { width: 230 } },
+      h("div", { style: { fontWeight: 700, marginBottom: 8 } }, "the pointer"),
+      h("div", { style: { display: "flex", gap: 6, marginBottom: 12 } },
+        [["pan", "Move view"], ["focus", "Focus points"], ["move", "Move fields"]]
+          .map(([name, label]) =>
+            h("button", { key: name, disabled: readOnly,
+              title: name === "pan" ? "drag to move the view"
+                   : name === "focus" ? "click to add a focus point, click one to take it away"
+                   : "drag a scan field to somewhere else",
+              style: { ...btn(readOnly), padding: "3px 8px", fontSize: 11,
+                       background: readOnly ? T.edge : (tool === name ? T.accent : T.edge),
+                       color: tool === name ? "#ffffff" : T.ink },
+              onClick: () => model.send({ type: "tool", value: name }) }, label))),
       h("div", { style: { fontWeight: 700, marginBottom: 8 } }, "layers"),
       (layers || []).map((layer, i) => {
         const hidden = layer.visible === false;
@@ -2870,8 +2979,110 @@ export default mount(App);
             regions.append({"shape": "rect", "bounds": list(bounds), "opacity": float(opacity)})
         self.see_through(regions, outside=outside)
 
+    # --- what the operator does on the picture ----------------------------------
+
+    def _layer(self, layer_id: Any) -> dict | None:
+        return next((la for la in self.layers if la["id"] == layer_id), None)
+
+    def pick(self, layer_id: str, index: int) -> None:
+        """Pick something out on the picture, or clear the choice with ``None``."""
+        if layer_id is None:
+            self.selection = {}
+            return
+        layer = self._layer(layer_id)
+        if layer is None:
+            return
+        items = layer.get("shapes") or layer.get("points") or []
+        if not 0 <= index < len(items):
+            return
+        self.selection = {"layer": layer_id, "index": int(index)}
+
+    def place_point(self, layer_id: str, x: float, y: float) -> int:
+        """Put a new point on the sample, and return which one it became."""
+        layer = self._layer(layer_id)
+        if layer is None:
+            raise ValueError(f"there is no {layer_id!r} layer to put a point on")
+        points = [dict(p) for p in (layer.get("points") or [])]
+        points.append({"x": float(x), "y": float(y)})
+        self.set_layer(layer_id, points=points)
+        self.fit_extent()
+        return len(points) - 1
+
+    def remove_point(self, layer_id: str, index: int) -> None:
+        """Take one point away again."""
+        layer = self._layer(layer_id)
+        if layer is None:
+            return
+        points = [dict(p) for p in (layer.get("points") or [])]
+        if not 0 <= index < len(points):
+            return
+        points.pop(index)
+        self.set_layer(layer_id, points=points)
+        if self.selection.get("layer") == layer_id:
+            self.selection = {}
+
+    def move_item(self, layer_id: str, index: int, dx: float, dy: float) -> None:
+        """Slide one shape or point across the sample by a distance."""
+        layer = self._layer(layer_id)
+        if layer is None:
+            return
+        if layer.get("shapes"):
+            shapes = [dict(s) for s in layer["shapes"]]
+            if not 0 <= index < len(shapes):
+                return
+            bounds = list(shapes[index].get("bounds") or [0, 0, 0, 0])
+            bounds[0] += float(dx)
+            bounds[1] += float(dy)
+            shapes[index] = {**shapes[index], "bounds": bounds}
+            self.set_layer(layer_id, shapes=shapes)
+        elif layer.get("points"):
+            points = [dict(p) for p in layer["points"]]
+            if not 0 <= index < len(points):
+                return
+            points[index] = {**points[index],
+                             "x": float(points[index]["x"]) + float(dx),
+                             "y": float(points[index]["y"]) + float(dy)}
+            self.set_layer(layer_id, points=points)
+        else:
+            return
+        self.fit_extent()
+
+    #: The layer a focus point is put on when the operator clicks bare sample.
+    focus_layer = "focus"
+
     def handle_message(self, content: dict) -> None:
         kind = content.get("type")
+        if kind == "tool":
+            wanted = content.get("value")
+            if wanted in ("pan", "focus", "move"):
+                self.tool = wanted
+            return
+        if kind in ("pick", "move", "remove"):
+            layer_id = content.get("layer")
+            try:
+                index = int(content.get("index"))
+            except (TypeError, ValueError, OverflowError):
+                return
+            if kind == "pick":
+                self.pick(layer_id, index)
+            elif kind == "remove":
+                self.remove_point(layer_id, index)
+            else:
+                try:
+                    dx, dy = float(content.get("dx")), float(content.get("dy"))
+                except (TypeError, ValueError):
+                    return
+                if math.isfinite(dx) and math.isfinite(dy):
+                    self.move_item(layer_id, index, dx, dy)
+            return
+        if kind == "place":
+            try:
+                x, y = float(content.get("x")), float(content.get("y"))
+            except (TypeError, ValueError):
+                return
+            if math.isfinite(x) and math.isfinite(y):
+                self.place_point(self.focus_layer, x, y)
+            return
         if kind == "toggle":
             layer_id = content.get("id")
             current = next((la for la in self.layers if la["id"] == layer_id), None)
