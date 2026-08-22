@@ -575,7 +575,22 @@ canvas.stagecv { cursor: default; }
    The `hidden` attribute needs saying again here: the rule above gives every
    canvas in this panel `display: block`, and that would otherwise keep showing
    a canvas the page had asked to put away. */
-canvas.livecv { position: absolute; inset: 0; background: #05070d; }
+/* **Beneath the plan, not over it.** It was written the other way — the
+   acquired picture laid over the plan, the two swapped by hiding one — and
+   that arrangement can only ever show one of them. It cannot show the picture
+   *through* the plan, which is the whole point of the layers: the operator's
+   drawing fades or has a window opened in it, and the scan appears there.
+
+   A picture on top could not do that whatever the layers did, and it is also
+   the wrong way round for what is coming: the engine that will draw this —
+   neuroglancer — cannot be made see-through at all, so it has to be at the
+   bottom or it hides everything. `viz_studio/LAYERS.md` sets that out.
+
+   The plan's own surface is cleared to nothing and its background is painted
+   by the bottom layer of its stack, so turning that layer off, or cutting a
+   window through it, is what lets this show. */
+canvas.stagecv { position: absolute; inset: 0; z-index: 1; }
+canvas.livecv { position: absolute; inset: 0; z-index: 0; background: #05070d; }
 canvas.livecv[hidden] { display: none; }
 
 /* The box the canvas draws in, on the step that is nothing but the canvas. It
