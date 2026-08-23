@@ -128,3 +128,36 @@
   --scale-bar: #10161f;
   --scale-bar-shadow: rgba(255, 255, 255, 0.6);
 }
+
+/* Scrollbars, dressed to match the panels instead of worn as the operating
+   system's wide white ones — which sat on the dark panel like a strip of
+   daylight (the operator's screenshot, 2026-08-23). A slim rounded thumb in
+   the border grey, no track, in both dresses: the first pair of rules is
+   the standard way (Firefox reads it), the prefixed ones are how the
+   Chromium and WebKit engines are asked. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--control-border) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--control-border);
+  border-radius: 4px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--text-faint);
+}
+
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
