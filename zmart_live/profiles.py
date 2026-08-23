@@ -761,10 +761,22 @@ def plan_the_writing(
         )
 
     height, width = _read_the_frame(frame)
+    # A frame that cannot be halved cleanly through the profile's whole
+    # pyramid gets the deepest pyramid it CAN carry, instead of a refusal.
+    # The strict planner below still refuses when asked for the impossible
+    # directly — a sealed profile must never quietly hold arithmetic that
+    # does not work out — but at this door the remedy the refusal used to
+    # suggest ("use fewer levels") is simply taken: a 133-pixel replayed
+    # frame cannot go back and choose another camera, and a shallower
+    # pyramid is a picture where the refusal was none (the operator's ask,
+    # 2026-08-23).
+    depth = wanted.pyramid_levels
+    while depth > 1 and (height % 2 ** (depth - 1) or width % 2 ** (depth - 1)):
+        depth -= 1
     geometry = choose_the_geometry(
         (height, width),
         band=wanted.overlap_band,
-        pyramid_levels=wanted.pyramid_levels,
+        pyramid_levels=depth,
         minimum_chunk=wanted.minimum_chunk,
         maximum_chunk=wanted.maximum_chunk,
         target_chunks_across=wanted.target_chunks_across,
