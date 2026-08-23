@@ -606,12 +606,16 @@ function LoadWindow({ listing, onNavigate, onOpened, onConstructed, onCancel,
               into a folder or opens an image at once. What the chosen tab
               is looking for floats to the top; the plain folders to walk
               into follow. */}
-          {[...listing.folders].sort((a, b) => {
+          {listing.folders.filter(
+            // The sequential door feeds raw positions through the live
+            // writer, and a built view is not raw data — so views are not
+            // offered there at all, rather than listed and refused (the
+            // operator's call, 2026-08-23).
+            (folder) => kind !== "other" || folder.kind !== "view",
+          ).sort((a, b) => {
             // What the chosen tab can act on floats to the top; the plain
-            // folders to walk into follow. The experimental door acts only
-            // on raw runs; the default door on anything with a kind.
-            const wanted = (folder) =>
-              (kind === "other" ? folder.kind === "run" : Boolean(folder.kind)) ? 0 : 1;
+            // folders to walk into follow.
+            const wanted = (folder) => (Boolean(folder.kind) ? 0 : 1);
             return wanted(a) - wanted(b) || a.name.localeCompare(b.name);
           }).map((folder) => (
             <button
@@ -679,10 +683,16 @@ function LoadWindow({ listing, onNavigate, onOpened, onConstructed, onCancel,
                     + "same doorway the microscope uses"
                   : "this folder's positions replay one at a time — Open "
                     + "starts them landing")
-                : selected
-                  ? "only raw positions can be replayed — a view or an image "
-                    + "has no positions to feed through the live writer"
-                  : "choose a dataset of raw positions, or walk into one")
+                : selected?.kind === "image"
+                  ? "one position of this folder — Open replays the whole "
+                    + "folder, its positions landing one at a time"
+                  : selected?.kind === "plate"
+                    ? "a plate — its wells replay one at a time, through the "
+                      + "same doorway the microscope uses"
+                    : selected
+                      ? "nothing here can be replayed — raw positions are "
+                        + "what feeds the live writer"
+                      : "choose a dataset of raw positions, or walk into one")
               : (ROW_KINDS[selected.kind]?.said
                 ?? "a plain folder — double-click to look inside")}
           </div>
@@ -802,6 +812,12 @@ function LoadWindow({ listing, onNavigate, onOpened, onConstructed, onCancel,
                 // this works for a light-sheet mosaic and a 336-well plate as
                 // readily as for a handful of tiles (the operator's call,
                 // 2026-08-21).
+                //
+                // A single image IS one position of the folder around it, so
+                // choosing one replays that folder — a raw zarr is raw
+                // data, whichever row of its dataset the finger landed on
+                // (the operator's point, 2026-08-23).
+                const dataset = selected?.kind === "image" ? listing.path : where;
                 // The experimental door is a dress rehearsal, and its whole
                 // worth is that nothing about the live path is faked: the
                 // positions go through the live writer, its sealed profile
@@ -816,7 +832,7 @@ function LoadWindow({ listing, onNavigate, onOpened, onConstructed, onCancel,
                 // test_a_dataset_is_relived_as_a_live_run.py said so by going
                 // red, which is what they are for.
                 setBusy(true);
-                const result = await startReplay(where, pace);
+                const result = await startReplay(dataset, pace);
                 setBusy(false);
                 if (!result.config) {
                   setOpenError(result.error || "that folder could not be replayed");
@@ -830,10 +846,13 @@ function LoadWindow({ listing, onNavigate, onOpened, onConstructed, onCancel,
                         // The folder being STOOD IN counts as much as a
                         // chosen row — the window lands inside the dataset,
                         // and a dead button at the landing spot read as the
-                        // whole door being broken (2026-08-23).
+                        // whole door being broken (2026-08-23). A chosen
+                        // image counts too: it is one position of the
+                        // folder around it, which is what then replays.
                         || (kind === "other"
-                          ? ((selected ? selected.kind !== "run"
-                              : listing.kind !== "run")
+                          ? (!(selected
+                              ? ["run", "plate", "image"].includes(selected.kind)
+                              : listing.kind === "run")
                              || replaying?.state === "running")
                           : !(selected
                             ? selected.kind

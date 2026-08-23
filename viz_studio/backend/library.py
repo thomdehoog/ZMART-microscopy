@@ -109,8 +109,16 @@ def _named_for(path: Path, parent: Path) -> str:
     The folder the operator chose, or — when they pointed straight at a single
     store — that store, with the format's suffixes taken off so the panel shows
     ``overview`` rather than ``overview.ome.zarr``.
+
+    A built view is the one exception: its heading keeps the full
+    ``.zmartview.zarr`` dress, because that suffix is the very thing that
+    says "this is a view, not the raw data beside it" — stripped, a view of
+    a run and the run itself wore the same heading and could not be told
+    apart (the operator asked to see it, 2026-08-23).
     """
     del parent  # kept in the signature: what was chosen is the whole answer here
+    if path.name.endswith(".zmartview.zarr"):
+        return path.name
     return without_format_suffix(path.name)
 
 

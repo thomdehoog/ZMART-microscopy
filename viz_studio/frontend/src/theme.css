@@ -182,3 +182,12 @@ input[type="number"] {
   appearance: textfield;
   -moz-appearance: textfield;
 }
+
+/* A control that will not answer says so with its face. The Open button
+   kept its full blue while disabled, and an able-looking button that
+   ignores the pointer reads as broken rather than as "not this one" — the
+   operator pressed exactly that (2026-08-23). */
+button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
