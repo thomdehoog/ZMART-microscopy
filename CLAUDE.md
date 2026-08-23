@@ -70,10 +70,20 @@ main path does exactly what it is supposed to do, plainly; every defense
 that does exist can point at the incident or measurement that justified
 it; and everything else is a test's job.
 
-## Open investigation: the flicker (start here next session)
+## The flicker: resolved (2026-08-23), and the lesson it left
 
-The operator sees the picture flicker in the native window; Chromium
-measures clean. Everything known, measured, and prepared — the probes, the
-prime suspect (WKWebView), the permission state, and the rules any fix must
-follow — is in **`viz_studio/HANDOVER_the_flicker.md`**. Read it before
-touching anything about drawing or refresh.
+The flicker the operator saw on sequential replays is found, fixed, and
+gated — the full record, mechanism and fix is in
+**`viz_studio/HANDOVER_the_flicker.md`** (the "RESOLVED" section at the
+end). Two lessons from it are worth keeping as habits:
+
+- **Sample per frame or not at all.** The flash lasted 100–300 ms per
+  landing and three 10 Hz probes swore the picture was clean. Any probe of
+  the picture hangs off `requestAnimationFrame`, the way
+  `tests/test_the_screen_never_goes_black.py` does.
+- **A refresh must never tear down what is drawing.** The engine's refresh
+  philosophy is keep-drawing-until-replaced: stale pixels stay on screen
+  while their replacements download. Anything that answers "the data
+  changed" by throwing away a loaded source, layer, or chunk before its
+  replacement is ready will black out the operator's picture, and the two
+  gates in `test_the_screen_never_goes_black.py` will go red.
