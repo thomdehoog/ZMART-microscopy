@@ -1,0 +1,119 @@
+/*
+ * The viewer's two dresses: dark and light.
+ *
+ * Every colour the interface chrome is painted in -- panels, buttons, text,
+ * borders, sliders -- is named here once, as a CSS variable, and the
+ * components refer to the name rather than to a hex value. Switching the
+ * whole interface between dark and light is then one attribute on the page
+ * (`data-theme` on the <html> element, set by the Light/Dark button in the
+ * top bar), because every colour looks itself up afresh.
+ *
+ * The dark values are the viewer's original look, unchanged. The light
+ * values are a calm grey-and-white take on the same design: the same blue
+ * accent, dark text where light text was, and enough contrast that every
+ * label stays readable (the values were checked against the WCAG AA
+ * guideline for text).
+ *
+ * What is deliberately NOT here: anything that represents the data itself.
+ * The image canvas stays black in both themes -- fluorescence is read
+ * against black, at the microscope and in every viewer, and a white ground
+ * would change what a dim signal looks like. Channel colours, the colour
+ * maps (viridis, magma, ...), and the colours of drawn targets are the
+ * operator's own choices about their specimen, so they are left exactly as
+ * chosen. The scale bar stays white too, because it is drawn over the black
+ * image, not over a panel.
+ */
+
+:root {
+  /* Grounds, from the deepest to the most raised. The panel ground is a
+     little darker than the cards that sit on it, and that difference is
+     what separates the sections at a glance -- keep the pair apart. */
+  --page-bg: #0b0d10;          /* behind everything, barely ever seen */
+  --panel-bg: #0d1015;         /* the control bar's ground, and list wells */
+  --card-bg: #141922;          /* the cards each section sits on */
+  --control-bg: #1b222b;       /* buttons and dropdowns */
+  --input-bg: #0d1015;         /* boxes that are typed into, and the histogram */
+  --overlay-bg: rgba(12, 15, 19, 0.82); /* the slider chips floating on the image */
+  --shade-bg: rgba(4, 6, 9, 0.6);       /* dims the page behind the load window */
+
+  /* Borders, in three weights: the rule around a panel or card, the edge of
+     a pressable control, and the hairlines inside lists. */
+  --panel-border: #2b3440;
+  --control-border: #303a46;
+  --subtle-border: #1f2630;
+
+  /* Text, from the loudest to the quietest. Bright is for the few readings
+     that must be read at a glance (the slider positions); primary is the
+     ordinary text; the quieter tiers are labels, notes and headings. */
+  --text-bright: #f2f5f8;
+  --text-primary: #c9d1d9;
+  --text-secondary: #aab4c0;
+  --text-muted: #8b95a3;
+  --text-faint: #6b7684;
+
+  /* The one blue the interface speaks with: active buttons, the travelled
+     part of every slider, the histogram's window marks. The selection pair
+     is the quieter blue ground (and the text on it) that says "this one is
+     chosen" on tabs, list rows and toggles. */
+  --accent: #2f81f7;
+  --accent-selection: #1f3a5f;
+  --accent-selection-text: #dbe6f3;
+  --accent-text: #9ecbff;      /* blue-tinted text on an ordinary button */
+  --selected-row-bg: #1b2431;  /* the channel the controls are acting on */
+
+  /* Trouble and caution. Errors get a tinted box of their own; the warning
+     colour is for one-line cautions like the uneven-stretch note. */
+  --danger-text: #f0888f;
+  --danger-bg: #251a1d;
+  --danger-border: #4a2b30;
+  --warning-text: #d9a441;
+
+  /* Small finishing touches: the faint wash on the play button, and the one
+     shadow colour every floating thing casts. */
+  --ghost-bg: rgba(255, 255, 255, 0.06);
+  --shadow-color: rgba(0, 0, 0, 0.55);
+
+  /* The sliders' two colours, read by filled-range.css: blue as far as the
+     value has travelled, grey for the rest of the groove. */
+  --slider-fill: var(--accent);
+  --slider-track: #3a444f;
+}
+
+/* The light theme says only what is different. A light grey page, white-ish
+   cards, dark text, the same blue -- deepened a step so that white text on
+   an active button stays readable against a bright screen. */
+[data-theme="light"] {
+  --page-bg: #d8dce2;
+  --panel-bg: #e7eaee;
+  --card-bg: #f7f8fa;
+  --control-bg: #ffffff;
+  --input-bg: #ffffff;
+  --overlay-bg: rgba(250, 251, 252, 0.9);
+  --shade-bg: rgba(40, 47, 57, 0.45);
+
+  --panel-border: #c7cdd6;
+  --control-border: #b6bec9;
+  --subtle-border: #dce0e6;
+
+  --text-bright: #10161f;
+  --text-primary: #26303c;
+  --text-secondary: #414c5a;
+  --text-muted: #5a6675;
+  --text-faint: #67727f;
+
+  --accent: #2563cf;
+  --accent-selection: #d9e6fb;
+  --accent-selection-text: #1a44a3;
+  --accent-text: #1f5cc4;
+  --selected-row-bg: #dde8f7;
+
+  --danger-text: #b32330;
+  --danger-bg: #fceaec;
+  --danger-border: #e4b6bc;
+  --warning-text: #8a5f00;
+
+  --ghost-bg: rgba(0, 0, 0, 0.05);
+  --shadow-color: rgba(25, 35, 50, 0.22);
+
+  --slider-track: #c2c9d2;
+}
