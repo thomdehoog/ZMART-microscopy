@@ -1,5 +1,6 @@
 import React from "react";
 
+import FilledRange from "./FilledRange.jsx";
 import { restingWindow } from "./scene.js";
 
 // A small, deliberately limited palette. Green and magenta lead because that is
@@ -396,8 +397,8 @@ function VolumeMode({ volumeMode, onVolumeMode, gain, onGain,
       >
         gain
       </span>
-      <input
-        type="range" min="-3" max="3" step="0.1" value={gain}
+      <FilledRange
+        min="-3" max="3" step="0.1" value={gain}
         disabled={!accumulating}
         onChange={(event) => onGain?.(Number(event.target.value))}
         aria-label="volume gain"
@@ -416,8 +417,8 @@ function VolumeMode({ volumeMode, onVolumeMode, gain, onGain,
       <span style={styles.controlLabel} title="How many steps a ray takes through the volume. More is sharper and slower">
         detail
       </span>
-      <input
-        type="range" min="6" max="16" step="1"
+      <FilledRange
+        min="6" max="16" step="1"
         value={Math.round(Math.log2(depthSamples))}
         onChange={(event) => onDepthSamples?.(2 ** Number(event.target.value))}
         aria-label="volume detail"
@@ -430,8 +431,8 @@ function VolumeMode({ volumeMode, onVolumeMode, gain, onGain,
       <span style={styles.controlLabel} title="Fade the far side of the specimen, so front reads in front of back">
         depth fade
       </span>
-      <input
-        type="range" min="0" max="8" step="0.1" value={attenuation}
+      <FilledRange
+        min="0" max="8" step="0.1" value={attenuation}
         onChange={(event) => onAttenuation?.(Number(event.target.value))}
         aria-label="volume depth fade"
         title="Weighs each voxel by how far along the line of sight it is. Nought is no fading"
@@ -876,8 +877,7 @@ function ChannelControls({ layer, index, entry, mode, lookupTables, onWindow, on
                 on the picture and a handle beneath it always mean the same
                 number. It used to count steps along a warped scale whenever
                 Log was on, which moved the two apart. */}
-            <input
-              type="range"
+            <FilledRange
               min={min}
               max={max}
               step="1"
@@ -897,8 +897,7 @@ function ChannelControls({ layer, index, entry, mode, lookupTables, onWindow, on
             <span style={styles.controlLabel} title="Anything brighter than this is shown as white">
               max
             </span>
-            <input
-              type="range"
+            <FilledRange
               min={min}
               max={max}
               step="1"
@@ -933,8 +932,7 @@ function ChannelControls({ layer, index, entry, mode, lookupTables, onWindow, on
         <span style={styles.controlLabel} title="How strongly this channel is drawn">
           opacity
         </span>
-        <input
-          type="range"
+        <FilledRange
           min="0"
           max="1"
           step="0.01"
@@ -1565,7 +1563,6 @@ const styles = {
   range: {
     width: "100%",
     margin: 0,
-    accentColor: "#2f81f7",
     cursor: "pointer",
   },
   value: { color: "#aab4c0", textAlign: "right", fontVariantNumeric: "tabular-nums" },

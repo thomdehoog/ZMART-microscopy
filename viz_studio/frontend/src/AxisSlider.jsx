@@ -1,4 +1,5 @@
 import React from "react";
+import FilledRange from "./FilledRange.jsx";
 import { momentsInRanges } from "./live-refresh.js";
 
 // How long to rest on each plane while playing. Slow enough to see what is there,
@@ -212,8 +213,8 @@ export default function AxisSlider({
         {playing ? "❙❙" : "▶"}
       </button>
       <span style={styles.axisLabel}>{label}</span>
-      <input
-        type="range"
+      <FilledRange
+        upright={upright}
         min={allowed ? 0 : reachable.min}
         max={allowed ? allowed.length - 1 : reachable.max}
         step={allowed ? 1 : 0.5}
@@ -327,7 +328,7 @@ const styles = {
     font: "600 11px/1 system-ui, sans-serif",
   },
   axisLabel: { color: "#f2f5f8" },
-  axisRange: { width: "100%", accentColor: "#2f81f7", cursor: "pointer" },
+  axisRange: { width: "100%", cursor: "pointer" },
   axisRangeUpright: {
     // Running the control's text down the page rather than across is what turns a
     // slider on its end in browsers built on Chromium and WebKit. Reversing the
@@ -338,7 +339,6 @@ const styles = {
     direction: "rtl",
     height: "100%",
     width: 22,
-    accentColor: "#2f81f7",
     cursor: "pointer",
   },
   axisValue: {

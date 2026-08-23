@@ -1,0 +1,89 @@
+/*
+ * How every slider's track is painted (see FilledRange.jsx for why it is
+ * painted by hand at all: the native window's engine never draws the blue
+ * travelled part on its own).
+ *
+ * The idea is one gradient with a hard stop: blue up to the fraction the
+ * value has travelled — handed over in the --fill variable — and grey from
+ * there on. The handle is a plain blue circle, lifted a little so it sits
+ * centred on the 4-pixel groove.
+ *
+ * The colours are variables with the dark theme's values as their fallback,
+ * so a light theme only has to say otherwise.
+ */
+
+.filled-range {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  /* Tall enough to hold the 14px handle, so rows keep their height and the
+     slider stays easy to grab. */
+  height: 16px;
+  padding: 0;
+}
+
+.filled-range::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 2px;
+  background: linear-gradient(
+    to right,
+    var(--slider-fill, #2f81f7) var(--fill, 0%),
+    var(--slider-track, #3a444f) var(--fill, 0%)
+  );
+}
+
+.filled-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  /* The handle is 14px on a 4px groove: lifted (14 - 4) / 2 to sit centred. */
+  margin-top: -5px;
+  border-radius: 50%;
+  border: none;
+  background: var(--slider-fill, #2f81f7);
+}
+
+.filled-range:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* The same slider stood on end (the Z slider), with the blue rising from the
+   bottom — the first plane is at the bottom, so that is where "travelled"
+   starts. */
+.filled-range-upright::-webkit-slider-runnable-track {
+  width: 4px;
+  height: 100%;
+  background: linear-gradient(
+    to top,
+    var(--slider-fill, #2f81f7) var(--fill, 0%),
+    var(--slider-track, #3a444f) var(--fill, 0%)
+  );
+}
+
+.filled-range-upright::-webkit-slider-thumb {
+  margin-top: 0;
+  margin-left: -5px;
+}
+
+/* Firefox names the same parts its own way, and fills the travelled side
+   itself — no gradient arithmetic needed. */
+.filled-range::-moz-range-track {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--slider-track, #3a444f);
+}
+
+.filled-range::-moz-range-progress {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--slider-fill, #2f81f7);
+}
+
+.filled-range::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: none;
+  background: var(--slider-fill, #2f81f7);
+}
