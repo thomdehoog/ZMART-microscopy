@@ -229,6 +229,13 @@ def replay_the_dataset(transfer: str | Path, folder: str | Path, *,
     plan = plan_a_replay(transfer)
     publisher = LivePublisher(Path(folder), plan.profile,
                               run_id=Path(transfer).name, positions=plan.positions)
+    if told:
+        # Say how far there is to go before the first position starts. The
+        # window read "0 of …" for as long as the first (sometimes only)
+        # position took to write — for a deep stack, long enough to look
+        # stuck — and a Stop pressed in that stretch is honoured here,
+        # before the writing begins, rather than never (2026-08-23).
+        told(0, plan.total)
     for number, (name, held_in, front, moment) in enumerate(plan.beats):
         if number and every_s:
             time.sleep(every_s)
