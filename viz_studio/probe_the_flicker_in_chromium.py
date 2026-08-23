@@ -142,10 +142,19 @@ print(f"{len(frames)} frames watched; lit went {lits[0]:.2f} -> {lits[-1]:.2f} "
 # The verdicts: with the camera holding still, the picture must only ever
 # grow while positions land, and the engine must never tear its drawing
 # layers down. A drop while the camera moved is the view being steered --
-# the deliberate flight to a freshly opened acquisition, or an operator's
-# own pan -- and is not counted.
-steps = [(a, b) for a, b in zip(frames, frames[1:])
-         if b["lit"] < a["lit"] - 0.05 and b["camera"] == a["camera"]]
+# the deliberate flight to a freshly opened acquisition, a jump to the
+# first plane, or an operator's own pan -- and is not counted. The camera
+# has to have been still for a couple of frames BEFORE the drop as well,
+# because the recorder reads the picture with a one-frame lag (see the
+# note in test_the_screen_never_goes_black.py): the dark frame a camera
+# jump causes is written down one frame after the jump itself, when the
+# two poses already read as equal.
+def _camera_was_still(at: int, span: int = 3) -> bool:
+    poses = {frames[i]["camera"] for i in range(max(0, at - span), at + 1)}
+    return len(poses) == 1
+
+steps = [(a, b) for at, (a, b) in enumerate(zip(frames, frames[1:]))
+         if b["lit"] < a["lit"] - 0.05 and _camera_was_still(at + 1)]
 teardowns = [(a, b) for a, b in zip(frames, frames[1:]) if b["layers"] < a["layers"]]
 for a, b in steps[:20]:
     print(f"  DOWNWARD STEP at t={b['t']:.0f} ms: {a['lit']:.2f} -> {b['lit']:.2f} lit")
