@@ -576,10 +576,20 @@ function LoadWindow({ listing, onNavigate, onOpened, onConstructed, onCancel,
               onClick={() => {
                 setSelected(folder);
                 if (kind === "raw") {
-                  setConstructing(folder.opens === "folder" ? {
+                  // A picture can be built from a folder of position stores,
+                  // and just as well from one store on its own — a plate, or
+                  // a single exported survey — which the builder accepts
+                  // whole. The pane used to open only for the folder shape,
+                  // so pointing this tab at a plate showed nothing at all
+                  // and the feature looked dead (2026-08-23). The scene is
+                  // saved inside a chosen folder, and beside a chosen store:
+                  // inside the store would bury it among the scale arrays.
+                  setConstructing(folder.opens ? {
                     data: `${listing.path}/${folder.name}`,
-                    name: folder.name,
-                    destination: `${listing.path}/${folder.name}/scenes`,
+                    name: folder.name.replace(/\.(ome\.)?zarr$/i, ""),
+                    destination: folder.opens === "folder"
+                      ? `${listing.path}/${folder.name}/scenes`
+                      : `${listing.path}/scenes`,
                     bake: false,
                   } : null);
                 }
@@ -710,6 +720,15 @@ function LoadWindow({ listing, onNavigate, onOpened, onConstructed, onCancel,
             >
               {busy ? "…" : "Open"}
             </button>
+          </div>
+        )}
+        {/* A chosen row the builder cannot read leaves the pane closed; this
+            line says so, because a tab that answers a click with silence
+            reads as broken rather than as "not this one". */}
+        {kind === "raw" && selected && !constructing && (
+          <div style={styles.loadEmptyNote} role="status">
+            this folder holds nothing the builder can read — walk into a
+            run&apos;s folder, or choose a plate or an exported survey
           </div>
         )}
         {constructing && (constructing.relink ? (
@@ -944,6 +963,9 @@ function anyStoreGainedItsFirstImage(previous, loaded) {
  */
 export default function App() {
   const [viewer, setViewer] = React.useState(null);
+  // Whether the first fit-to-window has run on this engine; the canvas stays
+  // veiled (plain black) until it has. See the effect further down.
+  const [framed, setFramed] = React.useState(false);
   // Bumped when an acquisition is closed, which builds the engine again. See
   // the note in NeuroglancerView.
   const [engineGeneration, setEngineGeneration] = React.useState(0);
@@ -1435,9 +1457,17 @@ export default function App() {
   // how big they are. Declared ahead of the effect that adds the layers so the
   // waiting is in place before there is anything to wait for; see engine.js for
   // what goes wrong without it.
+  //
+  // Until that first fit has run, the canvas is kept veiled: the engine
+  // paints the freshly-attached image at its own default magnification for a
+  // frame or two before the fit lands, and that wrongly-sized glimpse read
+  // as the picture jumping in size on every first open (2026-08-23). Behind
+  // the veil is plain black, so what shows instead is what an empty canvas
+  // shows anyway.
   React.useEffect(() => {
     if (!viewer) return undefined;
-    return chooseScaleWhenTheImagesAreMeasured(viewer);
+    setFramed(false);
+    return chooseScaleWhenTheImagesAreMeasured(viewer, () => setFramed(true));
   }, [viewer]);
 
   React.useEffect(() => {
@@ -1758,7 +1788,7 @@ export default function App() {
       }}
     >
       <main style={styles.stage}>
-        <NeuroglancerView onViewer={setViewer} generation={engineGeneration} />
+        <NeuroglancerView onViewer={setViewer} generation={engineGeneration} veiled={!framed} />
         <ModeToggle mode={mode} onChange={setMode} />
         <BringItBack viewer={viewer} />
         <ThemeToggle />
