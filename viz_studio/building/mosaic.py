@@ -735,8 +735,15 @@ def read_the_transfer(folder: str | Path) -> Mosaic:
         # translations. Past this point its fields are ordinary tiles.
         tiles = _read_the_plate(*plate)
     else:
-        stores = sorted(one for one in folder.glob(f"*{IMAGE_SUFFIX}")
-                        if one.is_dir())
+        # Matched on the wider ``*.zarr``, the same lesson the plate branch
+        # learned (2026-08-19): real tiles are not all named ``*.ome.zarr``
+        # — the demo volume itself is ``demo.zarr`` — and the description
+        # inside decides what a store is, not its name. Built views are the
+        # one exception: a view sitting beside the tiles is a picture OF
+        # them, not one of them.
+        stores = sorted(one for one in folder.glob("*.zarr")
+                        if one.is_dir()
+                        and not one.name.endswith(".zmartview.zarr"))
         if not stores:
             raise ValueError(
                 f"{folder} holds no OME-Zarr images, so there is nothing to "
