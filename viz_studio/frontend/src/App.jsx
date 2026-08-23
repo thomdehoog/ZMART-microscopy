@@ -166,7 +166,7 @@ async function constructionStatus() {
   return response.json().catch(() => ({ state: "error", error: "unreadable answer" }));
 }
 
-async function startReplay(path, perSecond) {
+async function startReplay(path, perSecond, bake = false) {
   const response = await fetch("/api/stores/replay", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -174,8 +174,12 @@ async function startReplay(path, perSecond) {
     // positions per second, which is how anybody watching describes it. At
     // the top of the range there is no pause at all: the replay goes as fast
     // as the writer can commit, which is the honest meaning of "maximum".
+    // ``bake`` is the same ask the default door's mosaic box makes, carried
+    // through to the live path: the picture's pieces are written as they
+    // land rather than composed when somebody looks.
     body: JSON.stringify({
       path,
+      bake,
       every: perSecond >= AS_FAST_AS_IT_CAN ? 0 : 1 / perSecond,
     }),
   });
@@ -296,6 +300,9 @@ function LoadWindow({ listing, onNavigate, onOpened, onConstructed, onCancel,
   // server's answer because it is a wish about the next replay, not a fact
   // about the running one.
   const [pace, setPace] = React.useState(1.4);
+  // Whether the replay bakes the picture's pieces as they land — the same
+  // choice the default door's mosaic box offers, with the same meaning.
+  const [bakeReplay, setBakeReplay] = React.useState(false);
   React.useEffect(() => {
     if (kind !== "other") return undefined;
     let watching = true;
@@ -768,6 +775,18 @@ function LoadWindow({ listing, onNavigate, onOpened, onConstructed, onCancel,
             )}
             {kind === "other" && (
               <label style={styles.paceRow}
+                     title="The same choice the default door offers: the picture's pieces are computed and kept as each position lands, so looking around afterwards reads files instead of composing. Left unticked, pieces are composed when looked at">
+                <input
+                  type="checkbox"
+                  checked={bakeReplay}
+                  onChange={(event) => setBakeReplay(event.target.checked)}
+                  aria-label="bake the picture as it lands"
+                />
+                <span style={styles.paceLabel}>bake as it lands</span>
+              </label>
+            )}
+            {kind === "other" && (
+              <label style={styles.paceRow}
                      title="How fast the positions land while the replay runs. They land top row first, left to right, the way a stage scans">
                 <span style={styles.paceLabel}>per second</span>
                 <select
@@ -835,7 +854,7 @@ function LoadWindow({ listing, onNavigate, onOpened, onConstructed, onCancel,
                 // test_a_dataset_is_relived_as_a_live_run.py said so by going
                 // red, which is what they are for.
                 setBusy(true);
-                const result = await startReplay(dataset, pace);
+                const result = await startReplay(dataset, pace, bakeReplay);
                 setBusy(false);
                 if (!result.config) {
                   setOpenError(result.error || "that folder could not be replayed");
