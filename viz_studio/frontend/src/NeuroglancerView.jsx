@@ -11,6 +11,7 @@ import "neuroglancer/unstable/layer/enabled_frontend_modules.js";
 import "neuroglancer/unstable/datasource/enabled_frontend_modules.js";
 import "neuroglancer/unstable/kvstore/enabled_frontend_modules.js";
 import { makeMinimalViewer } from "neuroglancer/unstable/ui/minimal_viewer.js";
+import { themeGround } from "./engine.js";
 // Mouse and keyboard navigation (pan, zoom, scroll through z, rotate the 3-D
 // view) is NOT part of building a viewer. neuroglancer's panels receive the DOM
 // events either way, but without these binding tables no *action* is attached to
@@ -71,18 +72,14 @@ export default function NeuroglancerView({ onViewer, generation = 0, veiled = fa
     // The engine paints its own ground — the canvas where no data is drawn —
     // and it must match the theme's, or switching to the light dress would
     // leave the picture floating on a black field inside a light page. The
-    // colour is read from the same variable the stylesheet uses, and read
-    // again whenever the Light/Dark button changes the page's dress.
+    // colour comes from themeGround() — the same variable the stylesheet
+    // uses — and is told again whenever the Light/Dark button changes the
+    // page's dress. (syncView in engine.js re-asserts the same reading on
+    // every view change, so the two can never fight.)
     const paintTheGround = () => {
-      const said = getComputedStyle(document.documentElement)
-        .getPropertyValue("--canvas-bg").trim() || "#000";
-      const hex = said.replace("#", "");
-      const wide = hex.length === 3 ? [...hex].map((c) => c + c).join("") : hex;
-      const ground = Float32Array.from(
-        [0, 2, 4].map((at) => parseInt(wide.slice(at, at + 2), 16) / 255),
-      );
-      viewer.crossSectionBackgroundColor.value = ground;
-      viewer.perspectiveViewBackgroundColor.value = ground;
+      const ground = themeGround();
+      viewer.crossSectionBackgroundColor.restoreState(ground);
+      viewer.perspectiveViewBackgroundColor.restoreState(ground);
     };
     paintTheGround();
     const dressWatcher = new MutationObserver(paintTheGround);

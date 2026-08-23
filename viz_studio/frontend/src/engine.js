@@ -1641,24 +1641,41 @@ export function syncView(viewer, { layout, chrome }) {
   // single bar for distance is drawn in the corner of the image instead, and it is
   // ours so it can be put somewhere out of the way. See ScaleBar.jsx.
   viewer.showScaleBar.value = false;
-  // Black behind the slice, rather than the engine's mid-grey.
+  // The theme's ground behind the slice, rather than the engine's mid-grey.
   //
   // Fluorescence images are mostly dark, and a grey surround sitting right up
   // against a dark specimen makes the specimen look brighter than it is -- the
   // eye judges brightness by comparison, so the same image reads differently
-  // depending on what is next to it. Black is also simply what a microscopist
-  // expects to see around an image.
+  // depending on what is next to it. The dark dress therefore grounds the
+  // image on black, which is what a microscopist expects; the light dress
+  // uses its own light ground (asked for by the operator, 2026-08-23).
   //
-  // Worth knowing if you are debugging: this grey used to be the only clue that
-  // nothing was being drawn at all, since an empty panel showed the engine's
-  // background and a drawn one did not. That clue is no longer needed, because a
-  // test now looks at the picture and fails if it is a flat colour -- see
-  // tests/pixels.py. It is the test that makes this line safe to have.
+  // Worth knowing if you are debugging: the engine's grey used to be the only
+  // clue that nothing was being drawn at all, since an empty panel showed the
+  // engine's background and a drawn one did not. That clue is no longer
+  // needed, because a test now looks at the picture and fails if it is a flat
+  // colour -- see tests/pixels.py. It is the test that makes this line safe.
   //
-  // Written through `restoreState` rather than assigned: it parses the colour and
-  // only writes when it differs from what is already there, and this function
-  // runs on every change to the view.
-  viewer.crossSectionBackgroundColor.restoreState("#000000");
+  // Written through `restoreState` rather than assigned: it parses the colour
+  // and only writes when it differs from what is already there, and this
+  // function runs on every change to the view. Reading the variable afresh
+  // each time is also what keeps this from quietly undoing the Light/Dark
+  // button: a hard-coded black here painted the ground dark again on the
+  // very next view change (the operator saw it flip while adjusting the
+  // histogram, 2026-08-23).
+  viewer.crossSectionBackgroundColor.restoreState(themeGround());
+}
+
+/**
+ * The colour the theme paints the canvas ground -- where no data is drawn.
+ *
+ * Read from the same CSS variable the stylesheet uses (see theme.css), so
+ * the engine, the page and the veil can never disagree about what the
+ * ground looks like.
+ */
+export function themeGround() {
+  return (getComputedStyle(document.documentElement)
+    .getPropertyValue("--canvas-bg").trim()) || "#000000";
 }
 
 
