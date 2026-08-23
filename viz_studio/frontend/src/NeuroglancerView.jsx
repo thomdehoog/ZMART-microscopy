@@ -45,7 +45,7 @@ import "./engine-chrome.css";
  * StrictMode's deliberate mount → dispose → mount in development, so do not be
  * surprised to see the engine built twice under `vite dev`.
  */
-export default function NeuroglancerView({ onViewer, generation = 0 }) {
+export default function NeuroglancerView({ onViewer, generation = 0, veiled = false }) {
   const containerRef = React.useRef(null);
 
   React.useEffect(() => {
@@ -228,10 +228,24 @@ export default function NeuroglancerView({ onViewer, generation = 0 }) {
   // is read against black -- at the microscope and in every viewer -- and a
   // light ground here would change what a dim signal looks like. Only the
   // chrome around the image follows the theme.
+  // While ``veiled`` the drawing is held at opacity zero over that black
+  // ground: the engine's first frames come out at its own default
+  // magnification before the fit-to-window lands, and showing them read as
+  // the picture jumping in size on every first open. Black underneath means
+  // the veil looks like an empty canvas, and the short fade makes the
+  // arrival read as the picture appearing rather than snapping.
   return (
-    <div
-      ref={containerRef}
-      style={{ width: "100%", height: "100%", background: "#000" }}
-    />
+    <div style={{ width: "100%", height: "100%", background: "#000" }}>
+      <div
+        ref={containerRef}
+        style={{
+          width: "100%",
+          height: "100%",
+          background: "#000",
+          opacity: veiled ? 0 : 1,
+          transition: "opacity 120ms linear",
+        }}
+      />
+    </div>
   );
 }

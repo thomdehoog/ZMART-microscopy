@@ -1524,7 +1524,7 @@ function whenTheSourcesHaveSettled(viewer, ready, act) {
   return () => stop();
 }
 
-export function chooseScaleWhenTheImagesAreMeasured(viewer) {
+export function chooseScaleWhenTheImagesAreMeasured(viewer, framed = null) {
   // The whole-picture fit divides the picture's extent by the panel's size
   // in screen pixels, so it cannot run before the panel has been laid out.
   // A first load never hit this -- the network is slower than the layout --
@@ -1557,6 +1557,12 @@ export function chooseScaleWhenTheImagesAreMeasured(viewer) {
     // arbitrary magnification and asked for this. One function serves the
     // button and the opening, so the two can never disagree.
     showTheWholePicture(viewer);
+    // Whoever is waiting to unveil the picture is told only now, after the
+    // fit: between the layer attaching and this moment the engine paints at
+    // its own default magnification, and that wrongly-sized frame is exactly
+    // what the caller is keeping off the screen (seen as a brief size
+    // flicker on every first open, 2026-08-23).
+    framed?.();
   });
 }
 
