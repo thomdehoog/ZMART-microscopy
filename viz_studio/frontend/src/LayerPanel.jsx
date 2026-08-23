@@ -849,7 +849,7 @@ function ChannelControls({ layer, index, entry, mode, lookupTables, onWindow, on
   return (
     <div style={styles.controls} aria-label="channel controls">
       <div style={styles.headingRow}>
-        <span style={styles.heading}>display settings</span>
+        <span style={styles.heading}>channel settings</span>
       </div>
       {/* Which channel these settings are about, said the same way the list
           above says it: the acquisition it belongs to, and under that the
