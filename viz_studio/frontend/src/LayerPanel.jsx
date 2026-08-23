@@ -140,7 +140,15 @@ function contrastRange(layer, window_, shown = null) {
     // zero: the framing promises the window's bars a fixed pair of places on
     // the picture, and an axis trimmed back to the declared range would move
     // them (see frameTheWindow).
-    return { min: shown.low, max: shown.high };
+    //
+    // Rounded outward to whole numbers, though, and that is not cosmetic. The
+    // MIN and MAX sliders below can only rest on whole steps counted from this
+    // axis's left end, so a left end at a fraction -- which frameTheWindow
+    // freely produces -- put every position the handle could take at a
+    // fraction too: an operator asking for 100 was quietly given 100.5
+    // (watched 2026-08-23). Widening by under one grey level moves nothing an
+    // eye can see, and it lets the sliders land exactly where they are put.
+    return { min: Math.floor(shown.low), max: Math.ceil(shown.high) };
   }
   return {
     min: Math.min(min, Math.floor(window_.low)),
