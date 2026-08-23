@@ -660,6 +660,14 @@ def described_channels(described: list[dict], count: int) -> list[dict]:
     # alone keeps its greyscale: with nothing to distinguish it from, a
     # colour would be an invention.
     if count > 1:
+        # And a picture whose channels ALL answer white — declared or
+        # defaulted — is the same clipping by another road, so the palette
+        # takes over whole. One white channel among coloured ones is a
+        # choice and is left alone (the operator's rule: never load an
+        # image in only white, 2026-08-23).
+        if all(channel["color"] in (None, (1.0, 1.0, 1.0)) for channel in out):
+            for channel in out:
+                channel["color"] = None
         turn = 0
         for channel in out:
             if channel["color"] is None:
