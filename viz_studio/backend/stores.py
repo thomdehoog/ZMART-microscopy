@@ -128,7 +128,8 @@ def without_format_suffix(store_name: str) -> str:
     happened to agree, which is luck rather than design, and teaching the viewer
     about a third suffix would have meant finding both.
     """
-    return store_name.removesuffix(".ome.zarr").removesuffix(".zarr")
+    return (store_name.removesuffix(".zmartview.zarr")
+            .removesuffix(".ome.zarr").removesuffix(".zarr"))
 
 
 def channel_color(name: str) -> tuple[float, float, float] | None:

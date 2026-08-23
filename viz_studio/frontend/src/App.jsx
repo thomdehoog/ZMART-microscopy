@@ -216,17 +216,19 @@ async function listFolders(path) {
 }
 
 /**
- * The load window: pick the folder holding the images, by walking there.
+ * The load window: pick the thing to look at, and the window says what it is.
  *
  * The path box takes a typed or pasted path (Enter goes there); the rows are
- * the folders at that path. A folder that holds OME-Zarr images offers Open
- * and adds one acquisition to the image data; a folder that IS an image opens
- * directly rather than walking into its own insides; anything else is a place
- * to walk into. Errors from either the walk or the open show inside the
- * window, where the operator is looking.
+ * the folders at that path, each wearing a tag for what it is — a built view,
+ * one image, a plate, or raw positions. Choosing a row says in one line what
+ * Open will do with it: a view, image or plate opens directly, and raw
+ * positions are shown through a view built over them on the spot (with the
+ * two build questions — where to save it, and whether to bake the
+ * low-resolution mosaic — laid out beforehand, already answered). The
+ * experimental tab replays a raw run through the live writer instead, and
+ * accepts nothing else. Errors from the walk, the build or the open all show
+ * inside the window, where the operator is looking.
  */
-// Step one of loading: what kind of thing is being opened. Each door decides
-// what the folder walk below it offers to open, and what happens after.
 // How fast the positions of a replay may land, in positions per second, and
 // the mark at which the pace is dropped altogether. Twenty a second is past
 // the point where an eye can follow one landing from the next; asking for
@@ -236,13 +238,26 @@ const AS_FAST_AS_IT_CAN = 20;
 const REPLAY_PACES = [0.5, 1, 2, 5, 10, AS_FAST_AS_IT_CAN];
 
 const LOAD_KINDS = [
-  { key: "open", label: "open",
-    said: "point at what you want to see — one image, or a folder of them. The viewer works out the rest" },
-  { key: "raw", label: "build a view",
-    said: "raw positions from the microscope — a view is built over them, which then opens faster" },
+  { key: "open", label: "default",
+    said: "point at what you want to see — a view, an image, a plate, or raw positions. "
+      + "Raw data is shown through a view built over it, nothing copied" },
   { key: "other", label: "experimental",
     said: "replay a finished dataset as though the microscope were running it — for testing and troubleshooting" },
 ];
+
+// What each kind of row IS — the little tag on the row, and the sentence
+// beneath the list once it is chosen. The kinds come from the server's
+// listing (see _serve_list_folders); a row with no kind is just a place to
+// walk into. A "run" covers both shapes raw data takes: a plain folder of
+// position stores, and a bare zarr group wrapping them.
+const ROW_KINDS = {
+  view: { tag: "view", said: "a built view — it opens directly" },
+  image: { tag: "image", said: "one image — it opens directly" },
+  plate: { tag: "plate", said: "a plate of wells — it opens directly" },
+  run: { tag: "raw",
+         said: "raw positions from the microscope — Open builds a view over "
+           + "them (nothing is copied), then shows it" },
+};
 
 function LoadWindow({ listing, onNavigate, onOpened, onConstructed, onCancel,
                      onArriving,
@@ -311,6 +326,39 @@ function LoadWindow({ listing, onNavigate, onOpened, onConstructed, onCancel,
       setConstructing(null);
       setOpenError(result.error);
     }
+  };
+
+  // Raw positions are always shown through a view. Open on a run therefore
+  // builds one — unbaked unless the mosaic box is ticked, so nothing heavy
+  // happens uninvited — and opens what it built, as a single press (the
+  // operator's call, 2026-08-23).
+  const openRun = async () => {
+    const { data, destination, bake } = constructing;
+    setConstructing((current) => ({ ...current, running: true, fraction: 0,
+                                    error: null }));
+    const begun = await startConstruction(data, destination, bake);
+    if (begun.error) {
+      setConstructing((current) => ({ ...current, running: false, error: begun.error }));
+      return;
+    }
+    polling.current = setInterval(async () => {
+      const status = await constructionStatus();
+      if (status.state === "running") {
+        setConstructing((current) => current && { ...current, fraction: status.fraction || 0 });
+        return;
+      }
+      clearInterval(polling.current);
+      if (status.state === "done") {
+        await openStore(status.store);
+      } else if (status.state === "cancelled") {
+        setConstructing((current) => current &&
+          { ...current, running: false, fraction: 0 });
+      } else {
+        setConstructing((current) => current &&
+          { ...current, running: false,
+            error: status.error || "the view could not be built" });
+      }
+    }, 350);
   };
 
   const start = async () => {
@@ -511,18 +559,8 @@ function LoadWindow({ listing, onNavigate, onOpened, onConstructed, onCancel,
         </div>
         {kind && (
         <>
-        {/* On the build tab the walk is block 1 of 3, so it wears the same
-            card as the two blocks below it; the other tabs keep it bare. */}
-        <div style={kind === "raw"
-          ? { ...styles.constructPane, marginTop: 0, flex: 1, minHeight: 0 }
-          : { display: "contents" }}>
-        {kind === "raw" && (
-          <div style={styles.constructTitle}>
-            1 · choose the raw data
-          </div>
-        )}
-        <div style={{ display: "flex", gap: 8,
-                      marginBottom: kind === "raw" ? 0 : 8 }}>
+        <div style={{ display: "contents" }}>
+        <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
           <input
             key={listing.path}
             type="text"
@@ -563,11 +601,11 @@ function LoadWindow({ listing, onNavigate, onOpened, onConstructed, onCancel,
               is looking for floats to the top; the plain folders to walk
               into follow. */}
           {[...listing.folders].sort((a, b) => {
-            // On the open tab either shape is a first-class answer -- an
-            // image, or a folder holding them -- so anything readable floats
-            // up together and only what cannot be read sinks.
+            // What the chosen tab can act on floats to the top; the plain
+            // folders to walk into follow. The experimental door acts only
+            // on raw runs; the default door on anything with a kind.
             const wanted = (folder) =>
-              (kind === "raw" ? folder.opens === "folder" : Boolean(folder.opens)) ? 0 : 1;
+              (kind === "other" ? folder.kind === "run" : Boolean(folder.kind)) ? 0 : 1;
             return wanted(a) - wanted(b) || a.name.localeCompare(b.name);
           }).map((folder) => (
             <button
@@ -575,28 +613,22 @@ function LoadWindow({ listing, onNavigate, onOpened, onConstructed, onCancel,
               type="button"
               onClick={() => {
                 setSelected(folder);
-                if (kind === "raw") {
-                  // A picture can be built from a folder of position stores,
-                  // and just as well from one store on its own — a plate, or
-                  // a single exported survey — which the builder accepts
-                  // whole. The pane used to open only for the folder shape,
-                  // so pointing this tab at a plate showed nothing at all
-                  // and the feature looked dead (2026-08-23). The scene is
-                  // saved inside a chosen folder, and beside a chosen store:
-                  // inside the store would bury it among the scale arrays.
-                  setConstructing(folder.opens ? {
-                    data: `${listing.path}/${folder.name}`,
-                    name: folder.name.replace(/\.(ome\.)?zarr$/i, ""),
-                    destination: folder.opens === "folder"
-                      ? `${listing.path}/${folder.name}/scenes`
-                      : `${listing.path}/scenes`,
-                    bake: false,
-                  } : null);
-                }
+                setOpenError(null);
+                // Raw positions are always shown through a view, so choosing
+                // a run lays out that view's two questions at once — where
+                // its files go, and whether the low-resolution mosaic is
+                // built now — with plain answers already filled in. Open
+                // then does the rest in one press.
+                setConstructing(kind === "open" && folder.kind === "run" ? {
+                  data: `${listing.path}/${folder.name}`,
+                  name: folder.name,
+                  destination: `${listing.path}/${folder.name}/scenes`,
+                  bake: false,
+                } : null);
               }}
               onDoubleClick={() =>
-                folder.opens === "store"
-                  ? kind !== "raw" && openStore(`${listing.path}/${folder.name}`)
+                ["view", "image", "plate"].includes(folder.kind)
+                  ? kind !== "other" && openStore(`${listing.path}/${folder.name}`)
                   : navigate(`${listing.path}/${folder.name}`)
               }
               aria-label={folder.name}
@@ -604,11 +636,22 @@ function LoadWindow({ listing, onNavigate, onOpened, onConstructed, onCancel,
               style={{ ...styles.loadRow,
                        ...(selected?.name === folder.name
                          ? styles.loadRowChosen : null) }}
-              title={folder.opens === "store"
-                ? "This folder is an image. Click to select it; double-click to open it at once"
+              title={ROW_KINDS[folder.kind]
+                ? `${ROW_KINDS[folder.kind].said}. Click to select it`
                 : "Click to select this folder; double-click to look inside it"}
             >
-              {folder.name}
+              <span style={styles.loadRowName}>{folder.name}</span>
+              {folder.kind === "view" && folder.baked && (
+                <span
+                  style={styles.loadRowFast}
+                  title="keeps its low-resolution mosaic on disk, so it opens fast"
+                >
+                  ⚡
+                </span>
+              )}
+              {ROW_KINDS[folder.kind] && (
+                <span style={styles.loadRowTag}>{ROW_KINDS[folder.kind].tag}</span>
+              )}
             </button>
           ))}
           {!listing.folders.length && (
@@ -616,7 +659,61 @@ function LoadWindow({ listing, onNavigate, onOpened, onConstructed, onCancel,
           )}
         </div>
         </div>
-        {kind !== "raw" && !constructing && (
+        {/* What the chosen row IS, said under the list in one line — so a
+            row that offers nothing is never a silent mystery. */}
+        {selected && (
+          <div style={styles.loadEmptyNote} role="status">
+            {kind === "other"
+              ? (selected.kind === "run"
+                ? "raw positions — they replay one at a time, through the "
+                  + "same doorway the microscope uses"
+                : "only raw positions can be replayed — a view or an image "
+                  + "has no positions to feed through the live writer")
+              : (ROW_KINDS[selected.kind]?.said
+                ?? "a plain folder — double-click to look inside")}
+          </div>
+        )}
+        {/* A chosen run lays out the view's two questions before Open: where
+            the view's files are saved, and whether the low-resolution
+            mosaic is built now. The answers are already filled in; Open
+            works without touching either. */}
+        {kind === "open" && constructing && !constructing.relink && (
+          <div style={styles.constructPane}>
+            <label style={styles.constructRow}>
+              <span style={styles.constructLabel}>save the view in</span>
+              {saveField}
+            </label>
+            <div style={styles.constructRow}>
+              <label style={styles.constructChoice}>
+                <input
+                  type="checkbox"
+                  checked={constructing.bake}
+                  onChange={(event) => setConstructing(
+                    (current) => ({ ...current, bake: event.target.checked }))}
+                  disabled={constructing.running}
+                  aria-label="also build the low-resolution mosaic now"
+                  title="The zoomed-out mosaic is computed once now and kept as files, so the view opens fast ever after — views wearing ⚡ in the list have it. Left unchecked, it is composed from the raw data the first time someone looks"
+                />
+                also build the low-resolution mosaic now (opens fast ever after)
+              </label>
+            </div>
+            {constructing.running && (
+              <div
+                style={styles.progressTrack}
+                role="progressbar"
+                aria-label="construction progress"
+                aria-valuenow={Math.round((constructing.fraction || 0) * 100)}
+              >
+                <div style={{ ...styles.progressFill,
+                              width: `${Math.round((constructing.fraction || 0) * 100)}%` }} />
+              </div>
+            )}
+            {constructing.error && (
+              <div style={styles.loadError} role="alert">{constructing.error}</div>
+            )}
+          </div>
+        )}
+        {!constructing?.relink && (
           <div style={styles.loadActions}>
             {kind === "other" && replaying?.state === "running" && (
               <>
@@ -657,13 +754,6 @@ function LoadWindow({ listing, onNavigate, onOpened, onConstructed, onCancel,
             <button
               type="button"
               onClick={async () => {
-                // On this tab, opening shows the dataset arriving: it is
-                // opened as one acquisition and its positions appear one at a
-                // time, at the pace beside this button. Nothing is copied --
-                // every position is already on disk and already placed, so
-                // this works for a light-sheet mosaic and a 336-well plate as
-                // readily as for a handful of tiles (the operator's call,
-                // 2026-08-21).
                 // With a row selected, that row is what opens. With nothing
                 // selected, the folder being LOOKED AT can itself be the
                 // image — the operator typed a store's path, or walked into
@@ -672,9 +762,25 @@ function LoadWindow({ listing, onNavigate, onOpened, onConstructed, onCancel,
                 // inside it, none of them openable (2026-08-23).
                 const where = selected ? `${listing.path}/${selected.name}` : listing.path;
                 if (kind !== "other") {
+                  // Raw positions are always shown through a view: Open
+                  // builds one over them — unbaked unless the mosaic box
+                  // above is ticked — and opens what it built, all in one
+                  // press (the operator's call, 2026-08-23). A view, an
+                  // image or a plate opens directly.
+                  if (constructing) {
+                    openRun();
+                    return;
+                  }
                   openStore(where);
                   return;
                 }
+                // On this tab, opening shows the dataset arriving: it is
+                // opened as one acquisition and its positions appear one at a
+                // time, at the pace beside this button. Nothing is copied --
+                // every position is already on disk and already placed, so
+                // this works for a light-sheet mosaic and a 336-well plate as
+                // readily as for a handful of tiles (the operator's call,
+                // 2026-08-21).
                 // The experimental door is a dress rehearsal, and its whole
                 // worth is that nothing about the live path is faked: the
                 // positions go through the live writer, its sealed profile
@@ -699,39 +805,43 @@ function LoadWindow({ listing, onNavigate, onOpened, onConstructed, onCancel,
                 onReplayStarted?.(result.config);
               }}
               disabled={busy
-                        || (selected
-                          ? (kind !== "raw" && !selected.opens)
-                          : !(kind === "open" && listing.opens === "store"))
-                        || (kind === "other" && replaying?.state === "running")}
+                        || constructing?.running
+                        || (kind === "other"
+                          ? (!selected || selected.kind !== "run"
+                             || replaying?.state === "running")
+                          : !(selected
+                            ? selected.kind
+                            : ["view", "image", "plate"].includes(listing.kind)))}
               aria-label={kind === "other"
                 ? "open as a live run"
                 : (selected ? `open ${selected.name}`
-                   : listing.opens === "store" ? "open this folder"
+                   : listing.kind ? "open this folder"
                    : "open the selection")}
-              title={kind === "open"
-                ? "Open this and show it. Whatever it holds that the viewer reads "
-                  + "becomes one acquisition in the image data"
-                : kind === "other"
-                  ? "Relive this dataset as a live run: its positions land on "
-                    + "screen one at a time, through the same doorway the "
-                    + "microscope uses, at the pace beside this button"
-                  : "Open whatever the selected folder holds, directly"}
+              title={kind === "other"
+                ? "Relive this dataset as a live run: its positions land on "
+                  + "screen one at a time, through the same doorway the "
+                  + "microscope uses, at the pace beside this button"
+                : "Open this and show it. A view, an image or a plate opens "
+                  + "directly; raw positions are shown through a view built "
+                  + "over them first"}
               style={styles.loadOpen}
             >
-              {busy ? "…" : "Open"}
+              {busy || constructing?.running ? "…" : "Open"}
             </button>
+            {constructing?.running && (
+              <button
+                type="button"
+                onClick={() => askToStop("construct")}
+                aria-label="stop the build"
+                title="Stop building the view at its next step. Nothing half-made is kept"
+                style={{ ...styles.loadCancel, marginLeft: 8 }}
+              >
+                Stop
+              </button>
+            )}
           </div>
         )}
-        {/* A chosen row the builder cannot read leaves the pane closed; this
-            line says so, because a tab that answers a click with silence
-            reads as broken rather than as "not this one". */}
-        {kind === "raw" && selected && !constructing && (
-          <div style={styles.loadEmptyNote} role="status">
-            this folder holds nothing the builder can read — walk into a
-            run&apos;s folder, or choose a plate or an exported survey
-          </div>
-        )}
-        {constructing && (constructing.relink ? (
+        {constructing?.relink && (
           <div style={styles.constructPane}>
             <div style={styles.constructTitle}>
               point to the raw data for {constructing.name}
@@ -754,25 +864,7 @@ function LoadWindow({ listing, onNavigate, onOpened, onConstructed, onCancel,
             </label>
             {buildParts}
           </div>
-        ) : (
-          <>
-            {/* The user asked for the build to read as three blocks:
-                choosing the data (the list above), a home for the scene,
-                and the build itself with its one choice. */}
-            <div style={styles.constructPane}>
-              <div style={styles.constructTitle}>
-                2 · save the scene in
-              </div>
-              <div style={styles.constructRow}>{saveField}</div>
-            </div>
-            <div style={styles.constructPane}>
-              <div style={styles.constructTitle}>
-                3 · build the scene for {constructing.name}
-              </div>
-              {buildParts}
-            </div>
-          </>
-        ))}
+        )}
         </>
         )}
         {(listing.error || openError) && (
@@ -2093,7 +2185,9 @@ const styles = {
     background: "var(--panel-bg)",
   },
   loadRow: {
-    display: "block",
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
     width: "100%",
     textAlign: "left",
     background: "none",
@@ -2103,6 +2197,21 @@ const styles = {
     font: "12px/1.4 system-ui, sans-serif",
     padding: "6px 10px",
     cursor: "pointer",
+  },
+  // The name takes the room; the tag sits at the right edge saying what the
+  // row IS (view, image, plate, raw), and a view that keeps its baked
+  // low-resolution mosaic wears ⚡ beside its name — the fast-opening one.
+  loadRowName: { flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" },
+  loadRowFast: { flexShrink: 0 },
+  loadRowTag: {
+    flexShrink: 0,
+    color: "var(--text-faint)",
+    font: "600 10px/1 system-ui, sans-serif",
+    textTransform: "uppercase",
+    letterSpacing: "0.06em",
+    border: "1px solid var(--subtle-border)",
+    borderRadius: 4,
+    padding: "2px 6px",
   },
   // The pace, beside the Replay button it belongs to.
   paceRow: {

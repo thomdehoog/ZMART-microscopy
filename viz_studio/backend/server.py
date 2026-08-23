@@ -1289,30 +1289,45 @@ class _Handler(SimpleHTTPRequestHandler):
                 return
             described = set(DESCRIPTION_FILES)
 
-            def opens_as(folder: Path) -> str | None:
-                # A description file directly inside makes a "store" only
-                # when it declares one picture the viewer draws whole: an
-                # image, or a plate whose layout the open door builds
-                # behind it. A bare group wrapping position stores -- the
-                # shape a real exported survey and our own live writer's
-                # containers both take -- is raw data, and calling it a
-                # store hid the build tab's second step from the operator
-                # (found with a real 6-tile survey, 2026-08-19).
+            def kind_of(folder: Path) -> str | None:
+                # What a folder IS, so the window can say it out loud: a
+                # built "view" (told apart by the .zmartview.zarr dress every
+                # built view wears), a "plate" of wells, a plain "image", or
+                # a raw "run" — a folder or bare zarr group with position
+                # stores directly inside it, the shape a real exported
+                # survey and our own live writer's containers both take
+                # (found with a real 6-tile survey, 2026-08-19). Anything
+                # else is just a place to walk into.
                 try:
                     inside = [child.name for child in folder.iterdir()]
                     told = _read_attrs_at(folder)
-                    if (any(name in described for name in inside)
-                            and (told.get("multiscales") or told.get("plate"))):
-                        return "store"
+                    if any(name in described for name in inside):
+                        if folder.name.endswith(".zmartview.zarr"):
+                            return "view"
+                        if told.get("plate"):
+                            return "plate"
+                        if told.get("multiscales"):
+                            return "image"
                     if any((folder / name / stamp).exists()
                            for name in inside for stamp in described):
-                        return "folder"
+                        return "run"
                 except OSError:
                     pass
                 return None
 
+            def describe(folder: Path) -> dict:
+                kind = kind_of(folder)
+                told_of = {"name": folder.name, "kind": kind}
+                if kind == "view":
+                    # Whether the view keeps its low-resolution mosaic as a
+                    # hard copy on disk (the bake). The window marks such a
+                    # view, because it is the one that opens fast.
+                    told_of["baked"] = bool(
+                        (_read_attrs_at(folder).get("zmart") or {}).get("baked"))
+                return told_of
+
             folders = [
-                {"name": entry.name, "opens": opens_as(entry)}
+                describe(entry)
                 for entry in sorted(path.iterdir(), key=lambda one: one.name.lower())
                 if entry.is_dir() and not entry.name.startswith(".")
             ]
@@ -1321,13 +1336,13 @@ class _Handler(SimpleHTTPRequestHandler):
             # the window showed only the scale arrays inside, with nothing
             # openable anywhere: the store could be opened only from its
             # parent's list (the operator hit exactly this, 2026-08-23).
-            here = opens_as(path)
+            here = kind_of(path)
         except OSError as why:
             self._send_json({"error": str(why)}, HTTPStatus.BAD_REQUEST)
             return
         self._send_json({
             "path": str(path),
-            "opens": here,
+            "kind": here,
             "parent": str(path.parent) if path.parent != path else None,
             "folders": folders,
         })
@@ -1367,7 +1382,8 @@ class _Handler(SimpleHTTPRequestHandler):
                 or any(one.is_dir() for one in was.glob("*.zarr"))):
             return None
         return {"store": str(store), "was": str(built_from),
-                "name": store.name.removesuffix(".ome.zarr"),
+                "name": store.name.removesuffix(".zmartview.zarr")
+                                  .removesuffix(".ome.zarr"),
                 "baked": bool(ours.get("baked"))}
 
     def _serve_cancel(self, job: dict) -> None:

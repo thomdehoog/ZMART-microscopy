@@ -117,16 +117,20 @@ def _bake_one_stripe(store: Path, level: int, rows: tuple[int, ...]) -> int:
 
 
 def the_scene_folder_name(name: str) -> str:
-    """The scene folder's name: the given name wearing ``.ome.zarr`` once.
+    """The scene folder's name: the given name wearing ``.zmartview.zarr`` once.
 
-    Scenes are usually named after the raw run they are built from, and a
-    real exported run is itself often called ``something.ome.zarr`` -- so
-    appending the suffix blindly dressed a real survey's scene as
-    ``Thy1_Mag25x_Ch561.ome.zarr.ome.zarr``. Everything that composes or
-    looks up a scene folder goes through this one rule, so a scene built
-    and a scene looked for can never disagree about the name.
+    Every built view ends in ``.zmartview.zarr`` — the operator's own
+    convention (2026-08-23) — so a view can be told from raw data by its
+    name alone, everywhere it appears. Scenes are usually named after the
+    raw run they are built from, and a real exported run is itself often
+    called ``something.ome.zarr``, so the raw name's own dress is taken off
+    first rather than stacked under the new one. Everything that composes or
+    looks up a scene folder goes through this one rule, so a scene built and
+    a scene looked for can never disagree about the name.
     """
-    return f"{name.removesuffix('.zarr').removesuffix('.ome')}.ome.zarr"
+    bare = (name.removesuffix(".zarr").removesuffix(".ome")
+            .removesuffix(".zmartview"))
+    return f"{bare}.zmartview.zarr"
 
 
 def declare_a_built_picture(where: str | Path, transfer: str | Path, *,
