@@ -241,8 +241,10 @@ const LOAD_KINDS = [
   { key: "open", label: "default",
     said: "point at what you want to see — a view, an image, a plate, or raw positions. "
       + "Raw data is shown through a view built over it, nothing copied" },
-  { key: "other", label: "experimental",
-    said: "replay a finished dataset as though the microscope were running it — for testing and troubleshooting" },
+  { key: "other", label: "open positions sequentially",
+    said: "replay a finished dataset as though the microscope were running it "
+      + "— its positions land one at a time, through the live path, for "
+      + "testing and troubleshooting" },
 ];
 
 // What each kind of row IS — the little tag on the row, and the sentence

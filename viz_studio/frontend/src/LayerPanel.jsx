@@ -172,7 +172,8 @@ function contrastRange(layer, window_, shown = null) {
  * (All of this is the operator's design, 2026-08-23.)
  */
 function Histogram({ layer, window_, color, onWindow, onAxis = null,
-                     range = null, scale = "linear", axis = null }) {
+                     range = null, scale = "linear", axis = null,
+                     steady = null }) {
   const dragging = React.useRef(null);
   const [overBar, setOverBar] = React.useState(false);
   const box = React.useRef(null);
@@ -217,13 +218,19 @@ function Histogram({ layer, window_, color, onWindow, onAxis = null,
   const bins = measured.high - measured.low || 1;
   const brightnessOf = (index) =>
     measured.low + ((index + 0.5) * bins) / counts.length;
-  // The tallest bar is measured over the bars actually DRAWN, not over every
-  // bin the server counted. The axis may stop well short of the dimmest or
-  // brightest pixels, and a background peak sitting outside it used to set
-  // the scale for everything inside -- which left the specimen a line one
-  // pixel high under an empty picture.
+  // The tallest bar is measured over the bins inside the RESTING frame --
+  // the one Auto or a fresh window lays out -- not over every bin the
+  // server counted, and not over whatever stretch a pan or zoom happens to
+  // be showing. The first would let a background peak outside the frame
+  // squash the specimen to a line one pixel high; the second made the bars
+  // breathe up and down while the operator panned, a scale that changed
+  // under the eye measuring against it (2026-08-23). Anchored to the
+  // frame, the heights hold still until the framing itself is asked to
+  // change.
+  const anchor = steady || { min: low, max: low + span };
   const drawn = counts.filter(
-    (_count, index) => brightnessOf(index) >= low && brightnessOf(index) <= low + span);
+    (_count, index) => brightnessOf(index) >= anchor.min
+      && brightnessOf(index) <= anchor.max);
   const peak = Math.max(...(drawn.length ? drawn : counts), 1);
 
   // The image's own range of values, which the window may never leave: a
@@ -338,6 +345,11 @@ function Histogram({ layer, window_, color, onWindow, onAxis = null,
       onPointerUp={letGo}
       onPointerCancel={letGo}
       onPointerLeave={() => overBar && setOverBar(false)}
+      // A double click puts the default framing back after a pan or a zoom
+      // — the same resting layout the panel opened with. It does NOT press
+      // Auto: nothing is measured and the window does not move (the
+      // operator's ask, 2026-08-23).
+      onDoubleClick={() => onAxis?.(null)}
     >
       {/* Bars inside the window at full light -- near-white, so the stretch
           the display ramp is spent on is unmistakable -- and bars outside it
@@ -896,6 +908,13 @@ function ChannelControls({ layer, index, entry, mode, lookupTables, onWindow, on
               range={imageRange}
               scale={scale}
               axis={{ min, max }}
+              // The bars' height scale is anchored to the resting frame, so
+              // panning or zooming the axis never moves it — only Auto or a
+              // fresh window does, by laying a new frame.
+              steady={(() => {
+                const resting = contrastRange(seen, window_, framed);
+                return { min: resting.min, max: resting.max };
+              })()}
             />
           </div>
           {/* Under the picture, in one row: what stretch of brightness it
