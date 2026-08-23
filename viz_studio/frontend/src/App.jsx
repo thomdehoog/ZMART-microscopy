@@ -654,7 +654,13 @@ function LoadWindow({ listing, onNavigate, onOpened, onConstructed, onCancel,
                 // this works for a light-sheet mosaic and a 336-well plate as
                 // readily as for a handful of tiles (the operator's call,
                 // 2026-08-21).
-                const where = `${listing.path}/${selected.name}`;
+                // With a row selected, that row is what opens. With nothing
+                // selected, the folder being LOOKED AT can itself be the
+                // image — the operator typed a store's path, or walked into
+                // one — and then the button opens that folder. Without this
+                // a store entered directly showed only the scale arrays
+                // inside it, none of them openable (2026-08-23).
+                const where = selected ? `${listing.path}/${selected.name}` : listing.path;
                 if (kind !== "other") {
                   openStore(where);
                   return;
@@ -682,12 +688,16 @@ function LoadWindow({ listing, onNavigate, onOpened, onConstructed, onCancel,
                 onOpened(result.config);
                 onReplayStarted?.(result.config);
               }}
-              disabled={busy || !selected
-                        || (kind !== "raw" && !selected.opens)
+              disabled={busy
+                        || (selected
+                          ? (kind !== "raw" && !selected.opens)
+                          : !(kind === "open" && listing.opens === "store"))
                         || (kind === "other" && replaying?.state === "running")}
               aria-label={kind === "other"
                 ? "open as a live run"
-                : (selected ? `open ${selected.name}` : "open the selection")}
+                : (selected ? `open ${selected.name}`
+                   : listing.opens === "store" ? "open this folder"
+                   : "open the selection")}
               title={kind === "open"
                 ? "Open this and show it. Whatever it holds that the viewer reads "
                   + "becomes one acquisition in the image data"

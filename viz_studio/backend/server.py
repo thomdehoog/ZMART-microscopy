@@ -172,16 +172,31 @@ def group_labels(datasets) -> dict[int, str]:
 
     So a name shared by more than one open dataset is qualified by the folder it
     came from. Nothing changes in the ordinary single-run case.
+
+    Even the qualified name can repeat — most plainly when the very same store
+    is opened twice, but also for two runs that share both their name and their
+    folder's name. The panel tells datasets apart by these labels alone, so two
+    datasets wearing the same label used to collapse into one heading with the
+    second store's channels filed under the first (found by opening the demo
+    store twice, 2026-08-23). A repeat is therefore numbered — "demo (2)" — so
+    every open dataset keeps a heading of its own.
     """
     shared: dict[str, int] = {}
     for dataset in datasets:
         shared[dataset.name] = shared.get(dataset.name, 0) + 1
-    return {
+    qualified = {
         dataset.number: (
             dataset.name if shared[dataset.name] == 1 else f"{dataset.root.name} · {dataset.name}"
         )
         for dataset in datasets
     }
+    labels: dict[int, str] = {}
+    worn: dict[str, int] = {}
+    for dataset in datasets:
+        label = qualified[dataset.number]
+        worn[label] = worn.get(label, 0) + 1
+        labels[dataset.number] = label if worn[label] == 1 else f"{label} ({worn[label]})"
+    return labels
 
 
 # -- answering one request ------------------------------------------------------
@@ -1273,36 +1288,46 @@ class _Handler(SimpleHTTPRequestHandler):
                                 HTTPStatus.NOT_FOUND)
                 return
             described = set(DESCRIPTION_FILES)
-            folders = []
-            for entry in sorted(path.iterdir(), key=lambda one: one.name.lower()):
-                if not entry.is_dir() or entry.name.startswith("."):
-                    continue
-                opens = None
+
+            def opens_as(folder: Path) -> str | None:
+                # A description file directly inside makes a "store" only
+                # when it declares one picture the viewer draws whole: an
+                # image, or a plate whose layout the open door builds
+                # behind it. A bare group wrapping position stores -- the
+                # shape a real exported survey and our own live writer's
+                # containers both take -- is raw data, and calling it a
+                # store hid the build tab's second step from the operator
+                # (found with a real 6-tile survey, 2026-08-19).
                 try:
-                    inside = [child.name for child in entry.iterdir()]
-                    # A description file directly inside makes a "store" only
-                    # when it declares one picture the viewer draws whole: an
-                    # image, or a plate whose layout the open door builds
-                    # behind it. A bare group wrapping position stores -- the
-                    # shape a real exported survey and our own live writer's
-                    # containers both take -- is raw data, and calling it a
-                    # store hid the build tab's second step from the operator
-                    # (found with a real 6-tile survey, 2026-08-19).
-                    told = _read_attrs_at(entry)
+                    inside = [child.name for child in folder.iterdir()]
+                    told = _read_attrs_at(folder)
                     if (any(name in described for name in inside)
                             and (told.get("multiscales") or told.get("plate"))):
-                        opens = "store"
-                    elif any((entry / name / stamp).exists()
-                             for name in inside for stamp in described):
-                        opens = "folder"
+                        return "store"
+                    if any((folder / name / stamp).exists()
+                           for name in inside for stamp in described):
+                        return "folder"
                 except OSError:
                     pass
-                folders.append({"name": entry.name, "opens": opens})
+                return None
+
+            folders = [
+                {"name": entry.name, "opens": opens_as(entry)}
+                for entry in sorted(path.iterdir(), key=lambda one: one.name.lower())
+                if entry.is_dir() and not entry.name.startswith(".")
+            ]
+            # The folder being looked at is described the same way as its
+            # rows. Walk INTO a store — or type its path — and without this
+            # the window showed only the scale arrays inside, with nothing
+            # openable anywhere: the store could be opened only from its
+            # parent's list (the operator hit exactly this, 2026-08-23).
+            here = opens_as(path)
         except OSError as why:
             self._send_json({"error": str(why)}, HTTPStatus.BAD_REQUEST)
             return
         self._send_json({
             "path": str(path),
+            "opens": here,
             "parent": str(path.parent) if path.parent != path else None,
             "folders": folders,
         })
