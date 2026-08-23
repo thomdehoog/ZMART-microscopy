@@ -749,12 +749,15 @@ function LoadWindow({ listing, onNavigate, onOpened, onConstructed, onCancel,
               <>
                 <span style={{ ...styles.loadEmptyNote, marginRight: 8 }}
                       role="status">
-                  {`a replay is running · ${replaying.done ?? 0} of `
-                    + `${replaying.total ?? "…"} positions`}
+                  {replaying.stop
+                    ? "stopping — the position now landing finishes first"
+                    : `a replay is running · ${replaying.done ?? 0} of `
+                      + `${replaying.total ?? "…"} positions`}
                 </span>
                 <button
                   type="button"
                   onClick={() => askToStop("replay")}
+                  disabled={Boolean(replaying.stop)}
                   aria-label="stop the replay"
                   title="Stop the replay after the position now landing. What has landed stays on screen as a real run"
                   style={{ ...styles.loadCancel, marginRight: 8 }}
