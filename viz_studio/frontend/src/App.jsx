@@ -608,6 +608,21 @@ function LoadWindow({ listing, onNavigate, onOpened, onConstructed, onCancel,
           </button>
         </div>
         <div style={styles.loadList}>
+          {/* The way back up, before anything else: without it the window
+              could only ever descend, and an operator landed inside the
+              demo's folder had no way to reach the data beside it short of
+              typing a path (met 2026-08-23). */}
+          {listing.parent && (
+            <button
+              type="button"
+              onClick={() => navigate(listing.parent)}
+              aria-label="up one folder"
+              title="Go up to the folder holding this one"
+              style={styles.loadRow}
+            >
+              <span style={styles.loadRowName}>..</span>
+            </button>
+          )}
           {/* One click selects a row and highlights it, the way the
               operating system's own choosers behave; a double click steps
               into a folder or opens an image at once. What the chosen tab
