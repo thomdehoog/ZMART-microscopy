@@ -41,7 +41,7 @@ sys.path.insert(0, str(VIZ / "building"))
 
 import served  # noqa: E402
 from composer import Composer  # noqa: E402
-from declare import declare_a_built_picture  # noqa: E402
+from declare import declare_a_built_picture, the_scene_folder_name  # noqa: E402
 from mosaic import read_the_transfer  # noqa: E402
 
 # One tile: shallow, small, and square, so a whole transfer of them is quick to
@@ -314,17 +314,23 @@ def test_a_coarse_copy_sits_where_full_resolution_says(a_transfer: Path):
 def test_a_scene_wears_its_suffix_once(a_transfer: Path, tmp_path: Path):
     """A run already named ``something.ome.zarr`` builds a scene named once.
 
-    The scene's folder is the given name wearing ``.ome.zarr``, and real
-    exported runs usually wear it already: appended blindly, a real survey's
-    scene landed as ``Thy1_Mag25x_Ch561.ome.zarr.ome.zarr`` (workstation,
-    2026-08-19) -- a name no biologist should have to read back.
+    Every built view is named ``<name>.zmartview.zarr`` -- the operator's
+    convention of 2026-08-23, so a view can be told from raw data by its
+    name alone -- and real exported runs usually wear a format suffix of
+    their own already. Appended blindly, a real survey's scene once landed
+    as ``Thy1_Mag25x_Ch561.ome.zarr.ome.zarr`` (workstation, 2026-08-19)
+    -- a name no biologist should have to read back -- so the raw name's
+    dress comes off before the view's goes on.
     """
-    for asked, worn in (("survey.ome.zarr", "survey.ome.zarr"),
-                        ("plate_4561.zarr", "plate_4561.ome.zarr"),
-                        ("built", "built.ome.zarr")):
+    for asked, worn in (("survey.ome.zarr", "survey.zmartview.zarr"),
+                        ("plate_4561.zarr", "plate_4561.zmartview.zarr"),
+                        ("built", "built.zmartview.zarr")):
         store = declare_a_built_picture(tmp_path / "views", a_transfer,
                                         name=asked, piece=PIECE)
         assert store.name == worn, (asked, store.name)
+        # And the builder agrees with the one naming rule everything else
+        # looks a scene up by, so built and looked-for can never diverge.
+        assert store.name == the_scene_folder_name(asked)
 
 
 def test_ground_no_tile_covers_is_answered_with_nothing(a_transfer: Path,

@@ -9,10 +9,13 @@ brightness the display ramp is spent on. If they sit hard against the ends of
 the picture there is nothing to see beyond them, and no way to tell whether
 the specimen is being clipped. So the stretch of brightness drawn is laid out
 around the window the run itself asked for: the marks land at 15% and 85%
-along the width, leaving a seventh of the picture beyond each of them. The
-operator asked for exactly that (2026-08-22), and for the axis never to start
-below zero -- there are no darker-than-nothing pixels, so that part of the
-track could hold nothing.
+along the width, exactly, leaving a seventh of the picture beyond each of
+them. The operator asked for exactly that (2026-08-22), and settled the awkward
+case on 2026-08-23: the framing wins even when it takes the axis below zero
+or past the declared range. An axis clamped at zero pinned the low mark to
+the left edge for exactly the dim channels Auto is most used on, so a pair
+of marks that always sits in the same two places is worth an empty stretch
+of track no pixel can occupy.
 
 **The bars have to be scaled to what is drawn.** The tallest bar sets the
 height of every other one. Measured over bins the axis does not reach, a
@@ -106,7 +109,7 @@ def _the_picture(page):
       const svg = document.querySelector("[aria-label^='histogram']");
       const across = svg.viewBox.baseVal.width;
       const bars = [...svg.querySelectorAll("rect")];
-      const marks = bars.filter((one) => one.getAttribute("fill") === "#2f81f7")
+      const marks = bars.filter((one) => one.getAttribute("fill") === "var(--accent)")
         .map((one) => Number(one.getAttribute("x")) / across).sort((a, b) => a - b);
       const counts = bars.filter((one) => one.getAttribute("fill") === "currentColor")
         .map((one) => Number(one.getAttribute("height")));
@@ -130,29 +133,30 @@ def test_the_window_a_run_declared_sits_across_the_middle(opened_on, tmp_path):
         )
 
 
-def test_the_axis_never_starts_below_zero(opened_on, tmp_path):
-    """A window that opens at zero keeps its low mark there.
+def test_the_axis_goes_below_zero_to_keep_the_framing(opened_on, tmp_path):
+    """A window that opens at zero still puts its marks at 15% and 85%.
 
-    Fifteen per cent of the width below the window would be darker than
-    nothing, so the axis stops at zero and the low mark stops with it. The
-    upper mark still has its room, and the picture is still usable.
+    Fifteen per cent of the width below the window is brightness no pixel
+    can have, and for a day the axis was clamped there -- which pinned the
+    low mark against the left edge for exactly the dim channels Auto is
+    most used on. The operator asked for the exact framing instead
+    (2026-08-23): the marks always sit in the same two places, whatever
+    the window's numbers, and the empty stretch below zero is the price,
+    knowingly paid. This gate used to pin the clamp, and now pins its
+    absence just as firmly.
     """
     page = opened_on("fromzero", start=0, end=4000)
     page.screenshot(path=str(tmp_path / "a_window_that_opens_at_zero.png"))
     seen = _the_picture(page)
-    # A mark sitting exactly on the left-hand edge is not drawn -- there is no
-    # picture on its far side to separate it from -- so the low end of the
-    # window shows as the absence of a mark rather than as one at zero.
-    early = [one for one in seen["marks"] if NEAR_ENOUGH < one < 0.5]
-    assert early == [], (
-        f"a mark was placed at {[round(one, 3) for one in early]}, so the axis "
-        "starts below zero: it has been drawn into brightness no pixel can have"
+    assert len(seen["marks"]) == 2, (
+        f"the window should be drawn as two marks; saw {seen['marks']}"
     )
-    assert seen["marks"], "the window's upper end was not drawn at all"
-    assert seen["marks"][-1] > 0.5, (
-        f"the high mark is at {round(seen['marks'][-1], 3)} along the "
-        "histogram, which leaves the operator no picture to judge it against"
-    )
+    for mark, meant in zip(seen["marks"], SITS_AT):
+        assert abs(mark - meant) < NEAR_ENOUGH, (
+            f"the window's marks are at {[round(one, 3) for one in seen['marks']]} "
+            f"along the histogram, not at {SITS_AT}: the framing must hold even "
+            "when it takes the axis below zero"
+        )
 
 
 def test_the_bars_are_scaled_to_the_part_of_the_picture_drawn(opened_on, tmp_path):

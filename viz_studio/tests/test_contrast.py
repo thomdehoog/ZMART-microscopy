@@ -60,8 +60,12 @@ def test_a_declared_omero_window_is_honoured_over_measurement(tmp_path):
 
 
 def test_the_demo_volume_uses_its_own_declared_window(tmp_path):
+    # The declared start sits 20 counts below the 800 background on purpose:
+    # values at or below the black point are drawn transparent by the
+    # coverage rule, and a black point sitting ON the background bit a
+    # corner out of the demo volume (the operator moved it, 2026-08-23).
     store = write_demo_zarr(tmp_path / "demo.zarr")
-    assert display_window(store) == (800.0, 20800.0)
+    assert display_window(store) == (780.0, 20800.0)
 
 
 def test_uniform_data_still_yields_a_usable_window(tmp_path):

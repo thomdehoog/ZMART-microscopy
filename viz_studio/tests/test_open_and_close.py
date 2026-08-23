@@ -18,6 +18,11 @@ from driving import open_through_the_window
 from pixels import fraction_lit
 from server import make_server
 
+# Importing the server put the building folder on ``sys.path``; the naming
+# rule below is the one every built view follows, so no test spells the
+# ``.zmartview.zarr`` suffix by hand.
+from declare import the_scene_folder_name  # noqa: E402
+
 
 def _store(path, *, value=4000, channels=2):
     """A small multi-channel OME-Zarr, written quickly."""
@@ -528,21 +533,22 @@ class TestTheLoadWindow:
     """Without a native chooser, choosing a folder opens a window in the page."""
 
     def test_the_window_starts_on_the_open_door(self, no_chooser):
-        """The window opens ready: the first tab chosen, the folders showing.
+        """The window opens ready: the default tab chosen, the folders showing.
 
         Opening something and looking at it is the commonest thing anybody
         does, so it is the tab the window starts on -- no click needed
         before walking. A click on a row selects and highlights it, the way
         the operating system's own choosers behave, and the window's one
-        Open button acts on the selection. Switching to "build a view"
-        withdraws the offer to open a bare store, since a single image is
-        not raw positions to build a view over.
+        Open button acts on the selection. Switching to "open positions
+        sequentially" withdraws the plain Open offer: that door replays raw
+        positions through the live writer, so its button says what it does
+        instead.
         """
         page, first, second = no_chooser
         page.get_by_label("open images").click()
         window = page.get_by_role("dialog", name="load data")
         window.wait_for(timeout=10_000)
-        chosen = page.get_by_label("open", exact=True)
+        chosen = page.get_by_label("default", exact=True)
         assert chosen.get_attribute("aria-pressed") == "true"
         assert str(first) in page.get_by_label("folder path").input_value()
         row = window.get_by_label("overview_pos001.ome.zarr", exact=True)
@@ -553,60 +559,63 @@ class TestTheLoadWindow:
         )
         assert page.get_by_label(
             "open overview_pos001.ome.zarr", exact=True).count() == 1
-        page.get_by_label("build a view", exact=True).click()
+        page.get_by_label("open positions sequentially", exact=True).click()
         assert page.get_by_label(
             "open overview_pos001.ome.zarr", exact=True).count() == 0
 
-    def test_raw_data_is_opened_by_constructing_a_viewer(self, no_chooser):
-        """The build door constructs a view over a folder of positions.
+    def test_raw_data_opens_through_the_default_door_leaving_no_trace(
+        self, no_chooser
+    ):
+        """A raw run opens with one plain press, and nothing lands on disk.
 
-        One composed picture draws far faster than many stores handed to the
-        engine separately, which is what this door is for: it is the offer of
-        a faster picture, asked for rather than imposed -- the open door
-        beside it shows the same positions straight away without writing
-        anything. The
-        operator says where the viewer's files live and whether the pieces
-        are prebaked now or made on the fly when looked at; on the fly is
-        the default, writes only the declaration, and serves immediately.
+        Raw positions are always shown through a composed view, but an
+        operator who only wants to look did not ask to keep one: the server
+        composes a link file for this session and forgets it when it closes
+        (the operator's rule, 2026-08-23). So choosing a run offers one
+        unticked checkbox -- the kept, prebaked mosaic -- and Open pressed
+        without it shows the positions at once, leaving the dataset's
+        folder exactly as it was: no scenes folder, no view file nobody
+        asked for.
         """
         page, first, second = no_chooser
         page.get_by_label("open images").click()
         page.get_by_role("dialog", name="load data").wait_for(timeout=10_000)
-        page.get_by_label("build a view", exact=True).click()
         box = page.get_by_label("folder path")
         box.fill(str(second.parent))
         box.press("Enter")
         window = page.get_by_role("dialog", name="load data")
         window.get_by_label("targetscan", exact=True).wait_for(timeout=10_000)
         window.get_by_label("targetscan", exact=True).click()
-        # The building box, with the destination already suggested.
-        destination = page.get_by_label("scene folder")
-        destination.wait_for(timeout=10_000)
-        assert destination.input_value().endswith("targetscan/scenes")
-        page.get_by_label("build the scene").click()
-        # Built is not shown: the scene waits for the operator's own click.
-        page.get_by_label("show the scene").wait_for(timeout=30_000)
-        assert "targetscan" not in page.evaluate(
-            "() => window.zmartConfig.groups"), (
-            "building must not open the scene by itself"
+        mosaic = page.get_by_label(
+            "build the low-resolution mosaic and keep the view")
+        mosaic.wait_for(timeout=10_000)
+        assert not mosaic.is_checked(), (
+            "keeping a view is asked for, never imposed"
         )
-        page.get_by_label("show the scene").click()
+        page.get_by_label("open targetscan", exact=True).click()
         page.wait_for_function(
-            "() => window.zmartConfig.groups.includes('targetscan')", timeout=30_000
+            "() => window.zmartConfig.groups.includes('targetscan')",
+            timeout=30_000
         )
         assert page.get_by_role("dialog", name="load data").count() == 0, (
-            "showing is finished; the window should close itself"
+            "opening is finished; the window should close itself"
         )
-        assert (second / "scenes" / "targetscan.ome.zarr" / "zarr.json").exists(), (
-            "the scene's files must be where the operator was told they go"
+        assert not (second / "scenes").exists(), (
+            "a plain open must write nothing beside the operator's data"
+        )
+        assert not list(second.parent.glob("**/*.zmartview.zarr")), (
+            "a plain open must keep no view file anywhere near the data"
         )
 
     def test_prebaking_computes_the_pieces_and_reports_its_progress(
         self, browser, built_dist, tmp_path
     ):
-        """The prebake choice computes every piece now, into real files.
+        """Ticking the mosaic box computes every piece now, into real files.
 
-        The window polls the construction's progress while it runs; when it
+        Choosing a raw run lays out the one build question -- the kept,
+        prebaked mosaic -- and ticking it reveals where the view is saved,
+        already suggested. Open then builds and opens in one press, the
+        window reporting the construction's progress while it runs; when it
         is done the picture's baked ground sits on disk and the acquisition
         is open. Two channels here, deliberately: multi-channel data used to
         refuse the bake ("the per-(t, c) bake is ordered work"), and this
@@ -631,24 +640,27 @@ class TestTheLoadWindow:
                                    timeout=30_000)
             page.get_by_label("open images").click()
             page.get_by_role("dialog", name="load data").wait_for(timeout=10_000)
-            page.get_by_label("build a view", exact=True).click()
             box = page.get_by_label("folder path")
             box.fill(str(run.parent))
             box.press("Enter")
             window = page.get_by_role("dialog", name="load data")
             window.get_by_label("surveyrun", exact=True).wait_for(timeout=10_000)
             window.get_by_label("surveyrun", exact=True).click()
-            page.get_by_label("scene folder").wait_for(timeout=10_000)
             page.get_by_label(
-                "include a hard copy of the low-resolution overview").check()
-            page.get_by_label("build the scene").click()
-            page.get_by_label("show the scene").wait_for(timeout=30_000)
-            page.get_by_label("show the scene").click()
+                "build the low-resolution mosaic and keep the view").check()
+            # Ticking the box is what asks where the kept view should live,
+            # and the answer comes suggested: a scenes folder by the run.
+            destination = page.get_by_label("scene folder")
+            destination.wait_for(timeout=10_000)
+            assert destination.input_value().endswith("surveyrun/scenes")
+            page.get_by_label("open surveyrun", exact=True).click()
+            # The kept view's heading wears its full name: the suffix is
+            # what tells a view from the raw run beside it (2026-08-23).
+            store = run / "scenes" / the_scene_folder_name("surveyrun")
             page.wait_for_function(
-                "() => window.zmartConfig.groups.includes('surveyrun')",
-                timeout=30_000,
+                "(name) => window.zmartConfig.groups.includes(name)",
+                arg=store.name, timeout=30_000,
             )
-            store = run / "scenes" / "surveyrun.ome.zarr"
             assert (store / "zarr.json").exists()
             assert any(any((store / str(level)).glob("**/*"))
                        for level in range(4) if (store / str(level)).is_dir()), (
@@ -664,12 +676,12 @@ class TestTheLoadWindow:
     ):
         """A Stop button stands beside a running build, and pressing it works.
 
-        The build ends at its next step, the half-made scene is removed
-        whole (pieces without a description are not a scene), a calm note
-        says so, and the Build button is free again. The dataset here is
-        large enough that the stop lands mid-bake on any machine we have
-        met; where a machine finishes first anyway, there was nothing to
-        stop and the gate says so instead of guessing.
+        The build ends at its next step, the half-made view is removed
+        whole (pieces without a description are not a view), and Open is
+        free again for another try. The dataset here is large enough that
+        the stop lands mid-bake on any machine we have met; where a
+        machine finishes first anyway, there was nothing to stop and the
+        gate says so instead of guessing.
         """
         import pytest
         from test_a_dataset_is_relived_as_a_live_run import _a_grid_scan
@@ -691,37 +703,38 @@ class TestTheLoadWindow:
             page.get_by_label("open images").click()
             page.get_by_role("dialog", name="load data").wait_for(
                 timeout=10_000)
-            page.get_by_label("build a view", exact=True).click()
             box = page.get_by_label("folder path")
             box.fill(str(tmp_path))
             box.press("Enter")
             window = page.get_by_role("dialog", name="load data")
             window.get_by_label("big", exact=True).wait_for(timeout=10_000)
             window.get_by_label("big", exact=True).click()
-            page.get_by_label("scene folder").wait_for(timeout=10_000)
             page.get_by_label(
-                "include a hard copy of the low-resolution overview").check()
-            page.get_by_label("build the scene").click()
+                "build the low-resolution mosaic and keep the view").check()
+            page.get_by_label("open big", exact=True).click()
             stop = page.get_by_label("stop the build")
+            scene = tmp_path / "big" / "scenes" / the_scene_folder_name("big")
             try:
                 stop.wait_for(timeout=10_000)
                 stop.click()
             except Exception:
-                if page.get_by_label("show the scene").count():
+                if page.evaluate(
+                        "(name) => window.zmartConfig.groups.includes(name)",
+                        scene.name):
                     pytest.skip("the build finished before a stop could "
                                 "land on this machine")
                 raise
-            # Scoped to the window: the page has other status text (the z
-            # slider's reading among them).
-            note = window.get_by_role("status")
-            note.wait_for(timeout=30_000)
-            assert "stopped" in note.inner_text()
-            assert not (tmp_path / "big" / "scenes"
-                        / "big.ome.zarr").exists(), (
+            # The stop takes hold at the build's next step; the Stop button
+            # leaves with the build it was stopping.
+            page.wait_for_function(
+                """() => !document.querySelector(
+                       '[aria-label="stop the build"]')""",
+                timeout=30_000)
+            assert not scene.exists(), (
                 "a stopped build must keep nothing"
             )
-            assert page.get_by_label("build the scene").is_enabled(), (
-                "after a stop, building again must be one click away"
+            assert page.get_by_label("open big", exact=True).is_enabled(), (
+                "after a stop, building again must be one press away"
             )
         finally:
             page.close()
@@ -732,7 +745,6 @@ class TestTheLoadWindow:
         page, first, second = no_chooser
         page.get_by_label("open images").click()
         page.get_by_role("dialog", name="load data").wait_for(timeout=10_000)
-        page.get_by_label("build a view", exact=True).click()
         box = page.get_by_label("folder path")
         box.fill(str(second.parent))
         box.press("Enter")
@@ -893,16 +905,16 @@ class TestRelinking:
                                    timeout=30_000)
             page.get_by_label("open images").click()
             page.get_by_role("dialog", name="load data").wait_for(timeout=10_000)
-            page.get_by_label("open", exact=True).click()
-            # Walk to the viewer's files and open them.
+            # Walk to the viewer's files and open them; the window already
+            # stands on the default tab.
             box = page.get_by_label("folder path")
             box.fill(str(run / "views"))
             box.press("Enter")
             window = page.get_by_role("dialog", name="load data")
-            window.get_by_label("surveyrun.ome.zarr", exact=True).wait_for(
+            window.get_by_label(store.name, exact=True).wait_for(
                 timeout=10_000)
-            window.get_by_label("surveyrun.ome.zarr", exact=True).click()
-            page.get_by_label("open surveyrun.ome.zarr", exact=True).click()
+            window.get_by_label(store.name, exact=True).click()
+            page.get_by_label(f"open {store.name}", exact=True).click()
             # The window asks for the data instead of failing black.
             data_box = page.get_by_label("raw data folder")
             data_box.wait_for(timeout=10_000)
@@ -911,8 +923,8 @@ class TestRelinking:
             page.get_by_label("show the scene").wait_for(timeout=30_000)
             page.get_by_label("show the scene").click()
             page.wait_for_function(
-                "() => window.zmartConfig.groups.includes('surveyrun')",
-                timeout=30_000,
+                "(name) => window.zmartConfig.groups.includes(name)",
+                arg=store.name, timeout=30_000,
             )
         finally:
             page.close()
