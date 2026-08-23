@@ -1204,7 +1204,7 @@ export default function LayerPanel({
           ground showing between them is what separates one from the next. */}
       <div style={styles.card}>
       <div style={styles.headingRow}>
-        <span style={styles.heading}>image data</span>
+        <span style={styles.heading}>data</span>
       </div>
       {notice && (
         <div style={styles.notice} role="alert">
