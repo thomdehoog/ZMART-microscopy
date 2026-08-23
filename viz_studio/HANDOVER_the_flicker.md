@@ -88,3 +88,32 @@ Suite: **923 passed, 0 failed** as of `83a2d645`. The awkward-store battery
 passes 18/18. The ladder benchmark (`measure_the_ladder_in_the_view.py`)
 puts the churn at 0.06 requests/position at 1024 positions. The flicker is
 the one open item, tracked as task #17 in the session task list.
+
+## Decisive fact, added last: this is a regression
+
+The operator states there was **no flicker in previous versions**. Today
+put ~30 commits on this branch, so the fault is IN that range and `git
+bisect` will corner it — drive each candidate build down the same road
+(open the viewer, replay `test_grid_16`, watch) and mark good/bad. Rebuild
+the frontend at every step (`npm --prefix frontend run build`), because the
+served page is `dist`, not `src`.
+
+Candidates worth suspecting first, newest concerns last:
+
+1. **The veil** (`a0409824`, "The picture is unveiled only after its first
+   fit") — it added a wrapper and a 120 ms opacity transition around the
+   engine's canvas in `NeuroglancerView.jsx`. If WKWebView re-composites
+   that layer badly, every redraw could shimmer. Cheap test: set the
+   transition to none and the opacity permanently 1 in a scratch build.
+2. **The themed ground** (`2f82ee82` + `c4fe41e8`) — `syncView` now calls
+   `getComputedStyle` on every change to the view, and the engine's ground
+   colour is re-asserted constantly. Cheap test: hard-code black there.
+3. **Answer-at-declaration replay** (`0c8327d7`) — layers arrive and
+   refresh per landing rather than once.
+4. **The automatic window measurement** (`0c8327d7`) — a brightness snap
+   when a measurement lands can read as a blink, though it happens at most
+   once per channel.
+
+The one-day-earlier state, known good per the operator: anything before
+today's first commit (`8330ae5d`, the slider fill). `git log --oneline
+8330ae5d^..98153a31` lists the whole suspect range.
