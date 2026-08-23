@@ -670,14 +670,19 @@ function LoadWindow({ listing, onNavigate, onOpened, onConstructed, onCancel,
         </div>
         {/* What the chosen row IS, said under the list in one line — so a
             row that offers nothing is never a silent mystery. */}
-        {selected && (
+        {(selected || kind === "other") && (
           <div style={styles.loadEmptyNote} role="status">
             {kind === "other"
-              ? (selected.kind === "run"
-                ? "raw positions — they replay one at a time, through the "
-                  + "same doorway the microscope uses"
-                : "only raw positions can be replayed — a view or an image "
-                  + "has no positions to feed through the live writer")
+              ? ((selected ? selected.kind : listing.kind) === "run"
+                ? (selected
+                  ? "raw positions — they replay one at a time, through the "
+                    + "same doorway the microscope uses"
+                  : "this folder's positions replay one at a time — Open "
+                    + "starts them landing")
+                : selected
+                  ? "only raw positions can be replayed — a view or an image "
+                    + "has no positions to feed through the live writer"
+                  : "choose a dataset of raw positions, or walk into one")
               : (ROW_KINDS[selected.kind]?.said
                 ?? "a plain folder — double-click to look inside")}
           </div>
@@ -822,8 +827,13 @@ function LoadWindow({ listing, onNavigate, onOpened, onConstructed, onCancel,
               }}
               disabled={busy
                         || constructing?.running
+                        // The folder being STOOD IN counts as much as a
+                        // chosen row — the window lands inside the dataset,
+                        // and a dead button at the landing spot read as the
+                        // whole door being broken (2026-08-23).
                         || (kind === "other"
-                          ? (!selected || selected.kind !== "run"
+                          ? ((selected ? selected.kind !== "run"
+                              : listing.kind !== "run")
                              || replaying?.state === "running")
                           : !(selected
                             ? selected.kind
