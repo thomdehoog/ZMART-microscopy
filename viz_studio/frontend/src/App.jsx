@@ -894,7 +894,7 @@ function ThemeToggle() {
         ? "Dress the controls in light colours. The image itself stays on black"
         : "Dress the controls in dark colours again"}
     >
-      {other === "light" ? "Light" : "Dark"}
+      {other === "light" ? "light-mode" : "dark-mode"}
     </button>
   );
 }
@@ -1789,9 +1789,11 @@ export default function App() {
     >
       <main style={styles.stage}>
         <NeuroglancerView onViewer={setViewer} generation={engineGeneration} veiled={!framed} />
-        <ModeToggle mode={mode} onChange={setMode} />
-        <BringItBack viewer={viewer} />
-        <ThemeToggle />
+        <div style={styles.topBar}>
+          <ModeToggle mode={mode} onChange={setMode} />
+          <BringItBack viewer={viewer} />
+          <ThemeToggle />
+        </div>
         <ScaleBar viewer={viewer} />
         {/* The two sliders are placed to match the directions they move in, which
             makes them quicker to reach for without reading the labels. Depth runs
@@ -2220,11 +2222,20 @@ const styles = {
     padding: 0,
   },
   stage: { flex: 1, position: "relative" },
-  toggle: {
+  // The three top-bar controls sit in one row that lays itself out, so a
+  // control appearing or disappearing (Overview only exists once an image
+  // is open) never leaves a hole, and the gap between neighbours is said
+  // once instead of being baked into each control's distance from the edge.
+  topBar: {
     position: "absolute",
     top: 12,
     left: 12,
     zIndex: 10,
+    display: "flex",
+    gap: 12,
+    alignItems: "center",
+  },
+  toggle: {
     display: "flex",
     borderRadius: 6,
     overflow: "hidden",
@@ -2242,24 +2253,14 @@ const styles = {
   buttonActive: { background: "var(--accent)", color: "#fff" },
   // Beside the 2-D/3-D toggle rather than inside it: the toggle is a choice
   // between two states and this is an action, so it gets its own edge and never
-  // looks like a third mode. The 12 of gap matches the toggle's own inset from
-  // the corner, so the two read as one row.
+  // looks like a third mode. Its place in the row comes from topBar above.
   bringItBack: {
-    position: "absolute",
-    top: 12,
-    left: 108,
-    zIndex: 10,
     borderRadius: 6,
     border: "1px solid var(--panel-border)",
     boxShadow: "0 1px 4px var(--shadow-color)",
   },
-  // Beside Overview, dressed the same way, with the same 12 of gap keeping
-  // the three top-bar controls reading as one row.
+  // Beside Overview, dressed the same way, placed by the same row.
   themeToggle: {
-    position: "absolute",
-    top: 12,
-    left: 202,
-    zIndex: 10,
     borderRadius: 6,
     border: "1px solid var(--panel-border)",
     boxShadow: "0 1px 4px var(--shadow-color)",

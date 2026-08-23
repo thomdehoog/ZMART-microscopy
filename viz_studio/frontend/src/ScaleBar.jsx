@@ -211,9 +211,10 @@ export default function ScaleBar({ viewer }) {
   );
 }
 
-// Deliberately not dressed by the theme (see theme.css): the bar sits over
-// the image itself, which stays black in the light theme too, so white with
-// a dark shadow is the readable choice in both.
+// The bar follows the canvas ground, not the panels: it is drawn over
+// whatever the image floats on, which is black in the dark dress and light
+// grey in the light one, so its colour comes from the same pair of
+// variables the ground does (see theme.css).
 const styles = {
   wrap: {
     position: "absolute",
@@ -226,15 +227,15 @@ const styles = {
     pointerEvents: "none",
   },
   text: {
-    color: "#fff",
+    color: "var(--scale-bar, #fff)",
     font: "600 11px/1 system-ui, sans-serif",
-    textShadow: "0 1px 3px rgba(0,0,0,.9)",
+    textShadow: "0 1px 3px var(--scale-bar-shadow, rgba(0,0,0,.9))",
     fontVariantNumeric: "tabular-nums",
   },
   bar: {
     height: 3,
-    background: "#fff",
+    background: "var(--scale-bar, #fff)",
     borderRadius: 1,
-    boxShadow: "0 1px 3px rgba(0,0,0,.9)",
+    boxShadow: "0 1px 3px var(--scale-bar-shadow, rgba(0,0,0,.9))",
   },
 };
