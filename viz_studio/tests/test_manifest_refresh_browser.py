@@ -11,6 +11,7 @@ from contextlib import contextmanager
 from urllib.parse import urlsplit
 
 import numpy as np
+import live_config
 import server as server_module
 from pixels import fraction_lit, image_middle
 from server import make_server
@@ -245,7 +246,7 @@ def test_positions_and_replacement_appear_from_commits_and_keep_operator_state(
                 for url in row["sources"]
             ] == stable_urls
             affected = [path for path in requests[commit_mark:] if path.startswith("/data/")]
-            assert any("views/live/picture.ome.zarr" in path for path in affected)
+            assert any(live_config.LIVE_PICTURE in path for path in affected)
 
             mean_before = float(image_middle(page).mean())
             replacement = run.replace_a_position("posA", some_specimen(3500))

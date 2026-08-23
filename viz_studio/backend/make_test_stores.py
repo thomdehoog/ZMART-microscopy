@@ -79,6 +79,35 @@ def _tiny_volume(seed: int, shape: tuple[int, int, int, int] = _SHAPE) -> np.nda
     return np.clip(counts, 0, 65535).astype(np.uint16)
 
 
+def _dress_the_channels(path: Path, version: str) -> None:
+    """Write the display dressing: each channel's name, colour and window.
+
+    ngff-zarr writes the image's geometry but nothing about how it should
+    first look, and undressed channels arrive white, on the camera's whole
+    range — two of them summed to pure clipping on screen (seen 2026-08-23).
+    The dressing is the small ``omero`` block: green and magenta, windows
+    from the background to the brightest blob, exactly as a well-behaved
+    acquisition writes for itself.
+    """
+    window = {"min": 0.0, "max": 65535.0, "start": 780.0, "end": 8800.0}
+    omero = {
+        "channels": [
+            {"label": "marker-a", "color": "00FF66", "active": True,
+             "window": dict(window)},
+            {"label": "marker-b", "color": "FF33FF", "active": True,
+             "window": dict(window)},
+        ],
+        "rdefs": {"model": "color"},
+    }
+    described = path / (".zattrs" if version == "0.4" else "zarr.json")
+    attrs = json.loads(described.read_text(encoding="utf-8"))
+    if version == "0.4":
+        attrs["omero"] = omero
+    else:
+        attrs.setdefault("attributes", {}).setdefault("ome", {})["omero"] = omero
+    described.write_text(json.dumps(attrs, indent=1), encoding="utf-8")
+
+
 def _write_image(path: Path, version: str, seed: int) -> None:
     """Write one plain multiscale image store in the asked-for format version."""
     import ngff_zarr
@@ -88,6 +117,7 @@ def _write_image(path: Path, version: str, seed: int) -> None:
     )
     multiscales = ngff_zarr.to_multiscales(image, scale_factors=[2])
     ngff_zarr.to_ngff_zarr(str(path), multiscales, version=version, overwrite=True)
+    _dress_the_channels(path, version)
 
 
 def _write_plate(path: Path, version: str, seed: int) -> None:
@@ -180,6 +210,7 @@ def _write_grid(path: Path, seed: int) -> None:
                 str(path / f"pos_{row}{column}.ome.zarr"), multiscales,
                 version="0.4", overwrite=True,
             )
+            _dress_the_channels(path / f"pos_{row}{column}.ome.zarr", "0.4")
 
 
 def main() -> None:

@@ -1880,6 +1880,45 @@ export default function App() {
         (i === index && !entry.window ? { ...entry, window } : entry)),
     );
 
+  // A channel that arrives knowing nothing about its brightness — no
+  // declared window, no measured histogram — is asked about as soon as its
+  // pixels exist. A replay's live channels are exactly this: the live view
+  // carries no display window, so they drew on the camera's whole range and
+  // the landing positions looked near-black (the operator watched dark
+  // replays, 2026-08-23). Each landing refreshes the config, so a channel
+  // whose pixels had not arrived yet is simply asked again on the next one.
+  // An answer never lands over an operator's own setting: the moment a
+  // window is set by hand the channel is marked touched, synchronously,
+  // and is never measured again.
+  const aboutTheChannel = (spec) =>
+    `${(spec.sources || [spec.source])[0]}#${spec.channelIndex ?? ""}`;
+  const touchedWindows = React.useRef(new Set());
+  const askedForAWindow = React.useRef(new Set());
+  React.useEffect(() => {
+    (config?.layers || []).forEach((spec, i) => {
+      if (spec.kind === "segmentation" || spec.window || spec.histogram) return;
+      if (layerState[i]?.window) return;
+      const about = aboutTheChannel(spec);
+      if (touchedWindows.current.has(about)) return;
+      if (askedForAWindow.current.has(about)) return;
+      askedForAWindow.current.add(about);
+      (async () => {
+        const answer = await measureHere({
+          source: (spec.sources || [spec.source])[0],
+          channel: spec.channelIndex ?? null,
+          box: [[0, 0], [1, 1]],
+        });
+        if (answer && !answer.empty && answer.window
+            && !touchedWindows.current.has(about)) {
+          setWindowIfUnset(i, answer.window);
+        } else {
+          // Nothing to read yet: let the next landing ask again.
+          askedForAWindow.current.delete(about);
+        }
+      })();
+    });
+  }, [config, layerState]);
+
   const source = () => annotationSource.current;
   const deleteTarget = (id) => {
     const reference = source()?.getReference(id);
@@ -2055,7 +2094,14 @@ export default function App() {
               onToggle={(i) => setLayer(i, { visible: !layerState[i].visible })}
               onColor={(i, color) => setLayer(i, { color })}
               onOpacity={(i, opacity) => setLayer(i, { opacity })}
-              onWindow={(i, window) => setLayer(i, { window })}
+              onWindow={(i, window) => {
+                // Marked touched before anything else: the automatic
+                // windowing below must never answer over an operator's own
+                // setting, however the timing falls.
+                const spec = config?.layers?.[i];
+                if (spec) touchedWindows.current.add(aboutTheChannel(spec));
+                setLayer(i, { window });
+              }}
               onMeasureHere={async (i, asked = {}) => {
                 // Reading the pixels themselves, for the two things in the
                 // panel that need them. The panel has the picture drawn but

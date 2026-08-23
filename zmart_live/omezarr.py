@@ -340,6 +340,13 @@ def _the_brightest_a_pixel_can_be(dtype: str) -> int:
     return 1
 
 
+# The colours channels take in turn when the run declared none, in the
+# panel's own order (see _DEFAULT_CHANNEL_TURNS in the viewer's stores.py):
+# green and magenta first because they are the pair colour-blind operators
+# tell apart best.
+_CHANNEL_TURNS = ("00FF66", "FF33FF", "33CCFF", "FFBF19")
+
+
 def the_channels_described(channels: Sequence[str | Channel],
                            dtype: str) -> list[dict]:
     """Name and colour each channel, in the form a reader expects.
@@ -350,13 +357,28 @@ def the_channels_described(channels: Sequence[str | Channel],
     version of that here would be how the two quietly drift apart, and a
     description with an incomplete brightness window is refused outright by
     strict readers.
+
+    One thing is decided here rather than per channel: a run of SEVERAL
+    channels that declared no colours does not describe them all white.
+    Channels of one picture sum like light on screen, and a replayed grid
+    arrived as two white channels summed to pure clipping — every position
+    white, no structure (the operator saw it, 2026-08-23). Where nothing was
+    declared, the channels take the panel's own palette in turn; a single
+    channel keeps the class's own answer, because with nothing to tell it
+    from, a colour would be an invention.
     """
     brightest = _the_brightest_a_pixel_can_be(dtype)
-    described = []
-    for channel in channels:
-        named = channel if isinstance(channel, Channel) else Channel(str(channel))
-        described.append(named.described(brightest))
-    return described
+    named = [channel if isinstance(channel, Channel) else Channel(str(channel))
+             for channel in channels]
+    if len(named) > 1:
+        turn = 0
+        for at, channel in enumerate(named):
+            if channel.color is None:
+                named[at] = Channel(channel.name,
+                                    _CHANNEL_TURNS[turn % len(_CHANNEL_TURNS)],
+                                    channel.window)
+                turn += 1
+    return [channel.described(brightest) for channel in named]
 
 
 def the_image_description(
