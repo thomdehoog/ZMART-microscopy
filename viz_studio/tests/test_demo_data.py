@@ -108,7 +108,11 @@ def test_display_hints_name_and_colour_every_channel(attrs):
     assert [c["label"] for c in channels] == list(CHANNEL_NAMES)
     assert [c["color"] for c in channels] == list(CHANNEL_COLORS)
     for channel in channels:
-        assert channel["window"]["start"] == float(_BACKGROUND)
+        # The window opens 20 counts below the background on purpose: the
+        # viewer draws values at or below the black point transparent, and
+        # a black point sitting ON the background made the volume's unlit
+        # corner vanish (the operator moved it, 2026-08-23).
+        assert channel["window"]["start"] == float(_BACKGROUND) - 20
         assert channel["window"]["end"] == float(_PEAK)
 
 

@@ -22,6 +22,7 @@ sys.path.insert(0, str(VIZ / "building"))
 sys.path.insert(0, str(VIZ / "backend"))
 sys.path.insert(0, str(VIZ.parent))
 
+from declare import the_scene_folder_name  # noqa: E402
 from server import make_server  # noqa: E402
 from test_a_dataset_is_relived_as_a_live_run import (  # noqa: E402
     _a_grid_scan,
@@ -133,6 +134,13 @@ class TestTheReplayDoorAbused:
         assert answer.get("error"), "the refusal must carry its reason"
 
     def test_a_second_replay_of_the_same_dataset_gets_its_own_folder(self, door):
+        """A run can only be lived once, so each replay takes a fresh number.
+
+        The runs live in the viewer's own session scratch -- never beside
+        the dataset, whose folder a rehearsal must leave untouched (the
+        operator met the props in their data folder, 2026-08-23). The
+        status answer names each run's view, which is how they are found.
+        """
         address, folder = door
         scan = _a_grid_scan(folder / "again")
         for expected in ("replay-1", "replay-2"):
@@ -145,8 +153,13 @@ class TestTheReplayDoorAbused:
                     break
                 time.sleep(0.2)
             assert told.get("state") == "done"
-            assert (scan / "replays" / expected / "data").exists()
+            run = Path(told["view"]).parents[2]
+            assert run.name == expected, told["view"]
+            assert (run / "data").exists()
             _post(address, "/api/stores/close", {"group": f"{scan.name} replay"})
+        assert not (scan / "replays").exists(), (
+            "a replay must never leave its run beside the dataset"
+        )
 
 
 class TestTheOpenDoor:
@@ -196,9 +209,9 @@ class TestTheDoorsTogether:
 
         The stop is cooperative -- the position in flight finishes -- so
         the run on disk is a real run whose committed positions are all
-        whole. The gate opens the stopped run's live view through the
-        ordinary door and then starts a second replay, which must take its
-        own numbered folder rather than trip over the stopped one.
+        whole. The gate starts a second replay, which must take its own
+        numbered folder rather than trip over the stopped one, and then
+        opens the stopped run's live view through the ordinary door.
         """
         address, folder = door
         scan = _a_grid_scan(folder / "unhurried", across=4)
@@ -214,10 +227,6 @@ class TestTheDoorsTogether:
             time.sleep(0.1)
         assert told["state"] == "cancelled", told
         assert 1 <= told["done"] < 16, told
-        status, _ = _post(address, "/api/stores/open", {
-            "path": str(scan / "replays" / "replay-1" / "views" / "live"
-                        / "live.ome.zarr")})
-        assert status == 200, "the stopped run's view must open cleanly"
         status, _ = _post(address, "/api/stores/replay",
                           {"path": str(scan), "every": 0.0})
         assert status == 200, "a stopped replay must not block the next one"
@@ -227,7 +236,15 @@ class TestTheDoorsTogether:
                 break
             time.sleep(0.1)
         assert told["state"] == "done"
-        assert (scan / "replays" / "replay-2").is_dir()
+        # Both runs live in the viewer's session scratch, side by side --
+        # the finished second replay's status names its view, and the
+        # stopped first run stands one folder over, under its own number.
+        second = Path(told["view"]).parents[2]
+        assert second.name == "replay-2", told["view"]
+        stopped = second.parent / "replay-1"
+        status, _ = _post(address, "/api/stores/open", {
+            "path": str(stopped / "views" / "live" / "live.ome.zarr")})
+        assert status == 200, "the stopped run's view must open cleanly"
 
     def test_a_build_stopped_mid_bake_keeps_nothing(self, door):
         """Stopping a build removes the half-made scene, whole.
@@ -266,7 +283,8 @@ class TestTheDoorsTogether:
                 break
             time.sleep(0.05)
         assert told["state"] == "cancelled", told
-        assert not (folder / "scenes" / "big.ome.zarr").exists(), (
+        assert not (folder / "scenes"
+                    / the_scene_folder_name("big")).exists(), (
             "a stopped build must keep nothing -- pieces without a "
             "description are not a scene"
         )
@@ -281,7 +299,8 @@ class TestTheDoorsTogether:
                 break
             time.sleep(0.1)
         assert told["state"] == "done"
-        assert (folder / "scenes" / "big.ome.zarr" / "zarr.json").is_file()
+        assert (folder / "scenes" / the_scene_folder_name("big")
+                / "zarr.json").is_file()
 
     def test_a_build_and_a_replay_can_run_at_once(self, door):
         """The two jobs are separate machines and must not trip each other."""

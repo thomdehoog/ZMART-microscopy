@@ -424,14 +424,20 @@ def as_the_run_declared(browser, built_dist, tmp_path):
         thread.join(timeout=5)
 
 
-def test_the_range_a_run_declares_bounds_how_far_the_axis_goes(as_the_run_declared):
-    """A twelve-bit camera cannot produce 9000, so the axis may not go there.
+def test_the_range_a_run_declares_bounds_the_window_not_the_axis(as_the_run_declared):
+    """A twelve-bit camera cannot produce 9000, so no black or white point goes there.
 
-    The brightness axis opens on the pixels that are actually present, and the
-    two boxes beneath the histogram widen it when an operator wants more room.
-    How much more is the run's to bound: cameras are commonly read out at
-    fewer bits than the file can hold, and room past what the camera can write
-    is room nothing will ever occupy.
+    The declared range still reaches the viewer, and it still bounds the
+    thing that matters: the WINDOW. A black or white point beyond the
+    pixels would describe brightness that does not exist, so however the
+    window is moved -- slider, typed box, or the bars on the histogram --
+    it can never leave the image's own range. The AXIS is different since
+    the redesign of 2026-08-23: the boxes beneath the histogram take the
+    operator's number as given, past the declared range and below zero
+    alike, because the framing promises the window's marks a fixed pair
+    of places on the picture. This gate used to clamp the axis too, and
+    now pins the split: the axis obeys the operator, the window obeys the
+    camera.
     """
     page = as_the_run_declared
     told = page.evaluate("() => window.zmartConfig.layers[0].range")
@@ -439,8 +445,7 @@ def test_the_range_a_run_declares_bounds_how_far_the_axis_goes(as_the_run_declar
         f"the viewer was served a range of {told}; the run declared 0 to 4095"
     )
     _choose(page, "chA")
-    # The axis OPENS on the pixels present; the boxes beneath the histogram
-    # widen it, and the run says how far that may go.
+    # The operator may draw the axis as far as they ask...
     box = page.get_by_label("axis to chA")
     box.click()
     box.fill("9000")
@@ -448,9 +453,23 @@ def test_the_range_a_run_declares_bounds_how_far_the_axis_goes(as_the_run_declar
     page.wait_for_timeout(500)
     reach = page.locator("[aria-label='max chA']").evaluate(
         "(element) => Number(element.max)")
-    assert 4000 < reach < 4200, (
-        f"the axis was pushed to {reach}, past the 4095 the run says its "
-        "numbers live in"
+    assert reach == 9000, (
+        f"the axis reaches {reach}; the box beneath the histogram takes the "
+        "operator's number as given since 2026-08-23"
+    )
+    # ...but the white point may not follow the axis past the camera.
+    value = page.get_by_label("max value chA")
+    value.click()
+    value.fill("9000")
+    value.press("Enter")
+    page.wait_for_timeout(500)
+    high = page.locator("[aria-label='max chA']").input_value()
+    # Within one count: the number makes a round trip through the engine's
+    # floating-point window on its way back to the slider, and a seventh of
+    # a count is far below anything an eye could see.
+    assert abs(float(high) - 4095) < 1, (
+        f"the white point was pushed to {high}, past the 4095 the run says "
+        "its numbers live in"
     )
 
 

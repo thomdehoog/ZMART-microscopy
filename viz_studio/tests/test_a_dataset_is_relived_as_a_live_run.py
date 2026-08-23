@@ -203,7 +203,11 @@ class TestPlanningAReplay:
             scan, tmp_path / "run", every_s=0.0,
             told=lambda done, total: beats.append((done, total)),
         )
-        assert beats == [(1, 4), (2, 4), (3, 4), (4, 4)]
+        # The first report is (0, total): it says how far there is to go
+        # before the first position starts writing, so a progress display
+        # has something to show -- and a Stop pressed during that first,
+        # sometimes long, write is honoured (the operator's ask, 2026-08-23).
+        assert beats == [(0, 4), (1, 4), (2, 4), (3, 4), (4, 4)]
         assert view.name.endswith(".ome.zarr") and view.exists(), (
             "the replay must leave a live view that any viewer can open"
         )
@@ -559,14 +563,25 @@ def test_a_replay_can_be_stopped_from_the_window(browser, built_dist,
             const told = await r.json();
             return told.state === 'cancelled';
         }""", timeout=30_000)
-        landed = [one for one
-                  in (scan / "replays" / "replay-1" / "data"
-                      / "survey.ome.zarr").iterdir()
-                  if one.is_dir() and one.name.startswith("pos")]
-        assert 1 <= len(landed) < 16, (
+        # The run itself lives in the viewer's own session scratch -- never
+        # beside the dataset (2026-08-23) -- so the status's own count is
+        # what says how far the landings got before the stop took hold.
+        told = page.evaluate("""async () => {
+            const r = await fetch('/api/stores/replay-status',
+                {method: 'POST',
+                 headers: {'Content-Type': 'application/json'}, body: '{}'});
+            return r.json();
+        }""")
+        assert 1 <= told.get("done", 0) < 16, (
             f"a stopped replay should hold some but not all positions; "
-            f"found {len(landed)}"
+            f"the status said {told}"
         )
+        assert not (scan / "replays").exists(), (
+            "a replay must never leave its run beside the dataset"
+        )
+        # And what landed stays on screen, as the window's Stop promises.
+        assert page.evaluate(
+            "() => window.zmartConfig.groups.includes('rehearsal replay')")
     finally:
         page.close()
         server.shutdown()
@@ -612,14 +627,15 @@ class TestTheReplayRoutes:
     def test_a_finished_replay_opens_again_later(self, serving):
         """The run a replay wrote is a real run, and the plain door opens it.
 
-        The window promises the replay "writes a real run into a replays
-        folder beside the dataset, so it can be opened again later" -- and
-        until this gate, later never came: the run's root holds ``data``
-        beside ``views`` and no image directly inside, so the plain door
-        answered "no OME-Zarr image was found" (workstation, 2026-08-19).
-        The root is opened the way the replay door itself opens it, served
-        view named, so the live registry binds it and the time slider
-        offers exactly the moments that landed.
+        The replay writes a real run into the viewer's own session scratch
+        -- never beside the dataset, since 2026-08-23 -- and the status
+        answer names its view, which is how anybody finds it again. Until
+        this gate, later never came: the run's root holds ``data`` beside
+        ``views`` and no image directly inside, so the plain door answered
+        "no OME-Zarr image was found" (workstation, 2026-08-19). The root
+        is opened the way the replay door itself opens it, served view
+        named, so the live registry binds it and the time slider offers
+        exactly the moments that landed.
         """
         address, folder = serving
         scan = _a_grid_scan(folder / "yesterdayscan")
@@ -632,13 +648,18 @@ class TestTheReplayRoutes:
                 break
             time.sleep(0.2)
         assert told.get("state") == "done"
-        kept = scan / "replays" / "replay-1"
+        # The status names the run's live view; the run root -- the folder
+        # the plain door reopens -- is three levels above it.
+        kept = Path(told["view"]).parents[2]
+        assert not (scan / "replays").exists(), (
+            "a replay must never leave its run beside the dataset"
+        )
         status, answer = _post(address, "/api/stores/open",
                                {"path": str(kept)})
         assert status == 200, answer
         served_rows = [one for one in answer.get("layers", [])
                        if one.get("kind") == "image"
-                       and one.get("group") == "replay-1"]
+                       and one.get("group") == kept.name]
         assert served_rows, (
             "the reopened run must serve its live view as its own group"
         )
@@ -681,9 +702,33 @@ class TestTheReplayRoutes:
         _write_a_grid_tile(uneven / "pos02.ome.zarr", 2,
                            (0.0, STEP_UM * 2 + 17.0))
         status, answer = _post(address, "/api/stores/replay",
-                               {"path": str(uneven)})
+                               {"path": str(uneven), "every": 0.0})
         assert status == 200, answer
-        assert "uneven replay" in answer.get("groups", []), answer
+        # The door answers the moment the run is declared, before the first
+        # position has landed, so the immediate answer cannot carry the
+        # replay's own group yet. Ask for the picture again, the way an
+        # open page would, once positions have landed.
+        #
+        # The rehearsal underway on screen is what is pinned -- not a
+        # finished run. The third position here lands at x = 657 pixels,
+        # which is not a whole number of the writer's 64-pixel chunks, and
+        # the linked live view can only hand over chunks exactly as they
+        # sit on disk -- so the replay errors after the aligned positions
+        # land. That ceiling reproduces identically on the pre-redesign
+        # tree (checked 2026-08-23), so it is a long-standing limit of the
+        # live path, not something today's window changed; this gate keeps
+        # guarding what it always guarded, that the door no longer refuses.
+        import urllib.request
+        groups: list = []
+        for _ in range(150):
+            _, told = _post(address, "/api/stores/replay-status", {})
+            with urllib.request.urlopen(f"{address}/api/config",
+                                        timeout=30) as fetched:
+                groups = json.loads(fetched.read()).get("groups", [])
+            if "uneven replay" in groups or told.get("state") != "running":
+                break
+            time.sleep(0.2)
+        assert "uneven replay" in groups, (groups, told)
 
     def test_the_replay_routes_obey_the_open_gate(self, built_dist, tmp_path):
         """With opening switched off, the replay doors are not served.
@@ -824,7 +869,13 @@ class TestTheReplayDoor:
             )
             # The run on disk is a real live run in the contract layout: the
             # one collection of positions, and the live view a viewer opens.
-            run_folder = scan / "replays" / "replay-1"
+            # It lives in the viewer's own session scratch -- the status
+            # names the view, and the run root is three levels above it --
+            # never beside the dataset (the operator's rule, 2026-08-23).
+            run_folder = Path(answer["view"]).parents[2]
+            assert not (scan / "replays").exists(), (
+                "a replay must never leave its run beside the dataset"
+            )
             survey = run_folder / "data" / "survey.ome.zarr"
             assert (run_folder / "views" / "live" / "live.ome.zarr").exists()
             landed = [one for one in survey.iterdir()

@@ -363,21 +363,26 @@ def test_the_saturation_bars_in_the_histogram_can_be_dragged(two_channel_page):
 
     The left bar marks where black begins (everything dimmer saturates to
     black), the right bar where white begins (everything brighter saturates
-    to white). Taking hold near a bar and pulling moves that edge of the
-    window -- the same window the MIN and MAX sliders move -- and the far
+    to white). Taking hold ON a bar -- the pointer must be within a few
+    pixels of it, because everywhere else the drag pans the axis instead
+    (the operator's design, 2026-08-23) -- and pulling moves that edge of
+    the window, the same window the MIN and MAX sliders move, and the far
     edge must hold still while its partner is being dragged.
     """
     page = two_channel_page
     before = _window_in_engine(page)
     box = page.locator("[aria-label='histogram Ch488']").bounding_box()
     middle = box["y"] + box["height"] / 2
-    # The box spans the camera's whole range now, not the window, so where a
-    # bar sits on screen follows from its value's place on that axis.
-    axis = page.evaluate(
-        "() => Number(document.querySelector(\"[aria-label='min Ch488']\").max)"
-    )
+    # The box spans the axis the sliders travel -- the window framed with a
+    # seventh of the picture beyond each edge -- so where a bar sits on
+    # screen follows from its value's place on that stretch.
+    axis = page.evaluate("""() => {
+      const track = document.querySelector("[aria-label='min Ch488']");
+      return { min: Number(track.min), max: Number(track.max) };
+    }""")
     def across(value):
-        return box["x"] + box["width"] * (value / axis)
+        return box["x"] + box["width"] * (
+            (value - axis["min"]) / (axis["max"] - axis["min"]))
 
     low0, high0 = before
     reach = (high0 - low0) * 0.3
@@ -422,17 +427,21 @@ def test_the_histogram_dims_the_brightness_outside_the_window(two_channel_page):
     """
     page = two_channel_page
     # Push the black point well into the distribution, so bars exist on both
-    # sides of it. The box spans the camera's whole range, so the drag's
-    # coordinates come from values, not from fractions of the box.
+    # sides of it. The box spans the axis the sliders travel -- the framed
+    # window -- so the drag's coordinates come from values on that stretch,
+    # and the drag must BEGIN on the bar itself: anywhere else the pointer
+    # pans the axis instead (2026-08-23).
     box = page.locator("[aria-label='histogram Ch488']").bounding_box()
     middle = box["y"] + box["height"] / 2
-    axis = page.evaluate(
-        "() => Number(document.querySelector(\"[aria-label='min Ch488']\").max)"
-    )
+    axis = page.evaluate("""() => {
+      const track = document.querySelector("[aria-label='min Ch488']");
+      return { min: Number(track.min), max: Number(track.max) };
+    }""")
     hist = page.evaluate("() => window.zmartConfig.layers[0].histogram")
     low0 = _window_in_engine(page)[0]
     def across(value):
-        return box["x"] + box["width"] * (value / axis)
+        return box["x"] + box["width"] * (
+            (value - axis["min"]) / (axis["max"] - axis["min"]))
     page.mouse.move(across(low0 + (hist["high"] - low0) * 0.02), middle)
     page.mouse.down()
     page.mouse.move(across((hist["low"] + hist["high"]) / 2), middle, steps=6)
@@ -853,12 +862,14 @@ def test_the_brightness_axis_opens_around_the_window(two_channel_page):
         f"{window_} they are meant to set -- a handle stranded past the end of "
         "its track cannot be moved"
     )
-    assert reach["min"] >= 0, (
-        f"the axis starts at {reach['min']}, which is darker than nothing"
-    )
+    # The framing is exact -- the middle 70% -- even for a window near
+    # zero, where it takes the axis below zero. It was clamped there for a
+    # day, which pinned the low mark to the left edge for exactly the dim
+    # channels Auto is most used on; the operator asked for the exact
+    # framing instead (2026-08-23).
     across = reach["max"] - reach["min"]
     beyond = (window_[1] - window_[0]) / across
-    assert beyond == pytest.approx(0.7, abs=0.02) or reach["min"] == 0, (
+    assert beyond == pytest.approx(0.7, abs=0.02), (
         f"the window fills {beyond:.0%} of the track rather than the middle "
         "70%, so its marks are not where the operator asked for them"
     )
@@ -1032,7 +1043,9 @@ def test_the_panel_reads_as_three_evenly_spaced_sections(two_channel_page):
               top: Math.round(box.top), bottom: Math.round(box.bottom)};
     })""")
     named = [card["head"] for card in cards]
-    assert named[:3] == ["LOAD DATA", "IMAGE DATA", "DISPLAY SETTINGS"], named
+    # "data" and "channel settings" since 2026-08-23: the middle card lists
+    # data of every kind, and the settings below are one channel's.
+    assert named[:3] == ["LOAD DATA", "DATA", "CHANNEL SETTINGS"], named
     gaps = [second["top"] - first["bottom"]
             for first, second in zip(cards, cards[1:])]
     assert len(set(gaps[:2])) == 1, (
@@ -1103,7 +1116,7 @@ def test_the_settings_name_the_channel_above_the_histogram(two_channel_page):
       return {text: settings.innerText.split('\\n').slice(0, 2),
               eyeAbove: above(eye), squareAbove: above(square)};
     }""")
-    assert said["text"][0] == "DISPLAY SETTINGS", said["text"]
+    assert said["text"][0] == "CHANNEL SETTINGS", said["text"]
     named = page.evaluate(
         "() => window.zmartConfig.layers[0].group || ''")
     assert said["text"][1].strip() == named, (

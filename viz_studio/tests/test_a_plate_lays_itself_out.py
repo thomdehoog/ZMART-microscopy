@@ -31,7 +31,7 @@ sys.path.insert(0, str(VIZ / "backend"))
 sys.path.insert(0, str(VIZ.parent))
 
 import served  # noqa: E402
-from declare import declare_a_built_picture  # noqa: E402
+from declare import declare_a_built_picture, the_scene_folder_name  # noqa: E402
 from mosaic import read_the_transfer  # noqa: E402
 
 FIELD = (2, 32, 32)  # planes, height, width of one field
@@ -434,13 +434,18 @@ def test_a_plate_store_opened_directly_lays_itself_out(door):
     status, answer = _post(address, "/api/stores/open",
                            {"path": str(screen / "plate.ome.zarr")})
     assert status == 200, answer
-    scene = screen / "scenes" / "plate.ome.zarr"
+    # The scene's folder name follows the one naming rule every built view
+    # follows, so the test can never disagree with the builder about it.
+    scene = screen / "scenes" / the_scene_folder_name("plate")
     described = json.loads((scene / "zarr.json").read_text(encoding="utf-8"))
     assert described["attributes"]["zmart"]["built_from"] == (
         (screen / "plate.ome.zarr").as_posix()), (
         "the scene must say which plate it was built from")
+    # The heading keeps the view's full name: the suffix is what tells a
+    # view from the raw data beside it (the operator asked, 2026-08-23).
     composed = [one for one in answer.get("layers", [])
-                if one.get("kind") == "image" and one.get("group") == "plate"]
+                if one.get("kind") == "image"
+                and one.get("group") == scene.name]
     assert len(composed) == 1, (
         "the laid-out scene is ONE composed picture; several rows means the "
         "raw plate's fields were served directly -- the "
@@ -468,7 +473,7 @@ def test_a_real_plate_lives_beside_other_data(door, tmp_path):
     status, answer = _post(address, "/api/stores/open",
                            {"path": str(bench / "HA_plate.zarr")})
     assert status == 200, answer
-    scene = bench / "scenes" / "HA_plate.ome.zarr"
+    scene = bench / "scenes" / the_scene_folder_name("HA_plate")
     described = json.loads((scene / "zarr.json").read_text(encoding="utf-8"))
     assert described["attributes"]["zmart"]["built_from"] == (
         (bench / "HA_plate.zarr").as_posix()), (
@@ -476,7 +481,7 @@ def test_a_real_plate_lives_beside_other_data(door, tmp_path):
     )
     composed = [one for one in answer.get("layers", [])
                 if one.get("kind") == "image"
-                and one.get("group") == "HA_plate"]
+                and one.get("group") == scene.name]
     assert len(composed) == 1, (
         "the served rows must draw the one composed scene, never the raw "
         "plate's fields"
@@ -501,7 +506,8 @@ def test_an_unbaked_scene_opens_at_a_measured_window(door):
                            {"path": str(screen / "plate.ome.zarr")})
     assert status == 200, answer
     layer = next(one for one in answer["layers"]
-                 if one.get("kind") == "image" and one.get("group") == "plate")
+                 if one.get("kind") == "image"
+                 and one.get("group") == the_scene_folder_name("plate"))
     window = layer["window"]
     assert (window["low"], window["high"]) != (0.0, 65535.0), (
         "the unbaked scene opened at the camera's full range -- nothing "
