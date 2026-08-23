@@ -211,6 +211,9 @@ export default function ScaleBar({ viewer }) {
   );
 }
 
+// Deliberately not dressed by the theme (see theme.css): the bar sits over
+// the image itself, which stays black in the light theme too, so white with
+// a dark shadow is the readable choice in both.
 const styles = {
   wrap: {
     position: "absolute",

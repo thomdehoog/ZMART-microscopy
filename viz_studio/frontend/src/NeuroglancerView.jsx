@@ -223,6 +223,11 @@ export default function NeuroglancerView({ onViewer, generation = 0 }) {
   // sets `position: relative` on this element itself, which would cancel any
   // inset-based sizing and collapse it to zero height. Filling the (already
   // sized) parent sidesteps that entirely.
+  //
+  // The black stays black in the light theme too, on purpose. Fluorescence
+  // is read against black -- at the microscope and in every viewer -- and a
+  // light ground here would change what a dim signal looks like. Only the
+  // chrome around the image follows the theme.
   return (
     <div
       ref={containerRef}

@@ -839,6 +839,47 @@ function BringItBack({ viewer }) {
   );
 }
 
+// Where the chosen theme is remembered between sessions. main.jsx reads the
+// same key before anything is drawn, so a page that was left light comes
+// back light with no dark flash on the way.
+const THEME_KEY = "zmart-theme";
+
+/**
+ * The button that swaps the interface between its dark and light dress.
+ *
+ * It sits in the top bar beside the 2-D/3-D toggle and Overview, and its face
+ * names the theme it would switch TO -- press "Light" and the panels go
+ * light. Only the chrome changes: the image area stays black in both themes,
+ * because fluorescence is read against black, and the colours chosen for
+ * channels and targets are the operator's own and are not touched.
+ *
+ * The switch itself is one attribute on the page. Every colour in the
+ * interface is a named variable (see theme.css), and `data-theme` on the
+ * <html> element decides which set of values those names take.
+ */
+function ThemeToggle() {
+  const [theme, setTheme] = React.useState(
+    () => (localStorage.getItem(THEME_KEY) === "light" ? "light" : "dark"),
+  );
+  React.useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    localStorage.setItem(THEME_KEY, theme);
+  }, [theme]);
+  const other = theme === "dark" ? "light" : "dark";
+  return (
+    <button
+      onClick={() => setTheme(other)}
+      style={{ ...styles.button, ...styles.themeToggle }}
+      aria-label={`switch to the ${other} theme`}
+      title={other === "light"
+        ? "Dress the controls in light colours. The image itself stays on black"
+        : "Dress the controls in dark colours again"}
+    >
+      {other === "light" ? "Light" : "Dark"}
+    </button>
+  );
+}
+
 const TARGET_LAYER = "Targets";
 
 function annotationLayer(targets, color, visible) {
@@ -1720,6 +1761,7 @@ export default function App() {
         <NeuroglancerView onViewer={setViewer} generation={engineGeneration} />
         <ModeToggle mode={mode} onChange={setMode} />
         <BringItBack viewer={viewer} />
+        <ThemeToggle />
         <ScaleBar viewer={viewer} />
         {/* The two sliders are placed to match the directions they move in, which
             makes them quicker to reach for without reading the labels. Depth runs
@@ -1943,7 +1985,7 @@ const styles = {
     position: "fixed",
     inset: 0,
     zIndex: 60,
-    background: "rgba(4, 6, 9, 0.6)",
+    background: "var(--shade-bg)",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
@@ -1954,13 +1996,13 @@ const styles = {
     maxHeight: "72vh",
     display: "flex",
     flexDirection: "column",
-    background: "#141922",
-    border: "1px solid #2b3440",
+    background: "var(--card-bg)",
+    border: "1px solid var(--panel-border)",
     borderRadius: 8,
-    boxShadow: "0 12px 40px rgba(0,0,0,.55)",
+    boxShadow: "0 12px 40px var(--shadow-color)",
     padding: "12px 14px",
     font: "13px/1.4 system-ui, -apple-system, 'Segoe UI', sans-serif",
-    color: "#c9d1d9",
+    color: "var(--text-primary)",
   },
   loadHead: {
     display: "flex",
@@ -1972,14 +2014,14 @@ const styles = {
     font: "600 11px/1 system-ui, sans-serif",
     letterSpacing: ".08em",
     textTransform: "uppercase",
-    color: "#6b7684",
+    color: "var(--text-faint)",
   },
   loadCancel: {
     padding: "4px 10px",
-    border: "1px solid #303a46",
+    border: "1px solid var(--control-border)",
     borderRadius: 4,
-    background: "#1b222b",
-    color: "#aab4c0",
+    background: "var(--control-bg)",
+    color: "var(--text-secondary)",
     font: "600 11px/1 system-ui, sans-serif",
     cursor: "pointer",
   },
@@ -1987,21 +2029,25 @@ const styles = {
   loadKind: {
     flex: 1,
     padding: "8px 10px",
-    border: "1px solid #303a46",
+    border: "1px solid var(--control-border)",
     borderRadius: 5,
-    background: "#1b222b",
-    color: "#aab4c0",
+    background: "var(--control-bg)",
+    color: "var(--text-secondary)",
     font: "600 11px/1.2 system-ui, sans-serif",
     cursor: "pointer",
   },
-  loadKindChosen: { background: "#1f3a5f", borderColor: "#2f81f7", color: "#dbe6f3" },
+  loadKindChosen: {
+    background: "var(--accent-selection)",
+    borderColor: "var(--accent)",
+    color: "var(--accent-selection-text)",
+  },
   loadPath: {
     boxSizing: "border-box",
     width: "100%",
-    background: "#0d1015",
-    border: "1px solid #202731",
+    background: "var(--input-bg)",
+    border: "1px solid var(--subtle-border)",
     borderRadius: 4,
-    color: "#c9d1d9",
+    color: "var(--text-primary)",
     font: "12px/1.4 ui-monospace, monospace",
     padding: "6px 8px",
     marginBottom: 8,
@@ -2010,9 +2056,9 @@ const styles = {
     flex: 1,
     minHeight: 120,
     overflowY: "auto",
-    border: "1px solid #1d232b",
+    border: "1px solid var(--subtle-border)",
     borderRadius: 4,
-    background: "#10141a",
+    background: "var(--panel-bg)",
   },
   loadRow: {
     display: "block",
@@ -2020,8 +2066,8 @@ const styles = {
     textAlign: "left",
     background: "none",
     border: "none",
-    borderBottom: "1px solid #171d25",
-    color: "#c9d1d9",
+    borderBottom: "1px solid var(--subtle-border)",
+    color: "var(--text-primary)",
     font: "12px/1.4 system-ui, sans-serif",
     padding: "6px 10px",
     cursor: "pointer",
@@ -2032,37 +2078,44 @@ const styles = {
     alignItems: "center",
     gap: 6,
     marginRight: 10,
-    color: "#8b95a3",
+    color: "var(--text-muted)",
     font: "11px system-ui, sans-serif",
   },
   paceLabel: { textTransform: "uppercase", letterSpacing: ".04em", fontSize: 10 },
   paceChoice: {
-    background: "#0d1015",
-    border: "1px solid #303a46",
+    background: "var(--input-bg)",
+    border: "1px solid var(--control-border)",
     borderRadius: 3,
-    color: "#c9d1d9",
+    color: "var(--text-primary)",
     font: "11px system-ui, sans-serif",
     padding: "2px 4px",
   },
   loadOpen: {
     flexShrink: 0,
     padding: "3px 10px",
-    border: "1px solid #2f81f7",
+    border: "1px solid var(--accent)",
     borderRadius: 4,
-    background: "#1f3a5f",
-    color: "#dbe6f3",
+    background: "var(--accent-selection)",
+    color: "var(--accent-selection-text)",
     font: "600 11px/1 system-ui, sans-serif",
     cursor: "pointer",
   },
-  loadEmptyNote: { padding: "10px 12px", color: "#8b95a3", font: "12px/1.4 system-ui, sans-serif" },
-  loadRowChosen: { background: "#1f3a5f", color: "#dbe6f3" },
+  loadEmptyNote: {
+    padding: "10px 12px",
+    color: "var(--text-muted)",
+    font: "12px/1.4 system-ui, sans-serif",
+  },
+  loadRowChosen: {
+    background: "var(--accent-selection)",
+    color: "var(--accent-selection-text)",
+  },
   loadActions: { display: "flex", justifyContent: "flex-end", marginTop: 8 },
   constructPane: {
     marginTop: 10,
     padding: "10px 12px",
-    border: "1px solid #2b3440",
+    border: "1px solid var(--panel-border)",
     borderRadius: 6,
-    background: "#10141a",
+    background: "var(--panel-bg)",
     display: "flex",
     flexDirection: "column",
     gap: 8,
@@ -2071,67 +2124,67 @@ const styles = {
     font: "600 11px/1 system-ui, sans-serif",
     letterSpacing: ".06em",
     textTransform: "uppercase",
-    color: "#8b95a3",
+    color: "var(--text-muted)",
   },
   constructRow: { display: "flex", alignItems: "center", gap: 10 },
   constructLabel: {
     font: "600 10px/1 system-ui, sans-serif",
     letterSpacing: ".04em",
     textTransform: "uppercase",
-    color: "#7f8a98",
+    color: "var(--text-muted)",
     flexShrink: 0,
   },
   constructNote: {
     font: "11px/1.5 system-ui, sans-serif",
-    color: "#8b95a3",
+    color: "var(--text-muted)",
   },
   constructChoice: {
     display: "flex",
     alignItems: "center",
     gap: 5,
     font: "12px/1.2 system-ui, sans-serif",
-    color: "#c9d1d9",
+    color: "var(--text-primary)",
   },
   progressTrack: {
     height: 8,
     borderRadius: 4,
-    background: "#0d1015",
-    border: "1px solid #202731",
+    background: "var(--input-bg)",
+    border: "1px solid var(--subtle-border)",
     overflow: "hidden",
   },
   progressFill: {
     height: "100%",
-    background: "#2f81f7",
+    background: "var(--accent)",
     transition: "width 200ms linear",
   },
   loadError: {
     marginTop: 8,
     padding: "7px 9px",
-    border: "1px solid #6b2c31",
+    border: "1px solid var(--danger-border)",
     borderRadius: 4,
-    background: "#2a1517",
-    color: "#f0a5a5",
+    background: "var(--danger-bg)",
+    color: "var(--danger-text)",
     font: "12px/1.5 system-ui, sans-serif",
   },
-  shell: { position: "absolute", inset: 0, display: "flex", background: "#0b0d10" },
+  shell: { position: "absolute", inset: 0, display: "flex", background: "var(--page-bg)" },
   bar: {
     width: 264,
     flexShrink: 0,
     display: "flex",
     flexDirection: "column",
     minHeight: 0,
-    border: "1px solid #232a33",
+    border: "1px solid var(--panel-border)",
     borderTop: "none",
     borderBottom: "none",
-    background: "#12161c",
+    background: "var(--card-bg)",
   },
   fold: {
     alignSelf: "stretch",
     width: 14,
     border: "none",
-    borderLeft: "1px solid #232a33",
-    background: "#12161c",
-    color: "#8b95a3",
+    borderLeft: "1px solid var(--panel-border)",
+    background: "var(--card-bg)",
+    color: "var(--text-muted)",
     font: "12px/1 system-ui, sans-serif",
     cursor: "pointer",
     padding: 0,
@@ -2145,18 +2198,18 @@ const styles = {
     display: "flex",
     borderRadius: 6,
     overflow: "hidden",
-    border: "1px solid #2c333d",
-    boxShadow: "0 1px 4px rgba(0,0,0,.5)",
+    border: "1px solid var(--panel-border)",
+    boxShadow: "0 1px 4px var(--shadow-color)",
   },
   button: {
     padding: "6px 14px",
     border: "none",
-    background: "#161a20",
-    color: "#8b95a3",
+    background: "var(--control-bg)",
+    color: "var(--text-muted)",
     font: "600 12px/1 system-ui, sans-serif",
     cursor: "pointer",
   },
-  buttonActive: { background: "#2f6feb", color: "#fff" },
+  buttonActive: { background: "var(--accent)", color: "#fff" },
   // Beside the 2-D/3-D toggle rather than inside it: the toggle is a choice
   // between two states and this is an action, so it gets its own edge and never
   // looks like a third mode. The 12 of gap matches the toggle's own inset from
@@ -2167,8 +2220,19 @@ const styles = {
     left: 108,
     zIndex: 10,
     borderRadius: 6,
-    border: "1px solid #2c333d",
-    boxShadow: "0 1px 4px rgba(0,0,0,.5)",
+    border: "1px solid var(--panel-border)",
+    boxShadow: "0 1px 4px var(--shadow-color)",
+  },
+  // Beside Overview, dressed the same way, with the same 12 of gap keeping
+  // the three top-bar controls reading as one row.
+  themeToggle: {
+    position: "absolute",
+    top: 12,
+    left: 202,
+    zIndex: 10,
+    borderRadius: 6,
+    border: "1px solid var(--panel-border)",
+    boxShadow: "0 1px 4px var(--shadow-color)",
   },
   // The sliders stack in one column at the bottom of the stage, so a timelapse
   // showing both Z and T never has them overlapping.

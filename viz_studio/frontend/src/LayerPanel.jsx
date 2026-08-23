@@ -276,7 +276,7 @@ function Histogram({ layer, window_, color, onWindow, scale = "linear", axis = n
       })}
       {[left, right].map((x, edge) =>
         x > 0 && x < counts.length ? (
-          <rect key={edge} x={x} y="0" width="0.8" height="24" fill="#2f81f7" />
+          <rect key={edge} x={x} y="0" width="0.8" height="24" fill="var(--accent)" />
         ) : null,
       )}
     </svg>
@@ -922,7 +922,7 @@ function ChannelControls({ layer, index, entry, mode, lookupTables, onWindow, on
           switching back, and a stretched picture with a quiet scale bar is a
           way to measure wrongly and never find out. */}
       {stretchedUnevenly(displayScales, mode) && (
-        <div style={{ ...styles.controlLabel, color: "#d9a441", padding: "0 12px 6px" }}>
+        <div style={{ ...styles.controlLabel, color: "var(--warning-text)", padding: "0 12px 6px" }}>
           {mode === "volume"
             ? "the axes are stretched differently, so no single scale bar is true in every direction"
             : "x and y are stretched differently, so no single scale bar is true in both directions"}
@@ -1194,8 +1194,8 @@ export default function LayerPanel({
 const BLOCK = {
   // Ruled top and bottom, so a section reads as a card whichever side the
   // eye arrives from.
-  borderTop: "1px solid #2b3440",
-  borderBottom: "1px solid #2b3440",
+  borderTop: "1px solid var(--panel-border)",
+  borderBottom: "1px solid var(--panel-border)",
   paddingTop: 8,
   paddingBottom: 8,
   marginBottom: 12,
@@ -1204,7 +1204,7 @@ const BLOCK = {
 // The ground under the channel being adjusted, in both the places it is
 // named: its row in the list, and its row above the histogram. One value, so
 // the two cannot drift apart.
-const CHOSEN_GROUND = "#1b2431";
+const CHOSEN_GROUND = "var(--selected-row-bg)";
 
 // How tall the colour list may grow before it scrolls. Named, because the
 // list also asks "is there room for me below the square?", and the two have
@@ -1215,15 +1215,15 @@ const styles = {
   empty: {
     margin: "0 12px 12px",
     padding: "10px 11px",
-    border: "1px dashed #2b3440",
+    border: "1px dashed var(--panel-border)",
     borderRadius: 5,
-    color: "#8b95a3",
+    color: "var(--text-muted)",
     font: "11px/1.5 system-ui, sans-serif",
   },
   emptyLine: { margin: "0 0 6px" },
   orderNote: {
     margin: "0 12px 6px",
-    color: "#8b95a3",
+    color: "var(--text-muted)",
     font: "10px/1.4 system-ui, sans-serif",
   },
   // The two numbers under the histogram are the window in use, so the picture
@@ -1234,14 +1234,14 @@ const styles = {
     alignItems: "baseline",
     gap: 6,
     padding: "0 12px 3px 60px",
-    color: "#8b95a3",
+    color: "var(--text-muted)",
     font: "10px/1.3 system-ui, sans-serif",
     fontVariantNumeric: "tabular-nums",
   },
   eyeGlyph: { width: 14, height: 14, display: "block" },
   // The card every section sits on. Same blue as the display settings, so the
   // darker panel ground showing between the cards reads as the separation.
-  card: { ...BLOCK, paddingBottom: 8, background: "#141922", flexShrink: 0 },
+  card: { ...BLOCK, paddingBottom: 8, background: "var(--card-bg)", flexShrink: 0 },
   headingRow: {
     display: "flex",
     alignItems: "center",
@@ -1251,10 +1251,10 @@ const styles = {
     minHeight: 22,
   },
   openButton: {
-    border: "1px solid #303a46",
+    border: "1px solid var(--control-border)",
     borderRadius: 4,
-    background: "#1b222b",
-    color: "#9ecbff",
+    background: "var(--control-bg)",
+    color: "var(--accent-text)",
     font: "600 10px/1 system-ui, sans-serif",
     padding: "4px 7px",
     cursor: "pointer",
@@ -1262,10 +1262,10 @@ const styles = {
   notice: {
     margin: "0 12px 8px",
     padding: "6px 8px",
-    border: "1px solid #4a2b30",
+    border: "1px solid var(--danger-border)",
     borderRadius: 4,
-    background: "#251a1d",
-    color: "#f0888f",
+    background: "var(--danger-bg)",
+    color: "var(--danger-text)",
     font: "11px/1.4 system-ui, sans-serif",
   },
   // Deliberately quiet: closing is easy to reach but should not invite a stray
@@ -1273,13 +1273,13 @@ const styles = {
   close: {
     border: "none",
     background: "none",
-    color: "#5f6a78",
+    color: "var(--text-faint)",
     fontSize: 15,
     lineHeight: 1,
     cursor: "pointer",
     padding: "0 2px",
   },
-  group: { borderBottom: "1px solid #1d232b" },
+  group: { borderBottom: "1px solid var(--subtle-border)" },
   groupHead: {
     display: "flex",
     alignItems: "center",
@@ -1289,7 +1289,7 @@ const styles = {
   disclose: {
     background: "none",
     border: "none",
-    color: "#7f8a98",
+    color: "var(--text-muted)",
     cursor: "pointer",
     fontSize: 10,
     padding: 0,
@@ -1303,12 +1303,12 @@ const styles = {
     textOverflow: "ellipsis",
     whiteSpace: "nowrap",
   },
-  maskNote: { padding: "2px 12px 4px 60px", color: "#6b7684", fontSize: 10 },
+  maskNote: { padding: "2px 12px 4px 60px", color: "var(--text-faint)", fontSize: 10 },
   select: {
     width: "100%",
-    background: "#1b222b",
-    color: "#aab4c0",
-    border: "1px solid #303a46",
+    background: "var(--control-bg)",
+    color: "var(--text-secondary)",
+    border: "1px solid var(--control-border)",
     borderRadius: 3,
     font: "10px system-ui, sans-serif",
     padding: "3px 4px",
@@ -1316,7 +1316,7 @@ const styles = {
   // Channels are indented so it reads as "these belong to that acquisition".
   // marginLeft puts the 2px line exactly under the centre of the disclosure
   // triangle above it (12px head padding + half the 10px button).
-  members: { paddingLeft: 8, borderLeft: "2px solid #1f2630", marginLeft: 16 },
+  members: { paddingLeft: 8, borderLeft: "2px solid var(--subtle-border)", marginLeft: 16 },
   // The list keeps its natural height so the settings sit directly beneath
   // it, but a run with many acquisitions is capped and scrolls inside the
   // cap rather than pushing the settings off the bottom of the bar.
@@ -1332,16 +1332,16 @@ const styles = {
     overflowY: "auto",
     // Noticeably darker than the section cards (#141922), so the ground
     // showing between them separates the sections at a glance.
-    background: "#0d1015",
+    background: "var(--panel-bg)",
     padding: "12px 0 0",
     font: "13px/1.4 system-ui, -apple-system, 'Segoe UI', sans-serif",
-    color: "#c9d1d9",
+    color: "var(--text-primary)",
   },
   heading: {
     font: "600 11px/1 system-ui, sans-serif",
     letterSpacing: ".08em",
     textTransform: "uppercase",
-    color: "#6b7684",
+    color: "var(--text-faint)",
   },
   layer: {
     position: "relative",
@@ -1369,7 +1369,7 @@ const styles = {
   // showing between the cards, and by the same amount: what set this one
   // apart with extra room above was making the settings look like a
   // different kind of thing from the list they belong to.
-  controls: { ...BLOCK, paddingBottom: 12, background: "#141922", flexShrink: 0 },
+  controls: { ...BLOCK, paddingBottom: 12, background: "var(--card-bg)", flexShrink: 0 },
   controlsHead: {
     display: "flex",
     flexDirection: "column",
@@ -1390,7 +1390,7 @@ const styles = {
     padding: "4px 6px",
   },
   controlsName: {
-    color: "#e6edf3",
+    color: "var(--text-bright)",
     font: "600 12px/1 system-ui, sans-serif",
     overflow: "hidden",
     textOverflow: "ellipsis",
@@ -1401,14 +1401,14 @@ const styles = {
   controlsGroup: {
     font: "600 12px/1 system-ui, sans-serif",
     letterSpacing: ".02em",
-    color: "#c9d1d9",
+    color: "var(--text-primary)",
     overflow: "hidden",
     textOverflow: "ellipsis",
     whiteSpace: "nowrap",
   },
   row: { position: "relative", display: "flex", alignItems: "center", gap: 8, padding: "5px 12px" },
-  eye: { background: "none", border: "none", color: "#c9d1d9", cursor: "pointer", fontSize: 13, padding: 0 },
-  swatch: { width: 13, height: 13, borderRadius: 3, border: "1px solid #39424e", display: "inline-block", flexShrink: 0 },
+  eye: { background: "none", border: "none", color: "var(--text-primary)", cursor: "pointer", fontSize: 13, padding: 0 },
+  swatch: { width: 13, height: 13, borderRadius: 3, border: "1px solid var(--control-border)", display: "inline-block", flexShrink: 0 },
   // The square is a button now, so it needs a button's manners taken off it:
   // no browser chrome, no text metrics, just the colour.
   swatchButton: { padding: 0, cursor: "pointer", appearance: "none" },
@@ -1455,10 +1455,10 @@ const styles = {
     zIndex: 40,
     display: "flex",
     flexDirection: "column",
-    background: "#141a22",
-    border: "1px solid #303a46",
+    background: "var(--card-bg)",
+    border: "1px solid var(--control-border)",
     borderRadius: 3,
-    boxShadow: "0 6px 18px rgba(0, 0, 0, 0.5)",
+    boxShadow: "0 6px 18px var(--shadow-color)",
     maxHeight: LIST_TALL_AT_MOST,
     overflowY: "auto",
   },
@@ -1467,14 +1467,14 @@ const styles = {
     alignItems: "center",
     gap: 6,
     background: "transparent",
-    color: "#aab4c0",
+    color: "var(--text-secondary)",
     border: 0,
     font: "10px system-ui, sans-serif",
     padding: "4px 6px",
     cursor: "pointer",
     textAlign: "left",
   },
-  chooserEntryOn: { background: "#243040", color: "#e8edf3" },
+  chooserEntryOn: { background: "var(--selected-row-bg)", color: "var(--text-bright)" },
   // The custom entry holds the browser's own picker, invisible and filling
   // it, so pressing the entry opens the picker rather than a control of ours.
   chooserCustom: { position: "relative", cursor: "pointer" },
@@ -1482,7 +1482,7 @@ const styles = {
     width: 22,
     height: 11,
     borderRadius: 2,
-    border: "1px solid #39424e",
+    border: "1px solid var(--control-border)",
     flexShrink: 0,
   },
   // The picker itself is invisible and fills the entry that holds it, so
@@ -1511,11 +1511,12 @@ const styles = {
     // Tall enough to read a distribution in, now that nothing stands beside
     // it setting the height. It used to be sized to two stacked buttons.
     height: 60,
-    // Near-white: the full-light bars between the window's marks must read
-    // as "this is what you are seeing", against the dimmed rest.
-    color: "#dde5ee",
-    background: "#0d1015",
-    border: "1px solid #202731",
+    // The loudest ink of the theme: the full-light bars between the window's
+    // marks must read as "this is what you are seeing", against the dimmed
+    // rest -- near-white on the dark theme, near-black on the light one.
+    color: "var(--text-bright)",
+    background: "var(--input-bg)",
+    border: "1px solid var(--subtle-border)",
     borderRadius: 3,
   },
   autoButton: {
@@ -1528,10 +1529,10 @@ const styles = {
     boxSizing: "border-box",
     padding: 0,
     textAlign: "center",
-    border: "1px solid #303a46",
+    border: "1px solid var(--control-border)",
     borderRadius: 3,
-    background: "#1b222b",
-    color: "#aab4c0",
+    background: "var(--control-bg)",
+    color: "var(--text-secondary)",
     font: "600 11px/22px system-ui, sans-serif",
     cursor: "pointer",
   },
@@ -1550,13 +1551,17 @@ const styles = {
     alignItems: "center",
     gap: 6,
     padding: "2px 12px",
-    color: "#7f8a98",
+    color: "var(--text-muted)",
     fontSize: 10,
   },
   controlLabel: { textTransform: "uppercase", letterSpacing: ".04em" },
   // A toggle that is on: the same blue the sliders carry, so "lit" reads as
   // "active" without a legend.
-  autoButtonOn: { background: "#1f3a5f", borderColor: "#2f81f7", color: "#dbe6f3" },
+  autoButtonOn: {
+    background: "var(--accent-selection)",
+    borderColor: "var(--accent)",
+    color: "var(--accent-selection-text)",
+  },
   // margin: 0 because the browser gives a range input two pixels of its own,
   // which pushed every track two to the right of the column it lives in --
   // and so two off the buttons above it that share that column.
@@ -1565,7 +1570,7 @@ const styles = {
     margin: 0,
     cursor: "pointer",
   },
-  value: { color: "#aab4c0", textAlign: "right", fontVariantNumeric: "tabular-nums" },
+  value: { color: "var(--text-secondary)", textAlign: "right", fontVariantNumeric: "tabular-nums" },
   // The typed twin of the value read-out: same column, same right-aligned
   // numerals, with just enough of a border to say "you may type here".
   valueBox: {
@@ -1578,10 +1583,10 @@ const styles = {
     // Padding and border inside the width, or the box overflows its column
     // by their sum and stops lining up with the buttons above it.
     boxSizing: "border-box",
-    background: "#0d1015",
-    border: "1px solid #202731",
+    background: "var(--input-bg)",
+    border: "1px solid var(--subtle-border)",
     borderRadius: 3,
-    color: "#aab4c0",
+    color: "var(--text-secondary)",
     font: "inherit",
     fontVariantNumeric: "tabular-nums",
     textAlign: "right",
