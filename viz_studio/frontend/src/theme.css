@@ -15,13 +15,13 @@
  * guideline for text).
  *
  * What is deliberately NOT here: anything that represents the data itself.
- * The image canvas stays black in both themes -- fluorescence is read
- * against black, at the microscope and in every viewer, and a white ground
- * would change what a dim signal looks like. Channel colours, the colour
- * maps (viridis, magma, ...), and the colours of drawn targets are the
- * operator's own choices about their specimen, so they are left exactly as
- * chosen. The scale bar stays white too, because it is drawn over the black
- * image, not over a panel.
+ * The pixels the microscope recorded are untouched by the theme, and so are
+ * the channel colours, the colour maps (viridis, magma, ...) and the colours
+ * of drawn targets -- those are the operator's own choices about their
+ * specimen. The GROUND the image floats on -- the canvas where nothing is
+ * drawn -- does follow the theme (the operator asked for a light ground in
+ * the light dress, 2026-08-23), and the scale bar follows the ground so it
+ * stays readable over it.
  */
 
 :root {
@@ -77,6 +77,13 @@
      value has travelled, grey for the rest of the groove. */
   --slider-fill: var(--accent);
   --slider-track: #3a444f;
+
+  /* The ground the image floats on -- the canvas where no data is drawn --
+     and the scale bar drawn over it, which follows the ground so it stays
+     readable. The data's own pixels never change with the theme. */
+  --canvas-bg: #000000;
+  --scale-bar: #ffffff;
+  --scale-bar-shadow: rgba(0, 0, 0, 0.9);
 }
 
 /* The light theme says only what is different. A light grey page, white-ish
@@ -116,4 +123,8 @@
   --shadow-color: rgba(25, 35, 50, 0.22);
 
   --slider-track: #c2c9d2;
+
+  --canvas-bg: #d8dce2;
+  --scale-bar: #10161f;
+  --scale-bar-shadow: rgba(255, 255, 255, 0.6);
 }

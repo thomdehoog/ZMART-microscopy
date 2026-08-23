@@ -68,6 +68,29 @@ export default function NeuroglancerView({ onViewer, generation = 0, veiled = fa
       resetStateWhenEmpty: false,
     });
 
+    // The engine paints its own ground — the canvas where no data is drawn —
+    // and it must match the theme's, or switching to the light dress would
+    // leave the picture floating on a black field inside a light page. The
+    // colour is read from the same variable the stylesheet uses, and read
+    // again whenever the Light/Dark button changes the page's dress.
+    const paintTheGround = () => {
+      const said = getComputedStyle(document.documentElement)
+        .getPropertyValue("--canvas-bg").trim() || "#000";
+      const hex = said.replace("#", "");
+      const wide = hex.length === 3 ? [...hex].map((c) => c + c).join("") : hex;
+      const ground = Float32Array.from(
+        [0, 2, 4].map((at) => parseInt(wide.slice(at, at + 2), 16) / 255),
+      );
+      viewer.crossSectionBackgroundColor.value = ground;
+      viewer.perspectiveViewBackgroundColor.value = ground;
+    };
+    paintTheGround();
+    const dressWatcher = new MutationObserver(paintTheGround);
+    dressWatcher.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["data-theme"],
+    });
+
     // The panels are given explicit tables holding exactly the gestures our
     // interface documents, instead of inheriting the engine's defaults. What
     // an operator can do to the picture is written out here, once, in full —
@@ -208,7 +231,10 @@ export default function NeuroglancerView({ onViewer, generation = 0, veiled = fa
     }
 
     onViewer?.(viewer);
-    return () => viewer.dispose();
+    return () => {
+      dressWatcher.disconnect();
+      viewer.dispose();
+    };
     // ``generation`` is how the interface asks for a *new* engine rather than
     // a changed one. Closing an acquisition is the only thing that asks. The
     // engine holds more than the layer it was told to delete: with the layer
@@ -228,20 +254,20 @@ export default function NeuroglancerView({ onViewer, generation = 0, veiled = fa
   // is read against black -- at the microscope and in every viewer -- and a
   // light ground here would change what a dim signal looks like. Only the
   // chrome around the image follows the theme.
-  // While ``veiled`` the drawing is held at opacity zero over that black
+  // While ``veiled`` the drawing is held at opacity zero over the bare
   // ground: the engine's first frames come out at its own default
   // magnification before the fit-to-window lands, and showing them read as
-  // the picture jumping in size on every first open. Black underneath means
-  // the veil looks like an empty canvas, and the short fade makes the
+  // the picture jumping in size on every first open. The ground underneath
+  // means the veil looks like an empty canvas, and the short fade makes the
   // arrival read as the picture appearing rather than snapping.
   return (
-    <div style={{ width: "100%", height: "100%", background: "#000" }}>
+    <div style={{ width: "100%", height: "100%", background: "var(--canvas-bg, #000)" }}>
       <div
         ref={containerRef}
         style={{
           width: "100%",
           height: "100%",
-          background: "#000",
+          background: "var(--canvas-bg, #000)",
           opacity: veiled ? 0 : 1,
           transition: "opacity 120ms linear",
         }}
