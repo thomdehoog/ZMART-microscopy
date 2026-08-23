@@ -1492,12 +1492,15 @@ class _Handler(SimpleHTTPRequestHandler):
 
         The positions go through the very doorway the microscope uses -- the
         live writer, its sealed profile, one commit each -- so what assembles
-        on screen is the smart-microscopy path itself, not an imitation. The
-        first position is published before this answers; the answer opens the
-        run's live view, so the operator sees tile one at once and the rest
-        land behind it, each announced to the page as a landing would be.
-        The window can poll /api/stores/replay-status to say how far along
-        the rehearsal is. One replay at a time, exactly like the bake.
+        on screen is the smart-microscopy path itself, not an imitation.
+        This answers as soon as the run is DECLARED, before the first pixels
+        are written: the operator's window closes at once and every
+        position, the first included, is watched landing. It used to answer
+        only after the first position, and a deep single-position dataset
+        held the window open, its buttons busy, for the whole first write
+        (the operator sat through it twice, 2026-08-23). The window can poll
+        /api/stores/replay-status to say how far along the rehearsal is.
+        One replay at a time, exactly like the bake.
         """
         asked = payload if isinstance(payload, dict) else {}
         path = asked.get("path")
@@ -1536,13 +1539,18 @@ class _Handler(SimpleHTTPRequestHandler):
         job = self._replay_job
         job.clear()
         job.update({"state": "running", "done": 0, "total": None})
-        first_landed = threading.Event()
+        ready = threading.Event()
         announcements = self._announcements
 
         def told(done, total):
             job["done"], job["total"] = done, total
-            if done >= 1:
-                first_landed.set()
+            # The run is declared before its first position starts writing
+            # (the ``done == 0`` report), and declared is enough to open:
+            # the operator's window closes at once and position one is
+            # WATCHED landing, instead of the whole first write happening
+            # behind a busy button that looked stuck (their ask,
+            # 2026-08-23).
+            ready.set()
             if job.get("stop"):
                 raise _StoppedByTheOperator()
 
@@ -1562,13 +1570,19 @@ class _Handler(SimpleHTTPRequestHandler):
             except Exception as why:  # noqa: BLE001 -- shown to the operator whole
                 job.update({"state": "error", "error": str(why)})
             finally:
-                first_landed.set()
+                ready.set()
 
         threading.Thread(target=work, daemon=True).start()
-        first_landed.wait(timeout=120)
+        ready.wait(timeout=120)
         if job.get("state") == "error":
             self._send_json({"error": job["error"]}, HTTPStatus.BAD_REQUEST)
             return
+        # One rehearsal on screen per dataset: replaying the same dataset
+        # again replaces the previous replay's view rather than piling a
+        # second group beside it — pressing the door three times left three
+        # identical headings and nothing to tell them apart (the operator's
+        # panel filled with them, 2026-08-23).
+        self._library.close_group(f"{data_path.name} replay")
         try:
             # Named after the dataset, not after the view's own file -- a
             # heading saying "live" tells the operator nothing about WHAT is

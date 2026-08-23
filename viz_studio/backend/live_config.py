@@ -46,17 +46,24 @@ from zmart_live.omezarr import the_channels_described
 # error rather than quietly falling back to the linked view.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "building"))
 try:
-    from declare import declare_a_governed_picture
+    from declare import declare_a_governed_picture, the_scene_folder_name
 except ImportError:  # pragma: no cover - a checkout without the building module
     declare_a_governed_picture = None
+    the_scene_folder_name = None
 
 LIVE_STATE_SET_SCHEMA = "zmart-live-frontend-state-set/1"
 
 # Where a live run's served picture lives, relative to the run root: inside
 # the live view's own folder, beside the linked store and the view's
 # metadata -- the picture is part of that one view, exactly as the contract
-# draws it.
-LIVE_PICTURE = "views/live/picture.ome.zarr"
+# draws it. The store's NAME comes from the same one rule the declarer
+# uses (the_scene_folder_name), never written out by hand: a hand-written
+# copy fell out of step the day the rule changed to ``.zmartview.zarr``,
+# and every replay was served from a path that no longer existed -- black
+# positions, unmeasurable channels (2026-08-23).
+LIVE_PICTURE = "views/live/" + (
+    the_scene_folder_name("picture") if the_scene_folder_name
+    else "picture.zmartview.zarr")
 
 # How long a failed declaration is remembered before it is tried again. Long
 # enough that a refusal does not re-derive the run on every config poll, short

@@ -363,7 +363,10 @@ def test_binding_a_live_run_declares_the_baked_picture_exactly_once(tmp_path, mo
     bindings, governed = registry.refresh()
     assert len(bindings) == 1 and governed == {0}
     assert len(declared) == 1
-    store = run.folder / "views" / "live" / "picture.ome.zarr"
+    # The picture's name comes from the one naming rule, never written out
+    # by hand here: a hand-written copy is exactly what fell out of step the
+    # day the rule changed to .zmartview.zarr (2026-08-23).
+    store = run.folder / live_config.LIVE_PICTURE
     assert (store / "zarr.json").is_file()
     assert (store / "baked.json").is_file()
 
