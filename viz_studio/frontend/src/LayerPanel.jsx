@@ -1241,13 +1241,17 @@ const styles = {
   eyeGlyph: { width: 14, height: 14, display: "block" },
   // The card every section sits on. Same blue as the display settings, so the
   // darker panel ground showing between the cards reads as the separation.
-  card: { ...BLOCK, paddingBottom: 8, background: "var(--card-bg)", flexShrink: 0 },
+  // One spacing rhythm for every section, so the bar reads as one design:
+  // a heading sits 10 of room above its content (5 from the heading row, 5
+  // from the content's own top), and every card ends with 12 of room after
+  // its last row (the operator asked for both, 2026-08-23).
+  card: { ...BLOCK, paddingBottom: 12, background: "var(--card-bg)", flexShrink: 0 },
   headingRow: {
     display: "flex",
     alignItems: "center",
     justifyContent: "space-between",
     gap: 8,
-    padding: "0 12px 8px",
+    padding: "0 12px 5px",
     minHeight: 22,
   },
   openButton: {
@@ -1284,7 +1288,8 @@ const styles = {
     display: "flex",
     alignItems: "center",
     gap: 6,
-    padding: "7px 12px 3px",
+    // The 5 of top padding is half the heading rhythm; see the card note.
+    padding: "5px 12px 3px",
   },
   disclose: {
     background: "none",
@@ -1374,7 +1379,8 @@ const styles = {
     display: "flex",
     flexDirection: "column",
     gap: 3,
-    padding: "0 12px 6px",
+    // The 5 of top padding is half the heading rhythm; see the card note.
+    padding: "5px 12px 6px",
   },
   // The channel's own row, built like the rows in the list above so the two
   // read as the same thing said twice: eye, colour, name -- on the same
