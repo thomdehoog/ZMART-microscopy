@@ -149,7 +149,7 @@ def open_window(
         _serve_until_interrupt(server, url)
         return
 
-    native = webview.create_window("ZMART Viz Studio", url, width=width, height=height)
+    native = webview.create_window("ZMART Viewer", url, width=width, height=height)
 
     def show_folder_dialog():
         """Show the operating system's own folder chooser and return what was picked.

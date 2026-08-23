@@ -1523,8 +1523,12 @@ class _Handler(SimpleHTTPRequestHandler):
         # time.sleep refusal (found by the abuse battery of 2026-08-18).
         every_s = max(0.0, every_s)
         # A run can only be lived once -- its record only moves forward -- so
-        # every replay gets a fresh, numbered folder beside the dataset.
-        replays = data_path / "replays"
+        # every replay gets a fresh, numbered folder. In the viewer's own
+        # session scratch, never beside the dataset: a rehearsal's props
+        # left in the operator's data folder showed up in every folder list
+        # and were opened by the live watch as though a new acquisition had
+        # begun (the operator met both, 2026-08-23).
+        replays = self._a_session_folder("replays")
         number = 1
         while (replays / f"replay-{number}").exists():
             number += 1
@@ -1651,12 +1655,24 @@ class _Handler(SimpleHTTPRequestHandler):
         a bake writes pixels, and only a bake asks the operator where to put
         them.
         """
-        folder = self._scratch.get("scenes")
+        return self._a_session_folder("scenes")
+
+    def _a_session_folder(self, kind: str) -> Path:
+        """A folder of the viewer's own for this session, made when wanted.
+
+        One per ``kind`` — "scenes" for composed pictures, "replays" for the
+        rehearsal's output — all inside ``~/.zmart-viewer`` and all removed
+        when the viewer closes. What the viewer makes for itself never lands
+        in the operator's data folders: put there, it showed up in every
+        folder list and the live watch opened it as though it were a new
+        acquisition (the operator met both, 2026-08-23).
+        """
+        folder = self._scratch.get(kind)
         if folder is None:
-            home = Path.home() / ".zmart-viewer" / "scenes"
+            home = Path.home() / ".zmart-viewer" / kind
             home.mkdir(parents=True, exist_ok=True)
             folder = Path(tempfile.mkdtemp(prefix="session-", dir=home))
-            self._scratch["scenes"] = folder
+            self._scratch[kind] = folder
         return folder
 
     def _the_scene_behind_a_run(self, target: Path) -> Path | None:
@@ -2619,12 +2635,14 @@ def make_server(
             told.close()
             for watcher in watchers:
                 watcher.stop()
-            # The pictures this viewer composed for itself go with it. They are
-            # descriptions rather than pixels and cost a moment to make again;
-            # what would be worse is a folder of them growing quietly for ever.
-            composed = scratch.pop("scenes", None)
-            if composed is not None:
-                shutil.rmtree(composed, ignore_errors=True)
+            # What this viewer made for itself goes with it: the pictures it
+            # composed (descriptions rather than pixels, a moment to make
+            # again) and any rehearsal's replayed output. What would be
+            # worse is a folder of either growing quietly for ever.
+            for own in ("scenes", "replays"):
+                made = scratch.pop(own, None)
+                if made is not None:
+                    shutil.rmtree(made, ignore_errors=True)
             super().shutdown()
 
     handler = functools.partial(
