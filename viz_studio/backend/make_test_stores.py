@@ -14,6 +14,11 @@ store for each shape we want to keep working:
   writes, where one store holds a grid of wells (A/1, B/2, ...) and each well
   holds its own little image. Version 0.4.
 - ``test_plate_v05.zarr`` — the same plate in version 0.5.
+- ``test_grid/`` — a **raw run**: a folder of four position stores laid out
+  two by two, each carrying its own stage offset, overlapping their
+  neighbours the way a survey's tiles do. This is the shape the build door
+  links into one picture and the sequential door replays position by
+  position.
 
 Every store is deliberately tiny — a few dozen kilobytes, two channels, a
 handful of planes — because these exist to exercise the *opening* of each
@@ -50,24 +55,27 @@ _SCALE = {"z": 2.0, "y": 0.5, "x": 0.5}  # micrometres per pixel, anisotropic
                                          # like a real stack
 
 
-def _tiny_volume(seed: int) -> np.ndarray:
+def _tiny_volume(seed: int, shape: tuple[int, int, int, int] = _SHAPE) -> np.ndarray:
     """A small two-channel volume with a few soft blobs, different per seed."""
     rng = np.random.default_rng(seed)
-    channels, planes, height, width = _SHAPE
+    channels, planes, height, width = shape
     z, y, x = np.meshgrid(
         np.arange(planes), np.arange(height), np.arange(width), indexing="ij"
     )
-    volume = np.zeros(_SHAPE, dtype=np.float32)
+    volume = np.zeros(shape, dtype=np.float32)
+    # A bigger canvas gets more blobs, and bigger ones, so every frame size
+    # looks about as busy as the little default.
+    grown = height / _SHAPE[2]
     for channel in range(channels):
-        for _ in range(4):
+        for _ in range(max(4, round(4 * grown**2))):
             cz, cy, cx = rng.uniform([0, 8, 8], [planes, height - 8, width - 8])
-            spread = rng.uniform(3, 7)
+            spread = rng.uniform(3, 7) * grown
             volume[channel] += np.exp(
                 -(((z - cz) * 4) ** 2 + (y - cy) ** 2 + (x - cx) ** 2)
                 / (2 * spread**2)
             )
     # Realistic counts: background around 800, blobs a few thousand.
-    counts = 800 + volume * 8000 + rng.normal(0, 30, _SHAPE)
+    counts = 800 + volume * 8000 + rng.normal(0, 30, shape)
     return np.clip(counts, 0, 65535).astype(np.uint16)
 
 
@@ -134,12 +142,53 @@ def _write_plate(path: Path, version: str, seed: int) -> None:
         _write_image(path / row / column / "0", version, seed + index)
 
 
+def _write_grid(path: Path, seed: int) -> None:
+    """Write a two-by-two raw run: four position stores, each knowing its place.
+
+    Every position carries its own stage offset in its metadata — a
+    translation, in micrometres — and steps 256 of its 320 pixels each way,
+    so neighbouring positions overlap by a fifth, the way a survey's tiles
+    do. That overlap is what lets the build door link them into one seamless
+    picture, and the sequential door replay them through the live writer's
+    own grid arithmetic. The frame is bigger than the other test stores'
+    because the live planner needs the frame and the overlap to halve
+    cleanly through its zero-copy pyramid with chunks worth reading — 320
+    with 64 of overlap is the smallest comfortable pair, and it was chosen
+    by asking the planner rather than guessing.
+    """
+    import ngff_zarr
+
+    if path.exists():
+        shutil.rmtree(path)
+    path.mkdir(parents=True)
+    frame = (2, 4, 320, 320)
+    step_px = 256  # of a 320-pixel frame: a fifth of overlap with each neighbour
+    for row in range(2):
+        for column in range(2):
+            image = ngff_zarr.to_ngff_image(
+                _tiny_volume(seed + row * 2 + column, frame),
+                dims=("c", "z", "y", "x"),
+                scale=_SCALE,
+                translation={
+                    "z": 0.0,
+                    "y": row * step_px * _SCALE["y"],
+                    "x": column * step_px * _SCALE["x"],
+                },
+            )
+            multiscales = ngff_zarr.to_multiscales(image, scale_factors=[2])
+            ngff_zarr.to_ngff_zarr(
+                str(path / f"pos_{row}{column}.ome.zarr"), multiscales,
+                version="0.4", overwrite=True,
+            )
+
+
 def main() -> None:
     _STORES.mkdir(parents=True, exist_ok=True)
     _write_image(_STORES / "test_image_v04.zarr", "0.4", seed=11)
     _write_image(_STORES / "test_image_v05.zarr", "0.5", seed=11)
     _write_plate(_STORES / "test_plate_v04.zarr", "0.4", seed=21)
     _write_plate(_STORES / "test_plate_v05.zarr", "0.5", seed=21)
+    _write_grid(_STORES / "test_grid", seed=31)
 
     # The check that matters: somebody else's reader can open every store and
     # finds the shape we meant to write. A store that only our own code can
@@ -159,7 +208,14 @@ def main() -> None:
             else (_STORES / name / "zarr.json").read_text()
         )
         assert "plate" in json.dumps(plate_json), name
-    print(f"Four test stores written and re-read in {_STORES}")
+    corners = set()
+    for position in sorted((_STORES / "test_grid").glob("*.ome.zarr")):
+        opened = ngff_zarr.from_ngff_zarr(str(position))
+        image = opened.images[0]
+        assert image.data.shape == (2, 4, 320, 320), position.name
+        corners.add((image.translation["y"], image.translation["x"]))
+    assert len(corners) == 4, "every grid position should sit somewhere of its own"
+    print(f"Five test stores written and re-read in {_STORES}")
 
 
 if __name__ == "__main__":
