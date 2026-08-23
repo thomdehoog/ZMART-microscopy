@@ -251,12 +251,19 @@ const LOAD_KINDS = [
 // walk into. A "run" covers both shapes raw data takes: a plain folder of
 // position stores, and a bare zarr group wrapping them.
 const ROW_KINDS = {
-  view: { tag: "zmartview", said: "a built view — it opens directly" },
+  // A view is at heart a LINK file: a small description pointing at the raw
+  // data, copying nothing. Baking only adds one hard-copied piece — the
+  // low-resolution mosaic (the ⚡ in the list) — and everything at full
+  // resolution stays linked either way. The words below lead with that,
+  // because "built" made it sound like the data had been duplicated.
+  view: { tag: "zmartview",
+          said: "a view — links to the raw data, nothing duplicated; it opens directly" },
   image: { tag: "image", said: "one image — it opens directly" },
   plate: { tag: "plate", said: "a plate of wells — it opens directly" },
   run: { tag: "zarr",
-         said: "raw positions from the microscope — Open builds a view over "
-           + "them (nothing is copied), then shows it" },
+         said: "raw positions from the microscope — Open links them together "
+           + "into one picture for this session; nothing is copied and "
+           + "nothing is kept unless the mosaic is asked for" },
 };
 
 function LoadWindow({ listing, onNavigate, onOpened, onConstructed, onCancel,
@@ -328,10 +335,11 @@ function LoadWindow({ listing, onNavigate, onOpened, onConstructed, onCancel,
     }
   };
 
-  // Raw positions are always shown through a view. Open on a run therefore
-  // builds one — unbaked unless the mosaic box is ticked, so nothing heavy
-  // happens uninvited — and opens what it built, as a single press (the
-  // operator's call, 2026-08-23).
+  // The kept way to open a run: build the view — with its baked mosaic, at
+  // the place the operator chose — and open what was built, as one press.
+  // The plain way is not here at all: an untouched Open goes straight to
+  // openStore, and the server composes a link file it keeps to itself and
+  // forgets when it closes (the operator's rule, 2026-08-23).
   const openRun = async () => {
     const { data, destination, bake } = constructing;
     setConstructing((current) => ({ ...current, running: true, fraction: 0,
@@ -633,12 +641,15 @@ function LoadWindow({ listing, onNavigate, onOpened, onConstructed, onCancel,
                 : "Click to select this folder; double-click to look inside it"}
             >
               <span style={styles.loadRowName}>{folder.name}</span>
+              {/* A view wears one tag always, and a second when it keeps
+                  its precomputed mosaic — the fast-opening one. Either
+                  both, or only zmartview. */}
               {folder.kind === "view" && folder.baked && (
                 <span
-                  style={styles.loadRowFast}
-                  title="keeps its low-resolution mosaic on disk, so it opens fast"
+                  style={styles.loadRowTag}
+                  title="keeps its precomputed low-resolution mosaic on disk, so it opens fast"
                 >
-                  ⚡
+                  ⚡ precomputed mosaic
                 </span>
               )}
               {ROW_KINDS[folder.kind] && (
@@ -665,16 +676,13 @@ function LoadWindow({ listing, onNavigate, onOpened, onConstructed, onCancel,
                 ?? "a plain folder — double-click to look inside")}
           </div>
         )}
-        {/* A chosen run lays out the view's two questions before Open: where
-            the view's files are saved, and whether the low-resolution
-            mosaic is built now. The answers are already filled in; Open
-            works without touching either. */}
+        {/* A chosen run needs no questions answered: Open shows it through a
+            link file the viewer keeps to itself and throws away when it
+            closes — nothing lands on the operator's disk uninvited. The one
+            choice on offer is the mosaic; only ticking it asks where the
+            kept view should live. */}
         {kind === "open" && constructing && !constructing.relink && (
           <div style={styles.constructPane}>
-            <label style={styles.constructRow}>
-              <span style={styles.constructLabel}>save the view in</span>
-              {saveField}
-            </label>
             <div style={styles.constructRow}>
               <label style={styles.constructChoice}>
                 <input
@@ -683,12 +691,21 @@ function LoadWindow({ listing, onNavigate, onOpened, onConstructed, onCancel,
                   onChange={(event) => setConstructing(
                     (current) => ({ ...current, bake: event.target.checked }))}
                   disabled={constructing.running}
-                  aria-label="also build the low-resolution mosaic now"
-                  title="The zoomed-out mosaic is computed once now and kept as files, so the view opens fast ever after — views wearing ⚡ in the list have it. Left unchecked, it is composed from the raw data the first time someone looks"
+                  aria-label="build the low-resolution mosaic and keep the view"
+                  title="The zoomed-out mosaic is computed once now and kept as files beside the view's link file, so it opens fast ever after — views wearing ⚡ in the list have it. Left unchecked, nothing is written to your data: the viewer links the positions together for this session and forgets it after"
                 />
-                also build the low-resolution mosaic now (opens fast ever after)
+                build the low-resolution mosaic and keep the view (opens fast ever after)
               </label>
             </div>
+            {constructing.bake && (
+              <label style={styles.constructRow}>
+                <span style={styles.constructLabel}
+                      title="The view is a small file of links to the raw data plus the baked mosaic — this is where they live">
+                  save the view in
+                </span>
+                {saveField}
+              </label>
+            )}
             {constructing.running && (
               <div
                 style={styles.progressTrack}
@@ -754,12 +771,13 @@ function LoadWindow({ listing, onNavigate, onOpened, onConstructed, onCancel,
                 // inside it, none of them openable (2026-08-23).
                 const where = selected ? `${listing.path}/${selected.name}` : listing.path;
                 if (kind !== "other") {
-                  // Raw positions are always shown through a view: Open
-                  // builds one over them — unbaked unless the mosaic box
-                  // above is ticked — and opens what it built, all in one
-                  // press (the operator's call, 2026-08-23). A view, an
-                  // image or a plate opens directly.
-                  if (constructing) {
+                  // Raw positions are shown through a link file the server
+                  // composes for itself and forgets when it closes — a plain
+                  // Open keeps nothing on the operator's disk. Only the
+                  // ticked mosaic box builds a view that is KEPT, at the
+                  // place the operator chose (the operator's rule,
+                  // 2026-08-23). A view, an image or a plate opens directly.
+                  if (constructing?.bake) {
                     openRun();
                     return;
                   }
@@ -2211,7 +2229,6 @@ const styles = {
   // row IS (view, image, plate, raw), and a view that keeps its baked
   // low-resolution mosaic wears ⚡ beside its name — the fast-opening one.
   loadRowName: { flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" },
-  loadRowFast: { flexShrink: 0 },
   loadRowTag: {
     flexShrink: 0,
     color: "var(--text-faint)",
