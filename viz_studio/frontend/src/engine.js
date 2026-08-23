@@ -579,9 +579,29 @@ function syncSources(
   const already = sourcesApplied.get(layer) || new Set();
   const fresh = wanted.filter((url) => !already.has(url));
 
-  // A valid higher revision refreshes the stable aggregate source inside this
-  // existing layer.  No URL is added and the layer is not rebuilt, so camera and
-  // every operator-owned setting stay where they are.
+  // A valid higher revision means the run committed something new into a
+  // stable aggregate source this layer is already drawing. Only the pixels
+  // have changed: the picture behind that address is described once, when the
+  // run is declared, and its description never moves afterwards — the frame
+  // was never derived from what has arrived (see declare_a_governed_picture).
+  //
+  // So the refresh is pixels-only, done in place. forgetOneStableSource asks
+  // each decoded holder to refresh itself, and that request rides the
+  // keep-drawing-until-replaced delivery this repository patches into its
+  // engine: the stale pieces keep drawing while the fresh bytes download, and
+  // each is swapped for its replacement the moment it arrives. The operator
+  // never sees a gap.
+  //
+  // What must NOT happen here is re-resolving the source's address
+  // (`source.spec = { ...source.spec }`, which this block once did). That
+  // looks free — same address in, same description out — but the engine
+  // answers it by throwing the loaded source away first and reading the
+  // description again from the server afterwards, and between those two
+  // moments the layer has nothing to draw. On a sequential replay that road
+  // ran at every landing: the whole picture went black for 100–300 ms,
+  // sixteen times in a row — the flicker of 2026-08-23, photographed frame
+  // by frame in Chromium before it was understood. Since the description
+  // cannot have changed, re-reading it bought nothing and cost the picture.
   const revisions = revisionsFor(spec);
   const lastRevisions = revisionsSeen.get(layer);
   const advanced = advancingSourceRevisions(lastRevisions, revisions);
@@ -603,9 +623,6 @@ function syncSources(
         sourceRefreshing.decodedEntries += removed.decoded;
         if (refreshed) refreshed.add(identity);
       }
-      // Resolves the same stable address again after its affected memoized
-      // entries were removed.  This changes the source, not the layer.
-      source.spec = { ...source.spec };
     }
   }
 

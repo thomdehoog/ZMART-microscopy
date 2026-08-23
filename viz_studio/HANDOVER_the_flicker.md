@@ -117,3 +117,91 @@ Candidates worth suspecting first, newest concerns last:
 The one-day-earlier state, known good per the operator: anything before
 today's first commit (`8330ae5d`, the slider fill). `git log --oneline
 8330ae5d^..98153a31` lists the whole suspect range.
+
+---
+
+## RESOLVED, 2026-08-23 (the following session)
+
+The flicker is found, fixed, photographed, and gated. What follows is the
+record, so nobody hunts this ghost twice.
+
+### What it was
+
+Not WKWebView, and not the chunk delivery. **Chromium flickers too** — the
+probes above missed it because they sampled the picture ten times a second,
+and the flash lasts 100–300 ms *per landing* but the sampler looked either
+side of it. Re-run with a per-frame recorder (`requestAnimationFrame`, the
+same technique `test_the_screen_never_goes_black.py` uses), the operator's
+exact road — sequential tab, `test_grid_16`, Open — showed the whole picture
+at **0% lit for 8–19 consecutive frames after every single landing**, sixteen
+times in a run, while the chunk bookkeeping stayed perfectly healthy. The
+photographs (specimen → black → black → specimen-plus-one-tile) matched what
+the chair sees exactly.
+
+### The mechanism
+
+Every landing advances the run's source revision. `syncSources` in
+`frontend/src/engine.js` answered a revision advance in two steps: refresh
+the decoded pieces in place (correct — that is the patched
+keep-drawing-until-replaced delivery), and then `source.spec =
+{ ...source.spec }` to make the engine re-resolve the picture's address.
+That second step is the flicker. Neuroglancer answers a spec assignment by
+**throwing the loaded source away first** and resolving the address again
+afterwards — and between those two moments the layer has no drawing layers
+at all. Per-frame layer counts made it plain: 17 render layers → 11 → black
+→ 17 again, at every landing.
+
+The re-resolution bought nothing: a governed picture's description is
+written once, at declaration, and never moves (`declare_a_governed_picture`
+— "the frame was never derived from what has arrived"). Re-reading an
+immutable description cost the operator the picture, sixteen times.
+
+Why it regressed: the mechanism itself predates the suspect range
+(2026-08-21), but until the answer-at-declaration replay (`0c8327d`) the
+road was rarely driven — landings did not advance revisions one at a time,
+so the teardown fired rarely instead of per landing.
+
+### The fix
+
+One deletion in `engine.js`: a revision advance no longer re-sets
+`source.spec`. The refresh is pixels-only, delivered in place through the
+patched keep-drawing route. The camera, the operator's settings, and — now —
+the drawing layers all stay exactly where they were.
+
+Proved on the operator's road with the per-frame probe, three runs: zero
+downward steps, zero layer teardowns, the picture only grows as the sixteen
+tiles land. The refresh still genuinely happens: revision advances are
+answered with piece requests and the new tile appears (the manifest refresh
+contract suite passes unchanged).
+
+### The gate
+
+`test_the_screen_never_goes_black.py` now carries a second test,
+`test_the_screen_never_goes_black_when_a_position_lands`: a real landing on
+a live run, watched frame by frame. It asserts the picture never collapses,
+the drawing layers are never torn down, and the landing genuinely arrived.
+Falsified against the old code before being trusted: with the spec reset
+restored it fails exactly as the operator saw it — "dropped from 46% lit to
+0% lit for 9 frames (167 ms)".
+
+### What remains true, and one thing worth knowing
+
+- The 10 Hz sampling is superseded: sample per frame or not at all. Its
+  "Chromium is clean" was a statement about the sampler.
+  `probe_the_flicker_in_chromium.py` has been rewritten accordingly — it now
+  watches every drawn frame, ignores drops caused by the camera being
+  steered, and exits red the moment the picture loses ground with the
+  camera still. `probe_the_flicker_in_the_native_window.py` still samples at
+  ~8 Hz because a screen capture cannot ride the page's frames; treat a
+  clean answer from it as weak evidence and a dirty one as strong.
+- The veil, the themed ground, and the brightness snap were not implicated;
+  the per-frame recorder saw no other dips over the whole sixteen-landing
+  road.
+- One bounded residual, deliberately left alone: when a store's committed
+  frame count genuinely moves (a timelapse growing past what the engine had
+  read), the `grown` branch of `syncSources` still re-resolves the source,
+  because there the description really did change. That road tears down the
+  same way, but it fires only on true growth, not per landing, and no
+  measurement has shown it on an operator's screen. If it ever does, the cure
+  belongs one level down — teach the engine to keep the old source drawing
+  until its replacement has loaded — not in another special case here.
