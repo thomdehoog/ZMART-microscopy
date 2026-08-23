@@ -108,25 +108,27 @@ const WINDOW_SITS_FROM = 0.15;
  * moved with the handle would mean the operator could never see what their
  * drag had done.
  *
- * The axis never starts below zero, however much room the fifteen per cent
- * would otherwise ask for. There are no darker-than-nothing pixels, so that
- * part of the track could hold nothing and would only push the specimen to
- * the right (the operator's own instruction, 2026-08-22).
+ * The bars land at fifteen and eighty five per cent exactly, whatever the
+ * window's numbers are. For a window sitting close to zero that means the
+ * axis starts below zero — room no pixel can occupy, kept anyway because a
+ * pair of bars that always sits in the same two places is worth more than a
+ * left edge that never goes negative. The axis was clamped at zero for a
+ * day, which pinned the min bar to the left edge for exactly the dim
+ * channels Auto is most used on; the operator asked for the exact framing
+ * instead (2026-08-23).
  */
-function frameTheWindow(window_, declared = null) {
+function frameTheWindow(window_) {
   if (!window_ || !(window_.high > window_.low)) return null;
   const across = (window_.high - window_.low) / (1 - 2 * WINDOW_SITS_FROM);
   const beyond = across * WINDOW_SITS_FROM;
-  const ceiling = declared && Number.isFinite(declared.high) ? declared.high : Infinity;
   return {
-    low: Math.max(0, window_.low - beyond),
-    high: Math.min(ceiling, window_.high + beyond),
+    low: window_.low - beyond,
+    high: window_.high + beyond,
   };
 }
 
 function contrastRange(layer, window_, shown = null) {
   const measured = layer.histogram;
-  const declared = layer.range;
   let min = 0;
   let max = 65535;
   if (measured && Number.isFinite(measured.low) && measured.high > measured.low) {
@@ -134,12 +136,10 @@ function contrastRange(layer, window_, shown = null) {
     max = Math.ceil(measured.high);
   }
   if (shown && Number.isFinite(shown.low) && shown.high > shown.low) {
-    if (declared && Number.isFinite(declared.high)) {
-      return {
-        min: Math.max(shown.low, declared.low ?? 0),
-        max: Math.min(shown.high, declared.high),
-      };
-    }
+    // Taken as given, even where it runs past what the run declared or below
+    // zero: the framing promises the window's bars a fixed pair of places on
+    // the picture, and an axis trimmed back to the declared range would move
+    // them (see frameTheWindow).
     return { min: shown.low, max: shown.high };
   }
   return {
@@ -682,9 +682,9 @@ function ChannelControls({ layer, index, entry, mode, lookupTables, onWindow, on
   // said otherwise: settled from the window this channel was handed, and
   // settled again whenever Auto hands it another. Held in between, so that
   // dragging a handle moves the handle rather than the ground under it.
-  const [framed, setFramed] = React.useState(() => frameTheWindow(window_, layer.range));
+  const [framed, setFramed] = React.useState(() => frameTheWindow(window_));
   const frameAround = (given) => {
-    const around = frameTheWindow(given, layer.range);
+    const around = frameTheWindow(given);
     if (!around) return;
     setShown(null);
     setFramed(around);
