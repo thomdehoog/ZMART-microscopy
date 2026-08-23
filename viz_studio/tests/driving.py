@@ -96,7 +96,7 @@ def replay_through_the_window(page, name: str, *, folder=None) -> None:
     page.get_by_label("open images").click()
     window = page.get_by_role("dialog", name="load data")
     window.wait_for(timeout=10_000)
-    page.get_by_label("experimental", exact=True).click()
+    page.get_by_label("open positions sequentially", exact=True).click()
     _reach_the_listing(page, folder)
     window.get_by_label(name, exact=True).wait_for(timeout=10_000)
     window.get_by_label(name, exact=True).click()
