@@ -256,10 +256,14 @@ const ROW_KINDS = {
   // low-resolution mosaic (the ⚡ in the list) — and everything at full
   // resolution stays linked either way. The words below lead with that,
   // because "built" made it sound like the data had been duplicated.
+  // Two families only, as the operator settled it (2026-08-23): a row is
+  // either ZARR — data, whatever shape it takes — or ZMARTVIEW. The
+  // sentence still tells the shapes apart, because Open treats them
+  // differently; the tag deliberately does not.
   view: { tag: "zmartview",
           said: "a view — links to the raw data, nothing duplicated; it opens directly" },
-  image: { tag: "image", said: "one image — it opens directly" },
-  plate: { tag: "plate", said: "a plate of wells — it opens directly" },
+  image: { tag: "zarr", said: "one image — it opens directly" },
+  plate: { tag: "zarr", said: "a plate of wells — it opens directly" },
   run: { tag: "zarr",
          said: "raw positions from the microscope — Open links them together "
            + "into one picture for this session; nothing is copied and "
