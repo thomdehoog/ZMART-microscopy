@@ -161,3 +161,24 @@
 *::-webkit-scrollbar-corner {
   background: transparent;
 }
+
+/* Form controls are drawn flat, everywhere, in both dresses. The system's
+   own dress for a dropdown is a glossy button face, and for a number box a
+   pair of tiny spin arrows; both sat oddly among the plain controls (the
+   operator asked for flat, 2026-08-23). The border, ground and text each
+   control already declares are all the dressing they need. */
+select {
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+input[type="number"] {
+  appearance: textfield;
+  -moz-appearance: textfield;
+}

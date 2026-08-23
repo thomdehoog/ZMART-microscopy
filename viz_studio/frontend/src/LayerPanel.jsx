@@ -158,15 +158,40 @@ function contrastRange(layer, window_, shown = null) {
  * dimmed: everything to the left saturates to black, everything to the right
  * to white.
  *
- * The two bars ARE the window, so they drag: take hold near one and pull, and
- * that edge of the window follows — the same window the MIN and MAX sliders
- * move, so the two controls can never disagree. Whichever bar is nearer to
- * where the drag begins is the one taken hold of, which makes the bars easy
- * to grab even when the window is pushed against an edge.
+ * The two bars ARE the window, and only they move it: take hold of one — the
+ * pointer has to be over it, a few pixels of grace either side — and pull,
+ * and that edge of the window follows, the same window the MIN and MAX
+ * sliders move, so the two controls can never disagree. A bar can never be
+ * pulled past the image's own range: there are no pixels out there for a
+ * black or white point to say anything about.
+ *
+ * Everywhere that is not a bar, the pointer works the AXIS instead — the
+ * stretch of brightness being drawn, never the picture itself. Dragging pans
+ * it; the wheel zooms it toward the pointer, out as far as the whole range
+ * framed the usual way and no further. Auto puts the default framing back.
+ * (All of this is the operator's design, 2026-08-23.)
  */
-function Histogram({ layer, window_, color, onWindow, scale = "linear", axis = null }) {
+function Histogram({ layer, window_, color, onWindow, onAxis = null,
+                     range = null, scale = "linear", axis = null }) {
   const dragging = React.useRef(null);
+  const [overBar, setOverBar] = React.useState(false);
+  const box = React.useRef(null);
+  // The freshest zoom arithmetic, held where the listener below can reach
+  // it. The listener itself is attached once per mount; the maths it calls
+  // is replaced on every render, so it always reads today's axis.
+  const zooming = React.useRef(null);
   const counts = layer.histogram?.counts;
+  // The wheel zooms the axis, so the page must not scroll with it. React's
+  // own wheel listener is registered as "passive" — one that has promised
+  // never to stop the scroll — so the listener is attached by hand instead,
+  // with that promise withheld.
+  React.useEffect(() => {
+    const target = box.current;
+    if (!target) return undefined;
+    const wheel = (event) => zooming.current?.(event);
+    target.addEventListener("wheel", wheel, { passive: false });
+    return () => target.removeEventListener("wheel", wheel);
+  }, [Boolean(counts?.length)]);
   if (!counts?.length) return null;
   const measured = layer.histogram;
   // The box spans the AXIS -- the camera's whole range when the store's
@@ -201,46 +226,118 @@ function Histogram({ layer, window_, color, onWindow, scale = "linear", axis = n
     (_count, index) => brightnessOf(index) >= low && brightnessOf(index) <= low + span);
   const peak = Math.max(...(drawn.length ? drawn : counts), 1);
 
-  // Where a pointer event sits on the measured brightness scale.
+  // The image's own range of values, which the window may never leave: a
+  // black or white point beyond the pixels would say something about
+  // brightness that does not exist. The axis is allowed further — that is
+  // what keeps the bars at their fifteen and eighty-five per cent — but
+  // only as far as the whole range framed the usual way.
+  const bounds = range && Number.isFinite(range.high)
+    ? { low: range.low ?? 0, high: range.high }
+    : { low: Math.min(0, measured.low), high: Math.max(65535, measured.high) };
+  const widest = frameTheWindow(bounds);
+  const withinImage = (value) =>
+    Math.min(Math.max(value, bounds.low), bounds.high);
+  const holdTheAxis = (next) => {
+    const width = Math.min(
+      Math.max(next.high - next.low, (bounds.high - bounds.low) / 256),
+      widest.high - widest.low,
+    );
+    const from = Math.min(Math.max(next.low, widest.low), widest.high - width);
+    return { low: from, high: from + width };
+  };
+
+  // Where a pointer event sits on the brightness axis.
   const valueUnder = (event) => {
-    const box = event.currentTarget.getBoundingClientRect();
-    const fraction = Math.min(1, Math.max(0, (event.clientX - box.left) / box.width));
+    const face = event.currentTarget.getBoundingClientRect();
+    const fraction = Math.min(1, Math.max(0, (event.clientX - face.left) / face.width));
     return low + fraction * span;
   };
+  // Which bar the pointer is over, if either: within a few screen pixels,
+  // so the target is the drawn line and not "the nearer half of the box".
+  const barUnder = (event) => {
+    const face = event.currentTarget.getBoundingClientRect();
+    const grace = (6 / face.width) * span;
+    if (Math.abs(valueUnder(event) - window_.low) <= grace) return "low";
+    if (Math.abs(valueUnder(event) - window_.high) <= grace) return "high";
+    return null;
+  };
   const takeHold = (event) => {
-    if (!onWindow) return;
-    const value = valueUnder(event);
-    dragging.current =
-      Math.abs(value - window_.low) <= Math.abs(value - window_.high) ? "low" : "high";
+    const bar = onWindow ? barUnder(event) : null;
+    if (bar) {
+      dragging.current = { bar };
+    } else if (onAxis) {
+      // Not a bar: the drag pans the axis. Everything is measured from
+      // where the drag began, so the ground cannot creep under a held
+      // pointer as the axis it is measured against moves.
+      dragging.current = { panFrom: event.clientX, axisWas: { low, span } };
+    } else {
+      return;
+    }
     event.currentTarget.setPointerCapture(event.pointerId);
     follow(event);
   };
   const follow = (event) => {
-    if (!dragging.current || !onWindow) return;
-    const value = valueUnder(event);
-    // The floor may not cross the ceiling: a window at least one count wide
-    // always remains, so the picture can never invert.
-    if (dragging.current === "low") {
-      onWindow({ low: Math.min(value, window_.high - 1), high: window_.high });
-    } else {
-      onWindow({ low: window_.low, high: Math.max(value, window_.low + 1) });
+    const held = dragging.current;
+    if (!held) {
+      // A resting pointer only updates what the cursor face says it would
+      // grab, so the bars read as handles before they are ever touched.
+      const bar = onWindow ? barUnder(event) : null;
+      if (Boolean(bar) !== overBar) setOverBar(Boolean(bar));
+      return;
     }
+    if (held.bar) {
+      const value = withinImage(valueUnder(event));
+      // The floor may not cross the ceiling: a window at least one count
+      // wide always remains, so the picture can never invert.
+      if (held.bar === "low") {
+        onWindow({ low: Math.min(value, window_.high - 1), high: window_.high });
+      } else {
+        onWindow({ low: window_.low, high: Math.max(value, window_.low + 1) });
+      }
+      return;
+    }
+    const face = event.currentTarget.getBoundingClientRect();
+    const moved = ((held.panFrom - event.clientX) / face.width) * held.axisWas.span;
+    onAxis(holdTheAxis({
+      low: held.axisWas.low + moved,
+      high: held.axisWas.low + held.axisWas.span + moved,
+    }));
   };
   const letGo = () => {
     dragging.current = null;
   };
+  // The wheel zooms the axis toward the pointer: the brightness under the
+  // cursor stays under the cursor, everything else breathes in or out
+  // around it. The picture itself is untouched — this moves only what
+  // stretch of brightness is DRAWN.
+  zooming.current = onAxis
+    ? (event) => {
+      event.preventDefault();
+      const face = box.current.getBoundingClientRect();
+      const fraction = Math.min(1, Math.max(0, (event.clientX - face.left) / face.width));
+      const anchor = low + fraction * span;
+      const factor = Math.exp(event.deltaY * 0.002);
+      onAxis(holdTheAxis({
+        low: anchor - (anchor - low) * factor,
+        high: anchor + (low + span - anchor) * factor,
+      }));
+    }
+    : null;
 
   return (
     <svg
+      ref={box}
       viewBox={`0 0 ${counts.length} 24`}
       preserveAspectRatio="none"
-      style={{ ...styles.histogram, cursor: onWindow ? "ew-resize" : "default" }}
+      style={{ ...styles.histogram,
+               cursor: overBar ? "ew-resize" : onAxis ? "grab" : "default" }}
       role="img"
       aria-label={`histogram ${layer.name}`}
       onPointerDown={takeHold}
       onPointerMove={follow}
       onPointerUp={letGo}
       onPointerCancel={letGo}
+      onPointerLeave={() => overBar && setOverBar(false)}
     >
       {/* Bars inside the window at full light -- near-white, so the stretch
           the display ramp is spent on is unmistakable -- and bars outside it
@@ -697,11 +794,22 @@ function ChannelControls({ layer, index, entry, mode, lookupTables, onWindow, on
   const { min, max } = contrastRange(seen, window_, shown || framed);
   // The two handles are kept at least one count apart. A window of no width makes
   // every value in the image land on the same shade, so the picture goes flat and
-  // it is not obvious why.
+  // it is not obvious why. And neither handle may leave the image's own range
+  // of values — a black or white point beyond the pixels would describe
+  // brightness that does not exist (the operator's rule, 2026-08-23). This is
+  // the one gate every mover of the window passes: the sliders, the typed
+  // boxes and the histogram's bars all land here.
+  const imageRange = layer.range && Number.isFinite(layer.range.high)
+    ? { low: layer.range.low ?? 0, high: layer.range.high }
+    : { low: 0, high: 65535 };
+  const withinImage = (value) =>
+    Math.min(Math.max(value, imageRange.low), imageRange.high);
   const setLow = (low) =>
-    onWindow(index, { low: Math.min(low, window_.high - 1), high: window_.high });
+    onWindow(index, { low: Math.min(withinImage(low), window_.high - 1),
+                      high: window_.high });
   const setHigh = (high) =>
-    onWindow(index, { low: window_.low, high: Math.max(high, window_.low + 1) });
+    onWindow(index, { low: window_.low,
+                      high: Math.max(withinImage(high), window_.low + 1) });
 
   // There used to be BRIGHTNESS and CONTRAST sliders below MIN and MAX --
   // the same window re-described, the way Fiji presents it. They were removed
@@ -784,6 +892,8 @@ function ChannelControls({ layer, index, entry, mode, lookupTables, onWindow, on
               window_={window_}
               color={css(entry.color)}
               onWindow={(next) => onWindow(index, next)}
+              onAxis={(next) => setShown(next)}
+              range={imageRange}
               scale={scale}
               axis={{ min, max }}
             />
