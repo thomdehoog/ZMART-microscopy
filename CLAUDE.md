@@ -69,3 +69,11 @@ code that quietly tolerates states it was never designed for. So: the
 main path does exactly what it is supposed to do, plainly; every defense
 that does exist can point at the incident or measurement that justified
 it; and everything else is a test's job.
+
+## Open investigation: the flicker (start here next session)
+
+The operator sees the picture flicker in the native window; Chromium
+measures clean. Everything known, measured, and prepared — the probes, the
+prime suspect (WKWebView), the permission state, and the rules any fix must
+follow — is in **`viz_studio/HANDOVER_the_flicker.md`**. Read it before
+touching anything about drawing or refresh.
