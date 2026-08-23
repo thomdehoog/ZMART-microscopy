@@ -281,7 +281,16 @@ def _omero_metadata(*, single: bool = False) -> dict:
                 "window": {
                     "min": 0.0,
                     "max": 65535.0,
-                    "start": _BACKGROUND,
+                    # The black point sits a little BELOW the imaged
+                    # background, never at it. The viewer treats values at or
+                    # under the black point as "nothing was imaged here" and
+                    # lets the page's ground show through — the coverage rule
+                    # that keeps a survey's empty corners transparent.
+                    # Declaring it exactly at the 800-count background put
+                    # the quietest corner of the demo underneath it, and the
+                    # light theme's ground showed through as a bite taken
+                    # out of the picture (2026-08-23).
+                    "start": _BACKGROUND - 20,
                     "end": _BACKGROUND + _SIGNAL,
                 },
             }

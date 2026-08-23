@@ -251,10 +251,10 @@ const LOAD_KINDS = [
 // walk into. A "run" covers both shapes raw data takes: a plain folder of
 // position stores, and a bare zarr group wrapping them.
 const ROW_KINDS = {
-  view: { tag: "view", said: "a built view — it opens directly" },
+  view: { tag: "zmartview", said: "a built view — it opens directly" },
   image: { tag: "image", said: "one image — it opens directly" },
   plate: { tag: "plate", said: "a plate of wells — it opens directly" },
-  run: { tag: "raw",
+  run: { tag: "zarr",
          said: "raw positions from the microscope — Open builds a view over "
            + "them (nothing is copied), then shows it" },
 };
@@ -527,14 +527,6 @@ function LoadWindow({ listing, onNavigate, onOpened, onConstructed, onCancel,
       <div role="dialog" aria-label="load data" style={styles.loadWindow}>
         <div style={styles.loadHead}>
           <span style={styles.loadTitle}>load data</span>
-          <button
-            type="button"
-            onClick={onCancel}
-            aria-label="cancel loading"
-            style={styles.loadCancel}
-          >
-            Cancel
-          </button>
         </div>
         <div style={styles.loadKinds}>
           {LOAD_KINDS.map((door) => (
@@ -839,12 +831,29 @@ function LoadWindow({ listing, onNavigate, onOpened, onConstructed, onCancel,
                 Stop
               </button>
             )}
+            <button
+              type="button"
+              onClick={onCancel}
+              aria-label="cancel loading"
+              style={{ ...styles.loadCancel, marginLeft: 8 }}
+            >
+              Cancel
+            </button>
           </div>
         )}
         {constructing?.relink && (
           <div style={styles.constructPane}>
-            <div style={styles.constructTitle}>
-              point to the raw data for {constructing.name}
+            <div style={{ ...styles.constructTitle, display: "flex",
+                          justifyContent: "space-between", alignItems: "center" }}>
+              <span>point to the raw data for {constructing.name}</span>
+              <button
+                type="button"
+                onClick={onCancel}
+                aria-label="cancel loading"
+                style={styles.loadCancel}
+              >
+                Cancel
+              </button>
             </div>
             <label style={styles.constructRow}>
               <span style={styles.constructLabel}>raw data</span>
@@ -2224,12 +2233,16 @@ const styles = {
   },
   paceLabel: { textTransform: "uppercase", letterSpacing: ".04em", fontSize: 10 },
   paceChoice: {
+    // Drawn flat, not with the operating system's glossy button face: the
+    // native dress glowed against the rest of the window's plain controls.
+    appearance: "none",
+    WebkitAppearance: "none",
     background: "var(--input-bg)",
     border: "1px solid var(--control-border)",
     borderRadius: 3,
     color: "var(--text-primary)",
     font: "11px system-ui, sans-serif",
-    padding: "2px 4px",
+    padding: "2px 14px 2px 6px",
   },
   loadOpen: {
     flexShrink: 0,
