@@ -21,8 +21,11 @@ shape, not to look impressive once open. Run it with::
 
     python make_test_stores.py
 
-The stores land next to the demo volume in ``demo_store/``, so the viewer's
-load window finds them in the same folder it already knows.
+The stores land in ``test_stores/``, a sibling of the demo volume's folder —
+deliberately NOT inside ``demo_store/`` itself, because the demo server
+live-watches that folder for arriving acquisitions and would helpfully open
+every test store on its own the moment it appeared (which is exactly what
+happened on 2026-08-23). The load window reaches them one step up.
 
 The pixel values follow the demo's convention: 16-bit integers, a background
 of about 800 counts and blobs reaching a few thousand, so every store lands
@@ -38,7 +41,7 @@ from pathlib import Path
 import numpy as np
 
 _HERE = Path(__file__).resolve().parent
-_STORES = _HERE / "demo_store"
+_STORES = _HERE / "test_stores"
 
 # Two channels are enough to see colour blending work; four planes are enough
 # for the Z slider to have something to slide through.
