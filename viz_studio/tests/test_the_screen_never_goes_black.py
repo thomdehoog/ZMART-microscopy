@@ -53,6 +53,16 @@ check alone would not mean the picture refreshed. The test therefore also
 counts the piece requests the page makes after the invalidation, and fails if
 there were none: the screen must stay lit *and* the data must really have been
 asked for again.
+
+**There are two tests here, because the flash found two roads.** The first
+drives the chunk refresh directly, as above. The second drives the road the
+operator actually travels — a position of a live run landing while the page
+watches — because on 2026-08-23 that road flickered while the first test
+passed: the page was not dropping chunks at all, it was throwing away and
+rebuilding the *drawing layers themselves* on every landing, and for the
+100–300 milliseconds a rebuild took there was nothing to draw. Same black
+picture, different machinery — so it needs its own gate, watching the same
+way, frame by frame.
 """
 
 from __future__ import annotations
@@ -72,6 +82,9 @@ sys.path.insert(0, str(_VIZ / "building"))
 import measure_a_governed_run_at_scale as harness  # noqa: E402
 from declare import declare_a_governed_picture  # noqa: E402
 from server import make_server  # noqa: E402
+
+from zmart_live.tests.test_coordinator import some_specimen  # noqa: E402
+from zmart_live.tests.test_gateway import a_live_run  # noqa: E402
 
 # --------------------------------------------------------------------------
 # The numbers this test depends on, and why each one is what it is.
@@ -706,6 +719,207 @@ def test_the_screen_never_goes_black_when_the_cache_is_invalidated(
         if screencast is not None and recording_into is not None:
             _stop_recording_the_screen(screencast, caught_frames,
                                        recording_into, {})
+        page.close()
+        server.shutdown()
+        serving.join(timeout=5)
+
+
+# The settled half-picture must be at least this lit before the landing test
+# trusts its own measurement. It is lower than BASELINE_MUST_BE_LIT above on
+# purpose: this scenario opens with one of the run's two positions committed,
+# so only part of the window holds specimen — measured at about 25% of the
+# middle in practice. What matters for catching a collapse is the *relative*
+# drop to half of whatever the steady picture was, and a quarter-lit picture
+# gives that comparison plenty of room.
+LANDING_BASELINE_MUST_BE_LIT = 0.10
+
+
+def test_the_screen_never_goes_black_when_a_position_lands(
+    browser, built_dist, tmp_path
+):
+    """A position landing must add to the picture without ever taking it away.
+
+    This is the road the operator actually drives: a live run is open on
+    screen, and the microscope (here: the test) commits another position. The
+    news reaches the page, the page refreshes what it draws, and the new
+    position appears beside the ones already there.
+
+    The defect this gate holds out is the one found on 2026-08-23. Every
+    landing advanced the run's revision, and the refresh answered by making
+    the engine resolve the picture's address from scratch — which first throws
+    away the loaded drawing layers and only then reads the description again.
+    Between those two moments the layer had nothing to draw: the whole picture
+    went black for 100–300 ms, at every landing, sixteen times over a sixteen
+    position replay. The chunk-refresh gate above stayed green throughout,
+    because no chunk was ever dropped — the *layers* were. Since the picture's
+    description is written once at declaration and never moves (see
+    declare_a_governed_picture), re-reading it bought nothing; the refresh is
+    pixels-only now, delivered in place while the stale pixels keep drawing.
+
+    So this test watches, frame by frame, exactly the way the first one does,
+    while a real landing happens, and asserts three things: the picture never
+    collapses on any drawn frame, the drawing layers are never torn down, and
+    the landing genuinely arrived — the revision advanced and pieces were
+    fetched. A refresh that never happened would pass the first two for free.
+    """
+    run = a_live_run(tmp_path)
+    run.write_and_publish("posA", some_specimen(1700))
+
+    server = make_server(
+        port=0,
+        data_dir=run.folder,
+        site_dir=Path(os.environ.get("ZMART_STORM_BUILT_DIST", built_dist)),
+        store="views/live/live.ome.zarr",
+        window=(0, 4095),
+        live=True,
+    )
+    serving = threading.Thread(target=server.serve_forever, daemon=True)
+    serving.start()
+
+    page = browser.new_page(viewport={"width": 1000, "height": 780})
+    try:
+        port = server.server_address[1]
+        page.add_init_script(_KEEP_THE_DRAWN_PIXELS_READABLE)
+        # The slow recovery poll is set fast so the landing's news reaches the
+        # page promptly even if the immediate announcement is missed — this
+        # test is about what the refresh does to the picture, not about which
+        # of the two delivery roads carried the news.
+        page.add_init_script("globalThis.zmartLiveCheckMs = 500")
+
+        page.goto(f"http://127.0.0.1:{port}", wait_until="domcontentloaded")
+        page.wait_for_function("() => window.zmartViewer !== undefined",
+                               timeout=60_000)
+        page.wait_for_function(
+            """() => window.zmartConfig?.liveState?.runs?.[0]?.revision >= 1""",
+            timeout=60_000)
+        # Every piece the view wants is in hand — the first position has
+        # fully arrived and drawn before anything else is allowed to happen.
+        page.wait_for_function(
+            """() => {
+              let needed = 0, available = 0;
+              for (const managed of
+                   window.zmartViewer.layerManager.managedLayers) {
+                for (const drawing of
+                     (managed.layer && managed.layer.renderLayers) || []) {
+                  const progress = drawing.layerChunkProgressInfo;
+                  if (!progress) continue;
+                  needed += progress.numVisibleChunksNeeded;
+                  available += progress.numVisibleChunksAvailable;
+                }
+              }
+              return available > 0 && available >= needed;
+            }""",
+            timeout=90_000,
+        )
+        page.wait_for_timeout(SETTLE_MS)
+
+        started = page.evaluate(_WATCH_EVERY_FRAME,
+                                [SAMPLE_GRID, MIDDLE_SHARE, LIT_FLOOR])
+        if not started.get("started"):
+            raise TheMeasurementCouldNotBeMade(
+                "the per-frame watcher could not be installed: "
+                f"{started.get('why')}")
+
+        gathering_until = time.monotonic() + 10
+        while time.monotonic() < gathering_until:
+            so_far = page.evaluate(
+                "() => window.zmartFlickerWatch.frames.length")
+            if so_far >= STEADY_FRAMES_WANTED:
+                break
+            page.wait_for_timeout(100)
+        else:
+            raise TheMeasurementCouldNotBeMade(
+                "the page did not draw "
+                f"{STEADY_FRAMES_WANTED} frames in ten seconds, so there is no "
+                "steady picture to compare anything against")
+
+        refetches: list[str] = []
+        page.on("request",
+                lambda asked: refetches.append(asked.url)
+                if "/data/" in asked.url else None)
+
+        # Mark the moment, then land the second position. Every frame drawn
+        # from here on is "after the landing" for the reading below.
+        page.evaluate(
+            "() => { window.zmartFlickerWatch.invalidatedAt ="
+            " performance.now(); }")
+        run.write_and_publish("posB", some_specimen(3000))
+
+        # Wait until the page has heard the news and drawn itself complete
+        # again, then a moment longer, so the whole refresh — including any
+        # collapse it might cause — is inside the recording.
+        page.wait_for_function(
+            """() => window.zmartConfig?.liveState?.runs?.[0]?.revision >= 2""",
+            timeout=60_000)
+        page.wait_for_timeout(WATCH_AFTER_MS)
+
+        recording = page.evaluate(_STOP_WATCHING)
+        if recording is None:
+            raise TheMeasurementCouldNotBeMade(
+                "the per-frame watcher disappeared from the page before it "
+                "could be read back")
+        if recording.get("trouble"):
+            raise TheMeasurementCouldNotBeMade(
+                "the drawing surface could not be read back: "
+                f"{recording['trouble']}")
+
+        found = _read_the_frame_recording(recording)
+        if not found["usable"]:
+            raise TheMeasurementCouldNotBeMade(
+                f"the frame recording cannot be read: {found['why']}")
+        if found["baseline"] < LANDING_BASELINE_MUST_BE_LIT:
+            raise TheMeasurementCouldNotBeMade(
+                f"the settled picture was only {found['baseline']:.1%} lit, "
+                f"below the {LANDING_BASELINE_MUST_BE_LIT:.0%} this test "
+                "needs before it can tell a collapse from an already-empty "
+                "window. The first position did not draw, so nothing was "
+                "measured")
+
+        print("LANDING WATCH:", json.dumps({
+            key: value for key, value in found.items()
+            if key not in ("usable", "why")
+        }, default=float), flush=True)
+
+        # The landing must genuinely have happened: the revision moved (waited
+        # on above), the refresh road fired, and pieces were fetched. Without
+        # these, a page that quietly ignored the landing would pass the picture
+        # checks for free while showing the operator a stale picture.
+        assert page.evaluate(
+            "() => window.zmartSourceRefreshing.sources.length") > 0, (
+            "the landing advanced the revision but the refresh road never "
+            "fired — the picture on screen is silently stale")
+        assert refetches, (
+            "the landing caused no piece requests at all — the screen stayed "
+            "lit only because nothing was refreshed, which trades a visible "
+            "flash for a silently stale picture")
+
+        # The picture may never collapse on any drawn frame. This is the
+        # assertion that failed — 0% lit for 100–300 ms per landing — before
+        # the refresh became pixels-only.
+        assert found["deepest"] >= found["collapsed_below"], (
+            _describe_what_was_seen(found))
+
+        # And the drawing layers themselves must survive the landing. This is
+        # the mechanism behind the collapse, asserted directly so a future
+        # rebuild that happens to refill within one frame — too fast for the
+        # pixel check to see, but a stutter the operator can still feel — is
+        # caught all the same.
+        frames = [one for one in (recording.get("frames") or [])
+                  if one.get("lit") is not None]
+        fired_at = recording["invalidatedAt"]
+        drawing_before = statistics.median(
+            one["layers"] for one in frames if one["t"] < fired_at)
+        fewest_after = min(
+            one["layers"] for one in frames if one["t"] >= fired_at)
+        assert fewest_after >= drawing_before, (
+            f"the page was drawing with {drawing_before:.0f} layers before "
+            f"the landing and only {fewest_after} at some frame after it — "
+            "the landing tore drawing layers down and rebuilt them, which is "
+            "the very mechanism that blacked out the picture on 2026-08-23"
+        )
+        print(f"LANDING CONFIRMED: {len(refetches)} piece requests, layers "
+              f"held at {drawing_before:.0f}", flush=True)
+    finally:
         page.close()
         server.shutdown()
         serving.join(timeout=5)
