@@ -2339,27 +2339,9 @@ import scanfieldsWidget, { presetInk } from "./widgets/scanfields.js";
         },
       },
 
-      {
-        key: "plan",
-        label: "Plan",
-        explains: "The positions the microscope was told to visit. It stays readable once "
-          + "the tiles start landing on top of it, dimmed, because by then the images "
-          + "are the answer and this is only the question.",
-        /* Not before the step that says where to scan. Walking back to the
-           carrier is walking back to a question the plan is an answer to — the
-           fields were placed against these areas, and drawing them over a plate
-           that is still being changed shows a plan for a carrier that may be
-           about to stop existing. The fields are kept, not discarded: coming
-           forward again finds them where they were. */
-        shown: state.activeIdx >= indexOfStep("scanfields"),
-        paint: ({ context: ctx }) => {
-          scanfieldsWidget.drawOn(ctx, {
-            fields: state.fields, preset: activePreset(), carrier: state.carrier,
-            toScreen: place, scale: view.scale, dim: shown > 0,
-            marked: editing?.marked(),
-          });
-        },
-      },
+
+
+
 
       {
         key: "cells",
@@ -2431,8 +2413,38 @@ import scanfieldsWidget, { presetInk } from "./widgets/scanfields.js";
         /* Only while standing on that step — walking away leaves the canvas the
            plain picture every other step reads. */
         shown: activeMode === "focus",
-        staysSolid: true,
+        /* Not held back to the end, though it was at first. The scan fields are
+           drawn *over* the focus map — that is the order the page had before
+           any of this was a stack — and holding the map back put it on top
+           instead, which covered the very fields the operator is placing focus
+           points among. A layer that stays solid is a layer drawn last, so it
+           cannot also be a layer drawn early: this one has to be early, and the
+           cost is that the shared fade reaches it. Splitting the map from the
+           points would buy back both, and is the thing to do if that fade ever
+           matters here. */
         paint: ({ context: ctx }) => drawFocusLayer(ctx, place, view.scale, w, h),
+      },
+
+      {
+        key: "plan",
+        label: "Plan",
+        explains: "The positions the microscope was told to visit. It stays readable once "
+          + "the tiles start landing on top of it, dimmed, because by then the images "
+          + "are the answer and this is only the question.",
+        /* Not before the step that says where to scan. Walking back to the
+           carrier is walking back to a question the plan is an answer to — the
+           fields were placed against these areas, and drawing them over a plate
+           that is still being changed shows a plan for a carrier that may be
+           about to stop existing. The fields are kept, not discarded: coming
+           forward again finds them where they were. */
+        shown: state.activeIdx >= indexOfStep("scanfields"),
+        paint: ({ context: ctx }) => {
+          scanfieldsWidget.drawOn(ctx, {
+            fields: state.fields, preset: activePreset(), carrier: state.carrier,
+            toScreen: place, scale: view.scale, dim: shown > 0,
+            marked: editing?.marked(),
+          });
+        },
       },
 
       {
