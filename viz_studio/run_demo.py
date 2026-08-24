@@ -217,6 +217,10 @@ def main(argv: list[str] | None = None) -> int:
     open_window(
         port=args.port,
         store=store_name,
+        # The demo's interesting stores -- grids, plates, awkward shapes --
+        # live beside the demo volume, so the load window starts among them
+        # rather than inside the demo's own folder (asked 2026-08-24).
+        open_from=_HERE / "backend" / "test_stores",
         window=window,
         depth_samples=args.depth_samples,
         chrome=args.chrome,
