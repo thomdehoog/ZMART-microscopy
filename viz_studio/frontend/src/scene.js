@@ -87,6 +87,11 @@ export function shaderFor(volumetric, lut = null) {
   const declared = [
     "#uicontrol invlerp normalized",
     "#uicontrol float weight slider(min=0, max=1, default=1)",
+    // The raw value, untouched by the window: mapped over a fixed nought-to-
+    // one range without clamping, so ``imaged()`` simply answers the pixel's
+    // own number. It exists for one question only — was anything written
+    // here at all — which the window must have no say in.
+    "#uicontrol invlerp imaged(range=[0, 1], clamp=false)",
   ];
   if (!stops) declared.push('#uicontrol vec3 color color(default="white")');
   if (volumetric) {
@@ -113,15 +118,21 @@ export function shaderFor(volumetric, lut = null) {
       "}");
   } else {
     // Brightness rides in the colour and coverage rides in the transparency,
-    // and they answer two different questions: how bright is this spot, and was
-    // it imaged at all. A row that is ADDED to its neighbours needs the second
-    // one only so that ground nobody imaged contributes nothing; a row that
-    // COVERS needs it so an empty corner does not black out the picture
-    // beneath. Coverage is read from the windowed value, which is honest
-    // everywhere except at a black point raised above real but dim ground
-    // (recorded 2026-08-11) -- the engine offers no raw reader that compiles
-    // for every number type, so that limit stands, awaiting its own chapter.
-    lines.push("  emitRGBA(vec4(shown, v > 0.0 ? 1.0 : 0.0));", "}");
+    // and they answer two different questions: how bright is this spot, and
+    // was it imaged at all. A row that is ADDED to its neighbours needs the
+    // second one only so that ground nobody imaged contributes nothing; a
+    // row that COVERS needs it so an empty corner does not black out the
+    // picture beneath.
+    //
+    // Coverage is read from the RAW value now, never from the windowed one.
+    // For a day it was read from the window, and raising MIN above real but
+    // dim ground punched a see-through hole in the picture where the
+    // dimmest pixels lived — the operator watched it happen (2026-08-23,
+    // closing the limit recorded 2026-08-11). The display does exactly what
+    // a window means: below MIN clamps to black, above MAX to full, and
+    // only a pixel holding nothing at all — a true zero, the fill of ground
+    // never written — is not drawn.
+    lines.push("  emitRGBA(vec4(shown, imaged() > 0.0 ? 1.0 : 0.0));", "}");
   }
   return `${lines.join("\n")}\n`;
 }
