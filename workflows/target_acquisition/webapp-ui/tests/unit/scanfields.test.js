@@ -1,8 +1,8 @@
 import { describe, it, expect } from "vitest";
 import {
   block, bounds, boxesOverlap, centroid, contains, edges, handles, isPointLike,
-  normalise, rotatePoint, segmentHitsBox, snapSpan, tiles, topCentre,
-  withoutTrailingDuplicate,
+  normalise, rotatePoint, segmentHitsBox, sharePoints, snapSpan, tiles,
+  topCentre, withoutTrailingDuplicate,
 } from "../../src/lib/scanfields.js";
 import { carrierType, centres, fromPreset, geometry } from "../../src/lib/carriers.js";
 
@@ -225,5 +225,202 @@ describe("a region is sized in whole frames", () => {
     expect(Math.max(...laid.map((t) => t.x)) + half).toBeCloseTo(f.x + w, 6);
     expect(Math.min(...laid.map((t) => t.y)) - half).toBeCloseTo(f.y, 6);
     expect(Math.max(...laid.map((t) => t.y)) + half).toBeCloseTo(f.y + h, 6);
+  });
+});
+
+
+describe("focus points take an equal share of the field each", () => {
+  /* A field of 6 x 4 positions, 100 µm apart: the numbers are easy to read
+     back, and the shape is wide enough that a good split cuts it into columns
+     before it cuts it into rows. */
+  const grid = [];
+  for (let row = 0; row < 4; row++) {
+    for (let col = 0; col < 6; col++) grid.push({ x: col * 100, y: row * 100 });
+  }
+
+  it("one point sits in the middle, not in a corner", () => {
+    const [only] = sharePoints(grid, 1);
+    expect(only.x).toBeGreaterThan(0);
+    expect(only.x).toBeLessThan(500);
+    expect(only.y).toBeGreaterThan(0);
+    expect(only.y).toBeLessThan(300);
+  });
+
+  it("two points split the long way, and neither is on the rim", () => {
+    const two = sharePoints(grid, 2);
+    expect(two).toHaveLength(2);
+    const xs = two.map((t) => t.x).sort((a, b) => a - b);
+    expect(xs[0]).toBeGreaterThan(0);
+    expect(xs[1]).toBeLessThan(500);
+    // and they are a long way apart: this is a spread, not a pair of neighbours
+    expect(xs[1] - xs[0]).toBeGreaterThanOrEqual(200);
+  });
+
+  it("four points come one from each quarter", () => {
+    const four = sharePoints(grid, 4);
+    expect(four).toHaveLength(4);
+    const quarters = new Set(four.map((t) => `${t.x < 250 ? "l" : "r"}${t.y < 150 ? "t" : "b"}`));
+    expect(quarters.size, "one to a quarter").toBe(4);
+  });
+
+  it("never picks the same position twice", () => {
+    for (const n of [2, 3, 5, 7]) {
+      const picked = sharePoints(grid, n);
+      expect(new Set(picked.map((t) => `${t.x},${t.y}`)).size, `${n} points`)
+        .toBe(picked.length);
+    }
+  });
+
+  it("asks for more than there are and gets what there is", () => {
+    expect(sharePoints(grid, 99)).toHaveLength(grid.length);
+  });
+
+  it("answers the same way twice, so a map does not shift under a rerun", () => {
+    expect(sharePoints(grid, 5)).toEqual(sharePoints(grid, 5));
+  });
+
+  /* Nine frames, three by three, and six points asked for. Six over nine is
+     the case that shows whether the ground is being measured or only the
+     positions' centres: with the centres alone, three points end up owning two
+     frames each and settle on the seam between them while the top row is left
+     with nothing — a true fixed point of Lloyd's, for nine dots. What a frame
+     covers is a square of sample, so the six shares should come out as two rows
+     of three, each row a quarter of the way in from its end. */
+  it("shares out the ground a frame covers, not the point at its middle", () => {
+    const nine = [];
+    for (let row = 0; row < 3; row++) {
+      for (let col = 0; col < 3; col++) {
+        nine.push({ x: col * 100, y: row * 100, frameUm: 100 });
+      }
+    }
+    const six = sharePoints(nine, 6);
+    expect(six).toHaveLength(6);
+
+    // two rows of three, and neither row on a seam between frames
+    const rows = [...new Set(six.map((p) => Math.round(p.y / 5) * 5))].sort((a, b) => a - b);
+    expect(rows, `six points at ${six.map((p) => p.y.toFixed(0)).join(", ")}`)
+      .toHaveLength(2);
+    for (const y of rows) {
+      expect(six.filter((p) => Math.abs(p.y - y) < 3), "three to a row").toHaveLength(3);
+      for (const seam of [50, 150]) {
+        expect(Math.abs(y - seam), `a row at ${y.toFixed(0)} sits on the seam at ${seam}`)
+          .toBeGreaterThan(20);
+      }
+    }
+    // a quarter of the way in from each end of the block, which spans -50..250
+    expect(rows[0]).toBeGreaterThan(0);
+    expect(rows[0]).toBeLessThan(50);
+    expect(rows[1]).toBeGreaterThan(150);
+    expect(rows[1]).toBeLessThan(200);
+
+    // and three columns, spread the same way
+    const cols = [...new Set(six.map((p) => Math.round(p.x / 5) * 5))].sort((a, b) => a - b);
+    expect(cols).toHaveLength(3);
+  });
+
+  /* Seven over the same nine frames. An odd share has to go somewhere, and the
+     one place a block cannot afford to leave empty is its own middle: rows of
+     three, two and two put the spare share along the top and left a hole
+     through the centre of the block that nothing spoke for. */
+  it("keeps a share in the middle when the number does not divide evenly", () => {
+    const nine = [];
+    for (let row = 0; row < 3; row++) {
+      for (let col = 0; col < 3; col++) {
+        nine.push({ x: col * 100, y: row * 100, frameUm: 100 });
+      }
+    }
+    const seven = sharePoints(nine, 7);
+    expect(seven).toHaveLength(7);
+    const middle = Math.min(...seven.map((p) => Math.hypot(p.x - 100, p.y - 100)));
+    expect(middle, `the nearest to the middle is ${middle.toFixed(0)} away`)
+      .toBeLessThan(50);
+  });
+
+  /* Five over the same nine frames. How many rows to deal the shares in is not
+     something a formula can be trusted with: three rows of two, one and two —
+     the four corners with one in the middle — covers a square block more evenly
+     than two rows of three and two, and measurably so. */
+  it("puts one in the middle of five, which two rows of shares cannot", () => {
+    const nine = [];
+    for (let row = 0; row < 3; row++) {
+      for (let col = 0; col < 3; col++) {
+        nine.push({ x: col * 100, y: row * 100, frameUm: 100 });
+      }
+    }
+    const five = sharePoints(nine, 5);
+    expect(five).toHaveLength(5);
+
+    const middle = five.filter((p) => Math.hypot(p.x - 100, p.y - 100) < 30);
+    expect(middle, `five at ${five.map((p) => `${p.x.toFixed(0)},${p.y.toFixed(0)}`).join("  ")}`)
+      .toHaveLength(1);
+    // and the other four are the corners of the block, one to a quarter
+    const corners = new Set(five.filter((p) => !middle.includes(p))
+      .map((p) => `${p.x < 100 ? "l" : "r"}${p.y < 100 ? "t" : "b"}`));
+    expect(corners.size, "one to each corner").toBe(4);
+  });
+
+  it("stays inside the ground the positions cover", () => {
+    /* A focus point is a place the stage is driven to, not a frame the run
+       images, so it need not sit on a position — but it must be somewhere the
+       sample is, which for a filled rectangle is inside its extent. */
+    for (const p of sharePoints(grid, 6)) {
+      expect(p.x).toBeGreaterThanOrEqual(0);
+      expect(p.x).toBeLessThanOrEqual(500);
+      expect(p.y).toBeGreaterThanOrEqual(0);
+      expect(p.y).toBeLessThanOrEqual(300);
+    }
+  });
+});
+
+
+describe("the points settle into the shape, not into its bounding box", () => {
+  /* A triangle of positions: a wide bottom row narrowing to a single position
+     at the top, which is the case equal rectangular shares get wrong — a share
+     cut from the corner of the box holds almost nothing. */
+  const triangle = [];
+  for (let row = 0; row < 5; row++) {
+    const wide = 9 - row * 2;
+    for (let col = 0; col < wide; col++) {
+      triangle.push({ x: (col + row) * 100, y: row * 100 });
+    }
+  }
+
+  /** How far each position is from the nearest point measured, at worst. */
+  const worstDistance = (points) => Math.max(...triangle.map((t) =>
+    Math.min(...points.map((p) => Math.hypot(t.x - p.x, t.y - p.y)))));
+
+  it("gives every point a share of the positions to stand for", () => {
+    const points = sharePoints(triangle, 4);
+    const held = points.map(() => 0);
+    for (const t of triangle) {
+      let best = 0, bestD = Infinity;
+      points.forEach((p, i) => {
+        const d = Math.hypot(t.x - p.x, t.y - p.y);
+        if (d < bestD) { best = i; bestD = d; }
+      });
+      held[best] += 1;
+    }
+    for (const n of held) expect(n, "no point stands for nothing").toBeGreaterThan(0);
+  });
+
+  it("leaves no position far from the nearest point", () => {
+    // the triangle is 900 wide and 400 tall; four points settled into it put
+    // nothing further than a third of its width from one
+    expect(worstDistance(sharePoints(triangle, 4))).toBeLessThan(300);
+  });
+
+  it("has settled: measuring again moves nothing", () => {
+    const once = sharePoints(triangle, 4);
+    expect(sharePoints(triangle, 4)).toEqual(once);
+  });
+
+  it("hands back as many places as asked for, all different", () => {
+    const points = sharePoints(triangle, 6);
+    expect(new Set(points.map((t) => `${t.x},${t.y}`)).size).toBe(6);
+    // and each of them has positions of its own around it, nowhere off the shape
+    for (const p of points) {
+      const near = Math.min(...triangle.map((t) => Math.hypot(t.x - p.x, t.y - p.y)));
+      expect(near, "no point stranded away from the sample").toBeLessThan(150);
+    }
   });
 });

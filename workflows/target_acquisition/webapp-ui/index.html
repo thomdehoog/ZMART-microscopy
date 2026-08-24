@@ -48,20 +48,6 @@
                  `?picture=`; the drawing engine builds its own surfaces inside
                  it. See `viz_studio/options/jpeg-under/`. -->
             <div class="plot picturecv" id="picture-host"></div>
-            <!-- Framing the whole thing again is the one control that earns a
-                 place on the canvas rather than in a strip beneath it. It is
-                 about what you are looking at rather than about what is drawn,
-                 an operator reaches for it constantly, and it is the way back
-                 when a pan has gone somewhere unrecognisable.
-
-                 Called "Back to overview" rather than "Fit". Two reasons, and
-                 the second is the one that matters. "Fit" says what the
-                 arithmetic does; this says what you get. And "Back to" says it
-                 is a return rather than a place — which keeps it clear of the
-                 overview *scan*, the thing steps 3 and 5 are about, that the
-                 microscope actually produces. One word would have collided
-                 with that; three do not. -->
-            <button class="ghost fit-on-canvas" id="fit-btn">Back to overview</button>
             <div class="live-note" id="overview-note" hidden></div>
             <div class="tip" id="stage-tip"></div>
           </div>
@@ -74,54 +60,13 @@
           <aside class="canvas-side" id="canvas-side" hidden></aside>
         </div>
         <div class="canvas-foot">
-        <!-- **Taken off the screen, not taken out.**
-
-             This strip held the layer controls, the channel switches, the depth
-             slider and the coordinate readout. It is hidden while a better home
-             for those is decided — a bar of controls under a picture is where
-             things go when nobody has decided where they go.
-
-             Hidden rather than deleted, because the things in it are not all
-             finished questions. The depth slider and the channels are working
-             controls for working features, and deleting them would be deciding
-             those features need no controls — a different decision from
-             deciding this bar is the wrong place for them. The page still
-             builds them and whatever replaces this can reach them where they
-             are.
-
-             **Only the toolbar is hidden, not the foot around it.** Each step's
-             own Run button lives in the `panel-foot` below, in the same box,
-             and hiding the box took that with it — so no step could be run at
-             all. That is the shape of mistake to watch for here: this foot is
-             two unrelated things sharing one container. -->
-        <div class="toolbar" hidden>
-          <!-- The layers, built from whatever the step being stood on says
-               belongs above the picture. Three fixed checkboxes lived here
-               before: they could only be on or off, they could not be faded,
-               nothing could be seen through them, and a layer a later step
-               produced — the targets, the refined targets — had nowhere to
-               appear. What fills this now is the stack itself, so the list
-               grows with the run. See `src/canvas/layers-above.js`.
-
-               Where these controls should live and what they should look like
-               is still open; this is the machinery in the place the old
-               checkboxes were, not a settled design. -->
-          <div class="group" id="stage-layers"></div>
-          <div class="sep"></div>
-          <div class="group">
-            <span style="font-weight:600;color:var(--ink-3)">Channels</span>
-            <label><input type="checkbox" id="ch-0" checked> <span class="swatch" style="background:#22d3ee"></span> ch1</label>
-            <label><input type="checkbox" id="ch-1" checked> <span class="swatch" style="background:#f59e0b"></span> ch2</label>
-          </div>
-          <!-- Only there when the run being watched was taken as a stack: a
-               single-plane overview has no depth to step through. -->
-          <div class="group" id="overview-depth" hidden>
-            <span style="font-weight:600;color:var(--ink-3)">Plane</span>
-            <input type="range" id="overview-plane" min="0" max="0" value="0"
-                   aria-label="which plane of the stack to show">
-            <span class="readout" id="overview-plane-readout">1 / 1</span>
-          </div>
-          <div class="sep"></div>
+        <div class="toolbar">
+          <!-- What is drawn and how is the viewer's business, not this bar's:
+               which layers are on, which channels are mixed and which plane of
+               a stack is showing are all questions about a picture, and the
+               viewer that draws it is where they will be asked. Until then the
+               plan is drawn whole. -->
+          <button class="ghost" id="fit-btn">Fit</button>
           <div class="readout" id="stage-readout">—</div>
         </div>
           <div class="panel-foot" id="foot-canvas"></div>
@@ -218,50 +163,97 @@
            channel beside the canvas while that step is standing, so everything
            in them is built and wired once. -->
       <div id="focus-controls" hidden>
-          <div class="focus-side">
-            <div class="side-head">Select focus points</div>
-            <div class="fp-bar">
-              <div class="seg" id="fp-mode" role="radiogroup" aria-label="The pattern laid in every compartment">
-                <button type="button" role="radio" data-mode="first" aria-checked="true">First</button>
-                <button type="button" role="radio" data-mode="interval" aria-checked="false">Interval</button>
-                <button type="button" role="radio" data-mode="center" aria-checked="false">Center</button>
-                <button type="button" role="radio" data-mode="random" aria-checked="false">Random</button>
+        <div class="side-group">
+          <div class="side-group-title">Place focus points</div>
+          <div class="side-group-body">
+            <!-- The same two ways the step before offers, under the same
+                 words — one at a time by hand, or so many to a tileset all at
+                 once — and side by side, because either is a whole answer and
+                 neither comes before the other. -->
+            <div class="fp-ways">
+              <div class="fp-way">
+                <div class="side-sub">Manually</div>
+                <!-- Armed like a drawing tool, and drawn like one: placing
+                     points by hand is the same kind of act as drawing a
+                     tileset. Nothing on the canvas answers to a press until it
+                     is armed. -->
+                <button type="button" class="sf-tool" id="fp-pick"
+                        title="Place focus points — press the map to put one down, press one to take it away">
+                  <!-- The mark it puts down, drawn at the size a glyph is: the
+                       button and the thing it makes say the same thing. Its
+                       proportions are the canvas reticle's — a circle of 4.5
+                       with arms from 6.5 to 11, at a scale of one to two. -->
+                  <svg class="sf-glyph sf-glyph-drawn" viewBox="0 0 22 22" aria-hidden="true">
+                    <circle cx="11" cy="11" r="2.25" />
+                    <path d="M 5.5 11 L 7.75 11 M 14.25 11 L 16.5 11
+                             M 11 5.5 L 11 7.75 M 11 14.25 L 11 16.5" />
+                  </svg>
+                </button>
               </div>
-              <div class="fp-row" id="fp-count-row">
-                <label class="fp-label" for="fp-count" id="fp-count-label">Every nth</label>
-                <input type="number" id="fp-count" min="1" max="99" step="1">
-              </div>
-              <div class="fp-row">
-                <button type="button" class="ghost" id="fp-place">Place</button>
-                <button type="button" class="ghost" id="fp-clear">Clear</button>
-                <span class="fp-hint" id="fp-hint"></span>
-              </div>
-            </div>
-            <div class="side-head">Focus points</div>
-            <div class="point-list" id="point-list"></div>
-          </div>
-          <div class="focus-strip">
-            <div class="side-head trace-head">
-              Focus trace <span id="trace-which"></span>
-            </div>
-            <div class="trace-host">
-              <div class="zpreview">
-                <div class="zframe">
-                  <canvas id="zpreview-canvas" width="256" height="256"
-                          aria-label="image at the selected focus height"></canvas>
-                  <div class="zcap">
-                    <span class="zval" id="zpreview-z">—</span>
-                    <span class="zstate" id="zpreview-state"></span>
-                  </div>
+              <div class="fp-way">
+                <div class="side-sub">Automatically</div>
+                <div class="fp-lay">
+                  <!-- Just the number: points are always laid so many to a
+                       tileset, and saying so on every screen is a rule being
+                       restated rather than a control being explained. -->
+                  <input type="number" id="fp-count" min="1" max="99" step="1"
+                         aria-label="how many focus points in each tileset"
+                         title="How many focus points to lay in each tileset">
+                  <button type="button" class="sf-flat sf-doing" id="fp-place">
+                    Place focus points
+                  </button>
                 </div>
               </div>
-              <!-- its own host: the canvas is sized from its parent's box -->
+            </div>
+
+            <!-- The press that measures what was laid, at the end of the box
+                 that laid it, and beside it the way back out: both act on every
+                 point there is, where the row above acts on one tileset at a
+                 time. -->
+            <div class="fp-run">
+              <div class="focus-action"></div>
+              <button type="button" class="sf-flat" id="fp-clear">Clear focus points</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Not there until the map has been run: a trace is what a sweep
+             came back with, and before the run there is nothing to look at.
+
+             One box, three parts, each under a quiet word for it: the points
+             that were measured, the image at the height that was chosen, and
+             the sweep that chose it. -->
+        <div class="side-group" id="focus-traces" hidden>
+          <div class="side-group-title">Inspect focus traces</div>
+          <div class="side-group-body">
+            <div class="side-sub">Focus points</div>
+            <!-- Three rows deep, and scrolled past that: the list is here to
+                 choose from, and a list as long as the map pushes the picture
+                 it belongs to off the screen. -->
+            <div class="point-list" id="point-list"></div>
+
+            <div class="side-sub">Focus trace</div>
+            <div class="zpreview">
+              <div class="zframe">
+                <canvas id="zpreview-canvas" width="256" height="256"
+                        aria-label="image at the selected focus height"></canvas>
+                <div class="zcap">
+                  <span class="zval" id="zpreview-z">—</span>
+                  <span class="zstate" id="zpreview-state"></span>
+                </div>
+              </div>
+            </div>
+
+            <div class="side-sub">Focus plot</div>
+            <!-- its own host: the canvas is sized from its parent's box -->
+            <div class="trace-host">
               <div class="trace-plot">
                 <canvas id="trace-canvas"></canvas>
               </div>
               <div class="trace-empty" id="trace-empty">Run the strategy to measure each point, then its sweep appears here.</div>
             </div>
           </div>
+        </div>
       </div>
 
       <!-- Selection has no panel of its own either: the gated cells light up

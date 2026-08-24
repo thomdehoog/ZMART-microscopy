@@ -18,16 +18,116 @@ not be correct about physics.
 2. **Say what you would do and why before changing anything.** Check the
    reading against what is actually on screen.
 
-**The focus map is on the canvas, not in a tab.** Step 5 draws its heatmap over
-the plan with the canvas's own projection, and its controls — the pattern
-picker, the point list, the sweep and its preview — sit in the channel beside
-it, named `Autofocus settings` at the right end of the tab row. Points are laid as
-a **pattern per compartment** — `First` (top-left position), `Interval` (every
-nth), `Center`, `Random` (n distinct) — with a number box only where a pattern
-asks for one, and always land **on scan positions**, never beside them.
-Clicking the canvas is the other lane, not a mode: a press takes the position
-under it, a press on a placed point removes it, and a press over no position
-pans. SURS and the whole-canvas scope are gone.
+**Focus points are laid so many to a tileset.** One number beside `Place`. The
+tileset is divided into that many shares of equal area and the shares are then
+settled against each other — Lloyd's algorithm, `sharePoints` in
+`lib/scanfields.js` — until every point sits in the middle of the ground it
+stands for: as far from its neighbours as that many can be, with every part of
+the tileset having one speaking for it, and none on the rim, because the middle
+of a share is inset from the edge by half a share. Three deterministic seedings
+are settled and the most spread-out outcome kept, so five shares of a wide
+tileset come out three over two rather than five thin strips.
+
+A point is a **place**, not a position: somewhere the stage is driven to and a
+height is read, which is not the same question as where the run will image, so
+nothing about the plan's grid has a say in where it may sit. Tying points to
+frame centres put three points on a triangle in a row — that was where the
+frames were, not where the sample is. `Place` lays a fresh set rather than
+adding to one, because the points are settled against each other and a second
+set laid through the first would leave neither arrangement true. There used to
+be four patterns to choose between (first, centre, every nth, n at random),
+which was four answers to a question that only ever had one: how many. What is shared out is the ground, not the frames' middles: a frame covers a
+square of sample, and standing for it by the dot at its centre made a tileset
+nine dots instead of a filled block — six points over three by three frames came
+to rest on the seams between them, leaving the top row with nothing. Shares that do not
+divide evenly are dealt outwards from the middle in pairs, so the rows read the
+same from either end: seven over a square block is two, three, two, and eight is
+three, two, three. Dealt from the top instead, seven left a hole through the
+middle of the block — the one place a surface has least to go on.
+
+How many rows to deal them in is the one thing a formula cannot be trusted with:
+five shares of a square block are two, one and two — the four corners with one in
+the middle — where a count taken from the square root gives three and two, which
+covers the same ground less evenly. So the likely counts either side of the
+square root are laid, settled and measured, and the tightest is kept. One family
+of arrangements, measured; there used to be three different heuristics scored
+against each other, which is how eight points came out as something no operator
+would have drawn.
+
+What counts as one tileset is the plan's own answer, carried on every position
+it lays: a drawn tileset is one, and the positions a grid put in one area are
+that area's. Counting per *field* would have been counting per frame — `Add
+grid` lays a block in every area at once and each of its positions is a field of
+one, so asking for three points would have put three in every frame on the
+plate.
+
+**Either kind of focussing can be given a map.** Recording the preset finishes
+the step: a hardware autofocus holds focus off the coverslip and a software one
+finds it at every position, and both are complete answers on their own. A focus
+map is the optional extra on top of either — a software one finds each point's
+height by scoring a short stack, a hardware one is driven to the point and the
+height it settles at is read — so there is something to press exactly when there
+is a map to measure, whichever kind is measuring it. It used to be that a
+hardware reading ended the step with nothing to map, which said the stand's own
+focus and a measured surface were alternatives rather than one built on the
+other.
+
+**The focus map is on the canvas, not in a tab.** Step 4, `Focus strategy`,
+draws its heatmap over the plan with the canvas's own projection, and its
+controls — the map, the point list, the sweep and its preview — sit in the
+channel beside it. The map is a named object, made the way a preset is: a name
+and `New focus map`, or the button pressed empty for `Default n`, and the point
+controls only appear once there is a map to put points in. The recording
+decides whether there is a map at all: a hardware focussing preset finishes the
+step by itself — the stand holds focus, there is no surface to measure — while
+a software one asks for one.
+
+A map's row is the same bar a recorded preset gets, and for the same reason: it
+is a named object the step is working with, so it is chosen by pressing it,
+opened by its triangle to show what is in it — how many points, how many
+measured, the surface and its residual — and thrown away by its cross.
+
+**One focus map, and it belongs to the recording.** A run focuses one way, so
+there is one surface to fit and nothing to name or choose between: the point
+controls appear as soon as a focussing preset is recorded. Maps were named
+objects with a list of their own for a while — made, activated and forgotten
+like presets — which was a second kind of thing to keep track of for a step that
+only ever measures one surface.
+
+`PLACE FOCUS POINTS` offers the same two ways the step before it does, side by
+side under the same words: `MANUALLY` is the crosshair, `AUTOMATICALLY` is a
+number and `Create`, with `Clear` beside it — three of one size, because they are
+one decision with two answers. The points themselves are listed under
+`INSPECT FOCUS TRACES`, where choosing one asks to see its sweep, which is what
+that box is for.
+
+**Points are picked the way tilesets are.** Shift and drag over the map draws
+the same grey dashed rectangle the step before it draws, and takes the points it
+covers; shift on a point adds it or takes it back out; a press on empty ground
+lets go. Everything held moves together when one of them is dragged, and Delete
+takes the whole set away. The list marks what the canvas marks. A mark is dark
+grey — nothing else on the picture is, between the pale blue tilesets, their
+green outlines and a heatmap running purple to yellow — and one that is held or
+found by the pointer is the same mark in black and a little heavier, because a
+picked point is the same thing picked out, not a different drawing.
+
+Points are edited on the canvas as directly as in the list. The crosshair arms
+placing: a press then puts a point where the press landed, and a press on a
+point takes that one away. Unarmed, a point under the pointer says so — a
+heavier mark and a `grab` cursor — and dragging carries it anywhere, while
+Delete takes the chosen one away; a press over nothing still pans. One place
+works out what the cursor says (`focusCursor()`) and the drawing sets it, so a
+tool armed from the panel says so before the mouse is moved to find out. SURS
+and the whole-canvas scope are gone.
+
+**The scan step takes what was recorded; it records nothing.** Two boxes —
+`SELECT ACQUISITION PRESET` and `SELECT FOCUSSING PRESET` — each listing what
+has been recorded with the active one marked, because choosing here is the same
+act as choosing on the step that recorded it: there is one active recording of a
+kind and every step reads it. Under the focussing preset is the one thing this
+step decides for itself, `Focus at every tile` or `Use focus map`, the second
+greyed until a surface has actually been measured. Then `Start`, at the end of
+what it acts on.
 
 **Discovery is the same shape as focus.** Step 7 has no tab of its own: the
 canvas keeps the picture — the cells it finds land there — and the channel
@@ -42,12 +142,13 @@ into it asks `focusMounted()` first, because the channel hands it back when the
 step is left.
 
 **The step that defines the overview positions is built.** It is step 3,
-Overview scan settings: the ways of making fields in one box beside the canvas,
+Setup overview: the ways of making fields in one box beside the canvas,
 ported from `06_scanfields.jsx`. The grid reads the carrier's area centres, so
-the plate decides the plan. Drawing and the grid share that box under a title
-apiece, `GEOMETRY` and `GRID OF POSITIONS` — they are two answers to the same
-question and the operator moves between them without leaving anything; the
-verb sits on the button that does it, `Add grid` — and **the box is only there once a
+the plate decides the plan. Drawing and the grid sit in one box, `CREATE
+TILESETS`, with a word apiece over them — `MANUALLY` and `AUTOMATICALLY`. They
+are two ways of answering the same question, either a whole answer on its own, and
+the operator moves between them without leaving anything; the verb sits on the
+button that does it, `Add grid` — and **the box is only there once a
 preset has been recorded**, going again with the last one forgotten. It used
 to stand greyed on the argument that a step showing what it will be beats an
 empty column; with the recording above it saying what it waits for, a greyed
@@ -80,6 +181,60 @@ number off the screen:
   slide happens to have is not part of what can be imaged in it, and carried in
   the preset it pulled the imageable rectangle in at every edge for a shape
   nobody was working to.
+- **Connecting answers in a box of its own.** What the session was opened with
+  is one thing and what came back when it was opened is another, so the checks
+  stand under `CONNECTION CHECKS` rather than inside the form. There is no
+  sentence at the end of them any more — six ticks with their answers beside
+  them had already said it. Where the press was, an open session shows a green
+  lamp and the word `Connected`, the way an instrument says it is on; it is not
+  a button, because there is nothing to press about a state and a green one
+  sitting where the press was invited a second press. `Disconnect` is the button,
+  beside it.
+- **One distance between boxes, `--box-gap`.** Every column of boxes used to
+  space its own — 8px in the carrier step, 10 in the tilesets, 12 in the focus
+  step, and a couple of others by accident — so no two steps read alike. One
+  token now, set on each column, and a bar that fills its box from edge to edge
+  rather than leaving slack at one end.
+- **The focus mark has a colour nothing else uses.** Magenta, `--mark-focus`:
+  the marks sit over pale blue tilesets, green outlines and a viridis heatmap
+  that runs purple to yellow, and drawn in the page's blue they were one more
+  blue thing among them. The one the pointer has found or the list has picked
+  out is drawn in a brighter magenta and ringed, so choosing a row says which
+  mark it is from across the picture.
+- **A quiet word inside a box, where a second box would be too much.** The
+  headings above the cards name subjects; a `.side-sub` inside one names a part
+  of it — `MANUALLY` and `AUTOMATICALLY` over the two ways of laying tilesets,
+  `CARRIER PRESET` over the catalogue and its Load/Save/Reset in the box that
+  chose the carrier type.
+  Picking a wellplate and picking the 96-well one out of the catalogue are the
+  same question asked twice over, and a box apiece made the second look like a
+  fresh subject.
+- **A box says what it is above itself.** The heading sits over the white card,
+  not inside it, so a card holds controls and nothing else and a column of them
+  reads as a column of headings with their things underneath. One builder makes
+  them — `sideGroup()` in `src/frame/box.js`, handing back the box to put in the
+  panel and the card to put the controls in — and the heading and the card are
+  one element from the outside, because a box that comes and goes has to take
+  its heading with it. Every step is headed this way, the session card on step 1
+  included: it used to carry a larger heading of its own inside its card, which
+  made the first step look like a different kind of page.
+- **The operator's word is "tileset", not "scanfield".** The boxes read
+  `MANUALLY` and `AUTOMATICALLY` over the two halves of `CREATE TILESETS`, and
+  focus points are laid so many to a tileset — the number box beside `Place` says how many without having to say
+  per what. The code still calls them scan fields —
+  `widgets/scanfields.js`, the `scanfields` step id, the `sf-` classes — and
+  that is deliberate: renaming the ids would move what the run files its
+  results under for the sake of a word nobody reads there.
+- **The operator's word is "focus", not "autofocus".** The step is Focus
+  strategy, what is recorded is a focussing preset, and what a reading says of
+  itself is Software or Hardware. The mechanisms keep their names in the code —
+  `softwareAutofocus`, `hardwareAutofocus` — because that is what they are.
+- **A button that does something is blue** — `Record`, `Add grid`, `Fit`. The
+  ghost buttons are the ones that only change what is being looked at.
+- **The scale bar is flat and has a strip of its own** along the foot of the
+  canvas: a line and a number, no upstanding ends, and the drawing is cut off
+  above it rather than running under it. A rule with a plate showing through it
+  can be read as either.
 - **A region is drawn and resized in whole frames.** Dragging one out, or
   dragging a grip on it, moves its width and height a frame at a time, so its
   border and the tiles inside it land on the same line: nothing imaged outside
@@ -205,8 +360,8 @@ on the left from the very first step, and the standing step's controls in a
 channel on the right whose width the operator drags with the divider (canvas
 bigger by default). Nine steps in `target_acquisition`:
 
-1 Connect · 2 Define Carrier · 3 Register Carrier · 4 Overview scan settings ·
-5 Autofocus settings · 6 Scan the overview · 7 Discover Targets · 8 Refine Targets ·
+1 Connect · 2 Define Carrier · 3 Register Carrier · 4 Setup overview ·
+5 Focus strategy · 6 Scan the overview · 7 Discover Targets · 8 Refine Targets ·
 9 Acquire Targets
 
 Register Carrier is a declared **placeholder** — empty channel, and it holds
@@ -232,7 +387,7 @@ prove the frame is not built around one: `overview_only` (6 steps) and
   bar. Steps with a tab panel get a foot at its bottom; the carrier's is inside
   its channel. The button carries `.step-run` wherever it lands, which is what
   the tests find it by. `ownButton: true` means "this panel builds its own"
-  (Connect does). Define Carrier and Overview scan settings have no button
+  (Connect does). Define Carrier and Setup overview have no button
   at all — they are settled by doing the work — and Connect's lives in its
   form.
 - **The canvas is always on the stage — and only shows what the run knows.**
@@ -273,25 +428,28 @@ prove the frame is not built around one: `overview_only` (6 steps) and
   is; the fields and the button already do.
 - **There is no presets step: each recording lives in the step that uses it,
   so the state is tested where it matters.** Three slots, all drawn the same
-  way — a bold heading, then the bar that takes the next reading (a name box
-  and a **Record Microscope State** button), and under it **one row per
+  way, as **one box**: `RECORD ACQUISITION PRESET` (or focussing preset, or
+  acquisition type) is headed by the doing and names what the doing will make,
+  since the operator is after the thing rather than the gesture. Inside it, a
+  name box and a **Record** button, and directly under those **one row per
   reading taken**, each unfoldable to everything the controller returned and
-  forgettable with ✕:
-  - `ACQUISITION PRESET` heads the Overview-scan-settings channel. The plan takes
-    its frame from the active one, so the editor waits behind it — and
-    forgetting the last one takes the editor and the plan away again.
-  - `AUTOFOCUS PRESET` heads the Autofocus-settings channel, in the same box the
-    acquisition preset sits in, and the rest of the step appears only once a
-    reading is taken. **An autofocus is software or hardware**, and which one
-    decides what the step is: software focuses by taking a short stack and
-    scoring it, so it needs a focus map — patterns, points, the sweep, Apply
-    strategy. Hardware focuses by measuring a beam off the coverslip and holds
-    that distance at every position, so it needs nothing: no map, no button,
-    and the step is finished the moment such a reading is the active one. A
-    step says whether it has anything to run through `acts(run)`, and the
-    frame only asks. `softwareAutofocus` / `hardwareAutofocus` in
-    `lib/microscopes.js` are two builders rather than one with a flag, because
-    a hardware autofocus has no metric, no sweep and no steps.
+  forgettable with ✕. The readings had a white box of their own until they were
+  brought in here, which made them look like a second subject when they are the
+  answer to this one — and then a quiet word of their own for a while, which was
+  a heading saying what the heading above it had just said.
+  - In the Overview-scan-settings channel the plan takes its frame from the
+    active reading, so the editor waits behind it — and forgetting the last one
+    takes the editor and the plan away again.
+  - In the Focus-strategy channel the rest of the step appears only once a
+    reading is taken. **An autofocus is software or hardware**: software focuses
+    by taking a short stack and scoring it, hardware by measuring a beam off the
+    coverslip and holding that distance at every position. Either is a complete
+    answer on its own, so the recording finishes the step, and either can be
+    given a focus map — see the focus section above. A step says whether it has
+    anything to run through `acts(run)`, and the frame only asks.
+    `softwareAutofocus` / `hardwareAutofocus` in `lib/microscopes.js` are two
+    builders rather than one with a flag, because a hardware autofocus has no
+    metric, no sweep and no steps.
   - `RECORD ACQUISITION TYPE` heads the Acquire-Targets channel; the acquire
     button waits for it.
   - Names are capitalised on the way in; `renderRecordingSlot` in `main.js`
@@ -314,11 +472,11 @@ prove the frame is not built around one: `overview_only` (6 steps) and
   - There is no separate list of presets beside the rows — the same list drawn
     twice is one list and one copy that goes stale. The active preset's colour
     is the dot on its row and the ink the whole plan is drawn in.
-  - **One recording is unfolded at a time**: opening a second closes the
-    first, since two columns of detail do not fit down one channel.
-  - **Three readings is as tall as the list gets**, and it scrolls past that,
-    with the active one kept in sight. A slot that kept growing would push the
-    ways of laying fields off the bottom of the channel.
+  - **Any number of recordings can be unfolded at once**, and the list is as
+    long as it needs to be. Both were tried the other way — one open at a time,
+    three rows then scrolling — and both were wrong: comparing two readings
+    means reading both, and a slot that scrolled inside itself hid readings
+    behind a bar of its own. The channel scrolls if a step outgrows it.
   - ✕ forgets a recording whatever has been done with it. Nothing names a
     recording except the step itself, so what is left becomes active and the
     plan follows it. **Forgetting the last one takes the plan with it** —
@@ -357,7 +515,7 @@ prove the frame is not built around one: `overview_only` (6 steps) and
 
 **Two panels worth understanding**
 
-- **Autofocus settings** works on the position list, not on imagery. Model chosen
+- **Focus strategy** works on the position list, not on imagery. Model chosen
   by geometry, matching `workflow/_focus_surface.py`: constant / least-squares
   plane / thin-plate spline, smoothing 0.1. Both sharpness metrics are drawn on
   one plot and the legend is the control. Peaks narrower than 4.5 µm are not

@@ -97,19 +97,19 @@ export const carrierConfiguration = {
    matters. */
 export const initialScanfields = {
   id: "scanfields",
-  title: "Overview scan settings",
+  title: "Setup overview",
   why: "Record the preset the overview is taken with, then say where on the carrier it is taken.",
   panels: [],
   mode: "scanfields",
 };
 
-/* The autofocus preset is recorded here for the same reason: the sweeps that
+/* The focus preset is recorded here for the same reason: the sweeps that
    measure the surface are taken with it. */
 export const focusStrategy = {
   id: "focus",
-  title: "Autofocus settings",
-  why: "Record the autofocus preset, then choose how this run keeps every image sharp across the sample.",
-  btn: "Apply strategy",
+  title: "Focus strategy",
+  why: "Record the focussing preset, then choose how this run keeps every image sharp across the sample.",
+  btn: "Test focussing",
   panels: [],
   ms: 1400,
   mode: "focus",
@@ -118,20 +118,28 @@ export const focusStrategy = {
      describe a line rather than a plane. A fixed height, autofocus at every
      position and reusing an earlier surface each have everything they need the
      moment they are chosen. */
-  ready: ({ focus, focusPreset }) =>
-    (!hasRecording(focusPreset) ? "record the autofocus preset first"
-      : autofocusKind(focusPreset) === "hardware" ? null
-        : focus.strategy === "plane" && focus.points.length < 3
-          ? "place at least 3 points"
-          : null),
+  /* Measuring a surface is the optional extra, not the step: either kind of
+     focussing is already a complete answer on its own — the stand holds focus,
+     or the run finds it at every position. So the only thing this waits for is
+     the reading it is taken with.
 
-  /* A hardware autofocus is not something the run performs. The stand holds
-     focus itself, off the coverslip, at every position it is sent to — so
-     there is no surface to measure and nothing to press, and the step is
-     finished the moment such a reading is the active one. Only a software
-     autofocus, which focuses by taking a short stack and scoring it, leaves
-     the run anything to do. */
-  acts: ({ focusPreset }) => autofocusKind(focusPreset) !== "hardware",
+     Not for three points, though a plane needs three: the fit chooses what the
+     geometry buys — one point is a height, a few are a plane, enough are a
+     spline — so a map of two is a map of two, measured and reported as such.
+     Refusing to run it made the operator argue with the step about arithmetic
+     it was doing anyway. */
+  ready: ({ focus, focusPreset }) =>
+    (!hasRecording(focusPreset) ? "record the focussing preset first"
+      : focus.points.length ? null
+        : "no points to measure yet"),
+
+  /* Recording the preset finishes the step: both kinds keep every image sharp
+     on their own, one by holding focus off the coverslip and the other by
+     finding it at every position. Measuring a map is the extra on top, so the
+     press that measures it stands in its box from the moment the box is there
+     — greyed while there is nothing to measure, and saying so. It used to
+     disappear instead, which made clearing the points look like it had broken
+     the step. */
 };
 
 /* The count is the smaller half of what this step reports. The other half is
@@ -144,7 +152,7 @@ export const scanOverview = {
   id: "scan",
   title: "Scan the overview",
   why: "Drives the stage through every position, stitching tiles as they are saved.",
-  btn: "Scan overview",
+  btn: "Start",
   panels: [],
   ms: 2600,
   mode: "scan",

@@ -66,7 +66,7 @@ export const mockBackend = {
       };
     }
     if (strategy === "auto") {
-      return { surface: null, points, note: `autofocus per position · ${metric}` };
+      return { surface: null, points, note: `focused at every position · ${metric}` };
     }
 
     const measured = points.map((p, i) => {

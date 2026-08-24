@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { fullestOver, rest, settledPhotograph, startDemoRun, walkToTheScan } from "./live-run.js";
-import { fractionLit, litBounds, litGrid, meanGrid, photograph } from "./pixels.js";
+import { litBounds, litGrid, meanGrid, photograph } from "./pixels.js";
 
 /* What happens when most of the canvas was never imaged.
  *
@@ -48,6 +48,22 @@ const IMAGED = new Set(["0,0", "0,4", "4,0", "4,4", "2,2"]);
    it apart from the squares nobody has visited yet. */
 const IMAGED_BUT_EMPTY = "0,2";
 
+/* Depth is asked of the picture itself, not of a control on the page.
+ *
+ * The operator page used to carry a plane slider under the canvas; it is gone,
+ * along with the layer and channel rows, because the viewer is what will offer
+ * those. The layer underneath still reads one plane at a time, and that is what
+ * these measurements are about — so they drive it directly, through the handle
+ * the page leaves for a test. */
+async function pictureOpened(page) {
+  await page.waitForFunction(() => !!window.__liveOverview);
+}
+
+const stackDepth = (page) => page.evaluate(() => window.__liveOverview.depth);
+const planeShown = (page) => page.evaluate(() => window.__liveOverview.plane);
+const showPlane = (page, which) =>
+  page.evaluate((n) => window.__liveOverview.showPlane(n), which);
+
 let run = null;
 
 test.beforeAll(async () => {
@@ -74,9 +90,10 @@ test("a canvas imaged in a few scattered places draws the gaps as gaps", async (
   await expect(page.locator("#overview-canvas")).toBeVisible();
   await expect(page.locator("#overview-note")).toContainText("overview open");
 
-  // A run taken as a stack offers its depth; a single-plane overview does not.
-  await expect(page.locator("#overview-depth")).toBeVisible();
-  await expect(page.locator("#overview-plane-readout")).toHaveText(`1 / ${PLANES}`);
+  // A run taken as a stack knows how deep it is, and opens on its first plane.
+  await pictureOpened(page);
+  expect(await stackDepth(page), "the run is read as a stack").toBe(PLANES);
+  expect(await planeShown(page), "and opens on the first plane").toBe(0);
 
   /* This test looks at the whole canvas rather than the middle of it, because
      *where* each tile was drawn is the question. That means the page's own
@@ -92,8 +109,7 @@ test("a canvas imaged in a few scattered places draws the gaps as gaps", async (
   /* The deepest plane first, because there every imaged tile is lit all the way
      through and the picture's own edges can be found. Those edges are what the
      squares are measured against afterwards. */
-  await page.locator("#overview-plane").fill(String(PLANES - 1));
-  await page.locator("#overview-plane").dispatchEvent("input");
+  await showPlane(page, PLANES - 1);
   const deepest = await fullestOver(page, "sparse-1-deepest-plane", { seconds: 12, share: 1 });
 
   const bounds = litBounds(deepest.pixels);
@@ -116,12 +132,16 @@ test("a canvas imaged in a few scattered places draws the gaps as gaps", async (
   }
 
   /* And the whole picture is mostly gaps, which is the other half of the same
-     statement: five squares of twenty-five is a fifth of the canvas. A viewer
-     that filled the declared area with something would pass the check above and
-     fail this one. */
-  expect(deepest.lit, `about a fifth of the canvas has a picture in it: ${deepest.lit}`)
+     statement: five squares of twenty-five is a fifth of it. Measured over the
+     picture's own edges rather than over the whole box it is drawn in — how
+     much of the box the picture fills is a matter of how tall the window is,
+     and the run has nothing to say about that. A viewer that filled the
+     declared area with something would pass the check above and fail this
+     one. */
+  const share = (cells) => cells.flat().reduce((a, cell) => a + cell, 0) / (ACROSS * ACROSS);
+  expect(share(grid), `about a fifth of the picture has something in it: ${share(grid)}`)
     .toBeGreaterThan(0.1);
-  expect(deepest.lit).toBeLessThan(0.35);
+  expect(share(grid)).toBeLessThan(0.35);
 
   /* What the run answered for pieces of image that were never written. Zarr says
      there is no file for them, so the honest answer is "not found", and the
@@ -146,8 +166,7 @@ test("a canvas imaged in a few scattered places draws the gaps as gaps", async (
   for (let plane = 0; plane < PLANES; plane++) {
     const asked = answers.length;
     const missed = answers.filter((a) => a.status === 404).length;
-    await page.locator("#overview-plane").fill(String(plane));
-    await page.locator("#overview-plane").dispatchEvent("input");
+    await showPlane(page, plane);
     await rest(4000);
     const pixels = await photograph(page, "#overview-canvas", 1);
     /* Nearly the whole of each square is looked at here, rather than the middle
@@ -157,7 +176,9 @@ test("a canvas imaged in a few scattered places draws the gaps as gaps", async (
     const planeGrid = litGrid(pixels, ACROSS, { over: bounds, inset: 0.04 });
     perPlane.push({
       plane,
-      lit: fractionLit(pixels),
+      // again over the picture's edges, so the numbers of two planes are
+      // comparable with each other and with the fifth measured above
+      lit: share(planeGrid),
       requests: answers.length - asked,
       // How much of that was spent on room that was never imaged. Making the
       // gaps look right does not stop them being fetched, and on a canvas the
@@ -229,16 +250,16 @@ test("an unimaged part of the canvas is drawn solid, and can be made see-through
       await page.waitForTimeout(300);
       await walkToTheScan(page);
       await expect(page.locator("#overview-canvas")).toBeVisible();
-      // The depth control only knows how deep the run is once the run has been
+      // The picture only knows how deep the run is once the run has been
       // opened, so this is how long to wait before asking it for a plane.
-      await expect(page.locator("#overview-plane"))
-        .toHaveAttribute("max", String(PLANES - 1));
+      await pictureOpened(page);
+      expect(await stackDepth(page)).toBe(PLANES);
       await page.addStyleTag({ content: ".live-note { display: none !important; }" });
 
       await run.acquire(POSITIONS);
-      await page.locator("#overview-plane").fill(String(PLANES - 1));
-      await page.locator("#overview-plane").dispatchEvent("input");
-      await expect(page.locator("#overview-plane-readout")).toHaveText(`${PLANES} / ${PLANES}`);
+      await showPlane(page, PLANES - 1);
+      expect(await planeShown(page), "the deepest plane is the one on screen")
+        .toBe(PLANES - 1);
       const shown = await settledPhotograph(
         page,
         seeThrough ? "sparse-3-ground-showing-through" : "sparse-2-ground-hidden-by-the-image",
