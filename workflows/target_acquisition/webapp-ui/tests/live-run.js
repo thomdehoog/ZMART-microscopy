@@ -103,20 +103,32 @@ export async function walkToTheScan(page) {
   await page.locator(".session-foot button.run").click();
   await page.waitForTimeout(2200);
 
-  // Standing on the carrier step settles it; the scan fields need a grid.
+  /* Each step is walked the way an operator walks it. A recording comes first
+     wherever one is asked for: the ways of making tilesets are only offered
+     once the microscope state they would be taken with has been read, and the
+     focus step is the same. */
+  const record = async (hostId, name) => {
+    const bar = page.locator(`#${hostId} .setting-box.open`);
+    await bar.locator("input").fill(name);
+    await bar.locator("button.run").click();
+    await page.waitForTimeout(650);
+  };
+
+  // Standing on the carrier step settles it; the tilesets need a grid.
   await gotoStep("Define Carrier");
   await page.waitForTimeout(200);
-  await gotoStep("Overview scan settings");
+  await gotoStep("Setup overview");
+  await record("sf-preset", "overview");
   await page.locator(".sf-apply-grid").click();
   await page.waitForTimeout(300);
 
-  // The focus strategy wants points before it will run.
-  await gotoStep("Autofocus settings");
-  const box = await page.locator("#focus-canvas").boundingBox();
-  for (const [fx, fy] of [[0.3, 0.3], [0.68, 0.28], [0.5, 0.5], [0.32, 0.7], [0.7, 0.68]]) {
-    await page.mouse.click(box.x + box.width * fx, box.y + box.height * fy);
-    await page.waitForTimeout(50);
-  }
+  /* The focus strategy wants a reading, a map to lay points in, and the points
+     themselves before it will run. One to a tileset is enough here — the run
+     below is about what the scan draws, not about how well the plane fits. */
+  await gotoStep("Focus strategy");
+  await record("focus-preset", "af");
+  await page.locator("#fp-place").click();
+  await page.waitForTimeout(300);
   await page.locator(".panel.on button.step-run").click();
   await page.waitForTimeout(1600);
 

@@ -89,8 +89,11 @@ describe("readiness belongs to the step, not the frame", () => {
     name: "overview",
     reading: sampleReading(type, 0),
   });
+  /* A run standing on the focus step with a point or two down. The points are
+     what the button measures, so the rules about them are rules about a run
+     that has some. */
   const run = (over = {}) => ({
-    focus: { strategy: "plane", points: [] },
+    focus: { strategy: "plane", points: [1] },
     focusPreset: recorded("autofocus"),
     detect: { tested: false },
     gated: new Set(),
@@ -98,24 +101,20 @@ describe("readiness belongs to the step, not the frame", () => {
     ...over,
   });
 
-  it("fitting a surface wants three points", () => {
-    expect(blockedBecause(byId("focus"), run())).toMatch(/at least 3/);
+  /* The press stays where it is with nothing to measure and says what it waits
+     for. It used to vanish instead, which made clearing the points look like it
+     had broken the step. */
+  it("with no points, the press says what it waits for", () => {
     expect(blockedBecause(byId("focus"), run({
-      focus: { strategy: "plane", points: [1, 2, 3] },
-    }))).toBeNull();
+      focus: { strategy: "plane", points: [] },
+    }))).toMatch(/no points to measure/);
   });
 
-  it("a fixed height needs no points at all", () => {
-    expect(blockedBecause(byId("focus"), run({
-      focus: { strategy: "fixed", points: [] },
-    }))).toBeNull();
-  });
-
-  it("the focus strategy wants its autofocus preset recorded first", () => {
+  it("the focus strategy wants its focussing preset recorded first", () => {
     expect(blockedBecause(byId("focus"), run({
       focus: { strategy: "plane", points: [1, 2, 3] },
       focusPreset: emptySlot("autofocus"),
-    }))).toMatch(/autofocus preset/);
+    }))).toMatch(/focussing preset/);
   });
 
   it("detection wants a tile tested first", () => {
