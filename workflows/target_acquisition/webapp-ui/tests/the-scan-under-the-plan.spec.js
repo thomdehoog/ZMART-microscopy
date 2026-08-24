@@ -85,7 +85,7 @@ async function throughToAPlan(page) {
   await page.locator(".carrier-type[data-type='wellplate']").click();
   await page.locator(".carrier-preset").selectOption({ label: "6-well" });
   await page.waitForTimeout(300);
-  await gotoStep(page, "Overview scan settings");
+  await gotoStep(page, "Setup overview");
   await recordSlot(page, "sf-preset", "overview");
   await page.locator(".sf-apply-grid").click();
   await page.waitForTimeout(400);
@@ -101,11 +101,11 @@ async function throughToAScannedPlate(page) {
   await page.locator(".carrier-type[data-type='wellplate']").click();
   await page.locator(".carrier-preset").selectOption({ label: "6-well" });
   await page.waitForTimeout(300);
-  await gotoStep(page, "Overview scan settings");
+  await gotoStep(page, "Setup overview");
   await recordSlot(page, "sf-preset", "overview");
   await page.locator(".sf-apply-grid").click();
   await page.waitForTimeout(400);
-  await gotoStep(page, "Autofocus settings");
+  await gotoStep(page, "Focus strategy");
   await recordSlot(page, "focus-preset", "af");
   await page.locator("#fp-place").click();
   await page.waitForTimeout(300);
