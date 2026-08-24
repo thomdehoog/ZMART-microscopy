@@ -3,6 +3,18 @@
   --screen: #ffffff;
   --surface-2: #f8fafc;
   --surface-3: #f1f5f9;
+  /* One height for every control in a channel: fields, buttons and the bars
+     that hold a recording. Steps that chose their own drifted apart, and a
+     column of controls that are nearly the same height reads as a column
+     nobody looked at twice. */
+  --control: 30px;
+  /* How far one box stands from the next, everywhere in the channel. Each
+     column of boxes used to space its own — 8px here, 10 there, 12 in the
+     focus step — so no two steps read alike. */
+  --box-gap: 16px;
+  /* the width shared by the hand's button, the number and the press that
+     measures — set by the longest of their words */
+  --fp-col: 132px;
   --line: #e2e8f0;
   --line-strong: #cbd5e1;
   --ink: #0f172a;
@@ -26,6 +38,15 @@
      somewhere is good. Kept apart from --bad for that reason, so neither can
      be changed into the other by accident. */
   --mark-stage: #e11d48;
+  /* where focus is measured. Dark grey, which nothing else on the picture is:
+     the tilesets are pale blue, their outlines green and the heatmap runs
+     purple to yellow, so a grey mark reads as something on top of all of them
+     rather than as one more coloured thing among them. */
+  --mark-focus: #334155;
+  /* and the ones held, or found by the pointer: the same mark in black and a
+     little heavier. A picked point is the same thing picked out, so it is the
+     same drawing turned up rather than a different drawing. */
+  --mark-focus-lit: #000000;
   /* the three sharpness metrics, as three series on one plot */
   --m-brenner: #0369a1;
   --m-dct: #7c3aed;
@@ -108,7 +129,7 @@
 /* The width of the column beside a canvas, wherever one stands. A little
    generous by default — the channel is where the work happens — and the
    divider hands the rest to whoever needs it. */
-:root { --side-w: 360px; }
+:root { --side-w: 460px; }
 
 * { box-sizing: border-box; }
 
@@ -177,6 +198,17 @@ button.ghost {
   padding: 6px 11px; cursor: pointer;
 }
 button.ghost:hover:enabled { background: var(--line); color: var(--ink); }
+/* Framing the picture is the one thing this bar does, so it is blue like every
+   other button that does something. */
+#fit-btn {
+  color: #fff; background: var(--accent); border-color: var(--accent);
+}
+#fit-btn:hover:enabled { background: var(--accent-deep); border-color: var(--accent-deep); }
+:root[data-theme="dark"] #fit-btn,
+:root:not([data-theme="light"]) #fit-btn { color: #04121d; }
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) #fit-btn { color: #fff; }
+}
 button.ghost:disabled { opacity: 0.45; cursor: default; }
 
 /* A button that undoes something the rest of the run rests on. Shaped like
@@ -186,7 +218,7 @@ button.danger {
   font: inherit; font-size: 13px; font-weight: 600;
   color: var(--screen); background: var(--bad);
   border: 1px solid var(--bad); border-radius: 8px;
-  padding: 6px 11px; cursor: pointer;
+  height: var(--control); padding: 0 11px; cursor: pointer;
 }
 button.danger:hover:enabled { filter: brightness(0.9); }
 button.danger:disabled { opacity: 0.45; cursor: default; }
@@ -246,7 +278,7 @@ button.danger:disabled { opacity: 0.45; cursor: default; }
 button.run {
   align-self: flex-start; font: inherit; font-size: 13px; font-weight: 600;
   color: #fff; background: var(--accent); border: none; border-radius: 7px;
-  padding: 6px 14px; cursor: pointer;
+  height: var(--control); padding: 0 14px; cursor: pointer;
 }
 :root[data-theme="dark"] button.run, :root:not([data-theme="light"]) button.run { color: #04121d; }
 @media (prefers-color-scheme: light) { :root:not([data-theme="dark"]) button.run { color: #fff; } }
@@ -413,54 +445,124 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
    trace is what a point is picked in order to look at. */
 #focus-controls { display: flex; flex-direction: column; height: 100%; min-height: 0; }
 #focus-controls[hidden] { display: none; }
-.focus-side { display: flex; flex-direction: column; flex: 1; min-height: 0; }
-.focus-strip {
-  display: flex; flex-direction: column; flex: none;
-  border-top: 1px solid var(--line);
+/* The focus step is a column of boxes, like the two steps before it: the
+   channel reads the same whichever step is standing in it, and a panel that
+   ruled its sections off edge to edge instead read as another kind of screen
+   inside the same one. */
+#focus-controls {
+  display: flex; flex-direction: column; gap: var(--box-gap);
+  /* the top is the space between this column and the box above it, which is
+     the same space as between any two boxes */
+  padding: var(--box-gap) 14px 14px; min-height: 0;
+}
+#focus-controls[hidden] { display: none; }
+/* The list of points is the one part that grows, so it takes what is left and
+   scrolls inside its own box rather than pushing the trace off the bottom. */
+/* Three rows deep, bled to the edges of the box that holds it: a list as long
+   as the map would push the picture it belongs to off the screen. */
+.side-group-body > .point-list {
+  max-height: 96px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);
 }
 
-.fp-bar {
-  display: flex; flex-direction: column; gap: 8px;
-  padding: 10px 12px 12px; border-bottom: 1px solid var(--line);
+/* A row of its own rather than the scan fields' row reused: the button is the
+   same kind of button and wears `.sf-tool`, but a second element answering to
+   `.sf-tools` made every question about "the tool row" ambiguous. One tool in
+   it, at a tool's width instead of stretched to the channel — a button that
+   changed size with how many neighbours it had would not read as the same
+   kind of thing. */
+.fp-tools { display: flex; align-items: stretch; gap: 8px; }
+.fp-tools .sf-tool { flex: 0 0 52px; }
+
+/* The two ways of putting points down, side by side under a word apiece: the
+   hand on the left at a tool's width, and on the right the number and the
+   button that lays that many. Both stand as tall as the tool, so the row reads
+   as one row rather than a tall thing beside a short one. */
+/* The two ways of putting points down, one under the other: each is a whole
+   answer, and stacked they read as two ways rather than as one row of controls
+   that happens to have two headings. */
+.fp-ways { display: flex; flex-direction: column; gap: 12px; }
+.fp-way { display: flex; flex-direction: column; gap: 5px; }
+/* Every control in this box stands at the channel's own height — the crosshair
+   included, though the drawing tools a step earlier are taller. There it is a
+   row of six glyphs and nothing else; here it shares its rows with buttons, and
+   one button taller than the rest reads as a mistake rather than as a tool. */
+/* One width down the left of the box: the hand's button, the number beside the
+   press that lays them, and the press that measures the map. Three controls of
+   one size read as one column of controls — wide enough for the longest of
+   their words, which is the press. */
+.fp-way .sf-tool { flex: none; width: var(--fp-col); height: var(--control); }
+/* How many, and the press that lays them. The number is the width of the hand's
+   button above it — the two are the same kind of thing, one to a way. */
+.fp-lay {
+  /* wide enough for two digits and the stepper the browser puts beside them,
+     which is as many as the number ever needs */
+  display: grid; grid-template-columns: var(--fp-col) minmax(0, 1fr);
+  gap: 8px; height: var(--control);
 }
-/* the choice is the width of the column, because it is the first thing asked */
-.fp-bar .seg { width: 100%; }
-.fp-bar .seg button { flex: 1; min-width: 0; }
-.fp-row { display: flex; align-items: center; gap: 8px; }
-/* display:flex outweighs the [hidden] attribute's browser rule, so the row a
-   pattern is not asking for has to be put away explicitly */
-.fp-row[hidden] { display: none; }
-.fp-row button.ghost { flex: 1; }
-.fp-label {
-  font-size: 11px; font-family: var(--mono); font-weight: 600;
-  letter-spacing: 0.04em; text-transform: uppercase; color: var(--ink-3);
+.fp-lay input {
+  /* read from the left, like every other number in the channel */
+  width: 100%; height: 100%; text-align: left; padding: 0 8px;
+  font: inherit; font-size: 13px; font-family: var(--mono); color: var(--ink);
+  background: var(--screen); border: 1px solid var(--line-strong);
+  border-radius: 6px;
 }
-.fp-bar input[type="number"] {
-  width: 58px; font: inherit; font-size: 13px; font-family: var(--mono);
-  padding: 4px 6px; border: 1px solid var(--line-strong); border-radius: 6px;
-  background: var(--screen); color: var(--ink);
+.fp-lay input:focus { outline: none; }
+.fp-lay .sf-flat { height: 100%; font-size: 12.5px; padding: 0 6px; }
+
+/* What is done to every point there is: the press that measures them all, and
+   the one that takes them all away. The row above acts on one tileset at a
+   time; this one acts on the map.
+
+   Two buttons and nothing else: the press greys itself while there is nothing
+   to measure, which is the whole of what there is to say. Laid on the same two
+   columns as the row above — indented past the hand's column, so `Clear` is
+   exactly as wide as the `Place` it undoes. */
+.fp-run {
+  /* The same two columns as the row above it, so the press that measures sits
+     under the number and the one that clears sits under what it undoes. */
+  display: grid; grid-template-columns: var(--fp-col) minmax(0, 1fr);
+  gap: 8px; align-items: center;
 }
-/* what the pattern comes to across every compartment, before Place is pressed */
-.fp-hint {
-  margin-left: auto; font-size: 11.5px; font-family: var(--mono); color: var(--ink-3);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
+/* The press that measures sits under the number, in the column it shares. */
+.fp-run .focus-action { grid-column: 1; display: flex; align-items: center; }
+.fp-run .focus-action button.run { width: 100%; padding: 0 6px; white-space: nowrap; }
+/* And the way back out keeps the width of the press it undoes. */
+.fp-run #fp-clear { grid-column: 2; height: var(--control); padding: 0 12px; }
+
 .side-head {
   font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
   color: var(--ink-3); padding: 9px 12px 7px; border-bottom: 1px solid var(--line);
   display: flex; align-items: baseline; gap: 8px;
 }
 .side-head span { font-family: var(--mono); font-size: 11px; letter-spacing: 0; text-transform: none; color: var(--ink-2); }
-.trace-head { border-top: 1px solid var(--line); }
 .point-list { overflow-y: auto; min-height: 0; flex: 1; }
+/* Inside a box now: the rows run to its edges and the box keeps the padding,
+   so the list needs its own negative inset to sit flush against them. */
+.side-group-body .point-list { margin: 0 -14px; }
+.side-group-body .point-row { padding-left: 14px; padding-right: 14px; }
 .point-row {
-  display: flex; align-items: center; gap: 8px; width: 100%;
-  padding: 6px 12px; border: none; border-bottom: 1px solid var(--line);
-  background: none; font: inherit; text-align: left; cursor: pointer;
+  display: flex; align-items: center; width: 100%;
+  border-bottom: 1px solid var(--line);
   font-family: var(--mono); font-size: 11.5px; color: var(--ink-2);
   font-variant-numeric: tabular-nums;
 }
+/* The row picks the point; the cross at its end throws it away. */
+.point-pick {
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px;
+  padding: 6px 12px; border: none; background: none; font: inherit;
+  color: inherit; text-align: left; cursor: pointer;
+}
+.point-drop { flex: none; margin-right: 6px; }
 .point-row:hover { background: var(--surface-3); }
+/* The anchor points, and the press that ties each to where the stage is. */
+.anchor-list { max-height: none; }
+.anchor-snap { flex: none; height: 22px; padding: 0 8px; font-size: 11px; margin-left: auto; }
+
+/* Moved since it was measured: the row stays, because the point is still on the
+   map, and greys, because what was read for it no longer describes it. */
+.point-row.stale { color: var(--ink-3); }
+.point-row.stale:hover { background: none; }
+.point-row.stale .point-pick { cursor: default; }
 .point-row[aria-current="true"] { background: var(--accent-tint); color: var(--accent-deep); }
 .point-row .idx { color: var(--ink-3); min-width: 16px; }
 .point-row[aria-current="true"] .idx { color: var(--accent-deep); }
@@ -473,14 +575,17 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
    top, the sweep beneath it. The image first because it is the answer — the
    curve is the working — and the curve is given a modest fixed height, since
    its shape is what is being read and no amount of extra height adds to that. */
-.trace-host { position: relative; min-height: 0; display: grid; grid-template-rows: auto 152px; }
+.trace-host { position: relative; min-height: 0; display: grid; grid-template-rows: 152px; }
+/* Flush with the box that holds it, which brings its own padding. */
+.side-group-body .trace-host { margin: 0 -14px -12px; }
 /* Every canvas here is measured from its parent, so each one needs a parent
    that is its own box and nothing else's. */
 .trace-plot { position: relative; min-height: 0; }
 #trace-canvas { display: block; width: 100%; height: 100%; cursor: ew-resize; touch-action: none; }
-.zpreview {
-  display: flex; justify-content: center; padding: 12px 14px 14px; min-height: 0;
-}
+/* The image at the height that was chosen. No padding of its own: the box it
+   sits in brings that, and a picture inset inside an inset read as a frame
+   round a frame. */
+.zpreview { display: flex; justify-content: center; min-height: 0; }
 /* The readings sit on the image, so they are placed against the image's own box
    rather than the column's — a caption wider than what it captions reads as a
    band across the panel. */
@@ -723,24 +828,32 @@ canvas.livecv[hidden] { display: none; }
 /* ---- setup panel -------------------------------------------------------
    What the run is configured with. The cards render into the channel like
    every other step's controls; this is their margin inside it. */
-.side-pad { padding: 12px 14px 14px; }
+.side-pad {
+  padding: 12px 14px 14px;
+  display: flex; flex-direction: column; gap: var(--box-gap);
+}
 /* A box that brings its own padding still needs the channel's margin around
-   it, which a panel of plain markup gets from `.side-pad`. */
-.side-pad-around { margin: 14px 14px 0; }
+   it, which a panel of plain markup gets from `.side-pad`. More than one box
+   in there stands apart the way boxes do elsewhere in the channel. */
+.side-pad-around {
+  margin: var(--box-gap) 14px 0; display: flex; flex-direction: column; gap: var(--box-gap);
+}
+/* Laying it out with display beats the browser's own rule for `hidden`, so a
+   box that is put away has to be put away explicitly. */
+.side-pad-around[hidden] { display: none; }
 
 /* ---- session card ------------------------------------------------------
    The whole card reads top to bottom: what it is for, what it was opened
    with, every question the session was asked, what that came to, and the
    button. Nothing sits in the corner, and the button is last because it acts
    on all of it. */
-.session-card {
-  border: 1px solid var(--line-strong); border-radius: 10px;
-  background: var(--surface-2); padding: 14px 16px 16px;
-  display: flex; flex-direction: column; gap: 12px;
-}
-.session-card.done { border-color: var(--line); }
-.session-head { display: flex; align-items: baseline; gap: 12px; }
-.session-title { font-size: 13.5px; font-weight: 660; }
+/* White behind, like the boxes in every other step's channel: the session is
+   the same kind of object as a recording or a group of controls, and a grey
+   card among white ones reads as another kind of thing. */
+/* The session is a box like any other — the heading above it comes from
+   `.side-group-title`, and this only asks for a little more room inside than a
+   box of buttons needs. */
+.session-card { padding: 14px 16px 16px; gap: 12px; }
 
 .session-form { display: flex; flex-direction: column; gap: 9px; }
 .field { display: grid; grid-template-columns: 96px 1fr; align-items: center; gap: 12px; }
@@ -752,7 +865,7 @@ canvas.livecv[hidden] { display: none; }
 .rec-new input {
   font: inherit; font-size: 13px; color: var(--ink);
   background: var(--screen); border: 1px solid var(--line-strong);
-  border-radius: 7px; padding: 7px 9px; width: 100%;
+  border-radius: 7px; height: var(--control); padding: 0 9px; width: 100%;
 }
 /* No ring while a field holds the caret — the caret says so. Said once here,
    so a session and the open bar behave the same way as well as look it. */
@@ -762,13 +875,26 @@ canvas.livecv[hidden] { display: none; }
 .field input { font-family: var(--mono); letter-spacing: 0.08em; }
 .field select:disabled, .field input:disabled { opacity: 0.55; }
 .session-foot { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+/* The press, and at the far end of the row the way back out: what opens a
+   session and what closes one are not a pair to be weighed against each other,
+   so they do not stand shoulder to shoulder. */
+.session-buttons {
+  display: flex; align-items: center; gap: 8px;
+  width: 100%; justify-content: space-between;
+}
+/* An open session is said the way an instrument says it is on: a lamp, lit,
+   and the word for it. Not a button — there is nothing to press about a state,
+   and a green one sitting where the press was invited a second press. */
+.session-state {
+  display: flex; align-items: center; gap: 8px; height: var(--control);
+  font-size: 13px; font-weight: 600; color: var(--ink);
+}
+.session-state .lamp {
+  width: 9px; height: 9px; border-radius: 50%; background: var(--good);
+  /* the ring is the glow of a lamp behind glass, not a border */
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--good) 22%, transparent);
+}
 .session-hint { font-size: 12.5px; color: var(--ink-3); }
-
-/* The sentence the checks end on. Green, because it is the same answer the
-   marks above it gave, said once in words. The two names in it were chosen
-   rather than written, so they carry the weight the heading does. */
-.session-done { font-size: 12.5px; color: var(--good); }
-.session-done b { font-weight: 660; }
 
 .check-list { display: flex; flex-direction: column; gap: 1px; }
 /* The whole list arrives with the session, so the rows come in together. What
@@ -846,7 +972,7 @@ canvas.livecv[hidden] { display: none; }
   --row-gap: 10px;
   display: grid; align-items: center;
   border: 1px solid var(--line-strong); border-radius: 10px;
-  background: var(--surface-2); padding: 6px 16px;
+  background: var(--surface-2); padding: 0 12px;
 }
 .setting-box.done { border-color: var(--line); }
 /* The bar waiting to take the next preset is not a box. A recorded preset is
@@ -857,7 +983,9 @@ canvas.livecv[hidden] { display: none; }
 .setting-box.open { border: none; padding: 0; background: transparent; }
 
 .rec-row, .rec-new {
-  display: grid; align-items: center; gap: var(--row-gap); min-height: 28px;
+  display: grid; align-items: center; gap: var(--row-gap);
+  /* the border is the bar's own, so the row inside it is that much shorter */
+  min-height: calc(var(--control) - 2px);
 }
 /* Name and summary share the row's width and give way with an ellipsis, so a
    narrow channel truncates them instead of pushing the row out of its box. */
@@ -867,11 +995,12 @@ canvas.livecv[hidden] { display: none; }
    begin on the same edge instead of the bar sitting indented behind a column
    reserved for something it has not got.
 
-   The name field is as wide as a preset name needs and no wider: a box drawn
-   to the panel's edge offers room for a sentence when what goes in it is a
-   word. The button follows on directly and the slack collects at the end,
-   where it says nothing rather than holding the bar apart. */
-.rec-new { grid-template-columns: minmax(0, 240px) max-content 1fr; }
+   The field takes what the button leaves, so the bar reaches both edges of the
+   box it stands in. It used to be capped at the width a preset name needs, with
+   the slack collecting after the button — which left the button short of the
+   right edge while the field met the left one, and a bar with one end tucked in
+   reads as a bar that was placed carelessly. */
+.rec-new { grid-template-columns: minmax(0, 1fr) max-content; }
 
 .rec-fold, .rec-new input { grid-column: 1; }
 .rec-pick { grid-column: 2; }
@@ -958,31 +1087,16 @@ canvas.livecv[hidden] { display: none; }
    looked and its contents rode high in the box. */
 .session-hint:empty { display: none; }
 
-/* Three readings tall, and scrolling after that. A slot that kept growing
-   would push the rest of the step off the bottom of the channel, and a fourth
-   reading is not worth more than the controls it would shove away. The height
-   is counted in rows rather than typed: a row is its content plus the box's
-   padding, and the gaps between them. */
-.rec-list {
-  --rec-row-h: 40px;
-  display: flex; flex-direction: column; gap: 6px;
-  max-height: calc(3 * var(--rec-row-h) + 2 * 6px);
-  overflow-y: auto; scrollbar-gutter: stable;
-  /* So a row's offset is measured from this list and not from some ancestor
-     further out: that offset is what scrolls the active reading into sight. */
-  position: relative;
-}
+/* As long as it needs to be: every reading taken is on screen, and the
+   channel scrolls if the step outgrows it. A list that scrolled inside the
+   slot hid readings behind a bar of its own. */
+.rec-list { display: flex; flex-direction: column; gap: 6px; }
+
+/* A slot puts two boxes in the column — the recording and what it recorded —
+   and they stand apart like every other pair of boxes there. */
+.setting-slot { display: flex; flex-direction: column; gap: var(--box-gap); }
 
 /* Settings of one kind sit close; one kind and the next stand apart. */
-.setting-group { display: flex; flex-direction: column; gap: 6px; }
-.setting-group + .setting-group { margin-top: 16px; }
-/* Bold and in full ink: the heading is the panel's work — record a preset of
-   this kind — not a caption on a list. */
-.group-label {
-  font-size: 11px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase;
-  color: var(--ink); margin: 0 0 2px; padding: 0;
-}
-
 /* ---- the carrier configuration panel ------------------------------------
    Controls down one side, the carrier drawn beside them. The drawing is the
    check on the numbers: a wrong pitch is hard to see in a field and obvious
@@ -1004,7 +1118,7 @@ canvas.livecv[hidden] { display: none; }
 
 .carrier-card { display: flex; flex-direction: column; height: 100%; }
 .carrier-controls {
-  display: flex; flex-direction: column; gap: 8px; padding: 14px;
+  display: flex; flex-direction: column; gap: var(--box-gap); padding: 14px;
 }
 
 .carrier-types { display: flex; gap: 5px; }
@@ -1012,7 +1126,7 @@ canvas.livecv[hidden] { display: none; }
 /* The one body under the type row. Which of its groups are on screen is what
    a carrier type decides; display beats the [hidden] attribute's browser rule,
    so a group the type is not about is put away explicitly. */
-.carrier-designer { display: flex; flex-direction: column; gap: 8px; }
+.carrier-designer { display: flex; flex-direction: column; gap: var(--box-gap); }
 .carrier-designer[hidden], .carrier-group[hidden] { display: none; }
 .carrier-type {
   flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px;
@@ -1024,6 +1138,17 @@ canvas.livecv[hidden] { display: none; }
 .carrier-type:hover:enabled { border-color: var(--line); color: var(--ink-2); }
 .carrier-type.on { border-color: var(--accent); color: var(--accent); font-weight: 700; }
 .carrier-type:disabled { opacity: 0.5; cursor: default; }
+
+/* The catalogue and its three buttons stand as their own rows in the box. */
+.carrier-templates { display: flex; flex-direction: column; gap: 6px; }
+
+/* Every number of the carrier in one box, its rows stacked without frames of
+   their own: the box is the description, and an edge round each row said that
+   a plate's rows and its size were separate answers. */
+.carrier-sizes { gap: 8px; }
+.carrier-sizes .carrier-group {
+  border: none; background: none; padding: 0; border-radius: 0;
+}
 
 .carrier-group {
   display: flex; gap: 6px;
@@ -1061,7 +1186,7 @@ canvas.livecv[hidden] { display: none; }
 .carrier-num:disabled, .carrier-preset:disabled { opacity: 0.55; }
 
 .carrier-link, .carrier-shape, .carrier-reset {
-  display: grid; place-content: center; height: 30px;
+  display: grid; place-content: center; height: var(--control);
   font: inherit; font-size: 12px; font-family: var(--mono); color: var(--ink-3);
   background: var(--surface-2); border: 1px solid var(--line-strong);
   border-radius: 6px; cursor: pointer;
@@ -1093,36 +1218,55 @@ canvas.livecv[hidden] { display: none; }
    workflow. Colours are this page's own tokens, so the column reads in both
    surfaces rather than carrying a second palette. */
 .sf-card { display: flex; flex-direction: column; height: 100%; }
-.sf-controls { display: flex; flex-direction: column; gap: 10px; padding: 16px 14px; }
+.sf-controls { display: flex; flex-direction: column; gap: var(--box-gap); padding: 16px 14px; }
 
 
 /* A box of controls in the channel, wherever the channel is: the scan fields
-   use it, and so does the autofocus preset in the focus step, because a
+   use it, and so does the focus preset in the focus step, because a
    recording taken there is the same kind of thing as one taken here and
    should not arrive looking like another.
 
    On the screen colour, like the carrier's groups: both are boxes of controls
    in the same channel, and two greys down one column read as two kinds of
    thing when they are one. */
-.side-group {
+/* Tight to its own card and loose from the box before it: a heading belongs to
+   what is under it, and equal gaps on both sides made every heading a toss-up
+   between the box above and the box below. The loose half is the column's to
+   give, so it is set once on every column of boxes rather than on the boxes. */
+.side-group { display: flex; flex-direction: column; gap: 5px; }
+.side-group[hidden] { display: none; }
+/* One shape of heading down the whole column, on every step: each names what
+   the box under it is for, and two shapes would read as two kinds of thing,
+   which these are not. It sits above its card rather than inside it, so the
+   card holds controls and nothing else. */
+.side-group-title {
+  font-size: 11px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase;
+  color: var(--ink); padding-left: 2px;
+}
+.side-group-body {
   display: flex; flex-direction: column; gap: 10px;
   padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px;
   background: var(--screen);
 }
-.side-group[hidden] { display: none; }
-/* The same heading as the recording brings with it, because they are headings
-   of the same kind: each names what the box under it is for. Two shapes of
-   heading down one column reads as two kinds of thing, which these are not. */
-.side-group-title {
-  font-size: 11px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase;
-  color: var(--ink);
+/* A word over one part of a box. Where a heading names the box, this names a
+   way of filling it in — drawing tilesets by hand or asking for a grid of them
+   — so it is quieter than the heading and sits closer to what it names. */
+.side-sub {
+  font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--ink-3); margin-bottom: -4px;
 }
-/* A second title inside the same box stands well off from what came before
-   it, so the two ways of making fields read as two without being boxed apart.
-   The gap does the work the box edge used to do, so it is bigger than the one
-   between a title and the controls it heads — otherwise the title floats
-   between the two and belongs to neither. */
-.side-group-title:not(:first-child) { margin-top: 14px; }
+/* A word that starts a second part of the box stands well clear of the part
+   before it: the gap is what says one thing has ended and another begun, and at
+   the box's own spacing the buttons above looked as though they belonged to the
+   word underneath them. */
+.side-sub:not(:first-child) { margin-top: 12px; }
+/* Except where the two parts are one subject rather than two ways of answering
+   different ones: the carrier types and the catalogue of them are one question
+   asked twice over — which carrier, then which of that kind — and the bar that
+   records a preset and the presets it has recorded are the act and its answer.
+   Those stand as close as the box's own spacing. */
+.carrier-types + .side-sub,
+.setting-box + .side-sub { margin-top: 0; }
 
 
 .sf-tools { display: flex; gap: 6px; }
@@ -1143,7 +1287,36 @@ canvas.livecv[hidden] { display: none; }
   stroke-linejoin: round; stroke-linecap: round;
 }
 .sf-tool.on .sf-glyph-drawn { stroke-width: 2; }
+/* Positions are filled marks, not outlines: at this size an outlined square is
+   a grey smudge, where a solid one reads as a position on a plate. Drawn larger
+   than the drawing tools' glyphs because it has a lane to itself rather than a
+   button the width of a thumb. */
+.sf-glyph-grid { width: 28px; height: 28px; fill: currentColor; stroke: none; }
 
+/* The one thing the scan step decides for itself: drive to the surface the map
+   fitted, or focus at every tile. Greyed, with the mark unticked, when this
+   preset has no map to drive to. */
+.scan-focus {
+  display: flex; align-items: center; gap: 8px; height: var(--control);
+  font-size: 13px; color: var(--ink);
+}
+.scan-focus input { accent-color: var(--accent); margin: 0; }
+.scan-focus:has(input:disabled) { color: var(--ink-3); }
+
+/* The numbers, and beside them the one button that acts on them. */
+.sf-auto {
+  display: grid; grid-template-columns: minmax(0, 1fr) 74px; gap: 8px;
+  align-items: stretch;
+}
+/* The button's lane: a blank label, then the button taking everything under
+   it, so it starts level with the boxes and ends level with them. */
+.sf-lane { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.sf-lane .sf-flat {
+  flex: 1; height: auto; padding: 0 6px;
+  display: flex; flex-direction: column; align-items: center;
+  justify-content: center; gap: 4px;
+  white-space: normal; line-height: 1.25;
+}
 .sf-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .sf-num { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .sf-num-label {
@@ -1153,13 +1326,13 @@ canvas.livecv[hidden] { display: none; }
 .sf-num input {
   font: inherit; font-size: 12px; font-family: var(--mono); color: var(--ink);
   background: var(--screen); border: 1px solid var(--line-strong);
-  border-radius: 6px; padding: 0 8px; height: 32px; width: 100%;
+  border-radius: 6px; padding: 0 8px; height: var(--control); width: 100%;
 }
 .sf-num input:focus { outline: none; }
 
 .sf-row { display: flex; gap: 6px; }
 .sf-flat {
-  flex: 1; height: 30px; padding: 0 8px;
+  flex: 1; height: var(--control); padding: 0 8px;
   font: inherit; font-size: 11px; font-family: var(--mono); font-weight: 600;
   letter-spacing: 0.02em; white-space: nowrap;
   color: var(--ink-2); background: var(--screen);
@@ -1167,22 +1340,40 @@ canvas.livecv[hidden] { display: none; }
 }
 .sf-flat:hover:enabled { border-color: var(--accent); color: var(--accent-deep); }
 .sf-flat:disabled { opacity: 0.55; cursor: not-allowed; }
+/* The button in a box that does the thing the box is for wears the colour every
+   other doing button wears — the same blue as Record. `Add grid` lays the
+   positions; `Place` lays the focus points. */
+.sf-doing {
+  color: #fff; background: var(--accent); border-color: var(--accent);
+}
+.sf-doing:hover:enabled {
+  background: var(--accent-deep); border-color: var(--accent-deep); color: #fff;
+}
+:root[data-theme="dark"] .sf-doing,
+:root:not([data-theme="light"]) .sf-doing { color: #04121d; }
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) .sf-doing { color: #fff; }
+}
 /* Greyed while the step is locked — the plan is fixed once the overview has
    been scanned, and the controls say so by staying where they are. */
 .sf-tool:disabled, .sf-num input:disabled {
   opacity: 0.55; cursor: not-allowed;
 }
 
+/* No frame of its own: it stands inside the box whose controls it explains, and
+   an edge in there would have drawn a second box within one. A rule above it
+   says where the controls end and the reference begins. */
 .sf-keys {
-  border: 1px solid var(--line); border-radius: 10px;
-  background: var(--screen); overflow: hidden;
+  margin: 4px -14px -12px; padding-top: 2px;
+  border-top: 1px solid var(--line); overflow: hidden;
 }
 .sf-keys[hidden] { display: none; }
 .sf-keys-head {
   width: 100%; display: flex; align-items: center; gap: 8px; padding: 10px 14px;
   background: transparent; border: none; cursor: pointer; text-align: left;
   font: inherit; font-size: 11px; font-family: var(--mono); font-weight: 700;
-  color: var(--ink); letter-spacing: 0.03em;
+  /* quieter than the words above it: this is reference, not a control */
+  color: var(--ink-3); letter-spacing: 0.03em;
 }
 .sf-keys-head > span:first-child { flex: 1; }
 .sf-chev { color: var(--ink-3); font-size: 12px; transition: transform 0.15s; }

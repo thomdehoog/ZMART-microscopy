@@ -254,6 +254,259 @@ function raster(min, max, frameUm, step, lo, hi) {
 }
 
 /**
+ * `n` of these positions, one from each equal share of the ground they cover.
+ *
+ * A focus map wants its points spread over the field and away from its edges:
+ * the surface is fitted through them, so three heights measured along one edge
+ * describe that edge and guess at the rest, and a height read at the very rim
+ * is the one most likely to be off the sample. So the field is divided into
+ * `n` shares of equal area and the position nearest the middle of each share
+ * is taken. The middle of a share is inset from the field's edge by half a
+ * share, which is as far apart as `n` points can be while every part of the
+ * field still has one speaking for it.
+ *
+ * Shares are dealt as rows of cells, the way a treemap is laid out rather than
+ * as a rigid grid: the number of rows is chosen so the cells come out as square
+ * as the field allows, and a row that gets one more cell than another is that
+ * much taller, so every cell is the same area whatever number was asked for.
+ * Five shares of a wide field are three over two, not five thin strips.
+ *
+ * Equal shares of the extent are the right answer for a tileset shaped like
+ * its own bounding box, and a rough one for a triangle, an ellipse or anything
+ * hand-drawn, where a share can be half empty and its middle lands off to one
+ * side of what the share actually holds. So the split is only the seed: the
+ * points are then settled by relaxing them into the positions themselves —
+ * every position goes to the point nearest it, each point moves to the
+ * position nearest the middle of what it took, and this repeats until nothing
+ * moves. That is Lloyd's algorithm, and the outcome is what is wanted: each
+ * point standing in the middle of its own share of the sample.
+ *
+ * Seeded rather than scattered, and a fixed number of passes, so the same
+ * tileset always gives the same map — a map that shuffled itself on a rerun
+ * would move points a surface had already been measured through.
+ *
+ * What comes back are places, not positions. A focus point is somewhere the
+ * stage is driven to and a height is read, and nothing says that has to be the
+ * middle of a frame the run will image — tying them to frame centres was the
+ * grid speaking through a question that is not about the grid, and it showed:
+ * three points on a triangle came out in a row, because that was where the
+ * frames were rather than where the sample is.
+ *
+ * And what is shared out is the ground, not the frames' middles. A frame covers
+ * a square of sample; standing for it by the dot at its centre made the sample
+ * nine dots instead of a filled block, and Lloyd's settles a set of dots
+ * faithfully: six points over three by three frames came to rest as three
+ * points owning two frames apiece — sitting on the seam between them — and
+ * three owning one, leaving the top row of the block with nothing. A true fixed
+ * point for nine dots, and the wrong answer for the sample they cover.
+ */
+export function sharePoints(tiles, n) {
+  const want = Math.max(1, Math.round(n));
+  if (!tiles.length) return [];
+  // as many asked for as there are positions, or more: one on each, nothing
+  // left to settle
+  if (tiles.length <= want) return tiles.map((t) => ({ x: t.x, y: t.y }));
+
+  /* How many rows to deal the shares in is the one thing a formula cannot be
+     trusted with. Five shares of a square block are two, one and two — the four
+     corners with one in the middle — where a row count taken from the square
+     root gives three and two, which covers the same ground less evenly. So the
+     likely counts are laid, settled and measured, and the tightest is kept.
+     Three of them, either side of the square root, because the answer is never
+     far from it and each one costs a settling. */
+  const ground = groundOf(tiles);
+  const likely = Math.max(1, Math.round(Math.sqrt(want * heightOf(ground) / widthOf(ground))));
+  const tries = [...new Set([likely - 1, likely, likely + 1])]
+    .filter((rows) => rows >= 1 && rows <= want)
+    .map((rows) => settle(ground, seedCells(ground, want, rows)));
+  return tries.reduce((a, b) => (spreadCost(ground, b) < spreadCost(ground, a) ? b : a));
+}
+
+/** How far a set of places reaches, across and down. */
+const widthOf = (places) =>
+  (Math.max(...places.map((p) => p.x)) - Math.min(...places.map((p) => p.x))) || 1;
+const heightOf = (places) =>
+  (Math.max(...places.map((p) => p.y)) - Math.min(...places.map((p) => p.y))) || 1;
+
+/**
+ * How well a set of points stands for the ground: every place goes to the point
+ * nearest it, and this is the sum of those distances squared. Lower is a tighter
+ * arrangement — every part of the sample nearer to something measured.
+ */
+function spreadCost(ground, points) {
+  return ground.reduce((sum, g) => {
+    const p = points[nearestOf(points, g.x, g.y)];
+    return sum + (g.x - p.x) ** 2 + (g.y - p.y) ** 2;
+  }, 0);
+}
+
+/* How finely a frame is sampled across, at most: four to a side, which is
+   enough for the middle of a share to land where the eye says it should and
+   cheap enough to settle three seedings of. */
+const ACROSS_A_FRAME = 4;
+
+/**
+ * The sample a tileset covers, as places to share out: every frame spread into
+ * a small lattice of points across the ground it images.
+ *
+ * Coarsened for a big tileset, where the frames are already a fine enough
+ * description of the ground on their own and the count is what costs — the
+ * lumpiness this cures only shows when there are few frames to a point.
+ */
+function groundOf(tiles) {
+  const across = Math.max(1, Math.min(ACROSS_A_FRAME,
+    Math.floor(Math.sqrt(4096 / tiles.length))));
+  if (across === 1) return tiles.map((t) => ({ x: t.x, y: t.y }));
+
+  const out = [];
+  for (const t of tiles) {
+    const frame = t.frameUm ?? 0;
+    if (!frame) { out.push({ x: t.x, y: t.y }); continue; }
+    const step = frame / across;
+    const first = -frame / 2 + step / 2;
+    for (let row = 0; row < across; row++) {
+      for (let col = 0; col < across; col++) {
+        out.push({ x: t.x + first + col * step, y: t.y + first + row * step });
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * Seeds at the middles of `n` equal shares of the ground the positions cover.
+ *
+ * Rows of cells rather than a rigid grid: a row holding one more cell than
+ * another is that much taller, so every cell is the same area whatever number
+ * was asked for. How many rows to deal them in is the caller's to say, since
+ * which count covers the ground best is something only the settling shows.
+ *
+ * A number that does not divide evenly leaves shares over, and they are dealt
+ * outwards from the middle in pairs — the middle row first when one is left
+ * over, then the pair either side of it, and so on. Dealt from the top instead,
+ * seven over a square block came out three, two, two, with a hole through the
+ * middle of the block that nothing stood for, and eight came out three, three,
+ * two, which is lopsided for no reason. Dealt this way the rows read the same
+ * from either end, whatever the number.
+ */
+function seedCells(tiles, n, howMany) {
+  const xs = tiles.map((t) => t.x), ys = tiles.map((t) => t.y);
+  const xMin = Math.min(...xs), yMin = Math.min(...ys);
+  const width = widthOf(tiles), height = heightOf(tiles);
+  const rows = Math.min(n, Math.max(1, howMany));
+  const base = Math.floor(n / rows), extra = n % rows;
+  const takesOneMore = dealtFromTheMiddle(rows, extra);
+
+  const seeds = [];
+  let top = yMin;
+  for (let r = 0; r < rows; r++) {
+    const cells = base + (takesOneMore.has(r) ? 1 : 0);
+    const tall = (height * cells) / n, wide = width / cells;
+    for (let i = 0; i < cells; i++) {
+      seeds.push({ x: xMin + (i + 0.5) * wide, y: top + tall / 2 });
+    }
+    top += tall;
+  }
+  return seeds;
+}
+
+/**
+ * Which rows take one of the shares left over, dealt outwards from the middle:
+ * the middle row first when the number left over is odd, then the pair either
+ * side of it, and so on. What comes back reads the same from either end.
+ */
+function dealtFromTheMiddle(rows, extra) {
+  const middle = (rows - 1) / 2;
+  const order = [...Array(rows).keys()]
+    .sort((a, b) => Math.abs(a - middle) - Math.abs(b - middle) || a - b);
+
+  const taken = new Set();
+  for (const row of order) {
+    const left = extra - taken.size;
+    if (left <= 0) break;
+    if (taken.has(row)) continue;
+    const mirror = rows - 1 - row;
+
+    /* The middle row of an odd number of rows is its own mirror, so it can only
+       take the odd one out: while an even number is left to give, pairs come
+       first and it is passed over. Seven shares of a square block are two,
+       three, two that way, and eight are three, two, three. */
+    if (row === mirror) {
+      if (left % 2 === 1) taken.add(row);
+      continue;
+    }
+    taken.add(row);
+    // and its mirror, unless this was the last share to give, where an even
+    // number of rows leaves nothing symmetrical to do
+    if (left >= 2) taken.add(mirror);
+  }
+  return taken;
+}
+
+/**
+ * Lloyd's algorithm over the positions: each position belongs to the point
+ * nearest it, and each point moves to the middle of what belongs to it.
+ * Repeated until nothing moves — which on a tileset shaped like its bounding
+ * box happens at once, and on a triangle takes a pass or two.
+ *
+ * A point left standing for nothing is moved to the position furthest from
+ * every other point, where it will earn a share on the next pass: a point
+ * measuring nowhere is a measurement thrown away.
+ *
+ * Capped at a dozen passes, and stopped once the step is smaller than half a
+ * micrometre — below that it is moving the point by less than the stage can be
+ * told to go, and a map that never settles is worse than one that stopped
+ * short.
+ */
+function settle(tiles, seeds, passes = 12) {
+  let points = seeds;
+  for (let pass = 0; pass < passes; pass++) {
+    const mine = points.map(() => []);
+    for (const t of tiles) mine[nearestOf(points, t.x, t.y)].push(t);
+
+    const moved = points.map((p, i) => {
+      const held = mine[i];
+      if (!held.length) return farthestFrom(tiles, points);
+      return {
+        x: held.reduce((a, t) => a + t.x, 0) / held.length,
+        y: held.reduce((a, t) => a + t.y, 0) / held.length,
+      };
+    });
+
+    if (moved.every((p, i) => Math.hypot(p.x - points[i].x, p.y - points[i].y) < 0.5)) {
+      return moved;
+    }
+    points = moved;
+  }
+  return points;
+}
+
+/** Which of these points is nearest that spot. */
+function nearestOf(points, x, y) {
+  let best = 0, bestD = Infinity;
+  points.forEach((p, i) => {
+    const d = Math.hypot(p.x - x, p.y - y);
+    if (d < bestD) { best = i; bestD = d; }
+  });
+  return best;
+}
+
+/**
+ * Somewhere for a point that ended up standing for nothing: the position in
+ * the crowd that is furthest from the point speaking for it. That splits the
+ * busiest share rather than sending the spare point to an outer corner, which
+ * is where "furthest from everything" always lands.
+ */
+function farthestFrom(tiles, points) {
+  let best = tiles[0], bestD = -1;
+  for (const t of tiles) {
+    const near = points[nearestOf(points, t.x, t.y)];
+    const d = Math.hypot(t.x - near.x, t.y - near.y);
+    if (d > bestD) { best = t; bestD = d; }
+  }
+  return { x: best.x, y: best.y };
+}
+/**
  * The span a whole number of frames covers, without reaching past `size`.
  *
  * A region is drawn in frames, so that its edge and the tiles inside it land

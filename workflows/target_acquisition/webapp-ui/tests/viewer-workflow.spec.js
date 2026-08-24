@@ -565,20 +565,21 @@ test("the step gives the whole window to the picture, and says it is a demonstra
     await expect(chosen).toContainText(/demonstration/i);
     await expect(chosen).toHaveAttribute("title", /not a run/i);
 
-    /* And naming it did not push anything else off the rail. The chooser sits
-       beside the Restart button in a column of fixed width, and a workflow name
-       a few words longer than the others used to make the dropdown as wide as
-       itself and shove the button under the panel next door — where it was
-       plainly visible, reported itself perfectly enabled, and could not be
-       pressed. So this asks the page what is actually at the middle of that
-       button rather than whether the button is there. */
-    const reachable = await page.evaluate(() => {
-      const button = document.getElementById("restart-btn");
-      const at = button.getBoundingClientRect();
+    /* And naming it did not push the rail out of shape. A workflow name a few
+       words longer than the others used to make the dropdown as wide as itself
+       and shove what sat beside it under the panel next door — plainly visible,
+       reporting itself perfectly enabled, and impossible to press. The
+       neighbour is gone, so what is asked now is of the chooser itself: that it
+       is what lies at its own middle, and that it stays inside the rail. */
+    const held = await page.evaluate(() => {
+      const chooser = document.getElementById("wf-select");
+      const at = chooser.getBoundingClientRect();
+      const rail = document.querySelector(".rail").getBoundingClientRect();
       const under = document.elementFromPoint(at.x + at.width / 2, at.y + at.height / 2);
-      return under === button;
+      return { itself: under === chooser, over: at.right - rail.right };
     });
-    expect(reachable, "the Restart button is what is at the middle of itself").toBe(true);
+    expect(held.itself, "the chooser is what is at the middle of itself").toBe(true);
+    expect(held.over, "and it has not grown past the rail it sits in").toBeLessThanOrEqual(0);
 
     // The three layer buttons, named from the bottom of the stack upwards.
     await expect(page.locator("#viewer-canvas-layers button")).toHaveCount(3);
