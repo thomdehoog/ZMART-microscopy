@@ -291,9 +291,14 @@ class _Handler(SimpleHTTPRequestHandler):
         announcements=None,
         live_state=None,
         forget_measurements=None,
+        open_from=None,
         **kwargs,
     ):
         self._data_dir = data_dir  # where drawn targets are saved
+        # Where the load window starts browsing. The data folder is the
+        # ordinary answer; a demo whose interesting stores live beside its
+        # data rather than inside it says otherwise (asked 2026-08-24).
+        self._open_from = open_from or data_dir
         self._library = library  # which folders may be read from, and what is in them
         self._browse = browse  # opens a native folder chooser, when one is available
         self._allow_open = allow_open  # may the operator change what is open?
@@ -1280,7 +1285,7 @@ class _Handler(SimpleHTTPRequestHandler):
         into.
         """
         asked = payload.get("path") if isinstance(payload, dict) else None
-        path = Path(asked).expanduser() if isinstance(asked, str) and asked.strip() else self._data_dir
+        path = Path(asked).expanduser() if isinstance(asked, str) and asked.strip() else self._open_from
         try:
             path = path.resolve()
             if not path.is_dir():
@@ -2000,6 +2005,7 @@ def make_server(
     allow_open: bool = True,
     allow_selection: bool = False,
     panel_side: str = "right",
+    open_from: Path | None = None,
 ) -> ThreadingHTTPServer:
     """Create (but do not start) the viewer's web server.
 
@@ -2669,6 +2675,7 @@ def make_server(
         browse=browse,
         bake_job={},
         replay_job={},
+        open_from=Path(open_from).resolve() if open_from else None,
         allow_open=allow_open,
         live=live,
         announcements=told,

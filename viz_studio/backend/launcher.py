@@ -69,6 +69,7 @@ def open_window(
     allow_open: bool = True,
     allow_selection: bool = False,
     panel_side: str = "right",
+    open_from: Path | None = None,
 ) -> None:
     """Start the server and open the studio in a native window.
 
@@ -114,6 +115,9 @@ def open_window(
         "allow_open": allow_open,
         "allow_selection": allow_selection,
         "panel_side": panel_side,
+        # Where the load window starts browsing, when that is somewhere other
+        # than the data folder itself.
+        "open_from": open_from,
     }
     if data_dir is not None:
         kwargs["data_dir"] = data_dir
