@@ -299,7 +299,11 @@ function LoadWindow({ listing, onNavigate, onOpened, onConstructed, onCancel,
   // How fast a replay should land its positions. Kept here rather than in the
   // server's answer because it is a wish about the next replay, not a fact
   // about the running one.
-  const [pace, setPace] = React.useState(1.4);
+  // Always one of the listed choices: a default the list does not hold made
+  // the dropdown SHOW its first entry while this state quietly sent
+  // something else — the pace on screen and the pace replayed disagreed
+  // until the operator's first touch (caught 2026-08-24).
+  const [pace, setPace] = React.useState(1);
   // Whether the replay bakes the picture's pieces as they land — the same
   // choice the default door's mosaic box offers, with the same meaning.
   const [bakeReplay, setBakeReplay] = React.useState(false);
