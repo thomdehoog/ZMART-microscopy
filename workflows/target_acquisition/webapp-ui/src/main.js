@@ -1,4 +1,5 @@
 import "./style.css";
+import { sideGroup } from "./frame/box.js";
 import { blockedBecause, isReachable, panelsFor } from "./frame/steps.js";
 import { theDrawingAbove, whoIsAt } from "./canvas/layers-above.js";
 /* The workflows this page offers, declared once in `workflows/index.js` and
@@ -8,10 +9,13 @@ import { theDrawingAbove, whoIsAt } from "./canvas/layers-above.js";
 import { WORKFLOWS, DEFAULT_WORKFLOW } from "./workflows/index.js";
 import {
   MICROSCOPES, DEFAULT_SESSION, apisFor, defaultApiFor,
-  describeSession, describeConnection, CONNECT_CHECKS,
+  describeSession, CONNECT_CHECKS,
   sampleReading, STAGE_LIMITS_MM,
 } from "./lib/microscopes.js";
 import { centres, DEFAULT_CARRIER, describeCarrier } from "./lib/carriers.js";
+/* Where focus points go inside a field: equal shares of it, measured at the
+   middle of each. The geometry lives with the rest of the plan's geometry. */
+import { sharePoints } from "./lib/scanfields.js";
 import {
   emptySlot, hasRecording, withRecording, withoutRecording, withActive,
   activeRecording, nextReadingIndex,
@@ -70,6 +74,11 @@ import scanfieldsWidget, { presetInk } from "./widgets/scanfields.js";
      tuning detection on one tile is a question the sample can answer. */
   function rebuildSample() {
     state.plan = scanfieldsWidget.plan(state.fields, activePreset(), state.carrier);
+    /* Left where a test can reach it, the way the live picture is. The plan is
+       what this half of the run produces — where the stage goes and what each
+       frame covers — and a suite that could only read the sentence beside it
+       was asking how many positions there are, never where. */
+    window.__plan = state.plan;
     sample = { tissue: tissueFor(state.carrier), cells: [], bounds: null };
     if (!state.plan.length) return;
 
@@ -115,15 +124,22 @@ import scanfieldsWidget, { presetInk } from "./widgets/scanfields.js";
      wanted. The rest are parked rather than deleted: the model is what the step
      is about, and the readiness rules, the drawing and the trace all still ask
      which strategy this is. One row of markup arms them again. */
+  /* The focus maps a run holds, and which of them is being worked on.
+     A map is a named thing the operator makes: where to measure, what was
+     measured, and the surface fitted to it. Named on the way in, because a run
+     may carry several — one per plate region, one measured before a long
+     acquisition and reused after — and a list of unnamed ones is a list
+     nobody can choose from. */
   function newFocus() {
     return {
       strategy: "plane",
       metric: "brenner",   // which sharpness score the sweep is scored with
       points: [],          // picked positions, plane strategy only
-      mode: "first",       // the pattern Place lays: first | interval | center | random
-      every: 3,            // interval mode: every nth position within a compartment
-      pickCount: 2,        // random mode: positions per compartment
+      perField: 1,         // how many Place lays in each scan field
       selected: 0,         // which point's trace is charted
+      picked: new Set(),   // which are held, for moving or taking away together
+      hovered: -1,         // which one the pointer has found, if any
+      placing: false,      // whether the crosshair is armed for a press
       zFixed: -412,
       reuse: "run_0714_a",
       applied: false,
@@ -159,7 +175,7 @@ import scanfieldsWidget, { presetInk } from "./widgets/scanfields.js";
      the last run's typing into the next.
 
      There is no presets step: each recording lives in the step that uses it —
-     the overview preset with the scan fields, the autofocus preset with the
+     the overview preset with the scan fields, the focus preset with the
      focus strategy, the acquisition type with the targets. */
   /* Which workflow to open on — `?workflow=canvas_layers`.
    *
@@ -187,6 +203,16 @@ import scanfieldsWidget, { presetInk } from "./widgets/scanfields.js";
        never switched objectives look right. */
     targetType: emptySlot("acquisition", 1),
     carrier: { ...DEFAULT_CARRIER },
+    /* Points put on the carrier drawing, in the carrier's own coordinates, to
+       be driven to on the microscope. Placed the way focus points are: the
+       button arms, and the next press on the canvas puts one down. */
+    anchors: [],
+    anchoring: false,
+    /* How the overview scan keeps every tile sharp: by driving to the surface
+       the focus map fitted, or by focusing at each tile as it arrives. The map
+       is faster — one drive, no stack — and only there once it has been
+       measured, so the choice starts on the other one. */
+    scanFocus: "every",
     fields: [],
     plan: [],
     editor: null,
@@ -194,12 +220,23 @@ import scanfieldsWidget, { presetInk } from "./widgets/scanfields.js";
     wf: WORKFLOWS[WORKFLOW_ASKED_FOR] ? WORKFLOW_ASKED_FOR : DEFAULT_WORKFLOW,
     activeIdx: 0,
     done: new Set(),
+    /* Which steps have actually been run, as against settled by doing the
+       thing they are about. Only a step that ran can be run *again*, and a
+       button offering that on a step nobody has pressed is a button lying
+       about what happened. */
+    ran: new Set(),
     running: null,
     notes: {},
     tabs: ["canvas"],     // canvas plus whatever the active step asks for
     tab: null,
     tilesShown: 0,
     focus: newFocus(),
+    /* A focus map apiece: the points measured under one focussing preset are
+       not the points measured under another, and switching between them is
+       switching between two maps rather than editing one. Kept by the
+       recording's id, with `focusFor` saying whose map `focus` currently is. */
+    focusMaps: {},
+    focusFor: null,
     detect: newDetect(),
     detected: new Set(),
     cellsShown: false,
@@ -247,12 +284,15 @@ import scanfieldsWidget, { presetInk } from "./widgets/scanfields.js";
      password stay, since editing them is the reason to disconnect. */
   function resetRun() {
     Object.assign(state, {
-      activeIdx: 0, done: new Set(), running: null, notes: {},
+      activeIdx: 0, done: new Set(), ran: new Set(), running: null, notes: {},
       overviewPreset: emptySlot("acquisition"),
       focusPreset: emptySlot("autofocus"),
       targetType: emptySlot("acquisition", 1),
-      carrier: { ...DEFAULT_CARRIER }, fields: [], plan: [], checks: [],
-      tabs: ["canvas"], tab: "canvas", tilesShown: 0, focus: newFocus(),
+      carrier: { ...DEFAULT_CARRIER }, anchors: [], anchoring: false,
+      scanFocus: "every",
+      fields: [], plan: [], checks: [],
+      tabs: ["canvas"], tab: "canvas", tilesShown: 0,
+      focus: newFocus(), focusMaps: {}, focusFor: null,
       detect: newDetect(), detected: new Set(),
       cellsShown: false, gate: null, gated: new Set(), acquired: [], verdicts: {},
       locked: false,
@@ -320,7 +360,9 @@ import scanfieldsWidget, { presetInk } from "./widgets/scanfields.js";
      `ownButton` now means "this panel builds its own", not "hide the bar". */
   function renderStepAction(shown) {
     for (const id of FOOT_IDS) el(id).textContent = "";
-    for (const slot of document.querySelectorAll(".carrier-action")) slot.textContent = "";
+    for (const slot of document.querySelectorAll(".carrier-action, .scan-action, .focus-action")) {
+      slot.textContent = "";
+    }
     if (!shown) return;
     const i = state.activeIdx, s = step(i);
     /* A step with controls of its own puts its action at the end of them; the
@@ -328,8 +370,8 @@ import scanfieldsWidget, { presetInk } from "./widgets/scanfields.js";
     const host = document.querySelector(`.${s.id}-action`) ?? el(`foot-${shown}`);
     if (!host || s.ownButton || !s.btn) return;
     /* Some steps have nothing to run under the state they are in — a focus
-       step working with a hardware autofocus is finished by the recording
-       itself. A step says so for itself; the frame only asks. */
+       step is finished by the recording itself until a map is made to measure.
+       A step says so for itself; the frame only asks. */
     if (s.acts && !s.acts(state)) return;
 
     const done = state.done.has(s.id);
@@ -339,16 +381,30 @@ import scanfieldsWidget, { presetInk } from "./widgets/scanfields.js";
     const run = document.createElement("button");
     /* marked as the step's own, because where it sits depends on the step */
     run.className = "run step-run"; run.type = "button";
-    run.textContent = running ? "working…" : (done ? "Run again" : s.btn);
+    run.textContent = running ? "working…" : (state.ran.has(s.id) ? "Run again" : s.btn);
     run.disabled = !!state.running || !!blocked;
     run.addEventListener("click", () => runStep(i));
     host.append(run);
 
+    /* The focus step says nothing beside its press. What it waits for is the
+       box it stands in — points, laid by the row above it — and what it came to
+       is the traces below; a greyed button between the two is already the whole
+       sentence. */
     const hint = document.createElement("span");
+    if (s.mode === "focus") { host.append(hint); return; }
     if (blocked) { hint.className = "action-hint"; hint.textContent = blocked; }
     else if (running) { hint.className = "action-hint"; hint.textContent = "working…"; }
     else if (s.mode === "select" && !done) { hint.className = "action-hint ok"; hint.textContent = `${state.gated.size} gated`; }
-    else if (state.notes[s.id]) { hint.className = "action-hint ok"; hint.textContent = state.notes[s.id]; }
+    /* What a step came to is said beside the button that produced it — except
+       on the focus step, which has a box of its own for the answer: the traces,
+       the heights and the residual, point by point. A sentence about focussing
+       standing beside the press that measures the map was the same answer in
+       worse words. What is missing is another matter: that is why the button
+       cannot be pressed, and it belongs beside it. */
+    else if (state.notes[s.id] && s.mode !== "focus") {
+      hint.className = "action-hint ok";
+      hint.textContent = state.notes[s.id];
+    }
     host.append(hint);
   }
 
@@ -414,6 +470,7 @@ import scanfieldsWidget, { presetInk } from "./widgets/scanfields.js";
       if (raf) cancelAnimationFrame(raf);
       state.running = null;
       state.done.add(s.id);
+      state.ran.add(s.id);
       if (s.note) state.notes[s.id] = s.note;
 
       if (s.mode === "focus") {
@@ -423,7 +480,7 @@ import scanfieldsWidget, { presetInk } from "./widgets/scanfields.js";
         state.notes[s.id] =
           f.strategy === "plane" ? `${f.surface.model} from ${f.points.length} points · rms ${f.residual.toFixed(1)} µm`
           : f.strategy === "fixed" ? `fixed z ${f.zFixed} µm`
-          : f.strategy === "auto" ? `autofocus per position · ${METRICS[f.metric].label}`
+          : f.strategy === "auto" ? `focused at every position · ${METRICS[f.metric].label}`
           : `reusing ${PREVIOUS_SURFACES[f.reuse].label}`;
         renderPointList(); drawTrace();
       }
@@ -519,16 +576,13 @@ import scanfieldsWidget, { presetInk } from "./widgets/scanfields.js";
     let connectBtn = null;
     let connectHint = null;
     const connecting = state.running === "connect";
-    const card = document.createElement("div");
-    card.className = "session-card" + (connected ? " done" : "");
-
-    /* The heading is the heading and nothing else. What the session was opened
-       with is already in the fields below it and in the rail beside it, so a
-       third copy in the corner was the panel talking about itself. */
-    const head = document.createElement("div");
-    head.className = "session-head";
-    head.innerHTML = '<span class="session-title">Connect to the microscope</span>';
-    card.append(head);
+    /* The first step is headed the way every other step is: the name above the
+       box, the box holding the work. What the session was opened with is
+       already in the fields and in the rail beside them, so a third copy in the
+       corner was the panel talking about itself. */
+    const { group, body: card } = sideGroup("Connect to the microscope");
+    card.classList.add("session-card");
+    if (connected) card.classList.add("done");
 
     {
       const locked = connected || connecting;
@@ -590,11 +644,19 @@ import scanfieldsWidget, { presetInk } from "./widgets/scanfields.js";
       card.append(form);
     }
 
-    /* Every check is listed the moment the session is opened, and each one
-       ticks as its answer comes back. The row is the question; the mark is the
-       answer. An open session is not editable, so the fields stay on show as
-       the record of what it was opened with. */
+    /* What the session was opened with is one thing; what came back when it
+       was opened is another, so the answers stand in a box of their own under
+       it. Every check is listed the moment the session is opened and each one
+       ticks as its answer comes back — the row is the question, the mark is the
+       answer. An open session is not editable, so the fields above stay on show
+       as the record of what it was opened with. */
+    let checks = null;
     if (state.checks.length) {
+      const made = sideGroup("Connection checks");
+      checks = made.body;
+      /* Beside the session's box, not inside it: two boxes standing in the
+         channel, the way every other step's boxes stand. */
+      host.append(made.group);
       const list = document.createElement("div");
       list.className = "check-list";
       for (const c of state.checks) {
@@ -607,39 +669,36 @@ import scanfieldsWidget, { presetInk } from "./widgets/scanfields.js";
         row.querySelector(".check-value").textContent = answered ? c.result : "";
         list.append(row);
       }
-      card.append(list);
-    }
-
-    /* What the checks came to, said once, where they end. The microscope and
-       the API stand out of the sentence, being the two things in it that were
-       chosen rather than written. */
-    if (connected) {
-      const done = document.createElement("div");
-      done.className = "session-done";
-      for (const part of describeConnection(state.session)) {
-        const span = document.createElement(part.name ? "b" : "span");
-        span.textContent = part.text;
-        done.append(span);
-      }
-      card.append(done);
+      checks.append(list);
     }
 
     /* The button sits at the end of the card, after everything it acts on —
-       the rule every other step already follows. It never leaves: while the
-       session is closed it opens one, and while one is open it is the way out
-       of it. */
+       the rule every other step already follows. Once the session is open the
+       press has nothing left to do, so what stands in its place is not a button
+       at all: a green lamp and the word for it, the way an instrument says it is
+       on. The way back out is the button, beside it. */
     {
       const foot = document.createElement("div");
       foot.className = "session-foot";
+      const row = document.createElement("div");
+      row.className = "session-buttons";
 
-      const btn = document.createElement("button");
-      btn.type = "button";
       if (connected) {
-        btn.className = "danger";
-        btn.textContent = "Disconnect";
-        btn.disabled = !!state.running;
-        btn.addEventListener("click", closeSession);
+        const held = document.createElement("div");
+        held.className = "session-state";
+        held.innerHTML = '<i class="lamp"></i>';
+        held.append("Connected");
+
+        const out = document.createElement("button");
+        out.type = "button";
+        out.className = "danger";
+        out.textContent = "Disconnect";
+        out.disabled = !!state.running;
+        out.addEventListener("click", closeSession);
+        row.append(held, out);
       } else {
+        const btn = document.createElement("button");
+        btn.type = "button";
         btn.className = "run";
         btn.textContent = connecting ? "connecting…" : "Connect";
         btn.disabled = connecting || !state.session.password;
@@ -650,13 +709,15 @@ import scanfieldsWidget, { presetInk } from "./widgets/scanfields.js";
         connectHint.className = "session-hint";
         connectHint.textContent = "a password is needed to open the session";
         connectHint.hidden = !!state.session.password || connecting;
+        row.append(btn);
       }
-      foot.append(btn);
+
+      foot.append(row);
       if (connectHint) foot.append(connectHint);
       card.append(foot);
     }
 
-    host.append(card);
+    host.prepend(group);
   }
 
   /* Only the answer lands. The row is already on screen, so filling one in
@@ -688,13 +749,13 @@ import scanfieldsWidget, { presetInk } from "./widgets/scanfields.js";
    * one run. One row is marked as the one the step is taken with, so switching
    * between them is a click rather than a second reading. */
 
-  /* Which recording is unfolded, per slot. One at a time: unfolding is asking
-     to read what was recorded, and two records open at once is two columns of
-     detail to compare down a channel too narrow to hold either. Here rather
-     than on the record itself — it is a fact about this screen, not about what
-     the instrument reported, and the rows are redrawn from the run's state
-     whenever anything around them moves. */
-  const unfolded = {};
+  /* Which recordings are unfolded, by id. As many at once as the operator
+     wants open: comparing two readings means reading both, and folding one
+     away to look at the other is asking them to hold it in their head. Here
+     rather than on the record itself — it is a fact about this screen, not
+     about what the instrument reported, and the rows are redrawn from the
+     run's state whenever anything around them moves. */
+  const unfolded = new Set();
 
   /* The name being typed for the next reading, per slot, for the same reason.
      A name half typed has to survive a field being laid beside it. */
@@ -710,6 +771,7 @@ import scanfieldsWidget, { presetInk } from "./widgets/scanfields.js";
      it. */
   function renderRecordedBar(record, {
     rerender, dropped, choose, hostId, locked = false, active = false, ink = null,
+    about = {},
   }) {
     const wrap = document.createDocumentFragment();
 
@@ -730,8 +792,8 @@ import scanfieldsWidget, { presetInk } from "./widgets/scanfields.js";
     const pick = row.querySelector(".rec-pick");
     pick.setAttribute("aria-pressed", String(active));
     pick.title = active
-      ? "active — this step is taken with it"
-      : "activate: this step, and everything already planned, is taken with it";
+      ? (about.active ?? "active — this step is taken with it")
+      : (about.idle ?? "activate: this step, and everything already planned, is taken with it");
     pick.disabled = !!state.running;
     pick.addEventListener("click", choose);
     if (ink) {
@@ -744,15 +806,14 @@ import scanfieldsWidget, { presetInk } from "./widgets/scanfields.js";
       row.querySelector(".rec-name").prepend(dot);
     }
 
-    const expanded = unfolded[hostId] === record.id;
+    const expanded = unfolded.has(record.id);
     const fold = row.querySelector(".rec-fold");
     fold.textContent = "▸";
-    fold.title = expanded ? "fold away" : "show everything recorded";
+    fold.title = expanded ? "fold away" : (about.fold ?? "show everything recorded");
     fold.setAttribute("aria-expanded", String(expanded));
     fold.classList.toggle("open", expanded);
     fold.addEventListener("click", () => {
-      // opening one closes the other: one recording is unfolded at a time
-      unfolded[hostId] = expanded ? null : record.id;
+      if (expanded) unfolded.delete(record.id); else unfolded.add(record.id);
       rerender();
     });
 
@@ -760,7 +821,7 @@ import scanfieldsWidget, { presetInk } from "./widgets/scanfields.js";
        the step itself, so what is left to be active takes over and the plan
        follows it. */
     const drop = row.querySelector(".rec-drop");
-    drop.title = "forget this preset";
+    drop.title = about.drop ?? "forget this preset";
     drop.disabled = !!state.running || locked;
     drop.addEventListener("click", dropped);
 
@@ -800,7 +861,8 @@ import scanfieldsWidget, { presetInk } from "./widgets/scanfields.js";
     const go = document.createElement("button");
     go.className = "run";
     go.type = "button";
-    go.textContent = "Record Microscope State";
+    // the box says what is being done; the button says do it
+    go.textContent = "Record";
 
     /* The name is not what makes a recording worth taking: what makes it worth
        taking is that the instrument is set the way it is set, now, and that is
@@ -845,13 +907,19 @@ import scanfieldsWidget, { presetInk } from "./widgets/scanfields.js";
     const host = el(hostId);
     if (!host) return;
     host.textContent = "";
+    // two boxes in here, standing apart the way the boxes around them do
+    host.className = "setting-slot";
 
-    const group = document.createElement("div");
-    group.className = "setting-group";
-    const head = document.createElement("div");
-    head.className = "group-label";
-    head.textContent = label;
-    group.append(head);
+    /* One box: the act and what the act has made. It is headed by the doing
+       and names what it will make — recording is the same gesture everywhere,
+       but what comes out of it is an acquisition preset here and a focussing
+       preset there, and the operator is after the thing rather than the gesture.
+       What has been recorded stands directly under the bar that took it; a box
+       of its own said the readings were a second subject when they are the
+       answer to this one. */
+    const { group, body } = sideGroup(
+      `Record ${label[0].toLowerCase()}${label.slice(1)}`,
+    );
 
     const slot = state[key];
     const rerender = () => renderRecordingSlot(hostId, opts);
@@ -879,12 +947,17 @@ import scanfieldsWidget, { presetInk } from "./widgets/scanfields.js";
         changed();
       },
     }));
-    group.append(box);
+    body.append(box);
 
-    /* The readings stand in a list of their own, which stops growing at three
-       and scrolls after that. A slot that kept getting taller would push the
-       rest of the step off the bottom of the channel, and the fourth reading
-       is not more important than the controls it would shove away. */
+    host.append(group);
+    if (!slot.records.length) return;
+
+    /* The readings, straight under the bar that took them. They carried a word
+       of their own for a while — the way the two ways of laying tilesets do —
+       and it was a heading saying what the heading above it had just said. As
+       long a list as it needs to be: the channel scrolls if the step outgrows
+       it, and a slot that scrolled inside itself hid readings behind a bar of
+       its own and made the one in use something to go hunting for. */
     const list = document.createElement("div");
     list.className = "rec-list";
 
@@ -902,37 +975,14 @@ import scanfieldsWidget, { presetInk } from "./widgets/scanfields.js";
         },
         dropped: () => {
           state[key] = withoutRecording(slot, record.id);
-          if (unfolded[hostId] === record.id) unfolded[hostId] = null;
+          unfolded.delete(record.id);
           rerender();
           changed();
         },
       }));
       list.append(done);
     }
-    if (slot.records.length) group.append(list);
-
-    host.append(group);
-
-    /* The one in use is kept in sight. A reading just taken is the active one,
-       and a list that scrolled it out of view would answer a press by showing
-       nothing at all.
-
-       After the frame, because the slot is often built before the channel it
-       goes in is on screen, and a list with no height yet cannot be scrolled
-       anywhere. */
-    const activeBox = list.querySelector(".setting-box.active");
-    if (activeBox) {
-      requestAnimationFrame(() => {
-        if (!list.clientHeight) return;
-        const top = activeBox.offsetTop;
-        const bottom = top + activeBox.offsetHeight;
-        // one unfolded is taller than the list: show it from its name down,
-        // or the box fills with detail belonging to a row nobody can see
-        if (activeBox.offsetHeight > list.clientHeight) list.scrollTop = top;
-        else if (bottom > list.scrollTop + list.clientHeight) list.scrollTop = bottom - list.clientHeight;
-        else if (top < list.scrollTop) list.scrollTop = top;
-      });
-    }
+    body.append(list);
   }
 
   /* The carrier is what the canvas is drawing, so its controls sit beside the
@@ -955,21 +1005,61 @@ import scanfieldsWidget, { presetInk } from "./widgets/scanfields.js";
     state.notes.carrier = describeCarrier(state.carrier);
   }
 
-  /* A hardware autofocus settles the focus step by being recorded: there is
-     nothing further to do, so waiting for a press would be waiting for the
-     operator to confirm what the stand already does. A software one settles
-     the way it always has, by the strategy being applied. */
+  /**
+   * Point `state.focus` at the map belonging to the active focussing preset.
+   *
+   * The one being left is kept first, so going back to it finds the points
+   * where they were and the heights that were read for them. A preset nobody
+   * has worked under yet starts with nothing on the map — its points are the
+   * ones it has, which is none.
+   */
+  function focusFollowsPreset() {
+    const id = activeRecording(state.focusPreset)?.id ?? null;
+    if (id === state.focusFor) return;
+    if (state.focusFor) state.focusMaps[state.focusFor] = state.focus;
+    state.focusFor = id;
+    state.focus = id ? (state.focusMaps[id] ?? newFocus()) : newFocus();
+    // and maps whose preset has been forgotten go with it
+    const kept = new Set(state.focusPreset.records.map((r) => r.id));
+    for (const held of Object.keys(state.focusMaps)) {
+      if (!kept.has(held)) delete state.focusMaps[held];
+    }
+  }
+
+  /* The recording settles the step. A hardware autofocus is held by the stand
+     and there is nothing further to do; a software one focuses at every
+     position it is sent to, which is also a complete answer. Measuring a focus
+     map is the optional extra on top — worth having, because a measured
+     surface is faster than focusing everywhere, but nothing waits for it.
+
+     Forgetting the last reading takes the map with it, the way forgetting the
+     last acquisition preset takes the plan: points measured through optics
+     nobody can see any more are not points. */
   function focusSettled() {
     const kind = activeRecording(state.focusPreset)?.kind;
-    if (kind === "hardware") {
-      state.done.add("focus");
-      state.notes.focus = "held by the stand";
+    if (!kind) {
+      state.focus = newFocus();
+      state.done.delete("focus");
+      delete state.notes.focus;
+      renderPointList();
+      drawTrace();
       return;
     }
+    state.done.add("focus");
     if (state.focus.applied) return;
-    state.done.delete("focus");
-    delete state.notes.focus;
+    state.notes.focus = kind === "hardware"
+      ? "held by the stand"
+      : "focused at every position";
   }
+
+  /* The focus preset is forgettable until a step after it has run, which
+     is the rule the acquisition preset follows. Locking it on the strategy
+     being applied took the cross away while the operator was still standing on
+     the step, with nothing yet depending on the reading. */
+  const focusLocked = () => {
+    const i = indexOfStep("focus");
+    return !!state.running || steps().slice(i + 1).some((s) => state.done.has(s.id));
+  };
 
   const carrierLocked = () => {
     const i = indexOfStep("carrier");
@@ -989,37 +1079,135 @@ import scanfieldsWidget, { presetInk } from "./widgets/scanfields.js";
      what it is called, and that it can be mounted. */
   const focusWidget = {
     id: "focus",
-    label: "Autofocus settings",
+    label: "Focus strategy",
     mount(host) {
-      /* The autofocus preset is recorded here, where the sweeps that will be
+      /* The focus preset is recorded here, where the sweeps that will be
          measured with it are chosen — in the same box the acquisition preset
          is recorded in on the scan-fields step, since it is the same kind of
          thing being done. */
       const box = document.createElement("div");
-      box.className = "side-group side-pad-around";
+      box.className = "side-pad-around";
       const rec = document.createElement("div");
       rec.id = "focus-preset";
       box.append(rec);
       host.append(box);
-      /* Everything below the recording waits for it, the way the ways of
-         laying fields wait for the acquisition preset — and a hardware
-         autofocus leaves nothing to show at all: the stand holds focus off
-         the coverslip, so there is no map to lay points on and no sweep to
-         measure. A focus map belongs to a software autofocus alone. */
+      /* Either kind of focussing can be given a focus map: measure a few
+         positions, fit a surface, and the run drives to a known height instead
+         of finding one everywhere. A software autofocus finds that height by
+         taking a short stack and scoring it; a hardware one is driven to each
+         point and the height it settles at is read — so both have something to
+         measure and something to fit.
+
+         One map, and it belongs to the recording above it: a run focuses one
+         way, so there is one surface to fit and nothing to name or choose
+         between. The ways of choosing where to measure appear as soon as
+         something has been recorded, and the map is the optional extra either
+         way — both kinds are a complete answer on their own. */
       const showTheRest = () => {
-        focusControls.hidden = activeRecording(state.focusPreset)?.kind !== "software";
+        focusControls.hidden = !activeRecording(state.focusPreset);
         focusSettled();
+        renderPointList();
+        drawTrace();
       };
       renderRecordingSlot("focus-preset", {
-        label: "Autofocus preset", key: "focusPreset",
-        locked: state.focus.applied,
-        changed: () => { showTheRest(); renderRail(); renderActionBar(); },
-        activated: () => { showTheRest(); renderRail(); renderActionBar(); },
+        label: "Focussing preset", key: "focusPreset",
+        locked: focusLocked(),
+        changed: () => {
+          focusFollowsPreset(); showTheRest(); renderRail(); renderActionBar(); drawStage();
+        },
+        activated: () => {
+          focusFollowsPreset(); showTheRest(); renderRail(); renderActionBar(); drawStage();
+        },
       });
       showTheRest();
       host.append(focusControls);
       renderPointList();
       drawTrace();
+    },
+  };
+
+  /* The scan takes what has already been recorded: it records nothing itself.
+     Two boxes — the acquisition preset the tiles are taken with, and the
+     focussing preset that keeps them sharp — each a list of what was recorded,
+     with the active one marked. Choosing here is the same act as choosing on
+     the step that recorded it, because there is one active recording of a kind
+     and every step reads it.
+
+     Under the focussing preset, the one thing this step decides for itself:
+     whether the run drives to the surface the map fitted or focuses at every
+     tile as it goes. */
+  const scanWidget = {
+    id: "scan",
+    label: "Scan the overview",
+    mount(host) {
+      /* Built from nothing every time. Anything in here that rebuilds the
+         channel — unfolding a recording, choosing another one — calls this
+         again, and a mount that only appended left the step showing two of
+         everything, then four. */
+      host.textContent = "";
+      const pad = document.createElement("div");
+      pad.className = "side-pad-around";
+      host.append(pad);
+
+      const chooser = (title, key, extra) => {
+        const { group, body } = sideGroup(title);
+        const slot = state[key];
+        const list = document.createElement("div");
+        list.className = "rec-list";
+        for (const record of slot.records) {
+          const active = record.id === slot.active;
+          const row = document.createElement("div");
+          row.className = active ? "setting-box done active" : "setting-box done";
+          row.append(renderRecordedBar(record, {
+            active,
+            locked: true,
+            rerender: () => scanWidget.mount(host),
+            about: {
+              active: "the run is taken with this one",
+              idle: "take the run with this one instead",
+            },
+            choose: () => {
+              state[key] = withActive(slot, record.id);
+              if (key === "overviewPreset") { scanfieldsSettled(); rebuildSample(); }
+              focusSettled();
+              scanWidget.mount(host);
+              renderRail(); renderActionBar(); drawStage();
+            },
+            dropped: () => {},
+          }));
+          list.append(row);
+        }
+        body.append(list);
+        if (extra) extra(body);
+        pad.append(group);
+      };
+
+      chooser("Select acquisition preset", "overviewPreset");
+      chooser("Select focussing preset", "focusPreset", (body) => {
+        /* One mark: the run drives to the surface the map fitted, or it focuses
+           at every tile as it goes. Greyed until this preset has a map — a
+           surface nobody has fitted is not something a run can drive to. */
+        const measured = state.focus.applied && state.focus.strategy === "plane";
+        const row = document.createElement("label");
+        row.className = "scan-focus";
+        const mark = document.createElement("input");
+        mark.type = "checkbox";
+        mark.checked = measured && state.scanFocus === "map";
+        mark.disabled = !measured;
+        mark.addEventListener("change", () => {
+          state.scanFocus = mark.checked ? "map" : "every";
+          scanWidget.mount(host);
+        });
+        row.append(mark, document.createTextNode("Use focus map"));
+        if (!measured) row.title = "no focus map has been measured for this preset";
+        body.append(row);
+      });
+
+      // and the press that starts it, at the end of what it acts on
+      const action = document.createElement("div");
+      action.className = "scan-action";
+      pad.append(action);
+      renderActionBar();
     },
   };
 
@@ -1079,7 +1267,7 @@ import scanfieldsWidget, { presetInk } from "./widgets/scanfields.js";
   const SIDE_WIDGETS = {
     connect: connectWidget,
     carrier: carrierWidget, scanfields: scanfieldsWidget,
-    focus: focusWidget, detect: detectWidget, select: analysisWidget,
+    focus: focusWidget, scan: scanWidget, detect: detectWidget, select: analysisWidget,
     acquire: galleryWidget,
   };
 
@@ -1131,9 +1319,32 @@ import scanfieldsWidget, { presetInk } from "./widgets/scanfields.js";
     if (widget.mount) { widget.mount(host); return; }
 
     if (widget.id === "carrier") {
+      /* The anchor points belong to the run, not to the panel: the canvas
+         draws them and the press that places them is the canvas's. The panel
+         is handed the few things it needs to show and change them. */
+      let redrawAnchors = () => {};
       widget.render(host, {
         config: state.carrier,
         locked,
+        anchors: {
+          list: () => state.anchors,
+          arming: () => state.anchoring,
+          arm: () => { state.anchoring = !state.anchoring; redrawAnchors(); drawStage(); },
+          forget: (i) => {
+            state.anchors = state.anchors.filter((_, at) => at !== i);
+            redrawAnchors(); drawStage();
+          },
+          /* Where the microscope is standing now, kept against this point on
+             the carrier: the pair is the registration — this place on the
+             drawing is that place on the stage. */
+          snap: (i) => {
+            const at = whereTheStageIs();
+            state.anchors = state.anchors.map((a, n) =>
+              (n === i ? { ...a, stage: { x: at.x, y: at.y, z: at.z } } : a));
+            redrawAnchors(); drawStage();
+          },
+          onChange: (fn) => { redrawAnchors = fn; },
+        },
         onChange: (next) => {
           state.carrier = next;
           // the note in the rail says what the carrier now is
@@ -1552,9 +1763,8 @@ import scanfieldsWidget, { presetInk } from "./widgets/scanfields.js";
   const liveOverview = (() => {
     const cv = el("overview-canvas");
     const note = el("overview-note");
-    const depthBox = el("overview-depth");
-    const planeSlider = el("overview-plane");
-    const planeReadout = el("overview-plane-readout");
+    /* No plane control here any more: stepping through a stack is a thing to
+       do to a picture, and the viewer will bring its own. */
     let picture = null;      // the drawing, once the run has been opened
     let opening = false;
     let showing = false;
@@ -1579,37 +1789,12 @@ import scanfieldsWidget, { presetInk } from "./widgets/scanfields.js";
            failure this is meant to catch. */
         window.__liveOverview = picture;
         picture.lookAgain();
-        offerTheDepth();
       } catch (e) {
         say(`the run at ${RUN_TO_WATCH} could not be opened — ${e.message}`);
       } finally {
         opening = false;
       }
     }
-
-    /* A run taken one plane at a time has no depth to step through, so the
-       control for it is only there when there is something to choose. Stepping
-       reads that plane alone — each plane is stored separately — so moving the
-       slider costs the same as looking at the first one. */
-    function offerTheDepth() {
-      const depth = picture?.depth ?? 1;
-      depthBox.hidden = depth < 2;
-      if (depth < 2) return;
-      planeSlider.max = String(depth - 1);
-      planeSlider.value = String(picture.plane);
-      sayWhichPlane();
-    }
-
-    const sayWhichPlane = () => {
-      // Counted from one on screen, because a plane is a thing an operator
-      // counts, not an offset into an array.
-      planeReadout.textContent = `${(picture?.plane ?? 0) + 1} / ${picture?.depth ?? 1}`;
-    };
-
-    planeSlider.addEventListener("input", () => {
-      picture?.showPlane(Number(planeSlider.value));
-      sayWhichPlane();
-    });
 
     return {
       /** Whether this page was given a run to watch at all. */
@@ -1628,7 +1813,6 @@ import scanfieldsWidget, { presetInk } from "./widgets/scanfields.js";
         showing = wants;
         cv.hidden = !wants;
         note.hidden = !wants || !note.textContent;
-        depthBox.hidden = !wants || (picture?.depth ?? 1) < 2;
         clearInterval(heartbeat);
         heartbeat = null;
         if (!wants) return;
@@ -1912,15 +2096,10 @@ import scanfieldsWidget, { presetInk } from "./widgets/scanfields.js";
      picture is, and where the microscope is standing in it. Both are true of
      the stage rather than of anything the run has produced, so they are drawn
      from the one place instead of at each of the points the drawing can stop. */
-  /* Where the stage is and how far a stretch of screen reaches used to be
-     drawn here, after everything else, by a function called for that purpose.
-     They are two layers at the top of the stack now, which is a better answer
-     for the same reason every other piece became one: a layer draws only where
-     it has something to draw, so a crosshair and a bar cost nothing but the
-     few pixels they cover, and being in the stack means they can be turned off
-     by somebody who does not want them. Both are marked to stay solid, because
-     neither is a drawing an operator would want faded — one says where the
-     microscope actually is, and the other is a measurement. */
+  function drawOverEverything(ctx, w, h) {
+    drawWhereTheStageIs(ctx);
+    drawScaleBar(ctx, w, h);
+  }
 
   /* Where the stage ends. Drawn first and faintly: it is the edge of what any
      of this can reach, which is context for everything else rather than a
@@ -1950,28 +2129,6 @@ import scanfieldsWidget, { presetInk } from "./widgets/scanfields.js";
     ctx.fillRect(sx, sy, sz + 0.6, sz + 0.6);
   }
 
-  /**
-   * What the run has put on the stage, as a stack of layers.
-   *
-   * Everything above the carrier used to be one long run of drawing with an
-   * `if` in front of each piece, and three checkboxes deciding three of those
-   * `if`s. Turning it into a list is not tidiness. It is what makes each layer
-   * fadeable on its own, the whole stack fadeable together, ground openable so
-   * the picture underneath shows through, and a layer that a later step
-   * produces — the targets, the refined targets — simply addable. None of that
-   * was reachable from a sequence of statements.
-   *
-   * Bottom of the stack first. Each layer draws in the same way every canvas
-   * drawing in this project does: it is handed one frame holding the view, the
-   * box, a drawing context and a way of turning micrometres into screen pixels.
-   * See `viz_studio/options/contract.md`, and `src/canvas/layers-above.js` for
-   * what `staysSolid` and the windows mean.
-   *
-   * `shown` here is what the *run* knows, not what an operator has switched on:
-   * a layer for something that has not happened yet has nothing to draw. What
-   * the operator switched on is remembered separately, in `layersOff`, so that
-   * a layer they hid stays hidden when the run gives it something new to say.
-   */
   const layersOff = new Set();
   let layerFade = 1;
   let layersLocked = false;
@@ -2306,6 +2463,28 @@ import scanfieldsWidget, { presetInk } from "./widgets/scanfields.js";
       },
 
       {
+        key: "anchors",
+        label: "Anchors",
+        explains: "The points the carrier is being registered from — where the plate really "
+          + "is, as opposed to where it was assumed to be. Solid, because a mark you are "
+          + "placing by hand has to be exactly where you put it.",
+        /* Only on the step that places them: away from it they are answered
+           questions, and the carrier drawn from them says the same thing. */
+        shown: activeMode === "carrier" && state.anchors.length > 0,
+        staysSolid: true,
+        paint: ({ context: ctx }) => {
+          const [ox, oy] = carrierOriginUm();
+          ctx.strokeStyle = css("--mark-focus");
+          ctx.fillStyle = css("--mark-focus");
+          for (const a of state.anchors) {
+            const [x, y] = toScreen(a.x + ox, a.y + oy);
+            ctx.lineWidth = a.stage ? 2.4 : 1.6;
+            crosshair(ctx, x, y, 11, 4, a.stage ? 3 : 2);
+          }
+        },
+      },
+
+      {
         key: "stage",
         label: "Where the stage is",
         explains: "A crosshair on the position the stage is standing at. Always solid: it "
@@ -2370,8 +2549,11 @@ import scanfieldsWidget, { presetInk } from "./widgets/scanfields.js";
     const stack = theStageLayers({
       place,
       shown: Math.max(state.tilesShown, 0),
-      ch0: el("ch-0").checked,
-      ch1: el("ch-1").checked,
+      /* Both colours, always. Which channels are mixed is a question about a
+         picture, and the viewer that draws it is where it will be asked —
+         which is why the switches that used to be under the canvas are gone. */
+      ch0: true,
+      ch1: true,
       w, h, editing,
     });
     /* Two different questions, and they must not be run together. `hasSomething`
@@ -2406,7 +2588,7 @@ import scanfieldsWidget, { presetInk } from "./widgets/scanfields.js";
 
     /* Set here rather than on the pointer alone, so a tool armed from the panel
        or a key says so before the mouse is moved to find out. */
-    stageCv.style.cursor = editing ? editing.cursor() : "";
+    stageCv.style.cursor = editing ? editing.cursor() : focusCursor();
 
     /* The scan beneath follows the view the plan was just drawn with, so the
        two are never a frame apart. Cheap: it is two divisions and a setView,
@@ -2631,6 +2813,19 @@ import scanfieldsWidget, { presetInk } from "./widgets/scanfields.js";
     return took === true;
   }
 
+  /* How big the picture is, said along the bottom of the canvas.
+   *
+   * Flat: a line and a number, no upstanding ends. The ticks were there to say
+   * where the bar stops, which the bar already says, and two little uprights
+   * in a picture full of drawn edges read as one more thing the run had put
+   * there.
+   *
+   * It sits in a strip of its own, kept clear of the drawing: the plan is cut
+   * off above it rather than running under it, because a rule with a plate
+   * showing through it can be read as either. The strip is the page's own
+   * surface, the same as the empty stage. */
+  const SCALE_STRIP = 24;
+
   function drawScaleBar(ctx, w, h, scale = view.scale) {
     const targetPx = 130;
     const raw = targetPx / scale;
@@ -2638,17 +2833,20 @@ import scanfieldsWidget, { presetInk } from "./widgets/scanfields.js";
     const nice = [1, 2, 5, 10].map((m) => m * pow).reduce((a, b) =>
       Math.abs(b - raw) < Math.abs(a - raw) ? b : a);
     const px = nice * scale;
-    const x = w - px - 20, y = h - 24;
+    const x = w - px - 20, y = h - 9;
+
+    ctx.fillStyle = css("--screen");
+    ctx.fillRect(0, h - SCALE_STRIP, w, SCALE_STRIP);
 
     ctx.strokeStyle = css("--ink-2");
     ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.moveTo(x, y - 5); ctx.lineTo(x, y); ctx.lineTo(x + px, y); ctx.lineTo(x + px, y - 5);
+    ctx.moveTo(x, y); ctx.lineTo(x + px, y);
     ctx.stroke();
     ctx.fillStyle = css("--ink-2");
     ctx.font = '11.5px ui-monospace, Consolas, monospace';
     ctx.textAlign = "center";
-    ctx.fillText(nice >= 1000 ? `${nice / 1000} mm` : `${nice} µm`, x + px / 2, y - 9);
+    ctx.fillText(nice >= 1000 ? `${nice / 1000} mm` : `${nice} µm`, x + px / 2, y - 4);
     ctx.textAlign = "left";
   }
 
@@ -2680,10 +2878,14 @@ import scanfieldsWidget, { presetInk } from "./widgets/scanfields.js";
     if (e.button === 0 && e.altKey) { e.preventDefault(); startPan(e); return; }
     if (e.button !== 0) return;
     if (editorTook("down", e)) { stageCv.setPointerCapture(e.pointerId); return; }
+    // a point already on the map is taken hold of before the picture is
+    if (focusGrabbed(e)) { stageCv.setPointerCapture(e.pointerId); return; }
     startPan(e);
   });
 
   stageCv.addEventListener("pointermove", (e) => {
+    if (focusMarquee) { focusMarqueeTo(e.offsetX, e.offsetY); return; }
+    if (focusDrag) { focusDraggedTo(e.offsetX, e.offsetY); return; }
     if (!dragging && editorTook("move", e)) return;
     if (dragging) {
       const dx = e.offsetX - lastX, dy = e.offsetY - lastY;
@@ -2700,13 +2902,17 @@ import scanfieldsWidget, { presetInk } from "./widgets/scanfields.js";
     el("stage-readout").textContent =
       `x ${wx.toFixed(0)} µm · y ${wy.toFixed(0)} µm · ${(view.scale * 1000).toFixed(1)} px/mm`;
 
+    /* A focus point answers before anything under it: it is the small thing
+       on top, and the press that finds it moves it rather than the picture. */
+    if (focusHovered(e)) return;
+
     /* The mark first: it is drawn over everything, so it answers for the
        pointer before anything underneath it does. */
     if (tipTheStageMark(e)) return;
 
     // hover the nearest visible cell
     let hit = null;
-    if (state.cellsShown && !layersOff.has("cells")) {
+    if (state.cellsShown) {
       const [ox, oy] = carrierOriginUm();
       let best = 12 / view.scale;
       for (const c of sample.cells) {
@@ -2733,11 +2939,32 @@ import scanfieldsWidget, { presetInk } from "./widgets/scanfields.js";
     if (e && stageCv.hasPointerCapture?.(e.pointerId)) stageCv.releasePointerCapture(e.pointerId);
   };
   stageCv.addEventListener("pointerup", (e) => {
+    if (focusMarquee) {
+      if (stageCv.hasPointerCapture?.(e.pointerId)) stageCv.releasePointerCapture(e.pointerId);
+      focusMarqueeTook(e.shiftKey);
+      renderActionBar();
+      return;
+    }
+    if (focusDrag) {
+      const { moved } = focusDrag;
+      focusDrag = null;
+      if (stageCv.hasPointerCapture?.(e.pointerId)) stageCv.releasePointerCapture(e.pointerId);
+      /* Held still on a point: the press picked it, and that is the whole of
+         it. Placing happens where there is no point yet, which `focusPressed`
+         answers for. */
+      if (!moved && state.focus.placing) focusPressed(e.offsetX, e.offsetY);
+      renderActionBar();
+      return;
+    }
     if (dragging) {
       const still = !panMoved;
       endDrag(e);
+      /* Locked, a press picks nothing. Panning and zooming are untouched — the
+         lock is about picking, not about looking. */
       if (still && !layersLocked) {
-        focusPressed(e.offsetX, e.offsetY) || detectPressed(e.offsetX, e.offsetY);
+        anchorPressed(e.offsetX, e.offsetY)
+          || focusPressed(e.offsetX, e.offsetY)
+          || detectPressed(e.offsetX, e.offsetY);
       }
       return;
     }
@@ -2773,10 +3000,6 @@ import scanfieldsWidget, { presetInk } from "./widgets/scanfields.js";
     if (liveOverview.showing) { liveOverview.fit(); return; }
     fitView(); drawStage();
   });
-  for (const id of ["ch-0", "ch-1"]) {
-    el(id).addEventListener("change", drawStage);
-  }
-
   /* ============================================================
      the focus strategy panel — positions come from the microscope
      software; the operator drops focus points onto them
@@ -2992,83 +3215,51 @@ import scanfieldsWidget, { presetInk } from "./widgets/scanfields.js";
   /* Every position inside one compartment, by where it is rather than by any
      tag it carries: the plan is a flat list of tiles and a tile does not know
      which well it fell in, but the carrier says where every well is. */
-  function tilesInArea(area) {
-    const [w, h] = [state.carrier.w * 1000, state.carrier.h * 1000];
-    const cx = area.x * 1000, cy = area.y * 1000;
-    return state.plan.filter((t) =>
-      Math.abs(t.x - cx) <= w / 2 && Math.abs(t.y - cy) <= h / 2);
-  }
-
 
   /**
-   * Where to measure the focus: a pattern per compartment, or by hand.
+   * Where to measure the focus: so many points in every scan field, or by hand.
    *
-   * Every compartment that holds scan positions is measured on its own,
-   * whatever the others do — a plate is not flat well by well, and a pattern
-   * that spanned wells would put its confidence in the plastic between them.
-   * A point sits on a scan position, never beside one: focus is measured
-   * where the run will image, and a height read off the gap between wells is
-   * a real number and a worthless one.
+   * A scan field is the unit because it is the unit of the plan: the operator
+   * drew it, or the grid laid it, around something worth imaging, and a field
+   * is small enough that a height measured in it is true of the rest of it.
+   * There used to be four patterns to choose between — first, centre, every
+   * nth, n at random — which was four answers to a question that only ever
+   * had one: how many.
    *
-   * Within one compartment the positions are read in scan order, top-left
-   * first. `first` takes the first, `center` the one nearest the middle,
-   * `interval` every nth, and `random` draws n distinct positions.
+   * A point sits on a scan position, never beside one: focus is measured where
+   * the run will image, and a height read off the gap between positions is a
+   * real number and a worthless one. Which positions is `sharePoints` in
+   * `lib/scanfields.js`: the field is cut into as many equal blocks as points
+   * were asked for, and the position nearest the middle of each is taken.
    */
   const inScanOrder = (tiles) => [...tiles].sort((a, b) => (a.y - b.y) || (a.x - b.x));
 
-  const everyNth = (f) => Math.max(1, Math.round(f.every) || 1);
-  const perCompartment = (f) => Math.max(1, Math.round(f.pickCount) || 1);
-
-  function patternInCompartment(tiles) {
-    const f = state.focus;
-    const ordered = inScanOrder(tiles);
-    if (f.mode === "first") return [ordered[0]];
-    if (f.mode === "center") {
-      const xs = ordered.map((t) => t.x), ys = ordered.map((t) => t.y);
-      const cx = (Math.min(...xs) + Math.max(...xs)) / 2;
-      const cy = (Math.min(...ys) + Math.max(...ys)) / 2;
-      return [ordered.reduce((a, b) =>
-        (Math.hypot(b.x - cx, b.y - cy) < Math.hypot(a.x - cx, a.y - cy) ? b : a))];
+  /** The positions of each scan field, in scan order, fields with any tiles. */
+  /* The plan, in tilesets. Which positions make a tileset is the plan's own
+     answer — a drawn one is a tileset, and the positions a grid laid in one
+     area are that area's — because counting per field would be counting per
+     frame, and a point asked for per tileset would land in every frame of the
+     plate. */
+  function tilesByField() {
+    const byTileset = new Map();
+    for (const t of state.plan) {
+      const key = t.tileset ?? t.fieldId;
+      if (!byTileset.has(key)) byTileset.set(key, []);
+      byTileset.get(key).push(t);
     }
-    if (f.mode === "interval") {
-      const n = everyNth(f);
-      return ordered.filter((_, i) => i % n === 0);
-    }
-    // random: n distinct positions, drawn without replacement
-    const pool = [...ordered];
-    const k = Math.min(perCompartment(f), pool.length);
-    for (let i = 0; i < k; i++) {
-      const j = i + Math.floor(Math.random() * (pool.length - i));
-      [pool[i], pool[j]] = [pool[j], pool[i]];
-    }
-    return pool.slice(0, k);
+    return [...byTileset.values()].map(inScanOrder);
   }
+
+
+
+  const perField = (f) => Math.max(1, Math.round(f.perField) || 1);
 
   function patternFocusPoints() {
     if (!state.plan.length) return [];
-    const out = [];
-    for (const area of centres(state.carrier)) {
-      const tiles = tilesInArea(area);
-      if (tiles.length) {
-        out.push(...patternInCompartment(tiles).map((t) => ({ x: t.x, y: t.y, z: null })));
-      }
-    }
-    return out;
-  }
-
-  /** How many the pattern comes to, said before Place is pressed. */
-  function focusPickTotal() {
-    const f = state.focus;
-    if (!state.plan.length) return 0;
-    let total = 0;
-    for (const area of centres(state.carrier)) {
-      const n = tilesInArea(area).length;
-      if (!n) continue;
-      total += f.mode === "interval" ? Math.ceil(n / everyNth(f))
-        : f.mode === "random" ? Math.min(perCompartment(f), n)
-          : 1;
-    }
-    return total;
+    const n = perField(state.focus);
+    return tilesByField()
+      .flatMap((held) => sharePoints(held, n))
+      .map((t) => ({ x: t.x, y: t.y, z: null }));
   }
 
   /* The position under the pointer, if it is over one. A list of positions has
@@ -3201,19 +3392,49 @@ import scanfieldsWidget, { presetInk } from "./widgets/scanfields.js";
         ctx.moveTo(x, y - ARM_OUT); ctx.lineTo(x, y - ARM_IN);
         ctx.moveTo(x, y + ARM_IN); ctx.lineTo(x, y + ARM_OUT);
       };
-      for (const p of f.points) {
+      /* The rectangle being drawn, if one is: grey and dashed, because it is a
+         question about what it covers rather than a thing on the plate. */
+      if (focusMarquee) {
+        const [mx0, my0] = toScreen(
+          Math.min(focusMarquee.sx, focusMarquee.cx), Math.min(focusMarquee.sy, focusMarquee.cy),
+        );
+        const [mx1, my1] = toScreen(
+          Math.max(focusMarquee.sx, focusMarquee.cx), Math.max(focusMarquee.sy, focusMarquee.cy),
+        );
+        ctx.save();
+        ctx.setLineDash([4, 3]);
+        ctx.lineWidth = 1;
+        ctx.strokeStyle = css("--ink-3");
+        ctx.fillStyle = "rgba(100, 116, 139, 0.12)";
+        ctx.fillRect(mx0, my0, mx1 - mx0, my1 - my0);
+        ctx.strokeRect(mx0, my0, mx1 - mx0, my1 - my0);
+        ctx.restore();
+      }
+
+      f.points.forEach((p, i) => {
         const [x, y] = toScreen(p.x, p.y);
-        // viridis runs dark to bright, so the mark carries its own contrast
+        /* Held, found by the pointer, or charted: all three are the same claim
+           — this is one the next thing you do will happen to — so all three are
+           said the same way, by drawing the mark heavier and ringing it. */
+        const lit = picked().has(i) || i === f.hovered
+          || (!picked().size && i === f.selected);
+        /* One colour, whether the height has been read or not: the mark says
+           where focus is measured, and the heat under it says what came back.
+           Drawn over a dark halo, because viridis runs dark to bright and a
+           mark that carried no contrast of its own disappeared into one end of
+           it or the other. */
         reticle(x, y);
-        ctx.lineWidth = 3.6; ctx.lineCap = "round";
-        ctx.strokeStyle = "rgba(10, 14, 20, 0.45)";
+        ctx.lineWidth = lit ? 6 : 3.6; ctx.lineCap = "round";
+        // a pale halo, because the mark itself is ink and the heatmap under it
+        // runs dark at one end
+        ctx.strokeStyle = "rgba(255, 255, 255, 0.75)";
         ctx.stroke();
         reticle(x, y);
-        ctx.lineWidth = 1.7;
-        ctx.strokeStyle = p.z === null ? css("--accent") : "#e0f2fe";
+        ctx.lineWidth = lit ? 4 : 1.9;
+        ctx.strokeStyle = css(lit ? "--mark-focus-lit" : "--mark-focus");
         ctx.stroke();
         ctx.lineCap = "butt";
-      }
+      });
     }
 
     // ---- ramp legend
@@ -3249,25 +3470,222 @@ import scanfieldsWidget, { presetInk } from "./widgets/scanfields.js";
 
   }
 
-  /* Placing a point is a press on the canvas that did not become a drag: the
-     left button already pans, and asking the operator to remember a modifier
-     for the one thing this step is for would be the wrong way round. The
-     press takes the scan position under it — focus is measured where the run
-     will image — a press on a position already holding a point takes the
-     point away again, and a press over no position falls through to the pan. */
+  /* A focus point being dragged: which one, and whether the pointer has
+     actually moved since it was taken hold of. A press that never moves is
+     still a press, and means the other thing — take this point away. */
+  let focusDrag = null;
+
+  /* Shift and drag over the map picks out the points the rectangle covers, the
+     same gesture that picks tilesets a step earlier. Held in screen pixels
+     while it is being drawn, because that is where the rectangle is. */
+  let focusMarquee = null;
+
+  /** How small a rectangle is too small to have been meant — a shifted press. */
+  const MARQUEE_MIN_PX = 4;
+
+  /** Which points the picked set holds, kept as a set of places, not indexes. */
+  const picked = () => state.focus.picked ?? (state.focus.picked = new Set());
+
+  /** Where the pointer is, in the carrier's own coordinates. */
+  function pointerInCarrier(px, py) {
+    const [wx, wy] = toWorld(px, py);
+    const [ox, oy] = carrierOriginUm();
+    return [wx - ox, wy - oy];
+  }
+
+  /* How near a press has to be to take hold of a point: a few pixels, measured
+     in what the picture is showing rather than in micrometres, so it is the
+     same reach whatever the zoom. */
+  const POINT_REACH_PX = 10;
+
+  /** The focus point under the pointer, if the map is open to being changed. */
+  function focusPointAt(px, py) {
+    const f = state.focus;
+    if (step(state.activeIdx).mode !== "focus") return -1;
+    if (f.strategy !== "plane" || state.running) return -1;
+    const [x, y] = pointerInCarrier(px, py);
+    const reach = POINT_REACH_PX / view.scale;
+    let at = -1, bestD = reach;
+    f.points.forEach((p, i) => {
+      const d = Math.hypot(p.x - x, p.y - y);
+      if (d <= bestD) { at = i; bestD = d; }
+    });
+    return at;
+  }
+
+  /**
+   * Taking hold of a point on the canvas, so it can be moved to another
+   * position — dragged rather than deleted and placed again, because moving one
+   * is what an operator means by "not there, there", and two gestures to say
+   * one thing is one gesture too many.
+   */
+  function focusGrabbed(e) {
+    const f = state.focus;
+    if (step(state.activeIdx).mode !== "focus") return false;
+    if (f.strategy !== "plane" || state.running) return false;
+
+    const at = focusPointAt(e.offsetX, e.offsetY);
+    if (at < 0) {
+      /* Shift on empty ground draws the rectangle; a plain press there lets go
+         of whatever was picked and falls through to the pan. */
+      if (e.shiftKey) {
+        const [x, y] = pointerInCarrier(e.offsetX, e.offsetY);
+        focusMarquee = { sx: x, sy: y, cx: x, cy: y };
+        return true;
+      }
+      if (picked().size) { picked().clear(); renderPointList(); drawStage(); }
+      return false;
+    }
+
+    /* Shift on a point adds it to what is held, or takes it back out. Without
+       shift, a press on a point that is not held picks that one alone — and a
+       press on one that is held keeps the whole set, so a group can be dragged
+       by any of its members. */
+    if (e.shiftKey) {
+      if (picked().has(at)) picked().delete(at); else picked().add(at);
+    } else if (!picked().has(at)) {
+      picked().clear();
+      picked().add(at);
+    }
+    focusDrag = { at, moved: false, held: f.points.map((p) => ({ x: p.x, y: p.y })) };
+    f.selected = at;
+    renderPointList(); drawTrace(); drawStage();
+    return true;
+  }
+
+  /** The rectangle being drawn, in the carrier's own coordinates. */
+  function focusMarqueeTo(px, py) {
+    const [x, y] = pointerInCarrier(px, py);
+    focusMarquee = { ...focusMarquee, cx: x, cy: y };
+    drawStage();
+  }
+
+  /* What the rectangle covered. A rectangle too small to have been meant is a
+     shifted press that was about to add to what is held, so it leaves the set
+     alone rather than emptying it. */
+  function focusMarqueeTook(shift) {
+    const m = focusMarquee;
+    focusMarquee = null;
+    if (!m) return;
+    const box = {
+      xMin: Math.min(m.sx, m.cx), yMin: Math.min(m.sy, m.cy),
+      xMax: Math.max(m.sx, m.cx), yMax: Math.max(m.sy, m.cy),
+    };
+    if (Math.max(box.xMax - box.xMin, box.yMax - box.yMin) * view.scale < MARQUEE_MIN_PX) {
+      drawStage();
+      return;
+    }
+    const f = state.focus;
+    if (!shift) picked().clear();
+    f.points.forEach((p, i) => {
+      if (p.x >= box.xMin && p.x <= box.xMax && p.y >= box.yMin && p.y <= box.yMax) {
+        picked().add(i);
+      }
+    });
+    if (picked().size) f.selected = Math.min(...picked());
+    renderPointList(); drawTrace(); drawStage();
+  }
+
+  /* A point goes wherever the pointer goes: it is a place the stage is driven
+     to, not a frame the run images, so nothing about the plan's grid has a
+     say in where it may sit. */
+  function focusDraggedTo(px, py) {
+    if (!focusDrag) return;
+    focusDrag.moved = true;
+    const f = state.focus;
+    const was = focusDrag.held[focusDrag.at];
+    if (!was) return;
+    const [x, y] = pointerInCarrier(px, py);
+    /* Measured from where the points were when they were taken hold of, not
+       from where they are now: a drag that added its own last step every time
+       would run away from the pointer. Everything held moves together. */
+    const dx = x - was.x, dy = y - was.y;
+    const moving = picked().size ? picked() : new Set([focusDrag.at]);
+    for (const i of moving) {
+      const p = f.points[i], from = focusDrag.held[i];
+      if (!p || !from) continue;
+      /* Moved off what was read for it: the height belonged to where it was.
+         A point that had one is kept in the list and greyed — the reading is
+         stale, not missing — where one that never had a reading is not listed
+         at all until the map is measured again. */
+      f.points[i] = {
+        ...p, x: from.x + dx, y: from.y + dy,
+        z: null, residual: null, stale: p.z !== null || !!p.stale,
+      };
+    }
+    refitSurface();
+    drawStage(); renderPointList();
+  }
+
+  /**
+   * What the pointer says on the focus step. Answered here rather than at the
+   * moment of the press, so a crosshair armed from the panel says so before the
+   * mouse is moved to find out — and so the one place that sets the canvas
+   * cursor keeps setting it. The drawing calls this; nothing else assigns it.
+   */
+  function focusCursor() {
+    if (step(state.activeIdx).mode !== "focus") return "";
+    const f = state.focus;
+    if (f.strategy !== "plane" || state.running) return "";
+    if (f.hovered >= 0) return "grab";
+    return f.placing ? "crosshair" : "";
+  }
+
+  /**
+   * The pointer passing over the map: whether it has found a focus point, and
+   * saying so on the canvas. Answered true when it has, so whatever else the
+   * pointer would have reported is not asked.
+   */
+  function focusHovered(e) {
+    const f = state.focus;
+    if (step(state.activeIdx).mode !== "focus") return false;
+    const at = focusPointAt(e.offsetX, e.offsetY);
+    if (at === f.hovered) return at >= 0;
+    f.hovered = at;
+    drawStage();
+    return at >= 0;
+  }
+
+  /* Placing a point is a press on the canvas with the crosshair armed. Armed
+     rather than always live, because the same press pans the picture and a
+     step where every press moves the plan is a step nobody can look around in.
+
+     The point lands where the press landed, on ground that has none. */
   function focusPressed(px, py) {
     const f = state.focus;
     if (step(state.activeIdx).mode !== "focus") return false;
-    if (f.strategy !== "plane" || f.applied || state.running) return false;
-    const [wx, wy] = toWorld(px, py);
-    const [ox, oy] = carrierOriginUm();
-    const hit = nearestPosition(wx - ox, wy - oy);
-    if (!hit) return false;
-    const at = f.points.findIndex((p) => p.x === hit.t.x && p.y === hit.t.y);
-    if (at >= 0) f.points.splice(at, 1);
-    else f.points.push({ x: hit.t.x, y: hit.t.y, z: null });
-    f.selected = Math.max(0, Math.min(f.selected, f.points.length - 1));
+    if (!f.placing || f.strategy !== "plane" || state.running) return false;
+    /* A press that landed on a point has already done its work: the press
+       picked it, and picking is what a press on a thing means. It used to take
+       the point away instead — the armed tool's other half — which made every
+       point one careless press from gone and made choosing one on the map
+       impossible while the tool was armed. Taking one away is the cross in the
+       list, or Delete. */
+    if (focusPointAt(px, py) >= 0) return true;
+
+    const [x, y] = pointerInCarrier(px, py);
+    f.points.push({ x, y, z: null });
+    /* The one just put down is the one being worked on: it is what the hand is
+       pointing at, and the next thing said — a drag, Delete — is about it
+       rather than about whatever was picked before. */
+    picked().clear();
+    picked().add(f.points.length - 1);
+    f.selected = f.points.length - 1;
+    drawTrace();
     drawStage(); renderPointList(); renderActionBar();
+    return true;
+  }
+
+  /* An anchor point lands where the press landed, once the button has armed
+     it. Armed rather than always live, for the reason the focus crosshair is:
+     the same press pans the picture. */
+  function anchorPressed(px, py) {
+    if (step(state.activeIdx).mode !== "carrier" || !state.anchoring) return false;
+    const [x, y] = pointerInCarrier(px, py);
+    state.anchors = [...state.anchors, { x, y }];
+    state.anchoring = false;
+    renderSide(true);
+    drawStage();
     return true;
   }
 
@@ -3383,32 +3801,31 @@ import scanfieldsWidget, { presetInk } from "./widgets/scanfields.js";
   function renderFocusBar() {
     if (!focusMounted()) return;
     const f = state.focus;
-    const frozen = f.applied || !!state.running || f.strategy !== "plane";
-    for (const b of el("fp-mode").querySelectorAll("button")) {
-      b.setAttribute("aria-checked", String(b.dataset.mode === f.mode));
-      b.disabled = frozen;
-    }
+    /* Running freezes the box, a finished test does not: measuring a map is a
+       reading of it, not a lock on it. Points can be added, moved and taken
+       away afterwards, and the map measured again — what has no reading yet
+       says so in the list until it does. */
+    const frozen = !!state.running || f.strategy !== "plane";
 
-    /* Only the patterns that need a number get one: an interval is asked how
-       often, random how many — first and center already say it all. */
-    const needsCount = f.mode === "interval" || f.mode === "random";
-    el("fp-count-row").hidden = !needsCount;
-    if (needsCount) {
-      el("fp-count-label").textContent = f.mode === "interval" ? "Every nth" : "Per compartment";
-      const count = el("fp-count");
-      // never while it is being typed into, or a 1 on its way to 12 is corrected
-      if (document.activeElement !== count) {
-        count.value = String(f.mode === "interval" ? everyNth(f) : perCompartment(f));
-      }
-      count.disabled = frozen;
-    }
+    /* One number, always asked: how many points to lay in each scan field. */
+    const count = el("fp-count");
+    // never while it is being typed into, or a 1 on its way to 12 is corrected
+    if (document.activeElement !== count) count.value = String(perField(f));
+    count.disabled = frozen;
 
-    const total = focusPickTotal();
-    el("fp-hint").textContent = !state.plan.length
-      ? "no positions yet"
-      : `${total} point${total === 1 ? "" : "s"}`;
     el("fp-place").disabled = frozen || !state.plan.length;
     el("fp-clear").disabled = frozen || !f.points.length;
+    /* The traces are what the run came back with, so the box that reads them
+       is not there until it has. What the map came to is in the rows: a height
+       for every point and how far each sits from the surface. */
+    el("focus-traces").hidden = !f.applied;
+
+    const pick = el("fp-pick");
+    pick.disabled = frozen || !state.plan.length;
+    pick.classList.toggle("on", !!f.placing && !frozen);
+    // the cursor says what the next press will do, the way it does when a
+    // scan field is being drawn — worked out in one place, and set there
+    stageCv.style.cursor = focusCursor();
   }
 
   /* The focus controls are in the document only while their step is standing —
@@ -3444,11 +3861,24 @@ import scanfieldsWidget, { presetInk } from "./widgets/scanfields.js";
     }
 
     f.points.forEach((p, i) => {
-      const b = document.createElement("button");
-      b.className = "point-row"; b.type = "button";
-      b.setAttribute("aria-current", String(i === f.selected));
+      /* Only what has a trace to inspect, or had one: a point put down after
+         the map was measured has nothing to show and waits on the map until
+         the next test gives it a reading. */
+      if (p.z === null && !p.stale) return;
+
+      /* A row, not a button: it holds one — the row itself picks the point —
+         and a cross of its own for throwing it away. A button inside a button
+         is not a thing a browser will draw. */
+      const row = document.createElement("div");
+      row.className = p.stale ? "point-row stale" : "point-row";
+      /* Held, or the one whose trace is charted: the list marks what the
+         canvas marks, so a rectangle drawn over the map is answered here. */
+      row.setAttribute("aria-current",
+        String(picked().has(i) || (!picked().size && i === f.selected)));
       const suspect = p.onNarrow || (f.worst === i && Math.abs(p.residual || 0) > 3);
-      b.innerHTML =
+      const pick = document.createElement("button");
+      pick.className = "point-pick"; pick.type = "button";
+      pick.innerHTML =
         `<span class="idx">${i + 1}</span>` +
         `<span>${(p.x / 1000).toFixed(2)}, ${(p.y / 1000).toFixed(2)} mm</span>` +
         (p.residual === undefined || p.residual === null ? ""
@@ -3457,11 +3887,29 @@ import scanfieldsWidget, { presetInk } from "./widgets/scanfields.js";
         `<span class="z${p.z === null ? " pending" : ""}"` +
         `${suspect && !p.manual ? ' style="color:var(--bad)"' : ""}>` +
         `${p.z === null ? "—" : (p.manual ? "✎ " : suspect ? "⚠ " : "") + p.z.toFixed(1) + " µm"}</span>`;
-      b.addEventListener("click", () => {
+      /* A moved point has no trace to show — what was read was read of where it
+         used to be — so its row says so by being unpressable until the map is
+         measured again. */
+      pick.disabled = !!p.stale;
+      pick.addEventListener("click", () => {
         f.selected = i;
         renderPointList(); drawTrace(); drawStage();
       });
-      host.append(b);
+
+      const drop = document.createElement("button");
+      drop.className = "rec-drop point-drop"; drop.type = "button";
+      drop.textContent = "✕";
+      drop.title = "stop measuring here";
+      drop.disabled = !!state.running;
+      drop.addEventListener("click", () => {
+        f.points.splice(i, 1);
+        f.selected = Math.max(0, Math.min(f.selected, f.points.length - 1));
+        refitSurface();
+        renderPointList(); drawTrace(); drawStage(); renderActionBar();
+      });
+
+      row.append(pick, drop);
+      host.append(row);
     });
   }
 
@@ -3470,15 +3918,23 @@ import scanfieldsWidget, { presetInk } from "./widgets/scanfields.js";
   function drawTrace() {
     if (!focusMounted()) return;
     const f = state.focus;
-    const has = f.strategy === "plane" && f.applied && f.points.length > f.selected;
+    /* A point put down after the map was measured has no reading yet, and a
+       trace is the reading: there is nothing to draw for it until the map is
+       measured again. */
+    const has = f.strategy === "plane" && f.applied
+      && f.points.length > f.selected && f.points[f.selected]?.z !== null;
     el("trace-empty").classList.toggle("hidden", has);
-    el("trace-which").textContent = has ? `point ${f.selected + 1}` : "";
+    /* Which point is being read is said by the list, where the row is marked,
+       and by the map, where the mark is drawn heavier. The heading says what
+       the box is, once. */
     if (!has || !sizeCanvas(traceCv)) return;
 
     const ctx = traceCv.getContext("2d");
     const w = traceCv.cssW, h = traceCv.cssH;
     ctx.clearRect(0, 0, w, h);
-    ctx.fillStyle = css("--surface-2");
+    // the plot stands on the same white the box does: a tinted panel inside a
+    // white card read as a second surface for one of the three parts
+    ctx.fillStyle = css("--screen");
     ctx.fillRect(0, 0, w, h);
 
     /* Both metrics on one plot. They score the same stack on different
@@ -3724,7 +4180,7 @@ import scanfieldsWidget, { presetInk } from "./widgets/scanfields.js";
       ctx.filter = "none";
     }
 
-    el("zpreview-z").textContent = `${point.z.toFixed(1)} µm`;
+    el("zpreview-z").textContent = point.z === null ? "—" : `${point.z.toFixed(1)} µm`;
     const st = el("zpreview-state");
     st.classList.toggle("manual", !!point.manual);
     if (point.manual) {
@@ -3804,33 +4260,55 @@ import scanfieldsWidget, { presetInk } from "./widgets/scanfields.js";
     drawTrace(); renderPointList(); drawStage();
   });
 
-  // ---- laying the pattern, rather than clicking positions one at a time
-  el("fp-mode").addEventListener("click", (e) => {
-    const b = e.target.closest("button[data-mode]");
-    if (!b || b.disabled) return;
-    state.focus.mode = b.dataset.mode;
-    renderFocusBar();
-  });
+  // ---- laying points by the number, rather than clicking positions one by one
   el("fp-count").addEventListener("input", () => {
     const v = parseInt(el("fp-count").value, 10);
     if (Number.isNaN(v)) return;
-    const f = state.focus;
-    // the one number box serves whichever pattern is asking
-    if (f.mode === "interval") f.every = Math.min(99, Math.max(1, v));
-    else f.pickCount = Math.min(99, Math.max(1, v));
+    state.focus.perField = Math.min(99, Math.max(1, v));
     renderFocusBar();
   });
   el("fp-count").addEventListener("blur", () => { renderFocusBar(); });
+  el("fp-pick").addEventListener("click", () => {
+    const f = state.focus;
+    f.placing = !f.placing;
+    renderPointList();
+  });
   el("fp-place").addEventListener("click", () => {
     const f = state.focus;
-    // a fresh set, not more on top: the layout is the point, and adding to it
-    // would leave a pattern with somebody else's pattern through it
+    /* A fresh set, not more on top: the points are settled against each other
+       — every one stands for its own share of the tileset — so laying a second
+       set through the first would leave neither arrangement true. What is kept
+       by hand is kept by not pressing this. */
     f.points = patternFocusPoints();
+    picked().clear();
     f.selected = 0;
     drawStage(); renderPointList(); drawTrace(); renderActionBar();
   });
+  /* Delete takes away whichever point is chosen — the one the canvas is
+     drawing heavier and the list has highlighted. The same key does the same
+     thing to a scan field one step earlier, and a map is edited the way a plan
+     is. */
+  window.addEventListener("keydown", (e) => {
+    if (step(state.activeIdx).mode !== "focus" || state.running) return;
+    if (e.key !== "Delete" && e.key !== "Backspace") return;
+    if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT") return;
+    const f = state.focus;
+    if (f.strategy !== "plane" || !f.points.length) return;
+    e.preventDefault();
+    /* Everything held, or the charted one when nothing is: the same key, and
+       the same meaning, whether one point was picked or a rectangle full. */
+    const going = picked().size ? picked() : new Set([f.selected]);
+    f.points = f.points.filter((_, i) => !going.has(i));
+    picked().clear();
+    f.selected = Math.max(0, Math.min(f.selected, f.points.length - 1));
+    f.hovered = -1;
+    refitSurface();
+    drawStage(); renderPointList(); drawTrace(); renderActionBar();
+  });
+
   el("fp-clear").addEventListener("click", () => {
     state.focus.points = [];
+    picked().clear();
     drawStage(); renderPointList(); drawTrace(); renderActionBar();
   });
 

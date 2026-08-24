@@ -16,6 +16,7 @@
  * controls that are already there and leaves the focused one alone.
  */
 
+import { sideGroup } from "../frame/box.js";
 import {
   CARRIER_TYPES, carrierType, fromPreset, matchingPreset, geometry, maxRadius,
   centres, depthMm,
@@ -179,7 +180,7 @@ export default {
     ctx.restore();
   },
 
-  render(host, { config, locked, onChange }) {
+  render(host, { config, locked, onChange, anchors }) {
     let cfg = { ...config };
     /* Whether the two halves of a pair move together is the operator's choice
        about this session, not part of the carrier — a saved configuration that
@@ -202,6 +203,10 @@ export default {
       sync();
     };
 
+    /* The type is chosen in a box of its own, headed by the choosing: it is
+       the first question the step asks, and everything under it is about the
+       answer. */
+    const { group: typeBox, body: typeCard } = sideGroup("Select carrier type");
     const types = el("div", "carrier-types");
     for (const t of CARRIER_TYPES) {
       const b = el("button", "carrier-type");
@@ -217,7 +222,8 @@ export default {
       });
       types.append(b);
     }
-    controls.append(types);
+    typeCard.append(types);
+    controls.append(typeBox);
 
     /* One body under the type row: every carrier is designed in the same
        panel, and what differs between them is which groups of it are on
@@ -243,7 +249,12 @@ export default {
       new Option("Custom", "-1"),
     ];
 
-    const presetGroup = el("div", "carrier-group");
+    /* The catalogue and the three things done with a whole carrier go straight
+       under the type they belong to: picking a wellplate and picking the
+       96-well one out of the catalogue are the same question asked twice over,
+       so neither a box nor a word of their own. The numbers below are the other
+       thing — one measurement of the carrier these name. */
+    const templateCard = el("div", "carrier-templates");
     const presets = el("select", "carrier-preset");
     presets.replaceChildren(...presetOptions(cfg.type));
     presets.addEventListener("change", () => {
@@ -313,8 +324,63 @@ export default {
       take(fromPreset(cfg.type, carrierType(cfg.type).presets[0])));
 
     fileRow.append(load, save, reset, picker);
-    presetGroup.append(presets, fileRow);
-    designer.append(presetGroup);
+    /* Straight into the box, with no second frame around them: the box is
+       already the object these belong to, and an edge inside an edge says the
+       same thing twice. */
+    templateCard.append(presets, fileRow);
+    typeCard.append(templateCard);
+
+    /* Every number the carrier is made of goes in one box: rows and columns,
+       the size of an area, the pitch between them, the corner. They are one
+       description of one thing, and a box apiece made a plate look like four
+       decisions when it is one. */
+    const { group: sizeBox, body: sizeCard } =
+      sideGroup("Configure layout", "carrier-sizes");
+    designer.append(sizeBox);
+
+    /* Where the carrier is on the stage, as against what it is made of. A
+       point is put on the drawing here and driven to on the microscope; what
+       is done with the pair is the next thing to build. */
+    const { group: anchorBox, body: anchorCard } = sideGroup("Register carrier");
+    designer.append(anchorBox);
+
+    const anchorAdd = el("button", "sf-flat", "Add anchor point");
+    anchorAdd.type = "button";
+    anchorAdd.addEventListener("click", () => anchors.arm());
+    anchorCard.append(anchorAdd);
+
+    const anchorList = el("div", "point-list anchor-list");
+    anchorCard.append(anchorList);
+
+    /** The points put on the carrier so far, in the order they were placed. */
+    const drawAnchors = () => {
+      anchorAdd.classList.toggle("on", anchors.arming());
+      anchorList.textContent = "";
+      anchors.list().forEach((a, i) => {
+        const row = el("div", "point-row");
+        const pick = el("div", "point-pick");
+        pick.innerHTML = `<span class="idx">${i + 1}</span>`
+          + `<span>${(a.x / MM_UM).toFixed(2)}, ${(a.y / MM_UM).toFixed(2)} mm</span>`
+          + (a.stage
+            ? `<span class="z">${(a.stage.x / MM_UM).toFixed(2)}, `
+              + `${(a.stage.y / MM_UM).toFixed(2)} mm</span>`
+            : "");
+        /* Drive the microscope to this place, then say so here: the point on
+           the drawing and the place on the stage become one statement. */
+        const snap = el("button", "sf-flat anchor-snap", a.stage ? "Snap again" : "Snap to stage");
+        snap.type = "button";
+        snap.addEventListener("click", () => anchors.snap(i));
+        pick.append(snap);
+        const drop = el("button", "rec-drop point-drop", "✕");
+        drop.type = "button";
+        drop.title = "forget this anchor point";
+        drop.addEventListener("click", () => anchors.forget(i));
+        row.append(pick, drop);
+        anchorList.append(row);
+      });
+    };
+    anchors.onChange(drawAnchors);
+    drawAnchors();
 
     /**
      * A row of numbers, with the button that ties two of them at the end.
@@ -382,7 +448,7 @@ export default {
       grid.append(...cells.map((c) => c.i));
       if (tie) grid.append(tie);
       group.append(grid);
-      designer.append(group);
+      sizeCard.append(group);
 
       /* How many columns the row is drawn in follows what is in it, so a
          field that is not this carrier's business takes its column with it
@@ -522,7 +588,7 @@ export default {
     shapeBtn.addEventListener("click", () => commit({ cornerRatio: cfg.cornerRatio >= 0.99 ? 0 : 1 }));
     shapeGrid.append(cornerIn, areaIn, shapeBtn);
     shapeGroup.append(shapeGrid);
-    designer.append(shapeGroup);
+    sizeCard.append(shapeGroup);
     /* A corner belongs to a carrier whose areas are compartments — a well is
        round, a chamber's corners are moulded, and both are worth saying. A
        single free-standing area is a rectangle of the size just given, and a

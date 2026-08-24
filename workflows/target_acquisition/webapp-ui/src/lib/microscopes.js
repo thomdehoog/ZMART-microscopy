@@ -107,7 +107,7 @@ const softwareAutofocus = ({ objective, pixelUm, framePx, channel, metric, range
     summary: `Software · ${short(objective)}`,
     kind: "software", pixelUm, framePx, frameUm,
     detail: [
-      ["Autofocus", "Software · sharpness of the image"],
+      ["Focus", "Software · sharpness of the image"],
       ["Objective", objective],
       ["Channel", channel],
       ["Frame", `${framePx} × ${framePx} px · ${frameUm} × ${frameUm} µm`],
@@ -124,7 +124,7 @@ const hardwareAutofocus = ({ objective, pixelUm, framePx, source, offset, hold }
     summary: `Hardware · ${short(objective)}`,
     kind: "hardware", pixelUm, framePx, frameUm,
     detail: [
-      ["Autofocus", "Hardware · reflection off the coverslip"],
+      ["Focus", "Hardware · reflection off the coverslip"],
       ["Objective", objective],
       ["Source", source],
       ["Frame", `${framePx} × ${framePx} px · ${frameUm} × ${frameUm} µm`],
@@ -184,7 +184,7 @@ export const SETTING_TYPES = [
   },
   {
     key: "autofocus",
-    label: "Autofocus",
+    label: "Focus",
     readings: [
       softwareAutofocus({
         objective: "HC PL APO 10x / 0.40 NA dry",
@@ -255,27 +255,6 @@ export const describeSession = ({ microscope, api }) => {
   const scope = MICROSCOPES[microscope];
   const apiDef = scope?.apis?.[api];
   return scope && apiDef ? `${scope.label} · ${apiDef.label}` : "not chosen";
-};
-
-/**
- * What an opened session says for itself, once every check has answered. The
- * rail carries the same fact as a label; this is the sentence the checks end
- * on, so the two are worded here rather than in the panel that shows them.
- *
- * Returned in pieces, with the two names marked, so whatever shows the
- * sentence can set them apart from the words around them without slicing a
- * string it did not write.
- */
-export const describeConnection = ({ microscope, api }) => {
-  const scope = MICROSCOPES[microscope];
-  const apiDef = scope?.apis?.[api];
-  if (!scope || !apiDef) return [{ text: "No session is open" }];
-  return [
-    { text: "Successfully connected to the " },
-    { text: scope.label, name: true },
-    { text: " over " },
-    { text: apiDef.label, name: true },
-  ];
 };
 
 /**

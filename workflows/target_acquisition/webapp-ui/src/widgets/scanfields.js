@@ -25,6 +25,7 @@
  * without the question in front of them.
  */
 
+import { sideGroup } from "../frame/box.js";
 import {
   centres, geometry, frameFitsArea, frameSeat, insideArea, nearestArea, scanBox,
 } from "../lib/carriers.js";
@@ -211,6 +212,13 @@ export const presetInk = (i) => PRESET_INK[(i < 0 ? 0 : i) % PRESET_INK.length];
  * drawing was loose at the edge. Splitting it would quietly turn one field
  * into two acquisitions of two different samples, so the larger share wins
  * and the rest of the outline images nothing.
+ *
+ * Every position also says which **tileset** it belongs to, which is not the
+ * same as which field it came from. A drawn tileset is one thing the operator
+ * made, however many frames it holds. A grid is not: `Add grid` lays a block in
+ * every area at once and each of its positions is a field of one, so anything
+ * counted per field would be counted per frame. The positions a grid put in one
+ * area are that area's tileset, and so are any placed there by hand.
  */
 export function plan(fields, preset, carrier) {
   if (!preset) return [];
@@ -243,10 +251,12 @@ export function plan(fields, preset, carrier) {
        edge it was clipped by. Laid once and moved afterwards, a field mostly
        over the rim came back as a crescent — the lattice slid off the outline
        it was drawn for and covered whatever it happened to land on. */
+    const tileset = chosen ? `area-${best.area.row}.${best.area.col}` : `field-${f.id}`;
+
     if (chosen) {
       for (const t of laid) {
         if (frameFitsArea(carrier, t.x / MM_UM, t.y / MM_UM, frame)) {
-          out.push({ x: t.x, y: t.y, frameUm: preset.frameUm, fieldId: f.id });
+          out.push({ x: t.x, y: t.y, frameUm: preset.frameUm, fieldId: f.id, tileset });
         }
       }
       continue;
@@ -255,7 +265,7 @@ export function plan(fields, preset, carrier) {
        and asking again in different arithmetic threw away the tile lying
        exactly on the border — the one the whole rule is about. */
     for (const t of tiles(f, preset.frameUm, f.overlap ?? 0, limitOf(best.area, carrier))) {
-      out.push({ x: t.x, y: t.y, frameUm: preset.frameUm, fieldId: f.id });
+      out.push({ x: t.x, y: t.y, frameUm: preset.frameUm, fieldId: f.id, tileset });
     }
   }
   return out;
@@ -274,7 +284,7 @@ function limitOf(area, carrier) {
 
 export default {
   id: "scanfields",
-  label: "Overview scan settings",
+  label: "Setup overview",
 
   plan,
 
@@ -467,25 +477,12 @@ export default {
     card.append(controls);
     host.append(card);
 
-    const group = (title) => {
-      const g = el("div", "side-group");
-      if (title) g.append(el("div", "side-group-title", title));
-      controls.append(g);
-      return g;
-    };
-
     /* The preset leads the column, because everything under it is taken with
        it: a field names a preset and takes its frame from that one, so there
-       is nothing to lay until there is one to lay it under.
-
-       The recording itself lives in this group rather than in a box of its own
-       above. It used to be two boxes — one that recorded the preset, one that
-       listed it back so it could be chosen — and with one preset recorded that
-       was the same sentence written twice, once as a heading and once as a
-       row. The heading the recording brings with it is this group's heading,
-       and the row is gone. */
-    const presetGroup = group(null);
-    if (presetSlot) presetGroup.append(presetSlot);
+       is nothing to lay until there is one to lay it under. It brings its own
+       boxes — one for the recording, one for what has been recorded — so it is
+       put straight into the column rather than inside a box of this panel's. */
+    if (presetSlot) controls.append(presetSlot);
 
     /* No list of presets of its own and nothing to apply: the recordings above
        are the list, and activating one there takes the whole plan with it.
@@ -499,17 +496,21 @@ export default {
        on screen says what the next press will do; and it is the way back out
        of adding, which belongs beside what it is a way out of. Armed is a
        state, and a state wants somewhere to live. */
-    /* Both ways of making fields in one box, under a title apiece. They are
-       two answers to the same question — what to image — and the operator
-       moves between them without leaving anything, so one continuous white
-       box says more about them than a gap between two would.
+    /* One box with a word apiece over the two ways of filling it in. Drawing
+       tilesets by hand and asking for a grid of them answer the same question —
+       what to image — and either is a whole answer on its own, so they belong
+       under one heading rather than in two boxes that read as two steps to go
+       through in order.
 
-       The box is only there once something has been recorded to lay fields
-       under. It used to stand greyed, on the argument that a step showing
-       what it is going to be beats an empty column; with the recording above
-       it saying plainly what it is waiting for, the greyed copy of the whole
-       editor underneath was a second answer to a question already answered. */
-    const makeGroup = group("Draw scanfields");
+       Nothing is here until something has been recorded to lay tilesets under.
+       It used to stand greyed, on the argument that a step showing what it is
+       going to be beats an empty column; with the recording above it saying
+       plainly what it waits for, a greyed copy of the whole editor was a second
+       answer to a question already answered. */
+    const { group: layoutBox, body: layout } = sideGroup("Create tilesets");
+    controls.append(layoutBox);
+
+    layout.append(el("div", "side-sub", "Manually"));
     const toolRow = el("div", "sf-tools");
     for (const t of TOOLS) {
       const b = el("button", "sf-tool");
@@ -530,11 +531,25 @@ export default {
       });
       toolRow.append(b);
     }
-    makeGroup.append(toolRow);
+    layout.append(toolRow);
 
-    makeGroup.append(el("div", "side-group-title", "Place scanfield on a grid"));
+    layout.append(el("div", "side-sub", "Automatically"));
+    /* The four numbers and the button that acts on them, side by side: the
+       numbers are narrower than the box and the button takes the room they
+       leave, standing as tall as both their rows. A button drawn across the
+       foot of the box was a third row of its own for one word. */
+    const gridRow = el("div", "sf-auto");
     const gridPair = el("div", "sf-pair");
-    makeGroup.append(gridPair);
+    /* A lane of its own, opening with a blank label. The button then begins
+       where the boxes beside it begin rather than up at their headings, and it
+       does so by measuring the same label they do — nothing to keep in step by
+       hand if the labels ever change size. */
+    const gridLane = el("div", "sf-lane");
+    const spacer = el("span", "sf-num-label", " ");
+    spacer.setAttribute("aria-hidden", "true");
+    gridLane.append(spacer);
+    gridRow.append(gridPair, gridLane);
+    layout.append(gridRow);
     const num = (label, get, set, min) => {
       const wrap = el("div", "sf-num");
       wrap.append(el("span", "sf-num-label", label));
@@ -562,9 +577,22 @@ export default {
     ];
     /* The verb lives on the button, so the titles above are the nouns they
        name: what is added is a grid, and this is what adds it. */
-    const applyGrid = el("button", "sf-flat sf-apply-grid", "Add grid");
+    const applyGrid = el("button", "sf-flat sf-doing sf-apply-grid", "Add grid");
     applyGrid.type = "button";
-    applyGrid.addEventListener("click", () => {
+    /**
+     * Rows by columns in every area, at the pitch the boxes say.
+     *
+     * The pitch is never finer than a frame, so no two positions of one grid
+     * image the same ground — and because the frame comes from the preset, the
+     * grid has to be laid again whenever another preset is activated. Laid
+     * once and left, a grid put down under a 63x objective kept its 102 µm
+     * pitch when a 5x was activated, and its nine positions came back as nine
+     * acquisitions of one square of sample stacked on top of each other.
+     *
+     * @param base the fields to lay it among; the grid replaces whatever the
+     *   last laying made, and leaves everything drawn or placed by hand alone.
+     */
+    const layGrid = (base = ed.fields) => {
       const [px, py] = pitch();
     /* Only what the well can hold. A block wider than the area it is laid in
        used to put its outer positions on the plastic — nine positions of which
@@ -580,13 +608,29 @@ export default {
           made.push({ id: nextId(), type: "point", source: "grid", ...at });
         }
       }
-      /* Applying replaces what the last Apply made rather than stacking on it.
-         Anything drawn or placed by hand is left alone — it was not the grid's
-         to remove. */
-      commit([...ed.fields.filter((f) => f.source !== "grid"), ...made]);
+      commit([...base.filter((f) => f.source !== "grid"), ...made]);
       ed.selected = new Set();
-    });
-    makeGroup.append(el("div", "sf-row").appendChild(applyGrid).parentElement);
+    };
+    applyGrid.addEventListener("click", () => layGrid());
+    /* Drawn as well as named: a block of positions is what the button lays,
+       and the picture says it at a glance the way the drawing tools' glyphs
+       do. */
+    const gridGlyph = document.createElementNS(SVG_NS, "svg");
+    gridGlyph.setAttribute("viewBox", "0 0 22 22");
+    gridGlyph.setAttribute("class", "sf-glyph sf-glyph-drawn sf-glyph-grid");
+    gridGlyph.setAttribute("aria-hidden", "true");
+    for (const cy of [5.5, 11, 16.5]) {
+      for (const cx of [5.5, 11, 16.5]) {
+        const dot = document.createElementNS(SVG_NS, "rect");
+        dot.setAttribute("x", String(cx - 2)); dot.setAttribute("y", String(cy - 2));
+        dot.setAttribute("width", "4"); dot.setAttribute("height", "4");
+        dot.setAttribute("rx", "0.8");
+        gridGlyph.append(dot);
+      }
+    }
+    applyGrid.textContent = "";
+    applyGrid.append(gridGlyph, el("span", null, "Add grid"));
+    gridLane.append(applyGrid);
 
     /* Folded away, because the shortcuts are reference rather than workflow —
        and where a control has no button, this is the only place it is said. */
@@ -621,7 +665,8 @@ export default {
       keysBox.classList.toggle("open", !keysBody.hidden);
     });
     keysBox.append(keysHead, keysBody);
-    controls.append(keysBox);
+    // inside the box it is about: what the shortcuts do is done in that box
+    layout.append(keysBox);
 
     const readout = el("div", "sf-readout");
     card.append(readout);
@@ -680,8 +725,7 @@ export default {
       /* Nothing to lay fields under, nothing to lay them with: the ways of
          making them are not there until a preset is, and go again with the
          last one forgotten. */
-      makeGroup.hidden = !ed.preset;
-      keysBox.hidden = !ed.preset;
+      layoutBox.hidden = !ed.preset;
       /* Everything is dead while the step is locked, except the recording
          itself: it is what the lock is waiting for when there is no preset
          yet, and the frame decides on its own whether it may be touched once
@@ -759,7 +803,12 @@ export default {
            moment another recording is activated. Only the sizes change; where
            each one sits is the operator's statement and is left alone. */
         const resized = ed.fields.map(refit);
-        if (resized.some((f, i) => f !== ed.fields[i])) commit(resized);
+        /* And a grid is laid again rather than resized: it has no outline of
+           its own, only positions worked out from the frame, so the frame
+           changing means working them out again. One commit either way, so a
+           change of preset is one step to undo. */
+        if (resized.some((f) => f.source === "grid")) layGrid(resized);
+        else if (resized.some((f, i) => f !== ed.fields[i])) commit(resized);
         sync();
         redraw();
       },
