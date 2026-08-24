@@ -17,11 +17,22 @@
 
 import { expect, test } from "@playwright/test";
 
-/* These walk a whole run twice — once to find out where the plan puts things,
-   and again with a scan built to match — and a run is not quick. Generous
-   rather than the default, because what would otherwise fail here is the
-   walking, which is not what is being checked. */
-test.describe.configure({ timeout: 120_000 });
+/**
+ * How long one of these may take.
+ *
+ * They walk a whole run twice — once to find out where the plan puts things,
+ * and again with a scan built to match — and a run is not quick. Generous
+ * rather than the default, because what would otherwise fail here is the
+ * walking, which is not what is being checked.
+ *
+ * Set inside each test rather than once for the file. `test.describe.configure`
+ * at the top of a file settles it for whatever suite is being loaded at that
+ * moment, and when several spec files are given to one run that turns out to be
+ * the *next* file rather than this one — which fails it at load with a message
+ * about `beforeEach` being in the wrong place, nowhere near the cause. Running
+ * this file on its own hides that completely.
+ */
+const A_RUN_TAKES_A_WHILE = 120_000;
 
 /** One small picture, standing in for every field. */
 const A_SMALL_PICTURE = Buffer.from("/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAYEBQYFBAYGBQYHBwYIChAKCgkJChQODwwQFxQYGBcUFhYaHSUfGhsjHBYWICwgIyYnKSopGR8tMC0oMCUoKSj/wAALCAAQABABAREA/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/9oACAEBAAA/API/hN8OJ/irda9dXmvS2lzbPHJLLLAbl53lMhLMS6nOUJJOc5qL4yfC/wD4Vv8A2R/xN/7S/tDzv+XbyfL8vZ/ttnO/26UfBv4of8K3/tf/AIlH9pf2h5P/AC8+T5fl7/8AYbOd/t0o+MnxQ/4WR/ZH/Eo/s3+z/O/5efO8zzNn+wuMbPfrX//Z", "base64");
@@ -135,6 +146,7 @@ test("is not opened at all unless the page was pointed at one", async ({ page })
 
 test("lands exactly where the plan says, at every zoom and after panning",
   async ({ page }) => {
+    test.setTimeout(A_RUN_TAKES_A_WHILE);
     await page.goto("/");
     await page.waitForTimeout(800);
     await serveAScanMatching(page, await throughToAPlan(page));
@@ -165,6 +177,7 @@ test("lands exactly where the plan says, at every zoom and after panning",
   });
 
 test("shows only where the drawing above it has been opened up", async ({ page }) => {
+  test.setTimeout(A_RUN_TAKES_A_WHILE);
   await page.goto("/");
   await page.waitForTimeout(800);
   await serveAScanMatching(page, await throughToAPlan(page));
