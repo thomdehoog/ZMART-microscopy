@@ -108,22 +108,26 @@ const WINDOW_SITS_FROM = 0.15;
  * moved with the handle would mean the operator could never see what their
  * drag had done.
  *
- * The bars land at fifteen and eighty five per cent exactly, whatever the
- * window's numbers are. For a window sitting close to zero that means the
- * axis starts below zero — room no pixel can occupy, kept anyway because a
- * pair of bars that always sits in the same two places is worth more than a
- * left edge that never goes negative. The axis was clamped at zero for a
- * day, which pinned the min bar to the left edge for exactly the dim
- * channels Auto is most used on; the operator asked for the exact framing
- * instead (2026-08-23).
+ * The bars AIM at fifteen and eighty five per cent, and the axis never
+ * shows a value the data cannot hold. Those two wishes met in this order:
+ * first the axis was clamped at zero, which pinned the min bar to the left
+ * edge for exactly the dim channels Auto is most used on; then the framing
+ * was made exact and unclamped (2026-08-23), and a wide window promptly
+ * put "-7915" and "77099" under a sixteen-bit histogram — numbers that do
+ * not exist. The operator settled it (2026-08-24): fifteen and eighty five
+ * are the aim, the possible range is the wall, and where the two collide
+ * the wall wins — a bar sitting off its mark is a smaller lie than an
+ * axis reaching brightness no camera produced.
  */
-function frameTheWindow(window_) {
+function frameTheWindow(window_, bounds = null) {
   if (!window_ || !(window_.high > window_.low)) return null;
   const across = (window_.high - window_.low) / (1 - 2 * WINDOW_SITS_FROM);
   const beyond = across * WINDOW_SITS_FROM;
   return {
-    low: window_.low - beyond,
-    high: window_.high + beyond,
+    low: bounds ? Math.max(bounds.low, window_.low - beyond)
+      : window_.low - beyond,
+    high: bounds ? Math.min(bounds.high, window_.high + beyond)
+      : window_.high + beyond,
   };
 }
 
@@ -241,15 +245,16 @@ function Histogram({ layer, window_, color, onWindow, onAxis = null,
       && brightnessOf(index) <= anchor.max);
   const peak = Math.max(...(drawn.length ? drawn : counts), 1);
 
-  // The image's own range of values, which the window may never leave: a
-  // black or white point beyond the pixels would say something about
-  // brightness that does not exist. The axis is allowed further — that is
-  // what keeps the bars at their fifteen and eighty-five per cent — but
-  // only as far as the whole range framed the usual way.
+  // The image's own range of values, which neither the window nor the axis
+  // may leave: a black or white point beyond the pixels would say something
+  // about brightness that does not exist, and an axis reaching past the
+  // range showed a sixteen-bit histogram running to numbers no camera
+  // produced (the operator's refinement, 2026-08-24). Panning and zooming
+  // therefore travel at most to the range itself.
   const bounds = range && Number.isFinite(range.high)
     ? { low: range.low ?? 0, high: range.high }
     : { low: Math.min(0, measured.low), high: Math.max(65535, measured.high) };
-  const widest = frameTheWindow(bounds);
+  const widest = bounds;
   const withinImage = (value) =>
     Math.min(Math.max(value, bounds.low), bounds.high);
   const holdTheAxis = (next) => {
@@ -795,13 +800,24 @@ function ChannelControls({ layer, index, entry, mode, lookupTables, onWindow, on
   // otherwise, and their answer is kept per channel for as long as the panel
   // is showing it.
   const [shown, setShown] = React.useState(null);
+  // The image's own range of values, which nothing in this panel may claim
+  // to exceed: not the handles (a black or white point beyond the pixels
+  // would describe brightness that does not exist, 2026-08-23), and not the
+  // axis either — its framing aims the bars at 15% and 85% but stops at
+  // this wall (2026-08-24). One gate, every mover passes it.
+  const imageRange = layer.range && Number.isFinite(layer.range.high)
+    ? { low: layer.range.low ?? 0, high: layer.range.high }
+    : { low: 0, high: 65535 };
+  const withinImage = (value) =>
+    Math.min(Math.max(value, imageRange.low), imageRange.high);
   // The stretch of brightness the picture draws when the operator has not
   // said otherwise: settled from the window this channel was handed, and
   // settled again whenever Auto hands it another. Held in between, so that
   // dragging a handle moves the handle rather than the ground under it.
-  const [framed, setFramed] = React.useState(() => frameTheWindow(window_));
+  const [framed, setFramed] = React.useState(
+    () => frameTheWindow(window_, imageRange));
   const frameAround = (given) => {
-    const around = frameTheWindow(given);
+    const around = frameTheWindow(given, imageRange);
     if (!around) return;
     setShown(null);
     setFramed(around);
@@ -812,18 +828,9 @@ function ChannelControls({ layer, index, entry, mode, lookupTables, onWindow, on
   // of disagreeing about which picture they are talking about.
   const seen = here ? { ...layer, histogram: here } : layer;
   const { min, max } = contrastRange(seen, window_, shown || framed);
-  // The two handles are kept at least one count apart. A window of no width makes
-  // every value in the image land on the same shade, so the picture goes flat and
-  // it is not obvious why. And neither handle may leave the image's own range
-  // of values — a black or white point beyond the pixels would describe
-  // brightness that does not exist (the operator's rule, 2026-08-23). This is
-  // the one gate every mover of the window passes: the sliders, the typed
-  // boxes and the histogram's bars all land here.
-  const imageRange = layer.range && Number.isFinite(layer.range.high)
-    ? { low: layer.range.low ?? 0, high: layer.range.high }
-    : { low: 0, high: 65535 };
-  const withinImage = (value) =>
-    Math.min(Math.max(value, imageRange.low), imageRange.high);
+  // The two handles are kept at least one count apart. A window of no width
+  // makes every value in the image land on the same shade, so the picture
+  // goes flat and it is not obvious why.
   const setLow = (low) =>
     onWindow(index, { low: Math.min(withinImage(low), window_.high - 1),
                       high: window_.high });
@@ -946,8 +953,8 @@ function ChannelControls({ layer, index, entry, mode, lookupTables, onWindow, on
               <ValueBox
                 value={Math.round(min)}
                 onCommit={(asked) => setShown({
-                  low: asked,
-                  high: Math.max(asked + 1, shown ? shown.high : max),
+                  low: withinImage(asked),
+                  high: Math.max(withinImage(asked) + 1, shown ? shown.high : max),
                 })}
                 label={`axis from ${layer.name}`}
                 align="left"
@@ -998,8 +1005,8 @@ function ChannelControls({ layer, index, entry, mode, lookupTables, onWindow, on
               <ValueBox
                 value={Math.round(max)}
                 onCommit={(asked) => setShown({
-                  low: Math.min(asked - 1, shown ? shown.low : min),
-                  high: asked,
+                  low: Math.min(withinImage(asked) - 1, shown ? shown.low : min),
+                  high: withinImage(asked),
                 })}
                 label={`axis to ${layer.name}`}
               />

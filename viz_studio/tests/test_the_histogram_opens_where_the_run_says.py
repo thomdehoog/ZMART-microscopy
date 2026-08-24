@@ -133,30 +133,36 @@ def test_the_window_a_run_declared_sits_across_the_middle(opened_on, tmp_path):
         )
 
 
-def test_the_axis_goes_below_zero_to_keep_the_framing(opened_on, tmp_path):
-    """A window that opens at zero still puts its marks at 15% and 85%.
+def test_the_axis_stops_at_the_possible_and_aims_at_the_marks(opened_on, tmp_path):
+    """A window that opens at zero frames as far as the data allows, no further.
 
-    Fifteen per cent of the width below the window is brightness no pixel
-    can have, and for a day the axis was clamped there -- which pinned the
-    low mark against the left edge for exactly the dim channels Auto is
-    most used on. The operator asked for the exact framing instead
-    (2026-08-23): the marks always sit in the same two places, whatever
-    the window's numbers, and the empty stretch below zero is the price,
-    knowingly paid. This gate used to pin the clamp, and now pins its
-    absence just as firmly.
+    The marks AIM at 15% and 85%, and this gate holds the other half of the
+    bargain: the axis never shows a value the data cannot hold. That rule
+    took three tries to settle. First the axis clamped at zero, which
+    pinned the low mark to the left edge for dim channels; then the framing
+    was made exact and unclamped (2026-08-23), and a wide window put
+    "-7915" and "77099" under a sixteen-bit histogram — numbers that do not
+    exist; the operator settled it (2026-08-24): the aim is 15/85, the
+    possible range is the wall, and the wall wins. A window opening at zero
+    therefore starts its axis exactly at zero — the low mark sits on the
+    axis's very edge and is not drawn — while the high mark keeps its
+    framed place, computed from the one-sided margin the wall left it.
     """
     page = opened_on("fromzero", start=0, end=4000)
     page.screenshot(path=str(tmp_path / "a_window_that_opens_at_zero.png"))
     seen = _the_picture(page)
-    assert len(seen["marks"]) == 2, (
-        f"the window should be drawn as two marks; saw {seen['marks']}"
+    # The axis runs 0 .. end + 15% margin (4857); only the high mark is
+    # inside the drawing, at 4000 / 4857 of the width.
+    framed_high = 4000 / (4000 / (1 - 2 * 0.15) * 0.15 + 4000)
+    assert len(seen["marks"]) == 1, (
+        f"only the high mark should be drawn — the low one sits on the "
+        f"axis's zero edge; saw {seen['marks']}"
     )
-    for mark, meant in zip(seen["marks"], SITS_AT):
-        assert abs(mark - meant) < NEAR_ENOUGH, (
-            f"the window's marks are at {[round(one, 3) for one in seen['marks']]} "
-            f"along the histogram, not at {SITS_AT}: the framing must hold even "
-            "when it takes the axis below zero"
-        )
+    assert abs(seen["marks"][0] - framed_high) < NEAR_ENOUGH, (
+        f"the high mark is at {round(seen['marks'][0], 3)}, not at "
+        f"{round(framed_high, 3)}: the axis must stop at zero and keep the "
+        "margin only where the data has room for it"
+    )
 
 
 def test_the_bars_are_scaled_to_the_part_of_the_picture_drawn(opened_on, tmp_path):

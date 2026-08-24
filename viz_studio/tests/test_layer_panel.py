@@ -862,16 +862,24 @@ def test_the_brightness_axis_opens_around_the_window(two_channel_page):
         f"{window_} they are meant to set -- a handle stranded past the end of "
         "its track cannot be moved"
     )
-    # The framing is exact -- the middle 70% -- even for a window near
-    # zero, where it takes the axis below zero. It was clamped there for a
-    # day, which pinned the low mark to the left edge for exactly the dim
-    # channels Auto is most used on; the operator asked for the exact
-    # framing instead (2026-08-23).
+    # The framing AIMS at the middle 70% and stops at the range's wall (the
+    # operator's refinement, 2026-08-24: an axis must never show a value the
+    # data cannot hold — for a day it ran below zero and a sixteen-bit
+    # histogram read "-7915"). The expectation is therefore computed the way
+    # the panel computes it: a 15% margin either side, each clipped to the
+    # image's own range.
+    margin = (window_[1] - window_[0]) / 0.7 * 0.15
+    framed = (max(0, window_[0] - margin), min(65535, window_[1] + margin))
     across = reach["max"] - reach["min"]
     beyond = (window_[1] - window_[0]) / across
-    assert beyond == pytest.approx(0.7, abs=0.02), (
-        f"the window fills {beyond:.0%} of the track rather than the middle "
-        "70%, so its marks are not where the operator asked for them"
+    meant = (window_[1] - window_[0]) / (framed[1] - framed[0])
+    assert reach["min"] >= 0, (
+        f"the axis starts at {reach['min']}, below any brightness a pixel "
+        "can hold"
+    )
+    assert beyond == pytest.approx(meant, abs=0.02), (
+        f"the window fills {beyond:.0%} of the track rather than the "
+        f"{meant:.0%} the aimed framing leaves it after the range's wall"
     )
 
 

@@ -239,7 +239,7 @@ async function listFolders(path) {
 // more is asking for "no waiting", so that is what the top of the range
 // means.
 const AS_FAST_AS_IT_CAN = 20;
-const REPLAY_PACES = [0.5, 1, 2, 5, 10, AS_FAST_AS_IT_CAN];
+const REPLAY_PACES = [0.1, 0.5, 1, 2, 5, 10, AS_FAST_AS_IT_CAN];
 
 const LOAD_KINDS = [
   { key: "open", label: "default",
