@@ -9,7 +9,7 @@
  * letting each workflow explain it in its own terms.
  */
 
-import { reworded } from "../../frame/steps.js";
+import { reworded } from "../../frame/rules/steps.js";
 import { setUpTheRun } from "../target_acquisition/flow.js";
 import { focusStrategy } from "../target_acquisition/steps/4_focus_strategy/step.js";
 import { saveRun } from "../overview_only/steps/5_save_the_run/step.js";

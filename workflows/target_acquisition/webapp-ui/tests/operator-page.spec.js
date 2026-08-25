@@ -2,7 +2,7 @@ import { test, expect } from "@playwright/test";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { assembleWorkflows } from "../src/frame/finding-workflows.js";
+import { assembleWorkflows } from "../src/frame/rules/finding-workflows.js";
 
 /* The workflows, found the way the page finds them: every folder under
  * `src/workflows/` with a `flow.js` inside it. The page uses the build tool's
