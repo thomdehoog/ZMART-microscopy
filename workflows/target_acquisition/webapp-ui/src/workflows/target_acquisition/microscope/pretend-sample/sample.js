@@ -1,14 +1,17 @@
 /**
- * The synthetic sample: geometry, tissue and cells.
+ * The synthetic sample the mock backend images: geometry, tissue and cells.
  *
- * Sole owner of the stage's dimensions. Nothing else derives them — if a
- * widget needs to know how wide the sample is, it imports it from here.
+ * Read honestly, this is the older of the page's two rehearsal samples: a
+ * fixed block of tiles, fed only to `../mock.js` and the unit tests on it.
+ * The page itself rehearses with a newer sample that follows the plan — cells
+ * are generated inside whatever tiles the scan fields ask for — and that one
+ * lives in the window (`frame/window/main.js`) until the backend seam is
+ * wired for real. When the seam is wired, this file is what the real
+ * instrument replaces: the backend stops generating cells and starts
+ * reporting them.
  *
  * Everything is deterministic. A mock that looks different on every load
  * cannot be tested and cannot be discussed.
- *
- * When a real microscope arrives this module is what it replaces: the backend
- * stops generating cells and starts reporting them.
  */
 
 import { makeRng } from "./rng.js";

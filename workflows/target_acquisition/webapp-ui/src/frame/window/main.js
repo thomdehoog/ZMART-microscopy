@@ -18,6 +18,18 @@ import {
 } from "../../workflows/target_acquisition/microscope/recordings.js";
 import carrierWidget from "../../workflows/target_acquisition/steps/2_define_carrier/widget.js";
 import scanfieldsWidget, { presetInk } from "../../workflows/target_acquisition/steps/3_define_scan_area/widget.js";
+/* The rehearsal's own maths — the deterministic random stream, the autofocus
+   sweep with its two metrics and its specks of debris, and the focus-surface
+   fitting — is imported rather than written here, so the unit tests and the
+   page read the same arithmetic. These files used to exist twice, once here
+   and once beside the mock, and the two copies could disagree in silence. */
+import { makeRng } from "../../workflows/target_acquisition/microscope/pretend-sample/rng.js";
+import {
+  METRICS, METRIC_KEYS, debrisAt, sweep, pickPeak, scoreAt,
+} from "../../workflows/target_acquisition/microscope/pretend-sample/sweep.js";
+import {
+  affineSurface, fitSurface, residualsUm, surfaceZ,
+} from "../../workflows/target_acquisition/microscope/pretend-sample/surface.js";
 
 /* The workflows this page offers: every folder in `src/workflows/` with a
    `flow.js` inside it, found by the build tool's folder scan and assembled by
@@ -48,11 +60,6 @@ const { WORKFLOWS, DEFAULT_WORKFLOW } = assembleWorkflows(
      move it. */
   const TARGET_CELLS = 1250;
   const AREA_LO = 60, AREA_HI = 400;
-
-  function makeRng(seed) {
-    let s = seed >>> 0;
-    return () => ((s = (Math.imul(s, 1664525) + 1013904223) >>> 0) / 4294967296);
-  }
 
   let sample = { tissue: [], cells: [], bounds: null };
 
@@ -464,7 +471,7 @@ const { WORKFLOWS, DEFAULT_WORKFLOW } = assembleWorkflows(
            announces — the images were declared at their full size before any of
            them existed, so their description is the same before and after a tile
            lands. The picture decides how often to actually look; see
-           `live/overview.js`, which explains why. */
+           `steps/5_scan_the_overview/overview.js`, which explains why. */
         liveOverview.tileMayHaveLanded();
         drawStage(); renderAll();
         if (t < 1) raf = requestAnimationFrame(tick);
@@ -1675,7 +1682,7 @@ const { WORKFLOWS, DEFAULT_WORKFLOW } = assembleWorkflows(
   /* Whether the dark parts of the picture should be see-through — `?seethrough=1`.
      Off unless asked for, because it makes a place that was imaged and came back
      black look exactly like a place nobody has visited, and during a run those
-     are two different things worth telling apart. `live/overview.js` explains
+     are two different things worth telling apart. `steps/5_scan_the_overview/overview.js` explains
      what it does and why it has to exist. */
   const SEE_THROUGH = new URLSearchParams(location.search).get("seethrough") === "1";
 
@@ -1851,7 +1858,7 @@ const { WORKFLOWS, DEFAULT_WORKFLOW } = assembleWorkflows(
   })();
 
   /* ============================================================
-     the canvas, as the two steps of the demonstration
+     the canvas, as the demonstration workflow's one step
      ============================================================ */
   /* The picture of a run, filling a panel of its own, with the engine that draws
      it chosen by the operator and a button for each of the three layers. It is
@@ -2096,15 +2103,6 @@ const { WORKFLOWS, DEFAULT_WORKFLOW } = assembleWorkflows(
     stageTip.style.left = `${Math.min(e.offsetX + 14, stageCv.cssW - 130)}px`;
     stageTip.style.top = `${Math.max(6, e.offsetY - 66)}px`;
     return true;
-  }
-
-  /* What goes over everything, however far the run has got: how big the
-     picture is, and where the microscope is standing in it. Both are true of
-     the stage rather than of anything the run has produced, so they are drawn
-     from the one place instead of at each of the points the drawing can stop. */
-  function drawOverEverything(ctx, w, h) {
-    drawWhereTheStageIs(ctx);
-    drawScaleBar(ctx, w, h);
   }
 
   /* Where the stage ends. Drawn first and faintly: it is the edge of what any
@@ -2953,164 +2951,20 @@ const { WORKFLOWS, DEFAULT_WORKFLOW } = assembleWorkflows(
     return -412 + 96 * (x / w - 0.5) + 61 * (y / h - 0.5);
   };
 
-  const STRATEGIES = {
-    plane: {
-      label: "Fit from points",
-      blurb: "Measure a few positions and fit a surface. Four or more non-collinear points buy a "
-        + "thin-plate spline; fewer buy a plane; a flat sample buys a constant.",
-    },
-    fixed: {
-      label: "Fixed Z",
-      blurb: "One focus height for the whole sample. Fastest, flattest assumption.",
-    },
-    auto: {
-      label: "Per-tile autofocus",
-      blurb: "Autofocus at every position. Most robust, and the slowest by far.",
-    },
-    reuse: {
-      label: "Reuse surface",
-      blurb: "Take the surface a previous run measured on this holder.",
-    },
-  };
-
   function focusSurface() {
     const f = state.focus;
-    if (f.strategy === "fixed") return { kind: "affine", a: 0, b: 0, c: f.zFixed };
-    if (f.strategy === "reuse") return { kind: "affine", ...PREVIOUS_SURFACES[f.reuse].plane };
+    const [w, h] = carrierSpan();
+    if (f.strategy === "fixed") return affineSurface({ c: f.zFixed, width: w, height: h });
+    if (f.strategy === "reuse") {
+      return affineSurface({ ...PREVIOUS_SURFACES[f.reuse].plane, width: w, height: h });
+    }
     return f.surface;
   }
 
-  /* Model by geometry, the way workflow/_focus_surface.py does it: a spline
-     needs four non-collinear points before it means anything, so fewer points
-     buy a plane, and a flat sample buys a constant. */
-  const FLAT_TOLERANCE_UM = 0.1;
-  const SPLINE_SMOOTHING = 0.1;
-
-  function surfaceZ(m, x, y) {
-    if (!m) return 0;
-    if (m.kind === "affine") {
-      const [w, h] = carrierSpan();
-      return m.a * (x / w - 0.5) + m.b * (y / h - 0.5) + m.c;
-    }
-    if (m.kind === "constant") return m.c;
-    if (m.kind === "plane") return m.c0 * (x - m.x0) + m.c1 * (y - m.y0) + m.c2;
-    const u = (x - m.x0) / m.scale, v = (y - m.y0) / m.scale;
-    let z = m.a0 + m.a1 * u + m.a2 * v;
-    for (let i = 0; i < m.pts.length; i++) {
-      const du = u - m.pts[i].u, dv = v - m.pts[i].v;
-      z += m.w[i] * kernelU(Math.sqrt(du * du + dv * dv));
-    }
-    return z;
-  }
-
-  // the thin-plate basis: r² ln r, which is what minimises bending energy
-  const kernelU = (r) => (r < 1e-9 ? 0 : r * r * Math.log(r));
-
-  // dense gaussian elimination with partial pivoting — n stays tiny here
-  function solve(A, b) {
-    const n = b.length;
-    const M = A.map((row, i) => [...row, b[i]]);
-    for (let i = 0; i < n; i++) {
-      let piv = i;
-      for (let k = i + 1; k < n; k++) if (Math.abs(M[k][i]) > Math.abs(M[piv][i])) piv = k;
-      if (Math.abs(M[piv][i]) < 1e-12) return null;
-      [M[i], M[piv]] = [M[piv], M[i]];
-      for (let k = i + 1; k < n; k++) {
-        const f = M[k][i] / M[i][i];
-        for (let j = i; j <= n; j++) M[k][j] -= f * M[i][j];
-      }
-    }
-    const out = new Array(n).fill(0);
-    for (let i = n - 1; i >= 0; i--) {
-      let acc = M[i][n];
-      for (let j = i + 1; j < n; j++) acc -= M[i][j] * out[j];
-      out[i] = acc / M[i][i];
-    }
-    return out;
-  }
-
-  const ptp = (a) => Math.max(...a) - Math.min(...a);
-
-  // are the points spread in two dimensions, or strung out along one line?
-  function nonCollinear(xc, yc) {
-    let sxx = 0, sxy = 0, syy = 0;
-    for (let i = 0; i < xc.length; i++) { sxx += xc[i] * xc[i]; sxy += xc[i] * yc[i]; syy += yc[i] * yc[i]; }
-    const tr = sxx + syy, det = sxx * syy - sxy * sxy;
-    if (tr <= 0) return false;
-    const disc = Math.max(0, tr * tr / 4 - det);
-    const small = tr / 2 - Math.sqrt(disc);
-    return small > 1e-9 * tr;
-  }
-
-  function fitSurface(points) {
-    const n = points.length;
-    if (!n) return null;
-    const xs = points.map((p) => p.x), ys = points.map((p) => p.y), zs = points.map((p) => p.z);
-    const x0 = xs.reduce((a, b) => a + b, 0) / n;
-    const y0 = ys.reduce((a, b) => a + b, 0) / n;
-    const xc = xs.map((x) => x - x0), yc = ys.map((y) => y - y0);
-
-    if (ptp(zs) < FLAT_TOLERANCE_UM || n === 1) {
-      return { kind: "constant", model: "constant", c: zs.reduce((a, b) => a + b, 0) / n };
-    }
-
-    if (n >= 4 && nonCollinear(xc, yc)) {
-      const scale = Math.max(ptp(xc), ptp(yc)) || 1;
-      const u = xc.map((x) => x / scale), v = yc.map((y) => y / scale);
-      const N = n + 3;
-      const A = Array.from({ length: N }, () => new Array(N).fill(0));
-      const b = new Array(N).fill(0);
-      for (let i = 0; i < n; i++) {
-        for (let j = 0; j < n; j++) {
-          const du = u[i] - u[j], dv = v[i] - v[j];
-          // smoothing on the diagonal: the spline passes NEAR the points, not
-          // exactly through them, which is what leaves a residual to read
-          A[i][j] = i === j ? SPLINE_SMOOTHING : kernelU(Math.sqrt(du * du + dv * dv));
-        }
-        A[i][n] = 1; A[i][n + 1] = u[i]; A[i][n + 2] = v[i];
-        A[n][i] = 1; A[n + 1][i] = u[i]; A[n + 2][i] = v[i];
-        b[i] = zs[i];
-      }
-      const sol = solve(A, b);
-      if (sol) {
-        return {
-          kind: "spline", model: "spline", x0, y0, scale,
-          pts: u.map((uu, i) => ({ u: uu, v: v[i] })),
-          w: sol.slice(0, n), a0: sol[n], a1: sol[n + 1], a2: sol[n + 2],
-        };
-      }
-    }
-
-    // least-squares plane through centred coordinates
-    const design = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
-    const rhs = [0, 0, 0];
-    for (let i = 0; i < n; i++) {
-      const row = [xc[i], yc[i], 1];
-      for (let a = 0; a < 3; a++) {
-        for (let b2 = 0; b2 < 3; b2++) design[a][b2] += row[a] * row[b2];
-        rhs[a] += row[a] * zs[i];
-      }
-    }
-    // Points strung out along one line leave the normal equations singular in
-    // the across-line direction. lstsq answers that with a minimum-norm fit —
-    // a plane that tilts along the line and stays flat across it — so a ridge
-    // stands in for the same thing rather than collapsing to a constant.
-    let c = solve(design, rhs);
-    if (!c) {
-      const ridge = 1e-9 * (design[0][0] + design[1][1] + design[2][2]) || 1e-12;
-      const damped = design.map((row, i) => row.map((v, j) => (i === j ? v + ridge : v)));
-      c = solve(damped, rhs);
-    }
-    if (!c) return { kind: "constant", model: "constant", c: zs.reduce((a, b) => a + b, 0) / n };
-    return { kind: "plane", model: "plane", x0, y0, c0: c[0], c1: c[1], c2: c[2] };
-  }
-
-  /* How far each measured point sits from the fitted surface. One large
-     residual is the tell that a single autofocus landed on dust and is
-     quietly bending everything else — the same reading as residuals_um(). */
-  function residualsUm(surface, points) {
-    return points.map((p) => p.z - surfaceZ(surface, p.x, p.y));
-  }
+  /* Fitting the focus surface — which model the geometry buys, the fit, the
+     height it predicts anywhere, and the residuals — lives in
+     `microscope/pretend-sample/surface.js`, imported above, mirroring the
+     Python `workflow/_focus_surface.py`. */
 
   // viridis — multi-hue but monotone in lightness, which is the property that
   // matters: it stays readable in greyscale and for every kind of colour vision
@@ -3167,7 +3021,7 @@ const { WORKFLOWS, DEFAULT_WORKFLOW } = assembleWorkflows(
    * A point sits on a scan position, never beside one: focus is measured where
    * the run will image, and a height read off the gap between positions is a
    * real number and a worthless one. Which positions is `sharePoints` in
-   * `lib/scanfields.js`: the field is cut into as many equal blocks as points
+   * `shared/scanfields.js`: the field is cut into as many equal blocks as points
    * were asked for, and the position nearest the middle of each is taken.
    */
   const inScanOrder = (tiles) => [...tiles].sort((a, b) => (a.y - b.y) || (a.x - b.x));
@@ -3645,94 +3499,10 @@ const { WORKFLOWS, DEFAULT_WORKFLOW } = assembleWorkflows(
     return true;
   }
 
-  /* ---- the sweep behind one focus point -----------------------------------
-     Both metrics score the same stack, differently: Brenner's gradient is
-     broad and a little skewed, DCT energy is sharper and more symmetric. They
-     are drawn together so the two can be compared. The peak is refined by
-     fitting a parabola to the best sample and its two neighbours — which the
-     chart draws, so the choice is visible rather than asserted. */
-  const METRICS = {
-    brenner: { label: "Brenner gradient", short: "Brenner", token: "--m-brenner", width: 9.0, bias: 0.0, skew: 0.16, noise: 0.045 },
-    dct: { label: "DCT energy", short: "DCT", token: "--m-dct", width: 6.2, bias: -0.7, skew: 0.03, noise: 0.028 },
-  };
-  const METRIC_KEYS = Object.keys(METRICS);
-
-  const SWEEP_N = 61, SWEEP_HALF = 34;   // µm either side of the guess
-  const MIN_TISSUE_WIDTH = 4.5;          // µm — anything narrower is not cells
-
-  // Some positions have a speck of debris in the field. Debris is a hard edge
-  // in ONE plane, so it scores higher than the tissue and over a far narrower
-  // range — the classic way an autofocus ends up focused on dust.
-  function debrisAt(idx) {
-    const r = makeRng(770 + idx * 613);
-    if (r() > 0.45) return null;
-    return { offset: (r() < 0.5 ? -1 : 1) * (9 + 13 * r()), amp: 1.12 + 0.34 * r(), width: 0.55 + 0.45 * r() };
-  }
-
-  function sweep(point, metricKey, idx) {
-    const m = METRICS[metricKey];
-    const centre = trueZ(point.x, point.y) + m.bias;
-    const guess = trueZ(point.x, point.y) - 6 + 12 * (((idx * 37) % 11) / 10);
-    const r = makeRng(1000 + idx * 91 + metricKey.length * 17);
-    const speck = debrisAt(idx);
-    // a coarse metric smears the speck out; a fine one resolves it fully
-    const speckGain = { brenner: 1.0, dct: 0.72 }[metricKey];
-
-    const samples = [];
-    for (let i = 0; i < SWEEP_N; i++) {
-      const z = guess - SWEEP_HALF + (2 * SWEEP_HALF * i) / (SWEEP_N - 1);
-      const d = z - centre;
-      const core = Math.exp(-(d * d) / (2 * m.width * m.width));
-      const tail = m.skew * Math.exp(-(d * d) / (2 * (m.width * 3) * (m.width * 3))) * (d > 0 ? 1 : 0.35);
-      let s = core + tail;
-      if (speck) {
-        const ds = z - (centre + speck.offset);
-        const sw = speck.width + m.width * 0.05;
-        s += speck.amp * speckGain * Math.exp(-(ds * ds) / (2 * sw * sw));
-      }
-      samples.push({ z, s: Math.max(0.02, s + m.noise * (r() - 0.5)) });
-    }
-    return { samples, candidates: findCandidates(samples), hasDebris: !!speck };
-  }
-
-  // every local maximum, refined by a parabola through its three samples,
-  // with the half-height width that tells tissue from a speck
-  function findCandidates(samples) {
-    const stepUm = samples[1].z - samples[0].z;
-    const floor = Math.min(...samples.map((q) => q.s));
-    const out = [];
-    for (let i = 1; i < samples.length - 1; i++) {
-      if (!(samples[i].s >= samples[i - 1].s && samples[i].s > samples[i + 1].s)) continue;
-      const [p0, p1, p2] = [samples[i - 1], samples[i], samples[i + 1]];
-      const denom = p0.s - 2 * p1.s + p2.s;
-      const shift = Math.abs(denom) < 1e-6 ? 0 : (0.5 * (p0.s - p2.s)) / denom;
-      const z = p1.z + shift * stepUm;
-      const s = p1.s - 0.25 * (p0.s - p2.s) * shift;
-      const half = floor + (s - floor) / 2;
-      let lo = p1.z, hi = p1.z;
-      for (let k = i; k >= 0 && samples[k].s > half; k--) lo = samples[k].z;
-      for (let k = i; k < samples.length && samples[k].s > half; k++) hi = samples[k].z;
-      const width = Math.max(stepUm, hi - lo);
-      if (s - floor < 0.12) continue;          // noise, not a peak
-      out.push({ z, s, width, used: [p0, p1, p2], narrow: width < MIN_TISSUE_WIDTH });
-    }
-    if (!out.length) {
-      let bi = 0;
-      samples.forEach((p, i) => { if (p.s > samples[bi].s) bi = i; });
-      const p1 = samples[Math.max(1, Math.min(samples.length - 2, bi))];
-      out.push({ z: p1.z, s: p1.s, width: stepUm, used: [p1, p1, p1], narrow: false });
-    }
-    return out;
-  }
-
-  /* One rule, not a menu of them: debris is sharp in a single plane, tissue
-     stays sharp over microns, so a peak narrower than MIN_TISSUE_WIDTH is not
-     a candidate. The rejected ones stay drawn on the trace, and dragging the
-     line is how an operator overrules the whole thing. */
-  function pickPeak(candidates) {
-    const wide = candidates.filter((c) => !c.narrow);
-    return (wide.length ? wide : candidates).reduce((a, b) => (b.s > a.s ? b : a));
-  }
+  /* The rehearsed autofocus sweep — the two sharpness metrics, the debris a
+     position may carry, every candidate peak and the one worth trusting —
+     lives in `microscope/pretend-sample/sweep.js`, imported above. The trace
+     below draws exactly the curve the unit tests measure. */
 
   /* The bar that makes the points and the list of the ones there are: one
      section, so they are drawn together and cannot disagree about how many. */
@@ -3879,7 +3649,8 @@ const { WORKFLOWS, DEFAULT_WORKFLOW } = assembleWorkflows(
        scales, so each is normalised to its own maximum — the shapes are the
        comparison, not the absolute numbers. */
     const curves = METRIC_KEYS.map((key) => {
-      const sw = sweep(f.points[f.selected], key, f.selected);
+      const at = f.points[f.selected];
+      const sw = sweep({ focusZ: trueZ(at.x, at.y), index: f.selected, metric: key });
       const peak = Math.max(...sw.samples.map((q) => q.s)) || 1;
       return { key, sw, norm: sw.samples.map((q) => ({ z: q.z, s: q.s / peak })) };
     });
@@ -4049,20 +3820,6 @@ const { WORKFLOWS, DEFAULT_WORKFLOW } = assembleWorkflows(
 
     traceGeom = { zLo, zHi, P, w, h, samples: t.samples };
     drawZPreview(p, f.selected);
-  }
-
-  // linear read of the sweep between its samples
-  function scoreAt(samples, z) {
-    if (z <= samples[0].z) return samples[0].s;
-    const last = samples[samples.length - 1];
-    if (z >= last.z) return last.s;
-    for (let i = 1; i < samples.length; i++) {
-      if (z <= samples[i].z) {
-        const a = samples[i - 1], b = samples[i];
-        return a.s + ((b.s - a.s) * (z - a.z)) / (b.z - a.z);
-      }
-    }
-    return last.s;
   }
 
   let traceGeom = null;
@@ -4254,7 +4011,7 @@ const { WORKFLOWS, DEFAULT_WORKFLOW } = assembleWorkflows(
   function remeasure() {
     const f = state.focus;
     f.points.forEach((p, i) => {
-      const chosen = pickPeak(sweep(p, f.metric, i).candidates);
+      const chosen = pickPeak(sweep({ focusZ: trueZ(p.x, p.y), index: i, metric: f.metric }).candidates);
       p.zAuto = chosen.z;
       p.onNarrow = chosen.narrow;
       // a height the operator dragged by hand survives a change of metric

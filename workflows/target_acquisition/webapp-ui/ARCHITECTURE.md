@@ -277,20 +277,21 @@ The rest is still inline in `main.js` on purpose. While the UI is being
 designed a single file is faster to iterate in, and boundaries drawn around a
 moving design get redrawn. Take a panel out when it stops moving.
 
-**The hazard: three facts are still defined twice.** Surface fitting, the sweep
-and peak rules, and the synthetic sample all exist both inline in `main.js` and
-in the modules beside it. `main.js` is what runs; the modules are what the unit
-tests cover. Change a rule in one and the other disagrees in silence — the suite
-stays green while the app misbehaves. For those three, **treat `main.js` as the
-source of truth and the modules as a proposal**, and if you change a rule, change
-it in both.
+**The hazard used to be three facts defined twice, and two of them are closed.**
+Surface fitting and the sweep-and-peak rules now have one owner each —
+`microscope/pretend-sample/surface.js` and `sweep.js` — imported by the page and
+read by the unit tests, so the arithmetic the trace draws is the arithmetic the
+suite measures. The workflow declarations went the same way earlier: the folders
+under `src/workflows/` are the only place the workflows are written down, and
+the page assembles its list from them.
 
-The workflow declarations used to be a fourth, and are not any more. The
-folders under `src/workflows/` are now the only place the workflows are written
-down, and the page assembles its list from them. That is the shape the
-remaining three should be taken out in: move the fact into the module, have `main.js` import it, and point the tests
-at the same thing the page uses. It does not touch the UI, and every line worth
-editing while iterating on design stays where it is.
+**One fact is still written twice: the synthetic sample.** The page rehearses
+with a plan-driven sample (cells generated inside whatever tiles the scan fields
+ask for) that lives in `window/main.js`; `pretend-sample/sample.js` is the older
+block-shaped one, fed only to `mock.js` and its tests, and its header says so.
+The two merge when the backend seam is wired for real — the sample belongs
+behind the seam, and wiring it is the moment the page starts asking the backend
+what it imaged.
 
 What is left of that fix for the workflows is the runner. `main.js` still decides
 what a step *does* from its `mode` — a switch that grows by one arm per kind of
