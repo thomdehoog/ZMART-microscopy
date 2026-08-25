@@ -1,148 +1,140 @@
 /**
- * The seam where the microscope goes.
+ * The seam where the microscope goes — the pretend side of it.
  *
  * Everything above this line — steps, widgets, the frame — talks to a backend
- * and awaits. Nothing above this line knows whether a real stage moved. When
- * the live driver arrives it implements this same shape and `main.js` imports
- * that instead; if wiring it means editing a widget, the seam leaked.
+ * and awaits. Nothing above this line knows whether a real stage moved. The
+ * live backend (`live.js`, speaking HTTP to the bridge and through it to the
+ * zmart controller) implements this same shape; if wiring the real microscope
+ * means editing a widget, the seam leaked.
  *
- * This one fakes the work with timers and reports the synthetic sample.
+ * This backend fakes the work with timers and the pretend sample, so the page
+ * can be developed and tested with no instrument anywhere near it.
+ *
+ * The verbs, and the two kinds they come in
+ * -----------------------------------------
+ *
+ * **Readouts** ask the instrument how it is set and change nothing.
+ * `readSetting` is the whole of recording a preset — the acquisition settings
+ * and the focussing preset alike are the instrument's state, read now. On the
+ * live side this is one `get_state` through the controller.
+ *
+ * **Procedures** make the instrument do something. `connect` opens the
+ * session, `measureFocus` drives to each point and focuses there,
+ * `scanOverview` drives the whole plan. On the live side these move a real
+ * stage, which is why they are separate verbs and not part of any readout.
+ *
+ * The seam stops at the overview scan for now: discovery, refinement and
+ * acquisition of targets are still rehearsed inside the window, and their
+ * verbs arrive here when that work starts.
  */
 
-import { cells, TILE_COUNT, trueFocusZ, cellsInTile } from "./pretend-sample/sample.js";
-import { sweep, pickPeak } from "./pretend-sample/sweep.js";
-import { fitSurface, residualSummary, affineSurface, looErrors } from "./pretend-sample/surface.js";
-import { WIDTH_UM, HEIGHT_UM } from "./pretend-sample/sample.js";
+import {
+  CONNECT_CHECKS, sampleReading,
+} from "./microscopes.js";
+import { makeRng } from "./pretend-sample/rng.js";
+import { METRICS, METRIC_KEYS, debrisAt, sweep, pickPeak } from "./pretend-sample/sweep.js";
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-export const PREVIOUS_SURFACES = {
-  run_0714_a: { label: "2026-07-14 · slide A", plane: { a: 96, b: 61, c: -412 }, residual: 1.8, ageDays: 14 },
-  run_0709_c: { label: "2026-07-09 · slide C", plane: { a: 71, b: 88, c: -389 }, residual: 3.1, ageDays: 19 },
-};
+/* The pretend sample is not flat and not level: a gentle tilt across the
+   carrier, the same surface wherever the plan decides to look at it. This is
+   the mock's knowledge of the world — the page never computes it, it asks. */
+const focusZAt = (x, y, [w, h]) =>
+  -412 + 96 * (x / w - 0.5) + 61 * (y / h - 0.5);
 
-export const mockBackend = {
-  async connect() {
-    await wait(900);
-    return "session open · run folder created";
-  },
-
-  async disconnect() {
-    await wait(600);
-    return "session closed";
-  },
-
-  async setOrigin() {
-    await wait(600);
-    return "origin at 0.0, 0.0 µm";
-  },
-
-  async captureJob(kind) {
-    await wait(700);
-    return kind === "overview"
-      ? "5x · 1.30 µm/px · 2 channels"
-      : "63x · 0.10 µm/px · 2 channels";
+export const backend = {
+  /**
+   * Open the session and verify it, one named check at a time.
+   *
+   * The whole list of checks comes back at once, so the window can put every
+   * question on screen before any answer exists; each answer then lands
+   * through `onCheck(index, result)` as the pretend verification gets to it.
+   */
+  async connect(session, { onCheck } = {}) {
+    CONNECT_CHECKS.forEach((check, k) => {
+      setTimeout(() => onCheck?.(k, check.result(session)), 260 * (k + 1));
+    });
+    return { checks: CONNECT_CHECKS.map(({ id, label }) => ({ id, label })) };
   },
 
   /**
-   * Measure each requested position and fit a surface through the results.
-   * Heights the operator moved by hand are kept — a measurement they overruled
-   * is still their answer.
+   * A readout, never a procedure: the instrument's state as it is set now,
+   * shaped as the reading the window records. Recording a preset is this and
+   * nothing more — nothing on the instrument moves.
+   *
+   * `nth` is the pretend operator's doing: the mock answers with the nth state
+   * it knows, as though the optics were changed between readings. The live
+   * backend reads what is there and ignores it.
    */
-  async measureFocus({ strategy, metric, points, zFixed, reuse }) {
-    await wait(1400);
+  async readSetting(type, { nth = 0 } = {}) {
+    await wait(480);
+    return sampleReading(type, nth);
+  },
 
-    if (strategy === "fixed") {
-      return {
-        surface: affineSurface({ c: zFixed, width: WIDTH_UM, height: HEIGHT_UM }),
-        points, note: `fixed z ${zFixed} µm`,
-      };
-    }
-    if (strategy === "reuse") {
-      const stored = PREVIOUS_SURFACES[reuse];
-      return {
-        surface: affineSurface({ ...stored.plane, width: WIDTH_UM, height: HEIGHT_UM }),
-        points, note: `reusing ${stored.label}`,
-      };
-    }
-    if (strategy === "auto") {
-      return { surface: null, points, note: `focused at every position · ${metric}` };
-    }
-
-    const measured = points.map((p, i) => {
-      const chosen = pickPeak(sweep({ focusZ: trueFocusZ(p.x, p.y), index: i, metric }).candidates);
+  /**
+   * Drive to each point, focus there, and report what was found.
+   *
+   * Every measured point comes back with its height, plus everything the
+   * window needs to show its work: the sweep traces for both sharpness
+   * metrics (so the chart draws exactly what was measured), where the tissue
+   * truly focuses, and the speck of debris the position carries, if any. A
+   * height the operator moved by hand is kept — a measurement they overruled
+   * is still their answer.
+   *
+   * `extent` is the carrier's size in micrometres; the pretend sample's tilt
+   * is a fraction of the plate, so the mock needs to know how big the plate
+   * is. The live backend ignores it — a real sample has its own tilt.
+   */
+  async measureFocus(points, { metric, extent }) {
+    await wait(200);
+    const measured = points.map((p, index) => {
+      const focusZ = focusZAt(p.x, p.y, extent);
+      const traces = Object.fromEntries(METRIC_KEYS.map((key) => {
+        const sw = sweep({ focusZ, index, metric: key });
+        return [key, { samples: sw.samples, candidates: sw.candidates }];
+      }));
+      const chosen = pickPeak(traces[metric].candidates);
       return {
         ...p,
         zAuto: chosen.z,
         onNarrow: chosen.narrow,
         z: p.manual ? p.z : chosen.z,
+        focusZ,
+        speck: debrisAt(index),
+        traces,
       };
     });
-
-    const surface = fitSurface(measured);
-    const { rms, worst } = residualSummary(surface, measured);
-    const loo = looErrors(measured);
-    measured.forEach((p, i) => { p.loo = loo[i]; });
-
-    return {
-      surface, points: measured, rms, worst, loo,
-      note: `${surface.model} from ${measured.length} points · rms ${rms.toFixed(1)} µm`,
-    };
+    return { points: measured };
   },
 
-  /** Drives the stage through every position, reporting tiles as they land. */
-  async scanOverview({ onProgress } = {}) {
-    const total = TILE_COUNT;
+  /**
+   * Drive the stage through every position, reporting progress as tiles land.
+   *
+   * The window's live picture is not fed from here: it watches the run's own
+   * store and re-reads it as tiles are saved, which is the same arrangement
+   * the real instrument has. This only says how far along the drive is.
+   */
+  async scanOverview({ positions, ms = 2600, onProgress }) {
+    const total = positions.length;
     const started = performance.now();
-    const duration = 2600;
     await new Promise((resolve) => {
       const tick = () => {
-        const t = Math.min(1, (performance.now() - started) / duration);
+        const t = Math.min(1, (performance.now() - started) / ms);
         onProgress?.(Math.round(t * total), total);
         if (t < 1) requestAnimationFrame(tick);
         else resolve();
       };
       requestAnimationFrame(tick);
     });
-    return `${total} / ${total} tiles`;
-  },
-
-  /** Which objects a given setting finds — the same rule for one tile or all. */
-  detects(settings, cell) {
-    const diameter = 2 * cell.r;
-    if (settings.algo === "cellpose") {
-      return diameter > settings.diameter * 0.70
-        && diameter < settings.diameter * 1.55
-        && cell.intensity > 0.36 + settings.cellprob * 0.05;
-    }
-    return cell.intensity >= settings.thresh && cell.area >= settings.minArea;
-  },
-
-  /** Try the settings on one tile. No stage movement, no waiting. */
-  testTile(settings, { col, row }) {
-    const inTile = cellsInTile(col, row);
-    return { found: inTile.filter((c) => this.detects(settings, c)), total: inTile.length };
-  },
-
-  async detectAll(settings) {
-    await wait(1600);
-    const found = cells.filter((c) => this.detects(settings, c));
-    return { ids: new Set(found.map((c) => c.id)), note: `${found.length} cells · ${settings.algo}` };
-  },
-
-  async confirmSelection(gated) {
-    await wait(600);
-    return `${gated.size} cells selected`;
-  },
-
-  async acquire(cellIds) {
-    await wait(2200);
-    const picked = [...cellIds].slice(0, 12);
-    return { pairs: picked, note: `${picked.length} pairs acquired` };
-  },
-
-  async saveResults() {
-    await wait(800);
-    return "report + layout written";
+    return { done: total, of: total };
   },
 };
+
+/* What METRICS looks like is display metadata the window shares (labels,
+   colours); re-exported so the page reads it through the seam rather than
+   reaching into the pretend sample. */
+export { METRICS, METRIC_KEYS };
+
+/* A deterministic random stream for the window's rehearsal drawings (the
+   pretend image textures in previews). Re-exported for the same reason. */
+export { makeRng };
