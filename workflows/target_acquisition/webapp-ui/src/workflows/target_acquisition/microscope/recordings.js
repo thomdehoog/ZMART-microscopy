@@ -1,19 +1,16 @@
 /**
- * What has been read off the instrument in one step, and which of it that step
- * works with.
+ * What has been read off the instrument in one step.
  *
  * A recording is a state of the microscope, taken now: the objective in the
- * light path, the channels, the frame it sees. A step that needs one keeps a
- * slot of them rather than a single record, because the optics get changed in
- * the middle of a session and both settings stay worth having — the overview
- * taken dry at 5x and the detail taken at 63x in oil are one run, and a slot
- * that replaced its record on every reading made the second one cost the
- * first.
+ * light path, the channels, the frame it sees. It is a readout, not a
+ * procedure — nothing on the instrument moves when one is taken.
  *
- * So readings accumulate and one of them is active. The active one is what the
- * step is taken with; switching between them is the point of keeping more than
- * one. Everything here returns a new slot rather than editing the one it was
- * handed, so what a panel is drawing never changes underneath it.
+ * A slot holds exactly one recording. Recording again replaces it: the
+ * operator changed the instrument and read it again, and the run is taken
+ * with the instrument as it now stands — a step never chooses between old
+ * readings, because there is only ever the current one. Everything here
+ * returns a new slot rather than editing the one it was handed, so what a
+ * panel is drawing never changes underneath it.
  */
 
 /**
@@ -34,32 +31,36 @@ export const emptySlot = (type, from = 0) => ({
 export const hasRecording = (slot) => !!slot?.records?.length;
 
 /**
- * The name an unnamed recording gets. Counted from what the slot already
- * holds, so the operator who names nothing still ends up with records they can
- * tell apart — a recording that happened under a dull name beats one refused
- * over a blank field.
+ * The name an unnamed recording gets. Counted from every reading this slot has
+ * taken — replaced ones included — so the operator who names nothing still
+ * ends up with names that tell readings apart; a recording that happened
+ * under a dull name beats one refused over a blank field.
  */
-export const nextName = (slot) => `Default ${slot.records.length + 1}`;
+export const nextName = (slot) => `Default ${slot.seq + 1}`;
 
 /**
  * Which reading of its kind the next recording is. The mock controller answers
- * with the nth state it knows; a real one reads the instrument and ignores it.
- * It lives here because it counts the same recordings this module holds.
+ * with the nth state it knows, and re-recording reads the next one — the
+ * pretend operator changed the instrument in between. A real controller reads
+ * what is there and ignores this number.
  */
-export const nextReadingIndex = (slot) => slot.from + slot.records.length;
+export const nextReadingIndex = (slot) => slot.from + slot.seq;
 
 const capitalised = (v) => (v ? v[0].toUpperCase() + v.slice(1) : v);
 
 /**
- * The reading, kept. Named as it comes in — capitalised, because the name is
- * an identifier the run refers to afterwards — and active, because a reading
- * is taken in order to be used and the hand that took it is already here.
+ * The reading, kept — in place of whatever the slot held before. Named as it
+ * comes in, capitalised, because the name is an identifier the run refers to
+ * afterwards; and active, because a reading is taken in order to be used and
+ * the hand that took it is already here.
  */
 export const withRecording = (slot, { name, reading }) => {
   const seq = slot.seq + 1;
-  /* Counted rather than positional: a record forgotten must not hand its id to
-     the next one, or a field still naming the old preset would silently find
-     itself taken with the new. */
+  /* Counted rather than positional: a record replaced must not hand its id to
+     the next one, or anything still naming the old preset would silently find
+     itself taken with the new. A fresh id is how the rest of the run notices
+     that the reading changed — a focus map measured under the old one, for
+     instance, does not quietly claim to belong to the new. */
   const id = `${slot.type}-${seq}`;
   const record = {
     id,
@@ -72,7 +73,7 @@ export const withRecording = (slot, { name, reading }) => {
        them has a focus surface to measure. */
     kind: reading.kind ?? null,
   };
-  return { ...slot, seq, records: [...slot.records, record], active: id };
+  return { ...slot, seq, records: [record], active: id };
 };
 
 /**
