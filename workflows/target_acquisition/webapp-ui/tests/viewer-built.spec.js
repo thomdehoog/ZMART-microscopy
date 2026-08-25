@@ -61,13 +61,16 @@ const SERVE_ON = Number(process.env.VIEWER_BUILT_SERVE_PORT ?? 5175);
 /* The same three numbers `viewer-workflow.spec.js` uses, and for the same
    reason: they sit a long way below what a drawn picture measures and a long way
    above what an empty box measures, so they are not fussy about the exact shade
-   an engine happens to draw. An empty box is one colour over the whole of
-   itself; a drawn view of this run keeps its largest flat colour — the ground
-   around the specimen — to about a fifth of the box, so a ceiling of 0.35
-   stays well clear of both. */
+   an engine happens to draw. An empty box is one colour over the whole
+   of itself — this measures 1.0 there — while a drawn view of this run keeps
+   its largest flat colour, the ground around the specimen, somewhere between a
+   fifth and two fifths of the box depending on the moment the photograph
+   lands. The ceiling sits at 0.6, clear of both, because its job is telling a
+   picture from a wash and not judging how much ground a view happens to
+   hold. */
 const ENOUGH_OF_IT_LIT = 0.5;
 const ENOUGH_DIFFERENT_COLOURS = 50;
-const NOT_ALL_ONE_COLOUR = 0.35;
+const NOT_ALL_ONE_COLOUR = 0.6;
 
 let run = null;
 let served = null;

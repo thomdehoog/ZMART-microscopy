@@ -63,7 +63,7 @@ const PORT = Number(process.env.VIEWER_WORKFLOW_PORT ?? 8791);
    about the exact shade an engine happens to draw. */
 const ENOUGH_OF_IT_LIT = 0.5;
 const ENOUGH_DIFFERENT_COLOURS = 50;
-const NOT_ALL_ONE_COLOUR = 0.35;
+const NOT_ALL_ONE_COLOUR = 0.6;
 
 /* What counts as a layer being on screen, and what counts as it being absent.
    The two drawings cover very different amounts of the box, so they are given
