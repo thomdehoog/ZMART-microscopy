@@ -5,7 +5,7 @@
  * The canvas is not three fixed layers any more. Below is the picture, always
  * solid and always at the bottom, and above it is a stack that grows as a
  * workflow goes: where the microscope is now, the carrier, the positions, the
- * focus points, the heatmap, the targets once discovery has found them, the
+ * focus points, the targets once discovery has found them, the
  * refined targets after that. Each has a button, each can be faded, each can be
  * touched, and one control fades the lot.
  *
@@ -138,9 +138,9 @@ test("turns one layer off and leaves the others exactly where they were", async 
                                  howMuchIs(page, THE_FOCUS)]);
   expect(all.every((share) => share > 0.005), `one of the three never drew: ${all}`).toBe(true);
 
-  /* This is the reason the heatmap and the focus points are separate layers
-     rather than one drawing: an operator who wants the heatmap out of the way
-     is not asking to lose the focus points with it. */
+  /* This is the reason the tiles and the focus points are separate layers
+     rather than one drawing: an operator who wants the tiles out of the way
+     is not asking to lose the focus points with them. */
   await page.locator('#layers button[data-layer="tiles"]').click();
   expect(await howMuchIs(page, THE_TILES)).toBeLessThan(0.002);
   expect(await howMuchIs(page, THE_FOCUS)).toBeGreaterThan(0.005);

@@ -284,7 +284,7 @@ function limitOf(area, carrier) {
 
 export default {
   id: "scanfields",
-  label: "Setup overview",
+  label: "Define scan area",
 
   plan,
 

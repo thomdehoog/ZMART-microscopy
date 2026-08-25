@@ -117,7 +117,7 @@ export async function walkToTheScan(page) {
   // Standing on the carrier step settles it; the tilesets need a grid.
   await gotoStep("Define Carrier");
   await page.waitForTimeout(200);
-  await gotoStep("Setup overview");
+  await gotoStep("Define scan area");
   await record("sf-preset", "overview");
   await page.locator(".sf-apply-grid").click();
   await page.waitForTimeout(300);
