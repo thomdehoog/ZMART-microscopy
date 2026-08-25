@@ -8,7 +8,7 @@
  * The heading sits *above* its card rather than inside it, so the card holds
  * controls and nothing else. That is a decision the stylesheet makes as much as
  * this file does — see `.side-group`, `.side-group-title` and `.side-group-body`
- * in `src/style.css`, which is where the spacing and the reasoning behind it
+ * in `frame/window/style.css`, which is where the spacing and the reasoning behind it
  * are written down.
  *
  * ## A note on where this came from

@@ -37,7 +37,7 @@ import {
   affineSurface, fitSurface, residualsUm, surfaceZ,
 } from "../../workflows/target_acquisition/microscope/pretend-sample/surface.js";
 
-/* The workflows this page offers: every folder in `src/workflows/` with a
+/* The workflows this page offers: every folder in `workflows/` with a
    `flow.js` inside it, found by the build tool's folder scan and assembled by
    the frame. The unit tests read the same folders, so a workflow the tests can
    see is a workflow the operator can choose. The list used to be written out
@@ -374,7 +374,7 @@ let backend = null;
   }
 
   /* What this step still needs before it may run, and what to say when it is
-     not met. The step itself holds the rule — see the step's own `step.js` file under `src/workflows/` — and
+     not met. The step itself holds the rule — see the step's own `step.js` file under `workflows/` — and
      this only asks it, which is why adding a workflow never means adding a
      condition here. The server would enforce the same list. */
   const readiness = (s) => blockedBecause(s, state);
@@ -1711,7 +1711,7 @@ let backend = null;
       if (!asked || viewer || opening) return;
       opening = true;
       try {
-        const { openViewer } = await import("../../../../../../viz_studio/options/jpeg-under/viewer.js");
+        const { openViewer } = await import("../../../../../viz_studio/options/jpeg-under/viewer.js");
         viewer = await openViewer(host, {
           acquisitions: [{ url: asked, name: asked.split("/").filter(Boolean).pop() ?? "scan" }],
           /* The same colour the page paints, so the seam between the scan's own

@@ -4,7 +4,7 @@ Five parts, each with one job. If you know which part your change belongs to,
 you know which file to open.
 
 ```
-src/
+webapp-ui/
   frame/        the engine. It knows how to run any workflow and none in particular.
     window/     what the operator sees: the rail, the chooser, the panels, run state.
     rules/      what the engine enforces: step ordering and readiness, and how
@@ -27,7 +27,7 @@ src/
                 workflow that never touches a microscope.
 ```
 
-`src/workflows/README.md` walks through the arrangement in more detail.
+`workflows/README.md` walks through the arrangement in more detail.
 
 ## The rule that keeps it honest
 
@@ -134,7 +134,7 @@ the page should carry out for it:
 }
 ```
 
-Every field is written out in `src/workflows/README.md`. A step is declared in
+Every field is written out in `workflows/README.md`. A step is declared in
 its own folder, under the workflow that owns it — `steps/4_focus_strategy/step.js`
 — and other workflows share it by importing it; the point is to mix and match,
 not to retype. A workflow that wants a shared step to say something different
@@ -146,7 +146,7 @@ chooser's entry, and the flow is the list of steps in order plus a blurb.
 Numbering is derived from position, so reordering costs nothing; a step may set
 its own `n` if two halves of one job should read as `3a` and `3b`.
 
-**The folders under `src/workflows/` are the only place the workflows are
+**The folders under `workflows/` are the only place the workflows are
 written down.** The frame finds every folder holding a `flow.js`
 (`frame/rules/finding-workflows.js` says how), and the unit tests read the same
 folders through the same assembly, which is what makes a test about a workflow
@@ -219,7 +219,7 @@ The layers above are the target. Some of them are built and used, some are
 built and waiting, and one gap is a live hazard. Read this before assuming the
 tree matches the picture.
 
-In the table, `ta/` is short for `src/workflows/target_acquisition/`.
+In the table, `ta/` is short for `workflows/target_acquisition/`.
 
 | part | state |
 |---|---|
@@ -230,12 +230,12 @@ In the table, `ta/` is short for `src/workflows/target_acquisition/`.
 | `ta/microscope/mock.js` | built, **not yet imported by the app** |
 | `frame/rules/steps.js` | built, unit-tested, **used by the app** — numbering, ordering, readiness and panels |
 | `frame/rules/finding-workflows.js` | built, unit-tested, **used by the app: turns the workflow folders into the chooser's list** |
-| `src/workflows/*/flow.js` | built, unit-tested, **used by the app: the only declaration of the workflows** |
+| `workflows/*/flow.js` | built, unit-tested, **used by the app: the only declaration of the workflows** |
 | `ta/steps/2_define_carrier/widget.js` | built, used — the first widget, and the shape the rest should follow |
 | `ta/steps/3_define_scan_area/widget.js` | built, used — the geometry editor and the grid, in the same channel |
 | `ta/steps/5_scan_the_overview/overview.js` | built, used by the app when it is given a run to watch, and covered by the browser tests that photograph the canvas |
 | `ta/shared/canvas/` | built, used by the canvas demonstration, and covered by browser tests that photograph the picture — including which of the three layers reached the screen |
-| `src/frame/window/main.js` | the rest of the running app, and its own copies of the untaken modules |
+| `frame/window/main.js` | the rest of the running app, and its own copies of the untaken modules |
 
 **Widget extraction has started, from the outside in.** The carrier widget is
 the first: it is handed a configuration and a callback and knows nothing about
@@ -282,7 +282,7 @@ Surface fitting and the sweep-and-peak rules now have one owner each —
 `microscope/pretend-sample/surface.js` and `sweep.js` — imported by the page and
 read by the unit tests, so the arithmetic the trace draws is the arithmetic the
 suite measures. The workflow declarations went the same way earlier: the folders
-under `src/workflows/` are the only place the workflows are written down, and
+under `workflows/` are the only place the workflows are written down, and
 the page assembles its list from them.
 
 **One fact is still written twice: the synthetic sample.** The page rehearses

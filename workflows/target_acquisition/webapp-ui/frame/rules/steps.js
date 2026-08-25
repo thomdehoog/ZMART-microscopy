@@ -7,7 +7,7 @@
  *
  * A step is data: what it is called, why it is there, which modules it wants on
  * screen, and what the page should do when it is carried out. The full list of
- * fields is written out in `src/workflows/README.md`, beside the folders where
+ * fields is written out in `workflows/README.md`, beside the folders where
  * steps are declared; nothing here needs to know most of them.
  *
  * The frame knows nothing beyond that. Adding a workflow is writing a list.
