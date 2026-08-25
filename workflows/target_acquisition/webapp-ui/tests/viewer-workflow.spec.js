@@ -63,7 +63,7 @@ const PORT = Number(process.env.VIEWER_WORKFLOW_PORT ?? 8791);
    about the exact shade an engine happens to draw. */
 const ENOUGH_OF_IT_LIT = 0.5;
 const ENOUGH_DIFFERENT_COLOURS = 50;
-const NOT_ALL_ONE_COLOUR = 0.2;
+const NOT_ALL_ONE_COLOUR = 0.35;
 
 /* What counts as a layer being on screen, and what counts as it being absent.
    The two drawings cover very different amounts of the box, so they are given
@@ -430,8 +430,14 @@ test("the picture switches off and back on without fetching anything",
     await untilTheEngineIsDrawing(page, VIEWS.neuroglancer.engine);
     await run.acquire(25);
 
+    /* The patient window, not the quick one: this photograph has to catch the
+       picture actually drawn, and on a slow machine neuroglancer takes more
+       than a moment to fetch and draw its pieces. A three-second window here
+       once caught a box that was still blank, and every comparison after it
+       collapsed — blank to blank reads as "nothing changed". */
     const withThePicture = await fullestPictureOf(
-      page, "neuroglancer", "canvas-picture-on", { seconds: 3 });
+      page, "neuroglancer", "canvas-picture-on");
+    itIsReallyDrawing(withThePicture, "neuroglancer-under before the switch");
 
     let fetched = 0;
     const count = (request) => { if (request.url().includes(run.store)) fetched += 1; };
@@ -451,7 +457,7 @@ test("the picture switches off and back on without fetching anything",
     page.off("request", count);
 
     const back = await fullestPictureOf(
-      page, "neuroglancer", "canvas-picture-on-again", { seconds: 3 });
+      page, "neuroglancer", "canvas-picture-on-again");
     console.log(
       `off and on again: ${withThePicture.distinct} distinct colours with the ` +
         `picture, ${withoutIt.distinct} without it, ${back.distinct} when it came ` +
