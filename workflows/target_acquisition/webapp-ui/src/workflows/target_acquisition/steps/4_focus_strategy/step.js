@@ -8,7 +8,7 @@
 
 /* Whether a step has what it needs is asked of the slot itself: a step waits
    for a reading to have been taken, not for a particular field on a record. */
-import { hasRecording } from "../../../../frame/microscope/recordings.js";
+import { hasRecording } from "../../microscope/recordings.js";
 
 export const focusStrategy = {
   id: "focus",

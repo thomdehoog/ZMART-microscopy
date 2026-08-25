@@ -19,9 +19,9 @@ import { assembleWorkflows } from "../../src/frame/finding-workflows.js";
 import { connect } from "../../src/workflows/target_acquisition/steps/1_connect/step.js";
 import { initialScanfields } from "../../src/workflows/target_acquisition/steps/3_define_scan_area/step.js";
 import { scanOverview } from "../../src/workflows/target_acquisition/steps/5_scan_the_overview/step.js";
-import { mockBackend } from "../../src/frame/microscope/mock.js";
-import { emptySlot, withRecording } from "../../src/frame/microscope/recordings.js";
-import { sampleReading } from "../../src/frame/microscope/microscopes.js";
+import { mockBackend } from "../../src/workflows/target_acquisition/microscope/mock.js";
+import { emptySlot, withRecording } from "../../src/workflows/target_acquisition/microscope/recordings.js";
+import { sampleReading } from "../../src/workflows/target_acquisition/microscope/microscopes.js";
 
 const { WORKFLOWS } = assembleWorkflows(
   import.meta.glob("../../src/workflows/*/flow.js", { eager: true }),
