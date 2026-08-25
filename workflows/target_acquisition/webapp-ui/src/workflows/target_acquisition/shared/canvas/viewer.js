@@ -497,6 +497,13 @@ export function putTheCanvasIn({
        then disabled, including the one that would have put the picture back, and
        the only way out was to reload the page. An engine that cannot do one
        thing should cost you that one thing, not the panel. */
+    /* The engine row follows the same rule. While an open is in flight a
+       change of engine would be refused without a word — `changeTo` will not
+       re-enter an open — and a press that silently vanishes reads as a button
+       that does nothing. Disabled, the press waits until it can be honoured. */
+    for (const button of chooser.querySelectorAll("button")) {
+      button.disabled = opening;
+    }
     for (const [key, button] of buttons) {
       button.setAttribute("aria-pressed", String(isShowing(key)));
       /* The picture cannot be turned on when this page was never pointed at a
@@ -893,6 +900,13 @@ export function putTheCanvasIn({
     button.setAttribute("aria-checked", String(name === wanted));
     button.dataset.engine = name;
     button.textContent = name;
+    /* Born disabled: the first open is still in flight when this row appears,
+       and a change of engine pressed during an open is refused without a word
+       (`changeTo` will not re-enter an open). A live-looking button whose
+       press silently vanishes is the worst of the behaviours on offer, so the
+       row is switched off until there is something to switch — see
+       `markTheButtons`, which frees it the moment the open settles. */
+    button.disabled = true;
     button.addEventListener("click", () => changeTo(name));
     chooser.append(button);
   }
