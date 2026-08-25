@@ -101,16 +101,17 @@ no special case.
 
 ## What exists today
 
-The step rail, the workflow chooser and the right-hand panel are built and working,
-and steps hand their results on — but not in this repository as it now stands. This
-repository was narrowed to the viewer and the writer, and the operator window's code
-went out with the rest of the workflow code. It is on the `claude/live-tiles-mvp`
-branch, in this same folder, which is where to look for anything described above. All
-that is left here is the note you are reading.
+The step rail, the workflow chooser, the canvas and the channel beside it are
+built and working in this folder, and steps hand their results on. The source
+is arranged as the shape this note asked for: `src/frame/` is the shell — an
+engine that runs any workflow and knows none — and `src/workflows/` holds one
+folder per workflow, each a `flow.js` and its steps. `ARCHITECTURE.md` says how
+it is put together, and `src/workflows/README.md` maps the folders.
 
-The canvas is being built separately in `viz_studio/options/`, behind one interface
-with three engines to choose between, and the live-tiles work already put a viewer
-into the scan step, so the two halves are known to fit.
+The canvas itself is still built behind one interface in `viz_studio/options/`,
+with the engines to choose between, and this page opens it through that
+interface.
 
-What is **not** built is the declaration described above. Steps today pass things on
-by arrangement rather than by stating what they need.
+What is **not** built is the declaration described above. Steps declare what
+they still need before they may run (`ready`), but not yet what they produce —
+results are still handed on by arrangement rather than by statement.
