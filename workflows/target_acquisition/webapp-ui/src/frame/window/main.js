@@ -9,9 +9,17 @@ import {
 } from "../../workflows/target_acquisition/microscope/microscopes.js";
 /* The seam. Connecting, reading a preset off the instrument, measuring the
    focus map and driving the overview scan all go through the backend and are
-   awaited; this window never knows whether a real stage moved. The mock is
-   the default; `live.js` implements the same shape over HTTP to the bridge. */
-import { backend } from "../../workflows/target_acquisition/microscope/mock.js";
+   awaited; this window never knows whether a real stage moved. The pretend
+   backend is the default, so the page runs with no instrument anywhere near
+   it; `?backend=live` in the address chooses the one that speaks HTTP to the
+   bridge, and through it to the zmart controller and whichever driver is
+   plugged in — the Leica or the controller's own mock. */
+import { backend as pretendBackend } from "../../workflows/target_acquisition/microscope/mock.js";
+import { backend as liveBackend } from "../../workflows/target_acquisition/microscope/live.js";
+const backend =
+  new URLSearchParams(globalThis.location?.search ?? "").get("backend") === "live"
+    ? liveBackend
+    : pretendBackend;
 import { centres, DEFAULT_CARRIER, describeCarrier } from "../../workflows/target_acquisition/shared/carriers.js";
 /* Where focus points go inside a field: equal shares of it, measured at the
    middle of each. The geometry lives with the rest of the plan's geometry. */
