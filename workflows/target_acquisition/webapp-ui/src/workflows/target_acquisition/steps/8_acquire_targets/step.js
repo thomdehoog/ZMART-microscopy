@@ -6,7 +6,7 @@
  * the verdicts collected on them.
  */
 
-import { hasRecording } from "../../../../frame/microscope/recordings.js";
+import { hasRecording } from "../../microscope/recordings.js";
 
 export const acquireAndCurate = {
   id: "acquire",

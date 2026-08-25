@@ -7,7 +7,7 @@ import {
   MICROSCOPES, DEFAULT_SESSION, apisFor, defaultApiFor,
   describeSession, CONNECT_CHECKS,
   sampleReading, STAGE_LIMITS_MM,
-} from "../microscope/microscopes.js";
+} from "../../workflows/target_acquisition/microscope/microscopes.js";
 import { centres, DEFAULT_CARRIER, describeCarrier } from "../../workflows/target_acquisition/shared/carriers.js";
 /* Where focus points go inside a field: equal shares of it, measured at the
    middle of each. The geometry lives with the rest of the plan's geometry. */
@@ -15,7 +15,7 @@ import { sharePoints } from "../../workflows/target_acquisition/shared/scanfield
 import {
   emptySlot, hasRecording, withRecording, withoutRecording, withActive,
   activeRecording, nextReadingIndex,
-} from "../microscope/recordings.js";
+} from "../../workflows/target_acquisition/microscope/recordings.js";
 import carrierWidget from "../../workflows/target_acquisition/steps/2_define_carrier/widget.js";
 import scanfieldsWidget, { presetInk } from "../../workflows/target_acquisition/steps/3_define_scan_area/widget.js";
 
