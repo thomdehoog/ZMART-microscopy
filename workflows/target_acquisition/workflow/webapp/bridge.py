@@ -44,18 +44,21 @@ One thread owns the instrument. Every route that touches the session takes
 once — the scan holds it per position, not for the whole run, so a readout
 during a scan waits briefly rather than failing.
 
+Which driver answers is the workflow's choice, made per connect — the page's
+mock workflow asks for the controller's mock driver, the real one for the
+Leica — so the bridge takes no driver flag: it serves, and connects what it
+is asked to connect.
+
 Run it as a plain script — deliberately not as a module of the ``webapp``
 package, whose import chain pulls in the notebook stack this server has no
 use for::
 
-    python workflows/target_acquisition/workflow/webapp/bridge.py --mock
-    python workflows/target_acquisition/workflow/webapp/bridge.py  # Leica
+    python workflows/target_acquisition/workflow/webapp/bridge.py
 
-Author's note on the mock: the controller's mock driver saves no images, so
-when this bridge runs with ``--mock`` it writes a small synthetic tile into
-the run's OME-Zarr canvas at every scanned position — the window's live
-picture then fills in exactly as it will on the real instrument, where the
-tiles come from the driver's own saves instead.
+What the scan does not do yet: write the run's OME-Zarr store. The drive is
+real — every position visited, every acquire made — and the store arrives
+with the storage integration, at which point the window's live picture fills
+in on this path the way it already does on the pretend one.
 """
 
 from __future__ import annotations
@@ -96,26 +99,46 @@ def _require_session():
     return _session
 
 
-# Which instrument each name means. ``mock`` is the controller's reference
-# driver (no hardware); ``leica`` is the Stellaris driver, which speaks to
-# real LAS X or to its simulator — the same driver either way, which is the
-# point: nothing here knows or cares which of the two is running.
-_INSTRUMENTS = {
-    "mock": {"vendor": "mock", "microscope": "mock-scope",
-             "api": "mock-api", "client": "mock-client"},
-    "leica": {"vendor": "leica", "microscope": "stellaris5",
-              "api": "navigator_expert"},
-}
+# The controller's reference driver: no hardware behind it, registered on
+# demand the way its own tests register it.
+_MOCK_CONNECTION = {"vendor": "mock", "microscope": "mock-scope",
+                    "api": "mock-api", "client": "mock-client"}
+
+# Where the Leica driver lives. Its folder is not a package on the path —
+# the example notebook adds it and imports the adapter, and importing IS
+# registering: that is the driver's own opt-in.
+_LEICA_HOME = _ROOT / "zmart_drivers" / "leica" / "stellaris5_y42h93"
+
+
+def _leica_connection() -> dict:
+    """Register the Leica driver and hand back its own connection identity.
+
+    The identity — vendor, microscope, api, and the driver-specific connect
+    parameters — is the adapter's ``CONNECTION``, taken verbatim rather than
+    restated here: one owner, so the bridge can never ask for an instrument
+    under a name the driver did not give itself. The driver speaks to real
+    LAS X or to its simulator without knowing which; nothing here does
+    either.
+    """
+    if str(_LEICA_HOME) not in sys.path:
+        sys.path.insert(0, str(_LEICA_HOME))
+    from navigator_expert.zmart_adapter import CONNECTION  # importing registers
+    return dict(CONNECTION)
 
 
 def _connect(asked: dict) -> dict:
     """Open the session and answer with the driver's account of itself."""
     global _session, _context
     which = asked.get("instrument", "mock")
-    connection = dict(_INSTRUMENTS[which])
     if which == "mock":
         from zmart_controller.tests.mock_driver import register_mock
         register_mock()
+        connection = dict(_MOCK_CONNECTION)
+    elif which == "leica":
+        connection = _leica_connection()
+    else:
+        raise ValueError(
+            f"no instrument called {which!r} — this bridge knows mock and leica")
     _session = zmart_controller.set_instrument(connection)
     _context = dict(_session.context)
     info = _session.get_info()
@@ -203,7 +226,7 @@ def _measure_focus(asked: dict) -> dict:
 _scan = {"running": False, "done": 0, "of": 0, "error": None}
 
 
-def _scan_worker(positions: list, run_folder: str | None, pretend_tiles: bool):
+def _scan_worker(positions: list) -> None:
     try:
         for i, position in enumerate(positions):
             with _the_instruments_turn:
@@ -212,8 +235,6 @@ def _scan_worker(positions: list, run_folder: str | None, pretend_tiles: bool):
                                 float(position.get("z", 0.0)))
                 session.acquire(acquisition_type="overview",
                                 position_label=f"pos_{i:05d}")
-            if pretend_tiles and run_folder:
-                _write_pretend_tile(run_folder, position, i)
             _scan["done"] = i + 1
     except Exception as why:  # noqa: BLE001 — the window shows the sentence
         _scan["error"] = str(why)
@@ -221,37 +242,12 @@ def _scan_worker(positions: list, run_folder: str | None, pretend_tiles: bool):
         _scan["running"] = False
 
 
-def _write_pretend_tile(run_folder: str, position: dict, index: int) -> None:
-    """With the mock driver only: put a visible tile where the scan stood.
-
-    The mock driver saves nothing, so the run's store would stay empty and the
-    window's live picture would show a scan that "finished" having drawn
-    nothing — the exact silence this project keeps hunting. A real driver
-    saves its own frames and this function is never called.
-    """
-    # Deferred import: numpy and zarr are only needed on the pretend path.
-    import numpy as np
-    from zmart_storage import canvas  # noqa: F401 — reserved for the writer
-
-    # The demo writer owns this properly; here a marker file is enough for a
-    # smoke test, and the full writer lands with the storage integration.
-    marker = Path(run_folder) / f"tile_{index:05d}.json"
-    marker.write_text(json.dumps({"position": position, "index": index}))
-    del np
-
-
 def _start_scan(asked: dict) -> dict:
     if _scan["running"]:
         raise RuntimeError("a scan is already running")
     positions = asked.get("positions", [])
     _scan.update(running=True, done=0, of=len(positions), error=None)
-    thread = threading.Thread(
-        target=_scan_worker,
-        args=(positions, asked.get("runFolder"),
-              _context.get("vendor") == "mock"),
-        daemon=True,
-    )
-    thread.start()
+    threading.Thread(target=_scan_worker, args=(positions,), daemon=True).start()
     return dict(_scan)
 
 
@@ -334,10 +330,7 @@ def serve(port: int = 8600) -> ThreadingHTTPServer:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--port", type=int, default=8600)
-    parser.add_argument("--mock", action="store_true",
-                        help="use the controller's mock driver (no hardware)")
     args = parser.parse_args()
     server = ThreadingHTTPServer(("127.0.0.1", args.port), _Bridge)
-    print(f"bridge listening on 127.0.0.1:{args.port}"
-          f" · {'mock driver' if args.mock else 'leica driver'}")
+    print(f"bridge listening on 127.0.0.1:{args.port}")
     server.serve_forever()
