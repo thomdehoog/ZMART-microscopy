@@ -10,7 +10,7 @@
  *
  * The finding itself — reading the folder listing — happens where the code
  * runs. The page uses the build tool's folder scan (`import.meta.glob`, in
- * `main.js`); the tests read the same folders their own way. Both hand what
+ * `window/main.js`); the tests read the same folders their own way. Both hand what
  * they found to `assembleWorkflows` below, so the page and the tests cannot
  * disagree about what a folder full of workflows means.
  */
