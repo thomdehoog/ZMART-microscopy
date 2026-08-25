@@ -1,8 +1,8 @@
 import "./style.css";
 import { sideGroup } from "./panels.js";
-import { blockedBecause, isReachable, panelsFor } from "../steps.js";
+import { blockedBecause, isReachable, panelsFor } from "../rules/steps.js";
 import { theDrawingAbove, whoIsAt } from "../../workflows/target_acquisition/shared/canvas/layers-above.js";
-import { assembleWorkflows } from "../finding-workflows.js";
+import { assembleWorkflows } from "../rules/finding-workflows.js";
 import {
   MICROSCOPES, DEFAULT_SESSION, apisFor, defaultApiFor,
   describeSession, CONNECT_CHECKS,
@@ -544,7 +544,7 @@ const { WORKFLOWS, DEFAULT_WORKFLOW } = assembleWorkflows(
     },
   };
 
-  /* Which panels a step gets is `panelsFor` in `frame/steps.js`, and the reason
+  /* Which panels a step gets is `panelsFor` in `frame/rules/steps.js`, and the reason
      it lives there rather than here is that it is a rule about steps rather than
      about this page. What it comes to for the workflows on offer:
 

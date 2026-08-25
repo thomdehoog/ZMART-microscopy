@@ -14,8 +14,8 @@
 import { describe, it, expect } from "vitest";
 import {
   numbered, firstIncomplete, isReachable, blockedBecause, panelsFor,
-} from "../../src/frame/steps.js";
-import { assembleWorkflows } from "../../src/frame/finding-workflows.js";
+} from "../../src/frame/rules/steps.js";
+import { assembleWorkflows } from "../../src/frame/rules/finding-workflows.js";
 import { connect } from "../../src/workflows/target_acquisition/steps/1_connect/step.js";
 import { initialScanfields } from "../../src/workflows/target_acquisition/steps/3_define_scan_area/step.js";
 import { scanOverview } from "../../src/workflows/target_acquisition/steps/5_scan_the_overview/step.js";
