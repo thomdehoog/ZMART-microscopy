@@ -224,8 +224,11 @@ test("served over HTTP, the built page draws with every engine it offers", async
   for (const engine of drawsThisRun) {
     if ((await page.locator("#viewer-canvas-engine button[aria-checked='true']").textContent()) !== engine) {
       await page.locator(`#viewer-canvas-engine button[data-engine="${engine}"]`).click();
+      /* The button reports itself chosen once its engine has actually opened,
+         and on a slow machine — with the engine it is replacing still fetching
+         tiles — that takes longer than an expect's usual patience. */
       await expect(page.locator(`#viewer-canvas-engine button[data-engine="${engine}"]`))
-        .toHaveAttribute("aria-checked", "true");
+        .toHaveAttribute("aria-checked", "true", { timeout: 60_000 });
     }
     const measured = await fullestPictureOf(page, `viewer-built-http-${engine}`);
     console.log(
