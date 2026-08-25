@@ -1208,7 +1208,7 @@ test("focus points are laid so many to a tileset", async ({ page }) => {
   await page.mouse.up();
   await page.waitForTimeout(300);
   await expect(page.locator(".sf-readout"), "the region covers positions")
-    .not.toContainText("0 positions");
+    .not.toContainText(/\b0 positions/);
 
   await gotoStep(page, "Focus strategy");
   await recordSlot(page, "focus-preset", "coarse");
