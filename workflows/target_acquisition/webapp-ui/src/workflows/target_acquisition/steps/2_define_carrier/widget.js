@@ -16,7 +16,7 @@
  * controls that are already there and leaves the focused one alone.
  */
 
-import { sideGroup } from "../../../../frame/box.js";
+import { sideGroup } from "../../../../frame/window/panels.js";
 import {
   CARRIER_TYPES, carrierType, fromPreset, matchingPreset, geometry, maxRadius,
   centres, depthMm,

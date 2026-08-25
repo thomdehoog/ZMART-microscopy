@@ -2,7 +2,7 @@
  *
  * Everything here reads the folders under `src/workflows/` — every folder with
  * a `flow.js` is one workflow — through the same `assembleWorkflows` that
- * `src/frame/main.js` uses. That is the point of this suite: for a while the
+ * `src/frame/window/main.js` uses. That is the point of this suite: for a while the
  * workflows were declared twice, once here and once inside `main.js`, and
  * these tests went green against a list the page did not offer while the page
  * offered a list no test had ever seen. Neither half looked wrong on its own.
@@ -15,13 +15,13 @@ import { describe, it, expect } from "vitest";
 import {
   numbered, firstIncomplete, isReachable, blockedBecause, panelsFor,
 } from "../../src/frame/steps.js";
-import { assembleWorkflows } from "../../src/frame/workflows.js";
+import { assembleWorkflows } from "../../src/frame/finding-workflows.js";
 import { connect } from "../../src/workflows/target_acquisition/steps/1_connect/step.js";
 import { initialScanfields } from "../../src/workflows/target_acquisition/steps/3_define_scan_area/step.js";
 import { scanOverview } from "../../src/workflows/target_acquisition/steps/5_scan_the_overview/step.js";
-import { mockBackend } from "../../src/frame/backend/mock.js";
-import { emptySlot, withRecording } from "../../src/frame/lib/recordings.js";
-import { sampleReading } from "../../src/frame/lib/microscopes.js";
+import { mockBackend } from "../../src/frame/microscope/mock.js";
+import { emptySlot, withRecording } from "../../src/frame/microscope/recordings.js";
+import { sampleReading } from "../../src/frame/microscope/microscopes.js";
 
 const { WORKFLOWS } = assembleWorkflows(
   import.meta.glob("../../src/workflows/*/flow.js", { eager: true }),

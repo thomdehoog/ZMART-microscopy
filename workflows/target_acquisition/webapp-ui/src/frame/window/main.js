@@ -1,23 +1,23 @@
 import "./style.css";
-import { sideGroup } from "./box.js";
-import { blockedBecause, isReachable, panelsFor } from "./steps.js";
-import { theDrawingAbove, whoIsAt } from "../workflows/target_acquisition/shared/canvas/layers-above.js";
-import { assembleWorkflows } from "./workflows.js";
+import { sideGroup } from "./panels.js";
+import { blockedBecause, isReachable, panelsFor } from "../steps.js";
+import { theDrawingAbove, whoIsAt } from "../../workflows/target_acquisition/shared/canvas/layers-above.js";
+import { assembleWorkflows } from "../finding-workflows.js";
 import {
   MICROSCOPES, DEFAULT_SESSION, apisFor, defaultApiFor,
   describeSession, CONNECT_CHECKS,
   sampleReading, STAGE_LIMITS_MM,
-} from "./lib/microscopes.js";
-import { centres, DEFAULT_CARRIER, describeCarrier } from "../workflows/target_acquisition/shared/carriers.js";
+} from "../microscope/microscopes.js";
+import { centres, DEFAULT_CARRIER, describeCarrier } from "../../workflows/target_acquisition/shared/carriers.js";
 /* Where focus points go inside a field: equal shares of it, measured at the
    middle of each. The geometry lives with the rest of the plan's geometry. */
-import { sharePoints } from "../workflows/target_acquisition/shared/scanfields.js";
+import { sharePoints } from "../../workflows/target_acquisition/shared/scanfields.js";
 import {
   emptySlot, hasRecording, withRecording, withoutRecording, withActive,
   activeRecording, nextReadingIndex,
-} from "./lib/recordings.js";
-import carrierWidget from "../workflows/target_acquisition/steps/2_define_carrier/widget.js";
-import scanfieldsWidget, { presetInk } from "../workflows/target_acquisition/steps/3_define_scan_area/widget.js";
+} from "../microscope/recordings.js";
+import carrierWidget from "../../workflows/target_acquisition/steps/2_define_carrier/widget.js";
+import scanfieldsWidget, { presetInk } from "../../workflows/target_acquisition/steps/3_define_scan_area/widget.js";
 
 /* The workflows this page offers: every folder in `src/workflows/` with a
    `flow.js` inside it, found by the build tool's folder scan and assembled by
@@ -26,7 +26,7 @@ import scanfieldsWidget, { presetInk } from "../workflows/target_acquisition/ste
    by hand — twice, at one point — and the copies drifted apart in silence,
    which is why it is now read off the disk instead. */
 const { WORKFLOWS, DEFAULT_WORKFLOW } = assembleWorkflows(
-  import.meta.glob("../workflows/*/flow.js", { eager: true }),
+  import.meta.glob("../../workflows/*/flow.js", { eager: true }),
 );
 
 (() => {
@@ -1715,7 +1715,7 @@ const { WORKFLOWS, DEFAULT_WORKFLOW } = assembleWorkflows(
       if (!asked || viewer || opening) return;
       opening = true;
       try {
-        const { openViewer } = await import("../../../../../viz_studio/options/jpeg-under/viewer.js");
+        const { openViewer } = await import("../../../../../../viz_studio/options/jpeg-under/viewer.js");
         viewer = await openViewer(host, {
           acquisitions: [{ url: asked, name: asked.split("/").filter(Boolean).pop() ?? "scan" }],
           /* The same colour the page paints, so the seam between the scan's own
@@ -1785,7 +1785,7 @@ const { WORKFLOWS, DEFAULT_WORKFLOW } = assembleWorkflows(
       if (picture || opening) return;
       opening = true;
       try {
-        const { showOverview } = await import("../workflows/target_acquisition/steps/5_scan_the_overview/overview.js");
+        const { showOverview } = await import("../../workflows/target_acquisition/steps/5_scan_the_overview/overview.js");
         picture = await showOverview(cv, {
           stores: ACQUISITIONS, onStatus: say, ground: GROUND, seeThrough: SEE_THROUGH,
         });
@@ -1879,7 +1879,7 @@ const { WORKFLOWS, DEFAULT_WORKFLOW } = assembleWorkflows(
        two canvases in one box would be a hard fault to read on screen. */
     let building = null;
     const build = () => {
-      building ??= import("../workflows/target_acquisition/shared/canvas/viewer.js").then(({ putTheCanvasIn }) =>
+      building ??= import("../../workflows/target_acquisition/shared/canvas/viewer.js").then(({ putTheCanvasIn }) =>
         putTheCanvasIn({
           box: el(`viewer-${which}-box`),
           note: el(`viewer-${which}-note`),
