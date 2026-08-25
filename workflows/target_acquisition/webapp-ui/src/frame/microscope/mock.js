@@ -9,10 +9,10 @@
  * This one fakes the work with timers and reports the synthetic sample.
  */
 
-import { cells, TILE_COUNT, trueFocusZ, cellsInTile } from "../lib/sample.js";
-import { sweep, pickPeak } from "../lib/sweep.js";
-import { fitSurface, residualSummary, affineSurface, looErrors } from "../lib/surface.js";
-import { WIDTH_UM, HEIGHT_UM } from "../lib/sample.js";
+import { cells, TILE_COUNT, trueFocusZ, cellsInTile } from "./pretend-sample/sample.js";
+import { sweep, pickPeak } from "./pretend-sample/sweep.js";
+import { fitSurface, residualSummary, affineSurface, looErrors } from "./pretend-sample/surface.js";
+import { WIDTH_UM, HEIGHT_UM } from "./pretend-sample/sample.js";
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
