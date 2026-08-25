@@ -151,7 +151,10 @@ body {
   display: grid;
   /* narrow: the rail is navigation, and every pixel it gives up goes to the
      stage and the channel */
-  grid-template-columns: minmax(196px, 232px) 1fr;
+  /* Wide enough for the longest workflow name the chooser holds —
+     "Target acquisition prototype" — without the ellipsis that made the
+     run's three variants read identically when the chooser is closed. */
+  grid-template-columns: minmax(196px, 284px) 1fr;
   flex: 1;
   min-height: 0;
 }
