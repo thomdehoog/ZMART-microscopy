@@ -9,17 +9,13 @@ import {
 } from "../../workflows/target_acquisition/microscope/microscopes.js";
 /* The seam. Connecting, reading a preset off the instrument, measuring the
    focus map and driving the overview scan all go through the backend and are
-   awaited; this window never knows whether a real stage moved. The pretend
-   backend is the default, so the page runs with no instrument anywhere near
-   it; `?backend=live` in the address chooses the one that speaks HTTP to the
-   bridge, and through it to the zmart controller and whichever driver is
-   plugged in — the Leica or the controller's own mock. */
+   awaited; this window never knows whether a real stage moved. Which side of
+   the seam answers is the chosen workflow's declaration: the prototype
+   rehearses everything in the browser, and the mock and real workflows speak
+   HTTP to the bridge — through it to the zmart controller, and on to the
+   driver each of them names. */
 import { backend as pretendBackend } from "../../workflows/target_acquisition/microscope/mock.js";
 import { backend as liveBackend } from "../../workflows/target_acquisition/microscope/live.js";
-const backend =
-  new URLSearchParams(globalThis.location?.search ?? "").get("backend") === "live"
-    ? liveBackend
-    : pretendBackend;
 import { centres, DEFAULT_CARRIER, describeCarrier } from "../../workflows/target_acquisition/shared/carriers.js";
 /* Where focus points go inside a field: equal shares of it, measured at the
    middle of each. The geometry lives with the rest of the plan's geometry. */
@@ -50,6 +46,14 @@ import {
 const { WORKFLOWS, DEFAULT_WORKFLOW } = assembleWorkflows(
   import.meta.glob("../../workflows/*/flow.js", { eager: true }),
 );
+
+/* Which backend the active workflow plugs into. Resolved when a workflow is
+   chosen rather than once at load, because the chooser is exactly where the
+   operator says whether this run rehearses, drives the mock chain, or drives
+   the instrument. */
+const backendFor = (key) =>
+  (WORKFLOWS[key]?.backend?.kind === "live" ? liveBackend : pretendBackend);
+let backend = null;
 
 (() => {
   "use strict";
@@ -269,6 +273,8 @@ const { WORKFLOWS, DEFAULT_WORKFLOW } = assembleWorkflows(
     locked: false,
   };
 
+  backend = backendFor(state.wf);
+
   const steps = () => WORKFLOWS[state.wf].steps;
   const step = (i) => steps()[i];
 
@@ -296,6 +302,7 @@ const { WORKFLOWS, DEFAULT_WORKFLOW } = assembleWorkflows(
      and picking a workflow starts one. */
   selectEl.addEventListener("change", () => {
     state.wf = selectEl.value;
+    backend = backendFor(state.wf);
     resetRun();
   });
 
@@ -456,7 +463,12 @@ const { WORKFLOWS, DEFAULT_WORKFLOW } = assembleWorkflows(
       /* Every question is on screen from the moment it is asked; only the
          answers arrive. The backend owns the asking — it opens the session
          and verifies it — and each answer lands here as it comes. */
-      backend.connect(state.session, {
+      backend.connect({
+        ...state.session,
+        /* Which driver the bridge should connect is the workflow's own
+           declaration; the pretend backend ignores it. */
+        instrument: WORKFLOWS[state.wf].backend?.instrument,
+      }, {
         onCheck: (k, result) => {
           if (state.running !== "connect") return;
           state.checks[k].result = result;
@@ -465,6 +477,16 @@ const { WORKFLOWS, DEFAULT_WORKFLOW } = assembleWorkflows(
       }).then(({ checks }) => {
         state.checks = checks.map((check) => ({ ...check, result: null }));
         renderSetup();
+      }).catch((why) => {
+        /* The instrument's side said no — the bridge is not there, or the
+           driver it needs is not. The sentence lands where the answers would
+           have, and the step stays undone: a connection that failed is not a
+           session. */
+        state.failed = s.id;
+        state.running = null;
+        state.checks = [{ id: "failed", label: "Connection failed", result: why.message }];
+        renderSetup();
+        renderAll();
       });
     }
 
@@ -490,6 +512,9 @@ const { WORKFLOWS, DEFAULT_WORKFLOW } = assembleWorkflows(
     }
 
     setTimeout(async () => {
+      /* A step that failed while running was already put down; finishing it
+         anyway would mark a failed connection as a session. */
+      if (state.failed === s.id) { state.failed = null; return; }
       state.running = null;
       state.done.add(s.id);
       state.ran.add(s.id);
