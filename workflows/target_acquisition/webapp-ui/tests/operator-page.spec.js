@@ -40,6 +40,13 @@ async function connect(page, password = "hunter2") {
   await page.locator('.field input[type="password"]').fill(password);
   await page.locator(".session-foot button.run").click();
   await page.waitForTimeout(2200);
+  /* The wait above matches the rehearsal's pace; this expect covers the slow
+     machines. The next step unlocking is what "connected" means to the rail,
+     so it is what is waited for — a fixed pause on a loaded container ran out
+     while the session was still opening, and the whole walk stalled on a
+     locked step. */
+  await expect(page.locator('.step:has-text("Define Carrier")').first())
+    .toBeEnabled({ timeout: 15_000 });
 }
 
 /** Set the instrument up, name it, record it — into the slot in `hostId`.
