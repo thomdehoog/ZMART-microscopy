@@ -1,8 +1,8 @@
 /* The workflows, as the operator meets them.
  *
- * Everything here reads the folders under `src/workflows/` — every folder with
+ * Everything here reads the folders under `workflows/` — every folder with
  * a `flow.js` is one workflow — through the same `assembleWorkflows` that
- * `src/frame/window/main.js` uses. That is the point of this suite: for a while the
+ * `frame/window/main.js` uses. That is the point of this suite: for a while the
  * workflows were declared twice, once here and once inside `main.js`, and
  * these tests went green against a list the page did not offer while the page
  * offered a list no test had ever seen. Neither half looked wrong on its own.
@@ -14,16 +14,16 @@
 import { describe, it, expect } from "vitest";
 import {
   numbered, firstIncomplete, isReachable, blockedBecause, panelsFor,
-} from "../../src/frame/rules/steps.js";
-import { assembleWorkflows } from "../../src/frame/rules/finding-workflows.js";
-import { connect } from "../../src/workflows/target_acquisition/steps/1_connect/step.js";
-import { initialScanfields } from "../../src/workflows/target_acquisition/steps/3_define_scan_area/step.js";
-import { scanOverview } from "../../src/workflows/target_acquisition/steps/5_scan_the_overview/step.js";
-import { emptySlot, withRecording } from "../../src/workflows/target_acquisition/microscope/recordings.js";
-import { sampleReading } from "../../src/workflows/target_acquisition/microscope/microscopes.js";
+} from "../../frame/rules/steps.js";
+import { assembleWorkflows } from "../../frame/rules/finding-workflows.js";
+import { connect } from "../../workflows/target_acquisition/steps/1_connect/step.js";
+import { initialScanfields } from "../../workflows/target_acquisition/steps/3_define_scan_area/step.js";
+import { scanOverview } from "../../workflows/target_acquisition/steps/5_scan_the_overview/step.js";
+import { emptySlot, withRecording } from "../../workflows/target_acquisition/microscope/recordings.js";
+import { sampleReading } from "../../workflows/target_acquisition/microscope/microscopes.js";
 
 const { WORKFLOWS } = assembleWorkflows(
-  import.meta.glob("../../src/workflows/*/flow.js", { eager: true }),
+  import.meta.glob("../../workflows/*/flow.js", { eager: true }),
 );
 
 const ids = (wf) => WORKFLOWS[wf].steps.map((s) => s.id);

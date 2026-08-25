@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   sweep, findCandidates, pickPeak, scoreAt, debrisAt,
   METRIC_KEYS, MIN_TISSUE_WIDTH_UM, SWEEP_N,
-} from "../../src/workflows/target_acquisition/microscope/pretend-sample/sweep.js";
+} from "../../workflows/target_acquisition/microscope/pretend-sample/sweep.js";
 
 const FOCUS_Z = -412;
 

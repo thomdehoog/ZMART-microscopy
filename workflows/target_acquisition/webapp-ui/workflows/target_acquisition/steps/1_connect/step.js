@@ -5,7 +5,7 @@
  * Every run that drives a microscope starts here: nothing can be measured,
  * moved or imaged until there is a session to do it through.
  *
- * What the fields of a step mean is written out once, in `src/workflows/README.md`.
+ * What the fields of a step mean is written out once, in `workflows/README.md`.
  */
 
 export const connect = {

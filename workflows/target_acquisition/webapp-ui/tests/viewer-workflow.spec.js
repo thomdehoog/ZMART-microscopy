@@ -5,7 +5,7 @@ import { colourSpread, fractionLit, fractionNear, photograph } from "./pixels.js
 import { SHOTS, rest, startDemoRun } from "./live-run.js";
 import {
   THE_COLOUR_ABOVE, THE_COLOUR_BENEATH,
-} from "../src/workflows/target_acquisition/shared/canvas/demonstration-drawings.js";
+} from "../workflows/target_acquisition/shared/canvas/demonstration-drawings.js";
 
 /* Does the canvas really draw, and do its three layers really behave, inside the
  * real operator window?

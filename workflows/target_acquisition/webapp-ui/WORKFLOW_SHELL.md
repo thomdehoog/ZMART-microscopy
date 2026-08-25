@@ -103,10 +103,10 @@ no special case.
 
 The step rail, the workflow chooser, the canvas and the channel beside it are
 built and working in this folder, and steps hand their results on. The source
-is arranged as the shape this note asked for: `src/frame/` is the shell — an
-engine that runs any workflow and knows none — and `src/workflows/` holds one
+is arranged as the shape this note asked for: `frame/` is the shell — an
+engine that runs any workflow and knows none — and `workflows/` holds one
 folder per workflow, each a `flow.js` and its steps. `ARCHITECTURE.md` says how
-it is put together, and `src/workflows/README.md` maps the folders.
+it is put together, and `workflows/README.md` maps the folders.
 
 The canvas itself is still built behind one interface in `viz_studio/options/`,
 with the engines to choose between, and this page opens it through that

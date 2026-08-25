@@ -145,7 +145,7 @@ was. A few options are worth knowing:
 rectangle covering everything the run declared room for, whether or not anything
 was ever imaged into it — so by default a run that declared a whole carrier and
 imaged five places in it hides everything underneath.
-`src/workflows/target_acquisition/steps/5_scan_the_overview/overview.js`
+`workflows/target_acquisition/steps/5_scan_the_overview/overview.js`
 carries a dozen lines of shader code that make the dark parts see-through, which
 is what lets the acquisition sit as a layer over the operator's own drawing. Its
 one cost is that a place imaged and found empty then looks the same as a place
@@ -247,7 +247,7 @@ recorded is drawn, in white, because the page has no way to ask the canvas what
 colours the run holds; and the whole of the room the run declared is drawn rather
 than only the part it has imaged, because the page does not yet hand over the
 run's record of where it has been.
-`src/workflows/target_acquisition/shared/canvas/viewer.js` says what each of those
+`workflows/target_acquisition/shared/canvas/viewer.js` says what each of those
 would take to fix.
 
 ## Testing, at prototyping pace
@@ -291,14 +291,14 @@ stops moving and it is worth extracting them into their own modules.
 
 ## State of the code
 
-The source is arranged as two folders with one meaning each. `src/frame/` is
+The source is arranged as two folders with one meaning each. `frame/` is
 the engine: `window/` draws the shell and `rules/` decides how any list of
-steps behaves. `src/workflows/` is what plugs into it — one folder per
+steps behaves. `workflows/` is what plugs into it — one folder per
 workflow, each with a `flow.js` saying which steps it runs in which order, the
 steps themselves in numbered folders beside their own controls, and the things
 several steps share (the canvas, the carrier geometry, the microscope seam) in
-folders of their own. `src/workflows/README.md` explains the arrangement.
+folders of their own. `workflows/README.md` explains the arrangement.
 
-`src/frame/window/main.js` is still the prototype as one module — around 2100
+`frame/window/main.js` is still the prototype as one module — around 2100
 lines. Splitting it is the next structural job: each step's behaviour moves out
 to the step's own folder, with a small store so panels never import each other.
