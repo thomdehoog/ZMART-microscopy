@@ -5,9 +5,13 @@ import { theDrawingAbove, whoIsAt } from "../../workflows/target_acquisition/sha
 import { assembleWorkflows } from "../rules/finding-workflows.js";
 import {
   MICROSCOPES, DEFAULT_SESSION, apisFor, defaultApiFor,
-  describeSession, CONNECT_CHECKS,
-  sampleReading, STAGE_LIMITS_MM,
+  describeSession, STAGE_LIMITS_MM,
 } from "../../workflows/target_acquisition/microscope/microscopes.js";
+/* The seam. Connecting, reading a preset off the instrument, measuring the
+   focus map and driving the overview scan all go through the backend and are
+   awaited; this window never knows whether a real stage moved. The mock is
+   the default; `live.js` implements the same shape over HTTP to the bridge. */
+import { backend } from "../../workflows/target_acquisition/microscope/mock.js";
 import { centres, DEFAULT_CARRIER, describeCarrier } from "../../workflows/target_acquisition/shared/carriers.js";
 /* Where focus points go inside a field: equal shares of it, measured at the
    middle of each. The geometry lives with the rest of the plan's geometry. */
@@ -24,9 +28,7 @@ import scanfieldsWidget, { presetInk } from "../../workflows/target_acquisition/
    page read the same arithmetic. These files used to exist twice, once here
    and once beside the mock, and the two copies could disagree in silence. */
 import { makeRng } from "../../workflows/target_acquisition/microscope/pretend-sample/rng.js";
-import {
-  METRICS, METRIC_KEYS, debrisAt, sweep, pickPeak, scoreAt,
-} from "../../workflows/target_acquisition/microscope/pretend-sample/sweep.js";
+import { METRICS, METRIC_KEYS, scoreAt } from "../../workflows/target_acquisition/microscope/pretend-sample/sweep.js";
 import {
   affineSurface, fitSurface, residualsUm, surfaceZ,
 } from "../../workflows/target_acquisition/microscope/pretend-sample/surface.js";
@@ -444,41 +446,42 @@ const { WORKFLOWS, DEFAULT_WORKFLOW } = assembleWorkflows(
        than as a spinner that stops. */
     if (s.id === "connect") {
       /* Every question is on screen from the moment it is asked; only the
-         answers arrive. A list that grew a row at a time made the last check
-         look like an afterthought and moved everything under it as it came. */
-      state.checks = CONNECT_CHECKS.map((check) => ({ ...check, result: null }));
-      renderSetup();
-      CONNECT_CHECKS.forEach((check, k) => {
-        setTimeout(() => {
+         answers arrive. The backend owns the asking — it opens the session
+         and verifies it — and each answer lands here as it comes. */
+      backend.connect(state.session, {
+        onCheck: (k, result) => {
           if (state.running !== "connect") return;
-          state.checks[k].result = check.result(state.session);
+          state.checks[k].result = result;
           answerCheck(k);
-        }, 260 * (k + 1));
+        },
+      }).then(({ checks }) => {
+        state.checks = checks.map((check) => ({ ...check, result: null }));
+        renderSetup();
       });
     }
 
     if (s.mode === "scan") {
       state.tilesShown = 0;
-      const total = state.plan.length;
-      const tick = () => {
-        const t = Math.min(1, (performance.now() - started) / s.ms);
-        state.tilesShown = Math.round(t * total);
-        state.notes[s.id] = scanNote();
-        /* Each position the scan reports is a reason to read the run again,
-           because the tile it just saved is new picture that nothing on disk
-           announces — the images were declared at their full size before any of
-           them existed, so their description is the same before and after a tile
-           lands. The picture decides how often to actually look; see
-           `steps/5_scan_the_overview/overview.js`, which explains why. */
-        liveOverview.tileMayHaveLanded();
-        drawStage(); renderAll();
-        if (t < 1) raf = requestAnimationFrame(tick);
-      };
-      raf = requestAnimationFrame(tick);
+      backend.scanOverview({
+        positions: state.plan,
+        ms: s.ms,
+        onProgress: (done) => {
+          if (state.running !== s.id) return;
+          state.tilesShown = done;
+          state.notes[s.id] = scanNote();
+          /* Each position the scan reports is a reason to read the run again,
+             because the tile it just saved is new picture that nothing on disk
+             announces — the images were declared at their full size before any
+             of them existed, so their description is the same before and after
+             a tile lands. The picture decides how often to actually look; see
+             `steps/5_scan_the_overview/overview.js`, which explains why. */
+          liveOverview.tileMayHaveLanded();
+          drawStage(); renderAll();
+        },
+      });
     }
 
-    setTimeout(() => {
-      if (raf) cancelAnimationFrame(raf);
+    setTimeout(async () => {
       state.running = null;
       state.done.add(s.id);
       state.ran.add(s.id);
@@ -486,7 +489,7 @@ const { WORKFLOWS, DEFAULT_WORKFLOW } = assembleWorkflows(
 
       if (s.mode === "focus") {
         const f = state.focus;
-        if (f.strategy === "plane") { remeasure(); f.selected = 0; }
+        if (f.strategy === "plane") { await remeasure(); f.selected = 0; }
         f.applied = true;
         state.notes[s.id] =
           f.strategy === "plane" ? `${f.surface.model} from ${f.points.length} points · rms ${f.residual.toFixed(1)} µm`
@@ -893,8 +896,10 @@ const { WORKFLOWS, DEFAULT_WORKFLOW } = assembleWorkflows(
     go.addEventListener("click", () => {
       go.disabled = true;
       go.textContent = "reading…";
-      // a controller round-trip, not an instant assignment
-      setTimeout(() => recorded(box.value, sampleReading(type, nth)), 480);
+      /* A readout off the instrument, never a procedure: the state as it is
+         set now, through the backend. Nothing on the instrument moves. */
+      backend.readSetting(type, { nth })
+        .then((reading) => recorded(box.value, reading));
     });
 
     /* The name leads, the way it leads a recorded row: it is the thing being
@@ -3599,9 +3604,10 @@ const { WORKFLOWS, DEFAULT_WORKFLOW } = assembleWorkflows(
     /* Both metrics on one plot. They score the same stack on different
        scales, so each is normalised to its own maximum — the shapes are the
        comparison, not the absolute numbers. */
+    const traces = f.points[f.selected]?.traces;
+    if (!traces) return;
     const curves = METRIC_KEYS.map((key) => {
-      const at = f.points[f.selected];
-      const sw = sweep({ focusZ: trueZ(at.x, at.y), index: f.selected, metric: key });
+      const sw = traces[key];
       const peak = Math.max(...sw.samples.map((q) => q.s)) || 1;
       return { key, sw, norm: sw.samples.map((q) => ({ z: q.z, s: q.s / peak })) };
     });
@@ -3783,7 +3789,7 @@ const { WORKFLOWS, DEFAULT_WORKFLOW } = assembleWorkflows(
     const cv = el("zpreview-canvas");
     const ctx = cv.getContext("2d");
     const S = cv.width;
-    const trueFocus = trueZ(point.x, point.y);
+    const trueFocus = point.focusZ ?? 0;
     const defocus = Math.abs(point.z - trueFocus);
     const blur = Math.min(11, defocus * 0.42);
 
@@ -3811,7 +3817,7 @@ const { WORKFLOWS, DEFAULT_WORKFLOW } = assembleWorkflows(
     }
     // the speck of debris, if this position has one — it comes into focus in a
     // plane of its own, which is exactly what fools the metric
-    const speck = debrisAt(idx);
+    const speck = point.speck;
     if (speck) {
       const speckZ = trueFocus + METRICS[state.focus.metric].bias + speck.offset;
       const speckBlur = Math.min(11, Math.abs(point.z - speckZ) * 0.55);
@@ -3866,8 +3872,9 @@ const { WORKFLOWS, DEFAULT_WORKFLOW } = assembleWorkflows(
     if (hit) {
       if (hit.key !== f.metric) {
         f.metric = hit.key;
-        remeasure();
-        drawTrace(); renderPointList(); drawStage(); renderActionBar();
+        remeasure().then(() => {
+          drawTrace(); renderPointList(); drawStage(); renderActionBar();
+        });
       }
       return;
     }
@@ -3958,16 +3965,17 @@ const { WORKFLOWS, DEFAULT_WORKFLOW } = assembleWorkflows(
     drawStage(); renderPointList(); drawTrace(); renderActionBar();
   });
 
-  // measure every placed point with the current metric, then fit the plane
-  function remeasure() {
+  /* Measure every placed point with the current metric, then fit the plane.
+     The backend drives to each point and focuses there; what comes back is
+     the height, the traces the chart draws, and the speck the preview shows.
+     A height the operator dragged by hand survives a change of metric. */
+  async function remeasure() {
     const f = state.focus;
-    f.points.forEach((p, i) => {
-      const chosen = pickPeak(sweep({ focusZ: trueZ(p.x, p.y), index: i, metric: f.metric }).candidates);
-      p.zAuto = chosen.z;
-      p.onNarrow = chosen.narrow;
-      // a height the operator dragged by hand survives a change of metric
-      if (!p.manual) p.z = p.zAuto;
+    const { points } = await backend.measureFocus(f.points, {
+      metric: f.metric,
+      extent: carrierSpan(),
     });
+    f.points = points;
     refitSurface();
   }
 

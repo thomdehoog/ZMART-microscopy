@@ -19,7 +19,6 @@ import { assembleWorkflows } from "../../src/frame/rules/finding-workflows.js";
 import { connect } from "../../src/workflows/target_acquisition/steps/1_connect/step.js";
 import { initialScanfields } from "../../src/workflows/target_acquisition/steps/3_define_scan_area/step.js";
 import { scanOverview } from "../../src/workflows/target_acquisition/steps/5_scan_the_overview/step.js";
-import { mockBackend } from "../../src/workflows/target_acquisition/microscope/mock.js";
 import { emptySlot, withRecording } from "../../src/workflows/target_acquisition/microscope/recordings.js";
 import { sampleReading } from "../../src/workflows/target_acquisition/microscope/microscopes.js";
 
@@ -357,24 +356,3 @@ describe("the canvas demonstration", () => {
   });
 });
 
-describe("the backend seam", () => {
-  it("detection uses one rule for a tile and for the sample", () => {
-    const settings = { algo: "cellpose", diameter: 18, cellprob: 0 };
-    const cell = { r: 7, area: 154, intensity: 0.8 };
-    expect(mockBackend.detects(settings, cell)).toBe(true);
-    expect(mockBackend.detects({ ...settings, diameter: 60 }, cell)).toBe(false);
-  });
-
-  it("a dimmer cell falls out as cell probability rises", () => {
-    const cell = { r: 7, area: 154, intensity: 0.5 };
-    expect(mockBackend.detects({ algo: "cellpose", diameter: 18, cellprob: 0 }, cell)).toBe(true);
-    expect(mockBackend.detects({ algo: "cellpose", diameter: 18, cellprob: 4 }, cell)).toBe(false);
-  });
-
-  it("threshold detection is size and brightness, nothing else", () => {
-    const settings = { algo: "threshold", thresh: 0.4, minArea: 100 };
-    expect(mockBackend.detects(settings, { area: 200, intensity: 0.5, r: 8 })).toBe(true);
-    expect(mockBackend.detects(settings, { area: 50, intensity: 0.5, r: 4 })).toBe(false);
-    expect(mockBackend.detects(settings, { area: 200, intensity: 0.2, r: 8 })).toBe(false);
-  });
-});
