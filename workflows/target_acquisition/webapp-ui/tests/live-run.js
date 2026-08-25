@@ -133,6 +133,17 @@ export async function walkToTheScan(page) {
   await page.waitForTimeout(1600);
 
   await gotoStep("Scan the overview");
+
+  /* Everything measured after this walk is about the acquired picture, and the
+     plan draws on the stage canvas *above* it — pale ground, field outlines, a
+     grid glyph — which would light every photograph before a single tile has
+     landed. So the stage canvas is switched off here, the way a microscopist
+     turns one channel off to look at another: the picture underneath keeps
+     drawing exactly as it would with the plan over it, and the photographs
+     measure the picture alone. */
+  await page.addStyleTag({
+    content: "canvas.stagecv { visibility: hidden !important; }",
+  });
 }
 
 /**

@@ -1160,17 +1160,25 @@ test("the recording finishes the step, and either kind can be given a map",
     await expect(page.locator("#focus-preset .rec-state").first()).toContainText("Software");
     await expect(page.locator('.step:has-text("Focus strategy")').first())
       .toHaveClass(/done/);
+    /* The press that measures the map stands in its box from the moment the
+       box is there — greyed while there is nothing to measure. It used to
+       disappear instead, which made clearing the points look like it had
+       broken the step. */
     await expect(page.locator(".panel.on button.step-run"),
-      "nothing to run until there are points to measure").toHaveCount(0);
+      "nothing to run until there are points to measure").toBeDisabled();
 
     /* The map is the optional extra, and there is only one of them: a run
        focuses one way, so there is one surface to fit and nothing to name or
-       choose between. Points laid, the run has something to do. */
+       choose between. Points laid, the run has something to do — and once it
+       has run, the traces box opens with a row for every point measured,
+       because a row is a reading and a freshly laid point has none yet. */
     await expect(page.locator("#fp-place"), "somewhere to lay points").toBeVisible();
     await page.locator("#fp-place").click();
     await page.waitForTimeout(300);
+    await expect(page.locator(".panel.on button.step-run")).toBeEnabled();
+    await page.locator(".panel.on button.step-run").click();
+    await page.waitForTimeout(1600);
     await expect(page.locator(".point-row").first()).toBeVisible();
-    await expect(page.locator(".panel.on button.step-run")).toHaveCount(1);
 
     /* The second is a hardware autofocus: the stand holds focus off the
        coverslip at every position it is sent to. That too is a complete answer
@@ -1211,7 +1219,13 @@ test("focus points are laid so many to a tileset", async ({ page }) => {
   await recordSlot(page, "focus-preset", "coarse");
 
   /* Where the points are, read off the list rather than off the canvas. The
-     rows carry millimetres, which is what the claims are about. */
+     rows carry millimetres, which is what the claims are about — and a row is
+     a reading, so the list holds nothing until the map has been measured.
+     Each laying below is therefore followed by the press that measures it. */
+  const measure = async () => {
+    await page.locator(".panel.on button.step-run").click();
+    await page.waitForTimeout(1600);
+  };
   const placed = async () => {
     const rows = await page.locator(".point-row").allInnerTexts();
     return rows.map((t) => {
@@ -1224,6 +1238,7 @@ test("focus points are laid so many to a tileset", async ({ page }) => {
   await expect(page.locator("#fp-count")).toHaveValue("1");
   await page.locator("#fp-place").click();
   await page.waitForTimeout(300);
+  await measure();
   expect(await placed()).toHaveLength(1);
 
   /* Three to a tileset, each in its own share of it — and a fresh set rather
@@ -1233,6 +1248,7 @@ test("focus points are laid so many to a tileset", async ({ page }) => {
   await page.locator("#fp-count").dispatchEvent("input");
   await page.locator("#fp-place").click();
   await page.waitForTimeout(300);
+  await measure();
   const three = await placed();
   expect(three, "three asked for, three there").toHaveLength(3);
   expect(new Set(three.map((p) => `${p.x},${p.y}`)).size,
@@ -1247,6 +1263,7 @@ test("focus points are laid so many to a tileset", async ({ page }) => {
   // and pressing it again with the same number lays the same three
   await page.locator("#fp-place").click();
   await page.waitForTimeout(300);
+  await measure();
   const again = await placed();
   expect(again).toHaveLength(3);
   expect(again).toEqual(three);
@@ -1257,6 +1274,7 @@ test("focus points are laid so many to a tileset", async ({ page }) => {
   await page.locator("#fp-count").dispatchEvent("input");
   await page.locator("#fp-place").click();
   await page.waitForTimeout(300);
+  await measure();
   const all = await placed();
   expect(all.length, "as many as the tileset has positions").toBeGreaterThan(3);
 

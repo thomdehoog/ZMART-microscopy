@@ -1,5 +1,13 @@
 # The layered view: what is here, and how to take it
 
+> **This lifting has since happened.** The operator window and the layered view
+> now live together on this branch, and the source tree has been reorganised —
+> the canvas files named below now sit in
+> `webapp-ui/src/workflows/target_acquisition/shared/canvas/` (with `panel.js`
+> renamed `viewer.js`), and `webapp-ui/src/workflows/README.md` maps the whole
+> arrangement. The rest of this document is kept as the record of what was
+> built and why; read the paths in it as the paths of that time.
+
 This branch holds one thing: **a picture that scales to ten thousand fields, and
 a stack of layers above it that a workflow decides.** It is meant to be lifted
 into whichever operator window you are actually working in, rather than merged
