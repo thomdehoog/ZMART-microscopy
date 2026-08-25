@@ -58,6 +58,33 @@ BUILT_FOLDER = HERE.parent / "workflow" / "webapp" / "static"
 BUILT = BUILT_FOLDER / "index.html"
 DEV_URL = "http://127.0.0.1:5174/"
 
+# The bridge: where the page's mock and real workflows meet the zmart
+# controller. Started here so one launch brings up the whole thing — the
+# window, the page, and the instrument's side of the seam.
+BRIDGE = HERE.parent / "workflow" / "webapp" / "bridge.py"
+
+
+def _start_bridge() -> str | None:
+    """Start the bridge beside the page, on a spare port, and say where.
+
+    Loaded from its file rather than imported through the ``webapp`` package,
+    whose import chain pulls in a notebook stack the bridge has no use for.
+    A machine without the controller's Python packages still gets a window:
+    the prototype workflow never calls the bridge, and the mock and real
+    workflows answer with the bridge's absence when asked.
+    """
+    import importlib.util
+
+    try:
+        spec = importlib.util.spec_from_file_location("zmart_bridge", BRIDGE)
+        bridge = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(bridge)
+        server = bridge.serve(0)  # port 0: the operating system picks a free one
+    except Exception as why:  # noqa: BLE001 — whatever is missing, say so plainly
+        print(f"bridge not started ({why}) — the prototype workflow still works")
+        return None
+    return f"http://127.0.0.1:{server.server_address[1]}"
+
 
 def _dev_server_is_up(url: str, timeout: float = 1.5) -> bool:
     try:
@@ -141,6 +168,12 @@ def main() -> int:
             print(f"nothing answering at {args.url} — start it with `npm run dev`")
             return 1
         target, note = args.url, f"dev server · {args.url} · edits reload live"
+
+    bridge_at = _start_bridge()
+    if bridge_at:
+        # The page finds the bridge through its own address; live.js reads it.
+        target = f"{target}{'&' if '?' in target else '?'}bridge={bridge_at}"
+        note += f" · bridge at {bridge_at}"
 
     try:
         import webview

@@ -10,7 +10,7 @@
  */
 
 import { reworded } from "../../frame/rules/steps.js";
-import { setUpTheRun } from "../target_acquisition/flow.js";
+import { setUpTheRun } from "../target_acquisition/the-run.js";
 import { focusStrategy } from "../target_acquisition/steps/4_focus_strategy/step.js";
 import { saveRun } from "../overview_only/steps/5_save_the_run/step.js";
 

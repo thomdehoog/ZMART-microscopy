@@ -50,6 +50,11 @@ export function assembleWorkflows(flowFiles) {
       name: workflowName(folder),
       blurb: flow.blurb,
       steps: numbered(flow.steps),
+      /* Which backend this workflow plugs into — the pretend one unless the
+         flow says otherwise. A workflow that drives the real chain declares
+         `{ kind: "live", instrument: "…" }`, and the window resolves it when
+         the workflow is chosen; the frame only carries the declaration. */
+      backend: flow.backend ?? { kind: "pretend" },
     };
   }
 
