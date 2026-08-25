@@ -5,31 +5,48 @@ you know which file to open.
 
 ```
 src/
-  lib/          pure functions. No DOM, no state. Unit-tested.
-  backend/      the seam where the microscope goes. Mock today, real later.
-  frame/        the shell: rail, action bar, tabs, run state, step ordering.
-  widgets/      the panels on the right. One file each.
-  workflows/    step lists. Compose, do not invent.
-  live/         acquired data drawn from the run's own images, as it is written.
-  canvas/       the picture of a run, drawn by whichever engine is chosen.
+  frame/        the engine. It knows how to run any workflow and none in particular.
+    window/     what the operator sees: the rail, the chooser, the panels, run state.
+    rules/      what the engine enforces: step ordering and readiness, and how
+                workflow folders are found and named for the chooser.
+  workflows/    what plugs into the engine. One folder per workflow, and the
+                folder's name is the chooser's entry: `target_acquisition`
+                appears as "Target acquisition".
+    <name>/flow.js   the workflow's front door: its steps, in order, plus a
+                     sentence for the chooser.
+    <name>/steps/    one numbered folder per step — `1_connect/` to
+                     `8_acquire_targets/` — each holding the step's declaration
+                     and the widgets that belong to it alone.
+    <name>/shared/   what several steps of that one workflow use: the canvas,
+                     the carrier geometry, the scan-field arithmetic.
+    target_acquisition/microscope/
+                the seam where the instrument goes — mock today, real later —
+                with the synthetic specimen the mock images in
+                `pretend-sample/`. It lives in the workflow rather than the
+                frame because the frame could just as well run an analysis
+                workflow that never touches a microscope.
 ```
+
+`src/workflows/README.md` walks through the arrangement in more detail.
 
 ## The rule that keeps it honest
 
-**One owner per fact.** Sample geometry belongs to `lib/sample.js`; nothing
-re-derives it. Peak rules belong to `lib/sweep.js`; nothing else decides what
+**One owner per fact.** Sample geometry belongs to `pretend-sample/sample.js`;
+nothing re-derives it. Peak rules belong to `pretend-sample/sweep.js`; nothing
+else decides what
 counts as too narrow. If a constant or a rule has to appear in two files, the
 split was wrong — merge them back rather than keeping both in step.
 
-## The seam: `backend/`
+## The seam: the `microscope/` folder
 
 This is a mock now and gets a real microscope later, so nothing above this line
 knows which it is talking to. A step never calls `setTimeout`, never reaches
 for the synthetic sample, and never touches hardware — it calls the backend and
-awaits.
+awaits. Every API call the page will ever make to an instrument lives behind
+this seam; a workflow only imports it and calls.
 
 ```js
-// backend/mock.js today, backend/live.js later — same shape
+// microscope/mock.js today, microscope/live.js later — same shape
 export const backend = {
   async connect(),
   async setOrigin(),
@@ -42,8 +59,8 @@ export const backend = {
 ```
 
 Swapping the mock for a real driver should be a one-line change in
-`main.js` and nothing else. If wiring the microscope means editing a widget,
-the seam leaked and wants fixing first.
+`window/main.js` and nothing else. If wiring the microscope means editing a
+widget, the seam leaked and wants fixing first.
 
 ## Widgets
 
@@ -117,28 +134,31 @@ the page should carry out for it:
 }
 ```
 
-Every field is written out at the top of `workflows/steps.js`, which is where
-steps are declared. Steps live there so that several workflows can share them —
-the point is to mix and match, not to retype — and a workflow that wants a shared
-step to say something different wraps it in `reworded()`, which changes the
+Every field is written out in `src/workflows/README.md`. A step is declared in
+its own folder, under the workflow that owns it — `steps/4_focus_strategy/step.js`
+— and other workflows share it by importing it; the point is to mix and match,
+not to retype. A workflow that wants a shared step to say something different
+wraps it in `reworded()` (from `frame/rules/steps.js`), which changes the
 wording and nothing else.
 
-A workflow is a name, a blurb for the chooser, and a list of those steps.
+A workflow is a folder with a `flow.js` in it: the folder's name is the
+chooser's entry, and the flow is the list of steps in order plus a blurb.
 Numbering is derived from position, so reordering costs nothing; a step may set
 its own `n` if two halves of one job should read as `3a` and `3b`.
 
-**`workflows/index.js` is the only place the workflows are written down.**
-`main.js` imports it, and so do the unit tests, which is what makes a test about
-a workflow a test about the page. The browser suite checks the other half: it
-reads the declaration and then reads the running page, and fails if the chooser
-and the rail disagree with it.
+**The folders under `src/workflows/` are the only place the workflows are
+written down.** The frame finds every folder holding a `flow.js`
+(`frame/rules/finding-workflows.js` says how), and the unit tests read the same
+folders through the same assembly, which is what makes a test about a workflow
+a test about the page. The browser suite checks the other half: it reads the
+folders and then reads the running page, and fails if the chooser and the rail
+disagree with them.
 
-Readiness belongs to the step. Only the focus step knows that fitting a surface
-from measured positions needs at least three of them, and `frame/steps.js` only
-asks. That is what lets a new workflow be a list rather than another condition
+Readiness belongs to the step. Only the focus step knows what it is waiting
+for, and `frame/rules/steps.js` only asks. That is what lets a new workflow be a list rather than another condition
 added to the shell.
 
-Which panels a step gets is `panelsFor` in `frame/steps.js`. A step names the
+Which panels a step gets is `panelsFor` in `frame/rules/steps.js`. A step names the
 modules it wants of its own and gets those; most name nothing, because most steps
 happen on the stage and the picture of the stage is enough. The canvas itself
 appears at the step that first asks for it — the carrier, in every workflow that
@@ -157,13 +177,13 @@ hold.** Writing the workflow was indeed a list, but four things had to be added
 before the operator could reach it. Three were real gaps in the shell and are now
 filled; the other was a duplication, and it has since been taken out:
 
-- the workflow had to be **declared twice**, once in `workflows/index.js` and
-  once in `main.js`, because `main.js` carried its own copy. Fixed: `main.js`
-  imports the declaration, and the copy is gone. This was the first time anybody
+- the workflow had to be **declared twice**, once in the declaration file and
+  once in `main.js`, because `main.js` carried its own copy. Fixed: the page
+  assembles the workflows from the folders on disk, and the copy is gone. This was the first time anybody
   paid for that duplication, and it was worth recording because either half
   looked entirely convincing on its own — the tests went green against a list the
   page did not offer, and the page offered a list no test had ever seen.
-- `frame/steps.js` gave every step the canvas whether or not it asked, so a step
+- the step rules gave every step the canvas whether or not it asked, so a step
   wanting only its own module could not be written. `panels` above is the fix.
 - a panel that builds a picture of its own — rather than drawing on one of the
   page's canvases — had no way to learn that it was on screen. `PANEL_META` now
@@ -174,7 +194,7 @@ filled; the other was a duplication, and it has since been taken out:
   shows the operator something: such a step produces nothing, so there is nothing
   to wait for, and there is nothing for the operator to do to finish it either —
   which left the demonstration's second step greyed out for ever. A step may now
-  say `nothingWaitsOnThis`, and `frame/steps.js` skips it when working out how far
+  say `nothingWaitsOnThis`, and the step rules skip it when working out how far
   the run has got. Nothing in a real workflow says it, and a unit test keeps it
   that way.
 
@@ -199,25 +219,29 @@ The layers above are the target. Some of them are built and used, some are
 built and waiting, and one gap is a live hazard. Read this before assuming the
 tree matches the picture.
 
+In the table, `ta/` is short for `src/workflows/target_acquisition/`.
+
 | part | state |
 |---|---|
-| `lib/carriers.js` | built, unit-tested, **used by the app, `widgets/carrier.js` and the scan-field grid** |
-| `lib/scanfields.js` | built, unit-tested, **used by `widgets/scanfields.js`** |
-| `lib/microscopes.js` | used by the app |
-| `lib/surface.js`, `sweep.js`, `sample.js`, `rng.js` | built, unit-tested, **not yet imported by the app** |
-| `backend/mock.js` | built, **not yet imported by the app** |
-| `frame/steps.js` | built, unit-tested, **used by the app** — numbering, ordering, readiness and panels |
-| `workflows/` | built, unit-tested, **used by the app: the only declaration of the workflows** |
-| `widgets/carrier.js` | built, used — the first widget, and the shape the rest should follow |
-| `widgets/scanfields.js` | built, used — the geometry editor and the grid, in the same channel |
-| `live/overview.js` | built, used by the app when it is given a run to watch, and covered by the browser tests that photograph the canvas |
-| `canvas/` | built, used by the canvas demonstration, and covered by browser tests that photograph the picture — including which of the three layers reached the screen |
-| `src/main.js` | the rest of the running app, and its own copies of the untaken modules |
+| `ta/shared/carriers.js` | built, unit-tested, **used by the app, the carrier widget and the scan-field grid** |
+| `ta/shared/scanfields.js` | built, unit-tested, **used by the scan-area widget** |
+| `ta/microscope/microscopes.js` | used by the app |
+| `ta/microscope/pretend-sample/` | built, unit-tested, **not yet imported by the app** |
+| `ta/microscope/mock.js` | built, **not yet imported by the app** |
+| `frame/rules/steps.js` | built, unit-tested, **used by the app** — numbering, ordering, readiness and panels |
+| `frame/rules/finding-workflows.js` | built, unit-tested, **used by the app: turns the workflow folders into the chooser's list** |
+| `src/workflows/*/flow.js` | built, unit-tested, **used by the app: the only declaration of the workflows** |
+| `ta/steps/2_define_carrier/widget.js` | built, used — the first widget, and the shape the rest should follow |
+| `ta/steps/3_define_scan_area/widget.js` | built, used — the geometry editor and the grid, in the same channel |
+| `ta/steps/5_scan_the_overview/overview.js` | built, used by the app when it is given a run to watch, and covered by the browser tests that photograph the canvas |
+| `ta/shared/canvas/` | built, used by the canvas demonstration, and covered by browser tests that photograph the picture — including which of the three layers reached the screen |
+| `src/frame/window/main.js` | the rest of the running app, and its own copies of the untaken modules |
 
-**Widget extraction has started, from the outside in.** `widgets/carrier.js` is
+**Widget extraction has started, from the outside in.** The carrier widget is
 the first: it is handed a configuration and a callback and knows nothing about
-run state. Its geometry lives in `lib/carriers.js`, so nothing can disagree
-about where a well is.
+run state. It lives beside its step in `steps/2_define_carrier/`, and its
+geometry lives in `shared/carriers.js`, so nothing can disagree about where a
+well is.
 
 It also shows the second shape a widget can take. A panel is not always a tab:
 the carrier is *what the canvas is drawing*, so its controls dock in a channel
@@ -225,7 +249,7 @@ beside the picture (`#canvas-side`) and it exports `drawOn(ctx, …)` to put the
 carrier on the stage itself. Controls and drawing are in the one file because
 they are one subject — change what a carrier is and a single place follows.
 
-The channel belongs to whichever step owns it, and `widgets/scanfields.js` is
+The channel belongs to whichever step owns it, and the scan-area widget is
 the second to. It stops being editable once something has been **imaged**
 against it — the overview scan — rather than once any later step has been done.
 The focus map sits in between and does not depend on the plan: a fitted surface
@@ -261,10 +285,10 @@ stays green while the app misbehaves. For those three, **treat `main.js` as the
 source of truth and the modules as a proposal**, and if you change a rule, change
 it in both.
 
-The workflow declarations used to be a fourth, and are not any more.
-`workflows/index.js` is now the only place the workflows are written down, and
-`main.js` imports it. That is the shape the remaining three should be taken out
-in: move the fact into the module, have `main.js` import it, and point the tests
+The workflow declarations used to be a fourth, and are not any more. The
+folders under `src/workflows/` are now the only place the workflows are written
+down, and the page assembles its list from them. That is the shape the
+remaining three should be taken out in: move the fact into the module, have `main.js` import it, and point the tests
 at the same thing the page uses. It does not touch the UI, and every line worth
 editing while iterating on design stays where it is.
 
@@ -272,13 +296,13 @@ What is left of that fix for the workflows is the runner. `main.js` still decide
 what a step *does* from its `mode` — a switch that grows by one arm per kind of
 work — where the intention is that a step carries its own `run(ctx)` and calls
 the backend. Readiness has already moved that way and is a good model for it: the
-rule now sits on the step, `frame/steps.js` only asks, and adding a workflow
+rule now sits on the step, `frame/rules/steps.js` only asks, and adding a workflow
 needs no change to the shell.
 
-## The canvas: `canvas/`
+## The canvas: `shared/canvas/`
 
-`live/overview.js` draws the overview inside the scan step, with Viv wired in
-directly. The canvas is the next thing along and a different arrangement: one
+The scan step's own `overview.js` draws the overview inside that step, with Viv
+wired in directly. The canvas is the next thing along and a different arrangement: one
 viewer written more than once, once for each drawing engine worth considering,
 every version behind the same small interface so that they can be compared and
 swapped. It is not kept here — it lives at the top of the repository in
@@ -286,9 +310,9 @@ swapped. It is not kept here — it lives at the top of the repository in
 — and this folder is only the page's side of it.
 
 ```
-canvas/
+shared/canvas/
   engines.js    which engines this page can open, and what each one is
-  panel.js      opening one on a run, changing engine, and the layer buttons
+  viewer.js     opening one on a run, changing engine, and the layer buttons
 ```
 
 The two gestures are not in this list, and that is deliberate. Dragging and the
@@ -335,10 +359,11 @@ put in front of an operator. A button that draws nothing would be the worst of
 the available behaviours, because an empty box looks exactly like one that is
 still loading.
 
-## Acquired data: `live/`
+## Acquired data: the scan step's `overview.js`
 
 Everything else on this page is a rehearsal — a synthetic sample, a stage that
-moves on a timer. `live/overview.js` is not: given the address of a run, it draws
+moves on a timer. `steps/5_scan_the_overview/overview.js` is not: given the
+address of a run, it draws
 the OME-Zarr images the microscope is writing, and reads them again as tiles
 land, so the scan step shows the overview appearing rather than a count.
 
@@ -361,7 +386,7 @@ written out at length in the file:
 
 ## Tests
 
-- `tests/unit/**` — vitest, on `lib/` only. Fast, no browser. This is where
+- `tests/unit/**` — vitest, on the pure modules only. Fast, no browser. This is where
   behaviour that can be stated as a number belongs.
 - `tests/*.spec.js` — Playwright, driving the real page. A smoke net, not a
   specification: the page is nearly all canvas, and driving it has repeatedly
