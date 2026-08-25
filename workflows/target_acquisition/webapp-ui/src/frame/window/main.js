@@ -1270,7 +1270,9 @@ const { WORKFLOWS, DEFAULT_WORKFLOW } = assembleWorkflows(
       galleryControls.hidden = false;
       host.append(galleryControls);
       renderRecordingSlot("target-type", {
-        label: "Record acquisition type", key: "targetType",
+        /* Just the thing, not the gesture: the heading already says "Record",
+           so a label that says it too reads "Record record …" on screen. */
+        label: "Acquisition type", key: "targetType",
         changed: () => renderActionBar(),
       });
       buildGallery();
