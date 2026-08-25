@@ -1,27 +1,33 @@
 import "./style.css";
-import { sideGroup } from "./frame/box.js";
-import { blockedBecause, isReachable, panelsFor } from "./frame/steps.js";
-import { theDrawingAbove, whoIsAt } from "./canvas/layers-above.js";
-/* The workflows this page offers, declared once in `workflows/index.js` and
-   read here. The unit tests read the same file, so a workflow the tests can see
-   is a workflow the operator can choose. It used to be written out again in
-   this file as well, and the two copies drifted apart in silence. */
-import { WORKFLOWS, DEFAULT_WORKFLOW } from "./workflows/index.js";
+import { sideGroup } from "./box.js";
+import { blockedBecause, isReachable, panelsFor } from "./steps.js";
+import { theDrawingAbove, whoIsAt } from "../workflows/target_acquisition/shared/canvas/layers-above.js";
+import { assembleWorkflows } from "./workflows.js";
 import {
   MICROSCOPES, DEFAULT_SESSION, apisFor, defaultApiFor,
   describeSession, CONNECT_CHECKS,
   sampleReading, STAGE_LIMITS_MM,
 } from "./lib/microscopes.js";
-import { centres, DEFAULT_CARRIER, describeCarrier } from "./lib/carriers.js";
+import { centres, DEFAULT_CARRIER, describeCarrier } from "../workflows/target_acquisition/shared/carriers.js";
 /* Where focus points go inside a field: equal shares of it, measured at the
    middle of each. The geometry lives with the rest of the plan's geometry. */
-import { sharePoints } from "./lib/scanfields.js";
+import { sharePoints } from "../workflows/target_acquisition/shared/scanfields.js";
 import {
   emptySlot, hasRecording, withRecording, withoutRecording, withActive,
   activeRecording, nextReadingIndex,
 } from "./lib/recordings.js";
-import carrierWidget from "./widgets/carrier.js";
-import scanfieldsWidget, { presetInk } from "./widgets/scanfields.js";
+import carrierWidget from "../workflows/target_acquisition/steps/2_define_carrier/widget.js";
+import scanfieldsWidget, { presetInk } from "../workflows/target_acquisition/steps/3_define_scan_area/widget.js";
+
+/* The workflows this page offers: every folder in `src/workflows/` with a
+   `flow.js` inside it, found by the build tool's folder scan and assembled by
+   the frame. The unit tests read the same folders, so a workflow the tests can
+   see is a workflow the operator can choose. The list used to be written out
+   by hand — twice, at one point — and the copies drifted apart in silence,
+   which is why it is now read off the disk instead. */
+const { WORKFLOWS, DEFAULT_WORKFLOW } = assembleWorkflows(
+  import.meta.glob("../workflows/*/flow.js", { eager: true }),
+);
 
 (() => {
   "use strict";
@@ -177,7 +183,7 @@ import scanfieldsWidget, { presetInk } from "./widgets/scanfields.js";
      There is no presets step: each recording lives in the step that uses it —
      the overview preset with the scan fields, the focus preset with the
      focus strategy, the acquisition type with the targets. */
-  /* Which workflow to open on — `?workflow=canvas_layers`.
+  /* Which workflow to open on — `?workflow=canvas_demonstration`.
    *
    * For pointing this page at a run and looking at it, which is what somebody
    * with an acquisition in their hand wants and what `serve_a_run.py` prints an
@@ -346,7 +352,7 @@ import scanfieldsWidget, { presetInk } from "./widgets/scanfields.js";
   }
 
   /* What this step still needs before it may run, and what to say when it is
-     not met. The step itself holds the rule — see `workflows/steps.js` — and
+     not met. The step itself holds the rule — see the step's own `step.js` file under `src/workflows/` — and
      this only asks it, which is why adding a workflow never means adding a
      condition here. The server would enforce the same list. */
   const readiness = (s) => blockedBecause(s, state);
@@ -1641,7 +1647,7 @@ import scanfieldsWidget, { presetInk } from "./widgets/scanfields.js";
      It is there for asking a page one question about one engine: whether a page
      delivered in a particular way can draw with it at all. That is what the
      checks on the built page use it for. Left out, each column opens with the
-     engine it is named after. `src/canvas/engines.js` says what engines there
+     engine it is named after. `shared/canvas/engines.js` says what engines there
      are, and when one of them cannot be offered.
 
      **It overrides every column at once, which now defeats the point of the
@@ -1709,7 +1715,7 @@ import scanfieldsWidget, { presetInk } from "./widgets/scanfields.js";
       if (!asked || viewer || opening) return;
       opening = true;
       try {
-        const { openViewer } = await import("../../../../viz_studio/options/jpeg-under/viewer.js");
+        const { openViewer } = await import("../../../../../viz_studio/options/jpeg-under/viewer.js");
         viewer = await openViewer(host, {
           acquisitions: [{ url: asked, name: asked.split("/").filter(Boolean).pop() ?? "scan" }],
           /* The same colour the page paints, so the seam between the scan's own
@@ -1779,7 +1785,7 @@ import scanfieldsWidget, { presetInk } from "./widgets/scanfields.js";
       if (picture || opening) return;
       opening = true;
       try {
-        const { showOverview } = await import("./live/overview.js");
+        const { showOverview } = await import("../workflows/target_acquisition/steps/5_scan_the_overview/overview.js");
         picture = await showOverview(cv, {
           stores: ACQUISITIONS, onStatus: say, ground: GROUND, seeThrough: SEE_THROUGH,
         });
@@ -1855,7 +1861,7 @@ import scanfieldsWidget, { presetInk } from "./widgets/scanfields.js";
 
      Everything about how the picture is drawn lives behind a small interface in
      `viz_studio/options/`, and this page reaches it only through
-     `src/canvas/panel.js`. The canvas is never told which step it is in.
+     `shared/canvas/viewer.js`. The canvas is never told which step it is in.
 
      There are two of these, one per step of the canvas demonstration, and they
      share nothing: separate boxes, separate engines, separate buttons, separate
@@ -1873,7 +1879,7 @@ import scanfieldsWidget, { presetInk } from "./widgets/scanfields.js";
        two canvases in one box would be a hard fault to read on screen. */
     let building = null;
     const build = () => {
-      building ??= import("./canvas/panel.js").then(({ putTheCanvasIn }) =>
+      building ??= import("../workflows/target_acquisition/shared/canvas/viewer.js").then(({ putTheCanvasIn }) =>
         putTheCanvasIn({
           box: el(`viewer-${which}-box`),
           note: el(`viewer-${which}-note`),

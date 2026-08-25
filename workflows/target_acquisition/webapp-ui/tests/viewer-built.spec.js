@@ -126,7 +126,7 @@ async function standOnTheViewerStep(page, where, { engine = null } = {}) {
   const asked = new URLSearchParams({ overview: run.store });
   if (engine) asked.set("engine", engine);
   await page.goto(`${where}?${asked}`);
-  await page.selectOption("#wf-select", "canvas_layers");
+  await page.selectOption("#wf-select", "canvas_demonstration");
   await expect(page.locator("#panel-viewer-canvas")).toHaveClass(/\bon\b/);
 }
 

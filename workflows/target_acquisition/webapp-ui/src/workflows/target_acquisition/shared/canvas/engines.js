@@ -97,10 +97,10 @@
    greet an operator is a decision about the product and not something to change
    quietly while adding one. */
 const HOW_TO_OPEN = {
-  "viv-under": () => import("../../../../../viz_studio/options/viv-under/viewer.js"),
+  "viv-under": () => import("../../../../../../../../viz_studio/options/viv-under/viewer.js"),
   "neuroglancer-under": () =>
-    import("../../../../../viz_studio/options/neuroglancer-under/viewer.js"),
-  "jpeg-under": () => import("../../../../../viz_studio/options/jpeg-under/viewer.js"),
+    import("../../../../../../../../viz_studio/options/neuroglancer-under/viewer.js"),
+  "jpeg-under": () => import("../../../../../../../../viz_studio/options/jpeg-under/viewer.js"),
 };
 
 /**
@@ -196,7 +196,7 @@ export async function openerFor(name) {
     throw new Error(
       `there is no engine called "${name}" in this page. It was built with: ` +
         `${enginesBuiltIn().join(", ") || "none at all"}. Add it to ` +
-        "src/canvas/engines.js and build again.",
+        "src/workflows/target_acquisition/shared/canvas/engines.js and build again.",
     );
   }
   const module = await load();

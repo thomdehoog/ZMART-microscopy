@@ -16,11 +16,11 @@
  * controls that are already there and leaves the focused one alone.
  */
 
-import { sideGroup } from "../frame/box.js";
+import { sideGroup } from "../../../../frame/box.js";
 import {
   CARRIER_TYPES, carrierType, fromPreset, matchingPreset, geometry, maxRadius,
   centres, depthMm,
-} from "../lib/carriers.js";
+} from "../../shared/carriers.js";
 
 const SVG = "http://www.w3.org/2000/svg";
 const svgEl = (tag, attrs = {}) => {

@@ -1,8 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { plan } from "../../src/widgets/scanfields.js";
+import { plan } from "../../src/workflows/target_acquisition/steps/3_define_scan_area/widget.js";
 import {
   carrierType, fromPreset, nearestArea, scanBox,
-} from "../../src/lib/carriers.js";
+} from "../../src/workflows/target_acquisition/shared/carriers.js";
 
 /* A 96-well plate: wells 6.6 mm across, 9 mm apart, the first centred on
    (3.3, 3.3) mm and the second on (12.3, 3.3). Fields are in micrometres from

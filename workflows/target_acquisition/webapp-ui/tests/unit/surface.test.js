@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   fitSurface, surfaceZ, residualSummary, looErrors, affineSurface, nonCollinear, solve,
-} from "../../src/lib/surface.js";
+} from "../../src/frame/lib/surface.js";
 
 /* The contract these pin is not ours — it is
    workflows/target_acquisition/workflow/_focus_surface.py. Change one and the

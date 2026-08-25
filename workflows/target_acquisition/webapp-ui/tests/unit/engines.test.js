@@ -9,7 +9,7 @@
  * There is a real reason the list can be shorter than what was built in. One of
  * the two engines, neuroglancer, hands part of its work to a background
  * program, and a browser will not start one of those for a page that was opened
- * straight off the disk. `src/canvas/engines.js` explains that at length. What
+ * straight off the disk. `src/workflows/target_acquisition/shared/canvas/engines.js` explains that at length. What
  * these tests do is hold the page to it in both directions: the engine is
  * offered when it can work, and absent — with a reason — when it cannot.
  *
@@ -21,7 +21,7 @@
 import { describe, it, expect, afterEach } from "vitest";
 import {
   describeEngine, enginesBuiltIn, enginesOnOffer, openerFor, whyOneIsMissing,
-} from "../../src/canvas/engines.js";
+} from "../../src/workflows/target_acquisition/shared/canvas/engines.js";
 
 /** Pretend the page was opened from the given kind of address. */
 function pageOpenedFrom(protocol) {

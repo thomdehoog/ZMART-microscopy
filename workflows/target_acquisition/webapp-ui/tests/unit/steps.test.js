@@ -1,11 +1,11 @@
 /* The workflows, as the operator meets them.
  *
- * Everything here reads `src/workflows/index.js`, which is the one place the
- * workflows are written down and the same file `src/main.js` imports. That is
- * the point of this suite: for a while the workflows were declared twice, once
- * here and once inside `main.js`, and these tests went green against a list the
- * page did not offer while the page offered a list no test had ever seen.
- * Neither half looked wrong on its own.
+ * Everything here reads the folders under `src/workflows/` — every folder with
+ * a `flow.js` is one workflow — through the same `assembleWorkflows` that
+ * `src/frame/main.js` uses. That is the point of this suite: for a while the
+ * workflows were declared twice, once here and once inside `main.js`, and
+ * these tests went green against a list the page did not offer while the page
+ * offered a list no test had ever seen. Neither half looked wrong on its own.
  *
  * So when a step is added, removed or reworded below, the page changes with it —
  * and if it does not, something has gone back to being written down twice.
@@ -15,11 +15,17 @@ import { describe, it, expect } from "vitest";
 import {
   numbered, firstIncomplete, isReachable, blockedBecause, panelsFor,
 } from "../../src/frame/steps.js";
-import { WORKFLOWS } from "../../src/workflows/index.js";
-import { connect, initialScanfields, scanOverview } from "../../src/workflows/steps.js";
-import { mockBackend } from "../../src/backend/mock.js";
-import { emptySlot, withRecording } from "../../src/lib/recordings.js";
-import { sampleReading } from "../../src/lib/microscopes.js";
+import { assembleWorkflows } from "../../src/frame/workflows.js";
+import { connect } from "../../src/workflows/target_acquisition/steps/1_connect/step.js";
+import { initialScanfields } from "../../src/workflows/target_acquisition/steps/3_define_scan_area/step.js";
+import { scanOverview } from "../../src/workflows/target_acquisition/steps/5_scan_the_overview/step.js";
+import { mockBackend } from "../../src/frame/backend/mock.js";
+import { emptySlot, withRecording } from "../../src/frame/lib/recordings.js";
+import { sampleReading } from "../../src/frame/lib/microscopes.js";
+
+const { WORKFLOWS } = assembleWorkflows(
+  import.meta.glob("../../src/workflows/*/flow.js", { eager: true }),
+);
 
 const ids = (wf) => WORKFLOWS[wf].steps.map((s) => s.id);
 const stepOf = (wf, id) => WORKFLOWS[wf].steps.find((s) => s.id === id);
@@ -161,14 +167,14 @@ describe("panels follow the step", () => {
   });
 
   it("puts the canvas on stage from the first step of every run", () => {
-    for (const wf of ["target_acquisition", "overview_only", "focus_check"]) {
+    for (const wf of ["target_acquisition", "overview_only", "focus_surface_check"]) {
       expect(panelsOf(wf).connect).toContain("canvas");
       expect(panelsOf(wf).carrier).toContain("canvas");
     }
   });
 
   it("gives the whole window to a step in a workflow that never asks for the canvas", () => {
-    expect(panelsOf("canvas_layers")).toEqual({
+    expect(panelsOf("canvas_demonstration")).toEqual({
       "canvas-picture": ["viewer-canvas"],
     });
   });
@@ -177,7 +183,7 @@ describe("panels follow the step", () => {
 describe("workflows compose the catalogue rather than restating it", () => {
   it("offers four", () => {
     expect(Object.keys(WORKFLOWS)).toEqual(
-      ["target_acquisition", "overview_only", "focus_check", "canvas_layers"]);
+      ["target_acquisition", "canvas_demonstration", "focus_surface_check", "overview_only"]);
   });
 
   /* The order an operator walks, spelled out. If a step moves, is dropped, or
@@ -193,19 +199,19 @@ describe("workflows compose the catalogue rather than restating it", () => {
   it("walks the shorter runs in this order", () => {
     expect(ids("overview_only")).toEqual([
       "connect", "carrier", "scanfields", "scan", "save"]);
-    expect(ids("focus_check")).toEqual([
+    expect(ids("focus_surface_check")).toEqual([
       "connect", "carrier", "scanfields", "focus", "save"]);
   });
 
   it("names every workflow in plain words for the chooser", () => {
     expect(Object.values(WORKFLOWS).map((w) => w.name)).toEqual([
-      "Target acquisition", "Overview only", "Focus surface check",
-      "Canvas demonstration"]);
+      "Target acquisition", "Canvas demonstration", "Focus surface check",
+      "Overview only"]);
     for (const w of Object.values(WORKFLOWS)) expect(w.blurb).toBeTruthy();
   });
 
   it("shares a step's wording, so a fix reaches every workflow at once", () => {
-    for (const wf of ["target_acquisition", "overview_only", "focus_check"]) {
+    for (const wf of ["target_acquisition", "overview_only", "focus_surface_check"]) {
       expect(stepOf(wf, "connect").why).toBe(connect.why);
       expect(stepOf(wf, "scanfields").why).toBe(initialScanfields.why);
     }
@@ -282,14 +288,14 @@ describe("workflows compose the catalogue rather than restating it", () => {
    It has two steps, one per drawing engine, and the point of nearly everything
    below is that neither of them can affect the other. */
 describe("the canvas demonstration", () => {
-  const steps = WORKFLOWS.canvas_layers.steps;
+  const steps = WORKFLOWS.canvas_demonstration.steps;
 
   /* One step, not one per engine. The engines are compared inside it, by the row
      of buttons above the picture, which keeps the view where it is as the engine
      changes — a closer comparison than two pictures that were never guaranteed to
      be looking at the same place. */
   it("is one step, with the engines compared inside it", () => {
-    expect(ids("canvas_layers")).toEqual(["canvas-picture"]);
+    expect(ids("canvas_demonstration")).toEqual(["canvas-picture"]);
   });
 
   it("wants a picture and nothing beside it", () => {
@@ -312,8 +318,8 @@ describe("the canvas demonstration", () => {
   });
 
   it("says in plain words that it is a demonstration rather than a run", () => {
-    expect(WORKFLOWS.canvas_layers.name).toMatch(/demonstration/i);
-    expect(WORKFLOWS.canvas_layers.blurb).toMatch(/not a run/i);
+    expect(WORKFLOWS.canvas_demonstration.name).toMatch(/demonstration/i);
+    expect(WORKFLOWS.canvas_demonstration.blurb).toMatch(/not a run/i);
   });
 
   /* A name has to fit the rail, which is a fixed column, and no workflow name
