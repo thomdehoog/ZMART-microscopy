@@ -203,13 +203,20 @@ test("served over HTTP, the built page draws with every engine it offers", async
   await run.acquire(25);
 
   const offered = await page.locator("#viewer-canvas-engine button").allTextContents();
-  expect(offered).toEqual(["viv-under", "viv-inside", "neuroglancer-under"]);
+  expect(offered).toEqual(["viv-under", "neuroglancer-under", "jpeg-under"]);
 
-  /* Each in turn, on the same run, from the same view. Doing all three in one
-     test rather than three is deliberate: the run is written once and building
+  /* jpeg-under is offered and deliberately not photographed here: it wants a
+     folder of small JPEGs with a `tiles.json` beside them, made ahead of time,
+     and this demo run is the microscope's own store — which it rightly answers
+     with a sentence rather than a black box. The JPEG engine drawing for real
+     is `the-scan-under-the-plan.spec.js`'s job. */
+  const drawsThisRun = offered.filter((engine) => engine !== "jpeg-under");
+
+  /* Each in turn, on the same run, from the same view. Doing them in one
+     test rather than several is deliberate: the run is written once and building
      the page takes a few seconds, and what is being asked is a single question
      about one delivered page. */
-  for (const engine of offered) {
+  for (const engine of drawsThisRun) {
     if ((await page.locator("#viewer-canvas-engine button[aria-checked='true']").textContent()) !== engine) {
       await page.locator(`#viewer-canvas-engine button[data-engine="${engine}"]`).click();
       await expect(page.locator(`#viewer-canvas-engine button[data-engine="${engine}"]`))
@@ -238,7 +245,7 @@ test("opened straight off the disk, it offers only what can draw there, and says
   await run.acquire(25);
 
   const offered = await page.locator("#viewer-canvas-engine button").allTextContents();
-  expect(offered).toEqual(["viv-under", "viv-inside"]);
+  expect(offered).toEqual(["viv-under", "jpeg-under"]);
 
   /* And it says where the third one went, in a sentence somebody can act on.
 

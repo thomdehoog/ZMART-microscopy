@@ -530,14 +530,14 @@ test("the step offers every engine the page was built with, and no others", asyn
      the engine as a texture, so every change to that layer cost an engine frame;
      it is out of this page and still in the comparison rig. A page offering it
      again should fail here and be thought about, rather than pass quietly. */
-  const both = ["viv-under", "neuroglancer-under"];
+  const builtWith = ["viv-under", "neuroglancer-under", "jpeg-under"];
 
   /* The row is built when the step is first opened rather than when the page
      loads, because building it means fetching the engine, so it is waited for
      rather than read the instant the step is clicked. */
   await standOn(page, null);
-  await expect(page.locator("#viewer-canvas-engine button")).toHaveCount(both.length);
-  expect(await page.locator("#viewer-canvas-engine button").allTextContents()).toEqual(both);
+  await expect(page.locator("#viewer-canvas-engine button")).toHaveCount(builtWith.length);
+  expect(await page.locator("#viewer-canvas-engine button").allTextContents()).toEqual(builtWith);
 });
 
 test("the step gives the whole window to the picture, and says it is a demonstration",
