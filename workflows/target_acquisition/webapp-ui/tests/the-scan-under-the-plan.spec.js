@@ -85,7 +85,7 @@ async function throughToAPlan(page) {
   await page.locator(".carrier-type[data-type='wellplate']").click();
   await page.locator(".carrier-preset").selectOption({ label: "6-well" });
   await page.waitForTimeout(300);
-  await gotoStep(page, "Setup overview");
+  await gotoStep(page, "Define scan area");
   await recordSlot(page, "sf-preset", "overview");
   await page.locator(".sf-apply-grid").click();
   await page.waitForTimeout(400);
@@ -101,7 +101,7 @@ async function throughToAScannedPlate(page) {
   await page.locator(".carrier-type[data-type='wellplate']").click();
   await page.locator(".carrier-preset").selectOption({ label: "6-well" });
   await page.waitForTimeout(300);
-  await gotoStep(page, "Setup overview");
+  await gotoStep(page, "Define scan area");
   await recordSlot(page, "sf-preset", "overview");
   await page.locator(".sf-apply-grid").click();
   await page.waitForTimeout(400);
@@ -190,21 +190,24 @@ test("shows only where the drawing above it has been opened up", async ({ page }
      the stack and it covers everything, which is what an operator sees before
      they ask for the picture. */
   await page.waitForTimeout(400);
-  expect(await howMuchIsOpen(page), "the scan was showing before anything opened").toBeLessThan(0.002);
+  expect(await howMuchIsOpen(page), "the scan was showing before anything opened").toBeLessThan(0.0002);
 
   /* A window over the fields that have landed. The scan appears there and
-     nowhere else — this is the whole arrangement in one gesture. */
+     nowhere else — this is the whole arrangement in one gesture. The fields
+     are 20x frames now, 676 µm against wells of 6.6 mm, so the windows are
+     small on the canvas: a fraction of a percent open is the whole plan
+     showing, and the closed checks above and below sit well under it. */
   await page.evaluate(() => window.__theStageCanvas.openScannedGround());
   await page.waitForTimeout(500);
   const throughTheWindow = await howMuchIsOpen(page);
-  expect(throughTheWindow, "the window did not reach the scan").toBeGreaterThan(0.01);
+  expect(throughTheWindow, "the window did not reach the scan").toBeGreaterThan(0.0004);
   expect(throughTheWindow, "the window opened far more than the fields it named")
     .toBeLessThan(0.5);
 
   await page.evaluate(() => window.__theStageCanvas.closeTheGround());
   await page.waitForTimeout(400);
   expect(await howMuchIsOpen(page), "closing the windows left the scan showing")
-    .toBeLessThan(0.002);
+    .toBeLessThan(0.0002);
 
   /* And the blunt way: turn the bottom layer off and the scan is simply there.
      A window is for looking at part of it; this is for looking at all of it.

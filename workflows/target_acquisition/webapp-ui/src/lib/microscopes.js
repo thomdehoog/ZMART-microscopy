@@ -148,10 +148,12 @@ export const SETTING_TYPES = [
     key: "acquisition",
     label: "Acquisition",
     readings: [
+      /* First in the list because the first recording an operator takes is
+         the overview, and the overview is imaged at 20x. */
       acquisition({
-        summary: "5x / 0.15 NA dry · 2 channels",
-        objective: "HC PL FLUOTAR 5x / 0.15 NA dry",
-        pixelUm: 1.30, framePx: 2048,
+        summary: "20x / 0.75 NA dry · 2 channels",
+        objective: "HC PL APO 20x / 0.75 NA dry",
+        pixelUm: 0.33, framePx: 2048,
         channels: ["DAPI · 405 nm · 50 ms · gain 1.0", "GFP · 488 nm · 120 ms · gain 1.2"],
         zStack: "off",
       }),
@@ -179,6 +181,13 @@ export const SETTING_TYPES = [
           "mCherry · 561 nm · 150 ms · gain 1.6",
         ],
         zStack: "21 planes · 0.30 µm",
+      }),
+      acquisition({
+        summary: "5x / 0.15 NA dry · 2 channels",
+        objective: "HC PL FLUOTAR 5x / 0.15 NA dry",
+        pixelUm: 1.30, framePx: 2048,
+        channels: ["DAPI · 405 nm · 50 ms · gain 1.0", "GFP · 488 nm · 120 ms · gain 1.2"],
+        zStack: "off",
       }),
     ],
   },

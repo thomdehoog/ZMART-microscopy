@@ -97,7 +97,7 @@ export const carrierConfiguration = {
    matters. */
 export const initialScanfields = {
   id: "scanfields",
-  title: "Setup overview",
+  title: "Define scan area",
   why: "Record the preset the overview is taken with, then say where on the carrier it is taken.",
   panels: [],
   mode: "scanfields",

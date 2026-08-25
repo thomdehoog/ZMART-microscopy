@@ -365,7 +365,7 @@ export function putTheCanvasIn({
   const showing = { beneath: false, picture: true };
 
   /* The layers above the picture, in drawing order. Each carries its own
-     `shown`, so turning the heatmap off leaves the focus points exactly where
+     `shown`, so turning the tiles off leaves the focus points exactly where
      they were — which is the whole reason they are separate layers rather than
      one drawing.
 

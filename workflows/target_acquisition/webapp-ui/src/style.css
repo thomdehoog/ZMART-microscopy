@@ -38,15 +38,14 @@
      somewhere is good. Kept apart from --bad for that reason, so neither can
      be changed into the other by accident. */
   --mark-stage: #e11d48;
-  /* where focus is measured. Dark grey, which nothing else on the picture is:
-     the tilesets are pale blue, their outlines green and the heatmap runs
-     purple to yellow, so a grey mark reads as something on top of all of them
-     rather than as one more coloured thing among them. */
-  --mark-focus: #334155;
-  /* and the ones held, or found by the pointer: the same mark in black and a
-     little heavier. A picked point is the same thing picked out, so it is the
-     same drawing turned up rather than a different drawing. */
-  --mark-focus-lit: #000000;
+  /* where focus is measured. Red, by the operator's ask — a plain red kept
+     apart from the stage's rose (--mark-stage) and the error red (--bad), so
+     none of the three can be mistaken for another. */
+  --mark-focus: #dc2626;
+  /* and the ones held, or found by the pointer: the same red turned up —
+     brighter and a little heavier. A picked point is the same thing picked
+     out, so it is the same drawing turned up rather than a different one. */
+  --mark-focus-lit: #ff1a1a;
   /* the three sharpness metrics, as three series on one plot */
   --m-brenner: #0369a1;
   --m-dct: #7c3aed;

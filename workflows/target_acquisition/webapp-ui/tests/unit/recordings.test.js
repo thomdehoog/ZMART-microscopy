@@ -26,8 +26,8 @@ describe("a slot accumulates what was read off the instrument", () => {
   it("reads the instrument as it is set now, so two recordings differ", () => {
     const slot = record(record(emptySlot("acquisition"), "overview"), "hires");
     const [overview, hires] = slot.records;
-    expect(overview.summary).toBe("5x / 0.15 NA dry · 2 channels");
-    expect(overview.frameUm).toBe(2662);
+    expect(overview.summary).toBe("20x / 0.75 NA dry · 2 channels");
+    expect(overview.frameUm).toBe(676);
     expect(hires.summary).toBe("63x / 1.40 NA oil · 2 channels");
     expect(hires.frameUm).toBe(102);
   });

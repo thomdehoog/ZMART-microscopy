@@ -1376,7 +1376,7 @@ import scanfieldsWidget, { presetInk } from "./widgets/scanfields.js";
     rec.id = "sf-preset";
     host.append(rec);
     const presetSlot = {
-      label: "Acquisition preset", key: "overviewPreset", locked,
+      label: "Acquisition settings from microscope", key: "overviewPreset", locked,
       ink: (id) => recordedPresets().find((p) => p.id === id)?.ink ?? null,
       /* A recording taken or forgotten changes what there is to be taken with,
          so the run is asked again from the top. Activating another one changes
@@ -2137,37 +2137,6 @@ import scanfieldsWidget, { presetInk } from "./widgets/scanfields.js";
      it without drawing a frame to find out. */
   let theStack = [];
 
-  /**
-   * How many cells detection found in each field that has been taken.
-   *
-   * Worked out here rather than inside the drawing, because the drawing is
-   * asked for many times a second while a scan runs and walking every cell for
-   * every field each time would show as a stutter on a plate of any size.
-   * Remembered until either the fields or what has been detected changes.
-   */
-  let countedLast = { key: "", fields: [], most: 0 };
-  function countedPerField() {
-    const shown = Math.max(state.tilesShown, 0);
-    const key = `${shown}|${state.detected.size}|${state.plan.length}`;
-    if (key === countedLast.key) return countedLast;
-
-    const fields = state.plan.slice(0, shown).map((tile) => ({ tile, count: 0 }));
-    let most = 0;
-    for (const c of sample.cells) {
-      if (!state.detected.has(c.id)) continue;
-      for (const entry of fields) {
-        const half = entry.tile.frameUm / 2;
-        if (Math.abs(c.x - entry.tile.x) <= half && Math.abs(c.y - entry.tile.y) <= half) {
-          entry.count += 1;
-          if (entry.count > most) most = entry.count;
-          break;
-        }
-      }
-    }
-    countedLast = { key, fields, most };
-    return countedLast;
-  }
-
   function theStageLayers({ place, shown, ch0, ch1, w, h, editing }) {
     const activeMode = step(state.activeIdx).mode;
 
@@ -2208,11 +2177,10 @@ import scanfieldsWidget, { presetInk } from "./widgets/scanfields.js";
         label: "Stage",
         explains: "The edge of where the stage can travel. Context for everything else "
           + "rather than a thing the run produced, which is why it is drawn faintly.",
-        /* From the start, before anything is connected. It is the edge of the
-           canvas itself — where anything can be at all — and an operator
-           looking at an empty page should be able to see the shape of the room
-           the run will happen in rather than a blank rectangle. */
-        shown: true,
+        /* With the session, not before: the limits are a readout from the
+           connected microscope's configuration, so an unconnected page shows
+           nothing it cannot yet know. */
+        shown: state.done.has("connect"),
         paint: ({ context: ctx }) => drawStageLimits(ctx),
       },
 
@@ -2293,54 +2261,6 @@ import scanfieldsWidget, { presetInk } from "./widgets/scanfields.js";
           ) ?? null;
         },
       },
-
-      {
-        key: "heatmap",
-        label: "Heatmap",
-        explains: "How much detection found in each field, as one tinted square per field. "
-          + "It is for deciding where to look next, so it says nothing at all about ground "
-          + "no field covers — there is no reading there to give.",
-        /* Nothing to say until detection has found something. A heatmap of a
-           scan nobody has looked at yet is a picture of zero. */
-        shown: state.cellsShown && shown > 0,
-        /* Faint by its own choosing rather than by the operator's. This is a
-           wash meant to be read *through* — the fields underneath it are what
-           an operator is judging, and a solid heatmap would be judging them
-           for them. Turning the shared dial down fades it further, which is
-           right: it fades with everything else it is drawn among. */
-        opacity: 0.5,
-        paint: ({ context: ctx }) => {
-          /* One square per field, and only where a field is. Between the
-             fields nothing is drawn at all, so the plate and whatever is
-             beneath show through — a heatmap that washed the whole plate would
-             be claiming a reading for ground the microscope never visited. */
-          const counted = countedPerField();
-          if (!counted.most) return;
-          for (const { tile, count } of counted.fields) {
-            if (!count) continue;
-            const share = count / counted.most;
-            const [x, y] = place(tile.x - tile.frameUm / 2, tile.y - tile.frameUm / 2);
-            const side = tile.frameUm * view.scale;
-            /* Cold to hot, and the same scale over the whole plate: a colour
-               that meant something different in each well would be worse than
-               no colour at all. */
-            const hot = Math.round(255 * share);
-            const cold = Math.round(160 * (1 - share));
-            ctx.fillStyle = `rgb(${hot},${cold},${Math.round(200 * (1 - share))})`;
-            ctx.fillRect(x, y, side, side);
-          }
-        },
-        reaches: (at) => {
-          const found = countedPerField().fields.find(
-            ({ tile }) => Math.abs(at.x - tile.x) <= tile.frameUm / 2
-              && Math.abs(at.y - tile.y) <= tile.frameUm / 2,
-          );
-          return found?.count ? found : null;
-        },
-      },
-
-
-
 
 
       {
@@ -2502,10 +2422,10 @@ import scanfieldsWidget, { presetInk } from "./widgets/scanfields.js";
         explains: "A crosshair on the position the stage is standing at. Always solid: it "
           + "is where the microscope actually is, and that should never be the thing that "
           + "went faint.",
-        /* From the start. Where the stage is standing is the one thing that is
-           true before anything else has been decided, and it is the only mark
-           on an otherwise empty canvas. */
-        shown: true,
+        /* With the session: where the stage is standing is a readout from the
+           microscope, and there is no microscope until the operator has
+           connected. */
+        shown: state.done.has("connect"),
         staysSolid: true,
         paint: ({ context: ctx }) => drawWhereTheStageIs(ctx),
       },
@@ -3437,8 +3357,8 @@ import scanfieldsWidget, { presetInk } from "./widgets/scanfields.js";
            it or the other. */
         reticle(x, y);
         ctx.lineWidth = lit ? 6 : 3.6; ctx.lineCap = "round";
-        // a pale halo, because the mark itself is ink and the heatmap under it
-        // runs dark at one end
+        // a pale halo, because the mark itself is ink and the picture under
+        // it can run dark
         ctx.strokeStyle = "rgba(255, 255, 255, 0.75)";
         ctx.stroke();
         reticle(x, y);
