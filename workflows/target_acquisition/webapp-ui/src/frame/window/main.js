@@ -225,7 +225,6 @@ const { WORKFLOWS, DEFAULT_WORKFLOW } = assembleWorkflows(
        the focus map fitted, or by focusing at each tile as it arrives. The map
        is faster — one drive, no stack — and only there once it has been
        measured, so the choice starts on the other one. */
-    scanFocus: "every",
     fields: [],
     plan: [],
     editor: null,
@@ -302,7 +301,6 @@ const { WORKFLOWS, DEFAULT_WORKFLOW } = assembleWorkflows(
       focusPreset: emptySlot("autofocus"),
       targetType: emptySlot("acquisition", 1),
       carrier: { ...DEFAULT_CARRIER }, anchors: [], anchoring: false,
-      scanFocus: "every",
       fields: [], plan: [], checks: [],
       tabs: ["canvas"], tab: "canvas", tilesShown: 0,
       focus: newFocus(), focusMaps: {}, focusFor: null,
@@ -1139,82 +1137,33 @@ const { WORKFLOWS, DEFAULT_WORKFLOW } = assembleWorkflows(
     },
   };
 
-  /* The scan takes what has already been recorded: it records nothing itself.
-     Two boxes — the acquisition preset the tiles are taken with, and the
-     focussing preset that keeps them sharp — each a list of what was recorded,
-     with the active one marked. Choosing here is the same act as choosing on
-     the step that recorded it, because there is one active recording of a kind
-     and every step reads it.
-
-     Under the focussing preset, the one thing this step decides for itself:
-     whether the run drives to the surface the map fitted or focuses at every
-     tile as it goes. */
+  /* The scan consults nothing: it takes the run's one recorded preset, and it
+     keeps focus with the map the focus step generated — or at every position,
+     when no map was measured. There is nothing here to choose, so the channel
+     is a short summary the operator can check at a glance, and the press that
+     starts the scan. */
   const scanWidget = {
     id: "scan",
     label: "Scan the overview",
     mount(host) {
-      /* Built from nothing every time. Anything in here that rebuilds the
-         channel — unfolding a recording, choosing another one — calls this
-         again, and a mount that only appended left the step showing two of
-         everything, then four. */
       host.textContent = "";
       const pad = document.createElement("div");
       pad.className = "side-pad-around";
       host.append(pad);
 
-      const chooser = (title, key, extra) => {
-        const { group, body } = sideGroup(title);
-        const slot = state[key];
-        const list = document.createElement("div");
-        list.className = "rec-list";
-        for (const record of slot.records) {
-          const active = record.id === slot.active;
-          const row = document.createElement("div");
-          row.className = active ? "setting-box done active" : "setting-box done";
-          row.append(renderRecordedBar(record, {
-            active,
-            locked: true,
-            rerender: () => scanWidget.mount(host),
-            about: {
-              active: "the run is taken with this one",
-              idle: "take the run with this one instead",
-            },
-            choose: () => {
-              state[key] = withActive(slot, record.id);
-              if (key === "overviewPreset") { scanfieldsSettled(); rebuildSample(); }
-              focusSettled();
-              scanWidget.mount(host);
-              renderRail(); renderActionBar(); drawStage();
-            },
-            dropped: () => {},
-          }));
-          list.append(row);
-        }
-        body.append(list);
-        if (extra) extra(body);
-        pad.append(group);
-      };
-
-      chooser("Select acquisition preset", "overviewPreset");
-      chooser("Select focussing preset", "focusPreset", (body) => {
-        /* One mark: the run drives to the surface the map fitted, or it focuses
-           at every tile as it goes. Greyed until this preset has a map — a
-           surface nobody has fitted is not something a run can drive to. */
-        const measured = state.focus.applied && state.focus.strategy === "plane";
-        const row = document.createElement("label");
-        row.className = "scan-focus";
-        const mark = document.createElement("input");
-        mark.type = "checkbox";
-        mark.checked = measured && state.scanFocus === "map";
-        mark.disabled = !measured;
-        mark.addEventListener("change", () => {
-          state.scanFocus = mark.checked ? "map" : "every";
-          scanWidget.mount(host);
-        });
-        row.append(mark, document.createTextNode("Use focus map"));
-        if (!measured) row.title = "no focus map has been measured for this preset";
+      const { group, body } = sideGroup("Scan summary");
+      const line = (text) => {
+        const row = document.createElement("div");
+        row.className = "side-note";
+        row.textContent = text;
         body.append(row);
-      });
+      };
+      line(`${state.plan.length} positions to image`);
+      const measured = state.focus.applied && state.focus.strategy === "plane";
+      line(measured
+        ? `focus follows the measured map · rms ${state.focus.residual.toFixed(1)} µm`
+        : "focus found at every position — no map measured");
+      pad.append(group);
 
       // and the press that starts it, at the end of what it acts on
       const action = document.createElement("div");

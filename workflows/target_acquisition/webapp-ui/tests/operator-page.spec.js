@@ -290,14 +290,14 @@ test("the fields wait for the preset they will be taken with",
       .not.toHaveClass(/done/);
   });
 
-test("activating a second reading re-takes the whole plan with it",
+test("recording again replaces the reading, and re-takes the plan with it",
   async ({ page }) => {
     await throughSetup(page);
     await gotoStep(page, "Define scan area");
     await recordSlot(page, "sf-preset", "overview");
 
     /* A region rather than the grid: what a region costs is what its preset
-       says a frame covers, so switching between presets is a number on the
+       says a frame covers, so re-reading the preset is a number on the
        readout and not only a colour on the stage. */
     const box = await page.locator("#stage-canvas").boundingBox();
     await page.locator(".sf-tool[data-tool='rectangle']").click();
@@ -311,62 +311,43 @@ test("activating a second reading re-takes the whole plan with it",
     const dry = await positions();
     expect(dry, "the region covered at 20x").toBeGreaterThan(0);
 
-    /* The optics get changed in the middle of a session, and saying so must
-       not cost the reading already taken: the second one stands beside the
-       first, and recording it makes it the active one — so the region already
-       drawn is taken at 63x, a fraction of the frame and many times the
-       tiles. Recording is activating; there is nothing further to press. */
+    /* The optics get changed in the middle of a session, and saying so is
+       recording again: the slot holds one reading — the instrument as it now
+       stands — so the new one replaces the old, and the region already drawn
+       is re-taken at 63x, a fraction of the frame and many times the tiles.
+       Recording is the whole gesture; there is nothing further to press. */
     await recordSlot(page, "sf-preset", "hires");
-    await expect(page.locator("#sf-preset .rec-row")).toHaveCount(2);
-    await expect(page.locator("#sf-preset .rec-name").first()).toHaveText("Overview");
-    await expect(page.locator("#sf-preset .rec-pick").nth(1))
-      .toHaveAttribute("aria-pressed", "true");
-    await expect(page.locator("#sf-preset .rec-pick").first())
-      .toHaveAttribute("aria-pressed", "false");
+    await expect(page.locator("#sf-preset .rec-row")).toHaveCount(1);
+    await expect(page.locator("#sf-preset .rec-name").first()).toHaveText("Hires");
     const oil = await positions();
     expect(oil, "the same region at 63x").toBeGreaterThan(dry * 10);
 
-    /* And back, by activating the first reading. The row is the whole of it:
-       no list of presets beside it, and nothing that would take half the plan
-       with one reading and half with the other. */
+    /* No list of presets beside it, nothing to switch back to: the way back
+       to the dry optics is setting the instrument dry and recording again. */
     await expect(page.locator(".sf-presets")).toHaveCount(0);
     await expect(page.locator(".sf-flat", { hasText: "Apply to" })).toHaveCount(0);
-    await page.locator("#sf-preset .rec-pick").first().click();
-    await page.waitForTimeout(300);
-    await expect(page.locator("#sf-preset .rec-pick").first())
-      .toHaveAttribute("aria-pressed", "true");
-    expect(await positions(), "taken with the dry preset again").toBe(dry);
 
-    /* Both readings can be open at once, since comparing them is reading
-       both. */
+    // and the one reading on screen unfolds to what was read
     await page.locator("#sf-preset .rec-fold").first().click();
     await expect(page.locator("#sf-preset .rec-detail")).toHaveCount(1);
-    await page.locator("#sf-preset .rec-fold").nth(1).click();
-    await expect(page.locator("#sf-preset .rec-detail")).toHaveCount(2);
     await expect(page.locator("#sf-preset .rec-fold").first())
       .toHaveAttribute("aria-expanded", "true");
   });
 
-test("every reading taken is on screen, and any of them can be unfolded",
+test("the reading on screen is the current one, however many were taken",
   async ({ page }) => {
     await throughSetup(page);
     await gotoStep(page, "Define scan area");
+    /* Four readings in a row — an operator adjusting the instrument and
+       re-reading it as they go. Each replaces the last: the slot answers
+       "what will this run be taken with", and that has one answer. */
     for (const name of ["overview", "hires", "tenx", "fortyx"]) {
       await recordSlot(page, "sf-preset", name);
     }
-    await expect(page.locator("#sf-preset .rec-row")).toHaveCount(4);
+    await expect(page.locator("#sf-preset .rec-row")).toHaveCount(1);
+    await expect(page.locator("#sf-preset .rec-name").first()).toHaveText("Fortyx");
 
-    // the slot is as tall as what it holds; nothing is hidden behind a bar
-    const list = page.locator("#sf-preset .rec-list");
-    const [scrollH, clientH] = await list.evaluate((el) => [el.scrollHeight, el.clientHeight]);
-    expect(clientH, "nothing to scroll to").toBe(scrollH);
-
-    /* And two readings can be open at once: comparing them means reading
-       both, and folding one away to look at the other asks the operator to
-       hold it in their head. */
-    await page.locator("#sf-preset .rec-fold").first().click();
-    await page.locator("#sf-preset .rec-fold").nth(2).click();
-    await expect(page.locator("#sf-preset .rec-detail")).toHaveCount(2);
+    // and it unfolds to what was read
     await page.locator("#sf-preset .rec-fold").first().click();
     await expect(page.locator("#sf-preset .rec-detail")).toHaveCount(1);
   });
@@ -484,10 +465,13 @@ test("the canvas is always on the stage, and the channel follows the step",
     await runStep(page, 1600);
     await gotoStep(page, "Scan the overview");
     await expect(page.locator(".tab")).toHaveText(["Canvas"]);
-    /* The scan records nothing; it chooses. Two boxes naming what the run is
-       taken with, and the press that starts it at the end of them. */
+    /* The scan consults nothing: the run holds one preset and the focus step's
+       generated map, so the channel is a short summary and the press that
+       starts it — no boxes to choose from. */
     await expect(page.locator("#canvas-side .side-group-title"))
-      .toHaveText(["Select acquisition preset", "Select focussing preset"]);
+      .toHaveText(["Scan summary"]);
+    await expect(page.locator("#canvas-side .side-note").first())
+      .toContainText("positions to image");
     await expect(page.locator(".panel.on button.step-run")).toHaveText("Start");
     // walking back to the carrier brings its controls back, locked now,
     // because something has been done inside the frame it set
@@ -1124,34 +1108,35 @@ test("a grid is laid again under a preset whose frame is a different size",
   async ({ page }) => {
     /* A grid has no outline of its own — only positions worked out from the
        frame — so a change of preset has to work them out again. Laid once and
-       left, a grid put down under a 63x objective kept its 102 µm pitch when a
-       20x was activated, and its nine positions came back as nine acquisitions
-       of one square of sample stacked on top of each other. */
+       left, a grid put down under a 20x objective would keep its 676 µm pitch
+       when the 63x reading replaced it, and its nine positions would come back
+       as nine acquisitions of overlapping ground. The slot holds one reading,
+       so changing preset is recording again: the new reading replaces the old
+       and the plan follows it. */
     await connect(page);
     await gotoStep(page, "Define Carrier");
     await page.locator(".carrier-type[data-type='slide']").click();
     await page.waitForTimeout(200);
     await gotoStep(page, "Define scan area");
     await recordSlot(page, "sf-preset", "wide");     // 20x, a 676 µm frame
-    await recordSlot(page, "sf-preset", "close");    // 63x, a 102 µm frame
 
-    // laid under the 63x, at the pitch the boxes offer for that frame
+    // laid under the 20x, at the pitch the boxes offer for that frame
     await page.locator(".sf-apply-grid").click();
     await page.waitForTimeout(400);
-    const tight = await planOf(page);
-    expect(tight, "three by three").toHaveLength(9);
-    expect(tight[0].frameUm).toBe(102);
-    expect(closestGap(tight), "a frame apart, and no closer")
-      .toBeGreaterThanOrEqual(102);
-
-    // and activating the 20x lays it again rather than leaving it where it was
-    await page.locator("#sf-preset .rec-pick").first().click();
-    await page.waitForTimeout(600);
     const wide = await planOf(page);
-    expect(wide, "still three by three").toHaveLength(9);
+    expect(wide, "three by three").toHaveLength(9);
     expect(wide[0].frameUm).toBe(676);
-    expect(closestGap(wide), "nine positions, not nine takes of one")
+    expect(closestGap(wide), "a frame apart, and no closer")
       .toBeGreaterThanOrEqual(676);
+
+    // re-recording replaces the reading — and the grid is laid again for it
+    await recordSlot(page, "sf-preset", "close");    // 63x, a 102 µm frame
+    await page.waitForTimeout(400);
+    const tight = await planOf(page);
+    expect(tight, "still three by three").toHaveLength(9);
+    expect(tight[0].frameUm).toBe(102);
+    expect(closestGap(tight), "nine positions, not nine takes of one")
+      .toBeGreaterThanOrEqual(102);
   });
 
 test("the recording finishes the step, and either kind can be given a map",
@@ -1192,8 +1177,11 @@ test("the recording finishes the step, and either kind can be given a map",
        on its own — and it can be given a map just the same, because driving to
        a point and reading the height it settles at measures a surface as well
        as a scored stack does. */
+    /* Recording again replaces the reading — the slot holds one — and a fresh
+       reading brings a fresh map, because points measured under the old
+       preset belong to it. */
     await recordSlot(page, "focus-preset", "hardware");
-    await expect(page.locator("#focus-preset .rec-state").nth(1)).toContainText("Hardware");
+    await expect(page.locator("#focus-preset .rec-state").first()).toContainText("Hardware");
     await expect(page.locator("#fp-place"), "the same points to lay").toBeVisible();
     await expect(page.locator('.step:has-text("Focus strategy")').first())
       .toHaveClass(/done/);
