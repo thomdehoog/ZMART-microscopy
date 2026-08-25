@@ -5,7 +5,7 @@ import { colourSpread, fractionLit, fractionNear, photograph } from "./pixels.js
 import { SHOTS, rest, startDemoRun } from "./live-run.js";
 import {
   THE_COLOUR_ABOVE, THE_COLOUR_BENEATH,
-} from "../src/canvas/demonstration-drawings.js";
+} from "../src/workflows/target_acquisition/shared/canvas/demonstration-drawings.js";
 
 /* Does the canvas really draw, and do its three layers really behave, inside the
  * real operator window?
@@ -121,7 +121,7 @@ async function standOn(page, which = "viv", { engine = null, store = null } = {}
   const wanted = engine || VIEWS[which]?.engine;
   if (wanted) asked.set("engine", wanted);
   await page.goto(`/?${asked}`);
-  await page.selectOption("#wf-select", "canvas_layers");
+  await page.selectOption("#wf-select", "canvas_demonstration");
   await page.locator(".step").nth(0).click();
   // The engine is fetched when the step is first opened rather than on load, so
   // there is a moment here before anything can be drawn.
@@ -561,7 +561,7 @@ test("the step gives the whole window to the picture, and says it is a demonstra
 
     /* And it is named as what it is. Somebody choosing it in a month should not
        have to open it to find out that no microscope moves. */
-    const chosen = page.locator("#wf-select option[value='canvas_layers']");
+    const chosen = page.locator("#wf-select option[value='canvas_demonstration']");
     await expect(chosen).toContainText(/demonstration/i);
     await expect(chosen).toHaveAttribute("title", /not a run/i);
 

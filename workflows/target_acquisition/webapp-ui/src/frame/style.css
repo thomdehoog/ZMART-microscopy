@@ -715,7 +715,7 @@ canvas.livecv[hidden] { display: none; }
    fetched when the step is first opened, and until it arrives the box would be
    page-white — a second or two of blank white where a dark, empty microscope
    image belongs, which reads as something having gone wrong. Change this and
-   change `THE_COLOUR_BEHIND_THE_PICTURE` in `src/canvas/panel.js` with it. */
+   change `THE_COLOUR_BEHIND_THE_PICTURE` in `src/workflows/target_acquisition/shared/canvas/viewer.js` with it. */
 .viewer-box { position: absolute; inset: 0; background: #05070d; }
 
 /* The viewer: one picture, taking the whole panel.

@@ -7,8 +7,8 @@
  *
  * A step is data: what it is called, why it is there, which modules it wants on
  * screen, and what the page should do when it is carried out. The full list of
- * fields is written out in `workflows/steps.js`, which is where steps are
- * declared; nothing here needs to know most of them.
+ * fields is written out in `src/workflows/README.md`, beside the folders where
+ * steps are declared; nothing here needs to know most of them.
  *
  * The frame knows nothing beyond that. Adding a workflow is writing a list.
  */
@@ -102,6 +102,16 @@ export function panelsFor(steps, index) {
   const onTheStage = onTheStageFrom >= 0 && index >= onTheStageFrom;
   return onTheStage ? ["canvas", ...own] : own;
 }
+
+/**
+ * The same step, in different words.
+ *
+ * A calibration run and an imaging run both save at the end, but they are
+ * saving different things and should say so. This returns a copy of a step
+ * with some of its wording replaced, which keeps what the step *does* in one
+ * place while letting each workflow explain it in its own terms.
+ */
+export const reworded = (step, changes) => ({ ...step, ...changes });
 
 /**
  * A step that brought its own panel is not finished when its run is — the

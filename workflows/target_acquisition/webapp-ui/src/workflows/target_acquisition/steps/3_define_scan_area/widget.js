@@ -25,15 +25,15 @@
  * without the question in front of them.
  */
 
-import { sideGroup } from "../frame/box.js";
+import { sideGroup } from "../../../../frame/box.js";
 import {
   centres, geometry, frameFitsArea, frameSeat, insideArea, nearestArea, scanBox,
-} from "../lib/carriers.js";
+} from "../../shared/carriers.js";
 import {
   block, bounds, boxesOverlap, centroid, contains, covers, edges, handles,
   isPointLike, normalise, rotatePoint, snapSpan, tiles, topCentre,
   withoutTrailingDuplicate,
-} from "../lib/scanfields.js";
+} from "../../shared/scanfields.js";
 
 const MM_UM = 1000;
 
