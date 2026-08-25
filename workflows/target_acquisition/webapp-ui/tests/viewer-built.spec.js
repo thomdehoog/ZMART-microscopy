@@ -20,7 +20,9 @@
  * opens it:
  *
  * * **Served over HTTP**, which is how an operator will meet it once the Python
- *   server hands it out. All three engines have to draw.
+ *   server hands it out. Both store-reading engines have to draw; jpeg-under is
+ *   offered too, and what it draws is the folder of small JPEGs made ahead of
+ *   time, which this demo run does not carry.
  * * **Opened straight off the disk**, as `python dev_window.py --build` does.
  *   A browser gives such a page no address, and refuses to start a background
  *   program for it, so neuroglancer cannot work there — and the page has to say
@@ -59,10 +61,13 @@ const SERVE_ON = Number(process.env.VIEWER_BUILT_SERVE_PORT ?? 5175);
 /* The same three numbers `viewer-workflow.spec.js` uses, and for the same
    reason: they sit a long way below what a drawn picture measures and a long way
    above what an empty box measures, so they are not fussy about the exact shade
-   an engine happens to draw. */
+   an engine happens to draw. An empty box is one colour over the whole of
+   itself; a drawn view of this run keeps its largest flat colour — the ground
+   around the specimen — to about a fifth of the box, so a ceiling of 0.35
+   stays well clear of both. */
 const ENOUGH_OF_IT_LIT = 0.5;
 const ENOUGH_DIFFERENT_COLOURS = 50;
-const NOT_ALL_ONE_COLOUR = 0.2;
+const NOT_ALL_ONE_COLOUR = 0.35;
 
 let run = null;
 let served = null;
@@ -115,9 +120,9 @@ test.afterAll(async () => {
 /**
  * Open the built page on the run and stand on the canvas demonstration.
  *
- * The demonstration has two steps, one per engine, and this stands on the first
- * of them. Which engine that step opens with can be overridden from the page's
- * own address, which is what `engine` does here: the question this file asks is
+ * The demonstration is one step, and this stands on it. Which engine the step
+ * opens with can be overridden from the page's own address, which is what
+ * `engine` does here: the question this file asks is
  * whether a page delivered in a particular way can draw with a particular
  * engine, and asking it one engine at a time in one panel is the shortest way to
  * ask it.
