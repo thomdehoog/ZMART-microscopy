@@ -8,3 +8,6 @@ playwright-report/
 # whoever is rehearsing rather than to the repository.
 public/mock-scan
 public/mock-scan-exported
+
+# scratch from a refactor is not a deliverable
+*.tmp
