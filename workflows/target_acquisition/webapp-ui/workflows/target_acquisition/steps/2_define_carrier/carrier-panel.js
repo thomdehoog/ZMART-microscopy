@@ -399,7 +399,7 @@ export default {
          stops offering to add and offers to lay them again, which is what an
          operator wants after dragging three of them somewhere unhelpful. */
       anchorAdd.textContent = anchors.list().length
-        ? "Reset alignment points"
+        ? "Reset alignment"
         : "Add alignment points";
       anchorAdd.classList.toggle("on", anchors.arming());
       anchorList.textContent = "";
@@ -409,16 +409,35 @@ export default {
         /* Named by the border it sits on rather than numbered, because that is
            how it is found on the picture: an operator reading "left" knows
            which of the four green marks to drive to without counting. */
+        /* Numbers alone. Four rows of coordinates each carrying "mm" is the
+           unit written four times in a column where it never changes, and it
+           was the width that pushed the pairs onto two lines. */
         pick.innerHTML = `<span class="idx">${a.at ?? i + 1}</span>`
-          + `<span>${(a.x / MM_UM).toFixed(2)}, ${(a.y / MM_UM).toFixed(2)} mm</span>`
+          + `<span>${(a.x / MM_UM).toFixed(2)}, ${(a.y / MM_UM).toFixed(2)}</span>`
+          /* The pair, said as a pair: this place on the drawing *is* that place
+             on the stage. Written one after the other they read as one long
+             number with a space in it, and an operator checking an alignment
+             is comparing exactly these two. */
           + (a.stage
-            ? `<span class="z">${(a.stage.x / MM_UM).toFixed(2)}, `
-              + `${(a.stage.y / MM_UM).toFixed(2)} mm</span>`
+            /* All three, because all three were read: the stage was driven
+               somewhere in x, y *and* z to reach this point, and a height left
+               out of the record is a height nobody can check afterwards. In
+               millimetres like the place it is tied to, so the two halves of
+               the pair are read in the same unit. */
+            ? `<span class="z">→ ${(a.stage.x / MM_UM).toFixed(2)}, `
+              + `${(a.stage.y / MM_UM).toFixed(2)}, `
+              + `${(a.stage.z / MM_UM).toFixed(2)}</span>`
             : "");
         /* Drive the microscope to this place, then say so here: the point on
            the drawing and the place on the stage become one statement. */
-        const snap = el("button", "sf-flat anchor-snap", a.stage ? "Snap again" : "Snap to stage position");
+        /* Short, because the row already has three numbers and a name in it and
+           the channel is only so wide: "Snap to stage position" pushed the
+           button off the edge as soon as a reading appeared beside it. What it
+           snaps to is on the button when the pointer rests there, and said in
+           full there rather than crowded onto the face. */
+        const snap = el("button", "sf-flat anchor-snap", a.stage ? "Snap again" : "Snap");
         snap.type = "button";
+        snap.title = "Snap to stage position — tie this point to where the stage is standing now";
         snap.addEventListener("click", () => anchors.snap(i));
         pick.append(snap);
         /* No way to forget one. The four are what this carrier is aligned by

@@ -575,6 +575,29 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
 /* The anchor points, and the press that ties each to where the stage is. */
 .anchor-snap { flex: none; height: 22px; padding: 0 8px; font-size: 11px; margin-left: auto; }
 
+/* The alignment rows are a table, not a sentence: four rows saying the same
+   four things about four points, so the things line up. `left` and `bottom`
+   are different widths and a flex row started every coordinate in a different
+   place, which reads as four unrelated lines rather than one set.
+ *
+ * The button is a column of its own and a fixed width, so "Snap again" and
+ * "Snap to stage position" leave the same edge — a row whose button grows and
+ * shrinks as it is pressed is a row that moves under the hand. */
+.anchor-list .point-pick {
+  display: grid; align-items: center;
+  /* Fixed, fixed, whatever is left, fixed. The first two never change width,
+     the reading grows when a point is snapped, and the button has to keep its
+     place whatever happens to its left — a row whose button slides off the
+     edge as soon as it is used is a row that punishes using it. */
+  grid-template-columns: 50px 84px minmax(0, 1fr) 82px;
+  gap: 8px;
+}
+.anchor-list .point-pick .z { margin-left: 0; font-weight: 400; }
+.anchor-list .anchor-snap {
+  margin-left: 0; width: 100%; grid-column: 4; white-space: nowrap;
+}
+.anchor-list .point-pick .z { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
 /* Moved since it was measured: the row stays, because the point is still on the
    map, and greys, because what was read for it no longer describes it. */
 .point-row.stale { color: var(--ink-3); }
