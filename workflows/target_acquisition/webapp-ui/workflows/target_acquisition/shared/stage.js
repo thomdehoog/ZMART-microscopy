@@ -80,6 +80,11 @@ const theCanvas = putTheCanvasIn({
      carrier's frame because that is where the run puts things, but what an
      operator reads off the bottom of the picture is where the stage would have
      to go — and the two differ by where the carrier sits in the travel. */
+  /* The scan drawn beneath is registered to this picture, so it has to follow
+     every move of it. The wheel and the drag belong to the canvas now, and a
+     page that only followed its own redraws would let the two come apart the
+     first time somebody zoomed. */
+  onViewMoved: () => thePicture.followTheStage(),
   readoutSays: ({ at, zoom }) => {
     const [ox, oy] = carrierOriginUm();
     return `x ${(at.x + ox).toFixed(0)} µm · y ${(at.y + oy).toFixed(0)} µm`
