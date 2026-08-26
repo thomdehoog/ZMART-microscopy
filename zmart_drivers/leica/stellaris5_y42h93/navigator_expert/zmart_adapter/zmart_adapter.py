@@ -89,8 +89,8 @@ from ..commands import routines as _motion
 from ..config import machine as _machine
 from ..connection import session as _session
 from ..connection import session_state as _session_state
+from ..readers.derived import z_um_from_settings as _z_um_from_settings
 from ..readers.parsing import parse_tile_geometry as _parse_tile_geometry
-from ..readers.z_readback import z_reading as _z_reading
 from . import info as _info
 
 log = logging.getLogger(__name__)
@@ -328,18 +328,12 @@ def _hardware_snapshot(handle: ZmartHandle) -> dict:
     settings = _readers.get_job_settings(handle.client, job)
     if not settings:
         raise RuntimeError(f"could not read job settings for '{job}'")
-    # Both drives through the driver's one Z source: the drive carrying the
-    # job's z-stack has no live value in the settings and is read from the
-    # saved experiment instead; ``z_source`` says which was which.
-    z_wide = _z_reading(handle.client, job, "z-wide", settings)
-    z_galvo = _z_reading(handle.client, job, "z-galvo", settings)
     return {
         "job": job,
         "x_um": float(xy["x_um"]),
         "y_um": float(xy["y_um"]),
-        "z_wide_um": z_wide.z_um,
-        "z_galvo_um": z_galvo.z_um,
-        "z_source": {"z-wide": z_wide.source, "z-galvo": z_galvo.source},
+        "z_wide_um": _z_um_from_settings(settings, "z-wide"),
+        "z_galvo_um": _z_um_from_settings(settings, "z-galvo"),
         "objective": settings.get("objective"),
     }
 

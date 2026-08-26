@@ -409,9 +409,6 @@ def confirm_move_z(
     Returns:
         {"success": bool, "logs": [...]}
     """
-    # Deferred: z_readback -> scanfields.files -> commands.gate -> here.
-    from ..readers.z_readback import drive_is_stacked
-
     if poll_window is None:
         poll_window = _timing.CONFIRM_POLL_S
     logs = []
@@ -425,8 +422,6 @@ def confirm_move_z(
             job_name,
             observed_after=observed_after,
         )
-        if ch is not None and drive_is_stacked(ch, key):
-            return _confirm_move_z_on_stack_drive(client, ch, job_name, key, target_um, tolerance)
         if ch is not None:
             try:
                 actual = ch["zPosition"][key]
@@ -446,52 +441,6 @@ def confirm_move_z(
     msg = (
         f"MoveZ timeout after {time.perf_counter() - t_start:.1f}s — "
         f"target={target_um:.1f} um ({z_mode})"
-    )
-    log.warning(msg)
-    logs.append(_make_log_entry("warning", msg))
-    return {"success": False, "logs": logs}
-
-
-def _confirm_move_z_on_stack_drive(client, settings, job_name, key, target_um, tolerance):
-    """Confirm a Z move on the drive that carries the job's z-stack.
-
-    The settings' ``zPosition`` does not refresh for that drive, so polling
-    it can only time out and make the backbone re-send a move that already
-    happened. Instead, read once through the driver's one Z source, which
-    consults the saved experiment (or refuses, per the profile), and say
-    plainly what that read is: the command LAS X recorded, not the drive's
-    position. Hence ``confirmed`` is None — accepted, not verified — when
-    the recorded command matches the target or nothing could be read, and
-    the confirmation fails (so the command is resent) only when LAS X
-    recorded a *different* command than the one asked for.
-    """
-    from ..readers.z_readback import z_reading
-
-    logs = []
-    try:
-        reading = z_reading(client, job_name, key, settings)
-    except RuntimeError as why:
-        msg = (
-            f"MoveZ on the stack drive ({key}): accepted as sent, not verified — "
-            f"LAS X reports no position for the drive that carries the z-stack, and {why}"
-        )
-        log.info(msg)
-        logs.append(_make_log_entry("info", msg))
-        return {"success": True, "confirmed": None, "logs": logs}
-
-    if abs(reading.z_um - target_um) < tolerance:
-        msg = (
-            f"MoveZ on the stack drive ({key}): accepted, not verified — the saved experiment "
-            f"records the command at {reading.z_um:.2f} um (target {target_um:.2f}); LAS X "
-            f"reports no position for the drive that carries the z-stack"
-        )
-        log.info(msg)
-        logs.append(_make_log_entry("info", msg))
-        return {"success": True, "confirmed": None, "logs": logs}
-
-    msg = (
-        f"MoveZ on the stack drive ({key}): the saved experiment records the command at "
-        f"{reading.z_um:.2f} um, not the {target_um:.2f} um asked for"
     )
     log.warning(msg)
     logs.append(_make_log_entry("warning", msg))

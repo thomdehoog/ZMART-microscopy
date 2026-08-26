@@ -47,29 +47,7 @@ that did not go where it was told.
 - `SynchronizeFocusDrives` must be `True` on any LAS X the driver runs
   against (it is a job-switch focus-sync flag, not a readback).
 
-## What exists now (PR 2, 2026-08-26): Z has one source
-
-`readers/z_readback.z_reading(client, job, drive, settings)` is where every
-Z number in the driver comes from — the routed readers (`read_zwide_um`,
-`read_zgalvo_um`), `confirm_move_z`, and the adapter's hardware snapshot
-all call it. The stacked-drive policy is a state-reader profile knob,
-`STATE_READERS.z_stack_drive_readback` (`"lrp"`, the default: save and
-read; `"none"`: never save — reads of the stacked drive refuse, a move on
-it is accepted as sent). On the stacked drive `confirm_move_z` does one
-save and one comparison and never lets the backbone re-fire: the saved
-command matches the target → `success=True, confirmed=None` (accepted,
-not verified — the backbone now carries a confirmation's own `confirmed`
-through); it disagrees → `success=False`, so the command is resent, which
-is right when LAS X recorded a different command than the one asked for.
-The behavioural mock freezes the stacked drive's `zPosition` the way LAS X
-does, so this is exercised offline (`tests/unit/test_z_single_source.py`,
-20 tests) as well as live. Measured on the simulator: a `move_z` on the
-stacked drive went from 4 attempts / 12.5 s / `confirmed=False` to
-1 attempt / ~1.0 s / `confirmed=None`; the free drive is unchanged.
-
-Steps 1–3 of the wiring below are therefore done; steps 4–5 remain.
-
-### Before PR 2
+## What exists now
 
 `readers/z_readback.py`, tests in `tests/unit/test_z_readback.py` (12):
 

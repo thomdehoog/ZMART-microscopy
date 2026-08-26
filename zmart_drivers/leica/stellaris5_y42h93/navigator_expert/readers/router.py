@@ -432,33 +432,20 @@ def get_xy(
     )
 
 
-def _read_z_um(client, job_name, drive, *, mode=None):
-    """One drive's Z (µm) through the driver's one Z source, or None when unreadable.
+def read_zwide_um(client, job_name, *, mode=None):
+    """Z-wide position (um) from the job settings, or None when unreadable.
 
     Returns None only when the job settings cannot be read at all. Readable
-    but unanswerable settings raise — a missing ``zPosition``, a schema
-    mismatch, or a stacked drive whose saved-experiment read failed or is
-    forbidden by the profile (``z_stack_drive_readback``). See
-    ``readers.z_readback`` for why the stacked drive is different.
+    but incomplete settings raise: ``derived.zwide_um_from_settings`` raises
+    ``RuntimeError`` when ``zPosition``/z-wide is missing, and its settings
+    normalization can raise ``ValueError`` on a schema mismatch — unlike the
+    routed readers, which never raise.
     """
-    # Deferred: z_readback imports this module for the settings read.
-    from .z_readback import z_reading
-
     settings = get_job_settings(client, job_name, mode=mode)
     if not settings:
-        log.warning("read_z: could not read job settings for '%s'", job_name)
+        log.warning("read_zwide_um: could not read job settings for '%s'", job_name)
         return None
-    return z_reading(client, job_name, drive, settings).z_um
-
-
-def read_zwide_um(client, job_name, *, mode=None):
-    """Z-wide position (µm), or None when the job settings are unreadable."""
-    return _read_z_um(client, job_name, "z-wide", mode=mode)
-
-
-def read_zgalvo_um(client, job_name, *, mode=None):
-    """Z-galvo position (µm), or None when the job settings are unreadable."""
-    return _read_z_um(client, job_name, "z-galvo", mode=mode)
+    return derived.zwide_um_from_settings(settings)
 
 
 def get_jobs(
