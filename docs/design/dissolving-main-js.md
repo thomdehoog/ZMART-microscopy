@@ -49,10 +49,10 @@ describes a layout (`src/main.js`, `lib/`, `widgets/`) that no longer exists.
   `shared/` (the stage picture and its projection, the scale bar). The sample
   sits behind the seam in `microscope/`. Its tests live in
   `workflows/target_acquisition/tests/`.
-- The three target-acquisition workflows stay: `_prototype` (pretend
-  backend, in the browser), `_mock` (bridge → controller → mock driver),
-  `_real` (bridge → controller → Leica). They keep differing only in the
-  backend line of `flow.js`.
+- One workflow, Target acquisition; the microscope (the controller's mock
+  driver, or the Leica via Navigator Expert) is chosen on the Connect step.
+  The pretend backend is a `?backend=pretend` switch for the tests until
+  they run through the bridge, which is when step 10 below completes.
 - `index.html` is the frame's markup and nothing else.
 - Each fact has one owner. The page asks the backend what it imaged; it does
   not generate cells itself.

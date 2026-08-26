@@ -376,10 +376,10 @@ nothing up (`nothingWaitsOnThis`) until registering the mounted carrier
 against the stage actually lives there. There is no presets step, no
 Disconnect step, no Save-the-run step, and no Restart button: each preset is
 recorded in the step that uses it, the session card's own Disconnect ends a
-run, and choosing a workflow (re)starts one. The chooser offers the run
-three ways — prototype, mock, real — and nothing else; the short runs and
-the canvas demonstration that once proved the frame generic were removed on
-2026-08-26.
+run, and choosing a workflow (re)starts one. There is one workflow, Target
+acquisition; what it drives — the controller's mock driver or the Leica via
+Navigator Expert — is chosen on the Connect step. The short runs, the canvas
+demonstration and the three per-backend variants were removed on 2026-08-26.
 
 ## Decisions already settled — do not relitigate without asking
 
@@ -591,10 +591,11 @@ The tree as it exists (2026-08-26; no `src/`):
 
 What a step *does* is still decided by seven `if`s on `mode` inside
 `runStep` (443–561) plus ten more `mode` guards elsewhere, where the design
-says a step carries its own `run(ctx)`. The three target-acquisition
-workflows (`_prototype`, `_mock`, `_real`) share one step list
-(`the-run.js`) and differ only in the backend line of their `flow.js`; that
-stays.
+says a step carries its own `run(ctx)`. There is one workflow; the page
+speaks to the controller through the bridge, and the in-browser rehearsal
+(the pretend backend and the synthetic sample) is reachable only by
+`?backend=pretend`, which the browser tests use until they run through the
+bridge too.
 
 Tests: `tests/unit/**` (vitest, 227) and `tests/*.spec.js` (Playwright, 62).
 The rule going forward is that a test lives beside what it tests

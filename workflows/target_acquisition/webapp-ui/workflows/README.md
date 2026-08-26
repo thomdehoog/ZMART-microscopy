@@ -38,10 +38,8 @@ analysis workflow that never touches an instrument.
 
 ## Borrowing steps instead of retyping them
 
-A step belongs to the workflow that owns it, and other workflows import it.
-The three target-acquisition workflows are the case in point: each is little
-more than its `flow.js`, and all three walk the one list in
-`target_acquisition/the-run.js`, differing only in the backend they declare.
+A step belongs to the workflow that owns it, and other workflows import it;
+`target_acquisition/flow.js` is little more than the list in `the-run.js`.
 A workflow that wants a borrowed step to say something different wraps it in
 `reworded()` (from `../frame/rules/steps.js`), which changes the wording and
 nothing else. That keeps what a step *does* written down once, so a fix

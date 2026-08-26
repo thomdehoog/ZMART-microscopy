@@ -84,7 +84,7 @@ test("a canvas imaged in a few scattered places draws the gaps as gaps", async (
     answers.push({ url: response.url(), status: response.status() });
   });
 
-  await page.goto(`/?overview=${encodeURIComponent(run.store)}`);
+  await page.goto(`/?backend=pretend&overview=${encodeURIComponent(run.store)}`);
   await page.waitForTimeout(300);
   await walkToTheScan(page);
   await expect(page.locator("#overview-canvas")).toBeVisible();
@@ -244,7 +244,7 @@ test("an unimaged part of the canvas is drawn solid, and can be made see-through
     /** Open the page over a magenta chequer and photograph what survives. */
     async function groundUnder(seeThrough) {
       await page.goto(
-        `/?overview=${encodeURIComponent(run.store)}&ground=ff00ff`
+        `/?backend=pretend&overview=${encodeURIComponent(run.store)}&ground=ff00ff`
         + (seeThrough ? "&seethrough=1" : ""),
       );
       await page.waitForTimeout(300);

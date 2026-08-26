@@ -109,7 +109,7 @@ test.beforeEach(async ({ page }) => {
   page.on("pageerror", (e) => errors.push(String(e)));
   page.on("console", (m) => m.type() === "error" && errors.push(m.text()));
   page.errors = errors;
-  await page.goto("/");
+  await page.goto("/?backend=pretend");
   await page.waitForTimeout(250);
 });
 
@@ -368,12 +368,13 @@ test("a recorded preset unfolds to show everything that was read", async ({ page
   await expect(page.locator(".rec-detail")).toHaveCount(0);
 });
 
-test("the api offered follows the microscope chosen", async ({ page }) => {
-  const apis = () => page.locator(".field select").nth(1).locator("option").allInnerTexts();
-  expect((await apis()).join()).toContain("CAM");
-  await page.locator(".field select").first().selectOption("mesospim");
-  await page.waitForTimeout(150);
-  expect((await apis()).join()).toContain("Remote Control");
+test("the microscope offered is the mock or the Leica, and nothing else", async ({ page }) => {
+  const scopes = await page.locator(".field select").first().locator("option").allInnerTexts();
+  expect(scopes).toHaveLength(2);
+  expect(scopes[0]).toContain("Mock");
+  expect(scopes[1]).toContain("Leica Stellaris 5");
+  expect(scopes[1]).toContain("Navigator Expert");
+  await expect(page.locator(".field select")).toHaveCount(1);
 });
 
 test("nothing advances by itself, and the next step stays locked until it can run",

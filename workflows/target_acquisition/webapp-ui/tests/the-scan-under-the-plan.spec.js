@@ -139,7 +139,7 @@ const howMuchIsOpen = (page) => page.evaluate(() => {
 test("is not opened at all unless the page was pointed at one", async ({ page }) => {
   /* An engine is a large thing to fetch, and a page nobody pointed at a scan
      has no use for one. */
-  await page.goto("/");
+  await page.goto("/?backend=pretend");
   await page.waitForTimeout(1500);
   expect(await page.evaluate(() => window.__thePicture)).toBeFalsy();
 });
@@ -147,10 +147,10 @@ test("is not opened at all unless the page was pointed at one", async ({ page })
 test("lands exactly where the plan says, at every zoom and after panning",
   async ({ page }) => {
     test.setTimeout(A_RUN_TAKES_A_WHILE);
-    await page.goto("/");
+    await page.goto("/?backend=pretend");
     await page.waitForTimeout(800);
     await serveAScanMatching(page, await throughToAPlan(page));
-    await page.goto("/?picture=/mock-scan");
+    await page.goto("/?picture=/mock-scan&backend=pretend");
     await page.waitForTimeout(800);
     await throughToAScannedPlate(page);
     await page.waitForFunction(() => !!window.__thePicture, null, { timeout: 20_000 });
@@ -178,10 +178,10 @@ test("lands exactly where the plan says, at every zoom and after panning",
 
 test("shows only where the drawing above it has been opened up", async ({ page }) => {
   test.setTimeout(A_RUN_TAKES_A_WHILE);
-  await page.goto("/");
+  await page.goto("/?backend=pretend");
   await page.waitForTimeout(800);
   await serveAScanMatching(page, await throughToAPlan(page));
-  await page.goto("/?picture=/mock-scan");
+  await page.goto("/?picture=/mock-scan&backend=pretend");
   await page.waitForTimeout(800);
   await throughToAScannedPlate(page);
   await page.waitForFunction(() => !!window.__thePicture, null, { timeout: 20_000 });

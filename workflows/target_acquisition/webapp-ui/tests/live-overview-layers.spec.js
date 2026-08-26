@@ -41,7 +41,7 @@ test("a target scan drawn over the survey it was picked from", async ({ page }) 
      it draws green — so which of them a square is showing can be read off the
      screen rather than guessed at. */
   await page.goto(
-    `/?overview=${encodeURIComponent(run.survey)}`
+    `/?backend=pretend&overview=${encodeURIComponent(run.survey)}`
     + `&targets=${encodeURIComponent(run.store)}&seethrough=1`,
   );
   await page.waitForTimeout(300);
