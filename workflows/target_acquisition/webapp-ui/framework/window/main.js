@@ -1016,7 +1016,7 @@ let stageWatch = null;
     rec.id = "sf-preset";
     host.append(rec);
     const presetSlot = {
-      label: "Acquisition settings from microscope", key: "overviewPreset", locked,
+      label: "Optical configuration", key: "overviewPreset", locked,
       ink: (id) => recordedPresets().find((p) => p.id === id)?.ink ?? null,
       /* A recording taken or forgotten changes what there is to be taken with,
          so the run is asked again from the top. Activating another one changes
