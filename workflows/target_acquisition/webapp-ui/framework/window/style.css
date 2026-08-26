@@ -591,10 +591,13 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
    suits a row of drawing tools labelled with glyphs and made this step read as
    a different piece of software from Connect and Define scan area — where the
    buttons an operator actually presses are 13px sans. */
-/* Across the foot of its box, where the list it acts on ends. `button.run` is
-   left-aligned by default, which suits a bar that also holds a field; here the
-   button is the whole row. */
-.anchor-add { align-self: stretch; width: 100%; justify-content: center; }
+/* How many, and the press that lays them: one sentence, so one row. The box
+   is as wide as a two-digit number needs and the button takes the rest —
+   giving them a column each left the button short for no reason, since only
+   one of the two has words in it. */
+.anchor-lay { display: flex; gap: 8px; align-items: center; }
+.anchor-count { flex: 0 0 62px; text-align: center; }
+.anchor-add { flex: 1; justify-content: center; }
 
 .carrier-card .sf-flat {
   /* Named, not inherited: the alignment rows are monospaced so their numbers
