@@ -412,22 +412,17 @@ export default {
         /* Numbers alone. Four rows of coordinates each carrying "mm" is the
            unit written four times in a column where it never changes, and it
            was the width that pushed the pairs onto two lines. */
-        pick.innerHTML = `<span class="idx">${a.at ?? i + 1}</span>`
-          + `<span>${(a.x / MM_UM).toFixed(2)}, ${(a.y / MM_UM).toFixed(2)}</span>`
-          /* The pair, said as a pair: this place on the drawing *is* that place
-             on the stage. Written one after the other they read as one long
-             number with a space in it, and an operator checking an alignment
-             is comparing exactly these two. */
-          + (a.stage
-            /* All three, because all three were read: the stage was driven
-               somewhere in x, y *and* z to reach this point, and a height left
-               out of the record is a height nobody can check afterwards. In
-               millimetres like the place it is tied to, so the two halves of
-               the pair are read in the same unit. */
-            ? `<span class="z">→ ${(a.stage.x / MM_UM).toFixed(2)}, `
-              + `${(a.stage.y / MM_UM).toFixed(2)}, `
-              + `${(a.stage.z / MM_UM).toFixed(2)}</span>`
-            : "");
+        /* Numbered, and nothing else but what was read. Where each point sits
+           is drawn on the picture, and the row is for the reading taken there;
+           saying the place again as a number filled it with the half an
+           operator already knows and crowded out the half they came for. */
+        pick.innerHTML = `<span class="idx">Point ${i + 1}</span>`
+          /* What was read is not shown. The stage position is kept on the point
+             — the alignment is worked out from it, and the drawing moves when
+             it changes — but an operator reading this list wants to know which
+             of the four are done, and "Snap again" says that already. Three
+             numbers per row said it a second time and filled the column. */
+          ;
         /* Drive the microscope to this place, then say so here: the point on
            the drawing and the place on the stage become one statement. */
         /* Short, because the row already has three numbers and a name in it and
@@ -435,7 +430,12 @@ export default {
            button off the edge as soon as a reading appeared beside it. What it
            snaps to is on the button when the pointer rests there, and said in
            full there rather than crowded onto the face. */
-        const snap = el("button", "sf-flat anchor-snap", a.stage ? "Snap again" : "Snap");
+        /* The button carries the state of its own point: waiting, or done. Four
+           rows that differ only in a word are four rows an operator has to
+           read; four that differ in colour are four they can count. */
+        const snap = el("button",
+          a.stage ? "sf-flat anchor-snap done" : "sf-flat anchor-snap waiting",
+          a.stage ? "Snap again" : "Snap");
         snap.type = "button";
         snap.title = "Snap to stage position — tie this point to where the stage is standing now";
         snap.addEventListener("click", () => anchors.snap(i));

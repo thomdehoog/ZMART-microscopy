@@ -573,7 +573,20 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
 .point-drop { flex: none; margin-right: 6px; }
 .point-row:hover { background: var(--surface-3); }
 /* The anchor points, and the press that ties each to where the stage is. */
-.anchor-snap { flex: none; height: 22px; padding: 0 8px; font-size: 11px; margin-left: auto; }
+/* A plain `.sf-flat`, like every other button in this panel. It used to set
+   its own height and type, which made the alignment box the one place in the
+   channel where a button was a different size from the one above it. */
+.anchor-snap { flex: none; margin-left: auto; }
+/* Waiting to be driven to, or done. The colour is the point's state rather
+   than the button's mood, which is why it stays on after the press: an
+   operator working through four points wants to see how many are left without
+   reading a word in each row. */
+.anchor-snap.waiting { color: var(--warn-ink); border-color: var(--warn-ink); }
+.anchor-snap.waiting:hover:enabled { color: var(--warn-ink); border-color: var(--warn-ink); }
+.anchor-snap.done { color: var(--good); border-color: var(--good); }
+.anchor-snap.done:hover:enabled {
+  color: var(--mark-anchor-lit); border-color: var(--mark-anchor-lit);
+}
 
 /* The alignment rows are a table, not a sentence: four rows saying the same
    four things about four points, so the things line up. `left` and `bottom`
@@ -585,16 +598,15 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
  * shrinks as it is pressed is a row that moves under the hand. */
 .anchor-list .point-pick {
   display: grid; align-items: center;
-  /* Fixed, fixed, whatever is left, fixed. The first two never change width,
-     the reading grows when a point is snapped, and the button has to keep its
-     place whatever happens to its left — a row whose button slides off the
-     edge as soon as it is used is a row that punishes using it. */
-  grid-template-columns: 50px 84px minmax(0, 1fr) 82px;
+  /* The name, then whatever is left, then the button — which keeps its place
+     however the row's middle changes, because a button that slides about as it
+     is used is a button that punishes using it. */
+  grid-template-columns: max-content minmax(0, 1fr) 104px;
   gap: 8px;
 }
 .anchor-list .point-pick .z { margin-left: 0; font-weight: 400; }
 .anchor-list .anchor-snap {
-  margin-left: 0; width: 100%; grid-column: 4; white-space: nowrap;
+  margin-left: 0; width: 100%; grid-column: 3; white-space: nowrap;
 }
 .anchor-list .point-pick .z { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
