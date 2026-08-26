@@ -192,7 +192,7 @@ def main() -> int:
     store = declare_a_built_picture(shown, blocks, name="deep")
     print(f"declared {store}")
 
-    server = make_server(port=0, data_dir=shown, site_dir=_BUILDING.parent / "app" / "page" / "dist",
+    server = make_server(port=0, data_dir=shown, site_dir=Path(__file__).resolve().parents[1] / "app" / "page" / "dist",
                          store=[store.name], window=WINDOW, live=True)
     serving = threading.Thread(target=server.serve_forever, daemon=True)
     serving.start()

@@ -106,7 +106,7 @@ def main() -> int:
     print(f"declared over {len(pinned)} blocks (centre + corners): {picture}",
           flush=True)
 
-    dist = _BUILDING.parent / "app" / "page" / "dist"
+    dist = _VIZ / "app" / "page" / "dist"
     server = make_server(port=asked.port, data_dir=shown, site_dir=dist,
                          store=[picture.name], window=WINDOW, live=True)
     threading.Thread(target=server.serve_forever, daemon=True).start()
