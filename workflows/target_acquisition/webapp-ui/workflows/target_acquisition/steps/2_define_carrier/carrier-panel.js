@@ -374,7 +374,10 @@ export default {
     const { group: anchorBox, body: anchorCard } = sideGroup("Align carrier");
     designer.append(anchorBox);
 
-    const anchorAdd = el("button", "sf-flat", "Add alignment points");
+    /* The box's own action, filled like Connect on the step before and Update
+       optical configuration on the step after: one obvious thing to press per
+       box, and it looks the same wherever it is. */
+    const anchorAdd = el("button", "run anchor-add", "Add alignment points");
     anchorAdd.type = "button";
     /* Put all four down at once. Where a carrier is registered from is a
        property of its shape, not something an operator should have to find by
