@@ -205,3 +205,67 @@ restored it fails exactly as the operator saw it — "dropped from 46% lit to
   measurement has shown it on an operator's screen. If it ever does, the cure
   belongs one level down — teach the engine to keep the old source drawing
   until its replacement has loaded — not in another special case here.
+
+---
+
+## 2026-08-26: Chromium does flicker, on a road this file never tried
+
+Everything above stands except its central negative. "Chromium does not
+flicker" was measured on the operator's replay road — sequential tab,
+`test_grid_16`, Open. It is not true of the governed spiral, and that is a
+road with a gate already in the suite.
+
+**`test_a_survey_grows_in_a_spiral.py::test_the_spiral_growth_is_visible`
+fails intermittently in headless Chromium on the T400**, on the shipped
+`per_publish` default, on this branch's tip. The gate only ever said "the lit
+canvas shrank", which reads like a tolerance being grazed; it now reports the
+size, and the size is not that:
+
+    the lit canvas fell by 0.424 of the frame, to 0.013 lit
+
+Twenty-two to forty-two percent of the frame lit, then one point three, held
+across three consecutive 300 ms polls. About a second of an already-drawn
+survey going dark while the next ring lands. An operator watching an
+acquisition would see exactly this.
+
+### The T400 sanity-check that `PLAN_close_the_neuroglancer_chapter.md` asked for
+
+That plan decided whole-source invalidation on 2026-08-15 and kept the named
+ladder reachable "purely so the T400 can sanity-check the choice before the
+ladder's code is deleted", with the instruction: *run the storm file once in
+each mode; if whole holds its rate there too, delete the ladder.* Run here,
+on the card, `ZMART_SPIRAL_ACROSS` at its default:
+
+| mode | failures |
+|---|---|
+| whole-source (the default) | **6 in 12** |
+| named ladder (`ZMART_STORM_REFRESH=named`) | **2 in 9** |
+
+**Whole does not hold its rate on the T400. Do not delete the ladder yet** —
+the precondition the plan set has not been met.
+
+### But the ladder is not the cure either, and one number says why
+
+Both modes fall to **the same floor, 0.013 lit**. If the fall were the
+invalidation strategy, the named ladder — which drops a handful of chunks
+around one position — could not empty the picture to the same remnant the
+whole-source drop reaches. It does.
+
+So the fall is very probably not the chunk invalidation at all. Something
+empties the picture wholesale on some landings, in both modes, and the
+invalidation strategy only changes how often the poll catches it.
+
+### Where to look next
+
+The suspect is the layers, not the chunks. `8713483c` ("the flicker is found
+and fixed: a landing refreshes pixels, never the layers") is the fix that
+says a landing must not rebuild them; if a landing sometimes does, the
+picture would empty exactly this way whatever the chunks are doing. The
+`imageWrittenInPlace` road in `App.jsx` calls `letGoOfDecodedPieces` and then
+`askAgain()`, and it is `askAgain`'s config — not the letting go — that can
+carry a rebuilt layer.
+
+Instrument that: record layer identity across every landing of the spiral and
+fail the moment one is replaced rather than refreshed. If layers are stable
+through a failing run, the suspicion is wrong and the chunk path owns it
+after all.
