@@ -520,6 +520,7 @@ function theStageLayers({ shown, ch0, ch1, editing }) {
        than reached for, so a layer says what a press on it means without
        knowing anything about the page it is drawn on. */
     asAPress, renderRail, renderActionBar, editorTook,
+    redraw: drawStage, anchorsChanged: ctx.anchorsChanged,
     focusGrabbed, marqueeing, focusMarqueeTo, focusMarqueeTook,
     focusDragging, focusDraggedTo, endFocusDrag, focusPressed,
   };
