@@ -5,7 +5,7 @@ import { theDrawingAbove, whoIsAt } from "../../workflows/target_acquisition/sha
 import { assembleWorkflows } from "../rules/finding-workflows.js";
 import {
   MICROSCOPES, DEFAULT_SESSION, apisFor, defaultApiFor,
-  describeSession, STAGE_LIMITS_MM,
+  describeSession, STAGE_LIMITS_MM, isFailed,
 } from "../../workflows/target_acquisition/microscope/microscopes.js";
 /* The seam. Connecting, reading a preset off the instrument, measuring the
    focus map and driving the overview scan all go through the backend and are
@@ -470,25 +470,39 @@ let backend = null;
            this card; the pretend backend ignores it. */
         instrument: MICROSCOPES[state.session.microscope]?.instrument,
       }, {
+        /* The questions, before any answer: one row per key the driver reports. */
+        onChecks: (keys) => {
+          if (state.running !== "connect") return;
+          state.checks = keys.map((label) => ({ label, result: null }));
+          renderSetup();
+        },
         onCheck: (k, result) => {
           if (state.running !== "connect") return;
           state.checks[k].result = result;
           answerCheck(k);
         },
-      }).then(({ checks }) => {
-        state.checks = checks.map((check) => ({ ...check, result: null }));
-        renderSetup();
+      }).then(async ({ info }) => {
+        /* The session is open and every check has answered. The canvas is
+           the instrument's from here — its travel from get_info — and the
+           stage mark stands where get_xyz says the stage is. */
+        takeTheCanvas(info?.canvas);
+        takeThePosition(await backend.xyz());
+        finish();
       }).catch((why) => {
-        /* The instrument's side said no — the bridge is not there, or the
-           driver it needs is not. The sentence lands where the answers would
-           have, and the step stays undone: a connection that failed is not a
-           session. */
+        /* The instrument's side said no — the bridge is not there, the
+           driver it needs is not, or a check failed. The sentence lands where
+           the answers would have, marked as the failure it is, and the step
+           stays undone: a connection that failed is not a session. */
         state.failed = s.id;
         state.running = null;
-        state.checks = [{ id: "failed", label: "Connection failed", result: why.message }];
+        if (!state.checks.some((c) => c.result !== null && isFailed(c.result))) {
+          state.checks = [...state.checks.filter((c) => c.result !== null),
+            { label: "Connection failed", result: `failed — ${why.message}` }];
+        }
         renderSetup();
         renderAll();
       });
+      return;
     }
 
     if (s.mode === "scan") {
@@ -512,7 +526,10 @@ let backend = null;
       });
     }
 
-    setTimeout(async () => {
+    /* Finishing a step: the connect step finishes when its backend resolves,
+       every other step when its rehearsal's time is up. A declaration, so the
+       connect arm above — which returns early — can reach it. */
+    async function finish() {
       /* A step that failed while running was already put down; finishing it
          anyway would mark a failed connection as a session. */
       if (state.failed === s.id) { state.failed = null; return; }
@@ -558,7 +575,8 @@ let backend = null;
          the page to the next one takes that away. Advancing is a click. */
       focusPanelsFor(state.activeIdx);
       renderAll();
-    }, s.ms);
+    }
+    setTimeout(finish, s.ms);
   }
 
   /* ============================================================
@@ -702,10 +720,12 @@ let backend = null;
       list.className = "check-list";
       for (const c of state.checks) {
         const answered = c.result !== null;
+        const failed = answered && isFailed(c.result);
         const row = document.createElement("div");
-        row.className = "check-row" + (answered ? "" : " pending");
-        row.innerHTML = '<span class="check-mark">✓</span><span class="check-name"></span>'
+        row.className = "check-row" + (answered ? "" : " pending") + (failed ? " failed" : "");
+        row.innerHTML = '<span class="check-mark"></span><span class="check-name"></span>'
           + '<span class="check-value"></span>';
+        row.querySelector(".check-mark").textContent = failed ? "✗" : "✓";
         row.querySelector(".check-name").textContent = c.label;
         row.querySelector(".check-value").textContent = answered ? c.result : "";
         list.append(row);
@@ -767,8 +787,11 @@ let backend = null;
   function answerCheck(k) {
     const row = document.querySelectorAll(".check-row")[k];
     if (!row) return;
+    const result = state.checks[k].result;
     row.classList.remove("pending");
-    row.querySelector(".check-value").textContent = state.checks[k].result;
+    row.classList.toggle("failed", isFailed(result));
+    row.querySelector(".check-mark").textContent = isFailed(result) ? "✗" : "✓";
+    row.querySelector(".check-value").textContent = result;
   }
 
   /* Closing the session takes the run with it, for the reason resetRun already
@@ -1849,8 +1872,28 @@ let backend = null;
 
   /* The canvas is the stage, so it is what the view frames — not the carrier
      inside it and not the scan inside that. Everything else is drawn in the
-     same coordinates and lands where it belongs. */
+     same coordinates and lands where it belongs.
+
+     Its size is the instrument's: `get_info().canvas` gives the travel and
+     where the stage is, and connecting takes both. Before a session there
+     is the placeholder, so the picture has a frame to draw. */
   const STAGE_UM = [STAGE_LIMITS_MM.width * 1000, STAGE_LIMITS_MM.height * 1000];
+  let stageReported = null;
+
+  function takeTheCanvas(canvas) {
+    if (!canvas?.x_um || !canvas?.y_um) return;
+    STAGE_UM[0] = canvas.x_um[1] - canvas.x_um[0];
+    STAGE_UM[1] = canvas.y_um[1] - canvas.y_um[0];
+    view.fitted = false;
+    drawStage();
+  }
+
+  /** The stage mark, from `get_xyz`: per axis, a value in micrometres. */
+  function takeThePosition(xyz) {
+    if (!xyz?.x || !xyz?.y) return;
+    stageReported = { x: Number(xyz.x.value), y: Number(xyz.y.value), z: Number(xyz.z?.value ?? 0) };
+    drawStage();
+  }
 
   /* Where the carrier's own zero sits on the stage.
    *
@@ -1874,7 +1917,9 @@ let backend = null;
     const s = Math.min((w - 2 * pad) / fw, (h - 2 * pad) / fh);
     view.scale = s;
     view.tx = (w - fw * s) / 2;
-    view.ty = (h - fh * s) / 2;
+    /* At the top, with the margin the sides have, rather than floating in
+       the middle of whatever height the window happens to give the canvas. */
+    view.ty = pad;
     view.fitted = true;
   }
 
@@ -1898,6 +1943,10 @@ let backend = null;
   function whereTheStageIs() {
     const [ox, oy] = carrierOriginUm();
     const taken = state.plan[Math.min(state.tilesShown, state.plan.length) - 1];
+    /* Reported by the instrument at connect when it was; parked otherwise. */
+    if (!taken && stageReported) {
+      return { x: stageReported.x, y: stageReported.y, z: stageReported.z };
+    }
     const [cx, cy] = taken
       ? [taken.x, taken.y]
       : [STAGE_UM[0] * PARKED[0] - ox, STAGE_UM[1] * PARKED[1] - oy];

@@ -29,7 +29,7 @@
  */
 
 import {
-  CONNECT_CHECKS, sampleReading,
+  pretendCanvas, pretendConnectionStatus, pretendPositionUm, sampleReading,
 } from "./microscopes.js";
 import { makeRng } from "./pretend-sample/rng.js";
 import { METRICS, METRIC_KEYS, debrisAt, sweep, pickPeak } from "./pretend-sample/sweep.js";
@@ -46,15 +46,29 @@ export const backend = {
   /**
    * Open the session and verify it, one named check at a time.
    *
-   * The whole list of checks comes back at once, so the window can put every
+   * The keys arrive first through `onChecks`, so the window can put every
    * question on screen before any answer exists; each answer then lands
-   * through `onCheck(index, result)` as the pretend verification gets to it.
+   * through `onCheck(index, value)` as the pretend verification gets to it.
+   * Resolves, with the instrument's info, once every check has answered.
    */
-  async connect(session, { onCheck } = {}) {
-    CONNECT_CHECKS.forEach((check, k) => {
-      setTimeout(() => onCheck?.(k, check.result(session)), 260 * (k + 1));
-    });
-    return { checks: CONNECT_CHECKS.map(({ id, label }) => ({ id, label })) };
+  async connect(session, { onChecks, onCheck } = {}) {
+    const status = pretendConnectionStatus(session);
+    const keys = Object.keys(status);
+    onChecks?.(keys);
+    await Promise.all(keys.map((key, k) =>
+      wait(260 * (k + 1)).then(() => onCheck?.(k, status[key]))));
+    return { info: await this.info() };
+  },
+
+  /** The instrument's account of itself: here, the pretend canvas. */
+  async info() {
+    return { canvas: pretendCanvas() };
+  },
+
+  /** Where the stage is, per axis in micrometres. */
+  async xyz() {
+    const { x, y, z } = pretendPositionUm();
+    return { x: { value: x, unit: "um" }, y: { value: y, unit: "um" }, z: { value: z, unit: "um" } };
   },
 
   /**

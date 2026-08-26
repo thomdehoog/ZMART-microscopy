@@ -129,6 +129,31 @@ class TestProcedures:
 
 
 class TestInfo:
+    def test_connection_status_answers_over_time(self, mic):
+        import time
+
+        import mock_driver
+
+        # Just opened: the first check answers at once, the rest are pending.
+        mic._handle.connected_at = time.monotonic()
+        status = mic.get_info()["connection_status"]
+        assert list(status) == ["driver", "client", "serial", "stage", "output root"]
+        assert status["driver"] == "mock · mock-scope · mock-api"
+        assert status["output root"] == mock_driver.PENDING
+        # Long enough after: every check has its answer, none pending.
+        mic._handle.connected_at = time.monotonic() - 10.0
+        status = mic.get_info()["connection_status"]
+        assert mock_driver.PENDING not in status.values()
+        assert status["client"] == "mock-client"
+        assert status["stage"].startswith("x 0.0 · y 0.0 · z 0.0")
+
+    def test_canvas_is_the_travel_and_the_position_is_get_xyz(self, mic):
+        mic.set_xyz(1000.0, 2000.0, 30.0)
+        canvas = mic.get_info()["canvas"]
+        assert canvas == {"x_um": [0.0, 120_000.0], "y_um": [0.0, 80_000.0], "z_um": [0.0, 10_000.0]}
+        assert mic.get_xyz()["x"]["value"] == 1000.0
+        assert mic.get_xyz()["y"]["value"] == 2000.0
+
     def test_get_info_passthrough(self, mic):
         info = mic.get_info()
         assert len(info["tile_positions"]) == 3

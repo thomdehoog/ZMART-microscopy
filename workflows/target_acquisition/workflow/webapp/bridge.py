@@ -78,7 +78,6 @@ if str(_ROOT) not in sys.path:
 
 import zmart_controller  # noqa: E402
 
-
 # ---------------------------------------------------------------------------
 # The session, and the one lock that guards it
 # ---------------------------------------------------------------------------
@@ -101,8 +100,12 @@ def _require_session():
 
 # The controller's reference driver: no hardware behind it, registered on
 # demand the way its own tests register it.
-_MOCK_CONNECTION = {"vendor": "mock", "microscope": "mock-scope",
-                    "api": "mock-api", "client": "mock-client"}
+_MOCK_CONNECTION = {
+    "vendor": "mock",
+    "microscope": "mock-scope",
+    "api": "mock-api",
+    "client": "mock-client",
+}
 
 # Where the Leica driver lives. Its folder is not a package on the path —
 # the example notebook adds it and imports the adapter, and importing IS
@@ -123,6 +126,7 @@ def _leica_connection() -> dict:
     if str(_LEICA_HOME) not in sys.path:
         sys.path.insert(0, str(_LEICA_HOME))
     from navigator_expert.zmart_adapter import CONNECTION  # importing registers
+
     return dict(CONNECTION)
 
 
@@ -132,17 +136,23 @@ def _connect(asked: dict) -> dict:
     which = asked.get("instrument", "mock")
     if which == "mock":
         from zmart_controller.tests.mock_driver import register_mock
+
         register_mock()
         connection = dict(_MOCK_CONNECTION)
     elif which == "leica":
         connection = _leica_connection()
     else:
-        raise ValueError(
-            f"no instrument called {which!r} — this bridge knows mock and leica")
+        raise ValueError(f"no instrument called {which!r} — this bridge knows mock and leica")
     _session = zmart_controller.set_instrument(connection)
     _context = dict(_session.context)
     info = _session.get_info()
     return {"context": _context, "info": info}
+
+
+def _require_session():
+    if _session is None:
+        raise RuntimeError("no session is open — connect first")
+    return _session
 
 
 def _disconnect() -> dict:
@@ -169,8 +179,9 @@ def _flatten(prefix: str, mapping: dict, rows: list) -> None:
         if isinstance(value, dict) and "unit" not in value:
             _flatten(f"{label} · ", value, rows)
         else:
-            rows.append([label, json.dumps(value, default=str)
-                         if isinstance(value, dict) else str(value)])
+            rows.append(
+                [label, json.dumps(value, default=str) if isinstance(value, dict) else str(value)]
+            )
 
 
 def _reading(kind: str) -> dict:
@@ -207,6 +218,7 @@ def _reading(kind: str) -> dict:
 # The focus map: drive, focus, report — the one procedure in this file
 # ---------------------------------------------------------------------------
 
+
 def _measure_focus(asked: dict) -> dict:
     """Drive to each point, run the autofocus procedure, report the height."""
     session = _require_session()
@@ -231,10 +243,10 @@ def _scan_worker(positions: list) -> None:
         for i, position in enumerate(positions):
             with _the_instruments_turn:
                 session = _require_session()
-                session.set_xyz(float(position["x"]), float(position["y"]),
-                                float(position.get("z", 0.0)))
-                session.acquire(acquisition_type="overview",
-                                position_label=f"pos_{i:05d}")
+                session.set_xyz(
+                    float(position["x"]), float(position["y"]), float(position.get("z", 0.0))
+                )
+                session.acquire(acquisition_type="overview", position_label=f"pos_{i:05d}")
             _scan["done"] = i + 1
     except Exception as why:  # noqa: BLE001 — the window shows the sentence
         _scan["error"] = str(why)
@@ -254,6 +266,7 @@ def _start_scan(asked: dict) -> dict:
 # ---------------------------------------------------------------------------
 # The HTTP shell: routes in, JSON out, errors as sentences
 # ---------------------------------------------------------------------------
+
 
 class _Bridge(BaseHTTPRequestHandler):
     def _answer(self, payload: dict, status: int = 200) -> None:
@@ -287,10 +300,19 @@ class _Bridge(BaseHTTPRequestHandler):
         path, _, query = self.path.partition("?")
         try:
             if path == "/api/setting":
-                kind = dict(pair.split("=") for pair in query.split("&") if pair) \
-                    .get("type", "acquisition")
+                kind = dict(pair.split("=") for pair in query.split("&") if pair).get(
+                    "type", "acquisition"
+                )
                 with _the_instruments_turn:
                     self._answer(_reading(kind))
+            elif path == "/api/info":
+                # The driver's account of the session: its connection checks
+                # (polled while they answer), the canvas, the setup.
+                with _the_instruments_turn:
+                    self._answer(_require_session().get_info())
+            elif path == "/api/xyz":
+                with _the_instruments_turn:
+                    self._answer(_require_session().get_xyz())
             elif path == "/api/scan":
                 self._answer(dict(_scan))
             else:

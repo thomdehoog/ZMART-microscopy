@@ -260,40 +260,33 @@ export const describeSession = ({ microscope, api }) => {
 };
 
 /**
- * What connecting actually verifies, in the order it is verified. Each check
- * knows how to describe its own result for the session it was run against, so
- * adding one is adding an entry here and nothing else.
+ * The connection's health, in the shape every driver reports it.
+ *
+ * `get_info` carries `connection_status`: ordered keys, each with its answer
+ * or `"pending"` until the check has answered; a value beginning `failed` is
+ * a failed check. The page shows one row per key and decides nothing else.
+ * The pretend backend answers these for the session it was given, staggered
+ * like an instrument would; the live backend polls the bridge for the real
+ * ones.
  */
-export const CONNECT_CHECKS = [
-  {
-    id: "reachable",
-    label: "Microscope reachable",
-    result: ({ api }) => (api === "navigator_expert" ? "127.0.0.1:8895" : "in-process"),
-  },
-  {
-    id: "credentials",
-    label: "Credentials accepted",
-    result: () => "token valid",
-  },
-  {
-    id: "version",
-    label: "API version",
-    result: ({ microscope, api }) => MICROSCOPES[microscope]?.apis?.[api]?.detail ?? "unknown",
-  },
-  {
-    id: "stage",
-    label: "Stage responds",
-    result: () => "x 0.0 · y 0.0 · z −412.0 µm",
-  },
-  {
-    id: "objectives",
-    label: "Objectives listed",
-    result: () => "5x, 63x",
-  },
-  {
-    id: "storage",
-    label: "Storage writable",
-    result: () => "smart/organoid-screen_a7f3c1/",
-  },
-];
+export const PENDING = "pending";
+export const isFailed = (value) => /^failed\b/i.test(String(value));
 
+export const pretendConnectionStatus = ({ microscope, api }) => ({
+  "Microscope reachable": api === "navigator_expert" ? "127.0.0.1:8895" : "in-process",
+  "Credentials accepted": "token valid",
+  "API version": MICROSCOPES[microscope]?.apis?.[api]?.detail ?? "unknown",
+  "Stage responds": "x 0.0 · y 0.0 · z −412.0 µm",
+  "Objectives listed": "5x, 63x",
+  "Storage writable": "smart/organoid-screen_a7f3c1/",
+});
+
+/** What the pretend instrument reports as its canvas: the travel. */
+export const pretendCanvas = () => ({
+  x_um: [0, STAGE_LIMITS_MM.width * 1000],
+  y_um: [0, STAGE_LIMITS_MM.height * 1000],
+});
+
+/** Where the pretend stage is parked: the corner, off the carrier. */
+export const pretendPositionUm = () =>
+  ({ x: STAGE_LIMITS_MM.width * 40, y: STAGE_LIMITS_MM.height * 40, z: -412 });
