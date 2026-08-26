@@ -146,11 +146,14 @@ describe("readiness belongs to the step, not the frame", () => {
 });
 
 describe("panels follow the step", () => {
-  /* What each step is given on screen. The canvas is the microscope's own
-     limits drawn to scale, and it is there from the first step: every step
-     keeps the picture on the left and its own controls in the channel. */
+  /* What each step is given on screen. Which panels stay once asked for is the
+     workflow's own declaration, so the test reads it from there rather than
+     naming the canvas: the rule is handed the keys and knows nothing about
+     what any of them draws. */
+  const staying = (wf) => WORKFLOWS[wf].panels.filter((p) => p.stays).map((p) => p.key);
   const panelsOf = (wf) =>
-    Object.fromEntries(WORKFLOWS[wf].steps.map((s, i) => [s.id, panelsFor(WORKFLOWS[wf].steps, i)]));
+    Object.fromEntries(WORKFLOWS[wf].steps.map((s, i) =>
+      [s.id, panelsFor(WORKFLOWS[wf].steps, i, staying(wf))]));
 
   it("gives target acquisition the panels the operator sees", () => {
     expect(panelsOf("target_acquisition")).toEqual({
@@ -163,6 +166,28 @@ describe("panels follow the step", () => {
       select: ["canvas"],
       acquire: ["canvas"],
     });
+  });
+
+  it("a workflow that declares no panel that stays gives each step its own", () => {
+    /* The point of the rule: nothing in it is about a canvas. A run whose
+       steps each bring their own panel — a report, a set of forms — keeps
+       none of them past the step that asked. */
+    const steps = [
+      { id: "one", panels: ["form"] },
+      { id: "two", panels: [] },
+      { id: "three", panels: ["report"] },
+    ];
+    expect(steps.map((_, i) => panelsFor(steps, i))).toEqual([["form"], [], ["report"]]);
+  });
+
+  it("keeps a staying panel from the step that first asks, and not before", () => {
+    const steps = [
+      { id: "one", panels: [] },
+      { id: "two", panels: ["map"] },
+      { id: "three", panels: ["notes"] },
+    ];
+    expect(steps.map((_, i) => panelsFor(steps, i, ["map"])))
+      .toEqual([[], ["map"], ["map", "notes"]]);
   });
 
   it("puts the canvas on stage from the first step of every run", () => {
