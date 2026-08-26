@@ -1275,7 +1275,7 @@ let stageWatch = null;
     pictureHost: theCanvas.parts.pictureHost,
     overviewCanvas: theCanvas.parts.overviewCanvas,
     overviewNote: theCanvas.parts.overviewNote,
-    view: () => view,
+    view: () => stage.pictureView(),
     carrierOriginUm: () => carrierOriginUm(),
     css,
   });

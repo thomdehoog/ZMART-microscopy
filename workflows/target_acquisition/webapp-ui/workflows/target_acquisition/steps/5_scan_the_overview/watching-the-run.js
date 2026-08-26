@@ -114,16 +114,13 @@ export function watchTheRun(ctx) {
     /** Put the scan where the plan is looking, exactly. */
     function followTheStage() {
       if (!viewer) return;
-      const box = host.getBoundingClientRect();
-      const [ox, oy] = ctx.carrierOriginUm();
-      const view = ctx.view();
-      viewer.setView({
-        zoom: 1 / view.scale,
-        centre: {
-          x: (box.width / 2 - view.tx) / view.scale - ox,
-          y: (box.height / 2 - view.ty) / view.scale - oy,
-        },
-      });
+      /* The same two numbers the picture above is drawn with, handed over as
+         they are. This used to be worked out from a pan offset and a scale, in
+         a second piece of arithmetic that had to agree with the first; when the
+         picture above moved to the shared canvas those numbers stopped existing
+         and the scan quietly drew nowhere. Asking for the view is one answer
+         instead of two. */
+      viewer.setView(ctx.view());
     }
 
     return {

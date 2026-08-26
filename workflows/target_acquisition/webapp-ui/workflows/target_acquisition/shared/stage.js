@@ -71,6 +71,15 @@ const theCanvas = putTheCanvasIn({
      because both are this run's business, not the canvas's. */
   handDragsTo: (drag) => theRunWantsThisDrag(drag),
   onPressed: (where) => theRunWasPressed(where),
+  /* The travel's micrometres, not the carrier's. The canvas draws in the
+     carrier's frame because that is where the run puts things, but what an
+     operator reads off the bottom of the picture is where the stage would have
+     to go — and the two differ by where the carrier sits in the travel. */
+  readoutSays: ({ at, zoom }) => {
+    const [ox, oy] = carrierOriginUm();
+    return `x ${(at.x + ox).toFixed(0)} µm · y ${(at.y + oy).toFixed(0)} µm`
+      + ` · ${(1000 / zoom).toFixed(1)} px/mm`;
+  },
 });
 const theCanvasIsUp = theCanvas.whenShown();
 /* Where the picture is, asked of the canvas rather than kept here. Two numbers
@@ -969,6 +978,12 @@ function theRunWasPressed({ screen }) {
 stageBox.addEventListener("pointermove", (e) => {
   if (whoHasTheDrag || marqueeing() || focusDragging()) return;
 
+  /* The editor first, and not only for the tip: this is how it learns the
+     pointer is over one of its fields, which is what turns the cursor into an
+     offer to pick the field up. Hovering is the whole of what it is being told
+     here — the drag itself goes through the claims. */
+  if (editorTook("move", e)) return;
+
   /* A focus point answers before anything under it: it is the small thing on
      top, and the press that finds it moves it rather than the picture. */
   if (focusHovered(e)) return;
@@ -1026,6 +1041,12 @@ ctx.fitButton.addEventListener("click", () => {
      layer is drawn, where the mark goes, what a press means — is in here. */
   return {
     draw: drawStage,
+    /* Where the picture is, in the canvas's own terms — the middle of what is
+       on screen in the carrier's micrometres, and how much sample a screen
+       pixel covers. Handed out so the scan drawn beneath can be put in exactly
+       the same place, rather than working it out a second time from numbers
+       that would then have to agree. */
+    pictureView: () => theCanvas.view,
     fit: fitView,
     /* The canvas is the picture's; the page says when its box has changed
        shape, and what the pointer should look like over it. */
