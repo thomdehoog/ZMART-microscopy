@@ -60,30 +60,42 @@ It also puts the acquired overview where it belongs. `putTheCanvasIn` draws a
 picture *beneath* the layers from a real run, which is exactly what
 `watching-the-run.js` does by hand today with the same `jpeg-under` engine.
 
-## The one real gap
+## The one real gap, and how small it turned out to be
 
-The viewer routes **touches**, not **drags**. `reaches(at)` asks a layer
-whether a point is inside it and `onTouched` reports the click; there is no
-way for a layer to claim a press and then receive the moves and the release.
+`viewer.js` routes **touches**, not **drags**. `reaches(at)` asks a layer
+whether a point is inside it and `onTouched` reports the click; there is no way
+for a layer to hold a press through the moves and the release. Drawing a region,
+dragging a position from well to well, marqueeing focus points and dragging one
+of them all need that, and `stage.js` serves them today by asking the editor
+first, then the focus map, then panning with whatever neither wanted.
 
-The operator page needs that. Drawing a region, dragging a position from well
-to well, marqueeing focus points and dragging one of them are all press-move-
-release, and today `stage.js` serves them by asking the editor first, then the
-focus map, then panning with whatever neither wanted.
+**But the lending mechanism already exists, one level down.** Panning and
+zooming are not `viewer.js`'s — they belong to `viz_studio/options/gestures.js`,
+shared by all three engines, and the engine contract has carried this since it
+was written:
 
-So the contract has to grow one step, from *who is under this point* to *who
-wants this gesture*:
+    viewer.handDragsTo(handler)   // hand over a function: dragging stops panning
+    viewer.handDragsTo(null)      // hand over nothing: dragging pans again
 
-    claims: {
-      down(at, e) -> boolean,   // true = mine, the picture must not pan
-      move(at, e),
-      up(at, e),
-      cursor() -> string,
-    }
+    handler({ phase, at, screen })   // "started" | "moved" | "finished"
 
-asked in stack order, top layer first, and the picture pans only with what none
-of them claimed. That is what `stage.js` already does; the change is that the
-viewer runs the chain instead, so any workflow's layers get it.
+`contract.md` puts it exactly the right way round — *the canvas owns the
+mechanics of a gesture, and the application owns what a drag currently means* —
+and settles that meaning once, when the drag begins, so one movement of the hand
+is never split between two meanings. That is the same rule a claim needs: a
+layer takes the whole gesture or none of it.
+
+So two things are missing, not a contract:
+
+1. **A lent drag cannot be declined.** With a handler installed, panning never
+   happens, so there is no way to say *nobody wanted this one, pan instead*.
+   Letting the handler return `false` at `"started"` fixes it — one change in
+   `gestures.js`, which all three engines share, and a line in `contract.md`.
+2. **Nothing routes a drag to a layer.** `viewer.js` installs one handler that
+   asks the stack top-first and forwards the rest of the drag to whoever took it.
+
+Alt+drag stops being a special case: it is the layers declining while alt is
+held. The canvas keeps no rule about it.
 
 ## Where the canvas lives
 
@@ -139,13 +151,14 @@ right shape, and it is a thing to look at on screen rather than argue here.
 
 ## Order of work
 
-1. Grow the viewer's gesture contract to claims, with tests in
-   `canvas-layers.spec.js` — a layer that claims a drag, and a press it turns
-   down that pans instead. **Independently useful**: it stands on its own
-   whether or not the rest follows, which is why it goes first. Two behaviours
-   of the canvas's own have to survive it — alt+drag always pans, so the picture
-   can be moved while a drawing tool is armed; and the lock stops picking
-   without touching pan or zoom.
+1. Let a lent drag be declined, in `gestures.js`, and note it in
+   `contract.md`. All three engines get it at once. Then `viewer.js` routes a
+   drag to the stack, top-first. Tests in `canvas-layers.spec.js`: a layer that
+   claims a drag and moves its own shape; a press it turns down that pans
+   instead; and alt+drag panning while a claiming layer is armed. **This goes
+   first because it stands on its own** — a canvas whose layers can be worked
+   with, rather than only looked at, is worth having whether or not the rest of
+   this follows.
 2. Turn `theStageLayers` into `layersAbove` entries: `paint({context, project,
    zoom})` instead of closing over `place` and `view.scale`. `claims` does not
    replace `reaches` — they answer different questions, *is this point mine* and

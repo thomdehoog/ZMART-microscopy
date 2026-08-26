@@ -58,8 +58,9 @@ Inventing a second set of names for the same fields would be a third canvas.
       opacity:    1,          // its own fade, its own and nobody else's
       staysSolid: false,      // true = the dial does not reach it
       paint:      (frame) => …,                 // how it draws
-      reaches:    (at) => …,                    // is this point mine? optional
-      claims:     { down, move, up, cursor },   // is this gesture mine? optional
+      reaches:    (at) => …,      // is this point mine? optional
+      claims:     (drag) => …,    // is this drag mine? optional
+      cursor:     () => "…",      // the pointer over it, while it holds a drag
     }
 
 **Vertical order is the order of the list.** A step does not number its layer,
@@ -91,12 +92,17 @@ layer with nothing in it still offered a chip that did nothing.
 A layer is what it draws **and** what it answers to. Both are about the same
 subject, so they arrive together.
 
-    claims: {
-      down(at, e) -> boolean,   // true = mine, and the picture must not pan
-      move(at, e),
-      up(at, e),
-      cursor() -> string,
-    }
+    claims({ phase, at, screen })    // phase: "started" | "moved" | "finished"
+                                     // return false at "started" to decline
+
+This is the drag every engine already hands out. `at` is in micrometres on the
+sample, for the same reason everything else here is: a mark kept in screen
+pixels slides off the specimen the moment the picture is panned.
+
+**What a drag means is settled once, when it begins, and holds until the
+operator lets go.** A tool that changed halfway would split one movement of the
+hand between two meanings, which is not something anybody could have asked for.
+So a layer takes the whole gesture or none of it.
 
 `reaches` and `claims` answer two different questions and a layer may want
 either or both. `reaches` is *is this point mine* — enough for a layer that only
@@ -112,9 +118,11 @@ Priority follows what is visually on top, which is what an operator expects: a
 press on a shape moves the shape, a press on empty canvas moves the picture, and
 neither owner knows the other exists.
 
-Two things stay the canvas's own. **Alt+drag always pans**, so the picture can
-still be moved while a drawing tool is armed and wants every press for itself.
-And **the lock** stops picking without touching pan or zoom, because locking a
+Two behaviours have to survive, and neither needs to be a special case in the
+canvas. **Alt+drag always pans**, so the picture can still be moved while a
+drawing tool is armed and wants every press for itself — which is a layer
+declining when alt is held, not a rule the canvas keeps. And **the lock** stops
+picking without touching pan or zoom, because locking a
 plan you have settled is about not disturbing it, not about not looking at it.
 
 ## What a step does
