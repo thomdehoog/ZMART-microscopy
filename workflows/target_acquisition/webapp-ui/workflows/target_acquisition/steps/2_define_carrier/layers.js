@@ -7,7 +7,23 @@
  * was assumed to be — and they belong to the step that places them.
  */
 export function carrierLayers(theRun) {
-  const { run, css, drawnIn, carrierWidget, activeMode, crosshair } = theRun;
+  const {
+    run, css, drawnIn, carrierWidget, activeMode, crosshair,
+    redraw, anchorsChanged,
+  } = theRun;
+
+  /* How near a press has to be to take hold of an anchor: a few pixels,
+     measured in what the picture is showing rather than in micrometres, so it
+     is the same reach however far out the picture is zoomed. */
+  const REACH_PX = 12;
+  const under = (drag) => {
+    let best = REACH_PX * drag.zoom, found = -1;
+    run.anchors.forEach((a, i) => {
+      const d = Math.hypot(a.x - drag.at.x, a.y - drag.at.y);
+      if (d < best) { best = d; found = i; }
+    });
+    return found;
+  };
   return {
     carrier: {
     key: "carrier",
@@ -37,6 +53,35 @@ export function carrierLayers(theRun) {
        questions, and the carrier drawn from them says the same thing. */
     shown: activeMode === "carrier" && run.anchors.length > 0,
     staysSolid: true,
+    /* An anchor is a statement about where the carrier is, and one made by hand
+       can be corrected by hand: the four are put down where the shape says and
+       moved from there to wherever the operator can actually see something to
+       drive to. Dragged rather than retyped, because where it goes is decided
+       by looking at the picture.
+
+       Claimed here, on the layer the marks are drawn on. Nothing outside this
+       file needed changing for it, which is the point of a layer owning what a
+       press on it means. */
+    claims: (drag) => {
+      if (drag.phase === "started") {
+        run.anchorHeld = under(drag);
+        return run.anchorHeld >= 0;
+      }
+      if (!(run.anchorHeld >= 0)) return false;
+      if (drag.phase === "moved") {
+        run.anchors = run.anchors.map((a, i) => (
+          i === run.anchorHeld ? { ...a, x: drag.at.x, y: drag.at.y } : a));
+        /* The mark moves and so does what it says: one already driven to keeps
+           its stage reading, so dragging it re-states where the carrier is and
+           the drawing follows. */
+        redraw();
+        anchorsChanged?.();
+        return true;
+      }
+      run.anchorHeld = -1;
+      anchorsChanged?.();
+      return true;
+    },
     paint: (frame) => {
       const ctx = frame.context;
       /* Anchors are placed in the carrier's own coordinates, like everything

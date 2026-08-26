@@ -939,6 +939,11 @@ let stageWatch = null;
      document, and getElementById cannot find what is not in it. */
   const focusControls = el("focus-controls");
 
+  /* How the carrier panel's list of anchors is redrawn. Set by the panel when
+     it mounts; called from here and from the picture, because a mark dragged
+     on the canvas has to move the numbers in the list with it. */
+  let redrawAnchors = () => {};
+
   function renderSide(show) {
     /* Only a panel with a channel down its side has anywhere to put a step's
        controls. A workflow whose panels have none gives its steps panels of
@@ -967,7 +972,7 @@ let stageWatch = null;
       /* The anchor points belong to the run, not to the panel: the canvas
          draws them and the press that places them is the canvas's. The panel
          is handed the few things it needs to show and change them. */
-      let redrawAnchors = () => {};
+      /* declared beside the run, so the picture can reach it too */
       widget.render(host, {
         config: state.carrier,
         locked,
@@ -1328,6 +1333,9 @@ let stageWatch = null;
     indexOfStep, sideWidget,
     step: () => step(state.activeIdx),
     anchorPressed: (...a) => anchorPressed(...a),
+    /* The list of anchors is drawn by the carrier panel, so a mark dragged on
+       the picture has to tell it the numbers moved. */
+    anchorsChanged: () => redrawAnchors(),
     detectPressed: (...a) => detectPressed(...a),
     density: (...a) => density(...a),
     trueZ: (...a) => trueZ(...a),

@@ -546,6 +546,17 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
 /* Inside a box now: the rows run to its edges and the box keeps the padding,
    so the list needs its own negative inset to sit flush against them. */
 .side-group-body .point-list { margin: 0 -14px; }
+/* The anchors are a fixed set of four, not a list that grows, so all four are
+   on screen at once: an operator working through them wants to see which are
+   left, and a scroll bar hides exactly that.
+ *
+ * Written to beat three rules at once, which is why it is this specific. The
+ * cap comes from `.side-group-body > .point-list`, and `flex: 1` and the
+ * scrolling come from `.point-list` below it — a plain `.anchor-list` lost to
+ * the first on specificity and to the others on order. */
+.side-group-body > .anchor-list {
+  max-height: none; overflow: visible; flex: none; min-height: 0;
+}
 .side-group-body .point-row { padding-left: 14px; padding-right: 14px; }
 .point-row {
   display: flex; align-items: center; width: 100%;
@@ -562,7 +573,6 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
 .point-drop { flex: none; margin-right: 6px; }
 .point-row:hover { background: var(--surface-3); }
 /* The anchor points, and the press that ties each to where the stage is. */
-.anchor-list { max-height: none; }
 .anchor-snap { flex: none; height: 22px; padding: 0 8px; font-size: 11px; margin-left: auto; }
 
 /* Moved since it was measured: the row stays, because the point is still on the

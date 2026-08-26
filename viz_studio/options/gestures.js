@@ -96,6 +96,11 @@ export function onlyPanAndZoom(element, { getView, setView }) {
         y: view.centre.y + (y - size.height / 2) * view.zoom,
       },
       screen: { x, y },
+      /* How much specimen one screen pixel covers, so whoever is offered the
+         drag can ask whether the press landed on something of theirs. A mark
+         is a few pixels wide however far out the picture is zoomed, and a
+         reach in micrometres alone is a reach that grows as you zoom out. */
+      zoom: view.zoom,
       /* The one modifier the canvas has not already decided about. Alt it
          keeps for panning and never passes on; shift it has no meaning for,
          so whoever takes the drag may give it one. */

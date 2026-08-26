@@ -31,7 +31,7 @@
  * meant for reading is a number nothing can use — which is how the overview
  * tile size came to be typed a second time somewhere else.
  */
-const acquisition = ({ objective, zoom = 1, pixelUm, framePx, channels, zStack }) => {
+const acquisition = ({ objective, pixelUm, framePx, channels, zStack }) => {
   const frameUm = Math.round(framePx * pixelUm);
   /* The line an operator checks a configuration by, in the order they check
      it: which lens, how much light it collects, what the scanner does on top,
@@ -43,14 +43,12 @@ const acquisition = ({ objective, zoom = 1, pixelUm, framePx, channels, zStack }
   const summary = [
     lens && `${lens}x`,
     na && `${na} NA${wet ? ` ${wet}` : ""}`,
-    `zoom ${zoom}`,
     `${pixelUm} µm/px`,
   ].filter(Boolean).join(" · ");
   return {
     summary, pixelUm, framePx, frameUm,
     detail: [
       ["Objective", objective],
-      ["Zoom", `${zoom}`],
       ["Pixel size", `${pixelUm.toFixed(2)} µm`],
       ["Frame", `${framePx} × ${framePx} px · ${frameUm} × ${frameUm} µm`],
       ...channels.map((c, i) => [`Channel ${i + 1}`, c]),

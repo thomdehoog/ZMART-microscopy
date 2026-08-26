@@ -374,7 +374,7 @@ export default {
     const { group: anchorBox, body: anchorCard } = sideGroup("Align carrier");
     designer.append(anchorBox);
 
-    const anchorAdd = el("button", "sf-flat", "Add anchor points");
+    const anchorAdd = el("button", "sf-flat", "Add alignment points");
     anchorAdd.type = "button";
     /* Put all four down at once. Where a carrier is registered from is a
        property of its shape, not something an operator should have to find by
@@ -394,6 +394,13 @@ export default {
 
     /** The points put on the carrier so far, in the order they were placed. */
     const drawAnchors = () => {
+      /* The set is complete or it is not there — where a carrier is aligned
+         from is a property of its shape. So once the four are down the button
+         stops offering to add and offers to lay them again, which is what an
+         operator wants after dragging three of them somewhere unhelpful. */
+      anchorAdd.textContent = anchors.list().length
+        ? "Reset alignment points"
+        : "Add alignment points";
       anchorAdd.classList.toggle("on", anchors.arming());
       anchorList.textContent = "";
       anchors.list().forEach((a, i) => {
@@ -414,16 +421,17 @@ export default {
         snap.type = "button";
         snap.addEventListener("click", () => anchors.snap(i));
         pick.append(snap);
-        const drop = el("button", "rec-drop point-drop", "✕");
-        drop.type = "button";
-        drop.title = "forget this anchor point";
-        drop.addEventListener("click", () => anchors.forget(i));
+        /* No way to forget one. The four are what this carrier is aligned by
+           and they come from its shape, so throwing one away leaves a carrier
+           aligned by three points and no way to get the fourth back short of
+           laying the set again. Moving one is the answer to a mark in an
+           awkward place. */
         /* Pointing at a row lights its mark on the picture. On hover because
            that is the gesture for "which one is this?", and it costs nothing
            to undo — the operator is looking, not choosing. */
         row.addEventListener("pointerenter", () => anchors.light(i));
         row.addEventListener("pointerleave", () => anchors.light(-1));
-        row.append(pick, drop);
+        row.append(pick);
         anchorList.append(row);
       });
     };

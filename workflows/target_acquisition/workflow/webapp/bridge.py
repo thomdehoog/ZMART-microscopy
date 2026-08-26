@@ -203,9 +203,11 @@ def _flatten(prefix: str, mapping: dict, rows: list) -> None:
 def _optics(observed: dict) -> str:
     """How the light path reads on one line: magnification, aperture, zoom.
 
-    What an operator checks a configuration by, in the order they check it —
-    which lens, how much light it collects, and what the scanner is doing on
-    top of that. A driver that does not report its optics gets nothing here
+    What an operator checks a configuration by: which lens, and how much light
+    it collects. The scanner's zoom was here too and came off again — it is one
+    more number on a line that is read at a glance, and the objective and the
+    pixel size already say what the picture will be. A driver that does not
+    report its optics gets nothing here
     and the caller falls back to naming the instrument, because a line of
     blanks says less than a serial number.
     """
@@ -218,8 +220,6 @@ def _optics(observed: dict) -> str:
         if lens.get("immersion"):
             na = f"{na} {lens['immersion']}"
         said.append(na)
-    if observed.get("zoom"):
-        said.append(f"zoom {observed['zoom']:g}")
     return " · ".join(said)
 
 
