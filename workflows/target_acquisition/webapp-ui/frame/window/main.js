@@ -4,6 +4,8 @@ import { renderRecordingSlot }
   from "../../workflows/target_acquisition/shared/recording-slot.js";
 import { renderSessionCard }
   from "../../workflows/target_acquisition/steps/1_connect/session-card.js";
+import { watchTheRun }
+  from "../../workflows/target_acquisition/steps/5_scan_the_overview/watching-the-run.js";
 import { blockedBecause, isReachable, panelsFor } from "../rules/steps.js";
 import { theDrawingAbove, whoIsAt } from "../../workflows/target_acquisition/shared/canvas/layers-above.js";
 import { assembleWorkflows } from "../rules/finding-workflows.js";
@@ -1291,244 +1293,17 @@ let stageWatch = null;
 
   const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
-  /* ============================================================
-     the overview being acquired — the real picture, when there is one
-     ============================================================ */
-  /* Everything else on this page is a rehearsal: a synthetic sample, a stage
-     that moves on a timer. This one thing is not. Given the address of a run
-     that a microscope is writing, the scan step draws that run — the same
-     OME-Zarr images `zmart_storage` writes, read as they are being written — so
-     the operator watches the overview appear tile by tile instead of watching a
-     counter.
-
-     It is asked for rather than assumed, with `?overview=<address of the run>`
-     on the page's own address, for two reasons. A page opened without one has no
-     run to watch and should not go looking for one; and the drawing engine is a
-     large thing to load, so it is fetched only when there is something for it to
-     draw. The demo run in `live_overview_demo.py` prints the address to use. */
-  /* Which acquisitions to draw, from the bottom up. `?overview=` is the one that
-     matters and is usually the only one; `?targets=` names a second acquisition
-     to be drawn over it.
-
-     Two of them is the shape a real run has. The writer keeps one image per
-     acquisition type, so a low-power map of the whole carrier is one image and
-     the high-power scan of the targets picked out of it is another. They cover
-     the same ground, so drawing one over the other shows where in the sample
-     each target came from — which is a question the operator asks constantly and
-     cannot answer from two pictures side by side. */
-  const ACQUISITIONS = (() => {
-    const asked = new URLSearchParams(location.search);
-    return [asked.get("overview"), asked.get("targets")].filter(Boolean);
-  })();
-  const RUN_TO_WATCH = ACQUISITIONS[0] ?? null;
-
-  /* Which engine to open the canvas columns with — `?engine=neuroglancer-under`.
-
-     It is there for asking a page one question about one engine: whether a page
-     delivered in a particular way can draw with it at all. That is what the
-     checks on the built page use it for. Left out, each column opens with the
-     engine it is named after. `shared/canvas/engines.js` says what engines there
-     are, and when one of them cannot be offered.
-
-     **It overrides every column at once, which now defeats the point of the
-     layout** — the columns exist to be seen against one another, and this makes
-     them all the same. It made sense when the page showed one picture at a time.
-     Whether it should be per column, or go, is on the list of things to decide;
-     it is left as it was rather than changed in passing, because both checks on
-     the built page stand on it. */
-  const ENGINE_ASKED_FOR = new URLSearchParams(location.search).get("engine");
-
-  /* What colour to paint the room the run declared, underneath the picture, as
-     six hex digits — `?ground=1e3a5f`. Left out, nothing is drawn underneath and
-     an unimaged part of the canvas is simply dark.
-
-     This is worth having because a run declares far more room than it images,
-     and painting that room says where the picture is going to appear. It is also
-     how the tests ask a question the design rests on: whether the parts of the
-     image nobody has imaged let what is beneath them show through. */
-  const GROUND = (() => {
-    const asked = new URLSearchParams(location.search).get("ground");
-    if (!asked || !/^[0-9a-f]{6}$/i.test(asked)) return null;
-    return [0, 2, 4].map((at) => parseInt(asked.slice(at, at + 2), 16));
-  })();
-
-  /* Whether the dark parts of the picture should be see-through — `?seethrough=1`.
-     Off unless asked for, because it makes a place that was imaged and came back
-     black look exactly like a place nobody has visited, and during a run those
-     are two different things worth telling apart. `steps/5_scan_the_overview/overview.js` explains
-     what it does and why it has to exist. */
-  const SEE_THROUGH = new URLSearchParams(location.search).get("seethrough") === "1";
-
-  /**
-   * The scan itself, drawn beneath the plan by one of the drawing engines.
-   *
-   * Pointed at with `?picture=<folder>`, which is a folder of small JPEGs and a
-   * `tiles.json` saying where each belongs — what
-   * `viz_studio/backend/jpeg_tiles.py` makes from the files a microscope
-   * exports. Nothing is opened unless the page was given one, because an engine
-   * is a large thing to fetch and a page nobody pointed at a scan has no use
-   * for it.
-   *
-   * ## The view is not shared, it is handed down
-   *
-   * The plan's canvas owns the gestures and this follows it. That is a
-   * deliberate choice between two arrangements that look equally reasonable:
-   * both surfaces could listen and each move the other, and then a drag would
-   * be answered twice and the two would argue about rounding for ever. One
-   * listens, one follows, and they cannot disagree.
-   *
-   * The two speak different dialects of the same thing, and converting between
-   * them is the whole of the wiring. The plan places a point in the carrier's
-   * frame at `x * scale + tx` browser pixels; the engine places it at
-   * `width/2 + (x - centre) / zoom`. Setting `zoom = 1 / scale` and the centre
-   * to whatever puts the middle of the box in the same place makes the two
-   * projections identical, which is why the scan sits under the plan rather
-   * than merely near it.
-   */
-  const thePicture = (() => {
-    const asked = new URLSearchParams(location.search).get("picture");
-    const host = el("picture-host");
-    let viewer = null;
-    let opening = false;
-
-    async function open() {
-      if (!asked || viewer || opening) return;
-      opening = true;
-      try {
-        const { openViewer } = await import("../../../../../viz_studio/options/jpeg-under/viewer.js");
-        viewer = await openViewer(host, {
-          acquisitions: [{ url: asked, name: asked.split("/").filter(Boolean).pop() ?? "scan" }],
-          /* The same colour the page paints, so the seam between the scan's own
-             background and the ground above it never shows. */
-          background: css("--screen"),
-        });
-        /* Left where a test can reach it. What matters about a picture is what
-           reached the screen, and a viewer that reports itself perfectly opened
-           while drawing nothing is the failure this project keeps meeting — so
-           the tests photograph the box, and this is only the way to ask it
-           where it is looking. */
-        window.__thePicture = viewer;
-        followTheStage();
-      } catch (e) {
-        console.error(`the scan at ${asked} could not be opened — ${e.message}`);
-      } finally {
-        opening = false;
-      }
-    }
-
-    /** Put the scan where the plan is looking, exactly. */
-    function followTheStage() {
-      if (!viewer) return;
-      const box = host.getBoundingClientRect();
-      const [ox, oy] = carrierOriginUm();
-      viewer.setView({
-        zoom: 1 / view.scale,
-        centre: {
-          x: (box.width / 2 - view.tx) / view.scale - ox,
-          y: (box.height / 2 - view.ty) / view.scale - oy,
-        },
-      });
-    }
-
-    return {
-      /** Whether this page was pointed at a scan at all. */
-      get asked() { return !!asked; },
-      open,
-      followTheStage,
-      /** A field has landed, so there may be more of the scan to read. */
-      mayHaveLanded() { viewer?.tilesMayHaveLanded?.(); },
-    };
-  })();
-
-  /* Opened at once when the page was pointed at a scan. It is not opened lazily
-     on the first draw, because the first draw is also the first thing an
-     operator sees, and a picture that arrives a moment after everything else
-     reads as the page having stumbled. */
-  thePicture.open();
-
-  const liveOverview = (() => {
-    const cv = el("overview-canvas");
-    const note = el("overview-note");
-    /* No plane control here any more: stepping through a stack is a thing to
-       do to a picture, and the viewer will bring its own. */
-    let picture = null;      // the drawing, once the run has been opened
-    let opening = false;
-    let showing = false;
-    let heartbeat = null;
-
-    const say = (text) => { note.hidden = !text; note.textContent = text ?? ""; };
-
-    /* Opened the first time it is needed, and kept afterwards. Opening reads the
-       run's description over the network, so it is not something to do on every
-       render — and re-opening would throw away where the operator had panned to. */
-    async function open() {
-      if (picture || opening) return;
-      opening = true;
-      try {
-        const { showOverview } = await import("../../workflows/target_acquisition/steps/5_scan_the_overview/overview.js");
-        picture = await showOverview(cv, {
-          stores: ACQUISITIONS, onStatus: say, ground: GROUND, seeThrough: SEE_THROUGH,
-        });
-        /* Left where a test can reach it. Nothing on the page reads this: what
-           matters about a picture is what is on the screen, and a viewer that
-           reports itself perfectly loaded while drawing nothing is exactly the
-           failure this is meant to catch. */
-        window.__liveOverview = picture;
-        picture.lookAgain();
-      } catch (e) {
-        say(`the run at ${RUN_TO_WATCH} could not be opened — ${e.message}`);
-      } finally {
-        opening = false;
-      }
-    }
-
-    return {
-      /** Whether this page was given a run to watch at all. */
-      watching: !!RUN_TO_WATCH,
-
-      get showing() { return showing; },
-
-      /* The acquired picture belongs to the step that acquires it. Standing on
-         the scan is what brings it up, and stepping away puts the plan back —
-         the plan is what the other steps are about. */
-      showFor(step, panel) {
-        const wants = !!RUN_TO_WATCH && panel === "canvas" && step.mode === "scan";
-        // Only the change is acted on. Framing the overview again on every
-        // render would undo the operator's panning a few times a second.
-        if (wants === showing) return;
-        showing = wants;
-        cv.hidden = !wants;
-        note.hidden = !wants || !note.textContent;
-        clearInterval(heartbeat);
-        heartbeat = null;
-        if (!wants) return;
-        open().then(() => picture?.fit());
-        /* And while it is on screen, it reads the run every second whether or
-           not anything has told it to.
-
-           This is not belt and braces. The scan on this page is a rehearsal that
-           finishes after a couple of seconds, while a real acquisition takes as
-           long as it takes — so the tiles that land after the rehearsal has
-           stopped reporting are exactly the ones a picture driven only by the
-           step would miss. A run stops changing when it is over, and reading a
-           finished run again simply draws the same picture, so the cost of this
-           when there is nothing new is a handful of requests a second. */
-        heartbeat = setInterval(() => picture?.tileMayHaveLanded(), 1500);
-      },
-
-      /** A position has been saved, so there may be more picture to read. */
-      tileMayHaveLanded() {
-        picture?.tileMayHaveLanded();
-        /* The scan drawn beneath the plan reads its own note again. Nothing on
-           disk announces a new field, so it is asked rather than told — the
-           same reason the overview above has to be asked. */
-        thePicture.mayHaveLanded();
-      },
-
-      /** Frame the whole overview again, for the Fit button. */
-      fit() { picture?.fit(); },
-    };
-  })();
+  /* The pictures of a real run — the overview being acquired, and the scan
+     beneath the plan. The scan step's, so they live with it; this page hands
+     them its canvases and its projection and asks them to draw. */
+  const { thePicture, liveOverview } = watchTheRun({
+    pictureHost: el("picture-host"),
+    overviewCanvas: el("overview-canvas"),
+    overviewNote: el("overview-note"),
+    view: () => view,
+    carrierOriginUm: () => carrierOriginUm(),
+    css,
+  });
 
   /* ============================================================
      the stage viewer — one projection, layers on top
