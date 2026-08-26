@@ -1052,6 +1052,11 @@ canvas.livecv[hidden] { display: none; }
    sat in an implicit second column and stood a gap in from everything else. */
 .rec-new.alone button.run { grid-column: 1; }
 
+/* The overlap: one number, in a lane the width of the pairs below it, so the
+   box lines up with the ones it governs rather than stretching across a row
+   built for two. */
+.sf-overlap { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
+
 /* The record is the button that chooses it: one press says what this step is
    taken with. It carries no frame of its own — the box around it is the
    object, and a border inside a border says the same thing twice. */

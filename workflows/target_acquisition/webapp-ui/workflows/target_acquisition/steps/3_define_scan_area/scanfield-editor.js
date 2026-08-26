@@ -383,6 +383,12 @@ export default {
       cols: 3,
       spacingX: 0,
       spacingY: 0,
+      /* How much of each frame the next one covers, as a percentage. Zero is
+         edge to edge. It is what an operator setting up a stitched overview
+         actually says — "twenty percent" — rather than a pitch in micrometres
+         that has to be worked out from the frame every time the objective
+         changes. */
+      overlap: 0,
     };
 
     /* Held by the step, not by the system: these are fields in carrier
@@ -392,11 +398,24 @@ export default {
     let clipboard = [];
 
     const frameUm = () => ed.preset?.frameUm ?? 1000;
-    // spacing is a floor, not a free number: positions may be spread apart,
-    // never overlapped, so the frame is what it cannot go below
+
+    /* The closest two positions may sit, which is a frame less whatever they
+       are asked to share.
+     *
+     * This used to be the frame itself, on the rule that no two positions of
+     * one grid should image the same ground. That rule is right by default and
+     * wrong as an absolute: a stitched overview needs its tiles to overlap, or
+     * there is nothing for the stitching to match on. So the floor moves with
+     * the overlap the operator asked for, and stays at one frame while they
+     * ask for none. */
+    const closest = () => frameUm() * (1 - Math.min(90, Math.max(0, ed.overlap)) / 100);
+
+    /* What the overlap comes to in micrometres, unless a spacing was typed in
+       by hand — in which case that is what the operator meant, floored at the
+       closest two frames may sit. */
     const pitch = () => [
-      Math.max(ed.spacingX || 0, frameUm()),
-      Math.max(ed.spacingY || 0, frameUm()),
+      Math.max(ed.spacingX || 0, closest()),
+      Math.max(ed.spacingY || 0, closest()),
     ];
 
     /* The carrier is the edge of what can be imaged, so it is the edge of what
@@ -510,7 +529,43 @@ export default {
     const { group: layoutBox, body: layout } = sideGroup("Create tilesets");
     controls.append(layoutBox);
 
-    layout.append(el("div", "side-sub", "Manually"));
+    /* How much of one frame the next covers. It leads the box because it is
+       the first thing decided about a tileset and the one that everything else
+       is laid against: change it and every grid below is laid again. */
+    layout.append(el("div", "side-sub", "Tile overlap"));
+    const overlapRow = el("div", "sf-overlap");
+    const overlapNum = el("div", "sf-num");
+    overlapNum.append(el("span", "sf-num-label", "OVERLAP (%)"));
+    const overlapIn = document.createElement("input");
+    overlapIn.type = "number";
+    overlapIn.min = "0";
+    overlapIn.max = "90";
+    overlapIn.step = "5";
+    overlapIn.id = "sf-overlap";
+    overlapIn.setAttribute("aria-label", "how much of each frame the next one covers");
+    const takeOverlap = (v) => {
+      ed.overlap = Math.min(90, Math.max(0, v));
+      /* The spacing is what the overlap comes to, so saying one says the
+         other. A pitch left over from a previous answer would quietly win. */
+      ed.spacingX = 0;
+      ed.spacingY = 0;
+    };
+    overlapIn.addEventListener("input", () => {
+      const v = parseFloat(overlapIn.value);
+      if (overlapIn.value === "" || Number.isNaN(v)) return;
+      takeOverlap(v);
+      sync({ keep: overlapIn });
+      if (ed.fields.some((f) => f.source === "grid")) layGrid();
+    });
+    overlapIn.addEventListener("blur", () => {
+      takeOverlap(parseFloat(overlapIn.value) || 0);
+      sync();
+    });
+    overlapNum.append(overlapIn);
+    overlapRow.append(overlapNum);
+    layout.append(overlapRow);
+
+    layout.append(el("div", "side-sub", "Place manually"));
     const toolRow = el("div", "sf-tools");
     for (const t of TOOLS) {
       const b = el("button", "sf-tool");
@@ -533,7 +588,7 @@ export default {
     }
     layout.append(toolRow);
 
-    layout.append(el("div", "side-sub", "Automatically"));
+    layout.append(el("div", "side-sub", "Place automatically"));
     /* The four numbers and the button that acts on them, side by side: the
        numbers are narrower than the box and the button takes the room they
        leave, standing as tall as both their rows. A button drawn across the
@@ -720,6 +775,9 @@ export default {
       for (const b of toolRow.children) b.classList.toggle("on", b.dataset.tool === ed.tool);
       for (const { i, get } of gridInputs) {
         if (i !== keep && document.activeElement !== i) i.value = String(Math.round(get()));
+      }
+      if (overlapIn !== keep && document.activeElement !== overlapIn) {
+        overlapIn.value = String(Math.round(ed.overlap));
       }
       applyGrid.disabled = locked;
       /* Nothing to lay fields under, nothing to lay them with: the ways of

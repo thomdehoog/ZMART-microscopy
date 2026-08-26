@@ -250,10 +250,17 @@ export function renderRecordingSlot(host, opts) {
       changed();
     },
   }));
-  body.append(box);
+  /* Where the bar goes depends on what it is.
+   *
+   * A bar that takes a name leads: it is the thing being filled in, and what
+   * has been taken stands under it. A bar that is only a button does not — the
+   * reading is the subject of the box and should be the first thing read, with
+   * the button under it as what to do about it. Put above, a button saying
+   * "Update" is offering to replace something the eye has not reached yet. */
+  if (!unnamed) body.append(box);
 
   host.append(group);
-  if (!slot.records.length) return;
+  if (!slot.records.length) { if (unnamed) body.append(box); return; }
 
   /* The readings, straight under the bar that took them. They carried a word
      of their own for a while — the way the two ways of laying tilesets do —
@@ -287,6 +294,7 @@ export function renderRecordingSlot(host, opts) {
     list.append(done);
   }
   body.append(list);
+  if (unnamed) body.append(box);
 }
 
 /* The carrier is what the canvas is drawing, so its controls sit beside the
