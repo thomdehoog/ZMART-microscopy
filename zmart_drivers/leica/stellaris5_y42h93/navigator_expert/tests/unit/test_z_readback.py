@@ -30,6 +30,15 @@ GALVO_STACK_LRP = TEST_DATA / "scanfield_parsing" / "_ScanningTemplate_Test1.lrp
 # Its Master ZPosition for "AF Job", in metres, as committed.
 GALVO_STACK_AF_JOB_Z_M = -3.6358824644270953e-09
 
+# Two experiments saved from the simulator on 2026-08-26 through the driver's
+# own save, with "AF Job 01" selected and its stack on one drive, then the
+# other. They pin what LAS X actually writes: the stacked drive's ZPosition
+# in metres, and ZUseMode 1 = z-galvo, 2 = z-wide (not 0 — the number the
+# experimental LRP editors assume).
+SAVED = TEST_DATA / "z_readback"
+SAVED_GALVO_STACK = SAVED / "_ScanningTemplate_galvo_stack.lrp"  # galvo at 0 µm
+SAVED_ZWIDE_STACK = SAVED / "_ScanningTemplate_zwide_stack.lrp"  # z-wide at 4999.5 µm
+
 
 def raw_settings(*, galvo_um, wide_um, stack_on=None):
     """Raw job settings in the shape ``get_job_settings`` returns.
@@ -99,6 +108,24 @@ class TestZFromLrp:
         data = parse_lrp(GALVO_STACK_LRP)
         with pytest.raises(RuntimeError, match="No such job"):
             z_um_from_lrp(data, "Not A Job", "z-galvo")
+
+    def test_saved_zwide_stack_reads_zwide_and_refuses_galvo(self):
+        # The one case the simulator had to teach: a z-wide stack is ZUseMode 2.
+        data = parse_lrp(SAVED_ZWIDE_STACK)
+        assert z_um_from_lrp(data, "AF Job 01", "z-wide") == pytest.approx(4999.5)
+        with pytest.raises(RuntimeError, match="z-galvo"):
+            z_um_from_lrp(data, "AF Job 01", "z-galvo")
+
+    def test_saved_galvo_stack_reads_galvo_and_refuses_zwide(self):
+        data = parse_lrp(SAVED_GALVO_STACK)
+        assert z_um_from_lrp(data, "AF Job 01", "z-galvo") == pytest.approx(0.0)
+        with pytest.raises(RuntimeError, match="z-wide"):
+            z_um_from_lrp(data, "AF Job 01", "z-wide")
+
+    def test_the_free_jobs_in_a_saved_file_still_name_their_drive(self):
+        # Overview/HiRes carry no stack; their ZPosition is for the galvo.
+        data = parse_lrp(SAVED_ZWIDE_STACK)
+        assert z_um_from_lrp(data, "Overview", "z-galvo") == pytest.approx(0.0)
 
 
 class TestReadZ:
