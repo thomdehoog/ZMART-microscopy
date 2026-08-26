@@ -503,7 +503,7 @@ export default {
       /* The set is complete or it is not there — where a carrier is aligned
          from is a property of its shape. So the one press lays them and takes
          them away again, and says which of the two it is about to do. */
-      anchorAdd.textContent = anchors.list().length ? "Remove points" : "Add points";
+      anchorAdd.textContent = anchors.list().length ? "Reset" : "Add points";
       /* The box says what is down while anything is, and what would be laid
          otherwise: a number left over from before would claim six where four
          are showing. */
