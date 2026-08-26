@@ -64,7 +64,14 @@ def settings_geometry_ready(settings):
 
 
 def z_um_from_settings(settings, key):
-    """Return one z drive's live position (µm) parsed from raw job settings.
+    """Return one z drive's ``zPosition`` (µm) parsed from job settings.
+
+    This is the job's stored z reference, not a stage readout: LAS X keeps
+    it current for a drive that carries no z-stack and stops refreshing it
+    for the drive the job's stack is on (measured 2026-08-25/26). Callers
+    that need a value for either drive go through
+    ``readers.z_readback.z_reading``, which makes that distinction; this
+    function is the settings-shape extractor it uses for the free drive.
 
     Canonical home of the z-readback shape quirk: LAS X sometimes nests the
     value as ``{'position': ...}`` rather than a bare float, so after
@@ -88,5 +95,5 @@ def z_um_from_settings(settings, key):
 
 
 def zwide_um_from_settings(settings):
-    """Return the live z-wide position (µm); see :func:`z_um_from_settings`."""
+    """Return the z-wide ``zPosition`` (µm); see :func:`z_um_from_settings`."""
     return z_um_from_settings(settings, "z-wide")
