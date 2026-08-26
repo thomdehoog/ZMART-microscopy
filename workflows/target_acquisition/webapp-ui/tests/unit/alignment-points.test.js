@@ -46,7 +46,7 @@ const by = (marks) => Object.fromEntries(marks.map((m) => [m.at, m]));
    NaN pitches and no areas at all. */
 const preset = (typeId, label) =>
   fromPreset(typeId, carrierType(typeId).presets.find((p) => p.label === label));
-const eightChambers = preset("chamber", "8-chamber (ibidi)");
+const eightChambers = preset("chamber", "8-well · ibidi µ-Slide");
 
 describe("the four alignment points", () => {
   it("sits each mark on the edge of its area, not inside it", () => {
@@ -114,7 +114,9 @@ describe("what the four leave behind", () => {
    instead of gathering them down one edge of it.
  */
 describe("as many points as were asked for", () => {
-  const sixWell = preset("wellplate", carrierType("wellplate").presets[0].label);
+  /* Named, not indexed: the catalogue is ordered by how many areas a carrier
+     has, so the first entry is whatever the smallest one happens to be. */
+  const sixWell = preset("wellplate", "6-well · Nunc Nunclon");
 
   it("lays four when nobody says otherwise", () => {
     expect(anchorsUm(sixWell)).toHaveLength(4);
