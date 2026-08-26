@@ -572,7 +572,30 @@ export default {
       sync();
     });
     overlapNum.append(overlapIn);
-    overlapRow.append(overlapNum);
+
+    /* Beside the overlap, because the two are the whole of what this box does
+       to a plan already laid: re-cover it, or take it away. Everything, not
+       the selection — Delete already removes what is picked, and a second way
+       to do that would be two answers to one question. */
+    const clearAll = el("button", "sf-flat sf-doing sf-clear-all", "Clear all");
+    clearAll.type = "button";
+    clearAll.title = "Remove every tile from the plan";
+    clearAll.addEventListener("click", () => {
+      if (locked || !ed.fields.length) return;
+      commit([]);
+      ed.selected = new Set();
+      sync();
+      redraw();
+    });
+
+    /* Both columns are headed, so neither control has to be recognised by its
+       face alone: the row reads as two things this box does rather than one
+       labelled field with a button left over beside it. */
+    overlapRow.append(
+      el("div", "side-sub", "Tile overlap (%)"),
+      el("div", "side-sub", "Placed tiles"),
+      overlapNum, clearAll,
+    );
 
     layout.append(el("div", "side-sub", "Place tiles manually"));
     const toolRow = el("div", "sf-tools");
@@ -733,7 +756,7 @@ export default {
        than before: the overlap every tileset is re-covered at, and under it
        the shortcuts, folded away. */
     const { group: placementBox, body: placement } = sideGroup("Tile placement");
-    placement.append(el("div", "side-sub", "Tile overlap (%)"), overlapRow, keysBox);
+    placement.append(overlapRow, keysBox);
     controls.append(placementBox);
 
     const readout = el("div", "sf-readout");
@@ -793,6 +816,7 @@ export default {
         overlapIn.value = String(Math.round(ed.overlap));
       }
       applyGrid.disabled = locked;
+      clearAll.disabled = locked || !ed.fields.length;
       /* Nothing to lay fields under, nothing to lay them with: the ways of
          making them are not there until a preset is, and go again with the
          last one forgotten. How they are placed goes with them — an overlap
