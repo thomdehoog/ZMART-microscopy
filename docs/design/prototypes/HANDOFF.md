@@ -376,9 +376,10 @@ nothing up (`nothingWaitsOnThis`) until registering the mounted carrier
 against the stage actually lives there. There is no presets step, no
 Disconnect step, no Save-the-run step, and no Restart button: each preset is
 recorded in the step that uses it, the session card's own Disconnect ends a
-run, and choosing a workflow (re)starts one. Two other workflows exist to
-prove the frame is not built around one: `overview_only` (6 steps) and
-`focus_check` (6).
+run, and choosing a workflow (re)starts one. The chooser offers the run
+three ways — prototype, mock, real — and nothing else; the short runs and
+the canvas demonstration that once proved the frame generic were removed on
+2026-08-26.
 
 ## Decisions already settled — do not relitigate without asking
 

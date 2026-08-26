@@ -164,8 +164,7 @@ happen on the stage and the picture of the stage is enough. The canvas itself
 appears at the step that first asks for it — the carrier, in every workflow that
 drives a microscope — and stays for the rest of the run, because from that point
 on everything happens on a stage. A workflow where nothing asks for the canvas
-never shows one: see the canvas demonstration, whose whole content is a picture
-to look at.
+never shows one (the canvas demonstration, since removed, was one).
 Which modules a step wants is the step's business; how they are laid out is the
 shell's.
 

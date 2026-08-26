@@ -166,24 +166,18 @@ describe("panels follow the step", () => {
   });
 
   it("puts the canvas on stage from the first step of every run", () => {
-    for (const wf of ["target_acquisition_prototype", "overview_only", "focus_surface_check"]) {
+    for (const wf of ["target_acquisition_prototype", "target_acquisition_mock", "target_acquisition_real"]) {
       expect(panelsOf(wf).connect).toContain("canvas");
       expect(panelsOf(wf).carrier).toContain("canvas");
     }
   });
 
-  it("gives the whole window to a step in a workflow that never asks for the canvas", () => {
-    expect(panelsOf("canvas_demonstration")).toEqual({
-      "canvas-picture": ["viewer-canvas"],
-    });
-  });
 });
 
 describe("workflows compose the catalogue rather than restating it", () => {
-  it("offers six — the run three ways, the two short runs, and the bench", () => {
+  it("offers the run three ways, and nothing else", () => {
     expect(Object.keys(WORKFLOWS)).toEqual([
       "target_acquisition_prototype",
-      "canvas_demonstration", "focus_surface_check", "overview_only",
       "target_acquisition_mock", "target_acquisition_real",
     ]);
   });
@@ -199,8 +193,6 @@ describe("workflows compose the catalogue rather than restating it", () => {
       .toEqual({ kind: "live", instrument: "mock" });
     expect(WORKFLOWS.target_acquisition_real.backend)
       .toEqual({ kind: "live", instrument: "leica" });
-    // and the workflows that declare nothing rehearse
-    expect(WORKFLOWS.overview_only.backend).toEqual({ kind: "pretend" });
   });
 
   /* The order an operator walks, spelled out. If a step moves, is dropped, or
@@ -213,53 +205,28 @@ describe("workflows compose the catalogue rather than restating it", () => {
     ]);
   });
 
-  it("walks the shorter runs in this order", () => {
-    expect(ids("overview_only")).toEqual([
-      "connect", "carrier", "scanfields", "scan", "save"]);
-    expect(ids("focus_surface_check")).toEqual([
-      "connect", "carrier", "scanfields", "focus", "save"]);
-  });
 
   it("names every workflow in plain words for the chooser", () => {
     expect(Object.values(WORKFLOWS).map((w) => w.name)).toEqual([
       "Target acquisition prototype",
-      "Canvas demonstration", "Focus surface check", "Overview only",
       "Target acquisition mock", "Target acquisition real"]);
     for (const w of Object.values(WORKFLOWS)) expect(w.blurb).toBeTruthy();
   });
 
   it("shares a step's wording, so a fix reaches every workflow at once", () => {
-    for (const wf of ["target_acquisition_prototype", "overview_only", "focus_surface_check"]) {
+    for (const wf of ["target_acquisition_prototype", "target_acquisition_mock", "target_acquisition_real"]) {
       expect(stepOf(wf, "connect").why).toBe(connect.why);
       expect(stepOf(wf, "scanfields").why).toBe(initialScanfields.why);
     }
   });
 
-  /* A workflow may explain a shared step in its own terms — a calibration run
-     is not saving what an imaging run saves — but it may not quietly change
-     what the step does while it is at it. */
-  it("lets a workflow reword a step without changing what it does", () => {
-    const here = stepOf("target_acquisition_prototype", "scan");
-    const there = stepOf("overview_only", "scan");
-    expect(there.why).not.toBe(here.why);
-    expect(there.mode).toBe(here.mode);
-    expect(there.btn).toBe(here.btn);
-    expect(there.panels).toEqual(here.panels);
-    expect(there.mode).toBe(scanOverview.mode);
-  });
 
-  it("overview only never asks for an analysis panel", () => {
-    expect(ids("overview_only")).not.toContain("select");
-    for (const s of WORKFLOWS.overview_only.steps) {
-      expect(s.panels).not.toContain("analysis");
-    }
-  });
 
   it("every step names panels the page can supply", () => {
     /* Every working step is a channel beside the canvas now, not a panel —
        a step that named one of the old panels here would ask for a tab that
        is gone. */
-    const known = new Set(["canvas", "viewer-canvas"]);
+    const known = new Set(["canvas"]);
     for (const wf of Object.keys(WORKFLOWS)) {
       for (const s of WORKFLOWS[wf].steps) {
         for (const p of s.panels ?? []) expect(known.has(p), `${s.id} -> ${p}`).toBe(true);
@@ -296,50 +263,10 @@ describe("workflows compose the catalogue rather than restating it", () => {
   });
 });
 
-/* The canvas is being built once and put into workflows afterwards, so the first
-   place it goes is a workflow of its own with nothing else in it. That makes it
-   something an operator can open and try, in the real window, without an
-   acquisition happening around it — and it is deliberately kept out of target
-   acquisition, where every question about the picture would become a question
-   about the run.
-
-   It has two steps, one per drawing engine, and the point of nearly everything
-   below is that neither of them can affect the other. */
-describe("the canvas demonstration", () => {
-  const steps = WORKFLOWS.canvas_demonstration.steps;
-
-  /* One step, not one per engine. The engines are compared inside it, by the row
-     of buttons above the picture, which keeps the view where it is as the engine
-     changes — a closer comparison than two pictures that were never guaranteed to
-     be looking at the same place. */
-  it("is one step, with the engines compared inside it", () => {
-    expect(ids("canvas_demonstration")).toEqual(["canvas-picture"]);
-  });
-
-  it("wants a picture and nothing beside it", () => {
-    expect(panelsFor(steps, 0)).toEqual(["viewer-canvas"]);
-  });
-
-  it("has nothing to run, because standing on a step is the whole of it", () => {
-    for (const s of steps) {
-      expect(s.btn).toBeUndefined();
-      expect(s.mode).toBeUndefined();
-    }
-  });
-
-  /* The one that matters most. Neither step produces anything, so neither can be
-     waiting on the other, and the operator may open either one first. Without
-     this the second step would be greyed out for ever, because the first can
-     never be marked as finished — there is nothing to finish. */
-  it("lets the operator open it having done nothing", () => {
-    expect(isReachable(steps, new Set(), 0)).toBe(true);
-  });
-
-  it("says in plain words that it is a demonstration rather than a run", () => {
-    expect(WORKFLOWS.canvas_demonstration.name).toMatch(/demonstration/i);
-    expect(WORKFLOWS.canvas_demonstration.blurb).toMatch(/not a run/i);
-  });
-
+/* What the real run must never carry: the bench (the canvas demonstration,
+   since removed) had steps that produced nothing and could be walked past;
+   a run is the opposite, every step feeding the next. */
+describe("the real run", () => {
   /* A name has to fit the rail, which is a fixed column, and no workflow name
      may be longer than the longest one this page has always carried. That is
      not fussiness about tidiness: the chooser used to take whatever width its
@@ -351,14 +278,6 @@ describe("the canvas demonstration", () => {
       expect(w.name.length, `"${w.name}" is too long for the chooser`)
         .toBeLessThanOrEqual(28);
     }
-  });
-
-  /* The step names no engine, and that is the point of there being one of them.
-     A step called after an engine is a promise that the engine is what the step
-     is for; here the step is the picture, and which engine draws it is a button
-     above it that can be changed without losing the view. */
-  it("names no engine, because the engine is chosen inside the step", () => {
-    expect(steps[0].title).not.toMatch(/viv|neuroglancer/i);
   });
 
   it("leaves target acquisition exactly as it was", () => {
