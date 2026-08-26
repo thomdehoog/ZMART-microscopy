@@ -27,6 +27,7 @@ import {
 } from "../../workflows/target_acquisition/microscope/recordings.js";
 import carrierWidget from "../../workflows/target_acquisition/steps/2_define_carrier/widget.js";
 import scanfieldsWidget, { presetInk } from "../../workflows/target_acquisition/steps/3_define_scan_area/widget.js";
+import galleryWidget from "../../workflows/target_acquisition/steps/8_acquire_targets/widget.js";
 /* The rehearsal's own maths — the deterministic random stream, the autofocus
    sweep with its two metrics and its specks of debris, and the focus-surface
    fitting — is imported rather than written here, so the unit tests and the
@@ -612,7 +613,7 @@ let stageWatch = null;
         const picked = [...state.gated].slice(0, 12);
         state.acquired = picked;
         state.notes[s.id] = `${picked.length} pairs acquired`;
-        buildGallery();
+        galleryPanel?.rebuild();
       }
 
       /* Finishing a run never moves the operator. The gallery is still being
@@ -1020,11 +1021,16 @@ let stageWatch = null;
      run does when the slot's contents change; `activated` when the contents
      stand and another record becomes the one in use — a lighter answer,
      because nothing has to be built again to say so. */
-  function renderRecordingSlot(hostId, opts) {
+  function renderRecordingSlot(hostOrId, opts) {
     const {
       label, key, changed, activated = changed, locked = false, ink = null,
     } = opts;
-    const host = el(hostId);
+    /* An id for the slots the setup panel owns, the element itself for a
+       widget that built its own — one renderer either way. The id is still
+       the key a half-typed name is remembered under, so the element has to
+       carry one. */
+    const host = typeof hostOrId === "string" ? el(hostOrId) : hostOrId;
+    const hostId = typeof hostOrId === "string" ? hostOrId : hostOrId?.id;
     if (!host) return;
     host.textContent = "";
     // two boxes in here, standing apart the way the boxes around them do
@@ -1318,30 +1324,25 @@ let stageWatch = null;
     id: "connect", label: "Connect", mount: () => renderSetup(),
   };
 
-  /* The gallery too: the acquired targets ring on the canvas, and the channel
-     holds the acquisition type being recorded, the pairs, and the verdicts
-     being collected on them. */
-  const galleryWidget = {
-    id: "acquire",
-    label: "Acquire Targets",
-    mount(host) {
-      galleryControls.hidden = false;
-      host.append(galleryControls);
-      renderRecordingSlot("target-type", {
-        /* Just the thing, not the gesture: the heading already says "Record",
-           so a label that says it too reads "Record record …" on screen. */
-        label: "Acquisition type", key: "targetType",
-        changed: () => renderActionBar(),
-      });
-      buildGallery();
-    },
+  /* The gallery is the acquire step's own channel, built beside its step.
+     What it shows and what it changes are handed to it; the handle it gives
+     back is how the step's run fills the cards in once there are targets. */
+  let galleryPanel = null;
+  const galleryMount = (host) => {
+    galleryPanel = galleryWidget.mount(host, {
+      acquired: () => state.acquired,
+      verdicts: () => state.verdicts,
+      cellById: (id) => sample.cells[id - 1],
+      recordingSlot: (into, opts) => renderRecordingSlot(into, opts),
+      changed: () => renderActionBar(),
+    });
   };
 
   const SIDE_WIDGETS = {
     connect: connectWidget,
     carrier: carrierWidget, scanfields: scanfieldsWidget,
     focus: focusWidget, scan: scanWidget, detect: detectWidget, select: analysisWidget,
-    acquire: galleryWidget,
+    acquire: { id: galleryWidget.id, label: galleryWidget.label, mount: galleryMount },
   };
 
   const sideWidget = () => SIDE_WIDGETS[step(state.activeIdx).id] ?? null;
@@ -1369,7 +1370,6 @@ let stageWatch = null;
   const focusControls = el("focus-controls");
   const detectControls = el("detect-controls");
   const analysisControls = el("analysis-controls");
-  const galleryControls = el("gallery-controls");
 
   function renderSide(show) {
     const host = el("canvas-side");
@@ -4378,99 +4378,6 @@ let stageWatch = null;
     renderGateReadout();
     drawScatter(); drawStage(); renderTabs(); renderActionBar();
   });
-
-  /* ============================================================
-     the gallery — acquired overview / target pairs
-     ============================================================ */
-  function cropCanvas(cell, zoom, seed) {
-    const cv = document.createElement("canvas");
-    const S = 132;
-    cv.width = S; cv.height = S;
-    const ctx = cv.getContext("2d");
-    const r = makeRng(seed);
-    ctx.fillStyle = "#05090e";
-    ctx.fillRect(0, 0, S, S);
-    const blobN = zoom > 1 ? 5 : 14;
-    for (let i = 0; i < blobN; i++) {
-      const bx = S * r(), by = S * r();
-      const br = (zoom > 1 ? 26 : 9) * (0.5 + r());
-      const g = ctx.createRadialGradient(bx, by, 0, bx, by, br);
-      g.addColorStop(0, `rgba(34,211,238,${0.30 + 0.35 * r()})`);
-      g.addColorStop(1, "rgba(34,211,238,0)");
-      ctx.fillStyle = g;
-      ctx.beginPath(); ctx.arc(bx, by, br, 0, Math.PI * 2); ctx.fill();
-    }
-    // the cell itself, centred
-    const cr = zoom > 1 ? 34 : 7;
-    const g2 = ctx.createRadialGradient(S / 2, S / 2, 0, S / 2, S / 2, cr);
-    g2.addColorStop(0, `rgba(245,158,11,${0.55 + 0.4 * cell.intensity})`);
-    g2.addColorStop(0.7, "rgba(245,158,11,0.22)");
-    g2.addColorStop(1, "rgba(245,158,11,0)");
-    ctx.fillStyle = g2;
-    ctx.beginPath(); ctx.arc(S / 2, S / 2, cr, 0, Math.PI * 2); ctx.fill();
-    ctx.strokeStyle = "rgba(22,163,74,0.85)";
-    ctx.lineWidth = zoom > 1 ? 2 : 1.5;
-    ctx.beginPath(); ctx.arc(S / 2, S / 2, cr * 0.75, 0, Math.PI * 2); ctx.stroke();
-    return cv;
-  }
-
-  /* In the document only while the step is standing, like every channel;
-     mounting rebuilds from the run's state, so nothing stale survives. */
-  const galleryMounted = () => galleryControls.isConnected;
-
-  function buildGallery() {
-    if (!galleryMounted()) return;
-    const host = el("pairs");
-    host.textContent = "";
-    state.acquired.forEach((id, i) => {
-      const cell = sample.cells[id - 1];
-      const card = document.createElement("div");
-      card.className = "pair";
-
-      const imgs = document.createElement("div");
-      imgs.className = "imgs";
-      imgs.append(cropCanvas(cell, 1, 7000 + i), cropCanvas(cell, 3, 9100 + i));
-      card.append(imgs);
-
-      const meta = document.createElement("div");
-      meta.className = "meta";
-      meta.append(document.createTextNode(
-        `#${cell.id} · ${(cell.x / 1000).toFixed(2)}, ${(cell.y / 1000).toFixed(2)} mm`));
-
-      const verdict = document.createElement("div");
-      verdict.className = "verdict";
-      for (const [kind, glyph] of [["good", "✓"], ["bad", "✗"]]) {
-        const b = document.createElement("button");
-        b.type = "button";
-        b.className = `pick-${kind}`;
-        b.textContent = glyph;
-        b.setAttribute("aria-pressed", "false");
-        b.setAttribute("aria-label", `mark cell ${cell.id} ${kind}`);
-        b.addEventListener("click", () => {
-          state.verdicts[cell.id] = state.verdicts[cell.id] === kind ? null : kind;
-          for (const sib of verdict.querySelectorAll("button")) {
-            sib.setAttribute("aria-pressed",
-              String(sib.classList.contains(`pick-${state.verdicts[cell.id]}`)));
-          }
-          updateGalleryReadout();
-        });
-        verdict.append(b);
-      }
-      meta.append(verdict);
-      card.append(meta);
-      host.append(card);
-    });
-    updateGalleryReadout();
-  }
-
-  function updateGalleryReadout() {
-    if (!galleryMounted()) return;
-    const total = state.acquired.length;
-    const marked = state.acquired.filter((id) => state.verdicts[id]).length;
-    const good = state.acquired.filter((id) => state.verdicts[id] === "good").length;
-    el("gallery-readout").textContent =
-      total ? `${total} pairs · ${marked} marked · ${good} good` : "—";
-  }
 
   /* ============================================================
      boot
