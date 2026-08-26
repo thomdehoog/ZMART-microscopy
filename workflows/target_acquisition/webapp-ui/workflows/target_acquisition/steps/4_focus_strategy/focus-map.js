@@ -26,6 +26,10 @@ import {
   affineSurface, fitSurface, residualsUm, surfaceZ,
 } from "../../microscope/pretend-sample/surface.js";
 import { sharePoints } from "../../shared/scanfields.js";
+import { nearestArea } from "../../shared/carriers.js";
+
+/* Positions are in micrometres and a carrier is described in millimetres. */
+const MM_UM = 1000;
 
 /**
  * Open the focus map on the page.
@@ -127,6 +131,24 @@ const inScanOrder = (tiles) => [...tiles].sort((a, b) => (a.y - b.y) || (a.x - b
    area are that area's — because counting per field would be counting per
    frame, and a point asked for per tileset would land in every frame of the
    plate. */
+/* Or by the area of the carrier the positions stand in — the well or chamber,
+   whichever tilesets they came from. Several drawn tilesets can share one well,
+   and a set of points that measures each of them separately measures the same
+   piece of glass several times over; a set that measures the well answers the
+   question a well asks. A grid laid over a plate already lays one tileset per
+   area, so for grid positions the two groupings agree, which is the point:
+   drawing by hand should be able to ask for the same answer. */
+function tilesByArea() {
+  const byArea = new Map();
+  for (const t of run.plan) {
+    const a = nearestArea(run.carrier, t.x / MM_UM, t.y / MM_UM);
+    const key = `${a.row}.${a.col}`;
+    if (!byArea.has(key)) byArea.set(key, []);
+    byArea.get(key).push(t);
+  }
+  return [...byArea.values()].map(inScanOrder);
+}
+
 function tilesByField() {
   const byTileset = new Map();
   for (const t of run.plan) {
@@ -137,14 +159,21 @@ function tilesByField() {
   return [...byTileset.values()].map(inScanOrder);
 }
 
-
-
 const perField = (f) => Math.max(1, Math.round(f.perField) || 1);
 
-function patternFocusPoints() {
+/**
+ * A set of points, so many to each group of positions.
+ *
+ * `over` says what a group is: the tileset somebody drew, or the area of the
+ * carrier it was drawn in. Everything else is the same either way — the ground
+ * a group covers is shared out by `sharePoints`, which settles the points
+ * against the sample rather than against the frames that will image it.
+ */
+function patternFocusPoints(over = "tileset") {
   if (!run.plan.length) return [];
   const n = perField(run.focus);
-  return tilesByField()
+  const groups = over === "area" ? tilesByArea() : tilesByField();
+  return groups
     .flatMap((held) => sharePoints(held, n))
     .map((t) => ({ x: t.x, y: t.y, z: null }));
 }
@@ -635,6 +664,7 @@ function renderFocusBar() {
   count.disabled = frozen;
 
   el("fp-place").disabled = frozen || !run.plan.length;
+  el("fp-place-area").disabled = frozen || !run.plan.length;
   el("fp-clear").disabled = frozen || !f.points.length;
   /* The traces are what the run came back with, so the box that reads them
      is not there until it has. What the map came to is in the rows: a height
@@ -1083,17 +1113,19 @@ el("fp-pick").addEventListener("click", () => {
   f.placing = !f.placing;
   renderPointList();
 });
-el("fp-place").addEventListener("click", () => {
+/* A fresh set, not more on top: the points are settled against each other —
+   every one stands for its own share of the group — so laying a second set
+   through the first would leave neither arrangement true. What is kept by hand
+   is kept by not pressing either of these. */
+const layPoints = (over) => {
   const f = run.focus;
-  /* A fresh set, not more on top: the points are settled against each other
-     — every one stands for its own share of the tileset — so laying a second
-     set through the first would leave neither arrangement true. What is kept
-     by hand is kept by not pressing this. */
-  f.points = patternFocusPoints();
+  f.points = patternFocusPoints(over);
   picked().clear();
   f.selected = 0;
   stage.draw(); renderPointList(); drawTrace(); renderActionBar();
-});
+};
+el("fp-place").addEventListener("click", () => layPoints("tileset"));
+el("fp-place-area").addEventListener("click", () => layPoints("area"));
 /* Delete takes away whichever point is chosen — the one the canvas is
    drawing heavier and the list has highlighted. The same key does the same
    thing to a scan field one step earlier, and a map is edited the way a plan

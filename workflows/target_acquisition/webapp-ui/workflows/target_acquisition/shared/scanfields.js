@@ -319,7 +319,40 @@ export function sharePoints(tiles, n) {
   const tries = [...new Set([likely - 1, likely, likely + 1])]
     .filter((rows) => rows >= 1 && rows <= want)
     .map((rows) => settle(ground, seedCells(ground, want, rows)));
-  return tries.reduce((a, b) => (spreadCost(ground, b) < spreadCost(ground, a) ? b : a));
+  const best = tries.reduce((a, b) => (spreadCost(ground, b) < spreadCost(ground, a) ? b : a));
+  return best.map((p) => (imagedAt(tiles, p) ? p : nearestPlace(ground, p)));
+}
+
+/**
+ * Is this spot inside a frame the run will image?
+ *
+ * A point that shares out ground it does not stand on is not a measurement: the
+ * stage is driven there and a height is read off whatever is under the
+ * objective, so it has to be somewhere the run actually looks.
+ */
+function imagedAt(tiles, p) {
+  return tiles.some((t) => {
+    const half = (t.frameUm ?? 0) / 2;
+    return half > 0 && Math.abs(t.x - p.x) <= half && Math.abs(t.y - p.y) <= half;
+  });
+}
+
+/**
+ * The nearest place on the ground, for a point that came to rest off it.
+ *
+ * Settling shares out the ground the frames cover, and the middle of a share is
+ * not always on it: a share straddling two tilesets in one well has its centroid
+ * in the gap between them, where there is no frame and nothing to focus on. The
+ * ground is made of points inside frames, so the nearest of them is both the
+ * closest the settled answer can be honoured and somewhere the run will image.
+ */
+function nearestPlace(ground, p) {
+  let best = ground[0], bestD = Infinity;
+  for (const g of ground) {
+    const d = (g.x - p.x) ** 2 + (g.y - p.y) ** 2;
+    if (d < bestD) { bestD = d; best = g; }
+  }
+  return { x: best.x, y: best.y };
 }
 
 /** How far a set of places reaches, across and down. */

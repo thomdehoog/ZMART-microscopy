@@ -424,3 +424,41 @@ describe("the points settle into the shape, not into its bounding box", () => {
     }
   });
 });
+
+/* Two tilesets in one well, and a set of points shared over both at once.
+ *
+ * This is what "in each area" asks for: the tilesets standing in one well are
+ * one piece of ground, the way the tiles inside a tileset are. The ground is
+ * not continuous though — there is glass between the two — and the middle of a
+ * share that straddles them falls in that gap, where no frame is and nothing
+ * can be focused on. A point off the covered ground is not a measurement: the
+ * stage is driven there and a height is read off whatever is underneath.
+ */
+describe("points shared over tilesets that do not touch", () => {
+  const FRAME = 500;
+  const block = (x0, y0) => [0, 1].flatMap((r) => [0, 1]
+    .map((c) => ({ x: x0 + c * FRAME, y: y0 + r * FRAME, frameUm: FRAME })));
+  /* Two two-by-two blocks with a wide gap between them, as two tilesets drawn
+     at either end of the same well. */
+  const twoBlocks = [...block(0, 0), ...block(9000, 0)];
+
+  const inAFrame = (tiles, p) => tiles.some((t) =>
+    Math.abs(t.x - p.x) <= t.frameUm / 2 && Math.abs(t.y - p.y) <= t.frameUm / 2);
+
+  it("puts a single point on one of the blocks, not in the gap", () => {
+    const [p] = sharePoints(twoBlocks, 1);
+    expect(inAFrame(twoBlocks, p)).toBe(true);
+  });
+
+  it.each([1, 2, 3, 5, 7])("keeps all %i inside a frame", (n) => {
+    for (const p of sharePoints(twoBlocks, n)) {
+      expect(inAFrame(twoBlocks, p)).toBe(true);
+    }
+  });
+
+  it("still spreads them over both blocks rather than crowding one", () => {
+    const left = sharePoints(twoBlocks, 4).filter((p) => p.x < 4500).length;
+    expect(left).toBeGreaterThan(0);
+    expect(left).toBeLessThan(4);
+  });
+});
