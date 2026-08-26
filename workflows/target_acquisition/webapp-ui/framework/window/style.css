@@ -1054,7 +1054,8 @@ canvas.livecv[hidden] { display: none; }
 
 /* The overlap: one number, in a lane the width of the pairs below it, so the
    box lines up with the ones it governs rather than stretching across a row
-   built for two. */
+   built for two. It carries no label of its own — the heading above says what
+   it is, and a caption repeating that is a word the eye has to read twice. */
 .sf-overlap { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
 
 /* The record is the button that chooses it: one press says what this step is
