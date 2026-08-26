@@ -1018,6 +1018,13 @@ let stageWatch = null;
         },
         onChange: (next) => {
           state.carrier = next;
+          /* The alignment goes with the old carrier. Where the four points sit
+             comes from the shape, and what they were snapped to was measured
+             against that shape — a plate 75 mm wide aligned by its own borders
+             says nothing once it is 128 mm wide, and keeping the marks would
+             leave the drawing standing somewhere nobody measured. */
+          state.anchors = [];
+          redrawAnchors();
           // the note in the rail says what the carrier now is
           carrierSettled();
           // the tissue is spread over the plate, so a different plate is a
