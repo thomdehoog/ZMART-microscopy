@@ -73,46 +73,22 @@ const PATCHES = [
     // flattens the worker bundle, so a comment marker is present in the module
     // and absent in the bundle built from it. The line's absence is the mark.
     gone: `this.rpc.invoke("Chunk.update", { source: source.rpcId });`,
-    anchor: `  invalidateSourceCache(source) {
-    for (const chunk of source.chunks.values()) {
-      switch (chunk.state) {
-        case ChunkState.DOWNLOADING:
-          cancelChunkDownload(chunk);
-          break;
-        case ChunkState.SYSTEM_MEMORY_WORKER:
-          chunk.freeSystemMemory();
-          break;
-      }
-      this.updateChunkState(chunk, ChunkState.QUEUED);
-    }
-    this.rpc.invoke("Chunk.update", { source: source.rpcId });
-    this.scheduleUpdate();
-  }`,
-    replacement: `  invalidateSourceCache(source) {
-    // A refresh replaces pixels; it must not remove them.
+    // The line is unique in both the module and the compiled worker bundle,
+    // so it is its own anchor. Anchoring on the whole function instead made
+    // the patch look far larger than it is, and would drift the day anything
+    // unrelated inside that function changed.
+    anchor: `    this.rpc.invoke("Chunk.update", { source: source.rpcId });
+`,
+    replacement: `    // A refresh replaces pixels; it must not remove them.
     //
-    // The loop below is unchanged: every chunk goes back on the queue and is
-    // downloaded again. What is gone is the line that followed it: a
-    // key-less Chunk.update naming only the source, which tells the page to
-    // drop its whole copy. The page dropped it immediately and fresh bytes
-    // arrived
-    // milliseconds later, so between the two there was nothing to draw and
-    // the picture flashed. Each chunk's own update still arrives as it
-    // downloads, which is what makes the page's copy fresh; the whole-copy
-    // drop only ever made it briefly absent.
-    for (const chunk of source.chunks.values()) {
-      switch (chunk.state) {
-        case ChunkState.DOWNLOADING:
-          cancelChunkDownload(chunk);
-          break;
-        case ChunkState.SYSTEM_MEMORY_WORKER:
-          chunk.freeSystemMemory();
-          break;
-      }
-      this.updateChunkState(chunk, ChunkState.QUEUED);
-    }
-    this.scheduleUpdate();
-  }`,
+    // Removed here: a key-less Chunk.update naming only the source, which
+    // told the page to drop its whole copy. The page dropped it at once and
+    // the fresh bytes arrived milliseconds later, so between the two there
+    // was nothing to draw and the picture flashed -- on a static dataset
+    // never, on a live acquisition once per commit. Each chunk's own update
+    // still arrives as it downloads, which is what makes the page's copy
+    // fresh; the whole-copy drop only ever made it briefly absent.
+`,
   },
   {
     file: join(lib, "chunk_manager", "frontend.js"),
