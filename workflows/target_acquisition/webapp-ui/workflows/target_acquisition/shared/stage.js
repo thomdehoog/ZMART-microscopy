@@ -65,6 +65,11 @@ const theCanvas = putTheCanvasIn({
      step, in a surface of its own below this one. */
   acquisitions: [],
   engine: "jpeg-under",
+  /* Nothing of its own behind the layers, because the scan the run is writing
+     is drawn beneath this canvas by the scan step. A ground of its own would
+     cover that scan — and cover it precisely where the plan has been opened up
+     to let it show, which is the only place anybody was looking. */
+  background: "transparent",
   layersAbove: [],
   /* The run answers for a drag before the picture pans with it, and for a
      press that claimed nothing and went nowhere. Both are declared here
