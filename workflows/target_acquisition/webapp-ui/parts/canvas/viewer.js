@@ -347,6 +347,10 @@ export function putTheCanvasIn({
      exactly where the layers had been opened up to show it, which is the one
      place it was wanted. */
   background = THE_COLOUR_BEHIND_THE_PICTURE,
+  /* Told whenever the view moves, however it moved — a drag, the wheel, a
+     `lookAt`. A host with anything of its own registered to this picture has
+     to hear about it, or the two come apart the first time somebody zooms. */
+  onViewMoved = null,
 }) {
   /* Somewhere harmless to write for the things this host is not offering.
      A page that shows no engine chooser, or no running commentary about what
@@ -730,7 +734,7 @@ export function putTheCanvasIn({
         // requests and is right in every other way.
         coverage: null,
         background,
-        onViewChanged: sayWhereTheViewIs,
+        onViewChanged: (where) => { sayWhereTheViewIs(where); onViewMoved?.(where); },
       }),
       acquisitions.length ? wanted : `${wanted}, opened with no acquisition,`,
     );

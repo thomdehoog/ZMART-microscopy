@@ -129,7 +129,13 @@ const howFarApart = (page) => page.evaluate(() => {
 
 /** How much of the plan's surface has been cut away, so the scan shows through. */
 const howMuchIsOpen = (page) => page.evaluate(() => {
-  const cv = document.getElementById("stage-canvas");
+  /* The plan is drawn on the topmost of the surfaces the engine builds inside
+     the box — it used to be a canvas of the page's own, and asking the box for
+     a 2D context now gets nothing. The last one is the one drawn over the
+     picture; see `drawOver` in the engine contract. */
+  const surfaces = [...document.querySelectorAll("#stage-canvas canvas")];
+  const cv = surfaces.at(-1);
+  if (!cv) throw new Error("the plan has no surface to read");
   const seen = cv.getContext("2d").getImageData(0, 0, cv.width, cv.height).data;
   let clear = 0;
   for (let i = 3; i < seen.length; i += 4) if (seen[i] < 8) clear += 1;
