@@ -20,16 +20,18 @@ export const MICROSCOPES = {
     vendor: "mock",
     /* What the bridge is asked to connect. */
     instrument: "mock",
-    api: "in-process",
-    version: "made-up data",
+    apis: {
+      mock: { label: "Mock API", detail: "in-process · made-up data" },
+    },
   },
   stellaris5: {
     label: "Leica Stellaris 5",
-    detail: "Navigator Expert · CAM · LAS X 4.9",
+    detail: "y42h93",
     vendor: "leica",
     instrument: "leica",
-    api: "8895",
-    version: "LAS X 4.9",
+    apis: {
+      navigator_expert: { label: "Navigator Expert", detail: "CAM socket 8895 · LAS X 4.9" },
+    },
   },
 };
 
@@ -237,14 +239,25 @@ export const STAGE_LIMITS_MM = { width: 120, height: 80 };
 export const DEFAULT_SESSION = {
   /* The mock, so a page opened by accident drives nothing. */
   microscope: "mock",
+  api: "mock",
   /* Prefilled so the mock can be clicked through without typing. A real build
      must ship this empty — a default credential is not a convenience, it is a
      credential everybody has. */
   password: "demo",
 };
 
-export const describeSession = ({ microscope }) =>
-  MICROSCOPES[microscope]?.label ?? "not chosen";
+/** The APIs a microscope offers, as [key, {label, detail}] pairs. */
+export const apisFor = (microscope) =>
+  Object.entries(MICROSCOPES[microscope]?.apis ?? {});
+
+/** The first API a microscope offers — what to fall back to when it changes. */
+export const defaultApiFor = (microscope) => apisFor(microscope)[0]?.[0] ?? null;
+
+export const describeSession = ({ microscope, api }) => {
+  const scope = MICROSCOPES[microscope];
+  const apiDef = scope?.apis?.[api];
+  return scope && apiDef ? `${scope.label} · ${apiDef.label}` : "not chosen";
+};
 
 /**
  * What connecting actually verifies, in the order it is verified. Each check
@@ -255,7 +268,7 @@ export const CONNECT_CHECKS = [
   {
     id: "reachable",
     label: "Microscope reachable",
-    result: ({ microscope }) => `127.0.0.1:${MICROSCOPES[microscope]?.api ?? "?"}`,
+    result: ({ api }) => (api === "navigator_expert" ? "127.0.0.1:8895" : "in-process"),
   },
   {
     id: "credentials",
@@ -265,7 +278,7 @@ export const CONNECT_CHECKS = [
   {
     id: "version",
     label: "API version",
-    result: ({ microscope }) => MICROSCOPES[microscope]?.version ?? "unknown",
+    result: ({ microscope, api }) => MICROSCOPES[microscope]?.apis?.[api]?.detail ?? "unknown",
   },
   {
     id: "stage",
