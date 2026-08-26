@@ -320,7 +320,63 @@ export function sharePoints(tiles, n) {
     .filter((rows) => rows >= 1 && rows <= want)
     .map((rows) => settle(ground, seedCells(ground, want, rows)));
   const best = tries.reduce((a, b) => (spreadCost(ground, b) < spreadCost(ground, a) ? b : a));
-  return best.map((p) => (imagedAt(tiles, p) ? p : nearestPlace(ground, p)));
+  return looseInTheirShares(ground, tiles, best);
+}
+
+/* How far off the middle of its share a point may stand, as a fraction of how
+   far that share reaches. Half: enough that no two wells are measured at the
+   same spot, and not so much that a point leaves the part of its share it is
+   there to stand for. */
+const LOOSE = 0.5;
+
+/**
+ * Where in its share each point actually stands.
+ *
+ * The middle of a share is the best single place to stand for the ground around
+ * it — and it is the same place in every share. On a plate of identical wells
+ * that means every point comes out at the same spot in its own well: the same
+ * tile, the same corner of it, six times over. A map made of one place measured
+ * six times is not a map of the plate, and a sample has no reason to be flat in
+ * exactly the spot the arithmetic picked.
+ *
+ * So each point is let off the middle by a step of its own. The step is taken
+ * from where the point stands, so a tileset still gives the same map every time
+ * it is laid — a map that shuffled itself on a rerun would be a map of nothing —
+ * and it is scaled to the share, so a point with a well to itself moves further
+ * than one packed in beside others. Then it is put back on the nearest ground
+ * it can actually be imaged at, because a focus point off the covered ground is
+ * not a measurement.
+ */
+function looseInTheirShares(ground, tiles, points) {
+  const mine = points.map(() => []);
+  for (const g of ground) mine[nearestOf(points, g.x, g.y)].push(g);
+
+  return points.map((p, i) => {
+    const held = mine[i];
+    if (!held.length) return imagedAt(tiles, p) ? p : nearestPlace(ground, p);
+    const reachX = (widthOf(held) / 2) * LOOSE;
+    const reachY = (heightOf(held) / 2) * LOOSE;
+    const [ax, ay] = stepFrom(p.x, p.y);
+    const want = { x: p.x + (ax * 2 - 1) * reachX, y: p.y + (ay * 2 - 1) * reachY };
+    return imagedAt(tiles, want) ? want : nearestPlace(held, want);
+  });
+}
+
+/**
+ * Two numbers between 0 and 1, from a place.
+ *
+ * A point's step has to be its own — two points a well apart must not be nudged
+ * the same way, or the plate is back to being measured at one spot — and it has
+ * to be the same every time the same map is laid. Both come out of the place
+ * itself rather than a counter or a clock.
+ */
+function stepFrom(x, y) {
+  let h = Math.imul(Math.round(x) ^ 0x9e3779b9, 0x85ebca6b);
+  h = Math.imul((h ^ (h >>> 13)) + Math.round(y), 0xc2b2ae35);
+  h ^= h >>> 16;
+  let k = Math.imul(h ^ 0x27d4eb2f, 0x165667b1);
+  k ^= k >>> 15;
+  return [(h >>> 0) / 4294967296, (k >>> 0) / 4294967296];
 }
 
 /**

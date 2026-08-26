@@ -284,8 +284,15 @@ describe("focus points take an equal share of the field each", () => {
      positions' centres: with the centres alone, three points end up owning two
      frames each and settle on the seam between them while the top row is left
      with nothing — a true fixed point of Lloyd's, for nine dots. What a frame
-     covers is a square of sample, so the six shares should come out as two rows
-     of three, each row a quarter of the way in from its end. */
+     covers is a square of sample, so the six shares should come out three to
+     the top half of the block and three to the bottom, each standing on ground
+     a frame covers.
+
+     Where inside its own share each point stands is deliberately not pinned:
+     the middle of a share is the same place in every share, which on a plate of
+     identical wells measures one spot six times over and calls it a map. What
+     is asserted is that the block is covered and that every point is somewhere
+     the run will image. */
   it("shares out the ground a frame covers, not the point at its middle", () => {
     const nine = [];
     for (let row = 0; row < 3; row++) {
@@ -296,26 +303,21 @@ describe("focus points take an equal share of the field each", () => {
     const six = sharePoints(nine, 6);
     expect(six).toHaveLength(6);
 
-    // two rows of three, and neither row on a seam between frames
-    const rows = [...new Set(six.map((p) => Math.round(p.y / 5) * 5))].sort((a, b) => a - b);
-    expect(rows, `six points at ${six.map((p) => p.y.toFixed(0)).join(", ")}`)
-      .toHaveLength(2);
-    for (const y of rows) {
-      expect(six.filter((p) => Math.abs(p.y - y) < 3), "three to a row").toHaveLength(3);
-      for (const seam of [50, 150]) {
-        expect(Math.abs(y - seam), `a row at ${y.toFixed(0)} sits on the seam at ${seam}`)
-          .toBeGreaterThan(20);
-      }
-    }
-    // a quarter of the way in from each end of the block, which spans -50..250
-    expect(rows[0]).toBeGreaterThan(0);
-    expect(rows[0]).toBeLessThan(50);
-    expect(rows[1]).toBeGreaterThan(150);
-    expect(rows[1]).toBeLessThan(200);
+    /* The block spans -50 to 250 either way. Three shares to each half of it:
+       the fault this guards settled three points on the seams between frames
+       and left the whole top row with nothing standing for it. */
+    const middle = 100;
+    expect(six.filter((p) => p.y < middle),
+      `six at y ${six.map((p) => p.y.toFixed(0)).join(", ")}`).toHaveLength(3);
+    expect(six.filter((p) => p.y >= middle)).toHaveLength(3);
+    // and across, where six over three columns is at least two either side
+    expect(six.filter((p) => p.x < middle).length).toBeGreaterThanOrEqual(2);
+    expect(six.filter((p) => p.x >= middle).length).toBeGreaterThanOrEqual(2);
 
-    // and three columns, spread the same way
-    const cols = [...new Set(six.map((p) => Math.round(p.x / 5) * 5))].sort((a, b) => a - b);
-    expect(cols).toHaveLength(3);
+    for (const p of six) {
+      const on = nine.some((t) => Math.abs(t.x - p.x) <= 50 && Math.abs(t.y - p.y) <= 50);
+      expect(on, `a point at ${p.x.toFixed(0)},${p.y.toFixed(0)} is off the frames`).toBe(true);
+    }
   });
 
   /* Seven over the same nine frames. An odd share has to go somewhere, and the
@@ -460,5 +462,56 @@ describe("points shared over tilesets that do not touch", () => {
     const left = sharePoints(twoBlocks, 4).filter((p) => p.x < 4500).length;
     expect(left).toBeGreaterThan(0);
     expect(left).toBeLessThan(4);
+  });
+});
+
+/* Six identical wells, each holding the same block of frames.
+ *
+ * The arithmetic that shares out ground is deterministic, and identical wells
+ * give identical shares — so every point came to rest at exactly the same spot
+ * in its own well: the same tile, the same corner of it, six times over. That
+ * is one place measured six times rather than a map of the plate, and a sample
+ * has no reason to be flat in precisely the spot the arithmetic picked.
+ */
+describe("points over a plate of identical wells", () => {
+  const F = 500, ACROSS = 9000;
+  const wells = [];
+  for (let r = 0; r < 2; r++) {
+    for (let c = 0; c < 3; c++) {
+      const x0 = c * ACROSS, y0 = r * ACROSS, tiles = [];
+      for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) {
+        tiles.push({ x: x0 + j * F, y: y0 + i * F, frameUm: F });
+      }
+      wells.push({ centre: { x: x0 + F, y: y0 + F }, tiles });
+    }
+  }
+  const all = wells.flatMap((w) => w.tiles);
+  const wellOf = (p) => wells.reduce((a, z) =>
+    (Math.hypot(z.centre.x - p.x, z.centre.y - p.y) < Math.hypot(a.centre.x - p.x, a.centre.y - p.y) ? z : a));
+  const whereInItsWell = (p) => {
+    const w = wellOf(p);
+    return `${Math.round(p.x - w.centre.x)},${Math.round(p.y - w.centre.y)}`;
+  };
+
+  it("does not put every point at the same spot in its own well", () => {
+    const spots = new Set(sharePoints(all, 6).map(whereInItsWell));
+    expect(spots.size, `every point at ${[...spots][0]} in its own well`).toBeGreaterThan(1);
+  });
+
+  it("still gives one to a well", () => {
+    const hit = new Set(sharePoints(all, 6).map((p) => wellOf(p).centre.x + "," + wellOf(p).centre.y));
+    expect(hit.size).toBe(6);
+  });
+
+  it("keeps each of them on a frame", () => {
+    for (const p of sharePoints(all, 6)) {
+      expect(all.some((t) => Math.abs(t.x - p.x) <= F / 2 && Math.abs(t.y - p.y) <= F / 2)).toBe(true);
+    }
+  });
+
+  /* A map that shuffled itself on a rerun would be a map of nothing: the step
+     off the middle is taken from where the point stands, not from a clock. */
+  it("gives the same answer every time it is asked", () => {
+    expect(sharePoints(all, 6)).toEqual(sharePoints(all, 6));
   });
 });
