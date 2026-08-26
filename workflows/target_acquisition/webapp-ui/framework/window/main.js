@@ -212,7 +212,7 @@ let stageWatch = null;
     ran: new Set(),
     running: null,
     notes: {},
-    tabs: ["canvas"],     // canvas plus whatever the active step asks for
+    tabs: [],             // worked out from the step, before anything is drawn
     tab: null,
     tilesShown: 0,
     focus: newFocus(),
@@ -236,6 +236,39 @@ let stageWatch = null;
 
   const steps = () => WORKFLOWS[state.wf].steps;
   const step = (i) => steps()[i];
+
+  /* ------------------------------------------------------------------
+     the panels the running workflow offers
+     ------------------------------------------------------------------
+     One element apiece, inside the stage, filled by the workflow. The
+     framework builds the box and knows what a panel is called, whether it
+     stays once asked for, and whether it has a channel down its side; what
+     goes in it, and what any of it means, is the workflow's.
+
+     Built when the page opens, for the workflow the page opens on. A second
+     workflow offering different panels will want them rebuilt at the switch,
+     along with whatever draws in them — the same move as taking the drawing
+     wired below out of this file. */
+  const thePanels = {};
+  for (const declared of WORKFLOWS[state.wf].panels) {
+    const host = document.createElement("div");
+    host.className = "panel";
+    host.id = `panel-${declared.key}`;
+    host.setAttribute("role", "tabpanel");
+    document.querySelector(".stage").append(host);
+    thePanels[declared.key] = { ...declared, host, ...(declared.build?.(host) ?? {}) };
+  }
+
+  /* The keys that stay for the rest of the run once a step has asked for one.
+     `panelsFor` is handed these rather than knowing any of them. */
+  const panelsThatStay =
+    WORKFLOWS[state.wf].panels.filter((p) => p.stays).map((p) => p.key);
+
+  /* The rule, with the workflow's own staying panels already in it. Bound once
+     because it is asked in two places — when a step is walked to, and again on
+     every render — and two callers passing the list separately is one caller
+     forgetting to. */
+  const tabsForStep = (i) => panelsFor(steps(), i, panelsThatStay);
 
   /* The instrument the card has chosen: a microscope from the list and one
      of its APIs. The entry under them is what Connect sends. */
@@ -307,7 +340,7 @@ let stageWatch = null;
       targetType: emptySlot("acquisition", 1),
       carrier: { ...DEFAULT_CARRIER }, anchors: [], anchoring: false,
       fields: [], plan: [], checks: [],
-      tabs: ["canvas"], tab: "canvas", tilesShown: 0,
+      tabs: [], tab: null, tilesShown: 0,
       focus: newFocus(), focusMaps: {}, focusFor: null,
       detect: newDetect(), detected: new Set(),
       cellsShown: false, gate: null, gated: new Set(), acquired: [], verdicts: {},
@@ -375,7 +408,9 @@ let stageWatch = null;
 
      `ownButton` now means "this panel builds its own", not "hide the bar". */
   function renderStepAction(shown) {
-    for (const id of FOOT_IDS) el(id).textContent = "";
+    for (const panel of Object.values(thePanels)) {
+      if (panel.foot) panel.foot.textContent = "";
+    }
     for (const slot of document.querySelectorAll(".carrier-action, .scan-action, .focus-action")) {
       slot.textContent = "";
     }
@@ -583,16 +618,6 @@ let stageWatch = null;
      They are three different things — a session, a list of presets, a carrier —
      and a tab beside the canvas should say which of them it opens. They draw
      into the same element because only one is ever shown. */
-  const FOOT_IDS = ["foot-canvas"];
-
-  /* Every panel a step may ask for, by the name a step uses for it. `whenShown`
-     is how a panel that has to build something of its own — a picture drawn by a
-     graphics engine, rather than shapes on one of the page's own canvases —
-     learns that it is on screen. It is called every time the panel comes up, and
-     a panel that need do nothing simply has none. */
-  const PANEL_META = {
-    canvas: { label: "Canvas", panel: "panel-canvas" },
-  };
 
   /* Which panels a step gets is `panelsFor` in `framework/rules/steps.js`, and the reason
      it lives there rather than here is that it is a rule about steps rather than
@@ -615,7 +640,7 @@ let stageWatch = null;
      has nothing to do with. Which makes this a question about the step being
      looked at, not about how far the run has got. */
   function focusPanelsFor(i) {
-    state.tabs = panelsFor(steps(), i);
+    state.tabs = tabsForStep(i);
     // a step that brings a panel of its own opens on it; otherwise the base
     state.tab = state.tabs.length > 1 ? state.tabs[1] : state.tabs[0];
   }
@@ -910,11 +935,15 @@ let stageWatch = null;
   const focusControls = el("focus-controls");
 
   function renderSide(show) {
-    const host = el("canvas-side");
-    const widget = show === "canvas" ? sideWidget() : null;
+    /* Only a panel with a channel down its side has anywhere to put a step's
+       controls. A workflow whose panels have none gives its steps panels of
+       their own instead. */
+    const host = thePanels[show]?.channel;
+    if (!host) return;
+    const widget = sideWidget();
     host.hidden = !widget;
     // the divider is the channel's edge, so it is only there when the channel is
-    el("side-divider").hidden = !widget;
+    thePanels[show].divider.hidden = !widget;
     const locked = widget?.id === "carrier" ? carrierLocked() : scanfieldsLocked();
     const key = widget && `${widget.id}:${locked}`;
     // the setup cards rebuild on every render, the way their panel used to;
@@ -1039,8 +1068,8 @@ let stageWatch = null;
      walking between steps; the canvas is the bigger half by default and
      keeps whatever the channel does not take. Clamped so neither the picture
      nor the controls can be crushed. */
-  {
-    const divider = el("side-divider");
+  for (const withAnEdge of Object.values(thePanels).filter((p) => p.divider)) {
+    const divider = withAnEdge.divider;
     const body = divider.parentElement;
     let resizing = false;
     divider.addEventListener("pointerdown", (e) => {
@@ -1133,7 +1162,8 @@ let stageWatch = null;
     const id = step(state.activeIdx).id;
     const card = SETUP_CARDS[id];
     if (!card) return;
-    const host = el("canvas-side");
+    const host = thePanels[shownPanel()]?.channel;
+    if (!host) return;
     host.textContent = "";
     const pad = document.createElement("div");
     pad.className = "side-pad";
@@ -1149,7 +1179,7 @@ let stageWatch = null;
     host.textContent = "";
 
     for (const key of state.tabs) {
-      const meta = PANEL_META[key];
+      const meta = thePanels[key];
       const b = document.createElement("button");
       b.className = "tab"; b.type = "button"; b.role = "tab";
       b.setAttribute("aria-selected", String(state.tab === key));
@@ -1164,7 +1194,7 @@ let stageWatch = null;
        alternative to the canvas, it is the controls for what the canvas is
        showing — so it says whose controls those are rather than offering a
        switch. */
-    const owner = shownPanel() === "canvas" ? sideWidget() : null;
+    const owner = thePanels[shownPanel()]?.channel ? sideWidget() : null;
     if (owner) {
       const side = document.createElement("span");
       side.className = "side-tab";
@@ -1185,27 +1215,25 @@ let stageWatch = null;
     if (!show) return;
     /* By element, not by key: the setup steps share one, so asking each key in
        turn would switch it on for its own and straight back off for the next. */
-    const shown = PANEL_META[show].panel;
-    for (const id of new Set(Object.values(PANEL_META).map((m) => m.panel))) {
-      el(id).classList.toggle("on", id === shown);
+    for (const [key, panel] of Object.entries(thePanels)) {
+      panel.host.classList.toggle("on", key === show);
     }
     renderSide(show);
     renderStepAction(show);
-    // A panel that builds a picture of its own is told it is on screen; see
-    // `PANEL_META`. Everything below this line is the page drawing on its own
-    // canvases, which needs no such warning.
-    PANEL_META[show].whenShown?.();
+    /* A panel that draws something of its own is told it is on screen: a
+       picture cannot be laid out while it is hidden, because a hidden box has
+       no size. A panel with nothing to re-measure simply says nothing. */
+    thePanels[show].shown?.();
     // The acquired overview lies over the plan while the scan is what is being
     // looked at, so which of the two is on screen follows the step.
     liveOverview.showFor(step(state.activeIdx), show);
-    if (show === "canvas") stage.resize();
   }
 
   function renderAll() {
     /* The step being looked at decides the tab set on its own, so this is the
        one place that has to agree with it — recomputed rather than trusted,
        and the selection kept only while it still names a tab that is there. */
-    state.tabs = panelsFor(steps(), state.activeIdx);
+    state.tabs = tabsForStep(state.activeIdx);
     if (!state.tabs.includes(state.tab)) state.tab = state.tabs[0];
 
     renderRail();
@@ -1237,10 +1265,16 @@ let stageWatch = null;
   /* The pictures of a real run — the overview being acquired, and the scan
      beneath the plan. The scan step's, so they live with it; this page hands
      them its canvases and its projection and asks them to draw. */
+  /* The canvas panel this workflow declared, and everything that draws in it.
+     All of it is the workflow's rather than this file's, and is here only
+     until it moves into the panel's own building — which is the same move
+     that makes the canvas step-agnostic. */
+  const theCanvas = thePanels.canvas;
+
   const { thePicture, liveOverview } = watchTheRun({
-    pictureHost: el("picture-host"),
-    overviewCanvas: el("overview-canvas"),
-    overviewNote: el("overview-note"),
+    pictureHost: theCanvas.parts.pictureHost,
+    overviewCanvas: theCanvas.parts.overviewCanvas,
+    overviewNote: theCanvas.parts.overviewNote,
     view: () => view,
     carrierOriginUm: () => carrierOriginUm(),
     css,
@@ -1250,8 +1284,10 @@ let stageWatch = null;
      workflow's, so it lives with the workflow; the framework hands it the canvas,
      the run, and the few things it must be able to call back into. */
   const stage = openTheStage({
-    canvas: el("stage-canvas"),
-    tip: el("stage-tip"),
+    canvas: theCanvas.parts.canvas,
+    tip: theCanvas.parts.tip,
+    readout: theCanvas.parts.readout,
+    fitButton: theCanvas.parts.fit,
     css, sizeCanvas, el,
     run: state,
     sample: () => sample,
@@ -1333,11 +1369,15 @@ let stageWatch = null;
   /* ============================================================
      boot
      ============================================================ */
+  /* A picture cannot be laid out while it is hidden: a hidden box has no
+     size. So the panel re-measures when it comes up. */
+  theCanvas.shown = () => stage.resize();
+
   const ro = new ResizeObserver(() => {
-    if (el("panel-canvas").classList.contains("on")) stage.resize();
+    if (theCanvas.host.classList.contains("on")) stage.resize();
     drawTrace();
   });
-  ro.observe(el("panel-canvas"));
+  ro.observe(theCanvas.host);
   ro.observe(focusControls);
 
   const mo = new MutationObserver(() => {

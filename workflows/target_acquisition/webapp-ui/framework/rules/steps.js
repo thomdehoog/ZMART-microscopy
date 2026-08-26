@@ -82,25 +82,28 @@ export function blockedBecause(step, run) {
  * Two things decide this, and it takes the whole list of steps to answer because
  * the second one does.
  *
- * A step names the modules it wants of its own — the focus controls, the
+ * A step names the panels it wants of its own — the focus controls, the
  * gallery, the session form — and gets those. Most steps name nothing, because
- * most steps happen on the stage and the picture of the stage is enough.
+ * most steps happen on a panel that is already there.
  *
- * The canvas itself is the microscope's own limits drawn to scale, so it appears
- * at the step that first asks for it and then stays for the rest of the run. In
- * every workflow that drives a microscope, that step is the first one: the
- * stage is on screen from the start, every step keeps the picture on the left
- * and puts its own controls in the channel beside it. A workflow where nothing
- * asks for the canvas, such as the canvas demonstration, never shows one.
+ * Some panels are not one step's. A workflow may declare a panel that **stays**:
+ * once a step has asked for it, it is there for every step after, because it is
+ * the window the run happens inside rather than one step's view of it. The
+ * canvas of a microscope workflow is the case in point — the instrument's own
+ * limits drawn to scale, on screen from the first step that works on the stage.
+ * The rule knows nothing about canvases: it is handed the keys that stay, and a
+ * workflow that declares none has every panel belong to its own step alone.
  *
- * Saying which modules it wants is the step's business; how wide they are and
- * which of them is on top is the shell's.
+ * Saying which panels it wants is the step's business; which of them stay is
+ * the workflow's; how wide they are and which is on top is the shell's.
  */
-export function panelsFor(steps, index) {
-  const own = (steps[index]?.panels ?? []).filter((p) => p !== "canvas");
-  const onTheStageFrom = steps.findIndex((s) => s.panels?.includes("canvas"));
-  const onTheStage = onTheStageFrom >= 0 && index >= onTheStageFrom;
-  return onTheStage ? ["canvas", ...own] : own;
+export function panelsFor(steps, index, staying = []) {
+  const own = (steps[index]?.panels ?? []).filter((p) => !staying.includes(p));
+  const stays = staying.filter((key) => {
+    const from = steps.findIndex((s) => s.panels?.includes(key));
+    return from >= 0 && index >= from;
+  });
+  return [...stays, ...own];
 }
 
 /**

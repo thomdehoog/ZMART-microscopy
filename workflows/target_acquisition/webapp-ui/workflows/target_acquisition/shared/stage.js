@@ -47,8 +47,12 @@ export function openTheStage(ctx) {
     marqueeing, dragging: focusDragging, endDrag: endFocusDrag,
   } = ctx.focus;
 
-const stageCv = el("stage-canvas");
-const stageTip = el("stage-tip");
+/* The picture is handed what it draws on. It reaches for no element of its
+   own, because the panel it hangs in is built by the workflow that declared
+   it — there is no markup on the page waiting for this file to find. */
+const stageCv = ctx.canvas;
+const stageTip = ctx.tip;
+const stageReadout = ctx.readout;
 const view = { scale: 0.03, tx: 0, ty: 0, fitted: false };
 
 /* The canvas is the stage, so it is what the view frames — not the carrier
@@ -680,7 +684,7 @@ function drawStage() {
 let barSaysThis = "";
 
 function renderStageLayerControls() {
-  const stageLayerBar = el("stage-layers");
+  const stageLayerBar = ctx.layerBar;
   if (!stageLayerBar) return;
   const here = theStack.filter((layer) => layer.paint && layer.hasSomething);
   /* Rebuilt only when the set of layers actually changes. A run redraws the
@@ -965,7 +969,7 @@ stageCv.addEventListener("pointermove", (e) => {
      hit test is not: a cell knows where it is in the carrier, so the pointer
      is put into the carrier's coordinates to meet it. */
   const [wx, wy] = toWorld(e.offsetX, e.offsetY);
-  el("stage-readout").textContent =
+  stageReadout.textContent =
     `x ${wx.toFixed(0)} µm · y ${wy.toFixed(0)} µm · ${(view.scale * 1000).toFixed(1)} px/mm`;
 
   /* A focus point answers before anything under it: it is the small thing
@@ -1061,7 +1065,7 @@ stageCv.addEventListener("wheel", (e) => {
 /* Fit frames whichever picture is on show. While the acquired overview is
    covering the plan, it is the thing being looked at, so it is the thing that
    gets framed. */
-el("fit-btn").addEventListener("click", () => {
+ctx.fitButton.addEventListener("click", () => {
   if (liveOverview.showing) { liveOverview.fit(); return; }
   fitView(); drawStage();
 });

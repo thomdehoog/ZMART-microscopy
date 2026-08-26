@@ -8,6 +8,7 @@
  * speaks to the controller through the bridge either way.
  */
 
+import { canvasPanel } from "./shared/canvas/panel.js";
 import { steps as theRun } from "./the-run.js";
 
 export const blurb =
@@ -17,3 +18,13 @@ export const blurb =
 export const opensFirst = true;
 
 export const steps = theRun;
+
+/**
+ * The panels this workflow offers, and what each one is made of.
+ *
+ * A step asks for a panel by its key; the framework builds an element for each
+ * of these and lets the panel fill it. The canvas is here because it is this
+ * workflow's: a run that drives a microscope is looked at on a picture of the
+ * stage, and a workflow that is not would declare something else, or nothing.
+ */
+export const panels = [canvasPanel];

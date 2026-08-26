@@ -33,45 +33,10 @@
     <div class="stage">
       <div class="tabs" id="tabs" role="tablist"></div>
 
-      <!-- canvas panel -->
-      <div class="panel" id="panel-canvas" role="tabpanel">
-        <div class="canvas-body">
-          <div class="plot-host">
-            <canvas class="plot stagecv" id="stage-canvas"></canvas>
-            <!-- The overview as it is being acquired, drawn from the images the
-                 run is writing. It covers the plan while the scan is the thing
-                 being looked at, and is only there at all when the page was
-                 given a run to watch. -->
-            <canvas class="plot livecv" id="overview-canvas" hidden></canvas>
-            <!-- Where the scan itself is drawn, beneath the plan. Empty unless
-                 the page was pointed at a folder of small pictures with
-                 `?picture=`; the drawing engine builds its own surfaces inside
-                 it. See `viz_studio/options/jpeg-under/`. -->
-            <div class="plot picturecv" id="picture-host"></div>
-            <div class="live-note" id="overview-note" hidden></div>
-            <div class="tip" id="stage-tip"></div>
-          </div>
-          <!-- a step whose work is about the framework itself docks its controls
-               here, beside what they change, rather than on a tab of its own.
-               The divider is the channel's edge made draggable: the operator
-               reshapes how much of the window the channel takes. -->
-          <div class="side-divider" id="side-divider" role="separator"
-               aria-orientation="vertical" aria-label="resize the channel" hidden></div>
-          <aside class="canvas-side" id="canvas-side" hidden></aside>
-        </div>
-        <div class="canvas-foot">
-        <div class="toolbar">
-          <!-- What is drawn and how is the viewer's business, not this bar's:
-               which layers are on, which channels are mixed and which plane of
-               a stack is showing are all questions about a picture, and the
-               viewer that draws it is where they will be asked. Until then the
-               plan is drawn whole. -->
-          <button class="ghost" id="fit-btn">Fit</button>
-          <div class="readout" id="stage-readout">—</div>
-        </div>
-          <div class="panel-foot" id="foot-canvas"></div>
-        </div>
-      </div>
+      <!-- The panels are the workflow's, not this page's: the framework builds
+           one element per panel the running workflow declares, and what goes
+           inside each is that workflow's business. A workflow that shows no
+           canvas produces no canvas here. -->
 
       <!-- Focus strategy has no panel of its own: it happens on the canvas, and
            these are its controls. Parked here in the markup and moved into the

@@ -50,6 +50,9 @@ export function assembleWorkflows(flowFiles) {
       name: workflowName(folder),
       blurb: flow.blurb,
       steps: numbered(flow.steps),
+      /* What the workflow offers to put on the right-hand side. A workflow
+         that declares none runs on its steps' own panels alone. */
+      panels: flow.panels ?? [],
     };
   }
 
