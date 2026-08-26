@@ -1,13 +1,17 @@
 # The canvas
 
-The canvas belongs to a workflow, not to the framework and not to any one step.
-A workflow declares it in `flow.js`; the framework builds a box and knows only
-its name, that it stays once asked for, and that it has a channel down its side.
-A workflow that shows no canvas produces none — there is no canvas markup on the
-page for one to find.
+The canvas is not the framework's. A workflow declares it in `flow.js`; the
+framework builds a box and knows only its name, that it stays once asked for,
+and that it has a channel down its side. A workflow that shows no canvas
+produces none — there is no canvas markup on the page for one to find.
 
-Within a workflow it is **step-agnostic**. It does not know what a carrier is,
-or a tileset, or a focus point. It knows layers.
+It is not any one step's either. Every step from the carrier onward is looking
+at the same square millimetre of glass, and the picture of it is one picture.
+
+And it is not target acquisition's. Nothing in it knows what a carrier is, or a
+tileset, or a focus point — it knows layers, so any workflow could take it: one
+drawing regions over an image, one drawing a plate map. It is a **part** a
+workflow picks up. What is target acquisition's is the layers it hands in.
 
 ## What the canvas does
 
@@ -17,9 +21,9 @@ rather than drawn side by side: they are statements about the same square
 millimetre of glass, and they are only comparable if a pan can never take one of
 them out of register with another.
 
-**It holds the stack.** Layers are drawn bottom to top in the order they declare
-— an explicit number, so a step can place its layer among the others without
-knowing what the others are.
+**It holds the stack.** Layers are drawn bottom to top, in the order of the list
+the workflow hands it, and each can be turned off on its own. Turning the tiles
+out of the way is not a request to lose the focus points with them.
 
 **It says how transparency is used.** One dial fades the whole stack, because
 "let me see what is underneath" is one thought and should be one movement rather
@@ -35,23 +39,55 @@ asked on the picture.
 
 ## What a layer is
 
+The vocabulary is `viewer.js`'s, because that is the canvas being converged on.
+Inventing a second set of names for the same fields would be a third canvas.
+
     {
-      key:      "plan",              // its name in the stack
-      label:    "Plan",              // what the chip says
-      explains: "…",                 // what the chip's tooltip says
-      order:    50,                  // bottom to top; ties keep declaration order
-      solid:    false,               // true = the fade dial does not reach it
-      has:      () => run.fields.length > 0,   // is there anything to draw?
-      draw:     (ctx, projection) => …,        // draw it, in that projection
+      key:        "plan",            // its name in the stack
+      label:      "Plan",            // what the chip says
+      explains:   "…",               // what the chip's tooltip says
+      staysSolid: false,             // true = the fade dial does not reach it
+      paint:      ({ context, project, zoom }) => …,
+      claims:     { down, move, up, cursor },   // optional; see below
     }
 
-`has` and what reaches the screen are two different questions and must not be
-run together. `has` is whether the run has anything for this layer — no cells
-found, no targets imaged — and it decides whether the layer gets a chip at all.
-What is shown is that answer and then whatever the operator turned off.
-Conflating them was wrong in both directions: a layer the operator hid lost its
-own chip, so there was no way to bring it back, and a layer with nothing in it
-still offered a chip that did nothing.
+**Vertical order is the order of the list.** A step does not number its layer,
+because a number is an opinion about layers it cannot see; the workflow hands
+the canvas a list and the list is the answer. Bottom first, so the last one in
+is the one on top.
+
+**Whether a layer has anything to draw, and whether it reaches the screen, are
+two questions and must not be run together.** The first is whether the run has
+anything for it — no cells found, no targets imaged — and it decides whether
+the layer gets a chip at all. The second is that answer and then whatever the
+operator turned off. Conflating them was wrong in both directions: a layer the
+operator hid lost its own chip, so there was no way to bring it back, and a
+layer with nothing in it still offered a chip that did nothing.
+
+## What a layer answers to
+
+A layer is what it draws **and** what it answers to. Both are about the same
+subject, so they arrive together.
+
+    claims: {
+      down(at, e) -> boolean,   // true = mine, and the picture must not pan
+      move(at, e),
+      up(at, e),
+      cursor() -> string,
+    }
+
+The canvas asks the claimants in stack order, **top layer first**, and pans with
+whatever none of them wanted. That is the whole rule. It does not know that one
+of them is drawing a rectangle and another is dragging a focus point.
+
+Priority follows what is visually on top, which is what an operator expects: a
+press on a shape moves the shape, a press on empty canvas moves the picture, and
+neither owner knows the other exists.
+
+Two things stay the canvas's own. **Alt+drag always pans**, so the picture can
+still be moved while a drawing tool is armed and wants every press for itself.
+And **the lock** stops picking without touching pan or zoom, because locking a
+plan you have settled is about not disturbing it, not about not looking at it.
 
 ## What a step does
 
