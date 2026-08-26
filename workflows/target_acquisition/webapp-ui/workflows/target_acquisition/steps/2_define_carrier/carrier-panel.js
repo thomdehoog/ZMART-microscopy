@@ -144,7 +144,7 @@ function drawTheDepthBehind(ctx, x, y, w, h, dx, dy, fill) {
  * so the alignment is measured over the longest run in each direction rather
  * than out of one corner of it.
  */
-export function anchorsUm(config) {
+export function anchorsUm(config, howMany = 4) {
   /* Half an area, edge to edge — not `scanBox`, which insets by the rounded
      corner so a square frame never overhangs it. That inset is right for
      planning and wrong here: it put every mark a good way inside the line it
@@ -167,24 +167,55 @@ export function anchorsUm(config) {
   const near = (v, w) => Math.abs(v - w) < 1e-6;
   const atLeast = (get) => Math.min(...areas.map(get));
   const atMost = (get) => Math.max(...areas.map(get));
-  const leaning = (ok, along, way) => areas.filter(ok)
-    .reduce((best, a) => (way * (along(a) - along(best)) > 0 ? a : best));
-  const left = leaning((a) => near(a.x, atLeast((n) => n.x)), (a) => a.y, +1);
-  const right = leaning((a) => near(a.x, atMost((n) => n.x)), (a) => a.y, -1);
-  const top = leaning((a) => near(a.y, atLeast((n) => n.y)), (a) => a.x, -1);
-  const bottom = leaning((a) => near(a.y, atMost((n) => n.y)), (a) => a.x, +1);
 
-  /* Exactly on the border, and on the part of it that runs straight: the
-     middle of a side is where a rectangle's edge is vertical or horizontal,
-     and on a circle it is where the rim's tangent is. Either way the mark sits
-     on a line an operator can drive along and see. */
-  return [
-    { at: "left", x: (left.x - halfW) * MM_UM, y: left.y * MM_UM },
-    { at: "right", x: (right.x + halfW) * MM_UM, y: right.y * MM_UM },
-    { at: "top", x: top.x * MM_UM, y: (top.y - halfH) * MM_UM },
-    { at: "bottom", x: bottom.x * MM_UM, y: (bottom.y + halfH) * MM_UM },
+  /* The four sides, in the order they are handed out: the facing pairs first,
+     so that two points face each other across the carrier rather than sitting
+     in one corner of it, and only then the other two.
+
+     `on` is where the mark goes relative to the area's centre — exactly on the
+     border, and on the part of it that runs straight. The middle of a side is
+     where a rectangle's edge is vertical or horizontal, and on a circle it is
+     where the rim's tangent is. Either way the mark sits on a line an operator
+     can drive along and see. */
+  const SIDES = [
+    { at: "left", out: (a) => a.x, edge: atLeast, along: (a) => a.y, lean: +1, on: [-halfW, 0] },
+    { at: "right", out: (a) => a.x, edge: atMost, along: (a) => a.y, lean: -1, on: [+halfW, 0] },
+    { at: "top", out: (a) => a.y, edge: atLeast, along: (a) => a.x, lean: -1, on: [0, -halfH] },
+    { at: "bottom", out: (a) => a.y, edge: atMost, along: (a) => a.x, lean: +1, on: [0, +halfH] },
   ];
+
+  /* What each side has to offer: the areas standing on its outermost line, the
+     one it leans towards first and the rest working back along the side. The
+     lean is what spreads the first four over four different areas. */
+  const offers = SIDES.map((side) => ({
+    side,
+    areas: areas
+      .filter((a) => near(side.out(a), side.edge(side.out)))
+      .sort((a, b) => side.lean * (side.along(b) - side.along(a))),
+  }));
+
+  /* Round by round, a mark from each side in turn, so however many are asked
+     for they come out spread round the carrier rather than gathered down one
+     edge of it. A side that has run out of areas is passed over, and when
+     every side has, that is as many as this carrier can carry. */
+  const marks = [];
+  const used = offers.map(() => 0);
+  while (marks.length < howMany) {
+    const before = marks.length;
+    offers.forEach(({ side, areas: standing }, i) => {
+      if (marks.length >= howMany) return;
+      const a = standing[used[i]];
+      if (!a) return;
+      used[i] += 1;
+      marks.push({ at: side.at, x: (a.x + side.on[0]) * MM_UM, y: (a.y + side.on[1]) * MM_UM });
+    });
+    if (marks.length === before) break;
+  }
+  return marks;
 }
+
+/** As many as this carrier has borders to put them on. See `anchorsUm`. */
+export const howManyAnchorsFit = (config) => anchorsUm(config, Infinity).length;
 
 export default {
   id: "carrier",
@@ -407,36 +438,71 @@ export default {
     const { group: anchorBox, body: anchorCard } = sideGroup("Align carrier");
     designer.append(anchorBox);
 
+    /* How many to lay. Beside the button rather than above it, because the two
+       are one sentence: this many points, put them down. */
+    let howMany = 4;
+    const anchorCount = document.createElement("input");
+    anchorCount.type = "number";
+    anchorCount.className = "carrier-num anchor-count";
+    anchorCount.min = "2";
+    anchorCount.step = "1";
+    anchorCount.setAttribute("aria-label", "how many points to align this carrier from");
+    anchorCount.title = "How many points to align this carrier from";
+
     /* The box's own action, filled like Connect on the step before and Update
        optical configuration on the step after: one obvious thing to press per
        box, and it looks the same wherever it is. */
-    const anchorAdd = el("button", "run anchor-add", "Add alignment points");
+    const anchorAdd = el("button", "run anchor-add", "Add points");
     anchorAdd.type = "button";
-    /* Put all four down at once. Where a carrier is registered from is a
+    /* Put them all down at once. Where a carrier is registered from is a
        property of its shape, not something an operator should have to find by
-       eye four times — what they do is drive to each one and say "here". */
+       eye once per point — what they do is drive to each one and say "here". */
     /* `cfg`, not `config`: this panel redraws itself in place rather than being
        rebuilt, so the argument it was first rendered with is the carrier the
-       operator started on. Reading it here put a slide's four points on a
-       dish. */
-    anchorAdd.addEventListener("click", () => anchors.suggest(anchorsUm(cfg)));
+       operator started on. Reading it here put a slide's points on a dish. */
+    const layThem = () => anchors.suggest(anchorsUm(cfg, howManyAsked()));
+    /* Never more than the carrier has borders to put them on, and never fewer
+       than the two it takes to say anything at all about where it is. Clamped
+       when it is read rather than while it is being typed, so that reaching 12
+       by way of 1 does not fight the operator's hands. */
+    const howManyAsked = () => {
+      const most = howManyAnchorsFit(cfg);
+      return Math.max(2, Math.min(most, Math.round(howMany) || 4));
+    };
+    anchorCount.addEventListener("input", () => {
+      const v = parseFloat(anchorCount.value);
+      if (anchorCount.value !== "" && !Number.isNaN(v)) howMany = v;
+    });
+    anchorCount.addEventListener("blur", () => {
+      howMany = howManyAsked();
+      anchorCount.value = String(howMany);
+    });
+    anchorAdd.addEventListener("click", layThem);
+
+    const anchorLay = el("div", "anchor-lay");
+    anchorLay.append(anchorCount, anchorAdd);
 
     const anchorList = el("div", "point-list anchor-list");
-    /* The points first, the button under them — the same way a recorded
-       configuration reads. What the box is about is where the carrier has been
-       aligned to; putting the button above that offered to lay a fresh set
-       before the eye had reached the set already there. */
-    anchorCard.append(anchorList, anchorAdd);
+    /* Say how many and press, and the list of them appears underneath: the row
+       that lays the points reads before the points it laid. */
+    anchorCard.append(anchorLay, anchorList);
 
     /** The points put on the carrier so far, in the order they were placed. */
     const drawAnchors = () => {
       /* The set is complete or it is not there — where a carrier is aligned
-         from is a property of its shape. So once the four are down the button
+         from is a property of its shape. So once they are down the button
          stops offering to add and offers to lay them again, which is what an
-         operator wants after dragging three of them somewhere unhelpful. */
-      anchorAdd.textContent = anchors.list().length
-        ? "Reset alignment"
-        : "Add alignment points";
+         operator wants after dragging three of them somewhere unhelpful, and
+         what a different number in the box beside it asks for. */
+      anchorAdd.textContent = anchors.list().length ? "Reset points" : "Add points";
+      /* The box says what would be laid, which after a set is down is what is
+         down: a number left over from before would offer to lay six where four
+         are showing. */
+      if (document.activeElement !== anchorCount) {
+        howMany = anchors.list().length || howManyAsked();
+        anchorCount.value = String(howMany);
+      }
+      anchorCount.max = String(howManyAnchorsFit(cfg));
       anchorAdd.classList.toggle("on", anchors.arming());
       /* An empty list is not an empty list on screen: it keeps the rules that
          separate its rows, and with no rows between them they read as one

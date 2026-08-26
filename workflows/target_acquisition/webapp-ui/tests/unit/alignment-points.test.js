@@ -21,7 +21,8 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { anchorsUm } from "../../workflows/target_acquisition/steps/2_define_carrier/carrier-panel.js";
+import { anchorsUm, howManyAnchorsFit }
+  from "../../workflows/target_acquisition/steps/2_define_carrier/carrier-panel.js";
 import { carrierType, centres, fromPreset, geometry }
   from "../../workflows/target_acquisition/shared/carriers.js";
 
@@ -104,5 +105,53 @@ describe("what the four leave behind", () => {
     const mean = (f) => marks.reduce((sum, m) => sum + f(m), 0) / marks.length;
     expect(mean((m) => m.x)).toBeCloseTo((g.width / 2) * MM_UM, 6);
     expect(mean((m) => m.y)).toBeCloseTo((g.height / 2) * MM_UM, 6);
+  });
+});
+
+/* How many there are is the operator's to say. Four is what a carrier is laid
+   with unasked, and the rest are handed out the same way — a mark from each
+   side in turn — so that asking for more spreads them round the carrier
+   instead of gathering them down one edge of it.
+ */
+describe("as many points as were asked for", () => {
+  const sixWell = preset("wellplate", carrierType("wellplate").presets[0].label);
+
+  it("lays four when nobody says otherwise", () => {
+    expect(anchorsUm(sixWell)).toHaveLength(4);
+  });
+
+  it.each([2, 3, 4, 5, 8])("lays %i when %i are asked for", (n) => {
+    expect(anchorsUm(sixWell, n)).toHaveLength(n);
+  });
+
+  it("stops at what the carrier has borders for", () => {
+    const most = howManyAnchorsFit(sixWell);
+    expect(anchorsUm(sixWell, 99)).toHaveLength(most);
+    /* Three columns and two rows: two areas stand on the left line and two on
+       the right, three along the top and three along the bottom. */
+    expect(most).toBe(10);
+  });
+
+  it("keeps every extra point on a border too", () => {
+    for (const mark of anchorsUm(sixWell, 8)) {
+      const area = areaUnder(sixWell, mark);
+      const half = mark.at === "left" || mark.at === "right" ? sixWell.w / 2 : sixWell.h / 2;
+      const across = mark.at === "left" || mark.at === "right"
+        ? mark.x - area.x * MM_UM
+        : mark.y - area.y * MM_UM;
+      expect(Math.abs(across)).toBeCloseTo(half * MM_UM, 6);
+    }
+  });
+
+  it("hands them out a side at a time, so eight are two to a side", () => {
+    const sides = anchorsUm(sixWell, 8).map((m) => m.at);
+    for (const side of ["left", "right", "top", "bottom"]) {
+      expect(sides.filter((s) => s === side)).toHaveLength(2);
+    }
+  });
+
+  it("never lays the same point twice", () => {
+    const marks = anchorsUm(sixWell, howManyAnchorsFit(sixWell));
+    expect(new Set(marks.map((m) => `${m.x},${m.y}`)).size).toBe(marks.length);
   });
 });
