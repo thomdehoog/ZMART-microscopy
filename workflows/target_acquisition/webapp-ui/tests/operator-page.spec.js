@@ -1220,9 +1220,26 @@ test("focus points are laid so many to a tileset", async ({ page }) => {
      rows carry millimetres, which is what the claims are about — and a row is
      a reading, so the list holds nothing until the map has been measured.
      Each laying below is therefore followed by the press that measures it. */
-  const measure = async () => {
+  /* Waits for the readings to land rather than for a stopwatch. Measuring
+     three points takes longer than measuring one, and longer again on a loaded
+     machine — a fixed pause that was long enough on the day it was written
+     turned into a test that failed about half the time and, worse, one nobody
+     believed. It went red on a real regression and was read as noise. */
+  const measure = async (readings) => {
     await page.locator(".panel.on button.step-run").click();
-    await page.waitForTimeout(1600);
+    if (typeof readings === "number") {
+      await expect(page.locator(".point-row")).toHaveCount(readings, { timeout: 30_000 });
+      return;
+    }
+    /* When how many there will be is the thing being asked, wait for them to
+       stop arriving instead. */
+    let before = -1;
+    await expect.poll(async () => {
+      const now = await page.locator(".point-row").count();
+      const settled = now > 0 && now === before;
+      before = now;
+      return settled;
+    }, { timeout: 30_000, intervals: [500, 500, 500, 500, 500, 500] }).toBe(true);
   };
   const placed = async () => {
     const rows = await page.locator(".point-row").allInnerTexts();
@@ -1236,7 +1253,7 @@ test("focus points are laid so many to a tileset", async ({ page }) => {
   await expect(page.locator("#fp-count")).toHaveValue("1");
   await page.locator("#fp-place").click();
   await page.waitForTimeout(300);
-  await measure();
+  await measure(1);
   expect(await placed()).toHaveLength(1);
 
   /* Three to a tileset, each in its own share of it — and a fresh set rather
@@ -1246,7 +1263,7 @@ test("focus points are laid so many to a tileset", async ({ page }) => {
   await page.locator("#fp-count").dispatchEvent("input");
   await page.locator("#fp-place").click();
   await page.waitForTimeout(300);
-  await measure();
+  await measure(3);
   const three = await placed();
   expect(three, "three asked for, three there").toHaveLength(3);
   expect(new Set(three.map((p) => `${p.x},${p.y}`)).size,
@@ -1261,7 +1278,7 @@ test("focus points are laid so many to a tileset", async ({ page }) => {
   // and pressing it again with the same number lays the same three
   await page.locator("#fp-place").click();
   await page.waitForTimeout(300);
-  await measure();
+  await measure(3);
   const again = await placed();
   expect(again).toHaveLength(3);
   expect(again).toEqual(three);
@@ -1272,7 +1289,7 @@ test("focus points are laid so many to a tileset", async ({ page }) => {
   await page.locator("#fp-count").dispatchEvent("input");
   await page.locator("#fp-place").click();
   await page.waitForTimeout(300);
-  await measure();
+  await measure("as many as it holds");
   const all = await placed();
   expect(all.length, "as many as the tileset has positions").toBeGreaterThan(3);
 

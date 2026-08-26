@@ -222,13 +222,13 @@ function drawFocusLayer(ctx, toScreen, scale, w, h) {
      never going to be driven to: colouring the gaps states a focus for
      places this run does not visit. */
   if (showSurface && run.plan.length) {
-    const [sx0, sy0] = stage.toScreen(box.xMin, box.yMin);
+    const [sx0, sy0] = toScreen(box.xMin, box.yMin);
     const sw = (box.xMax - box.xMin) * scale, sh = (box.yMax - box.yMin) * scale;
     paintSurface(surf, zLo, zHi, planBox());
     ctx.save();
     ctx.beginPath();
     for (const t of run.plan) {
-      const [tx, ty] = stage.toScreen(t.x - t.frameUm / 2, t.y - t.frameUm / 2);
+      const [tx, ty] = toScreen(t.x - t.frameUm / 2, t.y - t.frameUm / 2);
       const sz = t.frameUm * scale;
       ctx.rect(tx, ty, sz, sz);
     }
@@ -244,7 +244,7 @@ function drawFocusLayer(ctx, toScreen, scale, w, h) {
   /* The positions themselves, as the scan fields laid them out. This panel
      works on the list the run is going to drive, not on a grid of its own. */
   for (const t of run.plan) {
-    const [tx, ty] = stage.toScreen(t.x - t.frameUm / 2, t.y - t.frameUm / 2);
+    const [tx, ty] = toScreen(t.x - t.frameUm / 2, t.y - t.frameUm / 2);
     const sz = t.frameUm * scale;
     ctx.strokeStyle = showSurface ? "rgba(255,255,255,0.30)" : css("--line-strong");
     ctx.lineWidth = 1;
@@ -257,7 +257,7 @@ function drawFocusLayer(ctx, toScreen, scale, w, h) {
     ctx.font = '11px ui-monospace, Consolas, monospace';
     ctx.textAlign = "center";
     for (const t of run.plan) {
-      const [tx, ty] = stage.toScreen(t.x, t.y);
+      const [tx, ty] = toScreen(t.x, t.y);
       if (t.frameUm * scale > 34) ctx.fillText("AF", tx, ty + 4);
     }
     ctx.textAlign = "left";
@@ -282,10 +282,10 @@ function drawFocusLayer(ctx, toScreen, scale, w, h) {
     /* The rectangle being drawn, if one is: grey and dashed, because it is a
        question about what it covers rather than a thing on the plate. */
     if (focusMarquee) {
-      const [mx0, my0] = stage.toScreen(
+      const [mx0, my0] = toScreen(
         Math.min(focusMarquee.sx, focusMarquee.cx), Math.min(focusMarquee.sy, focusMarquee.cy),
       );
-      const [mx1, my1] = stage.toScreen(
+      const [mx1, my1] = toScreen(
         Math.max(focusMarquee.sx, focusMarquee.cx), Math.max(focusMarquee.sy, focusMarquee.cy),
       );
       ctx.save();
@@ -299,7 +299,7 @@ function drawFocusLayer(ctx, toScreen, scale, w, h) {
     }
 
     f.points.forEach((p, i) => {
-      const [x, y] = stage.toScreen(p.x, p.y);
+      const [x, y] = toScreen(p.x, p.y);
       /* Held, found by the pointer, or charted: all three are the same claim
          — this is one the next thing you do will happen to — so all three are
          said the same way, by drawing the mark heavier and ringing it. */
