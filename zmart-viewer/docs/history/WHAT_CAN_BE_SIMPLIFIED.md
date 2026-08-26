@@ -16,7 +16,7 @@ The screening went looking for bloat and found very little of it.
 | what was checked | what was found |
 |---|---|
 | line coverage of `zmart_storage` from its own tests | **96%** — `canvas.py` 90%, `linked.py` 89%, `cropped.py` 99%, `positions.py` 97% |
-| coverage of `zmart-viewer/backend` | `server.py` 87%, `stores.py` 89%, `announcements.py` 99%, `linking.py` 86% |
+| coverage of `zmart-viewer/app/server` | `server.py` 87%, `stores.py` 89%, `announcements.py` 99%, `linking.py` 86% |
 | symbols in the whole non-test Python tree that nothing references | **two** |
 | `TODO`, `FIXME` or `deprecated` markers | **none** |
 | exports of `scene.js` and `engine.js` that nothing imports | **none** |

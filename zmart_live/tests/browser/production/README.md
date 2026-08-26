@@ -24,7 +24,7 @@ This needs saying at the top, because everything below could be read as evidence
 about the viewer an operator actually uses, and it is not.
 
 The server in this folder is written in this folder. It is not
-`zmart-viewer/backend`. Nothing here goes through `ViewRoute`, nothing here
+`zmart-viewer/app/server`. Nothing here goes through `ViewRoute`, nothing here
 discovers a scene the way the application discovers one, and nothing here uses the
 production refresh — the page is told to go back to the store by calling
 Neuroglancer's own internal `invalidateCache()` on each of its readers, by hand,

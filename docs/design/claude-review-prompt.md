@@ -301,7 +301,7 @@ Distinguish:
 - a real Neuroglancer renderer;
 - a synthetic test server;
 - `LivePublisher` used by a test-only server; and
-- the actual `zmart-viewer/backend` path the operator will run.
+- the actual `zmart-viewer/app/server` path the operator will run.
 
 The production guarantee exists only when the last path performs discovery,
 routes bytes, observes the manifest, invalidates the correct cached chunks and
@@ -351,7 +351,7 @@ The branch currently admits these gaps. Confirm their exact present state,
 severity and dependencies, and look for additional gaps:
 
 1. `ViewRoute` is persisted and used by the coordinator, but is not wired into
-   `zmart-viewer/backend`.
+   `zmart-viewer/app/server`.
 2. Full-resolution view writing still appears to copy all committed positions
    repeatedly, giving O(N²) total work over a growing run.
 3. Raw and seamless global coarse view pyramids are not implemented.

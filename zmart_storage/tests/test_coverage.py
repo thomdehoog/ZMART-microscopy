@@ -770,13 +770,13 @@ def test_the_viewer_reads_the_run_exactly_as_it_did_before(tmp_path):
     has to say about the other.
 
     One thing to know if this ever fails: it is the only test here that reads the
-    viewer's own code, so a change in ``zmart-viewer/backend`` can turn it red
+    viewer's own code, so a change in ``zmart-viewer/app/server`` can turn it red
     without anything in the writer having moved. That is the price of asking the
     real reader rather than an imitation of one, and the answer is usually worth
     it — but when this test alone fails, look at what the viewer changed before
     looking at the record.
     """
-    backend = Path(__file__).resolve().parents[2] / "zmart-viewer" / "backend"
+    backend = Path(__file__).resolve().parents[2] / "zmart-viewer" / "app" / "server"
     sys.path.insert(0, str(backend))
     try:
         import contrast

@@ -100,8 +100,8 @@ the plugin — the smart-microscopy loop already knows its views.
 | --- | --- | --- |
 | data writer | vendor's / `a_microscope.py` (tests) | unchanged — never ours |
 | view builder | `zmart_live` publisher + `building/` declare/governed/bake | one importable package with a progress callback; CLI wrapper for the plugin |
-| serving doors | `zmart-viewer/backend` | unchanged; already keyed off files |
-| canvas component | `zmart-viewer/frontend` | exported as an embeddable component (it already speaks only HTTP to the doors) |
+| serving doors | `zmart-viewer/app/server` | unchanged; already keyed off files |
+| canvas component | `zmart-viewer/app/page` | exported as an embeddable component (it already speaks only HTTP to the doors) |
 | opening plugin | — | new, small: UI over the view builder's CLI/progress |
 
 No module imports across a group boundary; each is testable alone

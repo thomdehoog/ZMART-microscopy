@@ -215,16 +215,35 @@ class LivePublisher:
     #: operator asked for it (2026-08-21), on the grounds that nothing in their
     #: lab opens a run's files while the microscope is still going.
     #:
-    #: It is nevertheless NOT the default yet, and the reason is on the record.
-    #: Made the default on 2026-08-22, a replay driven through the viewer's own
-    #: server stopped after its first position every time, the second position
-    #: complaining that its zoomed-out copies had not been written. The same
-    #: replay driven straight through this class published all four positions
-    #: happily, so the fault lies in how the two meet and is not yet
-    #: understood. A default that breaks a road we drive every day is not worth
-    #: the seconds it saves, so this stays as it was until that is explained.
-    #: Ask for ``"at_run_end"`` where the saving matters and nothing outside is
-    #: reading along.
+    #: It is still NOT the default, and 2026-08-26 says why with more
+    #: precision than 2026-08-22 could. Three things break when it is flipped;
+    #: one is now fixed and two are not.
+    #:
+    #: FIXED. ``replay_the_dataset`` skipped :meth:`finish_the_run` on the
+    #: stated grounds that a per-publish run keeps its view current and has
+    #: nothing left to finish. True of the mode it was written for, and it is
+    #: exactly the call that writes the view for the mode that defers it -- so
+    #: the replay returned the path of a view nobody had written. The door now
+    #: finishes its run, in a ``finally`` so a stopped replay leaves an
+    #: openable run too. That fix is right whatever this setting says.
+    #:
+    #: OPEN, and both are seen by an operator, measured with the flip on:
+    #:
+    #: 1. Auto goes dead on a live run. ``test_contrast`` --
+    #:    "a live picture holds no voxels of its own, but the members of its
+    #:    data collection do -- the measurement must follow the link". The
+    #:    measurement follows the LINKED view, which is not there mid-run.
+    #:    It should follow the governed picture, which is what the registry
+    #:    has served as the live source since 2026-08-12; contrast never
+    #:    caught up with that move.
+    #: 2. Growth flickers. ``test_the_spiral_growth_is_visible`` --
+    #:    "the lit canvas shrank while the spiral was landing", which is the
+    #:    fault HANDOVER_the_flicker.md exists for. Not yet understood.
+    #:
+    #: Fix those two and the flip is free: it takes about 13 seconds off a
+    #: 16-second publish at 12,769 positions and makes the writer flat with
+    #: scale. Ask for ``"at_run_end"`` meanwhile where the saving matters and
+    #: nothing outside is reading along -- the measurements already do.
     linked_view: str = "per_publish"
     manifest: RunManifest = field(init=False)
     layout: SceneLayoutRevision = field(init=False)

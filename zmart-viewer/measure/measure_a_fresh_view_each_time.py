@@ -379,7 +379,7 @@ def main() -> int:
     if not (dist / "index.html").is_file():
         raise SystemExit(
             "the viewer page has not been built; build it once with\n"
-            "  npm --prefix zmart-viewer/frontend run build"
+            "  npm --prefix zmart-viewer/app/page run build"
         )
 
     work = Path(tempfile.mkdtemp(prefix="fresh-view-"))

@@ -252,8 +252,8 @@ def main() -> int:
         raise SystemExit(
             "the viewer page has not been built, so there is nothing for a "
             "browser to open. Build it with:\n"
-            "  npm --prefix zmart-viewer/frontend install\n"
-            "  npm --prefix zmart-viewer/frontend run build")
+            "  npm --prefix zmart-viewer/app/page install\n"
+            "  npm --prefix zmart-viewer/app/page run build")
 
     asked = [int(one) for one in sys.argv[1:]] or list(RUNGS)
     rows = []

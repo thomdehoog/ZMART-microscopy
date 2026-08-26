@@ -37,7 +37,7 @@ from pathlib import Path
 import numpy as np
 import zarr
 
-sys.path.insert(0, "/home/user/ZMART-microscopy/zmart-viewer/backend")
+sys.path.insert(0, "/home/user/ZMART-microscopy/zmart-viewer/app/server")
 from server import make_server  # noqa: E402
 
 # A canvas sized for the stage, not for what we happened to image.

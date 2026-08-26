@@ -236,24 +236,33 @@ def replay_the_dataset(transfer: str | Path, folder: str | Path, *,
         # stuck — and a Stop pressed in that stretch is honoured here,
         # before the writing begins, rather than never (2026-08-23).
         told(0, plan.total)
-    for number, (name, held_in, front, moment) in enumerate(plan.beats):
-        if number and every_s:
-            time.sleep(every_s)
-        # One beat is one (position, moment): the moment's own pixels are
-        # read from the store -- sliced off the time axis when the store
-        # keeps one -- and given a channel axis when it does not, which is
-        # the shape the live writer takes.
-        held = zarr.open_array(str(held_in), mode="r")
-        pixels = held[moment] if "t" in front else held[:]
-        if "c" not in front:
-            pixels = pixels[None]
-        publisher.write_and_publish(name, pixels, timepoint=moment)
-        if told:
-            told(number + 1, plan.total)
-        if announce:
-            announce()
-    # No finish_the_run here, deliberately: the publisher runs in its
-    # per-publish mode, which keeps the linked view current after every
-    # commit, so there is nothing left to finish -- calling it would only
-    # restate what is already on disk.
+    try:
+        for number, (name, held_in, front, moment) in enumerate(plan.beats):
+            if number and every_s:
+                time.sleep(every_s)
+            # One beat is one (position, moment): the moment's own pixels are
+            # read from the store -- sliced off the time axis when the store
+            # keeps one -- and given a channel axis when it does not, which is
+            # the shape the live writer takes.
+            held = zarr.open_array(str(held_in), mode="r")
+            pixels = held[moment] if "t" in front else held[:]
+            if "c" not in front:
+                pixels = pixels[None]
+            publisher.write_and_publish(name, pixels, timepoint=moment)
+            if told:
+                told(number + 1, plan.total)
+            if announce:
+                announce()
+    finally:
+        # A replay is a run that finishes, so finish it -- and finish it
+        # whether the last beat landed or the operator pressed Stop, because
+        # what a stopped replay leaves behind still has to open.
+        #
+        # This is what the run owes an outside tool: on a publisher that
+        # defers its linked view, this call is the only thing that writes it,
+        # and without it the replay returned the path of a view that was
+        # never written. On a publisher that keeps the view current after
+        # every commit it restates what is already on disk, which is what
+        # `finish_the_run` promises to be -- harmless (2026-08-26).
+        publisher.finish_the_run()
     return publisher.folder / "views" / "live" / "live.ome.zarr"
