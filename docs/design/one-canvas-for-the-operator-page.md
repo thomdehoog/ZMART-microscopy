@@ -151,14 +151,12 @@ right shape, and it is a thing to look at on screen rather than argue here.
 
 ## Order of work
 
-1. Let a lent drag be declined, in `gestures.js`, and note it in
-   `contract.md`. All three engines get it at once. Then `viewer.js` routes a
-   drag to the stack, top-first. Tests in `canvas-layers.spec.js`: a layer that
-   claims a drag and moves its own shape; a press it turns down that pans
-   instead; and alt+drag panning while a claiming layer is armed. **This goes
-   first because it stands on its own** — a canvas whose layers can be worked
-   with, rather than only looked at, is worth having whether or not the rest of
-   this follows.
+1. **DONE.** A lent drag can be declined (`gestures.js`, so all three engines
+   have it), alt+drag is never offered, and `viewer.js` routes a drag to the
+   stack top-first via `whoClaims` in `layers-above.js`. Three tests in
+   `canvas-layers.spec.js`; 11 of 11 there pass. One correction along the way:
+   alt+drag is the *canvas's* rule, not a layer declining — an escape hatch each
+   layer has to remember to implement is not an escape hatch.
 2. Turn `theStageLayers` into `layersAbove` entries: `paint({context, project,
    zoom})` instead of closing over `place` and `view.scale`. `claims` does not
    replace `reaches` — they answer different questions, *is this point mine* and

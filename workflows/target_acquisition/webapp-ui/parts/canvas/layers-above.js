@@ -187,3 +187,30 @@ export function whoIsAt(layers = [], at) {
   }
   return null;
 }
+
+/**
+ * Which layer wants this drag, if any.
+ *
+ * The same question `whoIsAt` asks about a point, asked about a gesture, and
+ * answered the same way: from the top of the stack down, so the layer the
+ * operator can see wins. The difference is what a claim is for. A click is
+ * over the moment it happens; a drag is a press, then the moves, then the
+ * release, and a layer drawing a shape needs all three or it has none of them.
+ *
+ * Every candidate is *asked* — it is handed the opening of the drag and says
+ * whether it is theirs — because only the layer knows whether the press landed
+ * on anything of its own. Returning `false` declines; anything else takes it.
+ *
+ * @param layers the stack, bottom first.
+ * @param drag the opening of the gesture, `{ phase: "started", at, screen }`.
+ * @returns the layer that took it, or `null` if none did and it should pan.
+ */
+export function whoClaims(layers = [], drag) {
+  if (!drag) return null;
+  for (let index = layers.length - 1; index >= 0; index -= 1) {
+    const layer = layers[index];
+    if (!layer || layer.shown === false || typeof layer.claims !== "function") continue;
+    if (layer.claims(drag) !== false) return layer;
+  }
+  return null;
+}

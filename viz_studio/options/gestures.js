@@ -62,7 +62,7 @@ export function onlyPanAndZoom(element, { getView, setView }) {
   let handDragOver = null;
 
   const refused = { shiftDrag: 0, rightButton: 0, ctrlWheel: 0, keys: 0 };
-  const accepted = { drags: 0, wheels: 0, dragsHandedOver: 0 };
+  const accepted = { drags: 0, wheels: 0, dragsHandedOver: 0, dragsHandedBack: 0 };
 
   /**
    * How large the box is, in browser pixels.
@@ -117,10 +117,29 @@ export function onlyPanAndZoom(element, { getView, setView }) {
     // halfway through would otherwise split one movement of the hand between
     // two meanings, which is not something an operator could ever have asked
     // for.
-    dragging = { x: event.clientX, y: event.clientY, handOver: handDragOver };
+    //
+    // Alt is the exception, and it is the canvas's own: it keeps the drag for
+    // the picture whatever the application is doing with drags. An application
+    // whose tool wants every press on empty canvas would otherwise leave no way
+    // to move the picture at all, and an escape hatch that each tool has to
+    // remember to implement is not an escape hatch.
+    dragging = {
+      x: event.clientX,
+      y: event.clientY,
+      handOver: event.altKey ? null : handDragOver,
+    };
     if (dragging.handOver) {
-      accepted.dragsHandedOver += 1;
-      dragging.handOver({ phase: "started", ...whereThePointerIs(event) });
+      // Offered, not given. Whoever holds drags may turn this one down — it
+      // landed on nothing of theirs — and a drag nobody wants is a drag that
+      // pans, which is what dragging means when nothing has claimed it.
+      const took = dragging.handOver({ phase: "started", ...whereThePointerIs(event) });
+      if (took === false) {
+        dragging.handOver = null;
+        accepted.dragsHandedBack += 1;
+        accepted.drags += 1;
+      } else {
+        accepted.dragsHandedOver += 1;
+      }
     } else {
       accepted.drags += 1;
     }
@@ -237,6 +256,16 @@ export function onlyPanAndZoom(element, { getView, setView }) {
      * `"started"`, `"moved"` or `"finished"`, `at` is where the pointer is on
      * the stage in micrometres, and `screen` is where it is in the box in
      * browser pixels, counted from the top-left corner.
+     *
+     * **It may turn a drag down.** Returning `false` from the `"started"` call
+     * says this one is not mine, and the drag pans instead — which is what a
+     * drag means when nothing has claimed it. Anything else takes it, and the
+     * moves and the release follow. Without that, holding drags at all would
+     * mean the picture could never be moved again, so an application would have
+     * to hand them back and forth as tools were armed, guessing before the
+     * press what the press was going to land on.
+     *
+     * Alt+drag is never offered. The canvas keeps it for panning.
      */
     handDragsTo(handler) {
       handDragOver = handler || null;

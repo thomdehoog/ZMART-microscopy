@@ -210,6 +210,22 @@ handler({ phase, at, screen })
 - `at` — where the pointer is on the stage, in micrometres
 - `screen` — where it is in the box, in browser pixels from the top-left corner
 
+**The handler may turn a drag down.** Returning `false` from the `"started"`
+call says this one is not mine, and the drag pans instead — which is what a drag
+means when nothing has claimed it. Anything else takes it, and the moves and the
+release follow.
+
+Without that, holding drags at all would mean the picture could never be moved
+again while a tool was armed, so an application would have to hand drags back
+and forth as tools came and went, deciding before the press what the press was
+going to land on. It cannot know that. Only whatever is under the pointer knows,
+and it only knows once the press has happened.
+
+**Alt+drag is never offered.** The canvas keeps it for panning, whatever the
+application is doing with drags. An application whose tool wants every press on
+empty canvas would otherwise leave no way to move the picture at all, and an
+escape hatch each tool has to remember to implement is not an escape hatch.
+
 `at` is in micrometres for the same reason everything else here is: a mark kept
 in screen pixels would slide off the specimen the moment the operator panned or
 zoomed, while a mark kept in micrometres stays on the part of the sample it was

@@ -74,7 +74,7 @@
 
 import { theGroundBeneath, theOperatorsMarks } from "./demonstration-drawings.js";
 import { describeEngine, enginesOnOffer, openerFor, whyOneIsMissing } from "./engines.js";
-import { theDrawingAbove, whoIsAt } from "./layers-above.js";
+import { theDrawingAbove, whoClaims, whoIsAt } from "./layers-above.js";
 // What a strict reader will refuse in a store's own description, so bad news
 // can name a cause instead of reporting a silence. See that file for why the
 // engine cannot be asked directly.
@@ -590,6 +590,33 @@ export function putTheCanvasIn({
     if (found) onTouched({ ...found, at });
   });
 
+  /* The layer holding the drag that is under way, if one is. Held rather than
+     asked again on every movement: what a drag means is settled when it begins
+     and holds until the operator lets go, so asking a second time could hand
+     the second half of one movement of the hand to somebody else. */
+  let holdingTheDrag = null;
+
+  /**
+   * A drag, offered to the layers before the picture takes it as a pan.
+   *
+   * The canvas does not know what any of them would do with it. It asks, top of
+   * the stack down, and returns `false` when none of them wanted it — which is
+   * how the canvas is told to pan instead.
+   */
+  function theLayersMayHaveThisDrag(drag) {
+    if (drag.phase === "started") {
+      /* Locked means "I am reading, not editing", so nothing is claimed and
+         every drag is a pan. The same rule the click routing follows. */
+      holdingTheDrag = locked ? null : whoClaims(stackAbove, drag);
+      return holdingTheDrag !== null;
+    }
+    if (!holdingTheDrag) return false;
+    const answer = holdingTheDrag.claims(drag);
+    // Whoever borrowed it is always told it ended, however it ended.
+    if (drag.phase === "finished") holdingTheDrag = null;
+    return answer;
+  }
+
   /** Redraw the stack above after something about it has changed. */
   function theStackAboveChanged() {
     handTheSlotsTheirDrawings();
@@ -631,6 +658,7 @@ export function putTheCanvasIn({
     offerTheVolume(opened);
     offerTheStack(opened);
     if (carriedOver) opened.setView(carriedOver);
+    opened.handDragsTo?.(theLayersMayHaveThisDrag);
     viewer = opened;
     sayWhichEngineIsDrawing();
     sayWhatTheLayersAreDoing();
