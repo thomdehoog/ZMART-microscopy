@@ -22,6 +22,15 @@
  */
 
 import { putTheCanvasIn } from "../../../parts/canvas/viewer.js";
+/* What each step draws on the picture. A step owns its own layers — what they
+   are, when the run has anything for them, and what a press on one means — and
+   the workflow says only where each sits in the stack. */
+import { carrierLayers } from "../steps/2_define_carrier/layers.js";
+import { scanAreaLayers } from "../steps/3_define_scan_area/layers.js";
+import { focusLayers } from "../steps/4_focus_strategy/layers.js";
+import { overviewLayers } from "../steps/5_scan_the_overview/layers.js";
+import { targetLayers } from "../steps/6_discover_targets/layers.js";
+import { acquiredLayers } from "../steps/8_acquire_targets/layers.js";
 
 /**
  * Open the picture on a canvas.
@@ -374,11 +383,36 @@ function drawnIn(frame) {
   };
 }
 
-function theStageLayers({ shown, ch0, ch1, editing }) {
-  const activeMode = step(run.activeIdx).mode;
+/* The order the stack is drawn in, bottom first.
+ *
+ * The workflow's to state, and stated in one place, because the order is not
+ * something any step could know: it interleaves them. The carrier is under the
+ * fields it holds, which are under the focus map measured across them, which is
+ * under the plan drawn over all of it — steps 2, 5, 4 and 3, in none of their
+ * own order. What each layer *is* belongs to its step; where it sits belongs
+ * here.
+ *
+ * A layer that stays solid is drawn after the rest whatever this says, so
+ * anything that must sit low in the picture has to accept the fade. See
+ * `parts/canvas/layers-above.js`.
+ */
+const THE_STACK = [
+  "ground", "limits", "carrier", "tiles", "cells", "targets",
+  "focus", "plan", "detect", "editing", "anchors", "stage", "scale",
+];
 
-  return [
-    {
+/**
+ * The picture's own furniture, belonging to no step.
+ *
+ * The page's surface under everything, the travel the stage can reach, where
+ * the stage is standing, and how far a stretch of screen is on the sample.
+ * They are true of the run from the moment there is a microscope to ask, and
+ * they are what every step's own layers are drawn against.
+ */
+function thePicturesOwnLayers(theRun) {
+  const { run, css, drawnIn, drawStageLimits, drawWhereTheStageIs, drawScaleBar } = theRun;
+  return {
+    ground: {
       key: "ground",
       label: "Background",
       explains: "The page's own surface, under everything else the canvas draws. Turn it "
@@ -408,8 +442,7 @@ function theStageLayers({ shown, ch0, ch1, editing }) {
         ctx.fillRect(0, 0, width, height);
       },
     },
-
-    {
+    limits: {
       key: "limits",
       label: "Stage",
       explains: "The edge of where the stage can travel. Context for everything else "
@@ -423,261 +456,7 @@ function theStageLayers({ shown, ch0, ch1, editing }) {
         drawStageLimits(frame.context, onTheStage, scale);
       },
     },
-
-    {
-      key: "carrier",
-      label: "Carrier",
-      explains: "The plate the sample is mounted in — its outline and its wells. The "
-        + "room the run happens in.",
-      shown: run.done.has("carrier"),
-      paint: (frame) => {
-        const ctx = frame.context;
-        const { place, scale } = drawnIn(frame);
-        /* Grey, not the accent: the carrier is the room the run happens in,
-           not a thing the run produced. Dark enough to read against the stage
-           behind it, which is grey too. */
-        carrierWidget.drawOn(ctx, {
-          config: run.carrier, toScreen: place, scale: scale,
-          colour: css("--ink-3"), fill: css("--surface-3"),
-        });
-      },
-    },
-
-    {
-      key: "tiles",
-      label: "Tiles",
-      explains: "The fields the scan has taken, in the order it wrote them, with the "
-        + "tissue each one found. This is what the run has actually seen.",
-      shown: shown > 0,
-      paint: (frame) => {
-        const ctx = frame.context;
-        const { place, scale } = drawnIn(frame);
-        ctx.save();
-        const done = run.plan.slice(0, shown);
-        for (const t of done) tileTexture(ctx, t, place, scale);
-        /* Tissue is drawn inside the tiles that have been taken, because an
-           image is the only way the run knows it is there. */
-        ctx.globalCompositeOperation = "lighter";
-        for (const t of done) {
-          const d = density(t.x, t.y);
-          if (d < 0.02) continue;
-          const [bx, by] = place(t.x, t.y);
-          const br = (t.frameUm * 0.75) * scale;
-          const g = ctx.createRadialGradient(bx, by, 0, bx, by, br);
-          if (ch0) g.addColorStop(0, `rgba(34,211,238,${0.34 * d})`);
-          g.addColorStop(0.55, ch1 ? `rgba(245,158,11,${0.16 * d})` : `rgba(34,211,238,${0.12 * d})`);
-          g.addColorStop(1, "rgba(0,0,0,0)");
-          ctx.fillStyle = g;
-          ctx.beginPath(); ctx.arc(bx, by, br, 0, Math.PI * 2); ctx.fill();
-        }
-        ctx.restore();
-
-        // ---- scan frontier: the tile the stage is standing on
-        if (run.running === "scan" && run.plan[shown]) {
-          const t = run.plan[shown];
-          const [fx, fy] = place(t.x - t.frameUm / 2, t.y - t.frameUm / 2);
-          ctx.strokeStyle = css("--accent");
-          ctx.lineWidth = 2;
-          ctx.setLineDash([5, 4]);
-          ctx.strokeRect(fx, fy, t.frameUm * scale, t.frameUm * scale);
-          ctx.setLineDash([]);
-        }
-
-        /* ---- sample bounds: the edge of what has been imaged, so it exists
-           once something has been. Drawn from the first tile it was a second
-           square sitting in the plate's corner before any of this had
-           happened, which says the run has a sample somewhere it does not yet
-           have one. */
-        if (theSample().bounds) {
-          const b = theSample().bounds;
-          const [bx, by] = place(b.xMin, b.yMin);
-          ctx.strokeStyle = css("--line-strong");
-          ctx.lineWidth = 1;
-          ctx.strokeRect(bx, by, (b.xMax - b.xMin) * scale, (b.yMax - b.yMin) * scale);
-        }
-      },
-      /* A click on a taken field is a click on that field. This is what
-         opening a position from the picture will hang off. */
-      reaches: (at) => {
-        const half = (t) => t.frameUm / 2;
-        return run.plan.slice(0, shown).find(
-          (t) => Math.abs(at.x - t.x) <= half(t) && Math.abs(at.y - t.y) <= half(t),
-        ) ?? null;
-      },
-    },
-
-
-    {
-      key: "cells",
-      label: "Cells",
-      explains: "What detection found. The ones that passed the gate are ringed, so which "
-        + "is which does not rest on colour alone.",
-      shown: run.cellsShown,
-      paint: (frame) => {
-        const ctx = frame.context;
-        const { place, scale, w, h } = drawnIn(frame);
-        const ctxRad = Math.max(1.1, 1.4 * Math.sqrt(scale / 0.03));
-        ctx.fillStyle = css("--mark-context");
-        ctx.globalAlpha = 0.55;
-        ctx.beginPath();
-        for (const c of theSample().cells) {
-          if (!run.detected.has(c.id) || run.gated.has(c.id)) continue;
-          const [x, y] = place(c.x, c.y);
-          if (x < -8 || y < -8 || x > w + 8 || y > h + 8) continue;
-          ctx.moveTo(x + ctxRad, y);
-          ctx.arc(x, y, ctxRad, 0, Math.PI * 2);
-        }
-        ctx.fill();
-        ctx.globalAlpha = 1;
-
-        // gated cells — ringed, so identity is not carried by colour alone
-        const gr = Math.max(3, 4.2 * Math.sqrt(scale / 0.03));
-        for (const c of theSample().cells) {
-          if (!run.gated.has(c.id)) continue;
-          const [x, y] = place(c.x, c.y);
-          if (x < -10 || y < -10 || x > w + 10 || y > h + 10) continue;
-          ctx.beginPath(); ctx.arc(x, y, gr, 0, Math.PI * 2);
-          ctx.fillStyle = "#0284c7"; ctx.fill();
-          ctx.lineWidth = 1.5; ctx.strokeStyle = css("--screen"); ctx.stroke();
-        }
-      },
-      reaches: (at) => {
-        let best = 12 / scale, hit = null;
-        for (const c of theSample().cells) {
-          if (!run.detected.has(c.id)) continue;
-          const d = Math.hypot(c.x - at.x, c.y - at.y);
-          if (d < best) { best = d; hit = c; }
-        }
-        return hit;
-      },
-    },
-
-    {
-      key: "targets",
-      label: "Targets",
-      explains: "The cells that have been imaged at high resolution.",
-      shown: run.acquired.length > 0,
-      paint: (frame) => {
-        const ctx = frame.context;
-        const { place, scale } = drawnIn(frame);
-        for (const id of run.acquired) {
-          const c = theSample().cells[id - 1];
-          const [x, y] = place(c.x, c.y);
-          const rr = Math.max(7, 9 * Math.sqrt(scale / 0.03));
-          ctx.beginPath(); ctx.arc(x, y, rr, 0, Math.PI * 2);
-          ctx.strokeStyle = "#16a34a"; ctx.lineWidth = 2.2; ctx.stroke();
-          ctx.beginPath(); ctx.arc(x, y, 2.2, 0, Math.PI * 2);
-          ctx.fillStyle = "#16a34a"; ctx.fill();
-        }
-      },
-    },
-
-    {
-      key: "focus",
-      label: "Focus",
-      explains: "Where the microscope will focus, and what it has measured there. Stays "
-        + "solid however far the rest is faded: fading the plan to see the picture is "
-        + "not a request to lose the focus points too.",
-      /* Only while standing on that step — walking away leaves the canvas the
-         plain picture every other step reads. */
-      shown: activeMode === "focus",
-      /* Not held back to the end, though it was at first. The scan fields are
-         drawn *over* the focus map — that is the order the page had before
-         any of this was a stack — and holding the map back put it on top
-         instead, which covered the very fields the operator is placing focus
-         points among. A layer that stays solid is a layer drawn last, so it
-         cannot also be a layer drawn early: this one has to be early, and the
-         cost is that the shared fade reaches it. Splitting the map from the
-         points would buy back both, and is the thing to do if that fade ever
-         matters here. */
-      paint: (frame) => {
-        const { place, scale, w, h } = drawnIn(frame);
-        drawFocusLayer(frame.context, place, scale, w, h);
-      },
-    },
-
-    {
-      key: "plan",
-      label: "Plan",
-      explains: "The positions the microscope was told to visit. It stays readable once "
-        + "the tiles start landing on top of it, dimmed, because by then the images "
-        + "are the answer and this is only the question.",
-      /* Not before the step that says where to scan. Walking back to the
-         carrier is walking back to a question the plan is an answer to — the
-         fields were placed against these areas, and drawing them over a plate
-         that is still being changed shows a plan for a carrier that may be
-         about to stop existing. The fields are kept, not discarded: coming
-         forward again finds them where they were. */
-      shown: run.activeIdx >= indexOfStep("scanfields"),
-      paint: (frame) => {
-        const ctx = frame.context;
-        const { place, scale } = drawnIn(frame);
-        scanfieldsWidget.drawOn(ctx, {
-          fields: run.fields, preset: activePreset(), carrier: run.carrier,
-          toScreen: place, scale: scale, dim: shown > 0,
-          marked: editing?.marked(),
-        });
-      },
-    },
-
-    {
-      key: "detect",
-      label: "Test field",
-      explains: "The one position detection is being tuned on, so the canvas says which "
-        + "tile the channel's preview is of.",
-      shown: activeMode === "detect" && !!run.plan[run.detect.tile],
-      staysSolid: true,
-      paint: (frame) => {
-        const ctx = frame.context;
-        const { place, scale } = drawnIn(frame);
-        const t = run.plan[run.detect.tile];
-        const half = t.frameUm / 2;
-        const [x, y] = place(t.x - half, t.y - half);
-        ctx.strokeStyle = css("--accent");
-        ctx.lineWidth = 2;
-        ctx.strokeRect(x, y, t.frameUm * scale, t.frameUm * scale);
-      },
-    },
-
-    {
-      key: "editing",
-      label: "Editing",
-      explains: "The handles and guides of whatever is being drawn by hand. Always solid "
-        + "and always on top: you cannot edit what you cannot see.",
-      shown: !!editing,
-      staysSolid: true,
-      paint: (frame) => {
-        const { place, scale } = drawnIn(frame);
-        editing.drawChrome(frame.context, { toScreen: place, scale });
-      },
-    },
-
-    {
-      key: "anchors",
-      label: "Anchors",
-      explains: "The points the carrier is being registered from — where the plate really "
-        + "is, as opposed to where it was assumed to be. Solid, because a mark you are "
-        + "placing by hand has to be exactly where you put it.",
-      /* Only on the step that places them: away from it they are answered
-         questions, and the carrier drawn from them says the same thing. */
-      shown: activeMode === "carrier" && run.anchors.length > 0,
-      staysSolid: true,
-      paint: (frame) => {
-        const ctx = frame.context;
-        /* Anchors are placed in the carrier's own coordinates, like everything
-           else the run puts down, so they are drawn in the carrier's frame. */
-        const { place } = drawnIn(frame);
-        ctx.strokeStyle = css("--mark-focus");
-        ctx.fillStyle = css("--mark-focus");
-        for (const a of run.anchors) {
-          const [x, y] = place(a.x, a.y);
-          ctx.lineWidth = a.stage ? 2.4 : 1.6;
-          crosshair(ctx, x, y, 11, 4, a.stage ? 3 : 2);
-        }
-      },
-    },
-
-    {
+    stage: {
       key: "stage",
       label: "Where the stage is",
       explains: "A crosshair on the position the stage is standing at. Always solid: it "
@@ -690,8 +469,7 @@ function theStageLayers({ shown, ch0, ch1, editing }) {
       staysSolid: true,
       paint: (frame) => drawWhereTheStageIs(frame.context, drawnIn(frame).onTheStage),
     },
-
-    {
+    scale: {
       key: "scale",
       label: "Scale bar",
       explains: "How far a stretch of screen is on the theSample(). A reading rather than a "
@@ -705,8 +483,39 @@ function theStageLayers({ shown, ch0, ch1, editing }) {
         const { scale, w, h } = drawnIn(frame);
         drawScaleBar(frame.context, w, h, scale);
       },
-    },
-  ];
+    }
+  };
+}
+
+/**
+ * The whole stack, assembled.
+ *
+ * Each step says what it draws; this puts the answers in the order the workflow
+ * declared. A step that has nothing to draw yet still supplies its layers — a
+ * layer says for itself whether the run has anything for it, which is a
+ * different question from whether the operator wants to see it.
+ */
+function theStageLayers({ shown, ch0, ch1, editing }) {
+  const theRun = {
+    run, css, drawnIn, theSample, carrierWidget, scanfieldsWidget,
+    activePreset, indexOfStep, step,
+    activeMode: step(run.activeIdx).mode,
+    editing, shown, ch0, ch1,
+    crosshair, tileTexture, density, trueZ,
+    drawFocusLayer, drawStageLimits, drawWhereTheStageIs, drawScaleBar,
+  };
+
+  const supplied = {
+    ...thePicturesOwnLayers(theRun),
+    ...carrierLayers(theRun),
+    ...scanAreaLayers(theRun),
+    ...focusLayers(theRun),
+    ...overviewLayers(theRun),
+    ...targetLayers(theRun),
+    ...acquiredLayers(theRun),
+  };
+
+  return THE_STACK.map((key) => supplied[key]).filter(Boolean);
 }
 
 function drawStage() {
