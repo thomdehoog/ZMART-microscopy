@@ -46,7 +46,11 @@ function renderRecordedBar(record, {
   const wrap = document.createDocumentFragment();
 
   const row = document.createElement("div");
-  row.className = "rec-row";
+  /* A row with no name is one column of content, not two: the reading begins
+     where the name would have, beside the dot that colours it. Left in the
+     two-column layout it sat right-aligned against an empty cell, a long way
+     from the mark it belongs to. */
+  row.className = unnamed ? "rec-row unnamed" : "rec-row";
   // no kind cell: the group above names it, so the name starts at the left
   row.innerHTML = '<button type="button" class="rec-fold"></button>'
     + '<button type="button" class="rec-pick">'
