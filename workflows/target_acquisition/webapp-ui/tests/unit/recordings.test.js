@@ -30,7 +30,7 @@ describe("a slot holds one reading of the instrument", () => {
     /* The pretend operator changed the objective in between: the second
        reading comes back as the instrument now stands, not as it stood. */
     const again = record(first, "hires");
-    expect(again.records[0].summary).toBe("63x / 1.40 NA oil · 2 channels");
+    expect(again.records[0].summary).toBe("63x · 1.40 NA oil · zoom 1 · 0.1 µm/px");
     expect(again.records[0].frameUm).toBe(102);
   });
 
