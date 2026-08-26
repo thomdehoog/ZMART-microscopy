@@ -337,6 +337,16 @@ export function putTheCanvasIn({
      carrier's, say. Given where the pointer is and how magnified the picture
      is; answers with a line. Left out, the canvas says it in its own words. */
   readoutSays = null,
+  /* What is behind the picture. Opaque by default, and deliberately: an engine
+     is fetched when the panel is first opened, and until it arrives the box
+     would be page-white — a second or two of blank white where a dark, empty
+     microscope image belongs, which reads as something having gone wrong.
+
+     A host that draws something of its own *beneath* the canvas passes
+     `"transparent"`, because an opaque ground would hide it — and hide it
+     exactly where the layers had been opened up to show it, which is the one
+     place it was wanted. */
+  background = THE_COLOUR_BEHIND_THE_PICTURE,
 }) {
   /* Somewhere harmless to write for the things this host is not offering.
      A page that shows no engine chooser, or no running commentary about what
@@ -719,7 +729,7 @@ export function putTheCanvasIn({
         // rather than only the part it has been to, which costs a few more
         // requests and is right in every other way.
         coverage: null,
-        background: THE_COLOUR_BEHIND_THE_PICTURE,
+        background,
         onViewChanged: sayWhereTheViewIs,
       }),
       acquisitions.length ? wanted : `${wanted}, opened with no acquisition,`,
