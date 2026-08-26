@@ -152,23 +152,27 @@ export function anchorsUm(config) {
      the radius. */
   const halfW = config.w / 2, halfH = config.h / 2;
   const areas = centres(config);
-  const g = geometry(config);
-  const midX = g.width / 2, midY = g.height / 2;
 
-  /* Ties are resolved towards the middle of the carrier, not towards the first
-     area in the list. On a 96-well plate every well in the left column is
-     equally far left; taking the first would put the left mark in the top-left
-     corner beside the top one, and two marks in one corner measure a smaller
-     carrier than the one actually on the stage. */
+  /* Ties are resolved to spread the four marks apart, not to take whichever
+     area came first in the list. On a 96-well plate every well in the left
+     column is equally far left, and on a two-chamber slide both chambers are
+     equally the topmost thing there is.
+
+     Each mark leans a quarter turn on from the one before it — top to the
+     left, right to the top, bottom to the right, left to the bottom — so the
+     four land on four different areas, set round the carrier like hands on a
+     clock. Marks bunched on one area pin where the carrier is without pinning
+     how it is turned: the rotation is read off the distance between them, and
+     there has to be some. */
   const near = (v, w) => Math.abs(v - w) < 1e-6;
   const atLeast = (get) => Math.min(...areas.map(get));
   const atMost = (get) => Math.max(...areas.map(get));
-  const among = (ok, spread, towards) => areas.filter(ok)
-    .reduce((best, a) => (Math.abs(spread(a) - towards) < Math.abs(spread(best) - towards) ? a : best));
-  const left = among((a) => near(a.x, atLeast((n) => n.x)), (a) => a.y, midY);
-  const right = among((a) => near(a.x, atMost((n) => n.x)), (a) => a.y, midY);
-  const top = among((a) => near(a.y, atLeast((n) => n.y)), (a) => a.x, midX);
-  const bottom = among((a) => near(a.y, atMost((n) => n.y)), (a) => a.x, midX);
+  const leaning = (ok, along, way) => areas.filter(ok)
+    .reduce((best, a) => (way * (along(a) - along(best)) > 0 ? a : best));
+  const left = leaning((a) => near(a.x, atLeast((n) => n.x)), (a) => a.y, +1);
+  const right = leaning((a) => near(a.x, atMost((n) => n.x)), (a) => a.y, -1);
+  const top = leaning((a) => near(a.y, atLeast((n) => n.y)), (a) => a.x, -1);
+  const bottom = leaning((a) => near(a.y, atMost((n) => n.y)), (a) => a.x, +1);
 
   /* Exactly on the border, and on the part of it that runs straight: the
      middle of a side is where a rectangle's edge is vertical or horizontal,
