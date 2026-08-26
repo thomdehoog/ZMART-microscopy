@@ -604,7 +604,7 @@ The rule going forward is that a test lives beside what it tests
 is a stopwatch flake on this machine (`waitForTimeout(1600)`), not a
 regression.
 
-**A widget owns its panel and redraws itself.** `steps/2_define_carrier/widget.js`
+**A widget owns its panel and redraws itself.** `steps/2_define_carrier/carrier-panel.js`
 is the pattern: handed a value and a callback, knows nothing of run state,
 and writes new values into the controls that already exist rather than
 rebuilding — a rebuild per keystroke destroys the field being typed into.

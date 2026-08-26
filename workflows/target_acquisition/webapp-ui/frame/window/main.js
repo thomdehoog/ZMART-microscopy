@@ -25,9 +25,10 @@ import {
   emptySlot, hasRecording, withRecording, withoutRecording, withActive,
   activeRecording, nextReadingIndex,
 } from "../../workflows/target_acquisition/microscope/recordings.js";
-import carrierWidget from "../../workflows/target_acquisition/steps/2_define_carrier/widget.js";
-import scanfieldsWidget, { presetInk } from "../../workflows/target_acquisition/steps/3_define_scan_area/widget.js";
-import galleryWidget from "../../workflows/target_acquisition/steps/8_acquire_targets/widget.js";
+import carrierWidget from "../../workflows/target_acquisition/steps/2_define_carrier/carrier-panel.js";
+import scanfieldsWidget, { presetInk } from "../../workflows/target_acquisition/steps/3_define_scan_area/scanfield-editor.js";
+import gatingPanel from "../../workflows/target_acquisition/steps/7_refine_targets/gate.js";
+import galleryWidget from "../../workflows/target_acquisition/steps/8_acquire_targets/gallery.js";
 /* The rehearsal's own maths — the deterministic random stream, the autofocus
    sweep with its two metrics and its specks of debris, and the focus-surface
    fitting — is imported rather than written here, so the unit tests and the
@@ -365,7 +366,7 @@ let stageWatch = null;
     });
     view.fitted = false;
     focusPanelsFor(0);
-    renderGateReadout();
+    gatingShown?.redraw();
     renderPointList();
     renderAll();
   }
@@ -1304,16 +1305,26 @@ let stageWatch = null;
 
   /* And selection once more: the gated cells light up on the canvas, and the
      channel holds the scatter they are gated on. */
-  const analysisWidget = {
-    id: "select",
-    label: "Refine Targets",
-    mount(host) {
-      analysisControls.hidden = false;
-      host.append(analysisControls);
-      sizeCanvas(scatterCv);
-      drawScatter();
-      renderGateReadout();
-    },
+  /* The scatter is the refine step's own panel, built beside its step. It is
+     handed what to draw and what a gate means for the run; the handle it
+     gives back is how the page asks it to draw again. */
+  let gatingShown = null;
+  const gatingMount = (host) => {
+    gatingShown = gatingPanel.mount(host, {
+      cells: () => sample.cells,
+      detected: () => state.detected,
+      gated: () => state.gated,
+      acquired: () => state.acquired,
+      gate: () => state.gate,
+      showing: () => state.cellsShown,
+      areaRange: [AREA_LO, AREA_HI],
+      setGate: (gate, ids) => {
+        state.gate = gate;
+        state.gated = ids;
+        drawStage(); renderTabs(); renderActionBar();
+      },
+      sizeCanvas, css,
+    });
   };
 
   /* The session card lives in the channel like everything else: it is the
@@ -1341,7 +1352,8 @@ let stageWatch = null;
   const SIDE_WIDGETS = {
     connect: connectWidget,
     carrier: carrierWidget, scanfields: scanfieldsWidget,
-    focus: focusWidget, scan: scanWidget, detect: detectWidget, select: analysisWidget,
+    focus: focusWidget, scan: scanWidget, detect: detectWidget,
+    select: { id: gatingPanel.id, label: gatingPanel.label, mount: gatingMount },
     acquire: { id: galleryWidget.id, label: galleryWidget.label, mount: galleryMount },
   };
 
@@ -1369,7 +1381,6 @@ let stageWatch = null;
      document, and getElementById cannot find what is not in it. */
   const focusControls = el("focus-controls");
   const detectControls = el("detect-controls");
-  const analysisControls = el("analysis-controls");
 
   function renderSide(show) {
     const host = el("canvas-side");
@@ -4207,193 +4218,20 @@ let stageWatch = null;
   }
 
   /* ============================================================
-     the analysis panel — a scatter you gate on
-     ============================================================ */
-  const scatterCv = el("scatter-canvas");
-  const scatterTip = el("scatter-tip");
-  const PAD = { l: 62, r: 18, t: 18, b: 46 };
-
-  const sx = (area, w) => PAD.l + ((area - AREA_LO) / (AREA_HI - AREA_LO)) * (w - PAD.l - PAD.r);
-  const sy = (inten, h) => (h - PAD.b) - inten * (h - PAD.t - PAD.b);
-  const invX = (px, w) => AREA_LO + ((px - PAD.l) / (w - PAD.l - PAD.r)) * (AREA_HI - AREA_LO);
-  const invY = (py, h) => ((h - PAD.b) - py) / (h - PAD.t - PAD.b);
-
-  function drawScatter() {
-    if (!sizeCanvas(scatterCv)) return;
-    const ctx = scatterCv.getContext("2d");
-    const w = scatterCv.cssW, h = scatterCv.cssH;
-    ctx.clearRect(0, 0, w, h);
-    ctx.fillStyle = css("--screen");
-    ctx.fillRect(0, 0, w, h);
-
-    // recessive grid
-    ctx.strokeStyle = css("--line");
-    ctx.lineWidth = 1;
-    ctx.fillStyle = css("--ink-3");
-    ctx.font = '11.5px ui-monospace, Consolas, monospace';
-    ctx.textAlign = "right";
-    for (let v = 0; v <= 1.0001; v += 0.25) {
-      const y = sy(v, h);
-      ctx.beginPath(); ctx.moveTo(PAD.l, y); ctx.lineTo(w - PAD.r, y); ctx.stroke();
-      ctx.fillText(v.toFixed(2), PAD.l - 9, y + 4);
-    }
-    ctx.textAlign = "center";
-    for (let a = 100; a <= AREA_HI; a += 100) {
-      const x = sx(a, w);
-      ctx.beginPath(); ctx.moveTo(x, PAD.t); ctx.lineTo(x, h - PAD.b); ctx.stroke();
-      ctx.fillText(String(a), x, h - PAD.b + 18);
-    }
-
-    // axis titles
-    ctx.fillStyle = css("--ink-2");
-    ctx.font = '12.5px system-ui, sans-serif';
-    ctx.fillText("cell area (µm²)", (PAD.l + w - PAD.r) / 2, h - 12);
-    ctx.save();
-    ctx.translate(16, (PAD.t + h - PAD.b) / 2);
-    ctx.rotate(-Math.PI / 2);
-    ctx.fillText("mean intensity · ch2", 0, 0);
-    ctx.restore();
-
-    // context points
-    ctx.fillStyle = css("--mark-context");
-    ctx.globalAlpha = 0.5;
-    ctx.beginPath();
-    for (const c of sample.cells) {
-      if (!state.detected.has(c.id) || state.gated.has(c.id)) continue;
-      const x = sx(c.area, w), y = sy(c.intensity, h);
-      ctx.moveTo(x + 2, y); ctx.arc(x, y, 2, 0, Math.PI * 2);
-    }
-    ctx.fill();
-    ctx.globalAlpha = 1;
-
-    // gated points — larger and ringed as well as coloured
-    const acquired = new Set(state.acquired);
-    for (const c of sample.cells) {
-      if (!state.gated.has(c.id)) continue;
-      const x = sx(c.area, w), y = sy(c.intensity, h);
-      const isAcq = acquired.has(c.id);
-      ctx.beginPath(); ctx.arc(x, y, isAcq ? 4.6 : 3.4, 0, Math.PI * 2);
-      ctx.fillStyle = isAcq ? "#16a34a" : "#0284c7";
-      ctx.fill();
-      ctx.lineWidth = 2; ctx.strokeStyle = css("--screen"); ctx.stroke();
-    }
-
-    // the gate itself
-    if (state.gate) {
-      const g = state.gate;
-      const x0 = sx(g.aLo, w), x1 = sx(g.aHi, w);
-      const y0 = sy(g.iHi, h), y1 = sy(g.iLo, h);
-      ctx.strokeStyle = "#0284c7"; ctx.lineWidth = 1.5;
-      ctx.setLineDash([5, 4]);
-      ctx.strokeRect(x0, y0, x1 - x0, y1 - y0);
-      ctx.setLineDash([]);
-    }
-    if (drag.active) {
-      ctx.strokeStyle = css("--accent"); ctx.lineWidth = 1.5;
-      ctx.setLineDash([4, 3]);
-      ctx.strokeRect(Math.min(drag.x0, drag.x1), Math.min(drag.y0, drag.y1),
-        Math.abs(drag.x1 - drag.x0), Math.abs(drag.y1 - drag.y0));
-      ctx.setLineDash([]);
-    }
-  }
-
-  const drag = { active: false, x0: 0, y0: 0, x1: 0, y1: 0 };
-
-  scatterCv.addEventListener("pointerdown", (e) => {
-    if (!state.cellsShown) return;
-    drag.active = true;
-    drag.x0 = drag.x1 = e.offsetX; drag.y0 = drag.y1 = e.offsetY;
-    scatterCv.setPointerCapture(e.pointerId);
-  });
-
-  scatterCv.addEventListener("pointermove", (e) => {
-    const w = scatterCv.cssW, h = scatterCv.cssH;
-    if (drag.active) {
-      drag.x1 = e.offsetX; drag.y1 = e.offsetY;
-      drawScatter();
-      return;
-    }
-    if (!state.cellsShown) return;
-    let hit = null, best = 9;
-    for (const c of sample.cells) {
-      if (!state.detected.has(c.id)) continue;
-      const d = Math.hypot(sx(c.area, w) - e.offsetX, sy(c.intensity, h) - e.offsetY);
-      if (d < best) { best = d; hit = c; }
-    }
-    if (hit) {
-      scatterTip.classList.add("on");
-      scatterTip.innerHTML =
-        `<b>cell</b> ${hit.id}<br><b>area</b> ${hit.area.toFixed(0)} µm²<br>` +
-        `<b>int</b> ${hit.intensity.toFixed(2)}<br><b>at</b> ${(hit.x / 1000).toFixed(2)}, ${(hit.y / 1000).toFixed(2)} mm`;
-      scatterTip.style.left = `${Math.min(e.offsetX + 14, w - 160)}px`;
-      scatterTip.style.top = `${Math.max(6, e.offsetY - 68)}px`;
-    } else {
-      scatterTip.classList.remove("on");
-    }
-  });
-
-  scatterCv.addEventListener("pointerup", (e) => {
-    if (!drag.active) return;
-    drag.active = false;
-    scatterCv.releasePointerCapture?.(e.pointerId);
-    const w = scatterCv.cssW, h = scatterCv.cssH;
-    if (Math.abs(drag.x1 - drag.x0) < 6 || Math.abs(drag.y1 - drag.y0) < 6) { drawScatter(); return; }
-    const g = {
-      aLo: invX(Math.min(drag.x0, drag.x1), w), aHi: invX(Math.max(drag.x0, drag.x1), w),
-      iLo: invY(Math.max(drag.y0, drag.y1), h), iHi: invY(Math.min(drag.y0, drag.y1), h),
-    };
-    applyGate(g);
-  });
-
-  scatterCv.addEventListener("pointerleave", () => scatterTip.classList.remove("on"));
-
-  /* Like the other channels, these controls leave the document with the step.
-     The readout is rendered from the run's state rather than written at the
-     moment of gating, so mounting again always shows what is true now. */
-  const analysisMounted = () => analysisControls.isConnected;
-
-  function renderGateReadout() {
-    if (!analysisMounted()) return;
-    const g = state.gate;
-    el("gate-readout").textContent = g
-      ? `${state.gated.size} of ${state.detected.size} detected gated · area ${g.aLo.toFixed(0)}–${g.aHi.toFixed(0)} µm² · int ${g.iLo.toFixed(2)}–${g.iHi.toFixed(2)}`
-      : "drag a rectangle to gate";
-  }
-
-  function applyGate(g) {
-    state.gate = g;
-    state.gated = new Set(sample.cells
-      .filter((c) => state.detected.has(c.id)
-        && c.area >= g.aLo && c.area <= g.aHi && c.intensity >= g.iLo && c.intensity <= g.iHi)
-      .map((c) => c.id));
-    renderGateReadout();
-    drawScatter();
-    drawStage();
-    renderTabs();
-    renderActionBar();
-  }
-
-  el("clear-gate").addEventListener("click", () => {
-    state.gate = null; state.gated = new Set();
-    renderGateReadout();
-    drawScatter(); drawStage(); renderTabs(); renderActionBar();
-  });
-
-  /* ============================================================
      boot
      ============================================================ */
   const ro = new ResizeObserver(() => {
     if (el("panel-canvas").classList.contains("on")) { sizeCanvas(stageCv); drawStage(); }
     if (detectMounted()) drawTilePreview();
     drawTrace();
-    if (analysisMounted()) { sizeCanvas(scatterCv); drawScatter(); }
   });
   ro.observe(el("panel-canvas"));
   ro.observe(focusControls);
   ro.observe(detectControls);
-  ro.observe(analysisControls);
 
-  const mo = new MutationObserver(() => { drawStage(); drawTilePreview(); drawTrace(); drawScatter(); });
+  const mo = new MutationObserver(() => {
+    drawStage(); drawTilePreview(); drawTrace(); gatingShown?.redraw();
+  });
   mo.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
 
   renderPointList();

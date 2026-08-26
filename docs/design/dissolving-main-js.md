@@ -116,14 +116,14 @@ calls `freshRun()` for the rest. `rebuildSample`'s side effect of writing
 *Measured by:* `frame/tests/steps.test.js` (reset leaves only frame keys) +
 "walking back to the carrier takes the plan off the canvas".
 
-### 3. Gallery → `steps/8_acquire_targets/widget.js`
+### 3. Gallery → `steps/8_acquire_targets/gallery.js`
 
 Lines 4368–4459, the widget object 1253–1267, the `targets` arm. Fewest
 dependencies: `run.acquired/verdicts`, the cells, `makeRng`; no canvas, no
 projection. The widget builds its own markup; `#gallery-controls` leaves
 `index.html`. *Measured by:* "one walk of the whole run".
 
-### 4. Gating → `steps/7_refine_targets/widget.js`
+### 4. Gating → `steps/7_refine_targets/gate.js`
 
 Lines 4195–4366, widget 1228–1240, the `select` arm, hint 425. Owns its
 scatter canvas and `AREA_LO/HI` (which then has one owner). Its only outward
@@ -131,14 +131,14 @@ call is "redraw the stage", which becomes an action. `#analysis-controls`
 leaves `index.html`. Add the one missing unit test: the gate predicate.
 *Measured by:* the whole-run walk + the new test.
 
-### 5. Detection → `steps/6_discover_targets/widget.js`
+### 5. Detection → `steps/6_discover_targets/panel.js`
 
 Lines 4026–4193, `detectPressed` 3476–3489, the cells layer 2363–2378, the
 `detect` arm. `labelColour` gets one owner here. `#detect-controls` leaves
 `index.html`. *Measured by:* the whole-run walk; a unit test for `detects`
 over a known tile.
 
-### 6. Session → `steps/1_connect/widget.js`
+### 6. Session → `steps/1_connect/panel.js`
 
 Lines 614–788, `SETUP_CARDS` 1498–1500, the connect arm. Self-contained
 markup already; `run.checks` and `run.session` come with it. `answerCheck`
@@ -157,7 +157,7 @@ generic layer-chip renderer (2525–2619) stays in the frame.
 *Measured by:* tests 16, 19–31 (grid, positions, regions, copy/paste) +
 `canvas-layers.spec.js`; a screenshot compared against one taken before.
 
-### 8. Focus → `steps/4_focus_strategy/widget.js`
+### 8. Focus → `steps/4_focus_strategy/panel.js`
 
 The largest: 143–176, the focus half of 1037–1116, 1129–1176, 2928–3252,
 3254–3458, 3491–4024, layer 2320–2339. It subscribes to the stage's

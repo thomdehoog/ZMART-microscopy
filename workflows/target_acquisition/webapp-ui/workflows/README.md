@@ -18,8 +18,9 @@ target_acquisition/
   steps/         one numbered folder per step, 1_connect/ to 8_acquire_targets/,
                  so the folder listing reads the way the rail down the left of
                  the window does. Each holds the step's declaration (step.js)
-                 and, where the step brings controls of its own, the widget
-                 beside it (widget.js).
+                 and, where the step shows something of its own, a file named
+                 for what that is — overview.js, gate.js, gallery.js — rather
+                 than for the kind of thing it is.
   shared/        what several steps of this workflow use: the carrier geometry,
                  the scan-field arithmetic, and the canvas that draws the run.
   microscope/    the seam where the instrument goes. mock.js is the pretend
