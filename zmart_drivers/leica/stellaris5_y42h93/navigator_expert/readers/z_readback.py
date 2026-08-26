@@ -1,4 +1,4 @@
-"""Z readback that stays honest when the drive carries the job's z-stack.
+"""The one source of a Z position, honest when the drive carries the z-stack.
 
 Why this exists
 ---------------
@@ -6,7 +6,7 @@ LAS X hands the driver no Z position readout. What the job settings call
 ``zPosition`` is the job's own last-issued setpoint, and it stops being
 refreshed for whichever drive the job's z-stack is defined on: a ``move_z``
 on that drive is accepted and executed, yet the settings keep reporting the
-old value. (Measured on the simulator 2026-08-25, every route through the
+old value. (Measured on the simulator 2026-08-25/26, every route through the
 CAM API and every Leica log exhausted; see ``docs/design`` and the memory
 note ``lasx_z_readback``.) A reader that trusts that field on a stacked drive
 returns a stale number with a confident label, and a confirmation built on
@@ -15,28 +15,30 @@ it re-sends the move — five ``SetZPosition`` for one request.
 The saved experiment does update. ``PyApiSaveExperiment`` makes LAS X write
 the ``.lrp`` from its live block objects, and each job's Master
 ``ATLConfocalSettingDefinition`` carries a ``ZPosition`` (metres) for the
-drive named by its ``ZUseMode``. That is still the commanded value of the
-job the move went through — not a hardware reading, and it cannot detect a
-drive that did not go where it was told — but it is current, costs ~0.4 s,
-needs no GUI and changes no job.
+drive named by its ``ZUseModeName``. That is still the commanded value of
+the job the move went through — not a hardware reading, and it cannot
+detect a drive that did not go where it was told — but it is current,
+costs ~0.4 s, needs no GUI and changes no job.
 
-So this reader makes one decision per call, from data it already has:
+So every Z number in the driver comes from :func:`z_reading`, which makes
+one decision from settings already in hand:
 
 * the requested drive is free (no stack, or the stack is on the other
-  drive) -> the ordinary settings read, byte-for-byte the current path;
-* the requested drive is the stack drive -> save the experiment and read
-  the job's ``ZPosition`` from the ``.lrp``.
+  drive) -> the value from the settings, byte-for-byte the old path;
+* the requested drive is the stack drive -> what the state-reader profile
+  says (``z_stack_drive_readback``): save the experiment and read the
+  job's ``ZPosition`` from the ``.lrp``, or refuse.
 
-The decision is a lookup on the ``stack`` block of the same settings dict
-the ordinary read fetches, so the free path pays nothing extra. That is a
+The decision is a lookup on the ``stack`` block of the same settings the
+caller already fetched, so the free path pays nothing extra. That is a
 requirement, pinned by the unit tests counting calls.
 
 Dependency direction:
     - Imports: ``.router`` (settings read), ``.derived`` (settings-shape
       parsing), ``.parsing`` (the stack block), ``..scanfields.files``
-      (the save), stdlib.
-    - Imported by: nothing yet — the wiring into ``move_z``'s confirmation
-      and the routed readers is a separate, reviewed change.
+      (the save), ``..config.profiles`` (the policy), stdlib.
+    - Imported by: ``.router`` (the named readers), ``commands.confirmations``
+      (the move confirmation), ``zmart_adapter`` (the hardware snapshot).
 """
 
 from __future__ import annotations
@@ -52,6 +54,7 @@ from .router import get_job_settings
 log = logging.getLogger(__name__)
 
 Z_DRIVES = ("z-galvo", "z-wide")
+POLICIES = ("lrp", "none")
 
 
 @dataclass(frozen=True)
@@ -77,16 +80,33 @@ def _check_drive(drive: str) -> None:
         raise ValueError(f"unknown Z drive {drive!r}; expected one of {Z_DRIVES}")
 
 
+def _policy(policy: str | None) -> str:
+    if policy is None:
+        # Deferred: profiles imports the confirmations, which import this.
+        from ..config.profiles import STATE_READERS
+
+        policy = STATE_READERS.z_stack_drive_readback
+    if policy not in POLICIES:
+        raise ValueError(
+            f"unknown z_stack_drive_readback policy {policy!r}; expected one of {POLICIES}"
+        )
+    return policy
+
+
 def stacked_drive(settings) -> str | None:
     """The drive the job's z-stack is on, or None when the job has no stack.
 
-    Read off the ``stack`` block of the raw job settings, through the one
-    stack parser the rest of the driver uses.
+    Works on raw job settings (the stack block names its drive as ``mode``)
+    and on a normalised copy from ``make_changeable_copy`` (where it is
+    already ``zDrive``), so callers use whichever shape they hold.
     """
-    stack = stack_from_settings(settings)
-    if stack is None:
+    stack = settings.get("stack") if isinstance(settings, dict) else None
+    if isinstance(stack, dict) and "zDrive" in stack:
+        return stack.get("zDrive")
+    normalised = stack_from_settings(settings)
+    if normalised is None:
         return None
-    return stack.get("zDrive")
+    return normalised.get("zDrive")
 
 
 def drive_is_stacked(settings, drive: str) -> bool:
@@ -128,18 +148,16 @@ def z_um_from_lrp(lrp_data, job_name: str, drive: str) -> float:
     return float(raw) * 1e6
 
 
-def read_z(client, job_name: str, drive: str, *, mode=None) -> ZReading:
-    """*drive*'s Z position for *job_name*, honest about a stacked drive.
+def z_reading(
+    client, job_name: str, drive: str, settings, *, policy: str | None = None
+) -> ZReading:
+    """*drive*'s Z for *job_name*, from *settings* the caller already read.
 
-    Raises ``RuntimeError`` when neither path can answer — never a stale
-    number. ``mode`` is the state-reader mode for the settings read, as for
-    the routed readers.
+    Raises ``RuntimeError`` when no path can answer — never a stale number.
+    ``policy`` overrides the profile's ``z_stack_drive_readback`` for this
+    call; ``None`` means the profile decides.
     """
     _check_drive(drive)
-    settings = get_job_settings(client, job_name, mode=mode)
-    if not settings:
-        raise RuntimeError(f"read_z: could not read job settings for {job_name!r}")
-
     if not drive_is_stacked(settings, drive):
         return ZReading(
             z_um=z_um_from_settings(settings, drive),
@@ -148,12 +166,19 @@ def read_z(client, job_name: str, drive: str, *, mode=None) -> ZReading:
             source="settings",
         )
 
-    log.debug("read_z: %s carries %s's z-stack; saving the experiment to read it", drive, job_name)
+    if _policy(policy) == "none":
+        raise RuntimeError(
+            f"{drive} carries {job_name!r}'s z-stack, so the settings value is stale, and "
+            f"z_stack_drive_readback='none' forbids saving the experiment to read it"
+        )
+    log.debug(
+        "z_reading: %s carries %s's z-stack; saving the experiment to read it", drive, job_name
+    )
     lrp_data = save_and_read_lrp(client)
     if lrp_data is None:
         raise RuntimeError(
-            f"read_z: {drive} carries {job_name!r}'s z-stack, so the settings value is "
-            f"stale, and the experiment save failed — no current Z available"
+            f"{drive} carries {job_name!r}'s z-stack, so the settings value is stale, and "
+            f"the experiment save failed — no current Z available"
         )
     return ZReading(
         z_um=z_um_from_lrp(lrp_data, job_name, drive),
@@ -161,3 +186,16 @@ def read_z(client, job_name: str, drive: str, *, mode=None) -> ZReading:
         job_name=job_name,
         source="lrp",
     )
+
+
+def read_z(client, job_name: str, drive: str, *, mode=None) -> ZReading:
+    """*drive*'s Z position for *job_name*: one settings read, then :func:`z_reading`.
+
+    ``mode`` is the state-reader mode for the settings read, as for the
+    routed readers.
+    """
+    _check_drive(drive)
+    settings = get_job_settings(client, job_name, mode=mode)
+    if not settings:
+        raise RuntimeError(f"read_z: could not read job settings for {job_name!r}")
+    return z_reading(client, job_name, drive, settings)

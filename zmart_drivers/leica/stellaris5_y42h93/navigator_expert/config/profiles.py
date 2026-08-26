@@ -129,6 +129,16 @@ class StateReaderProfile:
     scan_status_log_max_age_s: float = 0.5
     scan_status_timeout_s: float = 2.0
 
+    # Where a Z position comes from when the requested drive carries the
+    # job's z-stack. LAS X stops refreshing the settings' ``zPosition`` for
+    # that drive (measured 2026-08-25/26), so the settings read is stale
+    # there by construction. "lrp": save the experiment and read the job's
+    # ZPosition from the .lrp (one ~0.4 s save; the value is the last
+    # command the job issued, not a hardware reading). "none": never save;
+    # reads of the stacked drive refuse, and a move on it is accepted as
+    # sent without any readback. The free drive is unaffected either way.
+    z_stack_drive_readback: str = "lrp"
+
 
 LOG_READER = LogReaderProfile()
 STATE_READERS = StateReaderProfile()

@@ -283,8 +283,14 @@ def make_changeable_copy(settings):
     if zp_raw and isinstance(zp_raw, dict):
         ch["zPosition"] = {}
         for key, entry in zp_raw.items():
+            # Raw LAS X nests the value as {"position": v}; a value that is
+            # already a bare number is a normalised copy coming through
+            # again. Accepting both makes this idempotent, so one Z
+            # extractor serves the readers and the confirmations alike.
             ch["zPosition"][key] = (
-                _safe_float(entry.get("position")) if isinstance(entry, dict) else None
+                _safe_float(entry.get("position"))
+                if isinstance(entry, dict)
+                else _safe_float(entry)
             )
 
     # Time series
