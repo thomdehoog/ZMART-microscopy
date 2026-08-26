@@ -26,9 +26,9 @@ microscope and no files:
 ```
 python -m pip install -e ".[dev]"
 python -m playwright install chromium
-npm --prefix viz_studio/frontend install
-npm --prefix viz_studio/frontend run build
-python viz_studio/run_demo.py
+npm --prefix zmart-viewer/frontend install
+npm --prefix zmart-viewer/frontend run build
+python zmart-viewer/run_demo.py
 ```
 
 That writes a small pretend specimen — three colours, forty-eight planes — and
@@ -41,7 +41,7 @@ needed again unless you change the interface.
 ## Your own data
 
 ```
-python viz_studio/run_demo.py --data /path/to/your/run
+python zmart-viewer/run_demo.py --data /path/to/your/run
 ```
 
 Point it at a single `.ome.zarr` store or at a folder holding many of them — both
@@ -70,7 +70,7 @@ Everything else is one bar down one edge that folds away when you want the whole
 screen for the specimen: what is open, the channels inside it, and the brightness
 and colour controls for whichever channel you have picked.
 
-`viz_studio/README.md` describes all of it properly.
+`zmart-viewer/README.md` describes all of it properly.
 
 ## One picture out of many stores
 
@@ -144,7 +144,7 @@ piece boundaries. A stage asked to step 1792 voxels steps 1792 give or take a
 couple, and two voxels out is as bad as half a piece — the bytes wanted are then
 spread across two of the tile's files, and no single file holds them. Such a run is
 **refused** rather than drawn slightly wrong, so this opens tidy grids today and not
-yet a plate off a real stage. `viz_studio/PLAN_showing_many_stores_as_one.md` sets
+yet a plate off a real stage. `zmart-viewer/PLAN_showing_many_stores_as_one.md` sets
 out the fix, which is for the acquisition to pad each tile's low edge by however far
 the stage overshot — putting the tile's own grid back on the run's grid without
 moving a single voxel of specimen.
@@ -175,7 +175,7 @@ is what almost every other tool can read today; `0.5` is the newer standard and 
 where the format is going. Nothing an operator sees changes between them, and the
 viewer reads both.
 
-`viz_studio/DATA_LAYOUT.md` records how a run should be stored and why, with the
+`zmart-viewer/DATA_LAYOUT.md` records how a run should be stored and why, with the
 measurements behind each decision. Read it before changing anything about the layout
 — several of the obvious-looking choices were tried and rejected for reasons that
 are written down there.
@@ -184,7 +184,7 @@ are written down there.
 
 ```
 python -m pytest zmart_storage/tests     # the writer, about half a minute
-python -m pytest viz_studio/tests        # the viewer, about eighteen minutes
+python -m pytest zmart-viewer/tests        # the viewer, about eighteen minutes
 ```
 
 The viewer's suite opens a real browser and looks at the pixels that came out. That
@@ -212,11 +212,11 @@ Written down because finding out for yourself is worse:
 - **A view over stores can only be built where the tiles land on exact piece
   boundaries**, which a real stage does not do. This is the one thing standing
   between the arrangement above and everyday use, and the fix is written out step by
-  step in `viz_studio/PLAN_showing_many_stores_as_one.md`.
+  step in `zmart-viewer/PLAN_showing_many_stores_as_one.md`.
 - **A run that re-images a position it has already imaged is not noticed** by a
   viewer watching it, because nothing about the view changes when a tile is written
   over in place. The operator keeps seeing the old picture with nothing to say so.
-  `viz_studio/OPEN_a_run_that_changes_while_you_watch.md` sets out the question and
+  `zmart-viewer/OPEN_a_run_that_changes_while_you_watch.md` sets out the question and
   what the answer probably looks like.
 - **A run cannot be resumed.** Pointing the writer at a folder that already holds
   images is refused rather than allowed to overwrite them.

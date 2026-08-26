@@ -111,7 +111,7 @@ seam while the new route accepts and serves it, which is the whole-file
 limitation demonstrated rather than described.
 
 `zmart_storage` was not modified. The remaining step is the viewer's own server:
-`viz_studio/backend/linking.py` still understands only `held_as: "file"`, and
+`zmart-viewer/app/server/linking.py` still understands only `held_as: "file"`, and
 connecting it means adding a range form to the pointer record. Small, on a proven
 format, and **not done**.
 

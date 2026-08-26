@@ -15,7 +15,7 @@ document; the earlier response documents remain historical snapshots.
 | 5 | the production writer does not produce OME-Zarr | Fixed. The live writer describes every canonical position before publication. The seamless view is a multiscale OME-Zarr 0.5 image. Both are exercised through an outside `ngff-zarr` reader and the published schema. |
 | 6 | every commit rebuilds the whole history, giving quadratic cost | Fixed at the identified algorithmic boundary. A normal commit opens every pyramid level of only the affected position once per view, so work is linear over the run rather than quadratic. Linkable view chunks are also byte-routed by the backend, although their physical duplicates are not removed yet. |
 | 7 | declared Python 3.10 support does not parse | Fixed at both starred-subscript sites in `zmart_storage/canvas.py`; Ruff continues to target Python 3.10. |
-| 8 | the real viewer backend is disconnected | Fixed. `viz_studio/backend/server.py` calls the shared manifest-aware gateway before static serving and forwards exact encoded inner-chunk byte ranges, including chunks inside shards. A real-HTTP backend test proves the same URL is 404 before commit and served after commit. |
+| 8 | the real viewer backend is disconnected | Fixed. `zmart-viewer/app/server/server.py` calls the shared manifest-aware gateway before static serving and forwards exact encoded inner-chunk byte ranges, including chunks inside shards. A real-HTTP backend test proves the same URL is 404 before commit and served after commit. |
 | 9 | neither view has pyramids | Fixed. Both view groups contain every profile level and readiness compares every advertised level. The seamless group carries standard OME metadata; the raw selector group uses an explicitly non-OME `tile` axis and `.zarr` name. |
 | 10 | there is no executable analysis consumer | Deliberately deferred. The user explicitly chose to postpone this phase. The immutable layout still records `analysis_input_roi` and exactly-once `analysis_core_roi` so a later consumer does not have to infer overlap. |
 | 11 | the decision record states the opposite seam owner | Fixed. Documentation and model comments now consistently say the lower/right tile owns the shared strip. |
@@ -82,9 +82,9 @@ as a pass or silently absorbed into an ordinary-suite total.
 
 - `zmart_live/tests`: **510 passed**, with the independent `ngff-zarr` reader and
   published 0.5 schema checks installed and running (no interoperability skips).
-- `viz_studio/tests`: **385 passed, 238 skipped**. The suite printed its explicit
+- `zmart-viewer/tests`: **385 passed, 238 skipped**. The suite printed its explicit
   “NO PICTURE WAS LOOKED AT” notice: this checkout has neither the Python
-  Playwright package nor `viz_studio/frontend/dist/index.html`. Those 238 browser
+  Playwright package nor `zmart-viewer/app/page/dist/index.html`. Those 238 browser
   cases are not counted as passes.
 - Real application-backend live HTTP plus gateway regressions: **12 passed**,
   including exact encoded-byte forwarding and HTTP Range slicing.

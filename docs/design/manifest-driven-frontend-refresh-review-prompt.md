@@ -39,7 +39,7 @@ Before reviewing implementation details, read completely:
 2. `docs/design/live-position-timepoint-publication-decisions.md`
 3. `docs/design/zero-copy-acquisition-optimizer.md`
 4. `docs/design/live-writer-and-linked-views-plan.md`
-5. `viz_studio/TESTING.md`
+5. `zmart-viewer/TESTING.md`
 
 Then inspect the actual implementation and tests, at minimum:
 
@@ -51,23 +51,23 @@ Then inspect the actual implementation and tests, at minimum:
 - `zmart_live/viewroute.py`
 - `zmart_live/shardlink.py`
 - `zmart_live/scene.py`
-- `viz_studio/backend/announcements.py`
-- `viz_studio/backend/live_config.py`
-- `viz_studio/backend/server.py`
-- `viz_studio/frontend/src/App.jsx`
-- `viz_studio/frontend/src/AxisSlider.jsx`
-- `viz_studio/frontend/src/engine.js`
-- `viz_studio/frontend/src/live-refresh.js`
-- `viz_studio/frontend/src/scene.js`
+- `zmart-viewer/app/server/announcements.py`
+- `zmart-viewer/app/server/live_config.py`
+- `zmart-viewer/app/server/server.py`
+- `zmart-viewer/app/page/src/App.jsx`
+- `zmart-viewer/app/page/src/AxisSlider.jsx`
+- `zmart-viewer/app/page/src/engine.js`
+- `zmart-viewer/app/page/src/live-refresh.js`
+- `zmart-viewer/app/page/src/scene.js`
 
 Read all directly relevant tests, especially:
 
 - `zmart_live/tests/test_live_state.py`
 - `zmart_live/tests/test_gateway.py`
 - `zmart_live/tests/check_the_live_refresh_tests_can_fail.py`
-- `viz_studio/tests/test_manifest_driven_refresh.py`
-- `viz_studio/tests/test_frontend_live_refresh_contract.py`
-- `viz_studio/tests/test_manifest_refresh_browser.py`
+- `zmart-viewer/tests/test_manifest_driven_refresh.py`
+- `zmart-viewer/tests/test_frontend_live_refresh_contract.py`
+- `zmart-viewer/tests/test_manifest_refresh_browser.py`
 - existing manifest/gateway/scene/coordinator/replacement/announcement tests
 
 Do not treat the design document as authoritative over the code. Verify every design claim against the current implementation.
@@ -244,7 +244,7 @@ A revision change should not cause a full scene rebuild or an O(position-count) 
 
 ## Browser qualification
 
-Read `viz_studio/TESTING.md` and `viz_studio/run_tests.py` before making browser claims.
+Read `zmart-viewer/TESTING.md` and `zmart-viewer/run_tests.py` before making browser claims.
 
 The decisive browser test is the real production scenario:
 

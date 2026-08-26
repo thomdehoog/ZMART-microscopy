@@ -42,7 +42,7 @@ Three variables, for the same reason:
   is the wrong one.
 * `PLAYWRIGHT_BROWSERS_PATH` → `C:\ProgramData\MinicondaZMB\home\t.de\ms-playwright`.
   Chromium downloaded anywhere a user can write to is refused at launch with
-  `spawn UNKNOWN`. The webapp's config defaults this; `viz_studio`'s does not.
+  `spawn UNKNOWN`. The webapp's config defaults this; `zmart-viewer`'s does not.
 * `ZMART_REQUIRE_BROWSER=1`. Without it, a missing build makes the tests that
   photograph the screen **skip**, and a skip reads as a pass. This machine is
   supposed to be able to draw, so make it fail instead.
@@ -81,7 +81,7 @@ buttons that swapped the engine in place. Both asked you to remember what the
 last engine looked like. There was also a third engine here, `viv-inside`, which
 drew the operator's layer inside the engine as a texture so that every change to
 it cost an engine frame; it is out of the page and still in
-`viz_studio/options/`.
+`zmart-viewer/parked/`.
 
 ---
 
@@ -152,7 +152,7 @@ work in. Measure it where the store really lives, not on a local disk.
   against each other for brightness or for sharpness until this is settled**;
   only an engine against itself is a fair comparison today.
 - **A foreign store used to be drawn dim, and neuroglancer no longer is.** It
-  reads the range out of the picture now — `viz_studio/options/brightness.js`,
+  reads the range out of the picture now — `zmart-viewer/parked/brightness.js`,
   the middle plane of the sharpest copy, first to ninety-ninth percentile — and
   on the transfer below it draws a screen median of 48 where it drew 17 before,
   same engine and same view. `viv-under` does not use that file: it keeps its own
@@ -216,9 +216,9 @@ photograph the picture rather than asking the engine whether it is content.
 
 The viewer's own suite was still running on the merged tree when this was
 written. It reads **557 passed, 10 skipped, 2 xfailed** on the branch this was
-merged from, and the merge changed nothing under `viz_studio/`, so it is expected
+merged from, and the merge changed nothing under `zmart-viewer/`, so it is expected
 to hold — but expected is not measured. If it has not been confirmed in the
-commit history by the time you read this, run it: `cd viz_studio && python
+commit history by the time you read this, run it: `cd zmart-viewer && python
 run_tests.py`, about twenty minutes.
 
 One thing worth knowing about that operator-page browser suite: until 2 August it

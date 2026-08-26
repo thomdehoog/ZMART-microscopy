@@ -19,7 +19,7 @@ What is measured, and why in this shape
 ---------------------------------------
 
 The house rule for measuring here is written down in
-``viz_studio/LESSONS_ome_zarr_and_neuroglancer.md``: one row is not a trend, so
+``zmart-viewer/LESSONS_ome_zarr_and_neuroglancer.md``: one row is not a trend, so
 every claim is made across several sizes and read as a shape rather than as a
 figure; counts are reported beside timings, because a count is the same on a busy
 machine and a timing is not; and the machine is named, because an absolute

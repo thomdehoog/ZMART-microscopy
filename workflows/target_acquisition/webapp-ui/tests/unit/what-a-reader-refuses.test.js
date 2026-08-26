@@ -1,6 +1,6 @@
 /* What a store's own description says about why a strict reader will not open it.
  *
- * `viz_studio/options/what-a-reader-refuses.js` exists because the strict engine
+ * `zmart-viewer/parked/what-a-reader-refuses.js` exists because the strict engine
  * does not say. Handed a store it will not accept, neuroglancer never finishes
  * opening — no error, no rejected promise — so the page can only wait, give up,
  * and report a silence. An operator reads "not ready after twenty-five seconds"
@@ -19,7 +19,7 @@
 import { describe, it, expect } from "vitest";
 import {
   whyAReaderMayRefuse,
-} from "../../../../../viz_studio/options/what-a-reader-refuses.js";
+} from "../../../../../zmart-viewer/parked/what-a-reader-refuses.js";
 
 /** A description with nothing wrong with it, to vary one thing at a time. */
 const soundEnough = () => ({

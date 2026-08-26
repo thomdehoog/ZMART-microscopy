@@ -1232,7 +1232,7 @@ class TestTheMemoryHasALimit:
         Bundles are not all the same size — one of the overview plan's holds nearly
         eight thousand chunk positions — so a limit counted in bundles alone would
         mean something quite different on one instrument than on another. The
-        lesson behind that is in ``viz_studio/LESSONS_ome_zarr_and_neuroglancer.md``:
+        lesson behind that is in ``zmart-viewer/LESSONS_ome_zarr_and_neuroglancer.md``:
         an index with an entry per chunk, kept for a whole run, was once sixteen
         gigabytes of memory.
         """

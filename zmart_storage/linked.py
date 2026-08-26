@@ -38,7 +38,7 @@ Run with tiles that butt up against one another — the stage stepping by a whol
 tile — both conditions hold for free, because the part shown is the whole tile and
 tiles land a whole tile apart. A run whose tiles overlap can satisfy them as well,
 but only if the pieces are small enough to divide the trim; see the table in
-``viz_studio/LINKING_INSTEAD_OF_COPYING.md``, which works that through.
+``zmart-viewer/LINKING_INSTEAD_OF_COPYING.md``, which works that through.
 
 The limit to know about before using this
 -----------------------------------------
@@ -55,7 +55,7 @@ What this module does about it today is **refuse**, with a message saying what t
 change. That is honest and it is safer than drawing a tile slightly out of place
 with nothing on screen to say so, but it does mean this opens the exact grids the
 tests build and not yet a run off a real stage.
-``viz_studio/LINKING_INSTEAD_OF_COPYING.md`` describes the arrangement that fixes
+``zmart-viewer/LINKING_INSTEAD_OF_COPYING.md`` describes the arrangement that fixes
 it — giving each piece of the view to whichever tile covers it best, so the seam
 lands on a piece boundary near the midline instead of exactly on it.
 
@@ -92,7 +92,7 @@ one, and nothing about the picture would say so.
 **The list of pointers**, which is written beside the picture as a small file
 called ``zmart-links.json``. It says, for each tile, which pieces of the view that
 tile supplies and which of its own pieces they are. The viewer's server reads it;
-see ``viz_studio/backend/linking.py``, which is the other half of this and is where
+see ``zmart-viewer/app/server/linking.py``, which is the other half of this and is where
 the file's shape is written down for the reader.
 
 What is refused, and why it is refused loudly
@@ -564,7 +564,7 @@ def _what_the_tiles_are(tiles: list[PlacedTile]) -> _HowTheTilesAreStored:
         # from exactly one voxel of that tile and from no other tile at all. So the
         # tile's own smaller copies *are* the view's, over the ground that tile
         # covers, and the view can point at them instead of writing its own.
-        # ``viz_studio/PLAN_nothing_copied_at_all.md`` works this through.
+        # ``zmart-viewer/PLAN_nothing_copied_at_all.md`` works this through.
         keeps = len(datasets)
         level = placed.store / str(datasets[0]["path"])
         described = _storage_description_of(level)
@@ -1808,7 +1808,7 @@ def _say_where_each_resolution_sits(
     the image, or once for the image as a whole. The format's own examples use the
     first; a good deal of the Python imaging world — anything built on ``ngff-zarr``,
     which includes ``multiview-stitcher`` — reads **only** the first and quietly
-    places an image at the origin if it is not there. ``viz_studio/INTEROP.md`` §1
+    places an image at the origin if it is not there. ``zmart-viewer/INTEROP.md`` §1
     measures what that costs: every store written the other way is drawn stacked on
     top of every other.
 

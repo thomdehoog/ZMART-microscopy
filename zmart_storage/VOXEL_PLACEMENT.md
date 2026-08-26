@@ -215,7 +215,7 @@ pyramid.
 
 Not proposed, and specifically **not** as a fix for anything to do with volume
 rendering — that was tried as a diagnosis and disproved; see
-`viz_studio/HANDOVER_3D.md`. The only real argument for shrinking z is bandwidth at
+`zmart-viewer/HANDOVER_3D.md`. The only real argument for shrinking z is bandwidth at
 the coarse end of a deep run. Recorded here so that if it is ever taken up, it is
 taken up the way the lab's own data already does it rather than invented afresh.
 
@@ -254,7 +254,7 @@ proposing it named none of them:
 
 1. the z clause in `linked.py:_refuse_a_placement_that_does_not_line_up_when_shrunk`,
    which checks y and x only today, so unaligned z offsets are accepted;
-2. z scaling in `viz_studio/backend/linking.py`, where a smaller copy is found with
+2. z scaling in `zmart-viewer/app/server/linking.py`, where a smaller copy is found with
    `self._tile_covering((z, y * shrink, x * shrink))` and the piece named with
    `from_y // shrink, from_x // shrink` — z is passed through untouched at both
    ends, so a pointed-at level would serve the wrong plane, and **silently**;
@@ -298,7 +298,7 @@ a file written the way ours is, a coarse level is placed further out than the fi
 one, by exactly the amounts in the right-hand column of the table above.
 
 This project's viewer already compensates for this, in
-`viz_studio/options/neuroglancer-under/viewer.js`, by shifting the finest level
+`zmart-viewer/parked/neuroglancer-under/viewer.js`, by shifting the finest level
 back by half a voxel. That compensation is correctly placed: it converts between
 two stated conventions at the reader, which is where a disagreement about
 convention belongs. It reaches only the finest level, because the coarser ones are

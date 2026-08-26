@@ -1405,7 +1405,7 @@ import scanfieldsWidget from "./widgets/scanfields.js";
      two.
 
      Everything about how the picture is drawn lives behind a small interface in
-     `viz_studio/options/`, and this page reaches it only through
+     `zmart-viewer/parked/`, and this page reaches it only through
      `src/canvas/panel.js`. The canvas is never told which step it is in.
 
      There are two of these, one per step of the canvas demonstration, and they

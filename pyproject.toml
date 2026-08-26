@@ -41,11 +41,11 @@ dependencies = { file = ["requirements.txt"] }
 # code: measurement scripts and the viewer's own front end live here too, and
 # neither belongs in an install.
 #
-# One honest omission. The viewer's server (`viz_studio/backend`) is a set of
+# One honest omission. The viewer's server (`zmart-viewer/app/server`) is a set of
 # loose modules that its scripts and tests reach by adding the folder to the
 # import path, rather than a package you can import after installing. Installing
 # therefore gives you the writer and the run control, and the viewer is still
-# started from inside its own folder -- see viz_studio/README.md. Turning it into
+# started from inside its own folder -- see zmart-viewer/README.md. Turning it into
 # a package is worth doing and is not a small change, because a dozen scripts and
 # the whole browser test suite import those modules by bare name.
 packages = ["zmart_storage", "zmart_live"]
@@ -60,8 +60,8 @@ extend-exclude = [
     ".eggs",
     "**/__pycache__",
     # The built viewer page and its dependencies are generated, not written.
-    "viz_studio/frontend/dist",
-    "viz_studio/frontend/node_modules",
+    "zmart-viewer/app/page/dist",
+    "zmart-viewer/app/page/node_modules",
 ]
 
 [tool.ruff.lint]
@@ -86,7 +86,7 @@ ignore = [
 # sys.path before importing from them, so some imports necessarily come after
 # that path work. The layout is deliberate (each option is a self-contained
 # story), not an oversight.
-"viz_studio/options/**" = ["E402"]
+"zmart-viewer/parked/**" = ["E402"]
 
 [tool.ruff.format]
 quote-style = "double"

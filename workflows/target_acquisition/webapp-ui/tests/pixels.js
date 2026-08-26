@@ -6,7 +6,7 @@
  * questions and they all share one blind spot — the engine can answer every one
  * of them correctly and still draw nothing at all. That is not hypothetical; it
  * is the failure this project has met several times, and it is why the viewer
- * keeps a companion to this file at `viz_studio/tests/pixels.py`. This is the
+ * keeps a companion to this file at `zmart-viewer/tests/pixels.py`. This is the
  * same two measurements, for the tests that drive the operator page.
  *
  * So: photograph the canvas, and measure the photograph. It is a deliberately

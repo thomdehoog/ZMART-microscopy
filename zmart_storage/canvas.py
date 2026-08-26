@@ -112,7 +112,7 @@ from .coverage import Recorder, forget_the_record_of
 #   the same canvas with 8 copies            -> smallest    781 ->      64, ~0.4 s
 #
 # A thousand voxels is where that curve has flattened out, and it is also what
-# `viz_studio/DATA_LAYOUT.md` asks a writer for.
+# `zmart-viewer/DATA_LAYOUT.md` asks a writer for.
 #
 # Halving happens in whole steps, so in practice the smallest copy lands anywhere
 # between half of this figure and the figure itself. Half of it is the floor, and
@@ -1250,7 +1250,7 @@ class TileCanvases:
                 planes nothing was ever written to, so the volume view and the
                 contrast slider open with no usable range at all — silently.
                 About three times the imaged depth is the point where that starts,
-                which is measured in ``viz_studio/DATA_LAYOUT.md``. Depth also
+                which is measured in ``zmart-viewer/DATA_LAYOUT.md``. Depth also
                 needs no generosity: a run knows the stack it asked for.
             tile_shape: the size of one acquired tile, as ``(z, y, x)`` in voxels.
             tile_step: how far the stage moves between neighbouring tiles, as
@@ -1814,7 +1814,7 @@ class TileCanvases:
         thing. Because no voxels are combined, a voxel of a smaller copy comes from
         exactly one voxel of the full-size picture, and therefore from exactly one
         tile. That is what lets a view point at the tiles' own smaller copies
-        instead of writing its own -- see ``viz_studio/PLAN_nothing_copied_at_all.md``.
+        instead of writing its own -- see ``zmart-viewer/PLAN_nothing_copied_at_all.md``.
         Changing this to average would give a smoother zoomed-out picture and would
         quietly break that, because an averaged voxel near a join really does come
         from two tiles.
@@ -2184,7 +2184,7 @@ def _make_the_copies(
             # optional place arrives at the stage's zero for all of them, with
             # every acquisition of a run stacked on top of the others. That is
             # what used to happen to our images in the wider Python ecosystem,
-            # and it is what `viz_studio/INTEROP.md` records.
+            # and it is what `zmart-viewer/INTEROP.md` records.
             #
             # The number is the **corner** of the first voxel, not its middle, and
             # every smaller copy is given the same one. That is a choice rather

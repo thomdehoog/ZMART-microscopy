@@ -528,7 +528,7 @@ class ViewRoute:
     that by its planes, its colours and its moments, then by the ten thousand
     positions a long run reaches, and a list with one entry per piece is tens of
     gigabytes held in memory to describe a picture that was never written. The
-    viewer's own reader, in ``viz_studio/backend/linking.py``, sets the same
+    viewer's own reader, in ``zmart-viewer/app/server/linking.py``, sets the same
     reasoning out at greater length and arrived at the same arrangement.
 
     So each position is remembered once, and the only thing spread out is a note

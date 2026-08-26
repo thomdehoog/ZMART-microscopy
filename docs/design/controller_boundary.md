@@ -157,9 +157,9 @@ in a different corner, so it is worth starting there.
 
 ### The pattern that already works here
 
-**Exists**, in `viz_studio/options/`. The viewer needed to compare three different
+**Exists**, in `zmart-viewer/parked/`. The viewer needed to compare three different
 drawing engines. Rather than write three viewers, one interface was declared — it
-is written down in `viz_studio/options/contract.md` — and each engine implements
+is written down in `zmart-viewer/parked/contract.md` — and each engine implements
 it. A viewer is opened the same way, told to move the same way, and asked the
 same questions, whichever engine is underneath. The page cannot tell which it has.
 
@@ -198,7 +198,7 @@ engine, all four at once. And that has a consequence that is easy to miss:
 a real microscope is exercised.** Not the focus fitting, not the scan loop, not
 the file naming, not the segmentation. A test that passes against this mock has
 tested the window's own buttons and nothing else. Compare that with the pattern
-in `viz_studio/options/`, where the point is that *the same code* runs against
+in `zmart-viewer/parked/`, where the point is that *the same code* runs against
 every option.
 
 There is a second symptom of the same thing. Counting what is on the two branches,
@@ -296,7 +296,7 @@ second carrying — among other things — how many tiles have been written, whe
 was last updated, and whether the run has finished. So there *is* now a small
 file that changes when a tile lands, and reading it costs one request.
 
-`viz_studio/backend/announcements.py` goes further and turns the question around.
+`zmart-viewer/app/server/announcements.py` goes further and turns the question around.
 Instead of anyone inferring from the disk, whatever is driving the microscope
 posts to `/api/announce` and every open viewer window is told to look again. The
 module says why plainly:
@@ -527,9 +527,9 @@ These would be the second kind, and none of them should be built now:
 
 ## What to read next
 
-**On this branch:** `viz_studio/options/contract.md` for the one-interface-many-engines
+**On this branch:** `zmart-viewer/parked/contract.md` for the one-interface-many-engines
 pattern that section 2 is modelled on; `zmart_storage/coverage.py` and
-`viz_studio/backend/announcements.py` for section 3;
+`zmart-viewer/app/server/announcements.py` for section 3;
 `workflows/target_acquisition/webapp-ui/WORKFLOW_SHELL.md` for the operator window
 this boundary sits beneath.
 

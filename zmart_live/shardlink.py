@@ -421,7 +421,7 @@ def _crc32c(content: bytes) -> int:
 #: this is about thirty of them — comfortably more than the handful a screenful of
 #: the viewer touches, and far short of the ten thousand positions a long run
 #: reaches. The lesson behind that choice is written down in
-#: ``viz_studio/LESSONS_ome_zarr_and_neuroglancer.md``: an index with an entry per
+#: ``zmart-viewer/LESSONS_ome_zarr_and_neuroglancer.md``: an index with an entry per
 #: chunk, held for a whole run, was once sixteen gigabytes of memory.
 PLACES_REMEMBERED_AT_MOST = 250_000
 

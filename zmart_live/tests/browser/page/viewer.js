@@ -58,7 +58,7 @@ import "neuroglancer/unstable/ui/default_viewer.css";
  * width across the window and height down it, which is the specimen drawn the
  * way round it really is. The other pairing that also looks right draws every
  * picture mirrored, and nothing reports it — see the note on `FLAT_LAYOUT` in
- * `viz_studio/options/neuroglancer-under/viewer.js`, where that cost months.
+ * `zmart-viewer/parked/neuroglancer-under/viewer.js`, where that cost months.
  */
 const FLAT_LAYOUT = "xy";
 
@@ -84,7 +84,7 @@ const LOOK_AT = { x: 512, y: 256 };
  * The transparency carries only "was this spot imaged", so ground nothing has
  * been written to stays clear rather than being painted black. The brightness
  * lives in the colour. This is the flat-picture form of the shader in
- * `viz_studio/options/neuroglancer-under/viewer.js`; the note there explains why
+ * `zmart-viewer/parked/neuroglancer-under/viewer.js`; the note there explains why
  * a volume needs the opposite arrangement.
  */
 const SHADER =

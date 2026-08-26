@@ -1,6 +1,6 @@
 /* Where a run opens, before anybody has said where to look.
  *
- * `viz_studio/options/opening-view.js` holds the rule — show all of it, centred
+ * `zmart-viewer/parked/opening-view.js` holds the rule — show all of it, centred
  * — because the engines do not agree on their own and the disagreement is large:
  * Viv fits the acquisition to the box, neuroglancer opens at one voxel to one
  * screen pixel, which on a 1.1 µm store is about twenty times closer.
@@ -14,7 +14,7 @@
 import { describe, it, expect } from "vitest";
 import {
   theViewThatShowsAllOf,
-} from "../../../../../viz_studio/options/opening-view.js";
+} from "../../../../../zmart-viewer/parked/opening-view.js";
 
 /** The light-sheet tile these numbers come from: 2592 × 4608 voxels at 1.1 µm. */
 const A_REAL_TILE = { atUm: { x: 29_000, y: 69_500 }, wideUm: 2851.2, tallUm: 5068.8 };

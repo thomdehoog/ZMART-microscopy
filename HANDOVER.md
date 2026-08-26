@@ -37,7 +37,7 @@ implementation between them, and every fault they exposed closed.
   smaller copies to eight, and from roughly nineteen thousand requests to open a
   view down to about thirty.
 
-### The existing viewer — `viz_studio/frontend` and `backend`, same branch
+### The existing viewer — `zmart-viewer/frontend` and `backend`, same branch
 
 The React application with neuroglancer inside it. It works, and this session found
 and fixed real faults in it — including one that had been shipping for months.
@@ -45,7 +45,7 @@ and fixed real faults in it — including one that had been shipping for months.
 **Its current commit is not verified.** `483417f` holds a quality pass that was
 stopped one step before it ran the suite. An agent is checking it now.
 
-### The canvas — `viz_studio/options/`, same branch
+### The canvas — `zmart-viewer/parked/`, same branch
 
 The new thing, and most of this session. **Three implementations of one interface**,
 so they can be compared rather than argued about:
@@ -177,11 +177,11 @@ to open. It passed nothing, and **a multi-colour run showed only its first chann
 `channels` is now optional. Where a page says nothing, all three options read the
 run's own description out of the store they are opening anyway — the OME-Zarr
 `omero` block that `zmart_storage/canvas.py` writes. Where a page does say
-something, what it says still wins. `viz_studio/options/contract.md` §6 sets out the
+something, what it says still wins. `zmart-viewer/parked/contract.md` §6 sets out the
 rule, including the one part that is easy to get wrong: a channel's display window
 comes from `start` and `end` and never from `min` and `max`, because `min` and `max`
 are the camera's whole range and opening an acquisition with them shows a nearly
-black picture. `viz_studio/tests/test_the_options_hold_together.py` checks it against
+black picture. `zmart-viewer/tests/test_the_options_hold_together.py` checks it against
 a photograph of a two-colour acquisition, for every option.
 
 **The Viewer workflow on `claude/viewer-as-a-workflow` did not pick this up on its
@@ -267,7 +267,7 @@ exhausted. What remains is what the method cannot reach:
 - ~~**Two acquisitions at once.**~~ **Done, and it found what it was meant to.** A
   wide survey and a detailed scan over part of it are now written for the
   purpose, opened together by every option, and measured in micrometres from the
-  photograph — `viz_studio/options/RESULTS.md` row 8. The first time it was asked,
+  photograph — `zmart-viewer/parked/RESULTS.md` row 8. The first time it was asked,
   **two of the three drew the finer run 898 µm from where its store says it is**:
   both had code that stretched a second acquisition to the first's voxel size and
   never moved it to where it said it was. Both have been put right and read 0.0 µm
@@ -279,7 +279,7 @@ exhausted. What remains is what the method cannot reach:
 
 ## Smaller things worth not losing
 
-- **`viz_studio/INDEX.md`** still describes the design as "one store per position",
+- **`zmart-viewer/INDEX.md`** still describes the design as "one store per position",
   which is no longer true and is the file that tells a new maintainer what to read.
 - ~~**Registration is measured as unevenness**~~, which was blind to the two
   layers agreeing about position while disagreeing about magnification. **Fixed
@@ -356,7 +356,7 @@ finishes.
 ## The canvas owns its gestures now
 
 **Pan and zoom have moved out of the harness and into the canvas.** They live in
-one shared file, `viz_studio/options/gestures.js`, which all three options import;
+one shared file, `zmart-viewer/parked/gestures.js`, which all three options import;
 `openViewer` puts the listeners on the box it was opened inside and `destroy` takes
 them off again. The harness no longer attaches anything and no longer drives the
 view when the operator drags — it hears where the view went through
@@ -382,7 +382,7 @@ annotation**, deliberately: only the switch, so that a tool can be built later
 without touching the canvas. `contract.md` §2a records it.
 
 **What is left for somebody else.** The operator page on
-`claude/viewer-as-a-workflow` reaches into `viz_studio/options/` by relative path,
+`claude/viewer-as-a-workflow` reaches into `zmart-viewer/parked/` by relative path,
 including into `harness/src/gestures.js`, which no longer exists — so that branch
 will not build against this one until it is brought across. That copy was already
 queued separately and this work deliberately did not touch it.

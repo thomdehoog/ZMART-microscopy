@@ -2,7 +2,7 @@
 
 **Status:** implemented reference pipeline in `zmart_live/`. The production
 coordinator earns readiness, keeps both multiscale views metadata-only, serves
-manifest-gated canonical inner-chunk ranges through `viz_studio/backend`, and
+manifest-gated canonical inner-chunk ranges through `zmart-viewer/backend`, and
 the production frontend now refreshes affected stable aggregate sources from a
 watched committed revision. Microscope integration, Windows/SMB qualification,
 and execution of the new pixel scenarios on each target browser/GPU remain
@@ -161,13 +161,13 @@ what makes the thing testable.
 | timepoints | per-position/per-moment view writes, manifest gating, immutable replacement generations, restart recovery, and refusal to reopen existing arrays with different declared room | growing beyond declared room and microscope integration |
 | ownership | visual and analysis ROIs, complete-footprint refusal, immutable layout snapshots, and exhaustive small-grid tests | the deliberately deferred concurrent-analysis consumer |
 | view pyramids | metadata-only raw and seamless multiscales; every level and outer edge resolves to canonical encoded bytes | real-viewer performance qualification |
-| sharding | checked inner-chunk byte-range resolver wired through the shared gateway into `viz_studio/backend` | real-viewer shard geometry benchmark and Windows/SMB timing |
+| sharding | checked inner-chunk byte-range resolver wired through the shared gateway into `zmart-viewer/backend` | real-viewer shard geometry benchmark and Windows/SMB timing |
 | scenes | internal scene model, real raw selector store, OME-Zarr 0.5 seamless metadata, and bounded Neuroglancer adapter payload | automatic manifest-driven frontend refresh and later scene-standard serialization |
 | browser/backend | real-Neuroglancer synthetic run and sabotage harness, plus a real-HTTP test of the application backend gate | a browser test that starts the application backend itself and portable Chromium provisioning |
 
 ### Phase 0 — Settle the chunk question before building on it
 
-`viz_studio/measure_the_chunk_size.py` already exists and **has never been run**.
+`zmart-viewer/measure_the_chunk_size.py` already exists and **has never been run**.
 Point it at a linked view rather than the copied canvas, use the frame the
 argument is about, print the lit fraction as the first column, and register the
 threshold in advance: *a bigger chunk must at least halve time-to-first-pixel at

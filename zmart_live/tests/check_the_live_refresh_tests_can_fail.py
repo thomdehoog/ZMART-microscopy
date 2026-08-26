@@ -8,9 +8,9 @@ green.  Run it with::
     python -m zmart_live.tests.check_the_live_refresh_tests_can_fail
 
 The pixel-positive control has a browser companion in
-``viz_studio/tests/test_manifest_refresh_browser.py``.  Its black-screen sabotage
+``zmart-viewer/tests/test_manifest_refresh_browser.py``.  Its black-screen sabotage
 requires Chromium and is therefore run with the real-browser campaign described
-in ``viz_studio/TESTING.md`` rather than being disguised as a Python-only check.
+in ``zmart-viewer/TESTING.md`` rather than being disguised as a Python-only check.
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ from ._fault_check import (
 HERE = Path(__file__).resolve()
 PACKAGE = HERE.parent.parent
 REPO = PACKAGE.parent
-VIZ = REPO / "viz_studio"
+VIZ = REPO / "zmart-viewer"
 
 
 @dataclass(frozen=True)

@@ -6,7 +6,7 @@ ever looks wrong. The way that misunderstanding shows up is when the images trav
 a colleague opens the run in their own tools and the specimen is somewhere else, or
 every acquisition of the run is piled on top of the others at the stage's zero.
 
-That is not a worry — it happened. `viz_studio/INTEROP.md` records it. OME-Zarr lets
+That is not a worry — it happened. `zmart-viewer/INTEROP.md` records it. OME-Zarr lets
 an image say where it sits in two places: beside each resolution, or once beside the
 block listing them all. We used to say it only in the second place. A great many
 tools in the Python world read only the first, because it is the one the format makes

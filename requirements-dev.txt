@@ -20,7 +20,7 @@ pillow>=10
 # Somebody else's OME-Zarr reader, used to check that the images this project writes
 # can be opened by other people's software and land in the right place. Our own
 # viewer reading our own images cannot catch a misunderstanding that both halves
-# share, and one such misunderstanding did reach real data — see viz_studio/INTEROP.md.
+# share, and one such misunderstanding did reach real data — see zmart-viewer/INTEROP.md.
 # This is the reader that multiview-stitcher and much of the Python imaging world
 # use, so it stands in for them. Nothing in ZMART needs it in order to run.
 ngff-zarr[validate]>=0.41

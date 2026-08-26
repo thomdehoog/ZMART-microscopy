@@ -1,6 +1,6 @@
 /* Which plane of a stack the viewers look at, and which moment and colour.
  *
- * `viz_studio/options/planes.js` holds one fact — a stack's middle plane is
+ * `zmart-viewer/parked/planes.js` holds one fact — a stack's middle plane is
  * where the specimen is and its first plane is its edge — because two things
  * depend on it and they have to agree: which plane an option opens on, and which
  * plane a display window is measured from.
@@ -17,7 +17,7 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { theMiddleOfEveryOtherAxis } from "../../../../../viz_studio/options/planes.js";
+import { theMiddleOfEveryOtherAxis } from "../../../../../zmart-viewer/parked/planes.js";
 
 describe("which plane of the image is looked at", () => {
   it("takes the middle of a stack, because the first plane is its edge", () => {

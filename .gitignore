@@ -53,4 +53,4 @@ workflows/target_acquisition/workflow/webapp/static/
 *.writing
 *-positions-arriving.jsonl
 zmart-coverage/
-viz_studio/backend/test_stores/
+zmart-viewer/testdata/test_stores/

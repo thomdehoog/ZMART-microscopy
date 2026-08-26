@@ -282,7 +282,7 @@ directly. The canvas is the next thing along and a different arrangement: one
 viewer written more than once, once for each drawing engine worth considering,
 every version behind the same small interface so that they can be compared and
 swapped. It is not kept here — it lives at the top of the repository in
-`viz_studio/options/`, with the interface written out in `contract.md` beside it
+`zmart-viewer/parked/`, with the interface written out in `contract.md` beside it
 — and this folder is only the page's side of it.
 
 ```
@@ -315,7 +315,7 @@ in this page imports Viv or deck.gl on the canvas's behalf; it calls
 difference between two engines a difference in the engines, rather than a
 difference in how somebody happened to wire one of them up.
 
-Reaching across to `viz_studio/options/` costs a few settings in
+Reaching across to `zmart-viewer/parked/` costs a few settings in
 `vite.config.js`, and all of them are explained there.
 
 **One engine changes what the build produces.** Neuroglancer, the third of the

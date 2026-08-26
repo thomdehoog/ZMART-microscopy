@@ -36,8 +36,8 @@ The publication unit is therefore an acquisition unit, not a Zarr chunk.
 - Neuroglancer remains the renderer. The ZMART backend and frontend controller own discovery, publication state, and live refresh.
 
 This decision refines the live behavior described in
-[`../../viz_studio/OPEN_a_run_that_changes_while_you_watch.md`](../../viz_studio/OPEN_a_run_that_changes_while_you_watch.md)
-and [`../../viz_studio/DATA_LAYOUT.md`](../../viz_studio/DATA_LAYOUT.md).
+[`../../zmart-viewer/OPEN_a_run_that_changes_while_you_watch.md`](../../zmart-viewer/OPEN_a_run_that_changes_while_you_watch.md)
+and [`../../zmart-viewer/DATA_LAYOUT.md`](../../zmart-viewer/DATA_LAYOUT.md).
 
 ## Decision: interoperability stops at a deliberate boundary
 

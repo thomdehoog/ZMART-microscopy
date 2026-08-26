@@ -22,7 +22,7 @@ Concretely:
   text; keep the precise term for internal code comments if it genuinely helps a
   maintainer, but still gloss it.
 - **Operator-facing surfaces get the most care**: the top-level `README.md`, the
-  viewer's own `viz_studio/README.md`, the controls in `viz_studio/frontend/src`,
+  viewer's own `zmart-viewer/README.md`, the controls in `zmart-viewer/app/page/src`,
   and the writer's public methods in `zmart_storage`. These are the front door.
 - **Docstrings state contracts plainly**: what goes in, what comes back, what
   can go wrong — in a sentence or two a non-programmer can follow.
@@ -74,7 +74,7 @@ it; and everything else is a test's job.
 
 The flicker the operator saw on sequential replays is found, fixed, and
 gated — the full record, mechanism and fix is in
-**`viz_studio/HANDOVER_the_flicker.md`** (the "RESOLVED" section at the
+**`zmart-viewer/HANDOVER_the_flicker.md`** (the "RESOLVED" section at the
 end). Two lessons from it are worth keeping as habits:
 
 - **Sample per frame or not at all.** The flash lasted 100–300 ms per

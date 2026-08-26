@@ -1317,7 +1317,7 @@ when you are checking the stage, judging an overlap, or wondering whether a seam
 real. Neither costs anything to keep.
 
 This is also the honest place for the later-wins problem that
-`viz_studio/INTEROP.md` §3 records: a hard seam and an intensity-threshold shader
+`zmart-viewer/INTEROP.md` §3 records: a hard seam and an intensity-threshold shader
 that cannot tell "never imaged" from "imaged and genuinely dark". With the trimmed
 view there is no overlap to blend, so the shader stops having to guess.
 

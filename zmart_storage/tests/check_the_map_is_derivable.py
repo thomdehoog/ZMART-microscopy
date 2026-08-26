@@ -31,7 +31,7 @@ import sys, shutil
 from pathlib import Path
 import numpy as np
 sys.path.insert(0, "/home/user/ZMART-microscopy")
-sys.path.insert(0, "/home/user/ZMART-microscopy/viz_studio/backend")
+sys.path.insert(0, "/home/user/ZMART-microscopy/zmart-viewer/backend")
 from zmart_storage.positions import start_a_run
 from zmart_storage.canvas import Channel
 import linking
