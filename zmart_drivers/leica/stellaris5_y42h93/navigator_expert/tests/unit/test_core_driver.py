@@ -1257,7 +1257,18 @@ class TestErrorClassification(unittest.TestCase):
 
 class TestConfirmFunctions(unittest.TestCase):
     def _mock_readback(self, changeable_dict):
-        return patch.object(confirmations, "_readback", return_value=changeable_dict)
+        # A readback is a normalised settings copy; give it the keys the
+        # settings normaliser requires, so confirmations that hand it back
+        # to the readers' extractors (Z) see a well-formed one.
+        readback = changeable_dict
+        if changeable_dict is not None:
+            readback = {
+                "zoom": {"current": None},
+                "scanSpeed": {"value": None, "isResonant": False},
+                "activeSettings": [],
+                **changeable_dict,
+            }
+        return patch.object(confirmations, "_readback", return_value=readback)
 
     def test_confirm_zoom_pass(self):
         with self._mock_readback({"zoom": {"current": 5.0}}):
