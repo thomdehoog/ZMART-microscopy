@@ -5,7 +5,7 @@ you know which file to open.
 
 ```
 webapp-ui/
-  frame/        the engine. It knows how to run any workflow and none in particular.
+  framework/        the engine. It knows how to run any workflow and none in particular.
     window/     what the operator sees: the rail, the chooser, the panels, run state.
     rules/      what the engine enforces: step ordering and readiness, and how
                 workflow folders are found and named for the chooser.
@@ -23,7 +23,7 @@ webapp-ui/
                 the seam where the instrument goes — mock today, real later —
                 with the synthetic specimen the mock images in
                 `pretend-sample/`. It lives in the workflow rather than the
-                frame because the frame could just as well run an analysis
+                frame because the framework could just as well run an analysis
                 workflow that never touches a microscope.
 ```
 
@@ -65,7 +65,7 @@ widget, the seam leaked and wants fixing first.
 ## Widgets
 
 A widget owns one panel on the right and nothing else. It never imports another
-widget, never reaches into the frame, and never advances the flow.
+widget, never reaches into the framework, and never advances the flow.
 
 ```js
 export default {
@@ -82,7 +82,7 @@ export default {
 ```
 
 `ctx` carries `{ state, actions, backend }`. Widgets read `state`, call
-`actions` to change it, and the frame re-renders. That is the whole contract.
+`actions` to change it, and the framework re-renders. That is the whole contract.
 
 **The canvas is the base from step 3 on.** It is the microscope's own limits
 drawn to scale, so it exists from *reaching* the carrier step, not from
@@ -138,7 +138,7 @@ Every field is written out in `workflows/README.md`. A step is declared in
 its own folder, under the workflow that owns it — `steps/4_focus_strategy/step.js`
 — and other workflows share it by importing it; the point is to mix and match,
 not to retype. A workflow that wants a shared step to say something different
-wraps it in `reworded()` (from `frame/rules/steps.js`), which changes the
+wraps it in `reworded()` (from `framework/rules/steps.js`), which changes the
 wording and nothing else.
 
 A workflow is a folder with a `flow.js` in it: the folder's name is the
@@ -147,18 +147,18 @@ Numbering is derived from position, so reordering costs nothing; a step may set
 its own `n` if two halves of one job should read as `3a` and `3b`.
 
 **The folders under `workflows/` are the only place the workflows are
-written down.** The frame finds every folder holding a `flow.js`
-(`frame/rules/finding-workflows.js` says how), and the unit tests read the same
+written down.** The framework finds every folder holding a `flow.js`
+(`framework/rules/finding-workflows.js` says how), and the unit tests read the same
 folders through the same assembly, which is what makes a test about a workflow
 a test about the page. The browser suite checks the other half: it reads the
 folders and then reads the running page, and fails if the chooser and the rail
 disagree with them.
 
 Readiness belongs to the step. Only the focus step knows what it is waiting
-for, and `frame/rules/steps.js` only asks. That is what lets a new workflow be a list rather than another condition
+for, and `framework/rules/steps.js` only asks. That is what lets a new workflow be a list rather than another condition
 added to the shell.
 
-Which panels a step gets is `panelsFor` in `frame/rules/steps.js`. A step names the
+Which panels a step gets is `panelsFor` in `framework/rules/steps.js`. A step names the
 modules it wants of its own and gets those; most name nothing, because most steps
 happen on the stage and the picture of the stage is enough. The canvas itself
 appears at the step that first asks for it — the carrier, in every workflow that
@@ -169,7 +169,7 @@ Which modules a step wants is the step's business; how they are laid out is the
 shell's.
 
 Adding a workflow should mean writing one list that uses existing steps. If it
-means editing the frame, the frame is missing something.
+means editing the framework, the framework is missing something.
 
 **Adding the canvas demonstration tested that claim, and at first it did not
 hold.** Writing the workflow was indeed a list, but four things had to be added
@@ -201,9 +201,9 @@ None of those is about the canvas in particular. Each is something the shell
 needed before *any* step could bring a module of its own, or before any two steps
 could stand side by side without one gating the other.
 
-## What the frame owns, and what it never gives away
+## What the framework owns, and what it never gives away
 
-The frame keeps: the run state, step ordering and reachability, the tab bar,
+The framework keeps: the run state, step ordering and reachability, the tab bar,
 the action bar, and the mount lifecycle. Widgets and workflows only ever
 *declare*.
 
@@ -227,14 +227,14 @@ In the table, `ta/` is short for `workflows/target_acquisition/`.
 | `ta/microscope/microscopes.js` | used by the app |
 | `ta/microscope/pretend-sample/` | built, unit-tested, **not yet imported by the app** |
 | `ta/microscope/mock.js` | built, **not yet imported by the app** |
-| `frame/rules/steps.js` | built, unit-tested, **used by the app** — numbering, ordering, readiness and panels |
-| `frame/rules/finding-workflows.js` | built, unit-tested, **used by the app: turns the workflow folders into the chooser's list** |
+| `framework/rules/steps.js` | built, unit-tested, **used by the app** — numbering, ordering, readiness and panels |
+| `framework/rules/finding-workflows.js` | built, unit-tested, **used by the app: turns the workflow folders into the chooser's list** |
 | `workflows/*/flow.js` | built, unit-tested, **used by the app: the only declaration of the workflows** |
 | `ta/steps/2_define_carrier/widget.js` | built, used — the first widget, and the shape the rest should follow |
 | `ta/steps/3_define_scan_area/widget.js` | built, used — the geometry editor and the grid, in the same channel |
 | `ta/steps/5_scan_the_overview/overview.js` | built, used by the app when it is given a run to watch, and covered by the browser tests that photograph the canvas |
 | `ta/shared/canvas/` | built, used by the canvas demonstration, and covered by browser tests that photograph the picture — including which of the three layers reached the screen |
-| `frame/window/main.js` | the rest of the running app, and its own copies of the untaken modules |
+| `framework/window/main.js` | the rest of the running app, and its own copies of the untaken modules |
 
 **Widget extraction has started, from the outside in.** The carrier widget is
 the first: it is handed a configuration and a callback and knows nothing about
@@ -267,7 +267,7 @@ getting back to a previous state within a step, which is what actually gets
 reached for.
 
 One rule it establishes, which the next widget should keep: **a widget redraws
-itself.** Asking the frame to rebuild the panel on every change destroys the
+itself.** Asking the framework to rebuild the panel on every change destroys the
 field being typed into — the defect this page has produced twice. `carrier.js`
 writes new values into the controls that already exist and skips the focused
 one.
@@ -296,7 +296,7 @@ What is left of that fix for the workflows is the runner. `main.js` still decide
 what a step *does* from its `mode` — a switch that grows by one arm per kind of
 work — where the intention is that a step carries its own `run(ctx)` and calls
 the backend. Readiness has already moved that way and is a good model for it: the
-rule now sits on the step, `frame/rules/steps.js` only asks, and adding a workflow
+rule now sits on the step, `framework/rules/steps.js` only asks, and adding a workflow
 needs no change to the shell.
 
 ## The canvas: `shared/canvas/`

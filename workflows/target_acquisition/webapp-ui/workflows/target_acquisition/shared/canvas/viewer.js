@@ -90,7 +90,7 @@ import {
  * colour as well as the box being painted with it, so that wherever there is no
  * picture there is no visible seam between one drawing surface and the next.
  *
- * The box itself is given the same colour in `frame/window/style.css`, and the two have
+ * The box itself is given the same colour in `framework/window/style.css`, and the two have
  * to be changed together. That is not only tidiness: an engine is fetched when
  * this step is first opened, and for the second or two before it arrives the box
  * is whatever the stylesheet says. Page-white for a moment where a dark image

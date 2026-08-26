@@ -2,7 +2,7 @@
  *
  * Everything here reads the folders under `workflows/` — every folder with
  * a `flow.js` is one workflow — through the same `assembleWorkflows` that
- * `frame/window/main.js` uses. That is the point of this suite: for a while the
+ * `framework/window/main.js` uses. That is the point of this suite: for a while the
  * workflows were declared twice, once here and once inside `main.js`, and
  * these tests went green against a list the page did not offer while the page
  * offered a list no test had ever seen. Neither half looked wrong on its own.
@@ -14,8 +14,8 @@
 import { describe, it, expect } from "vitest";
 import {
   numbered, firstIncomplete, isReachable, blockedBecause, panelsFor,
-} from "../../frame/rules/steps.js";
-import { assembleWorkflows } from "../../frame/rules/finding-workflows.js";
+} from "../../framework/rules/steps.js";
+import { assembleWorkflows } from "../../framework/rules/finding-workflows.js";
 import { connect } from "../../workflows/target_acquisition/steps/1_connect/step.js";
 import { initialScanfields } from "../../workflows/target_acquisition/steps/3_define_scan_area/step.js";
 import { scanOverview } from "../../workflows/target_acquisition/steps/5_scan_the_overview/step.js";

@@ -25,7 +25,7 @@
  * without the question in front of them.
  */
 
-import { sideGroup } from "../../../../frame/window/panels.js";
+import { sideGroup } from "../../../../framework/window/panels.js";
 import {
   centres, geometry, frameFitsArea, frameSeat, insideArea, nearestArea, scanBox,
 } from "../../shared/carriers.js";
@@ -354,7 +354,7 @@ export default {
   },
 
   /**
-   * Mount the channel. Returns the handle the frame keeps while the step is
+   * Mount the channel. Returns the handle the framework keeps while the step is
    * selected: what to draw on top of the plan, and where the pointer went.
    */
   render(host, {
@@ -728,7 +728,7 @@ export default {
       layoutBox.hidden = !ed.preset;
       /* Everything is dead while the step is locked, except the recording
          itself: it is what the lock is waiting for when there is no preset
-         yet, and the frame decides on its own whether it may be touched once
+         yet, and the framework decides on its own whether it may be touched once
          there is. */
       for (const c of card.querySelectorAll("button, select, input")) {
         if (locked && !c.closest("#sf-preset")) c.disabled = true;
@@ -754,7 +754,7 @@ export default {
       }
       if ((e.ctrlKey || e.metaKey) && k === "y") { e.preventDefault(); redo(); return; }
       /* Selection is drawn on the canvas, so changing it from the keyboard has
-         to say so. A pointer gesture gets a redraw for free — the frame draws
+         to say so. A pointer gesture gets a redraw for free — the framework draws
          whatever the editor answers to — and these do not go through it. */
       if ((e.ctrlKey || e.metaKey) && k === "a") {
         e.preventDefault();
