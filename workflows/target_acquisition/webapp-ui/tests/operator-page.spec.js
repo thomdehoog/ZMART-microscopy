@@ -72,7 +72,7 @@ async function throughSetup(page) {
      compartments — how the plan follows the plate, where focus points land in
      each well — so the carrier they are about is the one they say. */
   await page.locator(".carrier-type[data-type='wellplate']").click();
-  await page.locator(".carrier-preset").selectOption({ label: "96-well" });
+  await page.locator(".carrier-preset").selectOption({ label: "96-well · Greiner SensoPlate" });
   await page.waitForTimeout(200);
 }
 
@@ -83,7 +83,7 @@ async function throughSetupRoomy(page) {
   await connect(page);
   await gotoStep(page, "Define Carrier");
   await page.locator(".carrier-type[data-type='wellplate']").click();
-  await page.locator(".carrier-preset").selectOption({ label: "6-well" });
+  await page.locator(".carrier-preset").selectOption({ label: "6-well · Nunc Nunclon" });
   await page.waitForTimeout(200);
 }
 
@@ -479,11 +479,12 @@ test("the canvas is always on the stage, and the channel follows the step",
     await expect(page.locator("#canvas-side .side-note").first())
       .toContainText("positions to image");
     await expect(page.locator(".panel.on button.step-run")).toHaveText("Start");
-    // walking back to the carrier brings its controls back, locked now,
-    // because something has been done inside the frame it set
+    // walking back to the carrier brings its controls back, and they still
+    // work: saying the plate is a different plate is a thing operators do, and
+    // only a run actually under way takes that away
     await gotoStep(page, "Define Carrier");
     await expect(page.locator(".carrier-card")).toHaveCount(1);
-    await expect(page.locator(".carrier-num").first()).toBeDisabled();
+    await expect(page.locator(".carrier-num").first()).toBeEnabled();
 
     await gotoStep(page, "Scan the overview");
     await runStep(page, 3000);
@@ -507,18 +508,20 @@ test("the grid comes from the carrier, so changing the plate changes the plan",
     await page.locator(".sf-apply-grid").click();
     await page.waitForTimeout(300);
     /* 96 areas, and nine positions in each: the block asked for is three by
-       three, and a 20x frame is 676 µm across while a well is 6.6 mm, so all
+       three, and a 20x frame is 676 µm across while a well is 6.58 mm, so all
        nine frames sit comfortably inside the well. */
     await expect(page.locator(".sf-readout")).toContainText("864 positions");
     await expect(page.locator('.step:has-text("Define scan area")').first())
       .toHaveClass(/done/);
 
-    /* And the carrier stops being editable, because these positions were
-       placed relative to areas that must not move out from under them. */
+    /* And the carrier is still editable. It used to lock here, on the argument
+       that these positions were placed relative to areas that must not move out
+       from under them — but going back to say the plate is a different plate is
+       a thing operators do, and the step knows how to answer it. */
     await gotoStep(page, "Define Carrier");
-    await expect(page.locator(".carrier-preset")).toBeDisabled();
+    await expect(page.locator(".carrier-preset")).toBeEnabled();
 
-    /* A different plate is a different plan. Six wells 34.8 mm across hold
+    /* A different plate is a different plan. Six wells 36 mm across hold
        the whole three-by-three block, so the same grid is 54 positions rather
        than the 96 a plate of small wells allowed — the count is read off the
        carrier rather than typed beside it. Disconnecting is what begins again: it
@@ -526,7 +529,7 @@ test("the grid comes from the carrier, so changing the plate changes the plan",
     await gotoStep(page, "Connect");
     await page.locator(".session-foot button.danger").click();
     await throughSetup(page);
-    await page.locator(".carrier-preset").selectOption({ label: "6-well" });
+    await page.locator(".carrier-preset").selectOption({ label: "6-well · Nunc Nunclon" });
     await page.waitForTimeout(200);
     await gotoStep(page, "Define scan area");
     await recordSlot(page, "sf-preset", "overview");
@@ -711,8 +714,12 @@ test("the tools and the grid are on screen together, over what the grid laid",
     await expect(page.locator(".sf-apply-grid")).toBeVisible();
     await expect(page.locator(".side-group:has(.sf-tools) .sf-apply-grid"),
       "one box holding both ways of doing it").toHaveCount(1);
+    /* The two ways of laying a tileset, and nothing else: how they are placed
+       once they are down has a box of its own below this one. */
     await expect(page.locator(".side-group:has(.sf-tools) .side-sub"))
-      .toHaveText(["Tile overlap (%)", "Place tiles manually", "Place tiles automatically"]);
+      .toHaveText(["Place tiles manually", "Place tiles automatically"]);
+    await expect(page.locator(".side-group:has(#sf-overlap) .side-sub"))
+      .toHaveText(["Tile overlap (%)", "Placed tiles"]);
     await expect(page.locator(".sf-readout")).toContainText("864 positions");
 
     /* What the grid put down is still a set of fields, so it can be picked,
@@ -1200,7 +1207,7 @@ test("focus points are laid so many to a tileset", async ({ page }) => {
   await connect(page);
   await gotoStep(page, "Define Carrier");
   await page.locator(".carrier-type[data-type='wellplate']").click();
-  await page.locator(".carrier-preset").selectOption({ label: "6-well" });
+  await page.locator(".carrier-preset").selectOption({ label: "6-well · Nunc Nunclon" });
   await page.waitForTimeout(200);
   await gotoStep(page, "Define scan area");
   await recordSlot(page, "sf-preset", "overview");

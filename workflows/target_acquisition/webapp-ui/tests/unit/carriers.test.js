@@ -11,18 +11,18 @@ const preset = (typeId, label) =>
 
 describe("a carrier is a grid, whatever it is called", () => {
   it("measures a 96-well plate the way the catalogue does", () => {
-    const g = geometry(fromPreset("wellplate", preset("wellplate", "96-well")));
-    // 12 columns of 6.6 mm with 2.4 mm between them, and the gap is not
+    const g = geometry(fromPreset("wellplate", preset("wellplate", "96-well · Greiner SensoPlate")));
+    // 12 columns of 6.58 mm with 2.42 mm between them, and the gap is not
     // counted after the last one
-    expect(g.width).toBeCloseTo(12 * 9.0 - 2.4, 6);
-    expect(g.height).toBeCloseTo(8 * 9.0 - 2.4, 6);
+    expect(g.width).toBeCloseTo(12 * 9.0 - 2.42, 6);
+    expect(g.height).toBeCloseTo(8 * 9.0 - 2.42, 6);
     expect(g.areas).toBe(96);
     expect(g.pitchX).toBeCloseTo(9.0, 6);
   });
 
   it("a slide is a one-by-one grid and no gap is involved", () => {
-    const g = geometry(fromPreset("slide", preset("slide", "Standard")));
-    expect([g.width, g.height]).toEqual([75, 25]);
+    const g = geometry(fromPreset("slide", preset("slide", "75 × 25 mm slide")));
+    expect([g.width, g.height]).toEqual([73, 23]);
     expect(g.areas).toBe(1);
   });
 });
@@ -40,9 +40,10 @@ describe("the corner is a ratio, so a well stays round when resized", () => {
   it("a chamber's softened corner survives a resize as a proportion", () => {
     const p = preset("chamber", "4-chamber");
     const c = fromPreset("chamber", p);
-    // 1.5 mm on a 20 x 10 area, whose largest possible radius is 5
-    expect(c.cornerRatio).toBeCloseTo(0.3, 6);
-    expect(geometry({ ...c, w: 40, h: 20 }).corner).toBeCloseTo(3, 6);
+    // 2 mm on a 10.95 x 21.1 area, whose largest possible radius is 5.475
+    expect(c.cornerRatio).toBeCloseTo(2 / 5.475, 6);
+    // doubled, the corner doubles with it and the shape is unchanged
+    expect(geometry({ ...c, w: 21.9, h: 42.2 }).corner).toBeCloseTo(4, 6);
   });
 
   it("a full round loses the corners a square would have kept", () => {
@@ -76,24 +77,24 @@ describe("a configuration knows whether it is still a catalogue part", () => {
     expect(DEFAULT_CARRIER.type).toBe("slide");
     const g = geometry(DEFAULT_CARRIER);
     expect(g.areas).toBe(1);
-    expect([g.width, g.height]).toEqual([75, 25]);
+    expect([g.width, g.height]).toEqual([73, 23]);
   });
 
   it("and the plate this lab runs most is still in the catalogue, unchanged", () => {
-    const plate = fromPreset("wellplate", preset("wellplate", "96-well"));
+    const plate = fromPreset("wellplate", preset("wellplate", "96-well · Greiner SensoPlate"));
     const g = geometry(plate);
     expect(g.areas).toBe(96);
     expect([plate.rows, plate.cols]).toEqual([8, 12]);
     // Greiner's flat well bottom, on the SLAS 9 mm pitch
-    expect(plate.w).toBeCloseTo(6.6, 6);
-    expect(plate.h).toBeCloseTo(6.6, 6);
+    expect(plate.w).toBeCloseTo(6.58, 6);
+    expect(plate.h).toBeCloseTo(6.58, 6);
     expect(g.pitchX).toBeCloseTo(9.0, 6);
     expect(g.pitchY).toBeCloseTo(9.0, 6);
     // round: a full corner on a square area is a circle
     expect(plate.cornerRatio).toBe(1);
-    expect(g.corner).toBeCloseTo(3.3, 6);
+    expect(g.corner).toBeCloseTo(3.29, 6);
     // and it comes back to the growth area Greiner publishes, 0.34 cm²
-    expect(g.areaMm2).toBeCloseTo(Math.PI * 3.3 ** 2, 6);
+    expect(g.areaMm2).toBeCloseTo(Math.PI * 3.29 ** 2, 6);
   });
 });
 
@@ -105,8 +106,8 @@ describe("depth is asked for only where a carrier has one", () => {
   });
 
   it("says an area's two dimensions in one line", () => {
-    expect(describeCarrier(fromPreset("slide", carrierType("slide").presets[0])))
-      .toBe("Standard (75 × 25 mm) · 75.0 × 25.0 mm");
+    expect(describeCarrier(DEFAULT_CARRIER))
+      .toBe("75 × 25 mm slide · 73.0 × 23.0 mm");
   });
 });
 
@@ -117,9 +118,9 @@ describe("a type declares what it has, and the panel follows it", () => {
     }
   });
 
-  it("only the many-area carriers are grids, and they are the same two", () => {
+  it("only the many-area carriers are grids, and they are the same three", () => {
     expect(CARRIER_TYPES.filter((t) => t.grid).map((t) => t.id))
-      .toEqual(["chamber", "wellplate"]);
+      .toEqual(["chamber", "wellplate", "emgrid"]);
   });
 
   it("a dish is round, so it is one diameter and no corner to choose", () => {
@@ -137,7 +138,7 @@ describe("a type declares what it has, and the panel follows it", () => {
 
 
 describe("what the objective sees has to be inside an area", () => {
-  /* A 96-well plate: wells 6.6 mm across, round, 9 mm apart. The overview
+  /* A 96-well plate: wells 6.58 mm across, round, 9 mm apart. The overview
      preset sees 2.662 mm of sample at a time. */
   const plate = fromPreset("wellplate",
     carrierType("wellplate").presets.find((p) => p.label.startsWith("96-well")));
@@ -167,12 +168,12 @@ describe("what the objective sees has to be inside an area", () => {
   });
 
   it("images a square of a round well, not the whole circle", () => {
-    /* The imageable square of a 6.6 mm well is 3.3 x sqrt(2) across, so its
+    /* The imageable square of a 6.58 mm well is 3.29 x sqrt(2) across, so its
        edge is 2.333 mm from the middle — a frame reaching past that is over
        the part of the well a squared-off plan does not cover. */
     const { halfW, halfH } = scanBox(plate);
-    expect(halfW).toBeCloseTo(3.3 / Math.SQRT2, 6);
-    expect(halfH).toBeCloseTo(3.3 / Math.SQRT2, 6);
+    expect(halfW).toBeCloseTo(3.29 / Math.SQRT2, 6);
+    expect(halfH).toBeCloseTo(3.29 / Math.SQRT2, 6);
     expect(insideArea(plate, well.x + 2.2, well.y)).toBe(true);
     expect(insideArea(plate, well.x + 2.5, well.y)).toBe(false);
     // and the circle's own edge, which a rounded plan would have reached
@@ -185,14 +186,14 @@ describe("what the objective sees has to be inside an area", () => {
       carrierType("chamber").presets.find((p) => p.label.startsWith("1-chamber")));
     const { corner } = geometry(chamber);
     const cut = corner - corner / Math.SQRT2;
-    expect(scanBox(chamber).halfW).toBeCloseTo(48 / 2 - cut, 9);
-    expect(scanBox(chamber).halfH).toBeCloseTo(24 / 2 - cut, 9);
+    expect(scanBox(chamber).halfW).toBeCloseTo(45.05 / 2 - cut, 9);
+    expect(scanBox(chamber).halfH).toBeCloseTo(20.45 / 2 - cut, 9);
   });
 
   it("images an area to its own edges, having no corners to cut", () => {
     const slide = fromPreset("slide",
-      carrierType("slide").presets.find((p) => p.label.startsWith("Standard")));
-    expect(scanBox(slide)).toEqual({ halfW: 37.5, halfH: 12.5 });
+      carrierType("slide").presets.find((p) => p.label === "75 × 25 mm slide"));
+    expect(scanBox(slide)).toEqual({ halfW: 36.5, halfH: 11.5 });
   });
 
   it("seats a frame that does not fit by sliding it in towards the middle", () => {
@@ -220,11 +221,11 @@ describe("what the objective sees has to be inside an area", () => {
 
   it("holds a slide to its one area, corners and all", () => {
     const slide = fromPreset("slide",
-      carrierType("slide").presets.find((p) => p.label.startsWith("Standard")));
-    expect(frameFitsArea(slide, 37.5, 12.5, FRAME)).toBe(true);
-    expect(frameFitsArea(slide, 0.5, 12.5, FRAME)).toBe(false);
+      carrierType("slide").presets.find((p) => p.label === "75 × 25 mm slide"));
+    expect(frameFitsArea(slide, 36.5, 11.5, FRAME)).toBe(true);
+    expect(frameFitsArea(slide, 0.5, 11.5, FRAME)).toBe(false);
     // in from the left edge by the corner it was cut back to, plus half a frame
-    const edge = 37.5 - scanBox(slide).halfW;
-    expect(frameSeat(slide, 0.5, 12.5, FRAME).x).toBeCloseTo(edge + FRAME / 2, 3);
+    const edge = 36.5 - scanBox(slide).halfW;
+    expect(frameSeat(slide, 0.5, 11.5, FRAME).x).toBeCloseTo(edge + FRAME / 2, 3);
   });
 });

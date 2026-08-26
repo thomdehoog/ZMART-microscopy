@@ -43,7 +43,11 @@ const gotoStep = (page, name) => page.locator(`.step:has-text("${name}")`).first
 
 async function recordSlot(page, host, name) {
   const bar = page.locator(`#${host} .setting-box.open`);
-  await bar.locator("input").fill(name);
+  /* Some slots take a name and some do not — where what is read names itself,
+     the bar is only a button. Naming one that has no field to name it in is
+     the test insisting on a control the operator never sees. */
+  const field = bar.locator("input");
+  if (await field.count()) await field.fill(name);
   await bar.locator("button.run").click();
   await page.waitForTimeout(650);
 }
@@ -83,7 +87,7 @@ async function throughToAPlan(page) {
   await page.waitForTimeout(2200);
   await gotoStep(page, "Define Carrier");
   await page.locator(".carrier-type[data-type='wellplate']").click();
-  await page.locator(".carrier-preset").selectOption({ label: "6-well" });
+  await page.locator(".carrier-preset").selectOption({ label: "6-well · Nunc Nunclon" });
   await page.waitForTimeout(300);
   await gotoStep(page, "Define scan area");
   await recordSlot(page, "sf-preset", "overview");
@@ -99,7 +103,7 @@ async function throughToAScannedPlate(page) {
   await page.waitForTimeout(2200);
   await gotoStep(page, "Define Carrier");
   await page.locator(".carrier-type[data-type='wellplate']").click();
-  await page.locator(".carrier-preset").selectOption({ label: "6-well" });
+  await page.locator(".carrier-preset").selectOption({ label: "6-well · Nunc Nunclon" });
   await page.waitForTimeout(300);
   await gotoStep(page, "Define scan area");
   await recordSlot(page, "sf-preset", "overview");

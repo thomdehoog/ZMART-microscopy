@@ -68,7 +68,7 @@ describe("a region is covered right into its corners", () => {
   /* A slide: one area 75 x 25 mm with square corners, so the edges are exact
      numbers and what a tile does at a boundary is easy to state. */
   const slide = fromPreset("slide",
-    carrierType("slide").presets.find((p) => p.label.startsWith("Standard")));
+    carrierType("slide").presets.find((p) => p.label === "75 × 25 mm slide"));
   const tenx = { id: "p", frameUm: 1331 };
   const corner = {
     id: "f", type: "rectangle", rotation: 0, x: 0, y: 0, w: 10000, h: 8000,
@@ -131,7 +131,7 @@ describe("a region is covered right into its corners", () => {
 
 describe("a position is not slid anywhere: it fits where it was put or it is not in the plan", () => {
   const slide = fromPreset("slide",
-    carrierType("slide").presets.find((p) => p.label.startsWith("Standard")));
+    carrierType("slide").presets.find((p) => p.label === "75 × 25 mm slide"));
   const at = (xMm, yMm) => ({ id: "p1", type: "point", x: xMm * 1000, y: yMm * 1000 });
 
   it("keeps one whose frame fits", () => {
@@ -145,7 +145,7 @@ describe("a position is not slid anywhere: it fits where it was put or it is not
 
 describe("no frame is laid that takes in none of the region", () => {
   const slide = fromPreset("slide",
-    carrierType("slide").presets.find((p) => p.label.startsWith("Standard")));
+    carrierType("slide").presets.find((p) => p.label === "75 × 25 mm slide"));
   const tenx = { id: "p", frameUm: 1331 };
 
   /** Whether a frame there overlaps the box the field occupies, at all. */

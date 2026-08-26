@@ -61,6 +61,21 @@ const ICONS = {
     g.append(svgEl("rect", { x: 5.5, y: 10, width: 7, height: 8, rx: 1, fill: "currentColor", "fill-opacity": 0.14, stroke: "currentColor", "stroke-width": 0.8 }));
     g.append(svgEl("rect", { x: 15.5, y: 10, width: 7, height: 8, rx: 1, fill: "currentColor", "fill-opacity": 0.14, stroke: "currentColor", "stroke-width": 0.8 }));
   },
+  /* A round disc with a mesh across it, which is what an EM grid is: three
+     millimetres of copper with square holes in it, and the sample over the
+     holes. Drawn as a circle rather than the plate's rectangle so the row of
+     types can be read at a glance. */
+  emgrid: (g) => {
+    g.append(svgEl("circle", { cx: 14, cy: 14, r: 10.5, fill: "none", stroke: "currentColor", "stroke-width": 1.5 }));
+    for (let r = 0; r < 4; r++) {
+      for (let c = 0; c < 4; c++) {
+        const x = 7.5 + c * 3.2;
+        const y = 7.5 + r * 3.2;
+        if (Math.hypot(x + 1.1 - 14, y + 1.1 - 14) > 9) continue;
+        g.append(svgEl("rect", { x, y, width: 2.2, height: 2.2, fill: "currentColor", "fill-opacity": 0.2, stroke: "currentColor", "stroke-width": 0.5 }));
+      }
+    }
+  },
 };
 
 const typeIcon = (id) => {
@@ -165,8 +180,24 @@ export function anchorsUm(config, howMany = 4) {
      how it is turned: the rotation is read off the distance between them, and
      there has to be some. */
   const near = (v, w) => Math.abs(v - w) < 1e-6;
-  const atLeast = (get) => Math.min(...areas.map(get));
-  const atMost = (get) => Math.max(...areas.map(get));
+  /* Worked out once, not once per area. These used to be called from inside the
+     filter that uses them, which is a sweep of every area for every area: on a
+     plate of a few hundred wells nobody noticed, and on Greiner's high-density
+     plate of twenty-four thousand it took the better part of a minute to lay
+     four marks. `Math.min(...areas)` also throws past about a hundred thousand
+     arguments, so the sweep is written out rather than spread. */
+  const spanOf = (get) => {
+    let lo = Infinity;
+    let hi = -Infinity;
+    for (const a of areas) {
+      const v = get(a);
+      if (v < lo) lo = v;
+      if (v > hi) hi = v;
+    }
+    return { lo, hi };
+  };
+  const acrossThem = spanOf((a) => a.x);
+  const downThem = spanOf((a) => a.y);
 
   /* The four sides, in the order they are handed out: the facing pairs first,
      so that two points face each other across the carrier rather than sitting
@@ -178,10 +209,10 @@ export function anchorsUm(config, howMany = 4) {
      where the rim's tangent is. Either way the mark sits on a line an operator
      can drive along and see. */
   const SIDES = [
-    { at: "left", out: (a) => a.x, edge: atLeast, along: (a) => a.y, lean: +1, on: [-halfW, 0] },
-    { at: "right", out: (a) => a.x, edge: atMost, along: (a) => a.y, lean: -1, on: [+halfW, 0] },
-    { at: "top", out: (a) => a.y, edge: atLeast, along: (a) => a.x, lean: -1, on: [0, -halfH] },
-    { at: "bottom", out: (a) => a.y, edge: atMost, along: (a) => a.x, lean: +1, on: [0, +halfH] },
+    { at: "left", out: (a) => a.x, edge: acrossThem.lo, along: (a) => a.y, lean: +1, on: [-halfW, 0] },
+    { at: "right", out: (a) => a.x, edge: acrossThem.hi, along: (a) => a.y, lean: -1, on: [+halfW, 0] },
+    { at: "top", out: (a) => a.y, edge: downThem.lo, along: (a) => a.x, lean: -1, on: [0, -halfH] },
+    { at: "bottom", out: (a) => a.y, edge: downThem.hi, along: (a) => a.x, lean: +1, on: [0, +halfH] },
   ];
 
   /* What each side has to offer: the areas standing on its outermost line, the
@@ -190,7 +221,7 @@ export function anchorsUm(config, howMany = 4) {
   const offers = SIDES.map((side) => ({
     side,
     areas: areas
-      .filter((a) => near(side.out(a), side.edge(side.out)))
+      .filter((a) => near(side.out(a), side.edge))
       .sort((a, b) => side.lean * (side.along(b) - side.along(a))),
   }));
 
@@ -250,7 +281,27 @@ export default {
     const g = geometry(config);
     const aw = config.w * MM_UM * scale;
     const ah = config.h * MM_UM * scale;
-    if (aw < 1.5 || ah < 1.5) return;
+    /* Too fine to draw one area at a time — Greiner's high-density plate is
+       twenty-four thousand wells a quarter of a millimetre across, which at the
+       scale the whole stage is shown at is a pixel and a bit each. Drawn as one
+       block of ground instead: where the carrier is and how far it reaches is
+       what a picture at that scale can honestly say, and it is what an operator
+       is looking for before they zoom in. This used to return without drawing
+       anything at all, so the carrier was simply absent. */
+    if (aw < 1.5 || ah < 1.5) {
+      const [x, y] = toScreen(0, 0);
+      ctx.save();
+      ctx.fillStyle = fill;
+      ctx.strokeStyle = colour;
+      ctx.globalAlpha = 0.8;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.rect(x, y, g.width * MM_UM * scale, g.height * MM_UM * scale);
+      if (fill) ctx.fill();
+      ctx.stroke();
+      ctx.restore();
+      return;
+    }
     const rad = Math.min(g.corner * MM_UM * scale, aw / 2, ah / 2);
     const depth = depthMm(config) * MM_UM * scale;
     ctx.save();

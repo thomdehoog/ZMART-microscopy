@@ -171,20 +171,38 @@ function carrierOriginUm() {
 /* How much clear space the travel is framed with, in screen pixels. */
 const FIT_MARGIN = 26;
 
+/* How small a carrier has to be against the travel it sits in before the
+   picture opens on the carrier instead of on the whole stage. A third: a plate
+   or a slide fills enough of the travel to be worth seeing in place, where an
+   EM grid is three millimetres in a hundred and twenty — at the travel's scale
+   that is four pixels of grid and half a pixel of hole, which is a carrier
+   drawn correctly and shown as nothing. */
+const A_SPECK = 1 / 3;
+
 function fitView() {
   const box = stageBox.getBoundingClientRect();
   const w = box.width || 800, h = box.height || 600;
-  const [fw, fh] = STAGE_UM;
+  const [travelW, travelH] = STAGE_UM;
+  const [carrierW, carrierH] = carrierWidget.extentUm(run.carrier);
+  const tiny = carrierW > 0 && carrierH > 0
+    && carrierW < travelW * A_SPECK && carrierH < travelH * A_SPECK;
+  /* Room around it either way, so the thing being set up is not pressed against
+     the edge of its own picture. */
+  const [fw, fh] = tiny ? [carrierW * 1.6, carrierH * 1.6] : [travelW, travelH];
   const s = Math.min((w - 2 * FIT_MARGIN) / fw, (h - 2 * FIT_MARGIN) / fh);
   const [ox, oy] = carrierOriginUm();
-  /* Worked back from where the travel should land. Across, it is centred; down,
-     it sits at the top with the margin the sides have, rather than floating in
-     the middle of whatever height the window happens to give the canvas. The
-     canvas is told where to look, in the carrier's own micrometres, which is
-     the frame the layers are drawn in. */
+  /* Worked back from where the thing being framed should land, in the carrier's
+     own micrometres, which is the frame the layers are drawn in.
+
+     The travel is centred across and sits at the top with the margin the sides
+     have, rather than floating in the middle of whatever height the window
+     happens to give the canvas. A carrier being framed on its own is centred
+     both ways: there is nothing else in the picture for it to sit above. */
   theCanvas.lookAt({
     zoom: 1 / s,
-    centre: { x: fw / 2 - ox, y: (h / 2 - FIT_MARGIN) / s - oy },
+    centre: tiny
+      ? { x: carrierW / 2, y: carrierH / 2 }
+      : { x: travelW / 2 - ox, y: (h / 2 - FIT_MARGIN) / s - oy },
   });
   view.fitted = true;
 }
