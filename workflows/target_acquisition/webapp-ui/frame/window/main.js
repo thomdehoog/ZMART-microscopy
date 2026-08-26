@@ -2,6 +2,8 @@ import "./style.css";
 import { sideGroup } from "./panels.js";
 import { renderRecordingSlot }
   from "../../workflows/target_acquisition/shared/recording-slot.js";
+import { renderSessionCard }
+  from "../../workflows/target_acquisition/steps/1_connect/session-card.js";
 import { blockedBecause, isReachable, panelsFor } from "../rules/steps.js";
 import { theDrawingAbove, whoIsAt } from "../../workflows/target_acquisition/shared/canvas/layers-above.js";
 import { assembleWorkflows } from "../rules/finding-workflows.js";
@@ -521,7 +523,7 @@ let stageWatch = null;
         onCheck: (k, result) => {
           if (state.running !== "connect") return;
           state.checks[k].result = result;
-          answerCheck(k);
+          sessionShown?.answer(k, result);
         },
       }).then(async ({ info }) => {
         /* The session is open and every check has answered. The canvas is
@@ -682,184 +684,6 @@ let stageWatch = null;
      came to, and the button that acts on all of it. Its button is its own
      rather than the frame's, because it is disabled until there is a password
      and it changes what it does once a session is open. */
-  function renderSessionCard(host) {
-    const connected = state.done.has("connect");
-    let connectBtn = null;
-    let connectHint = null;
-    const connecting = state.running === "connect";
-    /* The first step is headed the way every other step is: the name above the
-       box, the box holding the work. What the session was opened with is
-       already in the fields and in the rail beside them, so a third copy in the
-       corner was the panel talking about itself. */
-    const { group, body: card } = sideGroup("Connect to the microscope");
-    card.classList.add("session-card");
-    if (connected) card.classList.add("done");
-
-    {
-      const locked = connected || connecting;
-      const form = document.createElement("div");
-      form.className = "session-form";
-
-      const scope = document.createElement("label");
-      scope.className = "field";
-      scope.innerHTML = "<span>Microscope</span><select></select>";
-      const scopeSel = scope.querySelector("select");
-      for (const m of state.instruments) {
-        const o = document.createElement("option");
-        o.value = m.key;
-        o.textContent = m.detail ? `${m.label} · ${m.detail}` : m.label;
-        scopeSel.append(o);
-      }
-      if (!state.instruments.length) {
-        const o = document.createElement("option");
-        o.value = ""; o.textContent = "no instruments listed";
-        scopeSel.append(o);
-      }
-      scopeSel.value = state.session.microscope ?? "";
-      scopeSel.disabled = locked || !state.instruments.length;
-      scopeSel.addEventListener("change", () => {
-        state.session.microscope = scopeSel.value;
-        state.session.api = chosenMicroscope()?.apis[0]?.key ?? null;
-        renderSetup(); renderActionBar();
-      });
-
-      const api = document.createElement("label");
-      api.className = "field";
-      api.innerHTML = "<span>API</span><select></select>";
-      const apiSel = api.querySelector("select");
-      for (const a of chosenMicroscope()?.apis ?? []) {
-        const o = document.createElement("option");
-        o.value = a.key;
-        o.textContent = a.detail ? `${a.label} · ${a.detail}` : a.label;
-        apiSel.append(o);
-      }
-      apiSel.value = state.session.api ?? "";
-      apiSel.disabled = locked || !chosenMicroscope();
-      apiSel.addEventListener("change", () => {
-        state.session.api = apiSel.value;
-        renderSetup(); renderActionBar();
-      });
-
-      const pw = document.createElement("label");
-      pw.className = "field";
-      pw.innerHTML = '<span>Password</span><input type="password" autocomplete="current-password">';
-      const pwInput = pw.querySelector("input");
-      pwInput.value = state.session.password;
-      pwInput.disabled = locked;
-      /* Typing must not rebuild the card: re-rendering destroys the very
-         input being typed into, which drops focus after every keystroke.
-         Only what depends on the password is touched. */
-      pwInput.addEventListener("input", () => {
-        state.session.password = pwInput.value;
-        const ready = !!pwInput.value;
-        if (connectBtn) connectBtn.disabled = connecting || !ready;
-        if (connectHint) connectHint.hidden = ready;
-      });
-
-      form.append(scope, api, pw);
-      card.append(form);
-    }
-
-    /* What the session was opened with is one thing; what came back when it
-       was opened is another, so the answers stand in a box of their own under
-       it. Every check is listed the moment the session is opened and each one
-       ticks as its answer comes back — the row is the question, the mark is the
-       answer. An open session is not editable, so the fields above stay on show
-       as the record of what it was opened with. */
-    let checks = null;
-    if (state.checks.length) {
-      const made = sideGroup("Connection checks");
-      checks = made.body;
-      /* Beside the session's box, not inside it: two boxes standing in the
-         channel, the way every other step's boxes stand. */
-      host.append(made.group);
-      const list = document.createElement("div");
-      list.className = "check-list";
-      for (const c of state.checks) {
-        const answered = c.result !== null;
-        const failed = answered && isFailed(c.result);
-        const row = document.createElement("div");
-        row.className = "check-row" + (answered ? "" : " pending") + (failed ? " failed" : "");
-        row.innerHTML = '<span class="check-mark"></span><span class="check-name"></span>'
-          + '<span class="check-value"></span>';
-        row.querySelector(".check-mark").textContent = failed ? "✗" : "✓";
-        row.querySelector(".check-name").textContent = c.label;
-        row.querySelector(".check-value").textContent = answered ? c.result : "";
-        list.append(row);
-      }
-      checks.append(list);
-    }
-
-    /* The button sits at the end of the card, after everything it acts on —
-       the rule every other step already follows. Once the session is open the
-       press has nothing left to do, so what stands in its place is not a button
-       at all: a green lamp and the word for it, the way an instrument says it is
-       on. The way back out is the button, beside it. */
-    {
-      const foot = document.createElement("div");
-      foot.className = "session-foot";
-      const row = document.createElement("div");
-      row.className = "session-buttons";
-
-      if (connected) {
-        const held = document.createElement("div");
-        held.className = "session-state";
-        held.innerHTML = '<i class="lamp"></i>';
-        held.append("Connected");
-
-        const out = document.createElement("button");
-        out.type = "button";
-        out.className = "danger";
-        out.textContent = "Disconnect";
-        out.disabled = !!state.running;
-        out.addEventListener("click", closeSession);
-        row.append(held, out);
-      } else {
-        const btn = document.createElement("button");
-        btn.type = "button";
-        btn.className = "run";
-        btn.textContent = connecting ? "connecting…" : "Connect";
-        btn.disabled = connecting || !state.session.password || !chosenConnection();
-        btn.addEventListener("click", () => runStep(indexOfStep("connect")));
-        connectBtn = btn;
-
-        connectHint = document.createElement("div");
-        connectHint.className = "session-hint";
-        connectHint.textContent = "a password is needed to open the session";
-        connectHint.hidden = !!state.session.password || connecting;
-        row.append(btn);
-      }
-
-      foot.append(row);
-      if (connectHint) foot.append(connectHint);
-      card.append(foot);
-    }
-
-    host.prepend(group);
-  }
-
-  /* Only the answer lands. The row is already on screen, so filling one in
-     touches that row rather than rebuilding the card under the operator —
-     which would restart every other row's arrival along with it. */
-  function answerCheck(k) {
-    const row = document.querySelectorAll(".check-row")[k];
-    if (!row) return;
-    const result = state.checks[k].result;
-    row.classList.remove("pending");
-    row.classList.toggle("failed", isFailed(result));
-    row.querySelector(".check-mark").textContent = isFailed(result) ? "✗" : "✓";
-    row.querySelector(".check-value").textContent = result;
-  }
-
-  /* Closing the session takes the run with it, for the reason resetRun already
-     gives: everything after this was read off this session. Reopening against
-     a different microscope is the reason to close one, so the choice of
-     microscope, API and password is what survives. */
-  function closeSession() {
-    if (state.running) return;
-    resetRun();
-  }
-
   const indexOfStep = (id) => steps().findIndex((s) => s.id === id);
 
   /* The instruments, asked for once the backend is known; the card fills in
@@ -1337,8 +1161,26 @@ let stageWatch = null;
   /* A card belongs to its step and shows while you are standing on it —
      click back on Connect and the session and its checks are there again;
      step away and the channel is about the step you moved to. */
+  /* The session card, and the handle it gives back: a check's answer lands in
+     the row the card already put on screen. */
+  let sessionShown = null;
   const SETUP_CARDS = {
-    connect: renderSessionCard,
+    connect: (host) => {
+      sessionShown = renderSessionCard(host, {
+        connected: () => state.done.has("connect"),
+        connecting: () => state.running === "connect",
+        running: () => state.running,
+        session: () => state.session,
+        instruments: () => state.instruments,
+        checks: () => state.checks,
+        chosenMicroscope, chosenConnection,
+        connect: () => runStep(indexOfStep("connect")),
+        /* Closing takes the run with it, for the reason resetRun gives:
+           everything after this was read off this session. */
+        disconnect: () => { if (!state.running) resetRun(); },
+        changed: () => { renderSetup(); renderActionBar(); },
+      });
+    },
   };
 
   /* The setup cards render into the channel like every other step's controls:
