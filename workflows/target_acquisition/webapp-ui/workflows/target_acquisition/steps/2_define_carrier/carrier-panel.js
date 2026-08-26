@@ -307,7 +307,7 @@ export default {
        next room — which a list living in this browser cannot do. */
     const fileRow = el("div", "carrier-files");
 
-    const load = el("button", "carrier-reset", "Load");
+    const load = el("button", "sf-flat carrier-reset", "Load");
     load.type = "button";
     const picker = document.createElement("input");
     picker.type = "file";
@@ -336,7 +336,7 @@ export default {
     });
     load.addEventListener("click", () => picker.click());
 
-    const save = el("button", "carrier-reset", "Save");
+    const save = el("button", "sf-flat carrier-reset", "Save");
     save.type = "button";
     save.addEventListener("click", () => {
       const file = new Blob([`${JSON.stringify(cfg, null, 2)}\n`],
@@ -348,7 +348,7 @@ export default {
       URL.revokeObjectURL(a.href);
     });
 
-    const reset = el("button", "carrier-reset", "Reset");
+    const reset = el("button", "sf-flat carrier-reset", "Reset");
     reset.type = "button";
     reset.addEventListener("click", () =>
       take(fromPreset(cfg.type, carrierType(cfg.type).presets[0])));
