@@ -35,7 +35,7 @@ test.afterAll(() => { run?.stop(); });
 test("the overview appears on screen tile by tile as the run writes it", async ({ page }) => {
   test.setTimeout(180_000);
 
-  await page.goto(`/?overview=${encodeURIComponent(run.store)}`);
+  await page.goto(`/?backend=pretend&overview=${encodeURIComponent(run.store)}`);
   await page.waitForTimeout(300);
   await walkToTheScan(page);
 

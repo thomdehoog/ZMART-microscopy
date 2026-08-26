@@ -41,13 +41,13 @@ describe("numbering is derived, so reordering costs nothing", () => {
   });
 
   it("numbers target acquisition straight through, one to eight", () => {
-    expect(WORKFLOWS.target_acquisition_prototype.steps.map((s) => s.n))
+    expect(WORKFLOWS.target_acquisition.steps.map((s) => s.n))
       .toEqual(["1", "2", "3", "4", "5", "6", "7", "8"]);
   });
 });
 
 describe("ordering", () => {
-  const steps = WORKFLOWS.target_acquisition_prototype.steps;
+  const steps = WORKFLOWS.target_acquisition.steps;
 
   it("only the next unfinished step is reachable", () => {
     const done = new Set(["connect"]);
@@ -86,7 +86,7 @@ describe("readiness belongs to the step, not the frame", () => {
   /* These are the rules an operator actually meets: the greyed-out button and
      the short phrase beside it saying what is still missing. The frame only
      asks; each step answers for itself. */
-  const byId = (id) => stepOf("target_acquisition_prototype", id);
+  const byId = (id) => stepOf("target_acquisition", id);
   /* Real slots, read the way the panel reads them: a hand-made stand-in with
      the right shape is how a gate went on asking for a field the recordings
      stopped having while this suite stayed green. */
@@ -153,7 +153,7 @@ describe("panels follow the step", () => {
     Object.fromEntries(WORKFLOWS[wf].steps.map((s, i) => [s.id, panelsFor(WORKFLOWS[wf].steps, i)]));
 
   it("gives target acquisition the panels the operator sees", () => {
-    expect(panelsOf("target_acquisition_prototype")).toEqual({
+    expect(panelsOf("target_acquisition")).toEqual({
       connect: ["canvas"],
       carrier: ["canvas"],
       scanfields: ["canvas"],
@@ -166,7 +166,7 @@ describe("panels follow the step", () => {
   });
 
   it("puts the canvas on stage from the first step of every run", () => {
-    for (const wf of ["target_acquisition_prototype", "target_acquisition_mock", "target_acquisition_real"]) {
+    for (const wf of ["target_acquisition"]) {
       expect(panelsOf(wf).connect).toContain("canvas");
       expect(panelsOf(wf).carrier).toContain("canvas");
     }
@@ -175,31 +175,15 @@ describe("panels follow the step", () => {
 });
 
 describe("workflows compose the catalogue rather than restating it", () => {
-  it("offers the run three ways, and nothing else", () => {
-    expect(Object.keys(WORKFLOWS)).toEqual([
-      "target_acquisition_prototype",
-      "target_acquisition_mock", "target_acquisition_real",
-    ]);
-  });
-
-  /* The three variants walk one list of steps; only the backend their flow
-     declares differs. If the lists ever drift apart, the mock stops being a
-     rehearsal of the real one, which is the whole reason it exists. */
-  it("the run's three variants share the steps and differ in the backend", () => {
-    expect(ids("target_acquisition_mock")).toEqual(ids("target_acquisition_prototype"));
-    expect(ids("target_acquisition_real")).toEqual(ids("target_acquisition_prototype"));
-    expect(WORKFLOWS.target_acquisition_prototype.backend).toEqual({ kind: "pretend" });
-    expect(WORKFLOWS.target_acquisition_mock.backend)
-      .toEqual({ kind: "live", instrument: "mock" });
-    expect(WORKFLOWS.target_acquisition_real.backend)
-      .toEqual({ kind: "live", instrument: "leica" });
+  it("offers target acquisition, and nothing else", () => {
+    expect(Object.keys(WORKFLOWS)).toEqual(["target_acquisition"]);
   });
 
   /* The order an operator walks, spelled out. If a step moves, is dropped, or
      is added, this is where it shows — and because the page reads the same
      declaration, what it shows is what the page will do. */
   it("walks target acquisition in this order", () => {
-    expect(ids("target_acquisition_prototype")).toEqual([
+    expect(ids("target_acquisition")).toEqual([
       "connect", "carrier", "scanfields", "focus",
       "scan", "detect", "select", "acquire",
     ]);
@@ -207,14 +191,12 @@ describe("workflows compose the catalogue rather than restating it", () => {
 
 
   it("names every workflow in plain words for the chooser", () => {
-    expect(Object.values(WORKFLOWS).map((w) => w.name)).toEqual([
-      "Target acquisition prototype",
-      "Target acquisition mock", "Target acquisition real"]);
+    expect(Object.values(WORKFLOWS).map((w) => w.name)).toEqual(["Target acquisition"]);
     for (const w of Object.values(WORKFLOWS)) expect(w.blurb).toBeTruthy();
   });
 
   it("shares a step's wording, so a fix reaches every workflow at once", () => {
-    for (const wf of ["target_acquisition_prototype", "target_acquisition_mock", "target_acquisition_real"]) {
+    for (const wf of ["target_acquisition"]) {
       expect(stepOf(wf, "connect").why).toBe(connect.why);
       expect(stepOf(wf, "scanfields").why).toBe(initialScanfields.why);
     }
@@ -281,7 +263,7 @@ describe("the real run", () => {
   });
 
   it("leaves target acquisition exactly as it was", () => {
-    for (const s of WORKFLOWS.target_acquisition_prototype.steps) {
+    for (const s of WORKFLOWS.target_acquisition.steps) {
       expect(s.id).not.toMatch(/^canvas-/);
       expect(s.panels.some((p) => p.startsWith("viewer"))).toBe(false);
       /* And nothing in a real run may skip its place in the queue: every step

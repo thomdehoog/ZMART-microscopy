@@ -14,31 +14,22 @@
  */
 
 export const MICROSCOPES = {
+  mock: {
+    label: "Mock",
+    detail: "the controller's fake driver",
+    vendor: "mock",
+    /* What the bridge is asked to connect. */
+    instrument: "mock",
+    api: "in-process",
+    version: "made-up data",
+  },
   stellaris5: {
     label: "Leica Stellaris 5",
-    detail: "y42h93",
+    detail: "Navigator Expert · CAM · LAS X 4.9",
     vendor: "leica",
-    apis: {
-      cam: { label: "CAM", detail: "socket · LAS X 4.9" },
-      pyapi: { label: "PyApi", detail: "in-process · LAS X 4.9" },
-    },
-  },
-  zen: {
-    label: "Zeiss ZEN",
-    detail: "zenapi",
-    vendor: "zeiss",
-    apis: {
-      zenapi: { label: "ZEN API", detail: "gRPC · gateway token" },
-    },
-  },
-  mesospim: {
-    label: "mesoSPIM",
-    detail: "benchtop",
-    vendor: "mesospim",
-    apis: {
-      remote_control: { label: "Remote Control", detail: "TCP 42000" },
-      remote_scripting: { label: "Remote Scripting", detail: "legacy bridge" },
-    },
+    instrument: "leica",
+    api: "8895",
+    version: "LAS X 4.9",
   },
 };
 
@@ -244,27 +235,16 @@ export const sampleReading = (key, nth) => {
 export const STAGE_LIMITS_MM = { width: 120, height: 80 };
 
 export const DEFAULT_SESSION = {
-  microscope: "stellaris5",
-  api: "cam",
+  /* The mock, so a page opened by accident drives nothing. */
+  microscope: "mock",
   /* Prefilled so the mock can be clicked through without typing. A real build
      must ship this empty — a default credential is not a convenience, it is a
      credential everybody has. */
   password: "demo",
 };
 
-
-/** The APIs a microscope offers, as [key, {label, detail}] pairs. */
-export const apisFor = (microscope) =>
-  Object.entries(MICROSCOPES[microscope]?.apis ?? {});
-
-/** The first API a microscope offers — what to fall back to when it changes. */
-export const defaultApiFor = (microscope) => apisFor(microscope)[0]?.[0] ?? null;
-
-export const describeSession = ({ microscope, api }) => {
-  const scope = MICROSCOPES[microscope];
-  const apiDef = scope?.apis?.[api];
-  return scope && apiDef ? `${scope.label} · ${apiDef.label}` : "not chosen";
-};
+export const describeSession = ({ microscope }) =>
+  MICROSCOPES[microscope]?.label ?? "not chosen";
 
 /**
  * What connecting actually verifies, in the order it is verified. Each check
@@ -275,10 +255,7 @@ export const CONNECT_CHECKS = [
   {
     id: "reachable",
     label: "Microscope reachable",
-    result: ({ microscope, api }) => {
-      const port = { cam: "8895", pyapi: "in-process", zenapi: "50051", remote_control: "42000", remote_scripting: "42100" }[api];
-      return micro(microscope) === "mesospim" ? `127.0.0.1:${port}` : `127.0.0.1:${port}`;
-    },
+    result: ({ microscope }) => `127.0.0.1:${MICROSCOPES[microscope]?.api ?? "?"}`,
   },
   {
     id: "credentials",
@@ -288,7 +265,7 @@ export const CONNECT_CHECKS = [
   {
     id: "version",
     label: "API version",
-    result: ({ microscope, api }) => MICROSCOPES[microscope]?.apis?.[api]?.detail ?? "unknown",
+    result: ({ microscope }) => MICROSCOPES[microscope]?.version ?? "unknown",
   },
   {
     id: "stage",
@@ -298,8 +275,7 @@ export const CONNECT_CHECKS = [
   {
     id: "objectives",
     label: "Objectives listed",
-    result: ({ microscope }) =>
-      (micro(microscope) === "mesospim" ? "4x, 16x" : "5x, 63x"),
+    result: () => "5x, 63x",
   },
   {
     id: "storage",
@@ -308,4 +284,3 @@ export const CONNECT_CHECKS = [
   },
 ];
 
-const micro = (key) => MICROSCOPES[key]?.vendor;

@@ -3,18 +3,9 @@
  *
  * This folder is the code home — the steps in their numbered folders, the
  * shared canvas and geometry, the microscope seam — and this file is the run
- * they compose into. It is deliberately NOT a workflow of its own (no
- * `flow.js` lives here), because the run is offered three ways, one folder
- * each beside this one:
- *
- *   target_acquisition_prototype/  the front end alone — everything rehearsed
- *   target_acquisition_mock/       through the bridge to the controller's
- *                                  mock driver — the whole chain, no hardware
- *   target_acquisition_real/       the same chain to the Leica driver — the
- *                                  instrument itself, or its simulator
- *
- * The three differ only in the backend their `flow.js` declares; the steps
- * below are the one list all of them walk.
+ * they compose into; `flow.js` beside it is the workflow's front door. What
+ * the run drives — the controller's mock driver or the Leica — is chosen on
+ * the Connect step, so there is one workflow and one list of steps.
  */
 
 import { connect } from "./steps/1_connect/step.js";

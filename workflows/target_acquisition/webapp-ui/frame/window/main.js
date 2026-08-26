@@ -4,8 +4,7 @@ import { blockedBecause, isReachable, panelsFor } from "../rules/steps.js";
 import { theDrawingAbove, whoIsAt } from "../../workflows/target_acquisition/shared/canvas/layers-above.js";
 import { assembleWorkflows } from "../rules/finding-workflows.js";
 import {
-  MICROSCOPES, DEFAULT_SESSION, apisFor, defaultApiFor,
-  describeSession, STAGE_LIMITS_MM,
+  MICROSCOPES, DEFAULT_SESSION, describeSession, STAGE_LIMITS_MM,
 } from "../../workflows/target_acquisition/microscope/microscopes.js";
 /* The seam. Connecting, reading a preset off the instrument, measuring the
    focus map and driving the overview scan all go through the backend and are
@@ -47,12 +46,13 @@ const { WORKFLOWS, DEFAULT_WORKFLOW } = assembleWorkflows(
   import.meta.glob("../../workflows/*/flow.js", { eager: true }),
 );
 
-/* Which backend the active workflow plugs into. Resolved when a workflow is
-   chosen rather than once at load, because the chooser is exactly where the
-   operator says whether this run rehearses, drives the mock chain, or drives
-   the instrument. */
-const backendFor = (key) =>
-  (WORKFLOWS[key]?.backend?.kind === "live" ? liveBackend : pretendBackend);
+/* The page speaks to the controller through the bridge; which driver the
+   controller runs — the mock or the Leica — is chosen on the Connect step.
+   The in-browser rehearsal (timers and a synthetic sample) is reachable only
+   by `?backend=pretend`, for this page's own browser tests, until they run
+   through the bridge too and it goes. */
+const backendFor = () =>
+  (new URLSearchParams(location.search).get("backend") === "pretend" ? pretendBackend : liveBackend);
 let backend = null;
 
 (() => {
@@ -204,7 +204,7 @@ let backend = null;
      There is no presets step: each recording lives in the step that uses it —
      the overview preset with the scan fields, the focus preset with the
      focus strategy, the acquisition type with the targets. */
-  /* Which workflow to open on — `?workflow=target_acquisition_mock`.
+  /* Which workflow to open on — `?workflow=target_acquisition`.
    *
    * For pointing this page at a run and looking at it, which is what somebody
    * with an acquisition in their hand wants and what `serve_a_run.py` prints an
@@ -273,7 +273,7 @@ let backend = null;
     locked: false,
   };
 
-  backend = backendFor(state.wf);
+  backend = backendFor();
 
   const steps = () => WORKFLOWS[state.wf].steps;
   const step = (i) => steps()[i];
@@ -302,7 +302,7 @@ let backend = null;
      and picking a workflow starts one. */
   selectEl.addEventListener("change", () => {
     state.wf = selectEl.value;
-    backend = backendFor(state.wf);
+    backend = backendFor();
     resetRun();
   });
 
@@ -465,9 +465,9 @@ let backend = null;
          and verifies it — and each answer lands here as it comes. */
       backend.connect({
         ...state.session,
-        /* Which driver the bridge should connect is the workflow's own
-           declaration; the pretend backend ignores it. */
-        instrument: WORKFLOWS[state.wf].backend?.instrument,
+        /* Which driver the bridge should connect is the microscope chosen on
+           this card; the pretend backend ignores it. */
+        instrument: MICROSCOPES[state.session.microscope]?.instrument,
       }, {
         onCheck: (k, result) => {
           if (state.running !== "connect") return;
@@ -643,24 +643,6 @@ let backend = null;
       scopeSel.disabled = locked;
       scopeSel.addEventListener("change", () => {
         state.session.microscope = scopeSel.value;
-        state.session.api = defaultApiFor(scopeSel.value);
-        renderSetup(); renderActionBar();
-      });
-
-      const api = document.createElement("label");
-      api.className = "field";
-      api.innerHTML = "<span>API</span><select></select>";
-      const apiSel = api.querySelector("select");
-      for (const [key, a] of apisFor(state.session.microscope)) {
-        const o = document.createElement("option");
-        o.value = key;
-        o.textContent = `${a.label} · ${a.detail}`;
-        apiSel.append(o);
-      }
-      apiSel.value = state.session.api;
-      apiSel.disabled = locked;
-      apiSel.addEventListener("change", () => {
-        state.session.api = apiSel.value;
         renderSetup(); renderActionBar();
       });
 
@@ -680,7 +662,7 @@ let backend = null;
         if (connectHint) connectHint.hidden = ready;
       });
 
-      form.append(scope, api, pw);
+      form.append(scope, pw);
       card.append(form);
     }
 
