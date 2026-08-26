@@ -1435,7 +1435,11 @@ canvas.livecv[hidden] { display: none; }
   flex: 1; height: var(--control); padding: 0 8px;
   font: inherit; font-size: 11px; font-family: var(--mono); font-weight: 600;
   letter-spacing: 0.02em; white-space: nowrap;
-  color: var(--ink-2); background: var(--screen);
+  /* Blue, like everything else on this page that can be pressed. Grey ink read
+     as a label that happened to have a border round it, which put Load, Save
+     and Reset a shade quieter than the tools beside them for no reason an
+     operator could act on. */
+  color: var(--accent-deep); background: var(--screen);
   border: 1px solid var(--line-strong); border-radius: 6px; cursor: pointer;
 }
 .sf-flat:hover:enabled { border-color: var(--accent); color: var(--accent-deep); }
