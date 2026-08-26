@@ -41,6 +41,9 @@ export function scanAreaLayers(theRun) {
     explains: "The handles and guides of whatever is being drawn by hand. Always solid "
       + "and always on top: you cannot edit what you cannot see.",
     shown: !!editing,
+    /* Chrome for the plan, so it goes when the plan goes. Turning the fields
+       off and being left with their handles says the plan is still there. */
+    follows: "plan",
     staysSolid: true,
     paint: (frame) => {
       const { place, scale } = drawnIn(frame);

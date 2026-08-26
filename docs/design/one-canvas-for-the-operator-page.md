@@ -1,8 +1,8 @@
 # One canvas for the operator page
 
-**Status:** agreed, not started. 2026-08-26. No review pass — the shape was
-settled in conversation and nothing here waits on a decision, with one exception
-called out under *What is yours to decide*. Starting at step 1.
+**Status: DONE.** All five steps landed 2026-08-26. What changed on the way is
+recorded under *What it turned out to be* at the end; step 4 in particular was
+not the merge planned here.
 
 ## What was asked
 
@@ -202,3 +202,35 @@ Neither of the first two is a decision; they are work to be done carefully.
   `get_xyz`** once tiles have been taken. A known step-1 gap that travels with
   the stage-mark layer. Fix it where the reader is, not in the layer, and not
   in this work.
+
+
+## What it turned out to be
+
+**Step 1 was already built.** The drag-lending mechanism was in the engine
+contract — `handDragsTo`, shared by all three engines, settling what a drag
+means once when it begins. Two things were missing, not a contract: a lent drag
+could not be *declined*, and nothing routed one to a layer. Alt+drag turned out
+to be the canvas's own rule rather than a layer declining, because an escape
+hatch each layer must remember to implement is not an escape hatch.
+
+**Step 3 cost more than the plan said**, and every extra was the same shape:
+something reaching across the boundary the convergence moved. The readout said
+where the view was rather than what was under the pointer; the editor stopped
+hearing the pointer move, so a position could not be picked up; the scan beneath
+was driven from a pan offset that no longer existed; the canvas painted an
+opaque ground over the scan; and a test hid the plan with `canvas.stagecv`,
+which stopped matching when the plan stopped being a canvas.
+
+**Step 4 was not the merge described here.** The plan said the acquired overview
+should become the canvas's picture. It should not: `overview.js` is a
+purpose-built renderer for a live acquisition — gaps drawn as gaps, see-through,
+channel mixing — and the generic engine does not replace it. What step 4 came to
+was deleting the duplicate viewer, which the convergence had already done.
+
+**Step 5 gave the layers to their steps**, and made `claims` per-layer cheap
+enough to finish: the order the editor and the focus map are asked in now falls
+out of where they sit in the stack rather than being written in one function.
+
+Two faults found by using it, both breaking rules written here: a canvas with no
+run offered buttons for a picture that did not exist, and hiding a layer left
+its chrome on screen. A layer may now say what it `follows`.

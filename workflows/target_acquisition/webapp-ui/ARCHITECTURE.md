@@ -17,8 +17,10 @@ webapp-ui/
     <name>/flow.js   the workflow's front door: its steps, in order, plus a
                      sentence for the chooser.
     <name>/steps/    one numbered folder per step — `1_connect/` to
-                     `8_acquire_targets/` — each holding the step's declaration
-                     and the widgets that belong to it alone.
+                     `8_acquire_targets/` — each holding the step's
+                     declaration, the controls that belong to it alone, and
+                     `layers.js`: what it draws on the picture and what a press
+                     on that means.
     <name>/shared/   what several steps of that ONE workflow use: the carrier
                      geometry, the scan-field arithmetic, the layers the run
                      draws.
@@ -236,7 +238,7 @@ In the table, `ta/` is short for `workflows/target_acquisition/`.
 | `ta/steps/2_define_carrier/widget.js` | built, used — the first widget, and the shape the rest should follow |
 | `ta/steps/3_define_scan_area/widget.js` | built, used — the geometry editor and the grid, in the same channel |
 | `ta/steps/5_scan_the_overview/overview.js` | built, used by the app when it is given a run to watch, and covered by the browser tests that photograph the canvas |
-| `parts/canvas/` | built and covered by browser tests that photograph the picture — including which layers reached the screen — but **the operator page does not use it yet**: `viewer.js` is imported by its tests and by nothing else. See `CANVAS.md` and `docs/design/one-canvas-for-the-operator-page.md` |
+| `parts/canvas/` | built, **used by the operator page**, and covered by browser tests that photograph the picture — including which layers reached the screen, who a drag belongs to, and what happens to chrome when the thing it belongs to is hidden. See `CANVAS.md` |
 | `framework/window/main.js` | the rest of the running app, and its own copies of the untaken modules |
 
 **Widget extraction has started, from the outside in.** The carrier widget is
@@ -313,9 +315,12 @@ swapped. It is not kept here — it lives at the top of the repository in
 — and this folder is only the page's side of it.
 
 It is a **part**, not the workflow's: it takes a list of layers and knows
-nothing about what any of them mean. What target acquisition draws on it — the
-carrier, the plan, the focus map, the stage mark — stays in the workflow, in
-`shared/stage.js`.
+nothing about what any of them mean. What target acquisition draws on it is the
+workflow's, and mostly its steps' — each step's `layers.js` says what it draws
+and what a press on it means. `shared/stage.js` keeps only the picture's own
+furniture (the page's surface, the travel, where the stage is, the scale bar)
+and the order the stack is drawn in, which is the one thing no step can know
+because it interleaves them.
 
 ```
 parts/canvas/

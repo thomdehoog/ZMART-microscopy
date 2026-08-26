@@ -138,8 +138,11 @@ test.beforeEach(async ({ page }) => {
 test("gives every layer in the stack a button of its own", async ({ page }) => {
   const named = await page.locator("#layers button[data-layer]").evaluateAll(
     (buttons) => buttons.map((b) => b.dataset.layer));
-  // The two fixed slots, then one per layer the workflow handed in, in order.
-  expect(named).toEqual(["beneath", "picture", "carrier", "tiles", "focus", "tool"]);
+  /* One per layer the workflow handed in, in order — and only those. The two
+     slots the picture itself fills are not offered here, because this page was
+     given no run: a button for a picture that does not exist is a button that
+     does nothing. */
+  expect(named).toEqual(["carrier", "tiles", "focus", "tool"]);
 });
 
 test("turns one layer off and leaves the others exactly where they were", async ({ page }) => {
@@ -268,7 +271,7 @@ test("grows the stack while somebody is watching, keeping what they had set", as
 
   const named = await page.locator("#layers button[data-layer]").evaluateAll(
     (buttons) => buttons.map((b) => b.dataset.layer));
-  expect(named).toEqual(["beneath", "picture", "carrier", "tiles", "focus", "tool", "targets"]);
+  expect(named).toEqual(["carrier", "tiles", "focus", "tool", "targets"]);
   /* An operator who turned the carrier on should not find it off again because
      a target was discovered somewhere else entirely. */
   expect(await page.evaluate(() => window.__canvas.layers.carrier)).toBe(true);
@@ -411,4 +414,35 @@ test("what the run has and what the operator turned off are two questions", asyn
   await hand(true);
   await expect(button, "handing the layer in again undid the operator's choice")
     .toHaveAttribute("aria-pressed", "false");
+});
+
+test("chrome goes with the thing it is chrome for", async ({ page }) => {
+  /* The handles of a shape are not a thing in their own right. Turn off what
+     they are handles *for* and leaving them on screen says that thing is still
+     there when it is not — so they follow it, and they get no button of their
+     own, because there is nothing to switch that the thing itself does not. */
+  await page.evaluate(() => {
+    const square = (colour, x, y, side) => ({
+      paint: ({ context, project, zoom }) => {
+        const at = project(x, y);
+        context.fillStyle = colour;
+        context.fillRect(at.x, at.y, side / zoom, side / zoom);
+      },
+    });
+    window.__canvas.setLayersAbove([
+      { key: "shape", label: "Shape", has: true, ...square("rgb(30,80,190)", 0, 0, 300) },
+      { key: "handles", label: "Handles", has: true, follows: "shape", staysSolid: true,
+        ...square("rgb(240,160,30)", 60, 60, 180) },
+    ]);
+  });
+
+  await expect(page.locator('#layers button[data-layer="shape"]')).toHaveCount(1);
+  await expect(page.locator('#layers button[data-layer="handles"]'),
+    "the chrome offered a switch of its own").toHaveCount(0);
+  expect(await howMuchIs(page, [240, 160, 30])).toBeGreaterThan(0.005);
+
+  await page.locator('#layers button[data-layer="shape"]').click();
+  expect(await howMuchIs(page, [30, 80, 190]), "the shape stayed").toBeLessThan(0.002);
+  expect(await howMuchIs(page, [240, 160, 30]),
+    "the handles were left behind by the thing they belong to").toBeLessThan(0.002);
 });
