@@ -253,18 +253,17 @@ export function plan(fields, preset, carrier) {
        it was drawn for and covered whatever it happened to land on. */
     const tileset = chosen ? `area-${best.area.row}.${best.area.col}` : `field-${f.id}`;
 
-    if (chosen) {
-      for (const t of laid) {
-        if (frameFitsArea(carrier, t.x / MM_UM, t.y / MM_UM, frame)) {
-          out.push({ x: t.x, y: t.y, frameUm: preset.frameUm, fieldId: f.id, tileset });
-        }
-      }
-      continue;
-    }
-    /* No second opinion on whether these fit: they were laid inside the area,
-       and asking again in different arithmetic threw away the tile lying
-       exactly on the border — the one the whole rule is about. */
-    for (const t of tiles(f, preset.frameUm, f.overlap ?? 0, limitOf(best.area, carrier))) {
+    /* **The well does not cut the tiles.** A tileset covers what it was drawn
+       over, and a frame that hangs off the rim still images the part of the
+       sample inside it — the operator asked for that ground and the edge of a
+       well is not a reason to leave a hole in it. Tiles used to be dropped
+       where the frame did not fit the area, which left a tileset short of its
+       own outline at exactly the edges somebody had drawn around something.
+
+       Hand-placed positions still seat themselves into the nearest well: one
+       position dropped on the plastic is a mistake, where a tile at the rim of
+       a covered region is the region being covered. */
+    for (const t of (chosen ? laid : tiles(f, preset.frameUm, f.overlap ?? 0))) {
       out.push({ x: t.x, y: t.y, frameUm: preset.frameUm, fieldId: f.id, tileset });
     }
   }
@@ -664,13 +663,13 @@ export default {
        four saw the edge of the well — so the ones whose frame does not fit are
        not laid at all. The block thins from the outside in as the frame grows,
        which is what changing the objective actually does to a plate. */
-      const frame = frameUm() / MM_UM;
       const made = [];
       for (const area of centres(carrier)) {
         for (const p of block({ x: area.x * MM_UM, y: area.y * MM_UM }, ed.rows, ed.cols, px, py)) {
-          const at = inside(p.x, p.y);
-          if (!frameFitsArea(carrier, at.x / MM_UM, at.y / MM_UM, frame)) continue;
-          made.push({ id: nextId(), type: "point", source: "grid", ...at });
+          /* Laid as asked, including the ones whose frame reaches past the rim.
+             A block thinned from the outside in as the objective changed, which
+             is the plate answering back at a number the operator set. */
+          made.push({ id: nextId(), type: "point", source: "grid", ...inside(p.x, p.y) });
         }
       }
       commit([...base.filter((f) => f.source !== "grid"), ...made]);

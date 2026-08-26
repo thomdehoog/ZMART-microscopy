@@ -24,18 +24,18 @@ const strip = (x0, x1) => ({
   x: x0 * 1000, y: 2.8 * 1000, w: (x1 - x0) * 1000, h: 1000,
 });
 
-describe("a field is imaged in one area, the one it covers most", () => {
-  it("takes the well the outline mostly lies in, not both it reaches", () => {
+describe("a region is covered as it was drawn", () => {
+  /* An outline is a statement about a piece of sample, and covering it is
+     answering that statement. It used to be narrowed to the one well it lay in
+     most and clipped to that well's edge, which meant a region drawn across two
+     wells came back as most of one — a plan quietly smaller than the thing
+     somebody had drawn around. */
+  it("reaches both wells when the outline does", () => {
     /* Across the first well and a little way into the second: 5.6 mm of the
        outline lies in the first, 4.0 mm in the second. */
     const tiles = plan([strip(1.0, 13.0)], hires, plate);
     expect(tiles.length).toBeGreaterThan(0);
-    expect(wells(tiles)).toEqual(new Set(["0.0"]));
-  });
-
-  it("and the other well when the outline mostly lies there", () => {
-    const tiles = plan([strip(5.5, 15.0)], hires, plate);
-    expect(wells(tiles)).toEqual(new Set(["0.1"]));
+    expect(wells(tiles)).toEqual(new Set(["0.0", "0.1"]));
   });
 
   it("counts each field on its own, so two fields can be two wells", () => {
@@ -49,11 +49,18 @@ describe("a field is imaged in one area, the one it covers most", () => {
     expect(plan([strip(7.2, 8.4)], overview, plate)).toEqual([]);
   });
 
-  it("holds every tile inside the well it chose", () => {
-    for (const t of plan([strip(1.0, 13.0)], hires, plate)) {
-      const a = nearestArea(plate, t.x / 1000, t.y / 1000);
-      expect(Math.hypot(t.x / 1000 - a.x, t.y / 1000 - a.y)).toBeLessThan(3.3);
-    }
+  it("lets a frame reach past the rim rather than leaving a hole at the edge", () => {
+    /* A well is 3.3 mm from middle to rim. Some tile of a strip drawn across
+       two of them stands further out than that, because the strip does — and
+       the part of the sample inside that frame is what the operator asked to
+       image. Dropping it left the covered ground short of its own outline at
+       exactly the edges somebody had drawn around something. */
+    const out = plan([strip(1.0, 13.0)], hires, plate)
+      .map((t) => {
+        const a = nearestArea(plate, t.x / 1000, t.y / 1000);
+        return Math.hypot(t.x / 1000 - a.x, t.y / 1000 - a.y);
+      });
+    expect(Math.max(...out)).toBeGreaterThan(3.3);
   });
 });
 
@@ -67,17 +74,18 @@ describe("a region is covered right into its corners", () => {
     id: "f", type: "rectangle", rotation: 0, x: 0, y: 0, w: 10000, h: 8000,
   };
 
-  it("pushes the whole lattice in rather than dropping the edge tiles", () => {
+  it("centres the lattice on the region, not on the area", () => {
+    /* The lattice used to be pushed inside the carrier's imageable box and
+       laid flush against whichever edge had clipped it. It is laid on the
+       outline now, so what hangs over is the same on both sides — which is
+       what makes the cover symmetric about the thing that was drawn. */
     const tiles = plan([corner], tenx, slide);
-    const half = tenx.frameUm / 2;
-    const left = Math.min(...tiles.map((t) => t.x));
-    const top = Math.min(...tiles.map((t) => t.y));
-    // the outermost frames sit flush with the edge of what can be imaged,
-    // which on a slide is its rectangle with the soft corners cut back
-    const edgeX = (37.5 - scanBox(slide).halfW) * 1000;
-    const edgeY = (12.5 - scanBox(slide).halfH) * 1000;
-    expect(left).toBeCloseTo(edgeX + half, 2);
-    expect(top).toBeCloseTo(edgeY + half, 2);
+    const mid = (axis, size) => {
+      const all = tiles.map((t) => t[axis]);
+      return (Math.min(...all) + Math.max(...all)) / 2;
+    };
+    expect(mid("x")).toBeCloseTo(corner.x + corner.w / 2, 2);
+    expect(mid("y")).toBeCloseTo(corner.y + corner.h / 2, 2);
   });
 
   it("keeps the step it was given, so the overlap does not change", () => {
@@ -90,13 +98,21 @@ describe("a region is covered right into its corners", () => {
     for (const gap of [...step("x"), ...step("y")]) expect(gap).toBe(tenx.frameUm);
   });
 
-  it("keeps every frame inside the area", () => {
+  it("covers the region edge to edge, and no edge is left short", () => {
+    /* What the cover has to be true of is the outline, not the carrier: every
+       part of the region falls inside some frame, corners included. */
+    const tiles = plan([corner], tenx, slide);
     const half = tenx.frameUm / 2;
-    const box = scanBox(slide);
-    for (const t of plan([corner], tenx, slide)) {
-      expect(Math.abs(t.x / 1000 - 37.5) + half / 1000).toBeLessThanOrEqual(box.halfW);
-      expect(Math.abs(t.y / 1000 - 12.5) + half / 1000).toBeLessThanOrEqual(box.halfH);
-    }
+    const reach = (axis) => {
+      const all = tiles.map((t) => t[axis]);
+      return [Math.min(...all) - half, Math.max(...all) + half];
+    };
+    const [x0, x1] = reach("x");
+    const [y0, y1] = reach("y");
+    expect(x0).toBeLessThanOrEqual(corner.x);
+    expect(x1).toBeGreaterThanOrEqual(corner.x + corner.w);
+    expect(y0).toBeLessThanOrEqual(corner.y);
+    expect(y1).toBeGreaterThanOrEqual(corner.y + corner.h);
   });
 
   it("covers the outline it was drawn as, corner included", () => {
