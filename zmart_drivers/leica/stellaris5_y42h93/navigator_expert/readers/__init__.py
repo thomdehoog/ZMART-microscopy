@@ -15,6 +15,7 @@ from .router import (
     get_selected_job,
     get_xy,
     ping,
+    read_zgalvo_um,
     read_zwide_um,
 )
 
@@ -27,6 +28,7 @@ __all__ = [
     "get_hardware_info",
     "get_xy",
     "read_zwide_um",
+    "read_zgalvo_um",
     "get_jobs",
     "get_job_by_name",
     "get_selected_job",
