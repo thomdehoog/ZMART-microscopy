@@ -196,6 +196,9 @@ function drawFocusLayer(ctx, toScreen, scale, w, h) {
   const showSurface = surf && (f.strategy !== "plane" || f.applied);
 
   // predicted z range across the sample, for the ramp and its legend
+  /* How many of the plan's positions have an image in them by now. */
+  const imaged = Math.max(run.tilesShown, 0);
+
   const box = planBox();
   let zLo = 0, zHi = 1;
   if (showSurface) {
@@ -221,17 +224,25 @@ function drawFocusLayer(ctx, toScreen, scale, w, h) {
      clipped to the positions, because the z it predicts between them is
      never going to be driven to: colouring the gaps states a focus for
      places this run does not visit. */
+  /* **The prediction gets out of the picture's way.** A field that has been
+     imaged has the answer in it, and a predicted height painted over that
+     answer is the question drawn on top of it — no amount of fading fixes
+     that, because fading it to see the image also fades the thing being read.
+     So the fill stops at the fields nobody has been to yet, and an imaged
+     field carries the same colour on its edge instead. The colour still means
+     what it meant: the ramp is fitted across the whole sample either way. */
   if (showSurface && run.plan.length) {
     const [sx0, sy0] = toScreen(box.xMin, box.yMin);
     const sw = (box.xMax - box.xMin) * scale, sh = (box.yMax - box.yMin) * scale;
     paintSurface(surf, zLo, zHi, planBox());
     ctx.save();
     ctx.beginPath();
-    for (const t of run.plan) {
+    run.plan.forEach((t, i) => {
+      if (i < imaged) return;
       const [tx, ty] = toScreen(t.x - t.frameUm / 2, t.y - t.frameUm / 2);
       const sz = t.frameUm * scale;
       ctx.rect(tx, ty, sz, sz);
-    }
+    });
     ctx.clip();
     ctx.globalAlpha = 0.82;
     ctx.imageSmoothingEnabled = true;
@@ -243,14 +254,21 @@ function drawFocusLayer(ctx, toScreen, scale, w, h) {
   // ---- the positions, exactly as the software reports them
   /* The positions themselves, as the scan fields laid them out. This panel
      works on the list the run is going to drive, not on a grid of its own. */
-  for (const t of run.plan) {
+  run.plan.forEach((t, i) => {
     const [tx, ty] = toScreen(t.x - t.frameUm / 2, t.y - t.frameUm / 2);
     const sz = t.frameUm * scale;
-    ctx.strokeStyle = showSurface ? "rgba(255,255,255,0.30)" : css("--line-strong");
-    ctx.lineWidth = 1;
-    if (sz < 2) { ctx.fillStyle = ctx.strokeStyle; ctx.fillRect(tx, ty, 2, 2); continue; }
+    /* An imaged field says its predicted height on its own edge, where it
+       cannot cover what was taken there. Drawn heavier than the hairline that
+       merely outlines a field, because here the line is carrying a reading
+       rather than saying where a boundary is. */
+    const carriesTheReading = showSurface && i < imaged;
+    ctx.strokeStyle = carriesTheReading
+      ? zColor((surfaceZ(surf, t.x, t.y) - zLo) / (zHi - zLo || 1))
+      : (showSurface ? "rgba(255,255,255,0.30)" : css("--line-strong"));
+    ctx.lineWidth = carriesTheReading ? 2 : 1;
+    if (sz < 2) { ctx.fillStyle = ctx.strokeStyle; ctx.fillRect(tx, ty, 2, 2); return; }
     ctx.strokeRect(tx + 0.5, ty + 0.5, sz - 1, sz - 1);
-  }
+  });
 
   if (f.strategy === "auto") {
     ctx.fillStyle = css("--ink-3");
