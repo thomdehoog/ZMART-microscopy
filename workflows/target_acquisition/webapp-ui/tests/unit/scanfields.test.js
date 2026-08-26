@@ -500,17 +500,18 @@ describe("points over a plate of identical wells", () => {
   };
 
   it("does not put every point at the same spot in its own well", () => {
-    const spots = new Set(sharePoints(all, 6).map(whereInItsWell));
+    const spots = new Set(sharePoints(all, 6, { vary: true }).map(whereInItsWell));
     expect(spots.size, `every point at ${[...spots][0]} in its own well`).toBeGreaterThan(1);
   });
 
   it("still gives one to a well", () => {
-    const hit = new Set(sharePoints(all, 6).map((p) => wellOf(p).centre.x + "," + wellOf(p).centre.y));
+    const hit = new Set(sharePoints(all, 6, { vary: true })
+      .map((p) => wellOf(p).centre.x + "," + wellOf(p).centre.y));
     expect(hit.size).toBe(6);
   });
 
   it("keeps each of them on a frame", () => {
-    for (const p of sharePoints(all, 6)) {
+    for (const p of sharePoints(all, 6, { vary: true })) {
       expect(all.some((t) => Math.abs(t.x - p.x) <= F / 2 && Math.abs(t.y - p.y) <= F / 2)).toBe(true);
     }
   });
@@ -518,7 +519,7 @@ describe("points over a plate of identical wells", () => {
   /* A map that shuffled itself on a rerun would be a map of nothing: the step
      off the middle is taken from where the point stands, not from a clock. */
   it("gives the same answer every time it is asked", () => {
-    expect(sharePoints(all, 6)).toEqual(sharePoints(all, 6));
+    expect(sharePoints(all, 6, { vary: true })).toEqual(sharePoints(all, 6, { vary: true }));
   });
 });
 
@@ -547,7 +548,7 @@ describe("points over a plate with much more glass than sample", () => {
   const all = wells.flatMap((w) => w.tiles);
   const wellOf = (p) => wells.reduce((a, z) =>
     (Math.hypot(z.centre.x - p.x, z.centre.y - p.y) < Math.hypot(a.centre.x - p.x, a.centre.y - p.y) ? z : a));
-  const twelve = () => sharePoints(all, 12);
+  const twelve = () => sharePoints(all, 12, { vary: true });
 
   it("gives each of the twelve a well of its own", () => {
     const hit = twelve().map((p) => `${wellOf(p).r},${wellOf(p).c}`);
@@ -575,5 +576,55 @@ describe("points over a plate with much more glass than sample", () => {
       return `${Math.round(p.x - w.centre.x)},${Math.round(p.y - w.centre.y)}`;
     });
     expect(new Set(spots).size).toBeGreaterThan(1);
+  });
+});
+
+/* One filled tileset, and nothing to be confused with it.
+ *
+ * Letting points off the middle of their shares is for a plate laid out the
+ * same way in every well, where the settled answer is the same spot in each.
+ * A single tileset has no twin, and wandering there is not free: measured
+ * against the best arrangement of nine points over a five-by-five block, it
+ * left the worst-served ground 213 units from a measurement where the settled
+ * answer leaves it 124. So the plain call keeps what the settling found.
+ */
+describe("one tileset on its own", () => {
+  const F = 100, N = 5;
+  const block = [];
+  for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) {
+    block.push({ x: c * F, y: r * F, frameUm: F });
+  }
+  /* The ground the block covers, finely, to judge an arrangement by. */
+  const LO = -F / 2, HI = (N - 1) * F + F / 2;
+  const everywhere = [];
+  for (let i = 0; i <= 60; i++) for (let j = 0; j <= 60; j++) {
+    everywhere.push({ x: LO + (i / 60) * (HI - LO), y: LO + (j / 60) * (HI - LO) });
+  }
+  /* How far the worst-served piece of ground is from the nearest point: the
+     measure of an even spread, since it counts the gap to a border as well as
+     the gaps between points. */
+  const covering = (pts) => Math.max(...everywhere
+    .map((g) => Math.min(...pts.map((p) => Math.hypot(p.x - g.x, p.y - g.y)))));
+
+  it("spreads four as evenly as four can be spread", () => {
+    // the quarter points of the block, which is the best there is for four
+    expect(covering(sharePoints(block, 4))).toBeCloseTo(covering([
+      { x: LO + 0.25 * (HI - LO), y: LO + 0.25 * (HI - LO) },
+      { x: LO + 0.75 * (HI - LO), y: LO + 0.25 * (HI - LO) },
+      { x: LO + 0.25 * (HI - LO), y: LO + 0.75 * (HI - LO) },
+      { x: LO + 0.75 * (HI - LO), y: LO + 0.75 * (HI - LO) },
+    ]), 0);
+  });
+
+  it("is not made worse by the wandering meant for plates", () => {
+    expect(covering(sharePoints(block, 9)))
+      .toBeLessThan(covering(sharePoints(block, 9, { vary: true })));
+  });
+
+  it("leaves every corner as far from a point as every other", () => {
+    const four = sharePoints(block, 4);
+    const reach = [[LO, LO], [HI, LO], [LO, HI], [HI, HI]]
+      .map(([x, y]) => Math.min(...four.map((p) => Math.hypot(p.x - x, p.y - y))));
+    expect(Math.max(...reach) - Math.min(...reach)).toBeLessThan(1);
   });
 });

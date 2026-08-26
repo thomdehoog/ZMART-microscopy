@@ -300,7 +300,7 @@ function raster(min, max, frameUm, step, lo, hi) {
  * three owning one, leaving the top row of the block with nothing. A true fixed
  * point for nine dots, and the wrong answer for the sample they cover.
  */
-export function sharePoints(tiles, n) {
+export function sharePoints(tiles, n, { vary = false } = {}) {
   const want = Math.max(1, Math.round(n));
   if (!tiles.length) return [];
   // as many asked for as there are positions, or more: one on each, nothing
@@ -320,7 +320,8 @@ export function sharePoints(tiles, n) {
     .filter((rows) => rows >= 1 && rows <= want)
     .map((rows) => settle(ground, seedCells(ground, want, rows)));
   const best = tries.reduce((a, b) => (spreadCost(ground, b) < spreadCost(ground, a) ? b : a));
-  return looseInTheirShares(ground, tiles, best);
+  const seated = best.map((p) => (imagedAt(tiles, p) ? p : nearestPlace(ground, p)));
+  return vary ? looseInTheirShares(ground, tiles, seated) : seated;
 }
 
 
@@ -334,24 +335,26 @@ export function sharePoints(tiles, n) {
  * six times is not a map of the plate, and a sample has no reason to be flat in
  * exactly the spot the arithmetic picked.
  *
- * So each point is let off the middle by a step of its own. The step is taken
- * from where the point stands, so a tileset still gives the same map every time
- * it is laid — a map that shuffled itself on a rerun would be a map of nothing —
- * and it is scaled to the share, so a point with a well to itself moves further
- * than one packed in beside others. Then it is put back on the nearest ground
- * it can actually be imaged at, because a focus point off the covered ground is
- * not a measurement.
+ * So each point is let off the middle by a step of its own, taken from where it
+ * stands, so a tileset still gives the same map every time it is laid — a map
+ * that shuffled itself on a rerun would be a map of nothing.
+ *
+ * Only where there is a repetition to break, though. Wandering is not free: on
+ * a single filled tileset the settled answer is the evenly spread one, and
+ * measured against the best arrangement there is, letting nine points off it
+ * left the worst-served ground seventy per cent further from a measurement than
+ * it had to be. One tileset has no identical twin to be confused with, so it
+ * keeps the arrangement the arithmetic found. `vary` is the caller saying there
+ * is more than one.
  */
 function looseInTheirShares(ground, tiles, points) {
   const mine = points.map(() => []);
   for (const g of ground) mine[nearestOf(points, g.x, g.y)].push(g);
 
-  return points.map((p, i) => {
+  return points.map((seat, i) => {
     const share = mine[i].length ? mine[i] : ground;
-    /* Where the arithmetic seated it, on ground the run images. */
-    const seat = imagedAt(tiles, p) ? p : nearestPlace(share, p);
 
-    /* And how far it may wander from there: to the edge of the ground lying
+    /* How far it may wander from where it was seated: to the edge of the ground lying
        within one frame of the seat, and no further.
 
        Not to the edge of its share, which was the first answer and the wrong

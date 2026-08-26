@@ -26,9 +26,6 @@ import { isFailed } from "../../workflows/target_acquisition/microscope/connecti
 import { backend as pretendBackend } from "../../workflows/target_acquisition/microscope/mock.js";
 import { backend as liveBackend } from "../../workflows/target_acquisition/microscope/live.js";
 import { centres, DEFAULT_CARRIER, describeCarrier } from "../../workflows/target_acquisition/shared/carriers.js";
-/* Where focus points go inside a field: equal shares of it, measured at the
-   middle of each. The geometry lives with the rest of the plan's geometry. */
-import { sharePoints } from "../../workflows/target_acquisition/shared/scanfields.js";
 import {
   emptySlot, hasRecording, withRecording, withoutRecording, withActive,
   activeRecording, nextReadingIndex,
