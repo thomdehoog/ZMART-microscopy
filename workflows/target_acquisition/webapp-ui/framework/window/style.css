@@ -672,7 +672,7 @@ canvas.plot { display: block; width: 100%; height: 100%; touch-action: none; }
    The cursor answers what the next press will do instead, which only the scan
    fields editor knows — so while that step is standing here it sets the cursor
    itself and this is the resting state underneath. */
-canvas.stagecv { cursor: default; }
+.stagecv { cursor: default; }
 
 /* The acquired overview lies over the plan, in the same place and at the same
    size, because it is the same square of stage seen for real rather than a
@@ -696,7 +696,12 @@ canvas.stagecv { cursor: default; }
    The plan's own surface is cleared to nothing and its background is painted
    by the bottom layer of its stack, so turning that layer off, or cutting a
    window through it, is what lets this show. */
-canvas.stagecv { position: absolute; inset: 0; z-index: 1; }
+/* The picture the run is drawn on. A plain box rather than a canvas of its
+   own: the drawing engine builds whatever surfaces it needs inside it, and the
+   workflow's layers are drawn over them. Above the scan, which sits at z-index
+   0, because the plan is drawn over what has been imaged rather than under it. */
+.stagecv { position: absolute; inset: 0; z-index: 1; }
+.stagecv > canvas { display: block; width: 100%; height: 100%; touch-action: none; }
 canvas.livecv { position: absolute; inset: 0; z-index: 0; background: #05070d; }
 
 /* The scan, drawn by whichever engine is chosen, at the very bottom. The engine

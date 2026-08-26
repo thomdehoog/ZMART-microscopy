@@ -1284,7 +1284,8 @@ let stageWatch = null;
      workflow's, so it lives with the workflow; the framework hands it the canvas,
      the run, and the few things it must be able to call back into. */
   const stage = openTheStage({
-    canvas: theCanvas.parts.canvas,
+    box: theCanvas.parts.box,
+    layerBar: theCanvas.parts.layerBar,
     tip: theCanvas.parts.tip,
     readout: theCanvas.parts.readout,
     fitButton: theCanvas.parts.fit,
