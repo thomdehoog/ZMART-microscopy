@@ -105,9 +105,16 @@ confirmed=None`, message says why.
 
 `derived.z_um_from_settings` / `zwide_um_from_settings` and the README
 describe `zPosition` as the job's stored z reference that tracks the drive
-only while the drive carries no stack. `Z_USE_MODES` gets one owner
-(`readers/z_readback.LRP_Z_USE_MODES` vs `experimental/lrp_edits/z.py`
-— merge, do not keep both in step).
+only while the drive carries no stack.
+
+**A bug found on the way, in `experimental/lrp_edits/z.py`:** its
+`Z_USE_MODES = {0: "z-wide", 1: "z-galvo"}` is wrong for this LAS X. Two
+experiments saved from the simulator (2026-08-26, now fixtures under
+`tests/data/z_readback/`) show `ZUseMode` **1 = z-galvo, 2 = z-wide**, and
+the LCS log agrees (`SetZPosition ZUseMode=1|2`). `lrp_set_z_use_mode("z-wide")`
+would write 0. The reader does not use the number at all: every setting
+definition also carries `ZUseModeName` with the drive's own name, and that
+is what `z_um_from_lrp` checks. The editor should do the same, or use 2.
 
 ### 5. The live validator's Z phase cannot pass by doing nothing
 

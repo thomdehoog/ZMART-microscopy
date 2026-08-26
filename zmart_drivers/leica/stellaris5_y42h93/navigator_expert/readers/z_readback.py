@@ -53,12 +53,6 @@ log = logging.getLogger(__name__)
 
 Z_DRIVES = ("z-galvo", "z-wide")
 
-# The ``.lrp`` names the drive a job's ZPosition belongs to by number, on the
-# ``ZUseMode`` attribute of the setting definition. Same table the LRP
-# editors use (``experimental/lrp_edits/z.py``); repeated here rather than
-# imported so a core reader does not depend on the experimental package.
-LRP_Z_USE_MODES = {"0": "z-wide", "1": "z-galvo"}
-
 
 @dataclass(frozen=True)
 class ZReading:
@@ -109,8 +103,11 @@ def z_um_from_lrp(lrp_data, job_name: str, drive: str) -> float:
     """*job_name*'s Master ``ZPosition`` from parsed ``.lrp`` data, in µm.
 
     The file holds one ``ZPosition`` per setting definition, for the drive
-    its ``ZUseMode`` names. Asking for the other drive is refused rather than
-    answered with the wrong axis under the right label.
+    the definition names in ``ZUseModeName`` — LAS X's own spelling,
+    ``"z-galvo"`` or ``"z-wide"``, beside the numeric ``ZUseMode`` (1 and 2
+    on this LAS X; not a table worth keeping when the name is there).
+    Asking for the other drive is refused rather than answered with the
+    wrong axis under the right label.
     """
     _check_drive(drive)
     job = lrp_data["jobs"].get(job_name)
@@ -119,7 +116,7 @@ def z_um_from_lrp(lrp_data, job_name: str, drive: str) -> float:
             f"No such job {job_name!r} in the saved experiment; it has {list(lrp_data['jobs'])}"
         )
     attrs = job.get("Master", {}).get("attrs", {})
-    file_drive = LRP_Z_USE_MODES.get(attrs.get("ZUseMode"))
+    file_drive = attrs.get("ZUseModeName")
     if file_drive != drive:
         raise RuntimeError(
             f"The saved experiment holds {job_name!r}'s ZPosition for "
