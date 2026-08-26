@@ -417,7 +417,7 @@ export default {
             : "");
         /* Drive the microscope to this place, then say so here: the point on
            the drawing and the place on the stage become one statement. */
-        const snap = el("button", "sf-flat anchor-snap", a.stage ? "Snap again" : "Snap to stage");
+        const snap = el("button", "sf-flat anchor-snap", a.stage ? "Snap again" : "Snap to stage position");
         snap.type = "button";
         snap.addEventListener("click", () => anchors.snap(i));
         pick.append(snap);
