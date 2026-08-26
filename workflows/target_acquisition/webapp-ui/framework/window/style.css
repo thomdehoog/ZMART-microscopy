@@ -54,9 +54,11 @@
      ink next to it is amber-800, which against green and the red stage mark
      reads as a third red rather than as the other half of a pair. */
   --mark-anchor-waiting: #a16207;
-  /* the three sharpness metrics, as three series on one plot */
+  /* The two sharpness metrics, as two series on one plot. Blue for the
+     gradient and green for the other, so the pair can be told apart at a
+     glance and by name — the gradient is the blue line. */
   --m-brenner: #0369a1;
-  --m-dct: #7c3aed;
+  --m-dct: #15803d;
   --shadow: 0 1px 2px rgba(15, 23, 42, 0.05), 0 12px 32px rgba(15, 23, 42, 0.07);
   --mono: ui-monospace, "Cascadia Mono", "Segoe UI Mono", Consolas, monospace;
   --sans: system-ui, -apple-system, "Segoe UI", sans-serif;
@@ -550,6 +552,16 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
 .fp-run .focus-action button.run { width: 100%; padding: 0 6px; white-space: nowrap; }
 /* And the way back out keeps the width of the press it undoes. */
 .fp-run #fp-clear { grid-column: 2; height: var(--control); padding: 0 12px; }
+
+/* What can be done to a map that has been run: three presses of one width,
+   because none of them is the main one — the main one is above, and this row
+   is what to do about what it produced. */
+.fp-again {
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px; align-items: center; margin-top: 8px;
+}
+.fp-again[hidden] { display: none; }
+.fp-again .sf-flat { height: var(--control); padding: 0 8px; }
 
 .side-head {
   font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;

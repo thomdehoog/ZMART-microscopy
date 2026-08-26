@@ -107,16 +107,36 @@ export const backend = {
     await wait(200);
     const measured = points.map((p, index) => {
       const focusZ = focusZAt(p.x, p.y, extent);
+      /* Where this search begins. The objective is driven there and swept about
+         it, so running the map again from wherever the stage is standing is a
+         different act from refining it against what the map already says: the
+         second starts every search a micrometre or two from the tissue and the
+         first has no idea. Said nothing, the objective arrives near the tissue
+         by luck, which is the best a first run can claim. */
+      const startZ = Number.isFinite(p.startZ) ? p.startZ : undefined;
       const traces = Object.fromEntries(METRIC_KEYS.map((key) => {
-        const sw = sweep({ focusZ, index, metric: key });
+        const sw = sweep({ focusZ, index, metric: key, startZ });
         return [key, { samples: sw.samples, candidates: sw.candidates }];
       }));
       const chosen = pickPeak(traces[metric].candidates);
+      /* What the point carried in is not what it carries out: `startZ` was an
+         instruction for this run, and saying it back would have the next one
+         begin where this one did. */
+      const { startZ: began, ...was } = p;
+      /* The objective swept its whole range and nothing rose: it never reached
+         the tissue. The point has no height to report, and says so rather than
+         reporting the height it happened to stop at — a made-up reading is
+         worse than a missing one, because the surface would believe it. */
+      if (!chosen) {
+        return { ...was, zAuto: null, onNarrow: false, z: null, lost: true, focusZ,
+          speck: debrisAt(index), traces };
+      }
       return {
-        ...p,
+        ...was,
         zAuto: chosen.z,
         onNarrow: chosen.narrow,
         z: p.manual ? p.z : chosen.z,
+        lost: false,
         focusZ,
         speck: debrisAt(index),
         traces,

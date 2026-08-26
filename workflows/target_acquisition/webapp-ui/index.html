@@ -104,6 +104,30 @@
               <div class="focus-action"></div>
               <button type="button" class="sf-flat" id="fp-clear">Clear focus points</button>
             </div>
+
+            <!-- What can be done to a map that has already been run, and not
+                 there before one has: every press here is about a map that
+                 exists, and three greyed buttons under the press that makes one
+                 say nothing the greyed press has not already said.
+
+                 Rerun and Refine differ only in where each search begins — at
+                 the height the objective is standing at now, or at what the map
+                 already predicts for that point — which is the whole of what an
+                 operator is choosing between. -->
+            <div class="fp-again" id="fp-again" hidden>
+              <button type="button" class="sf-flat sf-doing" id="fp-rerun"
+                      title="Measure every point again, each search starting from the height the objective is at now">
+                Rerun
+              </button>
+              <button type="button" class="sf-flat sf-doing" id="fp-refine"
+                      title="Measure every point again, each search starting from the height this map predicts there">
+                Refine
+              </button>
+              <button type="button" class="sf-flat" id="fp-reset"
+                      title="Throw the map away, and the points it was measured from with it">
+                Reset
+              </button>
+            </div>
           </div>
         </div>
 

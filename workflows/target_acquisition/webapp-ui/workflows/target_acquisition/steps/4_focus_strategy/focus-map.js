@@ -666,6 +666,13 @@ function renderFocusBar() {
   el("fp-place").disabled = frozen || !run.plan.length;
   el("fp-place-all").disabled = frozen || !run.plan.length;
   el("fp-clear").disabled = frozen || !f.points.length;
+  /* Only once there is a map to act on. Rerun and Refine both measure points
+     that are already down; Reset throws away what a run produced. */
+  const ran = f.strategy === "plane" && f.applied && f.points.length > 0;
+  el("fp-again").hidden = !ran;
+  for (const id of ["fp-rerun", "fp-refine", "fp-reset"]) {
+    el(id).disabled = !ran || !!run.running;
+  }
   /* The traces are what the run came back with, so the box that reads them
      is not there until it has. What the map came to is in the rows: a height
      for every point and how far each sits from the surface. */
@@ -1154,13 +1161,86 @@ el("fp-clear").addEventListener("click", () => {
   stage.draw(); renderPointList(); drawTrace(); renderActionBar();
 });
 
+/* Measuring an existing map again. Both presses re-run every point that is
+   down; they differ only in where each search begins, which is what `from`
+   carries into the backend.
+
+   The map is put away while the objective is out, because what is on screen
+   during the run is the old answer and the picture would go on drawing a
+   surface the run is in the middle of replacing. */
+const runAgain = async (from, button) => {
+  const f = run.focus;
+  if (run.running || !f.applied || !f.points.length) return;
+  run.running = true;
+  button.classList.add("on");
+  renderFocusBar(); renderActionBar();
+  try {
+    await remeasure({ from });
+  } finally {
+    run.running = false;
+    button.classList.remove("on");
+  }
+  f.selected = Math.max(0, Math.min(f.selected, f.points.length - 1));
+  stage.draw(); renderPointList(); drawTrace(); renderFocusBar(); renderActionBar(); renderSide();
+};
+el("fp-rerun").addEventListener("click", (e) => runAgain("stage", e.currentTarget));
+el("fp-refine").addEventListener("click", (e) => runAgain("map", e.currentTarget));
+
+/* Everything the step has to show for itself, thrown away together: the map,
+   the points it was fitted through, and the fact that it was ever run. What is
+   left is the step as it stood before anybody pressed anything, which is what
+   an operator wants when the answer is wrong in a way no rerun will mend. */
+el("fp-reset").addEventListener("click", () => {
+  if (run.running) return;
+  const f = run.focus;
+  f.points = [];
+  f.surface = null;
+  f.residual = 0;
+  f.worst = -1;
+  f.selected = 0;
+  f.applied = false;
+  picked().clear();
+  /* The step is not done any more either — it has nothing to have finished. */
+  run.done.delete(step(run.activeIdx).id);
+  stage.draw(); renderPointList(); drawTrace(); renderFocusBar(); renderActionBar(); renderSide();
+});
+
 /* Measure every placed point with the current metric, then fit the plane.
    The backend drives to each point and focuses there; what comes back is
    the height, the traces the chart draws, and the speck the preview shows.
    A height the operator dragged by hand survives a change of metric. */
-async function remeasure() {
+/**
+ * Measure every placed point, and say where each search should begin.
+ *
+ * `from` is the difference between the three presses:
+ *
+ *   - nothing, for the first run: the objective arrives near the tissue by
+ *     luck, which is all a run with nothing behind it can claim.
+ *   - `"stage"`, for running it again: every search starts from the height the
+ *     objective is standing at now. That is what an operator has after focusing
+ *     by eye somewhere on the plate — one good height, and a map to rebuild
+ *     around it.
+ *   - `"map"`, for refining: every search starts from what the map already
+ *     predicts at that point, so each begins a micrometre or two from the
+ *     tissue instead of somewhere near the middle of the plate.
+ *
+ * A search that sweeps its whole range without reaching the tissue comes back
+ * with no height, which is why refining from a map that is already close finds
+ * points a rerun from one height cannot.
+ */
+async function remeasure({ from = null } = {}) {
   const f = run.focus;
-  const { points } = await backend.measureFocus(f.points, {
+  const stageZ = () => stage.whereTheStageIs().z;
+  const beginsAt = (p) => {
+    if (from === "stage") return stageZ();
+    if (from === "map") return f.surface ? surfaceZ(f.surface, p.x, p.y) : stageZ();
+    return undefined;
+  };
+  const asked = f.points.map((p) => {
+    const startZ = beginsAt(p);
+    return Number.isFinite(startZ) ? { ...p, startZ } : p;
+  });
+  const { points } = await backend.measureFocus(asked, {
     metric: f.metric,
     extent: carrierSpan(),
   });
@@ -1170,13 +1250,30 @@ async function remeasure() {
 
 function refitSurface() {
   const f = run.focus;
-  f.surface = fitSurface(f.points);
-  const errs = residualsUm(f.surface, f.points);
-  f.points.forEach((p, i) => { p.residual = errs[i]; });
+  /* Only the points that came back with a height. A search that swept its
+     whole range without ever reaching the tissue has nothing to say about
+     where the surface is, and letting it say the height it stopped at would
+     tilt the whole map towards a place nobody measured. */
+  const found = f.points.filter((p) => Number.isFinite(p.z));
+  f.surface = found.length ? fitSurface(found) : null;
+  if (!f.surface) {
+    f.points.forEach((p) => { p.residual = null; });
+    f.residual = 0;
+    f.worst = -1;
+    return;
+  }
+  const errs = residualsUm(f.surface, found);
+  found.forEach((p, i) => { p.residual = errs[i]; });
+  f.points.forEach((p) => { if (!Number.isFinite(p.z)) p.residual = null; });
   f.residual = Math.sqrt(errs.reduce((a, e) => a + e * e, 0) / Math.max(1, errs.length));
+  /* The worst is an index into the points as the list draws them, not into the
+     ones that were found — the list is what an operator presses. */
   let worst = -1;
-  errs.forEach((e, i) => { if (worst < 0 || Math.abs(e) > Math.abs(errs[worst])) worst = i; });
-  f.worst = errs.length ? worst : -1;
+  f.points.forEach((p, i) => {
+    if (!Number.isFinite(p.residual)) return;
+    if (worst < 0 || Math.abs(p.residual) > Math.abs(f.points[worst].residual)) worst = i;
+  });
+  f.worst = worst;
 }
 
   /* What the picture and the page may ask of the focus map. The gestures are
