@@ -80,18 +80,17 @@
                   <input type="number" id="fp-count" min="1" max="99" step="1"
                          aria-label="how many focus points in each"
                          title="How many focus points to lay in each">
-                  <!-- Two ways to share them out, because a plate is two kinds
-                       of thing at once. A tileset is what somebody drew; an
-                       area is the well or chamber it was drawn in, and several
-                       tilesets can stand in one. Points per tileset measure
-                       every drawn thing; points per area measure the ground the
-                       carrier holds, which is what a grid laid over a plate is
-                       already doing. -->
+                  <!-- Two ways to share them out. In each tileset measures
+                       every drawn thing in its own right; across the carrier
+                       lays one set over everything there is, which is the
+                       answer for a sample that sits flat — the height across a
+                       slide is one surface, and measuring it once beats
+                       measuring it again in every tileset standing on it. -->
                   <button type="button" class="sf-flat sf-doing" id="fp-place">
                     In each tileset
                   </button>
-                  <button type="button" class="sf-flat sf-doing" id="fp-place-area">
-                    In each area
+                  <button type="button" class="sf-flat sf-doing" id="fp-place-all">
+                    Across the carrier
                   </button>
                 </div>
               </div>

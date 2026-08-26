@@ -26,10 +26,7 @@ import {
   affineSurface, fitSurface, residualsUm, surfaceZ,
 } from "../../microscope/pretend-sample/surface.js";
 import { sharePoints } from "../../shared/scanfields.js";
-import { nearestArea } from "../../shared/carriers.js";
 
-/* Positions are in micrometres and a carrier is described in millimetres. */
-const MM_UM = 1000;
 
 /**
  * Open the focus map on the page.
@@ -131,24 +128,6 @@ const inScanOrder = (tiles) => [...tiles].sort((a, b) => (a.y - b.y) || (a.x - b
    area are that area's — because counting per field would be counting per
    frame, and a point asked for per tileset would land in every frame of the
    plate. */
-/* Or by the area of the carrier the positions stand in — the well or chamber,
-   whichever tilesets they came from. Several drawn tilesets can share one well,
-   and a set of points that measures each of them separately measures the same
-   piece of glass several times over; a set that measures the well answers the
-   question a well asks. A grid laid over a plate already lays one tileset per
-   area, so for grid positions the two groupings agree, which is the point:
-   drawing by hand should be able to ask for the same answer. */
-function tilesByArea() {
-  const byArea = new Map();
-  for (const t of run.plan) {
-    const a = nearestArea(run.carrier, t.x / MM_UM, t.y / MM_UM);
-    const key = `${a.row}.${a.col}`;
-    if (!byArea.has(key)) byArea.set(key, []);
-    byArea.get(key).push(t);
-  }
-  return [...byArea.values()].map(inScanOrder);
-}
-
 function tilesByField() {
   const byTileset = new Map();
   for (const t of run.plan) {
@@ -162,17 +141,23 @@ function tilesByField() {
 const perField = (f) => Math.max(1, Math.round(f.perField) || 1);
 
 /**
- * A set of points, so many to each group of positions.
+ * A set of points, shared out over the positions the run will visit.
  *
- * `over` says what a group is: the tileset somebody drew, or the area of the
- * carrier it was drawn in. Everything else is the same either way — the ground
- * a group covers is shared out by `sharePoints`, which settles the points
- * against the sample rather than against the frames that will image it.
+ * `over` says what they are shared out over: each tileset separately, so that
+ * every drawn thing is measured in its own right; or the carrier as a whole,
+ * one set of them over everything there is. The second is the answer for a
+ * sample that sits flat — the height across a slide is one surface, and
+ * measuring it once is cheaper than measuring it in every tileset that happens
+ * to be on it.
+ *
+ * Either way the ground is shared out by `sharePoints`, which settles the
+ * points against the sample rather than against the frames that will image it,
+ * and leaves each of them inside a frame.
  */
 function patternFocusPoints(over = "tileset") {
   if (!run.plan.length) return [];
   const n = perField(run.focus);
-  const groups = over === "area" ? tilesByArea() : tilesByField();
+  const groups = over === "carrier" ? [inScanOrder(run.plan)] : tilesByField();
   return groups
     .flatMap((held) => sharePoints(held, n))
     .map((t) => ({ x: t.x, y: t.y, z: null }));
@@ -664,7 +649,7 @@ function renderFocusBar() {
   count.disabled = frozen;
 
   el("fp-place").disabled = frozen || !run.plan.length;
-  el("fp-place-area").disabled = frozen || !run.plan.length;
+  el("fp-place-all").disabled = frozen || !run.plan.length;
   el("fp-clear").disabled = frozen || !f.points.length;
   /* The traces are what the run came back with, so the box that reads them
      is not there until it has. What the map came to is in the rows: a height
@@ -1125,7 +1110,7 @@ const layPoints = (over) => {
   stage.draw(); renderPointList(); drawTrace(); renderActionBar();
 };
 el("fp-place").addEventListener("click", () => layPoints("tileset"));
-el("fp-place-area").addEventListener("click", () => layPoints("area"));
+el("fp-place-all").addEventListener("click", () => layPoints("carrier"));
 /* Delete takes away whichever point is chosen — the one the canvas is
    drawing heavier and the list has highlighted. The same key does the same
    thing to a scan field one step earlier, and a map is edited the way a plan
