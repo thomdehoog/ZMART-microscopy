@@ -4,7 +4,8 @@ import { blockedBecause, isReachable, panelsFor } from "../rules/steps.js";
 import { theDrawingAbove, whoIsAt } from "../../workflows/target_acquisition/shared/canvas/layers-above.js";
 import { assembleWorkflows } from "../rules/finding-workflows.js";
 import {
-  MICROSCOPES, DEFAULT_SESSION, describeSession, STAGE_LIMITS_MM,
+  MICROSCOPES, DEFAULT_SESSION, apisFor, defaultApiFor,
+  describeSession, STAGE_LIMITS_MM,
 } from "../../workflows/target_acquisition/microscope/microscopes.js";
 /* The seam. Connecting, reading a preset off the instrument, measuring the
    focus map and driving the overview scan all go through the backend and are
@@ -643,6 +644,24 @@ let backend = null;
       scopeSel.disabled = locked;
       scopeSel.addEventListener("change", () => {
         state.session.microscope = scopeSel.value;
+        state.session.api = defaultApiFor(scopeSel.value);
+        renderSetup(); renderActionBar();
+      });
+
+      const api = document.createElement("label");
+      api.className = "field";
+      api.innerHTML = "<span>API</span><select></select>";
+      const apiSel = api.querySelector("select");
+      for (const [key, a] of apisFor(state.session.microscope)) {
+        const o = document.createElement("option");
+        o.value = key;
+        o.textContent = `${a.label} · ${a.detail}`;
+        apiSel.append(o);
+      }
+      apiSel.value = state.session.api;
+      apiSel.disabled = locked;
+      apiSel.addEventListener("change", () => {
+        state.session.api = apiSel.value;
         renderSetup(); renderActionBar();
       });
 
@@ -662,7 +681,7 @@ let backend = null;
         if (connectHint) connectHint.hidden = ready;
       });
 
-      form.append(scope, pw);
+      form.append(scope, api, pw);
       card.append(form);
     }
 
