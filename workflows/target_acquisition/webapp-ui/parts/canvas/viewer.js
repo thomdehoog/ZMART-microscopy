@@ -993,6 +993,7 @@ export function putTheCanvasIn({
       layer.shown = on;
       if (on) turnedOff.delete(key);
       else turnedOff.add(key);
+      letTheChromeFollow();
       handTheSlotsTheirDrawings();
     }
     markTheButtons();
@@ -1044,6 +1045,24 @@ export function putTheCanvasIn({
      an operator is in the middle of. */
   let theRowSays = "";
 
+  /**
+   * A layer that is chrome for another goes with it.
+   *
+   * The handles of a shape are not a thing in their own right. Hide what they
+   * are handles *for* and leaving them on screen says that thing is still
+   * there when it is not. They get no button of their own either, for the same
+   * reason: there is nothing to switch that the thing itself does not switch.
+   *
+   * Applied wherever what is shown changes — a stack handed in again, and a
+   * button pressed — because either can be the moment the thing goes away.
+   */
+  function letTheChromeFollow() {
+    const shownOf = new Map(stackAbove.map((one) => [one.key, one.shown]));
+    for (const layer of stackAbove) {
+      if (layer.follows) layer.shown = layer.shown && shownOf.get(layer.follows) !== false;
+    }
+  }
+
   function buildTheLayerButtons() {
     const wouldSay = [
       ...Object.keys(showing).map((k) => `${k}:${showing[k]}`),
@@ -1072,13 +1091,20 @@ export function putTheCanvasIn({
       layers.append(button);
     };
 
-    for (const slot of THE_FIXED_SLOTS) {
-      addButton(slot.key, slot.label, slot.explains, showing[slot.key]);
+    /* The two slots the picture itself fills. A canvas that was given no run
+       has neither, and offering to switch them would be two buttons that do
+       nothing — which teaches an operator that the page is broken. */
+    if (acquisitions.length) {
+      for (const slot of THE_FIXED_SLOTS) {
+        addButton(slot.key, slot.label, slot.explains, showing[slot.key]);
+      }
     }
     for (const layer of stackAbove) {
       // Nothing to draw, nothing to switch. A button that does nothing teaches
       // an operator that the page is broken.
       if (layer.has === false) continue;
+      // Chrome for another layer is switched by switching that one.
+      if (layer.follows) continue;
       addButton(
         layer.key,
         layer.label ?? layer.key,
@@ -1223,6 +1249,7 @@ export function putTheCanvasIn({
           shown: before.has(layer.key) ? before.get(layer.key) : (layer.shown ?? false),
         };
       });
+      letTheChromeFollow();
       buildTheLayerButtons();
       theStackAboveChanged();
     },
