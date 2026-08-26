@@ -739,10 +739,14 @@ let stageWatch = null;
     return !!state.running || steps().slice(i + 1).some((s) => state.done.has(s.id));
   };
 
-  const carrierLocked = () => {
-    const i = indexOfStep("carrier");
-    return !!state.running || steps().slice(i + 1).some((s) => state.done.has(s.id));
-  };
+  /* Only while the stage is actually moving. Finishing a later step used to
+     freeze the carrier as well, on the argument that what came after was
+     measured against it — but going back to say the plate is a different plate
+     is a thing operators do, and the answer to it is that the alignment goes
+     and the picture is drawn again, both of which already happen. A step
+     standing there greyed said "no" to a question that has a perfectly good
+     answer. */
+  const carrierLocked = () => !!state.running;
 
   /* The channel belongs to the step standing in it.
 
