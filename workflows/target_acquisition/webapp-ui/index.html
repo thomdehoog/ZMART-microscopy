@@ -73,14 +73,25 @@
               <div class="fp-way">
                 <div class="side-sub">Automatically</div>
                 <div class="fp-lay">
-                  <!-- Just the number: points are always laid so many to a
-                       tileset, and saying so on every screen is a rule being
-                       restated rather than a control being explained. -->
+                  <!-- Just the number: it is how many go in each of whatever
+                       the press beside it shares them out over, and saying so
+                       on every screen is a rule being restated rather than a
+                       control being explained. -->
                   <input type="number" id="fp-count" min="1" max="99" step="1"
-                         aria-label="how many focus points in each tileset"
-                         title="How many focus points to lay in each tileset">
+                         aria-label="how many focus points in each"
+                         title="How many focus points to lay in each">
+                  <!-- Two ways to share them out, because a plate is two kinds
+                       of thing at once. A tileset is what somebody drew; an
+                       area is the well or chamber it was drawn in, and several
+                       tilesets can stand in one. Points per tileset measure
+                       every drawn thing; points per area measure the ground the
+                       carrier holds, which is what a grid laid over a plate is
+                       already doing. -->
                   <button type="button" class="sf-flat sf-doing" id="fp-place">
-                    Place focus points
+                    In each tileset
+                  </button>
+                  <button type="button" class="sf-flat sf-doing" id="fp-place-area">
+                    In each area
                   </button>
                 </div>
               </div>

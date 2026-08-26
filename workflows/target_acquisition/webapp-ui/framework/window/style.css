@@ -506,14 +506,21 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
    one size read as one column of controls — wide enough for the longest of
    their words, which is the press. */
 .fp-way .sf-tool { flex: none; width: var(--fp-col); height: var(--control); }
-/* How many, and the press that lays them. The number is the width of the hand's
-   button above it — the two are the same kind of thing, one to a way. */
+/* How many, and the two presses that lay them. The number is the width of the
+   hand's button above it — the two are the same kind of thing, one to a way —
+   and it stands against both presses, because it is how many go in each of
+   whichever grouping is pressed rather than a setting belonging to one. */
 .fp-lay {
   /* wide enough for two digits and the stepper the browser puts beside them,
      which is as many as the number ever needs */
   display: grid; grid-template-columns: var(--fp-col) minmax(0, 1fr);
-  gap: 8px; height: var(--control);
+  grid-template-rows: repeat(2, var(--control)); gap: 8px;
 }
+/* Written out rather than left to flow: the number stands against both presses
+   and each press keeps to the second column. An implicit grid put the second
+   press under the number, which read as a third way of laying points. */
+.fp-lay input { grid-column: 1; grid-row: 1 / 3; }
+.fp-lay .sf-flat { grid-column: 2; }
 .fp-lay input {
   /* read from the left, like every other number in the channel */
   width: 100%; height: 100%; text-align: left; padding: 0 8px;
