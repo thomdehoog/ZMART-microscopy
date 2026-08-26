@@ -27,9 +27,9 @@ them out of register with another.
 the workflow hands it, and each can be turned off on its own. Turning the tiles
 out of the way is not a request to lose the focus points with them.
 
-**It says how transparency is used.** One dial fades the whole stack, because
-"let me see what is underneath" is one thought and should be one movement rather
-than a visit to every layer in turn. A layer may declare itself solid and the
+**It says how transparency is used.** Each layer carries its own opacity, and one dial fades
+the whole stack on top of that — because "let me see what is underneath" is one
+thought and should be one movement rather than a visit to every layer in turn. A layer may declare itself solid and the
 dial will not reach it: the crosshair where the stage is standing, the handles
 of a shape being drawn, the scale bar. What those have in common is that a
 half-visible one is worse than none — you cannot edit what you cannot see, and a
@@ -51,11 +51,13 @@ The vocabulary is `viewer.js`'s, because that is the canvas being converged on.
 Inventing a second set of names for the same fields would be a third canvas.
 
     {
-      key:        "plan",            // its name in the stack
-      label:      "Plan",            // what the chip says
-      explains:   "…",               // what the chip's tooltip says
-      staysSolid: false,             // true = the fade dial does not reach it
-      paint:      ({ context, project, zoom }) => …,
+      key:        "plan",     // its name in the stack, and what a test reads back
+      label:      "Plan",     // the word on its chip
+      explains:   "…",        // one sentence, shown on resting the pointer there
+      shown:      true,       // does it start on
+      opacity:    1,          // its own fade, its own and nobody else's
+      staysSolid: false,      // true = the dial does not reach it
+      paint:      (frame) => …,                 // how it draws
       reaches:    (at) => …,                    // is this point mine? optional
       claims:     { down, move, up, cursor },   // is this gesture mine? optional
     }
@@ -64,6 +66,17 @@ Inventing a second set of names for the same fields would be a third canvas.
 because a number is an opinion about layers it cannot see; the workflow hands
 the canvas a list and the list is the answer. Bottom first, so the last one in
 is the one on top.
+
+**With one exception, and it is a trap.** The stack is drawn in two passes: the
+faded layers in list order, then the solid ones in list order on top of them. So
+a layer that says `staysSolid` is a layer drawn *last* — it cannot also be a
+layer drawn early. Anything that must sit low in the picture must accept the
+dial, and anything exempt from the dial floats to the top. Where those two wants
+meet in one subject, that subject is two layers.
+
+**The operator's on/off survives the list being handed in again.** A step adding
+its layer does not put back a layer somebody turned off, which is what lets
+steps contribute freely as a run goes.
 
 **Whether a layer has anything to draw, and whether it reaches the screen, are
 two questions and must not be run together.** The first is whether the run has
