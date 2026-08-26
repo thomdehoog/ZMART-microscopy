@@ -89,6 +89,28 @@ def _layer_marks(page) -> list:
     }""")
 
 
+def _chunks_held(page) -> dict:
+    """What the engine needs on screen against what it still has.
+
+    Review finding C4, open since the patch was written, asks whether a
+    resident chunk can be freed while a refresh downloads into it. If it can,
+    a whole-source refresh drains the picture chunk by chunk and ``available``
+    falls away from ``needed`` while nothing is wrong with the bytes. This is
+    the reading that answers it.
+    """
+    return page.evaluate("""() => {
+      let needed = 0, available = 0;
+      for (const managed of (window.zmartViewer?.layerManager?.managedLayers || [])) {
+        for (const rl of (managed.layer && managed.layer.renderLayers) || []) {
+          const p = rl.layerChunkProgressInfo;
+          if (p) { needed += p.numVisibleChunksNeeded;
+                   available += p.numVisibleChunksAvailable; }
+        }
+      }
+      return {needed, available};
+    }""")
+
+
 def ring_of(row: int, column: int, across: int) -> int:
     """Which ring of the spiral a cell belongs to, centre being ring zero.
 
@@ -388,6 +410,26 @@ def test_the_spiral_growth_is_visible(browser, built_dist, tmp_path):
             "spiral's outward growth could not be read from photographs"
         )
 
+        # What the server actually hands back for image pieces. If stale
+        # pixels keep drawing until fresh bytes replace them -- which the
+        # patched pump promises -- then a picture that empties means the
+        # fresh bytes were empty. So count them.
+        answers = {"empty": 0, "full": 0, "refused": 0}
+
+        def _heard(response):
+            if "/data/" not in response.url:
+                return
+            if response.status >= 400:
+                answers["refused"] += 1
+                return
+            try:
+                size = len(response.body())
+            except Exception:
+                return
+            answers["empty" if size == 0 else "full"] += 1
+
+        page.on("response", _heard)
+
         story = [dict(opening, ring="seeded")]
         high_water = opening["fraction"]
         never_regressed = True
@@ -395,6 +437,9 @@ def test_the_spiral_growth_is_visible(browser, built_dist, tmp_path):
         darkest = 1.0
         marks_before = _layer_marks(page)
         marks_at_the_fall = None
+        answers_at_the_fall = None
+        held_before = _chunks_held(page)
+        held_at_the_fall = None
         rings = sorted({ring_of(*cell, ACROSS) for cell in landing})
         for ring in rings:
             # No pacing on purpose: outside a deliberate burst test, the
@@ -422,6 +467,8 @@ def test_the_spiral_growth_is_visible(browser, built_dist, tmp_path):
                     darkest = min(darkest, seen["fraction"])
                     if marks_at_the_fall is None:
                         marks_at_the_fall = _layer_marks(page)
+                        answers_at_the_fall = dict(answers)
+                        held_at_the_fall = _chunks_held(page)
                 high_water = max(high_water, seen["fraction"])
                 if (seen["fraction"] >= story[-1]["fraction"] + 0.005
                         and seen["area"] >= story[-1]["area"]):
@@ -445,7 +492,9 @@ def test_the_spiral_growth_is_visible(browser, built_dist, tmp_path):
             + ("THE SAME OBJECTS (so the chunks went, not the layer): "
                if kept else "REPLACED (a landing rebuilt a layer, which "
                "8713483c forbids): ")
-            + f"{marks_before} -> {marks_at_the_fall} -- ground "
+            + f"{marks_before} -> {marks_at_the_fall}; pieces answered by then "
+            + f"{answers_at_the_fall}; chunks held {held_before} -> "
+            + f"{held_at_the_fall} -- ground "
             "already on screen went dark during growth, which is exactly "
             "the flicker the invalidation must not show"
         )
