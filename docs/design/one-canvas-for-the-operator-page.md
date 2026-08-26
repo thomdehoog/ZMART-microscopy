@@ -51,8 +51,10 @@ go. `stage.js` stops being a viewer and becomes the run's layers.
 
 That deletes the duplicate view, the duplicate stack, the duplicate chip bar
 and the duplicate fade dial — and it turns on the layer controls, which on the
-operator page have never appeared at all: `renderStageLayerControls` writes
-into `#stage-layers`, and no markup has ever created that element.
+operator page have never once appeared: `renderStageLayerControls` wrote into
+`#stage-layers`, an element no markup ever created, and now takes a `layerBar`
+nothing supplies. Dead either way, and dead code that looks alive — the whole
+of the chip bar, the fade dial and the lock are written and unreachable.
 
 It also puts the acquired overview where it belongs. `putTheCanvasIn` draws a
 picture *beneath* the layers from a real run, which is exactly what
@@ -115,17 +117,25 @@ between the viewer and the layers, so the files move once instead of twice.
 **Splitting the focus map from the focus points.** Making claim order follow
 stack order forces it, and it is the one change here an operator would notice.
 
-The focus map is drawn *early* today, below the plan — deliberately, so the scan
-fields draw over it rather than the map covering the very fields the operator is
-placing points among. But a focus point must claim a press *before* the picture
-pans. Draw order and claim order therefore disagree for that one layer, and
-`stage.js` already carries a comment saying so, ending "splitting the map from
-the points would buy back both".
+The stack is drawn in two passes — the faded layers in list order, then the solid
+ones on top. So `staysSolid` and *drawn early* are mutually exclusive: a layer
+exempt from the dial floats to the top of the picture.
 
-Under this contract that split stops being optional: the fitted surface goes low
-in the stack, the points go high. The visible consequence is the fade — turn it
-down and the surface would fade while the points stay solid. That is the right
-shape, and it is a thing to look at on screen rather than argue in the abstract.
+The focus map wants both. It is drawn early today, below the plan, deliberately —
+so the scan fields draw over it rather than the map covering the very fields the
+operator is placing points among. And the points on it want to be solid, because
+fading the plan to see the picture underneath is not a request to lose the marks
+you are placing. It cannot have both, and `stage.js` says so in a comment ending
+"splitting the map from the points would buy back both".
+
+Claim order makes it sharper still: a focus point must take a press before the
+picture pans, which puts it near the top, while the surface belongs near the
+bottom.
+
+So the split stops being optional: the fitted surface goes low and accepts the
+dial, the points go high and stay solid. The visible consequence is what happens
+when you turn the fade down — the surface fades, the points do not. That is the
+right shape, and it is a thing to look at on screen rather than argue here.
 
 ## Order of work
 
