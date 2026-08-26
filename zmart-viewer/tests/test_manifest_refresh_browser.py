@@ -19,8 +19,7 @@ from server import make_server
 from zmart_live.coordinator import LivePublisher
 from zmart_live.model import GridCell
 from zmart_live.profiles import plan_the_writing
-from zmart_live.tests.test_coordinator import FRAME, some_specimen
-from zmart_live.tests.test_gateway import a_live_run, prepare_without_publishing
+from zmart_live.fixtures import FRAME, a_live_run, prepare_without_publishing, some_specimen  # noqa: E402
 from driving import pick_colormap  # noqa: E402
 
 _SETTLED = """() => {

@@ -42,7 +42,7 @@ from test_manifest_refresh_browser import (  # noqa: E402
 from zmart_live.coordinator import LivePublisher  # noqa: E402
 from zmart_live.model import GridCell  # noqa: E402
 from zmart_live.profiles import plan_the_writing  # noqa: E402
-from zmart_live.tests.test_coordinator import FRAME  # noqa: E402
+from zmart_live.fixtures import FRAME  # noqa: E402
 
 ROOM = 4  # declared moments; only some are ever written here
 

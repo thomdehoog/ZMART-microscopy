@@ -13,8 +13,7 @@ from live_config import LIVE_PICTURE, LiveBinding, LiveRegistry, live_rows
 from server import make_server
 
 from zmart_live.live_state import LiveStateTracker
-from zmart_live.tests.test_coordinator import some_specimen
-from zmart_live.tests.test_gateway import a_live_run, prepare_without_publishing
+from zmart_live.fixtures import a_live_run, prepare_without_publishing, some_specimen  # noqa: E402
 
 
 def _request(port: int, path: str, *, headers=None):

@@ -40,8 +40,7 @@ from server import make_server  # noqa: E402
 from test_a_dataset_is_relived_as_a_live_run import _a_grid_scan, _post  # noqa: E402
 from test_open_and_close import _store  # noqa: E402
 
-from zmart_live.tests.test_coordinator import some_specimen  # noqa: E402
-from zmart_live.tests.test_gateway import a_live_run  # noqa: E402
+from zmart_live.fixtures import a_live_run, some_specimen  # noqa: E402
 
 
 def test_a_moved_scene_still_opens_and_serves(built_dist, tmp_path):
