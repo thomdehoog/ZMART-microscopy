@@ -38,7 +38,11 @@ These are settled and the plan does not reopen them.
 
 Nothing here is rearrangement. Every step deletes.
 
-1. **Replay leaves the viewer.** `app/server/rehearsal.py` becomes `replay/`
+1. **Replay leaves the viewer.** *Measured 2026-08-26 and it is a chapter, not
+   a step: ~400-500 lines removed across three layers (a tab in `App.jsx`,
+   ~150 lines of `server.py`, `watchTheReplay` in `engine.js`, seven test
+   files), plus 268 moved. Half a day with its gates, not an hour. Awaiting the
+   operator's go with that number in hand.* `app/server/rehearsal.py` becomes `replay/`
    with a `__main__`. The Replay door goes, and with it three API routes
    (`replay`, `replay-status`, `replay-cancel`), ~132 lines of
    `app/server/server.py`, `_StoppedByTheOperator`'s replay arm, and — the
@@ -46,10 +50,12 @@ Nothing here is rearrangement. Every step deletes.
    being able to write. It becomes a more faithful rehearsal, not a worse one:
    driven from outside it goes through the same door a microscope would, which
    is exactly the shape `demos/show_thy1_one_source.py` already proves.
-2. **`app/picture/server.py` moves beside its one user.** It is not a second
-   viewer server — it is an instrumented one, and its ledger (pieces and
-   milliseconds per level) is the point of it. It belongs in `measure/` with
-   `serve_a_transfer.py`. The `import server` collision dies with the move.
+2. **`app/picture/server.py` merges into its one user.** ~~Moves beside~~ —
+   **done 2026-08-26.** It was not a second viewer server but an instrumented
+   one, and its ledger (pieces and milliseconds per level) is the point of it.
+   Its only caller is `demos/serve_a_transfer.py`, which prints that ledger, so
+   the server went *inside* it rather than beside it: one self-contained script
+   of 219 lines, and the `import server` collision gone with the file.
 3. **The orphans go.** `measure_a_transfer_scattered.py` and
    `measure_ten_thousand_overlapping.py` are referenced by nothing — no doc, no
    test, no script. **Needs the operator's yes before anything is deleted.**
