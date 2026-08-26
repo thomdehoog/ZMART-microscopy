@@ -1,6 +1,8 @@
 # One canvas for the operator page
 
-**Status:** proposed, not started. 2026-08-26.
+**Status:** agreed, not started. 2026-08-26. No review pass — the shape was
+settled in conversation and nothing here waits on a decision, with one exception
+called out under *What is yours to decide*. Starting at step 1.
 
 ## What was asked
 
@@ -81,11 +83,56 @@ asked in stack order, top layer first, and the picture pans only with what none
 of them claimed. That is what `stage.js` already does; the change is that the
 viewer runs the chain instead, so any workflow's layers get it.
 
+## Where the canvas lives
+
+The canvas is a **shared asset**; the layers are **workflow-owned**. `viewer.js`
+knows nothing about microscopes — an analysis flow drawing regions over an
+image, or a QC flow drawing a plate map, could take it unchanged. The carrier,
+the plan, the focus map and the stage mark are target acquisition's and stay in
+it.
+
+The tree does not say that yet. Both sit under
+`workflows/target_acquisition/shared/canvas/`, where *shared* means shared
+between that workflow's steps. A second workflow reaching across into a sibling
+workflow's folder would be exactly the wrong dependency — it would quietly make
+target acquisition a library.
+
+So a third top-level folder beside `framework/` and `workflows/`, holding the
+canvas and anything else a workflow can pick up:
+
+    framework/   the engine. Runs any workflow, knows none.
+    parts/       what a workflow is built from. Know nothing about any workflow.
+    workflows/   the plug-ins. Pick parts, supply meaning.
+
+Moved as part of the convergence, not before: that work already redraws the line
+between the viewer and the layers, so the files move once instead of twice.
+
+## What is yours to decide
+
+**Splitting the focus map from the focus points.** Making claim order follow
+stack order forces it, and it is the one change here an operator would notice.
+
+The focus map is drawn *early* today, below the plan — deliberately, so the scan
+fields draw over it rather than the map covering the very fields the operator is
+placing points among. But a focus point must claim a press *before* the picture
+pans. Draw order and claim order therefore disagree for that one layer, and
+`stage.js` already carries a comment saying so, ending "splitting the map from
+the points would buy back both".
+
+Under this contract that split stops being optional: the fitted surface goes low
+in the stack, the points go high. The visible consequence is the fade — turn it
+down and the surface would fade while the points stay solid. That is the right
+shape, and it is a thing to look at on screen rather than argue in the abstract.
+
 ## Order of work
 
 1. Grow the viewer's gesture contract to claims, with tests in
    `canvas-layers.spec.js` — a layer that claims a drag, and a press it turns
-   down that pans instead.
+   down that pans instead. **Independently useful**: it stands on its own
+   whether or not the rest follows, which is why it goes first. Two behaviours
+   of the canvas's own have to survive it — alt+drag always pans, so the picture
+   can be moved while a drawing tool is armed; and the lock stops picking
+   without touching pan or zoom.
 2. Turn `theStageLayers` into `layersAbove` entries: `paint({context, project,
    zoom})` instead of closing over `place` and `view.scale`, `reaches`/`claims`
    instead of the hand-rolled chain.
@@ -99,16 +146,27 @@ viewer runs the chain instead, so any workflow's layers get it.
 
 Steps 1–4 are the convergence. Step 5 is the payoff and can follow separately.
 
+**Nothing an operator can do today may stop working.** Drawing a region, closing
+a polygon on a double-click, dragging a grid position from well to well and
+having it slide into the nearest one, marqueeing focus points, dragging a point,
+hovering the stage mark for a readout. These are covered by the browser suite,
+which is the check on every step above: 48 of 49 today, the one failure being the
+tileset stopwatch flake.
+
 ## Risks
 
-- **The engines.** `putTheCanvasIn` carries the engine chooser and the
+Neither of the first two is a decision; they are work to be done carefully.
+
+- **The engine baggage.** `putTheCanvasIn` carries the engine chooser and the
   neuroglancer/viv/jpeg machinery. The operator page wants one engine and no
-  chooser. Passing `chooser` an element nothing shows is the cheap answer; the
-  honest one is a flag, decided when the code is in front of us.
-- **The scale bar and the readout** are the operator page's, not the
-  demonstration page's. They have to survive the move without the
-  demonstration page growing furniture it does not want.
+  chooser. Handing `chooser` an element nothing shows is the cheap answer and
+  probably the wrong one; a flag saying the canvas is not offering a choice is
+  the honest one. Decided with the code in front of us.
+- **Fit, the readout and the scale bar** are the operator page's, not the
+  demonstration page's. They belong in the viewer — all three are statements
+  about the projection — but they have to move without the demonstration page
+  growing furniture it never asked for.
 - **`whereTheStageIs` prefers the plan's last tile over the reading from
-  `get_xyz`** once tiles have been taken. That is a known step-1 gap and it
-  travels with the stage-mark layer; it should be fixed where the reader is,
-  not in the layer.
+  `get_xyz`** once tiles have been taken. A known step-1 gap that travels with
+  the stage-mark layer. Fix it where the reader is, not in the layer, and not
+  in this work.
