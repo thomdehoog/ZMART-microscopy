@@ -332,8 +332,8 @@ def _hardware_snapshot(handle: ZmartHandle) -> dict:
         "job": job,
         "x_um": float(xy["x_um"]),
         "y_um": float(xy["y_um"]),
-        "z_wide_um": _z_um_from_settings(settings, "z-wide"),
-        "z_galvo_um": _z_um_from_settings(settings, "z-galvo"),
+        "z_wide_um": _z_um_from_settings(settings, "z-wide", client=handle.client, job_name=job),
+        "z_galvo_um": _z_um_from_settings(settings, "z-galvo", client=handle.client, job_name=job),
         "objective": settings.get("objective"),
     }
 

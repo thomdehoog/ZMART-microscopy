@@ -43,6 +43,7 @@ import time
 from .. import readers as _readers
 from ..commands.errors import _check_api_error, _is_transient_error
 from ..config import timing as _timing
+from ..readers.derived import z_um_from_settings
 from ..readers.parsing import make_changeable_copy
 from .confirm_specs import CONFIRM_SPECS
 from .envelope import _make_log_entry
@@ -424,7 +425,13 @@ def confirm_move_z(
         )
         if ch is not None:
             try:
-                actual = ch["zPosition"][key]
+                # The settings do not refresh for the drive that carries the
+                # job's z-stack; the Z extractor reads the saved experiment
+                # for that drive. The free drive is read as before.
+                if (ch.get("stack") or {}).get("zDrive") == key:
+                    actual = z_um_from_settings(ch, key, client=client, job_name=job_name)
+                else:
+                    actual = ch["zPosition"][key]
                 log.debug(
                     "MoveZ confirm: target=%.2f actual=%.2f delta=%.3f um",
                     target_um,
@@ -433,7 +440,7 @@ def confirm_move_z(
                 )
                 if abs(actual - target_um) < tolerance:
                     return {"success": True, "logs": logs}
-            except (KeyError, TypeError):
+            except (KeyError, TypeError, RuntimeError, ValueError):
                 pass
 
         time.sleep(poll_interval)

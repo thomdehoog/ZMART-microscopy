@@ -445,7 +445,7 @@ def read_zwide_um(client, job_name, *, mode=None):
     if not settings:
         log.warning("read_zwide_um: could not read job settings for '%s'", job_name)
         return None
-    return derived.zwide_um_from_settings(settings)
+    return derived.zwide_um_from_settings(settings, client=client, job_name=job_name)
 
 
 def get_jobs(
