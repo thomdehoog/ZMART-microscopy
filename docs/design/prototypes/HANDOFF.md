@@ -318,13 +318,22 @@ scan, the focus map and the tile detection is tuned on all read the same list.
 ## Where it is
 
 - Clone: `C:\ProgramData\MinicondaZMB\home\t.de\ZMART-microscopy_merge`
-- Branch: `agent/server-builds-the-picture-opus-5` on
-  `github.com/thomdehoog/ZMART-microscopy` — **public repo**. The branch may
-  run ahead of the remote — check `git log @{u}..HEAD` rather than assuming,
-  and do not push without asking.
+- Branch: `claude/layered-view-operator-next-gcqxuu` (based on
+  `layered-view-on-operator-next`) on `github.com/thomdehoog/ZMART-microscopy`
+  — **public repo**. The branch runs ahead of the remote — check
+  `git log @{u}..HEAD` rather than assuming, and do not push without asking.
+  As of 2026-08-26 it also carries three superseded driver commits
+  (`2e4e4786`, `c844f62a`, `d639f54c` — an earlier Z-readback attempt);
+  `main` has the settled version (PR #15), so drop those three before this
+  branch meets `main`.
 - The live project: `workflows/target_acquisition/webapp-ui/` — a Vite app.
-  **Read its `ARCHITECTURE.md` first.**
+  **Read its `ARCHITECTURE.md` first.** Since 2026-08-25 there is no `src/`:
+  `frame/` and `workflows/` stand directly inside `webapp-ui/`.
 - `git` is not on PATH: `C:\ProgramData\MinicondaZMB\Library\bin\git.exe`
+- The plan for the next stretch — dissolving `main.js` into the step folders,
+  tests moving beside what they test — is `docs/design/dissolving-main-js.md`
+  with its review prompt beside it. Reviewers go first; nothing of it is
+  started.
 
 `docs/design/prototypes/operator-page-layout.html` is a frozen snapshot from
 before the Vite move. Not the working copy; do not edit it.
@@ -559,40 +568,48 @@ prove the frame is not built around one: `overview_only` (6 steps) and
 
 ## The state of the code — the important caveat
 
-`src/main.js` is **2,600 lines and runs the whole app**. Beside it are modules
-that are tested but **not all of them are used**:
+`frame/window/main.js` is **4,483 lines and runs the whole page** — read
+section by section, about 70 % of it is the target-acquisition run (focus,
+detection, gating, the gallery, the session card, the stage picture, the
+synthetic sample) and about 30 % the engine the folders say the frame is.
+The two are interleaved in one module scope (`state`, `sample`, `view`,
+`stageCv`, `backend` are module-level singletons; `drawStage` has ~30 call
+sites). `docs/design/dissolving-main-js.md` maps every section with line
+ranges and says in what order they leave; read it before touching `main.js`.
+
+The tree as it exists (2026-08-26; no `src/`):
 
 | part | state |
 |---|---|
-| `lib/carriers.js` | tested and **used** — by the app and by the carrier widget |
-| `lib/recordings.js` | tested and **used** — the three recording slots |
-| `lib/microscopes.js` | used |
-| `widgets/carrier.js` | used — the first widget, and the shape the rest should follow |
-| `lib/surface.js`, `lib/sweep.js`, `lib/rng.js` | tested; **main.js has its own copies** |
-| `lib/sample.js` | tested; not used |
-| `frame/steps.js` | tested; only `numbered()` is used |
-| `backend/mock.js`, `workflows/` | tested; **not used, and now stale** |
+| `workflows/target_acquisition/shared/carriers.js`, `shared/scanfields.js` | tested and **used** — by the page and the carrier / scan-area widgets |
+| `workflows/target_acquisition/microscope/recordings.js`, `microscopes.js` | used |
+| `workflows/target_acquisition/microscope/pretend-sample/{surface,sweep}.js` | tested and **used** by the page (one owner each) |
+| `workflows/target_acquisition/microscope/pretend-sample/sample.js`, `microscope/mock.js` | tested; **not imported by the page** — the page rehearses with a plan-driven sample of its own in `main.js` (the one fact still written twice, plus its focus tilt a third time in `mock.js`) |
+| `workflows/target_acquisition/microscope/live.js` + `workflow/webapp/bridge.py` | the backend seam for the mock and real workflows; one day old |
+| `workflows/target_acquisition/steps/{2_define_carrier,3_define_scan_area}/widget.js` | the two extracted widgets — the pattern the rest should follow |
+| `frame/rules/steps.js`, `frame/rules/finding-workflows.js`, `workflows/*/flow.js` | used: numbering, readiness, panels; the folders are the only declaration of the workflows |
+| `index.html` | frame markup plus four parked blocks of one workflow's controls (`#focus-controls`, `#detect-controls`, `#analysis-controls`, `#gallery-controls`) that widgets move into the channel on mount; also references `#stage-layers`, which does not exist, so the layer bar has never rendered |
 
-So **surface fitting, the sweep, the sample and the workflow declarations are
-each defined twice**. `main.js` is what runs; the modules are what the unit
-tests cover — the suite can stay green while the app drifts. **If you change a
-rule, change it in both**, or do the de-duplication first: have `main.js`
-import them and drop its `mode` switch in favour of `step.run(ctx)`. That is
-contained and touches no UI code.
+What a step *does* is still decided by seven `if`s on `mode` inside
+`runStep` (443–561) plus ten more `mode` guards elsewhere, where the design
+says a step carries its own `run(ctx)`. The three target-acquisition
+workflows (`_prototype`, `_mock`, `_real`) share one step list
+(`the-run.js`) and differ only in the backend line of their `flow.js`; that
+stays.
 
-`workflows/` is worse than unused — it still describes the job-picker flow
-that was replaced, with no `optics` or `carrier` step. Rewrite it from
-`main.js`, do not merge into it.
+Tests: `tests/unit/**` (vitest, 227) and `tests/*.spec.js` (Playwright, 62).
+The rule going forward is that a test lives beside what it tests
+(`frame/tests/`, `workflows/<name>/tests/`); the move is step 0 of the plan.
+`tests/operator-page.spec.js` "focus points are laid so many to a tileset"
+is a stopwatch flake on this machine (`waitForTimeout(1600)`), not a
+regression.
 
-**A widget owns its panel and redraws itself.** `widgets/carrier.js` is the
-pattern: handed a value and a callback, knows nothing of run state, and writes
-new values into the controls that already exist rather than rebuilding — a
-rebuild per keystroke destroys the field being typed into. It exports `drawOn`
-too, because the controls and what they put on the canvas are one subject.
-
-The rest is still inline in `main.js` on purpose: while the UI is being
-designed a single file is faster to iterate in, and boundaries drawn around a
-moving design get redrawn. Take a panel out when it stops moving.
+**A widget owns its panel and redraws itself.** `steps/2_define_carrier/widget.js`
+is the pattern: handed a value and a callback, knows nothing of run state,
+and writes new values into the controls that already exist rather than
+rebuilding — a rebuild per keystroke destroys the field being typed into.
+It exports `drawOn` too, because the controls and what they put on the
+canvas are one subject.
 
 ## Open questions — ask, do not invent
 
