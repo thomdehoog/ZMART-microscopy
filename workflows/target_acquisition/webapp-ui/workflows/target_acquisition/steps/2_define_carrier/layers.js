@@ -98,13 +98,15 @@ export function carrierLayers(theRun) {
            a row and a mark can be matched by looking rather than by counting
            round the carrier. */
         const lit = i === (run.anchorLit ?? -1);
-        if (lit) {
-          ctx.strokeStyle = css("--mark-anchor-lit");
-          ctx.fillStyle = css("--mark-anchor-lit");
-        } else {
-          ctx.strokeStyle = css("--good");
-          ctx.fillStyle = css("--good");
-        }
+        /* The mark says the same thing its button does: amber while it is
+           waiting to be driven to, green once it has been. An operator
+           working through the four should be able to look at the picture and
+           see which are left, without reading the list at all. */
+        const colour = a.stage
+          ? css(lit ? "--mark-anchor-lit" : "--good")
+          : css("--warn-ink");
+        ctx.strokeStyle = colour;
+        ctx.fillStyle = colour;
         ctx.lineWidth = (a.stage ? 2.4 : 1.6) * (lit ? 1.8 : 1);
         crosshair(ctx, x, y, lit ? 13 : 11, 4, (a.stage ? 3 : 2) * (lit ? 1.5 : 1));
       });
