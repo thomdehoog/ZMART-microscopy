@@ -27,6 +27,8 @@ import {
 } from "../../workflows/target_acquisition/microscope/recordings.js";
 import carrierWidget from "../../workflows/target_acquisition/steps/2_define_carrier/carrier-panel.js";
 import scanfieldsWidget, { presetInk } from "../../workflows/target_acquisition/steps/3_define_scan_area/scanfield-editor.js";
+import detectionPanel, { ALGOS, detects }
+  from "../../workflows/target_acquisition/steps/6_discover_targets/detection.js";
 import gatingPanel from "../../workflows/target_acquisition/steps/7_refine_targets/gate.js";
 import galleryWidget from "../../workflows/target_acquisition/steps/8_acquire_targets/gallery.js";
 /* The rehearsal's own maths — the deterministic random stream, the autofocus
@@ -605,7 +607,8 @@ let stageWatch = null;
       }
       if (s.mode === "detect") {
         // the settings proven on one tile, now applied to every tile
-        state.detected = new Set(sample.cells.filter(detects).map((c) => c.id));
+        state.detected = new Set(sample.cells
+          .filter((c) => detects(state.detect, c)).map((c) => c.id));
         state.cellsShown = true;
         state.notes[s.id] = `${state.detected.size} targets · ${ALGOS[state.detect.algo].label}`;
       }
@@ -1292,15 +1295,16 @@ let stageWatch = null;
   /* Detection is the same shape as focus: the step happens on the canvas —
      the cells it finds land there — and its controls sit in the channel,
      where the settings are tried on one position before the sample runs. */
-  const detectWidget = {
-    id: "detect",
-    label: "Discover Targets",
-    mount(host) {
-      detectControls.hidden = false;
-      host.append(detectControls);
-      renderDetectToolbar();
-      drawTilePreview();
-    },
+  let detectionShown = null;
+  const detectionMount = (host) => {
+    detectionShown = detectionPanel.mount(host, {
+      settings: () => state.detect,
+      plan: () => state.plan,
+      cellsInTile,
+      density,
+      sizeCanvas, css, drawScaleBar,
+      changed: () => renderActionBar(),
+    });
   };
 
   /* And selection once more: the gated cells light up on the canvas, and the
@@ -1352,7 +1356,8 @@ let stageWatch = null;
   const SIDE_WIDGETS = {
     connect: connectWidget,
     carrier: carrierWidget, scanfields: scanfieldsWidget,
-    focus: focusWidget, scan: scanWidget, detect: detectWidget,
+    focus: focusWidget, scan: scanWidget,
+    detect: { id: detectionPanel.id, label: detectionPanel.label, mount: detectionMount },
     select: { id: gatingPanel.id, label: gatingPanel.label, mount: gatingMount },
     acquire: { id: galleryWidget.id, label: galleryWidget.label, mount: galleryMount },
   };
@@ -1380,7 +1385,6 @@ let stageWatch = null;
   /* Held rather than looked up: emptying the channel takes these out of the
      document, and getElementById cannot find what is not in it. */
   const focusControls = el("focus-controls");
-  const detectControls = el("detect-controls");
 
   function renderSide(show) {
     const host = el("canvas-side");
@@ -3509,7 +3513,7 @@ let stageWatch = null;
       d.tile = hit.i;
       d.tested = false;
     }
-    renderDetectToolbar(); drawTilePreview(); drawStage(); renderActionBar();
+    detectionShown?.redraw(); drawStage(); renderActionBar();
     return true;
   }
 
@@ -4049,193 +4053,22 @@ let stageWatch = null;
   }
 
   /* ============================================================
-     detection — tuned on one tile, then run across all of them
-     ============================================================ */
-  const tileCv = el("tile-canvas");
-
-  const ALGOS = {
-    cellpose: {
-      label: "Cellpose",
-      blurb: "Diameter is the size it looks for; cell probability is how sure it has to be.",
-    },
-    threshold: {
-      label: "Threshold",
-      blurb: "Everything brighter than the level, larger than the minimum area.",
-    },
-  };
-
-  // the same rule the tile test and the full run both use
-  function detects(c) {
-    const d = state.detect;
-    const dia = 2 * c.r;
-    if (d.algo === "cellpose") {
-      // a diameter well off the truth costs you objects at both ends, which is
-      // the whole reason to try it on a tile before running the sample
-      return dia > d.diameter * 0.70 && dia < d.diameter * 1.55
-        && c.intensity > 0.36 + d.cellprob * 0.05;
-    }
-    return c.intensity >= d.thresh && c.area >= d.minArea;
-  }
-
-  // golden-angle hues, so neighbouring labels never share a colour
-  const labelColour = (id, a = 1) => `hsla(${(id * 137.508) % 360}, 68%, 58%, ${a})`;
-
-  function drawTilePreview() {
-    if (!sizeCanvas(tileCv)) return;
-    const ctx = tileCv.getContext("2d");
-    const w = tileCv.cssW, h = tileCv.cssH;
-    const d = state.detect;
-
-    ctx.clearRect(0, 0, w, h);
-    ctx.fillStyle = css("--surface-3");
-    ctx.fillRect(0, 0, w, h);
-
-    const tile = state.plan[d.tile];
-    if (!tile) return;
-    const frame = tile.frameUm;
-    const pad = 18;
-    const s = Math.min((w - 2 * pad) / frame, (h - 2 * pad) / frame);
-    const ox = (w - frame * s) / 2, oy = (h - frame * s) / 2;
-    const X = (x) => ox + (x - (tile.x - frame / 2)) * s;
-    const Y = (y) => oy + (y - (tile.y - frame / 2)) * s;
-
-    ctx.save();
-    ctx.beginPath();
-    ctx.rect(ox, oy, frame * s, frame * s);
-    ctx.clip();
-
-    ctx.fillStyle = "#05090e";
-    ctx.fillRect(ox, oy, frame * s, frame * s);
-    {
-      // the tissue this tile happens to sit on, at the brightness it was found
-      const dens = density(tile.x, tile.y);
-      const cx = X(tile.x), cy = Y(tile.y), rr = frame * 0.8 * s;
-      const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, rr);
-      g.addColorStop(0, `rgba(34,211,238,${0.30 * dens})`);
-      g.addColorStop(0.6, `rgba(34,211,238,${0.10 * dens})`);
-      g.addColorStop(1, "rgba(34,211,238,0)");
-      ctx.fillStyle = g;
-      ctx.beginPath(); ctx.arc(cx, cy, rr, 0, Math.PI * 2); ctx.fill();
-    }
-
-    // objects are drawn larger than life: at 5x a cell is a couple of pixels,
-    // and the point of this view is to judge the labels
-    const inTile = cellsInTile(d.tile);
-    for (const c of inTile) {
-      const rr = Math.max(5, c.r * s * 2.4);
-      const found = d.tested && detects(c);
-      ctx.beginPath(); ctx.arc(X(c.x), Y(c.y), rr, 0, Math.PI * 2);
-      if (found) {
-        ctx.fillStyle = labelColour(c.id, 0.55);
-        ctx.fill();
-        ctx.lineWidth = 1.6; ctx.strokeStyle = labelColour(c.id, 1); ctx.stroke();
-      } else {
-        // rejected objects stay visible — what a setting threw away matters
-        ctx.fillStyle = `rgba(226,232,240,${d.tested ? 0.26 : 0.62})`;
-        ctx.fill();
-      }
-    }
-    ctx.restore();
-
-    ctx.strokeStyle = css("--line-strong");
-    ctx.lineWidth = 1;
-    ctx.strokeRect(ox + 0.5, oy + 0.5, frame * s - 1, frame * s - 1);
-    drawScaleBar(ctx, w, h, s);
-  }
-
-  /* Like the focus controls, these are in the document only while their step
-     is standing — the channel takes them in and gives them back. */
-  const detectMounted = () => detectControls.isConnected;
-
-  function renderDetectToolbar() {
-    if (!detectMounted()) return;
-    const d = state.detect;
-    for (const b of el("detect-algo").querySelectorAll("button")) {
-      b.setAttribute("aria-checked", String(b.dataset.algo === d.algo));
-    }
-    el("tile-label").textContent = `${d.tile + 1} / ${state.plan.length}`;
-
-    const host = el("detect-params");
-    host.textContent = "";
-    const num = (label, key, min, max, step, unit) => {
-      const wrap = document.createElement("div");
-      wrap.className = "param";
-      wrap.innerHTML = `<label>${label}</label><input type="number" min="${min}" max="${max}" step="${step}">` +
-        (unit ? `<span class="hint">${unit}</span>` : "");
-      const inp = wrap.querySelector("input");
-      inp.value = d[key];
-      inp.addEventListener("input", () => {
-        d[key] = Number(inp.value);
-        d.tested = false;
-        drawTilePreview(); renderDetectToolbar(); renderActionBar();
-      });
-      host.append(wrap);
-    };
-
-    if (d.algo === "cellpose") {
-      num("Diameter", "diameter", 4, 60, 1, "µm");
-      num("Cell prob.", "cellprob", -6, 6, 0.5, "");
-    } else {
-      num("Level", "thresh", 0, 1, 0.05, "");
-      num("Min area", "minArea", 20, 400, 10, "µm²");
-    }
-
-    const test = document.createElement("button");
-    test.className = "ghost"; test.type = "button";
-    test.textContent = "Test on this tile";
-    test.addEventListener("click", () => {
-      d.tested = true;
-      drawTilePreview(); renderDetectToolbar(); renderActionBar();
-    });
-    host.append(test);
-
-    const out = el("detect-readout");
-    if (d.tested) {
-      const inTile = cellsInTile(d.tile);
-      const found = inTile.filter(detects).length;
-      out.textContent = `${found} of ${inTile.length} objects at position ${d.tile + 1}`;
-    } else {
-      out.textContent = ALGOS[d.algo].blurb;
-    }
-  }
-
-  el("detect-algo").addEventListener("click", (e) => {
-    const b = e.target.closest("button[data-algo]");
-    if (!b || state.running) return;
-    state.detect.algo = b.dataset.algo;
-    state.detect.tested = false;
-    renderDetectToolbar(); drawTilePreview(); renderActionBar();
-  });
-
-  for (const [id, step] of [["tile-prev", -1], ["tile-next", 1]]) {
-    el(id).addEventListener("click", () => {
-      const d = state.detect;
-      const total = state.plan.length || 1;
-      d.tile = (d.tile + step + total) % total;
-      d.tested = false;
-      renderDetectToolbar(); drawTilePreview(); renderActionBar();
-    });
-  }
-
-  /* ============================================================
      boot
      ============================================================ */
   const ro = new ResizeObserver(() => {
     if (el("panel-canvas").classList.contains("on")) { sizeCanvas(stageCv); drawStage(); }
-    if (detectMounted()) drawTilePreview();
     drawTrace();
   });
   ro.observe(el("panel-canvas"));
   ro.observe(focusControls);
-  ro.observe(detectControls);
 
   const mo = new MutationObserver(() => {
-    drawStage(); drawTilePreview(); drawTrace(); gatingShown?.redraw();
+    drawStage(); drawTrace();
+    detectionShown?.redraw(); gatingShown?.redraw();
   });
   mo.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
 
   renderPointList();
-  renderDetectToolbar();
   rebuildSample();
   focusPanelsFor(0);
   renderAll();
