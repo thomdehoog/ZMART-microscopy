@@ -7,7 +7,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { PENDING } from "../../workflows/target_acquisition/microscope/microscopes.js";
+import { PENDING } from "../../workflows/target_acquisition/microscope/connection-status.js";
 import { backend } from "../../workflows/target_acquisition/microscope/live.js";
 
 /** A bridge whose `get_info` answers walk through `statuses`, one per poll. */

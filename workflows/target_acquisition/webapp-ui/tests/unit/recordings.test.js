@@ -3,7 +3,7 @@ import {
   emptySlot, withRecording, withoutRecording, withActive,
   activeRecording, nextName, nextReadingIndex,
 } from "../../workflows/target_acquisition/microscope/recordings.js";
-import { sampleReading } from "../../workflows/target_acquisition/microscope/microscopes.js";
+import { sampleReading } from "../../workflows/target_acquisition/microscope/settings.js";
 
 /** Set the instrument up, name it, record it — what the panel's button does. */
 const record = (slot, name = "") => withRecording(slot, {
