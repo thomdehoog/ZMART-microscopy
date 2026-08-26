@@ -323,7 +323,12 @@ describe("focus points take an equal share of the field each", () => {
   /* Seven over the same nine frames. An odd share has to go somewhere, and the
      one place a block cannot afford to leave empty is its own middle: rows of
      three, two and two put the spare share along the top and left a hole
-     through the centre of the block that nothing spoke for. */
+     through the centre of the block that nothing spoke for.
+
+     Within a frame of the middle, not on it: where inside its own share a point
+     stands is its own affair, and a share whose middle is the block's middle
+     may put its point anywhere in the frame around it. What matters is that the
+     centre has a share at all. */
   it("keeps a share in the middle when the number does not divide evenly", () => {
     const nine = [];
     for (let row = 0; row < 3; row++) {
@@ -335,7 +340,7 @@ describe("focus points take an equal share of the field each", () => {
     expect(seven).toHaveLength(7);
     const middle = Math.min(...seven.map((p) => Math.hypot(p.x - 100, p.y - 100)));
     expect(middle, `the nearest to the middle is ${middle.toFixed(0)} away`)
-      .toBeLessThan(50);
+      .toBeLessThan(100);
   });
 
   /* Five over the same nine frames. How many rows to deal the shares in is not
@@ -352,7 +357,8 @@ describe("focus points take an equal share of the field each", () => {
     const five = sharePoints(nine, 5);
     expect(five).toHaveLength(5);
 
-    const middle = five.filter((p) => Math.hypot(p.x - 100, p.y - 100) < 30);
+    // within a frame of the block's middle, for the reason given above
+    const middle = five.filter((p) => Math.hypot(p.x - 100, p.y - 100) < 100);
     expect(middle, `five at ${five.map((p) => `${p.x.toFixed(0)},${p.y.toFixed(0)}`).join("  ")}`)
       .toHaveLength(1);
     // and the other four are the corners of the block, one to a quarter
@@ -513,5 +519,61 @@ describe("points over a plate of identical wells", () => {
      off the middle is taken from where the point stands, not from a clock. */
   it("gives the same answer every time it is asked", () => {
     expect(sharePoints(all, 6)).toEqual(sharePoints(all, 6));
+  });
+});
+
+/* A ninety-six-well plate: a small tileset in each well and a great deal of
+ * glass between them.
+ *
+ * This is where letting a point off the middle of its share went wrong. A share
+ * is as big as the ground it owns, and here that ground is a scatter of wells
+ * spread across the whole plate — so a step measured against the share could
+ * carry a point clean into the next well, undoing the spread it had just been
+ * placed for. Twelve points that had settled into a tidy four by three came
+ * back over six columns with two of them side by side.
+ */
+describe("points over a plate with much more glass than sample", () => {
+  const F = 700, PITCH = 9000, COLS = 12, ROWS = 8;
+  const wells = [];
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
+      const x0 = c * PITCH, y0 = r * PITCH, tiles = [];
+      for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) {
+        tiles.push({ x: x0 + j * F, y: y0 + i * F, frameUm: F });
+      }
+      wells.push({ r, c, centre: { x: x0 + F, y: y0 + F }, tiles });
+    }
+  }
+  const all = wells.flatMap((w) => w.tiles);
+  const wellOf = (p) => wells.reduce((a, z) =>
+    (Math.hypot(z.centre.x - p.x, z.centre.y - p.y) < Math.hypot(a.centre.x - p.x, a.centre.y - p.y) ? z : a));
+  const twelve = () => sharePoints(all, 12);
+
+  it("gives each of the twelve a well of its own", () => {
+    const hit = twelve().map((p) => `${wellOf(p).r},${wellOf(p).c}`);
+    expect(new Set(hit).size, `wells hit: ${hit.join(" ")}`).toBe(12);
+  });
+
+  it("spreads those wells over the plate rather than crowding a corner of it", () => {
+    const hit = twelve().map(wellOf);
+    const rows = new Set(hit.map((w) => w.r)), cols = new Set(hit.map((w) => w.c));
+    expect(cols.size, `columns ${[...cols].sort((a, b) => a - b).join(",")}`).toBeGreaterThanOrEqual(4);
+    expect(rows.size, `rows ${[...rows].sort((a, b) => a - b).join(",")}`).toBeGreaterThanOrEqual(3);
+  });
+
+  it("keeps every point inside the tileset it was seated in", () => {
+    for (const p of twelve()) {
+      const w = wellOf(p);
+      expect(w.tiles.some((t) => Math.abs(t.x - p.x) <= F / 2 && Math.abs(t.y - p.y) <= F / 2),
+        `a point at ${p.x.toFixed(0)},${p.y.toFixed(0)} is off well ${w.r},${w.c}`).toBe(true);
+    }
+  });
+
+  it("still stands at a different spot in each of them", () => {
+    const spots = twelve().map((p) => {
+      const w = wellOf(p);
+      return `${Math.round(p.x - w.centre.x)},${Math.round(p.y - w.centre.y)}`;
+    });
+    expect(new Set(spots).size).toBeGreaterThan(1);
   });
 });

@@ -323,11 +323,6 @@ export function sharePoints(tiles, n) {
   return looseInTheirShares(ground, tiles, best);
 }
 
-/* How far off the middle of its share a point may stand, as a fraction of how
-   far that share reaches. Half: enough that no two wells are measured at the
-   same spot, and not so much that a point leaves the part of its share it is
-   there to stand for. */
-const LOOSE = 0.5;
 
 /**
  * Where in its share each point actually stands.
@@ -352,14 +347,46 @@ function looseInTheirShares(ground, tiles, points) {
   for (const g of ground) mine[nearestOf(points, g.x, g.y)].push(g);
 
   return points.map((p, i) => {
-    const held = mine[i];
-    if (!held.length) return imagedAt(tiles, p) ? p : nearestPlace(ground, p);
-    const reachX = (widthOf(held) / 2) * LOOSE;
-    const reachY = (heightOf(held) / 2) * LOOSE;
-    const [ax, ay] = stepFrom(p.x, p.y);
-    const want = { x: p.x + (ax * 2 - 1) * reachX, y: p.y + (ay * 2 - 1) * reachY };
-    return imagedAt(tiles, want) ? want : nearestPlace(held, want);
+    const share = mine[i].length ? mine[i] : ground;
+    /* Where the arithmetic seated it, on ground the run images. */
+    const seat = imagedAt(tiles, p) ? p : nearestPlace(share, p);
+
+    /* And how far it may wander from there: to the edge of the ground lying
+       within one frame of the seat, and no further.
+
+       Not to the edge of its share, which was the first answer and the wrong
+       one. A share is as big as the ground it owns, and on a plate that ground
+       is a scatter of wells with a great deal of glass between them — a share
+       reaching across three wells let a point step into the next one, which
+       undid the very spread it had just been placed for. Measured on a
+       ninety-six-well plate, twelve points that had settled into a tidy four by
+       three came back scattered over six columns with two of them side by side.
+       Within a frame of the seat there is only the tileset the seat stands in,
+       so the wandering happens where it costs nothing. */
+    const reach = frameAt(tiles, seat);
+    const around = share.filter((g) =>
+      Math.abs(g.x - seat.x) <= reach && Math.abs(g.y - seat.y) <= reach);
+    if (around.length < 2) return seat;
+
+    const [ax, ay] = stepFrom(seat.x, seat.y);
+    const want = {
+      x: seat.x + (ax * 2 - 1) * (widthOf(around) / 2),
+      y: seat.y + (ay * 2 - 1) * (heightOf(around) / 2),
+    };
+    return imagedAt(tiles, want) ? want : nearestPlace(around, want);
   });
+}
+
+/** How wide the frame is that covers this spot — the nearest one, if none does. */
+function frameAt(tiles, p) {
+  let best = tiles[0], bestD = Infinity;
+  for (const t of tiles) {
+    const half = (t.frameUm ?? 0) / 2;
+    if (half > 0 && Math.abs(t.x - p.x) <= half && Math.abs(t.y - p.y) <= half) return t.frameUm;
+    const d = (t.x - p.x) ** 2 + (t.y - p.y) ** 2;
+    if (d < bestD) { bestD = d; best = t; }
+  }
+  return best?.frameUm ?? 0;
 }
 
 /**
