@@ -200,6 +200,29 @@ def _flatten(prefix: str, mapping: dict, rows: list) -> None:
             )
 
 
+def _optics(observed: dict) -> str:
+    """How the light path reads on one line: magnification, aperture, zoom.
+
+    What an operator checks a configuration by, in the order they check it —
+    which lens, how much light it collects, and what the scanner is doing on
+    top of that. A driver that does not report its optics gets nothing here
+    and the caller falls back to naming the instrument, because a line of
+    blanks says less than a serial number.
+    """
+    lens = observed.get("objective") or {}
+    said = []
+    if lens.get("magnification"):
+        said.append(f"{lens['magnification']:g}x")
+    if lens.get("numerical_aperture"):
+        na = f"{lens['numerical_aperture']:g} NA"
+        if lens.get("immersion"):
+            na = f"{na} {lens['immersion']}"
+        said.append(na)
+    if observed.get("zoom"):
+        said.append(f"zoom {observed['zoom']:g}")
+    return " · ".join(said)
+
+
 def _reading(kind: str) -> dict:
     """The instrument's state, now, as the reading the window records.
 
@@ -219,8 +242,10 @@ def _reading(kind: str) -> dict:
     _flatten("", state.get("changeable", {}), rows)
     _flatten("", observed, rows)
 
-    serial = observed.get("serial", _context.get("microscope", "instrument"))
-    summary = f"{serial} · {pixel_um:g} µm/px"
+    summary = _optics(observed) or observed.get(
+        "serial", _context.get("microscope", "instrument")
+    )
+    summary = f"{summary} · {pixel_um:g} µm/px"
     reading = {"summary": summary, "detail": rows, "frameUm": frame_um}
     if kind == "autofocus":
         # The stand does not say which family its autofocus is; software is
