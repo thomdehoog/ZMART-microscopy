@@ -1142,7 +1142,6 @@ canvas.livecv[hidden] { display: none; }
   display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 8px; align-items: center;
 }
-.sf-overlap > .side-sub { margin: 0; }
 
 /* The record is the button that chooses it: one press says what this step is
    taken with. It carries no frame of its own — the box around it is the
@@ -1407,8 +1406,13 @@ canvas.livecv[hidden] { display: none; }
    asked twice over — which carrier, then which of that kind — and the bar that
    records a preset and the presets it has recorded are the act and its answer.
    Those stand as close as the box's own spacing. */
+/* And side by side, where the two headings are one row rather than one after
+   another: the second is not following the first down the box, it is standing
+   beside it, so the gap that separates parts would only drop it below its own
+   column. */
 .carrier-types + .side-sub,
-.setting-box + .side-sub { margin-top: 0; }
+.setting-box + .side-sub,
+.sf-overlap > .side-sub { margin-top: 0; }
 
 
 .sf-tools { display: flex; gap: 6px; }
