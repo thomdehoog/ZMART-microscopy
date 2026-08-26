@@ -1,0 +1,72 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "zmart-viewer"
+version = "0.1.0"
+description = "A viewer for large, growing, multi-channel microscopy images: point it at a folder and it draws what is there, and follows it while a microscope writes."
+readme = "README.md"
+requires-python = ">=3.10,<3.13"
+license = "MIT"
+license-files = ["LICENSE"]
+
+# What the viewer needs to run, and nothing else.
+#
+# ``zmart-microscopy`` is here because the viewer is a viewer OF something: to
+# follow a run while a microscope writes it, it has to read that run's manifest
+# and ask its gateway which pieces are current, and neither can be guessed from
+# the files alone. It is a genuine runtime dependency, not an inconvenience --
+# a viewer that could not follow a live run would be beside the point.
+#
+# The writer (``zmart_storage``) is NOT a runtime dependency: nothing under
+# ``app/`` imports it. It appears under ``dev`` because the tests use it to make
+# data to look at, and it arrives with zmart-microscopy anyway.
+dependencies = [
+    "zarr>=3,<4",
+    "numpy>=1.24",
+    "pywebview>=5",
+    "zmart-microscopy @ git+https://github.com/thomdehoog/ZMART-microscopy",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "pytest-cov>=5",
+    "ruff>=0.6",
+    "playwright>=1.58,<2",
+    "pillow>=10",
+    "ngff-zarr[validate]>=0.41",
+]
+
+[tool.setuptools]
+# Nothing is packaged yet, deliberately.
+#
+# The viewer is a set of loose modules under ``app/`` that its scripts and tests
+# reach by putting the folder on the import path, and it is started from inside
+# its own folder rather than imported by anything. Turning it into an importable
+# package is worth doing and is not small: a dozen scripts and the whole browser
+# suite import those modules by bare name. Until then, installing this project
+# gets you the dependencies and the run itself comes from ``install.py``.
+packages = []
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+extend-exclude = [
+    "build",
+    "dist",
+    ".venv",
+    ".eggs",
+    "**/__pycache__",
+    # Generated, not written.
+    "app/page/dist",
+    "app/page/node_modules",
+    # Roads explored and not taken. Kept for the reasoning, not held to the
+    # standards of code anybody runs.
+    "parked",
+]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+ignore = ["E501"]

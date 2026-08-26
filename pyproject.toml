@@ -3,9 +3,13 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "zmart-viewer"
+# Named for what it holds. It held the writer, the run control and the viewer
+# when it was called zmart-viewer, and by 2026-08-26 it holds no viewer at all
+# -- ``packages`` below has said so for a while. The viewer takes the name with
+# it into its own repository.
+name = "zmart-microscopy"
 version = "0.1.0"
-description = "A viewer for large, changing, multi-channel microscopy images, and the writer that feeds it while a run is going."
+description = "The writer that lays a microscope's tiles into OME-Zarr, and the run control that publishes them while an acquisition is going."
 readme = "README.md"
 requires-python = ">=3.10,<3.13"
 license = "MIT"
