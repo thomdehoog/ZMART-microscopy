@@ -323,6 +323,15 @@ export function putTheCanvasIn({
      field it stands for. The canvas does not act on the click itself — what a
      click means belongs to the workflow. */
   onTouched = null,
+  /* A workflow may want a gesture that is not any one layer's — an editor
+     spanning several of them, an order of asking that is the run's own. It is
+     offered a drag no layer claimed, before the picture takes it as a pan, and
+     answers the same way: `false` for "not mine". */
+  handDragsTo = null,
+  /* A press that claimed nothing and did not travel. Where the layers each
+     answer for themselves through `reaches`, this is the workflow's own
+     picking — putting something down where there is nothing yet. */
+  onPressed = null,
 }) {
   /* Somewhere harmless to write for the things this host is not offering.
      A page that shows no engine chooser, or no running commentary about what
@@ -603,7 +612,7 @@ export function putTheCanvasIn({
   box.addEventListener("click", (event) => {
     const from = pressedAt;
     pressedAt = null;
-    if (locked || !from || !viewer || !onTouched) return;
+    if (locked || !from || !viewer || !(onTouched || onPressed)) return;
     if (Math.hypot(event.clientX - from.x, event.clientY - from.y) > A_PRESS_THAT_DID_NOT_TRAVEL) {
       return;
     }
@@ -612,7 +621,12 @@ export function putTheCanvasIn({
     const bounds = box.getBoundingClientRect();
     const at = where.unproject(event.clientX - bounds.left, event.clientY - bounds.top);
     const found = whoIsAt(stackAbove, at);
-    if (found) onTouched({ ...found, at });
+    if (found) onTouched?.({ ...found, at });
+    /* Nothing of anyone's under it: the workflow's own picking, if it does
+       any. In pixels inside the box as well as micrometres on the sample,
+       because putting something down is usually said in the first and stored
+       in the second. */
+    else onPressed?.({ ...at, at, screen: { x: event.clientX - bounds.left, y: event.clientY - bounds.top } });
   });
 
   /* The layer holding the drag that is under way, if one is. Held rather than
@@ -620,6 +634,7 @@ export function putTheCanvasIn({
      and holds until the operator lets go, so asking a second time could hand
      the second half of one movement of the hand to somebody else. */
   let holdingTheDrag = null;
+  let theHostHasTheDrag = false;
 
   /**
    * A drag, offered to the layers before the picture takes it as a pan.
@@ -633,13 +648,24 @@ export function putTheCanvasIn({
       /* Locked means "I am reading, not editing", so nothing is claimed and
          every drag is a pan. The same rule the click routing follows. */
       holdingTheDrag = locked ? null : whoClaims(stackAbove, drag);
-      return holdingTheDrag !== null;
+      if (holdingTheDrag) return true;
+      /* Then the workflow, for a gesture that is not any one layer's. Asked
+         after the layers, because a layer is the more specific answer. */
+      theHostHasTheDrag = !locked && handDragsTo ? handDragsTo(drag) !== false : false;
+      return theHostHasTheDrag;
     }
-    if (!holdingTheDrag) return false;
-    const answer = holdingTheDrag.claims(drag);
-    // Whoever borrowed it is always told it ended, however it ended.
-    if (drag.phase === "finished") holdingTheDrag = null;
-    return answer;
+    if (holdingTheDrag) {
+      const answer = holdingTheDrag.claims(drag);
+      // Whoever borrowed it is always told it ended, however it ended.
+      if (drag.phase === "finished") holdingTheDrag = null;
+      return answer;
+    }
+    if (theHostHasTheDrag) {
+      const answer = handDragsTo(drag);
+      if (drag.phase === "finished") theHostHasTheDrag = false;
+      return answer;
+    }
+    return false;
   }
 
   /** Redraw the stack above after something about it has changed. */
@@ -1096,6 +1122,15 @@ export function putTheCanvasIn({
     fadeTo,
 
     /**
+     * Draw one of the layers, or stop drawing it.
+     *
+     * The same thing the button does, for a host that has some other way of
+     * asking — a keyboard shortcut, a step that opens a layer as it begins.
+     * The operator's choice is remembered either way.
+     */
+    showLayer(key, on) { showTheLayer(key, on); },
+
+    /**
      * Whether the layers may be touched, and a way to lock or unlock them.
      *
      * Locking leaves panning and zooming exactly as they were — the canvas is
@@ -1198,6 +1233,24 @@ export function putTheCanvasIn({
      */
     get view() { return viewer?.getView?.() ?? null; },
     lookAt(where) { if (where) viewer?.setView?.(where); },
+
+    /**
+     * Where a place on the sample is on screen, and back again.
+     *
+     * The same projection the layers are drawn through, so a host asking "is
+     * the pointer on that mark?" gets an answer in the same terms as the mark
+     * was drawn in. Asking the canvas rather than working it out from `view`
+     * is the point: two answers to where a thing is are two chances to differ,
+     * and the difference is a mark you cannot click on.
+     */
+    project(x, y) {
+      const where = viewer?.whereThingsAreDrawn?.();
+      return where ? where.project(x, y) : { x: 0, y: 0 };
+    },
+    unproject(px, py) {
+      const where = viewer?.whereThingsAreDrawn?.();
+      return where ? where.unproject(px, py) : { x: 0, y: 0 };
+    },
 
     changeTo,
     showTheLayer,

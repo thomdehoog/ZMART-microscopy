@@ -96,6 +96,10 @@ export function onlyPanAndZoom(element, { getView, setView }) {
         y: view.centre.y + (y - size.height / 2) * view.zoom,
       },
       screen: { x, y },
+      /* The one modifier the canvas has not already decided about. Alt it
+         keeps for panning and never passes on; shift it has no meaning for,
+         so whoever takes the drag may give it one. */
+      shift: !!event.shiftKey,
     };
   };
 
@@ -107,7 +111,13 @@ export function onlyPanAndZoom(element, { getView, setView }) {
       event.preventDefault();
       return;
     }
-    if (event.shiftKey) {
+    /* Shift used to rotate the view, and does not any more. But refusing it
+       here, before anybody is asked, is the same mistake as never asking: the
+       application owns what a drag means, and shift and a drag is one of the
+       meanings it may want — dragging a box round a set of things is the usual
+       one. So it is offered like any other drag. What it never does is pan,
+       which is why nothing falls through when it is turned down. */
+    if (event.shiftKey && !handDragOver) {
       refused.shiftDrag += 1;
       event.preventDefault();
       return;
@@ -127,6 +137,9 @@ export function onlyPanAndZoom(element, { getView, setView }) {
       x: event.clientX,
       y: event.clientY,
       handOver: event.altKey ? null : handDragOver,
+      /* Shift is offered but never pans, so a shift drag nobody wanted stops
+         here rather than moving the picture. */
+      neverPans: event.shiftKey,
     };
     if (dragging.handOver) {
       // Offered, not given. Whoever holds drags may turn this one down — it
@@ -136,7 +149,8 @@ export function onlyPanAndZoom(element, { getView, setView }) {
       if (took === false) {
         dragging.handOver = null;
         accepted.dragsHandedBack += 1;
-        accepted.drags += 1;
+        if (dragging.neverPans) { dragging = null; refused.shiftDrag += 1; }
+        else accepted.drags += 1;
       } else {
         accepted.dragsHandedOver += 1;
       }

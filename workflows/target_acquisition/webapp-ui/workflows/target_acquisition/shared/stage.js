@@ -21,7 +21,7 @@
  * travel, so the picture has a frame to draw.
  */
 
-import { theDrawingAbove, whoIsAt } from "../../../parts/canvas/layers-above.js";
+import { putTheCanvasIn } from "../../../parts/canvas/viewer.js";
 
 /**
  * Open the picture on a canvas.
@@ -50,10 +50,41 @@ export function openTheStage(ctx) {
 /* The picture is handed what it draws on. It reaches for no element of its
    own, because the panel it hangs in is built by the workflow that declared
    it — there is no markup on the page waiting for this file to find. */
-const stageCv = ctx.canvas;
+const stageBox = ctx.box;
 const stageTip = ctx.tip;
-const stageReadout = ctx.readout;
-const view = { scale: 0.03, tx: 0, ty: 0, fitted: false };
+
+/* The canvas itself — the part, not this file. What this file supplies is the
+   layers; the view, the buttons, the fade, the lock and the routing of a press
+   are the canvas's, and are the same for any workflow that picks it up. */
+const theCanvas = putTheCanvasIn({
+  box: stageBox,
+  layers: ctx.layerBar,
+  readout: ctx.readout,
+  /* Nothing to draw beneath the layers here, and no engine to choose between:
+     the scan that appears under the plan during a run is drawn by the scan
+     step, in a surface of its own below this one. */
+  acquisitions: [],
+  engine: "jpeg-under",
+  layersAbove: [],
+  /* The run answers for a drag before the picture pans with it, and for a
+     press that claimed nothing and went nowhere. Both are declared here
+     because both are this run's business, not the canvas's. */
+  handDragsTo: (drag) => theRunWantsThisDrag(drag),
+  onPressed: (where) => theRunWasPressed(where),
+});
+const theCanvasIsUp = theCanvas.whenShown();
+/* Where the picture is, asked of the canvas rather than kept here. Two numbers
+   say it — the middle of what is on screen, in the carrier's own micrometres,
+   and how much sample one screen pixel covers — and the canvas is the one that
+   moves them, because it owns panning and zooming.
+
+   `scale` is the other way up from `zoom`, because everything drawn here is
+   sized in screen pixels per micrometre. One is 1 / the other. */
+const theView = () => theCanvas.view ?? { centre: { x: 0, y: 0 }, zoom: 1 / 0.03 };
+const view = {
+  get scale() { return 1 / theView().zoom; },
+  fitted: false,
+};
 
 /* The canvas is the stage, so it is what the view frames — not the carrier
    inside it and not the scan inside that. Everything else is drawn in the
@@ -96,16 +127,24 @@ function carrierOriginUm() {
   return [(STAGE_UM[0] - w) / 2, (STAGE_UM[1] - h) / 2];
 }
 
+/* How much clear space the travel is framed with, in screen pixels. */
+const FIT_MARGIN = 26;
+
 function fitView() {
-  const w = stageCv.cssW || 800, h = stageCv.cssH || 600;
-  const pad = 26;
+  const box = stageBox.getBoundingClientRect();
+  const w = box.width || 800, h = box.height || 600;
   const [fw, fh] = STAGE_UM;
-  const s = Math.min((w - 2 * pad) / fw, (h - 2 * pad) / fh);
-  view.scale = s;
-  view.tx = (w - fw * s) / 2;
-  /* At the top, with the margin the sides have, rather than floating in
-     the middle of whatever height the window happens to give the canvas. */
-  view.ty = pad;
+  const s = Math.min((w - 2 * FIT_MARGIN) / fw, (h - 2 * FIT_MARGIN) / fh);
+  const [ox, oy] = carrierOriginUm();
+  /* Worked back from where the travel should land. Across, it is centred; down,
+     it sits at the top with the margin the sides have, rather than floating in
+     the middle of whatever height the window happens to give the canvas. The
+     canvas is told where to look, in the carrier's own micrometres, which is
+     the frame the layers are drawn in. */
+  theCanvas.lookAt({
+    zoom: 1 / s,
+    centre: { x: fw / 2 - ox, y: (h / 2 - FIT_MARGIN) / s - oy },
+  });
   view.fitted = true;
 }
 
@@ -235,7 +274,8 @@ function tipTheStageMark(e) {
     `<b>stage</b><br><b>x</b> ${(at.x / 1000).toFixed(2)} mm`
     + `<br><b>y</b> ${(at.y / 1000).toFixed(2)} mm`
     + `<br><b>z</b> ${at.z.toFixed(0)} µm`;
-  stageTip.style.left = `${Math.min(e.offsetX + 14, stageCv.cssW - 130)}px`;
+  stageTip.style.left =
+    `${Math.min(e.offsetX + 14, stageBox.getBoundingClientRect().width - 130)}px`;
   stageTip.style.top = `${Math.max(6, e.offsetY - 66)}px`;
   return true;
 }
@@ -252,8 +292,20 @@ function drawStageLimits(ctx, onTheStage, scale) {
   ctx.restore();
 }
 
-const toScreen = (x, y) => [x * view.scale + view.tx, y * view.scale + view.ty];
-const toWorld = (px, py) => [(px - view.tx) / view.scale, (py - view.ty) / view.scale];
+/* The travel's micrometres, on screen. The canvas projects the carrier's, so
+   this is that projection with the carrier's origin taken off — the same two
+   frames `drawnIn` names apart, at the one place they have to meet. */
+function toScreen(x, y) {
+  const [ox, oy] = carrierOriginUm();
+  const at = theCanvas.project(x - ox, y - oy);
+  return [at.x, at.y];
+}
+
+function toWorld(px, py) {
+  const [ox, oy] = carrierOriginUm();
+  const at = theCanvas.unproject(px, py);
+  return [at.x + ox, at.y + oy];
+}
 
 function tileTexture(ctx, tile, place, scale) {
   const [sx, sy] = place(tile.x - tile.frameUm / 2, tile.y - tile.frameUm / 2);
@@ -268,12 +320,12 @@ function tileTexture(ctx, tile, place, scale) {
   ctx.fillRect(sx, sy, sz + 0.6, sz + 0.6);
 }
 
-const layersOff = new Set();
-let layerFade = 1;
-let layersLocked = false;
-let seeThroughGround = [];
-/* The stack as it was last drawn, so the controls and a click can ask about
-   it without drawing a frame to find out. */
+/* Which layers are off, how solid they are drawn and whether the picture is
+   locked are all the canvas's now, kept once where the buttons that change
+   them are. This file asks when it needs to know. */
+const layersLocked = () => theCanvas.locked;
+/* The stack as it was last handed over, so a press can ask what is on the
+   picture without building it again to find out. */
 let theStack = [];
 
 /**
@@ -639,36 +691,7 @@ function theStageLayers({ shown, ch0, ch1, editing }) {
 }
 
 function drawStage() {
-  if (!sizeCanvas(stageCv)) return;
   if (!view.fitted) fitView();
-  const ctx = stageCv.getContext("2d");
-  const w = stageCv.cssW, h = stageCv.cssH;
-
-  /* Cleared to nothing. The page's own surface is painted by the bottom
-     layer of the stack rather than here, and that is not tidiness — it is
-     what lets a picture be seen underneath at all. See the `ground` layer. */
-  ctx.clearRect(0, 0, w, h);
-
-  /* The canvas only shows what the run actually knows. Before a session is
-     open it knows nothing, so it is empty; the stage limits are a readout
-     from the connected microscope's configuration, so they appear with the
-     session; the carrier appears at its own step, when the run is told what
-     the sample is mounted in.
-
-     **Each layer decides that for itself, and the drawing never stops early.**
-     It used to return here, before anything had been drawn, which was right
-     while this surface was opaque and wrong the moment a picture was put
-     beneath it: returning skipped the background along with everything else,
-     so a scan the run had not got to yet was showing through an empty canvas
-     before the operator had even connected. A layer with nothing to say draws
-     nothing; the ground is still ground. */
-
-  /* One projection for everything that sits in the carrier: the carrier
-     itself and every tile, cell and target the run put inside it. Handed
-     down rather than reached for, so where the carrier stands is decided in
-     one place and nothing can be drawn against a different answer. */
-  const [ox, oy] = carrierOriginUm();
-  const place = (x, y) => toScreen(x + ox, y + oy);
 
   const editing = sideWidget()?.id === "scanfields" ? run.editor : null;
   const stack = theStageLayers({
@@ -680,142 +703,33 @@ function drawStage() {
     ch1: true,
     editing,
   });
-  /* Two different questions, and they must not be run together. `hasSomething`
-     is whether the *run* has anything for this layer — no cells have been
-     found, no targets imaged — and it decides whether the layer gets a
-     control at all. `shown` is what reaches the screen, which is that answer
-     and then whatever the operator hid.
 
-     Conflating them was wrong in both directions: a layer the operator hid
-     lost its own button, so there was no way to bring it back; and a layer
-     the run had nothing for still offered a button that did nothing. */
+  /* Each layer says what the *run* has for it, and the canvas remembers what
+     the operator did about that. They are two questions and must not be run
+     together: a layer the operator hid would lose the button that brings it
+     back, and a layer the run has nothing for would offer a button that does
+     nothing. What each layer works out for itself as `shown` is the first of
+     the two, so that is the answer handed over. */
   for (const layer of stack) {
-    layer.hasSomething = layer.shown !== false;
-    if (layersOff.has(layer.key)) layer.shown = false;
+    layer.has = layer.shown !== false;
   }
   theStack = stack;
-
-  /* The whole stack in one drawing, faded and cut through as the controls
-     say. Micrometres in the carrier's own frame, which is where the tiles,
-     the cells and the targets all live — so a window given in those numbers
-     lands on the fields it names. */
-  theDrawingAbove(stack, { dial: layerFade, seeThrough: seeThroughGround })?.({
-    context: ctx,
-    centre: { x: 0, y: 0 },
-    zoom: 1 / view.scale,
-    width: w,
-    height: h,
-    density: 1,
-    project: (x, y) => { const [px, py] = place(x, y); return { x: px, y: py }; },
-    unproject: (px, py) => { const [wx, wy] = toWorld(px, py); return { x: wx - ox, y: wy - oy }; },
-  });
+  theCanvas.setLayersAbove(stack);
 
   /* Set here rather than on the pointer alone, so a tool armed from the panel
      or a key says so before the mouse is moved to find out. */
-  stageCv.style.cursor = editing ? editing.cursor() : focusCursor();
+  stageBox.style.cursor = editing ? editing.cursor() : focusCursor();
 
   /* The scan beneath follows the view the plan was just drawn with, so the
      two are never a frame apart. Cheap: it is two divisions and a setView,
      and the engine only redraws if something actually moved. */
   thePicture.followTheStage();
-  renderStageLayerControls();
 }
 
-/**
- * The controls for the stack, built again whenever the stack changes.
- *
- * Built rather than written into the markup, because the stack is not fixed:
- * it grows as a run goes — the cells appear when detection has found some,
- * the targets when any have been imaged — and a row of controls written out
- * in advance would either name layers that do not exist yet or leave a layer
- * on screen with no way to turn it off.
- *
- * A layer the run has nothing for is left out entirely rather than shown
- * unavailable. There is no useful difference for an operator between a
- * control that cannot be pressed and a control that is not there, and the
- * second takes less room in a bar that has other things to say.
- */
-let barSaysThis = "";
-
-function renderStageLayerControls() {
-  const stageLayerBar = ctx.layerBar;
-  if (!stageLayerBar) return;
-  const here = theStack.filter((layer) => layer.paint && layer.hasSomething);
-  /* Rebuilt only when the set of layers actually changes. A run redraws the
-     canvas many times a second while scanning, and rebuilding a row of
-     buttons that often would take the press an operator was in the middle
-     of. */
-  const signature = here.map((l) => `${l.key}:${layersOff.has(l.key)}`).join("|")
-    + `|${layerFade}|${layersLocked}`;
-  if (signature === barSaysThis) return;
-  barSaysThis = signature;
-  stageLayerBar.textContent = "";
-  if (!here.length) return;
-
-  const title = document.createElement("span");
-  title.style.cssText = "font-weight:600;color:var(--ink-3)";
-  title.textContent = "Layers";
-  stageLayerBar.append(title);
-
-  for (const layer of here) {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "layer-chip";
-    button.dataset.layer = layer.key;
-    button.setAttribute("aria-pressed", String(!layersOff.has(layer.key)));
-    button.title = layer.explains ?? "";
-    button.textContent = layer.label ?? layer.key;
-    button.addEventListener("click", () => {
-      if (layersOff.has(layer.key)) layersOff.delete(layer.key);
-      else layersOff.add(layer.key);
-      drawStage();
-    });
-    stageLayerBar.append(button);
-  }
-
-  /* One dial for the whole stack. "Let me see what is underneath" is one
-     thought and should be one movement, not a visit to every layer in turn.
-     It only ever fades: a layer already set faint does not become solid
-     because this is turned up. */
-  const fade = document.createElement("label");
-  fade.className = "layer-fade";
-  fade.title = "How solid the layers are drawn. Turn it down to see what is underneath "
-    + "them. Layers that stay solid — the focus points, the editing handles — are not "
-    + "affected.";
-  const slider = document.createElement("input");
-  slider.type = "range";
-  slider.min = "0"; slider.max = "100"; slider.step = "1";
-  slider.value = String(Math.round(layerFade * 100));
-  slider.id = "layer-fade";
-  slider.setAttribute("aria-label", "How solid the layers are drawn");
-  slider.addEventListener("input", () => {
-    layerFade = Number(slider.value) / 100;
-    barSaysThis = "";
-    drawStage();
-  });
-  fade.append(document.createTextNode("Fade"), slider);
-  stageLayerBar.append(fade);
-
-  /* The lock. An operator spends a long time looking at a plan they have
-     already settled — checking it, showing it to somebody, panning around it
-     while the run goes — and in all that time a stray click can only do harm.
-     Locking leaves panning and zooming exactly as they were and stops only
-     the picking. */
-  const lock = document.createElement("button");
-  lock.type = "button";
-  lock.className = "layer-chip";
-  lock.id = "layers-lock";
-  lock.setAttribute("aria-pressed", String(layersLocked));
-  lock.title = "Lock the layers so nothing can be picked, moved or drawn by accident. "
-    + "Panning and zooming go on working.";
-  lock.textContent = "Lock";
-  lock.addEventListener("click", () => {
-    layersLocked = !layersLocked;
-    barSaysThis = "";
-    drawStage();
-  });
-  stageLayerBar.append(lock);
-}
+/* The row of buttons, the fade and the lock are the canvas's own, built
+   from the layers it is handed. This file used to build a second set of
+   them into a bar that no markup ever created, so they had never once
+   appeared on screen. */
 
 /**
  * Open the ground the scan has already covered, so the picture shows through.
@@ -830,14 +744,13 @@ function renderStageLayerControls() {
  */
 function openTheGroundThatHasBeenScanned(howMuch = 1) {
   const shown = Math.max(run.tilesShown, 0);
-  seeThroughGround = run.plan.slice(0, shown).map((t) => ({
+  theCanvas.seeThrough(run.plan.slice(0, shown).map((t) => ({
     x: t.x - t.frameUm / 2,
     y: t.y - t.frameUm / 2,
     w: t.frameUm,
     h: t.frameUm,
     letThrough: howMuch,
-  }));
-  drawStage();
+  })));
 }
 
 /**
@@ -853,11 +766,11 @@ window.__theStageCanvas = {
   /** Open the ground the scan has covered, so a picture beneath shows there. */
   openScannedGround: openTheGroundThatHasBeenScanned,
   /** Close every window again. */
-  closeTheGround() { seeThroughGround = []; drawStage(); },
+  closeTheGround() { theCanvas.seeThrough([]); },
   /** Open one named piece of the sample, in micrometres in the carrier's frame. */
-  openThisGround(windows) { seeThroughGround = windows ?? []; drawStage(); },
+  openThisGround(windows) { theCanvas.seeThrough(windows ?? []); },
   /** Which layers there are, and which are being drawn. */
-  layers: () => theStack.map(({ key, label, shown, staysSolid }) =>
+  layers: () => theCanvas.layersAbove.map(({ key, label, shown, staysSolid }) =>
     ({ key, label, shown, staysSolid: !!staysSolid })),
   /**
    * Draw one of the layers, or stop drawing it.
@@ -869,16 +782,11 @@ window.__theStageCanvas = {
    * belongs.
    */
   showLayer(key, on) {
-    if (on) layersOff.delete(key);
-    else layersOff.add(key);
-    barSaysThis = "";
-    drawStage();
+    theCanvas.showLayer(key, on);
   },
   /** How solid the layers are drawn, 0 to 1. */
   fadeTo(howSolid) {
-    layerFade = Math.min(1, Math.max(0, Number(howSolid)));
-    barSaysThis = "";
-    drawStage();
+    theCanvas.fadeTo(Math.min(1, Math.max(0, Number(howSolid))));
   },
   /**
    * Where the run means to send the stage, in micrometres in the carrier's
@@ -924,7 +832,7 @@ function toCarrier(px, py) {
 function editorTook(kind, e) {
   /* Locked, nothing can be drawn or moved by accident. Panning and zooming
      are untouched — the lock is about picking, not about looking. */
-  if (layersLocked) return false;
+  if (layersLocked()) return false;
   if (sideWidget()?.id !== "scanfields" || !run.editor) return false;
   const { x, y } = toCarrier(e.offsetX, e.offsetY);
   const took = run.editor.pointer(kind, { x, y, shift: e.shiftKey, scale: view.scale });
@@ -986,62 +894,97 @@ function drawScaleBar(ctx, w, h, scale) {
    Alt+drag pans regardless. Without it there is no way to move the stage
    while a drawing tool is armed, since then the editor wants every press on
    empty canvas for the shape it is about to make. */
-let dragging = false, panMoved = false, lastX = 0, lastY = 0;
+/* Whose gesture is this?
+ *
+ * The canvas asks before it pans, and this answers for the whole run. One
+ * answer rather than one per layer, because the order the question is asked in
+ * is this run's own: the editor first, so drawing a region does not drag the
+ * picture out from under the shape being drawn; then a focus point already on
+ * the map, because it is the small thing on top; then nobody, and the picture
+ * pans.
+ *
+ * Alt+drag never reaches here — the canvas keeps that for panning, so there is
+ * always a way to move the picture whatever a tool is doing.
+ */
+let whoHasTheDrag = null;
 
-const startPan = (e) => {
-  dragging = true; panMoved = false;
-  lastX = e.offsetX; lastY = e.offsetY;
-  stageCv.setPointerCapture(e.pointerId);
-};
-
-// the canvas has no menu of its own, and a borrowed one over the plan is noise
-stageCv.addEventListener("contextmenu", (e) => e.preventDefault());
-stageCv.addEventListener("dblclick", (e) => editorTook("finish", e));
-
-stageCv.addEventListener("pointerdown", (e) => {
-  if (e.button === 0 && e.altKey) { e.preventDefault(); startPan(e); return; }
-  if (e.button !== 0) return;
-  if (editorTook("down", e)) { stageCv.setPointerCapture(e.pointerId); return; }
-  // a point already on the map is taken hold of before the picture is
-  if (focusGrabbed(e)) { stageCv.setPointerCapture(e.pointerId); return; }
-  startPan(e);
+/* The canvas speaks in micrometres and in pixels inside its box; the presses
+   here were written against a DOM event. This is the one place the two meet. */
+const asAPress = (drag) => ({
+  offsetX: drag.screen.x,
+  offsetY: drag.screen.y,
+  shiftKey: !!drag.shift,
 });
 
-stageCv.addEventListener("pointermove", (e) => {
-  if (marqueeing()) { focusMarqueeTo(e.offsetX, e.offsetY); return; }
-  if (focusDragging()) { focusDraggedTo(e.offsetX, e.offsetY); return; }
-  if (!dragging && editorTook("move", e)) return;
-  if (dragging) {
-    const dx = e.offsetX - lastX, dy = e.offsetY - lastY;
-    if (Math.abs(dx) + Math.abs(dy) > 2) panMoved = true;
-    view.tx += dx; view.ty += dy;
-    lastX = e.offsetX; lastY = e.offsetY;
-    drawStage();
-    return;
-  }
-  /* The readout is where the stage is, because the canvas is the stage. The
-     hit test is not: a cell knows where it is in the carrier, so the pointer
-     is put into the carrier's coordinates to meet it. */
-  const [wx, wy] = toWorld(e.offsetX, e.offsetY);
-  stageReadout.textContent =
-    `x ${wx.toFixed(0)} µm · y ${wy.toFixed(0)} µm · ${(view.scale * 1000).toFixed(1)} px/mm`;
+function theRunWantsThisDrag(drag) {
+  const press = asAPress(drag);
 
-  /* A focus point answers before anything under it: it is the small thing
-     on top, and the press that finds it moves it rather than the picture. */
+  if (drag.phase === "started") {
+    whoHasTheDrag = null;
+    /* Locked, nothing is drawn or picked by accident. Panning and zooming are
+       untouched — the lock is about picking, not about looking. */
+    if (layersLocked()) return false;
+    if (editorTook("down", press)) { whoHasTheDrag = "editor"; return true; }
+    // a point already on the map is taken hold of before the picture is
+    if (focusGrabbed(press)) { whoHasTheDrag = "focus"; return true; }
+    return false;
+  }
+
+  if (drag.phase === "moved") {
+    if (whoHasTheDrag === "editor") { editorTook("move", press); return true; }
+    if (marqueeing()) { focusMarqueeTo(press.offsetX, press.offsetY); return true; }
+    if (focusDragging()) { focusDraggedTo(press.offsetX, press.offsetY); return true; }
+    return whoHasTheDrag !== null;
+  }
+
+  const held = whoHasTheDrag;
+  whoHasTheDrag = null;
+  if (marqueeing()) { focusMarqueeTook(press.shiftKey); renderActionBar(); return true; }
+  if (focusDragging()) {
+    const { moved } = endFocusDrag();
+    /* Held still on a point: the press picked it, and that is the whole of it.
+       Placing happens where there is no point yet, which `focusPressed`
+       answers for. */
+    if (!moved && run.focus.placing) focusPressed(press.offsetX, press.offsetY);
+    renderActionBar();
+    return true;
+  }
+  if (held === "editor") { editorTook("up", press); renderRail(); return true; }
+  return held !== null;
+}
+
+/* A press that nothing claimed and that went nowhere: the run's own picking —
+   an anchor put down, a focus point placed, the position detection is tuned on.
+   Answered when the operator lets go rather than when they press, or the start
+   of every pan would put something down. */
+function theRunWasPressed({ screen }) {
+  if (layersLocked()) return;
+  anchorPressed(screen.x, screen.y)
+    || focusPressed(screen.x, screen.y)
+    || detectPressed(screen.x, screen.y);
+}
+
+/* Hovering claims nothing, so it is watched here rather than routed: what is
+   under the pointer decides the cursor and whatever the tip has to say. */
+stageBox.addEventListener("pointermove", (e) => {
+  if (whoHasTheDrag || marqueeing() || focusDragging()) return;
+
+  /* A focus point answers before anything under it: it is the small thing on
+     top, and the press that finds it moves it rather than the picture. */
   if (focusHovered(e)) return;
 
-  /* The mark first: it is drawn over everything, so it answers for the
+  /* The mark next: it is drawn over everything else, so it answers for the
      pointer before anything underneath it does. */
   if (tipTheStageMark(e)) return;
 
   // hover the nearest visible cell
+  const world = theCanvas.unproject(e.offsetX, e.offsetY);
   let hit = null;
   if (run.cellsShown) {
-    const [ox, oy] = carrierOriginUm();
     let best = 12 / view.scale;
     for (const c of theSample().cells) {
       if (!run.detected.has(c.id)) continue;
-      const d = Math.hypot(c.x + ox - wx, c.y + oy - wy);
+      const d = Math.hypot(c.x - world.x, c.y - world.y);
       if (d < best) { best = d; hit = c; }
     }
   }
@@ -1049,72 +992,27 @@ stageCv.addEventListener("pointermove", (e) => {
     stageTip.classList.add("on");
     stageTip.innerHTML =
       `<b>cell</b> ${hit.id}<br><b>area</b> ${hit.area.toFixed(0)} µm²<br><b>int</b> ${hit.intensity.toFixed(2)}`;
-    const left = Math.min(e.offsetX + 14, stageCv.cssW - 130);
-    stageTip.style.left = `${left}px`;
+    const box = stageBox.getBoundingClientRect();
+    stageTip.style.left = `${Math.min(e.offsetX + 14, box.width - 130)}px`;
     stageTip.style.top = `${Math.max(6, e.offsetY - 52)}px`;
   } else {
     stageTip.classList.remove("on");
   }
 });
 
-const endDrag = (e) => {
-  if (!dragging) return;
-  dragging = false;
-  if (e && stageCv.hasPointerCapture?.(e.pointerId)) stageCv.releasePointerCapture(e.pointerId);
-};
-stageCv.addEventListener("pointerup", (e) => {
-  if (marqueeing()) {
-    if (stageCv.hasPointerCapture?.(e.pointerId)) stageCv.releasePointerCapture(e.pointerId);
-    focusMarqueeTook(e.shiftKey);
-    renderActionBar();
-    return;
-  }
-  if (focusDragging()) {
-    const { moved } = endFocusDrag();
-    if (stageCv.hasPointerCapture?.(e.pointerId)) stageCv.releasePointerCapture(e.pointerId);
-    /* Held still on a point: the press picked it, and that is the whole of
-       it. Placing happens where there is no point yet, which `focusPressed`
-       answers for. */
-    if (!moved && run.focus.placing) focusPressed(e.offsetX, e.offsetY);
-    renderActionBar();
-    return;
-  }
-  if (dragging) {
-    const still = !panMoved;
-    endDrag(e);
-    /* Locked, a press picks nothing. Panning and zooming are untouched — the
-       lock is about picking, not about looking. */
-    if (still && !layersLocked) {
-      anchorPressed(e.offsetX, e.offsetY)
-        || focusPressed(e.offsetX, e.offsetY)
-        || detectPressed(e.offsetX, e.offsetY);
-    }
-    return;
-  }
-  if (editorTook("up", e)) {
-    if (stageCv.hasPointerCapture?.(e.pointerId)) stageCv.releasePointerCapture(e.pointerId);
-    renderRail();
-    return;
-  }
-  endDrag(e);
-});
-stageCv.addEventListener("pointerleave", (e) => {
+stageBox.addEventListener("pointerleave", (e) => {
   editorTook("leave", e);
-  endDrag(e);
   stageTip.classList.remove("on");
   // the pointer is off the canvas, so it is off the mark whatever it was on
   if (stageMarkHot) { stageMarkHot = false; drawStage(); }
 });
 
-stageCv.addEventListener("wheel", (e) => {
-  e.preventDefault();
-  const [wx, wy] = toWorld(e.offsetX, e.offsetY);
-  const f = Math.exp(-e.deltaY * 0.0016);
-  view.scale = Math.max(0.004, Math.min(3, view.scale * f));
-  view.tx = e.offsetX - wx * view.scale;
-  view.ty = e.offsetY - wy * view.scale;
-  drawStage();
-}, { passive: false });
+/* An outline with no last point of its own is ended by saying the same press
+   twice. Not a drag, so it does not go through the claims. */
+stageBox.addEventListener("dblclick", (e) => editorTook("finish", e));
+// the canvas has no menu of its own, and a borrowed one over the plan is noise
+stageBox.addEventListener("contextmenu", (e) => e.preventDefault());
+
 
 /* Fit frames whichever picture is on show. While the acquired overview is
    covering the plan, it is the thing being looked at, so it is the thing that
@@ -1131,8 +1029,10 @@ ctx.fitButton.addEventListener("click", () => {
     fit: fitView,
     /* The canvas is the picture's; the page says when its box has changed
        shape, and what the pointer should look like over it. */
-    resize() { sizeCanvas(stageCv); drawStage(); },
-    cursor(shape) { stageCv.style.cursor = shape; },
+    /* The canvas measures itself; this only asks for the layers again, since
+       what they draw depends on how big the box is. */
+    resize() { drawStage(); },
+    cursor(shape) { stageBox.style.cursor = shape; },
     view,
     travelUm: STAGE_UM,
     toScreen,
@@ -1155,17 +1055,11 @@ ctx.fitButton.addEventListener("click", () => {
     takeTheCanvas,
     takeThePosition,
     openScannedGround: openTheGroundThatHasBeenScanned,
-    closeTheGround() { seeThroughGround = []; drawStage(); },
-    openThisGround(windows) { seeThroughGround = windows ?? []; drawStage(); },
-    layers: () => theStack.map(({ key, label, shown, staysSolid }) =>
+    closeTheGround() { theCanvas.seeThrough([]); },
+    openThisGround(windows) { theCanvas.seeThrough(windows ?? []); },
+    layers: () => theCanvas.layersAbove.map(({ key, label, shown, staysSolid }) =>
       ({ key, label, shown, staysSolid: !!staysSolid })),
-    showLayer(key, on) {
-      if (on) layersOff.delete(key);
-      else layersOff.add(key);
-      barSaysThis = "";
-      drawStage();
-      renderStageLayerControls();
-    },
-    fadeTo(value) { layerFade = value; drawStage(); },
+    showLayer(key, on) { theCanvas.showLayer(key, on); },
+    fadeTo(value) { theCanvas.fadeTo(value); },
   };
 }
