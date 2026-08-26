@@ -178,7 +178,9 @@ def stack_from_settings(settings):
     step_size = _safe_float(stack_raw.get("stepSize"))
     size = _safe_float(stack_raw.get("size"))
     sections = stack_raw.get("sections")  # number of z-planes
-    z_drive = stack_raw.get("mode")  # e.g. "z-galvo", "z-wide"
+    # Raw LAS X names the drive "mode"; a normalised copy coming through
+    # again already says "zDrive". Accepting both keeps this idempotent.
+    z_drive = stack_raw.get("mode", stack_raw.get("zDrive"))  # e.g. "z-galvo", "z-wide"
     # Compute size from begin/end if not provided
     if size is None and begin is not None and end is not None:
         size = abs(end - begin)
@@ -283,8 +285,13 @@ def make_changeable_copy(settings):
     if zp_raw and isinstance(zp_raw, dict):
         ch["zPosition"] = {}
         for key, entry in zp_raw.items():
+            # Raw LAS X nests the value as {"position": v}; a bare number is
+            # a normalised copy coming through again (the confirmation holds
+            # one), so accepting both keeps this idempotent.
             ch["zPosition"][key] = (
-                _safe_float(entry.get("position")) if isinstance(entry, dict) else None
+                _safe_float(entry.get("position"))
+                if isinstance(entry, dict)
+                else _safe_float(entry)
             )
 
     # Time series
