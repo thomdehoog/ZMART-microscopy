@@ -53,7 +53,11 @@ async function connect(page, password = "hunter2") {
  * There is no presets step: each recording lives in the step that uses it. */
 async function recordSlot(page, hostId, name) {
   const bar = page.locator(`#${hostId} .setting-box.open`);
-  await bar.locator("input").fill(name);
+  /* Some slots take a name and some do not — where what is read names itself,
+     the bar is only a button. Naming one that has no field to name it in is
+     the test insisting on a control the operator never sees. */
+  const field = bar.locator("input");
+  if (await field.count()) await field.fill(name);
   await bar.locator("button.run").click();
   await page.waitForTimeout(650);
 }
@@ -236,7 +240,11 @@ test("an open session is not editable, and Disconnect is the way out", async ({ 
   await gotoStep(page, "Define Carrier");
   await gotoStep(page, "Define scan area");
   await expect(page.locator("#sf-preset .rec-row")).toHaveCount(0);
-  await expect(page.locator("#sf-preset .setting-box.open input")).toHaveValue("");
+  /* And the bar is back to offering the first import rather than an update,
+     which is the whole of what it carries — there is no name half-typed into
+     it to be forgotten. */
+  await expect(page.locator("#sf-preset .rec-new button.run"))
+    .toHaveText("Import optical configuration");
 });
 
 test("the fields wait for the preset they will be taken with",
@@ -260,8 +268,9 @@ test("the fields wait for the preset they will be taken with",
     await expect(page.locator(".sf-tools")).toBeVisible();
     await expect(page.locator(".sf-tool[data-tool='rectangle']")).toBeEnabled();
     await expect(page.locator(".sf-apply-grid")).toBeEnabled();
-    // the name is stored capitalised, being an identifier the run refers to
-    await expect(page.locator("#sf-preset .rec-name")).toHaveText("Overview");
+    /* What was read stands under the bar that took it. It carries no name:
+        the optical configuration is whatever the microscope is set to, and one
+        reading at a time needs no handle to tell it from another. */
     await expect(page.locator("#sf-preset .rec-row")).toContainText("NA");
 
     /* Forgetting the last reading puts the editor back to sleep and takes the
@@ -313,7 +322,6 @@ test("recording again replaces the reading, and re-takes the plan with it",
        Recording is the whole gesture; there is nothing further to press. */
     await recordSlot(page, "sf-preset", "hires");
     await expect(page.locator("#sf-preset .rec-row")).toHaveCount(1);
-    await expect(page.locator("#sf-preset .rec-name").first()).toHaveText("Hires");
     const oil = await positions();
     expect(oil, "the same region at 63x").toBeGreaterThan(dry * 10);
 
@@ -340,7 +348,6 @@ test("the reading on screen is the current one, however many were taken",
       await recordSlot(page, "sf-preset", name);
     }
     await expect(page.locator("#sf-preset .rec-row")).toHaveCount(1);
-    await expect(page.locator("#sf-preset .rec-name").first()).toHaveText("Fortyx");
 
     // and it unfolds to what was read
     await page.locator("#sf-preset .rec-fold").first().click();

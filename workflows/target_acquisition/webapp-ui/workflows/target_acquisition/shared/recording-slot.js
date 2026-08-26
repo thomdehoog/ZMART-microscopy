@@ -41,7 +41,7 @@ const draftNames = {};
    it. */
 function renderRecordedBar(record, {
   rerender, dropped, choose, hostId, running, locked = false, active = false,
-  ink = null, about = {},
+  ink = null, about = {}, unnamed = false,
 }) {
   const wrap = document.createDocumentFragment();
 
@@ -52,7 +52,10 @@ function renderRecordedBar(record, {
     + '<button type="button" class="rec-pick">'
     + '<span class="rec-name"></span><span class="rec-state"></span></button>'
     + '<button type="button" class="rec-drop">✕</button>';
-  row.querySelector(".rec-name").textContent = record.name;
+  /* A reading that nobody named says what it is instead of what it is called.
+     The name was only ever a handle for telling two readings apart, and where
+     there is one reading at a time the handle is a word doing no work. */
+  row.querySelector(".rec-name").textContent = unnamed ? "" : record.name;
   row.querySelector(".rec-state").textContent = record.summary;
 
   /* The row activates the recording, and activating is the whole of using
@@ -116,9 +119,13 @@ function renderRecordedBar(record, {
    goes to `recorded` rather than into a record of its own — the slot below
    owns what has been recorded — and the name it is carrying goes to `onName`
    as it is typed, so a redraw finds it again. */
-function renderOpenBar({ type, nth, name, onName, recorded, running, readSetting }) {
+function renderOpenBar({
+  type, nth, name, onName, recorded, running, readSetting, unnamed, says,
+}) {
   const row = document.createElement("div");
-  row.className = "rec-new";
+  /* Nothing to fill in, so nothing to lay a field out against: the button is
+     the whole bar and stands at the left where a reading would have begun. */
+  row.className = unnamed ? "rec-new alone" : "rec-new";
 
   const box = document.createElement("input");
   box.type = "text";
@@ -131,8 +138,9 @@ function renderOpenBar({ type, nth, name, onName, recorded, running, readSetting
   const go = document.createElement("button");
   go.className = "run";
   go.type = "button";
-  // the box says what is being done; the button says do it
-  go.textContent = "Record";
+  /* With a field beside it the button only has to say *do it*, because the
+     field says what. Alone, it has to say the whole thing. */
+  go.textContent = says ?? "Record";
 
   /* The name is not what makes a recording worth taking: what makes it worth
      taking is that the instrument is set the way it is set, now, and that is
@@ -146,7 +154,7 @@ function renderOpenBar({ type, nth, name, onName, recorded, running, readSetting
     onName(box.value);
     go.disabled = !!running();
   };
-  box.addEventListener("input", check);
+  if (!unnamed) box.addEventListener("input", check);
   check();
 
   go.addEventListener("click", () => {
@@ -159,8 +167,11 @@ function renderOpenBar({ type, nth, name, onName, recorded, running, readSetting
   });
 
   /* The name leads, the way it leads a recorded row: it is the thing being
-     filled in. The kind is said once by the heading above, not by the bar. */
-  row.append(box, go);
+     filled in. The kind is said once by the heading above, not by the bar.
+     A slot that takes no name has only the button, and a recording made
+     without one is given a name of its own. */
+  if (unnamed) row.append(go);
+  else row.append(box, go);
   return row;
 }
 
@@ -176,6 +187,10 @@ export function renderRecordingSlot(host, opts) {
   const {
     label, slot: theSlot, setSlot, running, readSetting,
     changed, activated = changed, locked = false, ink = null,
+    /* A slot whose readings need no name of the operator's: the button is the
+       whole bar, and says the act rather than the word "Record". `takes` is
+       what it says with nothing recorded yet, `retakes` once there is. */
+    unnamed = false, takes = null, retakes = takes,
   } = opts;
   if (!host) return;
   /* The id is the key a half-typed name is remembered under, so a host
@@ -192,8 +207,11 @@ export function renderRecordingSlot(host, opts) {
      What has been recorded stands directly under the bar that took it; a box
      of its own said the readings were a second subject when they are the
      answer to this one. */
+  /* The heading says the subject; the bar under it says the act. Where the bar
+     is only a button, that button carries the act in full — so the heading
+     drops the verb rather than saying it twice. */
   const { group, body } = sideGroup(
-    `Record ${label[0].toLowerCase()}${label.slice(1)}`,
+    unnamed ? label : `Record ${label[0].toLowerCase()}${label.slice(1)}`,
   );
 
   const slot = theSlot();
@@ -217,6 +235,14 @@ export function renderRecordingSlot(host, opts) {
     onName: (v) => { draftNames[hostId] = v; },
     running,
     readSetting,
+    unnamed,
+    /* The first reading brings the configuration in; every one after replaces
+       what is being worked with. Two words for two different acts, because an
+       operator about to overwrite a reading the plan was laid under should be
+       told that is what the button does. */
+    says: unnamed && (takes ?? retakes)
+      ? (slot.records.length ? retakes : takes)
+      : undefined,
     recorded: (name, reading) => {
       setSlot(withRecording(slot, { name, reading }));
       draftNames[hostId] = "";
@@ -243,6 +269,7 @@ export function renderRecordingSlot(host, opts) {
     const done = document.createElement("div");
     done.className = active ? "setting-box done active" : "setting-box done";
     done.append(renderRecordedBar(record, {
+      unnamed,
       rerender, locked, active, hostId, running,
       ink: ink ? ink(record.id) : null,
       choose: () => {

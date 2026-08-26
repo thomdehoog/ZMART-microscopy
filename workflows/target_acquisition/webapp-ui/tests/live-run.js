@@ -109,7 +109,9 @@ export async function walkToTheScan(page) {
      focus step is the same. */
   const record = async (hostId, name) => {
     const bar = page.locator(`#${hostId} .setting-box.open`);
-    await bar.locator("input").fill(name);
+    // a slot whose reading names itself has no field to name it in
+    const field = bar.locator("input");
+    if (await field.count()) await field.fill(name);
     await bar.locator("button.run").click();
     await page.waitForTimeout(650);
   };

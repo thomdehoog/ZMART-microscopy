@@ -1031,6 +1031,10 @@ canvas.livecv[hidden] { display: none; }
    right edge while the field met the left one, and a bar with one end tucked in
    reads as a bar that was placed carelessly. */
 .rec-new { grid-template-columns: minmax(0, 1fr) max-content; }
+/* A bar with no field to fill in: the button is the whole of it, and stands at
+   the left where the reading would have begun rather than floating out to the
+   right against nothing. */
+.rec-new.alone { grid-template-columns: max-content; }
 
 .rec-fold, .rec-new input { grid-column: 1; }
 .rec-pick { grid-column: 2; }
@@ -1042,6 +1046,11 @@ canvas.livecv[hidden] { display: none; }
 .rec-new button.run {
   grid-column: 2; justify-self: start; align-self: stretch; padding: 0 14px;
 }
+/* With no field beside it the button *is* the bar, so it takes the first
+   column rather than the second — which is where the field would have begun,
+   and the same edge the recorded row below starts on. Left in column two it
+   sat in an implicit second column and stood a gap in from everything else. */
+.rec-new.alone button.run { grid-column: 1; }
 
 /* The record is the button that chooses it: one press says what this step is
    taken with. It carries no frame of its own — the box around it is the
