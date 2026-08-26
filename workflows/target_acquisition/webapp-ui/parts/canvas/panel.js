@@ -43,7 +43,12 @@ export const canvasPanel = {
     host.innerHTML = `
       <div class="canvas-body">
         <div class="plot-host">
-          <canvas class="plot stagecv" id="stage-canvas"></canvas>
+          <!-- Where the picture is built. The drawing engine makes its own
+               surfaces inside this, and the workflow's layers are drawn over
+               them, so nothing here is a canvas of the page's own. It keeps
+               the id the tests aim by, because what they want of it is where
+               the picture is on screen. -->
+          <div class="plot stagecv" id="stage-canvas"></div>
           <!-- The overview as it is being acquired, drawn from the images the
                run is writing. It covers the plan while the scan is the thing
                being looked at, and is only there at all when the page was
@@ -69,6 +74,9 @@ export const canvasPanel = {
                bar's: which layers are on, how solid they are and which plane
                of a stack is showing are all questions about a picture, and
                the stack that draws it is where they will be asked. -->
+          <!-- Which layers are on, how solid they are: questions about the
+               picture, asked on the picture's own bar. -->
+          <div class="layer-bar" id="stage-layers"></div>
           <button class="ghost" id="fit-btn">Fit</button>
           <div class="readout" id="stage-readout">—</div>
         </div>
@@ -85,7 +93,8 @@ export const canvasPanel = {
       /* Everything the picture is drawn on and into. Handed to `openTheStage`
          and to the pictures of a real run, so neither has to know an id. */
       parts: {
-        canvas: find("stage-canvas"),
+        box: find("stage-canvas"),
+        layerBar: find("stage-layers"),
         tip: find("stage-tip"),
         readout: find("stage-readout"),
         fit: find("fit-btn"),

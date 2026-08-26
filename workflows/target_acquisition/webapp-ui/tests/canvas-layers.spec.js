@@ -378,3 +378,37 @@ test("a host that offers no chooser and no commentary still gets a canvas", asyn
   });
   expect(buttons, "the layer it was given got no button").toContain("only");
 });
+
+test("what the run has and what the operator turned off are two questions", async ({ page }) => {
+  /* A workflow hands its layers in again every time the run changes, so a
+     layer's own `has` is a statement about the run — no cells found yet, no
+     targets imaged — and never about what the operator chose. Running the two
+     together is wrong in both directions: hide a layer and it loses the button
+     that would bring it back, or offer a button for a layer with nothing in it. */
+  const hand = (has) => page.evaluate((h) => {
+    const square = {
+      key: "found", label: "Found",
+      paint: ({ context }) => { context.fillStyle = "rgb(250,180,20)"; context.fillRect(0, 0, 30, 30); },
+    };
+    window.__canvas.setLayersAbove([{ ...square, has: h }]);
+  }, has);
+  const button = page.locator('#layers button[data-layer="found"]');
+
+  // nothing found yet: no button, because there is nothing to switch
+  await hand(false);
+  await expect(button).toHaveCount(0);
+
+  // found: a button, and it is on
+  await hand(true);
+  await expect(button).toHaveAttribute("aria-pressed", "true");
+
+  // the operator puts it away
+  await button.click();
+  await expect(button).toHaveAttribute("aria-pressed", "false");
+
+  /* More are found. The layer is handed in again saying it has something, and
+     that must not put back what the operator took away. */
+  await hand(true);
+  await expect(button, "handing the layer in again undid the operator's choice")
+    .toHaveAttribute("aria-pressed", "false");
+});

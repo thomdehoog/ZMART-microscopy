@@ -403,6 +403,16 @@ export function putTheCanvasIn({
 
   const buttons = new Map();
 
+  /* Which layers the operator has switched off, by key.
+   *
+   * Kept apart from whether a layer has anything to draw, because they are two
+   * questions and running them together is wrong in both directions: a layer
+   * the operator hid loses its button, so there is no way to bring it back;
+   * and a layer the run has nothing for still offers a button that does
+   * nothing. A workflow whose layers come and go as a run proceeds says what it
+   * has with `has`, and this remembers what the operator did about it. */
+  const turnedOff = new Set();
+
   const say = (text) => {
     note.hidden = !text;
     note.textContent = text ?? "";
@@ -917,6 +927,8 @@ export function putTheCanvasIn({
       const layer = stackAbove.find((one) => one.key === key);
       if (!layer) return;
       layer.shown = on;
+      if (on) turnedOff.delete(key);
+      else turnedOff.add(key);
       handTheSlotsTheirDrawings();
     }
     markTheButtons();
@@ -962,7 +974,20 @@ export function putTheCanvasIn({
    * finishes, refined targets after that — and a row of buttons that does not
    * grow with it would leave a layer on screen with no way to turn it off.
    */
+  /* What the row of buttons currently says, so it is built again only when it
+     would come out different. A run redraws many times a second while it is
+     scanning, and rebuilding a row of buttons that often takes away the press
+     an operator is in the middle of. */
+  let theRowSays = "";
+
   function buildTheLayerButtons() {
+    const wouldSay = [
+      ...Object.keys(showing).map((k) => `${k}:${showing[k]}`),
+      ...stackAbove.map((l) => `${l.key}:${l.label}:${l.has !== false}:${l.shown}`),
+    ].join("|");
+    if (wouldSay === theRowSays) return;
+    theRowSays = wouldSay;
+
     layers.textContent = "";
     /* The strip beside the buttons is rebuilt with them, so a stack that grew
        does not leave two fades and two locks behind it. */
@@ -987,6 +1012,9 @@ export function putTheCanvasIn({
       addButton(slot.key, slot.label, slot.explains, showing[slot.key]);
     }
     for (const layer of stackAbove) {
+      // Nothing to draw, nothing to switch. A button that does nothing teaches
+      // an operator that the page is broken.
+      if (layer.has === false) continue;
       addButton(
         layer.key,
         layer.label ?? layer.key,
@@ -1099,10 +1127,19 @@ export function putTheCanvasIn({
      */
     setLayersAbove(list = []) {
       const before = new Map(stackAbove.map((layer) => [layer.key, layer.shown]));
-      stackAbove = (list.length ? list : [THE_DEMONSTRATION_LAYER]).map((layer) => ({
-        ...layer,
-        shown: before.has(layer.key) ? before.get(layer.key) : (layer.shown ?? false),
-      }));
+      stackAbove = (list.length ? list : [THE_DEMONSTRATION_LAYER]).map((layer) => {
+        /* A layer that says what it `has` is being handed in again as a run
+           goes: what reaches the screen is what the run has, and then whatever
+           the operator turned off. A layer that says nothing keeps what it was
+           set to, which is how a stack that is handed in once behaves. */
+        if (layer.has !== undefined) {
+          return { ...layer, shown: layer.has !== false && !turnedOff.has(layer.key) };
+        }
+        return {
+          ...layer,
+          shown: before.has(layer.key) ? before.get(layer.key) : (layer.shown ?? false),
+        };
+      });
       buildTheLayerButtons();
       theStackAboveChanged();
     },
