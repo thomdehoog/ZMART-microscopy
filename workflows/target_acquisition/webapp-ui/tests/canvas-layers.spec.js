@@ -32,7 +32,7 @@ const A_PAGE_WITH_ONLY_A_CANVAS = `
 <div id="box"></div><div id="note" hidden></div>
 <script type="module">
 const el = (id) => document.getElementById(id);
-const { putTheCanvasIn } = await import("/workflows/target_acquisition/shared/canvas/viewer.js");
+const { putTheCanvasIn } = await import("/parts/canvas/viewer.js");
 
 /* Three plain layers, each a flat square of its own colour on its own piece of
    sample, so that which of them reached the screen can be counted from a

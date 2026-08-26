@@ -9,6 +9,8 @@ webapp-ui/
     window/     what the operator sees: the rail, the chooser, the panels, run state.
     rules/      what the engine enforces: step ordering and readiness, and how
                 workflow folders are found and named for the chooser.
+  parts/        what a workflow is built from. A part knows nothing about any
+                workflow: hand it what to do and it does it. The canvas is one.
   workflows/    what plugs into the engine. One folder per workflow, and the
                 folder's name is the chooser's entry: `target_acquisition`
                 appears as "Target acquisition".
@@ -17,8 +19,9 @@ webapp-ui/
     <name>/steps/    one numbered folder per step — `1_connect/` to
                      `8_acquire_targets/` — each holding the step's declaration
                      and the widgets that belong to it alone.
-    <name>/shared/   what several steps of that one workflow use: the canvas,
-                     the carrier geometry, the scan-field arithmetic.
+    <name>/shared/   what several steps of that ONE workflow use: the carrier
+                     geometry, the scan-field arithmetic, the layers the run
+                     draws.
     target_acquisition/microscope/
                 the seam where the instrument goes — mock today, real later —
                 with the synthetic specimen the mock images in
@@ -233,7 +236,7 @@ In the table, `ta/` is short for `workflows/target_acquisition/`.
 | `ta/steps/2_define_carrier/widget.js` | built, used — the first widget, and the shape the rest should follow |
 | `ta/steps/3_define_scan_area/widget.js` | built, used — the geometry editor and the grid, in the same channel |
 | `ta/steps/5_scan_the_overview/overview.js` | built, used by the app when it is given a run to watch, and covered by the browser tests that photograph the canvas |
-| `ta/shared/canvas/` | built, used by the canvas demonstration, and covered by browser tests that photograph the picture — including which of the three layers reached the screen |
+| `parts/canvas/` | built and covered by browser tests that photograph the picture — including which layers reached the screen — but **the operator page does not use it yet**: `viewer.js` is imported by its tests and by nothing else. See `CANVAS.md` and `docs/design/one-canvas-for-the-operator-page.md` |
 | `framework/window/main.js` | the rest of the running app, and its own copies of the untaken modules |
 
 **Widget extraction has started, from the outside in.** The carrier widget is
@@ -299,7 +302,7 @@ the backend. Readiness has already moved that way and is a good model for it: th
 rule now sits on the step, `framework/rules/steps.js` only asks, and adding a workflow
 needs no change to the shell.
 
-## The canvas: `shared/canvas/`
+## The canvas: `parts/canvas/`
 
 The scan step's own `overview.js` draws the overview inside that step, with Viv
 wired in directly. The canvas is the next thing along and a different arrangement: one
@@ -309,10 +312,17 @@ swapped. It is not kept here — it lives at the top of the repository in
 `viz_studio/options/`, with the interface written out in `contract.md` beside it
 — and this folder is only the page's side of it.
 
+It is a **part**, not the workflow's: it takes a list of layers and knows
+nothing about what any of them mean. What target acquisition draws on it — the
+carrier, the plan, the focus map, the stage mark — stays in the workflow, in
+`shared/stage.js`.
+
 ```
-shared/canvas/
+parts/canvas/
   engines.js    which engines this page can open, and what each one is
   viewer.js     opening one on a run, changing engine, and the layer buttons
+  layers-above.js   the stack drawn over the picture, faded and cut through
+  panel.js      the canvas as a panel a workflow declares, and its markup
 ```
 
 The two gestures are not in this list, and that is deliberate. Dragging and the

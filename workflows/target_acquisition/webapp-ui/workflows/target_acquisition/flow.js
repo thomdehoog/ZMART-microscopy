@@ -8,7 +8,7 @@
  * speaks to the controller through the bridge either way.
  */
 
-import { canvasPanel } from "./shared/canvas/panel.js";
+import { canvasPanel } from "../../parts/canvas/panel.js";
 import { steps as theRun } from "./the-run.js";
 
 export const blurb =

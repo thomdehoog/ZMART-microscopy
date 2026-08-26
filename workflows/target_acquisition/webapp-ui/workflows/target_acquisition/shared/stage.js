@@ -21,7 +21,7 @@
  * travel, so the picture has a frame to draw.
  */
 
-import { theDrawingAbove, whoIsAt } from "./canvas/layers-above.js";
+import { theDrawingAbove, whoIsAt } from "../../../parts/canvas/layers-above.js";
 
 /**
  * Open the picture on a canvas.

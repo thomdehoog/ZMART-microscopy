@@ -10,7 +10,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { theDrawingAbove, whoIsAt } from "../../workflows/target_acquisition/shared/canvas/layers-above.js";
+import { theDrawingAbove, whoIsAt } from "../../parts/canvas/layers-above.js";
 
 /** A drawing surface that remembers what it was told, and nothing more. */
 function aPretendSurface() {
