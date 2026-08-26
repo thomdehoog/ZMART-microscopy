@@ -1081,6 +1081,7 @@ export function putTheCanvasIn({
     const addButton = (key, label, explains, pressed) => {
       const button = document.createElement("button");
       button.type = "button";
+      button.className = "layer-chip";
       button.disabled = true;      // until there is a picture to change
       button.setAttribute("aria-pressed", String(pressed));
       button.dataset.layer = key;
