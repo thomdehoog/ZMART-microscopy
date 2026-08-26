@@ -63,6 +63,32 @@ SEED_RINGS = int(os.environ.get("ZMART_SPIRAL_SEED_RINGS", "2"))
 # The spiral, as arithmetic
 # ---------------------------------------------------------------------------
 
+def _layer_marks(page) -> list:
+    """Which layer objects are on screen, by an identity we stamp ourselves.
+
+    A landing must refresh a layer's pixels, never replace the layer
+    (``8713483c``). The two are indistinguishable in a photograph and obvious
+    here: the mark is written onto the layer object the first time it is
+    seen, so a layer that survives keeps its number and a layer that was
+    rebuilt comes back with a new one. That is the whole question this
+    instrument exists to answer -- when the picture falls, did the chunks go,
+    or did the layer?
+    """
+    return page.evaluate("""() => {
+      const box = (window.__zmartMarks ||= {next: 0});
+      return (window.zmartViewer?.layerManager?.managedLayers || [])
+        .map((managed) => {
+          const layer = managed.layer;
+          if (!layer) return {name: managed.name, mark: null};
+          if (layer.__zmartMark === undefined) {
+            box.next += 1;
+            layer.__zmartMark = box.next;
+          }
+          return {name: managed.name, mark: layer.__zmartMark};
+        });
+    }""")
+
+
 def ring_of(row: int, column: int, across: int) -> int:
     """Which ring of the spiral a cell belongs to, centre being ring zero.
 
@@ -367,6 +393,8 @@ def test_the_spiral_growth_is_visible(browser, built_dist, tmp_path):
         never_regressed = True
         worst = 0.0
         darkest = 1.0
+        marks_before = _layer_marks(page)
+        marks_at_the_fall = None
         rings = sorted({ring_of(*cell, ACROSS) for cell in landing})
         for ring in rings:
             # No pacing on purpose: outside a deliberate burst test, the
@@ -392,6 +420,8 @@ def test_the_spiral_growth_is_visible(browser, built_dist, tmp_path):
                     # is nothing of the sort (2026-08-26).
                     worst = max(worst, high_water - seen["fraction"])
                     darkest = min(darkest, seen["fraction"])
+                    if marks_at_the_fall is None:
+                        marks_at_the_fall = _layer_marks(page)
                 high_water = max(high_water, seen["fraction"])
                 if (seen["fraction"] >= story[-1]["fraction"] + 0.005
                         and seen["area"] >= story[-1]["area"]):
@@ -406,9 +436,16 @@ def test_the_spiral_growth_is_visible(browser, built_dist, tmp_path):
 
         print("SPIRAL GROWTH:", json.dumps({"story": story}),
               flush=True)
+        kept = (marks_at_the_fall is not None
+                and [one["mark"] for one in marks_at_the_fall]
+                == [one["mark"] for one in marks_before])
         assert never_regressed, (
             f"the lit canvas fell by {worst:.3f} of the frame, to {darkest:.3f} "
-            f"lit, while the spiral was landing -- ground "
+            f"lit, and the layers were "
+            + ("THE SAME OBJECTS (so the chunks went, not the layer): "
+               if kept else "REPLACED (a landing rebuilt a layer, which "
+               "8713483c forbids): ")
+            + f"{marks_before} -> {marks_at_the_fall} -- ground "
             "already on screen went dark during growth, which is exactly "
             "the flicker the invalidation must not show"
         )

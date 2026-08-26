@@ -228,44 +228,75 @@ across three consecutive 300 ms polls. About a second of an already-drawn
 survey going dark while the next ring lands. An operator watching an
 acquisition would see exactly this.
 
-### The T400 sanity-check that `PLAN_close_the_neuroglancer_chapter.md` asked for
+### CORRECTION, same day: the mode comparison here was meaningless
 
-That plan decided whole-source invalidation on 2026-08-15 and kept the named
-ladder reachable "purely so the T400 can sanity-check the choice before the
-ladder's code is deleted", with the instruction: *run the storm file once in
-each mode; if whole holds its rate there too, delete the ladder.* Run here,
-on the card, `ZMART_SPIRAL_ACROSS` at its default:
+An earlier revision of this section reported whole-source at 6 failures in 12
+against a named ladder at 2 in 9, and concluded the ladder must not be
+deleted. **Both columns ran the same code.** `ZMART_STORM_REFRESH` appears
+nowhere outside documentation -- not in Python, not in `App.jsx`, not in
+`engine.js` -- and the ladder (`invalidateTheDirtyPieces`, the dirty maps,
+the switch) was already deleted in the cleanup chapter. The difference
+between the columns was noise. The numbers are worth keeping only as one
+measurement made twice: **the flicker happens in roughly a third to a half of
+runs on the T400.**
 
-| mode | failures |
-|---|---|
-| whole-source (the default) | **6 in 12** |
-| named ladder (`ZMART_STORM_REFRESH=named`) | **2 in 9** |
+### What the instrument settled
 
-**Whole does not hold its rate on the T400. Do not delete the ladder yet** —
-the precondition the plan set has not been met.
+A landing must refresh a layer's pixels, never replace the layer
+(`8713483c`). The spiral gate now stamps every layer object with a mark and
+reads the marks again at the moment the picture falls. Caught three times:
 
-### But the ladder is not the cure either, and one number says why
+    the layers were THE SAME OBJECTS (so the chunks went, not the layer):
+    [{name: 'shown - live', mark: 1}, {name: 'Targets', mark: 2}]
+    -> [{name: 'shown - live', mark: 1}, {name: 'Targets', mark: 2}]
 
-Both modes fall to **the same floor, 0.013 lit**. If the fall were the
-invalidation strategy, the named ladder — which drops a handful of chunks
-around one position — could not empty the picture to the same remnant the
-whole-source drop reaches. It does.
+The layers survive; `8713483c` holds. **The chunks go**, and that is now the
+whole of the question.
 
-So the fall is very probably not the chunk invalidation at all. Something
-empties the picture wholesale on some landings, in both modes, and the
-invalidation strategy only changes how often the poll catches it.
+### The mechanism: not the invalidation, and here is the proof
 
-### Where to look next
+The obvious suspicion -- that the page takes the stock "drop everything" road
+while the patch's keep-drawing road goes unused -- was checked against the
+installed worker bundle and is **wrong**. The reroute is there and it is
+engaged:
 
-The suspect is the layers, not the chunks. `8713483c` ("the flicker is found
-and fixed: a landing refreshes pixels, never the layers") is the fix that
-says a landing must not rebuild them; if a landing sometimes does, the
-picture would empty exactly this way whatever the chunks are doing. The
-`imageWrittenInPlace` road in `App.jsx` calls `letGoOfDecodedPieces` and then
-`askAgain()`, and it is `askAgain`'s config — not the letting go — that can
-carry a rebuilt layer.
+    // chunk_worker.bundle.js:10252
+    registerRPC(CHUNK_SOURCE_INVALIDATE_RPC_ID, function(x) {
+      const source = this.get(x.id);
+      const pending2 = source.zmartPendingRefresh ||= new Set();
+      for (const key of source.chunks.keys()) pending2.add(key);
+      void zmartPumpRefreshesWithoutDeadline(source);
+    });
 
-Instrument that: record layer identity across every landing of the spiral and
-fail the moment one is replaced rather than refreshed. If layers are stable
-through a failing run, the suspicion is wrong and the chunk path owns it
-after all.
+Every key re-queued through the keep-drawing pump; the frontend is told
+nothing. And the page side only sends the RPC -- `invalidateCache()` in
+`chunk_manager/frontend.js` is two lines and clears nothing locally. So the
+stale pixels are supposed to keep drawing, and the cure is doing its job.
+
+Which leaves the arithmetic. The cure is gated at **0% lit for ~17 ms** by
+`test_the_screen_never_goes_black.py`. What the spiral measures is **1.3% lit
+held across three consecutive 300 ms polls -- about a second, fifty times
+longer.** This is not the one black frame the cure prevents. It is something
+that keeps the picture empty for a second.
+
+### Where that points, and the next instrument
+
+If the frontend keeps drawing stale pixels until fresh bytes replace them,
+then a picture that empties means **the fresh bytes are empty**. The
+whole-source refresh re-asks for every chunk at once; the server, serving an
+unbaked governed picture, composes each on demand and re-derives its composer
+as the commit lands. A piece asked for during that window comes back empty or
+404, the pump delivers it faithfully, and good pixels are replaced by
+nothing -- until the next pass brings the real thing back.
+
+That reading also explains the one sentence already in
+`PLAN_the_picture_grows_a_z_axis.md`: **"the bake is what makes whole-source
+refresh converge in 2-D."** Baked pieces are files. Files are never empty.
+
+**Next instrument, and it is cheap:** count the responses the page receives
+during the fall -- how many pieces came back 404 or zero-length while the lit
+fraction was on the floor. If they are empty, the fault is the server
+answering during its own re-derive, and the fix is there rather than in the
+engine: hold the previous generation's bytes until the new ones exist, which
+is what the bake does by accident and the composer should do on purpose.
+
