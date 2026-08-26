@@ -22,7 +22,7 @@
 
 import { describe, it, expect } from "vitest";
 import { anchorsUm } from "../../workflows/target_acquisition/steps/2_define_carrier/carrier-panel.js";
-import { carrierType, centres, fromPreset }
+import { carrierType, centres, fromPreset, geometry }
   from "../../workflows/target_acquisition/shared/carriers.js";
 
 const MM_UM = 1000;
@@ -78,5 +78,31 @@ describe("the four alignment points", () => {
     const m = by(anchorsUm(eightChambers));
     expect(m.left.x).toBeLessThan(m.right.x);
     expect(m.top.y).toBeLessThan(m.bottom.y);
+  });
+});
+
+/* Where the carrier ends up once all four have been driven to.
+ *
+ * Each snap records "this place on the drawing is that place on the stage",
+ * and the four are averaged into one offset. That leaves the carrier centred
+ * on the middle of the four places the operator drove to — but only because
+ * the marks are laid out symmetrically about the carrier's own centre. The
+ * tie-break that spreads them decides that symmetry, so it is checked here
+ * over every preset rather than assumed from the two that were looked at on
+ * screen. A carrier whose marks lean to one side would come out of alignment
+ * sitting to that side of where it really is.
+ */
+describe("what the four leave behind", () => {
+  const everyPreset = ["chamber", "wellplate", "dish", "area"]
+    .flatMap((type) => (carrierType(type)?.presets ?? [])
+      .filter((p) => p.label !== "Custom")
+      .map((p) => [`${type} · ${p.label}`, fromPreset(type, p)]));
+
+  it.each(everyPreset)("centres %s on the middle of its own marks", (_name, config) => {
+    const marks = anchorsUm(config);
+    const g = geometry(config);
+    const mean = (f) => marks.reduce((sum, m) => sum + f(m), 0) / marks.length;
+    expect(mean((m) => m.x)).toBeCloseTo((g.width / 2) * MM_UM, 6);
+    expect(mean((m) => m.y)).toBeCloseTo((g.height / 2) * MM_UM, 6);
   });
 });
