@@ -200,30 +200,6 @@
         </div>
       </div>
 
-      <!-- Selection has no panel of its own either: the gated cells light up
-           on the canvas, and the channel holds the scatter they are gated on.
-           Parked here and moved into the channel while the step is standing. -->
-      <div id="analysis-controls" hidden>
-          <div class="analysis-side">
-            <div class="side-head">
-              Gate
-              <button type="button" class="ghost tiny" id="clear-gate">Clear gate</button>
-            </div>
-            <div class="legend analysis-legend">
-              <span><i class="dot" style="background:var(--mark-context)"></i> all cells</span>
-              <span><i class="dot" style="background:var(--mark-gated)"></i> gated</span>
-              <span><i class="dot" style="background:var(--mark-acquired)"></i> acquired</span>
-            </div>
-            <div class="scatter-wrap">
-              <div class="scatter-host">
-                <canvas id="scatter-canvas"></canvas>
-                <div class="tip" id="scatter-tip"></div>
-              </div>
-            </div>
-            <div class="side-note" id="gate-readout">drag a rectangle to gate</div>
-          </div>
-      </div>
-
     </div>
   </div>
 
