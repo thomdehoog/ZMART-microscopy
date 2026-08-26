@@ -23,6 +23,8 @@
 const WHERE =
   new URLSearchParams(globalThis.location?.search ?? "").get("bridge") ?? "";
 
+import { PENDING, isFailed } from "./microscopes.js";
+
 /** One call to the bridge: JSON in, JSON out, failure as a plain sentence. */
 async function ask(route, payload) {
   const answer = await fetch(`${WHERE}${route}`, payload === undefined
@@ -41,33 +43,59 @@ async function ask(route, payload) {
 
 const rest = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+/** How often the connection's health is asked for while it is still answering. */
+export const POLL_MS = 250;
+
 export const backend = {
   /**
-   * Open the session through the bridge and report what was verified.
+   * Open the session through the bridge, then watch the driver's own
+   * connection checks answer.
    *
-   * The bridge answers once, with the driver's account of itself, so the
-   * checks here are that account unpacked — each row lands through `onCheck`
-   * the way the pretend ones do, just all at the same moment.
+   * The driver reports its health in `get_info().connection_status`: ordered
+   * keys, each `"pending"` until answered, a value beginning `failed` when a
+   * check failed. This polls that until nothing is pending. The keys go out
+   * through `onChecks` on the first read, so the window can put every
+   * question on screen before any answer exists; each answer lands through
+   * `onCheck(index, value)` once, as it turns up. Resolves with the driver's
+   * info once every check has answered; rejects, naming the check, when one
+   * has failed.
    */
-  async connect(session, { onCheck } = {}) {
-    const checks = [
-      { id: "bridge", label: "Bridge reachable" },
-      { id: "driver", label: "Driver connected" },
-      { id: "instrument", label: "Instrument reports itself" },
-    ];
-    const { context, info } = await ask("/api/connect", {
-      instrument: session?.instrument ?? "mock",
-    });
-    /* Answers land after the return: the window builds its rows from the
-       list this hands back, so an answer delivered before that would find no
-       row to land in. The pretend backend's timers kept the same order by
-       accident; here it is kept on purpose. */
-    setTimeout(() => {
-      onCheck?.(0, WHERE || "same origin");
-      onCheck?.(1, `${context.vendor} · ${context.microscope} · ${context.api}`);
-      onCheck?.(2, JSON.stringify(info).slice(0, 60));
-    }, 0);
-    return { checks };
+  async connect(session, { onChecks, onCheck } = {}) {
+    await ask("/api/connect", { instrument: session?.instrument ?? "mock" });
+    let keys = null;
+    const answered = new Set();
+    for (;;) {
+      const info = await this.info();
+      const status = info.connection_status ?? {};
+      if (keys === null) {
+        keys = Object.keys(status);
+        onChecks?.(keys);
+      }
+      let pending = false;
+      let failure = null;
+      keys.forEach((key, k) => {
+        const value = status[key];
+        if (value === PENDING) { pending = true; return; }
+        if (!answered.has(key)) {
+          answered.add(key);
+          onCheck?.(k, value);
+          if (isFailed(value)) failure ??= `${key}: ${value}`;
+        }
+      });
+      if (failure) throw new Error(failure);
+      if (!pending) return { info };
+      await rest(POLL_MS);
+    }
+  },
+
+  /** The driver's account of the session: `get_info` through the controller. */
+  async info() {
+    return ask("/api/info");
+  },
+
+  /** Where the stage is: `get_xyz` through the controller. */
+  async xyz() {
+    return ask("/api/xyz");
   },
 
   /**

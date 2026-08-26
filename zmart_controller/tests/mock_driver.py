@@ -16,6 +16,7 @@ University of Zurich (thom.dehoog@zmb.uzh.ch, thomdehoog@gmail.com).
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -58,6 +59,10 @@ class MockHandle:
     client: str | None = None
     connection: dict = field(default_factory=dict)
     tile_positions: list[dict] = field(default_factory=list)
+    # when the session opened (time.monotonic); the connection checks answer
+    # one after another from here, so a client polling get_info sees them
+    # arrive the way it will on an instrument that takes time to answer
+    connected_at: float = 0.0
 
     # set by disconnect(); every other op refuses a closed handle
     closed: bool = False
@@ -73,6 +78,7 @@ def connect(connection: dict):
     handle = MockHandle()
     handle.client = connection.get("client")
     handle.connection = dict(connection)
+    handle.connected_at = time.monotonic()
     handle.tile_positions = [
         {"x": 0.0, "y": 0.0, "z": 0.0, "tile_size": {"x": 100.0, "y": 100.0}},
         {"x": 120.0, "y": 0.0, "z": 0.0, "tile_size": {"x": 100.0, "y": 100.0}},
@@ -269,15 +275,58 @@ def run_procedure(handle: MockHandle, procedure: dict) -> dict:
     return {"ran": dict(procedure)}
 
 
+# How far the mock's stage travels, in micrometres from the raw zero. The
+# canvas a client draws is this area to scale; the stage's position is
+# get_xyz's business, not this constant's.
+CANVAS_UM = {"x_um": [0.0, 120_000.0], "y_um": [0.0, 80_000.0], "z_um": [0.0, 10_000.0]}
+
+# The connection checks, in the order they answer, each with the delay after
+# connect (seconds) at which its answer becomes available. Until then a client
+# polling get_info reads "pending" for it. A real driver answers these from
+# the instrument; the mock answers from its own state, staggered so the
+# pending state is real and not just a word.
+_CONNECTION_CHECKS: list[tuple[str, float]] = [
+    ("driver", 0.0),
+    ("client", 0.25),
+    ("serial", 0.5),
+    ("stage", 0.75),
+    ("output root", 1.0),
+]
+
+PENDING = "pending"
+
+
+def _connection_status(handle: MockHandle) -> dict[str, str]:
+    elapsed = time.monotonic() - handle.connected_at
+    user = _user_position(handle)
+    answers = {
+        "driver": "mock · mock-scope · mock-api",
+        "client": str(handle.client),
+        "serial": handle.serial,
+        "stage": f"x {user['x']:.1f} · y {user['y']:.1f} · z {user['z']:.1f} um",
+        "output root": str(Path(handle.connection.get("output_root") or "mock-output")),
+    }
+    return {
+        key: (answers[key] if elapsed >= after else PENDING) for key, after in _CONNECTION_CHECKS
+    }
+
+
 def get_info(handle: MockHandle) -> dict:
-    """Return the live vendor-authored setup and resolved output root."""
+    """Return the live vendor-authored setup, the connection's health, and the canvas.
+
+    ``connection_status`` is what a client shows under Connect: one row per
+    key, its value the answer or ``"pending"`` until the check has answered
+    (a value beginning ``failed`` is a failed check). ``canvas`` is the stage
+    travel a client draws to scale; where the stage is comes from ``get_xyz``.
+    """
     _require_open(handle)
     root = Path(handle.connection.get("output_root") or "mock-output")
     return {
+        "connection_status": _connection_status(handle),
+        "canvas": dict(CANVAS_UM),
         "tile_positions": [dict(pos) for pos in handle.tile_positions],
         "focus_positions": [
-            {"x": pos["x"], "y": pos["y"], "z": pos["z"]}
-            for pos in handle.tile_positions
+            {"x": pos["x"], "y": pos["y"], "z": pos["z"]} for pos in handle.tile_positions
         ],
         "client": handle.client,
         "output_root": str(root),
