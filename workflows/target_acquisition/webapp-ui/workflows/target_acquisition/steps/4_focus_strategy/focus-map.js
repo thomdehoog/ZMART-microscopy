@@ -150,6 +150,11 @@ const perField = (f) => Math.max(1, Math.round(f.perField) || 1);
  * measuring it once is cheaper than measuring it in every tileset that happens
  * to be on it.
  *
+ * The two know different amounts. In each tileset knows only the tileset it is
+ * working on, and gives the same answer for it whatever else the plan holds.
+ * Across the carrier is the one that has been asked about the carrier, and is
+ * the only one that looks at how the rest of it is laid out.
+ *
  * Either way the ground is shared out by `sharePoints`, which settles the
  * points against the sample rather than against the frames that will image it,
  * and leaves each of them inside a frame.
@@ -158,14 +163,15 @@ function patternFocusPoints(over = "tileset") {
   if (!run.plan.length) return [];
   const n = perField(run.focus);
   const drawn = tilesByField();
-  /* Whether there is a repetition to break. A plate of wells is laid out the
-     same way in every one of them, so points settled against it come to rest at
-     the same spot in each — the same tile, the same corner of it, ninety-six
-     times over. One tileset has no twin to be confused with and keeps the even
-     arrangement the settling found, which is the best there is. It is asked of
-     the plan rather than of the group, because in each tileset the repetition is
-     across the groups and across the carrier it is inside one. */
-  const vary = drawn.length > 1;
+  /* Only the carrier-wide press knows there is a carrier. In each tileset is a
+     question about that tileset and nothing outside it: so many points, spread
+     as evenly over this drawn thing as they can be, and the same answer whether
+     it is alone on a slide or one of ninety-six. Across the carrier is the
+     press that has been asked about the whole of it, and there the wells being
+     laid out identically is a fact about the thing being measured — points
+     settled against it come to rest at the same spot in every one, so each is
+     let off the middle of its share. */
+  const vary = over === "carrier" && drawn.length > 1;
   const groups = over === "carrier" ? [inScanOrder(run.plan)] : drawn;
   return groups
     .flatMap((held) => sharePoints(held, n, { vary }))
