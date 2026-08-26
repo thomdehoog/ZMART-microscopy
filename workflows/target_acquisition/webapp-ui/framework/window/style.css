@@ -1135,7 +1135,14 @@ canvas.livecv[hidden] { display: none; }
    box lines up with the ones it governs rather than stretching across a row
    built for two. It carries no label of its own — the heading above says what
    it is, and a caption repeating that is a word the eye has to read twice. */
-.sf-overlap { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
+/* Two headed columns: the figure the tiles are laid at, and the way to take
+   them all away. The headings are grid cells of their own so each sits over
+   the control it names, rather than one label spanning both. */
+.sf-overlap {
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px; align-items: center;
+}
+.sf-overlap > .side-sub { margin: 0; }
 
 /* The record is the button that chooses it: one press says what this step is
    taken with. It carries no frame of its own — the box around it is the
