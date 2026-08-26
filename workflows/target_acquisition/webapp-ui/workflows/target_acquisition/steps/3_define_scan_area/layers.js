@@ -7,7 +7,10 @@
  * ends up on top — you cannot edit what you cannot see.
  */
 export function scanAreaLayers(theRun) {
-  const { run, drawnIn, scanfieldsWidget, activePreset, indexOfStep, editing, shown } = theRun;
+  const {
+    run, drawnIn, scanfieldsWidget, activePreset, indexOfStep, editing, shown,
+    asAPress, editorTook, renderRail,
+  } = theRun;
   return {
     plan: {
     key: "plan",
@@ -42,6 +45,19 @@ export function scanAreaLayers(theRun) {
     paint: (frame) => {
       const { place, scale } = drawnIn(frame);
       editing.drawChrome(frame.context, { toScreen: place, scale });
+    },
+    /* Drawing a region, moving a field, closing an outline: each is a press,
+       then the moves, then the release, and the editor needs the whole gesture
+       or none of it. It is asked before the focus map because it sits higher in
+       the stack, which is also the order an operator expects — the thing being
+       drawn answers first. */
+    claims: (drag) => {
+      const press = asAPress(drag);
+      if (drag.phase === "started") return editorTook("down", press);
+      if (drag.phase === "moved") { editorTook("move", press); return true; }
+      editorTook("up", press);
+      renderRail();
+      return true;
     },
   },
   };

@@ -80,10 +80,9 @@ const theCanvas = putTheCanvasIn({
      to let it show, which is the only place anybody was looking. */
   background: "transparent",
   layersAbove: [],
-  /* The run answers for a drag before the picture pans with it, and for a
-     press that claimed nothing and went nowhere. Both are declared here
-     because both are this run's business, not the canvas's. */
-  handDragsTo: (drag) => theRunWantsThisDrag(drag),
+  /* A press that claimed nothing and went nowhere is the run's own picking, so
+     it is answered here. A drag is not: the layers answer for those
+     themselves, each in its place in the stack. */
   onPressed: (where) => theRunWasPressed(where),
   /* The travel's micrometres, not the carrier's. The canvas draws in the
      carrier's frame because that is where the run puts things, but what an
@@ -503,6 +502,12 @@ function theStageLayers({ shown, ch0, ch1, editing }) {
     editing, shown, ch0, ch1,
     crosshair, tileTexture, density, trueZ,
     drawFocusLayer, drawStageLimits, drawWhereTheStageIs, drawScaleBar,
+    /* What a layer needs to answer for a gesture of its own. Handed over rather
+       than reached for, so a layer says what a press on it means without
+       knowing anything about the page it is drawn on. */
+    asAPress, renderRail, renderActionBar, editorTook,
+    focusGrabbed, marqueeing, focusMarqueeTo, focusMarqueeTook,
+    focusDragging, focusDraggedTo, endFocusDrag, focusPressed,
   };
 
   const supplied = {
@@ -724,62 +729,27 @@ function drawScaleBar(ctx, w, h, scale) {
    empty canvas for the shape it is about to make. */
 /* Whose gesture is this?
  *
- * The canvas asks before it pans, and this answers for the whole run. One
- * answer rather than one per layer, because the order the question is asked in
- * is this run's own: the editor first, so drawing a region does not drag the
- * picture out from under the shape being drawn; then a focus point already on
- * the map, because it is the small thing on top; then nobody, and the picture
- * pans.
+ * Not this file's business any more. The canvas asks the layers, top of the
+ * stack down, and each says whether the press is its own — the editing chrome
+ * while a field is being drawn or moved, the focus map while a point is being
+ * taken hold of or a set marqueed. Whatever none of them wanted pans the
+ * picture.
  *
- * Alt+drag never reaches here — the canvas keeps that for panning, so there is
- * always a way to move the picture whatever a tool is doing.
+ * That order used to be written out here, as three lines in a fixed sequence.
+ * It now falls out of where the layers sit, which is the same answer and one
+ * that a new step cannot get wrong: put a layer in the stack and it is asked in
+ * its place, without this file learning it exists.
  */
-let whoHasTheDrag = null;
 
-/* The canvas speaks in micrometres and in pixels inside its box; the presses
-   here were written against a DOM event. This is the one place the two meet. */
+/* The canvas speaks in micrometres on the sample and in pixels inside its box;
+   the presses a layer answers with were written against a DOM event. This is
+   the one place the two meet, and it is handed to the layers rather than each
+   of them working it out. */
 const asAPress = (drag) => ({
   offsetX: drag.screen.x,
   offsetY: drag.screen.y,
   shiftKey: !!drag.shift,
 });
-
-function theRunWantsThisDrag(drag) {
-  const press = asAPress(drag);
-
-  if (drag.phase === "started") {
-    whoHasTheDrag = null;
-    /* Locked, nothing is drawn or picked by accident. Panning and zooming are
-       untouched — the lock is about picking, not about looking. */
-    if (layersLocked()) return false;
-    if (editorTook("down", press)) { whoHasTheDrag = "editor"; return true; }
-    // a point already on the map is taken hold of before the picture is
-    if (focusGrabbed(press)) { whoHasTheDrag = "focus"; return true; }
-    return false;
-  }
-
-  if (drag.phase === "moved") {
-    if (whoHasTheDrag === "editor") { editorTook("move", press); return true; }
-    if (marqueeing()) { focusMarqueeTo(press.offsetX, press.offsetY); return true; }
-    if (focusDragging()) { focusDraggedTo(press.offsetX, press.offsetY); return true; }
-    return whoHasTheDrag !== null;
-  }
-
-  const held = whoHasTheDrag;
-  whoHasTheDrag = null;
-  if (marqueeing()) { focusMarqueeTook(press.shiftKey); renderActionBar(); return true; }
-  if (focusDragging()) {
-    const { moved } = endFocusDrag();
-    /* Held still on a point: the press picked it, and that is the whole of it.
-       Placing happens where there is no point yet, which `focusPressed`
-       answers for. */
-    if (!moved && run.focus.placing) focusPressed(press.offsetX, press.offsetY);
-    renderActionBar();
-    return true;
-  }
-  if (held === "editor") { editorTook("up", press); renderRail(); return true; }
-  return held !== null;
-}
 
 /* A press that nothing claimed and that went nowhere: the run's own picking —
    an anchor put down, a focus point placed, the position detection is tuned on.
@@ -795,7 +765,10 @@ function theRunWasPressed({ screen }) {
 /* Hovering claims nothing, so it is watched here rather than routed: what is
    under the pointer decides the cursor and whatever the tip has to say. */
 stageBox.addEventListener("pointermove", (e) => {
-  if (whoHasTheDrag || marqueeing() || focusDragging()) return;
+  /* Nothing to say while a gesture is under way: whoever claimed it is being
+     told about every move already, and a second opinion about what is under the
+     pointer would only fight it. */
+  if (theCanvas.gesturing || marqueeing() || focusDragging()) return;
 
   /* The editor first, and not only for the tip: this is how it learns the
      pointer is over one of its fields, which is what turns the cursor into an

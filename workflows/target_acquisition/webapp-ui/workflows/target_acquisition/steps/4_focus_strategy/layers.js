@@ -6,7 +6,11 @@
  * statement about the same glass the plan is drawn on.
  */
 export function focusLayers(theRun) {
-  const { drawnIn, activeMode, drawFocusLayer } = theRun;
+  const {
+    run, drawnIn, activeMode, drawFocusLayer, asAPress, renderActionBar,
+    focusGrabbed, marqueeing, focusMarqueeTo, focusMarqueeTook,
+    focusDragging, focusDraggedTo, endFocusDrag, focusPressed,
+  } = theRun;
   return {
     focus: {
     key: "focus",
@@ -29,6 +33,30 @@ export function focusLayers(theRun) {
     paint: (frame) => {
       const { place, scale, w, h } = drawnIn(frame);
       drawFocusLayer(frame.context, place, scale, w, h);
+    },
+    /* A point already on the map is taken hold of before the picture is: it is
+       the small thing on top, and a press that finds one should move it rather
+       than move everything. Shift on empty ground draws a rectangle round a set
+       of them instead — which the canvas offers rather than refusing, precisely
+       so this can mean something. */
+    claims: (drag) => {
+      const press = asAPress(drag);
+      if (drag.phase === "started") return focusGrabbed(press);
+      if (drag.phase === "moved") {
+        if (marqueeing()) { focusMarqueeTo(press.offsetX, press.offsetY); return true; }
+        if (focusDragging()) { focusDraggedTo(press.offsetX, press.offsetY); return true; }
+        return true;
+      }
+      if (marqueeing()) { focusMarqueeTook(press.shiftKey); renderActionBar(); return true; }
+      if (focusDragging()) {
+        const { moved } = endFocusDrag();
+        /* Held still on a point: the press picked it, and that is the whole of
+           it. Placing happens where there is no point yet, which `focusPressed`
+           answers for. */
+        if (!moved && run.focus.placing) focusPressed(press.offsetX, press.offsetY);
+        renderActionBar();
+      }
+      return true;
     },
   },
   };
