@@ -26,8 +26,8 @@ microscope and no files:
 ```
 python -m pip install -e ".[dev]"
 python -m playwright install chromium
-npm --prefix zmart-viewer/frontend install
-npm --prefix zmart-viewer/frontend run build
+npm --prefix zmart-viewer/app/page install
+npm --prefix zmart-viewer/app/page run build
 python zmart-viewer/run_demo.py
 ```
 

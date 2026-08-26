@@ -424,20 +424,23 @@ def as_the_run_declared(browser, built_dist, tmp_path):
         thread.join(timeout=5)
 
 
-def test_the_range_a_run_declares_bounds_the_window_not_the_axis(as_the_run_declared):
-    """A twelve-bit camera cannot produce 9000, so no black or white point goes there.
+def test_the_range_a_run_declares_bounds_both_the_window_and_the_axis(
+        as_the_run_declared):
+    """A twelve-bit camera cannot produce 9000, so nothing on the panel goes there.
 
-    The declared range still reaches the viewer, and it still bounds the
-    thing that matters: the WINDOW. A black or white point beyond the
-    pixels would describe brightness that does not exist, so however the
-    window is moved -- slider, typed box, or the bars on the histogram --
-    it can never leave the image's own range. The AXIS is different since
-    the redesign of 2026-08-23: the boxes beneath the histogram take the
-    operator's number as given, past the declared range and below zero
-    alike, because the framing promises the window's marks a fixed pair
-    of places on the picture. This gate used to clamp the axis too, and
-    now pins the split: the axis obeys the operator, the window obeys the
-    camera.
+    The declared range reaches the viewer and bounds every mover on the
+    panel: the black and white points, because a mark beyond the pixels
+    would describe brightness that does not exist, and the axis beneath
+    the histogram too, because stretching it past the camera only draws
+    guaranteed-empty space beside the picture.
+
+    One gate, every mover passes it. There was briefly a split -- the
+    axis free, the window bound (2026-08-23) -- and it was closed a day
+    later (2026-08-24, ``fc501e20``, "the axis aims at its marks and
+    stops at the possible"), but this gate went on asking for the split
+    and failed for three days. Settled by the operator on 2026-08-26 in
+    favour of the one rule: what the camera cannot produce, the panel
+    does not offer.
     """
     page = as_the_run_declared
     told = page.evaluate("() => window.zmartConfig.layers[0].range")
@@ -445,7 +448,7 @@ def test_the_range_a_run_declares_bounds_the_window_not_the_axis(as_the_run_decl
         f"the viewer was served a range of {told}; the run declared 0 to 4095"
     )
     _choose(page, "chA")
-    # The operator may draw the axis as far as they ask...
+    # The axis stops where the pixels do...
     box = page.get_by_label("axis to chA")
     box.click()
     box.fill("9000")
@@ -453,11 +456,11 @@ def test_the_range_a_run_declares_bounds_the_window_not_the_axis(as_the_run_decl
     page.wait_for_timeout(500)
     reach = page.locator("[aria-label='max chA']").evaluate(
         "(element) => Number(element.max)")
-    assert reach == 9000, (
-        f"the axis reaches {reach}; the box beneath the histogram takes the "
-        "operator's number as given since 2026-08-23"
+    assert reach == 4095, (
+        f"the axis was stretched to {reach}, past the 4095 the run says its "
+        "numbers live in -- everything beyond it is empty by construction"
     )
-    # ...but the white point may not follow the axis past the camera.
+    # ...and so does the white point.
     value = page.get_by_label("max value chA")
     value.click()
     value.fill("9000")

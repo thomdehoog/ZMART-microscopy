@@ -15,7 +15,7 @@ wid = target["kCGWindowNumber"]
 bounds = target["kCGWindowBounds"]
 print(f"window {wid} at {bounds['Width']:.0f}x{bounds['Height']:.0f}")
 
-B = "/Users/thomdehoog/Documents/Projects/ZMART-microscopy-thy1-linked-spiral/zmart-viewer/backend"
+B = "/Users/thomdehoog/Documents/Projects/ZMART-microscopy-thy1-linked-spiral/zmart-viewer/app/server"
 req = urllib.request.Request(
     "http://127.0.0.1:8848/api/stores/replay",
     data=json.dumps({"path": B + "/test_stores/test_grid_16",

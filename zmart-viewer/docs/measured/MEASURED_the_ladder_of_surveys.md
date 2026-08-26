@@ -360,7 +360,7 @@ from the container, on a machine with twenty-four cores.
 Everything needed is on this branch. Setup:
 ``pip install -r requirements.txt playwright pillow pytest``, then
 ``python -m playwright install chromium``, then build the viewer once
-(``cd zmart-viewer/frontend && npm install && npm run build``) and the
+(``cd zmart-viewer/app/page && npm install && npm run build``) and the
 options harness once (``npm --prefix zmart-viewer/parked/harness install``
 then ``... run build``) -- without it the suite's pixel-reading tests
 skip, and say so only in the summary. Run

@@ -21,7 +21,7 @@ under 225 ms, storm held at 20 commits/s). The GPU should beat all of it.
 Work through these in order, and stop to report rather than improvise if a
 step goes red:
 
-1. **Clean build.** `cd zmart-viewer/frontend && npm install && npm run build`.
+1. **Clean build.** `cd zmart-viewer/app/page && npm install && npm run build`.
    The build must end with the bundle-verification line — that proves the
    patched engine (the no-black refresh pump) is in the bundle.
 

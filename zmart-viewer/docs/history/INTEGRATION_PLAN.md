@@ -93,7 +93,7 @@ test, as the roadmap notes.
 
 ## File-by-file changes
 
-Everything lands in the spike's stack (`zmart-viewer/frontend`, `zmart-viewer/backend`);
+Everything lands in the spike's stack (`zmart-viewer/app/page`, `zmart-viewer/app/server`);
 the prototype stays as the design reference.
 
 - **`app/page/src/LayerPanel.jsx`** — grow from the eye + colour swatch it has

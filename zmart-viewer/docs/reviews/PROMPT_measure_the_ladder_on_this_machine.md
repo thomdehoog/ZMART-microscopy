@@ -26,7 +26,7 @@ establish the real numbers, then push on the recorded open threads.
 
 1. Set up: `pip install -r requirements.txt playwright pillow pytest`,
    `python -m playwright install chromium`, then
-   `cd zmart-viewer/frontend && npm install && npm run build`, and the
+   `cd zmart-viewer/app/page && npm install && npm run build`, and the
    options harness too: `npm --prefix zmart-viewer/parked/harness
    install && npm --prefix zmart-viewer/parked/harness run build` —
    without it the suite's pixel-reading tests skip quietly.

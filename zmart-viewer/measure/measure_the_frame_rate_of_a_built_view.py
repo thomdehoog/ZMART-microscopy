@@ -83,7 +83,7 @@ def main() -> int:
     if not (dist / "index.html").exists():
         raise SystemExit(
             "the viewer page has not been built; build it once with\n"
-            "  npm --prefix zmart-viewer/frontend run build"
+            "  npm --prefix zmart-viewer/app/page run build"
         )
 
     started, browser = watching.a_browser(asked.headed)

@@ -225,7 +225,7 @@ def test_the_picture_is_what_lets_the_viewer_open_the_run_at_all(tmp_path):
     like from the viewer's own side.
     """
     import sys
-    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "zmart-viewer" / "backend"))
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "zmart-viewer" / "app" / "server"))
     from stores import discover
 
     folder = tmp_path / "experiment"
@@ -504,7 +504,7 @@ def test_a_later_moment_reaches_the_picture_and_is_counted(tmp_path):
     watcher.
     """
     import sys
-    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "zmart-viewer" / "backend"))
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "zmart-viewer" / "app" / "server"))
     from stores import written_timepoints
 
     folder = tmp_path / "experiment"
@@ -602,7 +602,7 @@ def test_a_run_may_place_positions_overlapping_when_it_points_shallower(tmp_path
     import sys
 
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]
-                           / "zmart-viewer" / "backend"))
+                           / "zmart-viewer" / "app" / "server"))
     import linking
 
     folder = tmp_path / "experiment"

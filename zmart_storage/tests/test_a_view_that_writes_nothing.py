@@ -116,7 +116,7 @@ def test_every_zoom_is_the_picture_it_should_be(tmp_path):
     """
     import sys
     from pathlib import Path
-    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "zmart-viewer" / "backend"))
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "zmart-viewer" / "app" / "server"))
     import linking
 
     levels = 4

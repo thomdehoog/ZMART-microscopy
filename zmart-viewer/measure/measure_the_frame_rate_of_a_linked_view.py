@@ -45,7 +45,7 @@ Running it
     python zmart-viewer/measure_the_frame_rate_of_a_linked_view.py --budget 900
     python zmart-viewer/measure_the_frame_rate_of_a_linked_view.py --steps 1,5,20,50
 
-It needs the viewer page to have been built (``npm --prefix zmart-viewer/frontend run
+It needs the viewer page to have been built (``npm --prefix zmart-viewer/app/page run
 build``) and a Chromium it can drive. It writes tiny tiles into a temporary folder
 and removes them afterwards.
 """
@@ -590,8 +590,8 @@ def main() -> int:
         raise SystemExit(
             f"the viewer page has not been built ({built} holds no index.html), so "
             "there is nothing for a browser to open. Build it with:\n"
-            "  npm --prefix zmart-viewer/frontend install\n"
-            "  npm --prefix zmart-viewer/frontend run build"
+            "  npm --prefix zmart-viewer/app/page install\n"
+            "  npm --prefix zmart-viewer/app/page run build"
         )
 
     started, browser = a_browser(asked.headed)

@@ -1,6 +1,6 @@
 """A transfer from another microscope, shown as one picture without copying it.
 
-``zmart-viewer/building`` serves a folder of separately-written tiles as a single
+``zmart-viewer/app/picture`` serves a folder of separately-written tiles as a single
 OME-Zarr that holds no pixels: every piece of it is built out of whichever tiles
 cover that ground, when the browser asks. These are the tests that hold it to
 that, and they are written against a synthetic transfer so they run anywhere --

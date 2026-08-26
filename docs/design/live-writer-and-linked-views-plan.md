@@ -2,7 +2,7 @@
 
 **Status:** implemented reference pipeline in `zmart_live/`. The production
 coordinator earns readiness, keeps both multiscale views metadata-only, serves
-manifest-gated canonical inner-chunk ranges through `zmart-viewer/backend`, and
+manifest-gated canonical inner-chunk ranges through `zmart-viewer/app/server`, and
 the production frontend now refreshes affected stable aggregate sources from a
 watched committed revision. Microscope integration, Windows/SMB qualification,
 and execution of the new pixel scenarios on each target browser/GPU remain
@@ -161,7 +161,7 @@ what makes the thing testable.
 | timepoints | per-position/per-moment view writes, manifest gating, immutable replacement generations, restart recovery, and refusal to reopen existing arrays with different declared room | growing beyond declared room and microscope integration |
 | ownership | visual and analysis ROIs, complete-footprint refusal, immutable layout snapshots, and exhaustive small-grid tests | the deliberately deferred concurrent-analysis consumer |
 | view pyramids | metadata-only raw and seamless multiscales; every level and outer edge resolves to canonical encoded bytes | real-viewer performance qualification |
-| sharding | checked inner-chunk byte-range resolver wired through the shared gateway into `zmart-viewer/backend` | real-viewer shard geometry benchmark and Windows/SMB timing |
+| sharding | checked inner-chunk byte-range resolver wired through the shared gateway into `zmart-viewer/app/server` | real-viewer shard geometry benchmark and Windows/SMB timing |
 | scenes | internal scene model, real raw selector store, OME-Zarr 0.5 seamless metadata, and bounded Neuroglancer adapter payload | automatic manifest-driven frontend refresh and later scene-standard serialization |
 | browser/backend | real-Neuroglancer synthetic run and sabotage harness, plus a real-HTTP test of the application backend gate | a browser test that starts the application backend itself and portable Chromium provisioning |
 

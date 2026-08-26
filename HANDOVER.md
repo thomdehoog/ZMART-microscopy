@@ -37,7 +37,7 @@ implementation between them, and every fault they exposed closed.
   smaller copies to eight, and from roughly nineteen thousand requests to open a
   view down to about thirty.
 
-### The existing viewer — `zmart-viewer/frontend` and `backend`, same branch
+### The existing viewer — `zmart-viewer/app/page` and `backend`, same branch
 
 The React application with neuroglancer inside it. It works, and this session found
 and fixed real faults in it — including one that had been shipping for months.
