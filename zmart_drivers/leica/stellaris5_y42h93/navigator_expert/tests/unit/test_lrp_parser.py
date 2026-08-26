@@ -20,9 +20,8 @@ from navigator_expert.scanfields.lrp import _get_job_names, parse_lrp
 
 TEST_DATA = Path(__file__).resolve().parents[1] / "data"
 # The two folders holding exports of the 3-job "collecting pattern" sequence
-# these invariants describe. Other folders under tests/data may hold .lrp
-# files of other sequences (tests/data/z_readback: "AF Job 01" with a stack
-# on one drive or the other), which have their own tests.
+# these invariants describe; tests/data/z_readback holds saved experiments
+# of another job set, with their own tests.
 ALL_LRP_FIXTURES = sorted(
     [
         *(TEST_DATA / "scanfield_parsing").glob("*.lrp"),

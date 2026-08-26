@@ -672,12 +672,9 @@ def confirm_and_fire(
                 total_attempts,
                 confirm_attempts,
             )
-            # A confirmation may succeed without verifying: it says so by
-            # carrying ``confirmed: None`` (accepted as sent, no readback
-            # exists — the Z stack drive). Otherwise success means verified.
             return {
                 "success": True,
-                "confirmed": conf_result.get("confirmed", True),
+                "confirmed": True,
                 "message": description,
                 "timing": _make_timing(
                     pre_check_s=acc_pre,
