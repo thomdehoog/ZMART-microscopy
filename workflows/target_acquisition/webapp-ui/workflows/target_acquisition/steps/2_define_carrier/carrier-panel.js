@@ -19,7 +19,7 @@
 import { sideGroup } from "../../../../framework/window/panels.js";
 import {
   CARRIER_TYPES, carrierType, fromPreset, matchingPreset, geometry, maxRadius,
-  centres, depthMm, scanBox,
+  centres, depthMm,
 } from "../../shared/carriers.js";
 
 const SVG = "http://www.w3.org/2000/svg";
@@ -145,7 +145,12 @@ function drawTheDepthBehind(ctx, x, y, w, h, dx, dy, fill) {
  * than out of one corner of it.
  */
 export function anchorsUm(config) {
-  const box = scanBox(config);
+  /* Half an area, edge to edge — not `scanBox`, which insets by the rounded
+     corner so a square frame never overhangs it. That inset is right for
+     planning and wrong here: it put every mark a good way inside the line it
+     was supposed to be on, and on a round well the inset is nearly a third of
+     the radius. */
+  const halfW = config.w / 2, halfH = config.h / 2;
   const areas = centres(config);
   const g = geometry(config);
   const midX = g.width / 2, midY = g.height / 2;
@@ -165,11 +170,15 @@ export function anchorsUm(config) {
   const top = among((a) => near(a.y, atLeast((n) => n.y)), (a) => a.x, midX);
   const bottom = among((a) => near(a.y, atMost((n) => n.y)), (a) => a.x, midX);
 
+  /* Exactly on the border, and on the part of it that runs straight: the
+     middle of a side is where a rectangle's edge is vertical or horizontal,
+     and on a circle it is where the rim's tangent is. Either way the mark sits
+     on a line an operator can drive along and see. */
   return [
-    { at: "left", x: (left.x - box.halfW) * MM_UM, y: left.y * MM_UM },
-    { at: "right", x: (right.x + box.halfW) * MM_UM, y: right.y * MM_UM },
-    { at: "top", x: top.x * MM_UM, y: (top.y - box.halfH) * MM_UM },
-    { at: "bottom", x: bottom.x * MM_UM, y: (bottom.y + box.halfH) * MM_UM },
+    { at: "left", x: (left.x - halfW) * MM_UM, y: left.y * MM_UM },
+    { at: "right", x: (right.x + halfW) * MM_UM, y: right.y * MM_UM },
+    { at: "top", x: top.x * MM_UM, y: (top.y - halfH) * MM_UM },
+    { at: "bottom", x: bottom.x * MM_UM, y: (bottom.y + halfH) * MM_UM },
   ];
 }
 
