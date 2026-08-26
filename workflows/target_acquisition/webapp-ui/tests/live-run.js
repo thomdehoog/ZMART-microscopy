@@ -142,7 +142,7 @@ export async function walkToTheScan(page) {
      drawing exactly as it would with the plan over it, and the photographs
      measure the picture alone. */
   await page.addStyleTag({
-    content: "canvas.stagecv { visibility: hidden !important; }",
+    content: ".stagecv { visibility: hidden !important; }",
   });
 }
 
