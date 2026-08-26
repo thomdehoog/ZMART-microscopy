@@ -371,7 +371,7 @@ export default {
     /* Where the carrier is on the stage, as against what it is made of. A
        point is put on the drawing here and driven to on the microscope; what
        is done with the pair is the next thing to build. */
-    const { group: anchorBox, body: anchorCard } = sideGroup("Register carrier");
+    const { group: anchorBox, body: anchorCard } = sideGroup("Align carrier");
     designer.append(anchorBox);
 
     const anchorAdd = el("button", "sf-flat", "Add anchor points");
@@ -396,7 +396,10 @@ export default {
       anchors.list().forEach((a, i) => {
         const row = el("div", "point-row");
         const pick = el("div", "point-pick");
-        pick.innerHTML = `<span class="idx">${i + 1}</span>`
+        /* Named by the border it sits on rather than numbered, because that is
+           how it is found on the picture: an operator reading "left" knows
+           which of the four green marks to drive to without counting. */
+        pick.innerHTML = `<span class="idx">${a.at ?? i + 1}</span>`
           + `<span>${(a.x / MM_UM).toFixed(2)}, ${(a.y / MM_UM).toFixed(2)} mm</span>`
           + (a.stage
             ? `<span class="z">${(a.stage.x / MM_UM).toFixed(2)}, `
