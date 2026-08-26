@@ -535,10 +535,9 @@ export default {
     /* How much of one frame the next covers. It leads the box because it is
        the first thing decided about a tileset and the one that everything else
        is laid against: change it and every grid below is laid again. */
-    layout.append(el("div", "side-sub", "Tile overlap"));
+    layout.append(el("div", "side-sub", "Tile overlap (%)"));
     const overlapRow = el("div", "sf-overlap");
     const overlapNum = el("div", "sf-num");
-    overlapNum.append(el("span", "sf-num-label", "OVERLAP (%)"));
     const overlapIn = document.createElement("input");
     overlapIn.type = "number";
     overlapIn.min = "0";

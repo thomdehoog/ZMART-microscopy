@@ -712,7 +712,7 @@ test("the tools and the grid are on screen together, over what the grid laid",
     await expect(page.locator(".side-group:has(.sf-tools) .sf-apply-grid"),
       "one box holding both ways of doing it").toHaveCount(1);
     await expect(page.locator(".side-group:has(.sf-tools) .side-sub"))
-      .toHaveText(["Tile overlap", "Place manually", "Place automatically"]);
+      .toHaveText(["Tile overlap (%)", "Place manually", "Place automatically"]);
     await expect(page.locator(".sf-readout")).toContainText("864 positions");
 
     /* What the grid put down is still a set of fields, so it can be picked,
