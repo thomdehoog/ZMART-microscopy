@@ -755,7 +755,7 @@ export default {
     /* Below the tilesets, because it is read after the tiles are down rather
        than before: the overlap every tileset is re-covered at, and under it
        the shortcuts, folded away. */
-    const { group: placementBox, body: placement } = sideGroup("Tile placement");
+    const { group: placementBox, body: placement } = sideGroup("Tileset placement");
     placement.append(overlapRow, keysBox);
     controls.append(placementBox);
 
