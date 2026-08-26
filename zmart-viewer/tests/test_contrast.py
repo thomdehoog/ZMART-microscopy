@@ -180,7 +180,9 @@ def test_measuring_an_unreadable_store_still_gives_a_usable_window(tmp_path):
 # was the whole story a live run opened with no histogram -- the panel had
 # nothing to draw and the Auto button nothing to work from. The contract
 # layout says exactly where the real pixels are (the members of the
-# acquisition's data collection), so the measurement follows the link.
+# acquisition's data collection), so the measurement follows them -- and it
+# reaches them the same way from either store in the view folder, because
+# what it walks up to is the run, not the view.
 
 def a_linked_run(folder, *, channels=("channel 0",), value=1200):
     from zmart_live.coordinator import LivePublisher
@@ -199,7 +201,22 @@ def a_linked_run(folder, *, channels=("channel 0",), value=1200):
         for index in range(len(channels)):
             pixels[index] = value * (index + 1)
     run.write_and_publish("p00", pixels)
-    return folder / "views" / "live" / "live.ome.zarr"
+    # The picture the viewer is actually served, which the live registry has
+    # named as the live source since 2026-08-12. It used to be the linked
+    # view beside it; that one is written when the run FINISHES, so a
+    # measurement aimed at it had nothing to read while the microscope was
+    # still going -- Auto went dead on exactly the runs it is for
+    # (2026-08-26). Both sit in the same view folder and both measure
+    # through the same members, so what this gate asks has not changed.
+    #
+    # Declared here because that is what opening the run does, and a
+    # measurement only ever happens on a run somebody has opened. Before the
+    # linked view moved to end-of-run this fixture got away with naming a
+    # store nothing had declared, because the writer left one behind on every
+    # publish.
+    from live_config import LIVE_PICTURE, the_live_picture_declared
+    the_live_picture_declared(folder)
+    return folder / LIVE_PICTURE
 
 
 def test_a_linked_live_picture_measures_through_its_members(tmp_path):
