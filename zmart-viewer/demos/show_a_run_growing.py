@@ -88,7 +88,7 @@ def a_quicker_page() -> Path:
     read at startup, so a copy of ``dist`` with one script tag prepended is
     the entire mechanism -- the build itself is not touched.
     """
-    built = _BUILDING.parent / "app" / "page" / "dist"
+    built = _VIZ / "app" / "page" / "dist"
     copied = Path(tempfile.mkdtemp(prefix="zmart-quick-page-")) / "dist"
     shutil.copytree(built, copied)
     page = copied / "index.html"
@@ -256,7 +256,7 @@ def main() -> int:
                                            bake=True)
 
     site = a_quicker_page() if asked.quick_page else (
-        _BUILDING.parent / "app" / "page" / "dist")
+        _VIZ / "app" / "page" / "dist")
     server = make_server(port=asked.port, data_dir=shown, site_dir=site,
                          store=[store.name], window=harness.BRIGHT)
     threading.Thread(target=server.serve_forever, daemon=True).start()
