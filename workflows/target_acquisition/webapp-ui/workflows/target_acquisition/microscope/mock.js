@@ -29,7 +29,7 @@
  */
 
 import {
-  pretendCanvas, pretendConnectionStatus, pretendPositionUm, sampleReading,
+  pretendCanvas, pretendConnectionStatus, pretendInstruments, pretendPositionUm, sampleReading,
 } from "./microscopes.js";
 import { makeRng } from "./pretend-sample/rng.js";
 import { METRICS, METRIC_KEYS, debrisAt, sweep, pickPeak } from "./pretend-sample/sweep.js";
@@ -43,6 +43,11 @@ const focusZAt = (x, y, [w, h]) =>
   -412 + 96 * (x / w - 0.5) + 61 * (y / h - 0.5);
 
 export const backend = {
+  /** What can be connected to: the registry's entries, as the controller lists them. */
+  async instruments() {
+    return pretendInstruments();
+  },
+
   /**
    * Open the session and verify it, one named check at a time.
    *
