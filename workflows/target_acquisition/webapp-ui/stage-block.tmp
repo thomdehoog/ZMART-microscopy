@@ -1,0 +1,1022 @@
+  /* ============================================================
+     the stage viewer — one projection, layers on top
+     ============================================================ */
+  const stageCv = el("stage-canvas");
+  const stageTip = el("stage-tip");
+  const view = { scale: 0.03, tx: 0, ty: 0, fitted: false };
+
+  /* The canvas is the stage, so it is what the view frames — not the carrier
+     inside it and not the scan inside that. Everything else is drawn in the
+     same coordinates and lands where it belongs.
+
+     Its size is the instrument's: `get_info().canvas` gives the travel and
+     where the stage is, and connecting takes both. Before a session there
+     is the placeholder, so the picture has a frame to draw. */
+  const TRAVEL_BEFORE_A_SESSION = [120_000, 80_000];
+  const STAGE_UM = [...TRAVEL_BEFORE_A_SESSION];
+  let stageReported = null;
+
+  function takeTheCanvas(canvas) {
+    if (!canvas?.x_um || !canvas?.y_um) return;
+    STAGE_UM[0] = canvas.x_um[1] - canvas.x_um[0];
+    STAGE_UM[1] = canvas.y_um[1] - canvas.y_um[0];
+    view.fitted = false;
+    drawStage();
+  }
+
+  /** The stage mark: where the watch reads the stage, in micrometres. */
+  function takeThePosition(at) {
+    if (!at || Number.isNaN(at.x) || Number.isNaN(at.y)) return;
+    stageReported = at;
+    drawStage();
+  }
+
+  /* Where the carrier's own zero sits on the stage.
+   *
+   * Centred in the travel, because that is where a holder puts a plate and it
+   * is the only placement that can be worked out rather than measured. It is a
+   * default and not a fact: the real offset comes from calibrating against a
+   * plate actually on the stage, and this is the one line that answer replaces.
+   *
+   * Everything the run produces is placed from this point too, so the carrier
+   * and what was imaged inside it move together instead of drifting apart the
+   * moment either of them moves. */
+  function carrierOriginUm() {
+    const [w, h] = carrierWidget.extentUm(state.carrier);
+    return [(STAGE_UM[0] - w) / 2, (STAGE_UM[1] - h) / 2];
+  }
+
+  function fitView() {
+    const w = stageCv.cssW || 800, h = stageCv.cssH || 600;
+    const pad = 26;
+    const [fw, fh] = STAGE_UM;
+    const s = Math.min((w - 2 * pad) / fw, (h - 2 * pad) / fh);
+    view.scale = s;
+    view.tx = (w - fw * s) / 2;
+    /* At the top, with the margin the sides have, rather than floating in
+       the middle of whatever height the window happens to give the canvas. */
+    view.ty = pad;
+    view.fitted = true;
+  }
+
+  /* Where the microscope is, in stage micrometres.
+   *
+   * Worked out rather than stored. It is wherever the run last drove to — the
+   * position of the tile the scan has just taken — and the middle of the
+   * travel before it has driven anywhere, which is where a stage sits when
+   * nothing has asked it to be anywhere else. A stored copy would be a second
+   * answer to keep right, and would be wrong the first time a step forgot to
+   * write to it.
+   */
+  /* Where the stage is parked before the run has driven it anywhere, as a
+     fraction of the travel. In the corner rather than the middle, and far
+     enough into the corner to be off the carrier as well as off the middle of
+     it: a carrier is mounted centred, so the margin around it is the only part
+     of the travel where a mark is on the picture without being on top of a
+     well. A real driver replaces this with the position it reads. */
+  const PARKED = [0.04, 0.04];
+
+  function whereTheStageIs() {
+    const [ox, oy] = carrierOriginUm();
+    const taken = state.plan[Math.min(state.tilesShown, state.plan.length) - 1];
+    /* Reported by the instrument at connect when it was; parked otherwise. */
+    if (!taken && stageReported) {
+      return { x: stageReported.x, y: stageReported.y, z: stageReported.z };
+    }
+    const [cx, cy] = taken
+      ? [taken.x, taken.y]
+      : [STAGE_UM[0] * PARKED[0] - ox, STAGE_UM[1] * PARKED[1] - oy];
+    /* The height is the sample's, because that is what the objective is on
+       when it is anywhere at all. Before a focus strategy has been applied it
+       is what the surface would be if it were measured there, which is the
+       same claim the rest of the mock makes about the sample. */
+    return { x: cx + ox, y: cy + oy, z: trueZ(cx, cy) };
+  }
+
+  /* Where the microscope is standing, over everything else on the picture.
+   *
+   * A crosshair rather than a dot, and a crosshair with a hole in the middle:
+   * the arms reach out of whatever is under them, and the gap leaves the exact
+   * position visible instead of covering the one pixel the mark is about. Its
+   * size is in screen pixels and not in micrometres, because it is not a thing
+   * on the stage that can be zoomed into — it is a statement about the stage,
+   * and it has to stay the same size to keep being read as one.
+   *
+   * The numbers are beside it because the mark alone answers "where on this
+   * picture", and the question is where on the stage. */
+  /* The mark: a crosshair with a hole in the middle. The gap is the point of
+     it — the arms reach out of whatever is behind them and the centre stays
+     clear, so the mark shows a position rather than covering it. */
+  function crosshair(ctx, x, y, arm, gap, dot) {
+    ctx.beginPath();
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      ctx.moveTo(x + dx * gap, y + dy * gap);
+      ctx.lineTo(x + dx * arm, y + dy * arm);
+    }
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(x, y, dot, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  /* Whether the pointer is on the mark. Kept here rather than worked out while
+     drawing, because it is the pointer that decides it and the drawing happens
+     for many other reasons than the pointer having moved. */
+  let stageMarkHot = false;
+
+  /* How close the pointer has to be to count as on it, in screen pixels. A
+     little wider than the mark itself: it is a cross made of thin lines, and
+     asking for the exact pixel of one of them is asking for a fight. */
+  const STAGE_MARK_REACH = 15;
+
+  /** Where the mark is on screen, for the pointer to be measured against. */
+  const stageMarkAt = () => {
+    const at = whereTheStageIs();
+    return toScreen(at.x, at.y);
+  };
+
+  /* Where the microscope is standing, drawn on the stage.
+   *
+   * Through the same projection as everything else on the canvas, so it is
+   * registered to the stage rather than to the screen: pan the picture and it
+   * travels with the carrier, zoom in and it stays over the same micrometre.
+   * That is the whole point of it — a mark that sat still while the picture
+   * moved would be decoration.
+   *
+   * Its size is the one thing not in stage units. It is in screen pixels,
+   * because the mark is not a thing on the stage that can be zoomed into — it
+   * is a statement about the stage, and it has to stay the same size to keep
+   * being read as one.
+   *
+   * It says where and not what. The three numbers behind it are worth having
+   * and are not worth having on screen at all times: a permanent readout in
+   * the corner is three figures to read past on every step, when the question
+   * they answer is only ever asked about this one mark. So they arrive on
+   * hover, and the mark thickens to say it is the thing being asked about. */
+  function drawWhereTheStageIs(ctx) {
+    const [x, y] = stageMarkAt();
+    ctx.save();
+    ctx.strokeStyle = css("--mark-stage");
+    ctx.fillStyle = css("--mark-stage");
+    ctx.lineWidth = stageMarkHot ? 2.5 : 1.5;
+    crosshair(ctx, x, y, 12, 4, stageMarkHot ? 2.2 : 1.6);
+    ctx.restore();
+  }
+
+  /**
+   * Point the tip at the mark, or say that it is not on it.
+   *
+   * The tip is the page's own hover panel — the one the cells use — so where a
+   * hover answer appears is one decision made once, rather than this mark
+   * inventing a second place for the same kind of answer to show up in.
+   *
+   * Millimetres across and micrometres down, because that is what the rest of
+   * the page says: a stage is driven in millimetres and focused in micrometres.
+   */
+  function tipTheStageMark(e) {
+    const [mx, my] = stageMarkAt();
+    const hot = Math.hypot(e.offsetX - mx, e.offsetY - my) <= STAGE_MARK_REACH;
+    if (hot !== stageMarkHot) { stageMarkHot = hot; drawStage(); }
+    if (!hot) return false;
+    const at = whereTheStageIs();
+    stageTip.classList.add("on");
+    stageTip.innerHTML =
+      `<b>stage</b><br><b>x</b> ${(at.x / 1000).toFixed(2)} mm`
+      + `<br><b>y</b> ${(at.y / 1000).toFixed(2)} mm`
+      + `<br><b>z</b> ${at.z.toFixed(0)} µm`;
+    stageTip.style.left = `${Math.min(e.offsetX + 14, stageCv.cssW - 130)}px`;
+    stageTip.style.top = `${Math.max(6, e.offsetY - 66)}px`;
+    return true;
+  }
+
+  /* Where the stage ends. Drawn first and faintly: it is the edge of what any
+     of this can reach, which is context for everything else rather than a
+     thing in its own right. */
+  function drawStageLimits(ctx) {
+    const [x, y] = toScreen(0, 0);
+    ctx.save();
+    ctx.strokeStyle = css("--line-strong");
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x + 0.5, y + 0.5, STAGE_UM[0] * view.scale, STAGE_UM[1] * view.scale);
+    ctx.restore();
+  }
+
+  const toScreen = (x, y) => [x * view.scale + view.tx, y * view.scale + view.ty];
+  const toWorld = (px, py) => [(px - view.tx) / view.scale, (py - view.ty) / view.scale];
+
+  function tileTexture(ctx, tile, place) {
+    const [sx, sy] = place(tile.x - tile.frameUm / 2, tile.y - tile.frameUm / 2);
+    const sz = tile.frameUm * view.scale;
+
+    // tile ground with a gentle per-tile vignette — the flat-field seam
+    // an operator actually sees in a stitched overview
+    const g = ctx.createRadialGradient(sx + sz / 2, sy + sz / 2, sz * 0.1, sx + sz / 2, sy + sz / 2, sz * 0.75);
+    g.addColorStop(0, "#0d1a24");
+    g.addColorStop(1, "#05090e");
+    ctx.fillStyle = g;
+    ctx.fillRect(sx, sy, sz + 0.6, sz + 0.6);
+  }
+
+  const layersOff = new Set();
+  let layerFade = 1;
+  let layersLocked = false;
+  let seeThroughGround = [];
+  /* The stack as it was last drawn, so the controls and a click can ask about
+     it without drawing a frame to find out. */
+  let theStack = [];
+
+  function theStageLayers({ place, shown, ch0, ch1, w, h, editing }) {
+    const activeMode = step(state.activeIdx).mode;
+
+    return [
+      {
+        key: "ground",
+        label: "Background",
+        explains: "The page's own surface, under everything else the canvas draws. Turn it "
+          + "off and the picture underneath shows through everywhere; leave it on and the "
+          + "picture shows only where a window has been opened.",
+        /* **This is the layer that decides whether a picture underneath can be
+           seen at all**, and it is worth being plain about why it is a layer
+           rather than a fill.
+        
+           The scan itself is drawn on a surface of its own, beneath this one.
+           Anything painted here covers it. So if this were painted outside the
+           stack — which is how it was written first — a window cut through the
+           layers would have nothing to reveal: the drawing above would go, and
+           the page's own grey would still be sitting on top of the picture.
+        
+           As the bottom layer of the stack it is cut by the same window as
+           everything above it, by the same rule and in the same pass. Open a
+           window over the fields that have landed and the scan appears there,
+           through every layer including this one. Turn this off altogether and
+           the scan is simply visible everywhere.
+        
+           It is a flat fill and therefore the one layer that is not sparse, but
+           that is exactly its job: it is the ground, and ground is not sparse. */
+        shown: true,
+        paint: ({ context: ctx, width, height }) => {
+          ctx.fillStyle = css("--screen");
+          ctx.fillRect(0, 0, width, height);
+        },
+      },
+
+      {
+        key: "limits",
+        label: "Stage",
+        explains: "The edge of where the stage can travel. Context for everything else "
+          + "rather than a thing the run produced, which is why it is drawn faintly.",
+        /* With the session, not before: the limits are a readout from the
+           connected microscope's configuration, so an unconnected page shows
+           nothing it cannot yet know. */
+        shown: state.done.has("connect"),
+        paint: ({ context: ctx }) => drawStageLimits(ctx),
+      },
+
+      {
+        key: "carrier",
+        label: "Carrier",
+        explains: "The plate the sample is mounted in — its outline and its wells. The "
+          + "room the run happens in.",
+        shown: state.done.has("carrier"),
+        paint: ({ context: ctx }) => {
+          /* Grey, not the accent: the carrier is the room the run happens in,
+             not a thing the run produced. Dark enough to read against the stage
+             behind it, which is grey too. */
+          carrierWidget.drawOn(ctx, {
+            config: state.carrier, toScreen: place, scale: view.scale,
+            colour: css("--ink-3"), fill: css("--surface-3"),
+          });
+        },
+      },
+
+      {
+        key: "tiles",
+        label: "Tiles",
+        explains: "The fields the scan has taken, in the order it wrote them, with the "
+          + "tissue each one found. This is what the run has actually seen.",
+        shown: shown > 0,
+        paint: ({ context: ctx }) => {
+          ctx.save();
+          const done = state.plan.slice(0, shown);
+          for (const t of done) tileTexture(ctx, t, place);
+          /* Tissue is drawn inside the tiles that have been taken, because an
+             image is the only way the run knows it is there. */
+          ctx.globalCompositeOperation = "lighter";
+          for (const t of done) {
+            const d = density(t.x, t.y);
+            if (d < 0.02) continue;
+            const [bx, by] = place(t.x, t.y);
+            const br = (t.frameUm * 0.75) * view.scale;
+            const g = ctx.createRadialGradient(bx, by, 0, bx, by, br);
+            if (ch0) g.addColorStop(0, `rgba(34,211,238,${0.34 * d})`);
+            g.addColorStop(0.55, ch1 ? `rgba(245,158,11,${0.16 * d})` : `rgba(34,211,238,${0.12 * d})`);
+            g.addColorStop(1, "rgba(0,0,0,0)");
+            ctx.fillStyle = g;
+            ctx.beginPath(); ctx.arc(bx, by, br, 0, Math.PI * 2); ctx.fill();
+          }
+          ctx.restore();
+
+          // ---- scan frontier: the tile the stage is standing on
+          if (state.running === "scan" && state.plan[shown]) {
+            const t = state.plan[shown];
+            const [fx, fy] = place(t.x - t.frameUm / 2, t.y - t.frameUm / 2);
+            ctx.strokeStyle = css("--accent");
+            ctx.lineWidth = 2;
+            ctx.setLineDash([5, 4]);
+            ctx.strokeRect(fx, fy, t.frameUm * view.scale, t.frameUm * view.scale);
+            ctx.setLineDash([]);
+          }
+
+          /* ---- sample bounds: the edge of what has been imaged, so it exists
+             once something has been. Drawn from the first tile it was a second
+             square sitting in the plate's corner before any of this had
+             happened, which says the run has a sample somewhere it does not yet
+             have one. */
+          if (sample.bounds) {
+            const b = sample.bounds;
+            const [bx, by] = place(b.xMin, b.yMin);
+            ctx.strokeStyle = css("--line-strong");
+            ctx.lineWidth = 1;
+            ctx.strokeRect(bx, by, (b.xMax - b.xMin) * view.scale, (b.yMax - b.yMin) * view.scale);
+          }
+        },
+        /* A click on a taken field is a click on that field. This is what
+           opening a position from the picture will hang off. */
+        reaches: (at) => {
+          const half = (t) => t.frameUm / 2;
+          return state.plan.slice(0, shown).find(
+            (t) => Math.abs(at.x - t.x) <= half(t) && Math.abs(at.y - t.y) <= half(t),
+          ) ?? null;
+        },
+      },
+
+
+      {
+        key: "cells",
+        label: "Cells",
+        explains: "What detection found. The ones that passed the gate are ringed, so which "
+          + "is which does not rest on colour alone.",
+        shown: state.cellsShown,
+        paint: ({ context: ctx }) => {
+          const ctxRad = Math.max(1.1, 1.4 * Math.sqrt(view.scale / 0.03));
+          ctx.fillStyle = css("--mark-context");
+          ctx.globalAlpha = 0.55;
+          ctx.beginPath();
+          for (const c of sample.cells) {
+            if (!state.detected.has(c.id) || state.gated.has(c.id)) continue;
+            const [x, y] = place(c.x, c.y);
+            if (x < -8 || y < -8 || x > w + 8 || y > h + 8) continue;
+            ctx.moveTo(x + ctxRad, y);
+            ctx.arc(x, y, ctxRad, 0, Math.PI * 2);
+          }
+          ctx.fill();
+          ctx.globalAlpha = 1;
+
+          // gated cells — ringed, so identity is not carried by colour alone
+          const gr = Math.max(3, 4.2 * Math.sqrt(view.scale / 0.03));
+          for (const c of sample.cells) {
+            if (!state.gated.has(c.id)) continue;
+            const [x, y] = place(c.x, c.y);
+            if (x < -10 || y < -10 || x > w + 10 || y > h + 10) continue;
+            ctx.beginPath(); ctx.arc(x, y, gr, 0, Math.PI * 2);
+            ctx.fillStyle = "#0284c7"; ctx.fill();
+            ctx.lineWidth = 1.5; ctx.strokeStyle = css("--screen"); ctx.stroke();
+          }
+        },
+        reaches: (at) => {
+          let best = 12 / view.scale, hit = null;
+          for (const c of sample.cells) {
+            if (!state.detected.has(c.id)) continue;
+            const d = Math.hypot(c.x - at.x, c.y - at.y);
+            if (d < best) { best = d; hit = c; }
+          }
+          return hit;
+        },
+      },
+
+      {
+        key: "targets",
+        label: "Targets",
+        explains: "The cells that have been imaged at high resolution.",
+        shown: state.acquired.length > 0,
+        paint: ({ context: ctx }) => {
+          for (const id of state.acquired) {
+            const c = sample.cells[id - 1];
+            const [x, y] = place(c.x, c.y);
+            const rr = Math.max(7, 9 * Math.sqrt(view.scale / 0.03));
+            ctx.beginPath(); ctx.arc(x, y, rr, 0, Math.PI * 2);
+            ctx.strokeStyle = "#16a34a"; ctx.lineWidth = 2.2; ctx.stroke();
+            ctx.beginPath(); ctx.arc(x, y, 2.2, 0, Math.PI * 2);
+            ctx.fillStyle = "#16a34a"; ctx.fill();
+          }
+        },
+      },
+
+      {
+        key: "focus",
+        label: "Focus",
+        explains: "Where the microscope will focus, and what it has measured there. Stays "
+          + "solid however far the rest is faded: fading the plan to see the picture is "
+          + "not a request to lose the focus points too.",
+        /* Only while standing on that step — walking away leaves the canvas the
+           plain picture every other step reads. */
+        shown: activeMode === "focus",
+        /* Not held back to the end, though it was at first. The scan fields are
+           drawn *over* the focus map — that is the order the page had before
+           any of this was a stack — and holding the map back put it on top
+           instead, which covered the very fields the operator is placing focus
+           points among. A layer that stays solid is a layer drawn last, so it
+           cannot also be a layer drawn early: this one has to be early, and the
+           cost is that the shared fade reaches it. Splitting the map from the
+           points would buy back both, and is the thing to do if that fade ever
+           matters here. */
+        paint: ({ context: ctx }) => drawFocusLayer(ctx, place, view.scale, w, h),
+      },
+
+      {
+        key: "plan",
+        label: "Plan",
+        explains: "The positions the microscope was told to visit. It stays readable once "
+          + "the tiles start landing on top of it, dimmed, because by then the images "
+          + "are the answer and this is only the question.",
+        /* Not before the step that says where to scan. Walking back to the
+           carrier is walking back to a question the plan is an answer to — the
+           fields were placed against these areas, and drawing them over a plate
+           that is still being changed shows a plan for a carrier that may be
+           about to stop existing. The fields are kept, not discarded: coming
+           forward again finds them where they were. */
+        shown: state.activeIdx >= indexOfStep("scanfields"),
+        paint: ({ context: ctx }) => {
+          scanfieldsWidget.drawOn(ctx, {
+            fields: state.fields, preset: activePreset(), carrier: state.carrier,
+            toScreen: place, scale: view.scale, dim: shown > 0,
+            marked: editing?.marked(),
+          });
+        },
+      },
+
+      {
+        key: "detect",
+        label: "Test field",
+        explains: "The one position detection is being tuned on, so the canvas says which "
+          + "tile the channel's preview is of.",
+        shown: activeMode === "detect" && !!state.plan[state.detect.tile],
+        staysSolid: true,
+        paint: ({ context: ctx }) => {
+          const t = state.plan[state.detect.tile];
+          const half = t.frameUm / 2;
+          const [x, y] = place(t.x - half, t.y - half);
+          ctx.strokeStyle = css("--accent");
+          ctx.lineWidth = 2;
+          ctx.strokeRect(x, y, t.frameUm * view.scale, t.frameUm * view.scale);
+        },
+      },
+
+      {
+        key: "editing",
+        label: "Editing",
+        explains: "The handles and guides of whatever is being drawn by hand. Always solid "
+          + "and always on top: you cannot edit what you cannot see.",
+        shown: !!editing,
+        staysSolid: true,
+        paint: ({ context: ctx }) => editing.drawChrome(ctx, { toScreen: place, scale: view.scale }),
+      },
+
+      {
+        key: "anchors",
+        label: "Anchors",
+        explains: "The points the carrier is being registered from — where the plate really "
+          + "is, as opposed to where it was assumed to be. Solid, because a mark you are "
+          + "placing by hand has to be exactly where you put it.",
+        /* Only on the step that places them: away from it they are answered
+           questions, and the carrier drawn from them says the same thing. */
+        shown: activeMode === "carrier" && state.anchors.length > 0,
+        staysSolid: true,
+        paint: ({ context: ctx }) => {
+          const [ox, oy] = carrierOriginUm();
+          ctx.strokeStyle = css("--mark-focus");
+          ctx.fillStyle = css("--mark-focus");
+          for (const a of state.anchors) {
+            const [x, y] = toScreen(a.x + ox, a.y + oy);
+            ctx.lineWidth = a.stage ? 2.4 : 1.6;
+            crosshair(ctx, x, y, 11, 4, a.stage ? 3 : 2);
+          }
+        },
+      },
+
+      {
+        key: "stage",
+        label: "Where the stage is",
+        explains: "A crosshair on the position the stage is standing at. Always solid: it "
+          + "is where the microscope actually is, and that should never be the thing that "
+          + "went faint.",
+        /* With the session: where the stage is standing is a readout from the
+           microscope, and there is no microscope until the operator has
+           connected. */
+        shown: state.done.has("connect"),
+        staysSolid: true,
+        paint: ({ context: ctx }) => drawWhereTheStageIs(ctx),
+      },
+
+      {
+        key: "scale",
+        label: "Scale bar",
+        explains: "How far a stretch of screen is on the sample. A reading rather than a "
+          + "drawing, so it stays solid — a scale bar you can half see through is a scale "
+          + "bar you cannot trust.",
+        /* A reading about a stage nobody has connected to yet would be a
+           reading about nothing. */
+        shown: state.done.has("connect"),
+        staysSolid: true,
+        paint: ({ context: ctx }) => drawScaleBar(ctx, w, h),
+      },
+    ];
+  }
+
+  function drawStage() {
+    if (!sizeCanvas(stageCv)) return;
+    if (!view.fitted) fitView();
+    const ctx = stageCv.getContext("2d");
+    const w = stageCv.cssW, h = stageCv.cssH;
+
+    /* Cleared to nothing. The page's own surface is painted by the bottom
+       layer of the stack rather than here, and that is not tidiness — it is
+       what lets a picture be seen underneath at all. See the `ground` layer. */
+    ctx.clearRect(0, 0, w, h);
+
+    /* The canvas only shows what the run actually knows. Before a session is
+       open it knows nothing, so it is empty; the stage limits are a readout
+       from the connected microscope's configuration, so they appear with the
+       session; the carrier appears at its own step, when the run is told what
+       the sample is mounted in.
+
+       **Each layer decides that for itself, and the drawing never stops early.**
+       It used to return here, before anything had been drawn, which was right
+       while this surface was opaque and wrong the moment a picture was put
+       beneath it: returning skipped the background along with everything else,
+       so a scan the run had not got to yet was showing through an empty canvas
+       before the operator had even connected. A layer with nothing to say draws
+       nothing; the ground is still ground. */
+
+    /* One projection for everything that sits in the carrier: the carrier
+       itself and every tile, cell and target the run put inside it. Handed
+       down rather than reached for, so where the carrier stands is decided in
+       one place and nothing can be drawn against a different answer. */
+    const [ox, oy] = carrierOriginUm();
+    const place = (x, y) => toScreen(x + ox, y + oy);
+
+    const editing = sideWidget()?.id === "scanfields" ? state.editor : null;
+    const stack = theStageLayers({
+      place,
+      shown: Math.max(state.tilesShown, 0),
+      /* Both colours, always. Which channels are mixed is a question about a
+         picture, and the viewer that draws it is where it will be asked —
+         which is why the switches that used to be under the canvas are gone. */
+      ch0: true,
+      ch1: true,
+      w, h, editing,
+    });
+    /* Two different questions, and they must not be run together. `hasSomething`
+       is whether the *run* has anything for this layer — no cells have been
+       found, no targets imaged — and it decides whether the layer gets a
+       control at all. `shown` is what reaches the screen, which is that answer
+       and then whatever the operator hid.
+
+       Conflating them was wrong in both directions: a layer the operator hid
+       lost its own button, so there was no way to bring it back; and a layer
+       the run had nothing for still offered a button that did nothing. */
+    for (const layer of stack) {
+      layer.hasSomething = layer.shown !== false;
+      if (layersOff.has(layer.key)) layer.shown = false;
+    }
+    theStack = stack;
+
+    /* The whole stack in one drawing, faded and cut through as the controls
+       say. Micrometres in the carrier's own frame, which is where the tiles,
+       the cells and the targets all live — so a window given in those numbers
+       lands on the fields it names. */
+    theDrawingAbove(stack, { dial: layerFade, seeThrough: seeThroughGround })?.({
+      context: ctx,
+      centre: { x: 0, y: 0 },
+      zoom: 1 / view.scale,
+      width: w,
+      height: h,
+      density: 1,
+      project: (x, y) => { const [px, py] = place(x, y); return { x: px, y: py }; },
+      unproject: (px, py) => { const [wx, wy] = toWorld(px, py); return { x: wx - ox, y: wy - oy }; },
+    });
+
+    /* Set here rather than on the pointer alone, so a tool armed from the panel
+       or a key says so before the mouse is moved to find out. */
+    stageCv.style.cursor = editing ? editing.cursor() : focusCursor();
+
+    /* The scan beneath follows the view the plan was just drawn with, so the
+       two are never a frame apart. Cheap: it is two divisions and a setView,
+       and the engine only redraws if something actually moved. */
+    thePicture.followTheStage();
+    renderStageLayerControls();
+  }
+
+  /**
+   * The controls for the stack, built again whenever the stack changes.
+   *
+   * Built rather than written into the markup, because the stack is not fixed:
+   * it grows as a run goes — the cells appear when detection has found some,
+   * the targets when any have been imaged — and a row of controls written out
+   * in advance would either name layers that do not exist yet or leave a layer
+   * on screen with no way to turn it off.
+   *
+   * A layer the run has nothing for is left out entirely rather than shown
+   * unavailable. There is no useful difference for an operator between a
+   * control that cannot be pressed and a control that is not there, and the
+   * second takes less room in a bar that has other things to say.
+   */
+  let barSaysThis = "";
+
+  function renderStageLayerControls() {
+    const stageLayerBar = el("stage-layers");
+    if (!stageLayerBar) return;
+    const here = theStack.filter((layer) => layer.paint && layer.hasSomething);
+    /* Rebuilt only when the set of layers actually changes. A run redraws the
+       canvas many times a second while scanning, and rebuilding a row of
+       buttons that often would take the press an operator was in the middle
+       of. */
+    const signature = here.map((l) => `${l.key}:${layersOff.has(l.key)}`).join("|")
+      + `|${layerFade}|${layersLocked}`;
+    if (signature === barSaysThis) return;
+    barSaysThis = signature;
+    stageLayerBar.textContent = "";
+    if (!here.length) return;
+
+    const title = document.createElement("span");
+    title.style.cssText = "font-weight:600;color:var(--ink-3)";
+    title.textContent = "Layers";
+    stageLayerBar.append(title);
+
+    for (const layer of here) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "layer-chip";
+      button.dataset.layer = layer.key;
+      button.setAttribute("aria-pressed", String(!layersOff.has(layer.key)));
+      button.title = layer.explains ?? "";
+      button.textContent = layer.label ?? layer.key;
+      button.addEventListener("click", () => {
+        if (layersOff.has(layer.key)) layersOff.delete(layer.key);
+        else layersOff.add(layer.key);
+        drawStage();
+      });
+      stageLayerBar.append(button);
+    }
+
+    /* One dial for the whole stack. "Let me see what is underneath" is one
+       thought and should be one movement, not a visit to every layer in turn.
+       It only ever fades: a layer already set faint does not become solid
+       because this is turned up. */
+    const fade = document.createElement("label");
+    fade.className = "layer-fade";
+    fade.title = "How solid the layers are drawn. Turn it down to see what is underneath "
+      + "them. Layers that stay solid — the focus points, the editing handles — are not "
+      + "affected.";
+    const slider = document.createElement("input");
+    slider.type = "range";
+    slider.min = "0"; slider.max = "100"; slider.step = "1";
+    slider.value = String(Math.round(layerFade * 100));
+    slider.id = "layer-fade";
+    slider.setAttribute("aria-label", "How solid the layers are drawn");
+    slider.addEventListener("input", () => {
+      layerFade = Number(slider.value) / 100;
+      barSaysThis = "";
+      drawStage();
+    });
+    fade.append(document.createTextNode("Fade"), slider);
+    stageLayerBar.append(fade);
+
+    /* The lock. An operator spends a long time looking at a plan they have
+       already settled — checking it, showing it to somebody, panning around it
+       while the run goes — and in all that time a stray click can only do harm.
+       Locking leaves panning and zooming exactly as they were and stops only
+       the picking. */
+    const lock = document.createElement("button");
+    lock.type = "button";
+    lock.className = "layer-chip";
+    lock.id = "layers-lock";
+    lock.setAttribute("aria-pressed", String(layersLocked));
+    lock.title = "Lock the layers so nothing can be picked, moved or drawn by accident. "
+      + "Panning and zooming go on working.";
+    lock.textContent = "Lock";
+    lock.addEventListener("click", () => {
+      layersLocked = !layersLocked;
+      barSaysThis = "";
+      drawStage();
+    });
+    stageLayerBar.append(lock);
+  }
+
+  /**
+   * Open the ground the scan has already covered, so the picture shows through.
+   *
+   * Called as fields land. The plan, the tiles and everything else drawn over a
+   * field that has been taken is opened up there, which is how an operator
+   * watches the scan appear through their own drawing rather than beside it.
+   *
+   * In micrometres in the carrier's own frame, which is where the fields are,
+   * so the window travels with the sample when the view is panned and grows
+   * when it is magnified.
+   */
+  function openTheGroundThatHasBeenScanned(howMuch = 1) {
+    const shown = Math.max(state.tilesShown, 0);
+    seeThroughGround = state.plan.slice(0, shown).map((t) => ({
+      x: t.x - t.frameUm / 2,
+      y: t.y - t.frameUm / 2,
+      w: t.frameUm,
+      h: t.frameUm,
+      letThrough: howMuch,
+    }));
+    drawStage();
+  }
+
+  /**
+   * What the canvas will answer to, from outside it.
+   *
+   * There is no picture drawn beneath this canvas yet — that is the next piece
+   * of work — so nothing on the page calls these. They are here rather than
+   * held back because they are what the picture will be shown *through*, and
+   * because a rule nobody can exercise is a rule nobody can check. The browser
+   * tests drive them.
+   */
+  window.__theStageCanvas = {
+    /** Open the ground the scan has covered, so a picture beneath shows there. */
+    openScannedGround: openTheGroundThatHasBeenScanned,
+    /** Close every window again. */
+    closeTheGround() { seeThroughGround = []; drawStage(); },
+    /** Open one named piece of the sample, in micrometres in the carrier's frame. */
+    openThisGround(windows) { seeThroughGround = windows ?? []; drawStage(); },
+    /** Which layers there are, and which are being drawn. */
+    layers: () => theStack.map(({ key, label, shown, staysSolid }) =>
+      ({ key, label, shown, staysSolid: !!staysSolid })),
+    /**
+     * Draw one of the layers, or stop drawing it.
+     *
+     * The same thing the controls in the canvas foot did before that strip was
+     * taken off the screen. Here rather than only on a button because turning a
+     * layer on and off is a thing the canvas can do, and it should not stop
+     * being possible because nobody has yet decided where the button for it
+     * belongs.
+     */
+    showLayer(key, on) {
+      if (on) layersOff.delete(key);
+      else layersOff.add(key);
+      barSaysThis = "";
+      drawStage();
+    },
+    /** How solid the layers are drawn, 0 to 1. */
+    fadeTo(howSolid) {
+      layerFade = Math.min(1, Math.max(0, Number(howSolid)));
+      barSaysThis = "";
+      drawStage();
+    },
+    /**
+     * Where the run means to send the stage, in micrometres in the carrier's
+     * own frame.
+     *
+     * This is the pairing the whole arrangement rests on, and it is worth
+     * saying plainly where it shows up: **the files a microscope writes do not
+     * say where they were taken.** The run knows, because it is the run that
+     * sent the stage there. So making the small pictures for a scan means
+     * handing these positions in alongside the files, and this is where a
+     * rehearsal gets them from — exactly as the real thing will.
+     */
+    plan: () => state.plan.map(({ x, y, frameUm }) => ({ x, y, frameUm })),
+    /**
+     * Where a place on the sample lands on screen, as the plan itself works it
+     * out.
+     *
+     * Here so that a test can ask the plan and the scan the same question and
+     * compare their answers. That comparison is the one that matters: the two
+     * are drawn by different code on different surfaces, and the only thing
+     * making them one picture is that they agree about where things are. A
+     * difference of a few pixels would look like a slightly blurry scan and be
+     * a run pointed at the wrong place.
+     */
+    project: (x, y) => {
+      const [ox, oy] = carrierOriginUm();
+      return toScreen(x + ox, y + oy);
+    },
+  };
+
+  /* Carrier coordinates for the editor: it places fields inside the carrier,
+     so it is handed where the pointer is in that frame rather than where it is
+     on the stage. */
+  function toCarrier(px, py) {
+    const [wx, wy] = toWorld(px, py);
+    const [ox, oy] = carrierOriginUm();
+    return { x: wx - ox, y: wy - oy };
+  }
+
+  /* The editor sees the pointer first and says whether it took it. Only what
+     it turns down pans or picks, so drawing a region does not drag the stage
+     out from under the shape being drawn. */
+  function editorTook(kind, e) {
+    /* Locked, nothing can be drawn or moved by accident. Panning and zooming
+       are untouched — the lock is about picking, not about looking. */
+    if (layersLocked) return false;
+    if (sideWidget()?.id !== "scanfields" || !state.editor) return false;
+    const { x, y } = toCarrier(e.offsetX, e.offsetY);
+    const took = state.editor.pointer(kind, { x, y, shift: e.shiftKey, scale: view.scale });
+    // the redraw is also what puts the cursor right, and it has to happen after
+    // the editor has been told, or the answer is for where the pointer was
+    if (took) drawStage();
+    /* Only a true means the editor claimed the event. Anything else it answers
+       is "the picture changed" — the pointer moved over a field — and the
+       canvas still gets to say where the stage is under the cursor. */
+    return took === true;
+  }
+
+  /* How big the picture is, said along the bottom of the canvas.
+   *
+   * Flat: a line and a number, no upstanding ends. The ticks were there to say
+   * where the bar stops, which the bar already says, and two little uprights
+   * in a picture full of drawn edges read as one more thing the run had put
+   * there.
+   *
+   * It sits in a strip of its own, kept clear of the drawing: the plan is cut
+   * off above it rather than running under it, because a rule with a plate
+   * showing through it can be read as either. The strip is the page's own
+   * surface, the same as the empty stage. */
+  const SCALE_STRIP = 24;
+
+  function drawScaleBar(ctx, w, h, scale = view.scale) {
+    const targetPx = 130;
+    const raw = targetPx / scale;
+    const pow = Math.pow(10, Math.floor(Math.log10(raw)));
+    const nice = [1, 2, 5, 10].map((m) => m * pow).reduce((a, b) =>
+      Math.abs(b - raw) < Math.abs(a - raw) ? b : a);
+    const px = nice * scale;
+    const x = w - px - 20, y = h - 9;
+
+    ctx.fillStyle = css("--screen");
+    ctx.fillRect(0, h - SCALE_STRIP, w, SCALE_STRIP);
+
+    ctx.strokeStyle = css("--ink-2");
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(x, y); ctx.lineTo(x + px, y);
+    ctx.stroke();
+    ctx.fillStyle = css("--ink-2");
+    ctx.font = '11.5px ui-monospace, Consolas, monospace';
+    ctx.textAlign = "center";
+    ctx.fillText(nice >= 1000 ? `${nice / 1000} mm` : `${nice} µm`, x + px / 2, y - 4);
+    ctx.textAlign = "left";
+  }
+
+  /* ---- stage interaction ------------------------------------------------
+     One button does everything, and what it does is decided by what is under
+     it. The editor is asked first: a field is picked up, a tool draws. Only
+     what it turns down moves the stage, so a press on empty canvas pans and a
+     press on a shape does not drag the picture out from under it.
+
+     A double-click ends an outline that has no last point of its own — the
+     same press that places the final vertex, said twice.
+
+     Alt+drag pans regardless. Without it there is no way to move the stage
+     while a drawing tool is armed, since then the editor wants every press on
+     empty canvas for the shape it is about to make. */
+  let dragging = false, panMoved = false, lastX = 0, lastY = 0;
+
+  const startPan = (e) => {
+    dragging = true; panMoved = false;
+    lastX = e.offsetX; lastY = e.offsetY;
+    stageCv.setPointerCapture(e.pointerId);
+  };
+
+  // the canvas has no menu of its own, and a borrowed one over the plan is noise
+  stageCv.addEventListener("contextmenu", (e) => e.preventDefault());
+  stageCv.addEventListener("dblclick", (e) => editorTook("finish", e));
+
+  stageCv.addEventListener("pointerdown", (e) => {
+    if (e.button === 0 && e.altKey) { e.preventDefault(); startPan(e); return; }
+    if (e.button !== 0) return;
+    if (editorTook("down", e)) { stageCv.setPointerCapture(e.pointerId); return; }
+    // a point already on the map is taken hold of before the picture is
+    if (focusGrabbed(e)) { stageCv.setPointerCapture(e.pointerId); return; }
+    startPan(e);
+  });
+
+  stageCv.addEventListener("pointermove", (e) => {
+    if (focusMarquee) { focusMarqueeTo(e.offsetX, e.offsetY); return; }
+    if (focusDrag) { focusDraggedTo(e.offsetX, e.offsetY); return; }
+    if (!dragging && editorTook("move", e)) return;
+    if (dragging) {
+      const dx = e.offsetX - lastX, dy = e.offsetY - lastY;
+      if (Math.abs(dx) + Math.abs(dy) > 2) panMoved = true;
+      view.tx += dx; view.ty += dy;
+      lastX = e.offsetX; lastY = e.offsetY;
+      drawStage();
+      return;
+    }
+    /* The readout is where the stage is, because the canvas is the stage. The
+       hit test is not: a cell knows where it is in the carrier, so the pointer
+       is put into the carrier's coordinates to meet it. */
+    const [wx, wy] = toWorld(e.offsetX, e.offsetY);
+    el("stage-readout").textContent =
+      `x ${wx.toFixed(0)} µm · y ${wy.toFixed(0)} µm · ${(view.scale * 1000).toFixed(1)} px/mm`;
+
+    /* A focus point answers before anything under it: it is the small thing
+       on top, and the press that finds it moves it rather than the picture. */
+    if (focusHovered(e)) return;
+
+    /* The mark first: it is drawn over everything, so it answers for the
+       pointer before anything underneath it does. */
+    if (tipTheStageMark(e)) return;
+
+    // hover the nearest visible cell
+    let hit = null;
+    if (state.cellsShown) {
+      const [ox, oy] = carrierOriginUm();
+      let best = 12 / view.scale;
+      for (const c of sample.cells) {
+        if (!state.detected.has(c.id)) continue;
+        const d = Math.hypot(c.x + ox - wx, c.y + oy - wy);
+        if (d < best) { best = d; hit = c; }
+      }
+    }
+    if (hit) {
+      stageTip.classList.add("on");
+      stageTip.innerHTML =
+        `<b>cell</b> ${hit.id}<br><b>area</b> ${hit.area.toFixed(0)} µm²<br><b>int</b> ${hit.intensity.toFixed(2)}`;
+      const left = Math.min(e.offsetX + 14, stageCv.cssW - 130);
+      stageTip.style.left = `${left}px`;
+      stageTip.style.top = `${Math.max(6, e.offsetY - 52)}px`;
+    } else {
+      stageTip.classList.remove("on");
+    }
+  });
+
+  const endDrag = (e) => {
+    if (!dragging) return;
+    dragging = false;
+    if (e && stageCv.hasPointerCapture?.(e.pointerId)) stageCv.releasePointerCapture(e.pointerId);
+  };
+  stageCv.addEventListener("pointerup", (e) => {
+    if (focusMarquee) {
+      if (stageCv.hasPointerCapture?.(e.pointerId)) stageCv.releasePointerCapture(e.pointerId);
+      focusMarqueeTook(e.shiftKey);
+      renderActionBar();
+      return;
+    }
+    if (focusDrag) {
+      const { moved } = focusDrag;
+      focusDrag = null;
+      if (stageCv.hasPointerCapture?.(e.pointerId)) stageCv.releasePointerCapture(e.pointerId);
+      /* Held still on a point: the press picked it, and that is the whole of
+         it. Placing happens where there is no point yet, which `focusPressed`
+         answers for. */
+      if (!moved && state.focus.placing) focusPressed(e.offsetX, e.offsetY);
+      renderActionBar();
+      return;
+    }
+    if (dragging) {
+      const still = !panMoved;
+      endDrag(e);
+      /* Locked, a press picks nothing. Panning and zooming are untouched — the
+         lock is about picking, not about looking. */
+      if (still && !layersLocked) {
+        anchorPressed(e.offsetX, e.offsetY)
+          || focusPressed(e.offsetX, e.offsetY)
+          || detectPressed(e.offsetX, e.offsetY);
+      }
+      return;
+    }
+    if (editorTook("up", e)) {
+      if (stageCv.hasPointerCapture?.(e.pointerId)) stageCv.releasePointerCapture(e.pointerId);
+      renderRail();
+      return;
+    }
+    endDrag(e);
+  });
+  stageCv.addEventListener("pointerleave", (e) => {
+    editorTook("leave", e);
+    endDrag(e);
+    stageTip.classList.remove("on");
+    // the pointer is off the canvas, so it is off the mark whatever it was on
+    if (stageMarkHot) { stageMarkHot = false; drawStage(); }
+  });
+
+  stageCv.addEventListener("wheel", (e) => {
+    e.preventDefault();
+    const [wx, wy] = toWorld(e.offsetX, e.offsetY);
+    const f = Math.exp(-e.deltaY * 0.0016);
+    view.scale = Math.max(0.004, Math.min(3, view.scale * f));
+    view.tx = e.offsetX - wx * view.scale;
+    view.ty = e.offsetY - wy * view.scale;
+    drawStage();
+  }, { passive: false });
+
+  /* Fit frames whichever picture is on show. While the acquired overview is
+     covering the plan, it is the thing being looked at, so it is the thing that
+     gets framed. */
+  el("fit-btn").addEventListener("click", () => {
+    if (liveOverview.showing) { liveOverview.fit(); return; }
+    fitView(); drawStage();
+  });
