@@ -218,56 +218,6 @@ class TestConfirmMoveZOnTheStackDrive:
             )
         assert result == {"success": True, "logs": []}
 
-    def test_the_stack_decision_does_not_wait_for_the_transition_gate(self, monkeypatch):
-        # "Which drive carries the stack" is job configuration, not a
-        # transition: it must be decided from an ungated read, or the
-        # confirmation sits in the gated poll (measured ~0.8 s, hybrid mode)
-        # before it even reaches the stack-drive branch.
-        stacked = make_changeable_copy(raw_settings(galvo_um=-0.01, stack_on="z-galvo"))
-
-        def gated_readback(client, job_name, *, observed_after=None, mode=None):
-            return stacked if observed_after is None else None
-
-        monkeypatch.setattr(confirmations, "_readback", gated_readback)
-        monkeypatch.setattr(
-            z_readback, "save_and_read_lrp", lambda c, **k: lrp_with("J", "z-galvo", 50.0)
-        )
-        t0 = time.perf_counter()
-        result = confirmations.confirm_move_z(
-            None,
-            job_name="J",
-            z_mode="galvo",
-            target_um=50.0,
-            poll_window=2.0,
-            observed_after=time.time(),
-        )
-        assert result["success"] is True
-        assert result["confirmed"] is None
-        assert time.perf_counter() - t0 < 0.5
-
-    def test_the_free_drive_keeps_the_transition_gate(self, monkeypatch):
-        # The ungated read decides the drive; the value still has to come
-        # from a reading newer than the command.
-        fresh = make_changeable_copy(raw_settings(wide_um=100.0, stack_on="z-galvo"))
-        stale = make_changeable_copy(raw_settings(wide_um=5.0, stack_on="z-galvo"))
-        seen = []
-
-        def gated_readback(client, job_name, *, observed_after=None, mode=None):
-            seen.append(observed_after)
-            return stale if observed_after is None else fresh
-
-        monkeypatch.setattr(confirmations, "_readback", gated_readback)
-        result = confirmations.confirm_move_z(
-            None,
-            job_name="J",
-            z_mode="zwide",
-            target_um=100.0,
-            poll_window=1.0,
-            observed_after=time.time(),
-        )
-        assert result["success"] is True
-        assert None in seen and any(x is not None for x in seen)
-
 
 class TestMoveZEndToEnd:
     """Through the command backbone, against the behavioural mock."""

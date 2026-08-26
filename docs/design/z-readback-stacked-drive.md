@@ -69,15 +69,6 @@ stacked drive went from 4 attempts / 12.5 s / `confirmed=False` to
 
 Steps 1–3 of the wiring below are therefore done; steps 4–5 remain.
 
-**The stack decision does not wait for the transition gate** (PR 3). The
-confirmation's polling read is gated to readings newer than the command —
-right for witnessing a transition, pointless for asking which drive
-carries the stack, which is job configuration. Deciding that from one
-ungated read (25 ms in any reader mode) instead of the gated poll took the
-stacked-drive `move_z` from ~1.0 s to: `lrp` policy 0.51 s per move (the
-save), `none` policy 0.064 s per move (the fire is 7 ms). Measured live,
-hybrid mode, `AF Job 01` with its stack on z-wide, 2026-08-26.
-
 ### Before PR 2
 
 `readers/z_readback.py`, tests in `tests/unit/test_z_readback.py` (12):
