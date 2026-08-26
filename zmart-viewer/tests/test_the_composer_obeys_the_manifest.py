@@ -35,7 +35,7 @@ from governed import GovernedRun  # noqa: E402
 
 from zmart_live.model import GridCell  # noqa: E402
 from zmart_live.profiles import plan_the_writing  # noqa: E402
-from zmart_live.tests.test_coordinator import FRAME, some_specimen  # noqa: E402
+from zmart_live.fixtures import FRAME, some_specimen  # noqa: E402
 
 # Small pieces, so the picture is several pieces across and posA-only ground,
 # shared ground, and posB-only ground all fall in different pieces.

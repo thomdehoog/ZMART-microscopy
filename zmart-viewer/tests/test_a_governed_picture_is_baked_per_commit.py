@@ -35,7 +35,7 @@ from declare import declare_a_governed_picture  # noqa: E402
 from governed import GovernedRun  # noqa: E402
 from test_the_composer_obeys_the_manifest import PIECE, a_governed_run, the_columns_of  # noqa: E402
 
-from zmart_live.tests.test_coordinator import some_specimen  # noqa: E402
+from zmart_live.fixtures import some_specimen  # noqa: E402
 
 
 def every_baked_file(store: Path) -> dict[str, bytes]:
@@ -501,7 +501,7 @@ def test_an_older_derive_cannot_regress_the_bake_behind_a_newer_one(
     from zmart_live.coordinator import LivePublisher
     from zmart_live.model import GridCell
     from zmart_live.profiles import plan_the_writing
-    from zmart_live.tests.test_coordinator import FRAME
+    from zmart_live.fixtures import FRAME
 
     profile, _ = plan_the_writing("overview", frame=FRAME, z_planes=1)
     cells = {

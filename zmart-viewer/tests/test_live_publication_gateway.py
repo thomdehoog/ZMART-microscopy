@@ -11,7 +11,7 @@ from zmart_live.coordinator import LivePublisher
 from zmart_live.gateway import answer_from_a_live_run
 from zmart_live.model import GridCell
 from zmart_live.profiles import plan_the_writing
-from zmart_live.tests.test_coordinator import FRAME, some_specimen
+from zmart_live.fixtures import FRAME, some_specimen  # noqa: E402
 
 
 def ask(

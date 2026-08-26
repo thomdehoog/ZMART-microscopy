@@ -14,36 +14,10 @@ import pytest
 from zmart_live.gateway import _generation_named, answer_from_a_live_run, forget_live_run
 from zmart_live.model import GridCell
 from zmart_live.profiles import plan_the_writing
+from zmart_live.fixtures import (
+    FRAME, a_live_run, prepare_without_publishing, some_specimen)
 from zmart_live.shardlink import forget_every_remembered_index, where_one_chunk_lives
 
-from .test_coordinator import FRAME, some_specimen
-
-
-def a_live_run(folder, *, timepoints=1):
-    from zmart_live.coordinator import LivePublisher
-
-    profile, _ = plan_the_writing("overview", frame=FRAME, z_planes=1,
-                                  timepoints=timepoints)
-    return LivePublisher(
-        folder,
-        profile,
-        run_id="gateway-run",
-        cells={GridCell(0, 0): "posA", GridCell(0, 1): "posB"},
-        # This whole file is about the gateway completing the linked view's
-        # route while a run is going, so the map has to be kept true while it
-        # goes. It stopped being the default when the operator confirmed
-        # nothing in the lab reads a run's files mid-acquisition; asked for
-        # here because these gates are the exception that does.
-        linked_view="per_publish",
-    )
-
-
-def prepare_without_publishing(run, position_id, value, *, moment=0):
-    run.write_a_position(position_id, some_specimen(value), timepoint=moment)
-    units = frozenset(run._committed_units()) | {(position_id, moment)}
-    run.write_the_link_map(units)
-    run.write_the_view()
-    run.write_the_layout()
 
 
 def test_written_pixels_are_withheld_until_the_manifest_commit(tmp_path):

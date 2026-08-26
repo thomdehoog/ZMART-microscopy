@@ -35,11 +35,12 @@ from zmart_live.identity import (
     stored_profile_ids,
 )
 from zmart_live.model import GridCell, ZmartLiveError
+from zmart_live.fixtures import FRAME, some_specimen
 from zmart_live.profiles import plan_the_writing
 
 # Nine 128-pixel chunks across: the convention, at the smallest size that is
 # still the real arrangement rather than a toy.
-FRAME = 1152
+
 
 
 @pytest.fixture(scope="module")
@@ -85,10 +86,6 @@ def run(tmp_path, profile):
         cells={GridCell(0, 0): "posA", GridCell(0, 1): "posB"},
         linked_view="per_publish",
     )
-
-
-def some_specimen(value: int = 1000) -> np.ndarray:
-    return np.full((1, FRAME, FRAME), value, "uint16")
 
 
 def everything_but_the_commit(run, position_id, pixels=None):
