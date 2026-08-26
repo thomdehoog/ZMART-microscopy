@@ -422,19 +422,19 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
   padding: 5px 10px; cursor: pointer; white-space: nowrap;
 }
 .seg button:last-child { border-right: none; }
-.seg button:hover { color: var(--ink); background: var(--surface-3); }
+.seg button:not([aria-checked="true"]):not([aria-pressed="true"]):hover {
+  color: var(--ink); background: var(--surface-3);
+}
 /* Two kinds of button live in these strips and they look the same when they are
    on. A row of engines is a choice between them, so exactly one is checked; a
    row of layers is three switches that happen to sit together, so any number of
    them may be pressed at once. The colour says "this one is on" in both cases,
-   which is the only thing an operator needs to read off it. */
+   which is the only thing an operator needs to read off it — said the way the
+   tool row says it, as a tint behind an accent border, so one page has one
+   picture of "this one is chosen" rather than two. */
 .seg button[aria-checked="true"],
-.seg button[aria-pressed="true"] { background: var(--accent); color: #fff; }
-:root[data-theme="dark"] .seg button[aria-checked="true"],
-:root[data-theme="dark"] .seg button[aria-pressed="true"] { color: #04121d; }
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) .seg button[aria-checked="true"],
-  :root:not([data-theme="light"]) .seg button[aria-pressed="true"] { color: #04121d; }
+.seg button[aria-pressed="true"] {
+  color: var(--accent-deep); background: var(--accent-tint); border-color: var(--accent);
 }
 /* A layer cannot be turned on while there is no picture to turn it on in. Said
    by making the button plainly unavailable rather than by letting it be pressed
@@ -1264,8 +1264,14 @@ canvas.livecv[hidden] { display: none; }
   color: var(--ink-3); background: none; cursor: pointer;
   border: 1.5px solid transparent; border-radius: 9px;
 }
-.carrier-type:hover:enabled { border-color: var(--line); color: var(--ink-2); }
-.carrier-type.on { border-color: var(--accent); color: var(--accent); font-weight: 700; }
+/* Hover shows the outline the press would leave, in the colour it would leave
+   it: the button answers before it is pressed. The chosen one is not offered,
+   because there is nothing there to press for. */
+.carrier-type:not(.on):hover:enabled { border-color: var(--accent); color: var(--accent); }
+.carrier-type.on {
+  border-color: var(--accent); color: var(--accent-deep);
+  background: var(--accent-tint); font-weight: 700;
+}
 .carrier-type:disabled { opacity: 0.5; cursor: default; }
 
 /* The catalogue and its three buttons stand as their own rows in the box. */
@@ -1404,7 +1410,7 @@ canvas.livecv[hidden] { display: none; }
   border: 1px solid var(--line-strong); border-radius: 8px;
   background: var(--screen); color: var(--ink-2); cursor: pointer;
 }
-.sf-tool:hover:enabled { color: var(--ink); }
+.sf-tool:not(.on):hover:enabled { color: var(--ink); }
 .sf-tool.on { color: var(--accent-deep); border-color: var(--accent); background: var(--accent-tint); }
 .sf-glyph { font-size: 19px; line-height: 24px; }
 .sf-tool.on .sf-glyph { font-weight: 700; }
@@ -1540,15 +1546,11 @@ canvas.livecv[hidden] { display: none; }
   background: var(--surface-2); border: 1px solid var(--line-strong);
   border-radius: 8px; padding: 4px 10px; cursor: pointer;
 }
-.layer-extra button[data-lock]:hover { color: var(--ink); background: var(--surface-3); }
-.layer-extra button[data-lock][aria-pressed="true"] {
-  background: var(--accent); color: #fff; border-color: var(--accent);
+.layer-extra button[data-lock]:not([aria-pressed="true"]):hover {
+  color: var(--ink); background: var(--surface-3);
 }
-:root[data-theme="dark"] .layer-extra button[data-lock][aria-pressed="true"] { color: #04121d; }
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) .layer-extra button[data-lock][aria-pressed="true"] {
-    color: #04121d;
-  }
+.layer-extra button[data-lock][aria-pressed="true"] {
+  background: var(--accent-tint); color: var(--accent-deep); border-color: var(--accent);
 }
 
 /* The layer chips in the canvas foot, and the dial beside them. They read as
@@ -1560,11 +1562,9 @@ canvas.livecv[hidden] { display: none; }
   background: var(--surface-2); border: 1px solid var(--line-strong);
   border-radius: 7px; padding: 3px 9px; cursor: pointer; white-space: nowrap;
 }
-.layer-chip:hover { color: var(--ink); background: var(--surface-3); }
-.layer-chip[aria-pressed="true"] { background: var(--accent); color: #fff; border-color: var(--accent); }
-:root[data-theme="dark"] .layer-chip[aria-pressed="true"] { color: #04121d; }
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) .layer-chip[aria-pressed="true"] { color: #04121d; }
+.layer-chip:not([aria-pressed="true"]):hover { color: var(--ink); background: var(--surface-3); }
+.layer-chip[aria-pressed="true"] {
+  background: var(--accent-tint); color: var(--accent-deep); border-color: var(--accent);
 }
 #stage-layers { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 
