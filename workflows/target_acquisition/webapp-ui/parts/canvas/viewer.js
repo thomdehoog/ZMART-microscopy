@@ -80,7 +80,7 @@ import { theDrawingAbove, whoIsAt } from "./layers-above.js";
 // engine cannot be asked directly.
 import {
   whyAReaderMayRefuse,
-} from "../../../../../../../viz_studio/options/what-a-reader-refuses.js";
+} from "../../../../../viz_studio/options/what-a-reader-refuses.js";
 
 /**
  * The colour of the box the picture is drawn in.
