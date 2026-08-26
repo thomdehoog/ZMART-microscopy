@@ -14,7 +14,7 @@
  * can disagree with the instrument.
  */
 
-import { sideGroup } from "../../../frame/window/panels.js";
+import { sideGroup } from "../../../framework/window/panels.js";
 import {
   nextReadingIndex, withActive, withRecording, withoutRecording,
 } from "../microscope/recordings.js";

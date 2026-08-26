@@ -1,7 +1,7 @@
 /**
  * The seam where the microscope goes — the pretend side of it.
  *
- * Everything above this line — steps, widgets, the frame — talks to a backend
+ * Everything above this line — steps, widgets, the framework — talks to a backend
  * and awaits. Nothing above this line knows whether a real stage moved. The
  * live backend (`live.js`, speaking HTTP to the bridge and through it to the
  * zmart controller) implements this same shape; if wiring the real microscope

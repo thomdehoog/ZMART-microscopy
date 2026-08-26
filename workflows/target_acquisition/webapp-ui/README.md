@@ -193,7 +193,7 @@ stops moving and it is worth extracting them into their own modules.
 
 ## State of the code
 
-The source is arranged as two folders with one meaning each. `frame/` is
+The source is arranged as two folders with one meaning each. `framework/` is
 the engine: `window/` draws the shell and `rules/` decides how any list of
 steps behaves. `workflows/` is what plugs into it — one folder per
 workflow, each with a `flow.js` saying which steps it runs in which order, the
@@ -201,6 +201,6 @@ steps themselves in numbered folders beside their own controls, and the things
 several steps share (the canvas, the carrier geometry, the microscope seam) in
 folders of their own. `workflows/README.md` explains the arrangement.
 
-`frame/window/main.js` is still the prototype as one module — around 2100
+`framework/window/main.js` is still the prototype as one module — around 2100
 lines. Splitting it is the next structural job: each step's behaviour moves out
 to the step's own folder, with a small store so panels never import each other.

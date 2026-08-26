@@ -10,7 +10,7 @@ where to find it.
 
 ## The shape
 
-The window has three parts. The frame that holds them, and decides how they sit on
+The window has three parts. The framework that holds them, and decides how they sit on
 screen, is what the rest of this note calls the shell.
 
 **Down the left, the workflow's steps**, numbered one to however many there are —
@@ -103,7 +103,7 @@ no special case.
 
 The step rail, the workflow chooser, the canvas and the channel beside it are
 built and working in this folder, and steps hand their results on. The source
-is arranged as the shape this note asked for: `frame/` is the shell — an
+is arranged as the shape this note asked for: `framework/` is the shell — an
 engine that runs any workflow and knows none — and `workflows/` holds one
 folder per workflow, each a `flow.js` and its steps. `ARCHITECTURE.md` says how
 it is put together, and `workflows/README.md` maps the folders.

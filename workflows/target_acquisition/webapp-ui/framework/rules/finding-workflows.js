@@ -1,11 +1,11 @@
 /**
- * How the frame finds the workflows, and what it makes of a folder's name.
+ * How the framework finds the workflows, and what it makes of a folder's name.
  *
  * Every folder in `workflows/` that contains a `flow.js` is a workflow the
  * chooser offers. The folder's name is the workflow's name: underscores read
  * as spaces and the first letter capitalised, so `target_acquisition` appears
  * as "Target acquisition". Adding a workflow is adding a folder — nothing in
- * the frame is edited, which is the whole arrangement being aimed at: the
+ * the framework is edited, which is the whole arrangement being aimed at: the
  * frame is an engine, and the workflows plug into it.
  *
  * The finding itself — reading the folder listing — happens where the code

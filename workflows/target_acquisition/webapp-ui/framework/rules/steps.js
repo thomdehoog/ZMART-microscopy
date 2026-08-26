@@ -2,7 +2,7 @@
  * What a step is, and what may run when.
  *
  * Pure: no DOM, no globals. Everything here is a function of a workflow and a
- * run, which is why it can be unit-tested and why the frame stays free of any
+ * run, which is why it can be unit-tested and why the framework stays free of any
  * particular workflow's semantics.
  *
  * A step is data: what it is called, why it is there, which modules it wants on
@@ -10,7 +10,7 @@
  * fields is written out in `workflows/README.md`, beside the folders where
  * steps are declared; nothing here needs to know most of them.
  *
- * The frame knows nothing beyond that. Adding a workflow is writing a list.
+ * The framework knows nothing beyond that. Adding a workflow is writing a list.
  */
 
 /**
@@ -64,7 +64,7 @@ export const isReachable = (steps, done, index) =>
  * What this step still needs before it may be carried out, as a short phrase to
  * show the operator, or `null` when there is nothing left to wait for.
  *
- * The step decides and the frame only asks, which is what keeps the shell free
+ * The step decides and the framework only asks, which is what keeps the shell free
  * of any particular workflow's meaning: nothing here knows that fitting a
  * surface takes three points. A step with no rule of its own is always ready.
  *

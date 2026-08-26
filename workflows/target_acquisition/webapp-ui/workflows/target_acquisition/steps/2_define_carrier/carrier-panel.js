@@ -10,13 +10,13 @@
  * Both are in this file because they are one subject: change what a carrier is
  * and there is a single place that has to follow.
  *
- * It redraws itself rather than asking the frame to rebuild the panel. A
+ * It redraws itself rather than asking the framework to rebuild the panel. A
  * rebuild on every keystroke would destroy the field being typed into — the
  * defect this page has produced twice — so `sync()` writes new values into the
  * controls that are already there and leaves the focused one alone.
  */
 
-import { sideGroup } from "../../../../frame/window/panels.js";
+import { sideGroup } from "../../../../framework/window/panels.js";
 import {
   CARRIER_TYPES, carrierType, fromPreset, matchingPreset, geometry, maxRadius,
   centres, depthMm,

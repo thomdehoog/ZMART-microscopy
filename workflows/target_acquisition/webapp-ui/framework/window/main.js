@@ -54,7 +54,7 @@ import {
 
 /* The workflows this page offers: every folder in `workflows/` with a
    `flow.js` inside it, found by the build tool's folder scan and assembled by
-   the frame. The unit tests read the same folders, so a workflow the tests can
+   the framework. The unit tests read the same folders, so a workflow the tests can
    see is a workflow the operator can choose. The list used to be written out
    by hand — twice, at one point — and the copies drifted apart in silence,
    which is why it is now read off the disk instead. */
@@ -387,7 +387,7 @@ let stageWatch = null;
     if (!host || s.ownButton || !s.btn) return;
     /* Some steps have nothing to run under the state they are in — a focus
        step is finished by the recording itself until a map is made to measure.
-       A step says so for itself; the frame only asks. */
+       A step says so for itself; the framework only asks. */
     if (s.acts && !s.acts(state)) return;
 
     const done = state.done.has(s.id);
@@ -594,7 +594,7 @@ let stageWatch = null;
     canvas: { label: "Canvas", panel: "panel-canvas" },
   };
 
-  /* Which panels a step gets is `panelsFor` in `frame/rules/steps.js`, and the reason
+  /* Which panels a step gets is `panelsFor` in `framework/rules/steps.js`, and the reason
      it lives there rather than here is that it is a rule about steps rather than
      about this page. What it comes to for the workflows on offer:
 
@@ -625,7 +625,7 @@ let stageWatch = null;
      ============================================================ */
   /* Connecting is a card that reads downward — the form, the checks, what they
      came to, and the button that acts on all of it. Its button is its own
-     rather than the frame's, because it is disabled until there is a password
+     rather than the framework's, because it is disabled until there is a password
      and it changes what it does once a session is open. */
   const indexOfStep = (id) => steps().findIndex((s) => s.id === id);
 
@@ -728,7 +728,7 @@ let stageWatch = null;
      to show controls for a step nobody is on. */
   /* Focus is not a widget module yet — its controls are markup that was built
      once and is moved into the channel, not rebuilt from a declaration. It
-     stands in the same list because the frame only asks two things of an owner:
+     stands in the same list because the framework only asks two things of an owner:
      what it is called, and that it can be mounted. */
   const focusWidget = {
     id: "focus",
@@ -1247,7 +1247,7 @@ let stageWatch = null;
   });
 
   /* The stage picture — the run drawn to scale, layer on layer. It is the
-     workflow's, so it lives with the workflow; the frame hands it the canvas,
+     workflow's, so it lives with the workflow; the framework hands it the canvas,
      the run, and the few things it must be able to call back into. */
   const stage = openTheStage({
     canvas: el("stage-canvas"),
