@@ -11,7 +11,7 @@ Scope:
 The claims were checked against the implementation on
 claude/frame-rate-stores-scaling-cngfct, especially zmart_storage/canvas.py,
 linked.py, positions.py, cropped.py and coverage.py, and
-viz_studio/backend/server.py, linking.py and stores.py.
+zmart-viewer/app/server/server.py, linking.py and stores.py.
 
 ## The three things I would change first
 

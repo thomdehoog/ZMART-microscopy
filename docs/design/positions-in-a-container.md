@@ -135,9 +135,9 @@ at 5.2 requests a tile and linear, against 305 flat for the canvas.
 | --- | --- |
 | `zmart_storage/cropped.py` | write the container `zarr.json`; put the canvas at `fused.ome.zarr` inside it; name positions `Tile<n>.ome.zarr` |
 | `zmart_storage/coverage.py` | write to `<name>_coverage/` rather than `zmart-coverage/<name>.ome.zarr/` |
-| `viz_studio/backend/stores.py` | the `fused` rule above |
+| `zmart-viewer/app/server/stores.py` | the `fused` rule above |
 | `zmart_storage/linked.py` | reads the archive's names |
-| `viz_studio/measure_the_overlapping_run.py` | `count_what_was_lost` globs `*.ome.zarr` in the archive |
+| `zmart-viewer/measure_the_overlapping_run.py` | `count_what_was_lost` globs `*.ome.zarr` in the archive |
 | tests | every place that builds or asserts a run's paths |
 
 **A migration, not a compatibility layer.** Runs already written are moved by a

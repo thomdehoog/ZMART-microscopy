@@ -77,7 +77,7 @@ a translation on its own, with no scale in front of it, in the block that
 describes the image as a whole. ngio reads that list, finds a translation where a
 scale must be, and stops.
 
-This is not an ngio quirk. `viz_studio/INTEROP.md` records the same family of
+This is not an ngio quirk. `zmart-viewer/INTEROP.md` records the same family of
 problem being found on the microscope computer against `ngff-zarr`, which
 `multiview-stitcher` and a good part of the Python imaging world read through.
 Two independent libraries, the same disagreement.
@@ -108,7 +108,7 @@ on its own.
 The view reading back as zeros is expected and is not a fault: a view holds no
 chunk files of its own, because every piece of it is one of the positions'
 pieces. This is the one genuine divergence in the whole arrangement, and it is
-already written down in `viz_studio/HOW_OURS_DIFFERS_FROM_OME_ZARR.md`. **Point
+already written down in `zmart-viewer/HOW_OURS_DIFFERS_FROM_OME_ZARR.md`. **Point
 analysis at the positions, never at the view.** With the correction in place, that
 sentence becomes true rather than aspirational.
 
@@ -241,7 +241,7 @@ them badly.
 
 The writer is only half-way there. `zmart_storage.positions.start_a_run` already
 defaults to `"0.5"`, but `canvas.TileCanvases` and `cropped.TilesAndCanvas` still
-default to `"0.4"`, and `viz_studio/HOW_OURS_DIFFERS_FROM_OME_ZARR.md` still
+default to `"0.4"`, and `zmart-viewer/HOW_OURS_DIFFERS_FROM_OME_ZARR.md` still
 describes 0.4 as the default. Those three should be brought into line with the
 first, keeping 0.4 available for anyone who has to read a run with older software.
 
@@ -371,7 +371,7 @@ changes. What changes is one filter at the end.
 
 An image holds a single value per point, so writing overlapping tiles into a
 single image means the second tile written replaces the strip it shares with the
-first. `viz_studio/DATA_LAYOUT.md` measures the loss at 21% of everything the
+first. `zmart-viewer/DATA_LAYOUT.md` measures the loss at 21% of everything the
 camera recorded on a run overlapping by an eighth. And the viewer really does want
 a single image, because Neuroglancer builds a drawing layer per source: a thousand
 separate positions drew twenty-four frames in five seconds where one image managed
@@ -388,7 +388,7 @@ Two things about that are worth carrying forward:
 
 - **Every frame rate in those documents came from a software renderer**, on a
   machine with no graphics card. They are not yet facts about the viewer. Running
-  `viz_studio/measure_the_overlapping_run.py` on real hardware is the first thing
+  `zmart-viewer/measure_the_overlapping_run.py` on real hardware is the first thing
   to do.
 - **The no-copy path is the part still unfinished.** `zmart_storage/linked.py`
   shows the same run without copying a single voxel, but only when the tiles land
@@ -519,7 +519,7 @@ Everything described in "What was measured" above was done this way.
 overlapping tiles somebody else wrote, in whatever arrangement they chose. Reading
 those with ngio, trimming them, and writing one canvas the viewer can open has no
 live constraint on it at all, so nothing about ngio's copying gets in the way.
-That is the job `viz_studio/PLAN_showing_many_stores_as_one.md` describes, and
+That is the job `zmart-viewer/PLAN_showing_many_stores_as_one.md` describes, and
 ngio would shorten it considerably.
 
 **Do not put it on the acquisition path.** Three reasons, and the third is the one
@@ -727,7 +727,7 @@ one sentence.
    analysis library will accept what we produce.
 5. **Make 0.5 the default in every writer**, not only in `start_a_run`, and
    correct the documentation that still says 0.4.
-6. **Run `viz_studio/measure_the_overlapping_run.py` on a machine with a real
+6. **Run `zmart-viewer/measure_the_overlapping_run.py` on a machine with a real
    graphics card**, because nothing measured about drawing so far was measured on
    one.
 7. **Finish the no-copy path for a drifting stage**, so that an ordinary run stops

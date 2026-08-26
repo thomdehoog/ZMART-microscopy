@@ -24,7 +24,7 @@ Three pieces of software:
 | | |
 | --- | --- |
 | `zmart_storage` | writes runs to disk as OME-Zarr. Depends on `zarr` and `numpy` and nothing else. |
-| `viz_studio` | the operator's viewer — a Python standard-library HTTP server and a browser page built on **Neuroglancer**. |
+| `zmart-viewer` | the operator's viewer — a Python standard-library HTTP server and a browser page built on **Neuroglancer**. |
 | `smart-analysis` | a separate repository: a queue plus a pipeline engine that runs each step in its own conda environment. |
 
 Runs reach **five terabytes**. A run of **ten thousand positions** is a target,
@@ -191,7 +191,7 @@ takes matters more than the ratio, because the only question that counts is
 whether the microscope has to wait. On these numbers "not today" is well
 supported; "never" is not.
 
-**And it applies to the viewer as much as to the writer.** `viz_studio` is a
+**And it applies to the viewer as much as to the writer.** `zmart-viewer` is a
 hand-written standard-library HTTP server and a hand-built Neuroglancer front end.
 If something the community maintains would do the same job, that is preferable,
 because standardisation is worth more here than owning the code. The capability

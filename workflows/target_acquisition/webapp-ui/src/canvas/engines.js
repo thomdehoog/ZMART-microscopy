@@ -4,7 +4,7 @@
  * The canvas is the picture of a run that the operator pans and zooms. It is
  * written more than once, one folder per drawing engine, and every one of them is
  * kept behind one small interface so that they can be compared fairly.
- * `viz_studio/options/contract.md` sets that interface out in full; the short
+ * `zmart-viewer/parked/contract.md` sets that interface out in full; the short
  * version is that an engine is a folder holding a `viewer.js` which exports
  * exactly one function, `openViewer`, and the page reaches it through that
  * function and through nothing else.
@@ -23,7 +23,7 @@
  * thought — a canvas arrives with dragging and the wheel already attached, every
  * engine sharing one piece of code for them.
  *
- * `viz_studio/options/` also holds `viv-inside`, which this page no longer
+ * `zmart-viewer/parked/` also holds `viv-inside`, which this page no longer
  * offers: it drew the operator's layer inside the engine as a texture, so every
  * change to that layer cost an engine frame. It is still in the comparison there.
  *
@@ -83,9 +83,9 @@
    greet an operator is a decision about the product and not something to change
    quietly while adding one. */
 const HOW_TO_OPEN = {
-  "viv-under": () => import("../../../../../viz_studio/options/viv-under/viewer.js"),
+  "viv-under": () => import("../../../../../zmart-viewer/parked/viv-under/viewer.js"),
   "neuroglancer-under": () =>
-    import("../../../../../viz_studio/options/neuroglancer-under/viewer.js"),
+    import("../../../../../zmart-viewer/parked/neuroglancer-under/viewer.js"),
 };
 
 /**
@@ -186,7 +186,7 @@ export async function openerFor(name) {
     throw new Error(
       `the engine "${name}" does not export openViewer, which is the whole of ` +
         "the interface every engine has to implement. See " +
-        "viz_studio/options/contract.md.",
+        "zmart-viewer/parked/contract.md.",
     );
   }
   return module.openViewer;

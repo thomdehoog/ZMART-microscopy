@@ -96,7 +96,7 @@ What this deliberately does not do
 it is, and if two of them cover the same ground the later one simply wins for the
 pieces they share. Deciding that properly — which position supplies a shared piece,
 and how to trim the seam — is a real piece of work with a plan of its own in
-``viz_studio/PLAN_showing_many_stores_as_one.md``. It is not needed to watch a run
+``zmart-viewer/PLAN_showing_many_stores_as_one.md``. It is not needed to watch a run
 arrive, so it is not here.
 
 **A position has to begin on a whole piece boundary.** A view hands a position's

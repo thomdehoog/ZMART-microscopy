@@ -3,7 +3,7 @@
 > **Historical snapshot.** This file records the state at the time of that
 > review and its “still open” section is intentionally not rewritten after the
 > fact. The subsequent Claude review and implementation pass connected the
-> manifest-aware gateway to `viz_studio/backend`, made both views multiscale,
+> manifest-aware gateway to `zmart-viewer/backend`, made both views multiscale,
 > changed normal updates from whole-history rebuilding to affected-unit updates,
 > added production OME-Zarr metadata, and fixed Python 3.10 parsing. See
 > `docs/reviews/2026-08-09-claude-review-fixes.md` for the current disposition and
@@ -302,7 +302,7 @@ does not have to work out what moved:
 | 2 | per-timepoint inspection and gating; forbid mutation of committed units | **done** — findings 1 and 5, verified by independently written exploits |
 | 3 | complete outer-edge coverage; correct Z and channel handling | **done** — findings 3 and 4; the seamless picture is 0% black at one tile and at two |
 | 4 | valid canonical OME-Zarr 0.5; content-addressed profiles; immutable layout revisions | **done** — finding 7 and the identity section |
-| 5 | connect ViewRoute to the real backend; remove full-resolution view copying | **half done, and the half that is missing is the larger one.** A real route is now built, persisted and followed by the coordinator, which is what makes `links_ready` mean anything. It is *not* wired into `viz_studio/backend`, and the view stores are still written at full resolution, so the copying is untouched |
+| 5 | connect ViewRoute to the real backend; remove full-resolution view copying | **half done, and the half that is missing is the larger one.** A real route is now built, persisted and followed by the coordinator, which is what makes `links_ready` mean anything. It is *not* wired into `zmart-viewer/backend`, and the view stores are still written at full resolution, so the copying is untouched |
 | 6 | implement and validate affected raw and seamless coarse pyramid chunks | **not done.** Neither view store has zoomed-out copies at all; `coarse.py` plans the work and nothing writes those pixels |
 | 7 | manifest-driven viewer refresh and concurrent analysis ownership | **not done.** The browser harness still invalidates Neuroglancer's cache by hand, and there is no analysis reader |
 | 8 | benchmark shard geometry, locking and recovery on Windows and SMB | **not done.** Every measurement here is Linux on a four-core shared machine |
@@ -324,7 +324,7 @@ before the rest of step 5 rather than alongside it.
   positions; `views/overview-seamless.ome.zarr` and `overview-raw.ome.zarr` are
   still bare arrays, and the view is what an operator actually opens.
 - **The browser harness is still not the application path.** It uses a server in
-  the test directory rather than `viz_studio/backend`, with no `ViewRoute`, no
+  the test directory rather than `zmart-viewer/backend`, with no `ViewRoute`, no
   scene discovery and no production refresh, and it calls Neuroglancer's internal
   cache invalidation by hand. The README now says so at the top.
 - **No mosaic several rows deep has been watched on a screen.** Stop attribution

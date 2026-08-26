@@ -14,7 +14,7 @@
 import { describe, it, expect } from "vitest";
 import {
   theMiddleOfWhatWasImaged,
-} from "../../../../../viz_studio/options/where-the-specimen-is.js";
+} from "../../../../../zmart-viewer/parked/where-the-specimen-is.js";
 
 /** A stack with the bright material deliberately off the geometric middle. */
 function aStackWithTheSpecimenLow({ planes = 10, height = 8, width = 8 } = {}) {

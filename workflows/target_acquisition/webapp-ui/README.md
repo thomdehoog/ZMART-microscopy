@@ -154,7 +154,7 @@ nobody has visited. Both behaviours are measured in
 ## The canvas demonstration
 
 The canvas is the picture of a run that an operator pans and zooms, and it is
-being built separately, in `viz_studio/options/`, once for each of several
+being built separately, in `zmart-viewer/parked/`, once for each of several
 drawing engines and all of them behind one small interface. This page offers it
 as a workflow of its own â€” **Canvas demonstration** in the chooser at the top
 left.
@@ -226,7 +226,7 @@ happened when the limit is reached, and puts the picture that was working back â
 because a page that waited for ever would look exactly like one that was still
 loading, which is the failure this project keeps meeting. That is a gap in the
 interface rather than something for this page to fix, and it is written down in
-`viz_studio/options/README.md`.
+`zmart-viewer/parked/README.md`.
 
 ### What else is worth knowing
 

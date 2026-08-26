@@ -5,7 +5,7 @@
  * the drawing engines on it, gives the operator the two ways of moving around,
  * and lets the engine be changed without losing the view. Everything to do with
  * how a picture is actually drawn lives on the other side of a small interface,
- * in `viz_studio/options/`, and this file reaches it only through that.
+ * in `zmart-viewer/parked/`, and this file reaches it only through that.
  *
  * ## What the canvas is never told
  *
@@ -54,7 +54,7 @@
  * not paper over it and it does not pretend the engine succeeded; the button is
  * offered on every engine, and on the one that cannot manage it you watch it
  * fail and read why. The gap itself is written down in
- * `viz_studio/options/README.md`, which is where the interface is being kept
+ * `zmart-viewer/parked/README.md`, which is where the interface is being kept
  * honest until it can be settled.
  *
  * ## Why this page says nothing about colours
@@ -79,7 +79,7 @@ import { describeEngine, enginesOnOffer, openerFor, whyOneIsMissing } from "./en
 // engine cannot be asked directly.
 import {
   whyAReaderMayRefuse,
-} from "../../../../../viz_studio/options/what-a-reader-refuses.js";
+} from "../../../../../zmart-viewer/parked/what-a-reader-refuses.js";
 
 /**
  * The colour of the box the picture is drawn in.
@@ -135,7 +135,7 @@ const HOW_LONG_TO_WAIT_FOR_AN_ENGINE = 25_000;
  *
  * That difference belongs in the interface rather than here. Every engine ought
  * to answer `drawUnder(null)` by leaving nothing on screen, and the fact that
- * two of them do not is recorded in `viz_studio/options/README.md`. This is
+ * two of them do not is recorded in `zmart-viewer/parked/README.md`. This is
  * what the page does in the meantime, and it is written the way it is so that
  * the day the interface is settled, this can go.
  */
@@ -623,7 +623,7 @@ export function putTheCanvasIn({
     }
     const { lowUm, highUm, stepUm } = throughTheStack;
     /* The middle until the operator says otherwise, which is where the canvas
-       opens: `viz_studio/options/planes.js` says why, and a control that started
+       opens: `zmart-viewer/parked/planes.js` says why, and a control that started
        at nought would put the picture at the edge of the specimen the moment it
        was touched. */
     /* Where the picture already is, not the middle of the stack. The canvas opens

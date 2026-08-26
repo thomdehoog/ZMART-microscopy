@@ -131,7 +131,7 @@ so — which is the fault this whole repository is most careful about.
 ## What it touches
 
 `zmart_live/ownership.py`, `zmart_live/model.py`, `zmart_live/coordinator.py`,
-`zmart_live/profiles.py`, `viz_studio/backend/rehearsal.py`, and the gates that
+`zmart_live/profiles.py`, `zmart-viewer/app/server/rehearsal.py`, and the gates that
 speak in cells. `GridCell` is named in 37 files, but most of those are callers
 handing a cell along; the placement rule itself is one function.
 

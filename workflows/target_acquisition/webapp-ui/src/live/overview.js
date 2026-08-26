@@ -77,7 +77,7 @@ const WHITE = [255, 255, 255];
  * drawing, where deck.gl leaves a hook open for exactly that purpose. It sets
  * how solid each pixel is from how bright it is, so black contributes nothing
  * and the picture appears to float over whatever is beneath it. It is the same
- * idea the project's other viewer uses in `viz_studio/frontend/src/scene.js`,
+ * idea the project's other viewer uses in `zmart-viewer/app/page/src/scene.js`,
  * where brightness becomes colour and coverage becomes transparency.
  *
  * **What it cannot do**, and this matters: it makes a place that was imaged and

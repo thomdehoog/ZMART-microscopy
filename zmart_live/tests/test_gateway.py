@@ -332,7 +332,7 @@ def test_a_non_live_zarr_is_not_claimed_by_the_gateway(tmp_path):
 # browser never does that: the moment a viewer opens, it asks for dozens of
 # pieces at once, each on its own thread. A server can be perfectly correct
 # when asked politely and wrong when asked in parallel — the building viewer in
-# ``viz_studio`` shipped exactly such a bug, serving one request's specimen to
+# ``zmart-viewer`` shipped exactly such a bug, serving one request's specimen to
 # another, and no single-request test could ever have seen it. These two tests
 # ask the way the browser asks.
 

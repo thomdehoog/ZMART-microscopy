@@ -131,7 +131,7 @@ __all__ = [
 
 #: The folder, inside a run, that holds the run's own descriptions of itself as
 #: opposed to its pixels. It lives with the view it serves — the contract in
-#: ``viz_studio/building/CONTRACT_the_files_the_viewer_needs.md`` explains why:
+#: ``zmart-viewer/app/picture/CONTRACT_the_files_the_viewer_needs.md`` explains why:
 #: the data folder belongs to the microscope, and everything of ours is
 #: bundled under ``views/`` where it can be deleted without losing science.
 RECORDS_FOLDER = "views/live/metadata"

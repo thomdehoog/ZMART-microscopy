@@ -1,6 +1,6 @@
 /* What window an acquisition should open at, when nobody has said.
  *
- * `viz_studio/options/brightness.js` answers that by reading the picture rather
+ * `zmart-viewer/parked/brightness.js` answers that by reading the picture rather
  * than guessing at the camera, and what is checked here is the part of it that
  * needs no store and no server: what window it makes of a patch of pixels. Which
  * plane that patch comes from is the other half and is `planes.test.js`, because
@@ -23,7 +23,7 @@
 import { describe, it, expect } from "vitest";
 import {
   theWindowThesePixelsAskFor,
-} from "../../../../../viz_studio/options/brightness.js";
+} from "../../../../../zmart-viewer/parked/brightness.js";
 
 /** A plane like the real one: tissue around 1750, and a few pixels saturated. */
 function aTileWithHotPixels({ hot = 4 } = {}) {

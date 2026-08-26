@@ -6,7 +6,7 @@ import {
 } from "./neuroglancer-workers.mjs";
 
 /* The canvas — the picture of a run, on the viewer step — is not kept in this
-   folder. It lives at the top of the repository in `viz_studio/options/`,
+   folder. It lives at the top of the repository in `zmart-viewer/parked/`,
    because it is one viewer written three times over, behind one interface, so
    that the three can be compared; the measurements that compare them live beside
    it and would make no sense in here.
@@ -19,7 +19,7 @@ import {
    no idea what that means, so the build has to find the folder it stands for.
    The usual rule is to look beside the file that asked and then keep looking
    upwards — which works everywhere inside this project and finds nothing at all
-   from `viz_studio/options/`, since that folder installs no packages of its own.
+   from `zmart-viewer/parked/`, since that folder installs no packages of its own.
    Naming them here says plainly: whatever the canvas asks for, it gets this
    page's copy.
 
@@ -27,7 +27,7 @@ import {
    one page is not a subtle failure — deck.gl refuses outright and says so — so
    having exactly one copy, this page's, is the arrangement that works. It does
    mean the engines are being compared here on the version this page ships, which
-   need not be the version the measurements in `viz_studio/options/RESULTS.md`
+   need not be the version the measurements in `zmart-viewer/parked/RESULTS.md`
    were taken with. */
 const WHAT_THE_CANVAS_ASKS_FOR = [
   "@deck.gl/core",

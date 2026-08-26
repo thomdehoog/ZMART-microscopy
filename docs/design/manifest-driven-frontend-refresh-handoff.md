@@ -51,7 +51,7 @@ The implementation follows the design below, with these concrete boundaries:
   event publishes it.
 
 Three details deliberately refine the illustrative design below. The endpoint has
-a `zmart-live-frontend-state-set/1` wrapper because `viz_studio` can open several
+a `zmart-live-frontend-state-set/1` wrapper because `zmart-viewer` can open several
 runs at once; each contained run retains the proposed per-run schema and is keyed
 by its opened dataset identity. Config rows and their live-state document are
 pinned to the same immutable tracker snapshot, preventing a commit racing config
@@ -60,9 +60,9 @@ uses the decoded holders selected from the affected store's exact memo-key prefi
 unrelated sources retain every metadata and decoded object.
 
 The load-bearing tests are
-`viz_studio/tests/test_manifest_refresh_browser.py`,
-`viz_studio/tests/test_manifest_driven_refresh.py`,
-`viz_studio/tests/test_frontend_live_refresh_contract.py`, and
+`zmart-viewer/tests/test_manifest_refresh_browser.py`,
+`zmart-viewer/tests/test_manifest_driven_refresh.py`,
+`zmart-viewer/tests/test_frontend_live_refresh_contract.py`, and
 `zmart_live/tests/test_live_state.py`. The reproducible non-browser fault
 campaign is
 `python -m zmart_live.tests.check_the_live_refresh_tests_can_fail`.
@@ -205,12 +205,12 @@ live-view subsystem. Read the following in order.
 
 ### 4. Existing backend notification path
 
-- `viz_studio/backend/announcements.py`
+- `zmart-viewer/app/server/announcements.py`
   - `Announcements` fans one event out to every browser using SSE;
   - the existing `FolderWatcher` watches `Library.revision()`, which is generic
     filesystem discovery and is **not** sufficient publication truth for a
     `zmart_live` run.
-- `viz_studio/backend/server.py`
+- `zmart-viewer/app/server/server.py`
   - `/api/events` implements the existing SSE connection;
   - `/api/config` rebuilds the current frontend description;
   - `config_now()` currently caches against `Library.revision()`;
@@ -220,14 +220,14 @@ live-view subsystem. Read the following in order.
 
 ### 5. Existing frontend refresh path
 
-- `viz_studio/frontend/src/App.jsx`
+- `zmart-viewer/app/page/src/App.jsx`
   - opens one `EventSource('/api/events')`;
   - `catchUp()` coalesces bursts and remembers an event received during an
     outstanding request;
   - `applyConfig()` preserves layer controls;
   - navigation coordinates are restored after a real scene reshape;
   - reconnect already performs an initial catch-up.
-- `viz_studio/frontend/src/engine.js`
+- `zmart-viewer/app/page/src/engine.js`
   - `syncLayers()` and `syncSources()` update existing layers instead of
     rebuilding the page;
   - `forgetWhatWasReadAbout()` selectively removes cached source metadata;
@@ -235,7 +235,7 @@ live-view subsystem. Read the following in order.
     response to every live commit;
   - `framesSeen` currently detects per-store growth for the older many-store
     layout and suggests the shape of the source-revision implementation.
-- `viz_studio/frontend/src/scene.js`
+- `zmart-viewer/app/page/src/scene.js`
   - translates backend descriptions into stable Neuroglancer layer/source
     specifications.
 
@@ -246,13 +246,13 @@ live-view subsystem. Read the following in order.
 - `zmart_live/tests/test_scene.py`
 - `zmart_live/tests/test_coordinator.py`
 - `zmart_live/tests/browser/`
-- `viz_studio/tests/test_live_publication_gateway.py`
-- `viz_studio/tests/test_announcements.py`
-- `viz_studio/tests/test_a_run_arriving.py`
-- `viz_studio/tests/test_the_newer_format_arriving_live.py`
-- `viz_studio/tests/test_writing_into_one_store.py`
-- `viz_studio/tests/test_engine_is_not_disturbed.py`
-- `viz_studio/tests/test_masks_luts_and_refresh.py`
+- `zmart-viewer/tests/test_live_publication_gateway.py`
+- `zmart-viewer/tests/test_announcements.py`
+- `zmart-viewer/tests/test_a_run_arriving.py`
+- `zmart-viewer/tests/test_the_newer_format_arriving_live.py`
+- `zmart-viewer/tests/test_writing_into_one_store.py`
+- `zmart-viewer/tests/test_engine_is_not_disturbed.py`
+- `zmart-viewer/tests/test_masks_luts_and_refresh.py`
 
 The browser harness contains useful mechanisms but is not proof that this
 production integration exists. Follow the path from a real
@@ -290,7 +290,7 @@ idle work independent of the number of browser tabs.
 The writer does not need to know that a viewer exists. An optional direct nudge
 from a writer can reduce latency, but it must remain dispensable and must never
 carry authority. The implementation is correct when a writer that knows nothing
-about `viz_studio` still becomes visible after advancing the manifest.
+about `zmart-viewer` still becomes visible after advancing the manifest.
 
 ## Proposed backend implementation
 
@@ -399,7 +399,7 @@ small revision response.
 
 ### D. Keep ordinary folder viewing intact
 
-`viz_studio` also opens OME-Zarr folders that have no ZMART manifest. The new
+`zmart-viewer` also opens OME-Zarr folders that have no ZMART manifest. The new
 path should be selected only when a valid `zmart-live` run is detected. Existing
 generic live-folder discovery and static viewing must continue to work, with
 their current tests left green.
@@ -680,11 +680,11 @@ At minimum, run the focused production suite already used on this branch:
 ```bash
 .venv/bin/pytest -q \
   zmart_live/tests \
-  viz_studio/tests/test_live_publication_gateway.py
+  zmart-viewer/tests/test_live_publication_gateway.py
 ```
 
-Then run the affected `viz_studio` announcement, live-arrival, refresh and
-browser tests. Read `viz_studio/TESTING.md` and `viz_studio/run_tests.py` before
+Then run the affected `zmart-viewer` announcement, live-arrival, refresh and
+browser tests. Read `zmart-viewer/TESTING.md` and `zmart-viewer/run_tests.py` before
 claiming the browser suite ran: a skipped browser test or an unavailable
 Chromium executable is not visual verification. Also run Ruff on changed Python
 files and `git diff --check`.

@@ -92,11 +92,11 @@ jobs:
         # about a program that is no longer in the repository, so this must happen
         # before the tests and must fail the job if it fails.
         run: |
-          npm --prefix viz_studio/frontend ci
-          npm --prefix viz_studio/frontend run build
+          npm --prefix zmart-viewer/app/page ci
+          npm --prefix zmart-viewer/app/page run build
 
       - name: Check the page was really built
-        run: test -f viz_studio/frontend/dist/index.html
+        run: test -f zmart-viewer/app/page/dist/index.html
 
       - name: Build the page the drawing options are compared on
         # Twenty-six of the tests open this page rather than the viewer's, because
@@ -105,10 +105,10 @@ jobs:
         # set below a skip fails the job -- correctly, since the run would not have
         # looked at that picture. It keeps no packages of its own; it borrows the
         # viewer's, so it has to be built after the build above.
-        run: npm --prefix viz_studio/options/harness run build
+        run: npm --prefix zmart-viewer/parked/harness run build
 
       - name: Check the options page was really built too
-        run: test -f viz_studio/options/harness/dist/index.html
+        run: test -f zmart-viewer/parked/harness/dist/index.html
 
       - name: Run the suite
         # One test at a time, deliberately. Three at once is much quicker where
@@ -129,7 +129,7 @@ jobs:
         # pixels fails and says why.
         env:
           ZMART_REQUIRE_BROWSER: '1'
-        run: python -m pytest viz_studio/tests --tb=short -rs
+        run: python -m pytest zmart-viewer/tests --tb=short -rs
 
       - name: Say what did not run
         # Anything else skipped is not a failure -- a real acquisition through

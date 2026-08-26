@@ -54,7 +54,7 @@ the new one.**
 
 ### 1. B3 is a phantom — and the objection this review raised to B2 stands after all
 
-**The server already does what B3 asks.** `viz_studio/backend/server.py` parses
+**The server already does what B3 asks.** `zmart-viewer/app/server/server.py` parses
 `Range` headers including suffix ranges — `bytes=-N`, which is exactly how a shard
 index is read — routes `do_HEAD` so the engine can ask a shard's length, and
 serves an arbitrary byte window of a file.
@@ -73,7 +73,7 @@ stands as written below; the record of the round trip it took follows it.
 
 Both the register and the ngio proposal praise capping the
 bundle at each level's own extent for the small levels. That is a silent
-correctness fault against `viz_studio/backend/linking.py`:
+correctness fault against `zmart-viewer/app/server/linking.py`:
 
 ```python
 shrink = 2 ** level
@@ -130,7 +130,7 @@ is already dead:
 - **Nothing in the recommended write path writes it.** `positions.py` never
   imports it; both view constructors pass `records_coverage=False`. Only the
   copying writer writes it.
-- **Nothing in the viewer reads it.** Zero references in `viz_studio/backend/`
+- **Nothing in the viewer reads it.** Zero references in `zmart-viewer/app/server/`
   outside a comment. Its only consumer is a measurement prototype.
 - `positions.py` lists `zmart-coverage/` in its on-disk layout diagram, which is
   untrue of the code beneath it.
@@ -256,7 +256,7 @@ axis-dropping alternative was tried and made the viewer draw the specimen as a
 thin band. Every consumer prefers the canonical five.
 
 **But the time-axis over-declaration is not free, and the plan treats it as a
-footnote.** Roughly 250 lines of `viz_studio/backend/stores.py` — a cache, a
+footnote.** Roughly 250 lines of `zmart-viewer/app/server/stores.py` — a cache, a
 "too many to count" sentinel, a twenty-thousand-entry scan limit, and separate
 folder-and-file counting paths for two zarr generations — exist *solely* because
 the time axis is declared longer than the run and the slider must not offer
@@ -311,7 +311,7 @@ document beside the same positions and keep the view for Neuroglancer. Nothing
 gets rewritten because nothing was written. **What to guard — and this review got
 its size badly wrong.** It called the mechanism about 590 lines in one contained
 module, having counted only the viewer half; it is **about 2,380 lines** across
-`zmart_storage/linked.py` and `viz_studio/backend/linking.py`. So replacing it —
+`zmart_storage/linked.py` and `zmart-viewer/app/server/linking.py`. So replacing it —
 by the TensorStore overlay discussed below or by anything else — is a
 two-thousand-line replacement, not lifting out one contained module.
 

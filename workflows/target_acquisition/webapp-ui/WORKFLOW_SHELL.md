@@ -108,7 +108,7 @@ went out with the rest of the workflow code. It is on the `claude/live-tiles-mvp
 branch, in this same folder, which is where to look for anything described above. All
 that is left here is the note you are reading.
 
-The canvas is being built separately in `viz_studio/options/`, behind one interface
+The canvas is being built separately in `zmart-viewer/parked/`, behind one interface
 with three engines to choose between, and the live-tiles work already put a viewer
 into the scan step, so the two halves are known to fit.
 

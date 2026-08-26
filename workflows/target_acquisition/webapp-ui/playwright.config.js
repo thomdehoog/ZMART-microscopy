@@ -20,7 +20,7 @@ process.env.PLAYWRIGHT_BROWSERS_PATH ||=
  *
  * No build number is written down on purpose: whichever ones are present get
  * found, and the newest is preferred. The viewer's own suite searches in exactly
- * this way, in `viz_studio/tests/conftest.py`, and the two are meant to behave
+ * this way, in `zmart-viewer/tests/conftest.py`, and the two are meant to behave
  * the same. Set `PLAYWRIGHT_CHROMIUM` to a browser of your choosing to skip the
  * search entirely.
  */

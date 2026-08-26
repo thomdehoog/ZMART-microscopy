@@ -1,6 +1,6 @@
 """The acceptance test the contract names, written as a standing gate.
 
-The contract (``viz_studio/building/CONTRACT_the_files_the_viewer_needs.md``)
+The contract (``zmart-viewer/app/picture/CONTRACT_the_files_the_viewer_needs.md``)
 ends with one test that rules everything: *delete views/, hand data/ to a
 stranger with a community tool and no ZMART anything, and everything must
 work*. This file is that sentence as code, plus the structural promises

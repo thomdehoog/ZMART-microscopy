@@ -232,7 +232,7 @@ it exists:
   only, so the run-wide picture has no prepared levels of its own.
 - OME-Zarr metadata naming the raw view's selector dimension, which a viewer
   would need in order to label that slider.
-- The last step of the shard route: `viz_studio/backend/linking.py` still
+- The last step of the shard route: `zmart-viewer/app/server/linking.py` still
   understands only whole files, so exposing a byte range through the viewer's
   own server means adding a range form to the pointer record.
 - Production viewer refresh. The browser harness proves the server's
