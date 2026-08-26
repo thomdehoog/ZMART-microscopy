@@ -672,20 +672,6 @@ def test_every_zoom_shows_the_survey_after_a_storm_of_landings(
                         ? Array.from(held.spec.upperVoxelBound) : null,
                       held: held.chunks.size, byState, chunks,
                     };
-                    if (typeof held.invalidateCache === 'function'
-                        && held.spec?.upperVoxelBound) {
-                      try {
-                        const answer = await Promise.race([
-                          held.rpc.promiseInvoke(
-                            'ChunkSource.zmartProbe', {source: held.rpcId}),
-                          new Promise((resolve) => setTimeout(
-                            () => resolve({probeTimeout: true}), 1500)),
-                        ]);
-                        one.worker = answer?.value ?? answer;
-                      } catch (error) {
-                        one.worker = {probeError: String(error)};
-                      }
-                    }
                     sources.push(one);
                   }
                   const progress = [];
@@ -1047,21 +1033,26 @@ def test_every_zoom_shows_the_survey_after_a_storm_of_landings(
             the wire. The census therefore drains these flights explicitly.
             """
             return page.evaluate(
-                """async () => {
+                """() => {
+                  // Settled means the ENGINE has the pixels it wants, which
+                  // is the question this was always asking. It used to ask
+                  // our own refresh pump how much it still owed, through a
+                  // probe with a two-second timeout per source; when the pump
+                  // was deleted with the rest of the parallel refresh
+                  // machinery (2026-08-26) every poll spent that timeout and
+                  // the file stopped finishing. The engine's own count is
+                  // instant, and it is the better witness: what matters is
+                  // what is on screen, not what our bookkeeping thinks.
                   let owed = 0;
-                  for (const [, held] of
-                       window.zmartViewer.chunkManager.rpc.objects) {
-                    if (!held || typeof held.invalidateCache !== 'function'
-                        || !held.spec?.upperVoxelBound) continue;
-                    const answer = await Promise.race([
-                      held.rpc.promiseInvoke(
-                        'ChunkSource.zmartProbe', { source: held.rpcId }),
-                      new Promise((resolve) => setTimeout(
-                        () => resolve(null), 2_000)),
-                    ]);
-                    const refresh = answer?.value?.refresh;
-                    if (refresh) owed += (refresh.pending || 0)
-                        + (refresh.inFlight || 0);
+                  for (const managed of
+                       window.zmartViewer.layerManager.managedLayers) {
+                    for (const rl of
+                         (managed.layer && managed.layer.renderLayers) || []) {
+                      const p = rl.layerChunkProgressInfo;
+                      if (!p) continue;
+                      owed += Math.max(
+                        0, p.numVisibleChunksNeeded - p.numVisibleChunksAvailable);
+                    }
                   }
                   return owed;
                 }"""
@@ -1104,28 +1095,6 @@ def test_every_zoom_shows_the_survey_after_a_storm_of_landings(
                     page,
                     (debug_folder / f"storm_band_{multiple:.2f}x.png"
                      if debug_folder is not None else None))
-        worker_probes = []
-        if os_module.environ.get("ZMART_STORM_DEBUG"):
-            worker_probes = page.evaluate(
-                """async () => {
-                  const out = [];
-                  for (const [id, held] of
-                       window.zmartViewer.chunkManager.rpc.objects) {
-                    if (!held || typeof held.invalidateCache !== 'function'
-                        || !held.spec?.upperVoxelBound) continue;
-                    const answer = await Promise.race([
-                      held.rpc.promiseInvoke(
-                        'ChunkSource.zmartProbe', { source: held.rpcId }),
-                      new Promise((resolve) => setTimeout(
-                        () => resolve({probeTimeout: true}), 2_000)),
-                    ]);
-                    out.push({ id, bound: Array.from(held.spec.upperVoxelBound),
-                               probe: answer?.value ?? answer });
-                  }
-                  return out;
-                }"""
-            )
-            print("WORKER PROBES:", json.dumps(worker_probes), flush=True)
             zoom_to(1.0)
             page.wait_for_timeout(2_500)
             page.screenshot(path=str(Path(os_module.environ["ZMART_STORM_DEBUG"])
@@ -1437,7 +1406,7 @@ def test_every_zoom_shows_the_survey_after_a_storm_of_landings(
                 "storm_lit": {str(k): v for k, v in seen.items()},
                 "fresh_lit": {str(k): v for k, v in fresh.items()},
                 "image_differences": image_differences,
-                "worker_probes_after_storm": worker_probes,
+
                 "network": {
                     "events": len(network_events),
                     "phase_counts": phase_counts,
