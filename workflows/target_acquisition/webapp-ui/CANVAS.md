@@ -5,8 +5,10 @@ framework builds a box and knows only its name, that it stays once asked for,
 and that it has a channel down its side. A workflow that shows no canvas
 produces none — there is no canvas markup on the page for one to find.
 
-It is not any one step's either. Every step from the carrier onward is looking
-at the same square millimetre of glass, and the picture of it is one picture.
+It is not any one step's either. It appears at the step that first asks for it
+— today the first step of all — and stays for the rest of the run, because every
+step after that is looking at the same square millimetre of glass and the picture
+of it is one picture.
 
 And it is not target acquisition's. Nothing in it knows what a carrier is, or a
 tileset, or a focus point — it knows layers, so any workflow could take it: one
@@ -33,6 +35,12 @@ of a shape being drawn, the scale bar. What those have in common is that a
 half-visible one is worse than none — you cannot edit what you cannot see, and a
 scale bar you can half see through is a scale bar you cannot trust.
 
+The dial is not the only way through. A window can be opened over chosen ground
+and it cuts through **every** layer at once, down to whatever is drawn beneath
+the stack — which is how an operator watches a scan appear through their own
+drawing rather than beside it. Given in the same coordinates the layers are, so
+the window travels with the sample when the picture is panned.
+
 **It offers the layers.** Each layer that has something to draw gets a chip on
 the picture's own bar: what is drawn and how is the picture's business, so it is
 asked on the picture.
@@ -48,7 +56,8 @@ Inventing a second set of names for the same fields would be a third canvas.
       explains:   "…",               // what the chip's tooltip says
       staysSolid: false,             // true = the fade dial does not reach it
       paint:      ({ context, project, zoom }) => …,
-      claims:     { down, move, up, cursor },   // optional; see below
+      reaches:    (at) => …,                    // is this point mine? optional
+      claims:     { down, move, up, cursor },   // is this gesture mine? optional
     }
 
 **Vertical order is the order of the list.** A step does not number its layer,
@@ -76,6 +85,12 @@ subject, so they arrive together.
       cursor() -> string,
     }
 
+`reaches` and `claims` answer two different questions and a layer may want
+either or both. `reaches` is *is this point mine* — enough for a layer that only
+wants to be told it was clicked. `claims` is *is this gesture mine* — what a
+layer needs to hold a press through the moves and the release, which is what
+drawing a shape or dragging a point actually is.
+
 The canvas asks the claimants in stack order, **top layer first**, and pans with
 whatever none of them wanted. That is the whole rule. It does not know that one
 of them is drawing a rectangle and another is dragging a focus point.
@@ -96,7 +111,4 @@ picture, never repositions it, and never asks what else is on it. Two steps
 drawing the same ground draw two layers, and the operator decides which is on
 top by turning one off — not by the steps negotiating.
 
-Gestures work the same way: the picture asks whoever has claimed presses, in
-order, and pans only with what none of them wanted. So a press on a shape drags
-the shape and a press on empty canvas moves the picture, without either owner
-knowing the other exists.
+Adding something new later is adding a layer. The canvas does not change.
