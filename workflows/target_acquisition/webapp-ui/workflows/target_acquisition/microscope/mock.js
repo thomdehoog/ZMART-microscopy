@@ -28,9 +28,8 @@
  * verbs arrive here when that work starts.
  */
 
-import {
-  pretendCanvas, pretendConnectionStatus, pretendInstruments, pretendPositionUm, sampleReading,
-} from "./microscopes.js";
+import { APIS } from "./instruments.js";
+import { sampleReading } from "./settings.js";
 import { makeRng } from "./pretend-sample/rng.js";
 import { METRICS, METRIC_KEYS, debrisAt, sweep, pickPeak } from "./pretend-sample/sweep.js";
 
@@ -157,3 +156,32 @@ export { METRICS, METRIC_KEYS };
 /* A deterministic random stream for the window's rehearsal drawings (the
    pretend image textures in previews). Re-exported for the same reason. */
 export { makeRng };
+
+
+/* ==========================================================================
+   what this pretend instrument answers about itself
+   ========================================================================== */
+
+/** How far this pretend stage travels, in micrometres. */
+const TRAVEL_UM = { x: 120_000, y: 80_000 };
+
+/** The two drivers the controller registers on a machine with both. */
+export const pretendInstruments = () => [
+  { vendor: "mock", microscope: "mock-scope", api: "mock-api", client: "mock-client" },
+  { vendor: "leica", microscope: "stellaris5-y42h93", api: "navigator-expert", client: "PythonClient" },
+];
+
+export const pretendConnectionStatus = ({ connection }) => ({
+  "Microscope reachable": connection?.api === "navigator-expert" ? "127.0.0.1:8895" : "in-process",
+  "Credentials accepted": "token valid",
+  "API version": APIS[connection?.api]?.detail ?? "unknown",
+  "Stage responds": "x 0.0 · y 0.0 · z −412.0 µm",
+  "Objectives listed": "5x, 63x",
+  "Storage writable": "smart/organoid-screen_a7f3c1/",
+});
+
+/** Its canvas: the travel a page draws to scale. */
+const pretendCanvas = () => ({ x_um: [0, TRAVEL_UM.x], y_um: [0, TRAVEL_UM.y] });
+
+/** Where its stage is parked: the corner, off the carrier. */
+const pretendPositionUm = () => ({ x: TRAVEL_UM.x * 0.04, y: TRAVEL_UM.y * 0.04, z: -412 });

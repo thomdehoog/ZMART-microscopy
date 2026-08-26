@@ -23,7 +23,7 @@
 const WHERE =
   new URLSearchParams(globalThis.location?.search ?? "").get("bridge") ?? "";
 
-import { PENDING, isFailed } from "./microscopes.js";
+import { PENDING, isFailed } from "./connection-status.js";
 
 /** One call to the bridge: JSON in, JSON out, failure as a plain sentence. */
 async function ask(route, payload) {

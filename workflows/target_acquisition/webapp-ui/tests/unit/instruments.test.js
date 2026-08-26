@@ -8,8 +8,9 @@
 
 import { describe, expect, it } from "vitest";
 import {
-  choicesFrom, describeSession, pretendInstruments,
-} from "../../workflows/target_acquisition/microscope/microscopes.js";
+  choicesFrom, describeSession,
+} from "../../workflows/target_acquisition/microscope/instruments.js";
+import { pretendInstruments } from "../../workflows/target_acquisition/microscope/mock.js";
 
 describe("choicesFrom", () => {
   it("groups the registry's entries into microscopes with their apis, in registry order", () => {

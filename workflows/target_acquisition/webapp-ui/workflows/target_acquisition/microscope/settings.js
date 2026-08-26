@@ -1,74 +1,12 @@
 /**
- * Which microscopes a session can open, over which API, and what is checked
- * before a run is allowed to start.
+ * The kinds of setting a run records off the microscope, and what a reading
+ * of each looks like.
  *
- * Sole owner of that catalogue. The names match the drivers in the repo —
- * `zmart_drivers/<vendor>/<microscope>/<api>` — because the session the
- * operator picks here is the driver that will be loaded, and inventing
- * friendly names that map to nothing would be a lie the day this is wired up.
- *
- * The checks are the interesting part. Connecting is not one action, it is a
- * handful of questions the answers to which the operator needs to see: an
- * autofocus that fails an hour into a run because the storage path was never
- * writable is a bad way to find out.
+ * A recording is a readout: the operator sets the instrument up in its own
+ * software, names what they have set up, and presses record. This file says
+ * which kinds exist and what shape their readings take; `recordings.js` holds
+ * the slots a run keeps them in.
  */
-
-/**
- * What the controller's registry entries are called on screen.
- *
- * The list of instruments is the controller's (`get_instruments`): each entry
- * is the connection dict that `set_instrument` takes, identified by vendor,
- * microscope and api. These are only the words the page uses for ids it
- * knows; an id it does not know is shown as itself.
- */
-export const MICROSCOPES = {
-  "mock-scope": { label: "Mock", detail: "the controller's fake driver" },
-  "stellaris5-y42h93": { label: "Leica Stellaris 5", detail: "y42h93" },
-};
-
-export const APIS = {
-  "mock-api": { label: "Mock API", detail: "in-process · made-up data" },
-  "navigator-expert": { label: "Navigator Expert", detail: "CAM socket 8895 · LAS X 4.9" },
-};
-
-/**
- * The registry's entries, grouped the way the Connect card asks: one
- * microscope, then the APIs registered for it, each API carrying the entry
- * to connect with. Registry order is kept.
- */
-export function choicesFrom(instruments) {
-  const microscopes = [];
-  for (const entry of instruments ?? []) {
-    const key = `${entry.vendor}/${entry.microscope}`;
-    let scope = microscopes.find((m) => m.key === key);
-    if (!scope) {
-      const known = MICROSCOPES[entry.microscope];
-      scope = {
-        key,
-        vendor: entry.vendor,
-        microscope: entry.microscope,
-        label: known?.label ?? entry.microscope,
-        detail: known?.detail ?? entry.vendor,
-        apis: [],
-      };
-      microscopes.push(scope);
-    }
-    const api = APIS[entry.api];
-    scope.apis.push({
-      key: entry.api,
-      label: api?.label ?? entry.api,
-      detail: api?.detail ?? "",
-      connection: { ...entry },
-    });
-  }
-  return microscopes;
-}
-
-/** What the pretend backend lists: the same two entries the controller registers here. */
-export const pretendInstruments = () => [
-  { vendor: "mock", microscope: "mock-scope", api: "mock-api", client: "mock-client" },
-  { vendor: "leica", microscope: "stellaris5-y42h93", api: "navigator-expert", client: "PythonClient" },
-];
 
 /**
  * The kinds of setting a run can record off the microscope.
@@ -260,62 +198,3 @@ export const sampleReading = (key, nth) => {
   const { readings } = settingType(key);
   return readings[nth % readings.length];
 };
-
-/**
- * How far the stage can travel, in millimetres — the canvas is this area drawn
- * to scale, and every carrier sits inside it.
- *
- * A stand-in until the controller is asked. One number for every microscope
- * here, which is exactly the part that is not true: it is the first thing the
- * live driver replaces, per instrument.
- */
-export const STAGE_LIMITS_MM = { width: 120, height: 80 };
-
-export const DEFAULT_SESSION = {
-  /* Chosen once the instruments are listed: the first the registry offers,
-     which is the mock, so a page opened by accident drives nothing. */
-  microscope: null,
-  api: null,
-  /* Prefilled so the mock can be clicked through without typing. A real build
-     must ship this empty — a default credential is not a convenience, it is a
-     credential everybody has. */
-  password: "demo",
-};
-export const describeSession = ({ connection }) => {
-  if (!connection) return "not chosen";
-  const scope = MICROSCOPES[connection.microscope]?.label ?? connection.microscope;
-  const api = APIS[connection.api]?.label ?? connection.api;
-  return `${scope} · ${api}`;
-};
-
-/**
- * The connection's health, in the shape every driver reports it.
- *
- * `get_info` carries `connection_status`: ordered keys, each with its answer
- * or `"pending"` until the check has answered; a value beginning `failed` is
- * a failed check. The page shows one row per key and decides nothing else.
- * The pretend backend answers these for the session it was given, staggered
- * like an instrument would; the live backend polls the bridge for the real
- * ones.
- */
-export const PENDING = "pending";
-export const isFailed = (value) => /^failed\b/i.test(String(value));
-
-export const pretendConnectionStatus = ({ connection }) => ({
-  "Microscope reachable": connection?.api === "navigator-expert" ? "127.0.0.1:8895" : "in-process",
-  "Credentials accepted": "token valid",
-  "API version": APIS[connection?.api]?.detail ?? "unknown",
-  "Stage responds": "x 0.0 · y 0.0 · z −412.0 µm",
-  "Objectives listed": "5x, 63x",
-  "Storage writable": "smart/organoid-screen_a7f3c1/",
-});
-
-/** What the pretend instrument reports as its canvas: the travel. */
-export const pretendCanvas = () => ({
-  x_um: [0, STAGE_LIMITS_MM.width * 1000],
-  y_um: [0, STAGE_LIMITS_MM.height * 1000],
-});
-
-/** Where the pretend stage is parked: the corner, off the carrier. */
-export const pretendPositionUm = () =>
-  ({ x: STAGE_LIMITS_MM.width * 40, y: STAGE_LIMITS_MM.height * 40, z: -412 });

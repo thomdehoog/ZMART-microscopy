@@ -20,7 +20,7 @@ import { connect } from "../../workflows/target_acquisition/steps/1_connect/step
 import { initialScanfields } from "../../workflows/target_acquisition/steps/3_define_scan_area/step.js";
 import { scanOverview } from "../../workflows/target_acquisition/steps/5_scan_the_overview/step.js";
 import { emptySlot, withRecording } from "../../workflows/target_acquisition/microscope/recordings.js";
-import { sampleReading } from "../../workflows/target_acquisition/microscope/microscopes.js";
+import { sampleReading } from "../../workflows/target_acquisition/microscope/settings.js";
 
 const { WORKFLOWS } = assembleWorkflows(
   import.meta.glob("../../workflows/*/flow.js", { eager: true }),

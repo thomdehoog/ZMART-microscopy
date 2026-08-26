@@ -5,8 +5,9 @@ import { theDrawingAbove, whoIsAt } from "../../workflows/target_acquisition/sha
 import { assembleWorkflows } from "../rules/finding-workflows.js";
 import { watchStagePosition } from "../../workflows/target_acquisition/shared/stage-position.js";
 import {
-  DEFAULT_SESSION, choicesFrom, describeSession, STAGE_LIMITS_MM, isFailed,
-} from "../../workflows/target_acquisition/microscope/microscopes.js";
+  DEFAULT_SESSION, choicesFrom, describeSession,
+} from "../../workflows/target_acquisition/microscope/instruments.js";
+import { isFailed } from "../../workflows/target_acquisition/microscope/connection-status.js";
 /* The seam. Connecting, reading a preset off the instrument, measuring the
    focus map and driving the overview scan all go through the backend and are
    awaited; this window never knows whether a real stage moved. Which side of
@@ -1930,7 +1931,8 @@ let stageWatch = null;
      Its size is the instrument's: `get_info().canvas` gives the travel and
      where the stage is, and connecting takes both. Before a session there
      is the placeholder, so the picture has a frame to draw. */
-  const STAGE_UM = [STAGE_LIMITS_MM.width * 1000, STAGE_LIMITS_MM.height * 1000];
+  const TRAVEL_BEFORE_A_SESSION = [120_000, 80_000];
+  const STAGE_UM = [...TRAVEL_BEFORE_A_SESSION];
   let stageReported = null;
 
   function takeTheCanvas(canvas) {
