@@ -350,3 +350,31 @@ test("alt and a drag pans even while a tool is armed", async ({ page }) => {
   const after = await page.evaluate(() => window.__canvas.view);
   expect(after.centre.x, "alt+drag did not pan").not.toBeCloseTo(before.centre.x, 3);
 });
+
+test("a host that offers no chooser and no commentary still gets a canvas", async ({ page }) => {
+  /* The operator's window shows one engine and never asks which. A canvas that
+     insisted on somewhere to put a chooser, and somewhere to write a sentence
+     about what the picture is doing, would make every host carry furniture it
+     had decided not to show. Only the box and the layer buttons are required —
+     a canvas with nowhere to draw, or no way to turn a layer off, is not one. */
+  const buttons = await page.evaluate(async () => {
+    const { putTheCanvasIn } = await import("/parts/canvas/viewer.js");
+    const box = document.createElement("div");
+    box.style.cssText = "position:relative;width:320px;height:200px";
+    const layers = document.createElement("div");
+    document.body.append(box, layers);
+    const bare = putTheCanvasIn({
+      box, layers, acquisitions: [], engine: "jpeg-under",
+      layersAbove: [{
+        key: "only", label: "Only", shown: true,
+        paint: ({ context }) => {
+          context.fillStyle = "rgb(10,200,10)";
+          context.fillRect(0, 0, 50, 50);
+        },
+      }],
+    });
+    await bare.whenShown();
+    return [...layers.querySelectorAll("button[data-layer]")].map((b) => b.dataset.layer);
+  });
+  expect(buttons, "the layer it was given got no button").toContain("only");
+});
