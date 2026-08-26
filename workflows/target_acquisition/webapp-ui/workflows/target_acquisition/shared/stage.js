@@ -203,8 +203,9 @@ const stageMarkAt = () => {
  * the corner is three figures to read past on every step, when the question
  * they answer is only ever asked about this one mark. So they arrive on
  * hover, and the mark thickens to say it is the thing being asked about. */
-function drawWhereTheStageIs(ctx) {
-  const [x, y] = stageMarkAt();
+function drawWhereTheStageIs(ctx, onTheStage) {
+  const at = whereTheStageIs();
+  const [x, y] = onTheStage(at.x, at.y);
   ctx.save();
   ctx.strokeStyle = css("--mark-stage");
   ctx.fillStyle = css("--mark-stage");
@@ -242,21 +243,21 @@ function tipTheStageMark(e) {
 /* Where the stage ends. Drawn first and faintly: it is the edge of what any
    of this can reach, which is context for everything else rather than a
    thing in its own right. */
-function drawStageLimits(ctx) {
-  const [x, y] = toScreen(0, 0);
+function drawStageLimits(ctx, onTheStage, scale) {
+  const [x, y] = onTheStage(0, 0);
   ctx.save();
   ctx.strokeStyle = css("--line-strong");
   ctx.lineWidth = 1;
-  ctx.strokeRect(x + 0.5, y + 0.5, STAGE_UM[0] * view.scale, STAGE_UM[1] * view.scale);
+  ctx.strokeRect(x + 0.5, y + 0.5, STAGE_UM[0] * scale, STAGE_UM[1] * scale);
   ctx.restore();
 }
 
 const toScreen = (x, y) => [x * view.scale + view.tx, y * view.scale + view.ty];
 const toWorld = (px, py) => [(px - view.tx) / view.scale, (py - view.ty) / view.scale];
 
-function tileTexture(ctx, tile, place) {
+function tileTexture(ctx, tile, place, scale) {
   const [sx, sy] = place(tile.x - tile.frameUm / 2, tile.y - tile.frameUm / 2);
-  const sz = tile.frameUm * view.scale;
+  const sz = tile.frameUm * scale;
 
   // tile ground with a gentle per-tile vignette — the flat-field seam
   // an operator actually sees in a stitched overview
@@ -275,7 +276,34 @@ let seeThroughGround = [];
    it without drawing a frame to find out. */
 let theStack = [];
 
-function theStageLayers({ place, shown, ch0, ch1, w, h, editing }) {
+/**
+ * What a layer is handed, in the terms this run draws in.
+ *
+ * A layer is given a frame by whoever is compositing the stack, and everything
+ * it needs is in there: where a place on the sample lands on screen, how
+ * magnified the picture is, how big the box is. Taking them from the frame
+ * rather than from this file is what lets these layers be drawn by a canvas
+ * that is not this one.
+ *
+ * **Two frames, named apart.** `place` is the carrier's own micrometres — where
+ * the plan, the tilesets, the cells and the focus points all live. `onTheStage`
+ * is the travel's, which only the stage limits and the stage mark use. They
+ * differ by where the carrier sits in the travel, and confusing them draws
+ * everything up and to the left of where it belongs. That has happened.
+ */
+function drawnIn(frame) {
+  const [ox, oy] = carrierOriginUm();
+  const put = (x, y) => { const at = frame.project(x, y); return [at.x, at.y]; };
+  return {
+    place: put,
+    onTheStage: (x, y) => put(x - ox, y - oy),
+    scale: 1 / frame.zoom,
+    w: frame.width,
+    h: frame.height,
+  };
+}
+
+function theStageLayers({ shown, ch0, ch1, editing }) {
   const activeMode = step(run.activeIdx).mode;
 
   return [
@@ -319,7 +347,10 @@ function theStageLayers({ place, shown, ch0, ch1, w, h, editing }) {
          connected microscope's configuration, so an unconnected page shows
          nothing it cannot yet know. */
       shown: run.done.has("connect"),
-      paint: ({ context: ctx }) => drawStageLimits(ctx),
+      paint: (frame) => {
+        const { onTheStage, scale } = drawnIn(frame);
+        drawStageLimits(frame.context, onTheStage, scale);
+      },
     },
 
     {
@@ -328,12 +359,14 @@ function theStageLayers({ place, shown, ch0, ch1, w, h, editing }) {
       explains: "The plate the sample is mounted in — its outline and its wells. The "
         + "room the run happens in.",
       shown: run.done.has("carrier"),
-      paint: ({ context: ctx }) => {
+      paint: (frame) => {
+        const ctx = frame.context;
+        const { place, scale } = drawnIn(frame);
         /* Grey, not the accent: the carrier is the room the run happens in,
            not a thing the run produced. Dark enough to read against the stage
            behind it, which is grey too. */
         carrierWidget.drawOn(ctx, {
-          config: run.carrier, toScreen: place, scale: view.scale,
+          config: run.carrier, toScreen: place, scale: scale,
           colour: css("--ink-3"), fill: css("--surface-3"),
         });
       },
@@ -345,10 +378,12 @@ function theStageLayers({ place, shown, ch0, ch1, w, h, editing }) {
       explains: "The fields the scan has taken, in the order it wrote them, with the "
         + "tissue each one found. This is what the run has actually seen.",
       shown: shown > 0,
-      paint: ({ context: ctx }) => {
+      paint: (frame) => {
+        const ctx = frame.context;
+        const { place, scale } = drawnIn(frame);
         ctx.save();
         const done = run.plan.slice(0, shown);
-        for (const t of done) tileTexture(ctx, t, place);
+        for (const t of done) tileTexture(ctx, t, place, scale);
         /* Tissue is drawn inside the tiles that have been taken, because an
            image is the only way the run knows it is there. */
         ctx.globalCompositeOperation = "lighter";
@@ -356,7 +391,7 @@ function theStageLayers({ place, shown, ch0, ch1, w, h, editing }) {
           const d = density(t.x, t.y);
           if (d < 0.02) continue;
           const [bx, by] = place(t.x, t.y);
-          const br = (t.frameUm * 0.75) * view.scale;
+          const br = (t.frameUm * 0.75) * scale;
           const g = ctx.createRadialGradient(bx, by, 0, bx, by, br);
           if (ch0) g.addColorStop(0, `rgba(34,211,238,${0.34 * d})`);
           g.addColorStop(0.55, ch1 ? `rgba(245,158,11,${0.16 * d})` : `rgba(34,211,238,${0.12 * d})`);
@@ -373,7 +408,7 @@ function theStageLayers({ place, shown, ch0, ch1, w, h, editing }) {
           ctx.strokeStyle = css("--accent");
           ctx.lineWidth = 2;
           ctx.setLineDash([5, 4]);
-          ctx.strokeRect(fx, fy, t.frameUm * view.scale, t.frameUm * view.scale);
+          ctx.strokeRect(fx, fy, t.frameUm * scale, t.frameUm * scale);
           ctx.setLineDash([]);
         }
 
@@ -387,7 +422,7 @@ function theStageLayers({ place, shown, ch0, ch1, w, h, editing }) {
           const [bx, by] = place(b.xMin, b.yMin);
           ctx.strokeStyle = css("--line-strong");
           ctx.lineWidth = 1;
-          ctx.strokeRect(bx, by, (b.xMax - b.xMin) * view.scale, (b.yMax - b.yMin) * view.scale);
+          ctx.strokeRect(bx, by, (b.xMax - b.xMin) * scale, (b.yMax - b.yMin) * scale);
         }
       },
       /* A click on a taken field is a click on that field. This is what
@@ -407,8 +442,10 @@ function theStageLayers({ place, shown, ch0, ch1, w, h, editing }) {
       explains: "What detection found. The ones that passed the gate are ringed, so which "
         + "is which does not rest on colour alone.",
       shown: run.cellsShown,
-      paint: ({ context: ctx }) => {
-        const ctxRad = Math.max(1.1, 1.4 * Math.sqrt(view.scale / 0.03));
+      paint: (frame) => {
+        const ctx = frame.context;
+        const { place, scale, w, h } = drawnIn(frame);
+        const ctxRad = Math.max(1.1, 1.4 * Math.sqrt(scale / 0.03));
         ctx.fillStyle = css("--mark-context");
         ctx.globalAlpha = 0.55;
         ctx.beginPath();
@@ -423,7 +460,7 @@ function theStageLayers({ place, shown, ch0, ch1, w, h, editing }) {
         ctx.globalAlpha = 1;
 
         // gated cells — ringed, so identity is not carried by colour alone
-        const gr = Math.max(3, 4.2 * Math.sqrt(view.scale / 0.03));
+        const gr = Math.max(3, 4.2 * Math.sqrt(scale / 0.03));
         for (const c of theSample().cells) {
           if (!run.gated.has(c.id)) continue;
           const [x, y] = place(c.x, c.y);
@@ -434,7 +471,7 @@ function theStageLayers({ place, shown, ch0, ch1, w, h, editing }) {
         }
       },
       reaches: (at) => {
-        let best = 12 / view.scale, hit = null;
+        let best = 12 / scale, hit = null;
         for (const c of theSample().cells) {
           if (!run.detected.has(c.id)) continue;
           const d = Math.hypot(c.x - at.x, c.y - at.y);
@@ -449,11 +486,13 @@ function theStageLayers({ place, shown, ch0, ch1, w, h, editing }) {
       label: "Targets",
       explains: "The cells that have been imaged at high resolution.",
       shown: run.acquired.length > 0,
-      paint: ({ context: ctx }) => {
+      paint: (frame) => {
+        const ctx = frame.context;
+        const { place, scale } = drawnIn(frame);
         for (const id of run.acquired) {
           const c = theSample().cells[id - 1];
           const [x, y] = place(c.x, c.y);
-          const rr = Math.max(7, 9 * Math.sqrt(view.scale / 0.03));
+          const rr = Math.max(7, 9 * Math.sqrt(scale / 0.03));
           ctx.beginPath(); ctx.arc(x, y, rr, 0, Math.PI * 2);
           ctx.strokeStyle = "#16a34a"; ctx.lineWidth = 2.2; ctx.stroke();
           ctx.beginPath(); ctx.arc(x, y, 2.2, 0, Math.PI * 2);
@@ -480,7 +519,10 @@ function theStageLayers({ place, shown, ch0, ch1, w, h, editing }) {
          cost is that the shared fade reaches it. Splitting the map from the
          points would buy back both, and is the thing to do if that fade ever
          matters here. */
-      paint: ({ context: ctx }) => drawFocusLayer(ctx, place, view.scale, w, h),
+      paint: (frame) => {
+        const { place, scale, w, h } = drawnIn(frame);
+        drawFocusLayer(frame.context, place, scale, w, h);
+      },
     },
 
     {
@@ -496,10 +538,12 @@ function theStageLayers({ place, shown, ch0, ch1, w, h, editing }) {
          about to stop existing. The fields are kept, not discarded: coming
          forward again finds them where they were. */
       shown: run.activeIdx >= indexOfStep("scanfields"),
-      paint: ({ context: ctx }) => {
+      paint: (frame) => {
+        const ctx = frame.context;
+        const { place, scale } = drawnIn(frame);
         scanfieldsWidget.drawOn(ctx, {
           fields: run.fields, preset: activePreset(), carrier: run.carrier,
-          toScreen: place, scale: view.scale, dim: shown > 0,
+          toScreen: place, scale: scale, dim: shown > 0,
           marked: editing?.marked(),
         });
       },
@@ -512,13 +556,15 @@ function theStageLayers({ place, shown, ch0, ch1, w, h, editing }) {
         + "tile the channel's preview is of.",
       shown: activeMode === "detect" && !!run.plan[run.detect.tile],
       staysSolid: true,
-      paint: ({ context: ctx }) => {
+      paint: (frame) => {
+        const ctx = frame.context;
+        const { place, scale } = drawnIn(frame);
         const t = run.plan[run.detect.tile];
         const half = t.frameUm / 2;
         const [x, y] = place(t.x - half, t.y - half);
         ctx.strokeStyle = css("--accent");
         ctx.lineWidth = 2;
-        ctx.strokeRect(x, y, t.frameUm * view.scale, t.frameUm * view.scale);
+        ctx.strokeRect(x, y, t.frameUm * scale, t.frameUm * scale);
       },
     },
 
@@ -529,7 +575,10 @@ function theStageLayers({ place, shown, ch0, ch1, w, h, editing }) {
         + "and always on top: you cannot edit what you cannot see.",
       shown: !!editing,
       staysSolid: true,
-      paint: ({ context: ctx }) => editing.drawChrome(ctx, { toScreen: place, scale: view.scale }),
+      paint: (frame) => {
+        const { place, scale } = drawnIn(frame);
+        editing.drawChrome(frame.context, { toScreen: place, scale });
+      },
     },
 
     {
@@ -542,12 +591,15 @@ function theStageLayers({ place, shown, ch0, ch1, w, h, editing }) {
          questions, and the carrier drawn from them says the same thing. */
       shown: activeMode === "carrier" && run.anchors.length > 0,
       staysSolid: true,
-      paint: ({ context: ctx }) => {
-        const [ox, oy] = carrierOriginUm();
+      paint: (frame) => {
+        const ctx = frame.context;
+        /* Anchors are placed in the carrier's own coordinates, like everything
+           else the run puts down, so they are drawn in the carrier's frame. */
+        const { place } = drawnIn(frame);
         ctx.strokeStyle = css("--mark-focus");
         ctx.fillStyle = css("--mark-focus");
         for (const a of run.anchors) {
-          const [x, y] = toScreen(a.x + ox, a.y + oy);
+          const [x, y] = place(a.x, a.y);
           ctx.lineWidth = a.stage ? 2.4 : 1.6;
           crosshair(ctx, x, y, 11, 4, a.stage ? 3 : 2);
         }
@@ -565,7 +617,7 @@ function theStageLayers({ place, shown, ch0, ch1, w, h, editing }) {
          connected. */
       shown: run.done.has("connect"),
       staysSolid: true,
-      paint: ({ context: ctx }) => drawWhereTheStageIs(ctx),
+      paint: (frame) => drawWhereTheStageIs(frame.context, drawnIn(frame).onTheStage),
     },
 
     {
@@ -578,7 +630,10 @@ function theStageLayers({ place, shown, ch0, ch1, w, h, editing }) {
          reading about nothing. */
       shown: run.done.has("connect"),
       staysSolid: true,
-      paint: ({ context: ctx }) => drawScaleBar(ctx, w, h),
+      paint: (frame) => {
+        const { scale, w, h } = drawnIn(frame);
+        drawScaleBar(frame.context, w, h, scale);
+      },
     },
   ];
 }
@@ -617,14 +672,13 @@ function drawStage() {
 
   const editing = sideWidget()?.id === "scanfields" ? run.editor : null;
   const stack = theStageLayers({
-    place,
     shown: Math.max(run.tilesShown, 0),
     /* Both colours, always. Which channels are mixed is a question about a
        picture, and the viewer that draws it is where it will be asked —
        which is why the switches that used to be under the canvas are gone. */
     ch0: true,
     ch1: true,
-    w, h, editing,
+    editing,
   });
   /* Two different questions, and they must not be run together. `hasSomething`
      is whether the *run* has anything for this layer — no cells have been
@@ -896,7 +950,7 @@ function editorTook(kind, e) {
  * surface, the same as the empty stage. */
 const SCALE_STRIP = 24;
 
-function drawScaleBar(ctx, w, h, scale = view.scale) {
+function drawScaleBar(ctx, w, h, scale) {
   const targetPx = 130;
   const raw = targetPx / scale;
   const pow = Math.pow(10, Math.floor(Math.log10(raw)));

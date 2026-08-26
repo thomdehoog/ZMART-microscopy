@@ -157,11 +157,17 @@ right shape, and it is a thing to look at on screen rather than argue here.
    `canvas-layers.spec.js`; 11 of 11 there pass. One correction along the way:
    alt+drag is the *canvas's* rule, not a layer declining — an escape hatch each
    layer has to remember to implement is not an escape hatch.
-2. Turn `theStageLayers` into `layersAbove` entries: `paint({context, project,
-   zoom})` instead of closing over `place` and `view.scale`. `claims` does not
-   replace `reaches` — they answer different questions, *is this point mine* and
-   *is this gesture mine*, and the eight existing tests depend on `reaches`. A
-   layer implements whichever it needs.
+2. **DONE.** Every layer's `paint` works from the frame it is handed rather
+   than closing over this file's `place` and `view.scale`, which is what lets
+   another canvas draw them. `drawnIn(frame)` names the two coordinate frames
+   apart — `place` for the carrier's micrometres, `onTheStage` for the travel's
+   — because confusing them draws everything up and to the left, which has
+   happened once already.
+
+   `claims` is NOT added here. Nothing consults it until the canvas routes
+   gestures, so adding it now would be a contract written and unenforced. It
+   lands with step 3, where it is read. `claims` does not replace `reaches`
+   either — they answer different questions, and the tests depend on `reaches`.
 3. The canvas panel opens `putTheCanvasIn` and hands the layers in. Fit, the
    readout and the scale bar move to the viewer, which is where a statement
    about the projection belongs.
