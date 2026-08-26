@@ -486,7 +486,11 @@ export default {
         ed.past = [...ed.past.slice(-(HISTORY - 1)), ed.fields];
         ed.future = [];
       }
-      ed.fields = next;
+      /* A field made now is tiled at the overlap asked for now. Carried on the
+         field rather than looked up when it is tiled, because the plan is
+         worked out in several places and a field that did not say what it
+         covers would be covered differently in each of them. */
+      ed.fields = next.map((f) => (f.overlap === undefined ? { ...f, overlap: ed.overlap } : f));
       onChange(ed.fields);
       sync();
     };
@@ -549,6 +553,11 @@ export default {
          other. A pitch left over from a previous answer would quietly win. */
       ed.spacingX = 0;
       ed.spacingY = 0;
+      /* And every tileset already down is covered again at the new figure.
+         The overlap is a property of a tileset, not of the box it was typed
+         in: leaving the ones already drawn at the old one would give a plan
+         two answers to how much its tiles share. */
+      commit(ed.fields.map((f) => ({ ...f, overlap: ed.overlap })), { history: false });
     };
     overlapIn.addEventListener("input", () => {
       const v = parseFloat(overlapIn.value);
@@ -556,6 +565,7 @@ export default {
       takeOverlap(v);
       sync({ keep: overlapIn });
       if (ed.fields.some((f) => f.source === "grid")) layGrid();
+      redraw();
     });
     overlapIn.addEventListener("blur", () => {
       takeOverlap(parseFloat(overlapIn.value) || 0);
