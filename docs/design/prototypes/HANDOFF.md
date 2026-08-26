@@ -322,10 +322,8 @@ scan, the focus map and the tile detection is tuned on all read the same list.
   `layered-view-on-operator-next`) on `github.com/thomdehoog/ZMART-microscopy`
   — **public repo**. The branch runs ahead of the remote — check
   `git log @{u}..HEAD` rather than assuming, and do not push without asking.
-  As of 2026-08-26 it also carries three superseded driver commits
-  (`2e4e4786`, `c844f62a`, `d639f54c` — an earlier Z-readback attempt);
-  `main` has the settled version (PR #15), so drop those three before this
-  branch meets `main`.
+  It touches nothing under `zmart_drivers/`; the driver's Z-readback work
+  went to `main` on its own (PR #15, `docs/design/z-readback-stacked-drive.md`).
 - The live project: `workflows/target_acquisition/webapp-ui/` — a Vite app.
   **Read its `ARCHITECTURE.md` first.** Since 2026-08-25 there is no `src/`:
   `frame/` and `workflows/` stand directly inside `webapp-ui/`.
