@@ -54,6 +54,13 @@ class MockHandle:
     laser_power: float = 5.0
     gain: float = 1.0
 
+    # the optics, as an instrument reports them: what the light goes through,
+    # how much of it the lens collects, and what the scanner does on top
+    magnification: float = 20.0
+    numerical_aperture: float = 0.75
+    immersion: str = "dry"
+    zoom: float = 1.0
+
     # immutable identity, plus connection info filled at connect
     serial: str = "MOCK-0001"
     client: str | None = None
@@ -228,6 +235,12 @@ def get_state(handle: MockHandle) -> dict:
         "changeable": {"laser_power": handle.laser_power, "gain": handle.gain},
         "observed": {
             "serial": handle.serial,
+            "objective": {
+                "magnification": handle.magnification,
+                "numerical_aperture": handle.numerical_aperture,
+                "immersion": handle.immersion,
+            },
+            "zoom": handle.zoom,
             "pixel_size": {"x": 1.0, "y": 1.0, "unit": "um"},
         },
     }

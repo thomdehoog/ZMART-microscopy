@@ -31,12 +31,26 @@
  * meant for reading is a number nothing can use — which is how the overview
  * tile size came to be typed a second time somewhere else.
  */
-const acquisition = ({ summary, objective, pixelUm, framePx, channels, zStack }) => {
+const acquisition = ({ objective, zoom = 1, pixelUm, framePx, channels, zStack }) => {
   const frameUm = Math.round(framePx * pixelUm);
+  /* The line an operator checks a configuration by, in the order they check
+     it: which lens, how much light it collects, what the scanner does on top,
+     and what that comes to on the sample. Composed from the reading rather
+     than written beside it, so the two cannot say different things. */
+  const lens = objective.match(/([\d.]+)x/)?.[1];
+  const na = objective.match(/([\d.]+)\s*NA/)?.[1];
+  const wet = objective.match(/NA\s+(\w+)/)?.[1];
+  const summary = [
+    lens && `${lens}x`,
+    na && `${na} NA${wet ? ` ${wet}` : ""}`,
+    `zoom ${zoom}`,
+    `${pixelUm} µm/px`,
+  ].filter(Boolean).join(" · ");
   return {
     summary, pixelUm, framePx, frameUm,
     detail: [
       ["Objective", objective],
+      ["Zoom", `${zoom}`],
       ["Pixel size", `${pixelUm.toFixed(2)} µm`],
       ["Frame", `${framePx} × ${framePx} px · ${frameUm} × ${frameUm} µm`],
       ...channels.map((c, i) => [`Channel ${i + 1}`, c]),
@@ -117,28 +131,24 @@ export const SETTING_TYPES = [
       /* First in the list because the first recording an operator takes is
          the overview, and the overview is imaged at 20x. */
       acquisition({
-        summary: "20x / 0.75 NA dry · 2 channels",
         objective: "HC PL APO 20x / 0.75 NA dry",
         pixelUm: 0.33, framePx: 2048,
         channels: ["DAPI · 405 nm · 50 ms · gain 1.0", "GFP · 488 nm · 120 ms · gain 1.2"],
         zStack: "off",
       }),
       acquisition({
-        summary: "63x / 1.40 NA oil · 2 channels",
         objective: "HC PL APO 63x / 1.40 NA oil",
         pixelUm: 0.10, framePx: 1024,
         channels: ["DAPI · 405 nm · 30 ms · gain 1.0", "GFP · 488 nm · 80 ms · gain 1.5"],
         zStack: "11 planes · 0.50 µm",
       }),
       acquisition({
-        summary: "10x / 0.40 NA dry · 1 channel",
         objective: "HC PL APO 10x / 0.40 NA dry",
         pixelUm: 0.65, framePx: 2048,
         channels: ["GFP · 488 nm · 60 ms · gain 1.0"],
         zStack: "off",
       }),
       acquisition({
-        summary: "40x / 1.10 NA water · 3 channels",
         objective: "HC PL APO 40x / 1.10 NA water",
         pixelUm: 0.16, framePx: 1024,
         channels: [
@@ -149,7 +159,6 @@ export const SETTING_TYPES = [
         zStack: "21 planes · 0.30 µm",
       }),
       acquisition({
-        summary: "5x / 0.15 NA dry · 2 channels",
         objective: "HC PL FLUOTAR 5x / 0.15 NA dry",
         pixelUm: 1.30, framePx: 2048,
         channels: ["DAPI · 405 nm · 50 ms · gain 1.0", "GFP · 488 nm · 120 ms · gain 1.2"],
