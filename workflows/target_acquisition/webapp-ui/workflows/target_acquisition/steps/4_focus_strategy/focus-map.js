@@ -157,9 +157,18 @@ const perField = (f) => Math.max(1, Math.round(f.perField) || 1);
 function patternFocusPoints(over = "tileset") {
   if (!run.plan.length) return [];
   const n = perField(run.focus);
-  const groups = over === "carrier" ? [inScanOrder(run.plan)] : tilesByField();
+  const drawn = tilesByField();
+  /* Whether there is a repetition to break. A plate of wells is laid out the
+     same way in every one of them, so points settled against it come to rest at
+     the same spot in each — the same tile, the same corner of it, ninety-six
+     times over. One tileset has no twin to be confused with and keeps the even
+     arrangement the settling found, which is the best there is. It is asked of
+     the plan rather than of the group, because in each tileset the repetition is
+     across the groups and across the carrier it is inside one. */
+  const vary = drawn.length > 1;
+  const groups = over === "carrier" ? [inScanOrder(run.plan)] : drawn;
   return groups
-    .flatMap((held) => sharePoints(held, n))
+    .flatMap((held) => sharePoints(held, n, { vary }))
     .map((t) => ({ x: t.x, y: t.y, z: null }));
 }
 
