@@ -44,7 +44,9 @@ import galleryWidget from "../../workflows/target_acquisition/steps/8_acquire_ta
    fitting — is imported rather than written here, so the unit tests and the
    page read the same arithmetic. These files used to exist twice, once here
    and once beside the mock, and the two copies could disagree in silence. */
-import { makeRng } from "../../workflows/target_acquisition/microscope/pretend-sample/rng.js";
+import {
+  AREA_HI, AREA_LO, cellsInTile as cellsOf, densityAt, sampleFor,
+} from "../../workflows/target_acquisition/microscope/pretend-sample/sample.js";
 import { METRICS, METRIC_KEYS, scoreAt } from "../../workflows/target_acquisition/microscope/pretend-sample/sweep.js";
 import {
   affineSurface, fitSurface, residualsUm, surfaceZ,
@@ -74,47 +76,12 @@ let stageWatch = null;
 (() => {
   "use strict";
 
-  /* ============================================================
-     the synthetic sample
-     ============================================================ */
-  /* Deterministic, so the mock looks the same every load and can be argued
-     about. Carrier micrometres throughout — the same frame the scan fields and
-     the carrier's areas are in.
-
-     Two things, and the split is the point. Tissue belongs to the plate: soft
-     patches spread over the carrier, there whether or not anybody looks. Cells
-     belong to the plan: the run only knows about what it imaged, so they are
-     generated inside the tiles the scan fields ask for. Look somewhere else
-     and a different sample comes back, which is the honest behaviour — before
-     this the sample was a 7 by 5 block in the corner and the plan could not
-     move it. */
-  const TARGET_CELLS = 1250;
-  const AREA_LO = 60, AREA_HI = 400;
-
+  /* What the pretend instrument would find, rebuilt whenever the plan or the
+     plate changes — either changes what there is to find. It lives behind the
+     microscope seam, because it is the instrument's answer and not the page's
+     invention; a real backend reports what it imaged instead. */
   let sample = { tissue: [], cells: [], bounds: null };
 
-  function tissueFor(carrier) {
-    const rnd = makeRng(20260728);
-    const [w, h] = carrierWidget.extentUm(carrier);
-    return Array.from({ length: 7 }, () => ({
-      x: (0.08 + 0.84 * rnd()) * w,
-      y: (0.08 + 0.84 * rnd()) * h,
-      r: (0.10 + 0.16 * rnd()) * Math.min(w, h),
-    }));
-  }
-
-  function density(x, y) {
-    let d = 0;
-    for (const b of sample.tissue) {
-      const dx = x - b.x, dy = y - b.y;
-      d += Math.exp(-(dx * dx + dy * dy) / (2 * b.r * b.r));
-    }
-    return Math.min(1, d);
-  }
-
-  /* Rebuilt whenever the plan or the plate changes, because either changes
-     what there is to find. A cell remembers which tile it was imaged in, so
-     tuning detection on one tile is a question the sample can answer. */
   function rebuildSample() {
     state.plan = scanfieldsWidget.plan(state.fields, activePreset(), state.carrier);
     /* Left where a test can reach it, the way the live picture is. The plan is
@@ -122,39 +89,11 @@ let stageWatch = null;
        frame covers — and a suite that could only read the sentence beside it
        was asking how many positions there are, never where. */
     window.__plan = state.plan;
-    sample = { tissue: tissueFor(state.carrier), cells: [], bounds: null };
-    if (!state.plan.length) return;
-
-    const rnd = makeRng(90210);
-    const per = TARGET_CELLS / state.plan.length;
-    const cells = [];
-    let xMin = Infinity, yMin = Infinity, xMax = -Infinity, yMax = -Infinity;
-
-    state.plan.forEach((t, tile) => {
-      const half = t.frameUm / 2;
-      xMin = Math.min(xMin, t.x - half); xMax = Math.max(xMax, t.x + half);
-      yMin = Math.min(yMin, t.y - half); yMax = Math.max(yMax, t.y + half);
-      const d = density(t.x, t.y);
-      // a rich patch comes back crowded and a bare one nearly empty, rather
-      // than every tile returning the same handful
-      const n = Math.round(per * (0.15 + 1.85 * d));
-      for (let i = 0; i < n; i++) {
-        const area = 62 + 330 * Math.pow(rnd(), 1.7);
-        cells.push({
-          id: cells.length + 1, tile,
-          x: t.x + (rnd() - 0.5) * t.frameUm,
-          y: t.y + (rnd() - 0.5) * t.frameUm,
-          area,
-          intensity: Math.max(0.02, Math.min(1, 0.18 + 0.62 * d + 0.22 * (rnd() - 0.5))),
-          r: Math.sqrt(area / Math.PI),
-        });
-      }
-    });
-    sample.cells = cells;
-    sample.bounds = { xMin, yMin, xMax, yMax };
+    sample = sampleFor(carrierWidget.extentUm(state.carrier), state.plan);
   }
 
-  const cellsInTile = (tile) => sample.cells.filter((c) => c.tile === tile);
+  const density = (x, y) => densityAt(sample.tissue, x, y);
+  const cellsInTile = (tile) => cellsOf(sample, tile);
 
   /* ============================================================
      run state
