@@ -65,6 +65,14 @@ export function carrierLayers(theRun) {
     claims: (drag) => {
       if (drag.phase === "started") {
         run.anchorHeld = under(drag);
+        /* Pressing a mark chooses it, and pressing the plate away from every
+           mark chooses none — the press says which one is being talked about
+           before it says anything else, and the list says the same thing back.
+           A press on nothing is not claimed, so the picture pans as it always
+           did; the choosing happens on the way past. */
+        run.anchorPicked = run.anchorHeld;
+        anchorsChanged?.();
+        redraw();
         return run.anchorHeld >= 0;
       }
       if (!(run.anchorHeld >= 0)) return false;
@@ -98,6 +106,7 @@ export function carrierLayers(theRun) {
            a row and a mark can be matched by looking rather than by counting
            round the carrier. */
         const lit = i === (run.anchorLit ?? -1);
+        const chosen = i === (run.anchorPicked ?? -1);
         /* The mark says the same thing its button does: amber while it is
            waiting to be driven to, green once it has been. An operator
            working through the four should be able to look at the picture and
@@ -109,6 +118,17 @@ export function carrierLayers(theRun) {
         ctx.fillStyle = colour;
         ctx.lineWidth = (a.stage ? 2.4 : 1.6) * (lit ? 1.8 : 1);
         crosshair(ctx, x, y, lit ? 13 : 11, 4, (a.stage ? 3 : 2) * (lit ? 1.5 : 1));
+        /* The chosen one wears a ring, where the one merely being pointed at
+           is drawn heavier. Two different things are being said — this is the
+           mark the keyboard is talking to, and this is the mark under the
+           pointer — and saying both with weight alone left an operator unable
+           to tell which of the two they were looking at. */
+        if (chosen) {
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.arc(x, y, lit ? 17 : 15, 0, Math.PI * 2);
+          ctx.stroke();
+        }
       });
     },
   },

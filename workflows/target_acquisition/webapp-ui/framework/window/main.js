@@ -945,6 +945,29 @@ let stageWatch = null;
      on the canvas has to move the numbers in the list with it. */
   let redrawAnchors = () => {};
 
+  /* Delete takes away the alignment mark that was pressed — the one wearing a
+     ring on the picture and standing as the current row in the list. The same
+     key does the same thing to a focus point and to a scan field, so a carrier
+     is edited the way everything else on this canvas is.
+
+     Taking the last one away leaves the box as the Add button left it: an empty
+     list and a press offering to lay a fresh set, which is what an operator
+     wants after deciding the whole alignment was wrong. */
+  window.addEventListener("keydown", (e) => {
+    if (step(state.activeIdx)?.mode !== "carrier" || state.running) return;
+    if (e.key !== "Delete" && e.key !== "Backspace") return;
+    // a number being typed into the count box is not a mark being deleted
+    if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT") return;
+    const chosen = state.anchorPicked ?? -1;
+    if (!(chosen >= 0) || !state.anchors[chosen]) return;
+    e.preventDefault();
+    state.anchors = state.anchors.filter((_, at) => at !== chosen);
+    state.anchorPicked = -1;
+    state.anchorLit = -1;
+    redrawAnchors();
+    drawStage();
+  });
+
   function renderSide(show) {
     /* Only a panel with a channel down its side has anywhere to put a step's
        controls. A workflow whose panels have none gives its steps panels of
@@ -996,10 +1019,20 @@ let stageWatch = null;
              stage reading with them, because a fresh set is a fresh question. */
           suggest: (places) => {
             state.anchors = places.map((p) => ({ x: p.x, y: p.y, at: p.at }));
+            state.anchorPicked = -1;
             redrawAnchors(); drawStage();
           },
+          /* Which mark the keyboard is talking to: chosen by pressing it on the
+             picture, and drawn as the current row in the list, so an operator
+             can look at either and know which one the other means. */
+          picked: () => state.anchorPicked ?? -1,
           forget: (i) => {
             state.anchors = state.anchors.filter((_, at) => at !== i);
+            /* Nothing is chosen once the chosen one has gone. Moving the choice
+               to the next mark along would leave a ring on a point nobody
+               pressed, and the next press of Delete would take that one too. */
+            state.anchorPicked = -1;
+            state.anchorLit = -1;
             redrawAnchors(); drawStage();
           },
           /* Where the microscope is standing now, kept against this point on
