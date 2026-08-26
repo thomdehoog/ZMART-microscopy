@@ -19,7 +19,15 @@ from navigator_expert.scanfields.files import TEMPLATE_LRP, save_and_read_lrp
 from navigator_expert.scanfields.lrp import _get_job_names, parse_lrp
 
 TEST_DATA = Path(__file__).resolve().parents[1] / "data"
-ALL_LRP_FIXTURES = sorted(TEST_DATA.rglob("*.lrp"))
+# The two folders holding exports of the 3-job "collecting pattern" sequence
+# these invariants describe; tests/data/z_readback holds saved experiments
+# of another job set, with their own tests.
+ALL_LRP_FIXTURES = sorted(
+    [
+        *(TEST_DATA / "scanfield_parsing").glob("*.lrp"),
+        *(TEST_DATA / "general_workflow").glob("*.lrp"),
+    ]
+)
 
 # Every committed fixture is a LAS X export of the same 3-job "collecting
 # pattern" sequence (AF Job + Overview + HiRes); only per-job settings differ.
