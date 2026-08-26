@@ -532,10 +532,12 @@ export default {
     const { group: layoutBox, body: layout } = sideGroup("Create tilesets");
     controls.append(layoutBox);
 
-    /* How much of one frame the next covers. It leads the box because it is
-       the first thing decided about a tileset and the one that everything else
-       is laid against: change it and every grid below is laid again. */
-    layout.append(el("div", "side-sub", "Tile overlap (%)"));
+    /* How much of one frame the next covers. A box of its own, under the one
+       that lays tilesets down, because it is not part of laying any single
+       one: it is the figure every tileset already down is re-covered at, so
+       it belongs beside them rather than in the middle of the tools that make
+       them. Built here, next to the field it drives, and put in its box at
+       the end where that box is made. */
     const overlapRow = el("div", "sf-overlap");
     const overlapNum = el("div", "sf-num");
     const overlapIn = document.createElement("input");
@@ -571,7 +573,6 @@ export default {
     });
     overlapNum.append(overlapIn);
     overlapRow.append(overlapNum);
-    layout.append(overlapRow);
 
     layout.append(el("div", "side-sub", "Place tiles manually"));
     const toolRow = el("div", "sf-tools");
@@ -728,8 +729,12 @@ export default {
       keysBox.classList.toggle("open", !keysBody.hidden);
     });
     keysBox.append(keysHead, keysBody);
-    // inside the box it is about: what the shortcuts do is done in that box
-    layout.append(keysBox);
+    /* Below the tilesets, because it is read after the tiles are down rather
+       than before: the overlap every tileset is re-covered at, and under it
+       the shortcuts, folded away. */
+    const { group: placementBox, body: placement } = sideGroup("Tile placement");
+    placement.append(el("div", "side-sub", "Tile overlap (%)"), overlapRow, keysBox);
+    controls.append(placementBox);
 
     const readout = el("div", "sf-readout");
     card.append(readout);
@@ -790,8 +795,11 @@ export default {
       applyGrid.disabled = locked;
       /* Nothing to lay fields under, nothing to lay them with: the ways of
          making them are not there until a preset is, and go again with the
-         last one forgotten. */
+         last one forgotten. How they are placed goes with them — an overlap
+         is a fraction of a frame, and there is no frame until an optical
+         configuration says how wide one is. */
       layoutBox.hidden = !ed.preset;
+      placementBox.hidden = !ed.preset;
       /* Everything is dead while the step is locked, except the recording
          itself: it is what the lock is waiting for when there is no preset
          yet, and the framework decides on its own whether it may be touched once
