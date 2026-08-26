@@ -104,7 +104,7 @@ export function carrierLayers(theRun) {
            see which are left, without reading the list at all. */
         const colour = a.stage
           ? css(lit ? "--mark-anchor-lit" : "--good")
-          : css("--warn-ink");
+          : css("--mark-anchor-waiting");
         ctx.strokeStyle = colour;
         ctx.fillStyle = colour;
         ctx.lineWidth = (a.stage ? 2.4 : 1.6) * (lit ? 1.8 : 1);

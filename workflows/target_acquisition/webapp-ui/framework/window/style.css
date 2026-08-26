@@ -50,6 +50,10 @@
      saturated than the resting green rather than a different hue, so it reads
      as the same mark being singled out and not as a second kind of thing. */
   --mark-anchor-lit: #15803d;
+  /* An anchor still waiting to be driven to. A true dark yellow: the warning
+     ink next to it is amber-800, which against green and the red stage mark
+     reads as a third red rather than as the other half of a pair. */
+  --mark-anchor-waiting: #a16207;
   /* the three sharpness metrics, as three series on one plot */
   --m-brenner: #0369a1;
   --m-dct: #7c3aed;
@@ -75,6 +79,7 @@
     --accent-line: #164e63;
     --good: #4ade80;
     --mark-anchor-lit: #86efac;
+    --mark-anchor-waiting: #facc15;
     --bad: #f87171;
     --warn-bg: #221a08;
     --warn-ink: #fcd34d;
@@ -581,8 +586,12 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
    than the button's mood, which is why it stays on after the press: an
    operator working through four points wants to see how many are left without
    reading a word in each row. */
-.anchor-snap.waiting { color: var(--warn-ink); border-color: var(--warn-ink); }
-.anchor-snap.waiting:hover:enabled { color: var(--warn-ink); border-color: var(--warn-ink); }
+.anchor-snap.waiting {
+  color: var(--mark-anchor-waiting); border-color: var(--mark-anchor-waiting);
+}
+.anchor-snap.waiting:hover:enabled {
+  color: var(--mark-anchor-waiting); border-color: var(--mark-anchor-waiting);
+}
 .anchor-snap.done { color: var(--good); border-color: var(--good); }
 .anchor-snap.done:hover:enabled {
   color: var(--mark-anchor-lit); border-color: var(--mark-anchor-lit);
