@@ -419,6 +419,17 @@ def confirm_move_z(
     t_start = time.perf_counter()
     deadline = t_start + poll_window
 
+    # Which drive carries the job's z-stack is job configuration, not a
+    # transition, so it is decided from an ungated read: the post-command
+    # gate below exists to stop a stale reading from *confirming* a move,
+    # and waiting for it here only delayed the stack-drive branch (~0.8 s
+    # measured in hybrid mode) for a fact that does not change with the move.
+    configuration = _readback(client, job_name)
+    if configuration is not None and drive_is_stacked(configuration, key):
+        return _confirm_move_z_on_stack_drive(
+            client, configuration, job_name, key, target_um, tolerance
+        )
+
     while time.perf_counter() < deadline:
         ch = _readback(
             client,
@@ -426,6 +437,7 @@ def confirm_move_z(
             observed_after=observed_after,
         )
         if ch is not None and drive_is_stacked(ch, key):
+            # Only reachable when the ungated read above failed.
             return _confirm_move_z_on_stack_drive(client, ch, job_name, key, target_um, tolerance)
         if ch is not None:
             try:
