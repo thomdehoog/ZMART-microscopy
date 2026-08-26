@@ -883,20 +883,10 @@ class MockLasxClient:
                 "z-galvo": {"position": 0.0},
                 "z-wide": {"position": 0.0},
             }
-        # Measured on the simulator 2026-08-25/26: LAS X executes the move
-        # but stops refreshing the settings' zPosition for the drive that
-        # carries the job's z-stack (``stack.mode``). The mock does the same,
-        # so a confirmation that polls the settings on that drive cannot pass
-        # here either — the reader/confirmation have to go through the saved
-        # experiment, as on the instrument.
-        stack = job.get("stack") or {}
-        frozen = stack.get("mode")
-        if z_key == "galvo" and frozen != "z-galvo":
+        if z_key == "galvo":
             job["zPosition"]["z-galvo"]["position"] = z_um
-        elif z_key == "zwide" and frozen != "z-wide":
+        elif z_key == "zwide":
             job["zPosition"]["z-wide"]["position"] = z_um
         elif z_key == "both":
-            if frozen != "z-galvo":
-                job["zPosition"]["z-galvo"]["position"] = z_um
-            if frozen != "z-wide":
-                job["zPosition"]["z-wide"]["position"] = z_um
+            job["zPosition"]["z-galvo"]["position"] = z_um
+            job["zPosition"]["z-wide"]["position"] = z_um
