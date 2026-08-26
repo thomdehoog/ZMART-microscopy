@@ -217,6 +217,11 @@ export function anchorsUm(config, howMany = 4) {
 /** As many as this carrier has borders to put them on. See `anchorsUm`. */
 export const howManyAnchorsFit = (config) => anchorsUm(config, Infinity).length;
 
+/* How many a carrier is aligned from unless somebody says otherwise: one to a
+   side, which is what every carrier can carry and enough to measure where a
+   plate is and how it is turned. */
+const POINTS_BY_DEFAULT = 4;
+
 export default {
   id: "carrier",
   label: "Define Carrier",
@@ -440,7 +445,7 @@ export default {
 
     /* How many to lay. Beside the button rather than above it, because the two
        are one sentence: this many points, put them down. */
-    let howMany = 4;
+    let howMany = POINTS_BY_DEFAULT;
     const anchorCount = document.createElement("input");
     anchorCount.type = "number";
     anchorCount.className = "carrier-num anchor-count";
@@ -503,8 +508,13 @@ export default {
          otherwise: a number left over from before would claim six where four
          are showing. */
       if (document.activeElement !== anchorCount) {
-        howMany = anchors.list().length || howManyAsked();
-        anchorCount.value = String(howMany);
+        /* What is down, while anything is; the number a carrier is aligned from
+           unless somebody says otherwise, once nothing is. Falling back to the
+           last number asked for instead meant the box followed the list down as
+           marks were deleted and stayed there: delete three of four and the box
+           read one, so the next press laid one point where four were wanted. */
+        howMany = anchors.list().length || POINTS_BY_DEFAULT;
+        anchorCount.value = String(howManyAsked());
       }
       anchorCount.max = String(howManyAnchorsFit(cfg));
       anchorAdd.classList.toggle("on", anchors.arming());
@@ -515,6 +525,11 @@ export default {
       anchorList.textContent = "";
       anchors.list().forEach((a, i) => {
         const row = el("div", "point-row");
+        /* The mark pressed on the picture is the current row here. `aria-current`
+           and not a class of its own, because that is what the row already
+           answers to elsewhere in the channel and it is the one the screen
+           reader would have wanted anyway. */
+        if (i === anchors.picked()) row.setAttribute("aria-current", "true");
         const pick = el("div", "point-pick");
         /* Named by the border it sits on rather than numbered, because that is
            how it is found on the picture: an operator reading "left" knows
