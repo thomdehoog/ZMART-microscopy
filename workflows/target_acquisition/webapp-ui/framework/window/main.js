@@ -788,7 +788,12 @@ let stageWatch = null;
         drawTrace();
       };
       renderRecordingSlot(el("focus-preset"), recordingOptions({
-        label: "Focussing preset", key: "focusPreset",
+        label: "Focussing configuration", key: "focusPreset",
+        /* Read off the microscope like the optical one, and named after what
+           it is rather than by the operator. */
+        unnamed: true,
+        takes: "Import focussing configuration",
+        retakes: "Update focussing configuration",
         locked: focusLocked(),
         changed: () => {
           focusFollowsPreset(); showTheRest(); renderRail(); renderActionBar(); drawStage();
@@ -1017,6 +1022,11 @@ let stageWatch = null;
     host.append(rec);
     const presetSlot = {
       label: "Optical configuration", key: "overviewPreset", locked,
+      /* No name to give it: what is being brought in is whatever the
+         microscope is set to, and it is named after that. */
+      unnamed: true,
+      takes: "Import optical configuration",
+      retakes: "Update optical configuration",
       ink: (id) => recordedPresets().find((p) => p.id === id)?.ink ?? null,
       /* A recording taken or forgotten changes what there is to be taken with,
          so the run is asked again from the top. Activating another one changes
