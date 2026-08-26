@@ -595,9 +595,17 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
    is as wide as a two-digit number needs and the button takes the rest —
    giving them a column each left the button short for no reason, since only
    one of the two has words in it. */
-.anchor-lay { display: flex; gap: 8px; align-items: center; }
-.anchor-count { flex: 0 0 62px; text-align: center; }
-.anchor-add { flex: 1; justify-content: center; }
+/* How many, and the press that lays them: one sentence, so one row — laid on
+   the same columns as the sizes above it, so the count stands under the width
+   box rather than at a width of its own. The button takes what is left, which
+   is the second box and the lane the tie buttons sit in. */
+.anchor-lay {
+  display: grid;
+  grid-template-columns: repeat(var(--cols, 2), minmax(0, 1fr)) 30px;
+  gap: 4px 6px; align-items: center; width: 100%;
+}
+.anchor-count { text-align: center; }
+.anchor-add { grid-column: 2 / -1; justify-content: center; white-space: nowrap; }
 
 .carrier-card .sf-flat {
   /* Named, not inherited: the alignment rows are monospaced so their numbers

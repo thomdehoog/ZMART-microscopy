@@ -460,7 +460,13 @@ export default {
     /* `cfg`, not `config`: this panel redraws itself in place rather than being
        rebuilt, so the argument it was first rendered with is the carrier the
        operator started on. Reading it here put a slide's points on a dish. */
-    const layThem = () => anchors.suggest(anchorsUm(cfg, howManyAsked()));
+    /* One press each way. Points down and the press takes them away again,
+       which is what an operator wants after dragging three of them somewhere
+       unhelpful and what asking for a different number needs first — with the
+       carrier back where a carrier sits when nobody has aligned it. */
+    const layThem = () => (anchors.list().length
+      ? anchors.suggest([])
+      : anchors.suggest(anchorsUm(cfg, howManyAsked())));
     /* Never more than the carrier has borders to put them on, and never fewer
        than the two it takes to say anything at all about where it is. Clamped
        when it is read rather than while it is being typed, so that reaching 12
@@ -490,13 +496,11 @@ export default {
     /** The points put on the carrier so far, in the order they were placed. */
     const drawAnchors = () => {
       /* The set is complete or it is not there — where a carrier is aligned
-         from is a property of its shape. So once they are down the button
-         stops offering to add and offers to lay them again, which is what an
-         operator wants after dragging three of them somewhere unhelpful, and
-         what a different number in the box beside it asks for. */
-      anchorAdd.textContent = anchors.list().length ? "Reset points" : "Add points";
-      /* The box says what would be laid, which after a set is down is what is
-         down: a number left over from before would offer to lay six where four
+         from is a property of its shape. So the one press lays them and takes
+         them away again, and says which of the two it is about to do. */
+      anchorAdd.textContent = anchors.list().length ? "Remove points" : "Add points";
+      /* The box says what is down while anything is, and what would be laid
+         otherwise: a number left over from before would claim six where four
          are showing. */
       if (document.activeElement !== anchorCount) {
         howMany = anchors.list().length || howManyAsked();
