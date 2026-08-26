@@ -582,6 +582,18 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
    its own height and type, which made the alignment box the one place in the
    channel where a button was a different size from the one above it. */
 .anchor-snap { flex: none; margin-left: auto; }
+
+/* The carrier step's buttons in the page's own type, at the size the buttons
+   on the steps either side of it use. `.sf-flat` is monospaced at 11px, which
+   suits a row of drawing tools labelled with glyphs and made this step read as
+   a different piece of software from Connect and Define scan area — where the
+   buttons an operator actually presses are 13px sans. */
+.carrier-card .sf-flat {
+  /* Named, not inherited: the alignment rows are monospaced so their numbers
+     line up, and a button inheriting from its row came out monospaced with
+     them. */
+  font-family: var(--sans); font-size: 13px; letter-spacing: normal;
+}
 /* Waiting to be driven to, or done. The colour is the point's state rather
    than the button's mood, which is why it stays on after the press: an
    operator working through four points wants to see how many are left without
