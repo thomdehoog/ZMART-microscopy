@@ -150,6 +150,20 @@ function takeThePosition(at) {
  * and what was imaged inside it move together instead of drifting apart the
  * moment either of them moves. */
 function carrierOriginUm() {
+  /* Measured, once anything has been aligned. Each anchor that has been driven
+     to says the same thing — this place on the drawing is that place on the
+     stage — and the offset it implies is the difference between the two. Four
+     of them are four measurements of one number, so they are averaged: a
+     single reading carries whatever slop that one drive had, and the whole
+     plate would inherit it. */
+  const measured = run.anchors.filter((a) => a.stage);
+  if (measured.length) {
+    const mean = (f) => measured.reduce((sum, a) => sum + f(a), 0) / measured.length;
+    return [mean((a) => a.stage.x - a.x), mean((a) => a.stage.y - a.y)];
+  }
+  /* Otherwise centred in the travel, because that is where a holder puts a
+     plate and it is the only placement that can be worked out rather than
+     measured. A default, and the line above is the answer that replaces it. */
   const [w, h] = carrierWidget.extentUm(run.carrier);
   return [(STAGE_UM[0] - w) / 2, (STAGE_UM[1] - h) / 2];
 }

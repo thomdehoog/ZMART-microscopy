@@ -46,6 +46,10 @@
      brighter and a little heavier. A picked point is the same thing picked
      out, so it is the same drawing turned up rather than a different one. */
   --mark-focus-lit: #ff1a1a;
+  /* An anchor the operator is pointing at in the list. Deeper and more
+     saturated than the resting green rather than a different hue, so it reads
+     as the same mark being singled out and not as a second kind of thing. */
+  --mark-anchor-lit: #15803d;
   /* the three sharpness metrics, as three series on one plot */
   --m-brenner: #0369a1;
   --m-dct: #7c3aed;
@@ -70,6 +74,7 @@
     --accent-tint: #0c1f31;
     --accent-line: #164e63;
     --good: #4ade80;
+    --mark-anchor-lit: #86efac;
     --bad: #f87171;
     --warn-bg: #221a08;
     --warn-ink: #fcd34d;

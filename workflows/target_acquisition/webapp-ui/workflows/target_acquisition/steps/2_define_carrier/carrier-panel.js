@@ -384,10 +384,13 @@ export default {
        operator started on. Reading it here put a slide's four points on a
        dish. */
     anchorAdd.addEventListener("click", () => anchors.suggest(anchorsUm(cfg)));
-    anchorCard.append(anchorAdd);
 
     const anchorList = el("div", "point-list anchor-list");
-    anchorCard.append(anchorList);
+    /* The points first, the button under them — the same way a recorded
+       configuration reads. What the box is about is where the carrier has been
+       aligned to; putting the button above that offered to lay a fresh set
+       before the eye had reached the set already there. */
+    anchorCard.append(anchorList, anchorAdd);
 
     /** The points put on the carrier so far, in the order they were placed. */
     const drawAnchors = () => {
@@ -415,6 +418,11 @@ export default {
         drop.type = "button";
         drop.title = "forget this anchor point";
         drop.addEventListener("click", () => anchors.forget(i));
+        /* Pointing at a row lights its mark on the picture. On hover because
+           that is the gesture for "which one is this?", and it costs nothing
+           to undo — the operator is looking, not choosing. */
+        row.addEventListener("pointerenter", () => anchors.light(i));
+        row.addEventListener("pointerleave", () => anchors.light(-1));
         row.append(pick, drop);
         anchorList.append(row);
       });

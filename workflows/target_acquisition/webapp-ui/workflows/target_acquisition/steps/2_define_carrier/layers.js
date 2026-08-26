@@ -43,17 +43,26 @@ export function carrierLayers(theRun) {
          else the run puts down, so they are drawn in the carrier's frame. */
       const { place } = drawnIn(frame);
       /* Green, and not the red the focus points and the stage mark use: an
-         anchor is a place the carrier is being registered from, which is a
+         anchor is a place the carrier is being aligned from, which is a
          different kind of thing from where the microscope is or where it will
          measure — and three sorts of red crosshair on one picture is three
          things an operator has to tell apart by size. */
-      ctx.strokeStyle = css("--good");
-      ctx.fillStyle = css("--good");
-      for (const a of run.anchors) {
+      run.anchors.forEach((a, i) => {
         const [x, y] = place(a.x, a.y);
-        ctx.lineWidth = a.stage ? 2.4 : 1.6;
-        crosshair(ctx, x, y, 11, 4, a.stage ? 3 : 2);
-      }
+        /* The one being pointed at in the list is drawn heavier and deeper, so
+           a row and a mark can be matched by looking rather than by counting
+           round the carrier. */
+        const lit = i === (run.anchorLit ?? -1);
+        if (lit) {
+          ctx.strokeStyle = css("--mark-anchor-lit");
+          ctx.fillStyle = css("--mark-anchor-lit");
+        } else {
+          ctx.strokeStyle = css("--good");
+          ctx.fillStyle = css("--good");
+        }
+        ctx.lineWidth = (a.stage ? 2.4 : 1.6) * (lit ? 1.8 : 1);
+        crosshair(ctx, x, y, lit ? 13 : 11, 4, (a.stage ? 3 : 2) * (lit ? 1.5 : 1));
+      });
     },
   },
   };

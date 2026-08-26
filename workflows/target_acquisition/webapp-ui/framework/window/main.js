@@ -974,6 +974,15 @@ let stageWatch = null;
         anchors: {
           list: () => state.anchors,
           arming: () => state.anchoring,
+          /* Which one the operator is pointing at in the list, so the picture
+             can single it out. Four green crosses look alike; the list is
+             where they are told apart, and this is what carries that across. */
+          lit: () => state.anchorLit ?? -1,
+          light: (i) => {
+            if ((state.anchorLit ?? -1) === i) return;
+            state.anchorLit = i;
+            drawStage();
+          },
           arm: () => { state.anchoring = !state.anchoring; redrawAnchors(); drawStage(); },
           /* The places this carrier is registered from, put down together.
              Replaces rather than adds, so pressing twice does not leave eight
@@ -994,6 +1003,10 @@ let stageWatch = null;
             const at = whereTheStageIs();
             state.anchors = state.anchors.map((a, n) =>
               (n === i ? { ...a, stage: { x: at.x, y: at.y, z: at.z } } : a));
+            /* The carrier is where the anchors say it is now, so everything
+               drawn in its frame moves with it — the plan, the focus map, the
+               cells. What the operator sees is the green point they just drove
+               to landing on the red one. */
             redrawAnchors(); drawStage();
           },
           onChange: (fn) => { redrawAnchors = fn; },
