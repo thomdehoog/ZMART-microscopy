@@ -425,13 +425,11 @@ def confirm_move_z(
         )
         if ch is not None:
             try:
-                # The settings do not refresh for the drive that carries the
-                # job's z-stack; the Z extractor reads the saved experiment
-                # for that drive. The free drive is read as before.
-                if (ch.get("stack") or {}).get("zDrive") == key:
-                    actual = z_um_from_settings(ch, key, client=client, job_name=job_name)
-                else:
-                    actual = ch["zPosition"][key]
+                # The reader makes the Z number; this only compares. (It is
+                # the reader that knows the settings do not refresh for the
+                # drive carrying the job's z-stack, and reads the saved
+                # experiment for that one.)
+                actual = z_um_from_settings(ch, key, client=client, job_name=job_name)
                 log.debug(
                     "MoveZ confirm: target=%.2f actual=%.2f delta=%.3f um",
                     target_um,
