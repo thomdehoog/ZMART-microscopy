@@ -332,6 +332,11 @@ export function putTheCanvasIn({
      answer for themselves through `reaches`, this is the workflow's own
      picking — putting something down where there is nothing yet. */
   onPressed = null,
+  /* How the readout is phrased, for a host that measures in something other
+     than what the layers are drawn in — a stage whose zero is not the
+     carrier's, say. Given where the pointer is and how magnified the picture
+     is; answers with a line. Left out, the canvas says it in its own words. */
+  readoutSays = null,
 }) {
   /* Somewhere harmless to write for the things this host is not offering.
      A page that shows no engine chooser, or no running commentary about what
@@ -608,6 +613,25 @@ export function putTheCanvasIn({
   box.addEventListener("pointerdown", (event) => {
     pressedAt = { x: event.clientX, y: event.clientY };
   });
+
+  /* What is under the pointer, said along the bottom.
+   *
+   * Where the *pointer* is rather than where the view is, because that is the
+   * question an operator actually has: this thing I am looking at, where is it
+   * on the sample? The view's own middle is a number nobody asked for. It goes
+   * back to saying where the view is the moment the pointer leaves, which is
+   * the only reading there is when nothing is being pointed at. */
+  box.addEventListener("pointermove", (event) => {
+    const where = viewer?.whereThingsAreDrawn?.();
+    if (!where?.unproject) return;
+    const bounds = box.getBoundingClientRect();
+    const at = where.unproject(event.clientX - bounds.left, event.clientY - bounds.top);
+    readout.textContent = readoutSays
+      ? readoutSays({ at, zoom: where.zoom })
+      : `${at.x.toFixed(0)}, ${at.y.toFixed(0)} µm · ${where.zoom.toFixed(2)} µm per pixel`;
+  });
+
+  box.addEventListener("pointerleave", () => sayWhereTheViewIs(viewer?.getView?.()));
 
   box.addEventListener("click", (event) => {
     const from = pressedAt;
