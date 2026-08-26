@@ -223,17 +223,18 @@ button.ghost:hover:enabled { background: var(--line); color: var(--ink); }
 }
 button.ghost:disabled { opacity: 0.45; cursor: default; }
 
-/* A button that undoes something the rest of the run rests on. Shaped like
-   any other, in the colour this page already uses for a bad answer, so the
-   one destructive control says which one it is before it is pressed. */
+/* A button that undoes something the rest of the run rests on. Built like
+   `button.run`, and red where that one is blue: the colour is enough to say
+   which control this is, and a filled red slab said it far louder than one
+   button among several needs to. */
 button.danger {
   font: inherit; font-size: 13px; font-weight: 600;
-  color: var(--screen); background: var(--bad);
-  border: 1px solid var(--bad); border-radius: 8px;
-  height: var(--control); padding: 0 11px; cursor: pointer;
+  color: var(--bad); background: var(--screen);
+  border: 1px solid var(--line-strong); border-radius: 7px;
+  height: var(--control); padding: 0 14px; cursor: pointer;
 }
-button.danger:hover:enabled { filter: brightness(0.9); }
-button.danger:disabled { opacity: 0.45; cursor: default; }
+button.danger:hover:enabled { border-color: var(--bad); }
+button.danger:disabled { opacity: 0.4; cursor: default; }
 
 .steps { overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 4px; min-height: 0; }
 
