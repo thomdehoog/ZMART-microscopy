@@ -975,6 +975,14 @@ let stageWatch = null;
           list: () => state.anchors,
           arming: () => state.anchoring,
           arm: () => { state.anchoring = !state.anchoring; redrawAnchors(); drawStage(); },
+          /* The places this carrier is registered from, put down together.
+             Replaces rather than adds, so pressing twice does not leave eight
+             marks on four spots — and any that had been driven to lose their
+             stage reading with them, because a fresh set is a fresh question. */
+          suggest: (places) => {
+            state.anchors = places.map((p) => ({ x: p.x, y: p.y, at: p.at }));
+            redrawAnchors(); drawStage();
+          },
           forget: (i) => {
             state.anchors = state.anchors.filter((_, at) => at !== i);
             redrawAnchors(); drawStage();

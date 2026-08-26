@@ -42,8 +42,13 @@ export function carrierLayers(theRun) {
       /* Anchors are placed in the carrier's own coordinates, like everything
          else the run puts down, so they are drawn in the carrier's frame. */
       const { place } = drawnIn(frame);
-      ctx.strokeStyle = css("--mark-focus");
-      ctx.fillStyle = css("--mark-focus");
+      /* Green, and not the red the focus points and the stage mark use: an
+         anchor is a place the carrier is being registered from, which is a
+         different kind of thing from where the microscope is or where it will
+         measure — and three sorts of red crosshair on one picture is three
+         things an operator has to tell apart by size. */
+      ctx.strokeStyle = css("--good");
+      ctx.fillStyle = css("--good");
       for (const a of run.anchors) {
         const [x, y] = place(a.x, a.y);
         ctx.lineWidth = a.stage ? 2.4 : 1.6;
