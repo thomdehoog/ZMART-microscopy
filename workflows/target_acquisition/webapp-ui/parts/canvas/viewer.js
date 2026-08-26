@@ -285,6 +285,7 @@ async function beforeWeGiveUp(promise, sayWhat) {
  *   picture that is still loading look exactly alike, so nothing here fails
  *   quietly.
  * @param chooser an element to fill with one button per engine that can draw
+ *   — or nothing, for a host that is not offering the choice
  *   here, so that the same run can be looked at through one engine and then
  *   another. Which engines those are can depend on how the page was opened; see
  *   `engines.js`.
@@ -323,6 +324,20 @@ export function putTheCanvasIn({
      click means belongs to the workflow. */
   onTouched = null,
 }) {
+  /* Somewhere harmless to write for the things this host is not offering.
+     A page that shows no engine chooser, or no running commentary about what
+     the picture is doing, passes nothing for them; the code that writes has
+     one job and should not also be asking, at every line, whether anybody is
+     reading. Detached from the document, so nothing of it reaches the screen.
+     `layers` and `box` are not on this list: a canvas with nowhere to draw and
+     no way to turn a layer off is not a canvas. */
+  const nowhereInParticular = () =>
+    Object.assign(document.createElement("div"), { hidden: true });
+  note = note ?? nowhereInParticular();
+  chooser = chooser ?? nowhereInParticular();
+  why = why ?? nowhereInParticular();
+  readout = readout ?? nowhereInParticular();
+
   /* What can be drawn with here, which is not always everything this page was
      built with — `engines.js` explains why. Asking for one that is not on offer
      is answered with the reason rather than by quietly opening a different one,
