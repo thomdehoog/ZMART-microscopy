@@ -126,9 +126,39 @@ function drawTheDepthBehind(ctx, x, y, w, h, dx, dy, fill) {
   }
 }
 
+/**
+ * The four places a carrier is registered from, in its own micrometres.
+ *
+ * The middle of each border rather than the corners, because a corner is the
+ * one part of a carrier an objective can rarely see: a slide's are cut back, a
+ * plate's are under the skirt, and a dish has none at all. The middle of a
+ * border is on the glass whatever the vessel is — and on a dish, whose rim
+ * touches its own bounding box at exactly those four places, they land on the
+ * rim itself.
+ *
+ * Left, right, top and bottom: two pairs facing each other across the carrier,
+ * so the registration is measured over the longest run in each direction
+ * rather than out of one corner of it. The same four for every carrier on
+ * offer, including a chamber slide with one chamber in it — where a carrier is
+ * registered from is a property of its outline, not of what is inside it.
+ */
+export function anchorsUm(config) {
+  const g = geometry(config);
+  const w = g.width * MM_UM, h = g.height * MM_UM;
+  return [
+    { at: "left", x: 0, y: h / 2 },
+    { at: "right", x: w, y: h / 2 },
+    { at: "top", x: w / 2, y: 0 },
+    { at: "bottom", x: w / 2, y: h },
+  ];
+}
+
 export default {
   id: "carrier",
   label: "Define Carrier",
+
+  /** The four places this carrier is registered from. See `anchorsUm`. */
+  anchorsUm,
 
   /** How much stage the carrier covers, for whatever has to frame it. */
   extentUm(config) {
@@ -344,9 +374,16 @@ export default {
     const { group: anchorBox, body: anchorCard } = sideGroup("Register carrier");
     designer.append(anchorBox);
 
-    const anchorAdd = el("button", "sf-flat", "Add anchor point");
+    const anchorAdd = el("button", "sf-flat", "Add anchor points");
     anchorAdd.type = "button";
-    anchorAdd.addEventListener("click", () => anchors.arm());
+    /* Put all four down at once. Where a carrier is registered from is a
+       property of its shape, not something an operator should have to find by
+       eye four times — what they do is drive to each one and say "here". */
+    /* `cfg`, not `config`: this panel redraws itself in place rather than being
+       rebuilt, so the argument it was first rendered with is the carrier the
+       operator started on. Reading it here put a slide's four points on a
+       dish. */
+    anchorAdd.addEventListener("click", () => anchors.suggest(anchorsUm(cfg)));
     anchorCard.append(anchorAdd);
 
     const anchorList = el("div", "point-list anchor-list");
