@@ -73,62 +73,6 @@
         </div>
       </div>
 
-      <!-- The canvas: one viewer, with the engine drawing it chosen by a button.
-
-           It has been all three arrangements now, and the reason it is this one is
-           worth keeping. A step per engine came first, then one step with a row of
-           buttons, then two columns side by side. The columns were built to
-           *compare* the engines: a difference between two pictures standing next
-           to each other is seen rather than recalled, and that is genuinely the
-           only way to catch a small one.
-
-           Comparing is not what an operator does. An operator looks at their run,
-           through whichever engine draws it best, and two half-width pictures of
-           the same thing cost them half their screen to answer a question they are
-           not asking. So the chooser is back and the picture is whole. Nothing is
-           lost that mattered: the comparison rig in `viz_studio/options/` still
-           puts every engine side by side, measured rather than eyeballed, which is
-           where that work belongs.
-
-           Changing engine keeps the view exactly where it is — centre,
-           magnification, plane and moment all carry across — so the two can still
-           be compared by flicking between them on one picture.
-
-           There is a third engine, `viv-inside`, which drew the operator's layer
-           inside the engine as a texture rather than on a surface of its own. It is
-           out of this page because every change to that layer then costs an engine
-           frame; it is still in `viz_studio/options/` and still in the
-           comparison. -->
-      <div class="panel" id="panel-viewer-canvas" role="tabpanel">
-        <div class="one-viewer">
-          <div class="viewer-head">
-            <span class="viewer-name" id="viewer-canvas-name">—</span>
-            <div class="readout" id="viewer-canvas-readout">—</div>
-          </div>
-          <div class="seg" id="viewer-canvas-engine" role="radiogroup"
-               aria-label="Which engine draws the picture"></div>
-          <div class="seg" id="viewer-canvas-layers"
-               aria-label="Which of the three layers are drawn"></div>
-          <!-- Flat or the whole stack at once. Only shown for an engine that can
-               draw a volume; the others say why they cannot rather than offering
-               a button that does nothing. -->
-          <div class="seg" id="viewer-canvas-volume" role="radiogroup"
-               aria-label="Draw one plane or the whole stack" hidden></div>
-          <!-- Where in the stack the picture is taken from. Hidden until a run
-               is open and known to have depth, because a control for a stack
-               that is one plane deep is a control that does nothing. -->
-          <div class="through-the-stack" id="viewer-canvas-depth" hidden>
-            <label for="viewer-canvas-plane">Depth</label>
-            <input type="range" id="viewer-canvas-plane" min="0" max="0" value="0" step="1">
-            <span class="readout" id="viewer-canvas-plane-readout">—</span>
-          </div>
-          <span class="action-hint layer-why" id="viewer-canvas-why"></span>
-          <div class="viewer-box" id="viewer-canvas-box"></div>
-          <div class="live-note" id="viewer-canvas-note" hidden></div>
-        </div>
-        <div class="panel-foot" id="foot-viewer-canvas"></div>
-      </div>
-
       <!-- Detection has no panel of its own either: the cells it finds land on
            the canvas, and these are its controls — the settings, and the one
            position they are tried on before the sample runs. Parked here and

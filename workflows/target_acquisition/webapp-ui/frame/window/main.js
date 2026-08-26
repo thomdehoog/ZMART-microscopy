@@ -204,7 +204,7 @@ let backend = null;
      There is no presets step: each recording lives in the step that uses it —
      the overview preset with the scan fields, the focus preset with the
      focus strategy, the acquisition type with the targets. */
-  /* Which workflow to open on — `?workflow=canvas_demonstration`.
+  /* Which workflow to open on — `?workflow=target_acquisition_mock`.
    *
    * For pointing this page at a run and looking at it, which is what somebody
    * with an acquisition in their hand wants and what `serve_a_run.py` prints an
@@ -567,7 +567,7 @@ let backend = null;
      They are three different things — a session, a list of presets, a carrier —
      and a tab beside the canvas should say which of them it opens. They draw
      into the same element because only one is ever shown. */
-  const FOOT_IDS = ["foot-canvas", "foot-viewer-canvas"];
+  const FOOT_IDS = ["foot-canvas"];
 
   /* Every panel a step may ask for, by the name a step uses for it. `whenShown`
      is how a panel that has to build something of its own — a picture drawn by a
@@ -576,13 +576,6 @@ let backend = null;
      a panel that need do nothing simply has none. */
   const PANEL_META = {
     canvas: { label: "Canvas", panel: "panel-canvas" },
-    /* The canvas: one viewer, with a button to say which engine draws it. Which
-       engine is the canvas's own affair from here — it carries the view across a
-       change, so nothing outside has to know one happened. */
-    "viewer-canvas": {
-      label: "Canvas", panel: "panel-viewer-canvas",
-      whenShown: () => theCanvas.whenShown(),
-    },
   };
 
   /* Which panels a step gets is `panelsFor` in `frame/rules/steps.js`, and the reason
@@ -1845,90 +1838,6 @@ let backend = null;
       fit() { picture?.fit(); },
     };
   })();
-
-  /* ============================================================
-     the canvas, as the demonstration workflow's one step
-     ============================================================ */
-  /* The picture of a run, filling a panel of its own, with the engine that draws
-     it chosen by the operator and a button for each of the three layers. It is
-     the same run this page is already pointed at with `?overview=` and
-     `?targets=`, so there is one way of saying which run to look at rather than
-     two.
-
-     Everything about how the picture is drawn lives behind a small interface in
-     `viz_studio/options/`, and this page reaches it only through
-     `shared/canvas/viewer.js`. The canvas is never told which step it is in.
-
-     There are two of these, one per step of the canvas demonstration, and they
-     share nothing: separate boxes, separate engines, separate buttons, separate
-     views. That is what makes walking from one step to the other a fair
-     comparison rather than a picture that has been changed underneath you. */
-  const aCanvasPanel = (which, engine) => {
-    /* Built the first time its panel is asked for, rather than on load. A
-       drawing engine is a large thing to fetch and there is no reason to fetch
-       one for a run that never opens the step it belongs to — which also means
-       an operator who only ever looks at the Viv step never pays for
-       neuroglancer.
-
-       The half-built state is remembered rather than the finished one, because
-       the panel can be asked for again while the fetch is still in flight and
-       two canvases in one box would be a hard fault to read on screen. */
-    let building = null;
-    const build = () => {
-      building ??= import("../../workflows/target_acquisition/shared/canvas/viewer.js").then(({ putTheCanvasIn }) =>
-        putTheCanvasIn({
-          box: el(`viewer-${which}-box`),
-          note: el(`viewer-${which}-note`),
-          chooser: el(`viewer-${which}-engine`),
-          layers: el(`viewer-${which}-layers`),
-          why: el(`viewer-${which}-why`),
-          readout: el(`viewer-${which}-readout`),
-          name: el(`viewer-${which}-name`),
-          volume: el(`viewer-${which}-volume`),
-          depth: el(`viewer-${which}-depth`),
-          plane: el(`viewer-${which}-plane`),
-          planeReadout: el(`viewer-${which}-plane-readout`),
-          acquisitions: ACQUISITIONS,
-          engine: ENGINE_ASKED_FOR ?? engine,
-        }),
-      );
-      return building;
-    };
-    return {
-      /* Resolves to the canvas itself, not to what showing it returned, because
-         the page has to be able to ask a column where it is looking once it is
-         up. One object answers for a column rather than two that each partly do.
-
-         It resolves to the canvas whether or not the run opened: a run that
-         could not be opened is reported by the canvas itself, on the page, and
-         is not an error here. Only a canvas that could not be *built* — the
-         module missing, the boxes absent — resolves to nothing, because then
-         there is no column at all. Anything asking where a column is looking
-         must therefore ask it, not assume that having a canvas means having a
-         picture. */
-      whenShown: () =>
-        build()
-          .then(async (canvas) => {
-            await canvas.whenShown();
-            return canvas;
-          })
-          /* Said on the page as well as on the console. A box that is broken and
-             a box that is still loading look exactly alike, and this project has
-             lost days to the difference. */
-          .catch((why) => {
-            const note = el(`viewer-${which}-note`);
-            note.hidden = false;
-            note.textContent = `the canvas could not be loaded — ${why.message}`;
-            return null;
-          }),
-    };
-  };
-  /* The viewer, and the engine it opens with when the address does not say.
-     Neuroglancer, because it is the one this project leans towards and the one
-     that keeps up on a large run; where it cannot run at all — a page opened off
-     the disk cannot start its background programs — the canvas falls back to an
-     engine that can, and says so on the page rather than drawing nothing. */
-  const theCanvas = aCanvasPanel("canvas", "neuroglancer-under");
 
   /* ============================================================
      the stage viewer — one projection, layers on top

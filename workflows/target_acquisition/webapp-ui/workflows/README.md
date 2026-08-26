@@ -39,13 +39,13 @@ analysis workflow that never touches an instrument.
 ## Borrowing steps instead of retyping them
 
 A step belongs to the workflow that owns it, and other workflows import it.
-`overview_only` and `focus_surface_check` are built almost entirely from target
-acquisition's steps — the same session, the same carrier, the same scan — and
-each is little more than its `flow.js`. A workflow that wants a borrowed step
-to say something different wraps it in `reworded()` (from
-`../frame/rules/steps.js`), which changes the wording and nothing else. That
-keeps what a step *does* written down once, so a fix reaches every workflow at
-the same moment.
+The three target-acquisition workflows are the case in point: each is little
+more than its `flow.js`, and all three walk the one list in
+`target_acquisition/the-run.js`, differing only in the backend they declare.
+A workflow that wants a borrowed step to say something different wraps it in
+`reworded()` (from `../frame/rules/steps.js`), which changes the wording and
+nothing else. That keeps what a step *does* written down once, so a fix
+reaches every workflow at the same moment.
 
 ## What a step is made of
 

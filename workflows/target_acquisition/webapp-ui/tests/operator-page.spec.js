@@ -124,11 +124,6 @@ test("the rail carries the workflow's declared steps", async ({ page }) => {
   // that visits them, because both of those are about positions that exist
   await expect(page.locator(".step-name").nth(2)).toHaveText("Define scan area");
   await expect(page.locator(".step-name").nth(3)).toHaveText("Focus strategy");
-
-  await page.locator("#wf-select").selectOption("overview_only");
-  await expect(page.locator("#steps .step")).toHaveCount(5);
-  await page.locator("#wf-select").selectOption("focus_surface_check");
-  await expect(page.locator("#steps .step")).toHaveCount(5);
 });
 
 /* The declaration and the page, held up against each other.

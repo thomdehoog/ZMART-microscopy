@@ -732,7 +732,6 @@ canvas.livecv[hidden] { display: none; }
    A panel is ordinarily a toolbar, its content and a foot. This one has no
    toolbar of its own — the viewer carries its own buttons — so it is two rows,
    and the picture takes everything that is left. */
-#panel-viewer-canvas.on { grid-template-rows: minmax(0, 1fr) auto; }
 .one-viewer {
   position: relative; min-width: 0; min-height: 0; padding: 8px;
   display: flex; flex-direction: column; gap: 5px;
