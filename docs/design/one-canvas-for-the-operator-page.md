@@ -104,6 +104,9 @@ canvas and anything else a workflow can pick up:
     parts/       what a workflow is built from. Know nothing about any workflow.
     workflows/   the plug-ins. Pick parts, supply meaning.
 
+The name `parts/` is a proposal, not settled. It has to say what the things are
+for; `widget` did not, which is why the step folders stopped using the word.
+
 Moved as part of the convergence, not before: that work already redraws the line
 between the viewer and the layers, so the files move once instead of twice.
 
@@ -134,8 +137,10 @@ shape, and it is a thing to look at on screen rather than argue in the abstract.
    can be moved while a drawing tool is armed; and the lock stops picking
    without touching pan or zoom.
 2. Turn `theStageLayers` into `layersAbove` entries: `paint({context, project,
-   zoom})` instead of closing over `place` and `view.scale`, `reaches`/`claims`
-   instead of the hand-rolled chain.
+   zoom})` instead of closing over `place` and `view.scale`. `claims` does not
+   replace `reaches` — they answer different questions, *is this point mine* and
+   *is this gesture mine*, and the eight existing tests depend on `reaches`. A
+   layer implements whichever it needs.
 3. The canvas panel opens `putTheCanvasIn` and hands the layers in. Fit, the
    readout and the scale bar move to the viewer, which is where a statement
    about the projection belongs.
