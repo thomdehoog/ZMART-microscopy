@@ -365,6 +365,8 @@ def test_the_spiral_growth_is_visible(browser, built_dist, tmp_path):
         story = [dict(opening, ring="seeded")]
         high_water = opening["fraction"]
         never_regressed = True
+        worst = 0.0
+        darkest = 1.0
         rings = sorted({ring_of(*cell, ACROSS) for cell in landing})
         for ring in rings:
             # No pacing on purpose: outside a deliberate burst test, the
@@ -384,6 +386,12 @@ def test_the_spiral_growth_is_visible(browser, built_dist, tmp_path):
                 seen = _lit_geometry(page)
                 if seen["fraction"] < high_water - 0.02:
                     never_regressed = False
+                    # How FAR it fell, kept for the message. Without it this
+                    # gate said only that the picture shrank, which reads
+                    # like a tolerance being grazed; the fall measured here
+                    # is nothing of the sort (2026-08-26).
+                    worst = max(worst, high_water - seen["fraction"])
+                    darkest = min(darkest, seen["fraction"])
                 high_water = max(high_water, seen["fraction"])
                 if (seen["fraction"] >= story[-1]["fraction"] + 0.005
                         and seen["area"] >= story[-1]["area"]):
@@ -399,7 +407,8 @@ def test_the_spiral_growth_is_visible(browser, built_dist, tmp_path):
         print("SPIRAL GROWTH:", json.dumps({"story": story}),
               flush=True)
         assert never_regressed, (
-            "the lit canvas shrank while the spiral was landing -- ground "
+            f"the lit canvas fell by {worst:.3f} of the frame, to {darkest:.3f} "
+            f"lit, while the spiral was landing -- ground "
             "already on screen went dark during growth, which is exactly "
             "the flicker the invalidation must not show"
         )
