@@ -375,7 +375,7 @@ test("the microscope is the mock or the Leica, and the api follows it", async ({
   expect(scopes[1]).toContain("Leica Stellaris 5");
   const apis = () => page.locator(".field select").nth(1).locator("option").allInnerTexts();
   expect((await apis()).join()).toContain("Mock API");
-  await page.locator(".field select").first().selectOption("stellaris5");
+  await page.locator(".field select").first().selectOption({ label: "Leica Stellaris 5 · y42h93" });
   await page.waitForTimeout(150);
   expect((await apis()).join()).toContain("Navigator Expert");
 });
@@ -1198,12 +1198,16 @@ test("focus points are laid so many to a tileset", async ({ page }) => {
   await gotoStep(page, "Define scan area");
   await recordSlot(page, "sf-preset", "overview");
   const box = await page.locator("#stage-canvas").boundingBox();
-  const at = (fx, fy) => ({ x: box.x + box.width * fx, y: box.y + box.height * fy });
+  /* Fractions of the stage picture, not of the box: Fit puts the 120 x 80 mm
+     travel at the top with a 26 px margin on every side, so the picture is
+     the box's width less the margins and 2/3 as tall. */
+  const pad = 26, picW = box.width - 2 * pad, picH = picW * 80 / 120;
+  const at = (fx, fy) => ({ x: box.x + pad + picW * fx, y: box.y + pad + picH * fy });
   // in the middle of the top-centre well, where a region has positions to hold
   await page.locator(".sf-tool[data-tool='rectangle']").click();
-  await page.mouse.move(at(0.46, 0.30).x, at(0.46, 0.30).y);
+  await page.mouse.move(at(0.46, 0.26).x, at(0.46, 0.26).y);
   await page.mouse.down();
-  await page.mouse.move(at(0.54, 0.38).x, at(0.54, 0.38).y, { steps: 8 });
+  await page.mouse.move(at(0.54, 0.34).x, at(0.54, 0.34).y, { steps: 8 });
   await page.mouse.up();
   await page.waitForTimeout(300);
   await expect(page.locator(".sf-readout"), "the region covers positions")

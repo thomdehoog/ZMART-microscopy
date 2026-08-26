@@ -47,6 +47,11 @@ const rest = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 export const POLL_MS = 250;
 
 export const backend = {
+  /** What can be connected to: `get_instruments` through the bridge. */
+  async instruments() {
+    return (await ask("/api/instruments")).instruments;
+  },
+
   /**
    * Open the session through the bridge, then watch the driver's own
    * connection checks answer.
@@ -61,7 +66,7 @@ export const backend = {
    * has failed.
    */
   async connect(session, { onChecks, onCheck } = {}) {
-    await ask("/api/connect", { instrument: session?.instrument ?? "mock" });
+    await ask("/api/connect", { connection: session?.connection });
     let keys = null;
     const answered = new Set();
     for (;;) {

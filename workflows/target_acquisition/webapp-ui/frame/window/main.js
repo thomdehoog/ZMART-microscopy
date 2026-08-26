@@ -3,9 +3,9 @@ import { sideGroup } from "./panels.js";
 import { blockedBecause, isReachable, panelsFor } from "../rules/steps.js";
 import { theDrawingAbove, whoIsAt } from "../../workflows/target_acquisition/shared/canvas/layers-above.js";
 import { assembleWorkflows } from "../rules/finding-workflows.js";
+import { watchStagePosition } from "../../workflows/target_acquisition/shared/stage-position.js";
 import {
-  MICROSCOPES, DEFAULT_SESSION, apisFor, defaultApiFor,
-  describeSession, STAGE_LIMITS_MM, isFailed,
+  DEFAULT_SESSION, choicesFrom, describeSession, STAGE_LIMITS_MM, isFailed,
 } from "../../workflows/target_acquisition/microscope/microscopes.js";
 /* The seam. Connecting, reading a preset off the instrument, measuring the
    focus map and driving the overview scan all go through the backend and are
@@ -55,6 +55,8 @@ const { WORKFLOWS, DEFAULT_WORKFLOW } = assembleWorkflows(
 const backendFor = () =>
   (new URLSearchParams(location.search).get("backend") === "pretend" ? pretendBackend : liveBackend);
 let backend = null;
+/* The stage-position watch, running while a session is open. */
+let stageWatch = null;
 
 (() => {
   "use strict";
@@ -223,6 +225,10 @@ let backend = null;
 
   const state = {
     session: { ...DEFAULT_SESSION },
+    /* What can be connected to, as the controller lists it (`get_instruments`),
+       grouped for the card: microscopes, each with its APIs. Loaded once the
+       backend is known; empty until then. */
+    instruments: [],
     overviewPreset: emptySlot("acquisition"),
     focusPreset: emptySlot("autofocus"),
     /* Read from further along the instrument's list than the overview: what
@@ -279,6 +285,32 @@ let backend = null;
   const steps = () => WORKFLOWS[state.wf].steps;
   const step = (i) => steps()[i];
 
+  /* The instrument the card has chosen: a microscope from the list and one
+     of its APIs. The entry under them is what Connect sends. */
+  const chosenMicroscope = () => state.instruments.find((m) => m.key === state.session.microscope);
+  const chosenApi = () => chosenMicroscope()?.apis.find((a) => a.key === state.session.api);
+  const chosenConnection = () => chosenApi()?.connection ?? null;
+
+  /* Ask the backend what can be connected to, and choose for the operator
+     when nothing is chosen yet: the mock when it is listed, so a page opened
+     by accident drives nothing, otherwise the first entry. */
+  function listInstruments() {
+    return backend.instruments().then((list) => {
+      state.instruments = choicesFrom(list);
+      if (!chosenMicroscope()) {
+        const mock = state.instruments.find((m) => m.vendor === "mock");
+        state.session.microscope = (mock ?? state.instruments[0])?.key ?? null;
+      }
+      if (!chosenApi()) state.session.api = chosenMicroscope()?.apis[0]?.key ?? null;
+      renderSetup(); renderActionBar();
+    }).catch((why) => {
+      state.instruments = [];
+      state.session.microscope = null; state.session.api = null;
+      console.warn(`could not list the instruments: ${why.message}`);
+      renderSetup(); renderActionBar();
+    });
+  }
+
   const el = (id) => document.getElementById(id);
 
   /* ============================================================
@@ -305,6 +337,7 @@ let backend = null;
     state.wf = selectEl.value;
     backend = backendFor();
     resetRun();
+    listInstruments();
   });
 
   /* Closing the session takes the run with it: settings were read off this
@@ -313,6 +346,8 @@ let backend = null;
      keeping something that might now be a lie. The chosen microscope, API and
      password stay, since editing them is the reason to disconnect. */
   function resetRun() {
+    stageWatch?.stop();
+    stageWatch = null;
     Object.assign(state, {
       activeIdx: 0, done: new Set(), ran: new Set(), running: null, notes: {},
       overviewPreset: emptySlot("acquisition"),
@@ -466,9 +501,9 @@ let backend = null;
          and verifies it — and each answer lands here as it comes. */
       backend.connect({
         ...state.session,
-        /* Which driver the bridge should connect is the microscope chosen on
-           this card; the pretend backend ignores it. */
-        instrument: MICROSCOPES[state.session.microscope]?.instrument,
+        /* The registry entry under the microscope and API chosen on this card
+           — what set_instrument takes. */
+        connection: chosenConnection(),
       }, {
         /* The questions, before any answer: one row per key the driver reports. */
         onChecks: (keys) => {
@@ -486,7 +521,14 @@ let backend = null;
            the instrument's from here — its travel from get_info — and the
            stage mark stands where get_xyz says the stage is. */
         takeTheCanvas(info?.canvas);
-        takeThePosition(await backend.xyz());
+        /* From here the stage mark is the instrument's: a watch of its own
+           reads get_xyz every few seconds for as long as the session is open,
+           and again at once after any move this page makes. */
+        stageWatch?.stop();
+        stageWatch = watchStagePosition(backend, takeThePosition, {
+          onError: (why) => console.warn(`where the stage is: ${why.message}`),
+        });
+        await stageWatch.refresh();
         finish();
       }).catch((why) => {
         /* The instrument's side said no — the bridge is not there, the
@@ -542,6 +584,7 @@ let backend = null;
         const f = state.focus;
         if (f.strategy === "plane") { await remeasure(); f.selected = 0; }
         f.applied = true;
+        stageWatch?.refresh();
         state.notes[s.id] =
           f.strategy === "plane" ? `${f.surface.model} from ${f.points.length} points · rms ${f.residual.toFixed(1)} µm`
           : f.strategy === "fixed" ? `fixed z ${f.zFixed} µm`
@@ -555,6 +598,7 @@ let backend = null;
       if (s.mode === "scan") {
         state.tilesShown = state.plan.length;
         state.notes[s.id] = scanNote();
+        stageWatch?.refresh();
       }
       if (s.mode === "detect") {
         // the settings proven on one tile, now applied to every tile
@@ -652,17 +696,22 @@ let backend = null;
       scope.className = "field";
       scope.innerHTML = "<span>Microscope</span><select></select>";
       const scopeSel = scope.querySelector("select");
-      for (const [key, m] of Object.entries(MICROSCOPES)) {
+      for (const m of state.instruments) {
         const o = document.createElement("option");
-        o.value = key;
+        o.value = m.key;
         o.textContent = m.detail ? `${m.label} · ${m.detail}` : m.label;
         scopeSel.append(o);
       }
-      scopeSel.value = state.session.microscope;
-      scopeSel.disabled = locked;
+      if (!state.instruments.length) {
+        const o = document.createElement("option");
+        o.value = ""; o.textContent = "no instruments listed";
+        scopeSel.append(o);
+      }
+      scopeSel.value = state.session.microscope ?? "";
+      scopeSel.disabled = locked || !state.instruments.length;
       scopeSel.addEventListener("change", () => {
         state.session.microscope = scopeSel.value;
-        state.session.api = defaultApiFor(scopeSel.value);
+        state.session.api = chosenMicroscope()?.apis[0]?.key ?? null;
         renderSetup(); renderActionBar();
       });
 
@@ -670,14 +719,14 @@ let backend = null;
       api.className = "field";
       api.innerHTML = "<span>API</span><select></select>";
       const apiSel = api.querySelector("select");
-      for (const [key, a] of apisFor(state.session.microscope)) {
+      for (const a of chosenMicroscope()?.apis ?? []) {
         const o = document.createElement("option");
-        o.value = key;
-        o.textContent = `${a.label} · ${a.detail}`;
+        o.value = a.key;
+        o.textContent = a.detail ? `${a.label} · ${a.detail}` : a.label;
         apiSel.append(o);
       }
-      apiSel.value = state.session.api;
-      apiSel.disabled = locked;
+      apiSel.value = state.session.api ?? "";
+      apiSel.disabled = locked || !chosenMicroscope();
       apiSel.addEventListener("change", () => {
         state.session.api = apiSel.value;
         renderSetup(); renderActionBar();
@@ -762,7 +811,7 @@ let backend = null;
         btn.type = "button";
         btn.className = "run";
         btn.textContent = connecting ? "connecting…" : "Connect";
-        btn.disabled = connecting || !state.session.password;
+        btn.disabled = connecting || !state.session.password || !chosenConnection();
         btn.addEventListener("click", () => runStep(indexOfStep("connect")));
         connectBtn = btn;
 
@@ -804,6 +853,10 @@ let backend = null;
   }
 
   const indexOfStep = (id) => steps().findIndex((s) => s.id === id);
+
+  /* The instruments, asked for once the backend is known; the card fills in
+     when the answer lands. */
+  listInstruments();
   /* One slot per step, and the rows in it are the recordings.
    *
    * The bar at the top takes the next reading; what has been read stands under
@@ -1888,10 +1941,10 @@ let backend = null;
     drawStage();
   }
 
-  /** The stage mark, from `get_xyz`: per axis, a value in micrometres. */
-  function takeThePosition(xyz) {
-    if (!xyz?.x || !xyz?.y) return;
-    stageReported = { x: Number(xyz.x.value), y: Number(xyz.y.value), z: Number(xyz.z?.value ?? 0) };
+  /** The stage mark: where the watch reads the stage, in micrometres. */
+  function takeThePosition(at) {
+    if (!at || Number.isNaN(at.x) || Number.isNaN(at.y)) return;
+    stageReported = at;
     drawStage();
   }
 

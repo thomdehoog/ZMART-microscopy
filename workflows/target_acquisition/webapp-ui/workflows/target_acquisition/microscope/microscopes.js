@@ -13,27 +13,62 @@
  * writable is a bad way to find out.
  */
 
+/**
+ * What the controller's registry entries are called on screen.
+ *
+ * The list of instruments is the controller's (`get_instruments`): each entry
+ * is the connection dict that `set_instrument` takes, identified by vendor,
+ * microscope and api. These are only the words the page uses for ids it
+ * knows; an id it does not know is shown as itself.
+ */
 export const MICROSCOPES = {
-  mock: {
-    label: "Mock",
-    detail: "the controller's fake driver",
-    vendor: "mock",
-    /* What the bridge is asked to connect. */
-    instrument: "mock",
-    apis: {
-      mock: { label: "Mock API", detail: "in-process · made-up data" },
-    },
-  },
-  stellaris5: {
-    label: "Leica Stellaris 5",
-    detail: "y42h93",
-    vendor: "leica",
-    instrument: "leica",
-    apis: {
-      navigator_expert: { label: "Navigator Expert", detail: "CAM socket 8895 · LAS X 4.9" },
-    },
-  },
+  "mock-scope": { label: "Mock", detail: "the controller's fake driver" },
+  "stellaris5-y42h93": { label: "Leica Stellaris 5", detail: "y42h93" },
 };
+
+export const APIS = {
+  "mock-api": { label: "Mock API", detail: "in-process · made-up data" },
+  "navigator-expert": { label: "Navigator Expert", detail: "CAM socket 8895 · LAS X 4.9" },
+};
+
+/**
+ * The registry's entries, grouped the way the Connect card asks: one
+ * microscope, then the APIs registered for it, each API carrying the entry
+ * to connect with. Registry order is kept.
+ */
+export function choicesFrom(instruments) {
+  const microscopes = [];
+  for (const entry of instruments ?? []) {
+    const key = `${entry.vendor}/${entry.microscope}`;
+    let scope = microscopes.find((m) => m.key === key);
+    if (!scope) {
+      const known = MICROSCOPES[entry.microscope];
+      scope = {
+        key,
+        vendor: entry.vendor,
+        microscope: entry.microscope,
+        label: known?.label ?? entry.microscope,
+        detail: known?.detail ?? entry.vendor,
+        apis: [],
+      };
+      microscopes.push(scope);
+    }
+    const api = APIS[entry.api];
+    scope.apis.push({
+      key: entry.api,
+      label: api?.label ?? entry.api,
+      detail: api?.detail ?? "",
+      connection: { ...entry },
+    });
+  }
+  return microscopes;
+}
+
+/** What the pretend backend lists: the same two entries the controller registers here. */
+export const pretendInstruments = () => [
+  { vendor: "mock", microscope: "mock-scope", api: "mock-api", client: "mock-client" },
+  { vendor: "leica", microscope: "stellaris5-y42h93", api: "navigator-expert", client: "PythonClient" },
+];
 
 /**
  * The kinds of setting a run can record off the microscope.
@@ -237,26 +272,20 @@ export const sampleReading = (key, nth) => {
 export const STAGE_LIMITS_MM = { width: 120, height: 80 };
 
 export const DEFAULT_SESSION = {
-  /* The mock, so a page opened by accident drives nothing. */
-  microscope: "mock",
-  api: "mock",
+  /* Chosen once the instruments are listed: the first the registry offers,
+     which is the mock, so a page opened by accident drives nothing. */
+  microscope: null,
+  api: null,
   /* Prefilled so the mock can be clicked through without typing. A real build
      must ship this empty — a default credential is not a convenience, it is a
      credential everybody has. */
   password: "demo",
 };
-
-/** The APIs a microscope offers, as [key, {label, detail}] pairs. */
-export const apisFor = (microscope) =>
-  Object.entries(MICROSCOPES[microscope]?.apis ?? {});
-
-/** The first API a microscope offers — what to fall back to when it changes. */
-export const defaultApiFor = (microscope) => apisFor(microscope)[0]?.[0] ?? null;
-
-export const describeSession = ({ microscope, api }) => {
-  const scope = MICROSCOPES[microscope];
-  const apiDef = scope?.apis?.[api];
-  return scope && apiDef ? `${scope.label} · ${apiDef.label}` : "not chosen";
+export const describeSession = ({ connection }) => {
+  if (!connection) return "not chosen";
+  const scope = MICROSCOPES[connection.microscope]?.label ?? connection.microscope;
+  const api = APIS[connection.api]?.label ?? connection.api;
+  return `${scope} · ${api}`;
 };
 
 /**
@@ -272,10 +301,10 @@ export const describeSession = ({ microscope, api }) => {
 export const PENDING = "pending";
 export const isFailed = (value) => /^failed\b/i.test(String(value));
 
-export const pretendConnectionStatus = ({ microscope, api }) => ({
-  "Microscope reachable": api === "navigator_expert" ? "127.0.0.1:8895" : "in-process",
+export const pretendConnectionStatus = ({ connection }) => ({
+  "Microscope reachable": connection?.api === "navigator-expert" ? "127.0.0.1:8895" : "in-process",
   "Credentials accepted": "token valid",
-  "API version": MICROSCOPES[microscope]?.apis?.[api]?.detail ?? "unknown",
+  "API version": APIS[connection?.api]?.detail ?? "unknown",
   "Stage responds": "x 0.0 · y 0.0 · z −412.0 µm",
   "Objectives listed": "5x, 63x",
   "Storage writable": "smart/organoid-screen_a7f3c1/",

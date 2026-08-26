@@ -130,19 +130,35 @@ def _leica_connection() -> dict:
     return dict(CONNECTION)
 
 
-def _connect(asked: dict) -> dict:
-    """Open the session and answer with the driver's account of itself."""
-    global _session, _context
-    which = asked.get("instrument", "mock")
-    if which == "mock":
-        from zmart_controller.tests.mock_driver import register_mock
+def _register_known_drivers() -> None:
+    """Put every driver this machine has into the controller's registry.
 
-        register_mock()
-        connection = dict(_MOCK_CONNECTION)
-    elif which == "leica":
-        connection = _leica_connection()
-    else:
-        raise ValueError(f"no instrument called {which!r} — this bridge knows mock and leica")
+    The registry is what the page's Microscope list shows — ``get_instruments``
+    is the controller's own answer to "what can I connect to" — so the bridge
+    registers what it can find at start: the mock always, the Leica when its
+    driver imports. A driver that fails to import is simply not offered.
+    """
+    from zmart_controller.tests.mock_driver import register_mock
+
+    register_mock()
+    try:
+        _leica_connection()
+    except Exception as why:  # noqa: BLE001 — not installed here is a normal state
+        print(f"bridge: the Leica driver is not available on this machine ({why})")
+
+
+def _instruments() -> list:
+    return zmart_controller.get_instruments()
+
+
+def _connect(asked: dict) -> dict:
+    """Open the session for one of the registry's entries and answer with the driver's account."""
+    global _session, _context
+    connection = asked.get("connection")
+    if not isinstance(connection, dict):
+        raise ValueError(
+            "connect needs the instrument's connection entry, as listed by /api/instruments"
+        )
     _session = zmart_controller.set_instrument(connection)
     _context = dict(_session.context)
     info = _session.get_info()
@@ -305,6 +321,8 @@ class _Bridge(BaseHTTPRequestHandler):
                 )
                 with _the_instruments_turn:
                     self._answer(_reading(kind))
+            elif path == "/api/instruments":
+                self._answer({"instruments": _instruments()})
             elif path == "/api/info":
                 # The driver's account of the session: its connection checks
                 # (polled while they answer), the canvas, the setup.
@@ -344,6 +362,7 @@ class _Bridge(BaseHTTPRequestHandler):
 
 
 def serve(port: int = 8600) -> ThreadingHTTPServer:
+    _register_known_drivers()
     server = ThreadingHTTPServer(("127.0.0.1", port), _Bridge)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     return server
