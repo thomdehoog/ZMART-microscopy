@@ -19,7 +19,7 @@
 import { sideGroup } from "../../../../framework/window/panels.js";
 import {
   CARRIER_TYPES, carrierType, fromPreset, matchingPreset, geometry, maxRadius,
-  centres, depthMm,
+  centres, depthMm, scanBox,
 } from "../../shared/carriers.js";
 
 const SVG = "http://www.w3.org/2000/svg";
@@ -127,29 +127,49 @@ function drawTheDepthBehind(ctx, x, y, w, h, dx, dy, fill) {
 }
 
 /**
- * The four places a carrier is registered from, in its own micrometres.
+ * The four places a carrier is aligned from, in its own micrometres.
  *
- * The middle of each border rather than the corners, because a corner is the
- * one part of a carrier an objective can rarely see: a slide's are cut back, a
- * plate's are under the skirt, and a dish has none at all. The middle of a
- * border is on the glass whatever the vessel is — and on a dish, whose rim
- * touches its own bounding box at exactly those four places, they land on the
- * rim itself.
+ * **On imageable ground, never on the carrier's outline.** These were the four
+ * midpoints of the bounding box, which is right for a dish or a plain area —
+ * whose one area *is* the box — and wrong for anything with a gap down the
+ * middle. Two chambers side by side put the top and bottom marks in the plastic
+ * between them: nothing to drive to, nothing to see, nothing to align against.
+ *
+ * So each one sits on the outermost *area* in its direction, at the middle of
+ * that area's edge. The middle of an edge rather than a corner, because a
+ * corner is the part of a vessel an objective can rarely see — a slide's are
+ * cut back, a plate's are under the skirt, a dish has none.
  *
  * Left, right, top and bottom: two pairs facing each other across the carrier,
- * so the registration is measured over the longest run in each direction
- * rather than out of one corner of it. The same four for every carrier on
- * offer, including a chamber slide with one chamber in it — where a carrier is
- * registered from is a property of its outline, not of what is inside it.
+ * so the alignment is measured over the longest run in each direction rather
+ * than out of one corner of it.
  */
 export function anchorsUm(config) {
+  const box = scanBox(config);
+  const areas = centres(config);
   const g = geometry(config);
-  const w = g.width * MM_UM, h = g.height * MM_UM;
+  const midX = g.width / 2, midY = g.height / 2;
+
+  /* Ties are resolved towards the middle of the carrier, not towards the first
+     area in the list. On a 96-well plate every well in the left column is
+     equally far left; taking the first would put the left mark in the top-left
+     corner beside the top one, and two marks in one corner measure a smaller
+     carrier than the one actually on the stage. */
+  const near = (v, w) => Math.abs(v - w) < 1e-6;
+  const atLeast = (get) => Math.min(...areas.map(get));
+  const atMost = (get) => Math.max(...areas.map(get));
+  const among = (ok, spread, towards) => areas.filter(ok)
+    .reduce((best, a) => (Math.abs(spread(a) - towards) < Math.abs(spread(best) - towards) ? a : best));
+  const left = among((a) => near(a.x, atLeast((n) => n.x)), (a) => a.y, midY);
+  const right = among((a) => near(a.x, atMost((n) => n.x)), (a) => a.y, midY);
+  const top = among((a) => near(a.y, atLeast((n) => n.y)), (a) => a.x, midX);
+  const bottom = among((a) => near(a.y, atMost((n) => n.y)), (a) => a.x, midX);
+
   return [
-    { at: "left", x: 0, y: h / 2 },
-    { at: "right", x: w, y: h / 2 },
-    { at: "top", x: w / 2, y: 0 },
-    { at: "bottom", x: w / 2, y: h },
+    { at: "left", x: (left.x - box.halfW) * MM_UM, y: left.y * MM_UM },
+    { at: "right", x: (right.x + box.halfW) * MM_UM, y: right.y * MM_UM },
+    { at: "top", x: top.x * MM_UM, y: (top.y - box.halfH) * MM_UM },
+    { at: "bottom", x: bottom.x * MM_UM, y: (bottom.y + box.halfH) * MM_UM },
   ];
 }
 
@@ -405,6 +425,10 @@ export default {
         ? "Reset alignment"
         : "Add alignment points";
       anchorAdd.classList.toggle("on", anchors.arming());
+      /* An empty list is not an empty list on screen: it keeps the rules that
+         separate its rows, and with no rows between them they read as one
+         stray line above the button. */
+      anchorList.hidden = !anchors.list().length;
       anchorList.textContent = "";
       anchors.list().forEach((a, i) => {
         const row = el("div", "point-row");

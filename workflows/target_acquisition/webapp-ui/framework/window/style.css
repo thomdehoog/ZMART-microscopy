@@ -287,14 +287,16 @@ button.danger:disabled { opacity: 0.45; cursor: default; }
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
+/* Blue on white, like every other button on the page. A filled slab is the
+   loudest thing in whatever box it sits in, and these boxes each hold one
+   action already — the weight was saying something the position had said. */
 button.run {
   align-self: flex-start; font: inherit; font-size: 13px; font-weight: 600;
-  color: #fff; background: var(--accent); border: none; border-radius: 7px;
+  color: var(--accent-deep); background: var(--screen);
+  border: 1px solid var(--line-strong); border-radius: 7px;
   height: var(--control); padding: 0 14px; cursor: pointer;
 }
-:root[data-theme="dark"] button.run, :root:not([data-theme="light"]) button.run { color: #04121d; }
-@media (prefers-color-scheme: light) { :root:not([data-theme="dark"]) button.run { color: #fff; } }
-button.run:hover:enabled { background: var(--accent-deep); }
+button.run:hover:enabled { border-color: var(--accent); color: var(--accent); }
 /* Faded, the way every other disabled control here is. A grey slab was the
    heaviest thing on a bar whose point is the field beside it. */
 button.run:disabled { opacity: 0.4; cursor: default; }
@@ -1474,16 +1476,14 @@ canvas.livecv[hidden] { display: none; }
    other doing button wears — the same blue as Record. `Add grid` lays the
    positions; `Place` lays the focus points. */
 .sf-doing {
-  color: #fff; background: var(--accent); border-color: var(--accent);
+  color: var(--accent-deep); background: var(--screen); border-color: var(--line-strong);
 }
 .sf-doing:hover:enabled {
-  background: var(--accent-deep); border-color: var(--accent-deep); color: #fff;
+  background: var(--screen); border-color: var(--accent); color: var(--accent);
 }
-:root[data-theme="dark"] .sf-doing,
-:root:not([data-theme="light"]) .sf-doing { color: #04121d; }
-@media (prefers-color-scheme: light) {
-  :root:not([data-theme="dark"]) .sf-doing { color: #fff; }
-}
+/* The two rules that used to force this button's text light or dark are gone
+   with the fill they were for. Left behind, they painted white text on the
+   white face and the button vanished. */
 /* Greyed while the step is locked — the plan is fixed once the overview has
    been scanned, and the controls say so by staying where they are. */
 .sf-tool:disabled, .sf-num input:disabled {
