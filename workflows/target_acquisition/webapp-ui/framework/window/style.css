@@ -1082,6 +1082,11 @@ canvas.livecv[hidden] { display: none; }
   text-align: right; font-variant-numeric: tabular-nums;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
+/* Nothing named it, so there is no name column to balance against: the dot
+   takes only the room it needs and the reading starts immediately after it. */
+.rec-row.unnamed .rec-pick { grid-template-columns: max-content minmax(0, 1fr); }
+.rec-row.unnamed .rec-state { text-align: left; }
+
 .rec-pick:hover:enabled .rec-name { color: var(--accent-deep); }
 /* Active is the whole box, not a tick inside it: what the step is taken with
    is a property of the record, and the record is the box. */
