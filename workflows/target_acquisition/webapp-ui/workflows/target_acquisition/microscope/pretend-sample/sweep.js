@@ -50,11 +50,19 @@ export function debrisAt(index) {
  * @param focusZ  where the tissue is actually in focus, µm
  * @param index   which point this is — fixes the noise and the debris
  * @param metric  a key of METRICS
+ * @param startZ  where the search begins, µm: the objective is driven there and
+ *                swept about it. Left out, it arrives somewhere near the tissue
+ *                already, which is the best a first run can be said to do.
  */
-export function sweep({ focusZ, index, metric }) {
+export function sweep({ focusZ, index, metric, startZ }) {
   const m = METRICS[metric];
   const centre = focusZ + m.bias;
-  const guess = focusZ - 6 + 12 * (((index * 37) % 11) / 10);
+  /* A sweep is taken about where the objective started, not about where the
+     answer turns out to be. That is what makes the starting height worth
+     choosing: a search begun far from the tissue comes back without having
+     seen it, which is the difference between running the map again from
+     wherever the stage is standing and refining it from what the map says. */
+  const guess = startZ ?? focusZ - 6 + 12 * (((index * 37) % 11) / 10);
   const r = makeRng(1000 + index * 91 + metric.length * 17);
   const speck = debrisAt(index);
 
@@ -120,6 +128,10 @@ export function findCandidates(samples) {
  * operator, get to see that it is suspect.
  */
 export function pickPeak(candidates) {
+  /* Nothing rose anywhere in the sweep, so there is nothing to pick. Reachable
+     once a search can be told where to begin: start it far enough from the
+     tissue and the objective travels its whole range without ever seeing it. */
+  if (!candidates.length) return null;
   const wide = candidates.filter((c) => !c.narrow);
   return (wide.length ? wide : candidates).reduce((a, b) => (b.s > a.s ? b : a));
 }
