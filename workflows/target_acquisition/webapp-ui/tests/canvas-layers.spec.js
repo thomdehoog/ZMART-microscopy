@@ -47,6 +47,8 @@ const aSquare = (colour, x, y, side) => ({
 });
 
 window.__touched = [];
+window.__drag = [];
+window.__armed = false;
 window.__canvas = await putTheCanvasIn({
   box: el("box"), note: el("note"), chooser: el("chooser"), layers: el("layers"),
   why: el("why"), readout: el("readout"), name: el("name"),
@@ -56,6 +58,16 @@ window.__canvas = await putTheCanvasIn({
     { key: "tiles", label: "Tiles", ...aSquare("rgb(240,160,30)", 60, 60, 180) },
     { key: "focus", label: "Focus", staysSolid: true,
       ...aSquare("rgb(20,220,120)", 100, 100, 60) },
+    /* A tool, the way a workflow's editor is one: armed from a panel, and while
+       it is armed a drag belongs to it rather than to the picture. Unarmed it
+       turns every drag down, which is how a layer says "not mine". */
+    { key: "tool", label: "Tool", staysSolid: true,
+      ...aSquare("rgb(230,60,220)", 200, 40, 30),
+      claims: (drag) => {
+        if (!window.__armed) return false;
+        window.__drag.push({ phase: drag.phase, at: drag.at });
+        return true;
+      } },
   ],
   onTouched: ({ layer, at }) => window.__touched.push({ key: layer.key, at }),
 });
@@ -127,7 +139,7 @@ test("gives every layer in the stack a button of its own", async ({ page }) => {
   const named = await page.locator("#layers button[data-layer]").evaluateAll(
     (buttons) => buttons.map((b) => b.dataset.layer));
   // The two fixed slots, then one per layer the workflow handed in, in order.
-  expect(named).toEqual(["beneath", "picture", "carrier", "tiles", "focus"]);
+  expect(named).toEqual(["beneath", "picture", "carrier", "tiles", "focus", "tool"]);
 });
 
 test("turns one layer off and leaves the others exactly where they were", async ({ page }) => {
@@ -256,8 +268,85 @@ test("grows the stack while somebody is watching, keeping what they had set", as
 
   const named = await page.locator("#layers button[data-layer]").evaluateAll(
     (buttons) => buttons.map((b) => b.dataset.layer));
-  expect(named).toEqual(["beneath", "picture", "carrier", "tiles", "focus", "targets"]);
+  expect(named).toEqual(["beneath", "picture", "carrier", "tiles", "focus", "tool", "targets"]);
   /* An operator who turned the carrier on should not find it off again because
      a target was discovered somewhere else entirely. */
   expect(await page.evaluate(() => window.__canvas.layers.carrier)).toBe(true);
+});
+
+/* ---------------------------------------------------------------------------
+   Whose gesture is this?
+
+   A layer that can only be clicked is a layer you can look at. Drawing a
+   region, dragging a position from one well to the next, marqueeing a set of
+   focus points — all of those are a press, then the moves, then the release,
+   and a layer needs to hold all three or it holds none of them.
+
+   The canvas does not know what any of them are for. It asks the layers, top
+   of the stack first, and pans with whatever none of them wanted.
+   --------------------------------------------------------------------------- */
+
+/* Arm or disarm the tool layer, the way a panel would — and put it on screen
+   first, because a layer the operator cannot see claims nothing. A tool whose
+   layer is switched off is a tool that is not there. */
+async function arm(page, on) {
+  await page.locator('#layers button[data-layer="tool"]').click();
+  await page.evaluate((v) => { window.__armed = v; }, on);
+}
+const dragPhases = (page) => page.evaluate(() => window.__drag.map((d) => d.phase));
+
+test("a layer takes the whole drag, and the picture stays where it is", async ({ page }) => {
+  await arm(page, true);
+  const before = await page.evaluate(() => window.__canvas.view);
+  const at = await onScreen(page, ...WHERE_ALL_THREE_OVERLAP);
+
+  await page.mouse.move(at.x, at.y);
+  await page.mouse.down();
+  await page.mouse.move(at.x + 60, at.y + 30, { steps: 5 });
+  await page.mouse.up();
+
+  /* All three, in order: a tool told only that a drag began, and left waiting
+     for an end that never comes, has quietly stopped working. */
+  expect(await dragPhases(page)).toEqual(["started", "moved", "moved", "moved", "moved", "moved", "finished"]);
+  const after = await page.evaluate(() => window.__canvas.view);
+  expect(after.centre.x, "the picture panned under a drag that was not its own")
+    .toBeCloseTo(before.centre.x, 3);
+});
+
+test("a drag every layer turns down pans the picture instead", async ({ page }) => {
+  await arm(page, false);
+  const before = await page.evaluate(() => window.__canvas.view);
+  const at = await onScreen(page, ...WHERE_ALL_THREE_OVERLAP);
+
+  await page.mouse.move(at.x, at.y);
+  await page.mouse.down();
+  await page.mouse.move(at.x - 80, at.y, { steps: 5 });
+  await page.mouse.up();
+
+  expect(await dragPhases(page), "a layer that declined was still sent the drag")
+    .toEqual([]);
+  const after = await page.evaluate(() => window.__canvas.view);
+  expect(after.centre.x, "nobody wanted it and the picture did not move either")
+    .not.toBeCloseTo(before.centre.x, 3);
+});
+
+test("alt and a drag pans even while a tool is armed", async ({ page }) => {
+  /* The escape hatch. A tool that wants every press on empty canvas would
+     otherwise leave no way to move the picture, and it has to hold whatever
+     the layers do — so the canvas keeps this one rather than asking. */
+  await arm(page, true);
+  const before = await page.evaluate(() => window.__canvas.view);
+  const at = await onScreen(page, ...WHERE_ALL_THREE_OVERLAP);
+
+  await page.keyboard.down("Alt");
+  await page.mouse.move(at.x, at.y);
+  await page.mouse.down();
+  await page.mouse.move(at.x - 70, at.y + 20, { steps: 5 });
+  await page.mouse.up();
+  await page.keyboard.up("Alt");
+
+  expect(await dragPhases(page), "the armed tool was given a drag alt had claimed")
+    .toEqual([]);
+  const after = await page.evaluate(() => window.__canvas.view);
+  expect(after.centre.x, "alt+drag did not pan").not.toBeCloseTo(before.centre.x, 3);
 });

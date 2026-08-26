@@ -118,12 +118,16 @@ Priority follows what is visually on top, which is what an operator expects: a
 press on a shape moves the shape, a press on empty canvas moves the picture, and
 neither owner knows the other exists.
 
-Two behaviours have to survive, and neither needs to be a special case in the
-canvas. **Alt+drag always pans**, so the picture can still be moved while a
-drawing tool is armed and wants every press for itself — which is a layer
-declining when alt is held, not a rule the canvas keeps. And **the lock** stops
-picking without touching pan or zoom, because locking a
-plan you have settled is about not disturbing it, not about not looking at it.
+Two behaviours are the canvas's own, and both are about not being locked out of
+your own picture. **Alt+drag is never offered to a layer** — the canvas keeps it
+for panning, because a tool that wants every press on empty canvas would
+otherwise leave no way to move the picture, and an escape hatch each layer has
+to remember to implement is not an escape hatch. And **the lock** stops claiming
+and picking without touching pan or zoom, because locking a plan you have
+settled is about not disturbing it, not about not looking at it.
+
+A layer that is switched off claims nothing. A tool whose layer is not on screen
+is a tool that is not there.
 
 ## What a step does
 
