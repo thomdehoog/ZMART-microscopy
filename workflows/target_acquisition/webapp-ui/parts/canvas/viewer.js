@@ -1176,6 +1176,16 @@ export function putTheCanvasIn({
      * layers. See the note where the lock is declared for why that is the
      * useful half to be able to switch off.
      */
+    /**
+     * Whether a layer is holding a gesture right now.
+     *
+     * A host watching the pointer for its own reasons — a tooltip, a cursor —
+     * should keep quiet while somebody is mid-drag: whoever claimed it is being
+     * told about every move already, and a second opinion about what is under
+     * the pointer only fights it.
+     */
+    get gesturing() { return holdingTheDrag !== null || theHostHasTheDrag; },
+
     get locked() { return locked; },
     lock(on = true) {
       locked = !!on;
