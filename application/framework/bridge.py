@@ -258,9 +258,9 @@ def _frame_across(observed: dict, pixel_um: float) -> int:
 
     Three ways of knowing, in the order they are worth believing.
 
-    **What the instrument measured.** LAS X reports ``imageSize`` and the
-    driver parses it: that is the field of view itself, and nothing derived
-    from it can be more true.
+    **What the instrument measured.** ``frame_size``, shaped like
+    ``pixel_size``: LAS X reports ``imageSize`` and the driver parses it. That
+    is the field of view itself, and nothing derived from it can be more true.
 
     **The format and the pixel size.** Failing a field of view, how many pixels
     across times how much sample each covers. This is why the format has to
@@ -272,8 +272,9 @@ def _frame_across(observed: dict, pixel_um: float) -> int:
     **A guess**, when the instrument says neither, so that the page still has
     something to draw a plan with. It is the last resort and reads like one.
     """
-    for measured in ("frame_um", "tile_w_um", "image_size_um"):
-        said = _a_number(observed.get(measured))
+    reported = observed.get("frame_size")
+    if isinstance(reported, dict):
+        said = _a_number(reported.get("x"))
         if said is not None:
             return round(said)
     across = _format_across(observed)
