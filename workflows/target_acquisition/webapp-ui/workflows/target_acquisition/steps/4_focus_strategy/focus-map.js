@@ -650,6 +650,10 @@ function detectPressed(px, py) {
    one font and one weight rather than a hierarchy invented per label. */
 const LEGEND_FONT = "600 11px system-ui, sans-serif";
 
+/* What the box the plot sits in insets its own text by, so the axis title can
+   start on the same line the heading above it starts on. */
+const BOX_PAD = 14;
+
 /* The rehearsed autofocus sweep — the two sharpness metrics, the debris a
    position may carry, every candidate peak and the one worth trusting —
    lives in `microscope/pretend-sample/sweep.js`, imported above. The trace
@@ -897,11 +901,25 @@ function drawTrace() {
   ctx.textAlign = "center";
   ctx.fillText(`${zLo.toFixed(0)}`, X(zLo) + 10, h - P.b + 15);
   ctx.fillText(`${zHi.toFixed(0)} µm`, X(zHi) - 16, h - P.b + 15);
+  /* Both titles in the same grey as the heights they label: they say what the
+     axis is, which is the quietest thing on the plot, and the curves are what
+     is being read. The fill is the one set for the numbers above. */
+  /* The axis title starts where the box's column starts, level with the
+     heading above the plot. Written with the baseline at the top of the turned
+     text, so the number given here is the edge of the letters rather than a
+     baseline with an ascent hanging off it that has to be guessed at. */
   ctx.save();
-  ctx.translate(13, (P.t + h - P.b) / 2); ctx.rotate(-Math.PI / 2);
+  ctx.translate(BOX_PAD, (P.t + h - P.b) / 2); ctx.rotate(-Math.PI / 2);
   ctx.font = LEGEND_FONT;
+  ctx.textBaseline = "top";
   ctx.fillText("Focus score", 0, 0);
   ctx.restore();
+
+  /* And what the numbers at either end of it are, between them. The axis is
+     the one thing on the plot an operator has to be told the units of; the
+     heights themselves say µm. */
+  ctx.font = LEGEND_FONT;
+  ctx.fillText("z-position", (P.l + w - P.r) / 2, h - P.b + 15);
   ctx.textAlign = "left";
 
   // the comparison curve first, so the deciding one reads on top

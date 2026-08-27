@@ -586,9 +586,9 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
 }
 .side-head span { font-family: var(--mono); font-size: 11px; letter-spacing: 0; text-transform: none; color: var(--ink-2); }
 .point-list { overflow-y: auto; min-height: 0; flex: 1; }
-/* Inside a box now: the rows run to its edges and the box keeps the padding,
-   so the list needs its own negative inset to sit flush against them. */
-.side-group-body .point-list { margin: 0 -14px; }
+/* The list keeps the box's own column: a row's highlight starts where the
+   heading above it starts and ends where the plot below it ends, so the three
+   read as one stack rather than as a band bled wider than either. */
 /* The anchors are a fixed set of four, not a list that grows, so all four are
    on screen at once: an operator working through them wants to see which are
    left, and a scroll bar hides exactly that.
@@ -600,7 +600,6 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
 .side-group-body > .anchor-list {
   max-height: none; overflow: visible; flex: none; min-height: 0;
 }
-.side-group-body .point-row { padding-left: 14px; padding-right: 14px; }
 .point-row {
   display: flex; align-items: center; width: 100%;
   border-bottom: 1px solid var(--line);
