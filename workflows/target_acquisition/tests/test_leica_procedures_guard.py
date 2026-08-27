@@ -78,16 +78,24 @@ def _procedure_names_in(tree: ast.AST) -> set[str]:
     return names
 
 
+#: Where the flow's own code lives. ``workflow/`` is the notebook's half;
+#: ``microscope/`` is the half the operator page's bridge runs too, and the
+#: procedures moved there precisely so both would call one copy — which is
+#: exactly the code this guard exists to check.
+_WHERE_THE_FLOW_LIVES = ("workflow", "microscope")
+
+
 def _flow_procedure_names() -> set[str]:
-    """Every procedure name the notebooks or the workflow package call."""
+    """Every procedure name the notebooks or the flow's own packages call."""
     names: set[str] = set()
     for notebook_name in ("zmart_microscopy_v4.ipynb", "zmart_microscopy_v4_react.ipynb"):
         notebook = json.loads((_TARGET_ACQ / notebook_name).read_text(encoding="utf-8"))
         for cell in notebook["cells"]:
             if cell["cell_type"] == "code":
                 names |= _procedure_names_in(ast.parse("".join(cell["source"])))
-    for module in (_TARGET_ACQ / "workflow").rglob("*.py"):
-        names |= _procedure_names_in(ast.parse(module.read_text(encoding="utf-8")))
+    for folder in _WHERE_THE_FLOW_LIVES:
+        for module in (_TARGET_ACQ / folder).rglob("*.py"):
+            names |= _procedure_names_in(ast.parse(module.read_text(encoding="utf-8")))
     return names
 
 
