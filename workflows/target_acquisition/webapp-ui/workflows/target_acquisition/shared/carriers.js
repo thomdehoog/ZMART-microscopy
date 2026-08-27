@@ -77,8 +77,6 @@ export const CARRIER_TYPES = [
     presets: [
       /* Leica's Convallaria demo slide is a 15 mm circle on 76 × 24 glass,
          which is that circle under Dish. */
-      { label: "76 × 24 mm · 20 × 20 mm cover slip", rows: 1, cols: 1, shape: "rect", w: 20, h: 20, gap: 0, corner: 0 },
-      { label: "76 × 24 mm · 50 × 20 mm cover slip", rows: 1, cols: 1, shape: "rect", w: 50, h: 20, gap: 0, corner: 0 },
       { label: "25 × 48 mm slide", rows: 1, cols: 1, shape: "rect", w: 23, h: 46, gap: 0, corner: 0 },
       { label: "46 × 27 mm slide", rows: 1, cols: 1, shape: "rect", w: 44, h: 25, gap: 0, corner: 0 },
       { label: "48 × 28 mm slide", rows: 1, cols: 1, shape: "rect", w: 46, h: 26, gap: 0, corner: 0 },
