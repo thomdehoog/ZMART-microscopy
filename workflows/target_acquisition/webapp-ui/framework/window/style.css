@@ -14,11 +14,12 @@
   --box-gap: 16px;
   /* the width shared by the hand's button, the number and the press that
      measures — set by the longest of their words */
-  /* The focus channel's two columns. A tool is an icon button the width the
-     carrier step's type buttons are, and the number beside a press is as wide
-     as the two tools and the gap between them — so every row in the box breaks
-     at the same place, and what is left of each is the press. */
-  --fp-tool: 76px;
+  /* The focus channel's two columns. A tool is an icon button not much wider
+     than it is tall — it carries a glyph and nothing else — and the number
+     beside a press is as wide as the two tools and the gap between them, so
+     every row in the box breaks at the same place and what is left of each row
+     is the press. */
+  --fp-tool: 44px;
   --fp-gap: 8px;
   --fp-col: calc(2 * var(--fp-tool) + var(--fp-gap));
   --line: #e2e8f0;
@@ -514,9 +515,9 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
    press that lays them, and the press that measures the map. Three controls of
    one size read as one column of controls — wide enough for the longest of
    their words, which is the press. */
-/* The width the carrier step's type buttons are: a tool carries a glyph and
-   nothing else, and at the number box's full width two blanks beside a press
-   that says what it does read as three presses of equal weight. */
+/* A little wider than it is tall, and no more: a tool carries a glyph, and at
+   any real width two blanks beside a press that says what it does read as
+   three presses of equal weight. */
 .fp-way .sf-tool { flex: none; width: var(--fp-tool); height: var(--control); }
 /* The hand's row: the two tools at the width every control in this column
    keeps, and the press that empties the map taking what is left. */
