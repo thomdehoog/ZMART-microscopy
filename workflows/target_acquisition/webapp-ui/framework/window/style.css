@@ -34,7 +34,7 @@
   --good: #16a34a;
   --bad: #b91c1c;
   --warn-bg: #fffbeb;
-  --warn-ink: #92400e;
+  --warn-ink: #c2410c;
   --warn-line: #fde68a;
   /* data marks — validated for BOTH surfaces, so they never change */
   --mark-gated: #0284c7;
@@ -91,7 +91,7 @@
     --mark-anchor-waiting: #facc15;
     --bad: #f87171;
     --warn-bg: #221a08;
-    --warn-ink: #fcd34d;
+    --warn-ink: #fb923c;
     --warn-line: #57430f;
     --mark-context: #64748b;
     --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 16px 40px rgba(0, 0, 0, 0.5);
@@ -115,7 +115,7 @@
   --good: #4ade80;
   --bad: #f87171;
   --warn-bg: #221a08;
-  --warn-ink: #fcd34d;
+  --warn-ink: #fb923c;
   --warn-line: #57430f;
   --mark-context: #64748b;
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 16px 40px rgba(0, 0, 0, 0.5);
@@ -138,7 +138,7 @@
   --good: #16a34a;
   --bad: #b91c1c;
   --warn-bg: #fffbeb;
-  --warn-ink: #92400e;
+  --warn-ink: #c2410c;
   --warn-line: #fde68a;
   --mark-context: #94a3b8;
   --shadow: 0 1px 2px rgba(15, 23, 42, 0.05), 0 12px 32px rgba(15, 23, 42, 0.07);
@@ -717,7 +717,10 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
 .point-row .warn {
   margin-left: auto; color: var(--warn-ink); font-size: 12px; cursor: help;
 }
-.point-row .warn + .z { margin-left: 6px; }
+/* Close against the reading it is about — the row's own spacing and no more,
+   so the mark reads as part of that number rather than as a column of its own
+   standing off in the middle of the row. */
+.point-row .warn + .z { margin-left: 0; }
 /* The one reading a row carries. It used to be two — the height, and how far
    off the fitted surface it sat — and the second was a number an operator
    read past to get to the first. Where it matters at all it is the worst
