@@ -677,8 +677,13 @@ const RIVAL_SHARE = 0.5;
  */
 function doubtsAbout(point, i) {
   const f = run.focus;
+  /* A point that has moved since the map was run is not doubtful, it is
+     unmeasured: the grey row and the empty plot say so already, and a warning
+     on top of them would have the count at the head of the list promising
+     something to look at that nobody can look at yet. */
+  if (point.stale) return [];
   const out = [];
-  if (point.lost || point.z === null) {
+  if (point.lost) {
     out.push("The search swept its whole range without finding a peak — no height was measured here.");
   }
   if (point.onNarrow) {
@@ -833,13 +838,19 @@ function renderPointList() {
       `<span class="z${p.z === null ? " pending" : ""}"` +
       `${suspect && !p.manual ? ' style="color:var(--warn-ink)"' : ""}>` +
       `${p.z === null ? "—" : (p.manual ? "✎ " : "") + p.z.toFixed(1) + " µm"}</span>`;
-    /* A moved point has no trace to show — what was read was read of where it
-       used to be — so its row says so by being unpressable until the map is
-       measured again. */
-    pick.disabled = !!p.stale;
+    /* A moved point can still be picked. What was read for it was read of
+       where it used to be, so there is no sweep to show and the plot below
+       says exactly that — but which point the map is marking is the row's
+       other job, and an unpressable row cannot do it. */
     pick.addEventListener("click", () => {
+      /* Picking a row picks the point, on the map as well as in the list.
+         Charting it and selecting it were two different things, so a row
+         pressed while something else was held on the canvas charted one point
+         and left the other one lit. One press, one selection. */
       f.selected = i;
-      renderPointList(); drawTrace(); stage.draw();
+      picked().clear();
+      picked().add(i);
+      renderPointList(); drawTrace(); stage.draw(); renderActionBar();
     });
 
     const drop = document.createElement("button");
@@ -911,11 +922,17 @@ function standInSweep(point) {
 function drawTrace() {
   if (!focusMounted()) return;
   const f = run.focus;
-  /* A point put down after the map was measured has no reading yet, and a
-     trace is the reading: there is nothing to draw for it until the map is
-     measured again. */
+  /* Whether there is a sweep to show for the point being read. A point put
+     down since the map was run has no reading yet; a point that has moved
+     since has one, but of somewhere else. Neither draws: the notice covers
+     the plot, so no curve and no marker from the point read before it is
+     left standing under an explanation of why there is nothing there. */
+  const point = f.points[f.selected];
   const has = f.strategy === "plane" && f.applied
-    && f.points.length > f.selected && f.points[f.selected]?.z !== null;
+    && f.points.length > f.selected && point?.z !== null && !point?.stale;
+  el("trace-empty").textContent = point?.stale
+    ? "This point has moved since the map was measured. What was read for it was read where it used to be — run the map again to see its sweep."
+    : "Run the strategy to measure each point, then its sweep appears here.";
   el("trace-empty").classList.toggle("hidden", has);
   /* Which point is being read is said by the list, where the row is marked,
      and by the map, where the mark is drawn heavier. The heading says what
@@ -1159,6 +1176,10 @@ function scrubTo(clientOffsetX) {
   const f = run.focus;
   if (!traceGeom || f.strategy !== "plane" || !f.applied) return;
   const p = f.points[f.selected];
+  /* Nothing is drawn for a moved point, and the geometry left behind belongs
+     to whichever point was read before it: a press on the covered plot would
+     otherwise set this one's height from another one's axis. */
+  if (!p || p.stale) return;
   const { zLo, zHi, P, w } = traceGeom;
   const t = Math.max(0, Math.min(1, (clientOffsetX - P.l) / (w - P.l - P.r)));
   p.z = zLo + t * (zHi - zLo);
@@ -1170,6 +1191,7 @@ function scrubTo(clientOffsetX) {
 traceCv.addEventListener("pointerdown", (e) => {
   const f = run.focus;
   if (f.strategy !== "plane" || !f.applied) return;
+  if (f.points[f.selected]?.stale) return;
   /* A press here drags a height; it does not need to take focus to do it, and
      taking it drew a ring around the whole plot for the length of the drag.
      Reaching the plot by keyboard still focuses it, and still shows the ring,
@@ -1214,8 +1236,9 @@ traceCv.addEventListener("keydown", (e) => {
   if (f.strategy !== "plane" || !f.applied) return;
   const nudge = { ArrowLeft: -0.5, ArrowRight: 0.5, PageDown: -3, PageUp: 3 }[e.key];
   if (nudge === undefined) return;
-  e.preventDefault();
   const p = f.points[f.selected];
+  if (!p || p.stale) return;
+  e.preventDefault();
   p.z += nudge * (e.shiftKey ? 4 : 1);
   p.manual = Math.abs(p.z - p.zAuto) > 0.05;
   refitSurface();
@@ -1328,8 +1351,11 @@ el("fp-reset").addEventListener("click", () => {
   f.selected = 0;
   f.applied = false;
   picked().clear();
-  /* The step is not done any more either — it has nothing to have finished. */
+  /* The step is not done any more either, and has not been run: Reset throws
+     the map away, so the press at the foot of the panel is what makes one for
+     the first time again rather than what runs it "again". */
   run.done.delete(step(run.activeIdx).id);
+  run.ran.delete(step(run.activeIdx).id);
   stage.draw(); renderPointList(); drawTrace(); renderFocusBar(); renderActionBar(); renderSide();
 });
 
