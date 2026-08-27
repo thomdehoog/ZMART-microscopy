@@ -37,6 +37,10 @@ The verbs, and what they are made of
 * ``GET  /api/acquisition_options`` — what the instrument offers for a capture
   and what is chosen now (``get_acquisition_options``), in the driver's own
   words. A readout: asking changes nothing.
+* ``POST /api/state`` — change settings on the instrument (``set_state``),
+  answering with what the driver says it applied. The body is the settings
+  themselves; the bridge puts them in ``changeable``, which is where the
+  contract says a client's instructions go.
 * ``POST /api/focus/measure`` — the autofocus procedure, run at each requested
   position: drive there, focus, report the height. This is the one place a
   preset-shaped request *does* something, which is exactly why it is its own
@@ -319,6 +323,23 @@ def _reading(kind: str) -> dict:
     return reading
 
 
+def _apply_state(asked: dict) -> dict:
+    """Change settings on the instrument, and answer with what stuck.
+
+    The page names only the settings it is changing; ``changeable`` is where
+    the contract says they go, and the page has no business sending an
+    ``observed`` half — that is the driver's report about itself, never an
+    instruction. What comes back is the driver's own account of what it
+    applied, which is not always what was asked: a value it will not take is
+    the driver's to refuse.
+
+    Which settings exist here is the driver's business, as it is for the menu.
+    On the Leica it is the LAS X job; on another instrument it is whatever
+    that instrument lets a client change.
+    """
+    return _require_session().set_state({"changeable": dict(asked)})
+
+
 def _acquisition_options() -> dict:
     """What the instrument offers for a capture, and what is chosen now.
 
@@ -522,6 +543,9 @@ class _Bridge(BaseHTTPRequestHandler):
             elif self.path == "/api/xyz":
                 with _the_instruments_turn:
                     self._answer(_drive_to(asked))
+            elif self.path == "/api/state":
+                with _the_instruments_turn:
+                    self._answer(_apply_state(asked))
             elif self.path == "/api/focus/measure":
                 with _the_instruments_turn:
                     self._answer(_measure_focus(asked))

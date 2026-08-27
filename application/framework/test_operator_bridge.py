@@ -244,3 +244,23 @@ def test_the_acquisition_menu_is_handed_over_untouched(monkeypatch):
     monkeypatch.setattr(bridge, "_session", Offering())
     assert bridge._acquisition_options() == menu
 
+
+def test_a_setting_is_applied_as_the_changeable_half_of_state(monkeypatch):
+    """`set_state` takes a whole state; the page sends only what it changed.
+
+    The driver acts on `changeable` and treats `observed` as a report, so the
+    page has no business sending one — it names the settings it is changing
+    and the bridge puts them where the contract says they go.
+    """
+    sent = {}
+
+    class Settable(_Driver):
+        def set_state(self, state):
+            sent.update(state)
+            return {"applied": dict(state.get("changeable", {}))}
+
+    monkeypatch.setattr(bridge, "_session", Settable())
+    answered = bridge._apply_state({"job": "HiRes"})
+    assert sent == {"changeable": {"job": "HiRes"}}
+    assert answered == {"applied": {"job": "HiRes"}}
+

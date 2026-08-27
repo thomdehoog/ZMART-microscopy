@@ -128,6 +128,15 @@ export const backend = {
   },
 
   /**
+   * Change settings on the instrument: `set_state` through the controller,
+   * answering with what the driver says it applied — which is not always what
+   * was asked, since a value it will not take is the driver's to refuse.
+   */
+  async set_state(settings) {
+    return ask("/api/state", settings);
+  },
+
+  /**
    * A readout, never a procedure: the instrument's state as it is set now.
    * One `get_state` through the controller, shaped by the bridge into the
    * reading the window records. `nth` is the pretend operator's knob and the

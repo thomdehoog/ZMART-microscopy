@@ -124,6 +124,29 @@ export function promisesOfABackend(expect) {
       },
     },
     {
+      what: "is set to the job it was told to be set to",
+      async keep(backend) {
+        /* Whatever the instrument calls its stored recipes. Every one has
+           them, and which is chosen is the setting an operator reaches for
+           before anything else. */
+        const { job } = await backend.get_acquisition_options();
+        const other = job.options.find((one) => one !== job.active);
+        const { applied } = await backend.set_state({ job: other });
+        expect(applied.job, "the driver says it took the job").toBe(other);
+        /* And says so when asked again — an instrument that reports one job
+           and captures with another is worse than one that refuses. */
+        expect((await backend.get_acquisition_options()).job.active).toBe(other);
+      },
+    },
+    {
+      what: "refuses a job it does not have",
+      async keep(backend) {
+        /* Refused, not accepted quietly: a capture taken with a job the
+           instrument has never heard of would not run. */
+        await expect(backend.set_state({ job: "no such job" })).rejects.toThrow();
+      },
+    },
+    {
       what: "measures a focus point and reports a height for it",
       async keep(backend) {
         const { points } = await backend.measureFocus(

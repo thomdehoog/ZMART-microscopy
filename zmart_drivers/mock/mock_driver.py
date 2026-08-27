@@ -38,6 +38,10 @@ _ACTUATORS: dict[str, list[str]] = {
 _DEFAULT_ACTUATORS: dict[str, str] = {"x": "motoric", "y": "motoric", "z": "motoric"}
 
 
+#: The jobs this pretend instrument has stored, in the order it lists them.
+_JOBS: tuple[str, ...] = ("Overview", "HiRes", "Survey")
+
+
 @dataclass
 class MockHandle:
     """In-memory instrument state standing in for a live connection.
@@ -59,6 +63,11 @@ class MockHandle:
     # mutable instrument settings
     laser_power: float = 5.0
     gain: float = 1.0
+    # The acquisition setting an operator actually reaches for: which stored
+    # recipe the next capture is taken with. Every instrument has one under
+    # some name; naming it here is what lets a client exercise choosing one
+    # without hardware.
+    job: str = "Overview"
 
     # the optics, as an instrument reports them: what the light goes through,
     # how much of it the lens collects, and what the scanner does on top
@@ -136,6 +145,7 @@ def get_acquisition_options(handle: MockHandle) -> dict:
     """
     _require_open(handle)
     return {
+        "job": {"options": list(_JOBS), "active": handle.job},
         "backlash_correction": {"options": [True, False], "active": True},
         "format": {"options": ["ome-tiff", "ome-zarr"], "active": "ome-tiff"},
         "procedure": {"options": ["direct", "tiled"], "active": "direct"},
@@ -238,7 +248,11 @@ def get_state(handle: MockHandle) -> dict:
     observed report (identity and condition, read-only)."""
     _require_open(handle)
     return {
-        "changeable": {"laser_power": handle.laser_power, "gain": handle.gain},
+        "changeable": {
+            "job": handle.job,
+            "laser_power": handle.laser_power,
+            "gain": handle.gain,
+        },
         "observed": {
             "serial": handle.serial,
             "objective": {
@@ -263,6 +277,14 @@ def set_state(handle: MockHandle, state: dict) -> dict:
     _require_open(handle)
     changeable = state.get("changeable", {})
     applied = {}
+    if "job" in changeable:
+        # Refused rather than accepted quietly: a job the instrument does not
+        # have is a capture that would not run, and a client is better told now
+        # than at the press.
+        if changeable["job"] not in _JOBS:
+            raise ValueError(f"unknown job {changeable['job']!r}; have {list(_JOBS)}")
+        handle.job = changeable["job"]
+        applied["job"] = handle.job
     if "laser_power" in changeable:
         handle.laser_power = changeable["laser_power"]
         applied["laser_power"] = handle.laser_power
