@@ -163,7 +163,9 @@
             <!-- and, at the end of the same line, how many of them are worth
                  a second look: a list four rows deep scrolls, so the count is
                  what says there is something to scroll to. -->
-            <div class="side-sub">Focus points<span class="warn-count" id="fp-warned"></span></div>
+            <div class="side-sub">Focus points<span class="tallies"><span
+                 class="edit-count" id="fp-edited"></span><span
+                 class="warn-count" id="fp-warned"></span></span></div>
             <!-- Three rows deep, and scrolled past that: the list is here to
                  choose from, and a list as long as the map pushes the picture
                  it belongs to off the screen. -->
@@ -176,6 +178,26 @@
                 <canvas id="trace-canvas"></canvas>
               </div>
               <div class="trace-empty" id="trace-empty">Run the strategy to measure each point, then its sweep appears here.</div>
+            </div>
+
+            <!-- What can be done to the one point being read, on the same
+                 three columns the presses above use. Rerun measures it again;
+                 Accept says the operator has looked at it and it stands,
+                 which takes its marks off the list; Reset puts it back to the
+                 height the instrument chose. -->
+            <div class="ft-acts">
+              <button type="button" class="sf-flat sf-doing" id="ft-rerun"
+                      title="Measure this one point again, starting from the height the objective is at now">
+                Rerun
+              </button>
+              <button type="button" class="sf-flat" id="ft-accept"
+                      title="This height stands — take its marks off the list">
+                Accept
+              </button>
+              <button type="button" class="sf-flat" id="ft-reset"
+                      title="Put this point back to the height the autofocus chose">
+                Reset
+              </button>
             </div>
           </div>
         </div>
