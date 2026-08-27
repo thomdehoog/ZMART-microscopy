@@ -88,6 +88,11 @@ const typeIcon = (id) => {
    the only place the two meet. */
 const MM_UM = 1000;
 
+/* The carrier a type opens on: the one it names, or the first it lists when it
+   names none. */
+const opensOn = (type) =>
+  type.presets.find((p) => p.label === type.starts) ?? type.presets[0];
+
 /**
  * Which way a millimetre of depth runs across the stage view, and how far.
  *
@@ -365,10 +370,15 @@ export default {
       b.disabled = locked;
       b.append(typeIcon(t.id), el("span", null, t.label));
       b.addEventListener("click", () => {
-        const next = fromPreset(t.id, carrierType(t.id).presets[0]);
+        const next = fromPreset(t.id, opensOn(carrierType(t.id)));
         link = { grid: next.rows === next.cols, size: next.w === next.h, gap: true };
-        commit(next);
+        /* The new type's carriers first, then the carrier: committing writes
+           the chosen one into the list, and replacing the list afterwards threw
+           that away and left the browser showing whichever came first. It only
+           ever looked right because the one a type opened on was the one it
+           listed first. */
         presets.replaceChildren(...presetOptions(t.id));
+        commit(next);
       });
       types.append(b);
     }
@@ -471,7 +481,7 @@ export default {
     const reset = el("button", "sf-flat carrier-reset", "Reset");
     reset.type = "button";
     reset.addEventListener("click", () =>
-      take(fromPreset(cfg.type, carrierType(cfg.type).presets[0])));
+      take(fromPreset(cfg.type, opensOn(carrierType(cfg.type)))));
 
     fileRow.append(load, save, reset, picker);
     /* Straight into the box, with no second frame around them: the box is
