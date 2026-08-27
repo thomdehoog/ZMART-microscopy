@@ -224,16 +224,17 @@ export function anchorsUm(config, howMany = POINTS_BY_DEFAULT) {
   const acrossThem = spanOf((a) => a.x);
   const downThem = spanOf((a) => a.y);
 
-  /* The four sides, in the order they are handed out: the facing pairs first,
-     so that two points face each other across the carrier rather than sitting
-     in one corner of it, and only then the other two.
+  /* The four sides, in the order they are handed out: round the carrier the
+     way a clock goes. Point 1 is on the left and each one after it is a
+     quarter turn on, so laying four of them walks the plate once round rather
+     than crossing it twice, and the numbers in the list are the order an
+     operator meets them in at the microscope.
 
      `lean` is which end of its own side a mark goes to, and the four turn the
      same way round: the left one to the top, the top one to the right, the
      right one to the bottom, the bottom one to the left. One point therefore
      lands at the top left, which is where an operator looks for a carrier's
-     first landmark, and two land on a diagonal, which measures how it is
-     turned as well as where it is.
+     first landmark.
 
      `on` is where the mark goes relative to the area's centre — exactly on the
      border, and on the part of it that runs straight. The middle of a side is
@@ -242,8 +243,8 @@ export function anchorsUm(config, howMany = POINTS_BY_DEFAULT) {
      can drive along and see. */
   const SIDES = [
     { at: "left", out: (a) => a.x, edge: acrossThem.lo, along: (a) => a.y, lean: -1, on: [-halfW, 0] },
-    { at: "right", out: (a) => a.x, edge: acrossThem.hi, along: (a) => a.y, lean: +1, on: [+halfW, 0] },
     { at: "top", out: (a) => a.y, edge: downThem.lo, along: (a) => a.x, lean: +1, on: [0, -halfH] },
+    { at: "right", out: (a) => a.x, edge: acrossThem.hi, along: (a) => a.y, lean: +1, on: [+halfW, 0] },
     { at: "bottom", out: (a) => a.y, edge: downThem.hi, along: (a) => a.x, lean: -1, on: [0, +halfH] },
   ];
 

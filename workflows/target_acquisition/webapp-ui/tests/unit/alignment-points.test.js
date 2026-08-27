@@ -61,6 +61,17 @@ describe("a full round of four alignment points", () => {
     }
   });
 
+  it("hands the sides out clockwise", () => {
+    /* Point 1 on the left, and each one after it a quarter turn on: an
+       operator laying four of them walks round the carrier once rather than
+       crossing it twice, and the numbers in the list are the order they meet
+       the plate in. */
+    expect(anchorsUm(eightChambers, 4).map((m) => m.at))
+      .toEqual(["left", "top", "right", "bottom"]);
+    expect(anchorsUm(eightChambers, 8).map((m) => m.at))
+      .toEqual(["left", "top", "right", "bottom", "left", "top", "right", "bottom"]);
+  });
+
   it("leans each mark a quarter turn on, so the four land on four areas", () => {
     const m = by(anchorsUm(eightChambers, 4));
     const chose = (k) => areaUnder(eightChambers, m[k]);
