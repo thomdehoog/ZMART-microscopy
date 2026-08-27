@@ -1483,6 +1483,17 @@ canvas.livecv[hidden] { display: none; }
    the box's own spacing the buttons above looked as though they belonged to the
    word underneath them. */
 .side-sub:not(:first-child) { margin-top: 12px; }
+/* A heading that also carries a count puts it at the far end of its own line.
+   In the amber the rest of the page warns in, and in the page's own type
+   rather than the heading's small caps: it is a sentence about the list, not
+   a second title for it. */
+.side-sub:has(.warn-count) { display: flex; align-items: baseline; }
+.warn-count {
+  margin-left: auto; color: var(--warn-ink);
+  font-family: var(--sans); font-size: 11px; font-weight: 600;
+  letter-spacing: 0; text-transform: none;
+}
+.warn-count:empty { display: none; }
 /* Except where the two parts are one subject rather than two ways of answering
    different ones: the carrier types and the catalogue of them are one question
    asked twice over — which carrier, then which of that kind — and the bar that

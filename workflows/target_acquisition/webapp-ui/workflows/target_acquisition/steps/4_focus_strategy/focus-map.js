@@ -777,6 +777,11 @@ function renderPointList() {
   const f = run.focus;
   const host = el("point-list");
   host.textContent = "";
+  /* Cleared before anything is drawn, so a count never outlives the list it
+     was counted from — every way out of this function below leaves it as it
+     is found here. */
+  const warned = el("fp-warned");
+  warned.textContent = "";
   renderFocusBar();
 
   if (f.strategy !== "plane") {
@@ -798,6 +803,7 @@ function renderPointList() {
     return;
   }
 
+  let doubtful = 0;
   f.points.forEach((p, i) => {
     /* Every point that has been measured, including the ones the search came
        back from with nothing: a point whose sweep never found the tissue is
@@ -817,6 +823,7 @@ function renderPointList() {
       String(picked().has(i) || (!picked().size && i === f.selected)));
     const doubts = doubtsAbout(p, i);
     const suspect = doubts.length > 0;
+    if (suspect) doubtful++;
     const pick = document.createElement("button");
     pick.className = "point-pick"; pick.type = "button";
     pick.innerHTML =
@@ -850,6 +857,13 @@ function renderPointList() {
     row.append(pick, drop);
     host.append(row);
   });
+
+  /* Said once at the top, because the list scrolls: four rows are on screen
+     and a mark on the fifth is a mark nobody sees. The number is how many
+     rows carry one, not how many things are wrong with them. */
+  warned.textContent = doubtful
+    ? `${doubtful} warning${doubtful === 1 ? "" : "s"}`
+    : "";
 }
 
 const traceCv = el("trace-canvas");
