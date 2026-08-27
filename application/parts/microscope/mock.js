@@ -241,19 +241,32 @@ export const backend = {
    * store and re-reads it as tiles are saved, which is the same arrangement
    * the real instrument has. This only says how far along the drive is.
    */
-  async scanOverview({ positions, ms = 2600, onProgress }) {
+  async scanOverview({ positions, acquisition_type = "overview", ms = 2600, onProgress }) {
     const total = positions.length;
+    const records = [];
     const started = performance.now();
     await new Promise((resolve) => {
       const tick = () => {
         const t = Math.min(1, (performance.now() - started) / ms);
-        onProgress?.(Math.round(t * total), total);
+        const done = Math.round(t * total);
+        while (records.length < done) {
+          const at = records.length;
+          records.push({
+            acquisition_type,
+            position_label: labelFor(at, positions[at]),
+            images: [], planes: [],
+          });
+        }
+        onProgress?.(done, total);
         if (t < 1) requestAnimationFrame(tick);
         else resolve();
       };
       requestAnimationFrame(tick);
     });
-    return { done: total, of: total };
+    /* The same shape the bridge answers with: a record for every position,
+       so a page reading a finished run does not have to know which backend
+       ran it. */
+    return { done: total, of: total, records };
   },
 };
 
@@ -291,6 +304,14 @@ export const pretendConnectionStatus = ({ connection }) => ({
 
 /** Its canvas: the travel a page draws to scale. */
 const pretendCanvas = () => ({ x_um: [0, TRAVEL_UM.x], y_um: [0, TRAVEL_UM.y] });
+
+/** Where on the sample a capture is, in the workflow's own label: the same
+ *  five fields the bridge composes, so a run reads alike either way. */
+const labelFor = (index, position = {}) => {
+  const pad = (value, width) => String(value ?? 0).padStart(width, "0");
+  return `K${pad(position.carrier, 2)}_M${pad(position.compartment, 6)}`
+    + `_G${pad(position.group, 6)}_P${pad(index, 6)}_V${pad(position.view, 2)}`;
+};
 
 /* How many captures this instrument has taken, so two at one place still get
    names of their own — which is what the hash is for on a real one. */

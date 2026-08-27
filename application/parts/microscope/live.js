@@ -178,13 +178,18 @@ export const backend = {
    * progress until the drive is over. The window's live picture watches the
    * run's own store, exactly as it does on the pretend side.
    */
-  async scanOverview({ positions, onProgress } = {}) {
-    await ask("/api/scan", { positions });
+  async scanOverview({ positions, acquisition_type = "overview", onProgress } = {}) {
+    await ask("/api/scan", { positions, acquisition_type });
     for (;;) {
       const progress = await ask("/api/scan");
       onProgress?.(progress.done, progress.of);
       if (progress.error) throw new Error(progress.error);
-      if (!progress.running) return { done: progress.done, of: progress.of };
+      if (!progress.running) {
+        /* The records come back with the run: what each capture wrote and
+           where. Nothing else can reconstruct them, so a run that ended
+           without them is a run nobody can account for. */
+        return { done: progress.done, of: progress.of, records: progress.records };
+      }
       await rest(300);
     }
   },
