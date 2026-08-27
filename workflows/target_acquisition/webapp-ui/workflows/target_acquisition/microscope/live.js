@@ -99,8 +99,17 @@ export const backend = {
   },
 
   /** Where the stage is: `get_xyz` through the controller. */
-  async xyz() {
+  async getXyz() {
     return ask("/api/xyz");
+  },
+
+  /**
+   * Drive the stage there: `set_xyz` through the controller, answering with
+   * `get_xyz` afterwards. One route, the method saying which of the two is
+   * meant, and the same two names the controller uses.
+   */
+  async setXyz({ x, y, z }) {
+    return ask("/api/xyz", { x, y, z });
   },
 
   /**

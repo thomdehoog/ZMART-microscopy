@@ -25,6 +25,12 @@ The verbs, and what they are made of
   is laid with. Recording a preset — the acquisition settings and the
   focussing preset alike — is this, and nothing more: nothing on the
   instrument moves.
+* ``GET  /api/xyz`` — where the stage is (``get_xyz``), and
+  ``POST /api/xyz`` — drive it there (``set_xyz``), answering with where it
+  ended up. One noun, the method saying which of the controller's two verbs is
+  meant: the page's backend calls them ``getXyz`` and ``setXyz`` for the same
+  reason. A driven stage is a procedure and not a readout, which is why it is
+  a POST and why nothing else on this route moves anything.
 * ``POST /api/focus/measure`` — the autofocus procedure, run at each requested
   position: drive there, focus, report the height. This is the one place a
   preset-shaped request *does* something, which is exactly why it is its own
@@ -256,6 +262,35 @@ def _reading(kind: str) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Driving the stage on the operator's own say-so
+# ---------------------------------------------------------------------------
+
+
+def _drive_to(asked: dict) -> dict:
+    """Drive the stage where the operator asked, and answer with where it is.
+
+    Read back rather than echoed. What was asked for is what the page already
+    knows; what it needs is what the instrument did about it, which is not
+    always the same — a stage stops at the end of its travel, and a driver may
+    round to a step. The mark on the canvas follows the reading, so a page that
+    believed its own request would draw the stage somewhere it never went.
+
+    ``z`` is optional and left where it stands when it is not given: an
+    operator driving to a place on the plate is asking to move across it, not
+    to change how far the objective is from it.
+    """
+    session = _require_session()
+    standing = session.get_xyz()
+    here = lambda axis: float(standing.get(axis, {}).get("value", 0.0))  # noqa: E731
+    session.set_xyz(
+        float(asked.get("x", here("x"))),
+        float(asked.get("y", here("y"))),
+        float(asked["z"]) if asked.get("z") is not None else here("z"),
+    )
+    return session.get_xyz()
+
+
+# ---------------------------------------------------------------------------
 # The focus map: drive, focus, report — the one procedure in this file
 # ---------------------------------------------------------------------------
 
@@ -372,6 +407,9 @@ class _Bridge(BaseHTTPRequestHandler):
             elif self.path == "/api/disconnect":
                 with _the_instruments_turn:
                     self._answer(_disconnect())
+            elif self.path == "/api/xyz":
+                with _the_instruments_turn:
+                    self._answer(_drive_to(asked))
             elif self.path == "/api/focus/measure":
                 with _the_instruments_turn:
                     self._answer(_measure_focus(asked))

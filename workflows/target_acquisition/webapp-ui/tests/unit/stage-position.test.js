@@ -15,7 +15,7 @@ describe("watchStagePosition", () => {
 
   it("reads at once, then every five seconds", async () => {
     let at = xyz(1, 2);
-    const backend = { xyz: vi.fn(async () => at) };
+    const backend = { getXyz: vi.fn(async () => at) };
     const seen = [];
     const watch = watchStagePosition(backend, (p) => seen.push(p));
     await vi.advanceTimersByTimeAsync(0);
@@ -23,33 +23,33 @@ describe("watchStagePosition", () => {
     at = xyz(10, 20, 3);
     await vi.advanceTimersByTimeAsync(EVERY_MS);
     expect(seen).toEqual([{ x: 1, y: 2, z: 0 }, { x: 10, y: 20, z: 3 }]);
-    expect(backend.xyz).toHaveBeenCalledTimes(2);
+    expect(backend.getXyz).toHaveBeenCalledTimes(2);
     watch.stop();
   });
 
   it("refreshes at once after a move, without waiting for the clock", async () => {
     let at = xyz(0, 0);
-    const backend = { xyz: vi.fn(async () => at) };
+    const backend = { getXyz: vi.fn(async () => at) };
     const seen = [];
     const watch = watchStagePosition(backend, (p) => seen.push(p));
     await vi.advanceTimersByTimeAsync(0);
     at = xyz(500, 0);
     await watch.refresh();
     expect(seen.at(-1)).toEqual({ x: 500, y: 0, z: 0 });
-    expect(backend.xyz).toHaveBeenCalledTimes(2);
+    expect(backend.getXyz).toHaveBeenCalledTimes(2);
     watch.stop();
   });
 
   it("delivers nothing after stop, even from a read that was in flight", async () => {
     let release;
-    const backend = { xyz: vi.fn(() => new Promise((resolve) => { release = resolve; })) };
+    const backend = { getXyz: vi.fn(() => new Promise((resolve) => { release = resolve; })) };
     const seen = [];
     const watch = watchStagePosition(backend, (p) => seen.push(p));
     watch.stop();
     release(xyz(9, 9));
     await vi.advanceTimersByTimeAsync(EVERY_MS * 3);
     expect(seen).toEqual([]);
-    expect(backend.xyz).toHaveBeenCalledTimes(1);
+    expect(backend.getXyz).toHaveBeenCalledTimes(1);
   });
 
   /* The two below are the same fault seen twice, and it is a fault only a
@@ -61,7 +61,7 @@ describe("watchStagePosition", () => {
   it("gives up on a read that never answers, and goes on watching", async () => {
     let answered = 0;
     const backend = {
-      xyz: vi.fn(() => (answered++ === 0
+      getXyz: vi.fn(() => (answered++ === 0
         ? new Promise(() => {})            // the read that hangs
         : Promise.resolve(xyz(7, 8, 9)))),
     };
@@ -82,7 +82,7 @@ describe("watchStagePosition", () => {
   it("refreshes with a read of its own while one is hanging", async () => {
     let hang = true;
     const backend = {
-      xyz: vi.fn(() => (hang
+      getXyz: vi.fn(() => (hang
         ? new Promise(() => {})
         : Promise.resolve(xyz(500, 600)))),
     };
@@ -102,7 +102,7 @@ describe("watchStagePosition", () => {
 
   it("reports a failed read and keeps going", async () => {
     let fail = true;
-    const backend = { xyz: vi.fn(async () => { if (fail) throw new Error("no answer"); return xyz(4, 4); }) };
+    const backend = { getXyz: vi.fn(async () => { if (fail) throw new Error("no answer"); return xyz(4, 4); }) };
     const errors = [];
     const seen = [];
     const watch = watchStagePosition(backend, (p) => seen.push(p), { onError: (e) => errors.push(e.message) });
