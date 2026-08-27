@@ -888,7 +888,7 @@ function drawTrace() {
   ctx.save();
   ctx.translate(13, (P.t + h - P.b) / 2); ctx.rotate(-Math.PI / 2);
   ctx.font = '11px system-ui, sans-serif';
-  ctx.fillText("sharpness", 0, 0);
+  ctx.fillText("Focus score", 0, 0);
   ctx.restore();
   ctx.textAlign = "left";
 
@@ -907,7 +907,9 @@ function drawTrace() {
     ctx.stroke();
     ctx.restore();
 
-    // legend doubles as the control: click a metric to let it decide
+    /* The legend doubles as the control: press a metric to let it decide. Which
+       one is deciding is said by its weight and its full-drawn line against the
+       other's dashes, so the word saying it as well was the same fact twice. */
     ctx.save();
     ctx.strokeStyle = css(METRICS[c.key].token);
     ctx.lineWidth = isDeciding ? 2.5 : 1.5;
@@ -916,7 +918,7 @@ function drawTrace() {
     ctx.restore();
     ctx.font = `${isDeciding ? "600 " : ""}11px system-ui, sans-serif`;
     ctx.fillStyle = isDeciding ? css("--ink") : css("--ink-3");
-    const label = METRICS[c.key].short + (isDeciding ? " · deciding" : "");
+    const label = METRICS[c.key].short;
     ctx.fillText(label, lx + 22, legendY);
     const wLab = 22 + ctx.measureText(label).width;
     legendHits.push({ key: c.key, x0: lx - 4, x1: lx + wLab + 4, y0: legendY - 13, y1: legendY + 6 });

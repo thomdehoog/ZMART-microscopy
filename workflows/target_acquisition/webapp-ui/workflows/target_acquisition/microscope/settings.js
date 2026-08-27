@@ -173,7 +173,7 @@ export const SETTING_TYPES = [
         objective: "HC PL APO 10x / 0.40 NA dry",
         pixelUm: 0.65, framePx: 2048,
         channel: "GFP · 488 nm · 20 ms · gain 1.0",
-        metric: "Brenner gradient", rangeUm: 30, stepUm: 1,
+        metric: "Gradient", rangeUm: 30, stepUm: 1,
       }),
       hardwareAutofocus({
         objective: "HC PL APO 20x / 0.75 NA dry",
@@ -186,7 +186,7 @@ export const SETTING_TYPES = [
         objective: "HC PL FLUOTAR 5x / 0.15 NA dry",
         pixelUm: 1.30, framePx: 2048,
         channel: "GFP · 488 nm · 30 ms · gain 1.0",
-        metric: "DCT energy", rangeUm: 60, stepUm: 3,
+        metric: "Entropy-based", rangeUm: 60, stepUm: 3,
       }),
       hardwareAutofocus({
         objective: "HC PL APO 63x / 1.40 NA oil",
