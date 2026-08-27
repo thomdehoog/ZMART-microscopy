@@ -19,7 +19,7 @@ from workflow.steps import (
     write_run_report,
 )
 
-from zmart_controller.tests.mock_driver import register_mock
+from zmart_drivers.mock.mock_driver import register_mock
 
 _TILTED = fit_focus_surface(
     [

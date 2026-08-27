@@ -144,7 +144,7 @@ particular Z axis can be driven by a motor or by a galvo; `set_xyz(..., with_act
 picks one. Nothing is assumed about the instrument that was not first asked.
 
 This surface has been driven against a real Leica Stellaris 5, and it has a
-complete pretend instrument behind it — `zmart_controller/tests/mock_driver.py` —
+complete pretend instrument behind it — `zmart_drivers/mock/mock_driver.py` —
 that the test suite and an example notebook run against with no hardware in the
 room.
 
@@ -207,7 +207,7 @@ answer the same set of commands:
 
 | the pretend microscope | where it lives | what it stands in for |
 |---|---|---|
-| `mock_driver.py` | `zmart_controller/tests/` | one driver, behind the real controller |
+| `mock_driver.py` | `zmart_drivers/mock/` | one driver, behind the real controller |
 | `SimulatedSession` in `_simulation.py` | the workflow | a whole connected session, alongside the real one |
 | `_hijack.py` + `_mock_provider.py` | the workflow | the real path on a LAS X simulator, with only the pixels swapped |
 | `mock.js` | the operator window | the whole run |
@@ -534,7 +534,7 @@ pattern that section 2 is modelled on; `zmart_storage/coverage.py` and
 this boundary sits beneath.
 
 **On `claude/live-tiles-mvp`:** `zmart_controller/README.md` for the fourteen
-commands and the discover-then-apply pattern; `zmart_controller/tests/mock_driver.py`
+commands and the discover-then-apply pattern; `zmart_drivers/mock/mock_driver.py`
 for what a complete driver looks like; `workflows/target_acquisition/webapp-ui/src/backend/mock.js`
 for the seam as it stands; `workflows/target_acquisition/workflow/webapp/_flow.py`
 for a run that already turns failures into sentences an operator can read.
