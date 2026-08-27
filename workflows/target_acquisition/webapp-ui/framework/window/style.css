@@ -1515,6 +1515,11 @@ canvas.livecv[hidden] { display: none; }
 .carrier-types + .side-sub,
 .setting-box + .side-sub,
 .sf-overlap > .side-sub { margin-top: 0; }
+/* And closer where the part above ends in a boxed thing of its own rather
+   than in a control: the list of points has a rule under its last row, which
+   already does what the gap is for, so the plot's heading follows it at half
+   the distance. */
+.point-list + .side-sub { margin-top: 6px; }
 
 
 .sf-tools { display: flex; gap: 6px; }
