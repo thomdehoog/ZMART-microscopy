@@ -602,10 +602,18 @@ export default {
       }
       anchorCount.max = String(howManyAnchorsFit(cfg));
       anchorAdd.classList.toggle("on", anchors.arming());
+      /* Two shapes, one for each thing the box is doing. With nothing down it
+         asks how many and offers to lay them, so the number leads and the press
+         follows it. With points down the question is answered: the number has
+         nothing left to say, and the press — now Reset — belongs under the
+         column of Snaps it undoes rather than above them. */
+      const down = anchors.list().length > 0;
+      anchorCount.hidden = down;
+      anchorCard.append(...(down ? [anchorList, anchorLay] : [anchorLay, anchorList]));
       /* An empty list is not an empty list on screen: it keeps the rules that
          separate its rows, and with no rows between them they read as one
          stray line above the button. */
-      anchorList.hidden = !anchors.list().length;
+      anchorList.hidden = !down;
       anchorList.textContent = "";
       anchors.list().forEach((a, i) => {
         const row = el("div", "point-row");
