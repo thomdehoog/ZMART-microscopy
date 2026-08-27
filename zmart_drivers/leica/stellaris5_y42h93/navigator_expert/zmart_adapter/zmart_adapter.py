@@ -918,6 +918,9 @@ def acquire(
         "images": [plane["path"] for plane in planes],
         "planes": planes,
         "vendor_metadata": [str(path) for path in getattr(saved, "vendor_metadata_paths", ())],
+        # What the driver printed about this capture: the state, beside the
+        # images in ``data/metadata``. A client moving a record moves this too.
+        "metadata": [str(path) for path in getattr(saved, "state_paths", ())],
     }
 
 

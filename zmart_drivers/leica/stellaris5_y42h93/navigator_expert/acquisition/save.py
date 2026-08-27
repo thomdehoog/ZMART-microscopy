@@ -33,7 +33,14 @@ from .lasx_native_autosave import (
     native_autosave_base_folder,
     native_autosave_enabled,
 )
-from .naming import Naming, acquisition_dir, build_image_name, data_dir
+from .naming import (
+    Naming,
+    acquisition_dir,
+    build_image_name,
+    build_state_name,
+    data_dir,
+    metadata_dir,
+)
 from .product import (
     ExportedAcquisition,
     PlaneIndex,
@@ -132,6 +139,7 @@ def _persist_export(
         )
 
     image_paths: dict[PlaneIndex, Path] = {}
+    state_paths: dict[Path, None] = {}
     vendor_records = _persist_vendor_metadata(exported, output_root, naming)
 
     # One load + one write instead of a full read-modify-write per plane
@@ -159,6 +167,9 @@ def _persist_export(
                     orientation=orientation,
                 )
                 image_paths[idx] = image_dest
+                printed = _print_state(state, output_root, plane_naming)
+                if printed is not None:
+                    state_paths[printed] = None
 
                 record = {
                     "naming": _naming_to_dict(plane_naming),
@@ -175,7 +186,7 @@ def _persist_export(
                 summary_dirty = True
     finally:
         if summary_dirty:
-            _write_summary_atomic(summary_path, summary)
+            _write_json_atomic(summary_path, summary)
 
     if cleanup_source:
         for p in exported.source_files:
@@ -188,7 +199,26 @@ def _persist_export(
         image_paths=image_paths,
         naming=naming,
         vendor_metadata_paths=tuple(output_root / record["path"] for record in vendor_records),
+        state_paths=tuple(state_paths),
     )
+
+
+def _print_state(state: dict | None, output_root: Path, naming: Naming) -> Path | None:
+    """Write one acquisition's state beside its images, once.
+
+    The state is already embedded in every plane's OME-XML, but reading it
+    there costs opening a picture and parsing annotations. Printed in
+    ``data/metadata`` it can simply be read. One file per acquisition -- the
+    planes of a capture share the state it was captured under -- so the write
+    is skipped once it exists rather than repeated per plane.
+    """
+
+    if state is None:
+        return None
+    destination = metadata_dir(output_root, naming.acquisition_type) / build_state_name(naming)
+    if not destination.exists():
+        _write_json_atomic(destination, state)
+    return destination
 
 
 def _persist_vendor_metadata(
@@ -225,11 +255,11 @@ def _persist_vendor_metadata(
     return records
 
 
-def _write_summary_atomic(summary_path: Path, data: dict) -> None:
-    summary_path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = _materialize._with_tmp_suffix(summary_path)
+def _write_json_atomic(path: Path, data: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = _materialize._with_tmp_suffix(path)
     tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
-    os.replace(str(tmp), str(summary_path))
+    os.replace(str(tmp), str(path))
 
 
 def _load_summary(summary_path: Path) -> dict:

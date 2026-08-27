@@ -110,11 +110,14 @@ def position_label(
 
 
 def move_record_images(record: dict, data_dir: Any) -> dict:
-    """Move a driver's returned images unchanged and update its record paths.
+    """Move a driver's returned files unchanged and update its record paths.
 
-    Every source and destination is validated before the first move.  If a
-    later move fails, already moved files are rolled back to their original
-    paths so one multi-plane record is never half-relocated.
+    The images go to *data_dir* and the state the driver printed for them to
+    ``data_dir/metadata``, the shape every driver writes -- so what the record
+    names in the run is what it named in staging. Every source and destination
+    is validated before the first move.  If a later move fails, already moved
+    files are rolled back to their original paths so one multi-plane record is
+    never half-relocated.
     """
 
     images = record.get("images")
@@ -127,13 +130,16 @@ def move_record_images(record: dict, data_dir: Any) -> dict:
     destination = Path(data_dir)
     destination.mkdir(parents=True, exist_ok=True)
 
+    printed = list(dict.fromkeys(Path(value) for value in record.get("metadata", [])))
     moves = [(source, destination / source.name) for source in sources]
-    names = [target.name for _, target in moves]
-    if len(names) != len(set(names)):
+    moves.extend((source, destination / "metadata" / source.name) for source in printed)
+    targets = [target for _, target in moves]
+    if len(targets) != len(set(targets)):
         raise RuntimeError("acquire returned different image paths with the same filename")
     for source, target in moves:
         if not source.is_file():
             raise FileNotFoundError(f"acquired image does not exist: {source}")
+        target.parent.mkdir(parents=True, exist_ok=True)
         if target.exists():
             raise FileExistsError(f"refusing to replace an existing acquisition image: {target}")
 
@@ -153,4 +159,6 @@ def move_record_images(record: dict, data_dir: Any) -> dict:
     record["images"] = [mapped[str(Path(value))] for value in images]
     for plane in record.get("planes", []):
         plane["path"] = mapped[str(Path(plane["path"]))]
+    if printed:
+        record["metadata"] = [mapped[str(path)] for path in printed]
     return record

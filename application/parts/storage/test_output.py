@@ -51,6 +51,31 @@ def test_move_returns_full_final_filenames_in_images_and_planes(tmp_path):
     assert not source.exists()
 
 
+def test_the_printed_state_travels_with_the_images_it_describes(tmp_path):
+    """A record's metadata lands in ``data/metadata``, not left in staging.
+
+    The driver prints the state beside the images it wrote. Moving the images
+    into the run and leaving the state behind would strand it in a staging
+    folder nothing reads.
+    """
+    staging = tmp_path / "staging"
+    (staging / "metadata").mkdir(parents=True)
+    image = staging / "overview_aaaaaa_K00_P000000_T000000_C00_Z00000.ome.tiff"
+    image.write_bytes(b"image")
+    state = staging / "metadata" / "overview_aaaaaa_K00_P000000_T000000_ZMART_state.json"
+    state.write_text('{"changeable": {}}', encoding="utf-8")
+    data = tmp_path / "data"
+
+    record = move_record_images(
+        {"images": [str(image)], "metadata": [str(state)]},
+        data,
+    )
+
+    assert record["metadata"] == [str(data / "metadata" / state.name)]
+    assert (data / "metadata" / state.name).read_text(encoding="utf-8") == '{"changeable": {}}'
+    assert not state.exists()
+
+
 def test_existing_destination_refuses_before_moving_any_plane(tmp_path):
     sources = [tmp_path / "staging" / f"plane-{i}.ome.tiff" for i in range(2)]
     sources[0].parent.mkdir()

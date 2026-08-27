@@ -21,6 +21,7 @@ import matplotlib
 
 matplotlib.use("Agg")
 
+import json  # noqa: E402
 import math  # noqa: E402
 import re  # noqa: E402
 from pathlib import Path  # noqa: E402
@@ -114,6 +115,10 @@ def _assert_full_run(ns: dict, session: _SimSession, engine: _SimEngine, output_
     ):
         data = root / acquisition_type / "data"
         assert data.is_dir()
+        # The state the driver printed travelled with the images it describes.
+        printed = sorted((data / "metadata").glob("*_ZMART_state.json"))
+        assert len(printed) == len(records)
+        assert all(json.loads(path.read_text(encoding="utf-8"))["changeable"] for path in printed)
         assert all(
             Path(path).parent == data and Path(path).is_file()
             for record in records

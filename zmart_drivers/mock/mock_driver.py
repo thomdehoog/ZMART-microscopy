@@ -22,6 +22,7 @@ University of Zurich (thom.dehoog@zmb.uzh.ch, thomdehoog@gmail.com).
 
 from __future__ import annotations
 
+import json
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -238,6 +239,9 @@ def acquire(
     settle = "backlash-corrected" if options["backlash_correction"] else "direct"
     acquisition_hash = uuid.uuid4().hex[:6]
     path = _write_a_frame(handle, acquisition_type, acquisition_hash, position_label)
+    printed = _print_the_state(
+        handle, path.parent, acquisition_type, acquisition_hash, position_label
+    )
     # The two keys a client follows, in the shapes the real driver answers
     # with: ``images`` the simple list, ``planes`` the manifest that tells a
     # channel from a z. One plane, because this instrument captures one.
@@ -252,6 +256,8 @@ def acquire(
         "position": _user_position(handle),
         "images": [plane["path"] for plane in planes],
         "planes": planes,
+        # What the driver printed about this capture, beside the images.
+        "metadata": [str(printed)],
     }
 
 
@@ -297,6 +303,30 @@ def _write_a_frame(
         ),
     )
     return path
+
+
+def _print_the_state(
+    handle: MockHandle,
+    data: Path,
+    acquisition_type: str,
+    acquisition_hash: str,
+    position_label: str,
+) -> Path:
+    """Print the state this capture was made under beside the images.
+
+    The state is embedded in the image too, where reading it costs opening a
+    picture. In ``data/metadata`` it can simply be read. One file per
+    acquisition: the name of the images without the channel and the z-slice,
+    which one state spans.
+    """
+    metadata = data / "metadata"
+    metadata.mkdir(parents=True, exist_ok=True)
+    printed = (
+        metadata
+        / f"{acquisition_type}_{acquisition_hash}_{position_label}_T000000_ZMART_state.json"
+    )
+    printed.write_text(json.dumps(get_state(handle), indent=2), encoding="utf-8")
+    return printed
 
 
 def get_state(handle: MockHandle) -> dict:

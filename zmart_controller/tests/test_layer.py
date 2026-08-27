@@ -6,6 +6,7 @@ University of Zurich (thom.dehoog@zmb.uzh.ch, thomdehoog@gmail.com).
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -18,8 +19,15 @@ def _mock_instrument():
 
 
 @pytest.fixture
-def mic():
-    session = set_instrument(_mock_instrument())
+def mic(tmp_path):
+    """A connected mock scope writing into this test's own folder.
+
+    Without an output root the driver falls back to a relative ``mock-output``,
+    which lands wherever pytest was started -- in practice, in the repository.
+    """
+    instrument = _mock_instrument()
+    instrument["output_root"] = str(tmp_path)
+    session = set_instrument(instrument)
     yield session
     session.disconnect()
 
@@ -126,6 +134,21 @@ class TestAcquire:
         written = Path(rec["images"][0])
         assert written.parent.name == "data"
         assert written.parent.parent.name == "overview"
+
+    def test_acquire_prints_the_state_it_captured_under(self, mic):
+        """One state file per acquisition, in ``data/metadata``.
+
+        Every driver embeds the state in the images it writes, where reading
+        it costs opening a picture. Printed beside them it can simply be read.
+        The name is the image's without the channel and the z-slice, which one
+        state spans.
+        """
+        rec = mic.acquire(acquisition_type="overview", position_label="K00_P000004")
+        metadata = Path(rec["images"][0]).parent / "metadata"
+        printed = metadata / (
+            f"overview_{rec['acquisition_hash']}_K00_P000004_T000000_ZMART_state.json"
+        )
+        assert json.loads(printed.read_text(encoding="utf-8")) == mic.get_state()
 
     def test_acquire_options_override(self, mic):
         rec = mic.acquire(
