@@ -701,9 +701,21 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
 .point-row[aria-current="true"] { background: var(--accent-tint); color: var(--accent-deep); }
 .point-row .idx { color: var(--ink-3); min-width: 16px; }
 .point-row[aria-current="true"] .idx { color: var(--accent-deep); }
-.point-row .res { margin-left: auto; color: var(--ink-3); font-size: 11px; }
-.point-row .z { margin-left: auto; font-weight: 600; }
-.point-row .res + .z { margin-left: 0; min-width: 62px; text-align: right; }
+/* One mark for every way a height is worth a second look, and it carries what
+   it means: the row is four numbers and no room to say any of this, so the
+   sign takes the place a reading would and the words are on hovering it.
+   Where a row has no doubts the space closes up and the numbers keep the
+   column they had. */
+.point-row .warn { margin-left: auto; color: var(--bad); font-size: 12px; cursor: help; }
+.point-row .warn + .z { margin-left: 6px; }
+/* The one reading a row carries. It used to be two — the height, and how far
+   off the fitted surface it sat — and the second was a number an operator
+   read past to get to the first. Where it matters at all it is the worst
+   point on the map, and that is now one of the things the mark beside it
+   says. */
+.point-row .z {
+  margin-left: auto; font-weight: 600; min-width: 62px; text-align: right;
+}
 .point-row .z.pending { color: var(--ink-3); font-weight: 400; }
 .point-list .none { padding: 12px; font-size: 12.5px; color: var(--ink-3); font-family: var(--sans); }
 /* Stacked, now that this sits in a column: the image the sweep picks out on
@@ -712,7 +724,11 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
    its shape is what is being read and no amount of extra height adds to that. */
 .trace-host { position: relative; min-height: 0; display: grid; grid-template-rows: 152px; }
 /* Flush with the box that holds it, which brings its own padding. */
-.side-group-body .trace-host { margin: 0 -14px -12px; }
+/* Wide as the box, so the plot's frame lands on the column the heading and
+   the rows above it keep — but not pulled down over the box's bottom padding
+   as well: with the legend a pixel off the edge the box's rounded corners cut
+   past it and the whole card read as clipped short. */
+.side-group-body .trace-host { margin: 0 -14px; }
 /* Every canvas here is measured from its parent, so each one needs a parent
    that is its own box and nothing else's. */
 .trace-plot { position: relative; min-height: 0; }
