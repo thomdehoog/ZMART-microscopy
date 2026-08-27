@@ -35,11 +35,11 @@ from .lasx_native_autosave import (
 )
 from .naming import (
     Naming,
-    acquisition_dir,
     build_image_name,
     build_state_name,
     data_dir,
     metadata_dir,
+    state_dir,
 )
 from .product import (
     ExportedAcquisition,
@@ -208,14 +208,14 @@ def _print_state(state: dict | None, output_root: Path, naming: Naming) -> Path 
 
     The state is already embedded in every plane's OME-XML, but reading it
     there costs opening a picture and parsing annotations. Printed in
-    ``data/metadata`` it can simply be read. One file per acquisition -- the
+    ``data/metadata/ZMART_state`` it can simply be read. One file per acquisition -- the
     planes of a capture share the state it was captured under -- so the write
     is skipped once it exists rather than repeated per plane.
     """
 
     if state is None:
         return None
-    destination = metadata_dir(output_root, naming.acquisition_type) / build_state_name(naming)
+    destination = state_dir(output_root, naming.acquisition_type) / build_state_name(naming)
     if not destination.exists():
         _write_json_atomic(destination, state)
     return destination
@@ -228,8 +228,11 @@ def _persist_vendor_metadata(
 ) -> list[dict]:
     if not exported.vendor_metadata_sources:
         return []
+    # The vendor's own account of the capture is metadata like ZMART's own, so
+    # it sits under the same roof rather than beside `data` -- what is beside
+    # `data` is what was made from the pixels afterwards, and this was not.
     vendor_dir = (
-        acquisition_dir(output_root, naming.acquisition_type)
+        metadata_dir(output_root, naming.acquisition_type)
         / "vendor"
         / _safe_component(exported.source_exporter)
     )
