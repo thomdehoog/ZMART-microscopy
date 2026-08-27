@@ -14,7 +14,7 @@ export const focusStrategy = {
   id: "focus",
   title: "Focus strategy",
   why: "Record the focussing preset, then choose how this run keeps every image sharp across the sample.",
-  btn: "Test focussing",
+  btn: "Run focus map",
   panels: [],
   ms: 1400,
   mode: "focus",
