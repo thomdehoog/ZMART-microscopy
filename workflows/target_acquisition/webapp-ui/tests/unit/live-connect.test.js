@@ -74,7 +74,7 @@ describe("the live connect", () => {
       calls.push(url);
       return { ok: true, json: async () => ({ x: { value: 1 }, y: { value: 2 }, z: { value: 3 } }) };
     });
-    const xyz = await backend.getXyz();
+    const xyz = await backend.get_xyz();
     expect(xyz.x.value).toBe(1);
     expect(calls.at(-1)).toMatch(/\/api\/xyz$/);
   });
@@ -89,7 +89,7 @@ describe("the live connect", () => {
     });
     /* The controller's two verbs on one noun: `get_xyz` reads it, `set_xyz`
        drives it, and the method is what says which. */
-    const at = await backend.setXyz({ x: 900, y: 800, z: 7 });
+    const at = await backend.set_xyz({ x: 900, y: 800, z: 7 });
     expect(calls.at(-1)).toMatch(/\/api\/xyz$/);
     expect(sent.method).toBe("POST");
     expect(sent.body).toEqual({ x: 900, y: 800, z: 7 });
