@@ -25,6 +25,11 @@
    `deep`    whether the carrier has a depth as well as a width and a height.
              One vessel does, and it is the only one the stage travels through
              rather than across.
+   `starts`  which of its carriers the type opens on. Named, because the list
+             is ordered by how many areas a carrier has and the smallest of
+             them is rarely the one anybody means: pressing Wellplate and being
+             handed a one-well plate is the catalogue's order answering a
+             question about what an operator usually mounts.
 
    Add a vessel by describing it here and the controls follow.
 
@@ -64,6 +69,7 @@
 export const CARRIER_TYPES = [
   {
     id: "slide",
+    starts: "75 × 25 mm slide",
     label: "Area",
     grid: false,
     round: false,
@@ -89,6 +95,7 @@ export const CARRIER_TYPES = [
   },
   {
     id: "dish",
+    starts: "35 mm dish",
     label: "Dish",
     grid: false,
     round: true,
@@ -105,6 +112,7 @@ export const CARRIER_TYPES = [
   },
   {
     id: "chamber",
+    starts: "8-well · ibidi µ-Slide",
     label: "Chamber",
     grid: true,
     round: false,
@@ -134,6 +142,7 @@ export const CARRIER_TYPES = [
   },
   {
     id: "wellplate",
+    starts: "96-well · Greiner SensoPlate",
     label: "Wellplate",
     grid: true,
     round: false,
@@ -176,6 +185,7 @@ export const CARRIER_TYPES = [
    every one of these is punched to. */
 CARRIER_TYPES.push({
   id: "emgrid",
+  starts: "200 mesh · EMS",
   label: "EM grid",
   grid: true,
   round: false,

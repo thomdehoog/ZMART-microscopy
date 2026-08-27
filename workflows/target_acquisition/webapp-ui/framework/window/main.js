@@ -1038,8 +1038,20 @@ let stageWatch = null;
           /* Where the microscope is standing now, kept against this point on
              the carrier: the pair is the registration — this place on the
              drawing is that place on the stage. */
-          snap: (i) => {
-            const at = whereTheStageIs();
+          snap: async (i) => {
+            /* Ask the instrument where it is, now, rather than taking whatever
+               the watch last happened to say. The watch reads every few
+               seconds; an operator presses this the moment they have finished
+               driving, so the reading it would otherwise record is the one from
+               up to five seconds before the drive ended.
+
+               And the reading itself, not the position the picture has worked
+               out. Once a scan has run, `whereTheStageIs` answers with the last
+               tile it imaged — right for drawing the mark as a scan goes by,
+               and wrong for an operator who has since driven somewhere by hand
+               to register the carrier from it. Falling back to it only for the
+               case where there is no instrument to ask. */
+            const at = (await stageWatch?.refresh()) ?? whereTheStageIs();
             state.anchors = state.anchors.map((a, n) =>
               (n === i ? { ...a, stage: { x: at.x, y: at.y, z: at.z } } : a));
             /* The carrier is where the anchors say it is now, so everything
