@@ -1,14 +1,14 @@
 # Review prompt: dissolving `main.js`
 
 Paste to an external reviewer together with `docs/design/dissolving-main-js.md`,
-`workflows/target_acquisition/webapp-ui/ARCHITECTURE.md`, and read access to
-`workflows/target_acquisition/webapp-ui/frame/window/main.js` (4,483 lines).
+`application/ARCHITECTURE.md`, and read access to
+`application/framework/window/main.js` (4,483 lines).
 
 ---
 
 You are reviewing a refactoring plan for a browser page that drives a
 microscope. The page has an engine (`frame/`) meant to run any workflow, and
-one workflow (`workflows/target_acquisition/`) that today mostly lives inside
+one workflow (`application/workflows/target_acquisition/`) that today mostly lives inside
 the engine's 4,483-line `main.js`. The plan moves the workflow out in eleven
 commits. Read the plan, then `main.js`, and answer these — cite line numbers.
 

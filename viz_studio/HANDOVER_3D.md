@@ -108,10 +108,10 @@ Three commands, three environments — see `TESTING_ON_REAL_HARDWARE.md` for why
 
 ```bash
 # zmart-viz
-python workflows/target_acquisition/serve_a_run.py <a stack>.ome.zarr --port 60810
+python application/workflows/target_acquisition/serve_a_run.py <a stack>.ome.zarr --port 60810
 # zmart-microscopy
-npm --prefix workflows/target_acquisition/webapp-ui run dev
-python workflows/target_acquisition/webapp-ui/dev_window.py \
+npm --prefix application run dev
+python application/dev_window.py \
   --url "http://127.0.0.1:5174/?workflow=canvas_layers&overview=http://127.0.0.1:60810/<name>.ome.zarr"
 ```
 
@@ -212,5 +212,5 @@ Kept because each looked right and will be proposed again.
 | the engines | `viz_studio/options/<name>/viewer.js` |
 | the interface | `viz_studio/options/contract.md` — `canShowVolume`, `showVolume`, `theDepthItCanShow` |
 | shared rules | `gestures.js`, `planes.js`, `brightness.js`, `opening-view.js`, `where-the-specimen-is.js` |
-| the page | `workflows/target_acquisition/webapp-ui/src/canvas/panel.js` |
+| the page | `application/src/canvas/panel.js` |
 | what a real store said | `viz_studio/options/RESULTS.md`, top section |

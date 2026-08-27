@@ -175,7 +175,7 @@ silently substitute defaults" requires new code: `load()`/connect must consult
 `resolve()`'s `is_fallback` and raise. This is not written in the plan.
 
 Real callers that break the moment it raises (not just tests):
-- `workflows/target_acquisition/pipeline/preflight.py:124`
+- `application/workflows/target_acquisition/pipeline/preflight.py:124`
   `drv.load_stage_config(limits_path=drv.default_stage_limits_path())` — the
   live workflow entry, which will now raise on any machine without a snapshot.
 - `zmart_adapter.py:189` `_configure_stage_limits` — already `try/except →

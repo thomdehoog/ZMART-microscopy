@@ -57,7 +57,7 @@ distinction turns out to be the whole of section 2, so it is worth holding on to
 ## 1. What the boundary looks like today
 
 **On `claude/live-tiles-mvp`**, in
-`workflows/target_acquisition/webapp-ui/src/backend/mock.js`. The file opens by
+`application/parts/microscope/mock.js`. The file opens by
 saying exactly what it is meant to be, and the intent is good:
 
 > The seam where the microscope goes. […] When the live driver arrives it
@@ -269,7 +269,7 @@ so?
 
 ### What the live-tiles branch settled, and why
 
-**On `claude/live-tiles-mvp`**, `webapp-ui/src/live/overview.js` explains the
+**On `claude/live-tiles-mvp`**, `application/src/live/overview.js` explains the
 problem at length, and it is a real one:
 
 > Nothing on disk announces a new tile. The run declares its images at the very
@@ -516,7 +516,7 @@ These would be the second kind, and none of them should be built now:
   there is nothing to keep in step. Two would need a shared description, a test
   that both satisfy it, and somebody to keep all three honest.
 - **A declaration of what each step needs and produces.** This is the one thing
-  `workflows/target_acquisition/webapp-ui/WORKFLOW_SHELL.md` argues *should* be
+  `application/WORKFLOW_SHELL.md` argues *should* be
   settled early, and this note does not disagree with it. But that is a decision
   about how steps hand work to each other, which is a level above the microscope
   boundary. It is mentioned here only so that the two are not confused: the
@@ -530,11 +530,11 @@ These would be the second kind, and none of them should be built now:
 **On this branch:** `viz_studio/options/contract.md` for the one-interface-many-engines
 pattern that section 2 is modelled on; `zmart_storage/coverage.py` and
 `viz_studio/backend/announcements.py` for section 3;
-`workflows/target_acquisition/webapp-ui/WORKFLOW_SHELL.md` for the operator window
+`application/WORKFLOW_SHELL.md` for the operator window
 this boundary sits beneath.
 
 **On `claude/live-tiles-mvp`:** `zmart_controller/README.md` for the fourteen
 commands and the discover-then-apply pattern; `zmart_drivers/mock/mock_driver.py`
-for what a complete driver looks like; `workflows/target_acquisition/webapp-ui/src/backend/mock.js`
-for the seam as it stands; `workflows/target_acquisition/workflow/webapp/_flow.py`
+for what a complete driver looks like; `application/parts/microscope/mock.js`
+for the seam as it stands; `application/workflows/target_acquisition/webapp/_flow.py`
 for a run that already turns failures into sentences an operator can read.

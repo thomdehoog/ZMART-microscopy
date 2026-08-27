@@ -46,7 +46,7 @@ and drives the engine.
 
 There are currently **two different front-end stacks**:
 
-- the **webapp** (`workflows/target_acquisition/workflow/webapp`) — React written
+- the **webapp** (`application/workflows/target_acquisition/webapp`) — React written
   as Python strings (anywidget-style), vendored, served by a standard-library
   server, streaming PNG tiles over a live event stream;
 - the **viz-studio** (`viz_studio/`) — a normal Vite/npm React build served as

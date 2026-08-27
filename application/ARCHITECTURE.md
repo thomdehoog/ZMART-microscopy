@@ -223,7 +223,7 @@ The layers above are the target. Some of them are built and used, some are
 built and waiting, and one gap is a live hazard. Read this before assuming the
 tree matches the picture.
 
-In the table, `ta/` is short for `workflows/target_acquisition/`.
+In the table, `ta/` is short for `application/workflows/target_acquisition/`.
 
 | part | state |
 |---|---|

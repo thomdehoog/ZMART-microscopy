@@ -3,8 +3,8 @@
 > **This lifting has since happened.** The operator window and the layered view
 > now live together on this branch, and the source tree has been reorganised —
 > the canvas files named below now sit in
-> `webapp-ui/src/workflows/target_acquisition/shared/canvas/` (with `panel.js`
-> renamed `viewer.js`), and `webapp-ui/src/workflows/README.md` maps the whole
+> `application/src/application/parts/canvas/` (with `panel.js`
+> renamed `viewer.js`), and `application/src/workflows/README.md` maps the whole
 > arrangement. The rest of this document is kept as the record of what was
 > built and why; read the paths in it as the paths of that time.
 
@@ -40,19 +40,19 @@ the engine imports for panning and zooming), `viz_studio/options/contract.md`
 (the interface it keeps), and `numpy`, `tifffile`, `Pillow` for the making.
 
 To offer it in a page, one line per list in that page's engine registry — on
-this branch that is `webapp-ui/src/canvas/engines.js`, where `jpeg-under` was
+this branch that is `application/src/canvas/engines.js`, where `jpeg-under` was
 added to `HOW_TO_OPEN` and `WHAT_IT_IS`. **Nothing else in that file changed
 except a paragraph of comment.**
 
 ### Half two — the layered view (2 files new, 2 edited)
 
 ```
-webapp-ui/src/canvas/layers-above.js             the whole idea, ~140 lines   NEW
-webapp-ui/tests/unit/layers-above.test.js        16 tests, no browser          NEW
-webapp-ui/tests/canvas-layers.spec.js            8 tests, real browser         NEW
+application/src/canvas/layers-above.js             the whole idea, ~140 lines   NEW
+application/tests/unit/layers-above.test.js        16 tests, no browser          NEW
+application/tests/canvas-layers.spec.js            8 tests, real browser         NEW
 
-webapp-ui/src/canvas/panel.js                    the controls and the wiring  EDITED
-webapp-ui/src/style.css                          the fade and lock strip      EDITED
+application/src/canvas/panel.js                    the controls and the wiring  EDITED
+application/src/style.css                          the fade and lock strip      EDITED
 ```
 
 **`layers-above.js` is the part that matters and it depends on nothing.** No
@@ -76,7 +76,7 @@ underneath.
 ### What was edited only to keep the tests honest
 
 ```
-webapp-ui/tests/unit/engines.test.js             the engine list is pinned on purpose
+application/tests/unit/engines.test.js             the engine list is pinned on purpose
 ```
 
 ---
@@ -124,12 +124,12 @@ draw from when zoomed right out, not smaller JPEGs.
 
 | file | what it is |
 |---|---|
-| `webapp-ui/src/canvas/layers-above.js` | Turns a stack of layers into the single drawing the engine's top slot takes. ~140 lines, no DOM. |
-| `webapp-ui/src/canvas/panel.js` | The canvas panel: builds a button per layer, the shared fade, the lock, and routes clicks. |
-| `webapp-ui/src/canvas/engines.js` | `jpeg-under` registered alongside the other two engines. |
-| `webapp-ui/src/style.css` | The fade and lock strip. |
-| `webapp-ui/tests/unit/layers-above.test.js` | 16 unit tests. |
-| `webapp-ui/tests/canvas-layers.spec.js` | 8 browser tests. |
+| `application/src/canvas/layers-above.js` | Turns a stack of layers into the single drawing the engine's top slot takes. ~140 lines, no DOM. |
+| `application/src/canvas/panel.js` | The canvas panel: builds a button per layer, the shared fade, the lock, and routes clicks. |
+| `application/src/canvas/engines.js` | `jpeg-under` registered alongside the other two engines. |
+| `application/src/style.css` | The fade and lock strip. |
+| `application/tests/unit/layers-above.test.js` | 16 unit tests. |
+| `application/tests/canvas-layers.spec.js` | 8 browser tests. |
 
 The arrangement, which is settled in `viz_studio/LAYERS.md`:
 
@@ -370,8 +370,8 @@ owns the gestures and hands the view down, so they cannot argue.
     # 1. drive the page to a plan, and ask it where it means to send the stage
     #    (window.__theStageCanvas.plan())
     # 2. build a scan at exactly those places
-    python workflows/target_acquisition/mock_picture.py plan.json \
-        --into webapp-ui/public/mock-scan --um-per-pixel 5.2
+    python application/workflows/target_acquisition/mock_picture.py plan.json \
+        --into application/public/mock-scan --um-per-pixel 5.2
     # 3. point the page at it
     #    http://localhost:5174/?picture=/mock-scan
 
@@ -416,7 +416,7 @@ python -m pytest viz_studio/tests/test_small_pictures_from_exported_tiffs.py \
                  viz_studio/tests/test_the_jpeg_viewer_holds_ten_thousand.py
 
 # the layers
-cd workflows/target_acquisition/webapp-ui
+cd application
 npx vitest run
 npx playwright test tests/canvas-layers.spec.js
 ```

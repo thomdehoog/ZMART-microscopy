@@ -6,7 +6,7 @@ self-contained file with no build step, no server and no network access, and it
 drives a synthetic sample so every control does something.
 
 It is a design artifact, not a component. Nothing here is wired to
-`workflows/target_acquisition/workflow/webapp/`; the point is to argue about
+`application/workflows/target_acquisition/webapp/`; the point is to argue about
 shape before writing the real thing.
 
 ## What it proposes
@@ -39,7 +39,7 @@ is enabled.
 
 **Focus strategy** shows the position list as the microscope software reports
 it, and you drop focus points onto it. The model is chosen by geometry, matching
-`workflows/target_acquisition/workflow/_focus_surface.py`: a flat sample or one
+`application/workflows/target_acquisition/steps/focus_strategy/focus_surface.py`: a flat sample or one
 point gives a constant, four or more non-collinear points give a thin-plate
 spline, anything else gives a least-squares plane. Smoothing is 0.1, so the
 spline passes near the points rather than through them and the residual still

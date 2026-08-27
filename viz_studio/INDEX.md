@@ -7,7 +7,7 @@ Read the linked docs in the order below.
 ## What this is, in one paragraph
 
 ZMART has two operator interfaces. The **target-acquisition webapp** (in
-`workflows/target_acquisition/`) is the mature, full working UI — the whole
+`application/workflows/target_acquisition/`) is the mature, full working UI — the whole
 acquisition flow, driven in a browser or a native window, on a real or simulated
 microscope. The **viz-studio viewer** (in `viz_studio/`) is a working viewer: a
 React app that embeds the neuroglancer engine to view large, 3-D, multi-channel
@@ -111,11 +111,11 @@ reached; do not read them to find out how the viewer works.
 
 | | Working UI (webapp) | Viewer (viz-studio) |
 |---|---|---|
-| Where | `workflows/target_acquisition/` | `viz_studio/` |
+| Where | `application/workflows/target_acquisition/` | `viz_studio/` |
 | What | full acquisition flow (steps, gates, gallery, report) | image/volume viewer (neuroglancer), 3-D capable |
 | Maturity | mature, 42 tests, demo-complete | working viewer: renders, full control panel, annotations; not yet wired to the workflow |
-| Run (demo, no scope) | `python workflows/target_acquisition/run_webapp.py --demo --window` | `python viz_studio/run_demo.py` (after building the frontend once) |
-| Test | `pytest workflows/target_acquisition/tests/test_webapp*.py` | `python viz_studio/run_tests.py` — builds the page and runs everything; see `TESTING.md` |
+| Run (demo, no scope) | `python application/workflows/target_acquisition/run_webapp.py --demo --window` | `python viz_studio/run_demo.py` (after building the frontend once) |
+| Test | `pytest application/workflows/target_acquisition/tests/test_webapp*.py` | `python viz_studio/run_tests.py` — builds the page and runs everything; see `TESTING.md` |
 
 Both open in a native desktop window via `pywebview` (`pip install pywebview` —
 conda-forge does not package it), and both fall back to a browser if it is

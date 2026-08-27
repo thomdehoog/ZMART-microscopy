@@ -110,4 +110,4 @@ The bench runbook — prerequisites, what each pass does, where the reports land
 is at
 [`tests/hardware/README.md`](../zmart_drivers/leica/stellaris5_y42h93/navigator_expert/tests/hardware/README.md).
 To run an actual experiment, open the operator notebook
-`workflows/target_acquisition/zmart_microscopy_v4.ipynb`.
+`application/workflows/target_acquisition/zmart_microscopy_v4.ipynb`.
