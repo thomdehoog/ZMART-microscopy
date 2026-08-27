@@ -9,9 +9,14 @@
  *
  * Everything about the wire lives in this one file: the address, the JSON,
  * and how a failure becomes a thrown Error carrying the bridge's own
- * sentence. Nothing else in the page knows HTTP exists. The page chooses
- * this backend with `?backend=live` in its address; the pretend one stays
- * the default, so development and the test suite need no bridge running.
+ * sentence. Nothing else in the page knows HTTP exists.
+ *
+ * **This is the backend the page runs on.** Open it and it speaks to the
+ * bridge; which driver the controller runs behind that — the mock or the
+ * Leica — is chosen on the Connect step, and either way every verb goes the
+ * whole way through the controller and a driver. The in-browser rehearsal in
+ * `mock.js` is reachable only by `?backend=pretend`, and only this page's own
+ * browser tests ask for it.
  *
  * The live path deliberately stops at the overview scan, as the bridge does.
  */
