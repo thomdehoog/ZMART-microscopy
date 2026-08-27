@@ -729,8 +729,13 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
    the marks make a column of their own, which is what makes a list of them
    readable at a glance. */
 /* A height moved by hand, in its own yellow: the point is not in trouble, it
-   is the operator's answer rather than the instrument's. */
-.point-row .edit { color: var(--edit-ink); }
+   is the operator's answer rather than the instrument's. It leads the marks,
+   because it is the older fact — the reading was moved, and then the rule had
+   something to say about where it ended up. */
+.point-row .edit {
+  margin-left: auto; color: var(--edit-ink); font-size: 12px; cursor: help;
+}
+.point-row .edit + .warn, .point-row .edit + .z { margin-left: 0; }
 .point-row .warn {
   margin-left: auto; color: var(--warn-ink); font-size: 12px; cursor: help;
 }

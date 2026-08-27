@@ -853,10 +853,11 @@ function renderPointList() {
     pick.innerHTML =
       `<span class="idx">${i + 1}</span>` +
       `<span>${(p.x / 1000).toFixed(2)}, ${(p.y / 1000).toFixed(2)} mm</span>` +
+      (handSet ? '<span class="edit" title="This height was moved by hand.">✎</span>' : "") +
       (suspect ? `<span class="warn" title="${doubts.join("&#10;")}">⚠</span>` : "") +
       `<span class="z${p.z === null ? " pending" : ""}"` +
       `${suspect && !p.manual ? ' style="color:var(--warn-ink)"' : ""}>` +
-      `${p.z === null ? "—" : (handSet ? '<span class="edit">✎</span> ' : "") + p.z.toFixed(1) + " µm"}</span>`;
+      `${p.z === null ? "—" : p.z.toFixed(1) + " µm"}</span>`;
     /* A moved point can still be picked. What was read for it was read of
        where it used to be, so there is no sweep to show and the plot below
        says exactly that — but which point the map is marking is the row's
@@ -989,7 +990,12 @@ el("ft-rerun").addEventListener("click", async () => {
   if (!p || run.running) return;
   const at = f.points.indexOf(p);
   const startZ = stage.whereTheStageIs().z;
-  const asked = Number.isFinite(startZ) ? { ...p, startZ } : { ...p };
+  /* Asked as a point nobody has touched. A backend keeps a height the operator
+     moved by hand — that is what makes a hand-set height survive a change of
+     metric — and here that would have the rerun hand back the very height it
+     was asked to go and measure again. */
+  const asked = { ...p, manual: false };
+  if (Number.isFinite(startZ)) asked.startZ = startZ;
   /* One point measured on its own, through the same verb the whole map goes
      through — a backend that drives to a list of positions is given a list of
      one. What comes back replaces that point and nothing else, and it comes
@@ -1003,7 +1009,7 @@ el("ft-rerun").addEventListener("click", async () => {
     /* And no longer moved-since-measured: what was just read was read where
        the point is standing now, which is the whole of what `stale` meant. */
     const { wasRead, ...came } = got;
-    const fresh = { ...came, accepted: false, stale: false };
+    const fresh = { ...came, accepted: false, stale: false, manual: false };
     f.points[at] = Number.isFinite(fresh.zAuto) || !Number.isFinite(fresh.z)
       ? fresh
       : { ...fresh, zAuto: fresh.z };
