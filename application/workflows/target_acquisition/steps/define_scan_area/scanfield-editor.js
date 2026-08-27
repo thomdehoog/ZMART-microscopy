@@ -244,7 +244,14 @@ export function plan(fields, preset, carrier) {
     }
     let best = null;
     for (const held of byArea.values()) if (!best || held.over > best.over) best = held;
-    if (!best) continue;
+    /* A position that fits in no area is a mistake — dropped on the plastic
+       between wells, it images nothing worth having, and the seating rule
+       exists to stop it. A *region* clear of every area is not: it is somebody
+       covering what they drew around, on ground the stage can reach, and the
+       carrier is not what decides whether that ground can be imaged. It used
+       to be dropped here, which was the carrier cropping a tileset to
+       nothing. */
+    if (chosen && !best) continue;
 
     /* Laid again, this time inside the one area it is being imaged in: the
        run is narrowed to what the area can hold and pushed flush against the
@@ -268,6 +275,38 @@ export function plan(fields, preset, carrier) {
     }
   }
   return out;
+}
+
+/**
+ * A field pushed back inside what the stage can reach, whole.
+ *
+ * **The carrier is not the edge.** It used to be: a region was pushed back the
+ * moment it crossed the plate. But a plate does not limit imaging — the stage
+ * does, and a well plate sitting in the middle of a 120 x 80 mm travel has a
+ * hand's width of reachable stage all round it. An operator drawing a strip
+ * that runs off the edge of a slide is asking for the ground beyond it, and
+ * asking for something the instrument can perfectly well go and image.
+ *
+ * What is still refused is the travel itself. A field outside it is a position
+ * the stage cannot drive to, and nothing downstream would notice: the plan
+ * would simply contain tiles that never arrive.
+ *
+ * Pushed back rather than trimmed. The shape somebody drew is the statement;
+ * clipping it would quietly change what gets imaged, where sliding it says
+ * plainly that it does not fit where it was put. Handed back unchanged — the
+ * same object — when it already fits, so a caller can tell nothing happened.
+ *
+ * `reach` is the stage's travel in the carrier's own micrometres:
+ * `{xMin, xMax, yMin, yMax}`.
+ */
+export function pushedBackIntoReach(f, reach) {
+  const b = bounds(f);
+  let dx = 0, dy = 0;
+  if (b.xMin < reach.xMin) dx = reach.xMin - b.xMin;
+  else if (b.xMax > reach.xMax) dx = reach.xMax - b.xMax;
+  if (b.yMin < reach.yMin) dy = reach.yMin - b.yMin;
+  else if (b.yMax > reach.yMax) dy = reach.yMax - b.yMax;
+  return dx || dy ? move(f, dx, dy) : f;
 }
 
 /** The edges a frame may not cross, in micrometres: one area's imageable square. */
@@ -357,7 +396,7 @@ export default {
    * selected: what to draw on top of the plan, and where the pointer went.
    */
   render(host, {
-    fields, carrier, preset, presetSlot, locked, onChange, redraw,
+    fields, carrier, preset, presetSlot, locked, onChange, redraw, reach = null,
   }) {
     const ed = {
       tool: "pointer",
@@ -417,17 +456,20 @@ export default {
       Math.max(ed.spacingY || 0, closest()),
     ];
 
-    /* The carrier is the edge of what can be imaged, so it is the edge of what
-       can be drawn. A field outside it is a position the stage will not reach,
-       and nothing downstream would notice: the plan would simply contain tiles
-       that never arrive. */
-    const extentUm = () => {
+    /* What the stage can reach, in the carrier's own micrometres — not what
+       the carrier covers. See `pushedBackIntoReach`. The page works it out
+       from the travel the instrument reported and where the carrier sits in
+       it; with nothing said, the carrier is all there is to go on. */
+    const reachUm = () => reach ?? (() => {
       const g = geometry(carrier);
-      return [g.width * MM_UM, g.height * MM_UM];
-    };
+      return { xMin: 0, xMax: g.width * MM_UM, yMin: 0, yMax: g.height * MM_UM };
+    })();
     const inside = (x, y) => {
-      const [w, h] = extentUm();
-      return { x: Math.min(Math.max(x, 0), w), y: Math.min(Math.max(y, 0), h) };
+      const r = reachUm();
+      return {
+        x: Math.min(Math.max(x, r.xMin), r.xMax),
+        y: Math.min(Math.max(y, r.yMin), r.yMax),
+      };
     };
     /* A position is seated where the objective can see it: dropped on the
        plastic between wells it slides into the well it was nearest, so
@@ -466,19 +508,7 @@ export default {
       return f;
     };
 
-    /* Pushed back whole rather than trimmed. The shape somebody drew is the
-       statement; clipping it would quietly change what gets imaged, where
-       sliding it says plainly that it does not fit where it was put. */
-    const clamped = (f) => {
-      const [w, h] = extentUm();
-      const b = bounds(f);
-      let dx = 0, dy = 0;
-      if (b.xMin < 0) dx = -b.xMin;
-      else if (b.xMax > w) dx = w - b.xMax;
-      if (b.yMin < 0) dy = -b.yMin;
-      else if (b.yMax > h) dy = h - b.yMax;
-      return seated(dx || dy ? move(f, dx, dy) : f);
-    };
+    const clamped = (f) => seated(pushedBackIntoReach(f, reachUm()));
 
     const commit = (next, { history = true } = {}) => {
       if (history) {

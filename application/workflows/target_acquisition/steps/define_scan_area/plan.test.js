@@ -25,6 +25,39 @@ const strip = (x0, x1) => ({
 });
 
 describe("a region is covered as it was drawn", () => {
+  /* The carrier does not crop a tileset either. A region drawn clear of every
+     well — on the plastic between them, or off the plate and out over the
+     reachable stage beyond it — used to come back with nothing at all: the
+     plan asked which area held it, found none, and dropped the field. But an
+     outline is a statement about a piece of ground, and the stage can drive
+     there; a plate is not what decides whether something can be imaged.
+
+     A hand-placed position is still seated into a well, which is the other
+     rule and stays: one position dropped on the plastic is a mistake, where a
+     region drawn there is somebody covering what they drew around. */
+  it("covers a region drawn clear of every well", () => {
+    /* Above the top row of wells, on the plastic. */
+    const off = {
+      id: "f1", type: "rectangle", rotation: 0,
+      x: 1_000, y: 0, w: 6_000, h: 800,
+    };
+    const tiles = plan([off], hires, plate);
+    expect(tiles.length).toBeGreaterThan(0);
+    for (const t of tiles) {
+      expect(t.x).toBeGreaterThanOrEqual(off.x);
+      expect(t.x).toBeLessThanOrEqual(off.x + off.w);
+    }
+  });
+
+  it("keeps such a region as a tileset of its own", () => {
+    const off = {
+      id: "f9", type: "rectangle", rotation: 0,
+      x: 1_000, y: 0, w: 6_000, h: 800,
+    };
+    expect(new Set(plan([off], hires, plate).map((t) => t.tileset)))
+      .toEqual(new Set(["field-f9"]));
+  });
+
   /* An outline is a statement about a piece of sample, and covering it is
      answering that statement. It used to be narrowed to the one well it lay in
      most and clipped to that well's edge, which meant a region drawn across two
@@ -44,9 +77,14 @@ describe("a region is covered as it was drawn", () => {
     expect(wells(plan([a, b], hires, plate))).toEqual(new Set(["0.0", "0.1"]));
   });
 
-  it("images nothing at all for an outline that fits in no well", () => {
-    // the plastic between the first two wells, and narrower than a 5x frame
-    expect(plan([strip(7.2, 8.4)], overview, plate)).toEqual([]);
+  it("covers an outline that fits in no well, rather than nothing at all", () => {
+    /* The plastic between the first two wells, and narrower than a 5x frame.
+       This used to come back empty: the plan asked which well held the outline,
+       found none, and dropped it. The carrier is not what decides whether
+       ground can be imaged — the stage is — so what was drawn is covered. */
+    const tiles = plan([strip(7.2, 8.4)], overview, plate);
+    expect(tiles.length).toBeGreaterThan(0);
+    expect(new Set(tiles.map((t) => t.tileset))).toEqual(new Set(["field-f1"]));
   });
 
   it("lets a frame reach past the rim rather than leaving a hole at the edge", () => {
