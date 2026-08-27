@@ -1151,6 +1151,18 @@ let stageWatch = null;
       /* Locked by the run having moved past this step, and locked until the
          preset the plan would be taken with exists. */
       locked: locked || !hasRecording(state.overviewPreset),
+      /* How far a field may be drawn: the stage's travel, said in the
+         carrier's own micrometres. Not the carrier — a plate does not limit
+         imaging, the instrument does, and a plate centred in a 120 x 80 mm
+         travel has reachable stage all round it that the drawing was refusing
+         to enter. The instrument reports the travel at connect; where the
+         carrier sits in it is what alignment measures, so this moves when the
+         operator snaps a point. */
+      reach: (() => {
+        const [fw, fh] = stage.travelUm;
+        const [ox, oy] = stage.carrierOriginUm();
+        return { xMin: -ox, xMax: fw - ox, yMin: -oy, yMax: fh - oy };
+      })(),
       onChange: (next) => {
         state.fields = next;
         scanfieldsSettled();
