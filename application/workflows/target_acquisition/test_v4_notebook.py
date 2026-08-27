@@ -17,7 +17,7 @@ nbformat = pytest.importorskip("nbformat")
 
 import application.workflows.target_acquisition as workflow  # noqa: E402
 
-_NB_PATH = Path(__file__).resolve().parents[1] / "zmart_microscopy_v4.ipynb"
+_NB_PATH = Path(__file__).resolve().parent / "zmart_microscopy_v4.ipynb"
 
 
 def _load():
@@ -71,7 +71,7 @@ def test_setup_cell_runs_from_repo_root(monkeypatch, tmp_path):
     monkeypatch.setattr(workflow, "preflight_analysis_engine", lambda engine: None)
 
     namespace = {}
-    monkeypatch.chdir(_NB_PATH.parents[2])
+    monkeypatch.chdir(_NB_PATH.parents[3])
     exec(compile(setup_cell, str(_NB_PATH), "exec"), namespace)
     assert namespace["zmart_controller"] is fake
     assert namespace["engine"] is fake_engine

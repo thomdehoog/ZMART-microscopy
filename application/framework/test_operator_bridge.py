@@ -21,12 +21,9 @@ from pathlib import Path
 
 import pytest
 
-_REPO_ROOT = Path(__file__).resolve().parents[3]
-
-
 def _load_bridge():
     spec = importlib.util.spec_from_file_location(
-        "operator_bridge", _REPO_ROOT / "application" / "framework" / "bridge.py"
+        "operator_bridge", Path(__file__).parent / "bridge.py"
     )
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)

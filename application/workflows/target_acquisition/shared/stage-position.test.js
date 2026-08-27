@@ -5,7 +5,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { EVERY_MS, PATIENCE_MS, watchStagePosition }
-  from "../../workflows/target_acquisition/shared/stage-position.js";
+  from "../../../workflows/target_acquisition/shared/stage-position.js";
 
 const xyz = (x, y, z = 0) => ({ x: { value: x }, y: { value: y }, z: { value: z } });
 

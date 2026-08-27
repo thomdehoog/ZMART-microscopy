@@ -18,8 +18,8 @@
  */
 
 import { beforeAll, describe, expect, it } from "vitest";
-import { promisesOfABackend } from "../backend-contract.js";
-import { backend as pretend } from "../../parts/microscope/mock.js";
+import { promisesOfABackend } from "./backend-contract.js";
+import { backend as pretend } from "./mock.js";
 
 const promises = promisesOfABackend(expect);
 
@@ -44,7 +44,7 @@ describe.skipIf(!bridgeAt)("the live backend keeps the same promises", () => {
        page here, so it is given one. */
     globalThis.location = { search: `?bridge=${bridgeAt}`, protocol: "http:" };
     ({ backend: live } = await import(
-      "../../parts/microscope/live.js"
+      "./live.js"
     ));
     /* Nothing answers before a session is open, and which instrument is
        opened is not left to the order the registry happens to list them in.
