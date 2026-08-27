@@ -13,12 +13,10 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(WORKFLOWS_DIR))
 
 from engine import Engine  # noqa: E402
-from _contracts import save_overview  # noqa: E402
 
 
 WORKFLOW_DIR = Path(__file__).resolve().parent
 CLASSICAL_YAML = WORKFLOW_DIR / "pipelines" / "object_analysis.yaml"
-DEEP_YAML = WORKFLOW_DIR / "pipelines" / "object_analysis_deep.yaml"
 
 
 def _image_size_px(path: Path, channel_axis=None) -> list[int]:
@@ -81,7 +79,6 @@ def main():
         description="Run object-centered analysis on one image tile."
     )
     parser.add_argument("image_path", help="Path to a TIFF tile.")
-    parser.add_argument("--deep", action="store_true", help="Include DINOv2 embeddings.")
     parser.add_argument("--tile-id", default="R0,0,0")
     parser.add_argument("--stage-xy-um", type=_parse_pair, default=[0.0, 0.0])
     parser.add_argument("--zwide-um", type=float, default=0.0)
@@ -109,11 +106,9 @@ def main():
     )
     parser.add_argument("--gpu", action="store_true", default=False)
     parser.add_argument("--output-dir", default=None)
-    parser.add_argument("--save-overview", default=None)
     args = parser.parse_args()
 
     image_path = Path(args.image_path)
-    yaml_path = DEEP_YAML if args.deep else CLASSICAL_YAML
     payload = {
         "image_path": str(image_path),
         "tile_id": _parse_tile_id(args.tile_id),
@@ -129,22 +124,8 @@ def main():
     if args.output_dir:
         payload["output_dir"] = args.output_dir
 
-    print(f"Pipeline:      {yaml_path}")
-    print(f"Image:         {image_path}")
-    print(f"Tile:          {payload['tile_id']}")
-    channels = payload["channels"] if payload["channels"] is not None else "auto"
-    print(f"Channels:      {channels}")
-    channel_axis = (
-        payload["channel_axis"]
-        if payload["channel_axis"] is not None
-        else "auto"
-    )
-    print(f"Channel axis:  {channel_axis}")
-    print(f"Deep features: {'yes' if args.deep else 'no'}")
-    print()
-
     with Engine() as engine:
-        engine.register("object_analysis", str(yaml_path))
+        engine.register("object_analysis", str(CLASSICAL_YAML))
         engine.submit("object_analysis", payload)
 
         while True:
@@ -158,18 +139,7 @@ def main():
             time.sleep(0.2)
 
     tile = results[0]["object_analysis"]
-    n_objects = tile["objects"]["n_objects"]
-    has_embeddings = "embeddings" in tile["objects"]
-    print("=" * 60)
-    print("  Result")
-    print("=" * 60)
-    print(f"  Objects detected: {n_objects}")
-    print(f"  Embeddings:       {'yes' if has_embeddings else 'no'}")
-
-    if args.save_overview:
-        path = save_overview(args.save_overview, {"tiles": [tile]})
-        print(f"  Overview saved:   {path}")
-    print()
+    print(f"Objects detected: {tile['objects']['n_objects']}")
 
 
 if __name__ == "__main__":

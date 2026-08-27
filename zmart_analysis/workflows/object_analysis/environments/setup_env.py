@@ -15,7 +15,7 @@ PYTHON_VERSION = "3.12"
 
 STEP_PROFILES = {
     "vision": {
-        "description": "Cellpose detection and DINOv2 deep features",
+        "description": "Cellpose detection",
         "install_torch": True,
         "pip_packages": [
             "pyyaml",
@@ -30,8 +30,6 @@ STEP_PROFILES = {
             "ngio",          # OME-Zarr, NGFF 0.4 and 0.5
             "ome-types",     # OME-XML metadata
             "cellpose",
-            "torchmetrics",
-            "termcolor",
         ],
         "diagnostics": [
             (
@@ -52,12 +50,6 @@ STEP_PROFILES = {
             ),
             ("OME-XML metadata", "import ome_types; print('OK')"),
             ("cellpose", "from cellpose import models; print('OK')"),
-            (
-                "DINOv2 hub API",
-                "import os; os.environ.setdefault('XFORMERS_DISABLED', '1'); "
-                "import torch; "
-                "print('OK' if hasattr(torch, 'hub') else 'FAIL')",
-            ),
         ],
     },
     "classical": {

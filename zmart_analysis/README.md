@@ -44,7 +44,9 @@ automatic re-sync. Taken: `engine/`, the shared `workflows/_*.py`,
 `object_analysis/`, `conftest.py`, `LICENSE`. Left: `basic_test`,
 `cell_analysis`, `rare_event_selection`, `target_discovery`, and the packaging.
 Upstream's `target_acquisition` was taken and then removed, superseded by
-`object_analysis`.
+`object_analysis`; so was the DINO deep-feature path (`extract_deep_features`,
+`_object_crops`, `_intensity_scale`, `load_detected_objects`, the `*_deep`
+pipelines) — unused here, and one `git archive` away when wanted.
 
 `workflows/_image_io.py` comes from a different branch,
 `claude/v4-branch-wweiv5` (`rare_event_selection/steps/image_io.py`) — the one
@@ -64,8 +66,7 @@ Kept minimal, so a re-sync stays cheap.
 - `_segmentation.py` reads through `_image_io`; `segment_tiff` became
   `segment_position`. It gained `filter_masks_by_border` for tile overlap, and
   `segmentation_params` now accepts per-submission overrides.
-- `load_detected_objects.py` and `run_pipeline.py` read through the same
-  contract.
+- `run_pipeline.py` reads through the same contract.
 
 Nothing in `engine/` was modified.
 
