@@ -153,6 +153,15 @@ export const backend = {
   },
 
   /**
+   * Capture once where the stage is standing: `acquire` through the
+   * controller, answering with the driver's record — what it wrote, and
+   * where. The one place a client learns the paths of the files a run made.
+   */
+  async acquire({ acquisition_type, position_label, options = null }) {
+    return ask("/api/acquire", { acquisition_type, position_label, options });
+  },
+
+  /**
    * Drive to each point and focus there. The bridge runs the autofocus
    * procedure per position and reports the heights; the sweep traces the
    * pretend backend charts are the mock's own knowledge, so live points come

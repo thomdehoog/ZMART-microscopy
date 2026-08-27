@@ -147,6 +147,29 @@ export function promisesOfABackend(expect) {
       },
     },
     {
+      what: "says what a capture wrote, and where",
+      async keep(backend) {
+        /* The record is the half nothing else can reconstruct: where a run
+           will land is knowable in advance, what one capture produced is not.
+           One acquisition is one file per plane, and the driver names them. */
+        const label = "K00_M000001_G000000_P000042_V00";
+        const record = await backend.acquire({
+          acquisition_type: "overview", position_label: label,
+        });
+        expect(record.images.length, "it names what it wrote").toBeGreaterThan(0);
+        expect(record.images).toEqual(record.planes.map((p) => p.path));
+        for (const plane of record.planes) {
+          for (const axis of ["t", "z", "c"]) {
+            expect(typeof plane[axis], `a plane says its ${axis}`).toBe("number");
+          }
+          /* The canonical name, flat: what the capture was, which capture it
+             was, where on the sample, and which plane of it. */
+          expect(plane.path).toContain(`overview_${record.acquisition_hash}_${label}_`);
+          expect(plane.path).toMatch(/_T\d{6}_C\d{2}_Z\d{5}\.ome\.tiff$/);
+        }
+      },
+    },
+    {
       what: "measures a focus point and reports a height for it",
       async keep(backend) {
         const { points } = await backend.measureFocus(

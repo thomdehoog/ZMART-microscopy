@@ -23,6 +23,7 @@ University of Zurich (thom.dehoog@zmb.uzh.ch, thomdehoog@gmail.com).
 from __future__ import annotations
 
 import time
+import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -235,13 +236,15 @@ def acquire(
     _require_open(handle)
     options = _with_defaults(handle, options)
     settle = "backlash-corrected" if options["backlash_correction"] else "direct"
-    path = _write_a_frame(handle, acquisition_type, position_label, options["format"])
+    acquisition_hash = uuid.uuid4().hex[:6]
+    path = _write_a_frame(handle, acquisition_type, acquisition_hash, position_label)
     # The two keys a client follows, in the shapes the real driver answers
     # with: ``images`` the simple list, ``planes`` the manifest that tells a
     # channel from a z. One plane, because this instrument captures one.
     planes = [{"t": 0, "z": 0, "c": 0, "path": str(path)}]
     return {
         "acquisition_type": acquisition_type,
+        "acquisition_hash": acquisition_hash,
         "position_label": position_label,
         "format": options["format"],
         "procedure": options["procedure"],
@@ -253,7 +256,7 @@ def acquire(
 
 
 def _write_a_frame(
-    handle: MockHandle, acquisition_type: str, position_label: str, image_format: str
+    handle: MockHandle, acquisition_type: str, acquisition_hash: str, position_label: str
 ) -> Path:
     """Write one OME-TIFF where a real driver would, and return the path.
 
@@ -270,7 +273,13 @@ def _write_a_frame(
     import tifffile  # noqa: PLC0415
 
     root = Path(handle.connection.get("output_root") or "mock-output")
-    path = root / acquisition_type / f"{position_label}.{image_format.split('-')[-1]}"
+    # The canonical name, flat, one file per plane: what the capture was, which
+    # capture it was, where on the sample, and which plane of it. Nothing has to
+    # be opened to know what it holds.
+    path = root / acquisition_type / (
+        f"{acquisition_type}_{acquisition_hash}_{position_label}_"
+        "T000000_C00_Z00000.ome.tiff"
+    )
     path.parent.mkdir(parents=True, exist_ok=True)
     px = _PIXEL_UM
     size = 64  # read to check a file arrived, never to look at
