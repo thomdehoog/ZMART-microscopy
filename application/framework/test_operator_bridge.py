@@ -218,3 +218,29 @@ def test_an_instrument_that_says_neither_gets_a_guess(monkeypatch):
     """And it is a guess, not a measurement: 512 px is a stand-in for a format
     nobody reported, kept only so the page has a frame to draw at all."""
     assert _frame({"pixel_size": {"x": 1.0}}, monkeypatch) == bridge._A_GUESSED_FORMAT_PX
+
+
+# --- what the instrument offers ----------------------------------------------
+
+
+def test_the_acquisition_menu_is_handed_over_untouched(monkeypatch):
+    """The driver's own menu, in the driver's own words.
+
+    ``options`` is what may be chosen and ``active`` what is chosen now, and
+    which settings exist at all is the driver's business — the page shows what
+    it is given and hands the same shape back at capture time, so anything
+    reworded here would have to be worded back before `acquire` could read it.
+    """
+    menu = {
+        "job": {"options": ["Overview", "HiRes"], "active": "Overview"},
+        "format": {"options": ["ome-tiff", "ome-zarr"], "active": "ome-tiff"},
+        "backlash_rounds": {"options": "int >= 0", "active": 0},
+    }
+
+    class Offering(_Driver):
+        def get_acquisition_options(self):
+            return menu
+
+    monkeypatch.setattr(bridge, "_session", Offering())
+    assert bridge._acquisition_options() == menu
+

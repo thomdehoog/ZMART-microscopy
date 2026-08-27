@@ -105,6 +105,25 @@ export function promisesOfABackend(expect) {
       },
     },
     {
+      what: "offers a menu of what a capture may be told, and what is chosen",
+      async keep(backend) {
+        const menu = await backend.get_acquisition_options();
+        const named = Object.entries(menu);
+        expect(named.length, "the instrument offers something").toBeGreaterThan(0);
+        for (const [name, spec] of named) {
+          expect(spec, `${name} says what is chosen`).toHaveProperty("active");
+          expect(spec, `${name} says what may be chosen`).toHaveProperty("options");
+          /* Where the choices are a list, what is active has to be one of
+             them — a menu whose current value is not on it cannot be shown as
+             a chooser, and cannot be handed back to `acquire` either. */
+          if (Array.isArray(spec.options)) {
+            expect(spec.options, `${name}'s active is one of its options`)
+              .toContain(spec.active);
+          }
+        }
+      },
+    },
+    {
       what: "measures a focus point and reports a height for it",
       async keep(backend) {
         const { points } = await backend.measureFocus(
