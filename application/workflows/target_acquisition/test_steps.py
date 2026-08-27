@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 import json
+import sys
+import types
 
 import pytest
 from application.workflows.target_acquisition.steps.focus_strategy.focus_surface import fit_focus_surface
 from application.workflows.target_acquisition.the_run import (
+    ANALYSIS_PIPELINE,
+    ANALYSIS_QUEUE,
     acquire_targets,
     connect,
     hijack_if_simulating,
@@ -56,26 +60,39 @@ def test_load_positions_reads_json(tmp_path):
     assert load_positions(path) == [{"x": 1.0, "y": 2.0}, {"x": 3.0, "y": 4.0, "z": 5.0}]
 
 
-def test_load_analysis_engine_uses_configured_repo(tmp_path):
-    pipeline = tmp_path / "workflows" / "target_acquisition" / "pipelines" / "overview.yaml"
-    pipeline.parent.mkdir(parents=True)
-    pipeline.write_text("overview: []\n", encoding="utf-8")
-    (tmp_path / "engine.py").write_text(
-        "class Engine:\n"
-        "    marker = 'ok'\n"
-        "    def __init__(self): self.registered = []\n"
-        "    def register(self, name, path): self.registered.append((name, path))\n"
-        "    def shutdown(self): pass\n",
-        encoding="utf-8",
+def test_the_analysis_pipeline_is_in_this_repository():
+    """No checkout to find: the pipeline ships beside the workflow that runs it."""
+    assert ANALYSIS_QUEUE == "object_analysis"
+    assert ANALYSIS_PIPELINE.is_file(), ANALYSIS_PIPELINE
+
+
+def test_the_queue_name_matches_the_pipeline_it_registers():
+    """The engine keys a pipeline by the top-level name in its own YAML."""
+    body = ANALYSIS_PIPELINE.read_text(encoding="utf-8")
+    assert any(
+        line.startswith(f"{ANALYSIS_QUEUE}:") for line in body.splitlines()
     )
-    engine = load_analysis_engine(tmp_path)
-    assert engine.marker == "ok"
-    assert engine.registered == [("overview", pipeline)]
 
 
-def test_load_analysis_engine_requires_v4_pipeline(tmp_path):
-    with pytest.raises(FileNotFoundError, match="v4-engine"):
-        load_analysis_engine(tmp_path)
+def test_load_analysis_engine_registers_that_pipeline(monkeypatch):
+    import application.workflows.target_acquisition.the_run as the_run
+
+    class FakeEngine:
+        def __init__(self):
+            self.registered = []
+
+        def register(self, name, path):
+            self.registered.append((name, path))
+
+        def shutdown(self):
+            pass
+
+    module = types.ModuleType("zmart_analysis.engine")
+    module.Engine = FakeEngine
+    monkeypatch.setitem(sys.modules, "zmart_analysis.engine", module)
+
+    engine = the_run.load_analysis_engine()
+    assert engine.registered == [(ANALYSIS_QUEUE, str(ANALYSIS_PIPELINE))]
 
 
 def test_analysis_preflight_runs_a_real_pipeline_submission():
@@ -86,7 +103,9 @@ def test_analysis_preflight_runs_a_real_pipeline_submission():
 
         def submit(self, queue, job):
             self.jobs.append(job)
-            self._results.append({"input": job, "pick_targets": {"picks": []}})
+            self._results.append(
+                {"input": job, "object_analysis": {"objects": {"properties": {}}}}
+            )
 
         def status(self, queue):
             return {"pending": 0, "running": 0, "failed": 0, "failures": []}

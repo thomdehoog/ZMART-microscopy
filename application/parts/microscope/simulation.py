@@ -259,28 +259,49 @@ class SimulatedEngine:
     def results(self, _queue: str) -> list[dict]:
         from skimage.measure import label, regionprops
 
+        from zmart_analysis.workflows._geometry import image_point_to_stage_xy
+
         while self._pending:
             payload = self._pending.pop(0)
             image = tifffile.imread(payload["image_path"]).astype(np.float32)
             threshold = float(image.mean() + 2.0 * image.std())
             labels = label(image > threshold)
-            picks = []
+            rows = []
             for region in regionprops(labels, intensity_image=image):
                 if region.area < 6:
                     continue  # noise specks are not cells
                 row, col = region.centroid
-                picks.append(
+                stage_x_um, stage_y_um = image_point_to_stage_xy(
+                    centroid_row_px=row,
+                    centroid_col_px=col,
+                    image_size_px=payload["source_image_size_px"],
+                    pixel_size_um=payload["source_pixel_size_um"],
+                    tile_stage_xy_um=payload["tile_stage_xy_um"],
+                    image_to_stage=payload["image_to_stage"],
+                )
+                rows.append(
                     {
-                        "centroid_col_row_px": (float(col), float(row)),
-                        "area_px": float(region.area),
+                        "label": int(region.label),
+                        "centroid_row_px": float(row),
+                        "centroid_col_px": float(col),
+                        "stage_x_um": float(stage_x_um),
+                        "stage_y_um": float(stage_y_um),
+                        "area": float(region.area),
                         "eccentricity": float(region.eccentricity),
-                        "mean_intensity": float(getattr(region, "intensity_mean", 0.0)),
+                        "intensity_mean": float(getattr(region, "intensity_mean", 0.0)),
                     }
                 )
-            n_picks = payload.get("n_picks")
-            if n_picks:
-                picks.sort(key=lambda p: p["area_px"], reverse=True)
-                picks = picks[: int(n_picks)]
-            self._done.append({"input": payload, "pick_targets": {"picks": picks}})
+            properties = {
+                name: [row[name] for row in rows]
+                for name in (rows[0] if rows else {})
+            }
+            self._done.append(
+                {
+                    "input": payload,
+                    "object_analysis": {
+                        "objects": {"properties": properties, "n_objects": len(rows)},
+                    },
+                }
+            )
         drained, self._done = self._done, []
         return drained

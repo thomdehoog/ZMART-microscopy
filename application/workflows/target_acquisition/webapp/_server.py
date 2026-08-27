@@ -246,7 +246,6 @@ def make_server(
     host: str = "127.0.0.1",
     port: int = 8765,
     demo: bool = False,
-    analysis_repo: Any = None,
     vendor: str = "leica",
     demo_root: Any = None,
     af_job: str | None = None,
@@ -257,7 +256,6 @@ def make_server(
     flow = RunFlow(
         hub,
         demo=demo,
-        analysis_repo=analysis_repo,
         vendor=vendor,
         demo_root=demo_root,
         af_job=af_job,

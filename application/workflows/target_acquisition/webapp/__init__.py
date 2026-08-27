@@ -4,7 +4,7 @@ Start it and open the printed address — no Jupyter needed:
 
     python run_webapp.py --demo            # simulated microscope
     python run_webapp.py --demo --window   # simulated, in its own desktop window
-    python run_webapp.py --analysis-repo C:/code/smart-analysis
+    python run_webapp.py
 
 The page walks the exact steps of ``zmart_microscopy_v4_react.ipynb``
 (connect → origin → jobs → focus → overview → discover →

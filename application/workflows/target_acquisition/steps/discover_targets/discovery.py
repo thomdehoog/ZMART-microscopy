@@ -1,9 +1,12 @@
-"""Target discovery: segment overviews via the analysis engine -> frame targets.
+"""Target discovery: analyse overviews with ZMART Analysis -> frame targets.
 
-Reuses the existing cellpose analysis engine (``submit`` / ``status`` / ``results``)
-for segmentation -- no reinvented segmentation. Each detected cell's pixel centroid
-is converted to a frame ``(x, y)`` target here via ``overview_pixel_to_frame`` (no
-calibration, no ``navigator_expert`` import); the engine is used only to find cells.
+Submits each overview to the ``object_analysis`` pipeline -- cellpose
+detection, then per-object features -- and turns the object table it returns
+into frame targets. No segmentation and no geometry of its own: the analysis
+is handed the overview's centre and pixel size, so it places each object in
+frame micrometres itself, and this reads the answer.
+
+No calibration and no ``navigator_expert`` import.
 """
 
 from __future__ import annotations
@@ -12,7 +15,6 @@ import time
 import xml.etree.ElementTree as ET
 from typing import Any
 
-from application.workflows.target_acquisition.geom import overview_pixel_to_frame
 
 # OME PhysicalSize is µm by default (no Unit attribute); support the handful of
 # length units a real native file might carry, expressed as µm-per-unit.
@@ -153,15 +155,23 @@ def discover_targets(
     *,
     feature: str = "area",
     n_picks: int | None = None,
-    queue: str = "overview",
+    queue: str = "object_analysis",
     poll_interval: float = 0.05,
 ) -> list[dict]:
-    """Segment each overview via *engine*; return target frame positions.
+    """Analyse each overview via *engine*; return target frame positions.
 
-    Each overview dict provides ``image_path``, ``center_frame_um`` (x, y um -- the
-    frame position the overview was captured at), ``pixel_size_um``, and
+    Each overview dict provides ``image_path``, ``center_frame_um`` (x, y um --
+    the frame position the overview was captured at), ``pixel_size_um``, and
     ``image_size_px`` (H, W). Submits every overview, drains the engine to
     completion, and returns ``[{"x", "y", "source": {...}}]`` frame targets.
+
+    ``source`` carries the object's whole row of the analysis table, not a
+    chosen few columns: what an operator gates on is a decision made later,
+    and a feature dropped here is one the page cannot offer.
+
+    ``n_picks`` keeps only the highest-scoring objects per overview, ranked by
+    the ``feature`` column. Leave it ``None`` to return every object found --
+    which is what the operator page wants, since gating them is its job.
     """
     for index, overview in enumerate(overviews):
         engine.submit(
@@ -185,8 +195,6 @@ def discover_targets(
                     int(overview["image_size_px"][0]),
                 ),
                 "image_to_stage": _identity_image_to_stage(),
-                "n_picks": n_picks,
-                "feature": feature,
             },
         )
 
@@ -202,27 +210,7 @@ def discover_targets(
             if result_index not in by_index:
                 raise RuntimeError(f"smart analysis returned unknown overview index {result_index}")
             seen.add(result_index)
-            overview = by_index[result_index]
-            for pick in result.get("pick_targets", {}).get("picks", []):
-                x_um, y_um = overview_pixel_to_frame(
-                    centroid_col_row_px=tuple(pick["centroid_col_row_px"]),
-                    image_shape_px=tuple(overview["image_size_px"]),
-                    pixel_size_um=float(overview["pixel_size_um"]),
-                    image_center_frame_um=tuple(overview["center_frame_um"]),
-                )
-                targets.append(
-                    {
-                        "x": x_um,
-                        "y": y_um,
-                        "source": {
-                            "naming_p": result_index,
-                            "centroid_col_row_px": tuple(pick["centroid_col_row_px"]),
-                            "area_px": pick.get("area_px"),
-                            "eccentricity": pick.get("eccentricity"),
-                            "mean_intensity": pick.get("mean_intensity"),
-                        },
-                    }
-                )
+            targets.extend(_targets_from(result, result_index, feature, n_picks))
         if status.get("failed", 0):
             failures = status.get("failures") or []
             details = "; ".join(
@@ -237,3 +225,41 @@ def discover_targets(
     if missing:
         raise RuntimeError(f"smart analysis completed without results for overviews {missing}")
     return targets
+
+
+def _targets_from(
+    result: dict, overview_index: int, feature: str, n_picks: int | None
+) -> list[dict]:
+    """One overview's object table, as frame targets.
+
+    The table already carries ``stage_x_um`` / ``stage_y_um``: the analysis is
+    handed the overview's centre and pixel size, so it places each object in
+    frame micrometres itself. Converting here as well would be the same
+    arithmetic written twice.
+    """
+    properties = result["object_analysis"]["objects"]["properties"]
+    labels = properties.get("label", [])
+    if not len(labels):
+        return []
+    if feature not in properties:
+        raise RuntimeError(
+            f"the analysis table has no {feature!r} column to rank by; "
+            f"it offers {sorted(properties)}"
+        )
+
+    rows = range(len(labels))
+    if n_picks is not None:
+        rows = sorted(rows, key=lambda row: properties[feature][row], reverse=True)
+        rows = sorted(rows[:n_picks])
+
+    return [
+        {
+            "x": float(properties["stage_x_um"][row]),
+            "y": float(properties["stage_y_um"][row]),
+            "source": {
+                "naming_p": overview_index,
+                **{name: values[row] for name, values in properties.items()},
+            },
+        }
+        for row in rows
+    ]

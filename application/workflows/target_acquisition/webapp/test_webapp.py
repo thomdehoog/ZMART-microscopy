@@ -710,13 +710,13 @@ def test_live_cli_registers_instrument_before_starting_server(monkeypatch):
     from workflow.webapp import __main__ as cli
 
     calls = []
-    monkeypatch.setattr(sys, "argv", ["workflow.webapp", "--analysis-repo", "/analysis"])
+    monkeypatch.setattr(sys, "argv", ["workflow.webapp"])
     monkeypatch.setattr(cli.importlib, "import_module", lambda name: calls.append(("import", name)))
     monkeypatch.setattr(cli, "serve", lambda **kwargs: calls.append(("serve", kwargs)))
     cli.main()
     assert calls[0] == ("import", "_bootstrap")
     assert calls[1][0] == "serve"
-    assert calls[1][1]["analysis_repo"] == "/analysis"
+    assert calls[1][1]["demo"] is False
 
 
 def test_demo_cli_stays_driver_free(monkeypatch):
@@ -738,7 +738,6 @@ def test_demo_cli_stays_driver_free(monkeypatch):
             "host": "127.0.0.1",
             "port": 8765,
             "demo": True,
-            "analysis_repo": None,
             "vendor": "leica",
             "demo_root": None,
             "af_job": None,
