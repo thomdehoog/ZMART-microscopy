@@ -33,18 +33,14 @@
  */
 const acquisition = ({ objective, pixelUm, framePx, channels, zStack }) => {
   const frameUm = Math.round(framePx * pixelUm);
-  /* The line an operator checks a configuration by, in the order they check
-     it: which lens, how much light it collects, what the scanner does on top,
-     and what that comes to on the sample. Composed from the reading rather
-     than written beside it, so the two cannot say different things. */
-  const lens = objective.match(/([\d.]+)x/)?.[1];
-  const na = objective.match(/([\d.]+)\s*NA/)?.[1];
-  const wet = objective.match(/NA\s+(\w+)/)?.[1];
-  const summary = [
-    lens && `${lens}x`,
-    na && `${na} NA${wet ? ` ${wet}` : ""}`,
-    `${pixelUm} µm/px`,
-  ].filter(Boolean).join(" · ");
+  /* The line an operator checks a configuration by: the objective as the
+     instrument names it, and what a pixel comes to on the sample. The name
+     already carries the magnification and the aperture, so picking those back
+     out of it and setting them in a row of their own was the same reading
+     written twice — and it threw away the part that identifies the lens on the
+     shelf. Composed from the reading rather than typed beside it, so the two
+     cannot come to say different things. */
+  const summary = `${objective}, ${pixelUm} µm/px`;
   return {
     summary, pixelUm, framePx, frameUm,
     detail: [
@@ -79,10 +75,15 @@ const acquisition = ({ objective, pixelUm, framePx, channels, zStack }) => {
  * autofocus has no metric, no sweep and no steps: filling those in as blanks
  * would be a form pretending the two are the same kind of thing.
  */
-const softwareAutofocus = ({ objective, pixelUm, framePx, channel, metric, range, steps }) => {
+const softwareAutofocus = ({ objective, pixelUm, framePx, channel, metric, rangeUm, stepUm }) => {
   const frameUm = Math.round(framePx * pixelUm);
+  /* How far it sweeps, how finely, and at what format — the three an operator
+     checks a focus configuration by, because they are what decide whether it
+     will find the tissue and what it costs to look. The objective led this line
+     and is the one thing the setting does not choose: it comes with the job. */
+  const planes = Math.round((2 * rangeUm) / stepUm) + 1;
   return {
-    summary: `Software · ${short(objective)}`,
+    summary: `${2 * rangeUm} µm stack, ${stepUm} µm steps, ${framePx} × ${framePx}`,
     kind: "software", pixelUm, framePx, frameUm,
     detail: [
       ["Focus", "Software · sharpness of the image"],
@@ -90,8 +91,8 @@ const softwareAutofocus = ({ objective, pixelUm, framePx, channel, metric, range
       ["Channel", channel],
       ["Frame", `${framePx} × ${framePx} px · ${frameUm} × ${frameUm} µm`],
       ["Metric", metric],
-      ["Range", range],
-      ["Steps", steps],
+      ["Stack", `${2 * rangeUm} µm · ±${rangeUm} µm about the start`],
+      ["Steps", `${planes} planes · ${stepUm} µm apart`],
     ],
   };
 };
@@ -99,7 +100,9 @@ const softwareAutofocus = ({ objective, pixelUm, framePx, channel, metric, range
 const hardwareAutofocus = ({ objective, pixelUm, framePx, source, offset, hold }) => {
   const frameUm = Math.round(framePx * pixelUm);
   return {
-    summary: `Hardware · ${short(objective)}`,
+    /* No stack and no steps: it measures the glass rather than looking through
+       it, so what is left of the three is the format it holds at. */
+    summary: `Hardware, no stack, ${framePx} × ${framePx}`,
     kind: "hardware", pixelUm, framePx, frameUm,
     detail: [
       ["Focus", "Hardware · reflection off the coverslip"],
@@ -119,8 +122,6 @@ const hardwareAutofocus = ({ objective, pixelUm, framePx, source, offset, hold }
  * software or hardware and through which lens; the rest of it is one fold
  * away.
  */
-const short = (objective) => objective.match(/\d+x/)?.[0] ?? objective;
-
 export const SETTING_TYPES = [
   {
     key: "acquisition",
@@ -172,7 +173,7 @@ export const SETTING_TYPES = [
         objective: "HC PL APO 10x / 0.40 NA dry",
         pixelUm: 0.65, framePx: 2048,
         channel: "GFP · 488 nm · 20 ms · gain 1.0",
-        metric: "Brenner gradient", range: "±30 µm", steps: "61 · 1.0 µm apart",
+        metric: "Brenner gradient", rangeUm: 30, stepUm: 1,
       }),
       hardwareAutofocus({
         objective: "HC PL APO 20x / 0.75 NA dry",
@@ -185,7 +186,7 @@ export const SETTING_TYPES = [
         objective: "HC PL FLUOTAR 5x / 0.15 NA dry",
         pixelUm: 1.30, framePx: 2048,
         channel: "GFP · 488 nm · 30 ms · gain 1.0",
-        metric: "DCT energy", range: "±60 µm", steps: "41 · 3.0 µm apart",
+        metric: "DCT energy", rangeUm: 60, stepUm: 3,
       }),
       hardwareAutofocus({
         objective: "HC PL APO 63x / 1.40 NA oil",
