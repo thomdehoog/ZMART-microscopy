@@ -625,7 +625,10 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
   grid-template-columns: repeat(var(--cols, 2), minmax(0, 1fr)) 30px;
   gap: 4px 6px; align-items: center; width: 100%;
 }
-.anchor-count { text-align: center; }
+/* Read from the left, like every other number in this channel. Centred, it
+   was the one figure on the page that did not start where its neighbours
+   start. */
+.anchor-count { text-align: left; }
 .anchor-add { grid-column: 2 / -1; justify-content: center; white-space: nowrap; }
 
 .carrier-card .sf-flat {
