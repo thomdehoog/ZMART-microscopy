@@ -41,6 +41,9 @@ The verbs, and what they are made of
   answering with what the driver says it applied. The body is the settings
   themselves; the bridge puts them in ``changeable``, which is where the
   contract says a client's instructions go.
+* ``POST /api/acquire`` — capture once where the stage is standing
+  (``acquire``), answering with the driver's record: what it wrote, and where.
+  The one place a client learns the paths of the files a run made.
 * ``POST /api/focus/measure`` — the autofocus procedure, run at each requested
   position: drive there, focus, report the height. This is the one place a
   preset-shaped request *does* something, which is exactly why it is its own
@@ -351,6 +354,26 @@ def _apply_state(asked: dict) -> dict:
     return _require_session().set_state({"changeable": dict(asked)})
 
 
+def _capture(asked: dict) -> dict:
+    """Capture once where the stage is standing, and answer with the record.
+
+    The record is the half nothing else can reconstruct. Where a run will land
+    is in ``get_info``; what one capture wrote is known only to the capture —
+    the driver names its own files, and one acquisition is one file per plane.
+    So it is answered whole rather than picked over.
+
+    ``options`` go through as they came from ``get_acquisition_options``.
+    Whatever is left out the driver fills from its own actives, which is why
+    nothing here invents a default.
+    """
+    session = _require_session()
+    return session.acquire(
+        acquisition_type=str(asked["acquisition_type"]),
+        position_label=str(asked["position_label"]),
+        options=asked.get("options"),
+    )
+
+
 def _acquisition_options() -> dict:
     """What the instrument offers for a capture, and what is chosen now.
 
@@ -557,6 +580,9 @@ class _Bridge(BaseHTTPRequestHandler):
             elif self.path == "/api/state":
                 with _the_instruments_turn:
                     self._answer(_apply_state(asked))
+            elif self.path == "/api/acquire":
+                with _the_instruments_turn:
+                    self._answer(_capture(asked))
             elif self.path == "/api/focus/measure":
                 with _the_instruments_turn:
                     self._answer(_measure_focus(asked))

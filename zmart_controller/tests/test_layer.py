@@ -95,9 +95,11 @@ class TestAcquire:
         assert len(rec["planes"]) == 1
         plane = rec["planes"][0]
         assert (plane["t"], plane["z"], plane["c"]) == (0, 0, 0)
-        assert plane["path"].endswith("K00_P000001.tiff")
-        # filed under the kind of scan it was, as the real driver does
-        assert "overview" in plane["path"]
+        # The canonical name, flat and complete: what the capture was, which
+        # capture it was, where on the sample, and which plane of it.
+        name = Path(plane["path"]).name
+        assert name.startswith(f"overview_{rec['acquisition_hash']}_K00_P000001_")
+        assert name.endswith("_T000000_C00_Z00000.ome.tiff")
 
     def test_acquire_writes_the_file_it_names(self, mic):
         """It writes, because the real driver writes.

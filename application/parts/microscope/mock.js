@@ -153,6 +153,32 @@ export const backend = {
   },
 
   /**
+   * Capture once where the stage is standing, answering with the record.
+   *
+   * The names are the convention's, flat and complete: what the capture was,
+   * which capture it was, where on the sample, and which plane of it — so
+   * nothing has to be opened to know what it holds. A browser writes no
+   * files, so these are paths the rehearsal names and does not make; through
+   * the bridge the same names are files on disk.
+   */
+  async acquire({ acquisition_type, position_label, options = null }) {
+    await wait(240);
+    const hash6 = makeRng(where.x + where.y + captures++)()
+      .toString(36).slice(2, 8).padEnd(6, "0");
+    const path = `${acquisition_type}/${acquisition_type}_${hash6}_`
+      + `${position_label}_T000000_C00_Z00000.ome.tiff`;
+    return {
+      acquisition_type,
+      acquisition_hash: hash6,
+      position_label,
+      format: options?.format ?? "ome-tiff",
+      position: { ...where },
+      images: [path],
+      planes: [{ t: 0, z: 0, c: 0, path }],
+    };
+  },
+
+  /**
    * Drive to each point, focus there, and report what was found.
    *
    * Every measured point comes back with its height, plus everything the
@@ -265,6 +291,10 @@ export const pretendConnectionStatus = ({ connection }) => ({
 
 /** Its canvas: the travel a page draws to scale. */
 const pretendCanvas = () => ({ x_um: [0, TRAVEL_UM.x], y_um: [0, TRAVEL_UM.y] });
+
+/* How many captures this instrument has taken, so two at one place still get
+   names of their own — which is what the hash is for on a real one. */
+let captures = 0;
 
 /* The jobs this pretend instrument has stored, and which is chosen. The same
    three the controller's mock driver keeps, so the page meets one instrument

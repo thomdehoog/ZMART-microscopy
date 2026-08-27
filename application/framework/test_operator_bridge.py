@@ -264,3 +264,59 @@ def test_a_setting_is_applied_as_the_changeable_half_of_state(monkeypatch):
     assert sent == {"changeable": {"job": "HiRes"}}
     assert answered == {"applied": {"job": "HiRes"}}
 
+
+# --- capturing ---------------------------------------------------------------
+
+
+class _Capturing(_Driver):
+    """A driver that records what it was asked to capture."""
+
+    def __init__(self):
+        super().__init__()
+        self.asked = []
+
+    def acquire(self, *, acquisition_type, position_label, options=None):
+        self.asked.append((acquisition_type, position_label, options))
+        return {
+            "acquisition_type": acquisition_type,
+            "position_label": position_label,
+            "images": [f"/root/{acquisition_type}/{position_label}.tiff"],
+            "planes": [{"t": 0, "z": 0, "c": 0,
+                        "path": f"/root/{acquisition_type}/{position_label}.tiff"}],
+        }
+
+
+def test_a_capture_answers_with_the_record_the_driver_made(monkeypatch):
+    """The record is the half nothing else can reconstruct.
+
+    Where a run will land is in `get_info`; what one capture wrote is only
+    known to the capture — a driver names its own files, and one acquisition
+    can be many planes. Answered whole rather than picked over.
+    """
+    driver = _Capturing()
+    monkeypatch.setattr(bridge, "_session", driver)
+    record = bridge._capture({
+        "acquisition_type": "overview",
+        "position_label": "K00_M000001_G000000_P000007_V00",
+    })
+    assert record["images"] == ["/root/overview/K00_M000001_G000000_P000007_V00.tiff"]
+    assert record["planes"][0]["c"] == 0
+
+
+def test_the_options_a_capture_is_given_reach_the_driver(monkeypatch):
+    """Straight from the menu the page read, straight back to the driver.
+
+    Omitted ones the driver fills from its own actives, which is why nothing
+    here invents a default.
+    """
+    driver = _Capturing()
+    monkeypatch.setattr(bridge, "_session", driver)
+    bridge._capture({
+        "acquisition_type": "target",
+        "position_label": "K00_M000002_G000001_P000003_V00",
+        "options": {"format": "ome-zarr"},
+    })
+    assert driver.asked[-1] == (
+        "target", "K00_M000002_G000001_P000003_V00", {"format": "ome-zarr"},
+    )
+
