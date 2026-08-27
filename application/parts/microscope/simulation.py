@@ -201,6 +201,7 @@ class SimulatedSession:
             self.root
             / ".staging"
             / acquisition_type
+            / "data"
             / (
                 f"{acquisition_type}_{acquisition_hash}_{position_label}_"
                 "T000000_C00_Z00000.ome.tiff"

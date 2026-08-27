@@ -95,3 +95,16 @@ def acquisition_dir(output_root: Path | str, acquisition_type: str) -> Path:
     """Return the driver's staging directory for an acquisition type."""
 
     return Path(output_root) / acquisition_type
+
+
+def data_dir(output_root: Path | str, acquisition_type: str) -> Path:
+    """Return where the images of an acquisition go: ``<type>/data``.
+
+    An acquisition is a folder with parts, and the pixels the microscope
+    captured are one of them. Giving them their own folder leaves room beside
+    it for what is made from them afterwards -- a stitched view, an analysis --
+    and for the vendor's own copy, without any of those having to be told apart
+    from an image by its name.
+    """
+
+    return acquisition_dir(output_root, acquisition_type) / "data"

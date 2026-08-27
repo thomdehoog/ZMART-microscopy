@@ -390,7 +390,7 @@ class TestNativeSave:
         run_dir = tmp_path / "run_000001"
         for idx, image_path in saved.image_paths.items():
             # Flat write directly under the acquisition-type folder.
-            assert image_path.parent == run_dir / "overview-scan"
+            assert image_path.parent == run_dir / "overview-scan" / "data"
             arr = tifffile.imread(str(image_path))
             assert arr.shape == (8, 8)
             assert arr[0, 0] == 10 * idx.z + idx.c
