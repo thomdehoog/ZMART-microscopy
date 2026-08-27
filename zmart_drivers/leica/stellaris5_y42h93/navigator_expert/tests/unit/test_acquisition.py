@@ -423,9 +423,9 @@ class TestSave:
             naming,
         )
 
-        # Flat: one 2-D plane per file directly under the acquisition folder,
+        # Flat: one 2-D plane per file in the acquisition's ``data`` folder,
         # no sidecar XML.
-        expected_image = output_root / "overview-scan" / build_image_name(naming)
+        expected_image = output_root / "overview-scan" / "data" / build_image_name(naming)
         assert isinstance(result, drv.SavedAcquisition)
         assert set(result.image_paths) == set(patched_export["plane_paths"])
         assert result.image_paths[drv.PlaneIndex(t=0, z=0, c=0)] == expected_image
@@ -438,7 +438,7 @@ class TestSave:
         rec = next(
             r for r in summary["acquisitions"] if r["naming"]["c"] == 0 and r["naming"]["z"] == 0
         )
-        assert rec["image_path"] == ("overview-scan/" + build_image_name(naming))
+        assert rec["image_path"] == ("overview-scan/data/" + build_image_name(naming))
         assert "xml_path" not in rec
         assert rec["source_exporter"] == "lasx_native_autosave"
         assert rec["naming"]["position_label"] == "000003"
@@ -710,7 +710,7 @@ class TestSave:
                 cleanup_source=False,
             )
 
-        out_img = next((tmp_path / "out" / "overview-scan").glob("*.ome.tiff"))
+        out_img = next((tmp_path / "out" / "overview-scan" / "data").glob("*.ome.tiff"))
         assert image_path.read_bytes() == source_before
         assert b'Wavelength="0"' not in out_img.read_bytes()
         assert fix_ome_tiff.call_count == 0
@@ -807,6 +807,30 @@ class TestSave:
         for item in rec["vendor_metadata"]:
             assert (output_root / item["path"]).is_file()
             assert item["sha256"]
+
+    def test_the_images_have_a_folder_of_their_own_inside_the_acquisition(
+        self,
+        patched_export,
+        successful_acq,
+        tmp_path,
+        naming,
+    ):
+        """``data`` is one part of an acquisition, and the vendor copy another.
+
+        What the microscope captured goes in ``data``; everything derived from
+        it later -- a stitched view, an analysis -- becomes a folder beside it
+        rather than something to be told apart from the images by name. The
+        vendor's own metadata already sits there, so nothing in the acquisition
+        folder is loose.
+        """
+        output_root = tmp_path / "run_000001"
+
+        drv.save(None, successful_acq, output_root, naming)
+
+        acquisition_folder = output_root / "overview-scan"
+        data = acquisition_folder / "data"
+        assert {path.name for path in acquisition_folder.iterdir()} == {"data", "vendor"}
+        assert all(path.suffixes == [".ome", ".tiff"] for path in data.iterdir())
 
     def test_repeated_save_replaces_summary_record(
         self,
