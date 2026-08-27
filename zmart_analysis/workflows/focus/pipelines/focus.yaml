@@ -1,0 +1,15 @@
+# Sharpness of every plane in an acquired z-stack, and the height it peaks at.
+
+metadata:
+  purpose: "Focus scoring for a z-stack"
+  version: "1.0"
+  verbose: 1
+  functions_dir: "../steps"
+
+focus:
+  - score_focus:
+      metric: brenner
+      channel: 0
+      level: 0
+      t: 0
+      skip_ends: 2
