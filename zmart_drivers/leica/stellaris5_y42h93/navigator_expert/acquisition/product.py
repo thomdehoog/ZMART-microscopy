@@ -138,3 +138,4 @@ class SavedAcquisition:
     naming: Naming
     xml_paths: dict[PositionIndex, Path] = field(default_factory=dict)
     vendor_metadata_paths: tuple[Path, ...] = ()
+    state_paths: tuple[Path, ...] = ()
