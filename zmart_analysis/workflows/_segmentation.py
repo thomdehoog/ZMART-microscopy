@@ -322,18 +322,8 @@ def filter_masks_by_area(masks, *, min_area_px=None, max_area_px=None):
     if max_area_px is not None:
         keep &= areas <= max_area_px
 
-    mapping = np.zeros(len(areas), dtype=np.int32)
-    next_label = 1
-    dropped_labels = []
-    for label in range(1, len(areas)):
-        if areas[label] == 0:
-            continue
-        if keep[label]:
-            mapping[label] = next_label
-            next_label += 1
-        else:
-            dropped_labels.append(int(label))
-    return mapping[masks].astype(np.int32, copy=False), dropped_labels
+    present = np.flatnonzero(areas)
+    return _keep_labels(masks, [int(l) for l in present if l and keep[l]])
 
 
 def filter_masks_by_border(masks, *, border_margin_px=None):
@@ -368,25 +358,25 @@ def filter_masks_by_border(masks, *, border_margin_px=None):
         )
 
     margin = border_margin_px
-    on_the_edge = np.concatenate([
+    touching = set(np.unique(np.concatenate([
         masks[:margin, :].ravel(), masks[-margin:, :].ravel(),
         masks[:, :margin].ravel(), masks[:, -margin:].ravel(),
-    ])
-    touching = set(np.unique(on_the_edge).tolist()) - {0}
+    ])).tolist())
+    present = np.flatnonzero(np.bincount(masks.ravel()))
+    return _keep_labels(masks, [int(l) for l in present if l and l not in touching])
 
-    areas = np.bincount(masks.ravel())
-    mapping = np.zeros(len(areas), dtype=np.int32)
-    next_label = 1
-    dropped_labels = []
-    for label in range(1, len(areas)):
-        if areas[label] == 0:
-            continue
-        if label in touching:
-            dropped_labels.append(int(label))
-        else:
-            mapping[label] = next_label
-            next_label += 1
-    return mapping[masks].astype(np.int32, copy=False), dropped_labels
+
+def _keep_labels(masks, keep: list[int]):
+    """Renumber *keep* from 1 and drop the rest; return (masks, dropped).
+
+    Both filters end here, because relabelling after a drop is one operation
+    however the labels were chosen.
+    """
+    mapping = np.zeros(int(masks.max()) + 1, dtype=np.int32)
+    mapping[keep] = np.arange(1, len(keep) + 1, dtype=np.int32)
+    dropped = sorted(set(np.flatnonzero(np.bincount(masks.ravel())).tolist())
+                     - set(keep) - {0})
+    return mapping[masks].astype(np.int32, copy=False), [int(d) for d in dropped]
 
 
 _filter_masks_by_area = filter_masks_by_area

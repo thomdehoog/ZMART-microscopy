@@ -48,9 +48,7 @@ Outputs (under pipeline_data["score_focus"])
     n_planes   : int
     considered : (int, int)              first and last plane the peak was
                                          allowed to come from, inclusive
-    settings   : dict                    what this run was scored with, so a
-                                         trace can be read back years later
-                                         without the pipeline beside it
+    settings   : dict                    what this run was scored with
 """
 
 from __future__ import annotations
@@ -111,8 +109,8 @@ def run(pipeline_data: dict, state: dict, **params) -> dict:
         raise ValueError(f"skip_ends must be >= 0, got {skip_ends}.")
 
     inp = pipeline_data["input"]
-    planes, image = _planes(inp["image_path"], level=level, t=t, channel=channel)
-    z_um = inp.get("z_um") or _heights_from(image, len(planes))
+    planes, metadata = _planes(inp["image_path"], level=level, t=t, channel=channel)
+    z_um = inp.get("z_um") or _heights_from(metadata, len(planes))
     if z_um is not None and len(z_um) != len(planes):
         raise ValueError(
             f"z_um has {len(z_um)} heights but the stack has {len(planes)} planes."
@@ -150,19 +148,14 @@ def run(pipeline_data: dict, state: dict, **params) -> dict:
         "peak_z_um": decided["peak_z_um"],
         "n_planes": len(planes),
         "considered": (skip_ends, len(planes) - skip_ends - 1),
-        # Nothing here is tuned per run, but a curve is only interpretable
-        # beside the settings that produced it -- and the pipeline that held
-        # them is not saved with the data.
+        # A curve is only readable beside what produced it, and the pipeline
+        # holding these is not saved with the data.
         "settings": {
             "source": str(inp["image_path"]),
-            "metric": metric,
             "channel": channel,
             "level": level,
             "t": t,
             "skip_ends": skip_ends,
-            "heights": "given" if inp.get("z_um") else (
-                "from the image" if z_um else "none"
-            ),
         },
     }
     return pipeline_data
@@ -211,14 +204,12 @@ def _height_at(index: float, z_um: list[float] | None) -> float | None:
 
 
 def _refine_peak(scores: list[float], skip_ends: int) -> float:
-    """The peak's plane index, interpolated between planes where it can be.
+    """The peak's plane index, interpolated between planes by a parabola.
 
     The best plane is chosen from the interior only, so an artefact at either
-    end cannot win. Its neighbours may be skipped planes: those are excluded
-    from being chosen, not from describing the curve around what was.
-
-    Falls back to the plain index when the best plane has no neighbour on one
-    side, or when the three are collinear and the parabola has no vertex.
+    end cannot win; its neighbours may still be skipped planes, which are
+    excluded from being chosen, not from describing the curve. Falls back to
+    the plain index at an edge, or when the parabola has no vertex.
     """
     interior = scores[skip_ends: len(scores) - skip_ends]
     best = skip_ends + int(np.argmax(interior))
