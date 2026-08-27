@@ -107,15 +107,6 @@ def _require_session():
     return _session
 
 
-# The controller's reference driver: no hardware behind it, registered on
-# demand the way its own tests register it.
-_MOCK_CONNECTION = {
-    "vendor": "mock",
-    "microscope": "mock-scope",
-    "api": "mock-api",
-    "client": "mock-client",
-}
-
 # Where the Leica driver lives. Its folder is not a package on the path —
 # the example notebook adds it and imports the adapter, and importing IS
 # registering: that is the driver's own opt-in.
@@ -172,12 +163,6 @@ def _connect(asked: dict) -> dict:
     _context = dict(_session.context)
     info = _session.get_info()
     return {"context": _context, "info": info}
-
-
-def _require_session():
-    if _session is None:
-        raise RuntimeError("no session is open — connect first")
-    return _session
 
 
 def _disconnect() -> dict:
