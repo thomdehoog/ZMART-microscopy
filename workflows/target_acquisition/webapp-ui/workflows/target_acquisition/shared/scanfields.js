@@ -307,6 +307,25 @@ export function sharePoints(tiles, n, { vary = false } = {}) {
   // left to settle
   if (tiles.length <= want) return tiles.map((t) => ({ x: t.x, y: t.y }));
 
+  /* Ground that comes in separate pieces has the points dealt out between them
+     first, by how much sample each holds, and settled inside each afterwards.
+     Settling them over the whole lot at once shares by distance rather than by
+     ground, and an island gets a point for being far away rather than for being
+     large: a drawn shape of twenty-eight frames beside a nine-frame block of
+     grid positions came out ten and five, where its share of the sample is
+     eleven and four. */
+  const pieces = piecesOf(tiles);
+  /* Only when there are points enough to go round. With fewer points than
+     pieces the question is which pieces get one at all, and that is a question
+     about where they are rather than how big they are — settling over the
+     whole ground answers it, and dealing by size hands them to whichever
+     equal-sized pieces happen to be first in the list, which on a plate is one
+     corner of it. */
+  if (pieces.length > 1 && want >= pieces.length) {
+    const shares = shareOut(pieces.map((p) => p.length), want);
+    return pieces.flatMap((piece, i) => (shares[i] ? sharePoints(piece, shares[i], { vary }) : []));
+  }
+
   /* How many rows to deal the shares in is the one thing a formula cannot be
      trusted with. Five shares of a square block are two, one and two — the four
      corners with one in the middle — where a row count taken from the square
@@ -439,6 +458,92 @@ function nearestPlace(ground, p) {
     if (d < bestD) { bestD = d; best = g; }
   }
   return { x: best.x, y: best.y };
+}
+
+/**
+ * How many points each piece of ground gets: its share of the sample, rounded
+ * so that the shares still add to the number asked for.
+ *
+ * Largest remainder — every piece takes the whole part of its share, and the
+ * points left over go to the pieces the rounding cheated most. A piece always
+ * gets at least one while there are points to go round, because a piece with
+ * none is a piece whose height is invented; when there are fewer points than
+ * pieces, the largest pieces take them.
+ */
+function shareOut(sizes, want) {
+  const total = sizes.reduce((a, b) => a + b, 0) || 1;
+  const order = sizes.map((_, i) => i).sort((a, b) => sizes[b] - sizes[a]);
+  if (want <= sizes.length) {
+    const got = sizes.map(() => 0);
+    for (const i of order.slice(0, want)) got[i] = 1;
+    return got;
+  }
+  const exact = sizes.map((n) => (n / total) * want);
+  const got = exact.map((v) => Math.max(1, Math.floor(v)));
+  let left = want - got.reduce((a, b) => a + b, 0);
+  /* Handing the remainder out, or taking it back when the floor of every share
+     plus the one each piece is owed has overshot. */
+  const wanting = sizes.map((_, i) => i)
+    .sort((a, b) => (exact[b] - Math.floor(exact[b])) - (exact[a] - Math.floor(exact[a])));
+  for (let k = 0; left > 0; k++) { got[wanting[k % wanting.length]] += 1; left -= 1; }
+  for (let k = 0; left < 0; k++) {
+    const i = wanting[wanting.length - 1 - (k % wanting.length)];
+    if (got[i] > 1) { got[i] -= 1; left += 1; }
+  }
+  return got;
+}
+
+/**
+ * The separate pieces the ground comes in.
+ *
+ * Two positions belong to the same piece when they touch — within a frame of
+ * each other either way, which is what the frames of one tileset are and what
+ * the glass between two wells is not. Found by laying the positions on a
+ * lattice of frame-sized cells and joining each cell to its neighbours, so a
+ * plate of a thousand positions costs what one does instead of every pair
+ * being asked about every other.
+ */
+function piecesOf(tiles) {
+  const frame = Math.max(...tiles.map((t) => t.frameUm ?? 0)) || 1;
+  const cells = new Map();
+  tiles.forEach((t, i) => {
+    const key = `${Math.round(t.x / frame)},${Math.round(t.y / frame)}`;
+    if (!cells.has(key)) cells.set(key, []);
+    cells.get(key).push(i);
+  });
+
+  const owner = tiles.map((_, i) => i);
+  const rootOf = (start) => {
+    let root = start;
+    while (owner[root] !== root) root = owner[root];
+    let walk = start;
+    while (owner[walk] !== root) { const up = owner[walk]; owner[walk] = root; walk = up; }
+    return root;
+  };
+  const join = (a, b) => {
+    const ra = rootOf(a);
+    const rb = rootOf(b);
+    if (ra !== rb) owner[ra] = rb;
+  };
+
+  for (const [key, held] of cells) {
+    for (let i = 1; i < held.length; i++) join(held[0], held[i]);
+    const [cx, cy] = key.split(",").map(Number);
+    /* Four of the eight neighbours: the other four join back the other way
+       round, and asking twice joins nothing new. */
+    for (const [dx, dy] of [[1, 0], [0, 1], [1, 1], [1, -1]]) {
+      const near = cells.get(`${cx + dx},${cy + dy}`);
+      if (near) join(held[0], near[0]);
+    }
+  }
+
+  const byPiece = new Map();
+  tiles.forEach((t, i) => {
+    const root = rootOf(i);
+    if (!byPiece.has(root)) byPiece.set(root, []);
+    byPiece.get(root).push(t);
+  });
+  return [...byPiece.values()];
 }
 
 /** How far a set of places reaches, across and down. */

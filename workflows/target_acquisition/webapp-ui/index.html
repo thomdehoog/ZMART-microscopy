@@ -52,11 +52,19 @@
                  neither comes before the other. -->
             <div class="fp-ways">
               <div class="fp-way">
-                <div class="side-sub">Manually</div>
+                <div class="side-sub">Manual</div>
                 <!-- Armed like a drawing tool, and drawn like one: placing
                      points by hand is the same kind of act as drawing a
                      tileset. Nothing on the canvas answers to a press until it
                      is armed. -->
+                <div class="fp-hand">
+                <!-- The hand's two states, the way the step before names them:
+                     picking what is already down, or putting another down. One
+                     is always on, so a press on the map is never a question. -->
+                <button type="button" class="sf-tool" id="fp-select"
+                        title="Select — press a point to choose it, drag to move it">
+                  <span class="sf-glyph">↖</span>
+                </button>
                 <button type="button" class="sf-tool" id="fp-pick"
                         title="Place focus points — press the map to put one down, press one to take it away">
                   <!-- The mark it puts down, drawn at the size a glyph is: the
@@ -69,29 +77,40 @@
                              M 11 5.5 L 11 7.75 M 11 14.25 L 11 16.5" />
                   </svg>
                 </button>
+                <!-- Beside the hand, because the hand is what fills a map one
+                     point at a time and this is the way back out of it. -->
+                <button type="button" class="sf-flat" id="fp-clear">Clear all focus points</button>
+                </div>
+              </div>
+
+              <!-- Two automatics, each with its own number, because they are
+                   answers to different questions and an operator wants both to
+                   hand: so many in every drawn thing, or so many over the whole
+                   carrier. One number serving both meant choosing between them
+                   before either could be pressed. -->
+              <div class="fp-way">
+                <div class="side-sub">Automatically per tileset</div>
+                <!-- Every drawn thing measured in its own right: so many
+                     points inside each tileset, however many tilesets there
+                     are. -->
+                <div class="fp-lay">
+                  <input type="number" id="fp-count" min="1" max="99" step="1"
+                         aria-label="how many focus points in each tileset"
+                         title="How many focus points to lay in each tileset">
+                  <button type="button" class="sf-flat sf-doing" id="fp-place">Place</button>
+                </div>
               </div>
               <div class="fp-way">
-                <div class="side-sub">Automatically</div>
+                <div class="side-sub">Automatically per carrier</div>
+                <!-- One set over everything there is, which is the answer for a
+                     sample that sits flat: the height across a slide is one
+                     surface, and measuring it once beats measuring it again in
+                     every tileset standing on it. -->
                 <div class="fp-lay">
-                  <!-- Just the number: it is how many go in each of whatever
-                       the press beside it shares them out over, and saying so
-                       on every screen is a rule being restated rather than a
-                       control being explained. -->
-                  <input type="number" id="fp-count" min="1" max="99" step="1"
-                         aria-label="how many focus points in each"
-                         title="How many focus points to lay in each">
-                  <!-- Two ways to share them out. In each tileset measures
-                       every drawn thing in its own right; across the carrier
-                       lays one set over everything there is, which is the
-                       answer for a sample that sits flat — the height across a
-                       slide is one surface, and measuring it once beats
-                       measuring it again in every tileset standing on it. -->
-                  <button type="button" class="sf-flat sf-doing" id="fp-place">
-                    In each tileset
-                  </button>
-                  <button type="button" class="sf-flat sf-doing" id="fp-place-all">
-                    Across the carrier
-                  </button>
+                  <input type="number" id="fp-count-all" min="1" max="99" step="1"
+                         aria-label="how many focus points over the whole carrier"
+                         title="How many focus points to lay over the whole carrier">
+                  <button type="button" class="sf-flat sf-doing" id="fp-place-all">Place</button>
                 </div>
               </div>
             </div>
@@ -102,7 +121,6 @@
                  time. -->
             <div class="fp-run">
               <div class="focus-action"></div>
-              <button type="button" class="sf-flat" id="fp-clear">Clear focus points</button>
             </div>
 
             <!-- What can be done to a map that has already been run, and not
@@ -145,18 +163,6 @@
                  choose from, and a list as long as the map pushes the picture
                  it belongs to off the screen. -->
             <div class="point-list" id="point-list"></div>
-
-            <div class="side-sub">Focus trace</div>
-            <div class="zpreview">
-              <div class="zframe">
-                <canvas id="zpreview-canvas" width="256" height="256"
-                        aria-label="image at the selected focus height"></canvas>
-                <div class="zcap">
-                  <span class="zval" id="zpreview-z">—</span>
-                  <span class="zstate" id="zpreview-state"></span>
-                </div>
-              </div>
-            </div>
 
             <div class="side-sub">Focus plot</div>
             <!-- its own host: the canvas is sized from its parent's box -->

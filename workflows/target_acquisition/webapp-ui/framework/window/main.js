@@ -114,7 +114,8 @@ let stageWatch = null;
       strategy: "plane",
       metric: "brenner",   // which sharpness score the sweep is scored with
       points: [],          // picked positions, plane strategy only
-      perField: 1,         // how many Place lays in each scan field
+      perField: 1,         // how many Place lays in each tileset
+      perCarrier: 4,       // and how many it lays over the whole carrier
       selected: 0,         // which point's trace is charted
       picked: new Set(),   // which are held, for moving or taking away together
       hovered: -1,         // which one the pointer has found, if any

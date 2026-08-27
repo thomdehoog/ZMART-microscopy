@@ -14,14 +14,14 @@
  */
 
 /** The algorithms this page offers, and what their settings mean. */
+/* One, for now. A plain brightness threshold was offered beside it and is
+   parked rather than deleted — `detects` still answers for it, and the row that
+   chose between the two comes back the day a second is wanted. A picker with
+   one option in it is a control that cannot be used. */
 export const ALGOS = {
   cellpose: {
     label: "Cellpose",
     blurb: "Diameter is the size it looks for; cell probability is how sure it has to be.",
-  },
-  threshold: {
-    label: "Threshold",
-    blurb: "Everything brighter than the level, larger than the minimum area.",
   },
 };
 
@@ -68,25 +68,13 @@ export default {
 
     const head = document.createElement("div");
     head.className = "side-head";
-    head.textContent = "Detection";
+    head.textContent = "Cellpose segmentation";
 
     const bar = document.createElement("div");
     bar.className = "detect-bar";
-    const algos = document.createElement("div");
-    algos.className = "seg";
-    algos.setAttribute("role", "radiogroup");
-    algos.setAttribute("aria-label", "Detection algorithm");
-    for (const [key, algo] of Object.entries(ALGOS)) {
-      const pick = document.createElement("button");
-      pick.type = "button";
-      pick.setAttribute("role", "radio");
-      pick.dataset.algo = key;
-      pick.textContent = algo.label;
-      algos.append(pick);
-    }
     const params = document.createElement("div");
     params.className = "detect-params";
-    bar.append(algos, params);
+    bar.append(params);
 
     const testHead = document.createElement("div");
     testHead.className = "side-head";
@@ -187,9 +175,6 @@ export default {
     /** The settings, the position picker and the sentence underneath. */
     function drawTheControls() {
       const settings = ctx.settings();
-      for (const pick of algos.querySelectorAll("button")) {
-        pick.setAttribute("aria-checked", String(pick.dataset.algo === settings.algo));
-      }
       which.textContent = `${settings.tile + 1} / ${ctx.plan().length}`;
 
       params.textContent = "";
@@ -243,15 +228,6 @@ export default {
       drawTheTile();
       ctx.changed();
     }
-
-    algos.addEventListener("click", (e) => {
-      const pick = e.target.closest("button[data-algo]");
-      if (!pick) return;
-      const settings = ctx.settings();
-      settings.algo = pick.dataset.algo;
-      settings.tested = false;
-      refresh();
-    });
 
     for (const [button, step] of [[prev, -1], [next, 1]]) {
       button.addEventListener("click", () => {
