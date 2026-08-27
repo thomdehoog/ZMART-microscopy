@@ -830,7 +830,54 @@ class TestSave:
         acquisition_folder = output_root / "overview-scan"
         data = acquisition_folder / "data"
         assert {path.name for path in acquisition_folder.iterdir()} == {"data", "vendor"}
-        assert all(path.suffixes == [".ome", ".tiff"] for path in data.iterdir())
+        assert all(
+            path.suffixes == [".ome", ".tiff"] for path in data.iterdir() if path.is_file()
+        )
+
+    def test_the_state_is_printed_beside_the_images_as_metadata(
+        self,
+        patched_export,
+        successful_acq,
+        tmp_path,
+        naming,
+    ):
+        """One state file per acquisition, in ``data/metadata``.
+
+        The state is embedded in every plane's OME-XML, which means reading it
+        costs opening a picture and parsing annotations. Printed once beside
+        the images it can simply be read -- by an operator, by a workflow, by
+        anything that never wants the pixels. It is named for the acquisition
+        it belongs to, so it is one per position and timepoint: the same name
+        as the images minus the channel and the z-slice, which it spans.
+        """
+        output_root = tmp_path / "run_000001"
+        state = {
+            "software": {"driver_version": "6.0.0"},
+            "provenance": {"acquisition_type": "overview-scan"},
+        }
+
+        drv.save(None, successful_acq, output_root, naming, state=state)
+
+        metadata = output_root / "overview-scan" / "data" / "metadata"
+        printed = list(metadata.iterdir())
+        assert [path.name for path in printed] == [
+            "overview-scan_000001_000003_T000000_ZMART_state.json"
+        ]
+        assert json.loads(printed[0].read_text(encoding="utf-8")) == state
+
+    def test_no_state_is_printed_when_the_caller_captured_none(
+        self,
+        patched_export,
+        successful_acq,
+        tmp_path,
+        naming,
+    ):
+        """Nothing is invented: no state captured, no state file, no empty folder."""
+        output_root = tmp_path / "run_000001"
+
+        drv.save(None, successful_acq, output_root, naming)
+
+        assert not (output_root / "overview-scan" / "data" / "metadata").exists()
 
     def test_repeated_save_replaces_summary_record(
         self,
