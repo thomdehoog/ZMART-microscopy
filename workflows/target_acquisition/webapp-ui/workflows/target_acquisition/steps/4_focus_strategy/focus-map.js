@@ -691,7 +691,7 @@ function doubtsAbout(point, i) {
      been taken instead and far enough away to be a different thing — which is
      what a speck of debris looks like, and what an operator is being asked to
      look at. */
-  const cands = point.traces?.[f.metric]?.candidates ?? [];
+  const cands = sweepShown(point)?.[f.metric]?.candidates ?? [];
   const tallest = cands.reduce((a, c) => Math.max(a, c.s), 0);
   const rivals = cands.filter((c) =>
     c.s >= RIVAL_SHARE * tallest
@@ -831,7 +831,7 @@ function renderPointList() {
       `<span>${(p.x / 1000).toFixed(2)}, ${(p.y / 1000).toFixed(2)} mm</span>` +
       (suspect ? `<span class="warn" title="${doubts.join("&#10;")}">⚠</span>` : "") +
       `<span class="z${p.z === null ? " pending" : ""}"` +
-      `${suspect && !p.manual ? ' style="color:var(--bad)"' : ""}>` +
+      `${suspect && !p.manual ? ' style="color:var(--warn-ink)"' : ""}>` +
       `${p.z === null ? "—" : (p.manual ? "✎ " : "") + p.z.toFixed(1) + " µm"}</span>`;
     /* A moved point has no trace to show — what was read was read of where it
        used to be — so its row says so by being unpressable until the map is
@@ -878,6 +878,20 @@ const traceCv = el("trace-canvas");
  * and everything either side of it is what a sweep of this configuration would
  * look like there.
  */
+/**
+ * The sweep on screen for a point: what the instrument reported, or the
+ * stand-in drawn in its place.
+ *
+ * One function because the plot and the marks in the list have to be reading
+ * the same curve. They were not: the marks looked only at what a backend had
+ * reported, so on a backend that reports a height and no curve — which is
+ * every backend but the pretend one — a plot with two clear peaks in it sat
+ * under a row that said nothing was worth looking at.
+ */
+function sweepShown(point) {
+  return point?.traces ?? standInSweep(point);
+}
+
 function standInSweep(point) {
   if (!point || !Number.isFinite(point.z)) return null;
   const index = run.focus.points.indexOf(point);
@@ -929,7 +943,7 @@ function drawTrace() {
      Nothing on the plot says which it is looking at, by choice: the curve is
      the same either way, and the mark that said so was in the way. Anyone
      reading a screenshot of this has to be told. */
-  const traces = f.points[f.selected]?.traces ?? standInSweep(f.points[f.selected]);
+  const traces = sweepShown(f.points[f.selected]);
   if (!traces) return;
   const curves = METRIC_KEYS.map((key) => {
     const sw = traces[key];

@@ -713,7 +713,7 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
    after the position it is about and the words are on hovering it. Beside the
    height instead, it read as a note on the number rather than on the point,
    and left the height in a different place row to row. */
-.point-row .warn { color: var(--bad); font-size: 12px; cursor: help; }
+.point-row .warn { color: var(--warn-ink); font-size: 12px; cursor: help; }
 /* The one reading a row carries. It used to be two — the height, and how far
    off the fitted surface it sat — and the second was a number an operator
    read past to get to the first. Where it matters at all it is the worst
