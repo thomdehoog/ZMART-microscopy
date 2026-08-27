@@ -597,7 +597,7 @@ export default {
       overlapNum, clearAll,
     );
 
-    layout.append(el("div", "side-sub", "Place tiles manually"));
+    layout.append(el("div", "side-sub", "Manual"));
     const toolRow = el("div", "sf-tools");
     for (const t of TOOLS) {
       const b = el("button", "sf-tool");
@@ -620,7 +620,7 @@ export default {
     }
     layout.append(toolRow);
 
-    layout.append(el("div", "side-sub", "Place tiles automatically"));
+    layout.append(el("div", "side-sub", "Automatic"));
     /* The four numbers and the button that acts on them, side by side: the
        numbers are narrower than the box and the button takes the room they
        leave, standing as tall as both their rows. A button drawn across the
