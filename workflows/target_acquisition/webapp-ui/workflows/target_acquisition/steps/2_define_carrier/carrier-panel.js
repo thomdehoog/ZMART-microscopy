@@ -67,12 +67,19 @@ const ICONS = {
      types can be read at a glance. */
   emgrid: (g) => {
     g.append(svgEl("circle", { cx: 14, cy: 14, r: 10.5, fill: "none", stroke: "currentColor", "stroke-width": 1.5 }));
-    for (let r = 0; r < 4; r++) {
-      for (let c = 0; c < 4; c++) {
-        const x = 7.5 + c * 3.2;
-        const y = 7.5 + r * 3.2;
-        if (Math.hypot(x + 1.1 - 14, y + 1.1 - 14) > 9) continue;
-        g.append(svgEl("rect", { x, y, width: 2.2, height: 2.2, fill: "currentColor", "fill-opacity": 0.2, stroke: "currentColor", "stroke-width": 0.5 }));
+    /* Laid out from the middle of the disc rather than from a corner of it, so
+       that the mesh sits in the circle instead of beside it. */
+    const across = 5;
+    const pitch = 3.4;
+    const side = 2.4;
+    const first = 14 - ((across - 1) * pitch + side) / 2;
+    for (let r = 0; r < across; r++) {
+      for (let c = 0; c < across; c++) {
+        const x = first + c * pitch;
+        const y = first + r * pitch;
+        // and only the squares the disc actually holds
+        if (Math.hypot(x + side / 2 - 14, y + side / 2 - 14) > 8.4) continue;
+        g.append(svgEl("rect", { x, y, width: side, height: side, fill: "currentColor", "fill-opacity": 0.2, stroke: "currentColor", "stroke-width": 0.5 }));
       }
     }
   },
@@ -164,7 +171,17 @@ function drawTheDepthBehind(ctx, x, y, w, h, dx, dy, fill) {
  * so the alignment is measured over the longest run in each direction rather
  * than out of one corner of it.
  */
-export function anchorsUm(config, howMany = 4) {
+/* How many a carrier is aligned from unless somebody says otherwise.
+
+   One. A single point drives the carrier to where it really is and nothing
+   more, which is the whole of what most runs need: the plate is where the
+   holder put it, square to the stage, and one recognisable place on it says
+   how far off the assumption was. More points measure how the carrier is
+   turned as well, and that is worth asking for rather than worth insisting
+   on — it is four more drives before anything can be scanned. */
+const POINTS_BY_DEFAULT = 1;
+
+export function anchorsUm(config, howMany = POINTS_BY_DEFAULT) {
   /* Half an area, edge to edge — not `scanBox`, which insets by the rounded
      corner so a square frame never overhangs it. That inset is right for
      planning and wrong here: it put every mark a good way inside the line it
@@ -253,10 +270,6 @@ export function anchorsUm(config, howMany = 4) {
 /** As many as this carrier has borders to put them on. See `anchorsUm`. */
 export const howManyAnchorsFit = (config) => anchorsUm(config, Infinity).length;
 
-/* How many a carrier is aligned from unless somebody says otherwise: one to a
-   side, which is what every carrier can carry and enough to measure where a
-   plate is and how it is turned. */
-const POINTS_BY_DEFAULT = 4;
 
 export default {
   id: "carrier",
@@ -510,7 +523,7 @@ export default {
     const anchorCount = document.createElement("input");
     anchorCount.type = "number";
     anchorCount.className = "carrier-num anchor-count";
-    anchorCount.min = "2";
+    anchorCount.min = "1";
     anchorCount.step = "1";
     anchorCount.setAttribute("aria-label", "how many points to align this carrier from");
     anchorCount.title = "How many points to align this carrier from";
@@ -534,12 +547,12 @@ export default {
       ? anchors.suggest([])
       : anchors.suggest(anchorsUm(cfg, howManyAsked())));
     /* Never more than the carrier has borders to put them on, and never fewer
-       than the two it takes to say anything at all about where it is. Clamped
-       when it is read rather than while it is being typed, so that reaching 12
-       by way of 1 does not fight the operator's hands. */
+       than the one it takes to say where it is. Clamped when it is read rather
+       than while it is being typed, so that reaching 12 by way of 1 does not
+       fight the operator's hands. */
     const howManyAsked = () => {
       const most = howManyAnchorsFit(cfg);
-      return Math.max(2, Math.min(most, Math.round(howMany) || 4));
+      return Math.max(1, Math.min(most, Math.round(howMany) || POINTS_BY_DEFAULT));
     };
     anchorCount.addEventListener("input", () => {
       const v = parseFloat(anchorCount.value);
