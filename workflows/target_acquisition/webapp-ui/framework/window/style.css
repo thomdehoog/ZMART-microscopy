@@ -490,11 +490,12 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
 #focus-controls[hidden] { display: none; }
 /* The list of points is the one part that grows, so it takes what is left and
    scrolls inside its own box rather than pushing the trace off the bottom. */
-/* Four rows deep, bled to the edges of the box that holds it: a list as long
-   as the map would push the picture it belongs to off the screen, and three
-   rows meant a fourth point was always just out of sight. */
+/* Three rows deep, bled to the edges of the box that holds it: a list as long
+   as the map would push the picture it belongs to off the screen, and what is
+   under the list — the plot and the three presses about one point — is what
+   the list is for. */
 .side-group-body > .point-list {
-  max-height: 128px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);
+  max-height: 93px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);
 }
 
 /* A row of its own rather than the scan fields' row reused: the button is the
