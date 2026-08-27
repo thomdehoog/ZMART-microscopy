@@ -688,6 +688,13 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
   padding-left: 0; padding-right: 0;
 }
 .anchor-list .point-pick .z { margin-left: 0; font-weight: 400; }
+/* The point's name starts where the numbers in the boxes above it start. The
+   row and the boxes are on the same column, but an input's text sits a border
+   and a padding in from its own edge, so the name takes that same inset —
+   given here rather than as row padding, which would carry the Snap button
+   off the column its box keeps. In the same ink as those numbers as well: it
+   names the point the row is about, where an index counts it. */
+.anchor-list .point-pick .idx { padding-left: 8px; color: var(--ink); }
 .anchor-list .anchor-snap {
   margin-left: 0; grid-column: 2 / -1; white-space: nowrap; padding: 0 12px;
 }
