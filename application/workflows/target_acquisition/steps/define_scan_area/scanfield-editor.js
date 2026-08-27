@@ -224,6 +224,14 @@ export function plan(fields, preset, carrier) {
   if (!preset) return [];
   const frame = preset.frameUm / MM_UM;
   const out = [];
+  /* The two numbers a filename is built from, beside the position's own.
+     Compartment is which area of the carrier a position was imaged in, and
+     group is which tileset it belongs to — both counted from one, because
+     zero means "not in one", which a region drawn clear of every area is.
+     This is the only place that knows both. */
+  const across = carrier.cols ?? 1;
+  const numberOfArea = (area) => (area ? area.row * across + area.col + 1 : 0);
+  const groups = new Map();
   for (const f of fields) {
     const chosen = isPointLike(f.type);
     const laid = tiles(f, preset.frameUm, f.overlap ?? 0);
@@ -270,8 +278,14 @@ export function plan(fields, preset, carrier) {
        Hand-placed positions still seat themselves into the nearest well: one
        position dropped on the plastic is a mistake, where a tile at the rim of
        a covered region is the region being covered. */
+    if (!groups.has(tileset)) groups.set(tileset, groups.size + 1);
+    const compartment = numberOfArea(best?.area);
+    const group = groups.get(tileset);
     for (const t of (chosen ? laid : tiles(f, preset.frameUm, f.overlap ?? 0))) {
-      out.push({ x: t.x, y: t.y, frameUm: preset.frameUm, fieldId: f.id, tileset });
+      out.push({
+        x: t.x, y: t.y, frameUm: preset.frameUm, fieldId: f.id, tileset,
+        compartment, group,
+      });
     }
   }
   return out;
