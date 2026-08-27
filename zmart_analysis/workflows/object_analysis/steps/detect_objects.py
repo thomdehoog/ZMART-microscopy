@@ -77,15 +77,13 @@ def run(pipeline_data: dict, state: dict, **params) -> dict:
 
 def _write_detection_checkpoint(detection: dict, raw_masks, inp: dict, params: dict) -> dict:
     output_dir = inp.get("output_dir", params.get("output_dir", None))
+    # An image inside an acquisition files itself, in the `analysis` folder
+    # beside the `data` it came from. One kept outside an acquisition has no
+    # such place, and writes nothing unless the caller says where.
     if output_dir is None:
-        # An image inside an acquisition files itself: results go in the
-        # `analysis` folder beside the `data` the image came from. An image
-        # kept outside one has no such place, and writes nothing unless the
-        # caller says where.
-        try:
-            output_dir = analysis_dir(inp["image_path"])
-        except ValueError:
-            return {}
+        output_dir = analysis_dir(inp["image_path"])
+    if output_dir is None:
+        return {}
 
     import tifffile
 
