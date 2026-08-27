@@ -598,14 +598,24 @@ test("the stage mark is registered to the stage, and says where it is on hover",
     await expect(tip).toContainText("4.80 mm");
 
     /* And panning carries it: the picture moves under a still pointer, so the
-       mark leaves that pointer and is found where the picture put it. */
+       mark leaves that pointer and is found where the picture put it.
+
+       How far the picture will go is not assumed. The stage is parked near the
+       corner of its own travel and the picture can no longer be pushed past
+       its own edge, so a drag near that corner is allowed only as far as there
+       is picture left to show. What is checked is the property rather than the
+       distance: the mark is somewhere else on screen afterwards, and where it
+       is, it is still 4.80 mm. */
     await page.mouse.down();
     await page.mouse.move(mark.x + 180, mark.y + 110, { steps: 10 });
     await page.mouse.up();
     await page.mouse.move(mark.x, mark.y);
     await page.waitForTimeout(200);
     expect(await answering()).toBe(false);
-    await page.mouse.move(mark.x + 180, mark.y + 110);
+
+    const moved = await pointAt(4800, 3200, mark);
+    expect(Math.hypot(moved.x - mark.x, moved.y - mark.y)).toBeGreaterThan(20);
+    await page.mouse.move(moved.x, moved.y);
     await page.waitForTimeout(200);
     expect(await answering()).toBe(true);
     await expect(tip).toContainText("4.80 mm");
