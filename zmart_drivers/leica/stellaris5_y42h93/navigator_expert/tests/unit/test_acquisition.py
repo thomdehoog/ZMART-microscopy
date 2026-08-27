@@ -815,24 +815,28 @@ class TestSave:
         tmp_path,
         naming,
     ):
-        """``data`` is one part of an acquisition, and the vendor copy another.
+        """What the microscope captured, and everything describing it, in ``data``.
 
-        What the microscope captured goes in ``data``; everything derived from
-        it later -- a stitched view, an analysis -- becomes a folder beside it
-        rather than something to be told apart from the images by name. The
-        vendor's own metadata already sits there, so nothing in the acquisition
-        folder is loose.
+        The acquisition folder holds one thing, so what is made from the
+        capture later -- a stitched view, an analysis -- becomes a folder
+        beside ``data`` and is never confused with it. Inside, the images are
+        loose and everything about them is under ``metadata``: ZMART's account
+        of the capture, and the vendor's own beneath it.
         """
         output_root = tmp_path / "run_000001"
 
-        drv.save(None, successful_acq, output_root, naming)
+        drv.save(None, successful_acq, output_root, naming, state={"software": {}})
 
         acquisition_folder = output_root / "overview-scan"
         data = acquisition_folder / "data"
-        assert {path.name for path in acquisition_folder.iterdir()} == {"data", "vendor"}
+        assert {path.name for path in acquisition_folder.iterdir()} == {"data"}
         assert all(
             path.suffixes == [".ome", ".tiff"] for path in data.iterdir() if path.is_file()
         )
+        assert {path.name for path in data.iterdir() if path.is_dir()} == {"metadata"}
+        metadata = data / "metadata"
+        assert {path.name for path in metadata.iterdir()} == {"ZMART_state", "vendor"}
+        assert (metadata / "vendor" / "lasx_native_autosave").is_dir()
 
     def test_the_state_is_printed_beside_the_images_as_metadata(
         self,
@@ -858,7 +862,7 @@ class TestSave:
 
         drv.save(None, successful_acq, output_root, naming, state=state)
 
-        metadata = output_root / "overview-scan" / "data" / "metadata"
+        metadata = output_root / "overview-scan" / "data" / "metadata" / "ZMART_state"
         printed = list(metadata.iterdir())
         assert [path.name for path in printed] == [
             "overview-scan_000001_000003_T000000_ZMART_state.json"
@@ -877,7 +881,7 @@ class TestSave:
 
         drv.save(None, successful_acq, output_root, naming)
 
-        assert not (output_root / "overview-scan" / "data" / "metadata").exists()
+        assert not (output_root / "overview-scan" / "data" / "metadata" / "ZMART_state").exists()
 
     def test_repeated_save_replaces_summary_record(
         self,
