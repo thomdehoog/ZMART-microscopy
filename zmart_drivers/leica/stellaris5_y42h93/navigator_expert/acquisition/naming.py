@@ -116,6 +116,17 @@ def metadata_dir(output_root: Path | str, acquisition_type: str) -> Path:
     return data_dir(output_root, acquisition_type) / "metadata"
 
 
+def state_dir(output_root: Path | str, acquisition_type: str) -> Path:
+    """Return where ZMART's own account of a capture goes.
+
+    ``<type>/data/metadata/ZMART_state``, beside ``metadata/vendor`` -- one
+    folder per party, so whose account a file is never has to be read off its
+    name.
+    """
+
+    return metadata_dir(output_root, acquisition_type) / "ZMART_state"
+
+
 def build_state_name(naming: Naming) -> str:
     """Return the filename for one acquisition's printed state.
 

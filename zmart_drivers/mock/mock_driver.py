@@ -315,11 +315,12 @@ def _print_the_state(
     """Print the state this capture was made under beside the images.
 
     The state is embedded in the image too, where reading it costs opening a
-    picture. In ``data/metadata`` it can simply be read. One file per
+    picture. In ``data/metadata/ZMART_state`` -- beside the vendor's own
+    account, one folder per party -- it can simply be read. One file per
     acquisition: the name of the images without the channel and the z-slice,
     which one state spans.
     """
-    metadata = data / "metadata"
+    metadata = data / "metadata" / "ZMART_state"
     metadata.mkdir(parents=True, exist_ok=True)
     printed = (
         metadata

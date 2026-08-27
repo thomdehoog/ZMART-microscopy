@@ -116,7 +116,7 @@ def _assert_full_run(ns: dict, session: _SimSession, engine: _SimEngine, output_
         data = root / acquisition_type / "data"
         assert data.is_dir()
         # The state the driver printed travelled with the images it describes.
-        printed = sorted((data / "metadata").glob("*_ZMART_state.json"))
+        printed = sorted((data / "metadata" / "ZMART_state").glob("*_ZMART_state.json"))
         assert len(printed) == len(records)
         assert all(json.loads(path.read_text(encoding="utf-8"))["changeable"] for path in printed)
         assert all(
