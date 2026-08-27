@@ -21,7 +21,7 @@
 
 import carrierWidget from "../2_define_carrier/carrier-panel.js";
 import { makeRng } from "../../microscope/pretend-sample/rng.js";
-import { METRICS, METRIC_KEYS, scoreAt, sweep } from "../../microscope/pretend-sample/sweep.js";
+import { METRICS, METRIC_KEYS, sweep } from "../../microscope/pretend-sample/sweep.js";
 import {
   affineSurface, fitSurface, residualsUm, surfaceZ,
 } from "../../microscope/pretend-sample/surface.js";
@@ -921,9 +921,10 @@ function drawTrace() {
     ctx.stroke();
     ctx.restore();
 
-    /* The legend doubles as the control: press a metric to let it decide. Which
-       one is deciding is said by the weight of its line and the darkness of its
-       name, so the word saying it as well was the same fact twice. */
+    /* The legend doubles as the control: press a metric to let it decide.
+       Both names are written the same — same font, same weight, same ink —
+       because they name two measurements of equal standing; which one is
+       deciding is said by the weight of its line, here and in the plot. */
     ctx.save();
     ctx.strokeStyle = css(METRICS[c.key].token);
     ctx.lineWidth = isDeciding ? 2.4 : 1.5;
@@ -933,7 +934,7 @@ function drawTrace() {
        line and its ink, and a lighter name reads as a lesser measurement
        rather than as the one not currently in charge. */
     ctx.font = LEGEND_FONT;
-    ctx.fillStyle = isDeciding ? css("--ink") : css("--ink-3");
+    ctx.fillStyle = css("--ink");
     const label = METRICS[c.key].short;
     ctx.fillText(label, lx + 22, legendY);
     const wLab = 22 + ctx.measureText(label).width;
@@ -990,15 +991,13 @@ function drawTrace() {
 
   // the draggable height
   const zSel = p.z;
-  const sSel = N(scoreAt(t.samples, zSel));
   const xSel = X(zSel);
   /* The height that will be used, and the thing dragged left and right to
      change it. Black, because it is the answer rather than a warning about
-     one: whether the peak under it is too narrow to be tissue is said by the
-     dot and the reading it carries, which are the parts about the measurement.
-     A red slider would have every ordinary point look like a problem. */
-  // a peak too narrow to be tissue never gets to look like a confident answer
-  const pickColour = p.manual ? css("--accent") : (p.onNarrow ? css("--bad") : "#16a34a");
+     one: whether the peak under it is too narrow to be tissue is said in the
+     point's row above and against the rejected peaks drawn here. A red slider
+     would have every ordinary point look like a problem, beside a red line
+     that means something else. */
   ctx.strokeStyle = css("--ink");
   ctx.lineWidth = 2;
   ctx.beginPath();
@@ -1026,10 +1025,9 @@ function drawTrace() {
   ctx.moveTo(xSel - 5, P.t); ctx.lineTo(xSel + 5, P.t); ctx.lineTo(xSel, P.t + 7);
   ctx.closePath(); ctx.fill();
 
-  ctx.fillStyle = pickColour;
-  ctx.beginPath(); ctx.arc(xSel, Y(sSel), 4.4, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.lineWidth = 1.8; ctx.strokeStyle = css("--surface-2"); ctx.stroke();
+  /* No bead where the marker crosses the curve. The line already runs through
+     that point over the whole plot, so the dot marked a place that was marked;
+     what it added was a second thing changing colour under the pointer. */
 
   /* No number written beside the marker. The height it is standing at is in
      the list above, in the row for this point, where it is read against every
