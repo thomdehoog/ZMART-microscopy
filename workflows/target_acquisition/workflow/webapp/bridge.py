@@ -86,6 +86,9 @@ if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
 import zmart_controller  # noqa: E402
+from workflows.target_acquisition.microscope.focus_run import (  # noqa: E402
+    measure_focus,
+)
 
 # ---------------------------------------------------------------------------
 # The session, and the one lock that guards it
@@ -299,53 +302,40 @@ def _drive_to(asked: dict) -> dict:
 # ---------------------------------------------------------------------------
 
 
-#: Where a driver reports the height its autofocus settled on, most telling
-#: first. ``frame_z_um`` is the drivers' own contract — the sharp height in
-#: frame terms, which is the only one of these that is in the page's own
-#: coordinates; the rest are here because a driver may answer more plainly.
-_WHERE_THE_HEIGHT_IS = ("frame_z_um", "focus_um", "z")
-
-
-def _height_found(answer: dict) -> float | None:
-    """The height an autofocus came back with, or ``None`` if it named none.
-
-    ``None`` rather than a number, because a made-up height is worse than a
-    missing one: the page fits a surface through what it is given, so one
-    invented zero drags the whole map towards a place nobody measured. A point
-    with no height says so, in the list and on the plot.
-    """
-    for key in _WHERE_THE_HEIGHT_IS:
-        if isinstance(answer.get(key), (int, float)):
-            return float(answer[key])
-    inside = answer.get("position")
-    if isinstance(inside, dict) and isinstance(inside.get("z"), (int, float)):
-        return float(inside["z"])
-    return None
-
-
 def _measure_focus(asked: dict) -> dict:
-    """Drive to each point, run the autofocus procedure, report the height.
+    """Drive to each point, focus there, and report the height found.
 
-    Where each search begins is the point's own ``startZ`` when it carries one
-    — the page sends it to say "begin from what the map already predicts here"
-    — and otherwise the height the objective is already at. It used to be
-    driven to frame zero before every search, which threw away both.
+    The loop itself is :func:`~workflows.target_acquisition.microscope.focus_run.measure_focus`,
+    which the workflow's step 4 runs too. This is the translation either side of
+    it and nothing more.
+
+    The page calls a point's search centre ``startZ`` — where the objective is
+    driven before the instrument sweeps around it — and that is the whole of
+    what Rerun and Refine differ by: run again and every search centres on the
+    height the objective is standing at; refine and each centres on what the
+    map already predicts there. The same focussing configuration does the
+    sweeping either way, and the stack it takes is the instrument's business.
+
+    Answered point by point, each carrying what it was asked with, because the
+    page matches them up by position and draws what it gets back.
     """
     session = _require_session()
-    measured = []
-    for point in asked.get("points", []):
-        standing = session.get_xyz()
-        start = point.get("startZ")
-        session.set_xyz(
-            float(point["x"]),
-            float(point["y"]),
-            float(start) if isinstance(start, (int, float))
-            else float(standing.get("z", {}).get("value", 0.0)),
-        )
-        answer = session.run_procedure({"name": "autofocus"})
-        z = _height_found(answer)
-        measured.append({**point, "zAuto": z, "z": z, "lost": z is None})
-    return {"points": measured}
+    measured = measure_focus(
+        session,
+        [
+            {"x": float(point["x"]), "y": float(point["y"]),
+             **({"z": float(point["startZ"])}
+                if isinstance(point.get("startZ"), (int, float)) else {})}
+            for point in asked.get("points", [])
+        ],
+    )
+    return {
+        "points": [
+            {**point, "zAuto": found["z_um"], "z": found["z_um"],
+             "lost": found["z_um"] is None}
+            for point, found in zip(asked.get("points", []), measured)
+        ]
+    }
 
 
 # ---------------------------------------------------------------------------
