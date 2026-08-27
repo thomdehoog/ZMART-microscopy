@@ -1416,6 +1416,31 @@ let stageWatch = null;
     trueZ: (...a) => trueZ(...a),
     renderActionBar: () => renderActionBar(),
     renderRail: () => renderRail(),
+    /**
+     * Drive the stage to a place on the travel, and answer with where it
+     * ended up — in micrometres per axis, the shape every reading takes.
+     *
+     * The picture asks for this when a place on it is double-clicked. Only
+     * `x` and `y` are named: driving across the sample is not a request to
+     * change how far the objective is from it.
+     *
+     * `null` when there is no session, when the run is driving the stage
+     * itself, or when the instrument refused — and the mark then stays where
+     * the last reading put it, which is the truth as far as the page knows it.
+     */
+    driveTo: async ({ x, y }) => {
+      if (!backend?.set_xyz || state.running) return null;
+      try {
+        const at = await backend.set_xyz({ x, y });
+        return {
+          x: Number(at.x.value), y: Number(at.y.value),
+          z: Number(at.z?.value ?? 0),
+        };
+      } catch (why) {
+        console.warn(`the stage would not go there: ${why.message}`);
+        return null;
+      }
+    },
     liveOverview, thePicture,
     focus: {
       focusPressed: (...a) => focusPressed(...a),
