@@ -209,3 +209,36 @@ describe("no frame is laid that takes in none of the region", () => {
     });
   }
 });
+
+describe("every position says where on the plate it is", () => {
+  /* The numbers a filename is built from. A position that cannot say which
+     well and which tileset it belongs to becomes a file nobody can place, so
+     the plan carries them: it is the one thing that knows both. */
+
+  it("numbers the compartment a position was imaged in", () => {
+    /* Two strips, one in each of the first two wells of the top row. */
+    const first = { ...strip(1.0, 5.0), id: "a" };
+    const second = { ...strip(10.0, 14.0), id: "b" };
+    const tiles = plan([first, second], hires, plate);
+    const seen = new Map();
+    for (const t of tiles) seen.set(t.fieldId, t.compartment);
+    expect(seen.get("a")).toBe(1);          // row 0, column 0
+    expect(seen.get("b")).toBe(2);          // row 0, column 1
+  });
+
+  it("numbers each tileset, so one well's two regions are two", () => {
+    const first = { ...strip(1.0, 3.0), id: "a" };
+    const second = { ...strip(4.0, 6.0), id: "b" };
+    const groups = new Set(plan([first, second], hires, plate).map((t) => t.group));
+    expect(groups).toEqual(new Set([1, 2]));
+  });
+
+  it("says zero for a region on no well at all", () => {
+    /* Zero is honest about not knowing; inventing a compartment would put a
+       file in a well nobody imaged. */
+    const off = { id: "f", type: "rectangle", rotation: 0,
+                  x: 1_000, y: 0, w: 6_000, h: 800 };
+    for (const t of plan([off], hires, plate)) expect(t.compartment).toBe(0);
+  });
+});
+
