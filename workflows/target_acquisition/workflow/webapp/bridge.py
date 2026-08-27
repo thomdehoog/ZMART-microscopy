@@ -28,9 +28,12 @@ The verbs, and what they are made of
 * ``GET  /api/xyz`` — where the stage is (``get_xyz``), and
   ``POST /api/xyz`` — drive it there (``set_xyz``), answering with where it
   ended up. One noun, the method saying which of the controller's two verbs is
-  meant: the page's backend calls them ``getXyz`` and ``setXyz`` for the same
-  reason. A driven stage is a procedure and not a readout, which is why it is
-  a POST and why nothing else on this route moves anything.
+  meant. The page's backend calls them ``get_xyz`` and ``set_xyz`` too — the
+  controller's own names, carried through the browser unchanged, because a
+  verb that is spelled one way here and another way there is a verb somebody
+  will eventually wire to the wrong one. A driven stage is a procedure and not
+  a readout, which is why it is a POST and why nothing else on this route
+  moves anything.
 * ``POST /api/focus/measure`` — the autofocus procedure, run at each requested
   position: drive there, focus, report the height. This is the one place a
   preset-shaped request *does* something, which is exactly why it is its own

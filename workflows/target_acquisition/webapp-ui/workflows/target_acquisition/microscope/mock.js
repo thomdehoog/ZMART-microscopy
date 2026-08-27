@@ -70,7 +70,7 @@ export const backend = {
   },
 
   /** Where the stage is, per axis in micrometres: the controller's `get_xyz`. */
-  async getXyz() {
+  async get_xyz() {
     return standingAt(where);
   },
 
@@ -85,7 +85,7 @@ export const backend = {
    * travel, because a real one does, and the answer is what it did rather
    * than what it was asked.
    */
-  async setXyz({ x, y, z }) {
+  async set_xyz({ x, y, z }) {
     await wait(220);
     where = {
       x: withinTravel(x ?? where.x, TRAVEL_UM.x),
