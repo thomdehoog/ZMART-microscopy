@@ -814,8 +814,15 @@ const traceCv = el("trace-canvas");
 function standInSweep(point) {
   if (!point || !Number.isFinite(point.z)) return null;
   const index = run.focus.points.indexOf(point);
+  /* About the height the autofocus reported, never about the height being
+     dragged. Centred on the dragged one, the whole picture — curve, axis and
+     the marker for the reported height with it — travelled with the pointer,
+     so the line under the hand stood still and the fixed line appeared to
+     slide the other way. What the plot is drawn about must be a thing the
+     operator cannot move. */
+  const about = Number.isFinite(point.zAuto) ? point.zAuto : point.z;
   return Object.fromEntries(METRIC_KEYS.map((key) => {
-    const sw = sweep({ focusZ: point.z, index: Math.max(0, index), metric: key });
+    const sw = sweep({ focusZ: about, index: Math.max(0, index), metric: key });
     return [key, { samples: sw.samples, candidates: sw.candidates }];
   }));
 }
@@ -1024,13 +1031,10 @@ function drawTrace() {
   ctx.fill();
   ctx.lineWidth = 1.8; ctx.strokeStyle = css("--surface-2"); ctx.stroke();
 
-  const lab = p.onNarrow && !p.manual
-    ? `${zSel.toFixed(1)} µm · ${chosen.width.toFixed(1)} µm wide`
-    : `${zSel.toFixed(1)} µm`;
-  ctx.font = '11px ui-monospace, Consolas, monospace';
-  const tw = ctx.measureText(lab).width;
-  ctx.fillStyle = p.manual ? css("--accent-deep") : pickColour;
-  ctx.fillText(lab, Math.min(xSel + 7, w - P.r - tw), Y(sSel) - 7);
+  /* No number written beside the marker. The height it is standing at is in
+     the list above, in the row for this point, where it is read against every
+     other point's — printed on the curve as well it moved under the pointer
+     while the eye was on the shape. */
 
   traceGeom = { zLo, zHi, P, w, h, samples: t.samples };
 }
@@ -1259,7 +1263,13 @@ async function remeasure({ from = null } = {}) {
     metric: f.metric,
     extent: carrierSpan(),
   });
-  f.points = points;
+  /* A backend that reports a height and nothing else is reporting its
+     autofocus's answer, which is what `zAuto` means: the height the instrument
+     chose, fixed, against which a height the operator moved is a departure.
+     Filled in here so every backend's points have the one shape, rather than
+     each reader of them learning to cope with a missing field. */
+  f.points = points.map((p) =>
+    (Number.isFinite(p.zAuto) || !Number.isFinite(p.z) ? p : { ...p, zAuto: p.z }));
   refitSurface();
 }
 
