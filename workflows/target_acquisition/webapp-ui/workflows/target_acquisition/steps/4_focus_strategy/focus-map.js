@@ -950,23 +950,10 @@ function drawTrace() {
   // height is the same peak the rule picked when the strategy ran
   const chosen = t.candidates.find((c) => Math.abs(c.z - p.zAuto) < 1e-6) || t.candidates[0];
 
-  // candidate peaks the rule turned down — a narrow one is almost always a
-  // speck of debris, and this is where it becomes visible instead of silent
-  for (const c of t.candidates) {
-    if (c === chosen || Math.abs(c.z - chosen.z) < 1e-6) continue;
-    ctx.beginPath();
-    ctx.arc(X(c.z), Y(N(c.s)), 4, 0, Math.PI * 2);
-    ctx.strokeStyle = c.narrow ? css("--bad") : css("--ink-3");
-    ctx.lineWidth = 1.6;
-    ctx.stroke();
-    if (c.narrow) {
-      ctx.fillStyle = css("--bad");
-      ctx.font = '10px ui-monospace, Consolas, monospace';
-      const lbl = `${c.width.toFixed(1)} µm wide`;
-      const lw = ctx.measureText(lbl).width;
-      ctx.fillText(lbl, Math.max(P.l, Math.min(X(c.z) - lw / 2, w - P.r - lw)), Y(N(c.s)) - 8);
-    }
-  }
+  /* The peaks the rule turned down are not ringed. Every bump in the curve is
+     drawn already, and a narrow one — almost always a speck of debris — is
+     what the warning on the point's row above is about. The plot is the
+     shape; the list is the verdict on it. */
 
   // the parabola through the chosen peak's three samples
   if (chosen.used && chosen.used.length === 3 && chosen.used[0] !== chosen.used[1]) {
