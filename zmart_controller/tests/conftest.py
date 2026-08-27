@@ -1,7 +1,9 @@
 """Test setup: put the source root on sys.path and register the mock driver.
 
-The mock is a test-only integration, so it is wired into the registry here --
-production registry.py never imports it.
+The mock driver lives with the other drivers, in ``zmart_drivers/mock/``, and
+is registered here because that is what any client does with a driver it wants
+to use -- production ``registry.py`` imports no driver at all, which is the
+property that keeps the controller free of them.
 
 Author: Thom de Hoog, Center for Microscopy and Image Analysis (ZMB),
 University of Zurich (thom.dehoog@zmb.uzh.ch, thomdehoog@gmail.com).
@@ -10,13 +12,11 @@ University of Zurich (thom.dehoog@zmb.uzh.ch, thomdehoog@gmail.com).
 import sys
 from pathlib import Path
 
-_TESTS_DIR = Path(__file__).resolve().parent
-_SRC_ROOT = _TESTS_DIR.parents[1]  # repo root (parent of the package)
-for _path in (str(_SRC_ROOT), str(_TESTS_DIR)):
-    if _path not in sys.path:
-        sys.path.insert(0, _path)
+_SRC_ROOT = Path(__file__).resolve().parents[2]  # repo root (parent of the package)
+if str(_SRC_ROOT) not in sys.path:
+    sys.path.insert(0, str(_SRC_ROOT))
 
-import mock_driver  # noqa: E402
+from zmart_drivers.mock import mock_driver  # noqa: E402
 import pytest  # noqa: E402
 
 mock_driver.register_mock()

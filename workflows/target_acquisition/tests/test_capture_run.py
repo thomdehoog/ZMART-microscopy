@@ -8,7 +8,7 @@ import pytest
 from workflow._capture_run import capture_positions
 
 import zmart_controller
-from zmart_controller.tests.mock_driver import register_mock
+from zmart_drivers.mock.mock_driver import register_mock
 
 _MOCK = {"vendor": "mock", "microscope": "mock-scope", "api": "mock-api", "client": "mock-client"}
 

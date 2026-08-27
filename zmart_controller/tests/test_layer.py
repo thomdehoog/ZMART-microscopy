@@ -132,7 +132,7 @@ class TestInfo:
     def test_connection_status_answers_over_time(self, mic):
         import time
 
-        import mock_driver
+        from zmart_drivers.mock import mock_driver
 
         # Just opened: the first check answers at once, the rest are pending.
         mic._handle.connected_at = time.monotonic()

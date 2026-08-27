@@ -6,6 +6,12 @@ owns the frame origin (user coordinates are micrometers from it), and does the
 work the controller does not -- settling before capture, saving, and
 owning the changeable/observed state boundary.
 
+It sits beside the other drivers, and that is deliberate. It was filed under
+``zmart_controller/tests/`` for a while, which made everything that needed a
+pretend instrument -- the controller's own tests, the operator page's bridge,
+the workflow's -- import a production dependency from a test package, and made
+the one place pretend behaviour belongs look like a place it did not.
+
 Driver contract used by the registry: ``connect(connection) -> handle`` opens a
 session and returns an opaque handle; every other operation takes that handle as
 its first argument.

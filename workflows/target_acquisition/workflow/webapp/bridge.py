@@ -147,7 +147,7 @@ def _register_known_drivers() -> None:
     registers what it can find at start: the mock always, the Leica when its
     driver imports. A driver that fails to import is simply not offered.
     """
-    from zmart_controller.tests.mock_driver import register_mock
+    from zmart_drivers.mock.mock_driver import register_mock
 
     register_mock()
     try:
