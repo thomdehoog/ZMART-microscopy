@@ -1027,6 +1027,15 @@ let stageWatch = null;
              picture, and drawn as the current row in the list, so an operator
              can look at either and know which one the other means. */
           picked: () => state.anchorPicked ?? -1,
+          /* And chosen from the list as well as from the picture. Pressing a
+             row is how an operator says which of the four they mean when they
+             are reading the list rather than looking at the plate, and it has
+             to mean the same thing either way — the mark on the picture is
+             what says which one that is. */
+          pick: (i) => {
+            state.anchorPicked = i;
+            redrawAnchors(); drawStage();
+          },
           forget: (i) => {
             state.anchors = state.anchors.filter((_, at) => at !== i);
             /* Nothing is chosen once the chosen one has gone. Moving the choice
