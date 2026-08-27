@@ -38,6 +38,10 @@ _ACTUATORS: dict[str, list[str]] = {
 _DEFAULT_ACTUATORS: dict[str, str] = {"x": "motoric", "y": "motoric", "z": "motoric"}
 
 
+#: How much sample one pixel covers, in micrometres. Reported in the state and
+#: written into every frame, so the two cannot come to disagree.
+_PIXEL_UM = 1.0
+
 #: The jobs this pretend instrument has stored, in the order it lists them.
 _JOBS: tuple[str, ...] = ("Overview", "HiRes", "Survey")
 
@@ -231,16 +235,56 @@ def acquire(
     _require_open(handle)
     options = _with_defaults(handle, options)
     settle = "backlash-corrected" if options["backlash_correction"] else "direct"
-    record = {
+    path = _write_a_frame(handle, acquisition_type, position_label, options["format"])
+    # The two keys a client follows, in the shapes the real driver answers
+    # with: ``images`` the simple list, ``planes`` the manifest that tells a
+    # channel from a z. One plane, because this instrument captures one.
+    planes = [{"t": 0, "z": 0, "c": 0, "path": str(path)}]
+    return {
         "acquisition_type": acquisition_type,
         "position_label": position_label,
-        "filename": f"{position_label}.{options['format'].split('-')[-1]}",
         "format": options["format"],
         "procedure": options["procedure"],
         "settle": settle,
         "position": _user_position(handle),
+        "images": [plane["path"] for plane in planes],
+        "planes": planes,
     }
-    return record
+
+
+def _write_a_frame(
+    handle: MockHandle, acquisition_type: str, position_label: str, image_format: str
+) -> Path:
+    """Write one OME-TIFF where a real driver would, and return the path.
+
+    It writes rather than merely naming a file, because the real driver does:
+    a record naming files that are not there is one a client can follow on the
+    microscope and not on the bench.
+
+    ``numpy`` and ``tifffile`` are imported here, not at the top, so that
+    registering this driver stays free of them — the operator page's bridge
+    imports it at start-up and is standard library plus the controller, which
+    is what lets it run on a microscope PC with nothing installed.
+    """
+    import numpy as np  # noqa: PLC0415 — see above
+    import tifffile  # noqa: PLC0415
+
+    root = Path(handle.connection.get("output_root") or "mock-output")
+    path = root / acquisition_type / f"{position_label}.{image_format.split('-')[-1]}"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    px = _PIXEL_UM
+    size = 64  # read to check a file arrived, never to look at
+    tifffile.imwrite(
+        path,
+        np.tile(np.linspace(0, 4095, size, dtype="uint16"), (size, 1)),
+        description=(
+            '<OME xmlns="http://www.openmicroscopy.org/Schemas/OME/2016-06">'
+            '<Image><Pixels DimensionOrder="XYCZT" Type="uint16" '
+            f'SizeX="{size}" SizeY="{size}" SizeC="1" SizeZ="1" SizeT="1" '
+            f'PhysicalSizeX="{px}" PhysicalSizeY="{px}"/></Image></OME>'
+        ),
+    )
+    return path
 
 
 def get_state(handle: MockHandle) -> dict:
@@ -261,7 +305,7 @@ def get_state(handle: MockHandle) -> dict:
                 "immersion": handle.immersion,
             },
             "zoom": handle.zoom,
-            "pixel_size": {"x": 1.0, "y": 1.0, "unit": "um"},
+            "pixel_size": {"x": _PIXEL_UM, "y": _PIXEL_UM, "unit": "um"},
             "frame_size": {"x": 1024.0, "y": 1024.0, "unit": "um"},
         },
     }

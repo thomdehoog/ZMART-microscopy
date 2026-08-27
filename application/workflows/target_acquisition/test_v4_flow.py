@@ -110,10 +110,12 @@ def test_full_controller_only_flow(tmp_path):
         # z came from the focus surface (plane through the fit points)
         assert overview_records[0]["position"]["z"] == focus.z_at(0.0, 0.0)
 
-        # 6. bridge overview records -> discover_targets inputs. The mock record
-        #    carries "position"; a real driver record carries "images" (paths).
+        # 6. bridge overview records -> discover_targets inputs, by the paths
+        #    the driver reported writing. Names were invented here while the
+        #    mock returned none; it answers with `images` now, as the real one
+        #    does, so the flow reads the files it actually made.
         placed = workflow.with_focus_z(positions, focus)
-        image_paths = [f"overview_{i}.ome.tiff" for i in range(len(overview_records))]
+        image_paths = [record["images"][0] for record in overview_records]
         overviews = workflow.build_overview_inputs(
             placed,
             image_paths,
