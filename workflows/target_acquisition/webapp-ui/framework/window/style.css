@@ -709,11 +709,15 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
 .point-row .idx { color: var(--ink-3); min-width: 16px; }
 .point-row[aria-current="true"] .idx { color: var(--accent-deep); }
 /* One mark for every way a height is worth a second look, and it carries what
-   it means: the row has no room to say any of this, so the sign stands right
-   after the position it is about and the words are on hovering it. Beside the
-   height instead, it read as a note on the number rather than on the point,
-   and left the height in a different place row to row. */
-.point-row .warn { color: var(--warn-ink); font-size: 12px; cursor: help; }
+   it means: the row has no room to say any of this, so the sign stands where
+   the reading it is about begins and the words are on hovering it. At the end
+   of the position instead, it moved with the length of the coordinates; here
+   the marks make a column of their own, which is what makes a list of them
+   readable at a glance. */
+.point-row .warn {
+  margin-left: auto; color: var(--warn-ink); font-size: 12px; cursor: help;
+}
+.point-row .warn + .z { margin-left: 6px; }
 /* The one reading a row carries. It used to be two — the height, and how far
    off the fitted surface it sat — and the second was a number an operator
    read past to get to the first. Where it matters at all it is the worst
