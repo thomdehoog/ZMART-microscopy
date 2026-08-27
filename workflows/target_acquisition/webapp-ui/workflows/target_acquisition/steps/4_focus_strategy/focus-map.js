@@ -21,7 +21,7 @@
 
 import carrierWidget from "../2_define_carrier/carrier-panel.js";
 import { makeRng } from "../../microscope/pretend-sample/rng.js";
-import { METRICS, METRIC_KEYS, scoreAt } from "../../microscope/pretend-sample/sweep.js";
+import { METRICS, METRIC_KEYS, scoreAt, sweep } from "../../microscope/pretend-sample/sweep.js";
 import {
   affineSurface, fitSurface, residualsUm, surfaceZ,
 } from "../../microscope/pretend-sample/surface.js";
@@ -796,6 +796,25 @@ function renderPointList() {
 
 const traceCv = el("trace-canvas");
 
+/**
+ * The sweep a point would have walked, for a reading that carries none.
+ *
+ * Built from the same `sweep` the pretend instrument uses, so the shape on
+ * screen is the shape the maths gives rather than a drawing of one: the same
+ * two metrics, the same peak-picking, the same noise. What it is not is a
+ * measurement — the height at its middle is the height that *was* measured,
+ * and everything either side of it is what a sweep of this configuration would
+ * look like there.
+ */
+function standInSweep(point) {
+  if (!point || !Number.isFinite(point.z)) return null;
+  const index = run.focus.points.indexOf(point);
+  return Object.fromEntries(METRIC_KEYS.map((key) => {
+    const sw = sweep({ focusZ: point.z, index: Math.max(0, index), metric: key });
+    return [key, { samples: sw.samples, candidates: sw.candidates }];
+  }));
+}
+
 function drawTrace() {
   if (!focusMounted()) return;
   const f = run.focus;
@@ -821,8 +840,16 @@ function drawTrace() {
   /* Both metrics on one plot. They score the same stack on different
      scales, so each is normalised to its own maximum — the shapes are the
      comparison, not the absolute numbers. */
-  const traces = f.points[f.selected]?.traces;
+  /* A point measured through the bridge comes back with a height and nothing
+     else: the instrument's autofocus reports where it landed, not the curve it
+     walked to get there. Rather than leave the box empty, the plot draws a
+     stand-in sweep about the height that was reported — the shape a sweep of
+     this stack and step would have — and says on its face that it is one. It
+     is there to be read as a picture of the settings, never as a measurement,
+     and it goes the moment a backend reports a real sweep. */
+  const traces = f.points[f.selected]?.traces ?? standInSweep(f.points[f.selected]);
   if (!traces) return;
+  const madeUp = !f.points[f.selected]?.traces;
   const curves = METRIC_KEYS.map((key) => {
     const sw = traces[key];
     const peak = Math.max(...sw.samples.map((q) => q.s)) || 1;
@@ -831,7 +858,13 @@ function drawTrace() {
   const deciding = curves.find((c) => c.key === f.metric) || curves[0];
   const t = deciding.sw;
 
-  const P = { l: 40, r: 14, t: 16, b: 30 };
+  /* The legend is under the plot, on one line, and the foot is deep enough to
+     hold it below the heights. Inside the frame it competed with the curve for
+     the same space: the metric names at one end, the height of the chosen peak
+     at the other, and the peak itself wherever the point happened to sit. A
+     stand-in sweep is announced above the plot for the same reason. */
+  const P = { l: 40, r: 14, t: madeUp ? 24 : 12, b: 48 };
+  const legendY = h - 12;
   const zs = t.samples.map((p) => p.z);
   const zLo = Math.min(...zs), zHi = Math.max(...zs);
   const sHi = 1.16;
@@ -860,7 +893,7 @@ function drawTrace() {
 
   // the comparison curve first, so the deciding one reads on top
   legendHits = [];
-  let lx = P.l + 8;
+  let lx = P.l;
   for (const c of curves) {
     const isDeciding = c === deciding;
     ctx.save();
@@ -878,14 +911,14 @@ function drawTrace() {
     ctx.strokeStyle = css(METRICS[c.key].token);
     ctx.lineWidth = isDeciding ? 2.5 : 1.5;
     if (!isDeciding) ctx.setLineDash([4, 3]);
-    ctx.beginPath(); ctx.moveTo(lx, P.t + 3); ctx.lineTo(lx + 16, P.t + 3); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(lx, legendY - 4); ctx.lineTo(lx + 16, legendY - 4); ctx.stroke();
     ctx.restore();
     ctx.font = `${isDeciding ? "600 " : ""}11px system-ui, sans-serif`;
     ctx.fillStyle = isDeciding ? css("--ink") : css("--ink-3");
     const label = METRICS[c.key].short + (isDeciding ? " · deciding" : "");
-    ctx.fillText(label, lx + 22, P.t + 7);
+    ctx.fillText(label, lx + 22, legendY);
     const wLab = 22 + ctx.measureText(label).width;
-    legendHits.push({ key: c.key, x0: lx - 4, x1: lx + wLab + 4, y0: P.t - 6, y1: P.t + 13 });
+    legendHits.push({ key: c.key, x0: lx - 4, x1: lx + wLab + 4, y0: legendY - 13, y1: legendY + 6 });
     lx += wLab + 18;
   }
 
@@ -991,6 +1024,20 @@ function drawTrace() {
   const tw = ctx.measureText(lab).width;
   ctx.fillStyle = p.manual ? css("--accent-deep") : pickColour;
   ctx.fillText(lab, Math.min(xSel + 7, w - P.r - tw), Y(sSel) - 7);
+
+  /* Said on the plot itself, not beside it: a curve that was never measured
+     has to carry the fact wherever it is looked at, including in a screenshot
+     of it. Across the plot rather than in a corner, because a corner is where
+     a legend goes and a legend is read as part of the data. */
+  if (madeUp) {
+    ctx.save();
+    ctx.font = '600 11px system-ui, sans-serif';
+    ctx.fillStyle = css("--ink-3");
+    ctx.textAlign = "left";
+    ctx.fillText("no sweep reported — the shape this configuration would give",
+      P.l, 12);
+    ctx.restore();
+  }
 
   traceGeom = { zLo, zHi, P, w, h, samples: t.samples };
 }
