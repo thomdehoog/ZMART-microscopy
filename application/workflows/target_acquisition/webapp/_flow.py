@@ -42,20 +42,13 @@ class RunFlow:
         hub: WidgetHub,
         *,
         demo: bool = False,
-        analysis_repo: str | Path | None = None,
         vendor: str = "leica",
         demo_root: str | Path | None = None,
         af_job: str | None = None,
         experiment: str = "target-acquisition",
     ) -> None:
-        if not demo and analysis_repo is None:
-            raise ValueError(
-                "a real session needs --analysis-repo (the smart analysis checkout); "
-                "or start with --demo to use the simulated microscope"
-            )
         self.hub = hub
         self.demo = demo
-        self.analysis_repo = analysis_repo
         self.vendor = vendor
         self.demo_root = Path(demo_root) if demo_root is not None else None
         self.af_job = af_job
@@ -216,7 +209,6 @@ class RunFlow:
             self._disconnect()
         settings = {
             "demo": self.demo,
-            "analysis_repo": self.analysis_repo,
             "vendor": self.vendor,
             "demo_root": self.demo_root,
             "af_job": self.af_job,
@@ -243,7 +235,7 @@ class RunFlow:
             preflight_analysis_engine(engine)
             session = SimulatedSession(self.demo_root or Path.cwd() / "zmart_demo_run")
         else:
-            engine = load_analysis_engine(self.analysis_repo)
+            engine = load_analysis_engine()
             try:
                 preflight_analysis_engine(engine)
                 session = connect(self.vendor)

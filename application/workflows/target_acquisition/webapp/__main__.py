@@ -32,10 +32,6 @@ def main() -> None:
         help="drive the simulated microscope and sample instead of real hardware",
     )
     parser.add_argument(
-        "--analysis-repo",
-        help="path to the smart analysis checkout (required for a real session)",
-    )
-    parser.add_argument(
         "--vendor", default="leica", help="controller vendor to connect (default: leica)"
     )
     parser.add_argument(
@@ -75,7 +71,6 @@ def main() -> None:
         host=args.host,
         port=args.port,
         demo=args.demo,
-        analysis_repo=args.analysis_repo,
         vendor=args.vendor,
         demo_root=args.demo_root,
         af_job=args.af_job,

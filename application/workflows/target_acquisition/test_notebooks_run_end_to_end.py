@@ -158,6 +158,14 @@ def test_the_fake_engine_finds_the_fake_cells(tmp_path):
     image = world.render(0.0, 0.0, 1.2, (128, 128))
     path = _write_ome(tmp_path / "tile.ome.tif", image, 1.2)
     engine = _SimEngine()
-    engine.submit("overview", {"image_path": str(path), "naming_p": 0})
-    picks = engine.results("overview")[0]["pick_targets"]["picks"]
-    assert len(picks) >= 3
+    engine.submit("overview", {
+        "image_path": str(path),
+        "naming_p": 0,
+        "tile_stage_xy_um": (0.0, 0.0),
+        "source_pixel_size_um": (1.2, 1.2),
+        "source_image_size_px": (128, 128),
+        "image_to_stage": [[1.0, 0.0], [0.0, 1.0]],
+    })
+    objects = engine.results("overview")[0]["object_analysis"]["objects"]
+    assert objects["n_objects"] >= 3
+    assert len(objects["properties"]["stage_x_um"]) == objects["n_objects"]

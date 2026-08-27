@@ -22,11 +22,44 @@ matplotlib.use("Agg")
 import pytest  # noqa: E402
 import application.workflows.target_acquisition as workflow  # noqa: E402
 
+from zmart_analysis.workflows._geometry import image_point_to_stage_xy  # noqa: E402
+
 from zmart_drivers.mock.mock_driver import register_mock  # noqa: E402
 
 
+def _object_table(picks, job):
+    """Canned picks as the object table object_analysis publishes.
+
+    Placed with the helper the real analysis uses, so a frame position
+    asserted downstream is the conversion's answer and not the fixture's.
+    """
+    rows = []
+    for index, pick in enumerate(picks, start=1):
+        col, row = pick["centroid_col_row_px"]
+        x_um, y_um = image_point_to_stage_xy(
+            centroid_row_px=row,
+            centroid_col_px=col,
+            image_size_px=job["source_image_size_px"],
+            pixel_size_um=job["source_pixel_size_um"],
+            tile_stage_xy_um=job["tile_stage_xy_um"],
+            image_to_stage=job["image_to_stage"],
+        )
+        rows.append({
+            "label": index,
+            "stage_x_um": float(x_um),
+            "stage_y_um": float(y_um),
+            "area": float(pick.get("area_px", 1.0)),
+            "eccentricity": float(pick.get("eccentricity", 0.0)),
+            "intensity_mean": float(pick.get("mean_intensity", 0.0)),
+        })
+    return {
+        "properties": {n: [r[n] for r in rows] for n in (rows[0] if rows else {})},
+        "n_objects": len(rows),
+    }
+
+
 class _FakeEngine:
-    """Synchronous segmentation stub: canned picks per submitted overview."""
+    """Synchronous stub: a canned object table per submitted overview."""
 
     def __init__(self, picks_by_index):
         self.picks_by_index = picks_by_index
@@ -35,9 +68,12 @@ class _FakeEngine:
 
     def submit(self, queue, job):
         self.jobs.append(job)
-        self._results.append(
-            {"input": job, "pick_targets": {"picks": self.picks_by_index.get(job["naming_p"], [])}}
-        )
+        self._results.append({
+            "input": job,
+            "object_analysis": {
+                "objects": _object_table(self.picks_by_index.get(job["naming_p"], []), job)
+            },
+        })
 
     def status(self, queue):
         return {"pending": 0, "running": 0, "failures": []}

@@ -9,8 +9,7 @@ separate frontend process.
 Set-Location "\\zmbstaff.core.uzh.ch\zmbstaff\10374\Protocols_Notes\thom\notes\repositories\ZMART-microscopy\workflows\target_acquisition"
 
 & "C:\ProgramData\MinicondaZMB\envs\zmart-microscopy\python.exe" `
-  .\run_webapp.py `
-  --analysis-repo "\\zmbstaff.core.uzh.ch\zmbstaff\10374\Protocols_Notes\thom\notes\repositories\smart-analysis"
+  .\run_webapp.py
 ```
 
 Open <http://127.0.0.1:8765/> and keep the PowerShell window open during the

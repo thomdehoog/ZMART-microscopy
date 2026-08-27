@@ -22,6 +22,16 @@ from typing import Any
 from application.parts.microscope.capture_run import capture_positions
 from application.parts.storage.records import record_channel_paths
 
+#: The analysis pipeline the run discovers targets with, and the queue name it
+#: is registered under -- the engine keys a pipeline by the top-level name in
+#: its own YAML, so these two must agree.
+ANALYSIS_QUEUE = "object_analysis"
+ANALYSIS_PIPELINE = (
+    Path(__file__).resolve().parents[3]
+    / "zmart_analysis" / "workflows" / "object_analysis"
+    / "pipelines" / f"{ANALYSIS_QUEUE}.yaml"
+)
+
 
 def connect(vendor: str, *, output_root: Any = None, **extras: Any):
     """Open a controller session for a registered instrument, selected by vendor.
@@ -78,55 +88,20 @@ def _normalize_positions(data: Any) -> list[dict]:
     return positions
 
 
-def _find_analysis_repo() -> Path:
-    """Find the adjacent smart analysis checkout without exposing its folder name."""
-    zmart_repo = Path(__file__).resolve().parents[3]
-    candidates = []
-    for path in zmart_repo.parent.iterdir():
-        pipeline = path / "workflows" / "target_acquisition" / "pipelines" / "overview.yaml"
-        if path != zmart_repo and pipeline.is_file() and (path / "engine").is_dir():
-            candidates.append(path.resolve())
-    if not candidates:
-        raise FileNotFoundError(
-            f"smart analysis repository not found next to the ZMART repository: {zmart_repo.parent}"
-        )
-    if len(candidates) > 1:
-        raise RuntimeError(
-            "multiple smart analysis repositories found next to the ZMART repository: "
-            + ", ".join(map(str, candidates))
-        )
-    return candidates[0]
+def load_analysis_engine():
+    """Start ZMART Analysis and register the object_analysis pipeline.
 
+    The analysis lives in this repository, at ``zmart_analysis``, so there is
+    nothing to find and no checkout to point at. What is registered is
+    ``object_analysis``: cellpose detection, then per-object features, then
+    the public object table -- the features are the point, which is why this
+    is not the detection-only pipeline beside it.
+    """
+    from zmart_analysis.engine import Engine
 
-def load_analysis_engine(analysis_repo: Any = None):
-    """Load smart analysis v4 and register its target-acquisition pipeline."""
-    repo = (
-        _find_analysis_repo()
-        if analysis_repo is None
-        else Path(analysis_repo).expanduser().resolve()
-    )
-    if not repo.is_dir():
-        raise FileNotFoundError(f"smart analysis repository not found: {repo}")
-    pipeline = repo / "workflows" / "target_acquisition" / "pipelines" / "overview.yaml"
-    if not pipeline.is_file():
-        raise FileNotFoundError(
-            f"smart analysis target-acquisition pipeline not found: {pipeline}; "
-            "checkout the v4-engine branch"
-        )
-    if str(repo) not in sys.path:
-        sys.path.insert(0, str(repo))
-    engine_module = importlib.import_module("engine")
-    module_path = Path(engine_module.__file__).resolve()
+    engine = Engine()
     try:
-        module_path.relative_to(repo)
-    except ValueError as exc:
-        raise ImportError(
-            f"Python imported the smart analysis engine from {module_path}, not {repo}; "
-            "restart the notebook kernel after changing the repository location"
-        ) from exc
-    engine = engine_module.Engine()
-    try:
-        engine.register("overview", pipeline)
+        engine.register(ANALYSIS_QUEUE, str(ANALYSIS_PIPELINE))
     except Exception:
         engine.shutdown()
         raise

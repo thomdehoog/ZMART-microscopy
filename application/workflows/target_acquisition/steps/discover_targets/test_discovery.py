@@ -1,7 +1,9 @@
-"""discover_targets: reuse the analysis engine, convert centroids -> frame targets.
+"""discover_targets: submit overviews, turn the object table into targets.
 
-The analysis engine is stubbed synchronously (the real one needs cellpose); we
-test the wiring (submitted jobs) and the pixel->frame conversion of its results.
+The analysis engine is stubbed synchronously (the real one needs cellpose).
+The stub places its objects with the same helper the real analysis uses, so
+these tests still hold the frame coordinates to a real number rather than to
+whatever the stub felt like returning.
 """
 
 from __future__ import annotations
@@ -9,6 +11,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 import tifffile
+from zmart_analysis.workflows._geometry import image_point_to_stage_xy
+
 from application.workflows.target_acquisition.steps.discover_targets.discovery import (
     build_overview_inputs,
     discover_targets,
@@ -17,7 +21,7 @@ from application.workflows.target_acquisition.steps.discover_targets.discovery i
 
 
 class _FakeEngine:
-    """Synchronous stand-in: segmentation returns canned picks per submitted job."""
+    """Synchronous stand-in: returns a canned object table per submitted job."""
 
     def __init__(self, picks_by_index):
         self.picks_by_index = picks_by_index
@@ -27,7 +31,8 @@ class _FakeEngine:
     def submit(self, queue, job):
         self.jobs.append(job)
         self._results.append(
-            {"input": job, "pick_targets": {"picks": self.picks_by_index.get(job["naming_p"], [])}}
+            {"input": job, "object_analysis": {"objects": _table(
+                self.picks_by_index.get(job["naming_p"], []), job)}}
         )
 
     def status(self, queue):
@@ -36,6 +41,38 @@ class _FakeEngine:
     def results(self, queue):
         out, self._results = self._results, []
         return out
+
+
+def _table(picks, job):
+    """The picks as the object table object_analysis publishes.
+
+    Stage coordinates come from the real helper, given the job's own geometry
+    -- the same call the analysis makes -- so a test asserting a frame
+    position is asserting the conversion, not the fixture.
+    """
+    rows = []
+    for index, pick in enumerate(picks, start=1):
+        col, row = pick["centroid_col_row_px"]
+        stage_x_um, stage_y_um = image_point_to_stage_xy(
+            centroid_row_px=row,
+            centroid_col_px=col,
+            image_size_px=job["source_image_size_px"],
+            pixel_size_um=job["source_pixel_size_um"],
+            tile_stage_xy_um=job["tile_stage_xy_um"],
+            image_to_stage=job["image_to_stage"],
+        )
+        rows.append({
+            "label": index,
+            "centroid_row_px": float(row),
+            "centroid_col_px": float(col),
+            "stage_x_um": float(stage_x_um),
+            "stage_y_um": float(stage_y_um),
+            "area": float(pick.get("area_px", 1.0)),
+            "eccentricity": float(pick.get("eccentricity", 0.0)),
+            "intensity_mean": float(pick.get("mean_intensity", 0.0)),
+        })
+    properties = {name: [row[name] for row in rows] for name in (rows[0] if rows else {})}
+    return {"properties": properties, "n_objects": len(rows)}
 
 
 def _ov(image_path, center, pixel_size, shape_hw):
@@ -68,7 +105,7 @@ def test_single_cell_centroid_maps_to_frame():
     # (110-100)*0.5 = +5 ; (70-50)*0.5 = +10
     assert targets[0]["x"] == pytest.approx(1005.0)
     assert targets[0]["y"] == pytest.approx(2010.0)
-    assert targets[0]["source"]["area_px"] == 50
+    assert targets[0]["source"]["area"] == 50
     assert targets[0]["source"]["eccentricity"] == pytest.approx(0.25)
     # engine fed a valid segmentation job
     assert engine.jobs[0]["image_path"] == "ov0.tif"
@@ -76,7 +113,6 @@ def test_single_cell_centroid_maps_to_frame():
     assert engine.jobs[0]["source_image_size_px"] == (200, 100)
     assert engine.jobs[0]["image_to_stage"] == [[1.0, 0.0], [0.0, 1.0]]
     assert engine.jobs[0]["tile_id"] == ("overview", 0, 0)
-    assert engine.jobs[0]["feature"] == "area"
 
 
 def test_multiple_overviews_and_cells():
