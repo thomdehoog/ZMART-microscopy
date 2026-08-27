@@ -314,15 +314,52 @@ def _drive_to(asked: dict) -> dict:
 # ---------------------------------------------------------------------------
 
 
+#: Where a driver reports the height its autofocus settled on, most telling
+#: first. ``frame_z_um`` is the drivers' own contract — the sharp height in
+#: frame terms, which is the only one of these that is in the page's own
+#: coordinates; the rest are here because a driver may answer more plainly.
+_WHERE_THE_HEIGHT_IS = ("frame_z_um", "focus_um", "z")
+
+
+def _height_found(answer: dict) -> float | None:
+    """The height an autofocus came back with, or ``None`` if it named none.
+
+    ``None`` rather than a number, because a made-up height is worse than a
+    missing one: the page fits a surface through what it is given, so one
+    invented zero drags the whole map towards a place nobody measured. A point
+    with no height says so, in the list and on the plot.
+    """
+    for key in _WHERE_THE_HEIGHT_IS:
+        if isinstance(answer.get(key), (int, float)):
+            return float(answer[key])
+    inside = answer.get("position")
+    if isinstance(inside, dict) and isinstance(inside.get("z"), (int, float)):
+        return float(inside["z"])
+    return None
+
+
 def _measure_focus(asked: dict) -> dict:
-    """Drive to each point, run the autofocus procedure, report the height."""
+    """Drive to each point, run the autofocus procedure, report the height.
+
+    Where each search begins is the point's own ``startZ`` when it carries one
+    — the page sends it to say "begin from what the map already predicts here"
+    — and otherwise the height the objective is already at. It used to be
+    driven to frame zero before every search, which threw away both.
+    """
     session = _require_session()
     measured = []
     for point in asked.get("points", []):
-        session.set_xyz(float(point["x"]), float(point["y"]), 0.0)
-        answer = session.run_procedure({"procedure": "autofocus"})
-        z = answer.get("z", answer.get("position", {}).get("z", 0.0))
-        measured.append({**point, "zAuto": z, "z": z})
+        standing = session.get_xyz()
+        start = point.get("startZ")
+        session.set_xyz(
+            float(point["x"]),
+            float(point["y"]),
+            float(start) if isinstance(start, (int, float))
+            else float(standing.get("z", {}).get("value", 0.0)),
+        )
+        answer = session.run_procedure({"name": "autofocus"})
+        z = _height_found(answer)
+        measured.append({**point, "zAuto": z, "z": z, "lost": z is None})
     return {"points": measured}
 
 
