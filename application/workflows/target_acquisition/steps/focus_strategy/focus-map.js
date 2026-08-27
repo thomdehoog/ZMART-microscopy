@@ -19,7 +19,7 @@
  * about this step, whoever owns the canvas.
  */
 
-import carrierWidget from "../2_define_carrier/carrier-panel.js";
+import carrierWidget from "../define_carrier/carrier-panel.js";
 import { makeRng } from "../../../../parts/microscope/pretend-sample/rng.js";
 import { METRICS, METRIC_KEYS, MIN_TISSUE_WIDTH_UM, sweep }
   from "../../../../parts/microscope/pretend-sample/sweep.js";
