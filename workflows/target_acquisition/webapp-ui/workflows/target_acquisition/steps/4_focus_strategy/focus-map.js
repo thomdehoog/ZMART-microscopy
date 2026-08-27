@@ -986,61 +986,45 @@ function drawTrace() {
     }
   }
 
-  // where the metric put the peak — kept visible as a reference once the
-  // operator has dragged the chosen height somewhere else
-  if (p.manual) {
-    ctx.save();
-    ctx.globalAlpha = 0.45;
-    ctx.strokeStyle = "#16a34a"; ctx.lineWidth = 1.5;
-    ctx.setLineDash([2, 3]);
-    ctx.beginPath();
-    ctx.moveTo(X(p.zAuto), P.t); ctx.lineTo(X(p.zAuto), h - P.b);
-    ctx.stroke();
-    ctx.restore();
-  }
-
-  /* The score the autofocus settled for, read straight off the axis. The
-     vertical marker says which height it chose; this says how sharp the image
-     was there, which is what an operator compares against the other peaks in
-     the sweep and against the same line on the next point's plot. */
-  ctx.save();
-  ctx.strokeStyle = css("--bad");
-  ctx.lineWidth = 1.4;
-  ctx.setLineDash([5, 4]);
-  ctx.beginPath();
-  ctx.moveTo(P.l, Y(N(chosen.s))); ctx.lineTo(w - P.r, Y(N(chosen.s)));
-  ctx.stroke();
-  ctx.restore();
-
   // the draggable height
   const zSel = p.z;
   const sSel = N(scoreAt(t.samples, zSel));
   const xSel = X(zSel);
+  /* The height that will be used, and the thing dragged left and right to
+     change it. Black, because it is the answer rather than a warning about
+     one: whether the peak under it is too narrow to be tissue is said by the
+     dot and the reading it carries, which are the parts about the measurement.
+     A red slider would have every ordinary point look like a problem. */
   // a peak too narrow to be tissue never gets to look like a confident answer
   const pickColour = p.manual ? css("--accent") : (p.onNarrow ? css("--bad") : "#16a34a");
-  ctx.strokeStyle = pickColour;
+  ctx.strokeStyle = css("--ink");
   ctx.lineWidth = 2;
   ctx.beginPath();
   ctx.moveTo(xSel, P.t); ctx.lineTo(xSel, h - P.b);
   ctx.stroke();
 
-  /* The rail the handle runs on. The height is dragged left and right, and
-     without a track under it the triangle reads as a mark on the curve rather
-     than as something that moves — the line is what says how far it goes. */
+  /* The height the autofocus chose, always drawn and never moved. Drawn over
+     the marker rather than under it, because until the operator drags it the
+     two are the same height: dashes of red over the black line is what says
+     so, where a red line hidden underneath would say nothing at all. Apart,
+     they are the whole of what overruling a measurement looks like. */
   ctx.save();
-  ctx.strokeStyle = css("--ink");
-  ctx.lineWidth = 1.5;
+  ctx.strokeStyle = css("--bad");
+  ctx.lineWidth = 1.4;
+  ctx.setLineDash([5, 4]);
   ctx.beginPath();
-  ctx.moveTo(P.l, P.t); ctx.lineTo(w - P.r, P.t);
+  ctx.moveTo(X(p.zAuto), P.t); ctx.lineTo(X(p.zAuto), h - P.b);
   ctx.stroke();
   ctx.restore();
 
+
   // a grab handle, so it reads as draggable
-  ctx.fillStyle = pickColour;
+  ctx.fillStyle = css("--ink");
   ctx.beginPath();
   ctx.moveTo(xSel - 5, P.t); ctx.lineTo(xSel + 5, P.t); ctx.lineTo(xSel, P.t + 7);
   ctx.closePath(); ctx.fill();
 
+  ctx.fillStyle = pickColour;
   ctx.beginPath(); ctx.arc(xSel, Y(sSel), 4.4, 0, Math.PI * 2);
   ctx.fill();
   ctx.lineWidth = 1.8; ctx.strokeStyle = css("--surface-2"); ctx.stroke();
