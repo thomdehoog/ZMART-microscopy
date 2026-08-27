@@ -16,11 +16,11 @@ import { makeRng } from "./rng.js";
 
 export const METRICS = {
   brenner: {
-    label: "Brenner gradient", short: "Brenner", token: "--m-brenner",
+    label: "Gradient-based", short: "Gradient-based", token: "--m-brenner",
     width: 9.0, bias: 0.0, skew: 0.16, noise: 0.045, speckGain: 1.0,
   },
   dct: {
-    label: "DCT energy", short: "DCT", token: "--m-dct",
+    label: "Entropy-based", short: "Entropy-based", token: "--m-dct",
     width: 6.2, bias: -0.7, skew: 0.03, noise: 0.028, speckGain: 0.72,
   },
 };
