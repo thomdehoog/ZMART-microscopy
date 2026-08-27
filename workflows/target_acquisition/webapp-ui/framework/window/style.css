@@ -35,6 +35,9 @@
   --bad: #b91c1c;
   --warn-bg: #fffbeb;
   --warn-ink: #c2410c;
+  /* a height the operator moved by hand — kept apart from the warning's
+     orange, because a point somebody edited is not a point in trouble */
+  --edit-ink: #eab308;
   --warn-line: #fde68a;
   /* data marks — validated for BOTH surfaces, so they never change */
   --mark-gated: #0284c7;
@@ -92,6 +95,7 @@
     --bad: #f87171;
     --warn-bg: #221a08;
     --warn-ink: #fb923c;
+  --edit-ink: #fde047;
     --warn-line: #57430f;
     --mark-context: #64748b;
     --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 16px 40px rgba(0, 0, 0, 0.5);
@@ -116,6 +120,7 @@
   --bad: #f87171;
   --warn-bg: #221a08;
   --warn-ink: #fb923c;
+  --edit-ink: #fde047;
   --warn-line: #57430f;
   --mark-context: #64748b;
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 16px 40px rgba(0, 0, 0, 0.5);
@@ -139,6 +144,9 @@
   --bad: #b91c1c;
   --warn-bg: #fffbeb;
   --warn-ink: #c2410c;
+  /* a height the operator moved by hand — kept apart from the warning's
+     orange, because a point somebody edited is not a point in trouble */
+  --edit-ink: #eab308;
   --warn-line: #fde68a;
   --mark-context: #94a3b8;
   --shadow: 0 1px 2px rgba(15, 23, 42, 0.05), 0 12px 32px rgba(15, 23, 42, 0.07);
@@ -529,7 +537,7 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
    whatever the row is set by — two tools, or a number — and the press taking
    the other two. Rerun, Refine and Reset sit on those same three, so a press
    in any row begins where Refine does. */
-.fp-hand, .fp-lay, .fp-again {
+.fp-hand, .fp-lay, .fp-again, .ft-acts {
   display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: var(--fp-gap); align-items: center;
 }
@@ -578,6 +586,11 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
    because none of them is the main one — the main one is above, and this row
    is what to do about what it produced. */
 .fp-again { margin-top: 8px; }
+/* The same row of presses, about one point rather than about the map, so it
+   stands under the plot that shows that point on the columns the map's own
+   presses keep. */
+.ft-acts { margin-top: 10px; }
+.ft-acts .sf-flat { height: var(--control); padding: 0 8px; }
 .fp-again[hidden] { display: none; }
 .fp-again .sf-flat { height: var(--control); padding: 0 8px; }
 
@@ -715,6 +728,9 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
    of the position instead, it moved with the length of the coordinates; here
    the marks make a column of their own, which is what makes a list of them
    readable at a glance. */
+/* A height moved by hand, in its own yellow: the point is not in trouble, it
+   is the operator's answer rather than the instrument's. */
+.point-row .edit { color: var(--edit-ink); }
 .point-row .warn {
   margin-left: auto; color: var(--warn-ink); font-size: 12px; cursor: help;
 }
@@ -1496,13 +1512,15 @@ canvas.livecv[hidden] { display: none; }
    In the amber the rest of the page warns in, and in the page's own type
    rather than the heading's small caps: it is a sentence about the list, not
    a second title for it. */
-.side-sub:has(.warn-count) { display: flex; align-items: baseline; }
-.warn-count {
-  margin-left: auto; color: var(--warn-ink);
+.side-sub:has(.tallies) { display: flex; align-items: baseline; }
+.tallies { margin-left: auto; display: flex; gap: 5px; }
+.edit-count, .warn-count {
   font-family: var(--sans); font-size: 11px; font-weight: 600;
   letter-spacing: 0; text-transform: none;
 }
-.warn-count:empty { display: none; }
+.edit-count { color: var(--edit-ink); }
+.warn-count { color: var(--warn-ink); }
+.edit-count:empty, .warn-count:empty { display: none; }
 /* Except where the two parts are one subject rather than two ways of answering
    different ones: the carrier types and the catalogue of them are one question
    asked twice over — which carrier, then which of that kind — and the bar that

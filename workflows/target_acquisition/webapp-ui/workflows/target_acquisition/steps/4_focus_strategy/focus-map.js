@@ -682,6 +682,10 @@ function doubtsAbout(point, i) {
      on top of them would have the count at the head of the list promising
      something to look at that nobody can look at yet. */
   if (point.stale) return [];
+  /* Accepted: the operator has looked at this one and it stands. Whatever was
+     doubtful about it was doubtful to the rule, not to them, and a mark they
+     have already answered is a mark that never comes off the list. */
+  if (point.accepted) return [];
   const out = [];
   if (point.lost) {
     out.push("The search swept its whole range without finding a peak — no height was measured here.");
@@ -786,7 +790,9 @@ function renderPointList() {
      was counted from — every way out of this function below leaves it as it
      is found here. */
   const warned = el("fp-warned");
+  const edited = el("fp-edited");
   warned.textContent = "";
+  edited.textContent = "";
   renderFocusBar();
 
   if (f.strategy !== "plane") {
@@ -808,7 +814,7 @@ function renderPointList() {
     return;
   }
 
-  let doubtful = 0;
+  let doubtful = 0, edits = 0;
   f.points.forEach((p, i) => {
     /* Every point that has been measured, including the ones the search came
        back from with nothing: a point whose sweep never found the tissue is
@@ -828,7 +834,9 @@ function renderPointList() {
       String(picked().has(i) || (!picked().size && i === f.selected)));
     const doubts = doubtsAbout(p, i);
     const suspect = doubts.length > 0;
+    const handSet = !!p.manual && !p.accepted;
     if (suspect) doubtful++;
+    if (handSet) edits++;
     const pick = document.createElement("button");
     pick.className = "point-pick"; pick.type = "button";
     pick.innerHTML =
@@ -837,7 +845,7 @@ function renderPointList() {
       (suspect ? `<span class="warn" title="${doubts.join("&#10;")}">⚠</span>` : "") +
       `<span class="z${p.z === null ? " pending" : ""}"` +
       `${suspect && !p.manual ? ' style="color:var(--warn-ink)"' : ""}>` +
-      `${p.z === null ? "—" : (p.manual ? "✎ " : "") + p.z.toFixed(1) + " µm"}</span>`;
+      `${p.z === null ? "—" : (handSet ? '<span class="edit">✎</span> ' : "") + p.z.toFixed(1) + " µm"}</span>`;
     /* A moved point can still be picked. What was read for it was read of
        where it used to be, so there is no sweep to show and the plot below
        says exactly that — but which point the map is marking is the row's
@@ -870,12 +878,92 @@ function renderPointList() {
   });
 
   /* Said once at the top, because the list scrolls: four rows are on screen
-     and a mark on the fifth is a mark nobody sees. The number is how many
-     rows carry one, not how many things are wrong with them. */
+     and a mark on the fifth is a mark nobody sees. Each number is how many
+     rows carry that mark, not how many things are wrong with them — and the
+     comma belongs to the first only while there is a second to separate it
+     from. */
   warned.textContent = doubtful
     ? `${doubtful} warning${doubtful === 1 ? "" : "s"}`
     : "";
+  edited.textContent = edits
+    ? `${edits} edit${edits === 1 ? "" : "s"}${doubtful ? "," : ""}`
+    : "";
+  renderTraceActions();
 }
+
+/**
+ * The point the plot is showing, when there is one to act on.
+ *
+ * Not the same thing as `f.points[f.selected]`: a point that has moved since
+ * the map was measured is selected and drawn as selected, and there is still
+ * nothing to rerun, accept or reset about it.
+ */
+function pointOnShow() {
+  const f = run.focus;
+  if (f.strategy !== "plane" || !f.applied) return null;
+  const p = f.points[f.selected];
+  return p && !p.stale && p.z !== null ? p : null;
+}
+
+/** The three presses under the plot, against the point it is showing. */
+function renderTraceActions() {
+  if (!focusMounted()) return;
+  const p = pointOnShow();
+  const busy = !!run.running;
+  el("ft-rerun").disabled = !p || busy;
+  /* There is something to accept while the point still carries a mark: a
+     warning the rule raised, or a height moved by hand. Accepting a point
+     with neither would be answering a question nobody asked. */
+  el("ft-accept").disabled = !p || busy || p.accepted
+    || !(p.manual || doubtsAbout(p, run.focus.points.indexOf(p)).length);
+  /* And something to reset once it has been answered or moved — going back to
+     the instrument's own height is only a move if it is not already there. */
+  el("ft-reset").disabled = !p || busy || !(p.manual || p.accepted);
+}
+
+el("ft-accept").addEventListener("click", () => {
+  const p = pointOnShow();
+  if (!p || run.running) return;
+  p.accepted = true;
+  renderPointList(); drawTrace(); stage.draw();
+});
+
+el("ft-reset").addEventListener("click", () => {
+  const p = pointOnShow();
+  if (!p || run.running) return;
+  /* Back to what the instrument answered, and no longer answered for: a point
+     put back is a point nobody has looked at yet. */
+  p.z = p.zAuto;
+  p.manual = false;
+  p.accepted = false;
+  refitSurface();
+  renderPointList(); drawTrace(); stage.draw();
+});
+
+el("ft-rerun").addEventListener("click", async () => {
+  const f = run.focus;
+  const p = pointOnShow();
+  if (!p || run.running) return;
+  const at = f.points.indexOf(p);
+  const startZ = stage.whereTheStageIs().z;
+  const asked = Number.isFinite(startZ) ? { ...p, startZ } : { ...p };
+  /* One point measured on its own, through the same verb the whole map goes
+     through — a backend that drives to a list of positions is given a list of
+     one. What comes back replaces that point and nothing else, and it comes
+     back unanswered: a fresh reading is not one anybody has looked at. */
+  const { points } = await backend.measureFocus([asked], {
+    metric: f.metric,
+    extent: carrierSpan(),
+  });
+  const [got] = points;
+  if (got) {
+    f.points[at] = Number.isFinite(got.zAuto) || !Number.isFinite(got.z)
+      ? { ...got, accepted: false }
+      : { ...got, zAuto: got.z, accepted: false };
+  }
+  refitSurface();
+  renderPointList(); drawTrace(); stage.draw(); renderActionBar();
+});
 
 const traceCv = el("trace-canvas");
 
