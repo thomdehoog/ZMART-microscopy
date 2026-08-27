@@ -336,6 +336,17 @@ def _apply_state(asked: dict) -> dict:
     Which settings exist here is the driver's business, as it is for the menu.
     On the Leica it is the LAS X job; on another instrument it is whatever
     that instrument lets a client change.
+
+    Nothing on the operator page calls this, and that is a decision rather
+    than an omission. A control for choosing a job would be a control named
+    after one vendor's noun: ``job`` is what LAS X calls a stored recipe, and
+    another instrument has a protocol, an experiment, or nothing shaped like
+    one — so the page would have learned one microscope. It reads what it is
+    told and leaves the choosing to the software that authors the recipes,
+    where what each one carries can be seen.
+
+    The verb is here because the seam mirrors the controller's surface, not
+    this one page's needs. The next client may set what this one only reads.
     """
     return _require_session().set_state({"changeable": dict(asked)})
 
