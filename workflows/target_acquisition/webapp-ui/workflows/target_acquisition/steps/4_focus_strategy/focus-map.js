@@ -988,76 +988,15 @@ function drawTrace() {
   ctx.fillText(lab, Math.min(xSel + 7, w - P.r - tw), Y(sSel) - 7);
 
   traceGeom = { zLo, zHi, P, w, h, samples: t.samples };
-  drawZPreview(p, f.selected);
 }
 
 let traceGeom = null;
 let legendHits = [];
 
-/* ---- the image at whatever height the line is sitting on ---------------
-   Defocus is the whole point of the preview, so it is drawn once sharp and
-   blurred by how far the chosen height sits from this point's true focus. */
-function drawZPreview(point, idx) {
-  const cv = el("zpreview-canvas");
-  const ctx = cv.getContext("2d");
-  const S = cv.width;
-  const trueFocus = point.focusZ ?? 0;
-  const defocus = Math.abs(point.z - trueFocus);
-  const blur = Math.min(11, defocus * 0.42);
 
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.clearRect(0, 0, S, S);
-  ctx.fillStyle = "#05090e";
-  ctx.fillRect(0, 0, S, S);
-
-  const r = makeRng(4400 + idx * 131);
-  const nuclei = Array.from({ length: 14 }, () => ({
-    x: S * (0.08 + 0.84 * r()), y: S * (0.08 + 0.84 * r()),
-    rad: S * (0.045 + 0.055 * r()), amp: 0.5 + 0.5 * r(),
-  }));
-
-  if ("filter" in ctx) ctx.filter = blur > 0.25 ? `blur(${blur.toFixed(2)}px)` : "none";
-  // out-of-focus light spreads out instead of vanishing
-  const spread = 1 + blur * 0.16;
-  for (const n of nuclei) {
-    const g = ctx.createRadialGradient(n.x, n.y, 0, n.x, n.y, n.rad * spread);
-    g.addColorStop(0, `rgba(34,211,238,${(0.85 * n.amp) / spread})`);
-    g.addColorStop(0.6, `rgba(34,211,238,${(0.3 * n.amp) / spread})`);
-    g.addColorStop(1, "rgba(34,211,238,0)");
-    ctx.fillStyle = g;
-    ctx.beginPath(); ctx.arc(n.x, n.y, n.rad * spread, 0, Math.PI * 2); ctx.fill();
-  }
-  // the speck of debris, if this position has one — it comes into focus in a
-  // plane of its own, which is exactly what fools the metric
-  const speck = point.speck;
-  if (speck) {
-    const speckZ = trueFocus + METRICS[run.focus.metric].bias + speck.offset;
-    const speckBlur = Math.min(11, Math.abs(point.z - speckZ) * 0.55);
-    ctx.filter = speckBlur > 0.25 ? `blur(${speckBlur.toFixed(2)}px)` : "none";
-    const sr = makeRng(9100 + idx * 17);
-    const cx = S * (0.3 + 0.4 * sr()), cy = S * (0.3 + 0.4 * sr());
-    const sSpread = 1 + speckBlur * 0.5;
-    ctx.fillStyle = `rgba(226,232,240,${Math.min(0.95, 0.95 / sSpread)})`;
-    ctx.beginPath();
-    ctx.ellipse(cx, cy, S * 0.035 * sSpread, S * 0.022 * sSpread, sr() * 3, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.filter = "none";
-  }
-
-  el("zpreview-z").textContent = point.z === null ? "—" : `${point.z.toFixed(1)} µm`;
-  const st = el("zpreview-state");
-  st.classList.toggle("manual", !!point.manual);
-  if (point.manual) {
-    const d = point.z - point.zAuto;
-    st.textContent = `moved by hand · ${d >= 0 ? "+" : ""}${d.toFixed(1)} µm off the pick`;
-  } else if (point.onNarrow) {
-    st.textContent = "locked onto a narrow peak";
-    st.classList.add("manual");
-  } else {
-    st.textContent = defocus < 2 ? "cells in focus" : "off the tissue plane";
-  }
-}
-
+/* The image at the chosen height is parked. It was a second thing to read
+   beside the plot and the plot is what says whether a height is the right
+   one; the drawing comes back with the box that shows it. */
 /* ---- drag the height, and watch the image follow -----------------------
    The whole reason the preview is here: a peak the metric loved can be a
    speck, and the operator decides by looking rather than by trusting. */

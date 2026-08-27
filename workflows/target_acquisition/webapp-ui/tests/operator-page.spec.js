@@ -719,7 +719,7 @@ test("the tools and the grid are on screen together, over what the grid laid",
     /* The two ways of laying a tileset, and nothing else: how they are placed
        once they are down has a box of its own below this one. */
     await expect(page.locator(".side-group:has(.sf-tools) .side-sub"))
-      .toHaveText(["Place tiles manually", "Place tiles automatically"]);
+      .toHaveText(["Manual", "Automatic"]);
     await expect(page.locator(".side-group:has(#sf-overlap) .side-sub"))
       .toHaveText(["Tile overlap (%)", "Placed tiles"]);
     await expect(page.locator(".sf-readout")).toContainText("864 positions");
@@ -925,7 +925,10 @@ test("a region is drawn on the canvas and covered by its preset's frame",
 
     // drawing hands the tool back, so the next drag moves rather than draws a
     // second one — and the row says so by lighting Select instead
-    await expect(page.locator(".sf-tool.on")).toHaveCount(1);
+    /* In this row. The focus step has tools of its own, parked in the markup
+       while another step is standing — hidden, but still in the document and
+       still answering to the same class. */
+    await expect(page.locator(".sf-tools .sf-tool.on")).toHaveCount(1);
     await expect(page.locator(".sf-tool[data-tool='pointer']")).toHaveClass(/\bon\b/);
 
     // undo has no button of its own; the shortcut list is where it is said
