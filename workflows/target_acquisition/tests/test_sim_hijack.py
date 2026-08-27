@@ -14,7 +14,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 import tifffile
-from workflow import NonSimulatorFrameError, get_provider, hijack_records
+from application.workflows.target_acquisition import NonSimulatorFrameError, get_provider, hijack_records
 
 _OME_DESC = (
     '<?xml version="1.0" encoding="UTF-8"?>\n'

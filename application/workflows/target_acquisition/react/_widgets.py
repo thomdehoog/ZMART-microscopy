@@ -46,18 +46,18 @@ require_anywidget()
 import anywidget  # noqa: E402
 import traitlets  # noqa: E402
 
-from .._acquisition_widget import _eta_text, pair_images  # noqa: E402
-from .._discovery_widget import (  # noqa: E402
+from application.workflows.target_acquisition.steps.acquire_targets.widget import _eta_text, pair_images  # noqa: E402
+from application.workflows.target_acquisition.steps.discover_targets.widget import (  # noqa: E402
     _feature_value,
     _matching_target_indices,
     _numeric_features,
     crop_for_target,
 )
-from .._focus_run import measure_focus  # noqa: E402
-from .._focus_surface import fit_focus_surface, worst_residual_um  # noqa: E402
-from .._overview_widget import _load_overview_channels, composite_channels  # noqa: E402
-from .._records import record_channel_paths  # noqa: E402
-from ..steps import acquire_targets  # noqa: E402
+from application.workflows.target_acquisition.steps.focus_strategy.focus_run import measure_focus  # noqa: E402
+from application.workflows.target_acquisition.steps.focus_strategy.focus_surface import fit_focus_surface, worst_residual_um  # noqa: E402
+from application.workflows.target_acquisition.steps.scan_the_overview.widget import _load_overview_channels, composite_channels  # noqa: E402
+from application.parts.storage.records import record_channel_paths  # noqa: E402
+from application.workflows.target_acquisition.the_run import acquire_targets  # noqa: E402
 
 # Ignore button messages arriving within this window after a run finishes —
 # clicks queued in the browser while Python was busy would otherwise start
@@ -522,7 +522,7 @@ export default mount(App);
 
     def add_acquisition(self, index: int, position: dict, record: dict) -> dict:
         """``on_record`` hook for :func:`~..steps.run_overview` — live tiles."""
-        from ..discovery import read_overview_geometry
+        from application.workflows.target_acquisition.steps.discover_targets.discovery import read_overview_geometry
 
         paths = record_channel_paths(record, context=f"overview record {index}")
         geometry = read_overview_geometry(paths[0])
@@ -1059,7 +1059,7 @@ export default mount(App);
             # Each point also reports how far it sits from the fit — one
             # large residual usually means that autofocus landed badly and
             # is quietly bending the whole surface.
-            from .._focus_surface import residuals_um
+            from application.workflows.target_acquisition.steps.focus_strategy.focus_surface import residuals_um
 
             self.measured = residuals_um(self.focus)
             self.heatmap = self._render_heatmap()
@@ -2203,7 +2203,7 @@ export default mount(App);
 
     def refresh(self, ns: dict) -> RunStatusReact:
         """Rebuild the checklist from the notebook's variables (``globals()``)."""
-        from .._run_status import run_status_rows
+        from application.framework.run_status import run_status_rows
 
         self.rows = run_status_rows(ns)
         return self

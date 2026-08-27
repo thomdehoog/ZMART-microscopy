@@ -34,7 +34,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ._canvas import force_draw
+from application.parts.plots.canvas import force_draw
 
 # The colours a channel can wear, in the order the colour button cycles
 # through them. White first — a white channel renders as plain grayscale,
@@ -184,8 +184,8 @@ class OverviewViewer:
         directly and watch the mosaic grow tile by tile during the scan.
         Returns the overview entry it built (also kept on ``self.overviews``).
         """
-        from ._records import record_channel_paths
-        from .discovery import read_overview_geometry
+        from application.parts.storage.records import record_channel_paths
+        from application.workflows.target_acquisition.steps.discover_targets.discovery import read_overview_geometry
 
         paths = record_channel_paths(record, context=f"overview record {index}")
         geometry = read_overview_geometry(paths[0])
@@ -262,7 +262,7 @@ class OverviewViewer:
     def _set_title(self) -> None:
         progress = f"{len(self.overviews)} overview tile(s)"
         if self._expected_tiles:
-            from ._acquisition_widget import _eta_text
+            from application.workflows.target_acquisition.steps.acquire_targets.widget import _eta_text
 
             progress = (
                 f"tile {len(self.overviews)} of {self._expected_tiles}"

@@ -27,7 +27,7 @@ import pytest  # noqa: E402
 pytest.importorskip("anywidget")
 playwright_api = pytest.importorskip("playwright.sync_api")
 
-from workflow.webapp import make_server  # noqa: E402
+from application.workflows.target_acquisition.webapp import make_server  # noqa: E402
 
 _STEP_ORDER = [
     "connect",

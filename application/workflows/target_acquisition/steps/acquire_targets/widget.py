@@ -29,9 +29,9 @@ import time
 from collections.abc import Callable
 from typing import Any
 
-from ._canvas import force_draw
-from ._records import record_channel_paths
-from .steps import acquire_targets
+from application.parts.plots.canvas import force_draw
+from application.parts.storage.records import record_channel_paths
+from application.workflows.target_acquisition.the_run import acquire_targets
 
 # Ignore button clicks arriving within this window after a run finishes.
 # While the microscope works, the notebook kernel is busy and any extra
@@ -376,9 +376,9 @@ def pair_images(target: dict, record: dict, overviews: dict[int, dict]):
     failing the whole gallery. Shared by the matplotlib gallery and the
     React gallery so both review the identical same-scale pair.
     """
-    from ._geom import crop_overview_at_target_fov
-    from ._overview_widget import _load_channels
-    from .discovery import read_overview_geometry
+    from application.workflows.target_acquisition.geom import crop_overview_at_target_fov
+    from application.workflows.target_acquisition.steps.scan_the_overview.widget import _load_channels
+    from application.workflows.target_acquisition.steps.discover_targets.discovery import read_overview_geometry
 
     images = record_channel_paths(record, context="target record", allow_empty=True)
     if not images:

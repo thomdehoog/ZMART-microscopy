@@ -15,8 +15,8 @@ import pytest
 nbformat = pytest.importorskip("nbformat")
 pytest.importorskip("anywidget")
 
-import workflow  # noqa: E402
-from workflow import react as wreact  # noqa: E402
+import application.workflows.target_acquisition as workflow  # noqa: E402
+from application.workflows.target_acquisition import react as wreact  # noqa: E402
 
 _NB_PATH = Path(__file__).resolve().parents[1] / "zmart_microscopy_v4_react.ipynb"
 

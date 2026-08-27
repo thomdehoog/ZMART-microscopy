@@ -29,8 +29,8 @@ import pytest  # noqa: E402
 
 nbformat = pytest.importorskip("nbformat")
 
-import workflow  # noqa: E402
-from workflow._simulation import (  # noqa: E402
+import application.workflows.target_acquisition as workflow  # noqa: E402
+from application.parts.microscope.simulation import (  # noqa: E402
     INJECTED_ERROR_UM,
     SimulatedEngine,
     SimulatedSession,

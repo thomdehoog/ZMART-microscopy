@@ -9,7 +9,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
-from workflow._log_capture import (
+from application.framework.log_capture import (
     _log_path_for,
     _logged,
     _Tee,

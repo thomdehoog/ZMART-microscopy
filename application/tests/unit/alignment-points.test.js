@@ -22,7 +22,7 @@
 
 import { describe, it, expect } from "vitest";
 import { anchorsUm, howManyAnchorsFit }
-  from "../../workflows/target_acquisition/steps/2_define_carrier/carrier-panel.js";
+  from "../../workflows/target_acquisition/steps/define_carrier/carrier-panel.js";
 import { carrierType, centres, fromPreset, geometry }
   from "../../workflows/target_acquisition/shared/carriers.js";
 

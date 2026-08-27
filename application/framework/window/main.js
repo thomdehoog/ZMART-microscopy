@@ -3,12 +3,12 @@ import { sideGroup } from "./panels.js";
 import { renderRecordingSlot }
   from "../../workflows/target_acquisition/shared/recording-slot.js";
 import { renderSessionCard }
-  from "../../workflows/target_acquisition/steps/1_connect/session-card.js";
+  from "../../workflows/target_acquisition/steps/connect/session-card.js";
 import { watchTheRun }
-  from "../../workflows/target_acquisition/steps/5_scan_the_overview/watching-the-run.js";
+  from "../../workflows/target_acquisition/steps/scan_the_overview/watching-the-run.js";
 import { openTheStage } from "../../workflows/target_acquisition/shared/stage.js";
 import { openTheFocusMap }
-  from "../../workflows/target_acquisition/steps/4_focus_strategy/focus-map.js";
+  from "../../workflows/target_acquisition/steps/focus_strategy/focus-map.js";
 import { blockedBecause, isReachable, panelsFor } from "../rules/steps.js";
 import { assembleWorkflows } from "../rules/finding-workflows.js";
 import { watchStagePosition } from "../../workflows/target_acquisition/shared/stage-position.js";
@@ -30,12 +30,12 @@ import {
   emptySlot, hasRecording, withRecording, withoutRecording, withActive,
   activeRecording, nextReadingIndex,
 } from "../../parts/microscope/recordings.js";
-import carrierWidget from "../../workflows/target_acquisition/steps/2_define_carrier/carrier-panel.js";
-import scanfieldsWidget, { presetInk } from "../../workflows/target_acquisition/steps/3_define_scan_area/scanfield-editor.js";
+import carrierWidget from "../../workflows/target_acquisition/steps/define_carrier/carrier-panel.js";
+import scanfieldsWidget, { presetInk } from "../../workflows/target_acquisition/steps/define_scan_area/scanfield-editor.js";
 import detectionPanel, { ALGOS, detects }
-  from "../../workflows/target_acquisition/steps/6_discover_targets/detection.js";
-import gatingPanel from "../../workflows/target_acquisition/steps/7_refine_targets/gate.js";
-import galleryWidget from "../../workflows/target_acquisition/steps/8_acquire_targets/gallery.js";
+  from "../../workflows/target_acquisition/steps/discover_targets/detection.js";
+import gatingPanel from "../../workflows/target_acquisition/steps/refine_targets/gate.js";
+import galleryWidget from "../../workflows/target_acquisition/steps/acquire_targets/gallery.js";
 /* The rehearsal's own maths — the deterministic random stream, the autofocus
    sweep with its two metrics and its specks of debris, and the focus-surface
    fitting — is imported rather than written here, so the unit tests and the
@@ -546,7 +546,7 @@ let stageWatch = null;
              announces — the images were declared at their full size before any
              of them existed, so their description is the same before and after
              a tile lands. The picture decides how often to actually look; see
-             `steps/5_scan_the_overview/overview.js`, which explains why. */
+             `steps/scan_the_overview/overview.js`, which explains why. */
           liveOverview.tileMayHaveLanded();
           drawStage(); renderAll();
         },

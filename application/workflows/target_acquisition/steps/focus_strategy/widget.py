@@ -26,9 +26,9 @@ from __future__ import annotations
 import time
 from typing import Any
 
-from ._canvas import force_draw
-from ._focus_run import measure_focus
-from ._focus_surface import fit_focus_surface
+from application.parts.plots.canvas import force_draw
+from application.workflows.target_acquisition.steps.focus_strategy.focus_run import measure_focus
+from application.workflows.target_acquisition.steps.focus_strategy.focus_surface import fit_focus_surface
 
 # How close (in screen pixels) a right-click must land to an existing point
 # to remove it. Screen pixels, not micrometres, so the feel of "clicking on
@@ -223,7 +223,7 @@ class FocusPicker:
             # Live progress: refit and redraw the map after every measured
             # point, so the operator watches the surface take shape while
             # the stage is still visiting the remaining points.
-            from ._acquisition_widget import _eta_text
+            from application.workflows.target_acquisition.steps.acquire_targets.widget import _eta_text
 
             self._af_cache[(measurement["x_um"], measurement["y_um"])] = measurement
             self.measured = _collected_so_far()
@@ -257,7 +257,7 @@ class FocusPicker:
         # Name the point that fits worst: one bad autofocus (dust, a
         # bubble) quietly bends the whole surface, and the residual is how
         # the operator spots it.
-        from ._focus_surface import worst_residual_um
+        from application.workflows.target_acquisition.steps.focus_strategy.focus_surface import worst_residual_um
 
         worst = worst_residual_um(self.focus)
         residual_note = (

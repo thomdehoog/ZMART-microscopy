@@ -44,7 +44,7 @@ from typing import Any
 
 import numpy as np
 
-from ._geom import crop_overview_at_target_fov
+from application.workflows.target_acquisition.geom import crop_overview_at_target_fov
 
 _POSITION_LABEL_RE = re.compile(
     r"K\d{2}_M\d{6}_G(?P<group>\d{6})_P(?P<position>\d{6})_V\d{2}"

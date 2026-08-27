@@ -11,7 +11,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from ._output import move_record_images, position_label, prepare_acquisition
+from application.parts.storage.output import move_record_images, position_label, prepare_acquisition
 
 
 class RunCancelled(RuntimeError):

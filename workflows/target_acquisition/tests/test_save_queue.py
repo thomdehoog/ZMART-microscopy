@@ -11,7 +11,7 @@ from __future__ import annotations
 import threading
 
 import pytest
-from workflow._save_queue import _FigureSaveQueue
+from application.parts.plots.save_queue import _FigureSaveQueue
 
 # Generous timeout for Event.wait calls -- any blocking longer than
 # this represents a real deadlock, not a slow CI.

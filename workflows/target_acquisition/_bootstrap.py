@@ -21,10 +21,14 @@ if str(_REPO_ROOT) not in sys.path:
 # Importing the adapter registers the Leica microscope with zmart_controller.
 import navigator_expert.zmart_adapter  # noqa: E402,F401
 
-# workflow/ is a sibling package to this bootstrap
+# The workflow's Python front door now stands beside its JavaScript one, in
+# the application: `application/workflows/target_acquisition/`. The notebooks
+# ask for `workflow`, and that is what they get -- the name is the notebook's
+# word for "the thing I am driving", and it is worth keeping while its code
+# finds the place it belongs.
 if str(_HERE) not in sys.path:
     sys.path.insert(0, str(_HERE))
 
-import workflow  # noqa: E402
+import application.workflows.target_acquisition as workflow  # noqa: E402
 
 __all__ = ["Path", "TARGET_ACQ", "workflow"]

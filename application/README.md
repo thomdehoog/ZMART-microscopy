@@ -145,7 +145,7 @@ was. A few options are worth knowing:
 rectangle covering everything the run declared room for, whether or not anything
 was ever imaged into it — so by default a run that declared a whole carrier and
 imaged five places in it hides everything underneath.
-`workflows/target_acquisition/steps/5_scan_the_overview/overview.js`
+`workflows/target_acquisition/steps/scan_the_overview/overview.js`
 carries a dozen lines of shader code that make the dark parts see-through, which
 is what lets the acquisition sit as a layer over the operator's own drawing. Its
 one cost is that a place imaged and found empty then looks the same as a place

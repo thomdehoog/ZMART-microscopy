@@ -20,7 +20,7 @@ import matplotlib
 matplotlib.use("Agg")
 
 import pytest  # noqa: E402
-import workflow  # noqa: E402
+import application.workflows.target_acquisition as workflow  # noqa: E402
 
 from zmart_drivers.mock.mock_driver import register_mock  # noqa: E402
 
