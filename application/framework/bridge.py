@@ -96,6 +96,7 @@ if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
 import zmart_controller  # noqa: E402
+from application.parts.storage.output import position_label  # noqa: E402
 from application.parts.microscope.focus_run import (  # noqa: E402
     measure_focus,
 )
@@ -475,10 +476,17 @@ def _measure_focus(asked: dict) -> dict:
 # The scan: a background thread drives the stage; the window watches the run
 # ---------------------------------------------------------------------------
 
-_scan = {"running": False, "done": 0, "of": 0, "error": None}
+_scan = {"running": False, "done": 0, "of": 0, "error": None, "records": []}
 
 
-def _scan_worker(positions: list) -> None:
+def _scan_worker(positions: list, acquisition_type: str = "overview") -> None:
+    """Drive to each position, capture, and keep what came back.
+
+    The records are kept because nothing else can reconstruct them: where a
+    run lands is knowable in advance, what each capture wrote is not. They
+    were dropped on the floor here, so a run could be caused and never
+    accounted for.
+    """
     try:
         for i, position in enumerate(positions):
             with _the_instruments_turn:
@@ -486,7 +494,11 @@ def _scan_worker(positions: list) -> None:
                 session.set_xyz(
                     float(position["x"]), float(position["y"]), float(position.get("z", 0.0))
                 )
-                session.acquire(acquisition_type="overview", position_label=f"pos_{i:05d}")
+                record = session.acquire(
+                    acquisition_type=acquisition_type,
+                    position_label=_label_for(i, position),
+                )
+            _scan["records"].append(record)
             _scan["done"] = i + 1
     except Exception as why:  # noqa: BLE001 — the window shows the sentence
         _scan["error"] = str(why)
@@ -494,12 +506,33 @@ def _scan_worker(positions: list) -> None:
         _scan["running"] = False
 
 
+def _label_for(index: int, position: dict) -> str:
+    """Where on the sample this capture is, in the workflow's own label.
+
+    It was a running index, ``pos_00000``, which names nothing: a file called
+    that cannot be traced back to a well. The caller says which compartment
+    and which group a position belongs to — it drew them — and what it leaves
+    out is zero, which is honest about not knowing rather than invented.
+    """
+    return position_label(
+        index,
+        carrier=int(position.get("carrier", 0)),
+        compartment=int(position.get("compartment", 0)),
+        group=int(position.get("group", 0)),
+        view=int(position.get("view", 0)),
+    )
+
+
 def _start_scan(asked: dict) -> dict:
     if _scan["running"]:
         raise RuntimeError("a scan is already running")
     positions = asked.get("positions", [])
-    _scan.update(running=True, done=0, of=len(positions), error=None)
-    threading.Thread(target=_scan_worker, args=(positions,), daemon=True).start()
+    _scan.update(running=True, done=0, of=len(positions), error=None, records=[])
+    threading.Thread(
+        target=_scan_worker,
+        args=(positions, str(asked.get("acquisition_type", "overview"))),
+        daemon=True,
+    ).start()
     return dict(_scan)
 
 

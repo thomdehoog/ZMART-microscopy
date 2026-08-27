@@ -320,3 +320,61 @@ def test_the_options_a_capture_is_given_reach_the_driver(monkeypatch):
         "target", "K00_M000002_G000001_P000003_V00", {"format": "ome-zarr"},
     )
 
+
+# --- the scan ----------------------------------------------------------------
+
+
+def _scanned(driver, positions, monkeypatch, **asked):
+    """Run a scan to completion on this driver and hand back what it kept."""
+    monkeypatch.setattr(bridge, "_session", driver)
+    bridge._scan.update(running=True, done=0, of=len(positions), error=None, records=[])
+    bridge._scan_worker(positions, **asked)
+    assert bridge._scan["error"] is None, bridge._scan["error"]
+    return bridge._scan
+
+
+def test_a_scan_labels_every_position_the_canonical_way(monkeypatch):
+    """`pos_00000` named nothing.
+
+    A label says where on the sample a capture was taken: carrier,
+    compartment, group, position, view. A running index cannot be traced back
+    to a well, so a file named by one is a file nobody can place.
+    """
+    driver = _Capturing()
+    scanned = _scanned(driver, [{"x": 0, "y": 0}, {"x": 10, "y": 0}], monkeypatch)
+    assert [label for _, label, _ in driver.asked] == [
+        "K00_M000000_G000000_P000000_V00",
+        "K00_M000000_G000000_P000001_V00",
+    ]
+    assert scanned["done"] == 2
+
+
+def test_a_position_says_where_on_the_plate_it_is(monkeypatch):
+    """The page knows which well and which tileset; the label carries it."""
+    driver = _Capturing()
+    _scanned(driver, [{"x": 0, "y": 0, "compartment": 3, "group": 2}], monkeypatch)
+    assert driver.asked[-1][1] == "K00_M000003_G000002_P000000_V00"
+
+
+def test_a_scan_keeps_the_record_of_every_capture(monkeypatch):
+    """Kept, because nothing else can reconstruct it.
+
+    They were thrown away: `acquire` was called and its answer dropped, so a
+    run could be caused and never accounted for.
+    """
+    driver = _Capturing()
+    scanned = _scanned(driver, [{"x": 0, "y": 0}, {"x": 10, "y": 0}], monkeypatch)
+    assert len(scanned["records"]) == 2
+    assert [r["position_label"] for r in scanned["records"]] == [
+        "K00_M000000_G000000_P000000_V00",
+        "K00_M000000_G000000_P000001_V00",
+    ]
+    assert all(r["images"] for r in scanned["records"])
+
+
+def test_a_scan_captures_under_the_kind_of_scan_it_is(monkeypatch):
+    """The first slot of every filename, so it is the caller's to say."""
+    driver = _Capturing()
+    _scanned(driver, [{"x": 0, "y": 0}], monkeypatch, acquisition_type="target")
+    assert driver.asked[-1][0] == "target"
+
