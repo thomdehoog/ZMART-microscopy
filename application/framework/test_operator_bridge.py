@@ -165,3 +165,53 @@ def test_a_point_the_autofocus_could_not_answer_for_reports_no_height(monkeypatc
     assert point["zAuto"] is None
     assert point["z"] is None
     assert point["lost"] is True
+
+
+# --- how big a frame is ------------------------------------------------------
+
+
+class _Optics(_Driver):
+    """A driver that reports its optics, and says what it is asked to say."""
+
+    def __init__(self, observed):
+        super().__init__()
+        self.observed = observed
+
+    def get_state(self) -> dict:
+        return {"changeable": {}, "observed": self.observed}
+
+
+def _frame(observed, monkeypatch):
+    monkeypatch.setattr(bridge, "_session", _Optics(observed))
+    return bridge._reading("acquisition")["frameUm"]
+
+
+def test_a_reported_field_of_view_is_the_frame(monkeypatch):
+    """Measured beats derived.
+
+    LAS X reports ``imageSize`` and the driver parses it into `tile_w_um` —
+    the field of view itself, in micrometres. Multiplying a format by a pixel
+    size is arithmetic on two rounded numbers that can disagree with it.
+    """
+    assert _frame({"pixel_size": {"x": 0.33}, "tile_w_um": 676.4}, monkeypatch) == 676
+
+
+def test_the_format_and_the_pixel_size_make_the_frame(monkeypatch):
+    """When no field of view is reported, the format is what says how wide it
+    is — and the format changes, which is the whole point."""
+    assert _frame(
+        {"pixel_size": {"x": 0.33}, "format": "2048 x 2048"}, monkeypatch) == 676
+    assert _frame(
+        {"pixel_size": {"x": 0.33}, "format": "512 x 512"}, monkeypatch) == 169
+
+
+def test_a_format_said_as_numbers_counts_the_same(monkeypatch):
+    """A driver may say it as a pair rather than as a string."""
+    assert _frame(
+        {"pixel_size": {"x": 0.5}, "pixels_x": 1024, "pixels_y": 1024}, monkeypatch) == 512
+
+
+def test_an_instrument_that_says_neither_gets_a_guess(monkeypatch):
+    """And it is a guess, not a measurement: 512 px is a stand-in for a format
+    nobody reported, kept only so the page has a frame to draw at all."""
+    assert _frame({"pixel_size": {"x": 1.0}}, monkeypatch) == bridge._A_GUESSED_FORMAT_PX

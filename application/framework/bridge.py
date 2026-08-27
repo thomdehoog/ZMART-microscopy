@@ -183,7 +183,10 @@ def _disconnect() -> dict:
 # How wide one camera frame is, in pixels. The mock driver's state does not
 # carry a frame size, so the bridge holds the one constant the reading needs;
 # the Leica driver's state reports its own and overrides this.
-_FALLBACK_FRAME_PX = 512
+#: What a frame is assumed to be across when the instrument says nothing about
+#: it. A guess, and named as one: it is here only so the page has a frame to
+#: draw a plan with, not because 512 px is true of anything.
+_A_GUESSED_FORMAT_PX = 512
 
 
 def _flatten(prefix: str, mapping: dict, rows: list) -> None:
@@ -220,6 +223,63 @@ def _optics(observed: dict) -> str:
     return " · ".join(said)
 
 
+def _a_number(value) -> float | None:
+    """A positive, finite number, or nothing. Booleans are not numbers here."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return float(value) if value > 0 and value == value and value != float("inf") else None
+
+
+def _format_across(observed: dict) -> float | None:
+    """How many pixels wide a frame is, however the driver says it.
+
+    ``"2048 x 2048"`` is LAS X's own wording, straight out of the job's
+    ``format``; a pair of numbers is what a driver reports when it has already
+    parsed that. Only the first figure is read — a plan is laid in square
+    frames, and a non-square one would need the whole page to grow a second
+    dimension before it could be honoured rather than silently halved.
+    """
+    said = observed.get("format")
+    if isinstance(said, str) and "x" in said.lower():
+        first = said.lower().split("x")[0].strip()
+        try:
+            return _a_number(float(first))
+        except ValueError:
+            return None
+    if isinstance(said, dict):
+        return _a_number(said.get("x"))
+    if isinstance(said, (list, tuple)) and said:
+        return _a_number(said[0])
+    return _a_number(observed.get("pixels_x"))
+
+
+def _frame_across(observed: dict, pixel_um: float) -> int:
+    """How wide one frame is on the sample, in micrometres.
+
+    Three ways of knowing, in the order they are worth believing.
+
+    **What the instrument measured.** LAS X reports ``imageSize`` and the
+    driver parses it: that is the field of view itself, and nothing derived
+    from it can be more true.
+
+    **The format and the pixel size.** Failing a field of view, how many pixels
+    across times how much sample each covers. This is why the format has to
+    reach here at all: it changes — an operator switching a job from 512 to
+    2048 changes the ground one frame covers by a factor of four, and a plan
+    laid at the old frame would tile the sample with holes or overlaps nobody
+    asked for.
+
+    **A guess**, when the instrument says neither, so that the page still has
+    something to draw a plan with. It is the last resort and reads like one.
+    """
+    for measured in ("frame_um", "tile_w_um", "image_size_um"):
+        said = _a_number(observed.get(measured))
+        if said is not None:
+            return round(said)
+    across = _format_across(observed)
+    return round((across if across is not None else _A_GUESSED_FORMAT_PX) * pixel_um)
+
+
 def _reading(kind: str) -> dict:
     """The instrument's state, now, as the reading the window records.
 
@@ -233,7 +293,7 @@ def _reading(kind: str) -> dict:
     observed = state.get("observed", {})
     pixel = observed.get("pixel_size", {})
     pixel_um = float(pixel.get("x", 1.0))
-    frame_um = round(_FALLBACK_FRAME_PX * pixel_um)
+    frame_um = _frame_across(observed, pixel_um)
 
     rows: list = []
     _flatten("", state.get("changeable", {}), rows)
@@ -242,7 +302,10 @@ def _reading(kind: str) -> dict:
     summary = _optics(observed) or observed.get(
         "serial", _context.get("microscope", "instrument")
     )
-    summary = f"{summary} · {pixel_um:g} µm/px"
+    # The frame, not the pixel size: a collapsed configuration is read to
+    # answer "how much ground does one press get me", and a pixel size answers
+    # that only once multiplied by a format the line does not carry.
+    summary = f"{summary} · {frame_um} × {frame_um} µm"
     reading = {"summary": summary, "detail": rows, "frameUm": frame_um}
     if kind == "autofocus":
         # The stand does not say which family its autofocus is; software is

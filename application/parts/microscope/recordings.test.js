@@ -25,12 +25,12 @@ describe("a slot holds one reading of the instrument", () => {
 
   it("reads the instrument as it is set now, so a re-recording differs", () => {
     const first = record(emptySlot("acquisition"), "overview");
-    expect(first.records[0].summary).toBe("HC PL APO 20x / 0.75 NA dry, 0.33 µm/px");
+    expect(first.records[0].summary).toBe("HC PL APO 20x / 0.75 NA dry, 676 × 676 µm");
     expect(first.records[0].frameUm).toBe(676);
     /* The pretend operator changed the objective in between: the second
        reading comes back as the instrument now stands, not as it stood. */
     const again = record(first, "hires");
-    expect(again.records[0].summary).toBe("HC PL APO 63x / 1.40 NA oil, 0.1 µm/px");
+    expect(again.records[0].summary).toBe("HC PL APO 63x / 1.40 NA oil, 102 × 102 µm");
     expect(again.records[0].frameUm).toBe(102);
   });
 
@@ -59,7 +59,7 @@ describe("which state of the instrument a slot starts from", () => {
 
   it("carries the offset along as readings are taken", () => {
     const slot = record(emptySlot("acquisition", 1), "hires");
-    expect(slot.records[0].summary).toBe("HC PL APO 63x / 1.40 NA oil, 0.1 µm/px");
+    expect(slot.records[0].summary).toBe("HC PL APO 63x / 1.40 NA oil, 102 × 102 µm");
     expect(nextReadingIndex(slot)).toBe(2);
   });
 });

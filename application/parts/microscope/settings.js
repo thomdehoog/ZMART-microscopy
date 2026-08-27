@@ -34,13 +34,18 @@
 const acquisition = ({ objective, pixelUm, framePx, channels, zStack }) => {
   const frameUm = Math.round(framePx * pixelUm);
   /* The line an operator checks a configuration by: the objective as the
-     instrument names it, and what a pixel comes to on the sample. The name
+     instrument names it, and how much sample one frame covers. The name
      already carries the magnification and the aperture, so picking those back
      out of it and setting them in a row of their own was the same reading
      written twice — and it threw away the part that identifies the lens on the
-     shelf. Composed from the reading rather than typed beside it, so the two
-     cannot come to say different things. */
-  const summary = `${objective}, ${pixelUm} µm/px`;
+     shelf.
+
+     The frame, not the pixel size. A collapsed configuration is read to answer
+     "how much ground does one press get me", and the pixel size answers it
+     only after being multiplied by a format that is not on the line. The two
+     numbers it is made of are both in the detail below, for anyone checking
+     the arithmetic. */
+  const summary = `${objective}, ${frameUm} × ${frameUm} µm`;
   return {
     summary, pixelUm, framePx, frameUm,
     detail: [
