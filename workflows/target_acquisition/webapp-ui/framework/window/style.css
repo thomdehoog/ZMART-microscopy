@@ -509,6 +509,11 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
    down: measured there, a heading stands 22px below the row above it. */
 .fp-ways { display: flex; flex-direction: column; gap: 22px; }
 .fp-way { display: flex; flex-direction: column; gap: 5px; }
+/* Six pixels between a heading and what it heads, which is what the step
+   before leaves. The heading carries a negative bottom margin so that it sits
+   close to its own controls wherever it is used, and against this row's gap
+   that came to one pixel — the word all but touching the buttons. */
+.fp-way > .side-sub { margin-bottom: 1px; }
 /* Every control in this box stands at the channel's own height — the crosshair
    included, though the drawing tools a step earlier are taller. There it is a
    row of six glyphs and nothing else; here it shares its rows with buttons, and
