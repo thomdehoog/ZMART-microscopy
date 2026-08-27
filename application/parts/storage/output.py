@@ -113,7 +113,7 @@ def move_record_images(record: dict, data_dir: Any) -> dict:
     """Move a driver's returned files unchanged and update its record paths.
 
     The images go to *data_dir* and the state the driver printed for them to
-    ``data_dir/metadata``, the shape every driver writes -- so what the record
+    ``data_dir/metadata/ZMART_state``, the shape every driver writes -- so what the record
     names in the run is what it named in staging. Every source and destination
     is validated before the first move.  If a later move fails, already moved
     files are rolled back to their original paths so one multi-plane record is
@@ -132,7 +132,9 @@ def move_record_images(record: dict, data_dir: Any) -> dict:
 
     printed = list(dict.fromkeys(Path(value) for value in record.get("metadata", [])))
     moves = [(source, destination / source.name) for source in sources]
-    moves.extend((source, destination / "metadata" / source.name) for source in printed)
+    moves.extend(
+        (source, destination / "metadata" / "ZMART_state" / source.name) for source in printed
+    )
     targets = [target for _, target in moves]
     if len(targets) != len(set(targets)):
         raise RuntimeError("acquire returned different image paths with the same filename")

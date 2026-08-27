@@ -144,7 +144,7 @@ class TestAcquire:
         state spans.
         """
         rec = mic.acquire(acquisition_type="overview", position_label="K00_P000004")
-        metadata = Path(rec["images"][0]).parent / "metadata"
+        metadata = Path(rec["images"][0]).parent / "metadata" / "ZMART_state"
         printed = metadata / (
             f"overview_{rec['acquisition_hash']}_K00_P000004_T000000_ZMART_state.json"
         )

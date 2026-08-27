@@ -334,18 +334,29 @@ save(client, acq, output_root, naming, *, lineage=None, fix_ome=True,
 ```
 `save()` collects LAS X native AutoSave output into a neutral product and
 writes canonical single-plane OME-TIFFs with OME-XML embedded in each image.
-They land in `<output_root>/<acquisition_type>/data/`, with LAS X's own
-metadata copy beside them in `vendor/` — the pixels get a folder of their own
-so that what is made from them later (a stitched view, an analysis) becomes a
-folder beside them. Every ZMART driver writes this shape.
+They land in `<output_root>/<acquisition_type>/data/`, so what is made from
+them later (a stitched view, an analysis) becomes a folder beside `data` and is
+never confused with it. Everything describing the capture is under
+`data/metadata`, one folder per party:
+
+```
+overview/
+  data/
+    overview_<hash6>_K00_M000001_G000001_P000000_V00_T000000_C00_Z00000.ome.tiff
+    metadata/
+      ZMART_state/  overview_<hash6>_..._T000000_ZMART_state.json
+      vendor/       lasx_native_autosave/{source_embedded.ome.xml, *.xlef, metadata_*.xlif}
+```
 
 The `state` passed to `save()` is embedded in every plane's OME-XML **and**
-printed once per acquisition as
-`data/metadata/<acquisition>_T<t>_ZMART_state.json` — the image name without
-the channel and the z-slice, which one state spans. Embedded, reading it costs
-opening a picture; printed, it can simply be read. `SavedAcquisition.state_paths`
-names what was written, and the adapter's acquire record carries it as
-`metadata`.
+printed once per acquisition — the image name without the channel and the
+z-slice, which one state spans. Embedded, reading it costs opening a picture;
+printed, it can simply be read. `SavedAcquisition.state_paths` names what was
+written, and the adapter's acquire record carries it as `metadata`.
+
+`vendor/` is LAS X's own account of the same capture, kept verbatim as
+provenance and sha256'd in `summary.json` — never read in the normal path, and
+there only in case the two accounts disagree.
 **OME metadata:** `acquisition/ome.py` repairs known Leica OME violations (e.g. laser `Wavelength="0"`)
 in place, preserving byte formatting; `acquisition/ome_canonical.py` writes clean canonical ZMART OME;
 `save(..., fix_ome=True)` validates/repairs each written file.

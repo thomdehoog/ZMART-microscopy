@@ -210,7 +210,7 @@ class SimulatedSession:
             image,
             job["pixel_um"],
         )
-        metadata = path.parent / "metadata"
+        metadata = path.parent / "metadata" / "ZMART_state"
         metadata.mkdir(parents=True, exist_ok=True)
         printed = (
             metadata

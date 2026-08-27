@@ -59,10 +59,13 @@ def test_the_printed_state_travels_with_the_images_it_describes(tmp_path):
     folder nothing reads.
     """
     staging = tmp_path / "staging"
-    (staging / "metadata").mkdir(parents=True)
+    (staging / "metadata" / "ZMART_state").mkdir(parents=True)
     image = staging / "overview_aaaaaa_K00_P000000_T000000_C00_Z00000.ome.tiff"
     image.write_bytes(b"image")
-    state = staging / "metadata" / "overview_aaaaaa_K00_P000000_T000000_ZMART_state.json"
+    state = (
+        staging / "metadata" / "ZMART_state"
+        / "overview_aaaaaa_K00_P000000_T000000_ZMART_state.json"
+    )
     state.write_text('{"changeable": {}}', encoding="utf-8")
     data = tmp_path / "data"
 
@@ -71,8 +74,9 @@ def test_the_printed_state_travels_with_the_images_it_describes(tmp_path):
         data,
     )
 
-    assert record["metadata"] == [str(data / "metadata" / state.name)]
-    assert (data / "metadata" / state.name).read_text(encoding="utf-8") == '{"changeable": {}}'
+    landed = data / "metadata" / "ZMART_state" / state.name
+    assert record["metadata"] == [str(landed)]
+    assert landed.read_text(encoding="utf-8") == '{"changeable": {}}'
     assert not state.exists()
 
 
