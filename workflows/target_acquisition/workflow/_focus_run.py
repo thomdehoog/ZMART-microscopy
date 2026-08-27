@@ -5,7 +5,8 @@ frame (x, y) point and runs the driver's ``autofocus`` procedure, collecting the
 frame-z the driver reports. Feed the result to
 :func:`_focus_surface.fit_focus_surface`.
 
-The loop itself lives in :mod:`..microscope.focus_run`, beside the other
+The loop itself lives in :mod:`application.parts.microscope.focus_run`,
+beside the other
 procedures that drive the instrument, because the operator page's bridge runs
 it too and the two must not be able to differ. They did: the bridge had a copy
 that named the procedure wrongly, read the height from keys no driver writes,
@@ -22,7 +23,7 @@ from __future__ import annotations
 # ``workflow`` (the notebook's bootstrap and the tests both put its folder on
 # the path), so a relative hop to a sibling of its parent has nowhere to go.
 # The repo root is on the path in every context that can import this at all.
-from workflows.target_acquisition.microscope.focus_run import (  # noqa: E402
+from application.parts.microscope.focus_run import (  # noqa: E402
     RunCancelled,
     measure_focus,
 )

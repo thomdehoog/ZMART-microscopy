@@ -1,7 +1,7 @@
 """The bridge: where the operator window's backend verbs meet the controller.
 
 The operator page runs in a browser and cannot import Python, so its backend
-(`webapp-ui/src/workflows/target_acquisition/microscope/live.js`) speaks to
+(`application/parts/microscope/live.js`) speaks to
 this file over HTTP instead. Every route here is one of the page's backend
 verbs; behind each route sits :mod:`zmart_controller`, and behind that
 whichever driver is plugged in — the Leica driver on the microscope PC (real
@@ -81,12 +81,12 @@ from pathlib import Path
 
 # The repository root, so this file runs the same from a checkout however it
 # is started.
-_ROOT = Path(__file__).resolve().parents[4]
+_ROOT = Path(__file__).resolve().parents[2]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
 import zmart_controller  # noqa: E402
-from workflows.target_acquisition.microscope.focus_run import (  # noqa: E402
+from application.parts.microscope.focus_run import (  # noqa: E402
     measure_focus,
 )
 
@@ -305,7 +305,7 @@ def _drive_to(asked: dict) -> dict:
 def _measure_focus(asked: dict) -> dict:
     """Drive to each point, focus there, and report the height found.
 
-    The loop itself is :func:`~workflows.target_acquisition.microscope.focus_run.measure_focus`,
+    The loop itself is :func:`~application.parts.microscope.focus_run.measure_focus`,
     which the workflow's step 4 runs too. This is the translation either side of
     it and nothing more.
 

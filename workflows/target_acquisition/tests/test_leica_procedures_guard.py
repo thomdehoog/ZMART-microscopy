@@ -78,11 +78,14 @@ def _procedure_names_in(tree: ast.AST) -> set[str]:
     return names
 
 
-#: Where the flow's own code lives. ``workflow/`` is the notebook's half;
-#: ``microscope/`` is the half the operator page's bridge runs too, and the
-#: procedures moved there precisely so both would call one copy — which is
-#: exactly the code this guard exists to check.
-_WHERE_THE_FLOW_LIVES = ("workflow", "microscope")
+#: Where the flow's own code lives, from the repository root. The notebook's
+#: half is the workflow package; the half the operator page's bridge runs too
+#: is the application's microscope part, where the procedures moved so that
+#: both would call one copy — which is exactly what this guard checks.
+_WHERE_THE_FLOW_LIVES = (
+    Path("workflows") / "target_acquisition" / "workflow",
+    Path("application") / "parts" / "microscope",
+)
 
 
 def _flow_procedure_names() -> set[str]:
@@ -94,7 +97,7 @@ def _flow_procedure_names() -> set[str]:
             if cell["cell_type"] == "code":
                 names |= _procedure_names_in(ast.parse("".join(cell["source"])))
     for folder in _WHERE_THE_FLOW_LIVES:
-        for module in (_TARGET_ACQ / folder).rglob("*.py"):
+        for module in (_TARGET_ACQ.parents[1] / folder).rglob("*.py"):
             names |= _procedure_names_in(ast.parse(module.read_text(encoding="utf-8")))
     return names
 

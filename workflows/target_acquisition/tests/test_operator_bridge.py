@@ -5,11 +5,10 @@ map, the rows filled with numbers, and every number was a zero. What the page
 cannot see is which key a driver puts its answer under, so that is what is
 asserted here — against stubs shaped exactly like the drivers in this repo.
 
-The module is loaded by path rather than imported as
-``workflows.target_acquisition.workflow.webapp.bridge``, because that package's
-``__init__`` pulls in the whole notebook workflow. The bridge itself needs only
-the standard library and :mod:`zmart_controller`, which is the property worth
-keeping: it runs on a microscope PC with nothing installed on it.
+The module is loaded by path rather than by name, so that nothing on the way
+to it can pull in a package the bridge itself refuses to need. It wants the
+standard library and :mod:`zmart_controller` and no more, which is the property
+worth keeping: it runs on a microscope PC with nothing installed on it.
 
 Author: Thom de Hoog, Center for Microscopy and Image Analysis (ZMB),
 University of Zurich (thom.dehoog@zmb.uzh.ch, thomdehoog@gmail.com).
@@ -22,12 +21,12 @@ from pathlib import Path
 
 import pytest
 
-_HERE = Path(__file__).resolve().parents[1]
+_REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
 def _load_bridge():
     spec = importlib.util.spec_from_file_location(
-        "operator_bridge", _HERE / "workflow" / "webapp" / "bridge.py"
+        "operator_bridge", _REPO_ROOT / "application" / "framework" / "bridge.py"
     )
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
