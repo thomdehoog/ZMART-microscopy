@@ -6,6 +6,8 @@ University of Zurich (thom.dehoog@zmb.uzh.ch, thomdehoog@gmail.com).
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from zmart_controller import get_instruments, set_instrument
@@ -78,7 +80,36 @@ class TestAcquire:
         assert rec["position_label"] == "A1"
         assert rec["settle"] == "backlash-corrected"  # active default
         assert rec["format"] == "ome-tiff"  # active default
-        assert rec["filename"] == "A1.tiff"
+
+    def test_acquire_says_where_it_wrote(self, mic):
+        """The same two keys the real driver answers with.
+
+        `images` is the simple list and `planes` the manifest that tells a
+        channel from a z. A client following a record must not have to know
+        which driver it is talking to, and only the capture knows where its
+        files went -- the output root cannot be composed into a filename,
+        because the driver owns naming.
+        """
+        rec = mic.acquire(acquisition_type="overview", position_label="K00_P000001")
+        assert rec["images"] == [plane["path"] for plane in rec["planes"]]
+        assert len(rec["planes"]) == 1
+        plane = rec["planes"][0]
+        assert (plane["t"], plane["z"], plane["c"]) == (0, 0, 0)
+        assert plane["path"].endswith("K00_P000001.tiff")
+        # filed under the kind of scan it was, as the real driver does
+        assert "overview" in plane["path"]
+
+    def test_acquire_writes_the_file_it_names(self, mic):
+        """It writes, because the real driver writes.
+
+        A record naming files that are not there is a record a client can
+        follow on the microscope and not on the bench, which is the whole
+        class of fault the reference driver exists to keep out.
+        """
+        rec = mic.acquire(acquisition_type="overview", position_label="K00_P000002")
+        written = Path(rec["images"][0])
+        assert written.is_file()
+        assert written.stat().st_size > 0
 
     def test_acquire_options_override(self, mic):
         rec = mic.acquire(
@@ -88,7 +119,6 @@ class TestAcquire:
         )
         assert rec["settle"] == "direct"
         assert rec["format"] == "ome-zarr"
-        assert rec["filename"] == "B2.zarr"
 
     def test_acquisition_options_discovered(self, mic):
         opts = mic.get_acquisition_options()
