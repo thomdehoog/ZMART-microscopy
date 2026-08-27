@@ -21,7 +21,8 @@
 
 import carrierWidget from "../2_define_carrier/carrier-panel.js";
 import { makeRng } from "../../microscope/pretend-sample/rng.js";
-import { METRICS, METRIC_KEYS, sweep } from "../../microscope/pretend-sample/sweep.js";
+import { METRICS, METRIC_KEYS, MIN_TISSUE_WIDTH_UM, sweep }
+  from "../../microscope/pretend-sample/sweep.js";
 import {
   affineSurface, fitSurface, residualsUm, surfaceZ,
 } from "../../microscope/pretend-sample/surface.js";
@@ -659,6 +660,53 @@ const BOX_PAD = 14;
    lives in `microscope/pretend-sample/sweep.js`, imported above. The trace
    below draws exactly the curve the unit tests measure. */
 
+/** How tall another peak has to stand, against the tallest in the sweep,
+ *  before it counts as one the rule had to choose between. */
+const RIVAL_SHARE = 0.5;
+
+/**
+ * What is doubtful about a measured point, said the way an operator would say
+ * it. Empty means nothing is.
+ *
+ * These are the four ways a height can be worth a second look, and they are
+ * gathered in one place because the row shows one mark for all of them and
+ * has to be able to say which it means. A sweep that found more than one peak
+ * is the interesting case: the rule picked the tallest wide one and may well
+ * be right, but the operator is the one who gets to decide that, and until
+ * they have looked nothing on the row would have told them there was a choice.
+ */
+function doubtsAbout(point, i) {
+  const f = run.focus;
+  const out = [];
+  if (point.lost || point.z === null) {
+    out.push("The search swept its whole range without finding a peak — no height was measured here.");
+  }
+  if (point.onNarrow) {
+    out.push("The peak it chose is too narrow to be tissue, which is almost always a speck of debris.");
+  }
+  /* Rivals, not peaks. Every sweep of a noisy signal has small local maxima
+     in it, and a shoulder beside the main one is the same tissue seen from
+     slightly off; counting those marked every point on the map, which is the
+     same as marking none. A rival is a peak that stood high enough to have
+     been taken instead and far enough away to be a different thing — which is
+     what a speck of debris looks like, and what an operator is being asked to
+     look at. */
+  const cands = point.traces?.[f.metric]?.candidates ?? [];
+  const tallest = cands.reduce((a, c) => Math.max(a, c.s), 0);
+  const rivals = cands.filter((c) =>
+    c.s >= RIVAL_SHARE * tallest
+    && Math.abs(c.z - point.zAuto) > MIN_TISSUE_WIDTH_UM).length;
+  if (rivals) {
+    out.push(rivals === 1
+      ? "Another peak in the sweep stood nearly as high, at a different height. The tallest wide one was taken; the plot shows the other."
+      : `${rivals} other peaks in the sweep stood nearly as high, at other heights. The tallest wide one was taken; the plot shows them.`);
+  }
+  if (f.worst === i && Math.abs(point.residual || 0) > 3) {
+    out.push(`This height sits ${point.residual.toFixed(1)} µm off the surface fitted through the others.`);
+  }
+  return out;
+}
+
 /* The bar that makes the points and the list of the ones there are: one
    section, so they are drawn together and cannot disagree about how many. */
 function renderFocusBar() {
@@ -751,10 +799,12 @@ function renderPointList() {
   }
 
   f.points.forEach((p, i) => {
-    /* Only what has a trace to inspect, or had one: a point put down after
-       the map was measured has nothing to show and waits on the map until
-       the next test gives it a reading. */
-    if (p.z === null && !p.stale) return;
+    /* Every point that has been measured, including the ones the search came
+       back from with nothing: a point whose sweep never found the tissue is
+       the one an operator most needs to see. Only a point put down since the
+       map was run is left out — it has no reading yet, and waits on the next
+       run for one. */
+    if (p.z === null && !p.stale && !p.lost) return;
 
     /* A row, not a button: it holds one — the row itself picks the point —
        and a cross of its own for throwing it away. A button inside a button
@@ -765,18 +815,17 @@ function renderPointList() {
        canvas marks, so a rectangle drawn over the map is answered here. */
     row.setAttribute("aria-current",
       String(picked().has(i) || (!picked().size && i === f.selected)));
-    const suspect = p.onNarrow || (f.worst === i && Math.abs(p.residual || 0) > 3);
+    const doubts = doubtsAbout(p, i);
+    const suspect = doubts.length > 0;
     const pick = document.createElement("button");
     pick.className = "point-pick"; pick.type = "button";
     pick.innerHTML =
       `<span class="idx">${i + 1}</span>` +
       `<span>${(p.x / 1000).toFixed(2)}, ${(p.y / 1000).toFixed(2)} mm</span>` +
-      (p.residual === undefined || p.residual === null ? ""
-        : `<span class="res"${suspect ? ' style="color:var(--bad)"' : ""}>` +
-          `${p.residual >= 0 ? "+" : ""}${p.residual.toFixed(1)}</span>`) +
+      (suspect ? `<span class="warn" title="${doubts.join("&#10;")}">⚠</span>` : "") +
       `<span class="z${p.z === null ? " pending" : ""}"` +
       `${suspect && !p.manual ? ' style="color:var(--bad)"' : ""}>` +
-      `${p.z === null ? "—" : (p.manual ? "✎ " : suspect ? "⚠ " : "") + p.z.toFixed(1) + " µm"}</span>`;
+      `${p.z === null ? "—" : (p.manual ? "✎ " : "") + p.z.toFixed(1) + " µm"}</span>`;
     /* A moved point has no trace to show — what was read was read of where it
        used to be — so its row says so by being unpressable until the map is
        measured again. */
@@ -1093,6 +1142,11 @@ function scrubTo(clientOffsetX) {
 traceCv.addEventListener("pointerdown", (e) => {
   const f = run.focus;
   if (f.strategy !== "plane" || !f.applied) return;
+  /* A press here drags a height; it does not need to take focus to do it, and
+     taking it drew a ring around the whole plot for the length of the drag.
+     Reaching the plot by keyboard still focuses it, and still shows the ring,
+     which is who the ring is for. */
+  e.preventDefault();
   // the legend is the metric control — no separate row of buttons for it
   const hit = legendHits.find((g) =>
     e.offsetX >= g.x0 && e.offsetX <= g.x1 && e.offsetY >= g.y0 && e.offsetY <= g.y1);
