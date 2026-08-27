@@ -3,8 +3,8 @@ import {
   block, bounds, boxesOverlap, centroid, contains, edges, handles, isPointLike,
   normalise, rotatePoint, segmentHitsBox, sharePoints, snapSpan, tiles,
   topCentre, withoutTrailingDuplicate,
-} from "../../workflows/target_acquisition/shared/scanfields.js";
-import { carrierType, centres, fromPreset, geometry } from "../../workflows/target_acquisition/shared/carriers.js";
+} from "../../../workflows/target_acquisition/shared/scanfields.js";
+import { carrierType, centres, fromPreset, geometry } from "../../../workflows/target_acquisition/shared/carriers.js";
 
 /* The plate, named rather than taken from whatever a fresh run happens to
    start on: these are about a grid of areas with gaps between them, which is

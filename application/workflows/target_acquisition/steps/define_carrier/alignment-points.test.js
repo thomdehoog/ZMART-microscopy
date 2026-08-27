@@ -22,9 +22,9 @@
 
 import { describe, it, expect } from "vitest";
 import { anchorsUm, howManyAnchorsFit }
-  from "../../workflows/target_acquisition/steps/define_carrier/carrier-panel.js";
+  from "../../../../workflows/target_acquisition/steps/define_carrier/carrier-panel.js";
 import { carrierType, centres, fromPreset, geometry }
-  from "../../workflows/target_acquisition/shared/carriers.js";
+  from "../../../../workflows/target_acquisition/shared/carriers.js";
 
 const MM_UM = 1000;
 

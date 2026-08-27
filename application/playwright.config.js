@@ -64,7 +64,11 @@ function findAChromium() {
 const theChromiumToUse = findAChromium();
 
 export default defineConfig({
-  testDir: "./tests",
+  /* The walks stand beside what they walk, so the whole application is the
+     search — everything except the folder that is not ours. Without that
+     exclusion the search wanders into node_modules and never comes back. */
+  testDir: ".",
+  testIgnore: ["**/node_modules/**", "**/test-results/**"],
   // tests/unit/**.test.js belongs to vitest; the two runners share a folder
   testMatch: "**/*.spec.js",
   fullyParallel: false,

@@ -18,9 +18,10 @@ from pathlib import Path
 
 import pytest
 
-_TARGET_ACQ = Path(__file__).resolve().parents[1]
+_HERE = Path(__file__).resolve().parent
+_REPO_ROOT = _HERE.parents[2]
 _DRIVER_HELPERS = (
-    _TARGET_ACQ.parents[1]
+    _REPO_ROOT
     / "zmart_drivers"
     / "leica"
     / "stellaris5_y42h93"
@@ -92,12 +93,12 @@ def _flow_procedure_names() -> set[str]:
     """Every procedure name the notebooks or the flow's own packages call."""
     names: set[str] = set()
     for notebook_name in ("zmart_microscopy_v4.ipynb", "zmart_microscopy_v4_react.ipynb"):
-        notebook = json.loads((_TARGET_ACQ / notebook_name).read_text(encoding="utf-8"))
+        notebook = json.loads((_HERE / notebook_name).read_text(encoding="utf-8"))
         for cell in notebook["cells"]:
             if cell["cell_type"] == "code":
                 names |= _procedure_names_in(ast.parse("".join(cell["source"])))
     for folder in _WHERE_THE_FLOW_LIVES:
-        for module in (_TARGET_ACQ.parents[1] / folder).rglob("*.py"):
+        for module in (_REPO_ROOT / folder).rglob("*.py"):
             names |= _procedure_names_in(ast.parse(module.read_text(encoding="utf-8")))
     return names
 

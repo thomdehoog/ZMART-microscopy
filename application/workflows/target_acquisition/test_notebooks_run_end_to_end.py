@@ -38,7 +38,7 @@ from application.parts.microscope.simulation import (  # noqa: E402
     write_ome,
 )
 
-_NB_DIR = Path(__file__).resolve().parents[1]
+_NB_DIR = Path(__file__).resolve().parent
 
 # The simulated target job is deliberately mis-aimed by INJECTED_ERROR_UM
 # (see workflow._simulation) — small enough not to disturb this run, and
