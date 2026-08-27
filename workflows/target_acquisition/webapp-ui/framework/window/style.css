@@ -14,7 +14,13 @@
   --box-gap: 16px;
   /* the width shared by the hand's button, the number and the press that
      measures — set by the longest of their words */
-  --fp-col: 132px;
+  /* The focus channel's two columns. A tool is an icon button the width the
+     carrier step's type buttons are, and the number beside a press is as wide
+     as the two tools and the gap between them — so every row in the box breaks
+     at the same place, and what is left of each is the press. */
+  --fp-tool: 76px;
+  --fp-gap: 8px;
+  --fp-col: calc(2 * var(--fp-tool) + var(--fp-gap));
   --line: #e2e8f0;
   --line-strong: #cbd5e1;
   --ink: #0f172a;
@@ -508,13 +514,13 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
    press that lays them, and the press that measures the map. Three controls of
    one size read as one column of controls — wide enough for the longest of
    their words, which is the press. */
-/* Square. A tool carries a glyph and nothing else, so the width of the number
-   box below it was width it had no use for — and two wide blanks beside a
-   press that says what it does read as three presses of equal weight. */
-.fp-way .sf-tool { flex: none; width: var(--control); height: var(--control); }
+/* The width the carrier step's type buttons are: a tool carries a glyph and
+   nothing else, and at the number box's full width two blanks beside a press
+   that says what it does read as three presses of equal weight. */
+.fp-way .sf-tool { flex: none; width: var(--fp-tool); height: var(--control); }
 /* The hand's row: the two tools at the width every control in this column
    keeps, and the press that empties the map taking what is left. */
-.fp-hand { display: flex; align-items: center; gap: 8px; }
+.fp-hand { display: flex; align-items: center; gap: var(--fp-gap); }
 .fp-hand .sf-flat { flex: 1; height: var(--control); }
 /* How many, and the press that lays them. The number is the width of the
    hand's button above it — the two are the same kind of thing, one to a way. */
@@ -522,7 +528,7 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
   /* wide enough for two digits and the stepper the browser puts beside them,
      which is as many as the number ever needs */
   display: grid; grid-template-columns: var(--fp-col) minmax(0, 1fr);
-  gap: 8px; height: var(--control);
+  gap: var(--fp-gap); height: var(--control);
 }
 .fp-lay input {
   /* read from the left, like every other number in the channel */
