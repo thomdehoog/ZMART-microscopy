@@ -40,8 +40,8 @@ const draftNames = {};
    makes it so; `ink` is the colour it is drawn in wherever the step draws
    it. */
 function renderRecordedBar(record, {
-  rerender, dropped, choose, hostId, running, locked = false, active = false,
-  ink = null, about = {}, unnamed = false,
+  rerender, choose, hostId, running, locked = false, active = false,
+  about = {}, unnamed = false,
 }) {
   const wrap = document.createDocumentFragment();
 
@@ -52,10 +52,12 @@ function renderRecordedBar(record, {
      from the mark it belongs to. */
   row.className = unnamed ? "rec-row unnamed" : "rec-row";
   // no kind cell: the group above names it, so the name starts at the left
+  /* No cross. A recorded setting is not thrown away, it is replaced: the press
+     under the row does that, and a cross beside it offered a way to leave the
+     step holding nothing at all. */
   row.innerHTML = '<button type="button" class="rec-fold"></button>'
     + '<button type="button" class="rec-pick">'
-    + '<span class="rec-name"></span><span class="rec-state"></span></button>'
-    + '<button type="button" class="rec-drop">✕</button>';
+    + '<span class="rec-name"></span><span class="rec-state"></span></button>';
   /* A reading that nobody named says what it is instead of what it is called.
      The name was only ever a handle for telling two readings apart, and where
      there is one reading at a time the handle is a word doing no work. */
@@ -73,15 +75,9 @@ function renderRecordedBar(record, {
     : (about.idle ?? "activate: this step, and everything already planned, is taken with it");
   pick.disabled = !!running();
   pick.addEventListener("click", choose);
-  if (ink) {
-    const dot = document.createElement("span");
-    dot.className = "rec-dot";
-    dot.style.background = ink;
-    /* Inside the name rather than beside it: the row is two columns, the
-       name and what was read, and a dot given a column of its own pushed the
-       summary onto a second line. */
-    row.querySelector(".rec-name").prepend(dot);
-  }
+  /* And no dot. It coloured the one recording to say it was the active one,
+     which is a thing worth saying when there are several to tell apart and a
+     mark with nothing to distinguish when there is one. */
 
   const expanded = unfolded.has(record.id);
   const fold = row.querySelector(".rec-fold");
@@ -93,14 +89,6 @@ function renderRecordedBar(record, {
     if (expanded) unfolded.delete(record.id); else unfolded.add(record.id);
     rerender();
   });
-
-  /* Forgotten, whatever is taken with it: nothing names a recording except
-     the step itself, so what is left to be active takes over and the plan
-     follows it. */
-  const drop = row.querySelector(".rec-drop");
-  drop.title = about.drop ?? "forget this preset";
-  drop.disabled = !!running() || locked;
-  drop.addEventListener("click", dropped);
 
   wrap.append(row);
 
@@ -124,12 +112,15 @@ function renderRecordedBar(record, {
    owns what has been recorded — and the name it is carrying goes to `onName`
    as it is typed, so a redraw finds it again. */
 function renderOpenBar({
-  type, nth, name, onName, recorded, running, readSetting, unnamed, says,
+  type, nth, name, onName, recorded, running, readSetting, unnamed, says, again,
 }) {
   const row = document.createElement("div");
   /* Nothing to fill in, so nothing to lay a field out against: the button is
-     the whole bar and stands at the left where a reading would have begun. */
-  row.className = unnamed ? "rec-new alone" : "rec-new";
+     the whole bar. With no reading yet it stands at the left, where the reading
+     would have begun; once there is one it stands at the right, under the end
+     of the row that reports it — the first press starts the box and the second
+     acts on what the box already holds. */
+  row.className = unnamed ? `rec-new alone${again ? " again" : ""}` : "rec-new";
 
   const box = document.createElement("input");
   box.type = "text";
@@ -247,6 +238,7 @@ export function renderRecordingSlot(host, opts) {
     says: unnamed && (takes ?? retakes)
       ? (slot.records.length ? retakes : takes)
       : undefined,
+    again: slot.records.length > 0,
     recorded: (name, reading) => {
       setSlot(withRecording(slot, { name, reading }));
       draftNames[hostId] = "";
@@ -282,17 +274,10 @@ export function renderRecordingSlot(host, opts) {
     done.append(renderRecordedBar(record, {
       unnamed,
       rerender, locked, active, hostId, running,
-      ink: ink ? ink(record.id) : null,
       choose: () => {
         setSlot(withActive(slot, record.id));
         rerender();
         activated();
-      },
-      dropped: () => {
-        setSlot(withoutRecording(slot, record.id));
-        unfolded.delete(record.id);
-        rerender();
-        changed();
       },
     }));
     list.append(done);

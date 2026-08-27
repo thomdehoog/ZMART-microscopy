@@ -522,22 +522,23 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
    press that lays them, and the press that measures the map. Three controls of
    one size read as one column of controls — wide enough for the longest of
    their words, which is the press. */
-/* A little wider than it is tall, and no more: a tool carries a glyph, and at
-   any real width two blanks beside a press that says what it does read as
-   three presses of equal weight. */
-.fp-way .sf-tool { flex: none; width: var(--fp-tool); height: var(--control); }
-/* The hand's row: the two tools at the width every control in this column
-   keeps, and the press that empties the map taking what is left. */
-.fp-hand { display: flex; align-items: center; gap: var(--fp-gap); }
-.fp-hand .sf-flat { flex: 1; height: var(--control); }
+.fp-way .sf-tool { height: var(--control); }
+/* Every row in this box on one grid: three columns, the first holding
+   whatever the row is set by — two tools, or a number — and the press taking
+   the other two. Rerun, Refine and Reset sit on those same three, so a press
+   in any row begins where Refine does. */
+.fp-hand, .fp-lay, .fp-again {
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--fp-gap); align-items: center;
+}
+.fp-hand .sf-flat, .fp-lay .sf-flat { grid-column: 2 / -1; height: var(--control); }
+/* The two tools share the first cell between them. */
+.fp-tools { grid-column: 1; display: flex; gap: var(--fp-gap); }
+.fp-tools .sf-tool { flex: 1; }
 /* How many, and the press that lays them. The number is the width of the
    hand's button above it — the two are the same kind of thing, one to a way. */
-.fp-lay {
-  /* wide enough for two digits and the stepper the browser puts beside them,
-     which is as many as the number ever needs */
-  display: grid; grid-template-columns: var(--fp-col) minmax(0, 1fr);
-  gap: var(--fp-gap); height: var(--control);
-}
+.fp-lay { height: var(--control); }
+.fp-lay input { grid-column: 1; }
 .fp-lay input {
   /* read from the left, like every other number in the channel */
   width: 100%; height: 100%; text-align: left; padding: 0 8px;
@@ -556,30 +557,25 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
    to measure, which is the whole of what there is to say. Laid on the same two
    columns as the row above — indented past the hand's column, so `Clear` is
    exactly as wide as the `Place` it undoes. */
+/* The step's own press, on the same three columns as everything else in the
+   box and holding the first of them — the column the numbers hold and Rerun
+   holds, which is what it is the first version of. */
 .fp-run {
-  /* The same two columns as the row above it, so the press that measures sits
-     under the number and the one that clears sits under what it undoes. */
-  display: grid; grid-template-columns: var(--fp-col) minmax(0, 1fr);
-  gap: 8px; align-items: center;
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--fp-gap); align-items: center;
 }
 /* A `display` of its own beats the `hidden` attribute's browser rule, so the
    row that carries the step's own press has to be put away explicitly — the
    carrier designer above has the same line for the same reason. Without it the
    press stayed on screen beside Rerun, both meaning measure it again. */
 .fp-run[hidden] { display: none; }
-/* The press that measures sits under the number, in the column it shares. */
 .fp-run .focus-action { grid-column: 1; display: flex; align-items: center; }
 .fp-run .focus-action button.run { width: 100%; padding: 0 6px; white-space: nowrap; }
-/* And the way back out keeps the width of the press it undoes. */
-.fp-run #fp-clear { grid-column: 2; height: var(--control); padding: 0 12px; }
 
 /* What can be done to a map that has been run: three presses of one width,
    because none of them is the main one — the main one is above, and this row
    is what to do about what it produced. */
-.fp-again {
-  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px; align-items: center; margin-top: 8px;
-}
+.fp-again { margin-top: 8px; }
 .fp-again[hidden] { display: none; }
 .fp-again .sf-flat { height: var(--control); padding: 0 8px; }
 
@@ -1157,7 +1153,7 @@ canvas.livecv[hidden] { display: none; }
 }
 /* Name and summary share the row's width and give way with an ellipsis, so a
    narrow channel truncates them instead of pushing the row out of its box. */
-.rec-row { grid-template-columns: var(--fold-col) minmax(0, 1fr) 26px; }
+.rec-row { grid-template-columns: var(--fold-col) minmax(0, 1fr); }
 /* The open bar carries no empty fold column. It opens with the name it is
    there to take, where a recorded row opens with its triangle, so the two
    begin on the same edge instead of the bar sitting indented behind a column
@@ -1171,8 +1167,14 @@ canvas.livecv[hidden] { display: none; }
 .rec-new { grid-template-columns: minmax(0, 1fr) max-content; }
 /* A bar with no field to fill in: the button is the whole of it, and stands at
    the left where the reading would have begun rather than floating out to the
-   right against nothing. */
+   right against nothing. Once a reading has been taken it stands at the far
+   end instead, under the row that reports it: the first press starts the box,
+   and the one that replaces a reading acts on what is already there. */
 .rec-new.alone { grid-template-columns: max-content; }
+/* On the same three columns the channel's other boxes use, so the press that
+   replaces a reading begins where every other second-column press does. */
+.rec-new.alone.again { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.rec-new.alone.again button.run { grid-column: 2 / -1; width: 100%; }
 
 .rec-fold, .rec-new input { grid-column: 1; }
 .rec-pick { grid-column: 2; }
