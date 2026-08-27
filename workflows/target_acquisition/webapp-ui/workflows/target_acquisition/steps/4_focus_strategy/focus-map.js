@@ -827,12 +827,11 @@ function renderPointList() {
 
   let doubtful = 0, edits = 0;
   f.points.forEach((p, i) => {
-    /* Every point that has been measured, including the ones the search came
-       back from with nothing: a point whose sweep never found the tissue is
-       the one an operator most needs to see. Only a point put down since the
-       map was run is left out — it has no reading yet, and waits on the next
-       run for one. */
-    if (p.z === null && !p.stale && !p.lost) return;
+    /* Every point on the map, whatever it has to say. One the search came back
+       from with nothing, one that has moved since it was read, one put down a
+       moment ago and never measured at all: each says so in its own row and
+       waits there. A point that is on the map and not in the list is a point
+       nobody can pick, rerun or take away. */
 
     /* A row, not a button: it holds one — the row itself picks the point —
        and a cross of its own for throwing it away. A button inside a button
@@ -900,15 +899,16 @@ function renderPointList() {
   edited.textContent = edits
     ? `${edits} edit${edits === 1 ? "" : "s"}${doubtful ? "," : ""}`
     : "";
-  renderTraceActions();
 }
 
 /**
- * The point the plot is showing, when there is one to act on.
+ * The point the plot is showing, when it has a reading to act on.
  *
  * Not the same thing as `f.points[f.selected]`: a point that has moved since
- * the map was measured is selected and drawn as selected, and there is still
- * nothing to rerun, accept or reset about it.
+ * the map was measured is selected, and drawn as selected, with no height and
+ * no curve. Accepting one would be accepting nothing. Rerun and Reset take
+ * the selected point itself, because giving a moved point a reading back is
+ * exactly what those two are for.
  */
 function pointOnShow() {
   const f = run.focus;
@@ -917,38 +917,20 @@ function pointOnShow() {
   return p && !p.stale && p.z !== null ? p : null;
 }
 
-/**
- * The point Rerun acts on — which is not only the one the plot is showing.
- *
- * A point moved after the map was measured has no reading and no curve, and
- * Rerun is precisely the way to give it one back: it is the press that says
- * measure this, here, now. Accept and Reset have nothing to work with until
- * it does.
- */
+/** The selected point, read or not: what Rerun measures and what Reset
+ *  puts back. */
 function pointToRerun() {
   const f = run.focus;
   if (f.strategy !== "plane" || !f.applied) return null;
   return f.points[f.selected] ?? null;
 }
 
-/** The three presses under the plot, against the point it is showing. */
-function renderTraceActions() {
-  if (!focusMounted()) return;
-  const p = pointOnShow();
-  const busy = !!run.running;
-  el("ft-rerun").disabled = !pointToRerun() || busy;
-  /* There is something to accept while the point still carries a mark: a
-     warning the rule raised, or a height moved by hand. Accepting a point
-     with neither would be answering a question nobody asked. */
-  el("ft-accept").disabled = !p || busy || p.accepted
-    || !(p.manual || doubtsAbout(p, run.focus.points.indexOf(p)).length);
-  /* And something to reset once it has been answered, or moved by hand, or
-     carried somewhere else on the map. Going back to the instrument's own
-     height is only a move if the point is not already at it. */
-  const moved = pointToRerun();
-  el("ft-reset").disabled = busy
-    || !((p && (p.manual || p.accepted)) || (moved?.stale && moved.wasRead));
-}
+/* The three presses under the plot are never greyed. Working out which of
+   them has something to do meant working out, on every redraw, what each of
+   them would do — and a press that goes grey the moment the height is dragged
+   back to where it started is a press that argues with the hand on the
+   slider. Each does nothing when there is nothing to do, which is what a
+   press for one point should do anyway. */
 
 el("ft-accept").addEventListener("click", () => {
   const p = pointOnShow();
@@ -1325,6 +1307,10 @@ function scrubTo(clientOffsetX) {
   const t = Math.max(0, Math.min(1, (clientOffsetX - P.l) / (w - P.l - P.r)));
   p.z = zLo + t * (zHi - zLo);
   p.manual = Math.abs(p.z - p.zAuto) > 0.05;
+  /* Accepting settles the height as it stands. Moving it afterwards is a new
+     answer, and one nobody has accepted — otherwise a point accepted once
+     would take every later move in silence. */
+  p.accepted = false;
   refitSurface();
   drawTrace(); renderPointList(); stage.draw();
 }
@@ -1382,6 +1368,10 @@ traceCv.addEventListener("keydown", (e) => {
   e.preventDefault();
   p.z += nudge * (e.shiftKey ? 4 : 1);
   p.manual = Math.abs(p.z - p.zAuto) > 0.05;
+  /* Accepting settles the height as it stands. Moving it afterwards is a new
+     answer, and one nobody has accepted — otherwise a point accepted once
+     would take every later move in silence. */
+  p.accepted = false;
   refitSurface();
   drawTrace(); renderPointList(); stage.draw();
 });
