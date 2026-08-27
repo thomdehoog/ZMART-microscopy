@@ -952,7 +952,39 @@ stageBox.addEventListener("pointerleave", (e) => {
 
 /* An outline with no last point of its own is ended by saying the same press
    twice. Not a drag, so it does not go through the claims. */
-stageBox.addEventListener("dblclick", (e) => editorTook("finish", e));
+stageBox.addEventListener("dblclick", (e) => {
+  if (editorTook("finish", e)) return;
+  driveTheStageTo(e);
+});
+
+/**
+ * Double-click a place on the picture and the microscope goes there.
+ *
+ * The one gesture on this canvas that moves the instrument rather than the
+ * view, which is why it is a double-click: a single press already means
+ * something on nearly every step — placing a point, starting an outline,
+ * picking a mark — and a stage that drove on any of them would be a stage
+ * that drove by accident.
+ *
+ * **The mark follows the answer, never the request.** `set_xyz` is confirmed:
+ * the driver moves, checks, and raises if it could not, and it hands back the
+ * position it commanded. That is what the mark is put at. Drawing it where
+ * the press was would show where the stage was *asked* to go — which is the
+ * one thing a mark saying "the stage is here" must never do. Until the answer
+ * comes back, nothing moves.
+ *
+ * Only inside the travel. A press out in the margin is somewhere the stage
+ * cannot reach, and asking is either refused by the driver or quietly clamped
+ * into somewhere nobody pointed at.
+ */
+async function driveTheStageTo(e) {
+  if (run.running || layersLocked() || !ctx.driveTo) return;
+  const [x, y] = toWorld(e.offsetX, e.offsetY);
+  const [fw, fh] = STAGE_UM;
+  if (x < 0 || y < 0 || x > fw || y > fh) return;
+  const at = await ctx.driveTo({ x, y });
+  if (at) takeThePosition(at);
+}
 // the canvas has no menu of its own, and a borrowed one over the plan is noise
 stageBox.addEventListener("contextmenu", (e) => e.preventDefault());
 
