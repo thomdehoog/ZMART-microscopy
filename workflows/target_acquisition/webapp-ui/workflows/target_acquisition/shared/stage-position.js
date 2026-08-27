@@ -40,7 +40,7 @@ export const EVERY_MS = 5000;
 export const PATIENCE_MS = 2500;
 
 /**
- * Start watching. `backend.xyz()` answers `{x: {value}, y: {value}, z: {value}}`
+ * Start watching. `backend.getXyz()` answers `{x: {value}, y: {value}, z: {value}}`
  * in micrometres; `onPosition({x, y, z})` receives each reading. Returns the
  * handle: `refresh()` reads now (after a move the page made), `stop()` ends
  * the watch — after which no more positions arrive, even from a read that was
@@ -62,7 +62,7 @@ export function watchStagePosition(backend, onPosition, {
         patience,
       );
     });
-    return Promise.race([backend.xyz(), tooLong])
+    return Promise.race([backend.getXyz(), tooLong])
       .then((xyz) => {
         if (stopped || !xyz?.x || !xyz?.y) return null;
         const at = { x: Number(xyz.x.value), y: Number(xyz.y.value), z: Number(xyz.z?.value ?? 0) };

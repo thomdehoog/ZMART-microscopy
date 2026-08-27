@@ -69,10 +69,30 @@ export const backend = {
     return { canvas: pretendCanvas() };
   },
 
-  /** Where the stage is, per axis in micrometres. */
-  async xyz() {
-    const { x, y, z } = pretendPositionUm();
-    return { x: { value: x, unit: "um" }, y: { value: y, unit: "um" }, z: { value: z, unit: "um" } };
+  /** Where the stage is, per axis in micrometres: the controller's `get_xyz`. */
+  async getXyz() {
+    return standingAt(where);
+  },
+
+  /**
+   * Drive the stage there: the controller's `set_xyz`, answered with where it
+   * ended up.
+   *
+   * The pretend stage moves, and that matters. It stood at one spot before,
+   * which made every reading of it identical and hid a whole class of fault —
+   * a page that never sees the position change is a page nobody can catch
+   * drawing the mark in the wrong place. It also stops at the ends of its
+   * travel, because a real one does, and the answer is what it did rather
+   * than what it was asked.
+   */
+  async setXyz({ x, y, z }) {
+    await wait(220);
+    where = {
+      x: withinTravel(x ?? where.x, TRAVEL_UM.x),
+      y: withinTravel(y ?? where.y, TRAVEL_UM.y),
+      z: z ?? where.z,
+    };
+    return standingAt(where);
   },
 
   /**
@@ -203,5 +223,21 @@ export const pretendConnectionStatus = ({ connection }) => ({
 /** Its canvas: the travel a page draws to scale. */
 const pretendCanvas = () => ({ x_um: [0, TRAVEL_UM.x], y_um: [0, TRAVEL_UM.y] });
 
-/** Where its stage is parked: the corner, off the carrier. */
+/** Where its stage is parked before anything has driven it: the corner, off
+ *  the carrier. */
 const pretendPositionUm = () => ({ x: TRAVEL_UM.x * 0.04, y: TRAVEL_UM.y * 0.04, z: -412 });
+
+/* Where it is standing now. The one piece of state this pretend instrument
+   keeps between calls, because a stage is the one part of a microscope that
+   stays where it was put. */
+let where = pretendPositionUm();
+
+/** No further than the stage goes, which is what a real one answers with. */
+const withinTravel = (v, span) => Math.max(0, Math.min(span, v));
+
+/** A position, shaped the way the controller reports one. */
+const standingAt = ({ x, y, z }) => ({
+  x: { value: x, unit: "um" },
+  y: { value: y, unit: "um" },
+  z: { value: z, unit: "um" },
+});
