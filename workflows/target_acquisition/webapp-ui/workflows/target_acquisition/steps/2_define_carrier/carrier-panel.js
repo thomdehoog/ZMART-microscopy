@@ -66,22 +66,25 @@ const ICONS = {
      holes. Drawn as a circle rather than the plate's rectangle so the row of
      types can be read at a glance. */
   emgrid: (g) => {
-    g.append(svgEl("circle", { cx: 14, cy: 14, r: 10.5, fill: "none", stroke: "currentColor", "stroke-width": 1.5 }));
-    /* Laid out from the middle of the disc rather than from a corner of it, so
-       that the mesh sits in the circle instead of beside it. */
-    const across = 5;
-    const pitch = 3.4;
-    const side = 2.4;
-    const first = 14 - ((across - 1) * pitch + side) / 2;
-    for (let r = 0; r < across; r++) {
-      for (let c = 0; c < across; c++) {
-        const x = first + c * pitch;
-        const y = first + r * pitch;
-        // and only the squares the disc actually holds
-        if (Math.hypot(x + side / 2 - 14, y + side / 2 - 14) > 8.4) continue;
-        g.append(svgEl("rect", { x, y, width: side, height: side, fill: "currentColor", "fill-opacity": 0.2, stroke: "currentColor", "stroke-width": 0.5 }));
-      }
+    /* Ruled lines clipped to the disc, rather than a field of little squares
+       laid inside it. A grid is bars, not tiles: drawn as squares the icon
+       stopped short of the rim in four rounded corners and read as a scatter,
+       where two sets of thin lines carried to the edge read as one mesh. */
+    const R = 10.5;
+    const clip = svgEl("clipPath", { id: "em-disc" });
+    clip.append(svgEl("circle", { cx: 14, cy: 14, r: R - 0.75 }));
+    g.append(clip);
+    const mesh = svgEl("g", {
+      "clip-path": "url(#em-disc)",
+      stroke: "currentColor", "stroke-width": 0.6, "stroke-opacity": 0.75,
+    });
+    for (let i = -3; i <= 3; i++) {
+      const at = 14 + i * 3;
+      mesh.append(svgEl("line", { x1: at, y1: 3, x2: at, y2: 25 }));
+      mesh.append(svgEl("line", { x1: 3, y1: at, x2: 25, y2: at }));
     }
+    g.append(mesh);
+    g.append(svgEl("circle", { cx: 14, cy: 14, r: R, fill: "none", stroke: "currentColor", "stroke-width": 1.5 }));
   },
 };
 
@@ -225,16 +228,23 @@ export function anchorsUm(config, howMany = POINTS_BY_DEFAULT) {
      so that two points face each other across the carrier rather than sitting
      in one corner of it, and only then the other two.
 
+     `lean` is which end of its own side a mark goes to, and the four turn the
+     same way round: the left one to the top, the top one to the right, the
+     right one to the bottom, the bottom one to the left. One point therefore
+     lands at the top left, which is where an operator looks for a carrier's
+     first landmark, and two land on a diagonal, which measures how it is
+     turned as well as where it is.
+
      `on` is where the mark goes relative to the area's centre — exactly on the
      border, and on the part of it that runs straight. The middle of a side is
      where a rectangle's edge is vertical or horizontal, and on a circle it is
      where the rim's tangent is. Either way the mark sits on a line an operator
      can drive along and see. */
   const SIDES = [
-    { at: "left", out: (a) => a.x, edge: acrossThem.lo, along: (a) => a.y, lean: +1, on: [-halfW, 0] },
-    { at: "right", out: (a) => a.x, edge: acrossThem.hi, along: (a) => a.y, lean: -1, on: [+halfW, 0] },
-    { at: "top", out: (a) => a.y, edge: downThem.lo, along: (a) => a.x, lean: -1, on: [0, -halfH] },
-    { at: "bottom", out: (a) => a.y, edge: downThem.hi, along: (a) => a.x, lean: +1, on: [0, +halfH] },
+    { at: "left", out: (a) => a.x, edge: acrossThem.lo, along: (a) => a.y, lean: -1, on: [-halfW, 0] },
+    { at: "right", out: (a) => a.x, edge: acrossThem.hi, along: (a) => a.y, lean: +1, on: [+halfW, 0] },
+    { at: "top", out: (a) => a.y, edge: downThem.lo, along: (a) => a.x, lean: +1, on: [0, -halfH] },
+    { at: "bottom", out: (a) => a.y, edge: downThem.hi, along: (a) => a.x, lean: -1, on: [0, +halfH] },
   ];
 
   /* What each side has to offer: the areas standing on its outermost line, the
@@ -531,7 +541,7 @@ export default {
     /* The box's own action, filled like Connect on the step before and Update
        optical configuration on the step after: one obvious thing to press per
        box, and it looks the same wherever it is. */
-    const anchorAdd = el("button", "run anchor-add", "Add points");
+    const anchorAdd = el("button", "run anchor-add", "Add alignment points");
     anchorAdd.type = "button";
     /* Put them all down at once. Where a carrier is registered from is a
        property of its shape, not something an operator should have to find by
@@ -577,7 +587,7 @@ export default {
       /* The set is complete or it is not there — where a carrier is aligned
          from is a property of its shape. So the one press lays them and takes
          them away again, and says which of the two it is about to do. */
-      anchorAdd.textContent = anchors.list().length ? "Reset" : "Add points";
+      anchorAdd.textContent = anchors.list().length ? "Reset" : "Add alignment points";
       /* The box says what is down while anything is, and what would be laid
          otherwise: a number left over from before would claim six where four
          are showing. */
@@ -624,17 +634,15 @@ export default {
           ;
         /* Drive the microscope to this place, then say so here: the point on
            the drawing and the place on the stage become one statement. */
-        /* Short, because the row already has three numbers and a name in it and
-           the channel is only so wide: "Snap to stage position" pushed the
-           button off the edge as soon as a reading appeared beside it. What it
-           snaps to is on the button when the pointer rests there, and said in
-           full there rather than crowded onto the face. */
+        /* Said in full. It was shortened to "Snap" when the row carried three
+           numbers and a name beside it and the channel is only so wide; the
+           numbers are gone and the room came back with them. */
         /* The button carries the state of its own point: waiting, or done. Four
            rows that differ only in a word are four rows an operator has to
            read; four that differ in colour are four they can count. */
         const snap = el("button",
           a.stage ? "sf-flat anchor-snap done" : "sf-flat anchor-snap waiting",
-          a.stage ? "Snap again" : "Snap");
+          a.stage ? "Snap again" : "Snap to current stage position");
         snap.type = "button";
         snap.title = "Snap to stage position — tie this point to where the stage is standing now";
         snap.addEventListener("click", () => anchors.snap(i));

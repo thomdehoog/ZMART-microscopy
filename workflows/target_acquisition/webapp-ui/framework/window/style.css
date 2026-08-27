@@ -475,10 +475,11 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
 #focus-controls[hidden] { display: none; }
 /* The list of points is the one part that grows, so it takes what is left and
    scrolls inside its own box rather than pushing the trace off the bottom. */
-/* Three rows deep, bled to the edges of the box that holds it: a list as long
-   as the map would push the picture it belongs to off the screen. */
+/* Four rows deep, bled to the edges of the box that holds it: a list as long
+   as the map would push the picture it belongs to off the screen, and three
+   rows meant a fourth point was always just out of sight. */
 .side-group-body > .point-list {
-  max-height: 96px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);
+  max-height: 128px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);
 }
 
 /* A row of its own rather than the scan fields' row reused: the button is the
@@ -507,22 +508,22 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
    press that lays them, and the press that measures the map. Three controls of
    one size read as one column of controls — wide enough for the longest of
    their words, which is the press. */
-.fp-way .sf-tool { flex: none; width: var(--fp-col); height: var(--control); }
-/* How many, and the two presses that lay them. The number is the width of the
-   hand's button above it — the two are the same kind of thing, one to a way —
-   and it stands against both presses, because it is how many go in each of
-   whichever grouping is pressed rather than a setting belonging to one. */
+/* Square. A tool carries a glyph and nothing else, so the width of the number
+   box below it was width it had no use for — and two wide blanks beside a
+   press that says what it does read as three presses of equal weight. */
+.fp-way .sf-tool { flex: none; width: var(--control); height: var(--control); }
+/* The hand's row: the two tools at the width every control in this column
+   keeps, and the press that empties the map taking what is left. */
+.fp-hand { display: flex; align-items: center; gap: 8px; }
+.fp-hand .sf-flat { flex: 1; height: var(--control); }
+/* How many, and the press that lays them. The number is the width of the
+   hand's button above it — the two are the same kind of thing, one to a way. */
 .fp-lay {
   /* wide enough for two digits and the stepper the browser puts beside them,
      which is as many as the number ever needs */
   display: grid; grid-template-columns: var(--fp-col) minmax(0, 1fr);
-  grid-template-rows: repeat(2, var(--control)); gap: 8px;
+  gap: 8px; height: var(--control);
 }
-/* Written out rather than left to flow: the number stands against both presses
-   and each press keeps to the second column. An implicit grid put the second
-   press under the number, which read as a third way of laying points. */
-.fp-lay input { grid-column: 1; grid-row: 1 / 3; }
-.fp-lay .sf-flat { grid-column: 2; }
 .fp-lay input {
   /* read from the left, like every other number in the channel */
   width: 100%; height: 100%; text-align: left; padding: 0 8px;
@@ -531,7 +532,7 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
   border-radius: 6px;
 }
 .fp-lay input:focus { outline: none; }
-.fp-lay .sf-flat { height: 100%; font-size: 12.5px; padding: 0 6px; }
+.fp-lay .sf-flat { height: 100%; padding: 0 6px; }
 
 /* What is done to every point there is: the press that measures them all, and
    the one that takes them all away. The row above acts on one tileset at a
@@ -591,6 +592,10 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
   font-family: var(--mono); font-size: 11.5px; color: var(--ink-2);
   font-variant-numeric: tabular-nums;
 }
+/* Except the last, whose rule would land on the edge of the box it is in and
+   read as one thicker line rather than as two. A rule between rows separates
+   them; there is nothing below the last one to separate it from. */
+.point-row:last-child { border-bottom: none; }
 /* The row picks the point; the cross at its end throws it away. */
 .point-pick {
   flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px;
@@ -600,9 +605,6 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
 .point-drop { flex: none; margin-right: 6px; }
 .point-row:hover { background: var(--surface-3); }
 /* The anchor points, and the press that ties each to where the stage is. */
-/* A plain `.sf-flat`, like every other button in this panel. It used to set
-   its own height and type, which made the alignment box the one place in the
-   channel where a button was a different size from the one above it. */
 .anchor-snap { flex: none; margin-left: auto; }
 
 /* The carrier step's buttons in the page's own type, at the size the buttons
@@ -660,12 +662,17 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
   /* The name, then whatever is left, then the button — which keeps its place
      however the row's middle changes, because a button that slides about as it
      is used is a button that punishes using it. */
-  grid-template-columns: max-content minmax(0, 1fr) 104px;
-  gap: 8px;
+  /* The same columns the row above it uses, so the press that snaps a point
+     stands directly under the press that lays them: the name takes the first
+     column and the button the rest, which is where Reset is. A column list of
+     its own put the two a few pixels apart, which reads as a mistake. */
+  grid-template-columns: repeat(var(--cols, 2), minmax(0, 1fr)) 30px;
+  gap: 4px 6px;
+  padding-left: 0; padding-right: 0;
 }
 .anchor-list .point-pick .z { margin-left: 0; font-weight: 400; }
 .anchor-list .anchor-snap {
-  margin-left: 0; width: 100%; grid-column: 3; white-space: nowrap;
+  margin-left: 0; grid-column: 2 / -1; white-space: nowrap; padding: 0 12px;
 }
 .anchor-list .point-pick .z { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
@@ -1507,10 +1514,15 @@ canvas.livecv[hidden] { display: none; }
 .sf-num input:focus { outline: none; }
 
 .sf-row { display: flex; gap: 6px; }
+/* One type for every button on this page. It was monospaced at 11px, which
+   suits a row of drawing tools labelled with glyphs and made every panel that
+   used it read as a different piece of software from the ones either side —
+   the carrier step had already overridden it back, one panel at a time. The
+   size the operator's buttons are is 13px sans, and now they all are. */
 .sf-flat {
   flex: 1; height: var(--control); padding: 0 8px;
-  font: inherit; font-size: 11px; font-family: var(--mono); font-weight: 600;
-  letter-spacing: 0.02em; white-space: nowrap;
+  font: inherit; font-size: 13px; font-family: var(--sans); font-weight: 600;
+  letter-spacing: normal; white-space: nowrap;
   /* Blue, like everything else on this page that can be pressed. Grey ink read
      as a label that happened to have a border round it, which put Load, Save
      and Reset a shade quieter than the tools beside them for no reason an

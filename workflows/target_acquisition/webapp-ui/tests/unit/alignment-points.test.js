@@ -66,10 +66,13 @@ describe("a full round of four alignment points", () => {
     const chose = (k) => areaUnder(eightChambers, m[k]);
     const [top, right, bottom, left] = ["top", "right", "bottom", "left"].map(chose);
 
-    expect(top.x).toBeLessThan(right.x);       // top leans left
-    expect(right.y).toBeLessThan(bottom.y);    // right leans up
-    expect(bottom.x).toBeGreaterThan(left.x);  // bottom leans right
-    expect(left.y).toBeGreaterThan(top.y);     // left leans down
+    /* All four turn the same way round the carrier: on a two-by-four the left
+       mark takes the top-left chamber, the top mark the top-right, the right
+       mark the bottom-right and the bottom mark the bottom-left. */
+    expect(left.x).toBeLessThan(top.x);        // left leans to the top
+    expect(top.y).toBeLessThan(right.y);       // top leans to the right
+    expect(right.x).toBeGreaterThan(bottom.x); // right leans to the bottom
+    expect(bottom.y).toBeGreaterThan(left.y);  // bottom leans to the left
 
     const areas = [top, right, bottom, left].map((a) => `${a.x},${a.y}`);
     expect(new Set(areas).size).toBe(4);

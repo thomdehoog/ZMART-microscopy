@@ -628,3 +628,45 @@ describe("one tileset on its own", () => {
     expect(Math.max(...reach) - Math.min(...reach)).toBeLessThan(1);
   });
 });
+
+/* A drawn shape and a block of grid positions, in one plan.
+ *
+ * Points shared over the whole lot at once are shared by distance, not by
+ * ground: an island gets a point for being far away rather than for being
+ * large. A twenty-eight frame shape beside a nine-frame block came out ten and
+ * five, where their shares of the sample are eleven and four — the small block
+ * over-served by a third, which is what an operator sees as too many readings
+ * crowded onto the little one.
+ */
+describe("points over a plan holding separate pieces", () => {
+  const F = 700;
+  const tiles = [];
+  for (const [from, to, row] of [[0, 3, 0], [0, 4, 1], [0, 6, 2], [1, 6, 3], [1, 5, 4]]) {
+    for (let c = from; c < to; c++) tiles.push({ x: c * F, y: row * F, frameUm: F });
+  }
+  for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) {
+    tiles.push({ x: 12000 + c * F, y: 1000 + r * F, frameUm: F });
+  }
+  const onTheBlock = (p) => p.x > 11000;
+  const share = (n) => {
+    const pts = sharePoints(tiles, n, { vary: true });
+    return { all: pts.length, block: pts.filter(onTheBlock).length };
+  };
+
+  it("gives each piece its share of the sample", () => {
+    // 28 frames against 9: eleven and four of fifteen
+    expect(share(15)).toEqual({ all: 15, block: 4 });
+    expect(share(8)).toEqual({ all: 8, block: 2 });
+  });
+
+  it("never leaves a piece with nothing while there are points to go round", () => {
+    expect(share(2).block).toBe(1);
+  });
+
+  it("keeps every one of them on a frame", () => {
+    for (const p of sharePoints(tiles, 15, { vary: true })) {
+      expect(tiles.some((t) => Math.abs(t.x - p.x) <= F / 2 + 1e-9
+        && Math.abs(t.y - p.y) <= F / 2 + 1e-9)).toBe(true);
+    }
+  });
+});

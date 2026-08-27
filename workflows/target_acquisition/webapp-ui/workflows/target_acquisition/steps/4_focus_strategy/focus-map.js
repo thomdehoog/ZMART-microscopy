@@ -139,6 +139,7 @@ function tilesByField() {
 }
 
 const perField = (f) => Math.max(1, Math.round(f.perField) || 1);
+const perCarrier = (f) => Math.max(1, Math.round(f.perCarrier) || 1);
 
 /**
  * A set of points, shared out over the positions the run will visit.
@@ -161,7 +162,10 @@ const perField = (f) => Math.max(1, Math.round(f.perField) || 1);
  */
 function patternFocusPoints(over = "tileset") {
   if (!run.plan.length) return [];
-  const n = perField(run.focus);
+  const f = run.focus;
+  /* Each way of laying them has its own number: so many inside every tileset,
+     or so many over the carrier as a whole. */
+  const n = over === "carrier" ? perCarrier(f) : perField(f);
   const drawn = tilesByField();
   /* Only the carrier-wide press knows there is a carrier. In each tileset is a
      question about that tileset and nothing outside it: so many points, spread
@@ -661,6 +665,9 @@ function renderFocusBar() {
   const count = el("fp-count");
   // never while it is being typed into, or a 1 on its way to 12 is corrected
   if (document.activeElement !== count) count.value = String(perField(f));
+  const countAll = el("fp-count-all");
+  if (document.activeElement !== countAll) countAll.value = String(perCarrier(f));
+  countAll.disabled = frozen || !run.plan.length;
   count.disabled = frozen;
 
   el("fp-place").disabled = frozen || !run.plan.length;
@@ -670,6 +677,12 @@ function renderFocusBar() {
      that are already down; Reset throws away what a run produced. */
   const ran = f.strategy === "plane" && f.applied && f.points.length > 0;
   el("fp-again").hidden = !ran;
+  /* And the step's own press goes when they arrive. Once a map exists the bar
+     offers "Run again", which is what Rerun does and says less about how — two
+     presses a hand's width apart, both meaning measure it again, one of them
+     silent about where the search starts. Before there is a map it is the only
+     way to make one, so it stays until there is. */
+  document.querySelector(".fp-run").hidden = ran;
   for (const id of ["fp-rerun", "fp-refine", "fp-reset"]) {
     el(id).disabled = !ran || !!run.running;
   }
@@ -681,6 +694,11 @@ function renderFocusBar() {
   const pick = el("fp-pick");
   pick.disabled = frozen || !run.plan.length;
   pick.classList.toggle("on", !!f.placing && !frozen);
+  /* One of the two is always on, so a press on the map is never a question:
+     the crosshair puts a point down, and the arrow picks one that is. */
+  const select = el("fp-select");
+  select.disabled = frozen || !run.plan.length;
+  select.classList.toggle("on", !f.placing && !frozen);
   // the cursor says what the next press will do, the way it does when a
   // scan field is being drawn — worked out in one place, and set there
   stage.cursor(focusCursor());
@@ -1108,6 +1126,12 @@ traceCv.addEventListener("keydown", (e) => {
 });
 
 // ---- laying points by the number, rather than clicking positions one by one
+el("fp-count-all").addEventListener("input", () => {
+  const v = parseInt(el("fp-count-all").value, 10);
+  if (Number.isNaN(v)) return;
+  run.focus.perCarrier = Math.min(99, Math.max(1, v));
+});
+el("fp-count-all").addEventListener("blur", () => { renderFocusBar(); });
 el("fp-count").addEventListener("input", () => {
   const v = parseInt(el("fp-count").value, 10);
   if (Number.isNaN(v)) return;
@@ -1118,6 +1142,13 @@ el("fp-count").addEventListener("blur", () => { renderFocusBar(); });
 el("fp-pick").addEventListener("click", () => {
   const f = run.focus;
   f.placing = !f.placing;
+  renderPointList();
+});
+/* Disarming, said as a thing to press rather than as pressing the armed tool
+   again — the step before names it the same way, and a row where nothing is on
+   leaves an operator wondering what a press on the map will do. */
+el("fp-select").addEventListener("click", () => {
+  run.focus.placing = false;
   renderPointList();
 });
 /* A fresh set, not more on top: the points are settled against each other —
