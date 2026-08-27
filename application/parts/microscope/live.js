@@ -131,6 +131,12 @@ export const backend = {
    * Change settings on the instrument: `set_state` through the controller,
    * answering with what the driver says it applied — which is not always what
    * was asked, since a value it will not take is the driver's to refuse.
+   *
+   * Nothing on the page calls this, by decision. A chooser would be named
+   * after one vendor's noun — `job` is LAS X's word, and another instrument
+   * has a protocol or an experiment or nothing like it — so the page would
+   * have learned one microscope. It is here because the seam mirrors the
+   * controller's surface, not this one page's needs.
    */
   async set_state(settings) {
     return ask("/api/state", settings);

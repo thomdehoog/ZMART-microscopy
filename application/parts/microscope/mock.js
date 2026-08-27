@@ -118,6 +118,12 @@ export const backend = {
    * A job it does not have is refused rather than accepted quietly: a capture
    * taken with one would not run, and a page is better told now than at the
    * press. The controller's mock driver refuses the same way.
+   *
+   * Nothing on the page calls this, by decision. A chooser would be named
+   * after one vendor's noun — `job` is LAS X's word, and another instrument
+   * has a protocol or an experiment or nothing like it — so the page would
+   * have learned one microscope. It is here because the seam mirrors the
+   * controller's surface, not this one page's needs.
    */
   async set_state(settings) {
     await wait(160);
