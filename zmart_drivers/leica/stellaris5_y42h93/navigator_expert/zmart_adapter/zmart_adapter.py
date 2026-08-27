@@ -918,6 +918,9 @@ def acquire(
         "images": [plane["path"] for plane in planes],
         "planes": planes,
         "vendor_metadata": [str(path) for path in getattr(saved, "vendor_metadata_paths", ())],
+        # What the driver printed about this capture: the state, beside the
+        # images in ``data/metadata``. A client moving a record moves this too.
+        "metadata": [str(path) for path in getattr(saved, "state_paths", ())],
     }
 
 
@@ -959,8 +962,7 @@ def get_state(handle: ZmartHandle) -> dict:
         }
         # The field of view, from the job's imageSize: parsed here anyway to
         # get the pixel size, and the only measured answer to how much sample
-        # one frame covers. It follows the scanner zoom, which a format times
-        # a pixel size does not.
+        # one frame covers.
         frame_size = {
             "x": float(geometry["tile_w_um"]),
             "y": float(geometry["tile_h_um"]),
