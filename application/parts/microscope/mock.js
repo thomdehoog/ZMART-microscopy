@@ -105,10 +105,31 @@ export const backend = {
   async get_acquisition_options() {
     await wait(120);
     return {
+      job: { options: [...JOBS], active: chosenJob },
       backlash_correction: { options: [true, false], active: true },
       format: { options: ["ome-tiff", "ome-zarr"], active: "ome-tiff" },
       procedure: { options: ["direct", "tiled"], active: "direct" },
     };
+  },
+
+  /**
+   * Change a setting on this pretend instrument, and answer with what stuck.
+   *
+   * A job it does not have is refused rather than accepted quietly: a capture
+   * taken with one would not run, and a page is better told now than at the
+   * press. The controller's mock driver refuses the same way.
+   */
+  async set_state(settings) {
+    await wait(160);
+    const applied = {};
+    if ("job" in settings) {
+      if (!JOBS.includes(settings.job)) {
+        throw new Error(`unknown job '${settings.job}'; have ${JOBS.join(", ")}`);
+      }
+      chosenJob = settings.job;
+      applied.job = chosenJob;
+    }
+    return { applied };
   },
 
   /**
@@ -238,6 +259,12 @@ export const pretendConnectionStatus = ({ connection }) => ({
 
 /** Its canvas: the travel a page draws to scale. */
 const pretendCanvas = () => ({ x_um: [0, TRAVEL_UM.x], y_um: [0, TRAVEL_UM.y] });
+
+/* The jobs this pretend instrument has stored, and which is chosen. The same
+   three the controller's mock driver keeps, so the page meets one instrument
+   whichever backend it is talking to. */
+const JOBS = ["Overview", "HiRes", "Survey"];
+let chosenJob = JOBS[0];
 
 /** Where its stage is parked before anything has driven it: the corner, off
  *  the carrier. */
