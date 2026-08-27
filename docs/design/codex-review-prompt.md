@@ -47,7 +47,7 @@ python -m venv .venv
 The browser test also uses the operator page's Node dependencies:
 
 ```bash
-cd workflows/target_acquisition/webapp-ui
+cd application
 npm ci
 PLAYWRIGHT_CHROMIUM=/path/to/chrome \
   npx playwright test --config ../../../zmart_live/tests/browser/playwright.config.mjs

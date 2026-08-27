@@ -49,7 +49,7 @@ Offline workflow unit tests — no microscope, no vendor software. Run from the
 repo root:
 
 ```powershell
-python -m pytest -q workflows/target_acquisition/tests
+python -m pytest -q application/workflows/target_acquisition/tests
 ```
 
 That suite includes an end-to-end run of BOTH notebooks: every code cell
@@ -58,7 +58,7 @@ operator's button presses are scripted between cells. If a notebook cell
 breaks, this is the test that says so — no microscope needed:
 
 ```powershell
-python -m pytest -q workflows/target_acquisition/tests/test_notebooks_run_end_to_end.py
+python -m pytest -q application/workflows/target_acquisition/tests/test_notebooks_run_end_to_end.py
 ```
 
 ## Output

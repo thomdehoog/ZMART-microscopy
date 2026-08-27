@@ -17,7 +17,7 @@ operator page in one tree, with one copy of each drawing engine.
 ### 1. Start the operator page
 
 ```bash
-cd workflows/target_acquisition/webapp-ui
+cd application
 npm install
 npm run dev          # http://127.0.0.1:5174
 ```
@@ -50,7 +50,7 @@ Three variables, for the same reason:
 ### 2. Serve one of your own acquisitions
 
 ```bash
-python workflows/target_acquisition/serve_a_run.py /path/to/my_run.ome.zarr
+python application/workflows/target_acquisition/serve_a_run.py /path/to/my_run.ome.zarr
 ```
 
 It prints the whole page address with the run already filled in — copy that into
@@ -170,7 +170,7 @@ work in. Measure it where the store really lives, not on a local disk.
   percentiles, so one saturated pixel at 65535 against tissue at 1750 stretched
   the window elevenfold. The picture came out at a screen median of 12.9 against
   the 108.7 the fixed nought-to-4095 guess gave. Both are fixed and pinned by
-  `webapp-ui/tests/unit/brightness.test.js`; measured on the transfer below, the
+  `application/tests/unit/brightness.test.js`; measured on the transfer below, the
   neuroglancer column went from a screen median of 17 to 48.
 - **The two Viv options still carry the old reading**, in a private copy called
   `theRangeItActuallyHolds`, and it has a third fault besides those two: it reads

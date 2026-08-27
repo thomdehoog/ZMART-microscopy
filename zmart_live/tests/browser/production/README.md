@@ -275,7 +275,7 @@ Everything runs from the operator page's folder, because that is where the
 JavaScript packages live.
 
 ```
-cd workflows/target_acquisition/webapp-ui
+cd application
 
 # all three tests, a little under two minutes
 npx playwright test --config ../../../zmart_live/tests/browser/production/playwright.config.mjs

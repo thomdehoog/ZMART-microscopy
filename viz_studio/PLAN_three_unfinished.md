@@ -37,11 +37,11 @@ traps.
   failure has already cost this project a session once.
   `npm --prefix viz_studio/options/harness run build`.
 * Commands: `cd viz_studio && python run_tests.py` (~20 min);
-  `npm test` in `workflows/target_acquisition/webapp-ui` (unit ~0.3 s, browser
+  `npm test` in `application` (unit ~0.3 s, browser
   ~8–30 min).
 
 Two roots. Items about the page live in
-`workflows/target_acquisition/webapp-ui/`; items about the engines and the
+`application/`; items about the engines and the
 harness live in `viz_studio/`.
 
 ---
@@ -173,7 +173,7 @@ gain here.
 Name sections, not line numbers — they drift. Includes text an operator reads
 (`steps.js`'s `why`: the engines "draw the same scene in turn"), the document a
 human follows at the microscope (`TESTING_ON_REAL_HARDWARE.md`, wrong about the
-chooser *and* about the environment), `webapp-ui/README.md` (false well beyond
+chooser *and* about the environment), `application/README.md` (false well beyond
 the two-steps section — also the three-engines comparison, the "92% of the box",
 "two of the three engines"), `ARCHITECTURE.md`, `panel.js`, `workflows/index.js`,
 `engines.js` ("all three engines are offered"), and a unit test still *titled*

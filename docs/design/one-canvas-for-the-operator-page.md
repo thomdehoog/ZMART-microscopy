@@ -22,7 +22,7 @@ This document is about the first half.
 ## The finding
 
 **The canvas being described already exists, and is already tested.**
-`workflows/target_acquisition/shared/canvas/viewer.js` exports
+`application/parts/canvas/viewer.js` exports
 `putTheCanvasIn`, which takes
 
     layersAbove: [{ key, label, explains, staysSolid,
@@ -106,7 +106,7 @@ the plan, the focus map and the stage mark are target acquisition's and stay in
 it.
 
 The tree does not say that yet. Both sit under
-`workflows/target_acquisition/shared/canvas/`, where *shared* means shared
+`application/parts/canvas/`, where *shared* means shared
 between that workflow's steps. A second workflow reaching across into a sibling
 workflow's folder would be exactly the wrong dependency — it would quietly make
 target acquisition a library.

@@ -187,7 +187,7 @@ python -m zmart_live.tests.check_the_shardlink_tests_can_fail
 python -m zmart_live.tests.check_the_scene_tests_can_fail
 ```
 
-The browser sequence, from `workflows/target_acquisition/webapp-ui`:
+The browser sequence, from `application`:
 
 ```bash
 npx playwright test --config ../../../zmart_live/tests/browser/playwright.config.mjs

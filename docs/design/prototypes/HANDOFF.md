@@ -12,7 +12,7 @@ not be correct about physics.
 
 ## Start here
 
-1. Read `workflows/target_acquisition/webapp-ui/ARCHITECTURE.md`, then the
+1. Read `application/ARCHITECTURE.md`, then the
    rest of this. Get the page running and click through it — most of what
    follows is easier to see than to read.
 2. **Say what you would do and why before changing anything.** Check the
@@ -324,9 +324,9 @@ scan, the focus map and the tile detection is tuned on all read the same list.
   `git log @{u}..HEAD` rather than assuming, and do not push without asking.
   It touches nothing under `zmart_drivers/`; the driver's Z-readback work
   went to `main` on its own (PR #15, `docs/design/z-readback-stacked-drive.md`).
-- The live project: `workflows/target_acquisition/webapp-ui/` — a Vite app.
+- The live project: `application/` — a Vite app.
   **Read its `ARCHITECTURE.md` first.** Since 2026-08-25 there is no `src/`:
-  `frame/` and `workflows/` stand directly inside `webapp-ui/`.
+  `frame/` and `workflows/` stand directly inside `application/`.
 - `git` is not on PATH: `C:\ProgramData\MinicondaZMB\Library\bin\git.exe`
 - The plan for the next stretch — dissolving `main.js` into the step folders,
   tests moving beside what they test — is `docs/design/dissolving-main-js.md`
@@ -348,7 +348,7 @@ AppLocker refuses to run executables from user-writable paths.
 E="/c/ProgramData/MinicondaZMB/envs/zmart-microscopy"
 export PATH="$E:$PATH"
 export PLAYWRIGHT_BROWSERS_PATH="C:\ProgramData\MinicondaZMB\home\t.de\ms-playwright"
-cd workflows/target_acquisition/webapp-ui
+cd application
 
 npm run dev        # http://127.0.0.1:5174 — hot reload
 npm run build      # one self-contained file -> ../workflow/webapp/static/
@@ -580,12 +580,12 @@ The tree as it exists (2026-08-26; no `src/`):
 
 | part | state |
 |---|---|
-| `workflows/target_acquisition/shared/carriers.js`, `shared/scanfields.js` | tested and **used** — by the page and the carrier / scan-area widgets |
-| `workflows/target_acquisition/microscope/recordings.js`, `microscopes.js` | used |
-| `workflows/target_acquisition/microscope/pretend-sample/{surface,sweep}.js` | tested and **used** by the page (one owner each) |
-| `workflows/target_acquisition/microscope/pretend-sample/sample.js`, `microscope/mock.js` | tested; **not imported by the page** — the page rehearses with a plan-driven sample of its own in `main.js` (the one fact still written twice, plus its focus tilt a third time in `mock.js`) |
-| `workflows/target_acquisition/microscope/live.js` + `workflow/webapp/bridge.py` | the backend seam for the mock and real workflows; one day old |
-| `workflows/target_acquisition/steps/{2_define_carrier,3_define_scan_area}/widget.js` | the two extracted widgets — the pattern the rest should follow |
+| `application/workflows/target_acquisition/shared/carriers.js`, `shared/scanfields.js` | tested and **used** — by the page and the carrier / scan-area widgets |
+| `application/parts/microscope/recordings.js`, `microscopes.js` | used |
+| `application/parts/microscope/pretend-sample/{surface,sweep}.js` | tested and **used** by the page (one owner each) |
+| `application/parts/microscope/pretend-sample/sample.js`, `microscope/mock.js` | tested; **not imported by the page** — the page rehearses with a plan-driven sample of its own in `main.js` (the one fact still written twice, plus its focus tilt a third time in `mock.js`) |
+| `application/parts/microscope/live.js` + `application/framework/bridge.py` | the backend seam for the mock and real workflows; one day old |
+| `application/workflows/target_acquisition/steps/{define_carrier,define_scan_area}/widget.js` | the two extracted widgets — the pattern the rest should follow |
 | `frame/rules/steps.js`, `frame/rules/finding-workflows.js`, `workflows/*/flow.js` | used: numbering, readiness, panels; the folders are the only declaration of the workflows |
 | `index.html` | frame markup plus four parked blocks of one workflow's controls (`#focus-controls`, `#detect-controls`, `#analysis-controls`, `#gallery-controls`) that widgets move into the channel on mount; also references `#stage-layers`, which does not exist, so the layer bar has never rendered |
 
@@ -604,7 +604,7 @@ The rule going forward is that a test lives beside what it tests
 is a stopwatch flake on this machine (`waitForTimeout(1600)`), not a
 regression.
 
-**A widget owns its panel and redraws itself.** `steps/2_define_carrier/carrier-panel.js`
+**A widget owns its panel and redraws itself.** `steps/define_carrier/carrier-panel.js`
 is the pattern: handed a value and a callback, knows nothing of run state,
 and writes new values into the controls that already exist rather than
 rebuilding — a rebuild per keystroke destroys the field being typed into.
