@@ -546,10 +546,21 @@ function focusDraggedTo(px, py) {
     /* Moved off what was read for it: the height belonged to where it was.
        A point that had one is kept in the list and greyed — the reading is
        stale, not missing — where one that never had a reading is not listed
-       at all until the map is measured again. */
+       at all until the map is measured again.
+
+       What it was is kept with it, so the move can be taken back: Rerun reads
+       the point where it now stands, and Reset puts it where its reading was.
+       Kept from the first move only — dragging a point about three times
+       still undoes to the place it was measured, not to the last place it
+       was dropped. */
     f.points[i] = {
       ...p, x: from.x + dx, y: from.y + dy,
       z: null, residual: null, stale: p.z !== null || !!p.stale,
+      wasRead: p.wasRead ?? (p.z !== null ? {
+        x: p.x, y: p.y, z: p.z, zAuto: p.zAuto, traces: p.traces,
+        manual: !!p.manual, accepted: !!p.accepted, onNarrow: !!p.onNarrow,
+        lost: !!p.lost, speck: p.speck,
+      } : undefined),
     };
   }
   refitSurface();
@@ -905,20 +916,37 @@ function pointOnShow() {
   return p && !p.stale && p.z !== null ? p : null;
 }
 
+/**
+ * The point Rerun acts on — which is not only the one the plot is showing.
+ *
+ * A point moved after the map was measured has no reading and no curve, and
+ * Rerun is precisely the way to give it one back: it is the press that says
+ * measure this, here, now. Accept and Reset have nothing to work with until
+ * it does.
+ */
+function pointToRerun() {
+  const f = run.focus;
+  if (f.strategy !== "plane" || !f.applied) return null;
+  return f.points[f.selected] ?? null;
+}
+
 /** The three presses under the plot, against the point it is showing. */
 function renderTraceActions() {
   if (!focusMounted()) return;
   const p = pointOnShow();
   const busy = !!run.running;
-  el("ft-rerun").disabled = !p || busy;
+  el("ft-rerun").disabled = !pointToRerun() || busy;
   /* There is something to accept while the point still carries a mark: a
      warning the rule raised, or a height moved by hand. Accepting a point
      with neither would be answering a question nobody asked. */
   el("ft-accept").disabled = !p || busy || p.accepted
     || !(p.manual || doubtsAbout(p, run.focus.points.indexOf(p)).length);
-  /* And something to reset once it has been answered or moved — going back to
-     the instrument's own height is only a move if it is not already there. */
-  el("ft-reset").disabled = !p || busy || !(p.manual || p.accepted);
+  /* And something to reset once it has been answered, or moved by hand, or
+     carried somewhere else on the map. Going back to the instrument's own
+     height is only a move if the point is not already at it. */
+  const moved = pointToRerun();
+  el("ft-reset").disabled = busy
+    || !((p && (p.manual || p.accepted)) || (moved?.stale && moved.wasRead));
 }
 
 el("ft-accept").addEventListener("click", () => {
@@ -929,20 +957,35 @@ el("ft-accept").addEventListener("click", () => {
 });
 
 el("ft-reset").addEventListener("click", () => {
-  const p = pointOnShow();
-  if (!p || run.running) return;
-  /* Back to what the instrument answered, and no longer answered for: a point
-     put back is a point nobody has looked at yet. */
-  p.z = p.zAuto;
-  p.manual = false;
-  p.accepted = false;
+  const f = run.focus;
+  if (run.running) return;
+  const moved = pointToRerun();
+  /* Two things to undo, and the point says which one it is. Carried somewhere
+     else on the map, it goes back to where its reading was taken and the
+     reading comes back with it — position, height, and the sweep the plot
+     draws. Standing where it was measured, only the height moved, so only the
+     height goes back. */
+  if (moved?.stale && moved.wasRead) {
+    const { wasRead, ...rest } = moved;
+    f.points[f.points.indexOf(moved)] = {
+      ...rest, ...wasRead, stale: false, accepted: false,
+    };
+  } else {
+    const p = pointOnShow();
+    if (!p) return;
+    /* Back to what the instrument answered, and no longer answered for: a
+       point put back is a point nobody has looked at yet. */
+    p.z = p.zAuto;
+    p.manual = false;
+    p.accepted = false;
+  }
   refitSurface();
   renderPointList(); drawTrace(); stage.draw();
 });
 
 el("ft-rerun").addEventListener("click", async () => {
   const f = run.focus;
-  const p = pointOnShow();
+  const p = pointToRerun();
   if (!p || run.running) return;
   const at = f.points.indexOf(p);
   const startZ = stage.whereTheStageIs().z;
@@ -957,9 +1000,13 @@ el("ft-rerun").addEventListener("click", async () => {
   });
   const [got] = points;
   if (got) {
-    f.points[at] = Number.isFinite(got.zAuto) || !Number.isFinite(got.z)
-      ? { ...got, accepted: false }
-      : { ...got, zAuto: got.z, accepted: false };
+    /* And no longer moved-since-measured: what was just read was read where
+       the point is standing now, which is the whole of what `stale` meant. */
+    const { wasRead, ...came } = got;
+    const fresh = { ...came, accepted: false, stale: false };
+    f.points[at] = Number.isFinite(fresh.zAuto) || !Number.isFinite(fresh.z)
+      ? fresh
+      : { ...fresh, zAuto: fresh.z };
   }
   refitSurface();
   renderPointList(); drawTrace(); stage.draw(); renderActionBar();
