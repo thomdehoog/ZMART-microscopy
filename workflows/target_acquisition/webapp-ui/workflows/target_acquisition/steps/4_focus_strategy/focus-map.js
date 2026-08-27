@@ -880,7 +880,19 @@ function drawTrace() {
      hold it below the heights. Inside the frame it competed with the curve for
      the same space: the metric names at one end, the height of the chosen peak
      at the other, and the peak itself wherever the point happened to sit. */
-  const P = { l: 40, r: 14, t: 12, b: 48 };
+  /* How far the frame stands off the titles, left and bottom alike. The
+     bottom is fixed by where the heights are written and how tall their
+     letters are; the left is then whatever puts the same air between the
+     turned title and the frame. Measured rather than typed in, because both
+     numbers move with the font. */
+  ctx.font = LEGEND_FONT;
+  const yTitle = ctx.measureText("Focus score");
+  const zTitle = ctx.measureText("z-position");
+  const titleAscent = yTitle.actualBoundingBoxAscent;
+  const titleThick = titleAscent + yTitle.actualBoundingBoxDescent;
+  const AXIS_TEXT_DROP = 15;   // baseline of the row of heights, under the frame
+  const axisGap = AXIS_TEXT_DROP - zTitle.actualBoundingBoxAscent;
+  const P = { l: BOX_PAD + titleThick + axisGap, r: 14, t: 12, b: 48 };
   const legendY = h - 12;
   const zs = t.samples.map((p) => p.z);
   const zLo = Math.min(...zs), zHi = Math.max(...zs);
@@ -899,19 +911,17 @@ function drawTrace() {
   ctx.fillStyle = css("--ink-3");
   ctx.font = '10.5px ui-monospace, Consolas, monospace';
   ctx.textAlign = "center";
-  ctx.fillText(`${zLo.toFixed(0)}`, X(zLo) + 10, h - P.b + 15);
-  ctx.fillText(`${zHi.toFixed(0)} µm`, X(zHi) - 16, h - P.b + 15);
+  ctx.fillText(`${zLo.toFixed(0)}`, X(zLo) + 10, h - P.b + AXIS_TEXT_DROP);
+  ctx.fillText(`${zHi.toFixed(0)} µm`, X(zHi) - 16, h - P.b + AXIS_TEXT_DROP);
   /* Both titles in the same grey as the heights they label: they say what the
      axis is, which is the quietest thing on the plot, and the curves are what
      is being read. The fill is the one set for the numbers above. */
   /* The axis title starts where the box's column starts, level with the
-     heading above the plot. Written with the baseline at the top of the turned
-     text, so the number given here is the edge of the letters rather than a
-     baseline with an ascent hanging off it that has to be guessed at. */
+     heading above the plot: turned, its letters run rightwards from their own
+     baseline, so the baseline goes one ascent in from that line. */
   ctx.save();
-  ctx.translate(BOX_PAD, (P.t + h - P.b) / 2); ctx.rotate(-Math.PI / 2);
+  ctx.translate(BOX_PAD + titleAscent, (P.t + h - P.b) / 2); ctx.rotate(-Math.PI / 2);
   ctx.font = LEGEND_FONT;
-  ctx.textBaseline = "top";
   ctx.fillText("Focus score", 0, 0);
   ctx.restore();
 
@@ -919,7 +929,7 @@ function drawTrace() {
      the one thing on the plot an operator has to be told the units of; the
      heights themselves say µm. */
   ctx.font = LEGEND_FONT;
-  ctx.fillText("z-position", (P.l + w - P.r) / 2, h - P.b + 15);
+  ctx.fillText("z-position", (P.l + w - P.r) / 2, h - P.b + AXIS_TEXT_DROP);
   ctx.textAlign = "left";
 
   // the comparison curve first, so the deciding one reads on top
