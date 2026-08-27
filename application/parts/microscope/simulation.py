@@ -25,6 +25,7 @@ The pieces mirror the real boundary exactly:
 
 from __future__ import annotations
 
+import json
 import uuid
 from pathlib import Path
 
@@ -209,11 +210,19 @@ class SimulatedSession:
             image,
             job["pixel_um"],
         )
+        metadata = path.parent / "metadata"
+        metadata.mkdir(parents=True, exist_ok=True)
+        printed = (
+            metadata
+            / f"{acquisition_type}_{acquisition_hash}_{position_label}_T000000_ZMART_state.json"
+        )
+        printed.write_text(json.dumps(self.get_state(), indent=2), encoding="utf-8")
         return {
             "acquisition_type": acquisition_type,
             "acquisition_hash": acquisition_hash,
             "position_label": position_label,
             "images": [str(path)],
+            "metadata": [str(printed)],
             "planes": [{"t": 0, "c": 0, "z": 0, "path": str(path)}],
         }
 

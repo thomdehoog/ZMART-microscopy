@@ -108,3 +108,24 @@ def data_dir(output_root: Path | str, acquisition_type: str) -> Path:
     """
 
     return acquisition_dir(output_root, acquisition_type) / "data"
+
+
+def metadata_dir(output_root: Path | str, acquisition_type: str) -> Path:
+    """Return where an acquisition's printed metadata goes: ``<type>/data/metadata``."""
+
+    return data_dir(output_root, acquisition_type) / "metadata"
+
+
+def build_state_name(naming: Naming) -> str:
+    """Return the filename for one acquisition's printed state.
+
+    The image name without the channel and the z-slice, because one state
+    describes every plane of the acquisition it was captured for: those two
+    are what a single capture spans, while a new position or timepoint is a
+    new capture with a state of its own.
+    """
+
+    return (
+        f"{naming.acquisition_type}_{naming.hash6}_{naming.position_label}_"
+        f"T{naming.t:06d}_ZMART_state.json"
+    )
