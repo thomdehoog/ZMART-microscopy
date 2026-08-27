@@ -273,25 +273,15 @@ test("the fields wait for the preset they will be taken with",
         reading at a time needs no handle to tell it from another. */
     await expect(page.locator("#sf-preset .rec-row")).toContainText("NA");
 
-    /* Forgetting the last reading puts the editor back to sleep and takes the
-       plan with it — the regions and grid positions included. A field says
-       what to image and with what, and with no preset left there is no with:
-       outlines kept on the canvas would be a picture of a plan the run could
-       not run. */
+    /* And with a preset there, the fields can be laid. A reading cannot be
+       thrown away any more — the instrument is set to something whether or not
+       the page has looked, so there is no state in which the step has none.
+       Taking it again is how it changes, which is the test below. */
     await page.locator(".sf-apply-grid").click();
     await page.waitForTimeout(300);
     await expect(page.locator(".sf-readout")).toContainText("864 positions");
     await expect(page.locator('.step:has-text("Define scan area")').first())
       .toHaveClass(/done/);
-    await page.locator("#sf-preset .rec-drop").click();
-    await page.waitForTimeout(200);
-    await expect(page.locator("#sf-preset .rec-row")).toHaveCount(0);
-    await expect(page.locator(".sf-tools"),
-      "and the ways of laying fields go with it").toBeHidden();
-    await expect(page.locator(".sf-apply-grid")).toBeHidden();
-    await expect(page.locator(".sf-readout")).toContainText("nothing to scan yet");
-    await expect(page.locator('.step:has-text("Define scan area")').first())
-      .not.toHaveClass(/done/);
   });
 
 test("recording again replaces the reading, and re-takes the plan with it",
@@ -1177,7 +1167,7 @@ test("the recording finishes the step, and either kind can be given a map",
        sent to, which is already a complete answer — so the step is finished by
        the recording, with nothing to press. */
     await recordSlot(page, "focus-preset", "software");
-    await expect(page.locator("#focus-preset .rec-state").first()).toContainText("Software");
+    await expect(page.locator("#focus-preset .rec-state").first()).toContainText("µm stack");
     await expect(page.locator('.step:has-text("Focus strategy")').first())
       .toHaveClass(/done/);
     /* The press that measures the map stands in its box from the moment the
@@ -1288,6 +1278,11 @@ test("focus points are laid so many to a tileset", async ({ page }) => {
   /* Three to a tileset, each in its own share of it — and a fresh set rather
      than three more on top, because the three are settled against each other
      and a second set laid through the first would leave neither true. */
+  /* A measured map holds the box that laid it: the points and the surface
+     through them are one answer, so a fresh set goes down only after Reset has
+     thrown the old one away. */
+  await page.locator("#fp-reset").click();
+  await page.waitForTimeout(250);
   await page.locator("#fp-count").fill("3");
   await page.locator("#fp-count").dispatchEvent("input");
   await page.locator("#fp-place").click();
@@ -1305,6 +1300,10 @@ test("focus points are laid so many to a tileset", async ({ page }) => {
     .toBeGreaterThan(0.2);
 
   // and pressing it again with the same number lays the same three
+  await page.locator("#fp-reset").click();
+  await page.waitForTimeout(250);
+  await page.locator("#fp-count").fill("3");
+  await page.locator("#fp-count").dispatchEvent("input");
   await page.locator("#fp-place").click();
   await page.waitForTimeout(300);
   await measure(3);
@@ -1314,6 +1313,8 @@ test("focus points are laid so many to a tileset", async ({ page }) => {
 
   /* More than the tileset holds is what it holds: a number is a wish, and the
      positions are what there is to measure. */
+  await page.locator("#fp-reset").click();
+  await page.waitForTimeout(250);
   await page.locator("#fp-count").fill("99");
   await page.locator("#fp-count").dispatchEvent("input");
   await page.locator("#fp-place").click();
@@ -1322,10 +1323,21 @@ test("focus points are laid so many to a tileset", async ({ page }) => {
   const all = await placed();
   expect(all.length, "as many as the tileset has positions").toBeGreaterThan(3);
 
-  // Clear empties it, and says so by refusing to be pressed again
-  await page.locator("#fp-clear").click();
+  /* Reset is what empties a measured map: the points and the surface fitted
+     through them are one answer, and Clear is held while that answer stands. */
+  await expect(page.locator("#fp-clear")).toBeDisabled();
+  await page.locator("#fp-reset").click();
   await page.waitForTimeout(250);
   expect(await page.locator(".point-row").count()).toBe(0);
+
+  /* Clear is for a set that has not been measured yet, and says it is empty by
+     refusing to be pressed. */
+  await expect(page.locator("#fp-clear")).toBeDisabled();
+  await page.locator("#fp-place").click();
+  await page.waitForTimeout(300);
+  await expect(page.locator("#fp-clear")).toBeEnabled();
+  await page.locator("#fp-clear").click();
+  await page.waitForTimeout(250);
   await expect(page.locator("#fp-clear")).toBeDisabled();
 });
 
