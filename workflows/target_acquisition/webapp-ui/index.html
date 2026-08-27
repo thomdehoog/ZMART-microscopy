@@ -160,7 +160,10 @@
         <div class="side-group" id="focus-traces" hidden>
           <div class="side-group-title">Inspect focus traces</div>
           <div class="side-group-body">
-            <div class="side-sub">Focus points</div>
+            <!-- and, at the end of the same line, how many of them are worth
+                 a second look: a list four rows deep scrolls, so the count is
+                 what says there is something to scroll to. -->
+            <div class="side-sub">Focus points<span class="warn-count" id="fp-warned"></span></div>
             <!-- Three rows deep, and scrolled past that: the list is here to
                  choose from, and a list as long as the map pushes the picture
                  it belongs to off the screen. -->
