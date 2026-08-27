@@ -186,14 +186,17 @@ def _frame(observed, monkeypatch):
     return bridge._reading("acquisition")["frameUm"]
 
 
-def test_a_reported_field_of_view_is_the_frame(monkeypatch):
+def test_a_frame_size_is_read_the_way_a_pixel_size_is(monkeypatch):
     """Measured beats derived.
 
-    LAS X reports ``imageSize`` and the driver parses it into `tile_w_um` —
-    the field of view itself, in micrometres. Multiplying a format by a pixel
-    size is arithmetic on two rounded numbers that can disagree with it.
+    `frame_size`, shaped like `pixel_size`: LAS X's ``imageSize``, parsed by
+    the driver into micrometres per axis. A format times a pixel size is
+    arithmetic on two rounded numbers that can disagree with it. Only `x` is
+    read — a plan is laid in square frames.
     """
-    assert _frame({"pixel_size": {"x": 0.33}, "tile_w_um": 676.4}, monkeypatch) == 676
+    assert _frame(
+        {"pixel_size": {"x": 0.33}, "frame_size": {"x": 676.4, "y": 676.4, "unit": "um"}},
+        monkeypatch) == 676
 
 
 def test_the_format_and_the_pixel_size_make_the_frame(monkeypatch):

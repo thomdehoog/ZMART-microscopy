@@ -248,6 +248,7 @@ def get_state(handle: MockHandle) -> dict:
             },
             "zoom": handle.zoom,
             "pixel_size": {"x": 1.0, "y": 1.0, "unit": "um"},
+            "frame_size": {"x": 1024.0, "y": 1024.0, "unit": "um"},
         },
     }
 

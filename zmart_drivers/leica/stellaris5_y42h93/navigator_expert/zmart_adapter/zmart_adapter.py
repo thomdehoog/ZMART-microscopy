@@ -957,8 +957,17 @@ def get_state(handle: ZmartHandle) -> dict:
             "y": pixel_y,
             "unit": "um",
         }
+        # The field of view, from the job's imageSize: parsed here anyway to
+        # get the pixel size, and the only measured answer to how much sample
+        # one frame covers.
+        frame_size = {
+            "x": float(geometry["tile_w_um"]),
+            "y": float(geometry["tile_h_um"]),
+            "unit": "um",
+        }
     except (KeyError, TypeError, ValueError):
         pixel_size = None
+        frame_size = None
     active_objective = settings.get("objective")
     normal, autofocus = _job_catalog(handle)
     limits = _gate.describe(handle.client)
@@ -977,6 +986,7 @@ def get_state(handle: ZmartHandle) -> dict:
             "job": dict(selected),
             "active_objective": dict(active_objective or {}),
             "pixel_size": pixel_size,
+            "frame_size": frame_size,
             "jobs": normal,
             "autofocus_jobs": autofocus,
             # Which function-limits file governs this session (evidence, not
