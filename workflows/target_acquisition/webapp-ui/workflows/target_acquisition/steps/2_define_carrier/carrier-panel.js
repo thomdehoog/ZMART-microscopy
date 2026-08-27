@@ -665,6 +665,12 @@ export default {
            to undo — the operator is looking, not choosing. */
         row.addEventListener("pointerenter", () => anchors.light(i));
         row.addEventListener("pointerleave", () => anchors.light(-1));
+        /* Pressing one chooses it, which the picture answers by drawing that
+           mark as the chosen one. The same choice the picture makes when a
+           mark is pressed there, so the two cannot disagree about which point
+           is being worked on — and the Snap inside the row chooses it too,
+           because pressing a point's own button is saying which point. */
+        row.addEventListener("click", () => anchors.pick(i));
         row.append(pick);
         anchorList.append(row);
       });
