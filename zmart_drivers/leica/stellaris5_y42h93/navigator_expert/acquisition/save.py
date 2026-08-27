@@ -33,7 +33,7 @@ from .lasx_native_autosave import (
     native_autosave_base_folder,
     native_autosave_enabled,
 )
-from .naming import Naming, acquisition_dir, build_image_name
+from .naming import Naming, acquisition_dir, build_image_name, data_dir
 from .product import (
     ExportedAcquisition,
     PlaneIndex,
@@ -120,7 +120,7 @@ def _persist_export(
     """Shared persistence for stable exported source paths.
 
     Flat: each 2-D plane is written directly under
-    ``acquisition_dir(output_root, acquisition_type)`` and its OME-XML is
+    ``data_dir(output_root, acquisition_type)`` and its OME-XML is
     embedded (no sidecar companion). *state* is embedded per-plane.
     """
     if cleanup_source and not exported.cleanup_source_supported:
@@ -144,7 +144,7 @@ def _persist_export(
         for pos in exported.positions:
             for idx, image_src in sorted(pos.planes.items()):
                 plane_naming = replace(naming, t=idx.t, c=idx.c, z=idx.z)
-                image_dest = acquisition_dir(
+                image_dest = data_dir(
                     output_root, plane_naming.acquisition_type
                 ) / build_image_name(plane_naming)
                 image_dest.parent.mkdir(parents=True, exist_ok=True)
