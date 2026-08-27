@@ -13,8 +13,8 @@ import pytest
 
 matplotlib.use("Agg")
 
-from workflow._focus_surface import fit_focus_surface  # noqa: E402
-from workflow.viz import (  # noqa: E402
+from application.workflows.target_acquisition.steps.focus_strategy.focus_surface import fit_focus_surface  # noqa: E402
+from application.parts.plots.viz import (  # noqa: E402
     plot_focus_surface,
     plot_frame_layout,
     summarize_run,

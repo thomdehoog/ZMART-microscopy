@@ -16,7 +16,7 @@ import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 import pytest  # noqa: E402
 import tifffile  # noqa: E402
-from workflow._acquisition_widget import acquire_gallery  # noqa: E402
+from application.workflows.target_acquisition.steps.acquire_targets.widget import acquire_gallery  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -297,7 +297,7 @@ def test_verdicts_record_curation(tmp_path, overview):
 
 def test_pick_and_acquire_selected(tmp_path, overview):
     """Double-click picks in the explorer; acquire_selected images exactly them."""
-    from workflow._discovery_widget import explore_targets
+    from application.workflows.target_acquisition.steps.discover_targets.widget import explore_targets
 
     explorer = explore_targets(_targets(4), [overview])
     explorer.toggle_pick(1)

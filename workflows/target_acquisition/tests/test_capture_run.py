@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from workflow._capture_run import capture_positions
+from application.parts.microscope.capture_run import capture_positions
 
 import zmart_controller
 from zmart_drivers.mock.mock_driver import register_mock
@@ -76,7 +76,7 @@ def test_on_record_streams_each_acquisition():
 
 def test_cancel_stops_between_sites_and_commits_nothing():
     """A cancel lands cleanly at a site boundary: no further move, no records."""
-    from workflow._capture_run import RunCancelled, capture_positions
+    from application.parts.microscope.capture_run import RunCancelled, capture_positions
 
     class _Session:
         def __init__(self):
@@ -104,7 +104,7 @@ def test_cancel_stops_between_sites_and_commits_nothing():
 
 
 def test_cancel_checked_before_the_first_move_too():
-    from workflow._capture_run import RunCancelled, capture_positions
+    from application.parts.microscope.capture_run import RunCancelled, capture_positions
 
     class _Session:
         def set_xyz(self, *a, **k):

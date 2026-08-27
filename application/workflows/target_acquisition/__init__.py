@@ -51,20 +51,20 @@ operator step functions never learn about simulation.
 Modules whose names start with ``_`` are internal.
 """
 
-from ._acquisition_widget import AcquisitionGallery, acquire_gallery
-from ._capture_run import RunCancelled, capture_positions
-from ._discovery_widget import TargetExplorer, explore_targets
-from ._focus_run import measure_focus
-from ._focus_surface import FocusSurface, fit_focus_surface, residuals_um, worst_residual_um
-from ._focus_widget import FocusPicker, pick_focus_points
-from ._geom import overview_pixel_to_frame
-from ._hijack import NonSimulatorFrameError, hijack_records
-from ._mock_provider import get_provider
-from ._output import position_label, prepare_experiment
-from ._overview_widget import OverviewViewer, view_overview
-from ._run_status import print_run_status
-from .discovery import build_overview_inputs, discover_targets, read_overview_geometry
-from .steps import (
+from application.workflows.target_acquisition.steps.acquire_targets.widget import AcquisitionGallery, acquire_gallery
+from application.parts.microscope.capture_run import RunCancelled, capture_positions
+from application.workflows.target_acquisition.steps.discover_targets.widget import TargetExplorer, explore_targets
+from application.workflows.target_acquisition.steps.focus_strategy.focus_run import measure_focus
+from application.workflows.target_acquisition.steps.focus_strategy.focus_surface import FocusSurface, fit_focus_surface, residuals_um, worst_residual_um
+from application.workflows.target_acquisition.steps.focus_strategy.widget import FocusPicker, pick_focus_points
+from application.workflows.target_acquisition.geom import overview_pixel_to_frame
+from application.parts.microscope.hijack import NonSimulatorFrameError, hijack_records
+from application.parts.microscope.mock_provider import get_provider
+from application.parts.storage.output import position_label, prepare_experiment
+from application.workflows.target_acquisition.steps.scan_the_overview.widget import OverviewViewer, view_overview
+from application.framework.run_status import print_run_status
+from application.workflows.target_acquisition.steps.discover_targets.discovery import build_overview_inputs, discover_targets, read_overview_geometry
+from application.workflows.target_acquisition.the_run import (
     acquire_targets,
     connect,
     hijack_if_simulating,
@@ -77,7 +77,7 @@ from .steps import (
     with_focus_z,
     write_run_report,
 )
-from .viz import (
+from application.parts.plots.viz import (
     plot_focus_surface,
     plot_frame_layout,
     summarize_run,

@@ -13,7 +13,7 @@ matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt  # noqa: E402
 import pytest  # noqa: E402
-from workflow._focus_widget import FocusPicker, pick_focus_points  # noqa: E402
+from application.workflows.target_acquisition.steps.focus_strategy.widget import FocusPicker, pick_focus_points  # noqa: E402
 
 
 class _StubSession:

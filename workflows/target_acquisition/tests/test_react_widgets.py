@@ -18,7 +18,7 @@ import tifffile  # noqa: E402
 
 anywidget = pytest.importorskip("anywidget")
 
-from workflow import react as wreact  # noqa: E402
+from application.workflows.target_acquisition import react as wreact  # noqa: E402
 
 
 def _ome(path, shape=(20, 30), ps=2.0, value=200, channels=1):
@@ -1092,7 +1092,7 @@ def test_run_status_reports_the_steps():
 
 
 def test_run_status_treats_driver_setup_as_an_opaque_verdict():
-    from workflow._run_status import run_status_rows
+    from application.framework.run_status import run_status_rows
 
     rows = run_status_rows(
         {
@@ -1112,7 +1112,7 @@ def test_run_status_treats_driver_setup_as_an_opaque_verdict():
 
 
 def test_run_status_does_not_call_dead_or_unknown_objects_connected():
-    from workflow._run_status import run_status_rows
+    from application.framework.run_status import run_status_rows
 
     dead = type("Session", (), {"closed": True})()
     stopped = type("Engine", (), {"shut_down": True})()
@@ -1259,7 +1259,7 @@ def test_hover_cross_highlights_between_explorer_and_map(tmp_path):
 def test_eta_text_is_honest():
     import time as _time
 
-    from workflow._acquisition_widget import _eta_text
+    from application.workflows.target_acquisition.steps.acquire_targets.widget import _eta_text
 
     now = _time.monotonic()
     assert _eta_text(0, 10, now) == ""  # nothing done: no basis

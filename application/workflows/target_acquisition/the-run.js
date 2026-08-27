@@ -8,14 +8,14 @@
  * the Connect step, so there is one workflow and one list of steps.
  */
 
-import { connect } from "./steps/1_connect/step.js";
-import { carrierConfiguration } from "./steps/2_define_carrier/step.js";
-import { initialScanfields } from "./steps/3_define_scan_area/step.js";
-import { focusStrategy } from "./steps/4_focus_strategy/step.js";
-import { scanOverview } from "./steps/5_scan_the_overview/step.js";
-import { detectCells } from "./steps/6_discover_targets/step.js";
-import { selectCells } from "./steps/7_refine_targets/step.js";
-import { acquireAndCurate } from "./steps/8_acquire_targets/step.js";
+import { connect } from "./steps/connect/step.js";
+import { carrierConfiguration } from "./steps/define_carrier/step.js";
+import { initialScanfields } from "./steps/define_scan_area/step.js";
+import { focusStrategy } from "./steps/focus_strategy/step.js";
+import { scanOverview } from "./steps/scan_the_overview/step.js";
+import { detectCells } from "./steps/discover_targets/step.js";
+import { selectCells } from "./steps/refine_targets/step.js";
+import { acquireAndCurate } from "./steps/acquire_targets/step.js";
 
 /* Every run that drives the microscope starts the same way: open the session,
    say what the sample is mounted in, and say where on it to look. Written once

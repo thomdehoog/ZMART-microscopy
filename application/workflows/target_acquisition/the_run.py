@@ -1,8 +1,14 @@
-"""Controller-only workflow steps: connect, overview, targets.
+"""The run: its steps, in order -- connect, overview, targets.
 
 Thin orchestration over the ``zmart_controller`` session and the driver-free
-helpers (``_capture_run``, ``_focus_surface``). No ``navigator_expert`` import --
-the workflow bootstrap imports the driver adapter only to register the instrument.
+parts it reaches for (``parts.microscope.capture_run``, the focus step's own
+surface fit). No ``navigator_expert`` import -- the workflow bootstrap imports
+the driver adapter only to register the instrument.
+
+Named for what it is rather than ``steps.py``, which could not stand beside the
+``steps/`` folder holding one folder per step: the package would win every
+import. Its JavaScript counterpart, ``the-run.js``, composes the same steps
+into the same run.
 """
 
 from __future__ import annotations
@@ -13,8 +19,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from ._capture_run import capture_positions
-from ._records import record_channel_paths
+from application.parts.microscope.capture_run import capture_positions
+from application.parts.storage.records import record_channel_paths
 
 
 def connect(vendor: str, *, output_root: Any = None, **extras: Any):
@@ -140,7 +146,7 @@ def preflight_analysis_engine(engine: Any) -> None:
     import numpy as np
     import tifffile
 
-    from .discovery import discover_targets
+    from application.workflows.target_acquisition.steps.discover_targets.discovery import discover_targets
 
     with tempfile.TemporaryDirectory(prefix="zmart-preflight-") as tmp:
         image_path = Path(tmp) / "blank.tiff"
@@ -212,7 +218,7 @@ def overview_inputs_from_records(
     **geometry: Any,
 ) -> list[dict]:
     """Build target-discovery inputs from overview positions and acquire records."""
-    from .discovery import build_overview_inputs
+    from application.workflows.target_acquisition.steps.discover_targets.discovery import build_overview_inputs
 
     if len(positions) != len(records):
         raise ValueError(
@@ -273,8 +279,8 @@ def hijack_if_simulating(
     """Overwrite saved simulator images with mock cells when simulation is enabled."""
     if not simulate:
         return 0
-    from ._hijack import hijack_records
-    from ._mock_provider import get_provider
+    from application.parts.microscope.hijack import hijack_records
+    from application.parts.microscope.mock_provider import get_provider
 
     return hijack_records(records, get_provider(image_source))
 
@@ -289,7 +295,7 @@ def write_run_report(
     show: bool = True,
 ) -> dict:
     """Write the summary JSON and frame-layout plot for the notebook run."""
-    from .viz import plot_frame_layout, summarize_run, write_summary
+    from application.parts.plots.viz import plot_frame_layout, summarize_run, write_summary
 
     output_root = Path(output_root)
     overview_positions = with_focus_z(positions, focus)

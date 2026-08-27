@@ -32,7 +32,7 @@ import pytest  # noqa: E402
 
 pytest.importorskip("anywidget")
 
-from workflow.webapp import RunFlow, WidgetHub, make_server  # noqa: E402
+from application.workflows.target_acquisition.webapp import RunFlow, WidgetHub, make_server  # noqa: E402
 
 _ORDERED_STEPS = [
     "connect",

@@ -15,7 +15,7 @@ import pytest
 
 nbformat = pytest.importorskip("nbformat")
 
-import workflow  # noqa: E402
+import application.workflows.target_acquisition as workflow  # noqa: E402
 
 _NB_PATH = Path(__file__).resolve().parents[1] / "zmart_microscopy_v4.ipynb"
 

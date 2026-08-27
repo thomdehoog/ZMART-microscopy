@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-from workflow._focus_surface import fit_focus_surface
+from application.workflows.target_acquisition.steps.focus_strategy.focus_surface import fit_focus_surface
 
 
 def _pts(triples):

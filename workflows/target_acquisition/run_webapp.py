@@ -14,7 +14,7 @@ for path in (REPO_ROOT, HERE):
 
 def main() -> None:
     """Import the website only after its package roots are available."""
-    from workflow.webapp.__main__ import main as webapp_main
+    from application.workflows.target_acquisition.webapp.__main__ import main as webapp_main
 
     webapp_main()
 

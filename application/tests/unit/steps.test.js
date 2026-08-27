@@ -16,9 +16,9 @@ import {
   numbered, firstIncomplete, isReachable, blockedBecause, panelsFor,
 } from "../../framework/rules/steps.js";
 import { assembleWorkflows } from "../../framework/rules/finding-workflows.js";
-import { connect } from "../../workflows/target_acquisition/steps/1_connect/step.js";
-import { initialScanfields } from "../../workflows/target_acquisition/steps/3_define_scan_area/step.js";
-import { scanOverview } from "../../workflows/target_acquisition/steps/5_scan_the_overview/step.js";
+import { connect } from "../../workflows/target_acquisition/steps/connect/step.js";
+import { initialScanfields } from "../../workflows/target_acquisition/steps/define_scan_area/step.js";
+import { scanOverview } from "../../workflows/target_acquisition/steps/scan_the_overview/step.js";
 import { emptySlot, withRecording } from "../../parts/microscope/recordings.js";
 import { sampleReading } from "../../parts/microscope/settings.js";
 

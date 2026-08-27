@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import pytest
-from workflow import position_label, prepare_experiment
-from workflow._output import move_record_images, prepare_acquisition
+from application.workflows.target_acquisition import position_label, prepare_experiment
+from application.parts.storage.output import move_record_images, prepare_acquisition
 
 
 def test_exact_experiment_and_acquisition_layout(tmp_path):
@@ -68,7 +68,7 @@ def test_existing_destination_refuses_before_moving_any_plane(tmp_path):
 
 
 def test_mid_move_failure_rolls_back_the_record(monkeypatch, tmp_path):
-    from workflow import _output
+    from application.parts.storage import output as _output
 
     sources = [tmp_path / "staging" / f"plane-{i}.ome.tiff" for i in range(2)]
     sources[0].parent.mkdir()

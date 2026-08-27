@@ -20,7 +20,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from ._figsave import save_figure
+from application.parts.plots.figsave import save_figure
 
 
 def _focus_summary(focus: Any) -> dict | None:

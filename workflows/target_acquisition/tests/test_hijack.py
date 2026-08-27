@@ -40,12 +40,12 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 import tifffile
-from workflow._hijack import (
+from application.parts.microscope.hijack import (
     NonSimulatorFrameError,
     _read_system_type,
     hijack_frame,
 )
-from workflow._mock_provider import get_provider
+from application.parts.microscope.mock_provider import get_provider
 
 # ─── Helpers ──────────────────────────────────────────────────────
 

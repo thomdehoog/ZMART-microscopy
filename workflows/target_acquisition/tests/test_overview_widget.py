@@ -14,7 +14,7 @@ import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 import pytest  # noqa: E402
 import tifffile  # noqa: E402
-from workflow._overview_widget import OverviewViewer, _load_channels, view_overview  # noqa: E402
+from application.workflows.target_acquisition.steps.scan_the_overview.widget import OverviewViewer, _load_channels, view_overview  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -134,7 +134,7 @@ def test_downsample_keeps_extent_but_shrinks_pixels(tmp_path):
 
 
 def test_default_downsample_obeys_display_budget(tmp_path, monkeypatch):
-    monkeypatch.setattr("workflow._overview_widget._DISPLAY_PIXEL_BUDGET", 100)
+    monkeypatch.setattr("application.workflows.target_acquisition.steps.scan_the_overview.widget._DISPLAY_PIXEL_BUDGET", 100)
     viewer = view_overview(_overviews(tmp_path, [(0.0, 0.0)]))
     assert viewer.downsample > 1
 
@@ -238,7 +238,7 @@ def test_adjusting_channels_before_any_tile_is_a_clear_error():
 
 def test_targets_overlay_and_recolour_from_the_gate(tmp_path):
     """Discovered cells draw on the map, coloured by the explorer's gate."""
-    from workflow._discovery_widget import explore_targets
+    from application.workflows.target_acquisition.steps.discover_targets.widget import explore_targets
 
     targets = [
         {

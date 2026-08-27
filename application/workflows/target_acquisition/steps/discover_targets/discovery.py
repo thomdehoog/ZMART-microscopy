@@ -12,7 +12,7 @@ import time
 import xml.etree.ElementTree as ET
 from typing import Any
 
-from ._geom import overview_pixel_to_frame
+from application.workflows.target_acquisition.geom import overview_pixel_to_frame
 
 # OME PhysicalSize is µm by default (no Unit attribute); support the handful of
 # length units a real native file might carry, expressed as µm-per-unit.

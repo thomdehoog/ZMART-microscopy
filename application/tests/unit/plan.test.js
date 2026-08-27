@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { plan } from "../../workflows/target_acquisition/steps/3_define_scan_area/scanfield-editor.js";
+import { plan } from "../../workflows/target_acquisition/steps/define_scan_area/scanfield-editor.js";
 import {
   carrierType, fromPreset, nearestArea, scanBox,
 } from "../../workflows/target_acquisition/shared/carriers.js";

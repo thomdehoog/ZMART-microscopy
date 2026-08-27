@@ -237,7 +237,7 @@ class RunFlow:
 
         self._require(self.session is None, "already connected — continue with the next step")
         if self.demo:
-            from .._simulation import SimulatedEngine, SimulatedSession
+            from application.parts.microscope.simulation import SimulatedEngine, SimulatedSession
 
             engine = SimulatedEngine()
             preflight_analysis_engine(engine)

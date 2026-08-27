@@ -22,8 +22,8 @@ application/
                 appears as "Target acquisition".
     <name>/flow.js   the workflow's front door: its steps, in order, plus a
                      sentence for the chooser.
-    <name>/steps/    one numbered folder per step — `1_connect/` to
-                     `8_acquire_targets/` — each holding the step's
+    <name>/steps/    one numbered folder per step — `connect/` to
+                     `acquire_targets/` — each holding the step's
                      declaration, the controls that belong to it alone, and
                      `layers.js`: what it draws on the picture and what a press
                      on that means.
@@ -140,7 +140,7 @@ the page should carry out for it:
 ```
 
 Every field is written out in `workflows/README.md`. A step is declared in
-its own folder, under the workflow that owns it — `steps/4_focus_strategy/step.js`
+its own folder, under the workflow that owns it — `steps/focus_strategy/step.js`
 — and other workflows share it by importing it; the point is to mix and match,
 not to retype. A workflow that wants a shared step to say something different
 wraps it in `reworded()` (from `framework/rules/steps.js`), which changes the
@@ -235,15 +235,15 @@ In the table, `ta/` is short for `workflows/target_acquisition/`.
 | `framework/rules/steps.js` | built, unit-tested, **used by the app** — numbering, ordering, readiness and panels |
 | `framework/rules/finding-workflows.js` | built, unit-tested, **used by the app: turns the workflow folders into the chooser's list** |
 | `workflows/*/flow.js` | built, unit-tested, **used by the app: the only declaration of the workflows** |
-| `ta/steps/2_define_carrier/widget.js` | built, used — the first widget, and the shape the rest should follow |
-| `ta/steps/3_define_scan_area/widget.js` | built, used — the geometry editor and the grid, in the same channel |
-| `ta/steps/5_scan_the_overview/overview.js` | built, used by the app when it is given a run to watch, and covered by the browser tests that photograph the canvas |
+| `ta/steps/define_carrier/widget.js` | built, used — the first widget, and the shape the rest should follow |
+| `ta/steps/define_scan_area/widget.js` | built, used — the geometry editor and the grid, in the same channel |
+| `ta/steps/scan_the_overview/overview.js` | built, used by the app when it is given a run to watch, and covered by the browser tests that photograph the canvas |
 | `parts/canvas/` | built, **used by the operator page**, and covered by browser tests that photograph the picture — including which layers reached the screen, who a drag belongs to, and what happens to chrome when the thing it belongs to is hidden. See `CANVAS.md` |
 | `framework/window/main.js` | the rest of the running app, and its own copies of the untaken modules |
 
 **Widget extraction has started, from the outside in.** The carrier widget is
 the first: it is handed a configuration and a callback and knows nothing about
-run state. It lives beside its step in `steps/2_define_carrier/`, and its
+run state. It lives beside its step in `steps/define_carrier/`, and its
 geometry lives in `shared/carriers.js`, so nothing can disagree about where a
 well is.
 
@@ -377,7 +377,7 @@ still loading.
 ## Acquired data: the scan step's `overview.js`
 
 Everything else on this page is a rehearsal — a synthetic sample, a stage that
-moves on a timer. `steps/5_scan_the_overview/overview.js` is not: given the
+moves on a timer. `steps/scan_the_overview/overview.js` is not: given the
 address of a run, it draws
 the OME-Zarr images the microscope is writing, and reads them again as tiles
 land, so the scan step shows the overview appearing rather than a count.

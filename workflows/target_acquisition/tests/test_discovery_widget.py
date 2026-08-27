@@ -14,7 +14,7 @@ import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 import pytest  # noqa: E402
 import tifffile  # noqa: E402
-from workflow._discovery_widget import explore_targets  # noqa: E402
+from application.workflows.target_acquisition.steps.discover_targets.widget import explore_targets  # noqa: E402
 
 
 @pytest.fixture(autouse=True)

@@ -50,7 +50,7 @@ export function watchTheRun(ctx) {
   /* Whether the dark parts of the picture should be see-through — `?seethrough=1`.
      Off unless asked for, because it makes a place that was imaged and came back
      black look exactly like a place nobody has visited, and during a run those
-     are two different things worth telling apart. `steps/5_scan_the_overview/overview.js` explains
+     are two different things worth telling apart. `steps/scan_the_overview/overview.js` explains
      what it does and why it has to exist. */
   const SEE_THROUGH = new URLSearchParams(location.search).get("seethrough") === "1";
 

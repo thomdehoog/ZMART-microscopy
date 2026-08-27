@@ -5,8 +5,8 @@ from __future__ import annotations
 import json
 
 import pytest
-from workflow._focus_surface import fit_focus_surface
-from workflow.steps import (
+from application.workflows.target_acquisition.steps.focus_strategy.focus_surface import fit_focus_surface
+from application.workflows.target_acquisition.the_run import (
     acquire_targets,
     connect,
     hijack_if_simulating,

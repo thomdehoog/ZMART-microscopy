@@ -127,8 +127,8 @@ def crop_for_target(target: dict, overviews: dict[int, dict], *, crop_um: float)
     centroid = source.get("centroid_col_row_px")
     if overview is None or centroid is None:
         return None
-    from ._geom import crop_overview_at_target_fov
-    from ._overview_widget import _load_channels
+    from application.workflows.target_acquisition.geom import crop_overview_at_target_fov
+    from application.workflows.target_acquisition.steps.scan_the_overview.widget import _load_channels
 
     pixel_size = float(overview["pixel_size_um"])
     side_px = max(1, round(crop_um / pixel_size))
