@@ -113,6 +113,20 @@ class TestAcquire:
         assert written.is_file()
         assert written.stat().st_size > 0
 
+    def test_acquire_writes_into_the_acquisition_s_data_folder(self, mic):
+        """Where a driver puts what it captured, so a run can grow around it.
+
+        ``<output root>/<acquisition type>/data`` -- the images in a folder of
+        their own, leaving room beside it for what comes later: a stitched
+        view, an analysis, the vendor's own copy. A driver that wrote the
+        images loose in the acquisition folder would make every one of those a
+        naming problem.
+        """
+        rec = mic.acquire(acquisition_type="overview", position_label="K00_P000003")
+        written = Path(rec["images"][0])
+        assert written.parent.name == "data"
+        assert written.parent.parent.name == "overview"
+
     def test_acquire_options_override(self, mic):
         rec = mic.acquire(
             acquisition_type="targetscan",

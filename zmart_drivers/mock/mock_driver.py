@@ -273,10 +273,13 @@ def _write_a_frame(
     import tifffile  # noqa: PLC0415
 
     root = Path(handle.connection.get("output_root") or "mock-output")
+    # ``<type>/data``: the pixels in a folder of their own, so what is made
+    # from them afterwards -- a stitched view, an analysis, the vendor's copy --
+    # becomes a folder beside it rather than a file to be told apart by name.
     # The canonical name, flat, one file per plane: what the capture was, which
     # capture it was, where on the sample, and which plane of it. Nothing has to
     # be opened to know what it holds.
-    path = root / acquisition_type / (
+    path = root / acquisition_type / "data" / (
         f"{acquisition_type}_{acquisition_hash}_{position_label}_"
         "T000000_C00_Z00000.ome.tiff"
     )
