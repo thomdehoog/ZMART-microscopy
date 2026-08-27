@@ -4,7 +4,8 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { EVERY_MS, watchStagePosition } from "../../workflows/target_acquisition/shared/stage-position.js";
+import { EVERY_MS, PATIENCE_MS, watchStagePosition }
+  from "../../workflows/target_acquisition/shared/stage-position.js";
 
 const xyz = (x, y, z = 0) => ({ x: { value: x }, y: { value: y }, z: { value: z } });
 
@@ -49,6 +50,54 @@ describe("watchStagePosition", () => {
     await vi.advanceTimersByTimeAsync(EVERY_MS * 3);
     expect(seen).toEqual([]);
     expect(backend.xyz).toHaveBeenCalledTimes(1);
+  });
+
+  /* The two below are the same fault seen twice, and it is a fault only a
+     real instrument shows: a CAM read that never comes back. The pretend
+     backend answers instantly, so the page looked well on it and the mark
+     froze on the microscope — exactly the difference between the two
+     backends that the page is supposed not to have. */
+
+  it("gives up on a read that never answers, and goes on watching", async () => {
+    let answered = 0;
+    const backend = {
+      xyz: vi.fn(() => (answered++ === 0
+        ? new Promise(() => {})            // the read that hangs
+        : Promise.resolve(xyz(7, 8, 9)))),
+    };
+    const seen = [];
+    const errors = [];
+    const watch = watchStagePosition(backend, (p) => seen.push(p), {
+      onError: (e) => errors.push(e.message),
+    });
+    await vi.advanceTimersByTimeAsync(PATIENCE_MS + 1);
+    expect(errors.length).toBe(1);
+    /* And the next turn of the clock reads again rather than handing back the
+       answer that never came. */
+    await vi.advanceTimersByTimeAsync(EVERY_MS);
+    expect(seen).toEqual([{ x: 7, y: 8, z: 9 }]);
+    watch.stop();
+  });
+
+  it("refreshes with a read of its own while one is hanging", async () => {
+    let hang = true;
+    const backend = {
+      xyz: vi.fn(() => (hang
+        ? new Promise(() => {})
+        : Promise.resolve(xyz(500, 600)))),
+    };
+    const seen = [];
+    const watch = watchStagePosition(backend, (p) => seen.push(p));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(seen).toEqual([]);                    // the first read is hanging
+
+    /* Snapping an alignment point asks where the stage is now. Handed the
+       hanging read instead, it waits for an answer that never comes and the
+       point is tied to nothing. */
+    hang = false;
+    const at = await watch.refresh();
+    expect(at).toEqual({ x: 500, y: 600, z: 0 });
+    watch.stop();
   });
 
   it("reports a failed read and keeps going", async () => {
