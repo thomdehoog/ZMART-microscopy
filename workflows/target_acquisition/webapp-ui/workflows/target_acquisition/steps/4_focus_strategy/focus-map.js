@@ -645,6 +645,11 @@ function detectPressed(px, py) {
   return true;
 }
 
+/* Every word written on the plot — what the axis carries, what each curve
+   measures — is the same kind of thing said about the same picture, so it is
+   one font and one weight rather than a hierarchy invented per label. */
+const LEGEND_FONT = "600 11px system-ui, sans-serif";
+
 /* The rehearsed autofocus sweep — the two sharpness metrics, the debris a
    position may carry, every candidate peak and the one worth trusting —
    lives in `microscope/pretend-sample/sweep.js`, imported above. The trace
@@ -887,7 +892,7 @@ function drawTrace() {
   ctx.fillText(`${zHi.toFixed(0)} µm`, X(zHi) - 16, h - P.b + 15);
   ctx.save();
   ctx.translate(13, (P.t + h - P.b) / 2); ctx.rotate(-Math.PI / 2);
-  ctx.font = '11px system-ui, sans-serif';
+  ctx.font = LEGEND_FONT;
   ctx.fillText("Focus score", 0, 0);
   ctx.restore();
   ctx.textAlign = "left";
@@ -898,25 +903,29 @@ function drawTrace() {
   for (const c of curves) {
     const isDeciding = c === deciding;
     ctx.save();
+    /* Both curves are drawn solid and at full strength: each is a measurement
+       that was actually taken, and fading or dashing one says it is less real
+       when all it is is not the one in charge. Which is in charge is said by
+       weight, here and in the legend swatch below. */
     ctx.strokeStyle = css(METRICS[c.key].token);
-    ctx.lineWidth = isDeciding ? 2 : 1.5;
-    ctx.globalAlpha = isDeciding ? 1 : 0.55;
-    if (!isDeciding) ctx.setLineDash([4, 3]);
+    ctx.lineWidth = isDeciding ? 2.4 : 1.5;
     ctx.beginPath();
     c.norm.forEach((q, i) => { const x = X(q.z), y = Y(q.s); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
     ctx.stroke();
     ctx.restore();
 
     /* The legend doubles as the control: press a metric to let it decide. Which
-       one is deciding is said by its weight and its full-drawn line against the
-       other's dashes, so the word saying it as well was the same fact twice. */
+       one is deciding is said by the weight of its line and the darkness of its
+       name, so the word saying it as well was the same fact twice. */
     ctx.save();
     ctx.strokeStyle = css(METRICS[c.key].token);
-    ctx.lineWidth = isDeciding ? 2.5 : 1.5;
-    if (!isDeciding) ctx.setLineDash([4, 3]);
+    ctx.lineWidth = isDeciding ? 2.4 : 1.5;
     ctx.beginPath(); ctx.moveTo(lx, legendY - 4); ctx.lineTo(lx + 16, legendY - 4); ctx.stroke();
     ctx.restore();
-    ctx.font = `${isDeciding ? "600 " : ""}11px system-ui, sans-serif`;
+    /* Both names carry the same weight: which one is deciding is said by its
+       line and its ink, and a lighter name reads as a lesser measurement
+       rather than as the one not currently in charge. */
+    ctx.font = LEGEND_FONT;
     ctx.fillStyle = isDeciding ? css("--ink") : css("--ink-3");
     const label = METRICS[c.key].short;
     ctx.fillText(label, lx + 22, legendY);
@@ -932,14 +941,6 @@ function drawTrace() {
   // sweep() is deterministic, so the recomputed candidate at the recorded
   // height is the same peak the rule picked when the strategy ran
   const chosen = t.candidates.find((c) => Math.abs(c.z - p.zAuto) < 1e-6) || t.candidates[0];
-
-  // every measured z
-  for (const q of t.samples) {
-    ctx.beginPath();
-    ctx.arc(X(q.z), Y(N(q.s)), 2.2, 0, Math.PI * 2);
-    ctx.fillStyle = css("--mark-context");
-    ctx.fill();
-  }
 
   // candidate peaks the rule turned down — a narrow one is almost always a
   // speck of debris, and this is where it becomes visible instead of silent
@@ -998,6 +999,19 @@ function drawTrace() {
     ctx.restore();
   }
 
+  /* The score the autofocus settled for, read straight off the axis. The
+     vertical marker says which height it chose; this says how sharp the image
+     was there, which is what an operator compares against the other peaks in
+     the sweep and against the same line on the next point's plot. */
+  ctx.save();
+  ctx.strokeStyle = css("--bad");
+  ctx.lineWidth = 1.4;
+  ctx.setLineDash([5, 4]);
+  ctx.beginPath();
+  ctx.moveTo(P.l, Y(N(chosen.s))); ctx.lineTo(w - P.r, Y(N(chosen.s)));
+  ctx.stroke();
+  ctx.restore();
+
   // the draggable height
   const zSel = p.z;
   const sSel = N(scoreAt(t.samples, zSel));
@@ -1009,6 +1023,17 @@ function drawTrace() {
   ctx.beginPath();
   ctx.moveTo(xSel, P.t); ctx.lineTo(xSel, h - P.b);
   ctx.stroke();
+
+  /* The rail the handle runs on. The height is dragged left and right, and
+     without a track under it the triangle reads as a mark on the curve rather
+     than as something that moves — the line is what says how far it goes. */
+  ctx.save();
+  ctx.strokeStyle = css("--ink");
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(P.l, P.t); ctx.lineTo(w - P.r, P.t);
+  ctx.stroke();
+  ctx.restore();
 
   // a grab handle, so it reads as draggable
   ctx.fillStyle = pickColour;
