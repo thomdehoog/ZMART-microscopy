@@ -942,6 +942,20 @@ function drawTrace() {
     lx += wLab + 18;
   }
 
+  /* Last on the line, and the one entry that is not a control: the two before
+     it are pressed to choose which metric decides, and this only says what the
+     red line in the plot is. It is not in `legendHits`, so pressing it does
+     nothing — there is nothing it could switch to. */
+  ctx.save();
+  ctx.strokeStyle = css("--bad");
+  ctx.lineWidth = 1.4;
+  ctx.setLineDash([5, 4]);
+  ctx.beginPath(); ctx.moveTo(lx, legendY - 4); ctx.lineTo(lx + 16, legendY - 4); ctx.stroke();
+  ctx.restore();
+  ctx.font = LEGEND_FONT;
+  ctx.fillStyle = css("--ink");
+  ctx.fillText("Automatic focus", lx + 22, legendY);
+
   // everything below is drawn against the deciding curve, so its raw scores
   // are normalised the same way the curve was
   const N = (s) => s / decidingPeak;
