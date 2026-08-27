@@ -34,6 +34,9 @@ The verbs, and what they are made of
   will eventually wire to the wrong one. A driven stage is a procedure and not
   a readout, which is why it is a POST and why nothing else on this route
   moves anything.
+* ``GET  /api/acquisition_options`` — what the instrument offers for a capture
+  and what is chosen now (``get_acquisition_options``), in the driver's own
+  words. A readout: asking changes nothing.
 * ``POST /api/focus/measure`` — the autofocus procedure, run at each requested
   position: drive there, focus, report the height. This is the one place a
   preset-shaped request *does* something, which is exactly why it is its own
@@ -316,6 +319,17 @@ def _reading(kind: str) -> dict:
     return reading
 
 
+def _acquisition_options() -> dict:
+    """What the instrument offers for a capture, and what is chosen now.
+
+    The driver's own menu, forwarded untouched: ``{name: {options, active}}``,
+    where which settings exist at all is the driver's business. Nothing here
+    renames or filters it, because the same shape goes back to ``acquire`` at
+    capture time — a page that reworded it would have to word it back.
+    """
+    return _require_session().get_acquisition_options()
+
+
 # ---------------------------------------------------------------------------
 # Driving the stage on the operator's own say-so
 # ---------------------------------------------------------------------------
@@ -486,6 +500,9 @@ class _Bridge(BaseHTTPRequestHandler):
             elif path == "/api/xyz":
                 with _the_instruments_turn:
                     self._answer(_require_session().get_xyz())
+            elif path == "/api/acquisition_options":
+                with _the_instruments_turn:
+                    self._answer(_acquisition_options())
             elif path == "/api/scan":
                 self._answer(dict(_scan))
             else:

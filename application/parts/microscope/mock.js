@@ -96,6 +96,22 @@ export const backend = {
   },
 
   /**
+   * What this pretend instrument offers for a capture, and what is chosen now.
+   *
+   * The controller's mock driver's own menu, said the same way — so the page
+   * meets the same shape here as it does through the bridge, and cannot come
+   * to rely on a setting only one of them has.
+   */
+  async get_acquisition_options() {
+    await wait(120);
+    return {
+      backlash_correction: { options: [true, false], active: true },
+      format: { options: ["ome-tiff", "ome-zarr"], active: "ome-tiff" },
+      procedure: { options: ["direct", "tiled"], active: "direct" },
+    };
+  },
+
+  /**
    * A readout, never a procedure: the instrument's state as it is set now,
    * shaped as the reading the window records. Recording a preset is this and
    * nothing more — nothing on the instrument moves.

@@ -118,6 +118,16 @@ export const backend = {
   },
 
   /**
+   * What the instrument offers for a capture, and what is chosen now:
+   * `get_acquisition_options` through the controller. A readout — asking
+   * changes nothing — and handed on in the driver's own words, because the
+   * same shape goes back to `acquire`.
+   */
+  async get_acquisition_options() {
+    return ask("/api/acquisition_options");
+  },
+
+  /**
    * A readout, never a procedure: the instrument's state as it is set now.
    * One `get_state` through the controller, shaped by the bridge into the
    * reading the window records. `nth` is the pretend operator's knob and the
