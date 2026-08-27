@@ -505,9 +505,11 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
 /* The two ways of putting points down, one under the other: each is a whole
    answer, and stacked they read as two ways rather than as one row of controls
    that happens to have two headings. */
-/* The same air the step before leaves between its two ways of laying things
-   down: measured there, a heading stands 22px below the row above it. */
-.fp-ways { display: flex; flex-direction: column; gap: 22px; }
+/* The two ways stand apart, but not as far apart as the step before leaves
+   them: there each way is a paragraph of controls, and here the second is one
+   heading over two rows, so the 22px measured there opened a hole in the
+   middle of a short box. */
+.fp-ways { display: flex; flex-direction: column; gap: 14px; }
 .fp-way { display: flex; flex-direction: column; gap: 5px; }
 /* Six pixels between a heading and what it heads, which is what the step
    before leaves. The heading carries a negative bottom margin so that it sits
@@ -700,11 +702,10 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
 }
 .anchor-list .point-pick .z { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-/* Moved since it was measured: the row stays, because the point is still on the
-   map, and greys, because what was read for it no longer describes it. */
+/* Moved since it was measured: the row greys, because what was read for it no
+   longer describes it — but it is picked like any other, because picking is
+   how the map is told which point to mark. */
 .point-row.stale { color: var(--ink-3); }
-.point-row.stale:hover { background: none; }
-.point-row.stale .point-pick { cursor: default; }
 .point-row[aria-current="true"] { background: var(--accent-tint); color: var(--accent-deep); }
 .point-row .idx { color: var(--ink-3); min-width: 16px; }
 .point-row[aria-current="true"] .idx { color: var(--accent-deep); }
