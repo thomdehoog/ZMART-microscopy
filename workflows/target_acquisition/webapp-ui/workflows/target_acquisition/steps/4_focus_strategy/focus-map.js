@@ -979,11 +979,6 @@ function drawTrace() {
     }
     ctx.stroke();
     ctx.restore();
-    for (const q of chosen.used) {
-      ctx.beginPath(); ctx.arc(X(q.z), Y(N(q.s)), 3.6, 0, Math.PI * 2);
-      ctx.fillStyle = "#0284c7"; ctx.fill();
-      ctx.lineWidth = 1.5; ctx.strokeStyle = css("--surface-2"); ctx.stroke();
-    }
   }
 
   // the draggable height
