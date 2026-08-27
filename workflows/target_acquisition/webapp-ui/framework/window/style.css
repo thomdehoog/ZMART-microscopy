@@ -719,16 +719,17 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
 }
 /* Close against the reading it is about — the row's own spacing and no more,
    so the mark reads as part of that number rather than as a column of its own
-   standing off in the middle of the row. */
+   standing off in the middle of the row. The reading's box is as wide as the
+   reading for the same reason: given a floor to its width it kept the mark
+   that distance off however short the number was. The figures are monospaced
+   and tabular, so they line up down the list without one. */
 .point-row .warn + .z { margin-left: 0; }
 /* The one reading a row carries. It used to be two — the height, and how far
    off the fitted surface it sat — and the second was a number an operator
    read past to get to the first. Where it matters at all it is the worst
    point on the map, and that is now one of the things the mark beside it
    says. */
-.point-row .z {
-  margin-left: auto; font-weight: 600; min-width: 62px; text-align: right;
-}
+.point-row .z { margin-left: auto; font-weight: 600; text-align: right; }
 .point-row .z.pending { color: var(--ink-3); font-weight: 400; }
 .point-list .none { padding: 12px; font-size: 12.5px; color: var(--ink-3); font-family: var(--sans); }
 /* Stacked, now that this sits in a column: the image the sweep picks out on
