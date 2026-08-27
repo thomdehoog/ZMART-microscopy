@@ -20,8 +20,6 @@ The most-used:
 - ``adversarial`` -- stress / race / corruption
 - ``slow`` -- > ~5s
 - ``cellpose`` -- requires cellpose + skimage in the active env
-- ``deep`` -- requires torch / DINO in the active env
-- ``cluster`` -- requires SMART--target_discovery--cluster
 - ``pooch`` -- uses public skimage sample data downloaded/cached by pooch
 - ``conda_env`` -- requires SMART--basic_test--env_a
 """
@@ -223,7 +221,6 @@ def engine_factory():
 
 
 _CELLPOSE_RUNTIME_CACHE: tuple[bool, str] | None = None
-_DEEP_RUNTIME_CACHE: tuple[bool, str] | None = None
 
 
 def _has_cellpose_runtime() -> tuple[bool, str]:
@@ -273,48 +270,6 @@ for module in ("skimage", "cellpose.models"):
     return _CELLPOSE_RUNTIME_CACHE
 
 
-def _has_deep_runtime() -> tuple[bool, str]:
-    """Return (available, reason) for the deep-feature runtime in this env."""
-    global _DEEP_RUNTIME_CACHE
-    if _DEEP_RUNTIME_CACHE is not None:
-        return _DEEP_RUNTIME_CACHE
-
-    code = r"""
-import importlib
-import sys
-
-for module in ("torch",):
-    try:
-        importlib.import_module(module)
-    except Exception as exc:
-        print(
-            f"{module} unavailable: {type(exc).__name__}: {exc}",
-            file=sys.stderr,
-        )
-        raise SystemExit(2)
-"""
-    try:
-        result = subprocess.run(
-            [sys.executable, "-c", code],
-            capture_output=True,
-            text=True,
-            timeout=60,
-        )
-    except subprocess.TimeoutExpired:
-        _DEEP_RUNTIME_CACHE = False, "runtime probe timed out"
-        return _DEEP_RUNTIME_CACHE
-
-    if result.returncode == 0:
-        _DEEP_RUNTIME_CACHE = True, "ok"
-        return _DEEP_RUNTIME_CACHE
-
-    detail = result.stderr.strip() or result.stdout.strip()
-    if not detail:
-        detail = f"runtime probe exited with code {result.returncode}"
-    _DEEP_RUNTIME_CACHE = False, detail
-    return _DEEP_RUNTIME_CACHE
-
-
 def pytest_configure(config):
     """Register the markers.
 
@@ -329,8 +284,6 @@ def pytest_configure(config):
         ("adversarial", "stress / race-condition / corruption / protocol-attack tests"),
         ("slow", "tests that take more than ~5s individually"),
         ("cellpose", "requires real cellpose + skimage in the active env"),
-        ("deep", "requires Torch/DINO model access in the active env"),
-        ("cluster", "requires SMART--target_discovery--cluster for kNN/Leiden/UMAP"),
         ("pooch", "uses public skimage sample data downloaded/cached by pooch"),
         ("conda_env", "requires SMART--basic_test--env_a conda env"),
     ):
@@ -343,12 +296,6 @@ def cellpose_available():
     return _has_cellpose_runtime()
 
 
-@pytest.fixture
-def deep_available():
-    """Return (available, reason). Tests can call pytest.skip() with reason."""
-    return _has_deep_runtime()
-
-
 def pytest_collection_modifyitems(config, items):
     """Auto-skip tests whose optional runtimes are unavailable."""
     if any("cellpose" in item.keywords for item in items):
@@ -359,10 +306,3 @@ def pytest_collection_modifyitems(config, items):
                 if "cellpose" in item.keywords:
                     item.add_marker(skip)
 
-    if any("deep" in item.keywords for item in items):
-        available, reason = _has_deep_runtime()
-        if not available:
-            skip = pytest.mark.skip(reason=f"deep runtime unavailable: {reason}")
-            for item in items:
-                if "deep" in item.keywords:
-                    item.add_marker(skip)

@@ -31,35 +31,11 @@ FEATURE_COLUMN_MAP = {
     "eccentricity": "eccentricity",
 }
 
-OPTIONAL_CROP_COLUMNS = (
-    "crop_origin_row_px",
-    "crop_origin_col_px",
-    "crop_height_px",
-    "crop_width_px",
-    "crop_complete",
-    "crop_in_bounds",
-    "object_complete",
-    "object_fits_crop",
-    "crop_aligned_orientation",
-    "crop_rotation_deg",
-    "crop_orientation_deg",
-    "crop_eccentricity",
-    "crop_oriented_extent_px",
-    "crop_path",
-    "mask_path",
-)
-
-
 def run(pipeline_data: dict, state: dict, **params) -> dict:
     feature_output = pipeline_data["extract_features"]
     props = feature_output["properties"]
 
     public_props = _map_feature_columns(props)
-    if "extract_deep_features" in pipeline_data:
-        public_props = _filter_properties_by_labels(
-            public_props,
-            pipeline_data["extract_deep_features"]["embeddings"].get("label", []),
-        )
     n_objects = len(public_props.get("label", []))
     geometry = _geometry_from_input(
         pipeline_data["input"],
@@ -67,17 +43,11 @@ def run(pipeline_data: dict, state: dict, **params) -> dict:
     )
     _add_stage_columns(public_props, geometry)
     _add_identity_columns(public_props, geometry)
-    if "extract_deep_features" in pipeline_data:
-        _add_optional_crop_columns(public_props, pipeline_data["extract_deep_features"])
 
     objects = {
         "properties": public_props,
         "n_objects": n_objects,
     }
-    if "extract_deep_features" in pipeline_data:
-        objects["embeddings"] = to_builtin(
-            pipeline_data["extract_deep_features"]["embeddings"]
-        )
 
     tile_detection = validate_tile_detection({
         "objects": objects,
@@ -107,19 +77,6 @@ def _map_feature_columns(props: dict) -> dict:
     return public_props
 
 
-def _filter_properties_by_labels(props: dict, keep_labels: list) -> dict:
-    keep = {int(label) for label in keep_labels}
-    indices = [
-        index
-        for index, label in enumerate(props.get("label", []))
-        if int(label) in keep
-    ]
-    return {
-        name: [values[index] for index in indices]
-        for name, values in props.items()
-    }
-
-
 def _add_stage_columns(props: dict, geometry: dict) -> None:
     stage_x = []
     stage_y = []
@@ -144,27 +101,6 @@ def _add_identity_columns(props: dict, geometry: dict) -> None:
     props["object_id"] = [
         object_name(geometry["tile_id"], int(label)) for label in props["label"]
     ]
-
-
-def _add_optional_crop_columns(props: dict, deep_output: dict) -> None:
-    by_label = {
-        int(obj["label"]): obj
-        for obj in deep_output.get("objects", [])
-    }
-    if not by_label:
-        return
-
-    for column in OPTIONAL_CROP_COLUMNS:
-        props[column] = []
-
-    for label in props["label"]:
-        obj = by_label.get(int(label))
-        if obj is None:
-            raise ValueError(
-                f"extract_deep_features crop output missing object label {label!r}."
-            )
-        for column in OPTIONAL_CROP_COLUMNS:
-            props[column].append(to_builtin(obj.get(column)))
 
 
 def _geometry_from_input(inp: dict, detection: dict) -> dict:
@@ -195,7 +131,6 @@ def _strip_heavy_intermediates(pipeline_data: dict) -> None:
     pipeline_data.pop("preprocess", None)
     pipeline_data.pop("segment", None)
     pipeline_data.pop("extract_features", None)
-    pipeline_data.pop("extract_deep_features", None)
     detection = pipeline_data.get("detect_objects")
     if isinstance(detection, dict):
         detection.pop("image", None)

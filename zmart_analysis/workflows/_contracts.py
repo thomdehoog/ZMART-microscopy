@@ -150,17 +150,6 @@ def validate_tile_detection(tile: Mapping[str, Any]) -> dict:
     return tile
 
 
-def validate_overview(overview: Mapping[str, Any]) -> dict:
-    """Validate and return a JSON-native overview of tile detections."""
-    overview = _json_checked(to_builtin(overview), "overview")
-    if not isinstance(overview, dict):
-        raise ValueError("overview must be a dict.")
-    tiles = overview.get("tiles")
-    if not isinstance(tiles, list):
-        raise ValueError("overview.tiles must be a list.")
-    return {"tiles": [validate_tile_detection(tile) for tile in tiles]}
-
-
 def validate_targets(result: Mapping[str, Any]) -> dict:
     """Validate and return JSON-native target discovery output."""
     result = _json_checked(to_builtin(result), "targets result")
@@ -187,22 +176,6 @@ def validate_targets(result: Mapping[str, Any]) -> dict:
                 raise ValueError(f"targets[{idx}].{name} must be a scalar.")
 
     return result
-
-
-def save_overview(path: str | Path, overview: Mapping[str, Any]) -> Path:
-    """Validate and save an overview JSON file."""
-    path = Path(path)
-    overview = validate_overview(overview)
-    with path.open("w", encoding="utf-8") as handle:
-        json.dump(overview, handle, indent=2, allow_nan=False)
-        handle.write("\n")
-    return path
-
-
-def load_overview(path: str | Path) -> dict:
-    """Load and validate an overview JSON file."""
-    with Path(path).open("r", encoding="utf-8") as handle:
-        return validate_overview(json.load(handle))
 
 
 def _json_checked(obj: Any, label: str) -> Any:
