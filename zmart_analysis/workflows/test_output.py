@@ -53,9 +53,8 @@ def test_the_nearest_data_folder_wins():
     assert found == Path("/runs/overview/data/nested/analysis")
 
 
-def test_an_image_outside_an_acquisition_is_refused():
-    with pytest.raises(ValueError, match="not inside an acquisition's 'data' folder"):
-        analysis_dir("/somewhere/else/tile.ome.tiff")
+def test_an_image_outside_an_acquisition_has_no_analysis_folder():
+    assert analysis_dir("/somewhere/else/tile.ome.tiff") is None
 
 
 # --------------------------------------------------------------------------

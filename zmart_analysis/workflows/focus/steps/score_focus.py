@@ -1,54 +1,26 @@
 """score_focus -- sharpness of every plane in a z-stack, and the sharp height.
 
 Two metrics, both scored on every run so one can be drawn against the other:
+``brenner`` is the mean squared difference between pixels two apart, and
+``dct`` the Shannon entropy of the normalised DCT coefficient energy. The peak
+is refined between planes with a parabola through the best plane and its two
+neighbours.
 
-    brenner   Gradient-based. Mean squared difference between pixels two
-              apart. A focused plane has steep edges and scores high.
-    dct       Entropy-based. Shannon entropy of the normalised DCT coefficient
-              energy, via ``scipy.fft.dctn``. A focused plane spreads energy
-              into the high frequencies, giving the flatter distribution.
+Takes an OME-Zarr position or an OME-TIFF, which must declare a z axis. Heights
+come from ``input["z_um"]`` when given, else from the image's own z spacing;
+absent both, the peak is a plane index alone. Parameters are in ``focus.yaml``.
 
-The peak is refined between planes with a parabola through the best plane and
-its two neighbours, so the height is not quantised to the acquired step.
+Publishes under ``pipeline_data["score_focus"]``::
 
-Inputs (from submission payload)
-    pipeline_data["input"]["image_path"] : str
-        An OME-Zarr position or an OME-TIFF, read through the same contract.
-        It must declare a z axis: which axis is depth is not a thing to guess.
-    pipeline_data["input"]["z_um"] : list of float, optional
-        The height each plane was acquired at, in acquisition order. Left out,
-        the heights come from the image's own z spacing and origin; absent
-        those too, the peak is reported as a plane index alone.
+    z_um        the heights, so a curve plots straight from this
+    metrics     per metric: scores in plane order, and its own peak
+    metric      which metric the reported peak came from
+    peak_index  refined plane index      peak_z_um   the height there
+    n_planes    considered               settings    what it was scored with
 
-Parameters (via YAML / **params)
-    metric : {"brenner", "dct"}, default "brenner"
-        Which metric the reported peak is taken from.
-    channel : int or str, default 0
-        Channel to score, by index or by name.
-    level : int or str, default 0
-        Resolution level to score at. Sharpness survives downsampling, so a
-        coarser level is a cheaper answer to the same question.
-    t : int, default 0
-        Time point, for a position that holds more than one.
-    skip_ends : int, default 2
-        Planes at each end of the stack that may not win the peak. The ends of
-        a drive carry artefacts -- an unsettled stage, a shutter still opening
-        -- and an artefact is a hard edge, which is what a sharpness metric
-        rewards. They are still scored and returned; they cannot be chosen.
-
-Outputs (under pipeline_data["score_focus"])
-    z_um       : list of float or None   the heights, echoed so a curve can be
-                                         plotted straight from this result
-    metrics    : dict[str, dict]         per metric: ``scores`` in plane order
-                                         and the ``peak_index`` / ``peak_z_um``
-                                         that metric alone would have chosen
-    metric     : str                     the metric the reported peak came from
-    peak_index : float                   refined plane index of the peak
-    peak_z_um  : float or None           the height there, given ``z_um``
-    n_planes   : int
-    considered : (int, int)              first and last plane the peak was
-                                         allowed to come from, inclusive
-    settings   : dict                    what this run was scored with
+``considered`` is the first and last plane the peak could come from: the ends
+of a drive carry artefacts, an artefact is a hard edge, and a hard edge is what
+a sharpness metric rewards. Those planes are still scored and still returned.
 """
 
 from __future__ import annotations
@@ -122,21 +94,21 @@ def run(pipeline_data: dict, state: dict, **params) -> dict:
         )
 
     metrics = {}
-    for name, score in METRICS.items():
-        scores = [score(plane) for plane in planes]
+    for name, measure in METRICS.items():
+        scores = [measure(plane) for plane in planes]
         peak_index = _refine_peak(scores, skip_ends)
         metrics[name] = {
             "scores": scores,
             "peak_index": peak_index,
             "peak_z_um": _height_at(peak_index, z_um),
         }
-    decided = metrics[metric]
+    chosen = metrics[metric]
 
     if verbose:
         where = (
-            f"plane {decided['peak_index']:.2f}"
-            if decided["peak_z_um"] is None
-            else f"{decided['peak_z_um']:.2f} um"
+            f"plane {chosen['peak_index']:.2f}"
+            if chosen["peak_z_um"] is None
+            else f"{chosen['peak_z_um']:.2f} um"
         )
         print(f"  [score_focus] {len(planes)} planes, {metric} peaks at {where}")
 
@@ -144,8 +116,8 @@ def run(pipeline_data: dict, state: dict, **params) -> dict:
         "z_um": None if z_um is None else [float(z) for z in z_um],
         "metrics": metrics,
         "metric": metric,
-        "peak_index": decided["peak_index"],
-        "peak_z_um": decided["peak_z_um"],
+        "peak_index": chosen["peak_index"],
+        "peak_z_um": chosen["peak_z_um"],
         "n_planes": len(planes),
         "considered": (skip_ends, len(planes) - skip_ends - 1),
         # A curve is only readable beside what produced it, and the pipeline
