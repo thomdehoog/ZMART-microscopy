@@ -844,12 +844,14 @@ function drawTrace() {
      else: the instrument's autofocus reports where it landed, not the curve it
      walked to get there. Rather than leave the box empty, the plot draws a
      stand-in sweep about the height that was reported — the shape a sweep of
-     this stack and step would have — and says on its face that it is one. It
-     is there to be read as a picture of the settings, never as a measurement,
-     and it goes the moment a backend reports a real sweep. */
+     this stack and step would have. It is a picture of the settings and never
+     a measurement, and it goes the moment a backend reports a real sweep.
+
+     Nothing on the plot says which it is looking at, by choice: the curve is
+     the same either way, and the mark that said so was in the way. Anyone
+     reading a screenshot of this has to be told. */
   const traces = f.points[f.selected]?.traces ?? standInSweep(f.points[f.selected]);
   if (!traces) return;
-  const madeUp = !f.points[f.selected]?.traces;
   const curves = METRIC_KEYS.map((key) => {
     const sw = traces[key];
     const peak = Math.max(...sw.samples.map((q) => q.s)) || 1;
@@ -861,9 +863,8 @@ function drawTrace() {
   /* The legend is under the plot, on one line, and the foot is deep enough to
      hold it below the heights. Inside the frame it competed with the curve for
      the same space: the metric names at one end, the height of the chosen peak
-     at the other, and the peak itself wherever the point happened to sit. A
-     stand-in sweep is announced above the plot for the same reason. */
-  const P = { l: 40, r: 14, t: madeUp ? 24 : 12, b: 48 };
+     at the other, and the peak itself wherever the point happened to sit. */
+  const P = { l: 40, r: 14, t: 12, b: 48 };
   const legendY = h - 12;
   const zs = t.samples.map((p) => p.z);
   const zLo = Math.min(...zs), zHi = Math.max(...zs);
@@ -1024,20 +1025,6 @@ function drawTrace() {
   const tw = ctx.measureText(lab).width;
   ctx.fillStyle = p.manual ? css("--accent-deep") : pickColour;
   ctx.fillText(lab, Math.min(xSel + 7, w - P.r - tw), Y(sSel) - 7);
-
-  /* Said on the plot itself, not beside it: a curve that was never measured
-     has to carry the fact wherever it is looked at, including in a screenshot
-     of it. Across the plot rather than in a corner, because a corner is where
-     a legend goes and a legend is read as part of the data. */
-  if (madeUp) {
-    ctx.save();
-    ctx.font = '600 11px system-ui, sans-serif';
-    ctx.fillStyle = css("--ink-3");
-    ctx.textAlign = "left";
-    ctx.fillText("no sweep reported — the shape this configuration would give",
-      P.l, 12);
-    ctx.restore();
-  }
 
   traceGeom = { zLo, zHi, P, w, h, samples: t.samples };
 }
