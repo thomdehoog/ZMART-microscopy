@@ -48,10 +48,10 @@ const preset = (typeId, label) =>
   fromPreset(typeId, carrierType(typeId).presets.find((p) => p.label === label));
 const eightChambers = preset("chamber", "8-well · ibidi µ-Slide");
 
-describe("the four alignment points", () => {
+describe("a full round of four alignment points", () => {
   it("sits each mark on the edge of its area, not inside it", () => {
     const config = eightChambers;
-    for (const mark of anchorsUm(config)) {
+    for (const mark of anchorsUm(config, 4)) {
       const area = areaUnder(config, mark);
       const half = mark.at === "left" || mark.at === "right" ? config.w / 2 : config.h / 2;
       const across = mark.at === "left" || mark.at === "right"
@@ -62,7 +62,7 @@ describe("the four alignment points", () => {
   });
 
   it("leans each mark a quarter turn on, so the four land on four areas", () => {
-    const m = by(anchorsUm(eightChambers));
+    const m = by(anchorsUm(eightChambers, 4));
     const chose = (k) => areaUnder(eightChambers, m[k]);
     const [top, right, bottom, left] = ["top", "right", "bottom", "left"].map(chose);
 
@@ -76,7 +76,7 @@ describe("the four alignment points", () => {
   });
 
   it("faces the marks across the carrier, whichever areas they chose", () => {
-    const m = by(anchorsUm(eightChambers));
+    const m = by(anchorsUm(eightChambers, 4));
     expect(m.left.x).toBeLessThan(m.right.x);
     expect(m.top.y).toBeLessThan(m.bottom.y);
   });
@@ -100,7 +100,7 @@ describe("what the four leave behind", () => {
       .map((p) => [`${type} · ${p.label}`, fromPreset(type, p)]));
 
   it.each(everyPreset)("centres %s on the middle of its own marks", (_name, config) => {
-    const marks = anchorsUm(config);
+    const marks = anchorsUm(config, 4);
     const g = geometry(config);
     const mean = (f) => marks.reduce((sum, m) => sum + f(m), 0) / marks.length;
     expect(mean((m) => m.x)).toBeCloseTo((g.width / 2) * MM_UM, 6);
@@ -118,8 +118,11 @@ describe("as many points as were asked for", () => {
      has, so the first entry is whatever the smallest one happens to be. */
   const sixWell = preset("wellplate", "6-well · Nunc Nunclon");
 
-  it("lays four when nobody says otherwise", () => {
-    expect(anchorsUm(sixWell)).toHaveLength(4);
+  /* One. A single point drives the carrier to where it really is, which is
+     what most runs need; measuring how it is turned as well is worth asking
+     for rather than worth insisting on. */
+  it("lays one when nobody says otherwise", () => {
+    expect(anchorsUm(sixWell)).toHaveLength(1);
   });
 
   it.each([2, 3, 4, 5, 8])("lays %i when %i are asked for", (n) => {

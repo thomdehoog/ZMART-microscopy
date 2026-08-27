@@ -75,20 +75,18 @@ export const CARRIER_TYPES = [
     round: false,
     deep: false,
     presets: [
-      /* The Convallaria demo slide is a 15 mm circle on 76 × 24 glass, which
-         is the entry below. */
-      { label: "75 × 25 mm · colour frosted", rows: 1, cols: 1, shape: "rect", w: 57.8, h: 23, gap: 0, corner: 0 },
-      { label: "76 × 24 mm · 15 mm circle", rows: 1, cols: 1, shape: "round", w: 15, h: 15, gap: 0, corner: 0 },
-      { label: "76 × 24 mm · 20 mm circle", rows: 1, cols: 1, shape: "round", w: 20, h: 20, gap: 0, corner: 0 },
+      /* Leica's Convallaria demo slide is a 15 mm circle on 76 × 24 glass,
+         which is that circle under Dish. */
       { label: "76 × 24 mm · 20 × 20 mm cover slip", rows: 1, cols: 1, shape: "rect", w: 20, h: 20, gap: 0, corner: 0 },
       { label: "76 × 24 mm · 50 × 20 mm cover slip", rows: 1, cols: 1, shape: "rect", w: 50, h: 20, gap: 0, corner: 0 },
       { label: "25 × 48 mm slide", rows: 1, cols: 1, shape: "rect", w: 23, h: 46, gap: 0, corner: 0 },
       { label: "46 × 27 mm slide", rows: 1, cols: 1, shape: "rect", w: 44, h: 25, gap: 0, corner: 0 },
       { label: "48 × 28 mm slide", rows: 1, cols: 1, shape: "rect", w: 46, h: 26, gap: 0, corner: 0 },
-      { label: "75 × 25 mm slide", rows: 1, cols: 1, shape: "rect", w: 73, h: 23, gap: 0, corner: 0 },
-      { label: "75 × 38 mm slide", rows: 1, cols: 1, shape: "rect", w: 73, h: 36, gap: 0, corner: 0 },
+      { label: "75 × 25 mm · colour frosted", rows: 1, cols: 1, shape: "rect", w: 57.8, h: 23, gap: 0, corner: 0 },
       { label: "76 × 24 mm slide", rows: 1, cols: 1, shape: "rect", w: 74, h: 22, gap: 0, corner: 0 },
+      { label: "75 × 25 mm slide", rows: 1, cols: 1, shape: "rect", w: 73, h: 23, gap: 0, corner: 0 },
       { label: "76 × 26 mm slide", rows: 1, cols: 1, shape: "rect", w: 74, h: 24, gap: 0, corner: 0 },
+      { label: "75 × 38 mm slide", rows: 1, cols: 1, shape: "rect", w: 73, h: 36, gap: 0, corner: 0 },
       { label: "76 × 51 mm slide", rows: 1, cols: 1, shape: "rect", w: 74, h: 49, gap: 0, corner: 0 },
       { label: "76 × 52 mm slide", rows: 1, cols: 1, shape: "rect", w: 74, h: 50, gap: 0, corner: 0 },
     ],
@@ -101,6 +99,11 @@ export const CARRIER_TYPES = [
     round: true,
     deep: false,
     presets: [
+      /* Circles mounted on a slide rather than vessels, but a round area is a
+         round area: the panel asks for a diameter here and for a width and a
+         height under Area, and these have one number, not two. */
+      { label: "15 mm circle", rows: 1, cols: 1, shape: "round", w: 15, h: 15, gap: 0, corner: 0 },
+      { label: "20 mm circle", rows: 1, cols: 1, shape: "round", w: 20, h: 20, gap: 0, corner: 0 },
       { label: "35 mm · ibidi µ-Dish", rows: 1, cols: 1, shape: "round", w: 21, h: 21, gap: 0, corner: 0 },
       { label: "35 mm dish", rows: 1, cols: 1, shape: "round", w: 33, h: 33, gap: 0, corner: 0 },
       { label: "50 mm · ibidi µ-Dish", rows: 1, cols: 1, shape: "round", w: 30, h: 30, gap: 0, corner: 0 },
