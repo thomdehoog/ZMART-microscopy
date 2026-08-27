@@ -272,11 +272,20 @@ def _reading(kind: str) -> dict:
 def _drive_to(asked: dict) -> dict:
     """Drive the stage where the operator asked, and answer with where it is.
 
-    Read back rather than echoed. What was asked for is what the page already
-    knows; what it needs is what the instrument did about it, which is not
-    always the same — a stage stops at the end of its travel, and a driver may
-    round to a step. The mark on the canvas follows the reading, so a page that
-    believed its own request would draw the stage somewhere it never went.
+    ``set_xyz`` is synchronous and confirmed — the driver moves, checks, and
+    raises if it could not — so by the time this returns the stage is standing
+    there. That is what lets the page move the mark the moment the answer lands
+    instead of waiting for the watch's next turn of the clock.
+
+    Its answer is what says where, rather than a fresh ``get_xyz``. Reading the
+    stage again would be a second trip to the instrument for something it has
+    just told us, and on this microscope a position read is the call that hangs
+    — it is why the driver has log-reading alternatives at all. A driver that
+    reports no position is asked, because some may not.
+
+    Reshaped into the one form the page knows, which is ``get_xyz``'s: the
+    drive and the watch put the mark in the same place through the same field
+    names, and neither has to know which of the two it came from.
 
     ``z`` is optional and left where it stands when it is not given: an
     operator driving to a place on the plate is asking to move across it, not
@@ -285,12 +294,19 @@ def _drive_to(asked: dict) -> dict:
     session = _require_session()
     standing = session.get_xyz()
     here = lambda axis: float(standing.get(axis, {}).get("value", 0.0))  # noqa: E731
-    session.set_xyz(
+    went = session.set_xyz(
         float(asked.get("x", here("x"))),
         float(asked.get("y", here("y"))),
         float(asked["z"]) if asked.get("z") is not None else here("z"),
     )
-    return session.get_xyz()
+    arrived = (went or {}).get("position")
+    if not arrived:
+        return session.get_xyz()
+    return {
+        axis: {"value": float(arrived[axis]), "unit": "um"}
+        for axis in ("x", "y", "z")
+        if axis in arrived
+    }
 
 
 # ---------------------------------------------------------------------------
