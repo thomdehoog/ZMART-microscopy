@@ -43,3 +43,7 @@ def test_save_copies_czi(fake_client, tmp_path):
     assert saved.czi_path.read_bytes() == b"CZIDATA"
     assert saved.czi_path.suffix == ".czi"
     assert "overview" in saved.czi_path.name
+    # ``<type>/data``: the same shape every ZMART driver writes, so what is
+    # made from a capture later becomes a folder beside the pixels.
+    assert saved.czi_path.parent.name == "data"
+    assert saved.czi_path.parent.parent.name == "overview"

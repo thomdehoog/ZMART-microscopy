@@ -21,7 +21,7 @@ import time
 from pathlib import Path
 
 from ..readers.api_reader import _attr
-from .naming import acquisition_dir
+from .naming import data_dir
 from .product import Naming, SavedAcquisition
 
 
@@ -89,9 +89,9 @@ def save(
     src = _resolve_czi_path(client, acq.output_name)
     _wait_stable(src, timeout_s=stable_timeout_s, poll_s=stable_poll_s)
 
-    data_dir = acquisition_dir(output_root, naming.acquisition_type)
-    data_dir.mkdir(parents=True, exist_ok=True)
-    dst = data_dir / _czi_name(naming)
+    destination = data_dir(output_root, naming.acquisition_type)
+    destination.mkdir(parents=True, exist_ok=True)
+    dst = destination / _czi_name(naming)
     shutil.copy2(src, dst)
 
     return SavedAcquisition(czi_path=dst, naming=naming)
