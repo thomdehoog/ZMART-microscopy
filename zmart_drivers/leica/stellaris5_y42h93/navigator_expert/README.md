@@ -338,6 +338,14 @@ They land in `<output_root>/<acquisition_type>/data/`, with LAS X's own
 metadata copy beside them in `vendor/` — the pixels get a folder of their own
 so that what is made from them later (a stitched view, an analysis) becomes a
 folder beside them. Every ZMART driver writes this shape.
+
+The `state` passed to `save()` is embedded in every plane's OME-XML **and**
+printed once per acquisition as
+`data/metadata/<acquisition>_T<t>_ZMART_state.json` — the image name without
+the channel and the z-slice, which one state spans. Embedded, reading it costs
+opening a picture; printed, it can simply be read. `SavedAcquisition.state_paths`
+names what was written, and the adapter's acquire record carries it as
+`metadata`.
 **OME metadata:** `acquisition/ome.py` repairs known Leica OME violations (e.g. laser `Wavelength="0"`)
 in place, preserving byte formatting; `acquisition/ome_canonical.py` writes clean canonical ZMART OME;
 `save(..., fix_ome=True)` validates/repairs each written file.
