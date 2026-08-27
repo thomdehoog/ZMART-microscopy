@@ -667,15 +667,20 @@ function renderFocusBar() {
   if (document.activeElement !== count) count.value = String(perField(f));
   const countAll = el("fp-count-all");
   if (document.activeElement !== countAll) countAll.value = String(perCarrier(f));
-  countAll.disabled = frozen || !run.plan.length;
   count.disabled = frozen;
 
-  el("fp-place").disabled = frozen || !run.plan.length;
-  el("fp-place-all").disabled = frozen || !run.plan.length;
-  el("fp-clear").disabled = frozen || !f.points.length;
   /* Only once there is a map to act on. Rerun and Refine both measure points
      that are already down; Reset throws away what a run produced. */
   const ran = f.strategy === "plane" && f.applied && f.points.length > 0;
+  /* And nothing lays a fresh set over a map that has been measured. The points
+     and the surface fitted through them are one answer: laying new ones would
+     leave the traces below describing points that are no longer there, and the
+     box quietly offering a sweep for each of them. Reset is the way back, and
+     it is the press beside them. */
+  for (const id of ["fp-place", "fp-place-all", "fp-count", "fp-count-all"]) {
+    el(id).disabled = frozen || !run.plan.length || ran;
+  }
+  el("fp-clear").disabled = frozen || !f.points.length || ran;
   el("fp-again").hidden = !ran;
   /* And the step's own press goes when they arrive. Once a map exists the bar
      offers "Run again", which is what Rerun does and says less about how — two
