@@ -1,0 +1,40 @@
+# Object-centered analysis with optional DINOv2 embeddings.
+
+metadata:
+  purpose: "Object-centered image analysis with deep features"
+  version: "1.0"
+  verbose: 1
+  functions_dir: "../steps"
+
+object_analysis:
+  - detect_objects:
+      channels: null
+      channel_axis: null
+      cellprob_threshold: 0.0
+      flow_threshold: 0.4
+      niter: null
+      diameter: null
+      segmentation_binning: 1
+      border_margin_px: null
+      min_area_px: null
+      max_area_px: null
+      min_equivalent_diameter_um: null
+      max_equivalent_diameter_um: null
+      gpu: true
+
+  - extract_classical_features:
+
+  - extract_deep_features:
+      backend: "dinov2"
+      model_name: "dinov2_vitb14"
+      model_cache_dir: "Z:/zmbstaff/10374/Protocols_Notes/DINO_models"
+      input_size_px: 224
+      input_intensity_scale: null
+      batch_size: 8
+      crop_size_px: 128
+      mask: true
+      align_orientation: false
+      min_eccentricity_to_align: 0.4
+      drop_incomplete_crops: true
+
+  - build_object_table:

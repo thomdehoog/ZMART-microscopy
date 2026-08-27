@@ -1,0 +1,27 @@
+# Object-centered analysis for one acquired image tile.
+
+metadata:
+  purpose: "Object-centered image analysis"
+  version: "1.0"
+  verbose: 1
+  functions_dir: "../steps"
+
+object_analysis:
+  - detect_objects:
+      channels: null
+      channel_axis: null
+      cellprob_threshold: 0.0
+      flow_threshold: 0.4
+      niter: null
+      diameter: null
+      segmentation_binning: 1
+      border_margin_px: null
+      min_area_px: null
+      max_area_px: null
+      min_equivalent_diameter_um: null
+      max_equivalent_diameter_um: null
+      gpu: true
+
+  - extract_classical_features:
+
+  - build_object_table:

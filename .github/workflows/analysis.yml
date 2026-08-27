@@ -1,0 +1,46 @@
+name: Analysis
+
+on:
+  push:
+    branches: [main, microscope-agnostic-layer]
+  pull_request:
+    branches: [main, microscope-agnostic-layer]
+  workflow_dispatch:
+
+jobs:
+  tests:
+    name: tests / ${{ matrix.os }} / Python ${{ matrix.python-version }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python-version: ['3.11', '3.12']
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install what the engine and the readers need
+        # No cellpose and no torch: those tests probe for their runtime and
+        # skip when it is absent, which is the whole point of the markers.
+        # tifffile before 2026.6.1 imports a name zarr 3.3 moved, and every
+        # read fails with a misleading "zarr 3.3.0 < 3 is not supported" --
+        # so the floor is pinned here as it is in the workflows' setup_env.py.
+        run: |
+          pip install pytest psutil pyyaml numpy scipy scikit-image
+          pip install "tifffile>=2026.6.1" imagecodecs ngio ome-types pooch
+
+      - name: Both formats really are readable
+        # A guard on the pairing above rather than on the code: if this fails
+        # the environment is wrong, and every read test after it would fail
+        # with an error that points at the wrong thing.
+        run: |
+          python -c "import tifffile, tifffile.zarr, zarr, ngio; print(tifffile.__version__, zarr.__version__, ngio.__version__)"
+
+      - name: Run the analysis suite
+        run: python -m pytest zmart_analysis --tb=short
