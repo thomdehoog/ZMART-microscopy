@@ -92,7 +92,7 @@ const theCanvas = putTheCanvasIn({
      every move of it. The wheel and the drag belong to the canvas now, and a
      page that only followed its own redraws would let the two come apart the
      first time somebody zoomed. */
-  onViewMoved: () => thePicture.followTheStage(),
+  onViewMoved: (where) => { keepItOnScreen(where); thePicture.followTheStage(); },
   readoutSays: ({ at, zoom }) => {
     const [ox, oy] = carrierOriginUm();
     return `x ${(at.x + ox).toFixed(0)} µm · y ${(at.y + oy).toFixed(0)} µm`
@@ -182,7 +182,7 @@ function fitView() {
      is drawn as one block instead, which is `drawOn`'s answer and the right
      place for it. */
   const [fw, fh] = STAGE_UM;
-  const s = Math.min((w - 2 * FIT_MARGIN) / fw, (h - 2 * FIT_MARGIN) / fh);
+  const s = 1 / furthestOut(w, h);
   const [ox, oy] = carrierOriginUm();
   /* Worked back from where the thing being framed should land, in the carrier's
      own micrometres, which is the frame the layers are drawn in.
@@ -190,11 +190,124 @@ function fitView() {
      Across, it is centred; down, it sits at the top with the margin the sides
      have, rather than floating in the middle of whatever height the window
      happens to give the canvas. */
-  theCanvas.lookAt({
-    zoom: 1 / s,
-    centre: { x: fw / 2 - ox, y: (h / 2 - FIT_MARGIN) / s - oy },
-  });
+  theCanvas.lookAt({ zoom: 1 / s, centre: whereFitPutsIt(w, h, 1 / s) });
   view.fitted = true;
+}
+
+/**
+ * Where Fit stands the picture, at a given zoom.
+ *
+ * Across, the stage is centred; down, it sits at the top with the same margin
+ * the sides have, rather than floating in the middle of whatever height the
+ * window happens to give the canvas. Written as a function of the zoom because
+ * the limits below need the same answer: zoomed out as far as the picture goes,
+ * this is not just where Fit put it, it is the only place it can be.
+ */
+function whereFitPutsIt(w, h, zoom) {
+  const [fw] = STAGE_UM;
+  const [ox, oy] = carrierOriginUm();
+  return { x: fw / 2 - ox, y: (h / 2 - FIT_MARGIN) * zoom - oy };
+}
+
+/**
+ * How far out the picture may be zoomed, and how far it may be pushed about at
+ * that zoom: the stage, framed, is the whole of what there is to look at.
+ *
+ * Zooming out past Fit only makes the one thing on screen smaller in the middle
+ * of a growing field of nothing, and panning at that zoom carries it off the
+ * edge with no way back but the Fit button. Both are stopped here rather than
+ * in the canvas: the canvas draws whatever it is pointed at and has no opinion
+ * about how big the stage is, and this is the file that knows.
+ *
+ * What may be on screen is the stage and the margin Fit frames it with, and no
+ * more. Pan while zoomed in and the picture stops with that margin showing —
+ * the same air Fit leaves, so the edge of travel always looks the same however
+ * you arrived at it. Zoomed all the way out there is no room to move at all,
+ * and the picture stays exactly where Fit stands it: an axis with nothing left
+ * to show cannot be dragged, only wobbled, and a picture that wobbles under the
+ * hand is one nobody can put back without pressing Fit.
+ */
+function insideTheLimits(where) {
+  const box = stageBox.getBoundingClientRect();
+  const w = box.width || 800, h = box.height || 600;
+  const [fw, fh] = STAGE_UM;
+  const [ox, oy] = carrierOriginUm();
+  const zoom = Math.min(where.zoom, furthestOut(w, h));
+  const air = FIT_MARGIN * zoom;
+  const parked = whereFitPutsIt(w, h, zoom);
+  const held = (centre, px, lo, hi, home) => {
+    const half = (px / 2) * zoom;
+    const min = lo - air, max = hi + air;
+    return max - min >= 2 * half
+      ? Math.min(Math.max(centre, min + half), max - half)
+      : home;
+  };
+  return {
+    zoom,
+    centre: {
+      x: held(where.centre.x, w, -ox, fw - ox, parked.x),
+      y: held(where.centre.y, h, -oy, fh - oy, parked.y),
+    },
+  };
+}
+
+/** The zoom Fit lands on: the stage framed, margin and all. */
+function furthestOut(w, h) {
+  const [fw, fh] = STAGE_UM;
+  return 1 / Math.min((w - 2 * FIT_MARGIN) / fw, (h - 2 * FIT_MARGIN) / fh);
+}
+
+/**
+ * The canvas has been given a different width — the operator dragged the
+ * divider between the picture and the channel.
+ *
+ * The change is taken out of the right-hand side: whatever was against the
+ * left edge of the picture stays there, and the picture is cut, or uncovered,
+ * on the right. Sharing the change between both edges walked the carrier out
+ * of the window on the left, behind the rail of steps, where there is nothing
+ * to drag it back with — the divider only ever gives that width back to the
+ * right. In micrometres at the zoom in force, so a narrowing costs the same
+ * amount of picture whatever the picture is being viewed at.
+ *
+ * Then the limits, which is what pulls the picture back into the frame when
+ * the new width leaves the stage floating in more space than it can fill.
+ */
+function theCanvasNarrowed() {
+  const where = theCanvas.view;
+  const box = stageBox.getBoundingClientRect();
+  const w = box.width || 800;
+  if (!where?.centre || !lastWidth || Math.abs(w - lastWidth) < 0.5) {
+    lastWidth = w;
+    return;
+  }
+  const shift = ((w - lastWidth) / 2) * where.zoom;
+  lastWidth = w;
+  /* Put where it should be rather than asked whether it has strayed: the shift
+     is a move nobody has made yet, so there is nothing for the check in
+     `keepItOnScreen` to find. */
+  straightening = true;
+  theCanvas.lookAt(insideTheLimits({
+    ...where, centre: { x: where.centre.x + shift, y: where.centre.y },
+  }));
+  straightening = false;
+}
+let lastWidth = 0;
+
+/* Every way the view can move ends here, whichever gesture moved it. Held off
+   by a frame so the correction is one more view change and not a call made
+   from inside the canvas telling it where to be while it is telling us where
+   it went. */
+let straightening = false;
+function keepItOnScreen(where) {
+  if (straightening || !where?.centre) return;
+  const should = insideTheLimits(where);
+  const off = Math.abs(should.zoom - where.zoom) > 1e-9
+    || Math.abs(should.centre.x - where.centre.x) > 1e-6
+    || Math.abs(should.centre.y - where.centre.y) > 1e-6;
+  if (!off) return;
+  straightening = true;
+  theCanvas.lookAt(should);
+  straightening = false;
 }
 
 /* Where the microscope is, in stage micrometres.
@@ -867,7 +980,7 @@ ctx.fitButton.addEventListener("click", () => {
        shape, and what the pointer should look like over it. */
     /* The canvas measures itself; this only asks for the layers again, since
        what they draw depends on how big the box is. */
-    resize() { drawStage(); },
+    resize() { theCanvasNarrowed(); drawStage(); },
     cursor(shape) { stageBox.style.cursor = shape; },
     view,
     travelUm: STAGE_UM,
