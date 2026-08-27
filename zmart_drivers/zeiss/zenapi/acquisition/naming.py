@@ -45,3 +45,12 @@ class Naming:
 
 def acquisition_dir(output_root: Path | str, acquisition_type: str) -> Path:
     return Path(output_root) / acquisition_type
+
+
+def data_dir(output_root: Path | str, acquisition_type: str) -> Path:
+    """Return where the images of an acquisition go: ``<type>/data``.
+
+    The pixels get a folder of their own so what is made from them later --
+    a stitched view, an analysis -- becomes a folder beside them.
+    """
+    return acquisition_dir(output_root, acquisition_type) / "data"
