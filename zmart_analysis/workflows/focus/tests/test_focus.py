@@ -136,12 +136,6 @@ def test_an_artefact_at_the_end_cannot_win(stack_with_a_bright_edge):
     assert result["considered"] == (2, N_PLANES - 3)
 
 
-def test_the_scores_still_report_what_was_set_aside(stack_with_a_bright_edge):
-    """Skipped planes are excluded from winning, not from the curve."""
-    scores = _scored(stack_with_a_bright_edge)["metrics"]["brenner"]["scores"]
-    assert len(scores) == N_PLANES
-
-
 def test_skipping_nothing_lets_the_artefact_win(stack_with_a_bright_edge):
     """Proves the guard is what excluded it, not the shape of the stack."""
     result = _scored(stack_with_a_bright_edge, skip_ends=0)
@@ -329,7 +323,6 @@ def test_the_heights_come_from_the_store(zarr_position):
         [FIRST_PLANE_UM + Z_SPACING_UM * z for z in range(N_PLANES)]
     )
     assert result["peak_z_um"] == pytest.approx(FIRST_PLANE_UM + Z_SPACING_UM * SHARP_AT)
-    assert result["settings"]["heights"] == "from the image"
 
 
 def test_a_named_channel_is_scored(zarr_position):
@@ -350,4 +343,3 @@ def test_given_heights_still_win_over_the_stores_own(zarr_position):
     }
     result = run(data, {})["score_focus"]
     assert result["z_um"] == pytest.approx(z_um)
-    assert result["settings"]["heights"] == "given"

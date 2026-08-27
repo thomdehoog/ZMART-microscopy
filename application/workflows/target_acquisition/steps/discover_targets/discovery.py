@@ -241,15 +241,15 @@ def _targets_from(
     labels = properties.get("label", [])
     if not len(labels):
         return []
-    if feature not in properties:
-        raise RuntimeError(
-            f"the analysis table has no {feature!r} column to rank by; "
-            f"it offers {sorted(properties)}"
-        )
 
-    rows = range(len(labels))
+    rows = list(range(len(labels)))
     if n_picks is not None:
-        rows = sorted(rows, key=lambda row: properties[feature][row], reverse=True)
+        if feature not in properties:
+            raise RuntimeError(
+                f"the analysis table has no {feature!r} column to rank by; "
+                f"it offers {sorted(properties)}"
+            )
+        rows.sort(key=lambda row: properties[feature][row], reverse=True)
         rows = sorted(rows[:n_picks])
 
     return [

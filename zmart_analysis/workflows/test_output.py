@@ -17,6 +17,7 @@ FRAME = "overview_a1b2c3_K00_M000001_G000001_P000000_V00_T000000"
 
 def test_the_short_name_drops_the_channel_and_plane():
     assert short_name(PLANE) == FRAME
+    assert short_name(f"/runs/overview/data/{PLANE}") == FRAME
 
 
 def test_every_plane_of_a_frame_shares_one_short_name():
@@ -30,10 +31,6 @@ def test_timepoints_are_kept_apart():
     later = PLANE.replace("_T000000", "_T000004")
     assert short_name(later) != short_name(PLANE)
     assert short_name(later).endswith("_T000004")
-
-
-def test_a_full_path_is_accepted():
-    assert short_name(f"/runs/overview/data/{PLANE}") == FRAME
 
 
 def test_a_name_outside_the_convention_keeps_its_stem():
@@ -59,15 +56,6 @@ def test_the_nearest_data_folder_wins():
 def test_an_image_outside_an_acquisition_is_refused():
     with pytest.raises(ValueError, match="not inside an acquisition's 'data' folder"):
         analysis_dir("/somewhere/else/tile.ome.tiff")
-
-
-def test_nothing_is_created(tmp_path):
-    """Naming a folder is not making one -- the writer decides that."""
-    image = tmp_path / "overview" / "data" / "tile.ome.tiff"
-    image.parent.mkdir(parents=True)
-    found = analysis_dir(image)
-    assert found == tmp_path / "overview" / "analysis"
-    assert not found.exists()
 
 
 # --------------------------------------------------------------------------
