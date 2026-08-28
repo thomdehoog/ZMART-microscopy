@@ -9,8 +9,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from _segmentation import select_channels  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "steps"))
+from detect_objects import select_channels  # noqa: E402
 
 
 def test_2d_passthrough():
@@ -196,7 +196,7 @@ class _AreaModel:
 
 def test_segment_position_uses_channel_axis_for_multichannel(tmp_path):
     import tifffile
-    from _segmentation import segment_position
+    from detect_objects import segment_position
 
     path = tmp_path / "three_channel.tif"
     tifffile.imwrite(
@@ -219,7 +219,7 @@ def test_segment_position_takes_the_axes_from_the_file(tmp_path):
     image's own metadata.
     """
     import tifffile
-    from _segmentation import segment_position
+    from detect_objects import segment_position
 
     path = tmp_path / "declared.tif"
     image = np.zeros((3, 10, 3), dtype=np.uint8)
@@ -238,7 +238,7 @@ def test_segment_position_refuses_an_rgb_sample_image(tmp_path):
     """Channel-last samples are RGB to a TIFF reader, and stay refused."""
     import pytest
     import tifffile
-    from _segmentation import segment_position
+    from detect_objects import segment_position
 
     path = tmp_path / "rgb.tif"
     tifffile.imwrite(path, np.zeros((10, 12, 3), dtype=np.uint8))
@@ -249,7 +249,7 @@ def test_segment_position_refuses_an_rgb_sample_image(tmp_path):
 
 def test_segment_position_no_channel_axis_for_2d(tmp_path):
     import tifffile
-    from _segmentation import segment_position
+    from detect_objects import segment_position
 
     path = tmp_path / "gray.tif"
     tifffile.imwrite(path, np.zeros((10, 12), dtype=np.uint8))
@@ -261,7 +261,7 @@ def test_segment_position_no_channel_axis_for_2d(tmp_path):
 
 def test_segment_position_filters_masks_by_min_and_max_area(tmp_path):
     import tifffile
-    from _segmentation import segment_position
+    from detect_objects import segment_position
 
     path = tmp_path / "gray.tif"
     tifffile.imwrite(path, np.zeros((24, 24), dtype=np.uint8))
@@ -282,7 +282,7 @@ def test_segment_position_filters_masks_by_min_and_max_area(tmp_path):
 
 def test_segment_position_binning_downsamples_cellpose_input_without_upsampling(tmp_path):
     import tifffile
-    from _segmentation import segment_position
+    from detect_objects import segment_position
 
     path = tmp_path / "large.tif"
     tifffile.imwrite(path, np.zeros((20, 40), dtype=np.uint8))
@@ -303,7 +303,7 @@ def test_segment_position_binning_downsamples_cellpose_input_without_upsampling(
 
 def test_segment_position_uses_segmentation_binning(tmp_path):
     import tifffile
-    from _segmentation import segment_position
+    from detect_objects import segment_position
 
     path = tmp_path / "large.tif"
     tifffile.imwrite(path, np.zeros((20, 40), dtype=np.uint8))
@@ -318,7 +318,7 @@ def test_segment_position_uses_segmentation_binning(tmp_path):
 
 def test_segment_position_area_downsamples_intensity_image(tmp_path):
     import tifffile
-    from _segmentation import segment_position
+    from detect_objects import segment_position
 
     path = tmp_path / "small.tif"
     image = np.arange(16, dtype=np.uint16).reshape(4, 4)
@@ -332,7 +332,7 @@ def test_segment_position_area_downsamples_intensity_image(tmp_path):
 
 def test_segment_position_binned_masks_are_not_smoothed(tmp_path):
     import tifffile
-    from _segmentation import segment_position
+    from detect_objects import segment_position
 
     path = tmp_path / "large.tif"
     tifffile.imwrite(path, np.zeros((8, 8), dtype=np.uint8))
@@ -348,7 +348,7 @@ def test_segment_position_binned_masks_are_not_smoothed(tmp_path):
 
 def test_segment_position_upscaled_mask_position_is_original_space(tmp_path):
     import tifffile
-    from _segmentation import segment_position
+    from detect_objects import segment_position
 
     path = tmp_path / "large.tif"
     tifffile.imwrite(path, np.zeros((20, 40), dtype=np.uint8))
@@ -363,7 +363,7 @@ def test_segment_position_upscaled_mask_position_is_original_space(tmp_path):
 
 def test_segment_position_passes_cellpose_tuning_params(tmp_path):
     import tifffile
-    from _segmentation import segment_position
+    from detect_objects import segment_position
 
     path = tmp_path / "gray.tif"
     tifffile.imwrite(path, np.zeros((24, 24), dtype=np.uint8))
@@ -397,7 +397,7 @@ def test_segment_position_passes_cellpose_tuning_params(tmp_path):
 
 def test_segment_position_prefers_gpu_and_falls_back_to_cpu(tmp_path, monkeypatch):
     import tifffile
-    from _segmentation import segment_position
+    from detect_objects import segment_position
 
     path = tmp_path / "gray.tif"
     tifffile.imwrite(path, np.zeros((8, 8), dtype=np.uint8))
@@ -453,7 +453,7 @@ def test_segment_position_prefers_gpu_and_falls_back_to_cpu(tmp_path, monkeypatc
 
 def test_segment_position_uses_mps_when_cuda_is_unavailable(tmp_path, monkeypatch):
     import tifffile
-    from _segmentation import segment_position
+    from detect_objects import segment_position
 
     path = tmp_path / "gray.tif"
     tifffile.imwrite(path, np.zeros((8, 8), dtype=np.uint8))
@@ -506,7 +506,7 @@ def test_segment_position_uses_mps_when_cuda_is_unavailable(tmp_path, monkeypatc
 
 def test_segment_position_rejects_invalid_area_filter(tmp_path):
     import tifffile
-    from _segmentation import segment_position
+    from detect_objects import segment_position
 
     path = tmp_path / "gray.tif"
     tifffile.imwrite(path, np.zeros((24, 24), dtype=np.uint8))
@@ -532,7 +532,7 @@ def _labelled(height, width, boxes):
 
 
 def test_border_margin_of_none_or_zero_keeps_everything():
-    from _segmentation import filter_masks_by_border
+    from detect_objects import filter_masks_by_border
 
     masks = _labelled(20, 20, [(0, 3, 0, 3), (8, 12, 8, 12)])
     for margin in (None, 0):
@@ -542,7 +542,7 @@ def test_border_margin_of_none_or_zero_keeps_everything():
 
 
 def test_objects_in_the_border_band_are_dropped_and_the_rest_relabelled():
-    from _segmentation import filter_masks_by_border
+    from detect_objects import filter_masks_by_border
 
     masks = _labelled(20, 20, [(0, 3, 0, 3), (8, 12, 8, 12), (17, 20, 17, 20)])
     kept, dropped = filter_masks_by_border(masks, border_margin_px=4)
@@ -554,7 +554,7 @@ def test_objects_in_the_border_band_are_dropped_and_the_rest_relabelled():
 
 def test_an_object_reaching_into_the_band_is_dropped_whole():
     """Overlap duplicates a whole object, so half of one is not worth keeping."""
-    from _segmentation import filter_masks_by_border
+    from detect_objects import filter_masks_by_border
 
     masks = _labelled(20, 20, [(2, 10, 2, 10)])
     kept, dropped = filter_masks_by_border(masks, border_margin_px=4)
@@ -564,7 +564,7 @@ def test_an_object_reaching_into_the_band_is_dropped_whole():
 
 
 def test_a_margin_wider_than_the_tile_is_refused():
-    from _segmentation import filter_masks_by_border
+    from detect_objects import filter_masks_by_border
 
     masks = _labelled(20, 20, [(8, 12, 8, 12)])
     with pytest.raises(ValueError, match="leaves no interior"):
@@ -575,7 +575,7 @@ def test_a_margin_wider_than_the_tile_is_refused():
 
 def test_segment_position_drops_border_objects_and_records_the_margin(tmp_path):
     import tifffile
-    from _segmentation import segment_position
+    from detect_objects import segment_position
 
     path = tmp_path / "tile.tif"
     tifffile.imwrite(path, np.zeros((20, 20), dtype=np.uint8))

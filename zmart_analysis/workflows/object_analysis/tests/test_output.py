@@ -7,8 +7,7 @@ from pathlib import Path
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _output import analysis_dir, short_name  # noqa: E402
+from detect_objects import analysis_dir, short_name  # noqa: E402
 
 PLANE = ("overview_a1b2c3_K00_M000001_G000001_P000000_V00"
          "_T000000_C00_Z00000.ome.tiff")
@@ -61,7 +60,7 @@ def test_an_image_outside_an_acquisition_has_no_analysis_folder():
 # What detect_objects does with it when the caller names no output_dir
 # --------------------------------------------------------------------------
 
-sys.path.insert(0, str(Path(__file__).resolve().parent / "object_analysis" / "steps"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "steps"))
 
 
 def _detection(masks):
