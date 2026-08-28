@@ -98,7 +98,7 @@ def test_the_height_that_comes_back_is_where_the_sample_is(scope):
 
 def test_the_sample_tilts_so_two_places_focus_at_two_heights(scope):
     """A map is only a map if it can come back uneven."""
-    elsewhere = (CLEAN[0] + 1_500.0, CLEAN[1])
+    elsewhere = (CLEAN[0] + 50_000.0, CLEAN[1])
     assert mock_driver.debris_at(*elsewhere) is None
     here = mock_driver.sharp_height_um(*CLEAN)
     there = mock_driver.sharp_height_um(*elsewhere)

@@ -72,7 +72,8 @@ _STACKS: dict[str, dict] = {"focussing": {"z_planes": 61, "z_step_um": 68.0 / 60
 _SAMPLE_Z_UM = 8.0  # the sample sits a few um above where a fresh stage stands, so an
 # operator who has not yet focused still sweeps through it. Far from zero, every
 # plane of a first stack is equally blurred and the map begins from nothing.
-_SAMPLE_TILT = (0.004, -0.002)  # um of height per um across x and y
+_SAMPLE_TILT = (0.0002, -0.0001)  # um of height per um across x and y: about
+# 30 um corner to corner, a real plate's tilt, and inside a first sweep everywhere
 _BLUR_PER_UM = 0.25  # blur radius in pixels per um out of focus
 
 
