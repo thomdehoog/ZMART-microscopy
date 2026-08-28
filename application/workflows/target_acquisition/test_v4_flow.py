@@ -24,6 +24,7 @@ import application.workflows.target_acquisition as workflow  # noqa: E402
 
 from zmart_analysis.workflows._geometry import image_point_to_stage_xy  # noqa: E402
 
+from zmart_drivers.mock import mock_driver  # noqa: E402
 from zmart_drivers.mock.mock_driver import register_mock  # noqa: E402
 
 
@@ -122,7 +123,7 @@ def test_full_controller_only_flow(tmp_path):
         # 4. focus surface, the way the notebook does it: the picker pre-fills
         #    LAS X focus points, the operator (here: code) picks their own, and
         #    Measure autofocuses at each point and fits the surface. The mock's
-        #    autofocus reports the current z, so the fit is a flat surface.
+        #    sample is a tilted sheet, so the fit is the tilt it measured.
         picker = workflow.pick_focus_points(
             zmart_controller,
             positions,
@@ -134,9 +135,13 @@ def test_full_controller_only_flow(tmp_path):
             picker.add_point(x, y)
         focus = picker.measure()
         assert picker.require_focus() is focus
-        # The mock autofocuses to wherever the stage sits (start z = 0), so
-        # the fitted surface is flat at zero.
-        assert focus.z_at(0.0, 0.0) == pytest.approx(0.0)
+        # The surface fitted through three measured points is the sheet the
+        # instrument was focused on -- not flat, and not the heights it was
+        # driven to. A fit that merely echoed the drive would pass whatever
+        # the autofocus did.
+        for x, y in [(0.0, 0.0), (100.0, 0.0), (0.0, 80.0), (60.0, 40.0)]:
+            assert focus.z_at(x, y) == pytest.approx(mock_driver.sharp_height_um(x, y))
+        assert focus.z_at(100.0, 0.0) != pytest.approx(focus.z_at(0.0, 0.0))
 
         # 5. overview: capture at each position, z from the surface
         overview_records = workflow.run_overview(

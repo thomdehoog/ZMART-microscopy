@@ -6,9 +6,13 @@ Two metrics, both scored on every run so one can be drawn against the other:
 is refined between planes with a parabola through the best plane and its two
 neighbours.
 
-Takes an OME-Zarr position or an OME-TIFF, which must declare a z axis. Heights
-come from ``input["z_um"]`` when given, else from the image's own z spacing;
-absent both, the peak is a plane index alone. Parameters are in ``focus.yaml``.
+Takes an OME-Zarr position or an OME-TIFF that declares a z axis
+(``input["image_path"]``), or the planes of a stack in z order
+(``input["image_paths"]``) -- which is what an acquisition leaves behind, one
+2-D plane per file. Heights come from ``input["z_um"]`` when given, else from
+the image's own z spacing; absent both, the peak is a plane index alone. A
+plane list carries no spacing of its own, so it must bring ``z_um`` to report a
+height. Parameters are in ``focus.yaml``.
 
 Publishes under ``pipeline_data["score_focus"]``::
 
@@ -81,7 +85,7 @@ def run(pipeline_data: dict, state: dict, **params) -> dict:
         raise ValueError(f"skip_ends must be >= 0, got {skip_ends}.")
 
     inp = pipeline_data["input"]
-    planes, metadata = _planes(inp["image_path"], level=level, t=t, channel=channel)
+    planes, metadata = _stack(inp, level=level, t=t, channel=channel)
     z_um = inp.get("z_um") or _heights_from(metadata, len(planes))
     if z_um is not None and len(z_um) != len(planes):
         raise ValueError(
@@ -123,7 +127,7 @@ def run(pipeline_data: dict, state: dict, **params) -> dict:
         # A curve is only readable beside what produced it, and the pipeline
         # holding these is not saved with the data.
         "settings": {
-            "source": str(inp["image_path"]),
+            "source": _source_of(inp),
             "channel": channel,
             "level": level,
             "t": t,
@@ -131,6 +135,38 @@ def run(pipeline_data: dict, state: dict, **params) -> dict:
         },
     }
     return pipeline_data
+
+
+def _stack(inp: dict, *, level, t, channel) -> tuple[list[np.ndarray], dict]:
+    """The planes to score, however the caller has them.
+
+    ``image_path`` is one position that declares its own z axis -- an OME-Zarr
+    position, or a stacked TIFF. ``image_paths`` is what an acquisition
+    actually leaves behind: every ZMART driver writes one 2-D plane per file,
+    so a stack arrives as a list of paths in z order. Reading them where they
+    were written costs nothing and copies nothing.
+    """
+    paths = inp.get("image_paths")
+    if paths:
+        if len(paths) < 2:
+            raise ValueError(
+                f"image_paths is a z-stack in plane order and got {len(paths)} "
+                f"path(s); one plane cannot be focused."
+            )
+        planes = [load_plane(path, level=level, t=t, c=channel, z=0)[0] for path in paths]
+        return [plane.astype(np.float64) for plane in planes], {}
+    if not inp.get("image_path"):
+        raise ValueError(
+            "score_focus needs an image_path or image_paths: one position that "
+            "declares a z axis, or the planes of a stack in order."
+        )
+    return _planes(inp["image_path"], level=level, t=t, channel=channel)
+
+
+def _source_of(inp: dict) -> str:
+    """What was scored, for the record kept beside the curve."""
+    paths = inp.get("image_paths")
+    return f"{len(paths)} planes from {paths[0]}" if paths else str(inp["image_path"])
 
 
 def _planes(source, *, level, t, channel) -> tuple[list[np.ndarray], dict]:
