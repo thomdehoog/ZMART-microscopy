@@ -536,7 +536,6 @@ let stageWatch = null;
       state.tilesShown = 0;
       backend.scanOverview({
         positions: state.plan,
-        ms: s.ms,
         onProgress: (done) => {
           if (state.running !== s.id) return;
           state.tilesShown = done;
@@ -550,7 +549,8 @@ let stageWatch = null;
           liveOverview.tileMayHaveLanded();
           drawStage(); renderAll();
         },
-      });
+      }).then(finish, itFailed);
+      return;
     }
 
     /* Finishing a step: the connect step finishes when its backend resolves,
@@ -606,7 +606,15 @@ let stageWatch = null;
       focusPanelsFor(state.activeIdx);
       renderAll();
     }
-    setTimeout(finish, s.ms);
+    setTimeout(() => finish().catch(itFailed), s.ms);
+
+    /** The step stops, marked as the failure it is, saying what went wrong. */
+    function itFailed(why) {
+      state.failed = s.id;
+      state.running = null;
+      state.notes[s.id] = `failed — ${why.message}`;
+      renderAll();
+    }
   }
 
   /* ============================================================

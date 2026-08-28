@@ -17,5 +17,5 @@ export const connect = {
   /* The first step asks for the canvas, so the stage is there from the start:
      every step keeps the picture on the left and its controls in the channel. */
   panels: ["canvas"],
-  ms: 1900,
+  ms: 0,
 };
