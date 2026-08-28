@@ -23,7 +23,7 @@ import carrierWidget from "../define_carrier/carrier-panel.js";
 import { makeRng } from "../../../../parts/microscope/pretend-sample/rng.js";
 import { METRICS, METRIC_KEYS, sweep }
   from "../../../../parts/microscope/pretend-sample/sweep.js";
-import { MIN_TISSUE_WIDTH_UM, findCandidates }
+import { MIN_TISSUE_WIDTH_UM, findCandidates, pickPeak }
   from "../../../../parts/microscope/focus-peaks.js";
 import {
   affineSurface, fitSurface, residualsUm, surfaceZ,
@@ -968,11 +968,27 @@ el("ft-reset").addEventListener("click", () => {
   renderPointList(); drawTrace(); stage.draw();
 });
 
-el("ft-rerun").addEventListener("click", async () => {
+el("ft-rerun").addEventListener("click", async (e) => {
   const f = run.focus;
   const p = pointToRerun();
   if (!p || run.running) return;
   const at = f.points.indexOf(p);
+  /* Held while the stage is out, so the press shows it is doing something and
+     cannot be pressed again under a run of its own. It did neither: a rerun
+     of one point looked, for its whole length, like a button nobody pressed. */
+  run.running = true;
+  e.currentTarget.classList.add("on");
+  try {
+    await rerunOne(f, at, p);
+  } finally {
+    run.running = false;
+    e.currentTarget.classList.remove("on");
+  }
+  refitSurface();
+  renderPointList(); drawTrace(); stage.draw(); renderActionBar();
+});
+
+async function rerunOne(f, at, p) {
   const startZ = stage.whereTheStageIs().z;
   /* Asked as a point nobody has touched. A backend keeps a height the operator
      moved by hand — that is what makes a hand-set height survive a change of
@@ -993,14 +1009,9 @@ el("ft-rerun").addEventListener("click", async () => {
     /* And no longer moved-since-measured: what was just read was read where
        the point is standing now, which is the whole of what `stale` meant. */
     const { wasRead, ...came } = got;
-    const fresh = { ...came, accepted: false, stale: false, manual: false };
-    f.points[at] = Number.isFinite(fresh.zAuto) || !Number.isFinite(fresh.z)
-      ? fresh
-      : { ...fresh, zAuto: fresh.z };
+    f.points[at] = settled({ ...came, accepted: false, stale: false, manual: false });
   }
-  refitSurface();
-  renderPointList(); drawTrace(); stage.draw(); renderActionBar();
-});
+}
 
 const traceCv = el("trace-canvas");
 
@@ -1500,6 +1511,25 @@ el("fp-reset").addEventListener("click", () => {
  * with no height, which is why refining from a map that is already close finds
  * points a rerun from one height cannot.
  */
+/**
+ * A measured point as the map keeps it: the height the operator's rule chooses.
+ *
+ * The backend reports the curves and the tallest peak. The rule -- the tallest
+ * peak wide enough to be tissue -- is applied here, to every curve, whoever
+ * measured it. Taken from the backend instead, a speck of dust won the point
+ * and nothing said so; and the one-point rerun, which had its own copy of the
+ * reading, kept doing exactly that after the map had stopped.
+ */
+function settled(p) {
+  const curve = p.traces?.[run.focus.metric];
+  if (curve?.samples?.length) {
+    const chosen = pickPeak(findCandidates(curve.samples));
+    if (chosen) return { ...p, z: chosen.z, zAuto: chosen.z, onNarrow: chosen.narrow, lost: false };
+    return { ...p, z: null, zAuto: null, lost: true };
+  }
+  return Number.isFinite(p.zAuto) || !Number.isFinite(p.z) ? p : { ...p, zAuto: p.z };
+}
+
 async function remeasure({ from = null } = {}) {
   const f = run.focus;
   const stageZ = () => stage.whereTheStageIs().z;
@@ -1517,8 +1547,6 @@ async function remeasure({ from = null } = {}) {
      chose, fixed, against which a height the operator moved is a departure.
      Filled in here so every backend's points have the one shape, rather than
      each reader of them learning to cope with a missing field. */
-  const settled = (p) =>
-    (Number.isFinite(p.zAuto) || !Number.isFinite(p.z) ? p : { ...p, zAuto: p.z });
   const { points } = await backend.measureFocus(asked, {
     metric: f.metric,
     extent: carrierSpan(),

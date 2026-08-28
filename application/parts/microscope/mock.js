@@ -31,8 +31,7 @@
 import { APIS } from "./instruments.js";
 import { sampleReading } from "./settings.js";
 import { makeRng } from "./pretend-sample/rng.js";
-import { METRICS, METRIC_KEYS, debrisAt, sweep } from "./pretend-sample/sweep.js";
-import { findCandidates, pickPeak } from "./focus-peaks.js";
+import { METRICS, METRIC_KEYS, sweep } from "./pretend-sample/sweep.js";
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -219,29 +218,17 @@ export const backend = {
         const sw = sweep({ focusZ, index, metric: key, startZ });
         return [key, { samples: sw.samples }];
       }));
-      const chosen = pickPeak(findCandidates(traces[metric].samples));
       /* What the point carried in is not what it carries out: `startZ` was an
          instruction for this run, and saying it back would have the next one
          begin where this one did. */
       const { startZ: began, ...was } = p;
-      /* The objective swept its whole range and nothing rose: it never reached
-         the tissue. The point has no height to report, and says so rather than
-         reporting the height it happened to stop at — a made-up reading is
-         worse than a missing one, because the surface would believe it. */
-      if (!chosen) {
-        return { ...was, zAuto: null, onNarrow: false, z: null, lost: true, focusZ,
-          speck: debrisAt(index), traces };
-      }
-      return {
-        ...was,
-        zAuto: chosen.z,
-        onNarrow: chosen.narrow,
-        z: p.manual ? p.z : chosen.z,
-        lost: false,
-        focusZ,
-        speck: debrisAt(index),
-        traces,
-      };
+      /* Reported as the live backend reports: the curves, and the tallest
+         height in the deciding one. Which peak is the tissue is the page's
+         rule, applied to every curve whoever measured it -- the mock used to
+         choose for itself, so the live path chose differently and a speck of
+         dust won a point unflagged. */
+      const tallest = traces[metric].samples.reduce((a, q) => (q.s > a.s ? q : a));
+      return { ...was, z: p.manual ? p.z : tallest.z, zAuto: tallest.z, lost: false, traces };
     });
     measured.forEach((point, index) => onPoint?.(point, index));
     return { points: measured };
