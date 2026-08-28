@@ -569,7 +569,7 @@ class TestAcquire(unittest.TestCase):
         be handed straight back in.
         """
         h = _handle()
-        h.driven_to = {"x": 1200.0, "y": -450.0, "z": 33.5}
+        h.driven_to = {"x": 1200.0, "y": -450.0, "z": 33.5, "z_wide_um": 900.0}
         with self._capturing() as calls:
             record = adapter.acquire(h, acquisition_type="overview", position_label="A1")
 
@@ -588,7 +588,7 @@ class TestAcquire(unittest.TestCase):
         focus routine chose would then be the height it was handed.
         """
         h = _handle()
-        h.driven_to = {"x": 0.0, "y": 0.0, "z": 100.0}
+        h.driven_to = {"x": 0.0, "y": 0.0, "z": 100.0, "z_wide_um": 1000.0}
         planes = {i: Path(f"/tmp/out/img_z{i}.ome.tif") for i in range(5)}
         with self._capturing(image_paths=planes) as calls, patch.object(
             adapter._readers, "get_job_settings",
@@ -597,11 +597,29 @@ class TestAcquire(unittest.TestCase):
             record = adapter.acquire(h, acquisition_type="focussing", position_label="A1")
 
         del calls
-        # 5 slices over 20 um, centred on the drive: 100 um plus -10..+10.
+        # 5 slices over 20 um about the z-wide the drive was realized at.
         self.assertEqual(
             [p["z_um"] for p in record["planes"]], [90.0, 95.0, 100.0, 105.0, 110.0]
         )
         self.assertEqual({p["x_um"] for p in record["planes"]}, {0.0})
+
+    def test_a_stack_that_does_not_straddle_the_drive_is_placed_where_it_is(self):
+        """Nothing assumes the drive stands in the middle of its own stack.
+
+        A job whose stack begins at the current plane and climbs is perfectly
+        ordinary, and a run that split it evenly either side would report every
+        plane half a stack away from where it was taken.
+        """
+        h = _handle()
+        h.driven_to = {"x": 0.0, "y": 0.0, "z": 100.0, "z_wide_um": 1000.0}
+        planes = {i: Path(f"/tmp/out/img_z{i}.ome.tif") for i in range(3)}
+        with self._capturing(image_paths=planes), patch.object(
+            adapter._readers, "get_job_settings",
+            return_value={"stack": {"begin": 1000.0, "end": 1020.0, "sections": 3}},
+        ):
+            record = adapter.acquire(h, acquisition_type="focussing", position_label="A1")
+
+        self.assertEqual([p["z_um"] for p in record["planes"]], [100.0, 110.0, 120.0])
 
     def test_acquire_applies_the_rigs_measured_orientation(self):
         """The microscope's measured turn reaches ``save``, so saved planes are
