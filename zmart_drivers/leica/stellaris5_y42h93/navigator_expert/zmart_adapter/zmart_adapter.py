@@ -175,13 +175,10 @@ class ZmartHandle:
             "objective": None,
         }
     )
-    #: Where the last confirmed :func:`set_xyz` put the stage, in the frame --
-    #: what an acquisition reports as the place it was taken. Remembered rather
-    #: than re-read: the move is commanded absolutely and raises unless it is
-    #: confirmed, so this *is* where the stage is, and reading it back would
-    #: put one more call that can hang into the capture path. ``None`` until
-    #: something has driven, and then the acquisition says it does not know
-    #: rather than naming a place nobody went.
+    #: Where the last confirmed :func:`set_xyz` put the stage, in the frame.
+    #: Remembered rather than re-read: the move is absolute and raises unless
+    #: confirmed, so this is where the stage is, and reading it back would put
+    #: another call that can hang into the capture path.
     driven_to: dict[str, float] | None = None
     position_counter: int = 0
     acquisition_hashes: set[str] = field(default_factory=set)
@@ -947,26 +944,12 @@ def acquire(
 def _where_the_planes_are(handle: ZmartHandle, job: str, count: int):
     """Answer, per plane, where on the sample it was captured.
 
-    A client should never have to work this out. It cannot read it off the
-    file -- an OME-TIFF says how large a pixel is and nothing about where it
-    was taken -- and it cannot derive it from the drive either, because the
-    stage stands at the middle of a stack while the planes are spread either
-    side of it. So the acquisition reports it, being the only thing that knows
-    both.
-
-    Reported in the frame the caller drives in, the one :func:`set_xyz` takes,
-    so a position handed back can be handed straight back in.
-
-    The place is where the last confirmed move put the stage, not a fresh
-    read: the move was commanded absolutely and raised unless confirmed, so
-    it is where the stage is, and asking again would put another call that
-    can hang into the capture path.
-
-    The height is that place displaced by how far each slice sits from the
-    middle of the stack -- the stack is taken about where the drive stands,
-    and the job's own block says where its slices are. A job with no stack, or
-    one whose settings do not describe the planes that came back, leaves every
-    plane at the drive's own height: one plane is wherever the drive is, and a
+    In the frame :func:`set_xyz` takes, so a position handed back can be
+    handed straight back in. A saved file cannot say this and neither can the
+    drive: the stage stands at the middle of a stack while its planes are
+    spread either side, so each height is the drive displaced by where its
+    slice sits in the job's own stack. No stack, or one that does not describe
+    the planes that came back, leaves every plane at the drive's height -- a
     guessed spread is worse than none.
     """
     at = handle.driven_to
