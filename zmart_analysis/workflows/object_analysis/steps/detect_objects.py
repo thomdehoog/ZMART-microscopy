@@ -6,7 +6,7 @@ import json
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "parts"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from _contracts import to_builtin  # noqa: E402
 from _detection_checkpoint import (  # noqa: E402
     area_filter_params,

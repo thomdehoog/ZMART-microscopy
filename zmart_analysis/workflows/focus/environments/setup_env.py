@@ -11,7 +11,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "parts"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from _env_setup import setup_workflow_env  # noqa: E402
 
 
