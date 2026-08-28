@@ -27,8 +27,8 @@ def _image_size_px(path: Path, channel_axis=None) -> list[int]:
     """
     import sys
 
-    sys.path.insert(0, str(WORKFLOW_DIR.parent))
-    from _image_io import load_plane
+    sys.path.insert(0, str(WORKFLOW_DIR / "steps"))
+    from detect_objects import load_plane
 
     _, metadata = load_plane(path)
     axes, shape = metadata["axes"], metadata["shape"]

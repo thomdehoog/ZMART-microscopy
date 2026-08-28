@@ -19,8 +19,8 @@ from pathlib import Path
 
 import numpy as np
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _image_io import is_ome_zarr, is_tiff, load_plane, to_physical  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "steps"))
+from score_focus import is_ome_zarr, is_tiff, load_plane, to_physical  # noqa: E402
 
 
 PIXEL_SIZE = 0.325
