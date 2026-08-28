@@ -81,7 +81,7 @@
  * that confusion has cost this project real days.
  *
  * The short version, for anyone about to look at the page: **open the built page
- * over HTTP if you want neuroglancer.** `python dev_window.py --build` does that
+ * over HTTP if you want neuroglancer.** `python zmart-interface.py` does that
  * for you.
  *
  * One thing this file cannot check is whether the two background programs were
@@ -170,7 +170,7 @@ export function whyOneIsMissing() {
     `${missing.join(" and ")} cannot draw in a page opened straight off the ` +
     "disk, because a browser will not start the background program it needs " +
     "for one. Serve this folder over HTTP and it will be here — " +
-    "`python dev_window.py --build` does that."
+    "`python zmart-interface.py` does that."
   );
 }
 

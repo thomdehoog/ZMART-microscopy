@@ -170,6 +170,9 @@ def _instruments() -> list:
     return zmart_controller.get_instruments()
 
 
+#: Where ``npm run build`` leaves the page, beside the window that shows it.
+THE_PAGE = Path(__file__).resolve().parent / "window" / "static"
+
 #: What a run made through this page is called. One name for the workflow, so
 #: two runs are told apart by their hash and not by what somebody typed.
 EXPERIMENT = "target-acquisition"
@@ -652,6 +655,37 @@ class _Bridge(BaseHTTPRequestHandler):
         kind = 400 if isinstance(why, (ValueError, KeyError)) else 500
         self._answer({"error": str(why)}, status=kind)
 
+    #: What the built page is made of, and what to call each piece when sent.
+    #: A browser will not start a background program from a file it was told is
+    #: anything but JavaScript, and it says nothing when it refuses -- the
+    #: picture simply never appears.
+    PAGE = {
+        ".html": "text/html", ".js": "text/javascript", ".mjs": "text/javascript",
+        ".css": "text/css", ".json": "application/json", ".wasm": "application/wasm",
+        ".svg": "image/svg+xml", ".png": "image/png", ".woff2": "font/woff2",
+    }
+
+    def _send_the_page(self, path: str) -> None:
+        """Hand out the built operator page, so one process serves the whole thing.
+
+        The microscope PC gets one program: the page it draws and the
+        instrument it drives, on one address. That is also why the page finds
+        the bridge at its own origin and needs telling only in development,
+        where a dev server holds the page instead so that edits reload live.
+        """
+        name = path.lstrip("/") or "index.html"
+        where = (THE_PAGE / name).resolve()
+        wanted = self.PAGE.get(where.suffix)
+        if THE_PAGE not in where.parents or wanted is None or not where.is_file():
+            self._answer({"error": f"no page at {path}"}, status=404)
+            return
+        body = where.read_bytes()
+        self.send_response(200)
+        self.send_header("Content-Type", wanted)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
     #: What a view folder is allowed to hold, and what to call it when sent.
     #: A short list rather than a guess, because this hands out files by a name
     #: the page chose: anything not on it is not a picture and is not sent.
@@ -727,6 +761,8 @@ class _Bridge(BaseHTTPRequestHandler):
                 self._answer(dict(_scan))
             elif path.startswith("/view/"):
                 self._send_a_picture(path)
+            elif not path.startswith("/api/"):
+                self._send_the_page(path)
             else:
                 self._answer({"error": f"no route {path}"}, status=404)
         except Exception as why:  # noqa: BLE001

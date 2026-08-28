@@ -159,7 +159,18 @@
 
 * { box-sizing: border-box; }
 
-body {
+/* `:root body` rather than `body`, which is not tidiness.
+
+   A drawing engine is built to be a whole application and ships a stylesheet
+   that says so — neuroglancer's sets `body { color: #fff; background: #000 }`.
+   In development an engine is only fetched when it is opened, so its CSS
+   never arrives; in the built page everything is folded into one file and its
+   rule lands after this one. The page then drew white text on white panels,
+   and only in the build.
+
+   An engine we embed does not get to style the page around it. One pseudo-
+   class is enough to say so, and it holds however the files are ordered. */
+:root body {
   margin: 0;
   padding: 0;
   background: var(--bg);
