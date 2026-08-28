@@ -1528,8 +1528,13 @@ async function remeasure({ from = null } = {}) {
        still working through the rest. */
     onPoint: (measured, index) => {
       f.points[index] = settled(measured);
+      /* There is a map from the first point on. `applied` is what opens the
+         traces box, draws the surface and puts the heights in the rows; held
+         until the run ended, every point that landed stayed hidden and the
+         whole map appeared at once. */
+      f.applied = true;
       refitSurface();
-      renderPointList(); drawTrace(); stage.draw();
+      renderPointList(); renderFocusBar(); drawTrace(); stage.draw();
     },
   });
   f.points = points.map(settled);
