@@ -71,13 +71,16 @@ export async function startTheBridge({ port } = {}) {
   const { instruments } = await ask("/api/instruments");
   const scope = instruments.find((one) => one.vendor === "mock");
   if (!scope) throw new Error("the bridge has no mock microscope to connect to");
-  await ask("/api/connect", { connection: scope });
+  const opened = await ask("/api/connect", { connection: scope });
 
   return {
     /* Where the pictures of the overview are served — the same address the
        page asks its backend for, spelt out here because a test points the page
        at it rather than walking the operator's Connect. */
     pictures: `${at}/view/overview`,
+    /* Where this session's run landed. The bridge makes it at connect and
+       says so, because a run has to be told from the one before it. */
+    run: opened.run,
     folder,
     async image(positions) {
       if ((process.env.LIVE_BRIDGE_SABOTAGE ?? "") === "stalled") return;

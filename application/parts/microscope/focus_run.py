@@ -55,7 +55,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from application.parts.storage.output import position_label
+from application.parts.storage.output import (
+    move_record_images,
+    position_label,
+    prepare_acquisition,
+)
 
 #: The kind of acquisition a focus stack is. It is what tells the instrument to
 #: take a stack rather than a picture: the settings imported for this kind of
@@ -79,6 +83,7 @@ def measure_focus(
     score: Any,
     state: dict | None = None,
     start_z: float | None = None,
+    output_root: Any = None,
     on_point: Any = None,
     cancel: Any = None,
 ) -> list[dict]:
@@ -97,13 +102,18 @@ def measure_focus(
     drags the whole map towards a place nobody measured.
 
     ``state`` (from :meth:`Session.get_state`) is the focussing settings, and
-    is applied once before the run rather than per point.
+    is applied once before the run rather than per point. ``output_root`` is
+    the run's own folder: given one, each stack is moved into it before being
+    scored, the same way :func:`capture_positions` keeps what it captures.
 
     ``on_point(measurement)`` fires as each point completes, so a caller can
     show a height while the stage is still working through the rest.
     ``cancel`` is asked before every move; answering True raises
     :class:`RunCancelled` cleanly between two points, having moved nothing.
     """
+    output = (
+        prepare_acquisition(output_root, FOCUSSING) if output_root is not None else None
+    )
     if state is not None:
         session.set_state(state)
     standing = None
@@ -124,12 +134,12 @@ def measure_focus(
             centre = start_z if start_z is not None else standing
         session.set_xyz(point["x"], point["y"], float(centre))
 
-        found = score(
-            session.acquire(
-                acquisition_type=FOCUSSING,
-                position_label=position_label(index),
-            )
+        record = session.acquire(
+            acquisition_type=FOCUSSING, position_label=position_label(index)
         )
+        if output is not None:
+            move_record_images(record, output.data)
+        found = score(record)
 
         measurement = {
             "x_um": point["x"],
