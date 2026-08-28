@@ -740,7 +740,7 @@ def test_demo_cli_stays_driver_free(monkeypatch):
             "demo": True,
             "vendor": "leica",
             "demo_root": None,
-            "af_job": None,
+            "score": False,
             "experiment": "target-acquisition",
             "open_window": False,
         }

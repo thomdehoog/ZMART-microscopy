@@ -53,6 +53,7 @@ from application.workflows.target_acquisition.steps.discover_targets.widget impo
     _numeric_features,
     crop_for_target,
 )
+from application.parts.microscope.focus_score import in_process
 from application.workflows.target_acquisition.steps.focus_strategy.focus_run import measure_focus  # noqa: E402
 from application.workflows.target_acquisition.steps.focus_strategy.focus_surface import fit_focus_surface, worst_residual_um  # noqa: E402
 from application.workflows.target_acquisition.steps.scan_the_overview.widget import _load_overview_channels, composite_channels  # noqa: E402
@@ -963,13 +964,14 @@ export default mount(App);
         positions: list[dict] | None = None,
         *,
         focus_positions: list[dict] | None = None,
-        af_job: str | None = None,
+        score: Any = None,
         start_z: float | None = None,
         seed: bool = True,
     ) -> None:
         super().__init__()
         self.session = session
-        self.af_job = af_job
+        # How a captured stack becomes a height; scored here by default.
+        self.score = score if score is not None else in_process()
         self.start_z = start_z
         self.squares = []
         for position in positions or []:
@@ -1080,7 +1082,7 @@ export default mount(App);
                 measure_focus(
                     self.session,
                     fresh_points,
-                    af_job=self.af_job,
+                    score=self.score,
                     start_z=self.start_z,
                     on_point=_show_fresh_point,
                     cancel=lambda: self._cancel_requested,

@@ -124,6 +124,10 @@ def test_full_controller_only_flow(tmp_path):
         #    LAS X focus points, the operator (here: code) picks their own, and
         #    Measure autofocuses at each point and fits the surface. The mock's
         #    sample is a tilted sheet, so the fit is the tilt it measured.
+        # The operator finds the tissue by eye before measuring anything: a
+        # stack taken 5 mm below the sample comes back having seen nothing,
+        # and that is true of a real instrument too.
+        zmart_controller.set_xyz(0.0, 0.0, mock_driver.sharp_height_um(0.0, 0.0))
         picker = workflow.pick_focus_points(
             zmart_controller,
             positions,
@@ -131,7 +135,13 @@ def test_full_controller_only_flow(tmp_path):
         )
         assert picker.points  # pre-filled from the mock's live focus_positions
         picker.points.clear()
-        for x, y in [(0.0, 0.0), (100.0, 0.0), (0.0, 80.0)]:
+        # Three fields the driver puts no dust in. Dust is what step 4 exists to
+        # survive and it has a test of its own; this one is the whole flow, and
+        # a flow test that turned on where the specks fell would be measuring
+        # the wrong thing.
+        clean = [(0.0, 60.0), (120.0, 0.0), (60.0, 120.0)]
+        assert all(mock_driver.debris_at(x, y) is None for x, y in clean)
+        for x, y in clean:
             picker.add_point(x, y)
         focus = picker.measure()
         assert picker.require_focus() is focus
@@ -139,9 +149,11 @@ def test_full_controller_only_flow(tmp_path):
         # instrument was focused on -- not flat, and not the heights it was
         # driven to. A fit that merely echoed the drive would pass whatever
         # the autofocus did.
-        for x, y in [(0.0, 0.0), (100.0, 0.0), (0.0, 80.0), (60.0, 40.0)]:
-            assert focus.z_at(x, y) == pytest.approx(mock_driver.sharp_height_um(x, y))
-        assert focus.z_at(100.0, 0.0) != pytest.approx(focus.z_at(0.0, 0.0))
+        for x, y in [*clean, (60.0, 40.0)]:
+            assert focus.z_at(x, y) == pytest.approx(
+                mock_driver.sharp_height_um(x, y), abs=2.0
+            )
+        assert focus.z_at(120.0, 0.0) != pytest.approx(focus.z_at(0.0, 60.0))
 
         # 5. overview: capture at each position, z from the surface
         overview_records = workflow.run_overview(
@@ -149,7 +161,7 @@ def test_full_controller_only_flow(tmp_path):
         )
         assert [r["acquisition_type"] for r in overview_records] == ["overview", "overview"]
         # z came from the focus surface (plane through the fit points)
-        assert overview_records[0]["position"]["z"] == focus.z_at(0.0, 0.0)
+        assert overview_records[0]["position"]["z"] == pytest.approx(focus.z_at(0.0, 0.0))
 
         # 6. bridge overview records -> discover_targets inputs, by the paths
         #    the driver reported writing. Names were invented here while the

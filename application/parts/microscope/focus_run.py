@@ -1,9 +1,9 @@
-"""Drive to each point and let the instrument focus there.
+"""Drive to each point, capture a stack there, and have it scored.
 
-This is the whole of "measure a focus map": move the stage to a place, ask the
-driver to focus, keep the height it reports. The workflow's step 4 does it, and
-so does the operator page through its bridge, and they must do it identically —
-so they do it here.
+This is the whole of "measure a focus map": move the stage to a place, acquire
+a z-stack around it, and let ZMART_analysis say which plane is sharp. The
+workflow's step 4 does it, and so does the operator page through its bridge,
+and they must do it identically -- so they do it here.
 
 They did not, and that is why this file exists. The bridge had a copy of the
 loop, and the copy had drifted in three separate ways at once: it named the
@@ -13,27 +13,39 @@ operator ran through the page came back a column of zeros. Twenty metres away,
 in the workflow, the same loop was right. A procedure written twice is a
 procedure that will differ, and the difference will be silent.
 
-What it must not do is import the rest of the workflow. The bridge is standard
-library plus ``zmart_controller`` on purpose — that is what lets it run on a
-microscope PC with nothing installed on it — so this module is too, and it
-lives beside ``workflow/`` rather than inside it.
+Why it is no longer a vendor procedure
+--------------------------------------
+
+It called the instrument's own autofocus and kept the height that came back.
+That height could not be argued with: there was no curve to show, so the
+operator page's choice of sharpness metric reached nothing and the rule that
+rejects a peak too narrow to be tissue -- the whole defence against focusing on
+a speck of dust -- was never applied. Focusing is not instrument control; it is
+an image-analysis routine that happens to run before the picture rather than
+after it. So the instrument is asked for what only it can give, pixels, and the
+choosing is done where every other measurement on pixels is done.
+
+``score`` is passed in rather than imported. This module is standard library
+plus ``zmart_controller`` on purpose -- that is what lets the bridge run on a
+microscope PC with nothing installed on it -- so how the planes reach the
+analysis, and how its environment is kept warm, is the caller's business and
+not this loop's.
 
 Where the search begins
 -----------------------
 
 The stage is driven to the place the operator wants focused, and that place is
-the **centre of the range the instrument sweeps**. The stack itself is not this
-loop's business: the driver's autofocus procedure decides how far either side
-to look and in what steps, from the focussing configuration the instrument is
-already set to. So a point's ``z`` is not a height to keep, it is a height to
-look around.
+the **centre of the stack**. How far either side to look and in what steps is
+not this loop's business either: it belongs to the focussing settings the
+instrument is already set to, which is why ``focussing`` is passed as the kind
+of acquisition and nothing here says how many planes to take.
 
 That is the whole difference between running a map again and refining it. Run
-again, and every search centres on the height the objective is standing at —
+again, and every stack centres on the height the objective is standing at --
 one good height, found by eye, and a map to rebuild around it. Refine, and each
 centres on what the map already predicts there, which is a micrometre or two
 from the tissue rather than somewhere near the middle of the plate. Same
-focussing configuration either way; different centres.
+focussing settings either way; different centres.
 
 Author: Thom de Hoog, Center for Microscopy and Image Analysis (ZMB),
 University of Zurich (thom.dehoog@zmb.uzh.ch, thomdehoog@gmail.com).
@@ -43,10 +55,12 @@ from __future__ import annotations
 
 from typing import Any
 
-#: Where a driver reports the height its autofocus settled on, most telling
-#: first. ``frame_z_um`` is the drivers' own contract — the sharp height in
-#: frame terms, which is the only one of these in the caller's coordinates.
-_WHERE_THE_HEIGHT_IS = ("frame_z_um", "focus_um", "z")
+from application.parts.storage.output import position_label
+
+#: The kind of acquisition a focus stack is. It is what tells the instrument to
+#: take a stack rather than a picture: the settings imported for this kind of
+#: scan carry the range and the step.
+FOCUSSING = "focussing"
 
 
 class RunCancelled(RuntimeError):
@@ -58,54 +72,47 @@ class RunCancelled(RuntimeError):
     """
 
 
-def height_reported(answer: dict) -> float | None:
-    """The height an autofocus came back with, or ``None`` if it named none.
-
-    ``None`` rather than a number, because a made-up height is worse than a
-    missing one: a surface is fitted through these, so one invented zero drags
-    the whole map towards a place nobody measured.
-    """
-    for key in _WHERE_THE_HEIGHT_IS:
-        if isinstance(answer.get(key), (int, float)) and not isinstance(answer.get(key), bool):
-            return float(answer[key])
-    inside = answer.get("position")
-    if isinstance(inside, dict) and isinstance(inside.get("z"), (int, float)):
-        return float(inside["z"])
-    return None
-
-
 def measure_focus(
     session: Any,
     points: list[dict],
     *,
-    af_job: str | None = None,
+    score: Any,
+    state: dict | None = None,
     start_z: float | None = None,
     on_point: Any = None,
     cancel: Any = None,
 ) -> list[dict]:
-    """Autofocus at each frame ``(x, y)``; return ``[{"x_um","y_um","z_um"}]``.
+    """Capture a focus stack at each frame ``(x, y)`` and have it scored.
 
     ``points`` are frame micrometres, each a dict with ``x``/``y`` and
-    optionally ``z`` — the centre of the range to search there. A point that
+    optionally ``z`` — the centre of the stack to take there. A point that
     names no centre uses ``start_z``; if that is not given either, the height
     the objective is already at when the run begins, read once.
 
-    ``af_job`` names the autofocus job, and is omitted when the instrument has
-    exactly one. ``z_um`` is what the driver reported, or ``None`` where it
-    reported nothing.
+    ``score(record)`` is given the driver's acquire record and answers
+    ``{"z_um": float | None, "traces": {...}}`` — the sharp height, or ``None``
+    where nothing in the stack could be chosen, and the curves it was chosen
+    from. ``None`` rather than a number, because a made-up height is worse than
+    a missing one: a surface is fitted through these, so one invented zero
+    drags the whole map towards a place nobody measured.
+
+    ``state`` (from :meth:`Session.get_state`) is the focussing settings, and
+    is applied once before the run rather than per point.
 
     ``on_point(measurement)`` fires as each point completes, so a caller can
     show a height while the stage is still working through the rest.
     ``cancel`` is asked before every move; answering True raises
     :class:`RunCancelled` cleanly between two points, having moved nothing.
     """
+    if state is not None:
+        session.set_state(state)
     standing = None
     measured = []
-    for index, point in enumerate(points, start=1):
+    for index, point in enumerate(points):
         if cancel is not None and cancel():
             raise RunCancelled(
-                f"the focus run was cancelled before point {index} of "
-                f"{len(points)}: {index - 1} point(s) measured, and no further "
+                f"the focus run was cancelled before point {index + 1} of "
+                f"{len(points)}: {index} point(s) measured, and no further "
                 "stage move was made."
             )
         centre = point.get("z")
@@ -117,12 +124,19 @@ def measure_focus(
             centre = start_z if start_z is not None else standing
         session.set_xyz(point["x"], point["y"], float(centre))
 
-        procedure = {"name": "autofocus"}
-        if af_job is not None:
-            procedure["job"] = af_job
-        found = height_reported(session.run_procedure(procedure))
+        found = score(
+            session.acquire(
+                acquisition_type=FOCUSSING,
+                position_label=position_label(index),
+            )
+        )
 
-        measurement = {"x_um": point["x"], "y_um": point["y"], "z_um": found}
+        measurement = {
+            "x_um": point["x"],
+            "y_um": point["y"],
+            "z_um": found.get("z_um"),
+            "traces": found.get("traces"),
+        }
         measured.append(measurement)
         if on_point is not None:
             on_point(measurement)

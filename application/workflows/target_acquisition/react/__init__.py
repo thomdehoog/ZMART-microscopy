@@ -71,7 +71,7 @@ def pick_focus_points(
     positions: list[dict] | None = None,
     *,
     focus_positions: list[dict] | None = None,
-    af_job: str | None = None,
+    score: Any = None,
     start_z: float | None = None,
     seed: bool = True,
 ) -> FocusPickerReact:
@@ -80,7 +80,7 @@ def pick_focus_points(
         session,
         positions,
         focus_positions=focus_positions,
-        af_job=af_job,
+        score=score,
         start_z=start_z,
         seed=seed,
     )

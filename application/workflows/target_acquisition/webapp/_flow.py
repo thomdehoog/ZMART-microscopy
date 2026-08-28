@@ -44,14 +44,14 @@ class RunFlow:
         demo: bool = False,
         vendor: str = "leica",
         demo_root: str | Path | None = None,
-        af_job: str | None = None,
+        score: Any = None,
         experiment: str = "target-acquisition",
     ) -> None:
         self.hub = hub
         self.demo = demo
         self.vendor = vendor
         self.demo_root = Path(demo_root) if demo_root is not None else None
-        self.af_job = af_job
+        self.score = score
         self.experiment = experiment
 
         # The same names the notebook's cells would define, so the run
@@ -211,7 +211,7 @@ class RunFlow:
             "demo": self.demo,
             "vendor": self.vendor,
             "demo_root": self.demo_root,
-            "af_job": self.af_job,
+            "score": self.score is not None,
             "experiment": self.experiment,
         }
         self.hub.clear_widgets()
@@ -313,7 +313,7 @@ class RunFlow:
                 self.session,
                 positions,
                 focus_positions=info.get("focus_positions"),
-                af_job=self.af_job,
+                score=self.score,
             )
             self.ns["picker"] = self.picker
             self.hub.add_widget("focus", self.picker)

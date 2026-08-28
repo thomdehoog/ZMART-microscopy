@@ -13,7 +13,24 @@ matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt  # noqa: E402
 import pytest  # noqa: E402
+from application.workflows.target_acquisition.steps.focus_strategy import widget  # noqa: E402
 from application.workflows.target_acquisition.steps.focus_strategy.widget import FocusPicker, pick_focus_points  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _score_the_stub_stacks(monkeypatch):
+    """These tests are about the picker, not about scoring pixels.
+
+    The stub sessions capture nothing real, so the height comes straight off
+    the record. What each test is checking -- the seeding, the heatmap, which
+    points get revisited -- is the same either way, and building real stacks
+    for it would only make them slow.
+    """
+    monkeypatch.setattr(
+        widget,
+        "in_process",
+        lambda **_kw: (lambda record: {"z_um": record["focus_by_xy"], "traces": {}}),
+    )
 
 
 class _StubSession:
@@ -24,7 +41,7 @@ class _StubSession:
         self.seed_points = seed_points
         self.current_z = current_z
         self.moves = []
-        self.procedures = []
+        self.captured = []
 
     def get_xyz(self):
         return {"z": {"value": self.current_z}}
@@ -38,10 +55,10 @@ class _StubSession:
     def set_xyz(self, x, y, z, **_kw):
         self.moves.append((x, y, z))
 
-    def run_procedure(self, procedure):
-        self.procedures.append(procedure)
+    def acquire(self, *, acquisition_type, position_label, options=None):
         x, y, _z = self.moves[-1]
-        return {"ran": "autofocus", "frame_z_um": self.focus_by_xy[(x, y)]}
+        self.captured.append((acquisition_type, position_label))
+        return {"planes": [], "focus_by_xy": self.focus_by_xy[(x, y)]}
 
 
 class _Event:
@@ -89,7 +106,7 @@ def test_seeds_from_lasx_focus_points():
     session = _StubSession(seed_points=[{"x": 5.0, "y": 6.0}, {"x": 7.0, "y": 8.0}])
     picker = pick_focus_points(session, focus_positions=session.seed_points)
     assert picker.points == [{"x": 5.0, "y": 6.0}, {"x": 7.0, "y": 8.0}]
-    assert session.procedures == []
+    assert session.captured == []
 
 
 def test_seed_failure_starts_empty():
@@ -114,9 +131,9 @@ def test_measure_fits_surface_and_draws_heatmap():
 
     assert picker.focus is surface
     assert surface.z_at(5, 5) == pytest.approx(4.5)
-    assert picker.measured == [
-        {"x_um": x, "y_um": y, "z_um": z} for (x, y), z in focus.items()
-    ]
+    assert [
+        {key: point[key] for key in ("x_um", "y_um", "z_um")} for point in picker.measured
+    ] == [{"x_um": x, "y_um": y, "z_um": z} for (x, y), z in focus.items()]
     # The heatmap and its colorbar were drawn into the SAME figure, with one
     # z annotation per measured point.
     assert picker._heatmap is not None
@@ -167,9 +184,9 @@ def test_heatmap_grows_while_measuring():
     heatmaps_during = []
 
     class _PeekingSession(_StubSession):
-        def run_procedure(self, procedure):
+        def acquire(self, **asked):
             heatmaps_during.append(picker._heatmap is not None)
-            return super().run_procedure(procedure)
+            return super().acquire(**asked)
 
     focus = {(0.0, 0.0): 3.0, (10.0, 0.0): 4.0, (0.0, 10.0): 5.0}
     picker = FocusPicker(_PeekingSession(focus), seed=False, start_z=0.0)
@@ -190,16 +207,16 @@ def test_remeasure_only_visits_new_points():
     picker.add_point(0.0, 0.0)
     picker.add_point(10.0, 0.0)
     picker.measure()
-    assert len(session.procedures) == 2
+    assert len(session.captured) == 2
 
     picker.add_point(5.0, 5.0)
     picker.measure()  # only the new point drives the stage
-    assert len(session.procedures) == 3
+    assert len(session.captured) == 3
     assert len(picker.require_focus().measured) == 3
 
     picker.remove_point(2)
     picker.measure()  # nothing new: a pure refit, no stage moves at all
-    assert len(session.procedures) == 3
+    assert len(session.captured) == 3
     assert len(picker.require_focus().measured) == 2
     assert "reused" in picker.ax.get_title()
 

@@ -73,7 +73,6 @@ def main() -> None:
         demo=args.demo,
         vendor=args.vendor,
         demo_root=args.demo_root,
-        af_job=args.af_job,
         experiment=args.experiment,
         open_window=args.window,
     )

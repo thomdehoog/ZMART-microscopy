@@ -97,9 +97,9 @@ if str(_ROOT) not in sys.path:
 
 import zmart_controller  # noqa: E402
 from application.parts.storage.output import position_label  # noqa: E402
-from application.parts.microscope.focus_run import (  # noqa: E402
-    measure_focus,
-)
+from application.parts.analysis import warm  # noqa: E402
+from application.parts.microscope import focus_score  # noqa: E402
+from application.parts.microscope.focus_run import measure_focus  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # The session, and the one lock that guards it
@@ -184,6 +184,9 @@ def _disconnect() -> dict:
     if _session is not None:
         _session.disconnect()
         _session = None
+    # The workers outlive a focus map on purpose, but not the session: a
+    # disconnected page is not about to measure anything.
+    warm.close()
     return {"closed": True}
 
 
@@ -436,19 +439,33 @@ def _drive_to(asked: dict) -> dict:
 # ---------------------------------------------------------------------------
 
 
+def _score_a_stack():
+    """How a captured stack becomes a height and a curve.
+
+    Through the warm analysis, which is shared with every other step that
+    measures pixels and outlives any one focus map. See
+    :mod:`application.parts.analysis.warm`.
+    """
+    return focus_score.through(warm.the_analysis())
+
+
 def _measure_focus(asked: dict) -> dict:
-    """Drive to each point, focus there, and report the height found.
+    """Drive to each point, capture a stack there, and report what was found.
 
     The loop itself is :func:`~application.parts.microscope.focus_run.measure_focus`,
     which the workflow's step 4 runs too. This is the translation either side of
     it and nothing more.
 
     The page calls a point's search centre ``startZ`` — where the objective is
-    driven before the instrument sweeps around it — and that is the whole of
-    what Rerun and Refine differ by: run again and every search centres on the
-    height the objective is standing at; refine and each centres on what the
-    map already predicts there. The same focussing configuration does the
-    sweeping either way, and the stack it takes is the instrument's business.
+    driven before the stack is taken around it — and that is the whole of what
+    Rerun and Refine differ by: run again and every stack centres on the height
+    the objective is standing at; refine and each centres on what the map
+    already predicts there. The same focussing settings decide the range and
+    the step either way.
+
+    Every point comes back with its curves as well as its height, because a
+    height alone cannot be argued with: the plot is how the routine shows its
+    work, and it is what lets an operator see that a peak was a speck of dust.
 
     Answered point by point, each carrying what it was asked with, because the
     page matches them up by position and draws what it gets back.
@@ -462,11 +479,12 @@ def _measure_focus(asked: dict) -> dict:
                 if isinstance(point.get("startZ"), (int, float)) else {})}
             for point in asked.get("points", [])
         ],
+        score=_score_a_stack(),
     )
     return {
         "points": [
             {**point, "zAuto": found["z_um"], "z": found["z_um"],
-             "lost": found["z_um"] is None}
+             "lost": found["z_um"] is None, "traces": found["traces"]}
             for point, found in zip(asked.get("points", []), measured)
         ]
     }
