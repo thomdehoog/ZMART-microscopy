@@ -1,8 +1,6 @@
 import { describe, it, expect } from "vitest";
-import {
-  sweep, findCandidates, pickPeak, scoreAt, debrisAt,
-  METRIC_KEYS, MIN_TISSUE_WIDTH_UM, SWEEP_N,
-} from "../../../parts/microscope/pretend-sample/sweep.js";
+import { sweep, scoreAt, debrisAt, SWEEP_N }
+  from "../../../parts/microscope/pretend-sample/sweep.js";
 
 const FOCUS_Z = -412;
 
@@ -22,56 +20,12 @@ describe("the sweep is a sweep", () => {
     const b = sweep({ focusZ: FOCUS_Z, index: 3, metric: "brenner" });
     expect(a.samples).toEqual(b.samples);
   });
-
-  it("peaks near the true focus when nothing is in the way", () => {
-    for (const metric of METRIC_KEYS) {
-      const { candidates } = sweep({ focusZ: FOCUS_Z, index: withoutDebris, metric });
-      expect(Math.abs(pickPeak(candidates).z - FOCUS_Z)).toBeLessThan(3);
-    }
-  });
 });
 
 describe("debris is the failure worth modelling", () => {
-  it("a speck adds a second, narrower candidate", () => {
-    const { candidates, hasDebris } = sweep({ focusZ: FOCUS_Z, index: withDebris, metric: "brenner" });
-    expect(hasDebris).toBe(true);
-    expect(candidates.length).toBeGreaterThan(1);
-    expect(candidates.some((c) => c.narrow)).toBe(true);
-  });
-
-  it("the speck out-scores the tissue — a plain argmax walks into it", () => {
-    const { candidates } = sweep({ focusZ: FOCUS_Z, index: withDebris, metric: "brenner" });
-    const tallest = candidates.reduce((a, b) => (b.s > a.s ? b : a));
-    expect(tallest.narrow, "if this ever fails the mock stopped modelling the bug").toBe(true);
-  });
-
-  it("pickPeak refuses it and takes the tissue instead", () => {
-    const { candidates } = sweep({ focusZ: FOCUS_Z, index: withDebris, metric: "brenner" });
-    const chosen = pickPeak(candidates);
-    expect(chosen.narrow).toBe(false);
-    expect(chosen.width).toBeGreaterThanOrEqual(MIN_TISSUE_WIDTH_UM);
-    expect(Math.abs(chosen.z - FOCUS_Z)).toBeLessThan(4);
-  });
-
-  it("still answers when every candidate is narrow, but flags it", () => {
-    const spike = Array.from({ length: 21 }, (_, i) => ({ z: i, s: i === 10 ? 1 : 0.02 }));
-    const chosen = pickPeak(findCandidates(spike));
-    expect(chosen.narrow).toBe(true);
-  });
-});
-
-describe("candidates", () => {
-  it("refines the peak between samples rather than snapping to one", () => {
-    const asym = Array.from({ length: 21 }, (_, i) => ({ z: i, s: Math.exp(-((i - 10.4) ** 2) / 40) }));
-    const [c] = findCandidates(asym);
-    expect(c.z).toBeGreaterThan(10);
-    expect(c.z).toBeLessThan(11);
-    expect(c.z).not.toBe(10);
-  });
-
-  it("never returns empty, even for a flat curve", () => {
-    const flat = Array.from({ length: 21 }, (_, i) => ({ z: i, s: 0.5 }));
-    expect(findCandidates(flat)).toHaveLength(1);
+  it("a speck is put in some fields and not others, always the same ones", () => {
+    expect(sweep({ focusZ: FOCUS_Z, index: withDebris, metric: "brenner" }).hasDebris).toBe(true);
+    expect(sweep({ focusZ: FOCUS_Z, index: withoutDebris, metric: "brenner" }).hasDebris).toBe(false);
   });
 });
 

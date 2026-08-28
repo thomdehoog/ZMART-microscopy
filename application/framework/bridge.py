@@ -165,6 +165,13 @@ def _instruments() -> list:
     return zmart_controller.get_instruments()
 
 
+#: Where runs go, when this bridge was started with somewhere to put them.
+#: A driver that discovers its own (the Leica finds the root beside LAS X)
+#: needs none of this; one that cannot has to be told, and the page has
+#: nowhere to say it -- it connects with the entry the registry listed.
+_output_root: str | None = None
+
+
 def _connect(asked: dict) -> dict:
     """Open the session for one of the registry's entries and answer with the driver's account."""
     global _session, _context
@@ -173,6 +180,8 @@ def _connect(asked: dict) -> dict:
         raise ValueError(
             "connect needs the instrument's connection entry, as listed by /api/instruments"
         )
+    if _output_root is not None:
+        connection = {**connection, "output_root": _output_root}
     _session = zmart_controller.set_instrument(connection)
     _context = dict(_session.context)
     info = _session.get_info()
@@ -726,19 +735,21 @@ class _Bridge(BaseHTTPRequestHandler):
         """Quiet: the terminal is the operator's too."""
 
 
-def _a_bridge_on(port: int) -> ThreadingHTTPServer:
+def _a_bridge_on(port: int, output_root: str | None = None) -> ThreadingHTTPServer:
     """A bridge ready to answer, with every driver this machine has.
 
     Both ways in build it here. They did not: run as a script it registered
     nothing, so the page's Microscope list came back empty and there was
     nothing to connect to -- while the same file imported and served was fine.
     """
+    global _output_root
+    _output_root = output_root
     _register_known_drivers()
     return ThreadingHTTPServer(("127.0.0.1", port), _Bridge)
 
 
-def serve(port: int = 8600) -> ThreadingHTTPServer:
-    server = _a_bridge_on(port)
+def serve(port: int = 8600, output_root: str | None = None) -> ThreadingHTTPServer:
+    server = _a_bridge_on(port, output_root)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     return server
 
@@ -746,7 +757,11 @@ def serve(port: int = 8600) -> ThreadingHTTPServer:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--port", type=int, default=8600)
+    parser.add_argument(
+        "--output-root",
+        help="where runs go, for a driver that cannot discover its own",
+    )
     args = parser.parse_args()
-    server = _a_bridge_on(args.port)
+    server = _a_bridge_on(args.port, args.output_root)
     print(f"bridge listening on 127.0.0.1:{args.port}")
     server.serve_forever()

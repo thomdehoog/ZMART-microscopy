@@ -40,8 +40,11 @@ export async function startTheBridge({ port } = {}) {
      inside the project looks to the development server like somebody editing
      the page, which reloads the browser mid-test. */
   const folder = fs.mkdtempSync(path.join(os.tmpdir(), "zmart-bridge-"));
-  const bridge = spawn(process.env.PYTHON ?? "python", [BRIDGE, "--port", String(port)],
-    { stdio: "inherit", cwd: REPO });
+  const bridge = spawn(
+    process.env.PYTHON ?? "python",
+    [BRIDGE, "--port", String(port), "--output-root", folder],
+    { stdio: "inherit", cwd: REPO },
+  );
 
   const at = `http://127.0.0.1:${port}`;
   const ask = async (route, payload) => {
@@ -68,7 +71,7 @@ export async function startTheBridge({ port } = {}) {
   const { instruments } = await ask("/api/instruments");
   const scope = instruments.find((one) => one.vendor === "mock");
   if (!scope) throw new Error("the bridge has no mock microscope to connect to");
-  await ask("/api/connect", { connection: { ...scope, output_root: folder } });
+  await ask("/api/connect", { connection: scope });
 
   return {
     /* Where the pictures of the overview are served — the same address the
