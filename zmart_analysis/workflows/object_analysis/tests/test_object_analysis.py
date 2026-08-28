@@ -7,7 +7,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "parts"))
 from _contracts import validate_targets, validate_tile_detection  # noqa: E402
 from _detection_checkpoint import (  # noqa: E402
     area_filter_params,

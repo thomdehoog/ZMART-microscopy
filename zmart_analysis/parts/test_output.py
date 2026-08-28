@@ -61,7 +61,10 @@ def test_an_image_outside_an_acquisition_has_no_analysis_folder():
 # What detect_objects does with it when the caller names no output_dir
 # --------------------------------------------------------------------------
 
-sys.path.insert(0, str(Path(__file__).resolve().parent / "object_analysis" / "steps"))
+sys.path.insert(
+    0,
+    str(Path(__file__).resolve().parents[1] / "workflows" / "object_analysis" / "steps"),
+)
 
 
 def _detection(masks):
