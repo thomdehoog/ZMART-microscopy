@@ -21,8 +21,10 @@
 
 import carrierWidget from "../define_carrier/carrier-panel.js";
 import { makeRng } from "../../../../parts/microscope/pretend-sample/rng.js";
-import { METRICS, METRIC_KEYS, MIN_TISSUE_WIDTH_UM, sweep }
+import { METRICS, METRIC_KEYS, sweep }
   from "../../../../parts/microscope/pretend-sample/sweep.js";
+import { MIN_TISSUE_WIDTH_UM, findCandidates }
+  from "../../../../parts/microscope/focus-peaks.js";
 import {
   affineSurface, fitSurface, residualsUm, surfaceZ,
 } from "../../../../parts/microscope/pretend-sample/surface.js";
@@ -1023,7 +1025,16 @@ const traceCv = el("trace-canvas");
  * under a row that said nothing was worth looking at.
  */
 function sweepShown(point) {
-  return point?.traces ?? standInSweep(point);
+  const traces = point?.traces ?? standInSweep(point);
+  if (!traces) return traces;
+  /* The peaks are found here, from the curve, whoever measured it. A backend
+     that named its own would be answering a question the operator's rule
+     decides -- how wide a peak has to be to be tissue -- and only one backend
+     ever did, so the plot worked against the pretend one and crashed on the
+     real one. */
+  return Object.fromEntries(Object.entries(traces).map(([key, trace]) => [
+    key, { ...trace, candidates: findCandidates(trace.samples) },
+  ]));
 }
 
 function standInSweep(point) {
@@ -1038,7 +1049,7 @@ function standInSweep(point) {
   const about = Number.isFinite(point.zAuto) ? point.zAuto : point.z;
   return Object.fromEntries(METRIC_KEYS.map((key) => {
     const sw = sweep({ focusZ: about, index: Math.max(0, index), metric: key });
-    return [key, { samples: sw.samples, candidates: sw.candidates }];
+    return [key, { samples: sw.samples }];
   }));
 }
 

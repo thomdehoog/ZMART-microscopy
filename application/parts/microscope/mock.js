@@ -31,7 +31,8 @@
 import { APIS } from "./instruments.js";
 import { sampleReading } from "./settings.js";
 import { makeRng } from "./pretend-sample/rng.js";
-import { METRICS, METRIC_KEYS, debrisAt, sweep, pickPeak } from "./pretend-sample/sweep.js";
+import { METRICS, METRIC_KEYS, debrisAt, sweep } from "./pretend-sample/sweep.js";
+import { findCandidates, pickPeak } from "./focus-peaks.js";
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -216,9 +217,9 @@ export const backend = {
       const startZ = Number.isFinite(p.startZ) ? p.startZ : undefined;
       const traces = Object.fromEntries(METRIC_KEYS.map((key) => {
         const sw = sweep({ focusZ, index, metric: key, startZ });
-        return [key, { samples: sw.samples, candidates: sw.candidates }];
+        return [key, { samples: sw.samples }];
       }));
-      const chosen = pickPeak(traces[metric].candidates);
+      const chosen = pickPeak(findCandidates(traces[metric].samples));
       /* What the point carried in is not what it carries out: `startZ` was an
          instruction for this run, and saying it back would have the next one
          begin where this one did. */
