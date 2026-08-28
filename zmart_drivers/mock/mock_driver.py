@@ -69,7 +69,9 @@ _STACKS: dict[str, dict] = {"focussing": {"z_planes": 61, "z_step_um": 68.0 / 60
 # stage, sharp where the focal plane meets it and blurring with distance from
 # it. A driver that returned the same picture at every height would let a
 # broken focus routine pass, so this one does not.
-_SAMPLE_Z_UM = 5_000.0  # the sample's height above the frame's zero, at (0, 0)
+_SAMPLE_Z_UM = 8.0  # the sample sits a few um above where a fresh stage stands, so an
+# operator who has not yet focused still sweeps through it. Far from zero, every
+# plane of a first stack is equally blurred and the map begins from nothing.
 _SAMPLE_TILT = (0.004, -0.002)  # um of height per um across x and y
 _BLUR_PER_UM = 0.25  # blur radius in pixels per um out of focus
 

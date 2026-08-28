@@ -11,7 +11,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 import tifffile
-from zmart_analysis.workflows._geometry import image_point_to_stage_xy
+from application.parts.microscope.simulation import image_point_to_stage_xy
 
 from application.workflows.target_acquisition.steps.discover_targets.discovery import (
     build_overview_inputs,
