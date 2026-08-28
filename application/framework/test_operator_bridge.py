@@ -378,3 +378,99 @@ def test_a_scan_captures_under_the_kind_of_scan_it_is(monkeypatch):
     _scanned(driver, [{"x": 0, "y": 0}], monkeypatch, acquisition_type="target")
     assert driver.asked[-1][0] == "target"
 
+
+
+# --- the scan, against a real driver -----------------------------------------
+
+
+def test_a_scan_really_captures_at_every_position(monkeypatch, tmp_path):
+    """The whole route, with nothing stood in for.
+
+    Every other scan test here drives a fake, which proves the bridge asks
+    correctly and not that anything is captured. This one connects the mock
+    driver through the controller -- the same path a Leica takes -- and looks
+    on disk afterwards. What it asserts is what an operator would check: the
+    files are there, one per position, named for where they were taken.
+    """
+    import zmart_controller
+    from zmart_drivers.mock import mock_driver
+
+    mock_driver.register_mock()
+    instrument = next(i for i in zmart_controller.get_instruments() if i["vendor"] == "mock")
+    instrument["output_root"] = str(tmp_path)
+    session = zmart_controller.set_instrument(instrument)
+    monkeypatch.setattr(bridge, "_session", session)
+    try:
+        positions = [
+            {"x": 0.0, "y": 0.0, "z": 5_000.0, "compartment": 1, "group": 1},
+            {"x": 900.0, "y": 0.0, "z": 5_000.0, "compartment": 1, "group": 1},
+            {"x": 0.0, "y": 700.0, "z": 5_000.0, "compartment": 2, "group": 2},
+        ]
+        bridge._scan.update(running=True, done=0, of=len(positions), error=None, records=[])
+        bridge._scan_worker(positions)
+        assert bridge._scan["error"] is None, bridge._scan["error"]
+    finally:
+        session.disconnect()
+
+    assert bridge._scan["done"] == 3
+    records = bridge._scan["records"]
+    assert [record["position_label"] for record in records] == [
+        "K00_M000001_G000001_P000000_V00",
+        "K00_M000001_G000001_P000001_V00",
+        "K00_M000002_G000002_P000002_V00",
+    ]
+    # Every capture wrote what it says it wrote, where a driver writes it.
+    written = sorted((tmp_path / "overview" / "data").glob("*.ome.tiff"))
+    assert len(written) == 3
+    for record in records:
+        for path in record["images"]:
+            assert Path(path).is_file()
+            assert Path(path).parent == tmp_path / "overview" / "data"
+    # And the state it was captured under is printed beside them, once each.
+    printed = sorted((tmp_path / "overview" / "data" / "metadata" / "ZMART_state").iterdir())
+    assert len(printed) == 3
+
+
+def test_a_scan_stops_and_says_so_when_a_capture_fails(monkeypatch, tmp_path):
+    """A run that could not finish must not read as a shorter one that did.
+
+    The driver is the real one and so is the first capture; the second is made
+    to fail, because an instrument that refuses mid-run is the case worth
+    covering and nothing in a mock will refuse on its own.
+    """
+    import zmart_controller
+    from zmart_drivers.mock import mock_driver
+
+    mock_driver.register_mock()
+    instrument = next(i for i in zmart_controller.get_instruments() if i["vendor"] == "mock")
+    instrument["output_root"] = str(tmp_path)
+    session = zmart_controller.set_instrument(instrument)
+
+    class _FailsOnTheSecond:
+        """The session, with the second capture refusing."""
+
+        def __init__(self, real):
+            self._real = real
+            self._made = 0
+
+        def __getattr__(self, name):
+            return getattr(self._real, name)
+
+        def acquire(self, **asked):
+            self._made += 1
+            if self._made == 2:
+                raise RuntimeError("the shutter did not open")
+            return self._real.acquire(**asked)
+
+    monkeypatch.setattr(bridge, "_session", _FailsOnTheSecond(session))
+    try:
+        positions = [{"x": 0.0, "y": 0.0}, {"x": 900.0, "y": 0.0}, {"x": 1_800.0, "y": 0.0}]
+        bridge._scan.update(running=True, done=0, of=3, error=None, records=[])
+        bridge._scan_worker(positions)
+    finally:
+        session.disconnect()
+
+    assert bridge._scan["error"] == "the shutter did not open"
+    assert bridge._scan["done"] == 1  # the one that finished, not the one that failed
+    assert bridge._scan["running"] is False
+    assert len(bridge._scan["records"]) == 1
