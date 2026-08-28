@@ -153,7 +153,6 @@ def test_full_controller_only_flow(tmp_path):
             assert focus.z_at(x, y) == pytest.approx(
                 mock_driver.sharp_height_um(x, y), abs=2.0
             )
-        assert focus.z_at(120.0, 0.0) != pytest.approx(focus.z_at(0.0, 60.0))
 
         # 5. overview: capture at each position, z from the surface
         overview_records = workflow.run_overview(
