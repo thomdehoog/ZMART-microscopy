@@ -235,3 +235,22 @@ def test_every_plane_says_where_on_the_sample_it_was_taken(scope):
     given = what_was_captured(record)
     assert given["z_um"] == heights
     assert len(given["image_paths"]) == len(heights) == 61
+
+
+def test_a_stack_taken_far_from_the_tissue_reports_no_height(scope):
+    """The whole point of a search centre: begin in the wrong place and it says so.
+
+    A drive begun far from the sample sweeps its range without reaching it.
+    The sharpest plane it holds is only the last one before it stopped, and
+    reporting that as the focus would put a surface through a height nobody
+    measured -- so nothing is reported.
+    """
+    truth = mock_driver.sharp_height_um(*CLEAN)
+
+    scored = focus_at(scope, *CLEAN, centre_um=truth + 400.0)
+
+    assert scored["found"] is False
+    assert scored["peak_z_um"] is None
+    # The curve still came back, because a plot of what it swept is how an
+    # operator sees that the search began in the wrong place.
+    assert len(scored["metrics"]["brenner"]["scores"]) == 61

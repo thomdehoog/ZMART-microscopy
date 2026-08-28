@@ -387,3 +387,35 @@ def test_given_heights_still_win_over_the_stores_own(zarr_position):
     }
     result = run(data, {})["score_focus"]
     assert result["z_um"] == pytest.approx(z_um)
+
+
+# --- a sweep that never reached the sample ----------------------------------
+
+
+def test_a_stack_that_never_reached_the_sample_reports_no_height(tmp_path):
+    """Still rising at the edge means the sharp plane is outside the sweep.
+
+    A drive begun far from the tissue comes back having seen only its
+    approach, and the sharpest plane it holds is simply the last one before
+    it stopped. Reporting that as the focus would put a surface through a
+    height nobody measured, so it reports none.
+    """
+    sharp = np.random.default_rng(0).integers(0, 4096, size=(64, 64)).astype(np.float64)
+    climbing = tmp_path / "climbing.tiff"
+    tifffile.imwrite(
+        climbing,
+        np.stack([_blurred(sharp, N_PLANES - z) for z in range(N_PLANES)]).astype(np.uint16),
+        metadata={"axes": "ZYX"},
+    )
+
+    result = _scored(climbing)
+
+    assert result["found"] is False
+    assert result["peak_z_um"] is None
+    assert result["metrics"]["brenner"]["scores"]  # the curve is still there to draw
+
+
+def test_a_stack_with_the_sample_in_it_is_found(stack_path):
+    """The ordinary case, said out loud, so the one above means something."""
+    result = _scored(stack_path)
+    assert result["found"] is True
