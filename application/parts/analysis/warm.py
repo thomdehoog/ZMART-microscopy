@@ -15,7 +15,7 @@ on first use, and handed to whoever asks.
 
     from application.parts.analysis import warm
 
-    scored = warm.the_analysis().run("focus", {"input": {...}})
+    scored = warm.the_analysis().run("focus", {"image_paths": [...]})
 
 Author: Thom de Hoog, Center for Microscopy and Image Analysis (ZMB),
 University of Zurich (thom.dehoog@zmb.uzh.ch, thomdehoog@gmail.com).
@@ -68,8 +68,13 @@ class Analysis:
             self._engine = Engine()
         return self._engine
 
-    def run(self, pipeline: str, data: dict, *, patience_s: float = PATIENCE_S) -> dict:
+    def run(self, pipeline: str, given: dict, *, patience_s: float = PATIENCE_S) -> dict:
         """Run one job through *pipeline* and return its result.
+
+        ``given`` is the step's own input -- ``image_paths``, ``z_um`` and so
+        on. The engine is what puts it under ``pipeline_data["input"]``, so a
+        caller that wrapped it itself would have it arrive one level too deep
+        and the step would report the input missing.
 
         Raises if the pipeline fails or answers nothing: a step that measures
         pixels has no sensible empty answer, and a caller that invented one
@@ -80,7 +85,7 @@ class Analysis:
             engine.register(pipeline, str(pipeline_yaml(pipeline)))
             self._registered.add(pipeline)
 
-        engine.submit(pipeline, data)
+        engine.submit(pipeline, given)
         give_up_at = time.monotonic() + patience_s
         while True:
             status = engine.status(pipeline)
