@@ -27,6 +27,7 @@ from pathlib import Path
 import pytest
 
 from zmart_controller import get_instruments, set_instrument
+from application.parts.microscope.focus_score import HALF_A_SWEEP_UM, what_was_captured
 from zmart_drivers.mock import mock_driver
 
 # The step is loaded by path rather than imported as a module, the way the
@@ -68,18 +69,16 @@ def focus_at(session, x_um: float, y_um: float, centre_um: float) -> dict:
     ``focussing`` is what tells the instrument this capture is a stack rather
     than a picture, and the stack is centred on the height driven to -- which
     is the whole reason a caller drives to the middle of the range it wants
-    searched rather than to the bottom of it. The heights come back with the
-    planes: the driver put the drive there, so it is the one that knows.
+    searched rather than to the bottom of it. The heights are worked out from
+    what the run did, not read off the record: no driver reports them, and the
+    same arithmetic has to serve every driver.
     """
     session.set_xyz(x_um, y_um, centre_um)
     record = session.acquire(acquisition_type="focussing", position_label="K00_P000000")
 
     scored = score_focus(
         {
-            "input": {
-                "image_paths": [plane["path"] for plane in record["planes"]],
-                "z_um": [plane["z_um"] for plane in record["planes"]],
-            },
+            "input": what_was_captured(record, centre_um, HALF_A_SWEEP_UM),
             "metadata": {"verbose": 0},
         },
         {},
@@ -191,3 +190,49 @@ def test_dust_is_common_enough_to_meet_and_rare_enough_to_avoid(scope):
     fields = [(x * 100.0, y * 100.0) for x in range(-10, 11) for y in range(-10, 11)]
     dusty = [field for field in fields if mock_driver.debris_at(*field) is not None]
     assert 0.3 < len(dusty) / len(fields) < 0.55
+
+
+def test_a_driver_that_names_no_heights_is_focused_just_the_same(scope):
+    """The record a Leica hands back, and the same answer out of it.
+
+    The Leica adapter's planes carry ``t``, ``z``, ``c`` and a path -- an index
+    of depth and nothing in micrometres. Nothing in this chain may depend on a
+    height the driver did not promise, or the page would work against the mock
+    and quietly measure the wrong thing against the microscope.
+    """
+    truth = mock_driver.sharp_height_um(*CLEAN)
+    scope.set_xyz(*CLEAN, truth + 8.0)
+    record = scope.acquire(acquisition_type="focussing", position_label="K00_P000000")
+
+    #: Exactly what the Leica adapter builds: no micrometres anywhere.
+    like_a_leica = {
+        **record,
+        "planes": [
+            {"t": plane["t"], "z": plane["z"], "c": plane["c"], "path": plane["path"]}
+            for plane in record["planes"]
+        ],
+    }
+    assert all("z_um" not in plane for plane in like_a_leica["planes"])
+
+    scored = score_focus(
+        {
+            "input": what_was_captured(like_a_leica, truth + 8.0, HALF_A_SWEEP_UM),
+            "metadata": {"verbose": 0},
+        },
+        {},
+    )["score_focus"]
+
+    assert scored["peak_z_um"] == pytest.approx(truth, abs=TOLERANCE_UM)
+
+
+def test_the_heights_span_the_sweep_the_run_asked_for(scope):
+    """Centred on where the stage was driven, one plane at each end."""
+    scope.set_xyz(*CLEAN, 5_000.0)
+    record = scope.acquire(acquisition_type="focussing", position_label="K00_P000000")
+
+    given = what_was_captured(record, 5_000.0, HALF_A_SWEEP_UM)
+
+    assert len(given["z_um"]) == len(given["image_paths"]) == 61
+    assert given["z_um"][0] == pytest.approx(5_000.0 - HALF_A_SWEEP_UM)
+    assert given["z_um"][-1] == pytest.approx(5_000.0 + HALF_A_SWEEP_UM)
+    assert given["z_um"][30] == pytest.approx(5_000.0)

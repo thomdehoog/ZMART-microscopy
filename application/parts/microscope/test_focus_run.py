@@ -41,7 +41,7 @@ class _StubSession:
         }
 
 
-def _score(record):
+def _score(record, _centre_um):
     """A stand-in for ZMART_analysis: hands back what the stack was built from."""
     return {"z_um": record["focus_by_xy"], "traces": {"brenner": {"samples": []}}}
 
@@ -104,7 +104,7 @@ def test_a_stack_nothing_could_be_chosen_from_reports_no_height():
         session,
         [{"x": 0.0, "y": 0.0}],
         start_z=0.0,
-        score=lambda record: {"z_um": None, "traces": {}},
+        score=lambda record, _centre: {"z_um": None, "traces": {}},
     )
     assert measured[0]["z_um"] is None
 

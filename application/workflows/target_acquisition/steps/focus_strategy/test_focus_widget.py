@@ -29,7 +29,7 @@ def _score_the_stub_stacks(monkeypatch):
     monkeypatch.setattr(
         widget,
         "in_process",
-        lambda **_kw: (lambda record: {"z_um": record["focus_by_xy"], "traces": {}}),
+        lambda **_kw: (lambda record, _centre: {"z_um": record["focus_by_xy"], "traces": {}}),
     )
 
 

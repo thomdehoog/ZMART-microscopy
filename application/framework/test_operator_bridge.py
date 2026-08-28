@@ -166,7 +166,7 @@ def _score_without_an_engine(monkeypatch):
     monkeypatch.setattr(
         bridge,
         "_score_a_stack",
-        lambda: (lambda record: {"z_um": record["found_at"], "traces": {"brenner": {}}}),
+        lambda: (lambda record, _centre: {"z_um": record["found_at"], "traces": {"brenner": {}}}),
     )
 
 

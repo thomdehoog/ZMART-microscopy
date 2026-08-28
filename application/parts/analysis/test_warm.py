@@ -37,13 +37,26 @@ class _Engine:
         self.stopped += 1
 
 
+def test_the_input_reaches_the_step_as_the_step_expects_it():
+    """The engine wraps it; a caller that wrapped it too would bury it.
+
+    A step reads its input from ``pipeline_data["input"]``, and the engine is
+    what puts it there. Wrapped twice it arrives a level too deep and the step
+    reports the input missing -- which is what happened, and only in a worker,
+    where nothing in this repository could see it.
+    """
+    engine = _Engine()
+    warm.Analysis(engine).run("focus", {"image_paths": ["a.tiff", "b.tiff"]})
+    assert engine.submitted == [("focus", {"image_paths": ["a.tiff", "b.tiff"]})]
+
+
 def test_a_pipeline_is_registered_once_however_often_it_runs():
     """Registering parses YAML and reads every step; doing it per job is waste."""
     engine = _Engine()
     analysis = warm.Analysis(engine)
 
     for _ in range(3):
-        analysis.run("focus", {"input": {}})
+        analysis.run("focus", {"image_paths": []})
 
     assert [name for name, _path in engine.registered] == ["focus"]
     assert len(engine.submitted) == 3
@@ -54,8 +67,8 @@ def test_two_pipelines_share_the_one_engine():
     engine = _Engine()
     analysis = warm.Analysis(engine)
 
-    analysis.run("focus", {"input": {}})
-    analysis.run("object_analysis", {"input": {}})
+    analysis.run("focus", {"image_paths": []})
+    analysis.run("object_analysis", {"image_paths": []})
 
     assert [name for name, _path in engine.registered] == ["focus", "object_analysis"]
     assert engine.registered[1][1].endswith("object_analysis.yaml")
@@ -65,7 +78,7 @@ def test_a_failed_pipeline_is_raised_and_not_answered_for():
     """A step that measures pixels has no sensible empty answer."""
     analysis = warm.Analysis(_Engine(failure="the worker died"))
     with pytest.raises(RuntimeError, match="the worker died"):
-        analysis.run("focus", {"input": {}})
+        analysis.run("focus", {"image_paths": []})
 
 
 def test_a_pipeline_that_never_answers_gives_up_rather_than_hangs():
@@ -77,13 +90,13 @@ def test_a_pipeline_that_never_answers_gives_up_rather_than_hangs():
 
     analysis = warm.Analysis(_Silent())
     with pytest.raises(TimeoutError, match="did not answer"):
-        analysis.run("focus", {"input": {}}, patience_s=0.0)
+        analysis.run("focus", {"image_paths": []}, patience_s=0.0)
 
 
 def test_the_workers_are_let_go_and_can_start_again():
     engine = _Engine()
     analysis = warm.Analysis(engine)
-    analysis.run("focus", {"input": {}})
+    analysis.run("focus", {"image_paths": []})
 
     analysis.shutdown()
 
@@ -91,7 +104,7 @@ def test_the_workers_are_let_go_and_can_start_again():
     # And a later run registers afresh, because the workers it registered with
     # are gone -- not silently reusing a name the new engine never heard.
     analysis._engine = engine
-    analysis.run("focus", {"input": {}})
+    analysis.run("focus", {"image_paths": []})
     assert [name for name, _path in engine.registered] == ["focus", "focus"]
 
 
