@@ -157,5 +157,5 @@ export async function throughToAPlan(page) {
 }
 
 /** The first *count* places of a plan, as positions to send the stage to. */
-export const theFirst = (count, plan, { z = 5_000 } = {}) =>
+export const theFirst = (count, plan, { z = 0 } = {}) =>
   plan.slice(0, count).map((at) => ({ x: at.x, y: at.y, z }));
