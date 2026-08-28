@@ -1,4 +1,16 @@
 # Sharpness of every plane in an acquired z-stack, and the height it peaks at.
+#
+# What to submit with each job -- the input is not here because it changes with
+# every stack, while this file is the recipe:
+#
+#   image_paths  the planes of one stack, in depth order, as the driver wrote
+#                them (one 2-D file per plane), or
+#   image_path   one position that declares its own z axis instead
+#   z_um         the height each plane was taken at, from the acquisition's
+#                own record. Without it the peak can only be a plane index.
+#
+# What comes back, under `score_focus`: `peak_z_um` and `found`, and `metrics`
+# carrying both curves so the height can be argued with.
 
 metadata:
   purpose: "Focus scoring for a z-stack"
