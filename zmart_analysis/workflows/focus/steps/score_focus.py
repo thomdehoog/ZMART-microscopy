@@ -17,9 +17,11 @@ height. Parameters are in ``focus.yaml``.
 Publishes under ``pipeline_data["score_focus"]``::
 
     z_um        the heights, so a curve plots straight from this
-    metrics     per metric: scores in plane order, and its own peak
+    metrics     per metric: scores in plane order, its own peak, and whether
+                the stack contained one at all
     metric      which metric the reported peak came from
-    peak_index  refined plane index      peak_z_um   the height there
+    peak_index  refined plane index      peak_z_um   the height there, or None
+    found       whether the peak is one, or the edge of a curve still rising
     n_planes    considered               settings    what it was scored with
 
 ``considered`` is the first and last plane the peak could come from: the ends
@@ -101,10 +103,12 @@ def run(pipeline_data: dict, state: dict, **params) -> dict:
     for name, measure in METRICS.items():
         scores = [measure(plane) for plane in planes]
         peak_index = _refine_peak(scores, skip_ends)
+        found = _inside_the_sweep(peak_index, len(scores), skip_ends)
         metrics[name] = {
             "scores": scores,
             "peak_index": peak_index,
-            "peak_z_um": _height_at(peak_index, z_um),
+            "peak_z_um": _height_at(peak_index, z_um) if found else None,
+            "found": found,
         }
     chosen = metrics[metric]
 
@@ -122,6 +126,7 @@ def run(pipeline_data: dict, state: dict, **params) -> dict:
         "metric": metric,
         "peak_index": chosen["peak_index"],
         "peak_z_um": chosen["peak_z_um"],
+        "found": chosen["found"],
         "n_planes": len(planes),
         "considered": (skip_ends, len(planes) - skip_ends - 1),
         # A curve is only readable beside what produced it, and the pipeline
@@ -211,13 +216,29 @@ def _height_at(index: float, z_um: list[float] | None) -> float | None:
     return float(np.interp(index, np.arange(len(z_um)), np.asarray(z_um, dtype=float)))
 
 
+def _inside_the_sweep(peak_index: float, n_planes: int, skip_ends: int) -> bool:
+    """Whether the peak is a peak, or the edge of a curve still going up.
+
+    A drive begun far from the tissue sweeps its whole range without reaching
+    it, and the sharpest plane it holds is just the last one before it
+    stopped. That plane sits at the edge of what could be chosen, with the
+    curve still climbing through it -- so there is a height at which this is
+    sharp and the stack does not contain it. Saying so is the only honest
+    answer: a made-up height is worse than a missing one, because a surface is
+    fitted through these.
+    """
+
+    return skip_ends < peak_index < n_planes - skip_ends - 1
+
+
 def _refine_peak(scores: list[float], skip_ends: int) -> float:
     """The peak's plane index, interpolated between planes by a parabola.
 
     The best plane is chosen from the interior only, so an artefact at either
     end cannot win; its neighbours may still be skipped planes, which are
     excluded from being chosen, not from describing the curve. Falls back to
-    the plain index at an edge, or when the parabola has no vertex.
+    the plain index at an edge, and wherever the three points bend the wrong
+    way for a maximum.
     """
     interior = scores[skip_ends: len(scores) - skip_ends]
     best = skip_ends + int(np.argmax(interior))
@@ -225,6 +246,11 @@ def _refine_peak(scores: list[float], skip_ends: int) -> float:
         return float(best)
     before, here, after = scores[best - 1], scores[best], scores[best + 1]
     curvature = before - 2 * here + after
-    if curvature == 0:
+    if curvature >= 0:
+        # The three points bend the wrong way, so the parabola through them
+        # has a minimum and not a maximum: there is nothing between them to
+        # refine towards. It happens where a curve is still climbing at the
+        # end of what could be chosen, and following the vertex there sends
+        # the answer backwards, several planes away from the sharpest one.
         return float(best)
     return float(best + 0.5 * (before - after) / curvature)
