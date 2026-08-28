@@ -500,25 +500,47 @@ def _measure_focus(asked: dict) -> dict:
     Answered point by point, each carrying what it was asked with, because the
     page matches them up by position and draws what it gets back.
     """
-    session = _require_session()
-    measured = measure_focus(
-        session,
-        [
-            {"x": float(point["x"]), "y": float(point["y"]),
-             **({"z": float(point["startZ"])}
-                if isinstance(point.get("startZ"), (int, float)) else {})}
-            for point in asked.get("points", [])
-        ],
-        score=_score_a_stack(),
-        output_root=_the_run(),
-    )
-    return {
-        "points": [
-            {**point, "zAuto": found["z_um"], "z": found["z_um"],
-             "lost": found["z_um"] is None, "traces": found["traces"]}
-            for point, found in zip(asked.get("points", []), measured)
-        ]
-    }
+    if _focus["running"]:
+        raise RuntimeError("a focus map is already being measured")
+    asked_points = asked.get("points", [])
+    _focus.update(running=True, done=0, of=len(asked_points), error=None, points=[])
+    threading.Thread(target=_focus_worker, args=(asked_points,), daemon=True).start()
+    return dict(_focus)
+
+
+#: The focus map under way, polled by the page the way the scan is. Each
+#: point is added the moment it is measured, so the window can show a height
+#: while the stage is still working through the rest.
+_focus = {"running": False, "done": 0, "of": 0, "error": None, "points": []}
+
+
+def _focus_worker(asked: list) -> None:
+    def landed(index: int, found: dict) -> None:
+        point = asked[index]
+        _focus["points"].append({
+            **point, "zAuto": found["z_um"], "z": found["z_um"],
+            "lost": found["z_um"] is None, "traces": found["traces"],
+        })
+        _focus["done"] = index + 1
+
+    try:
+        with _the_instruments_turn:
+            measure_focus(
+                _require_session(),
+                [
+                    {"x": float(point["x"]), "y": float(point["y"]),
+                     **({"z": float(point["startZ"])}
+                        if isinstance(point.get("startZ"), (int, float)) else {})}
+                    for point in asked
+                ],
+                score=_score_a_stack(),
+                output_root=_the_run(),
+                on_point=lambda m, _n=[0]: (landed(_n[0], m), _n.__setitem__(0, _n[0] + 1)),
+            )
+    except Exception as why:  # noqa: BLE001 — the window shows the sentence
+        _focus["error"] = str(why)
+    finally:
+        _focus["running"] = False
 
 
 # ---------------------------------------------------------------------------
@@ -759,6 +781,8 @@ class _Bridge(BaseHTTPRequestHandler):
                     self._answer(_acquisition_options())
             elif path == "/api/scan":
                 self._answer(dict(_scan))
+            elif path == "/api/focus/measure":
+                self._answer(dict(_focus))
             elif path.startswith("/view/"):
                 self._send_a_picture(path)
             elif not path.startswith("/api/"):
@@ -787,8 +811,7 @@ class _Bridge(BaseHTTPRequestHandler):
                 with _the_instruments_turn:
                     self._answer(_capture(asked))
             elif self.path == "/api/focus/measure":
-                with _the_instruments_turn:
-                    self._answer(_measure_focus(asked))
+                self._answer(_measure_focus(asked))
             elif self.path == "/api/scan":
                 self._answer(_start_scan(asked))
             else:

@@ -1512,17 +1512,27 @@ async function remeasure({ from = null } = {}) {
     const startZ = beginsAt(p);
     return Number.isFinite(startZ) ? { ...p, startZ } : p;
   });
-  const { points } = await backend.measureFocus(asked, {
-    metric: f.metric,
-    extent: carrierSpan(),
-  });
   /* A backend that reports a height and nothing else is reporting its
      autofocus's answer, which is what `zAuto` means: the height the instrument
      chose, fixed, against which a height the operator moved is a departure.
      Filled in here so every backend's points have the one shape, rather than
      each reader of them learning to cope with a missing field. */
-  f.points = points.map((p) =>
-    (Number.isFinite(p.zAuto) || !Number.isFinite(p.z) ? p : { ...p, zAuto: p.z }));
+  const settled = (p) =>
+    (Number.isFinite(p.zAuto) || !Number.isFinite(p.z) ? p : { ...p, zAuto: p.z });
+  const { points } = await backend.measureFocus(asked, {
+    metric: f.metric,
+    extent: carrierSpan(),
+    /* Each point goes onto the map the moment it is measured, and the surface
+       is fitted through what is there so far: the operator watches the map
+       fill in rather than a spinner, and sees a bad point while the stage is
+       still working through the rest. */
+    onPoint: (measured, index) => {
+      f.points[index] = settled(measured);
+      refitSurface();
+      renderPointList(); drawTrace(); stage.draw();
+    },
+  });
+  f.points = points.map(settled);
   refitSurface();
 }
 
