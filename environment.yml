@@ -28,6 +28,13 @@ dependencies:
                             # output (incl. the embedded machine-state block)
   - lxml>=4.9               # ome-types schema-validation backend (validate=True)
 
+  # --- reaching ZMART_analysis ---
+  # The analysis engine reads its pipelines from YAML, and it runs inside
+  # whatever process asks it for a measurement -- the operator page's bridge,
+  # here. The steps themselves each run in their own SMART--* environment and
+  # bring their own packages; this is only what it takes to ask.
+  - pyyaml>=6
+
   # --- live LAS X API (Python <-> .NET bridge) ---
   # The LAS X CAM API DLLs ship with LAS X and load from the install dir;
   # only the bridge itself is a package.

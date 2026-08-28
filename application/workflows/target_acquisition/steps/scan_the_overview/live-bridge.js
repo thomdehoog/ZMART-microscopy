@@ -14,6 +14,7 @@
  */
 
 import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -24,6 +25,21 @@ const REPO = path.resolve(HERE, "..", "..", "..", "..", "..");
 const BRIDGE = path.join(REPO, "application", "framework", "bridge.py");
 
 export const rest = (ms) => new Promise((done) => setTimeout(done, ms));
+
+/**
+ * The Python the operator's window runs the bridge with.
+ *
+ * Not "whatever python is on PATH". These tests were green for a day while
+ * the shipped window could not focus at all, because the harness launched the
+ * bridge from a test environment that happened to have a package the
+ * operator's did not. A test of the real thing runs it where it really runs.
+ * `PYTHON=` overrides, for a machine that keeps it elsewhere.
+ */
+const THE_OPERATORS_PYTHON =
+  "C:\ProgramData\MinicondaZMB\envs\zmart-microscopy\python.exe";
+
+export const pythonForTheBridge = () =>
+  process.env.PYTHON ?? (existsSync(THE_OPERATORS_PYTHON) ? THE_OPERATORS_PYTHON : "python");
 
 /**
  * Start a bridge on *port*, connected to the mock microscope.
@@ -41,7 +57,7 @@ export async function startTheBridge({ port } = {}) {
      the page, which reloads the browser mid-test. */
   const folder = fs.mkdtempSync(path.join(os.tmpdir(), "zmart-bridge-"));
   const bridge = spawn(
-    process.env.PYTHON ?? "python",
+    pythonForTheBridge(),
     [BRIDGE, "--port", String(port), "--output-root", folder],
     { stdio: "inherit", cwd: REPO },
   );
