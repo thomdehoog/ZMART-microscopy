@@ -15,6 +15,6 @@ export const scanOverview = {
   why: "Drives the stage through every position, stitching tiles as they are saved.",
   btn: "Start",
   panels: [],
-  ms: 2600,
+  ms: 0,
   mode: "scan",
 };
