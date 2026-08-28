@@ -494,7 +494,7 @@ def _measure_focus(asked: dict) -> dict:
 # The scan: a background thread drives the stage; the window watches the run
 # ---------------------------------------------------------------------------
 
-_scan = {"running": False, "done": 0, "of": 0, "error": None, "records": [], "unseen": []}
+_scan = {"running": False, "done": 0, "of": 0, "error": None, "records": [], "where": {}}
 
 
 def _scan_worker(positions: list, acquisition_type: str = "overview") -> None:
@@ -517,7 +517,9 @@ def _scan_worker(positions: list, acquisition_type: str = "overview") -> None:
                     position_label=_label_for(i, position),
                 )
             _scan["records"].append(record)
-            _see(record, position)
+            _scan["where"][record["position_label"]] = (
+                float(position["x"]), float(position["y"])
+            )
             _scan["done"] = i + 1
     except Exception as why:  # noqa: BLE001 — the window shows the sentence
         _scan["error"] = str(why)
@@ -536,29 +538,24 @@ def view_of(acquisition_type: str) -> Path:
     return Path(_require_session().get_info()["output_root"]) / acquisition_type / VIEW
 
 
-def _see(record: dict, position: dict) -> None:
-    """Make the display copy of one capture, so the canvas can draw it.
+def _the_view_of(acquisition_type: str) -> Path | None:
+    """Ask the viewer to bring this scan's pictures up to date, and say where.
 
-    A microscope writes OME-TIFFs, which a browser cannot open and which weigh
-    far too much to send: a scan is tens of gigabytes as TIFFs and about a
-    hundred megabytes as JPEGs, and only one of those two numbers opens. So one
-    small picture is made per field as it lands, and the note beside them grows
-    by one, which is what a viewer watches.
-
-    A failure here loses a picture and must not lose the run: the capture is
-    already saved and its record already kept, and an operator would rather
-    finish a scan they cannot yet see than lose one they can.
+    The bridge knows only what the run did: which fields were imaged, the files
+    each left behind, and where the stage was sent for them. What a display
+    copy is, and how one is made, is the viewer's own business.
     """
-    try:
-        from viz_studio.backend.jpeg_tiles import add_a_small_picture  # noqa: PLC0415
+    from viz_studio.backend.jpeg_tiles import make_what_is_missing  # noqa: PLC0415
 
-        add_a_small_picture(
-            view_of(record["acquisition_type"]),
-            record["images"],
-            (float(position["x"]), float(position["y"])),
+    imaged = {
+        record["position_label"]: (
+            record.get("images", []),
+            _scan["where"][record["position_label"]],
         )
-    except Exception as why:  # noqa: BLE001 — the run matters more than the picture
-        _scan["unseen"].append(f"{record.get('position_label')}: {why}")
+        for record in _scan["records"]
+        if record.get("position_label") in _scan["where"]
+    }
+    return make_what_is_missing(view_of(acquisition_type), imaged)
 
 
 def _label_for(index: int, position: dict) -> str:
@@ -583,7 +580,7 @@ def _start_scan(asked: dict) -> dict:
         raise RuntimeError("a scan is already running")
     positions = asked.get("positions", [])
     _scan.update(
-        running=True, done=0, of=len(positions), error=None, records=[], unseen=[]
+        running=True, done=0, of=len(positions), error=None, records=[], where={}
     )
     threading.Thread(
         target=_scan_worker,
@@ -637,9 +634,10 @@ class _Bridge(BaseHTTPRequestHandler):
         if not kind or not name or name != Path(name).name or wanted is None:
             self._answer({"error": f"no picture {rest!r}"}, status=404)
             return
-        where = view_of(kind) / name
-        if not where.is_file():
-            self._answer({"error": f"{rest} has not been made yet"}, status=404)
+        note = _the_view_of(kind)
+        where = None if note is None else (note if name == "tiles.json" else note.parent / name)
+        if where is None or not where.is_file():
+            self._answer({"error": f"nothing has been imaged at {rest}"}, status=404)
             return
         body = where.read_bytes()
         self.send_response(200)
@@ -726,9 +724,19 @@ class _Bridge(BaseHTTPRequestHandler):
         """Quiet: the terminal is the operator's too."""
 
 
-def serve(port: int = 8600) -> ThreadingHTTPServer:
+def _a_bridge_on(port: int) -> ThreadingHTTPServer:
+    """A bridge ready to answer, with every driver this machine has.
+
+    Both ways in build it here. They did not: run as a script it registered
+    nothing, so the page's Microscope list came back empty and there was
+    nothing to connect to -- while the same file imported and served was fine.
+    """
     _register_known_drivers()
-    server = ThreadingHTTPServer(("127.0.0.1", port), _Bridge)
+    return ThreadingHTTPServer(("127.0.0.1", port), _Bridge)
+
+
+def serve(port: int = 8600) -> ThreadingHTTPServer:
+    server = _a_bridge_on(port)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     return server
 
@@ -737,6 +745,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--port", type=int, default=8600)
     args = parser.parse_args()
-    server = ThreadingHTTPServer(("127.0.0.1", args.port), _Bridge)
+    server = _a_bridge_on(args.port)
     print(f"bridge listening on 127.0.0.1:{args.port}")
     server.serve_forever()

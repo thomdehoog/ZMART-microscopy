@@ -44,7 +44,13 @@ _DEFAULT_ACTUATORS: dict[str, str] = {"x": "motoric", "y": "motoric", "z": "moto
 
 #: How much sample one pixel covers, in micrometres. Reported in the state and
 #: written into every frame, so the two cannot come to disagree.
-_PIXEL_UM = 1.0
+#: How much sample one pixel covers. The frames written here are small so that
+#: a test can take a hundred of them, and the pixel is correspondingly large --
+#: 64 of them across 1024 um, which is what ``frame_size`` reports. A driver
+#: whose state and whose files disagreed about how much sample it had seen
+#: would place every picture wrongly, and only on the second one would anybody
+#: notice.
+_PIXEL_UM = 16.0
 
 #: The jobs this pretend instrument has stored, in the order it lists them.
 _JOBS: tuple[str, ...] = ("Overview", "HiRes", "Survey")
@@ -522,7 +528,11 @@ def get_state(handle: MockHandle) -> dict:
             },
             "zoom": handle.zoom,
             "pixel_size": {"x": _PIXEL_UM, "y": _PIXEL_UM, "unit": "um"},
-            "frame_size": {"x": 1024.0, "y": 1024.0, "unit": "um"},
+            "frame_size": {
+                "x": _FRAME_PX * _PIXEL_UM,
+                "y": _FRAME_PX * _PIXEL_UM,
+                "unit": "um",
+            },
         },
     }
 

@@ -141,6 +141,8 @@ export function watchTheRun(ctx) {
     return {
       /** Whether this page was pointed at a scan at all. */
       get asked() { return !!pointedAt(); },
+      /** Whether there was a scan there to open, and it opened. */
+      get opened() { return !!viewer; },
       open,
       followTheStage,
       /** A field has landed, so there may be more of the scan to read. */
@@ -153,6 +155,25 @@ export function watchTheRun(ctx) {
      operator sees, and a picture that arrives a moment after everything else
      reads as the page having stumbled. */
   thePicture.open();
+
+  /* One clock, doing both halves of the same job. Nothing on disk announces a
+     new field, so the scan has to be asked for rather than told — and nothing
+     announces the *first* field either: a scan that has imaged nothing has no
+     note to open, so the picture cannot be opened until one lands.
+
+     This used to hang off the overview's own heartbeat, which meant a page
+     watching a scan and nothing else — the ordinary case for a run the page is
+     taking itself — opened once against an empty run, failed, and never asked
+     again. The picture stayed black for the whole acquisition.
+
+     A run that has stopped changing simply draws the same picture again, so
+     the cost of this when there is nothing new is one small request every
+     couple of seconds. */
+  setInterval(() => {
+    if (!thePicture.asked) return;
+    if (thePicture.opened) thePicture.mayHaveLanded();
+    else thePicture.open();
+  }, 1500);
 
   const liveOverview = (() => {
     const cv = ctx.overviewCanvas;
