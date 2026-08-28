@@ -113,6 +113,11 @@ export const backend = {
   },
 
   /** The driver's account of the session: `get_info` through the controller. */
+  /** Close the session at the bridge, so the next connect is not refused. */
+  async disconnect() {
+    await ask("/api/disconnect", {});
+  },
+
   async info() {
     return ask("/api/info");
   },

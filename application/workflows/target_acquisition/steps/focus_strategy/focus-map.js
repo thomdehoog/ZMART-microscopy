@@ -1003,7 +1003,7 @@ async function rerunOne(f, at, p) {
      through — a backend that drives to a list of positions is given a list of
      one. What comes back replaces that point and nothing else, and it comes
      back unanswered: a fresh reading is not one anybody has looked at. */
-  const { points } = await backend.measureFocus([asked], {
+  const { points } = await backend.measureFocus([stage.toStage(asked)], {
     metric: f.metric,
     extent: carrierSpan(),
   });
@@ -1011,7 +1011,7 @@ async function rerunOne(f, at, p) {
   if (got) {
     /* And no longer moved-since-measured: what was just read was read where
        the point is standing now, which is the whole of what `stale` meant. */
-    const { wasRead, ...came } = got;
+    const { wasRead, ...came } = stage.toCarrier(got);
     f.points[at] = settled({ ...came, accepted: false, stale: false, manual: false });
   }
 }
@@ -1555,7 +1555,9 @@ async function remeasure({ from = null } = {}) {
      chose, fixed, against which a height the operator moved is a departure.
      Filled in here so every backend's points have the one shape, rather than
      each reader of them learning to cope with a missing field. */
-  const { points } = await backend.measureFocus(asked, {
+  /* Points are laid on the carrier; the instrument is driven in its own
+     frame. Out through `toStage`, back through `toCarrier` -- see stage.js. */
+  const { points } = await backend.measureFocus(asked.map(stage.toStage), {
     metric: f.metric,
     extent: carrierSpan(),
     /* Each point goes onto the map the moment it is measured, and the surface
@@ -1563,7 +1565,7 @@ async function remeasure({ from = null } = {}) {
        fill in rather than a spinner, and sees a bad point while the stage is
        still working through the rest. */
     onPoint: (measured, index) => {
-      f.points[index] = settled(measured);
+      f.points[index] = settled(stage.toCarrier(measured));
       /* There is a map from the first point on. `applied` is what opens the
          traces box, draws the surface and puts the heights in the rows; held
          until the run ended, every point that landed stayed hidden and the
@@ -1577,7 +1579,7 @@ async function remeasure({ from = null } = {}) {
       renderPointList(); renderFocusBar(); drawTrace(); stage.draw();
     },
   });
-  f.points = points.map(settled);
+  f.points = points.map((p) => settled(stage.toCarrier(p)));
   refitSurface();
 }
 

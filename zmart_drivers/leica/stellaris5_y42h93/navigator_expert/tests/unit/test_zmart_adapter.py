@@ -487,7 +487,54 @@ class TestAcquire(unittest.TestCase):
         ):
             yield {}
 
-    def test_acquire_selects_job_captures_and_saves(self):
+    def test_get_info_says_how_far_the_stage_can_go_and_what_the_session_stands_on(self):
+        """The two things the operator page reads at connect, and the mock invented.
+
+        The page sizes its canvas from ``get_info().canvas`` and lists what a
+        session stands on from ``connection_status``. The mock reports both;
+        this adapter reported neither, so a real connect drew a canvas of no
+        size under a Connect step with nothing to say. The canvas is the
+        limits envelope in the frame -- nothing can be imaged outside it --
+        and the checks are facts the driver already holds.
+        """
+        h = _handle(gate_constraints={
+            "x_um": {"min": 0, "max": 120_000}, "y_um": {"min": 0, "max": 80_000},
+            "z_wide_um": {"min": 0, "max": 10_000},
+        })
+        h.origin = {**h.origin, "x_um": 1_000.0, "y_um": 500.0, "z_wide_um": 100.0}
+        # The envelope the gate was handed at connect, in raw stage um.
+        gate = adapter._gate._state_for(h.client)
+        adapter._gate._install(h.client, adapter._gate.GateState(
+            limits=gate.limits, error=None,
+            stage_cfg={"stage_um": {
+                "x": [0.0, 120_000.0], "y": [0.0, 80_000.0],
+                "z_wide": [0.0, 10_000.0], "z_galvo": [-50.0, 50.0],
+            }},
+        ))
+        patches = _patch_position(x_um=1_000.0, y_um=500.0, z_wide_um=100.0)
+        with (
+            patch.object(adapter, "_selected_job_name", return_value="Overview"),
+            patch.object(adapter, "_scan_field", return_value=None),
+            patch.object(adapter._info, "output_root", return_value=Path("/runs")),
+            patch.object(adapter._readers, "ping", return_value=True),
+            patch.object(adapter._save, "native_autosave_enabled", return_value=True),
+            patches[0], patches[1], patches[2], patches[3],
+        ):
+            info = adapter.get_info(h)
+
+        # In the frame: the envelope shifted by the origin.
+        self.assertEqual(info["canvas"]["x_um"], [-1_000.0, 119_000.0])
+        self.assertEqual(info["canvas"]["y_um"], [-500.0, 79_500.0])
+        self.assertEqual(info["canvas"]["z_um"], [-100.0, 9_900.0])
+
+        checks = info["connection_status"]
+        self.assertEqual(checks["api"], "answering")
+        self.assertEqual(checks["autosave"], "enabled")
+        self.assertIn("um", checks["stage"])
+        self.assertEqual(checks["output root"], str(Path("/runs")))
+        self.assertNotIn("failed", checks["limits"])
+
+
         h = _handle(connection={**adapter.CONNECTION, "output_root": "/tmp/out"})
         calls = {}
 

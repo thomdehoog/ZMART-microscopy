@@ -66,6 +66,8 @@ export const backend = {
    * through `onCheck(index, value)` as the pretend verification gets to it.
    * Resolves, with the instrument's info, once every check has answered.
    */
+  async disconnect() {},
+
   async connect(session, { onChecks, onCheck } = {}) {
     const status = pretendConnectionStatus(session);
     const keys = Object.keys(status);

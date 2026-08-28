@@ -535,7 +535,7 @@ let stageWatch = null;
     if (s.mode === "scan") {
       state.tilesShown = 0;
       backend.scanOverview({
-        positions: state.plan,
+        positions: stage.planOnStage(),
         onProgress: (done) => {
           if (state.running !== s.id) return;
           state.tilesShown = done;
@@ -1267,8 +1267,15 @@ let stageWatch = null;
         chosenMicroscope, chosenConnection,
         connect: () => runStep(indexOfStep("connect")),
         /* Closing takes the run with it, for the reason resetRun gives:
-           everything after this was read off this session. */
-        disconnect: () => { if (!state.running) resetRun(); },
+           everything after this was read off this session. It works while
+           something is running -- that is when an operator needs it. A step
+           still in flight finds `running` cleared under it and stops there;
+           the session it was talking to is closed at the bridge. */
+        disconnect: () => {
+          backend?.disconnect?.().catch((why) => console.warn(`closing: ${why.message}`));
+          resetRun();
+          renderAll();
+        },
         changed: () => { renderSetup(); renderActionBar(); },
       });
     },
@@ -1492,6 +1499,7 @@ let stageWatch = null;
     fadeTo: (value) => stage.fadeTo(value),
     plan: () => stage.plan(),
     project: (x, y) => stage.project(x, y),
+    carrierOriginUm: () => stage.carrierOriginUm(),
   };
   /* The selected focus point, for a test that needs to take hold of one. */
   window.__theFocusPoints = () => state.focus.points[state.focus.selected] ?? null;
