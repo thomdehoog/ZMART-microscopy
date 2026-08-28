@@ -248,7 +248,7 @@ def make_server(
     demo: bool = False,
     vendor: str = "leica",
     demo_root: Any = None,
-    af_job: str | None = None,
+    score: Any = None,
     experiment: str = "target-acquisition",
 ) -> tuple[ThreadingHTTPServer, WidgetHub, RunFlow]:
     """Build the hub, the flow, and a ready-to-run HTTP server."""
@@ -258,7 +258,7 @@ def make_server(
         demo=demo,
         vendor=vendor,
         demo_root=demo_root,
-        af_job=af_job,
+        score=score,
         experiment=experiment,
     )
     handler = type("BoundHandler", (_Handler,), {"hub": hub, "flow": flow})

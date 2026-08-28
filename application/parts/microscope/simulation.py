@@ -194,22 +194,28 @@ class SimulatedSession:
     def acquire(self, *, acquisition_type: str, position_label: str, options=None) -> dict:
         job = self._JOBS[self.job]
         err_x, err_y = job["error"]
-        x, y, _z = self.position
+        x, y, z = self.position
         self.count += 1
         acquisition_hash = uuid.uuid4().hex[:6]
         image = self.world.render(x + err_x, y + err_y, job["pixel_um"], job["shape"])
-        path = write_ome(
-            self.root
-            / ".staging"
-            / acquisition_type
-            / "data"
-            / (
-                f"{acquisition_type}_{acquisition_hash}_{position_label}_"
-                "T000000_C00_Z00000.ome.tiff"
-            ),
-            image,
-            job["pixel_um"],
-        )
+        paths = []
+        for index, height in enumerate(self._heights(acquisition_type, z)):
+            paths.append(
+                write_ome(
+                    self.root
+                    / ".staging"
+                    / acquisition_type
+                    / "data"
+                    / (
+                        f"{acquisition_type}_{acquisition_hash}_{position_label}_"
+                        f"T000000_C00_Z{index:05d}.ome.tiff"
+                    ),
+                    _out_of_focus_by(image, abs(height - self.FOCAL_PLANE_UM)),
+                    job["pixel_um"],
+                )
+            )
+        heights = self._heights(acquisition_type, z)
+        path = paths[0]
         metadata = path.parent / "metadata" / "ZMART_state"
         metadata.mkdir(parents=True, exist_ok=True)
         printed = (
@@ -221,13 +227,54 @@ class SimulatedSession:
             "acquisition_type": acquisition_type,
             "acquisition_hash": acquisition_hash,
             "position_label": position_label,
-            "images": [str(path)],
+            "images": [str(one) for one in paths],
             "metadata": [str(printed)],
-            "planes": [{"t": 0, "c": 0, "z": 0, "path": str(path)}],
+            "planes": [
+                {"t": 0, "c": 0, "z": index, "z_um": height, "path": str(one)}
+                for index, (height, one) in enumerate(zip(heights, paths))
+            ],
         }
+
+    #: Where this pretend sample lies, and the stack a focussing capture takes
+    #: around wherever the stage is standing. The same shape the mock driver
+    #: writes, because the code under test is the same code either way.
+    FOCAL_PLANE_UM = 5.0
+    FOCUS_PLANES = 21
+    FOCUS_STEP_UM = 1.2
+
+    def _heights(self, acquisition_type: str, centre: float) -> list[float]:
+        """The heights this kind of capture visits, centred on where it stands."""
+        if acquisition_type != "focussing":
+            return [centre]
+        middle = (self.FOCUS_PLANES - 1) / 2
+        return [
+            centre + (index - middle) * self.FOCUS_STEP_UM
+            for index in range(self.FOCUS_PLANES)
+        ]
 
     def disconnect(self) -> None:
         self.disconnected = True
+
+
+def _out_of_focus_by(image: np.ndarray, distance_um: float) -> np.ndarray:
+    """*image* softened by how far the drive is from the sample.
+
+    Blur removes detail and detail is what a sharpness metric measures, so a
+    stack taken through this comes back with a real peak where the sample is
+    rather than the same picture 21 times.
+    """
+    frame = image.astype(np.float64)
+    radius = 0.35 * distance_um
+    for _ in range(int(radius)):
+        frame = _softened(frame)
+    part = radius - int(radius)
+    return ((1.0 - part) * frame + part * _softened(frame)).astype(image.dtype)
+
+
+def _softened(plane: np.ndarray) -> np.ndarray:
+    """One separable box pass: what being a little further out of focus does."""
+    plane = (np.roll(plane, 1, 0) + plane + np.roll(plane, -1, 0)) / 3.0
+    return (np.roll(plane, 1, 1) + plane + np.roll(plane, -1, 1)) / 3.0
 
 
 class SimulatedEngine:

@@ -46,6 +46,7 @@ class _Driver:
         self.at = {"x": 0.0, "y": 0.0, "z": 0.0}
         self.drove_to: list[tuple] = []
         self.ran: list[dict] = []
+        self.captured: list[tuple] = []
         self.height_key = height_key
 
     def get_xyz(self) -> dict:
@@ -55,6 +56,18 @@ class _Driver:
         self.drove_to.append((x, y, z))
         self.at = {"x": float(x), "y": float(y), "z": float(z)}
         return {"position": {"x": x, "y": y, "z": z}, "actuators": {"z": "motoric"}}
+
+    def acquire(self, *, acquisition_type, position_label, options=None) -> dict:
+        """A focussing capture: a stack around wherever the stage is standing."""
+        self.captured.append((acquisition_type, position_label))
+        return {
+            "acquisition_type": acquisition_type,
+            "planes": [
+                {"t": 0, "c": 0, "z": index, "z_um": self.at["z"], "path": f"plane-{index}"}
+                for index in range(5)
+            ],
+            "found_at": self.at["z"] if self.height_key else None,
+        }
 
     def run_procedure(self, procedure: dict) -> dict:
         """Refuses an unnamed procedure, exactly as the Leica adapter does."""
@@ -120,15 +133,40 @@ def test_a_driver_that_names_no_position_is_asked_where_it_ended_up(monkeypatch)
 # --- the focus map -----------------------------------------------------------
 
 
-def test_the_autofocus_is_named_the_way_every_driver_reads_it(driver):
-    """``name``, not ``procedure``.
+def test_a_focus_map_runs_no_vendor_procedure(driver):
+    """The page asks the instrument for pixels and nothing else.
 
-    Both drivers in this repo read ``procedure["name"]``, and the Leica one
-    raises on anything it does not recognise. Sent under the wrong key the
-    map raised on the microscope and quietly measured nothing on the mock.
+    It called the instrument's own autofocus and kept the height that came
+    back, which could not be argued with: no curve to show, so the operator's
+    choice of sharpness metric reached nothing and the rule rejecting a peak
+    too narrow to be tissue was never applied. Focusing is an image-analysis
+    routine that happens to run before the picture rather than after it.
     """
-    bridge._measure_focus({"points": [{"x": 1, "y": 2}]})
-    assert driver.ran[-1]["name"] == "autofocus"
+    bridge._measure_focus({"points": [{"x": 1, "y": 2}, {"x": 3, "y": 4}]})
+    assert driver.ran == []
+    assert [kind for kind, _label in driver.captured] == ["focussing"] * 2
+
+
+def test_a_measured_point_carries_the_curve_it_was_chosen_from(driver):
+    """A height alone cannot be argued with; the plot is how it shows its work."""
+    got = bridge._measure_focus({"points": [{"x": 1, "y": 2}]})
+    assert got["points"][0]["traces"] == {"brenner": {}}
+
+
+@pytest.fixture(autouse=True)
+def _score_without_an_engine(monkeypatch):
+    """The bridge's scorer, without spawning an analysis environment for it.
+
+    What these tests are about is the translation either side of the focus
+    loop -- where the stage is driven, what comes back, and what is reported
+    when nothing could be chosen. Scoring real pixels is tested where the
+    scoring lives.
+    """
+    monkeypatch.setattr(
+        bridge,
+        "_score_a_stack",
+        lambda: (lambda record: {"z_um": record["found_at"], "traces": {"brenner": {}}}),
+    )
 
 
 def test_the_height_the_driver_found_is_the_height_reported(driver):
@@ -153,7 +191,7 @@ def test_a_search_with_no_start_asked_for_keeps_the_height_it_has(driver):
     assert driver.drove_to[-1] == (5.0, 6.0, -300.0)
 
 
-def test_a_point_the_autofocus_could_not_answer_for_reports_no_height(monkeypatch):
+def test_a_point_nothing_could_be_chosen_from_reports_no_height(monkeypatch):
     """None, not zero.
 
     The page fits a surface through what it is given, so one invented zero

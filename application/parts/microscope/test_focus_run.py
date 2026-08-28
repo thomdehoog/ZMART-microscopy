@@ -1,4 +1,4 @@
-"""measure_focus drives set_xyz + run_procedure(autofocus); feeds the surface fit."""
+"""measure_focus drives, acquires a stack, and has it scored; feeds the surface fit."""
 
 from __future__ import annotations
 
@@ -8,13 +8,14 @@ from application.workflows.target_acquisition.steps.focus_strategy.focus_surface
 
 
 class _StubSession:
-    """Minimal controller session: records moves, returns a scripted frame focus."""
+    """Minimal controller session: records moves and captures a scripted stack."""
 
     def __init__(self, focus_by_xy, current_z=0.0):
         self.focus_by_xy = focus_by_xy
         self.current_z = current_z
         self.moves = []
-        self.procedures = []
+        self.captured = []
+        self.applied = []
 
     def get_xyz(self):
         return {"z": {"value": self.current_z}}
@@ -22,36 +23,97 @@ class _StubSession:
     def set_xyz(self, x, y, z, **_kw):
         self.moves.append((x, y, z))
 
-    def run_procedure(self, procedure):
-        self.procedures.append(procedure)
+    def set_state(self, state):
+        self.applied.append(state)
+        return {"applied": state}
+
+    def acquire(self, *, acquisition_type, position_label, options=None):
         x, y, _z = self.moves[-1]
-        return {"ran": "autofocus", "frame_z_um": self.focus_by_xy[(x, y)]}
+        self.captured.append((acquisition_type, position_label, options))
+        return {
+            "acquisition_type": acquisition_type,
+            "planes": [
+                {"t": 0, "z": index, "c": 0, "z_um": float(index), "path": f"{x}-{y}-{index}"}
+                for index in range(5)
+            ],
+            # the height this stack was taken around, for the stub scorer
+            "focus_by_xy": self.focus_by_xy[(x, y)],
+        }
 
 
-def test_visits_points_and_collects_frame_z():
+def _score(record):
+    """A stand-in for ZMART_analysis: hands back what the stack was built from."""
+    return {"z_um": record["focus_by_xy"], "traces": {"brenner": {"samples": []}}}
+
+
+def test_it_captures_a_focussing_stack_at_every_point():
     session = _StubSession({(0.0, 0.0): 1.0, (10.0, 0.0): 1.5}, current_z=0.3)
+
     measured = measure_focus(
-        session, [{"x": 0.0, "y": 0.0}, {"x": 10.0, "y": 0.0}], af_job="AF Job"
+        session, [{"x": 0.0, "y": 0.0}, {"x": 10.0, "y": 0.0}], score=_score
     )
 
-    assert measured == [
-        {"x_um": 0.0, "y_um": 0.0, "z_um": 1.0},
-        {"x_um": 10.0, "y_um": 0.0, "z_um": 1.5},
+    assert [(m["x_um"], m["y_um"], m["z_um"]) for m in measured] == [
+        (0.0, 0.0, 1.0),
+        (10.0, 0.0, 1.5),
     ]
-    # autofocus job passed through; start z came from get_xyz
-    assert session.procedures == [{"name": "autofocus", "job": "AF Job"}] * 2
-    assert session.moves[0] == (0.0, 0.0, 0.3)
+    # A capture, not a vendor procedure -- and named as the kind of scan it is,
+    # which is what tells the instrument to take a stack at all.
+    assert [kind for kind, _label, _options in session.captured] == ["focussing"] * 2
+    assert session.moves[0] == (0.0, 0.0, 0.3)  # start z came from get_xyz
 
 
-def test_omitting_af_job_sends_no_job_key():
+def test_the_curve_comes_back_with_the_height():
+    """A height alone cannot be argued with; the curve is how it shows its work."""
     session = _StubSession({(0.0, 0.0): 2.0})
-    measure_focus(session, [{"x": 0.0, "y": 0.0}], start_z=0.0)
-    assert session.procedures == [{"name": "autofocus"}]
+    measured = measure_focus(session, [{"x": 0.0, "y": 0.0}], start_z=0.0, score=_score)
+    assert measured[0]["traces"] == {"brenner": {"samples": []}}
+
+
+def test_the_focussing_settings_are_applied_once_before_the_run():
+    session = _StubSession({(0.0, 0.0): 2.0, (10.0, 0.0): 2.0})
+    settings = {"changeable": {"job": "AF"}}
+
+    measure_focus(
+        session,
+        [{"x": 0.0, "y": 0.0}, {"x": 10.0, "y": 0.0}],
+        start_z=0.0,
+        state=settings,
+        score=_score,
+    )
+
+    assert session.applied == [settings]  # once, not per point
+
+
+def test_every_point_is_named_for_where_it_was_taken():
+    """The stacks are files; a file named by nothing cannot be placed later."""
+    session = _StubSession({(0.0, 0.0): 1.0, (10.0, 0.0): 1.0})
+    measure_focus(
+        session, [{"x": 0.0, "y": 0.0}, {"x": 10.0, "y": 0.0}], start_z=0.0, score=_score
+    )
+    assert [label for _kind, label, _options in session.captured] == [
+        "K00_M000000_G000000_P000000_V00",
+        "K00_M000000_G000000_P000001_V00",
+    ]
+
+
+def test_a_stack_nothing_could_be_chosen_from_reports_no_height():
+    """A made-up height is worse than a missing one: the surface would believe it."""
+    session = _StubSession({(0.0, 0.0): 1.0})
+    measured = measure_focus(
+        session,
+        [{"x": 0.0, "y": 0.0}],
+        start_z=0.0,
+        score=lambda record: {"z_um": None, "traces": {}},
+    )
+    assert measured[0]["z_um"] is None
 
 
 def test_measure_then_fit_round_trip():
     focus = {(0.0, 0.0): 3.0, (10.0, 0.0): 4.0, (0.0, 10.0): 5.0}
     session = _StubSession(focus)
-    measured = measure_focus(session, [{"x": x, "y": y} for x, y in focus], start_z=0.0)
+    measured = measure_focus(
+        session, [{"x": x, "y": y} for x, y in focus], start_z=0.0, score=_score
+    )
     surface = fit_focus_surface(measured)
     assert surface.z_at(5, 5) == pytest.approx(4.5)

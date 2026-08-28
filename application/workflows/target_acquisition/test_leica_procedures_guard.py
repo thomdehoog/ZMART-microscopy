@@ -131,7 +131,12 @@ def test_flow_procedures_exist_on_the_leica_adapter():
     used = _flow_procedure_names()
     # Sanity: the collector actually saw the flow's procedure calls, so an
     # empty set can never masquerade as a pass.
-    assert "autofocus" in used
+    # Nothing in the flow runs a vendor procedure any more: focusing drives,
+    # captures a stack and has ZMART_analysis score it, which is why the
+    # operator's choice of sharpness metric reaches something and the rule
+    # rejecting a peak too narrow to be tissue is applied at all. The subset
+    # check below stands guard over anything that comes back.
+    assert used == set()
 
     missing = used - advertised
     assert not missing, (

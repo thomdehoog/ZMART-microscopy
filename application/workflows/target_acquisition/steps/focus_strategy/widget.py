@@ -27,6 +27,7 @@ import time
 from typing import Any
 
 from application.parts.plots.canvas import force_draw
+from application.parts.microscope.focus_score import in_process
 from application.workflows.target_acquisition.steps.focus_strategy.focus_run import measure_focus
 from application.workflows.target_acquisition.steps.focus_strategy.focus_surface import fit_focus_surface
 
@@ -67,7 +68,7 @@ class FocusPicker:
         positions: list[dict] | None = None,
         *,
         focus_positions: list[dict] | None = None,
-        af_job: str | None = None,
+        score: Any = None,
         start_z: float | None = None,
         seed: bool = True,
         grid: int = 40,
@@ -77,7 +78,10 @@ class FocusPicker:
 
         self.session = session
         self.positions = [dict(p) for p in (positions or [])]
-        self.af_job = af_job
+        # How a captured stack becomes a height. Default: score it here, since
+        # a notebook already has numpy loaded and an import is cheaper than a
+        # subprocess. The operator page passes one backed by a warm engine.
+        self.score = score if score is not None else in_process()
         self.start_z = start_z
         self.grid = int(grid)
 
@@ -241,7 +245,7 @@ class FocusPicker:
                 measure_focus(
                     self.session,
                     fresh,
-                    af_job=self.af_job,
+                    score=self.score,
                     start_z=self.start_z,
                     on_point=_show_fresh_point,
                 )
@@ -429,25 +433,25 @@ def pick_focus_points(
     positions: list[dict] | None = None,
     *,
     focus_positions: list[dict] | None = None,
-    af_job: str | None = None,
+    score: Any = None,
     start_z: float | None = None,
     seed: bool = True,
 ) -> FocusPicker:
     """Open the focus-picking figure; returns the :class:`FocusPicker`.
 
     ``session`` is the connected controller session; ``positions`` are the
-    overview frame positions (drawn for context). ``af_job`` names the
+    overview frame positions (drawn for context).
     ``focus_positions`` are the vendor points from the same ``get_info()``
-    snapshot as the overview positions. ``af_job`` names the autofocus job
-    when the instrument has more than one; ``start_z`` is the z
-    to start each autofocus from (default: the current z). ``seed=False``
-    skips pre-filling points already placed in LAS X.
+    snapshot as the overview positions. ``score`` says how a captured stack
+    becomes a height, and defaults to scoring it in this process; ``start_z``
+    is the height each stack is centred on (default: the current z).
+    ``seed=False`` skips pre-filling points already placed in LAS X.
     """
     return FocusPicker(
         session,
         positions,
         focus_positions=focus_positions,
-        af_job=af_job,
+        score=score,
         start_z=start_z,
         seed=seed,
     )
