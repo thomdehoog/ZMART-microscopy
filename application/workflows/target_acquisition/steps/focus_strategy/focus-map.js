@@ -1005,27 +1005,18 @@ el("ft-rerun").addEventListener("click", async () => {
 const traceCv = el("trace-canvas");
 
 /**
- * The sweep a point would have walked, for a reading that carries none.
+ * The curve on screen for a point: what was measured there, or nothing.
  *
- * Built from the same `sweep` the pretend instrument uses, so the shape on
- * screen is the shape the maths gives rather than a drawing of one: the same
- * two metrics, the same peak-picking, the same noise. What it is not is a
- * measurement — the height at its middle is the height that *was* measured,
- * and everything either side of it is what a sweep of this configuration would
- * look like there.
- */
-/**
- * The sweep on screen for a point: what the instrument reported, or the
- * stand-in drawn in its place.
- *
- * One function because the plot and the marks in the list have to be reading
- * the same curve. They were not: the marks looked only at what a backend had
- * reported, so on a backend that reports a height and no curve — which is
- * every backend but the pretend one — a plot with two clear peaks in it sat
- * under a row that said nothing was worth looking at.
+ * There used to be a stand-in here — a curve generated from the pretend
+ * sample, drawn about the height that had been reported, for backends that
+ * gave a height and no curve. Every backend gives a curve now, and a
+ * generated one is a picture of the settings rather than a measurement: it
+ * cannot show that a peak was a speck of dust, and it looks exactly as
+ * convincing when it shows nothing at all. A point with no measurement gets
+ * no plot.
  */
 function sweepShown(point) {
-  const traces = point?.traces ?? standInSweep(point);
+  const traces = point?.traces ?? null;
   if (!traces) return traces;
   /* The peaks are found here, from the curve, whoever measured it. A backend
      that named its own would be answering a question the operator's rule
@@ -1037,21 +1028,6 @@ function sweepShown(point) {
   ]));
 }
 
-function standInSweep(point) {
-  if (!point || !Number.isFinite(point.z)) return null;
-  const index = run.focus.points.indexOf(point);
-  /* About the height the autofocus reported, never about the height being
-     dragged. Centred on the dragged one, the whole picture — curve, axis and
-     the marker for the reported height with it — travelled with the pointer,
-     so the line under the hand stood still and the fixed line appeared to
-     slide the other way. What the plot is drawn about must be a thing the
-     operator cannot move. */
-  const about = Number.isFinite(point.zAuto) ? point.zAuto : point.z;
-  return Object.fromEntries(METRIC_KEYS.map((key) => {
-    const sw = sweep({ focusZ: about, index: Math.max(0, index), metric: key });
-    return [key, { samples: sw.samples }];
-  }));
-}
 
 function drawTrace() {
   if (!focusMounted()) return;
