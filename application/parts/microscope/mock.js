@@ -42,6 +42,17 @@ const focusZAt = (x, y, [w, h]) =>
   -412 + 96 * (x / w - 0.5) + 61 * (y / h - 0.5);
 
 export const backend = {
+  /**
+   * No pictures: this backend acquires nothing, so there is nothing to fetch.
+   *
+   * `null` rather than an address that would 404, because the canvas asks this
+   * to decide whether to fetch an engine at all — a large thing to load for a
+   * scan that does not exist.
+   */
+  viewOf() {
+    return null;
+  },
+
   /** What can be connected to: the registry's entries, as the controller lists them. */
   async instruments() {
     return pretendInstruments();
