@@ -1493,6 +1493,8 @@ let stageWatch = null;
     plan: () => stage.plan(),
     project: (x, y) => stage.project(x, y),
   };
+  /* The selected focus point, for a test that needs to take hold of one. */
+  window.__theFocusPoints = () => state.focus.points[state.focus.selected] ?? null;
 
   /* The focus map — the points, their sweeps, the surface through them, and
      the controls for all three. Step 4's, so it lives with step 4; it draws
