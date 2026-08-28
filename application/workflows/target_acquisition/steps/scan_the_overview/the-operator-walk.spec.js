@@ -128,6 +128,23 @@ test("an operator walks from Connect to a scanned overview", async ({ page }) =>
   const stacks = await capturedUnder(path.join(bridge.folder, "focussing", "data"), 300_000);
   expect(stacks, "no focussing stack was captured").toBeGreaterThan(0);
 
+  /* The stage was driven in its own frame, not the carrier's. The map lays
+     points on the carrier; where the carrier sits on the stage is the origin
+     alignment measures, and unaligned it is centred in the travel -- so the
+     two frames never agree, even here. Every point went out unconverted for
+     as long as the mock's picture happened to line up anyway; on an aligned
+     Leica each one drove to the wrong place. */
+  const [ox, oy] = await page.evaluate(() => window.__theStageCanvas.carrierOriginUm());
+  expect(Math.hypot(ox, oy), "the carrier stands off the stage's zero").toBeGreaterThan(1000);
+  const asked = await page.evaluate(() => window.__theFocusPoints());
+  await expect.poll(async () => {
+    const where = path.join(bridge.run, "focussing", "analysis");
+    if (!fs.existsSync(where)) return false;  // nothing scored yet
+    const kept = fs.readdirSync(where)
+      .map((name) => JSON.parse(fs.readFileSync(path.join(where, name), "utf8")));
+    return kept.some((m) => Math.abs(m.x_um - (asked.x + ox)) < 1 && Math.abs(m.y_um - (asked.y + oy)) < 1);
+  }, { message: "no capture was taken where the stage should have gone", timeout: 60_000 }).toBe(true);
+
   // 5. Scan. Nothing tells the page where the pictures will be: it asks its
   //    own backend, which is the join this walk exists to prove.
   await gotoStep(page, "Scan the overview");

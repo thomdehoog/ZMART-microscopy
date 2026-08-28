@@ -150,7 +150,6 @@ export function renderSessionCard(host, ctx) {
       out.type = "button";
       out.className = "danger";
       out.textContent = "Disconnect";
-      out.disabled = !!ctx.running();
       out.addEventListener("click", () => ctx.disconnect());
       row.append(held, out);
     } else {
@@ -167,6 +166,17 @@ export function renderSessionCard(host, ctx) {
       connectHint.textContent = "a password is needed to open the session";
       connectHint.hidden = !!session.password || connecting;
       row.append(btn);
+      /* The way out is there from the moment a connect begins, not once it
+         has finished: a connect that hangs on a check is exactly when an
+         operator needs it, and there was nothing to press. */
+      if (connecting) {
+        const out = document.createElement("button");
+        out.type = "button";
+        out.className = "danger";
+        out.textContent = "Disconnect";
+        out.addEventListener("click", () => ctx.disconnect());
+        row.append(out);
+      }
     }
 
     foot.append(row);

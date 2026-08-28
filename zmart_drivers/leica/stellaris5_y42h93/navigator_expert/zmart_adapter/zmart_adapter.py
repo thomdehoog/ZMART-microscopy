@@ -1316,6 +1316,52 @@ def get_info(handle: ZmartHandle) -> dict:
         "client": handle.connection.get("client"),
         "output_root": str(root),
         "session_hash6": handle.hash6,
+        "canvas": _canvas(handle),
+        "connection_status": _connection_status(handle, root),
+    }
+
+
+def _canvas(handle: ZmartHandle) -> dict | None:
+    """The limits envelope, shifted into the frame: nothing can be imaged
+    outside it. None when no limits govern the session."""
+    state = _gate.state_for(handle.client)
+    if state is None or state.stage_cfg is None:
+        return None
+    stage = state.stage_cfg["stage_um"]
+    origin = handle.origin
+    return {
+        "x_um": [stage["x"][0] - origin["x_um"], stage["x"][1] - origin["x_um"]],
+        "y_um": [stage["y"][0] - origin["y_um"], stage["y"][1] - origin["y_um"]],
+        "z_um": [stage["z_wide"][0] - origin["z_wide_um"], stage["z_wide"][1] - origin["z_wide_um"]],
+    }
+
+
+def _connection_status(handle: ZmartHandle, root: Path) -> dict:
+    """What a session stands on, from what the driver already holds; a
+    failure names itself."""
+    limits = _gate.describe(handle.client)
+    loaded = _session_state.get(handle.client)
+    calibration = loaded.calibration_info if loaded is not None else None
+
+    def stage() -> str:
+        at = get_xyz(handle)
+        return f"x {at['x']['value']:.0f} · y {at['y']['value']:.0f} · z {at['z']['value']:.1f} um"
+
+    return {
+        "api": "answering" if _try(lambda: _readers.ping(handle.client)) else "failed — no answer",
+        "limits": (
+            f"{limits['source']}{' (fallback)' if limits.get('is_fallback') else ''}"
+            if limits else "failed — none loaded, every move refused"
+        ),
+        "calibration": (
+            calibration.get("name") or "found" if calibration else "failed — none found"
+        ),
+        "stage": _try(stage) or "failed — no reading",
+        "autosave": (
+            "enabled" if _try(lambda: _save.native_autosave_enabled(handle.client))
+            else "failed — LAS X will not save what is captured"
+        ),
+        "output root": str(root),
     }
 
 

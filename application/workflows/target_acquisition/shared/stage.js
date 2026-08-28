@@ -469,6 +469,27 @@ function toWorld(px, py) {
   return [at.x + ox, at.y + oy];
 }
 
+/**
+ * A place on the carrier as the stage knows it, and back.
+ *
+ * The workflow lays points and plans on the carrier; the instrument drives in
+ * its own frame, and where the carrier sits in it is what alignment measured
+ * -- unaligned, it is centred in the travel. Everything handed to the
+ * instrument goes through `toStage`, and everything it reports about a place
+ * comes back through `toCarrier`. Positions went out unconverted for as long
+ * as the mock's picture happened to line up; on an aligned Leica every focus
+ * point drove to the wrong place.
+ */
+function toStage(p) {
+  const [ox, oy] = carrierOriginUm();
+  return { ...p, x: p.x + ox, y: p.y + oy };
+}
+
+function toCarrier(p) {
+  const [ox, oy] = carrierOriginUm();
+  return { ...p, x: p.x - ox, y: p.y - oy };
+}
+
 function tileTexture(ctx, tile, place, scale) {
   const [sx, sy] = place(tile.x - tile.frameUm / 2, tile.y - tile.frameUm / 2);
   const sz = tile.frameUm * scale;
@@ -644,6 +665,7 @@ function theStageLayers({ shown, ch0, ch1, editing }) {
     redraw: drawStage, anchorsChanged: ctx.anchorsChanged,
     focusGrabbed, marqueeing, focusMarqueeTo, focusMarqueeTook,
     focusDragging, focusDraggedTo, endFocusDrag, focusPressed,
+    toStage, toCarrier,
   };
 
   const supplied = {
@@ -1029,6 +1051,8 @@ ctx.fitButton.addEventListener("click", () => {
        matters: the two are drawn by different code on different surfaces,
        and the only thing making them one picture is that they agree. */
     plan: () => run.plan.map(({ x, y, frameUm }) => ({ x, y, frameUm })),
+    /** The plan as the instrument is driven through it: on the stage, not the carrier. */
+    planOnStage: () => run.plan.map(toStage),
     project: (x, y) => {
       const [ox, oy] = carrierOriginUm();
       return toScreen(x + ox, y + oy);

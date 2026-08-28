@@ -204,6 +204,25 @@ export function promisesOfABackend(expect) {
       },
     },
     {
+      what: "says how far the stage can go, and what the session stands on",
+      async keep(backend) {
+        const checks = [];
+        const { info } = await backend.connect(
+          { connection: (await backend.instruments())[0] },
+          { onChecks: (keys) => checks.push(...keys) },
+        );
+        /* The page sizes its canvas from this and lists these under Connect.
+           The mock always reported both; the Leica reported neither, so a
+           real connect drew a canvas of no size with nothing to say. */
+        for (const axis of ["x_um", "y_um"]) {
+          expect(Array.isArray(info.canvas?.[axis]), `canvas.${axis} is a range`).toBe(true);
+          expect(info.canvas[axis][1], `canvas.${axis} spans something`).toBeGreaterThan(info.canvas[axis][0]);
+        }
+        expect(checks.length, "the checks are named as they are asked").toBeGreaterThan(0);
+        await backend.disconnect();
+      },
+    },
+    {
       what: "says where a scan's pictures can be fetched, or that it has none",
       async keep(backend) {
         const where = backend.viewOf("overview");
