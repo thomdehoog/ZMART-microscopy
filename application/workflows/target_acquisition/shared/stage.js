@@ -329,11 +329,15 @@ const PARKED = [0.04, 0.04];
 
 function whereTheStageIs() {
   const [ox, oy] = carrierOriginUm();
-  const taken = run.plan[Math.min(run.tilesShown, run.plan.length) - 1];
-  /* Reported by the instrument at connect when it was; parked otherwise. */
-  if (!taken && stageReported) {
+  /* What the instrument reported is where the stage is. Nothing below may
+     stand in for it: the rest of this function is the rehearsal -- a plan
+     tile for x and y, the pretend sample's height for z -- and on a real
+     microscope that height was handed to the focus map as the centre of a
+     stack, which drove the stage millimetres from focus or out of range. */
+  if (stageReported) {
     return { x: stageReported.x, y: stageReported.y, z: stageReported.z };
   }
+  const taken = run.plan[Math.min(run.tilesShown, run.plan.length) - 1];
   const [cx, cy] = taken
     ? [taken.x, taken.y]
     : [STAGE_UM[0] * PARKED[0] - ox, STAGE_UM[1] * PARKED[1] - oy];
