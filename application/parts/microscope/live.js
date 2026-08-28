@@ -182,8 +182,16 @@ export const backend = {
    * back without them and the chart stays empty until the driver can report
    * real sweeps.
    */
-  async measureFocus(points, { metric } = {}) {
-    return ask("/api/focus/measure", { points, metric });
+  async measureFocus(points, { metric, onPoint } = {}) {
+    await ask("/api/focus/measure", { points, metric });
+    let shown = 0;
+    for (;;) {
+      const progress = await ask("/api/focus/measure");
+      for (; shown < progress.points.length; shown++) onPoint?.(progress.points[shown], shown);
+      if (progress.error) throw new Error(progress.error);
+      if (!progress.running) return { points: progress.points };
+      await rest(300);
+    }
   },
 
   /**

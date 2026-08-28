@@ -204,7 +204,7 @@ export const backend = {
    * is a fraction of the plate, so the mock needs to know how big the plate
    * is. The live backend ignores it — a real sample has its own tilt.
    */
-  async measureFocus(points, { metric, extent }) {
+  async measureFocus(points, { metric, extent, onPoint }) {
     await wait(200);
     const measured = points.map((p, index) => {
       const focusZ = focusZAt(p.x, p.y, extent);
@@ -243,6 +243,7 @@ export const backend = {
         traces,
       };
     });
+    measured.forEach((point, index) => onPoint?.(point, index));
     return { points: measured };
   },
 

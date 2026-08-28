@@ -75,6 +75,7 @@ class _Driver:
             })
         return {
             "acquisition_type": acquisition_type,
+            "acquisition_hash": "aaaaaa",
             "position_label": position_label,
             "images": [plane["path"] for plane in planes],
             "planes": planes,
@@ -145,6 +146,19 @@ def test_a_driver_that_names_no_position_is_asked_where_it_ended_up(monkeypatch)
 # --- the focus map -----------------------------------------------------------
 
 
+def _measured(asked):
+    """Start a focus map and wait for it, handing back what the page would poll."""
+    import time
+
+    bridge._measure_focus(asked)
+    for _ in range(200):
+        if not bridge._focus["running"]:
+            break
+        time.sleep(0.01)
+    assert bridge._focus["error"] is None, bridge._focus["error"]
+    return dict(bridge._focus)
+
+
 def test_a_focus_map_runs_no_vendor_procedure(driver):
     """The page asks the instrument for pixels and nothing else.
 
@@ -154,14 +168,14 @@ def test_a_focus_map_runs_no_vendor_procedure(driver):
     too narrow to be tissue was never applied. Focusing is an image-analysis
     routine that happens to run before the picture rather than after it.
     """
-    bridge._measure_focus({"points": [{"x": 1, "y": 2}, {"x": 3, "y": 4}]})
+    _measured({"points": [{"x": 1, "y": 2}, {"x": 3, "y": 4}]})
     assert driver.ran == []
     assert [kind for kind, _label in driver.captured] == ["focussing"] * 2
 
 
 def test_a_measured_point_carries_the_curve_it_was_chosen_from(driver):
     """A height alone cannot be argued with; the plot is how it shows its work."""
-    got = bridge._measure_focus({"points": [{"x": 1, "y": 2}]})
+    got = _measured({"points": [{"x": 1, "y": 2}]})
     assert got["points"][0]["traces"] == {"brenner": {}}
 
 
@@ -197,7 +211,7 @@ def _score_without_an_engine(monkeypatch):
 
 def test_the_height_the_driver_found_is_the_height_reported(driver):
     """It was read from keys no driver uses, so every point came back 0.0."""
-    got = bridge._measure_focus({"points": [{"x": 1, "y": 2, "startZ": -350.0}]})
+    got = _measured({"points": [{"x": 1, "y": 2, "startZ": -350.0}]})
     point = got["points"][0]
     assert point["zAuto"] == -350.0
     assert point["z"] == -350.0
@@ -206,14 +220,14 @@ def test_the_height_the_driver_found_is_the_height_reported(driver):
 
 def test_a_search_begins_where_the_page_asked_it_to(driver):
     """`startZ` is the page saying "begin from what the map predicts here"."""
-    bridge._measure_focus({"points": [{"x": 1, "y": 2, "startZ": -412.5}]})
+    _measured({"points": [{"x": 1, "y": 2, "startZ": -412.5}]})
     assert driver.drove_to[-1] == (1.0, 2.0, -412.5)
 
 
 def test_a_search_with_no_start_asked_for_keeps_the_height_it_has(driver):
     """It used to be driven to frame zero, which threw the map's answer away."""
     bridge._drive_to({"x": 0, "y": 0, "z": -300.0})
-    bridge._measure_focus({"points": [{"x": 5, "y": 6}]})
+    _measured({"points": [{"x": 5, "y": 6}]})
     assert driver.drove_to[-1] == (5.0, 6.0, -300.0)
 
 
@@ -224,7 +238,7 @@ def test_a_point_nothing_could_be_chosen_from_reports_no_height(monkeypatch):
     drags the whole map towards a place nobody measured.
     """
     monkeypatch.setattr(bridge, "_session", _Driver(height_key=None))
-    got = bridge._measure_focus({"points": [{"x": 1, "y": 2}]})
+    got = _measured({"points": [{"x": 1, "y": 2}]})
     point = got["points"][0]
     assert point["zAuto"] is None
     assert point["z"] is None
