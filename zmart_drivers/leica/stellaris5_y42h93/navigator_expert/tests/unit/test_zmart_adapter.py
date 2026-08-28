@@ -10,6 +10,7 @@ end-to-end pass through a real controller ``Session``.
 import json
 import tempfile
 import unittest
+from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -465,6 +466,27 @@ class TestAcquire(unittest.TestCase):
                 Path("/chosen/zmart").resolve(),
             )
 
+    @contextmanager
+    def _capturing(self, *, image_paths=None):
+        """Everything an ``acquire`` needs stood in for, so a test says one thing."""
+        written = image_paths or {0: Path("/tmp/out/img.ome.tif")}
+
+        def fake_save(client, acq, output_root, naming, **kwargs):
+            return SimpleNamespace(image_paths=dict(written), naming=naming)
+
+        patches = _patch_position(job="Overview")
+        with (
+            patch.object(adapter._readers, "get_jobs", return_value=self._jobs()),
+            patch.object(adapter._readers, "get_hardware_info", return_value={}),
+            patch.object(adapter._commands, "select_job", lambda c, j, **k: {"success": True}),
+            patch.object(adapter._motion, "correct_backlash", lambda client, **k: None),
+            patch.object(adapter._capture, "acquire", lambda c, j, **k: SimpleNamespace(job=j)),
+            patch.object(adapter._save, "save", fake_save),
+            patch.object(adapter._scanfields, "get_template_state", return_value="fresh"),
+            patches[0], patches[1], patches[2], patches[3],
+        ):
+            yield {}
+
     def test_acquire_selects_job_captures_and_saves(self):
         h = _handle(connection={**adapter.CONNECTION, "output_root": "/tmp/out"})
         calls = {}
@@ -526,10 +548,60 @@ class TestAcquire(unittest.TestCase):
         self.assertEqual(record["settle"], "direct")
         self.assertEqual(record["acquisition_hash"], naming.hash6)
         self.assertEqual([Path(p) for p in record["images"]], [Path("/tmp/out/img.ome.tif")])
+        # Nothing has driven this handle, so the acquisition says it does not
+        # know where it was taken rather than naming a place nobody went.
         self.assertEqual(
             record["planes"],
-            [{"t": 0, "z": 0, "c": 0, "path": str(Path("/tmp/out/img.ome.tif"))}],
+            [{
+                "t": 0, "z": 0, "c": 0,
+                "path": str(Path("/tmp/out/img.ome.tif")),
+                "x_um": None, "y_um": None, "z_um": None,
+            }],
         )
+
+    def test_a_plane_says_where_on_the_sample_it_was_taken(self):
+        """The place the last confirmed move put the stage, in the frame.
+
+        A client cannot work this out for itself: a saved OME-TIFF says how
+        large a pixel is and nothing about where it was taken. So the
+        acquisition reports it, being the only thing that knows -- and it
+        reports the frame :func:`set_xyz` takes, so a position handed back can
+        be handed straight back in.
+        """
+        h = _handle()
+        h.driven_to = {"x": 1200.0, "y": -450.0, "z": 33.5}
+        with self._capturing() as calls:
+            record = adapter.acquire(h, acquisition_type="overview", position_label="A1")
+
+        del calls
+        self.assertEqual(
+            [(p["x_um"], p["y_um"], p["z_um"]) for p in record["planes"]],
+            [(1200.0, -450.0, 33.5)],
+        )
+
+    def test_the_slices_of_a_stack_are_spread_about_where_the_drive_stands(self):
+        """A stack is taken around the drive, so its planes are not all at it.
+
+        The job's own block says where its slices sit; the middle of that
+        stack is where the stage is standing. Reporting every plane at the
+        drive's height would put a whole sweep on one plane, and the height a
+        focus routine chose would then be the height it was handed.
+        """
+        h = _handle()
+        h.driven_to = {"x": 0.0, "y": 0.0, "z": 100.0}
+        planes = {i: Path(f"/tmp/out/img_z{i}.ome.tif") for i in range(5)}
+        with self._capturing(image_paths=planes) as calls, patch.object(
+            adapter._readers, "get_job_settings",
+            return_value={"stack": {"begin": 990.0, "end": 1010.0, "sections": 5}},
+        ):
+            record = adapter.acquire(h, acquisition_type="focussing", position_label="A1")
+
+        del calls
+        # 5 slices over 20 um, centred on the drive: 100 um plus -10..+10.
+        self.assertEqual(
+            [p["z_um"] for p in record["planes"]], [90.0, 95.0, 100.0, 105.0, 110.0]
+        )
+        self.assertEqual({p["x_um"] for p in record["planes"]}, {0.0})
 
     def test_acquire_applies_the_rigs_measured_orientation(self):
         """The microscope's measured turn reaches ``save``, so saved planes are
