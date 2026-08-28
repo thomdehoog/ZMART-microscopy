@@ -63,6 +63,53 @@ def settings_geometry_ready(settings):
     return bool(settings.get("imageSize"))
 
 
+def stack_z_wide_um(settings, expected: int) -> list[float] | None:
+    """Where each slice of the job's z-stack sits, in absolute z-wide um.
+
+    ``None`` when the job takes no stack, which is every ordinary imaging job:
+    a single plane is wherever the drive already is, and this has nothing to
+    add. ``None`` too when the stack is there but says less than it must --
+    a guessed position is worse than none, because it would place a picture
+    somewhere nobody imaged.
+
+    ``begin``, ``end`` and ``sections`` are authoritative and evenly spaced,
+    which preserves a reversed stack (``begin > end``). ``stepSize`` is
+    informational: LAS X rounds it for display, so deriving from it disagrees
+    with the rig in the last decimal.
+
+    *expected* is how many planes actually came back. A stack whose settings
+    describe a different number is not describing this acquisition, and saying
+    nothing is the only honest answer left.
+    """
+    from .parsing import make_changeable_copy
+
+    try:
+        stack = (make_changeable_copy(settings) or {}).get("stack")
+    except Exception:  # noqa: BLE001 — a settings shape we cannot read says nothing
+        stack = None
+    raw = settings.get("stack") if isinstance(settings, dict) else None
+    if not isinstance(stack, dict) or any(stack.get(k) is None for k in _STACK_NEEDS):
+        stack = raw if isinstance(raw, dict) else None
+    if not isinstance(stack, dict) or any(stack.get(k) is None for k in _STACK_NEEDS):
+        return None
+
+    try:
+        begin, end = float(stack["begin"]), float(stack["end"])
+        sections = int(stack["sections"])
+    except (TypeError, ValueError):
+        return None
+    if sections != expected or sections < 1:
+        return None
+    if sections == 1:
+        return [begin]
+    step = (end - begin) / (sections - 1)
+    return [begin + step * index for index in range(sections)]
+
+
+#: What a stack block must carry before it can say where a slice was taken.
+_STACK_NEEDS = ("begin", "end", "sections")
+
+
 def z_um_from_settings(settings, key, *, client=None, job_name=None):
     """Return one z drive's position (µm) for the job whose settings these are.
 

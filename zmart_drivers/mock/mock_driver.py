@@ -325,12 +325,25 @@ def acquire(
     )
     # The two keys a client follows, in the shapes the real driver answers
     # with: ``images`` the simple list, ``planes`` the manifest that tells a
-    # channel from a z. Each plane says the height it was taken at, because the
-    # driver is the only party that knows where it put the drive -- a caller
-    # recomputing them is the same procedure written twice, and the second copy
-    # is the one that will differ.
+    # channel from a z. Each plane says where on the sample it was taken,
+    # because the driver is the only thing that knows: a saved file says how
+    # large a pixel is and nothing about where it came from, and the stage
+    # stands at the middle of a stack while its planes are spread either side.
+    #
+    # ``path`` is where the pixels are and ``t``/``c``/``z`` where inside them.
+    # A flat OME-TIFF holds exactly the one plane they name; were this a store,
+    # the same three would index into it and only the path would change.
+    where = _user_position(handle)
     planes = [
-        {"t": 0, "z": index, "c": 0, "z_um": height, "path": str(path)}
+        {
+            "t": 0,
+            "z": index,
+            "c": 0,
+            "path": str(path),
+            "x_um": where["x"],
+            "y_um": where["y"],
+            "z_um": height,
+        }
         for index, (height, path) in enumerate(zip(heights, paths))
     ]
     return {

@@ -166,7 +166,7 @@ def _score_without_an_engine(monkeypatch):
     monkeypatch.setattr(
         bridge,
         "_score_a_stack",
-        lambda: (lambda record, _centre: {"z_um": record["found_at"], "traces": {"brenner": {}}}),
+        lambda: (lambda record: {"z_um": record["found_at"], "traces": {"brenner": {}}}),
     )
 
 
@@ -367,7 +367,7 @@ def _scanned(driver, positions, monkeypatch, **asked):
     """Run a scan to completion on this driver and hand back what it kept."""
     monkeypatch.setattr(bridge, "_session", driver)
     bridge._scan.update(
-        running=True, done=0, of=len(positions), error=None, records=[], where={}
+        running=True, done=0, of=len(positions), error=None, records=[]
     )
     bridge._scan_worker(positions, **asked)
     assert bridge._scan["error"] is None, bridge._scan["error"]
@@ -448,7 +448,7 @@ def test_a_scan_really_captures_at_every_position(monkeypatch, tmp_path):
             {"x": 0.0, "y": 700.0, "z": 5_000.0, "compartment": 2, "group": 2},
         ]
         bridge._scan.update(
-        running=True, done=0, of=len(positions), error=None, records=[], where={}
+        running=True, done=0, of=len(positions), error=None, records=[]
     )
         bridge._scan_worker(positions)
         assert bridge._scan["error"] is None, bridge._scan["error"]
@@ -508,7 +508,7 @@ def test_a_scan_stops_and_says_so_when_a_capture_fails(monkeypatch, tmp_path):
     monkeypatch.setattr(bridge, "_session", _FailsOnTheSecond(session))
     try:
         positions = [{"x": 0.0, "y": 0.0}, {"x": 900.0, "y": 0.0}, {"x": 1_800.0, "y": 0.0}]
-        bridge._scan.update(running=True, done=0, of=3, error=None, records=[], where={})
+        bridge._scan.update(running=True, done=0, of=3, error=None, records=[])
         bridge._scan_worker(positions)
     finally:
         session.disconnect()
@@ -544,7 +544,7 @@ def test_the_viewer_makes_a_picture_of_every_field_that_was_imaged(monkeypatch, 
             {"x": 0.0, "y": 0.0, "z": 5_000.0},
             {"x": 900.0, "y": 0.0, "z": 5_000.0},
         ]
-        bridge._scan.update(running=True, done=0, of=2, error=None, records=[], where={})
+        bridge._scan.update(running=True, done=0, of=2, error=None, records=[])
         bridge._scan_worker(positions)
         assert bridge._scan["error"] is None, bridge._scan["error"]
 
@@ -582,7 +582,7 @@ def test_nothing_is_drawn_for_a_scan_that_has_imaged_nothing(monkeypatch, tmp_pa
     session = zmart_controller.set_instrument(instrument)
     monkeypatch.setattr(bridge, "_session", session)
     try:
-        bridge._scan.update(running=False, done=0, of=0, error=None, records=[], where={})
+        bridge._scan.update(running=False, done=0, of=0, error=None, records=[])
         assert bridge._the_view_of("overview") is None
     finally:
         session.disconnect()

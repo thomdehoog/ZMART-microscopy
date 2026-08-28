@@ -27,7 +27,7 @@ from pathlib import Path
 import pytest
 
 from zmart_controller import get_instruments, set_instrument
-from application.parts.microscope.focus_score import HALF_A_SWEEP_UM, what_was_captured
+from application.parts.microscope.focus_score import what_was_captured
 from zmart_drivers.mock import mock_driver
 
 # The step is loaded by path rather than imported as a module, the way the
@@ -78,7 +78,7 @@ def focus_at(session, x_um: float, y_um: float, centre_um: float) -> dict:
 
     scored = score_focus(
         {
-            "input": what_was_captured(record, centre_um, HALF_A_SWEEP_UM),
+            "input": what_was_captured(record),
             "metadata": {"verbose": 0},
         },
         {},
@@ -192,47 +192,46 @@ def test_dust_is_common_enough_to_meet_and_rare_enough_to_avoid(scope):
     assert 0.3 < len(dusty) / len(fields) < 0.55
 
 
-def test_a_driver_that_names_no_heights_is_focused_just_the_same(scope):
-    """The record a Leica hands back, and the same answer out of it.
+def test_a_capture_that_says_no_heights_is_refused_rather_than_guessed(scope):
+    """A record with no places in it cannot be turned into a height.
 
-    The Leica adapter's planes carry ``t``, ``z``, ``c`` and a path -- an index
-    of depth and nothing in micrometres. Nothing in this chain may depend on a
-    height the driver did not promise, or the page would work against the mock
-    and quietly measure the wrong thing against the microscope.
+    Every driver reports where each plane was taken -- it is the only thing
+    that knows. One that did not would leave the sharp plane nameable only as
+    an index, and inventing micrometres for it would put a focus surface
+    through heights nobody measured.
     """
     truth = mock_driver.sharp_height_um(*CLEAN)
-    scope.set_xyz(*CLEAN, truth + 8.0)
+    scope.set_xyz(*CLEAN, truth)
     record = scope.acquire(acquisition_type="focussing", position_label="K00_P000000")
 
-    #: Exactly what the Leica adapter builds: no micrometres anywhere.
-    like_a_leica = {
+    silent = {
         **record,
         "planes": [
-            {"t": plane["t"], "z": plane["z"], "c": plane["c"], "path": plane["path"]}
+            {key: plane[key] for key in ("t", "z", "c", "path")}
             for plane in record["planes"]
         ],
     }
-    assert all("z_um" not in plane for plane in like_a_leica["planes"])
 
-    scored = score_focus(
-        {
-            "input": what_was_captured(like_a_leica, truth + 8.0, HALF_A_SWEEP_UM),
-            "metadata": {"verbose": 0},
-        },
-        {},
-    )["score_focus"]
-
-    assert scored["peak_z_um"] == pytest.approx(truth, abs=TOLERANCE_UM)
+    with pytest.raises(RuntimeError, match="what height each plane was taken at"):
+        what_was_captured(silent)
 
 
-def test_the_heights_span_the_sweep_the_run_asked_for(scope):
-    """Centred on where the stage was driven, one plane at each end."""
+def test_every_plane_says_where_on_the_sample_it_was_taken(scope):
+    """x, y and z for every slice, because everything is flat.
+
+    The x and y are the place the stage was driven to and are the same for
+    every plane of one capture; the heights are spread about it, because a
+    stack is taken around where the drive stands.
+    """
     scope.set_xyz(*CLEAN, 5_000.0)
     record = scope.acquire(acquisition_type="focussing", position_label="K00_P000000")
 
-    given = what_was_captured(record, 5_000.0, HALF_A_SWEEP_UM)
+    assert {(plane["x_um"], plane["y_um"]) for plane in record["planes"]} == {CLEAN}
+    heights = [plane["z_um"] for plane in record["planes"]]
+    assert heights == sorted(heights)
+    assert sum(heights) / len(heights) == pytest.approx(5_000.0)
+    assert heights[-1] - heights[0] == pytest.approx(68.0)
 
-    assert len(given["z_um"]) == len(given["image_paths"]) == 61
-    assert given["z_um"][0] == pytest.approx(5_000.0 - HALF_A_SWEEP_UM)
-    assert given["z_um"][-1] == pytest.approx(5_000.0 + HALF_A_SWEEP_UM)
-    assert given["z_um"][30] == pytest.approx(5_000.0)
+    given = what_was_captured(record)
+    assert given["z_um"] == heights
+    assert len(given["image_paths"]) == len(heights) == 61

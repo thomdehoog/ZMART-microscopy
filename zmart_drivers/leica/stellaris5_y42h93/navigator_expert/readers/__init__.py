@@ -1,5 +1,6 @@
 """Profile-routed LAS X state readers."""
 
+from .derived import stack_z_wide_um
 from .router import (
     Reading,
     get_base_fov,
@@ -23,6 +24,7 @@ __all__ = [
     "get_scan_status",
     "ping",
     "get_job_settings",
+    "stack_z_wide_um",
     "get_job_settings_bounded",
     "get_hardware_info",
     "get_xy",

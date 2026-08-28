@@ -89,8 +89,7 @@ def measure_focus(
     names no centre uses ``start_z``; if that is not given either, the height
     the objective is already at when the run begins, read once.
 
-    ``score(record, centre_um)`` is given the driver's acquire record and the
-    height the stack was taken around, and answers
+    ``score(record)`` is given the driver's acquire record and answers
     ``{"z_um": float | None, "traces": {...}}`` — the sharp height, or ``None``
     where nothing in the stack could be chosen, and the curves it was chosen
     from. ``None`` rather than a number, because a made-up height is worse than
@@ -129,8 +128,7 @@ def measure_focus(
             session.acquire(
                 acquisition_type=FOCUSSING,
                 position_label=position_label(index),
-            ),
-            float(centre),
+            )
         )
 
         measurement = {
