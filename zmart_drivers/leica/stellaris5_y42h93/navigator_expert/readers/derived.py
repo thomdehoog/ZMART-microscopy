@@ -66,20 +66,12 @@ def settings_geometry_ready(settings):
 def stack_z_wide_um(settings, expected: int) -> list[float] | None:
     """Where each slice of the job's z-stack sits, in absolute z-wide um.
 
-    ``None`` when the job takes no stack, which is every ordinary imaging job:
-    a single plane is wherever the drive already is, and this has nothing to
-    add. ``None`` too when the stack is there but says less than it must --
-    a guessed position is worse than none, because it would place a picture
-    somewhere nobody imaged.
+    ``begin``/``end``/``sections``, evenly spaced, which keeps a reversed
+    stack. ``stepSize`` is not used: LAS X rounds it for display.
 
-    ``begin``, ``end`` and ``sections`` are authoritative and evenly spaced,
-    which preserves a reversed stack (``begin > end``). ``stepSize`` is
-    informational: LAS X rounds it for display, so deriving from it disagrees
-    with the rig in the last decimal.
-
-    *expected* is how many planes actually came back. A stack whose settings
-    describe a different number is not describing this acquisition, and saying
-    nothing is the only honest answer left.
+    ``None`` when the job takes no stack, or when what it says does not
+    describe the *expected* planes that came back -- a guessed position would
+    place a picture somewhere nobody imaged.
     """
     from .parsing import make_changeable_copy
 
