@@ -46,20 +46,18 @@ _DEFAULT_ACTUATORS: dict[str, str] = {"x": "motoric", "y": "motoric", "z": "moto
 #: written into every frame, so the two cannot come to disagree.
 _PIXEL_UM = 1.0
 
-#: The jobs this pretend instrument has stored, in the order it lists them,
-#: each with the z-stack it acquires. A job is a stored recipe, and how many
-#: planes a capture takes and how far apart they sit belongs to it -- which is
-#: why the operator drives to the centre of a range and the instrument makes
-#: the stack, rather than the caller stepping the drive itself.
-_JOBS: dict[str, dict] = {
-    "Overview": {"z_planes": 1, "z_step_um": 0.0},
-    "HiRes": {"z_planes": 1, "z_step_um": 0.0},
-    "Survey": {"z_planes": 1, "z_step_um": 0.0},
-    # 61 planes over +/-34 um: fine enough that a speck a micrometre or two
-    # wide lands on a plane at all. A stack that steps past its dust cannot
-    # show the failure the focus step exists to survive.
-    "Focus": {"z_planes": 61, "z_step_um": 68.0 / 60.0},
-}
+#: The jobs this pretend instrument has stored, in the order it lists them.
+_JOBS: tuple[str, ...] = ("Overview", "HiRes", "Survey")
+
+#: What each kind of acquisition captures. On a real instrument this comes from
+#: the settings the operator imported for that kind of scan; here it is how the
+#: driver knows what is being asked of it, since nothing else about a mock says.
+#: A ``focussing`` capture is a stack -- 61 planes over +/-34 um, fine enough
+#: that a speck a micrometre or two wide lands on a plane at all. A stack that
+#: stepped past its dust could not show the failure focusing exists to survive.
+#: Everything else is the single plane an imaging scan takes.
+_ONE_PLANE = {"z_planes": 1, "z_step_um": 0.0}
+_STACKS: dict[str, dict] = {"focussing": {"z_planes": 61, "z_step_um": 68.0 / 60.0}}
 
 # The pretend sample: a sheet of tissue lying at a slight tilt across the
 # stage, sharp where the focal plane meets it and blurring with distance from
@@ -309,20 +307,26 @@ def acquire(
     # either side to go and in what steps. One 2-D plane per file, flat, which
     # is what every ZMART driver writes -- a stack is a list of planes, never
     # one stacked file.
+    heights = stack_heights(handle, acquisition_type)
     paths = [
         _write_a_frame(
             handle, acquisition_type, acquisition_hash, position_label, index, height
         )
-        for index, height in enumerate(stack_heights(handle))
+        for index, height in enumerate(heights)
     ]
     printed = _print_the_state(
         handle, paths[0].parent, acquisition_type, acquisition_hash, position_label
     )
     # The two keys a client follows, in the shapes the real driver answers
     # with: ``images`` the simple list, ``planes`` the manifest that tells a
-    # channel from a z. Plane indices only, no micrometres -- the heights come
-    # from the job's stack and the centre driven to, as they do on a Leica.
-    planes = [{"t": 0, "z": index, "c": 0, "path": str(path)} for index, path in enumerate(paths)]
+    # channel from a z. Each plane says the height it was taken at, because the
+    # driver is the only party that knows where it put the drive -- a caller
+    # recomputing them is the same procedure written twice, and the second copy
+    # is the one that will differ.
+    planes = [
+        {"t": 0, "z": index, "c": 0, "z_um": height, "path": str(path)}
+        for index, (height, path) in enumerate(zip(heights, paths))
+    ]
     return {
         "acquisition_type": acquisition_type,
         "acquisition_hash": acquisition_hash,
@@ -330,6 +334,7 @@ def acquire(
         "format": options["format"],
         "procedure": options["procedure"],
         "settle": settle,
+        "job": options["job"],
         "position": _user_position(handle),
         "images": [plane["path"] for plane in planes],
         "planes": planes,
@@ -338,14 +343,14 @@ def acquire(
     }
 
 
-def stack_heights(handle: MockHandle) -> list[float]:
-    """The frame heights the active job's stack visits, around where it stands.
+def stack_heights(handle: MockHandle, acquisition_type: str) -> list[float]:
+    """The frame heights this kind of capture visits, around where it stands.
 
-    A one-plane job visits exactly where the stage is. A stack is centred
-    there, which is why a caller drives to the middle of the range it wants
-    searched rather than to the bottom of it.
+    A single-plane capture visits exactly where the stage is. A stack is
+    centred there, which is why a caller drives to the middle of the range it
+    wants searched rather than to the bottom of it.
     """
-    stack = _JOBS[handle.job]
+    stack = _STACKS.get(acquisition_type, _ONE_PLANE)
     centre = handle.z - handle.origin_z
     middle = (stack["z_planes"] - 1) / 2
     return [centre + (index - middle) * stack["z_step_um"] for index in range(stack["z_planes"])]
@@ -518,14 +523,6 @@ def get_state(handle: MockHandle) -> dict:
             "zoom": handle.zoom,
             "pixel_size": {"x": _PIXEL_UM, "y": _PIXEL_UM, "unit": "um"},
             "frame_size": {"x": 1024.0, "y": 1024.0, "unit": "um"},
-            # The active job's z-stack. A capture centres it on wherever the
-            # stage is standing, so this plus the centre is what tells a
-            # caller the height of every plane it got back.
-            "stack": {
-                "planes": _JOBS[handle.job]["z_planes"],
-                "step_um": _JOBS[handle.job]["z_step_um"],
-                "unit": "um",
-            },
         },
     }
 
