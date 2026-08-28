@@ -1057,6 +1057,7 @@ ctx.fitButton.addEventListener("click", () => {
     plan: () => run.plan.map(({ x, y, frameUm }) => ({ x, y, frameUm })),
     /** The plan as the instrument is driven through it: on the stage, not the carrier. */
     planOnStage: () => run.plan.map(toStage),
+    toStage, toCarrier,
     project: (x, y) => {
       const [ox, oy] = carrierOriginUm();
       return toScreen(x + ox, y + oy);

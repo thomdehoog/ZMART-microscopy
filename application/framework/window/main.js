@@ -616,6 +616,9 @@ let stageWatch = null;
 
     /** The step stops, marked as the failure it is, saying what went wrong. */
     function itFailed(why) {
+      /* Said in the console too: the focus step draws no note, so a failure
+         there had nowhere on screen to land and nobody could say why. */
+      console.error(`${s.id} failed:`, why);
       state.failed = s.id;
       state.running = null;
       state.notes[s.id] = `failed — ${why.message}`;
@@ -1509,6 +1512,13 @@ let stageWatch = null;
   };
   /* The selected focus point, for a test that needs to take hold of one. */
   window.__theFocusPoints = () => state.focus.points[state.focus.selected] ?? null;
+  /* The run's own state, read-only, for a test that needs to say why a step
+     did nothing rather than only that it did. */
+  window.__theRunState = () => JSON.parse(JSON.stringify({
+    running: state.running, failed: state.failed, notes: state.notes,
+    focus: { strategy: state.focus.strategy, applied: state.focus.applied,
+             points: state.focus.points.length, selected: state.focus.selected },
+  }));
 
   /* The focus map — the points, their sweeps, the surface through them, and
      the controls for all three. Step 4's, so it lives with step 4; it draws
