@@ -52,10 +52,15 @@ test("points appear in the list one at a time while the map is measured", async 
      point changes is its height, from nothing to a number. So it is heights
      that are counted, sampled while the run goes. */
   const counts = new Set();
+  const selected = new Set();
   const until = Date.now() + 120_000;
   do {
     const rows = await page.locator("#focus-traces .point-row").allTextContents();
     counts.add(rows.filter((t) => /\d µm/.test(t)).length);
+    /* And the lit row follows the stage: whichever point landed last. */
+    const lit = await page.locator('#focus-traces .point-row[aria-current="true"]').first()
+      .textContent().catch(() => "");
+    if (lit) selected.add(lit.trim().slice(0, 12));
     if (!(await page.locator(".panel.on button.step-run").textContent()).includes("working")) break;
     await rest(100);
   } while (Date.now() < until);
@@ -63,4 +68,6 @@ test("points appear in the list one at a time while the map is measured", async 
   const seen = [...counts].sort((a, b) => a - b);
   console.log(`heights seen while measuring: ${seen.join(", ")}`);
   expect(seen.length, `the map appeared all at once: heights seen ${seen}`).toBeGreaterThan(2);
+  console.log(`rows seen selected while measuring: ${selected.size}`);
+  expect(selected.size, "the selection did not follow the points as they landed").toBeGreaterThan(2);
 });

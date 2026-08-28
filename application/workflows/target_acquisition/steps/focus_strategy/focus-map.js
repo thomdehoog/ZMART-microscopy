@@ -1533,6 +1533,10 @@ async function remeasure({ from = null } = {}) {
          until the run ended, every point that landed stayed hidden and the
          whole map appeared at once. */
       f.applied = true;
+      /* The point that just landed is the one to look at: its row is lit and
+         its curve is the one on the plot, so the operator follows the stage
+         through the map rather than reading the list afterwards. */
+      f.selected = index;
       refitSurface();
       renderPointList(); renderFocusBar(); drawTrace(); stage.draw();
     },
