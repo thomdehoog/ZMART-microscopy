@@ -25,6 +25,8 @@
  * drawn in (so the scan beneath can be put in the same one), and the page's
  * colour lookup. Returns the two pictures.
  */
+import { openerFor } from "../../../../parts/canvas/engines.js";
+
 export function watchTheRun(ctx) {
   const ACQUISITIONS = (() => {
     const asked = new URLSearchParams(location.search);
@@ -57,12 +59,19 @@ export function watchTheRun(ctx) {
   /**
    * The scan itself, drawn beneath the plan by one of the drawing engines.
    *
-   * Pointed at with `?picture=<folder>`, which is a folder of small JPEGs and a
-   * `tiles.json` saying where each belongs — what
-   * `viz_studio/backend/jpeg_tiles.py` makes from the files a microscope
-   * exports. Nothing is opened unless the page was given one, because an engine
-   * is a large thing to fetch and a page nobody pointed at a scan has no use
-   * for it.
+   * A folder of small JPEGs with a `tiles.json` saying where each belongs —
+   * what `viz_studio/backend/jpeg_tiles.py` makes from the files a microscope
+   * exports, one per field as it lands. The backend says where its own are
+   * (`viewOf`), because where a run's output is reachable is a fact about the
+   * instrument's end; `?picture=<folder>` overrides it, which is how a run
+   * served from somewhere else is looked at. Nothing is opened while neither
+   * names a folder, because an engine is a large thing to fetch and a page
+   * with no scan to draw has no use for one.
+   *
+   * Which engine draws it is `?engine=`, and the default is the JPEG one.
+   * Every engine is reached through `openerFor`, the one interface they all
+   * sit behind, so swapping in neuroglancer is choosing a different name and
+   * changes nothing here.
    *
    * ## The view is not shared, it is handed down
    *
@@ -81,16 +90,22 @@ export function watchTheRun(ctx) {
    * than merely near it.
    */
   const thePicture = (() => {
-    const asked = new URLSearchParams(location.search).get("picture");
+    const search = new URLSearchParams(location.search);
+    /* Asked each time rather than settled once: which backend is running is
+       not known until the operator has connected, and this closure is built
+       before the page has anything on it. */
+    const pointedAt = () => search.get("picture") ?? ctx.pictures?.("overview") ?? null;
+    const engine = search.get("engine") ?? "jpeg-under";
     const host = ctx.pictureHost;
     let viewer = null;
     let opening = false;
 
     async function open() {
+      const asked = pointedAt();
       if (!asked || viewer || opening) return;
       opening = true;
       try {
-        const { openViewer } = await import("../../../../../viz_studio/options/jpeg-under/viewer.js");
+        const openViewer = await openerFor(engine);
         viewer = await openViewer(host, {
           acquisitions: [{ url: asked, name: asked.split("/").filter(Boolean).pop() ?? "scan" }],
           /* The same colour the page paints, so the seam between the scan's own
@@ -105,7 +120,7 @@ export function watchTheRun(ctx) {
         window.__thePicture = viewer;
         followTheStage();
       } catch (e) {
-        console.error(`the scan at ${asked} could not be opened — ${e.message}`);
+        console.error(`the scan at ${asked} could not be opened by ${engine} — ${e.message}`);
       } finally {
         opening = false;
       }
@@ -125,7 +140,7 @@ export function watchTheRun(ctx) {
 
     return {
       /** Whether this page was pointed at a scan at all. */
-      get asked() { return !!asked; },
+      get asked() { return !!pointedAt(); },
       open,
       followTheStage,
       /** A field has landed, so there may be more of the scan to read. */

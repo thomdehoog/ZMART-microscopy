@@ -52,6 +52,20 @@ const rest = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 export const POLL_MS = 250;
 
 export const backend = {
+  /**
+   * Where a scan's pictures can be fetched, or `null` for a backend with none.
+   *
+   * A microscope writes OME-TIFFs, which a browser cannot open and which are
+   * far too heavy to send; the bridge makes one small JPEG per field as it
+   * lands and serves them here, with a `tiles.json` beside them saying where
+   * each belongs. The backend answers this rather than the page working it
+   * out, because where a run's output is reachable is a fact about the
+   * instrument's end and nothing the page could know.
+   */
+  viewOf(acquisitionType) {
+    return `${WHERE}/view/${acquisitionType}`;
+  },
+
   /** What can be connected to: `get_instruments` through the bridge. */
   async instruments() {
     return (await ask("/api/instruments")).instruments;

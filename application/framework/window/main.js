@@ -1384,6 +1384,9 @@ let stageWatch = null;
 
   const { thePicture, liveOverview } = watchTheRun({
     pictureHost: theCanvas.parts.pictureHost,
+    /* Where this backend's scans can be fetched from, if anywhere. The live
+       one serves what the microscope wrote; the pretend one has nothing. */
+    pictures: (kind) => backend?.viewOf(kind) ?? null,
     overviewCanvas: theCanvas.parts.overviewCanvas,
     overviewNote: theCanvas.parts.overviewNote,
     view: () => stage.pictureView(),

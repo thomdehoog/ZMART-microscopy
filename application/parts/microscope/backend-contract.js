@@ -203,5 +203,19 @@ export function promisesOfABackend(expect) {
         expect(points.map((p) => [p.x, p.y])).toEqual(asked.map((p) => [p.x, p.y]));
       },
     },
+    {
+      what: "says where a scan's pictures can be fetched, or that it has none",
+      async keep(backend) {
+        const where = backend.viewOf("overview");
+        /* Either an address the canvas can open, or `null`. What is not
+           allowed is an address that will not answer: the page fetches an
+           engine before it fetches a picture, and an engine is a large thing
+           to load for a scan that was never taken. */
+        if (where !== null) {
+          expect(typeof where, "an address is a string").toBe("string");
+          expect(where.endsWith("/overview"), "and names the scan asked about").toBe(true);
+        }
+      },
+    },
   ];
 }
