@@ -68,6 +68,9 @@ test("points appear in the list one at a time while the map is measured", async 
   const seen = [...counts].sort((a, b) => a - b);
   console.log(`heights seen while measuring: ${seen.join(", ")}`);
   expect(seen.length, `the map appeared all at once: heights seen ${seen}`).toBeGreaterThan(2);
+  /* Every count from none to one to two: a page that first shows four has
+     been looking away while the first points landed. */
+  expect(seen.slice(0, 3), "the first points were shown one at a time").toEqual([0, 1, 2]);
   console.log(`rows seen selected while measuring: ${selected.size}`);
   expect(selected.size, "the selection did not follow the points as they landed").toBeGreaterThan(2);
 });

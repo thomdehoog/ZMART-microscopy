@@ -16,7 +16,7 @@ export const focusStrategy = {
   why: "Record the focussing preset, then choose how this run keeps every image sharp across the sample.",
   btn: "Run focus map",
   panels: [],
-  ms: 1400,
+  ms: 0,
   mode: "focus",
   /* Measuring a surface is the optional extra, not the step: either kind of
      focussing is already a complete answer on its own — the stand holds focus,
