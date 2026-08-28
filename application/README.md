@@ -97,7 +97,7 @@ the page does — the third engine cannot work.** A browser gives such a page no
 address of its own and refuses to start a background program for it. The page
 knows this and offers only the two engines that can draw, with a sentence in the
 corner saying where the third went. Serve the folder over HTTP and all three are
-there; `python zmart-interface.py` now does exactly that, which is also the
+there; `python zmart-interface.py --built` now does exactly that, which is also the
 closer imitation of how the page will really be handed out.
 
 `build.outDir` points at `framework/window/static/`, beside the window that

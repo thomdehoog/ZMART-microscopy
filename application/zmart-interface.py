@@ -4,14 +4,15 @@ This is how the page is meant to be met -- a native window, not a browser tab
 with its chrome, its zoom and its address bar. It opens the window, starts the
 bridge behind it, and points one at the other.
 
-    python zmart-interface.py           # the built page, as the microscope runs it
-    python zmart-interface.py --dev     # the dev server, edits reload live
+    python zmart-interface.py           # the dev server, edits reload live
+    python zmart-interface.py --built   # the built page, as the microscope runs it
 
-The two differ only in who holds the page. On its own it is the microscope's
-own shape: the bridge serves the page and the instrument on one address, and
-`npm run build` has to have been run. With `--dev` the Vite dev server holds
-the page instead so that edits appear in the window as they are saved, and the
-page is told where the bridge is -- so `npm run dev` has to be running.
+The two differ only in who holds the page. On its own the Vite dev server
+holds it, so edits appear in the window as they are saved, and the page is
+told where the bridge is -- `npm run dev` has to be running. With `--built`
+it is the microscope's own shape: the bridge serves the page and the
+instrument on one address, and `npm run build` has to have been run. The
+default is the dev server for now, while the page is being worked on.
 
 Needs pywebview, which the `zmart-microscopy` env has, and on Windows the
 WebView2 runtime that draws it.
@@ -86,22 +87,22 @@ def _dev_server_is_up(url: str, timeout: float = 1.5) -> bool:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--dev",
+        "--built",
         action="store_true",
-        help="hold the page in the dev server instead, so edits reload live",
+        help="open the built page served by the bridge, as the microscope runs it",
     )
     parser.add_argument("--url", default=DEV_URL, help=f"dev server address (default {DEV_URL})")
     args = parser.parse_args()
 
-    if args.dev and not _dev_server_is_up(args.url):
-        print(f"nothing answering at {args.url} — start it with `npm run dev`")
+    if not args.built and not _dev_server_is_up(args.url):
+        print(f"nothing answering at {args.url} — start it with `npm run dev`, or pass --built")
         return 1
-    if not args.dev and not BUILT.exists():
-        print(f"no build at {BUILT} — run `npm run build` first, or pass --dev")
+    if args.built and not BUILT.exists():
+        print(f"no build at {BUILT} — run `npm run build` first")
         return 1
 
     bridge_at = _start_bridge()
-    if args.dev:
+    if not args.built:
         # The dev server holds the page so edits reload live, which puts it on
         # a different address from the bridge — so the page is told where that is.
         target = f"{args.url}{'&' if '?' in args.url else '?'}bridge={bridge_at}"
