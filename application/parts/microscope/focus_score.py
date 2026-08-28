@@ -44,33 +44,14 @@ _STEP = (
 )
 
 
-#: How far either side of the centre a focussing acquisition sweeps.
-#:
-#: This belongs to the job that takes the stack, and the run states it because
-#: no driver reports it *through the seam*. The Leica has it -- the selected
-#: job's settings carry a ``stack`` block naming the z-drive and its range,
-#: which is how ``readers/derived.py`` already decides whether a drive's
-#: position is stale -- but ``get_state`` reports the job's metadata, not its
-#: settings, so the range does not reach a caller. Exposing it there is the
-#: proper fix and is a change to the driver; until then this is stated, once,
-#: where anyone can see it.
-#:
-#: Stated wrongly it is not subtle: every height comes out scaled about the
-#: centre, so a focus map tilts by the same factor everywhere. The default is
-#: the range the operator page has always swept.
-HALF_A_SWEEP_UM = 34.0
-
-
-def what_was_captured(record: dict, centre_um: float, half_um: float) -> dict:
+def what_was_captured(record: dict) -> dict:
     """The step's input for one acquire record: the planes, and their heights.
 
-    A driver writes one 2-D plane per file and reports them in depth order.
-    Where each one sits is *not* in the record -- the Leica adapter numbers its
-    planes and says nothing in micrometres -- so the heights are worked out
-    from what the run itself did: it drove to ``centre_um`` and asked for a
-    sweep of ``half_um`` either side, and the planes are spread evenly across
-    it. That is the same arithmetic for every driver, which is what lets one be
-    swapped for another.
+    Both are read straight off the record. A driver writes one 2-D plane per
+    file and says where on the sample each was taken, which is the only place
+    that knows: a saved file carries the size of a pixel and nothing about
+    where it came from, and the stage stands at the middle of a stack while
+    its planes are spread either side of it.
 
     Nothing is assembled and nothing is copied: the planes are read where the
     acquisition left them.
@@ -78,13 +59,15 @@ def what_was_captured(record: dict, centre_um: float, half_um: float) -> dict:
     planes = sorted(record.get("planes") or [], key=lambda plane: plane.get("z", 0))
     if not planes:
         raise RuntimeError("the capture reported no planes, so there is no stack to score")
-    last = len(planes) - 1
+    heights = [plane.get("z_um") for plane in planes]
+    if any(height is None for height in heights):
+        raise RuntimeError(
+            "the capture did not say what height each plane was taken at, so "
+            "the sharp one cannot be named in micrometres"
+        )
     return {
         "image_paths": [plane["path"] for plane in planes],
-        "z_um": [
-            centre_um - half_um + (2 * half_um * index / last if last else 0.0)
-            for index in range(len(planes))
-        ],
+        "z_um": [float(height) for height in heights],
     }
 
 
@@ -111,18 +94,13 @@ def as_a_measurement(scored: dict, *, metric: str = DEFAULT_METRIC) -> dict:
     }
 
 
-def in_process(
-    *, metric: str = DEFAULT_METRIC, half_um: float = HALF_A_SWEEP_UM, **params: Any
-) -> Callable[[dict, float], dict]:
+def in_process(*, metric: str = DEFAULT_METRIC, **params: Any) -> Callable[[dict], dict]:
     """Score each stack here, in this process. For callers that already have numpy."""
 
-    def score(record: dict, centre_um: float) -> dict:
+    def score(record: dict) -> dict:
         run = _the_step()
         scored = run(
-            {
-                "input": what_was_captured(record, centre_um, half_um),
-                "metadata": {"verbose": 0},
-            },
+            {"input": what_was_captured(record), "metadata": {"verbose": 0}},
             {},
             metric=metric,
             **params,
@@ -136,9 +114,7 @@ def in_process(
 PIPELINE = "focus"
 
 
-def through(
-    analysis: Any, *, metric: str = DEFAULT_METRIC, half_um: float = HALF_A_SWEEP_UM
-) -> Callable[[dict, float], dict]:
+def through(analysis: Any, *, metric: str = DEFAULT_METRIC) -> Callable[[dict], dict]:
     """Score each stack through *analysis*, whose workers are already running.
 
     The analysis is passed in and never built here, so its lifetime is the
@@ -147,8 +123,8 @@ def through(
     :mod:`application.parts.analysis.warm`.
     """
 
-    def score(record: dict, centre_um: float) -> dict:
-        result = analysis.run(PIPELINE, what_was_captured(record, centre_um, half_um))
+    def score(record: dict) -> dict:
+        result = analysis.run(PIPELINE, what_was_captured(record))
         return as_a_measurement(result["score_focus"], metric=metric)
 
     return score

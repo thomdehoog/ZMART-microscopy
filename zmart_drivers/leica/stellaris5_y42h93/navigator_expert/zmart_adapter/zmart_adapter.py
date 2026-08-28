@@ -175,6 +175,14 @@ class ZmartHandle:
             "objective": None,
         }
     )
+    #: Where the last confirmed :func:`set_xyz` put the stage, in the frame --
+    #: what an acquisition reports as the place it was taken. Remembered rather
+    #: than re-read: the move is commanded absolutely and raises unless it is
+    #: confirmed, so this *is* where the stage is, and reading it back would
+    #: put one more call that can hang into the capture path. ``None`` until
+    #: something has driven, and then the acquisition says it does not know
+    #: rather than naming a place nobody went.
+    driven_to: dict[str, float] | None = None
     position_counter: int = 0
     acquisition_hashes: set[str] = field(default_factory=set)
     translations: dict[int, tuple[float, float, float]] | None = None
@@ -639,6 +647,7 @@ def set_xyz(
                 f"(try with_actuators={{'z': '{alternative}'}})"
             )
 
+    handle.driven_to = {"x": x, "y": y, "z": z}
     return {
         "position": {"x": x, "y": y, "z": z},
         "actuators": dict(chosen),
@@ -896,14 +905,20 @@ def acquire(
         cleanup_source=resolved["cleanup_source"],
     )
 
+    written = sorted(saved.image_paths.items())
+    taken_at = _where_the_planes_are(handle, job, len(written))
     planes = [
         {
             "t": int(getattr(index, "t", 0)),
             "z": int(getattr(index, "z", 0)),
             "c": int(getattr(index, "c", ordinal)),
+            # Where the pixels are, and where inside them. A flat OME-TIFF
+            # holds exactly the one plane t/c/z name; were this a store, the
+            # same three would index into it and only the path would change.
             "path": str(path),
+            **taken_at(ordinal),
         }
-        for ordinal, (index, path) in enumerate(sorted(saved.image_paths.items()))
+        for ordinal, (index, path) in enumerate(written)
     ]
     return {
         "acquisition_type": acquisition_type,
@@ -927,6 +942,46 @@ def acquire(
 # =============================================================================
 # State and procedures
 # =============================================================================
+
+
+def _where_the_planes_are(handle: ZmartHandle, job: str, count: int):
+    """Answer, per plane, where on the sample it was captured.
+
+    A client should never have to work this out. It cannot read it off the
+    file -- an OME-TIFF says how large a pixel is and nothing about where it
+    was taken -- and it cannot derive it from the drive either, because the
+    stage stands at the middle of a stack while the planes are spread either
+    side of it. So the acquisition reports it, being the only thing that knows
+    both.
+
+    Reported in the frame the caller drives in, the one :func:`set_xyz` takes,
+    so a position handed back can be handed straight back in.
+
+    The place is where the last confirmed move put the stage, not a fresh
+    read: the move was commanded absolutely and raised unless confirmed, so
+    it is where the stage is, and asking again would put another call that
+    can hang into the capture path.
+
+    The height is that place displaced by how far each slice sits from the
+    middle of the stack -- the stack is taken about where the drive stands,
+    and the job's own block says where its slices are. A job with no stack, or
+    one whose settings do not describe the planes that came back, leaves every
+    plane at the drive's own height: one plane is wherever the drive is, and a
+    guessed spread is worse than none.
+    """
+    at = handle.driven_to
+    slices = _readers.stack_z_wide_um(
+        _readers.get_job_settings(handle.client, job) or {}, count
+    )
+    middle = None if slices is None else (slices[0] + slices[-1]) / 2.0
+
+    def where(ordinal: int) -> dict:
+        if at is None:
+            return {"x_um": None, "y_um": None, "z_um": None}
+        height = at["z"] if middle is None else at["z"] + slices[ordinal] - middle
+        return {"x_um": at["x"], "y_um": at["y"], "z_um": height}
+
+    return where
 
 
 def get_state(handle: ZmartHandle) -> dict:

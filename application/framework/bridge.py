@@ -494,7 +494,7 @@ def _measure_focus(asked: dict) -> dict:
 # The scan: a background thread drives the stage; the window watches the run
 # ---------------------------------------------------------------------------
 
-_scan = {"running": False, "done": 0, "of": 0, "error": None, "records": [], "where": {}}
+_scan = {"running": False, "done": 0, "of": 0, "error": None, "records": []}
 
 
 def _scan_worker(positions: list, acquisition_type: str = "overview") -> None:
@@ -517,9 +517,6 @@ def _scan_worker(positions: list, acquisition_type: str = "overview") -> None:
                     position_label=_label_for(i, position),
                 )
             _scan["records"].append(record)
-            _scan["where"][record["position_label"]] = (
-                float(position["x"]), float(position["y"])
-            )
             _scan["done"] = i + 1
     except Exception as why:  # noqa: BLE001 — the window shows the sentence
         _scan["error"] = str(why)
@@ -541,21 +538,26 @@ def view_of(acquisition_type: str) -> Path:
 def _the_view_of(acquisition_type: str) -> Path | None:
     """Ask the viewer to bring this scan's pictures up to date, and say where.
 
-    The bridge knows only what the run did: which fields were imaged, the files
-    each left behind, and where the stage was sent for them. What a display
-    copy is, and how one is made, is the viewer's own business.
+    Every field the run captured, the files it left behind, and where on the
+    sample it was taken -- all read off the records, because the acquisition is
+    what says where it was. What a display copy is, and how one is made, is the
+    viewer's own business.
     """
     from viz_studio.backend.jpeg_tiles import make_what_is_missing  # noqa: PLC0415
 
-    imaged = {
-        record["position_label"]: (
-            record.get("images", []),
-            _scan["where"][record["position_label"]],
-        )
+    return make_what_is_missing(view_of(acquisition_type), {
+        record["position_label"]: (record["images"], _the_middle_of(record))
         for record in _scan["records"]
-        if record.get("position_label") in _scan["where"]
-    }
-    return make_what_is_missing(view_of(acquisition_type), imaged)
+    })
+
+
+def _the_middle_of(record: dict) -> tuple:
+    """Where on the sample a capture was taken, from what it reported.
+
+    Every plane of one capture is at the same place, so the first is enough.
+    """
+    first = record["planes"][0]
+    return float(first["x_um"]), float(first["y_um"])
 
 
 def _label_for(index: int, position: dict) -> str:
@@ -580,7 +582,7 @@ def _start_scan(asked: dict) -> dict:
         raise RuntimeError("a scan is already running")
     positions = asked.get("positions", [])
     _scan.update(
-        running=True, done=0, of=len(positions), error=None, records=[], where={}
+        running=True, done=0, of=len(positions), error=None, records=[]
     )
     threading.Thread(
         target=_scan_worker,
