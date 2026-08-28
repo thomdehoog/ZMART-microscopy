@@ -467,6 +467,12 @@ let stageWatch = null;
   function runStep(i) {
     const s = step(i);
     if (state.running) return;
+    /* A fresh run is a fresh run. The failure of the last one was cleared
+       only when a run finished -- which a failed connect never did -- so the
+       next press re-checked everything and then refused to finish, leaving
+       the old answers standing. The operator fixed autosave and the page went
+       on saying it was off. */
+    if (state.failed === s.id) state.failed = null;
     state.running = s.id;
     state.locked = true;
     renderAll();
@@ -559,7 +565,7 @@ let stageWatch = null;
     async function finish() {
       /* A step that failed while running was already put down; finishing it
          anyway would mark a failed connection as a session. */
-      if (state.failed === s.id) { state.failed = null; return; }
+      if (state.failed === s.id) return;
       state.running = null;
       state.done.add(s.id);
       state.ran.add(s.id);
