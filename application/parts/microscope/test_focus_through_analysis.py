@@ -53,12 +53,11 @@ DUSTY = (-900.0, 0.0)
 
 @pytest.fixture
 def scope(tmp_path):
-    """A connected mock scope set to the focussing job, writing into tmp_path."""
+    """A connected mock scope writing into this test's own folder."""
     mock_driver.register_mock()
     instrument = next(i for i in get_instruments() if i["vendor"] == "mock")
     instrument["output_root"] = str(tmp_path)
     session = set_instrument(instrument)
-    session.set_state({"changeable": {"job": "Focus"}})
     yield session
     session.disconnect()
 
@@ -66,21 +65,21 @@ def scope(tmp_path):
 def focus_at(session, x_um: float, y_um: float, centre_um: float) -> dict:
     """Drive to (x, y), acquire the stack around *centre_um*, and score it.
 
-    The heights are not in the record: a driver reports plane indices, not
-    micrometres, on a Leica as here. They come from the job's stack, which the
-    state reports, centred on the height driven to -- which is the whole reason
-    a caller drives to the middle of the range rather than the bottom of it.
+    ``focussing`` is what tells the instrument this capture is a stack rather
+    than a picture, and the stack is centred on the height driven to -- which
+    is the whole reason a caller drives to the middle of the range it wants
+    searched rather than to the bottom of it. The heights come back with the
+    planes: the driver put the drive there, so it is the one that knows.
     """
     session.set_xyz(x_um, y_um, centre_um)
     record = session.acquire(acquisition_type="focussing", position_label="K00_P000000")
 
-    stack = session.get_state()["observed"]["stack"]
-    middle = (stack["planes"] - 1) / 2
-    z_um = [centre_um + (index - middle) * stack["step_um"] for index in range(stack["planes"])]
-
     scored = score_focus(
         {
-            "input": {"image_paths": [plane["path"] for plane in record["planes"]], "z_um": z_um},
+            "input": {
+                "image_paths": [plane["path"] for plane in record["planes"]],
+                "z_um": [plane["z_um"] for plane in record["planes"]],
+            },
             "metadata": {"verbose": 0},
         },
         {},

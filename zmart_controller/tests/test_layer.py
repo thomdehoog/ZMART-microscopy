@@ -150,6 +150,26 @@ class TestAcquire:
         )
         assert json.loads(printed.read_text(encoding="utf-8")) == mic.get_state()
 
+    def test_the_kind_of_capture_decides_the_stack(self, mic):
+        """A focussing capture is a stack; an imaging one is a plane.
+
+        The kind of acquisition is what the driver has to go on -- on a real
+        instrument it is the settings imported for that kind of scan, and here
+        it is the only thing said. Every plane reports the height it was taken
+        at, because the driver is the one that put the drive there.
+        """
+        stacked = mic.acquire(acquisition_type="focussing", position_label="K00_P000005")
+        assert len(stacked["planes"]) == 61
+        assert [plane["z"] for plane in stacked["planes"][:3]] == [0, 1, 2]
+        heights = [plane["z_um"] for plane in stacked["planes"]]
+        assert heights == sorted(heights)
+        assert heights[-1] - heights[0] == pytest.approx(68.0)
+        assert sum(heights) / len(heights) == pytest.approx(mic.get_xyz()["z"]["value"])
+
+        plain = mic.acquire(acquisition_type="overview", position_label="K00_P000006")
+        assert len(plain["planes"]) == 1
+        assert plain["planes"][0]["z_um"] == pytest.approx(mic.get_xyz()["z"]["value"])
+
     def test_acquire_options_override(self, mic):
         rec = mic.acquire(
             acquisition_type="targetscan",
