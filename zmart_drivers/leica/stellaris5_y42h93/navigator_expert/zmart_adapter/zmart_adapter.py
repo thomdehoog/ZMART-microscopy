@@ -1358,7 +1358,7 @@ def _connection_status(handle: ZmartHandle, root: Path) -> dict:
         ),
         "stage": _try(stage) or "failed — no reading",
         "autosave": (
-            "enabled" if _try(lambda: _save.native_autosave_enabled(handle.client))
+            "enabled" if _try(_save.native_autosave_enabled)
             else "failed — LAS X will not save what is captured"
         ),
         "output root": str(root),

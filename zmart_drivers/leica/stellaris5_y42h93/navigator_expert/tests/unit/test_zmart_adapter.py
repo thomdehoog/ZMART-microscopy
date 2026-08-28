@@ -517,7 +517,11 @@ class TestAcquire(unittest.TestCase):
             patch.object(adapter, "_scan_field", return_value=None),
             patch.object(adapter._info, "output_root", return_value=Path("/runs")),
             patch.object(adapter._readers, "ping", return_value=True),
-            patch.object(adapter._save, "native_autosave_enabled", return_value=True),
+            # As it is really called: no client, it reads the startup .lcf.
+            # Handed the client as a path it raised, and the check said
+            # "failed" whatever the instrument was set to.
+            patch.object(adapter._save, "native_autosave_enabled",
+                         side_effect=lambda *a, **k: (_ for _ in ()).throw(TypeError()) if a else True),
             patches[0], patches[1], patches[2], patches[3],
         ):
             info = adapter.get_info(h)
