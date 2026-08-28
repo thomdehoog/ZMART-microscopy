@@ -53,6 +53,8 @@ University of Zurich (thom.dehoog@zmb.uzh.ch, thomdehoog@gmail.com).
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from typing import Any
 
 from application.parts.storage.output import (
@@ -74,6 +76,23 @@ class RunCancelled(RuntimeError):
     operator pressing Stop from an instrument refusing a move. The workflow
     re-exports its own, which this is compatible with.
     """
+
+
+def _keep(measured: dict, acquisition: Any, record: dict) -> None:
+    """Write what the analysis said, beside the stack it read.
+
+    ``<acquisition>/analysis``, next to the ``data`` the numbers came from: a
+    height on its own cannot be argued with, and the curve it was chosen from
+    is the whole evidence. Without this the only copy is on the operator's
+    screen, and it goes when the window does.
+    """
+    where = Path(acquisition) / "analysis"
+    where.mkdir(parents=True, exist_ok=True)
+    name = (
+        f"{record['acquisition_type']}_{record['acquisition_hash']}_"
+        f"{record['position_label']}_T000000_focus.json"
+    )
+    (where / name).write_text(json.dumps(measured, indent=2), encoding="utf-8")
 
 
 def measure_focus(
@@ -140,6 +159,8 @@ def measure_focus(
         if output is not None:
             move_record_images(record, output.data)
         found = score(record)
+        if output is not None:
+            _keep(found, output.root, record)
 
         measurement = {
             "x_um": point["x"],
