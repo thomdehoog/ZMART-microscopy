@@ -111,7 +111,7 @@ Three commands, three environments — see `TESTING_ON_REAL_HARDWARE.md` for why
 python application/workflows/target_acquisition/serve_a_run.py <a stack>.ome.zarr --port 60810
 # zmart-microscopy
 npm --prefix application run dev
-python application/dev_window.py \
+python application/zmart-interface.py \
   --url "http://127.0.0.1:5174/?workflow=canvas_layers&overview=http://127.0.0.1:60810/<name>.ome.zarr"
 ```
 

@@ -354,7 +354,7 @@ npm run dev        # http://127.0.0.1:5174 — hot reload
 npm run build      # one self-contained file -> ../workflow/webapp/static/
 npm run test:unit  # vitest, ~146 tests, ~1 s
 npm run test:ui    # playwright, ~24 tests, ~130 s
-python dev_window.py   # the page in a native pywebview window, still hot-reloading
+python zmart-interface.py   # the page in a native pywebview window, still hot-reloading
 ```
 
 CSS edits hot-swap and keep the run's state; a JS edit reloads the page and

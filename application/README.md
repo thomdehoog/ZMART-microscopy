@@ -17,13 +17,13 @@ export PATH="$E:$PATH"
 
 npm install
 npm run dev      # http://127.0.0.1:5174, hot reload on save
-npm run build    # the page and two files beside it -> ../workflow/webapp/static/
+npm run build    # the page and two files beside it -> framework/window/static/
 npm test         # Playwright smoke suite, ~26 s
 ```
 
 ## What the build produces, and why it is three files rather than one
 
-`npm run build` writes three files into `../workflow/webapp/static/`:
+`npm run build` writes three files into `framework/window/static/`:
 
 | file | what it is | how large |
 | --- | --- | --- |
@@ -97,10 +97,11 @@ the page does — the third engine cannot work.** A browser gives such a page no
 address of its own and refuses to start a background program for it. The page
 knows this and offers only the two engines that can draw, with a sentence in the
 corner saying where the third went. Serve the folder over HTTP and all three are
-there; `python dev_window.py --build` now does exactly that, which is also the
+there; `python zmart-interface.py` now does exactly that, which is also the
 closer imitation of how the page will really be handed out.
 
-`build.outDir` points at `../workflow/webapp/static/`, currently gitignored.
+`build.outDir` points at `framework/window/static/`, beside the window that
+shows it and gitignored.
 Whether the built files ship in the repo is decided when the page is wired up —
 given the scope PC cannot build, they probably have to, the way `workflow/react/
 vendor/` already ships built React.

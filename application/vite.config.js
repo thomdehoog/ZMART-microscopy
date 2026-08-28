@@ -126,7 +126,7 @@ export default defineConfig({
     viteSingleFile({ useRecommendedBuildConfig: false }),
   ],
   build: {
-    outDir: "../workflow/webapp/static",
+    outDir: "framework/window/static",
     emptyOutDir: true,
     /* Fold everything into the page except neuroglancer's background programs,
        which have to stay files of their own. */
