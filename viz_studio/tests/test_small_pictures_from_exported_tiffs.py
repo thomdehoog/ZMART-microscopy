@@ -19,6 +19,7 @@ tifffile = pytest.importorskip("tifffile")
 pytest.importorskip("PIL")
 
 from viz_studio.backend.jpeg_tiles import (  # noqa: E402
+    add_a_small_picture,
     group_by_field,
     make_small_pictures,
     pixel_size_um,
@@ -300,3 +301,85 @@ def test_the_note_says_how_the_scan_was_brightened(tmp_path):
     assert low < high
     assert 0.0 < note["dim_end_lifted_by"] <= 1.0
     assert "display only" in note["made_for"]
+
+
+# --- a scan being watched while it is taken ---------------------------------
+
+
+def test_a_field_can_be_added_while_the_scan_is_still_running(tmp_path):
+    """The note grows by one, so a viewer watching it sees the field appear."""
+    exported, view = tmp_path / "data", tmp_path / "view"
+    first = _export_a_plane(exported, "K00_M000001_G000001_P000000_V00", seed=1)
+    second = _export_a_plane(exported, "K00_M000001_G000001_P000001_V00", seed=2)
+
+    add_a_small_picture(view, [first], (0.0, 0.0))
+    note = add_a_small_picture(view, [second], (64.0, 0.0))
+
+    assert [tile["label"] for tile in note["tiles"]] == [
+        "K00_M000001_G000001_P000000_V00",
+        "K00_M000001_G000001_P000001_V00",
+    ]
+    assert json.loads((view / "tiles.json").read_text(encoding="utf-8")) == note
+    assert all((view / tile["src"]).is_file() for tile in note["tiles"])
+
+
+def test_a_field_is_placed_where_the_run_says_it_sent_the_stage(tmp_path):
+    """A TIFF does not say where it was taken, so the caller states it."""
+    exported, view = tmp_path / "data", tmp_path / "view"
+    plane = _export_a_plane(exported, "K00_M000001_G000001_P000003_V00", size=128,
+                            um_per_pixel=0.5)
+
+    note = add_a_small_picture(view, [plane], (100.0, -40.0))
+
+    tile = note["tiles"][0]
+    assert (tile["w"], tile["h"]) == (64.0, 64.0)  # 128 px at 0.5 um
+    assert (tile["x0"], tile["y0"]) == (100.0 - 32.0, -40.0 - 32.0)  # centred there
+
+
+def test_every_field_of_a_growing_scan_is_brightened_the_same_way(tmp_path):
+    """Fields must be comparable at a glance, so the first one settles it.
+
+    Brightening each field over its own range reads a scan backwards: an empty
+    field comes out pale and its neighbour holding cells comes out black.
+    """
+    exported, view = tmp_path / "data", tmp_path / "view"
+    bright = _export_a_plane(exported, "K00_M000001_G000001_P000000_V00", seed=1)
+    faint = _export_a_plane(exported, "K00_M000001_G000001_P000001_V00", seed=9)
+
+    settled = add_a_small_picture(view, [bright], (0.0, 0.0))["brightened_between"]
+    later = add_a_small_picture(view, [faint], (64.0, 0.0))["brightened_between"]
+
+    assert later == settled
+
+
+def test_the_planes_of_one_field_make_one_picture(tmp_path):
+    """A field is one place: every colour and depth taken there belong to it."""
+    exported, view = tmp_path / "data", tmp_path / "view"
+    label = "K00_M000001_G000001_P000000_V00"
+    planes = [_export_a_plane(exported, label, z=z, seed=z) for z in range(3)]
+
+    note = add_a_small_picture(view, planes, (0.0, 0.0))
+
+    assert len(note["tiles"]) == 1
+    assert len(list(view.glob("*.jpg"))) == 1
+
+
+def test_planes_from_two_places_are_refused(tmp_path):
+    """One picture is one field; drawing two as one would put both nowhere."""
+    exported, view = tmp_path / "data", tmp_path / "view"
+    here = _export_a_plane(exported, "K00_M000001_G000001_P000000_V00")
+    there = _export_a_plane(exported, "K00_M000001_G000001_P000001_V00")
+
+    with pytest.raises(ValueError, match="one picture is one field"):
+        add_a_small_picture(view, [here, there], (0.0, 0.0))
+
+
+def test_the_note_is_never_read_half_written(tmp_path):
+    """A viewer asks for the note whenever it likes, including mid-write."""
+    exported, view = tmp_path / "data", tmp_path / "view"
+    plane = _export_a_plane(exported, "K00_M000001_G000001_P000000_V00")
+
+    add_a_small_picture(view, [plane], (0.0, 0.0))
+
+    assert not list(view.glob("*.part"))
+    assert json.loads((view / "tiles.json").read_text(encoding="utf-8"))["tiles"]

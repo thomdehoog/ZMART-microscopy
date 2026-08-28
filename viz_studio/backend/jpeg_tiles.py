@@ -337,6 +337,102 @@ def _as_jpeg(stretched: Any, quality: int) -> bytes:
     return buffer.getvalue()
 
 
+def add_a_small_picture(
+    into: Path | str,
+    paths: list[Path | str],
+    centre_um: tuple[float, float],
+    *,
+    budget_px: int = SMALL_ENOUGH,
+    quality: int = GOOD_ENOUGH,
+) -> dict:
+    """Add one field to a scan's pictures while the scan is still being taken.
+
+    ``paths`` are the planes of a single field, as the driver reported writing
+    them; ``centre_um`` is the middle of that field, as the run recorded
+    sending the stage there. The picture is written and ``tiles.json`` beside
+    it grows by one, so a viewer watching the note sees the field appear.
+
+    This is :func:`make_small_pictures` one field at a time, and it differs in
+    exactly one way, which is worth stating rather than leaving to be
+    discovered. The brightening cannot be settled across a scan that has not
+    finished, so the **first field settles it and every later field is held to
+    it**. That keeps the fields comparable to one another, which is the
+    property that matters -- but it is settled on one field instead of all of
+    them, so a scan beginning on empty sample comes out brighter than it
+    should. Running :func:`make_small_pictures` over the finished scan settles
+    it properly.
+    """
+    into = Path(into)
+    into.mkdir(parents=True, exist_ok=True)
+    planes = _planes_among(paths)
+    label = planes[0].label
+
+    whole = _flatten(planes)
+    picture = _shrink_to(whole, budget_px)
+    note = _note_in(into)
+    low, high = note.get("brightened_between") or _one_brightening_for_the_whole_scan([picture])
+
+    stretched = _stretch(picture, low, high)
+    name = f"{label}.jpg"
+    (into / name).write_bytes(_as_jpeg(stretched, quality))
+
+    full_height, full_width = whole.shape[:2]
+    um_per_pixel = pixel_size_um(planes[0].path)
+    width_um, height_um = full_width * um_per_pixel, full_height * um_per_pixel
+    centre_x, centre_y = centre_um
+    note["brightened_between"] = [low, high]
+    note["tiles"] = [tile for tile in note["tiles"] if tile["label"] != label]
+    note["tiles"].append(
+        {
+            "label": label,
+            "src": name,
+            "x0": centre_x - width_um / 2.0,
+            "y0": centre_y - height_um / 2.0,
+            "w": width_um,
+            "h": height_um,
+            "grey": _how_bright(stretched),
+        }
+    )
+    _write_the_note(into, note)
+    return note
+
+
+def _planes_among(paths: list[Path | str]) -> list[Plane]:
+    """The planes of one field, in a settled order, from the files naming them."""
+    planes = []
+    for path in paths:
+        path = Path(path)
+        match = _PLANE_NAME.match(path.name)
+        if not match:
+            raise ValueError(f"{path.name} is not a canonical plane name")
+        parts = match.groupdict()
+        planes.append(
+            Plane(
+                path=path,
+                acquisition=parts["acquisition"],
+                hash6=parts["hash"],
+                label=parts["label"],
+                t=int(parts["t"]),
+                c=int(parts["c"]),
+                z=int(parts["z"]),
+            )
+        )
+    if not planes:
+        raise ValueError("a field with no planes cannot be pictured")
+    labels = {plane.label for plane in planes}
+    if len(labels) > 1:
+        raise ValueError(f"one picture is one field, and these are {sorted(labels)}")
+    return sorted(planes, key=lambda plane: (plane.t, plane.z, plane.c))
+
+
+def _note_in(into: Path) -> dict:
+    """The note as it stands, or a fresh one for a scan with no pictures yet."""
+    where = into / "tiles.json"
+    if where.is_file():
+        return json.loads(where.read_text(encoding="utf-8"))
+    return {"units": "um", "tiles": []}
+
+
 def make_small_pictures(
     folder: Path | str,
     where_each_field_is: dict[str, tuple[float, float]],
@@ -417,17 +513,30 @@ def make_small_pictures(
 
     note = {
         "units": "um",
-        "grey_is": "one colour standing for each field, for drawing it when it is too "
-                   "small on screen to be worth decoding. It is the field's average "
-                   "after brightening, which is what the field looks like from far "
-                   "away, so nothing changes as the real pictures arrive",
         "brightened_between": [low, high],
-        "brightening_is": "the same for every field in the scan, so a brighter field "
-                          "really does hold more signal than a dimmer one",
-        "dim_end_lifted_by": EASY_TO_SEE,
-        "made_for": "display only \u2014 the real pixels stay in the TIFFs",
         "tiles": tiles,
         "fields_with_no_stated_place": placed_nowhere,
     }
-    (into / "tiles.json").write_text(json.dumps(note, indent=2), encoding="utf-8")
+    _write_the_note(into, note)
     return note
+
+
+#: What the note says about itself, so that reading one is enough to know what
+#: is in it. Written by both ways in, so their wording cannot drift apart.
+_WHAT_THE_NOTE_MEANS = {
+    "grey_is": "one colour standing for each field, for drawing it when it is too "
+               "small on screen to be worth decoding. It is the field's average "
+               "after brightening, which is what the field looks like from far "
+               "away, so nothing changes as the real pictures arrive",
+    "brightening_is": "the same for every field in the scan, so a brighter field "
+                      "really does hold more signal than a dimmer one",
+    "made_for": "display only — the real pixels stay in the TIFFs",
+}
+
+
+def _write_the_note(into: Path, note: dict) -> None:
+    """Write ``tiles.json``, whole, so a viewer never reads half of one."""
+    note.update(_WHAT_THE_NOTE_MEANS, dim_end_lifted_by=EASY_TO_SEE)
+    beside = into / "tiles.json.part"
+    beside.write_text(json.dumps(note, indent=2), encoding="utf-8")
+    beside.replace(into / "tiles.json")

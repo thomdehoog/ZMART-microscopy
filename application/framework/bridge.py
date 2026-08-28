@@ -494,7 +494,7 @@ def _measure_focus(asked: dict) -> dict:
 # The scan: a background thread drives the stage; the window watches the run
 # ---------------------------------------------------------------------------
 
-_scan = {"running": False, "done": 0, "of": 0, "error": None, "records": []}
+_scan = {"running": False, "done": 0, "of": 0, "error": None, "records": [], "unseen": []}
 
 
 def _scan_worker(positions: list, acquisition_type: str = "overview") -> None:
@@ -517,11 +517,48 @@ def _scan_worker(positions: list, acquisition_type: str = "overview") -> None:
                     position_label=_label_for(i, position),
                 )
             _scan["records"].append(record)
+            _see(record, position)
             _scan["done"] = i + 1
     except Exception as why:  # noqa: BLE001 — the window shows the sentence
         _scan["error"] = str(why)
     finally:
         _scan["running"] = False
+
+
+#: Where a scan's display copies go: beside ``data``, under the acquisition
+#: type. They are made *from* the pixels rather than being pixels, which is
+#: what puts them next to ``data`` instead of inside it.
+VIEW = "view"
+
+
+def view_of(acquisition_type: str) -> Path:
+    """Where this kind of scan's pictures are, under the driver's output root."""
+    return Path(_require_session().get_info()["output_root"]) / acquisition_type / VIEW
+
+
+def _see(record: dict, position: dict) -> None:
+    """Make the display copy of one capture, so the canvas can draw it.
+
+    A microscope writes OME-TIFFs, which a browser cannot open and which weigh
+    far too much to send: a scan is tens of gigabytes as TIFFs and about a
+    hundred megabytes as JPEGs, and only one of those two numbers opens. So one
+    small picture is made per field as it lands, and the note beside them grows
+    by one, which is what a viewer watches.
+
+    A failure here loses a picture and must not lose the run: the capture is
+    already saved and its record already kept, and an operator would rather
+    finish a scan they cannot yet see than lose one they can.
+    """
+    try:
+        from viz_studio.backend.jpeg_tiles import add_a_small_picture  # noqa: PLC0415
+
+        add_a_small_picture(
+            view_of(record["acquisition_type"]),
+            record["images"],
+            (float(position["x"]), float(position["y"])),
+        )
+    except Exception as why:  # noqa: BLE001 — the run matters more than the picture
+        _scan["unseen"].append(f"{record.get('position_label')}: {why}")
 
 
 def _label_for(index: int, position: dict) -> str:
@@ -545,7 +582,9 @@ def _start_scan(asked: dict) -> dict:
     if _scan["running"]:
         raise RuntimeError("a scan is already running")
     positions = asked.get("positions", [])
-    _scan.update(running=True, done=0, of=len(positions), error=None, records=[])
+    _scan.update(
+        running=True, done=0, of=len(positions), error=None, records=[], unseen=[]
+    )
     threading.Thread(
         target=_scan_worker,
         args=(positions, str(asked.get("acquisition_type", "overview"))),
@@ -575,6 +614,43 @@ class _Bridge(BaseHTTPRequestHandler):
     def _fail(self, why: Exception) -> None:
         kind = 400 if isinstance(why, (ValueError, KeyError)) else 500
         self._answer({"error": str(why)}, status=kind)
+
+    #: What a view folder is allowed to hold, and what to call it when sent.
+    #: A short list rather than a guess, because this hands out files by a name
+    #: the page chose: anything not on it is not a picture and is not sent.
+    PICTURES = {".jpg": "image/jpeg", "tiles.json": "application/json"}
+
+    def _send_a_picture(self, path: str) -> None:
+        """Hand out one file from a scan's view folder.
+
+        ``/view/<acquisition type>/<name>``. Browsers will not let a page read
+        files off a disk, so the pictures a scan makes have to be served, and
+        this is the only reason the bridge serves anything that is not JSON.
+
+        The name is taken apart rather than joined on: a name with a path in it
+        would otherwise reach out of the folder and hand out any file this
+        process can read.
+        """
+        _, _, rest = path.partition("/view/")
+        kind, _, name = rest.partition("/")
+        wanted = self.PICTURES.get(name if name in self.PICTURES else Path(name).suffix)
+        if not kind or not name or name != Path(name).name or wanted is None:
+            self._answer({"error": f"no picture {rest!r}"}, status=404)
+            return
+        where = view_of(kind) / name
+        if not where.is_file():
+            self._answer({"error": f"{rest} has not been made yet"}, status=404)
+            return
+        body = where.read_bytes()
+        self.send_response(200)
+        self.send_header("Content-Type", wanted)
+        self.send_header("Content-Length", str(len(body)))
+        # A scan's note and its pictures change as it runs, so nothing here is
+        # worth keeping: a cached note is a canvas that stops growing.
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.end_headers()
+        self.wfile.write(body)
 
     def _body(self) -> dict:
         length = int(self.headers.get("Content-Length") or 0)
@@ -611,6 +687,8 @@ class _Bridge(BaseHTTPRequestHandler):
                     self._answer(_acquisition_options())
             elif path == "/api/scan":
                 self._answer(dict(_scan))
+            elif path.startswith("/view/"):
+                self._send_a_picture(path)
             else:
                 self._answer({"error": f"no route {path}"}, status=404)
         except Exception as why:  # noqa: BLE001
