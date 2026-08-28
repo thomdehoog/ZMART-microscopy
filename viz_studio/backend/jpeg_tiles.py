@@ -337,6 +337,34 @@ def _as_jpeg(stretched: Any, quality: int) -> bytes:
     return buffer.getvalue()
 
 
+def make_what_is_missing(into: Path | str, fields: dict) -> Path | None:
+    """Bring a view up to date with what has been imaged, and return its note.
+
+    ``fields`` maps a field's label to ``(planes, centre_um)`` -- the files the
+    driver reported writing there, and the middle of that field as the run
+    recorded sending the stage. Both come from the run, because neither is in
+    the files: a TIFF says how large a pixel is and nothing about where it was
+    taken.
+
+    Only fields with no picture yet are made, so asking again as a scan grows
+    costs one encode per new field rather than a rebuild. ``None`` when nothing
+    has been imaged, which is a scan with nothing to show rather than an error.
+
+    This is the viewer's work and not the microscope's. A driver writes what it
+    captured, in full, and stops; the small lossy copies exist so that a scan
+    can be *looked at*, and are made by the thing doing the looking. A scan
+    nobody opens makes none of them.
+    """
+    into = Path(into)
+    made = _note_in(into) if (into / "tiles.json").is_file() else None
+    already = {tile["label"] for tile in (made or {}).get("tiles", [])}
+    for label, (planes, centre_um) in sorted(fields.items()):
+        if label in already or not planes:
+            continue
+        made = add_a_small_picture(into, planes, centre_um)
+    return into / "tiles.json" if made and made.get("tiles") else None
+
+
 def add_a_small_picture(
     into: Path | str,
     paths: list[Path | str],

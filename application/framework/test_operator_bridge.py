@@ -367,7 +367,7 @@ def _scanned(driver, positions, monkeypatch, **asked):
     """Run a scan to completion on this driver and hand back what it kept."""
     monkeypatch.setattr(bridge, "_session", driver)
     bridge._scan.update(
-        running=True, done=0, of=len(positions), error=None, records=[], unseen=[]
+        running=True, done=0, of=len(positions), error=None, records=[], where={}
     )
     bridge._scan_worker(positions, **asked)
     assert bridge._scan["error"] is None, bridge._scan["error"]
@@ -448,7 +448,7 @@ def test_a_scan_really_captures_at_every_position(monkeypatch, tmp_path):
             {"x": 0.0, "y": 700.0, "z": 5_000.0, "compartment": 2, "group": 2},
         ]
         bridge._scan.update(
-        running=True, done=0, of=len(positions), error=None, records=[], unseen=[]
+        running=True, done=0, of=len(positions), error=None, records=[], where={}
     )
         bridge._scan_worker(positions)
         assert bridge._scan["error"] is None, bridge._scan["error"]
@@ -508,7 +508,7 @@ def test_a_scan_stops_and_says_so_when_a_capture_fails(monkeypatch, tmp_path):
     monkeypatch.setattr(bridge, "_session", _FailsOnTheSecond(session))
     try:
         positions = [{"x": 0.0, "y": 0.0}, {"x": 900.0, "y": 0.0}, {"x": 1_800.0, "y": 0.0}]
-        bridge._scan.update(running=True, done=0, of=3, error=None, records=[], unseen=[])
+        bridge._scan.update(running=True, done=0, of=3, error=None, records=[], where={})
         bridge._scan_worker(positions)
     finally:
         session.disconnect()
@@ -522,13 +522,14 @@ def test_a_scan_stops_and_says_so_when_a_capture_fails(monkeypatch, tmp_path):
 # --- what the canvas is given to draw ----------------------------------------
 
 
-def test_a_scan_leaves_a_picture_of_every_field_the_canvas_can_open(monkeypatch, tmp_path):
-    """OME-TIFFs are not something a browser can draw, so a copy is made.
+def test_the_viewer_makes_a_picture_of_every_field_that_was_imaged(monkeypatch, tmp_path):
+    """OME-TIFFs are not something a browser can draw, so the viewer copies them.
 
-    One small JPEG per field as it lands, and a note beside them saying where
-    each belongs in micrometres -- which is everything the viewer needs, and
-    deliberately all it gets: a viewer that had to open a TIFF to find out
-    where to put something would be back to reading large files.
+    Made when something asks to look, not while the run is going: a scan
+    nobody watches makes no pictures. The note says where each field belongs in
+    micrometres, which is everything the viewer needs and deliberately all it
+    gets -- one that had to open a TIFF to find out where to put something
+    would be back to reading large files.
     """
     import zmart_controller
     from zmart_drivers.mock import mock_driver
@@ -543,12 +544,15 @@ def test_a_scan_leaves_a_picture_of_every_field_the_canvas_can_open(monkeypatch,
             {"x": 0.0, "y": 0.0, "z": 5_000.0},
             {"x": 900.0, "y": 0.0, "z": 5_000.0},
         ]
-        bridge._scan.update(running=True, done=0, of=2, error=None, records=[], unseen=[])
+        bridge._scan.update(running=True, done=0, of=2, error=None, records=[], where={})
         bridge._scan_worker(positions)
         assert bridge._scan["error"] is None, bridge._scan["error"]
-        assert not bridge._scan.get("unseen"), bridge._scan.get("unseen")
 
         view = bridge.view_of("overview")
+        # Nothing is made while the run goes: the run only acquires.
+        assert not view.exists()
+
+        assert bridge._the_view_of("overview") is not None
         note = json.loads((view / "tiles.json").read_text(encoding="utf-8"))
     finally:
         session.disconnect()
@@ -562,17 +566,23 @@ def test_a_scan_leaves_a_picture_of_every_field_the_canvas_can_open(monkeypatch,
     here, there = note["tiles"]
     assert here["x0"] + here["w"] / 2 == pytest.approx(0.0)
     assert there["x0"] + there["w"] / 2 == pytest.approx(900.0)
+    # And the acquisition itself is untouched, in the folder the driver wrote.
+    assert list((tmp_path / "overview" / "data").glob("*.ome.tiff"))
+    assert not list(view.glob("*.tiff"))
 
 
-def test_a_picture_that_cannot_be_made_does_not_stop_the_scan(monkeypatch, tmp_path):
-    """The capture is already saved; an operator would rather finish blind."""
-    driver = _Capturing()
-    monkeypatch.setattr(bridge, "_session", driver)
-    monkeypatch.setattr(bridge, "view_of", lambda kind: (_ for _ in ()).throw(OSError("no disk")))
+def test_nothing_is_drawn_for_a_scan_that_has_imaged_nothing(monkeypatch, tmp_path):
+    """A place the run has not reached has no picture, which is not an error."""
+    import zmart_controller
+    from zmart_drivers.mock import mock_driver
 
-    bridge._scan.update(running=True, done=0, of=1, error=None, records=[], unseen=[])
-    bridge._scan_worker([{"x": 0.0, "y": 0.0}])
-
-    assert bridge._scan["error"] is None
-    assert bridge._scan["done"] == 1
-    assert "no disk" in bridge._scan["unseen"][0]
+    mock_driver.register_mock()
+    instrument = next(i for i in zmart_controller.get_instruments() if i["vendor"] == "mock")
+    instrument["output_root"] = str(tmp_path)
+    session = zmart_controller.set_instrument(instrument)
+    monkeypatch.setattr(bridge, "_session", session)
+    try:
+        bridge._scan.update(running=False, done=0, of=0, error=None, records=[], where={})
+        assert bridge._the_view_of("overview") is None
+    finally:
+        session.disconnect()
