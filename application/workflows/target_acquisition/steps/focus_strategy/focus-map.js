@@ -566,7 +566,10 @@ function focusDraggedTo(px, py) {
     };
   }
   refitSurface();
-  stage.draw(); renderPointList();
+  /* The plot too. A moved point has no curve -- what was read for it was
+     read where it used to be -- and the row said so while the plot went on
+     showing the old one. */
+  stage.draw(); renderPointList(); drawTrace();
 }
 
 /**
@@ -1058,11 +1061,16 @@ function drawTrace() {
   /* Which point is being read is said by the list, where the row is marked,
      and by the map, where the mark is drawn heavier. The heading says what
      the box is, once. */
-  if (!has || !sizeCanvas(traceCv)) return;
-
+  if (!sizeCanvas(traceCv)) return;
   const ctx = traceCv.getContext("2d");
   const w = traceCv.cssW, h = traceCv.cssH;
+  /* Wiped before deciding whether there is anything to draw. A point that has
+     moved has no curve -- what was read for it was read where it used to be
+     -- and the message says so; but the curve it had stayed painted under
+     the message, because the wipe came after the bail. */
   ctx.clearRect(0, 0, w, h);
+  if (!has) return;
+
   // the plot stands on the same white the box does: a tinted panel inside a
   // white card read as a second surface for one of the three parts
   ctx.fillStyle = css("--screen");
