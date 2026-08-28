@@ -487,7 +487,54 @@ class TestAcquire(unittest.TestCase):
         ):
             yield {}
 
-    def test_acquire_selects_job_captures_and_saves(self):
+    def test_get_info_says_how_far_the_stage_can_go_and_what_the_session_stands_on(self):
+        """The two things the operator page reads at connect, and the mock invented.
+
+        The page sizes its canvas from ``get_info().canvas`` and lists what a
+        session stands on from ``connection_status``. The mock reports both;
+        this adapter reported neither, so a real connect drew a canvas of no
+        size under a Connect step with nothing to say. The canvas is the
+        limits envelope in the frame -- nothing can be imaged outside it --
+        and the checks are facts the driver already holds.
+        """
+        h = _handle(gate_constraints={
+            "x_um": {"min": 0, "max": 120_000}, "y_um": {"min": 0, "max": 80_000},
+            "z_wide_um": {"min": 0, "max": 10_000},
+        })
+        h.origin = {**h.origin, "x_um": 1_000.0, "y_um": 500.0, "z_wide_um": 100.0}
+        # The envelope the gate was handed at connect, in raw stage um.
+        gate = adapter._gate._state_for(h.client)
+        adapter._gate._install(h.client, adapter._gate.GateState(
+            limits=gate.limits, error=None,
+            stage_cfg={"stage_um": {
+                "x": [0.0, 120_000.0], "y": [0.0, 80_000.0],
+                "z_wide": [0.0, 10_000.0], "z_galvo": [-50.0, 50.0],
+            }},
+        ))
+        patches = _patch_position(x_um=1_000.0, y_um=500.0, z_wide_um=100.0)
+        with (
+            patch.object(adapter, "_selected_job_name", return_value="Overview"),
+            patch.object(adapter, "_scan_field", return_value=None),
+            patch.object(adapter._info, "output_root", return_value=Path("/runs")),
+            patch.object(adapter._readers, "ping", return_value=True),
+            patch.object(adapter._save, "native_autosave_enabled", return_value=True),
+            patches[0], patches[1], patches[2], patches[3],
+        ):
+            info = adapter.get_info(h)
+
+        # In the frame: the envelope shifted by the origin.
+        self.assertEqual(info["canvas"]["x_um"], [-1_000.0, 119_000.0])
+        self.assertEqual(info["canvas"]["y_um"], [-500.0, 79_500.0])
+        self.assertEqual(info["canvas"]["z_um"], [-100.0, 9_900.0])
+
+        checks = info["connection_status"]
+        self.assertEqual(checks["api"], "answering")
+        self.assertEqual(checks["autosave"], "enabled")
+        self.assertIn("um", checks["stage"])
+        self.assertEqual(checks["output root"], str(Path("/runs")))
+        self.assertNotIn("failed", checks["limits"])
+
+
         h = _handle(connection={**adapter.CONNECTION, "output_root": "/tmp/out"})
         calls = {}
 
@@ -569,7 +616,7 @@ class TestAcquire(unittest.TestCase):
         be handed straight back in.
         """
         h = _handle()
-        h.driven_to = {"x": 1200.0, "y": -450.0, "z": 33.5}
+        h.driven_to = {"x": 1200.0, "y": -450.0, "z": 33.5, "z_wide_um": 900.0}
         with self._capturing() as calls:
             record = adapter.acquire(h, acquisition_type="overview", position_label="A1")
 
@@ -588,7 +635,7 @@ class TestAcquire(unittest.TestCase):
         focus routine chose would then be the height it was handed.
         """
         h = _handle()
-        h.driven_to = {"x": 0.0, "y": 0.0, "z": 100.0}
+        h.driven_to = {"x": 0.0, "y": 0.0, "z": 100.0, "z_wide_um": 1000.0}
         planes = {i: Path(f"/tmp/out/img_z{i}.ome.tif") for i in range(5)}
         with self._capturing(image_paths=planes) as calls, patch.object(
             adapter._readers, "get_job_settings",
@@ -597,11 +644,29 @@ class TestAcquire(unittest.TestCase):
             record = adapter.acquire(h, acquisition_type="focussing", position_label="A1")
 
         del calls
-        # 5 slices over 20 um, centred on the drive: 100 um plus -10..+10.
+        # 5 slices over 20 um about the z-wide the drive was realized at.
         self.assertEqual(
             [p["z_um"] for p in record["planes"]], [90.0, 95.0, 100.0, 105.0, 110.0]
         )
         self.assertEqual({p["x_um"] for p in record["planes"]}, {0.0})
+
+    def test_a_stack_that_does_not_straddle_the_drive_is_placed_where_it_is(self):
+        """Nothing assumes the drive stands in the middle of its own stack.
+
+        A job whose stack begins at the current plane and climbs is perfectly
+        ordinary, and a run that split it evenly either side would report every
+        plane half a stack away from where it was taken.
+        """
+        h = _handle()
+        h.driven_to = {"x": 0.0, "y": 0.0, "z": 100.0, "z_wide_um": 1000.0}
+        planes = {i: Path(f"/tmp/out/img_z{i}.ome.tif") for i in range(3)}
+        with self._capturing(image_paths=planes), patch.object(
+            adapter._readers, "get_job_settings",
+            return_value={"stack": {"begin": 1000.0, "end": 1020.0, "sections": 3}},
+        ):
+            record = adapter.acquire(h, acquisition_type="focussing", position_label="A1")
+
+        self.assertEqual([p["z_um"] for p in record["planes"]], [100.0, 110.0, 120.0])
 
     def test_acquire_applies_the_rigs_measured_orientation(self):
         """The microscope's measured turn reaches ``save``, so saved planes are
