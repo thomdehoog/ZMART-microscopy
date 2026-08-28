@@ -37,7 +37,7 @@ from pathlib import Path
 import numpy as np
 from scipy.fft import dctn
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "parts"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from _image_io import load_plane  # noqa: E402
 
 METADATA = {
