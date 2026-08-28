@@ -23,6 +23,8 @@ University of Zurich (thom.dehoog@zmb.uzh.ch, thomdehoog@gmail.com).
 from __future__ import annotations
 
 import json
+import math
+import random
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -44,8 +46,73 @@ _DEFAULT_ACTUATORS: dict[str, str] = {"x": "motoric", "y": "motoric", "z": "moto
 #: written into every frame, so the two cannot come to disagree.
 _PIXEL_UM = 1.0
 
-#: The jobs this pretend instrument has stored, in the order it lists them.
-_JOBS: tuple[str, ...] = ("Overview", "HiRes", "Survey")
+#: The jobs this pretend instrument has stored, in the order it lists them,
+#: each with the z-stack it acquires. A job is a stored recipe, and how many
+#: planes a capture takes and how far apart they sit belongs to it -- which is
+#: why the operator drives to the centre of a range and the instrument makes
+#: the stack, rather than the caller stepping the drive itself.
+_JOBS: dict[str, dict] = {
+    "Overview": {"z_planes": 1, "z_step_um": 0.0},
+    "HiRes": {"z_planes": 1, "z_step_um": 0.0},
+    "Survey": {"z_planes": 1, "z_step_um": 0.0},
+    # 61 planes over +/-34 um: fine enough that a speck a micrometre or two
+    # wide lands on a plane at all. A stack that steps past its dust cannot
+    # show the failure the focus step exists to survive.
+    "Focus": {"z_planes": 61, "z_step_um": 68.0 / 60.0},
+}
+
+# The pretend sample: a sheet of tissue lying at a slight tilt across the
+# stage, sharp where the focal plane meets it and blurring with distance from
+# it. A driver that returned the same picture at every height would let a
+# broken focus routine pass, so this one does not.
+_SAMPLE_Z_UM = 5_000.0  # the sample's height above the frame's zero, at (0, 0)
+_SAMPLE_TILT = (0.004, -0.002)  # um of height per um across x and y
+_BLUR_PER_UM = 0.25  # blur radius in pixels per um out of focus
+
+
+#: How often a field has a speck of dust in it, and how far apart two fields
+#: must be to have different dust. A speck is the failure worth pretending: it
+#: is a hard edge in one plane, so it out-scores tissue over a far narrower
+#: range, which is how an autofocus ends up focused on dust. A focus routine
+#: that cannot be shown this cannot be shown to survive it.
+_DEBRIS_CHANCE = 0.45
+_DEBRIS_CELL_UM = 50.0
+
+
+def sharp_height_um(x_um: float, y_um: float) -> float:
+    """The frame height the pretend sample is in focus at, above this (x, y).
+
+    Exported because a test that acquires a stack has to know what the right
+    answer was; nothing in the driver's own contract exposes it, exactly as no
+    instrument tells you where the tissue is.
+    """
+    return _SAMPLE_Z_UM + _SAMPLE_TILT[0] * x_um + _SAMPLE_TILT[1] * y_um
+
+
+def debris_at(x_um: float, y_um: float) -> dict | None:
+    """The speck of dust in the field above this (x, y), if there is one.
+
+    Deterministic from where it is, not from when it was asked: the same field
+    has the same dust every run, so a stack that goes wrong goes wrong the same
+    way twice and can be tested. ``offset_um`` is where it sits relative to the
+    tissue, ``width_um`` how narrow its peak is, and ``contrast`` how hard its
+    edges are against the tissue's.
+
+    Exported for the same reason as :func:`sharp_height_um`: a test has to know
+    which fields are the awkward ones.
+    """
+    cell_x = int(x_um // _DEBRIS_CELL_UM)
+    cell_y = int(y_um // _DEBRIS_CELL_UM)
+    rng = random.Random(770 + cell_x * 613 + cell_y * 1009)
+    if rng.random() > _DEBRIS_CHANCE:
+        return None
+    return {
+        "offset_um": (-1 if rng.random() < 0.5 else 1) * (9.0 + 13.0 * rng.random()),
+        # Narrower than tissue and wider than one plane: a speck has to be
+        # tellable from the sample and still be caught by the drive.
+        "width_um": 1.2 + 1.6 * rng.random(),
+        "contrast": 1.12 + 0.34 * rng.random(),
+    }
 
 
 @dataclass
@@ -238,14 +305,24 @@ def acquire(
     options = _with_defaults(handle, options)
     settle = "backlash-corrected" if options["backlash_correction"] else "direct"
     acquisition_hash = uuid.uuid4().hex[:6]
-    path = _write_a_frame(handle, acquisition_type, acquisition_hash, position_label)
+    # The stage is standing at the centre of the range; the job says how far
+    # either side to go and in what steps. One 2-D plane per file, flat, which
+    # is what every ZMART driver writes -- a stack is a list of planes, never
+    # one stacked file.
+    paths = [
+        _write_a_frame(
+            handle, acquisition_type, acquisition_hash, position_label, index, height
+        )
+        for index, height in enumerate(stack_heights(handle))
+    ]
     printed = _print_the_state(
-        handle, path.parent, acquisition_type, acquisition_hash, position_label
+        handle, paths[0].parent, acquisition_type, acquisition_hash, position_label
     )
     # The two keys a client follows, in the shapes the real driver answers
     # with: ``images`` the simple list, ``planes`` the manifest that tells a
-    # channel from a z. One plane, because this instrument captures one.
-    planes = [{"t": 0, "z": 0, "c": 0, "path": str(path)}]
+    # channel from a z. Plane indices only, no micrometres -- the heights come
+    # from the job's stack and the centre driven to, as they do on a Leica.
+    planes = [{"t": 0, "z": index, "c": 0, "path": str(path)} for index, path in enumerate(paths)]
     return {
         "acquisition_type": acquisition_type,
         "acquisition_hash": acquisition_hash,
@@ -261,14 +338,34 @@ def acquire(
     }
 
 
+def stack_heights(handle: MockHandle) -> list[float]:
+    """The frame heights the active job's stack visits, around where it stands.
+
+    A one-plane job visits exactly where the stage is. A stack is centred
+    there, which is why a caller drives to the middle of the range it wants
+    searched rather than to the bottom of it.
+    """
+    stack = _JOBS[handle.job]
+    centre = handle.z - handle.origin_z
+    middle = (stack["z_planes"] - 1) / 2
+    return [centre + (index - middle) * stack["z_step_um"] for index in range(stack["z_planes"])]
+
+
 def _write_a_frame(
-    handle: MockHandle, acquisition_type: str, acquisition_hash: str, position_label: str
+    handle: MockHandle,
+    acquisition_type: str,
+    acquisition_hash: str,
+    position_label: str,
+    z_index: int,
+    height_um: float,
 ) -> Path:
-    """Write one OME-TIFF where a real driver would, and return the path.
+    """Write one plane of the sample as it looks from *height_um*, and return it.
 
     It writes rather than merely naming a file, because the real driver does:
     a record naming files that are not there is one a client can follow on the
-    microscope and not on the bench.
+    microscope and not on the bench. And it writes the sample rather than a
+    placeholder, because a focus routine scored against a picture that never
+    changes cannot be told from one that works.
 
     ``numpy`` and ``tifffile`` are imported here, not at the top, so that
     registering this driver stays free of them — the operator page's bridge
@@ -287,14 +384,16 @@ def _write_a_frame(
     # be opened to know what it holds.
     path = root / acquisition_type / "data" / (
         f"{acquisition_type}_{acquisition_hash}_{position_label}_"
-        "T000000_C00_Z00000.ome.tiff"
+        f"T000000_C00_Z{z_index:05d}.ome.tiff"
     )
     path.parent.mkdir(parents=True, exist_ok=True)
     px = _PIXEL_UM
-    size = 64  # read to check a file arrived, never to look at
+    where = _user_position(handle)
+    frame = _the_sample_from(np, where["x"], where["y"], height_um)
+    size = frame.shape[0]
     tifffile.imwrite(
         path,
-        np.tile(np.linspace(0, 4095, size, dtype="uint16"), (size, 1)),
+        frame,
         description=(
             '<OME xmlns="http://www.openmicroscopy.org/Schemas/OME/2016-06">'
             '<Image><Pixels DimensionOrder="XYCZT" Type="uint16" '
@@ -303,6 +402,75 @@ def _write_a_frame(
         ),
     )
     return path
+
+
+#: How wide a captured frame is, in pixels. Small: these are read to check a
+#: file arrived and to score its sharpness, never to look at.
+_FRAME_PX = 64
+
+
+#: How smooth the tissue is when it is in focus. Real tissue is not white
+#: noise, and if it were, nothing could ever out-score it -- least of all the
+#: speck of dust this driver exists to be able to show.
+_TISSUE_GRAIN = 3
+
+#: The speck's size in pixels, and how much of the full range its edges span.
+_SPECK_PX = 6
+_SPECK_LEVEL = 4095.0
+
+
+def _softened(np, plane):
+    """One separable box pass: what being a little further out of focus does."""
+    plane = (np.roll(plane, 1, 0) + plane + np.roll(plane, -1, 0)) / 3.0
+    return (np.roll(plane, 1, 1) + plane + np.roll(plane, -1, 1)) / 3.0
+
+
+def _blurred(np, plane, radius: float):
+    """*plane* softened by a fractional number of passes.
+
+    Fractional because in whole passes several planes come out identically
+    sharp, and the peak is then whichever of them happened to be scored first
+    -- an artefact of the pretending rather than of the focus.
+    """
+    for _ in range(int(radius)):
+        plane = _softened(np, plane)
+    part = radius - int(radius)
+    return (1.0 - part) * plane + part * _softened(np, plane)
+
+
+def _the_sample_from(np, x_um: float, y_um: float, height_um: float):
+    """The sample as it looks from *height_um*: the tissue, and any dust with it.
+
+    The tissue is one fixed texture, softened by how far the drive is from
+    where the sheet lies here -- detail is what a sharpness metric measures and
+    blur is what removes it. Where it comes into focus changes with position,
+    because the sheet is tilted; what it looks like does not, because this
+    instrument images a uniform pretend tissue.
+
+    A speck of dust, where there is one, is added on top: a hard-edged patch
+    whose contrast collapses within a micrometre or two of its own height. That
+    is the whole failure this driver can show -- a peak sharper than the tissue
+    and far narrower, at a height the tissue is not at.
+    """
+    tissue = np.random.default_rng(0).integers(0, 4096, size=(_FRAME_PX, _FRAME_PX))
+    tissue = _blurred(np, tissue.astype("float64"), _TISSUE_GRAIN)
+    focus_um = sharp_height_um(x_um, y_um)
+    frame = _blurred(np, tissue, _BLUR_PER_UM * abs(height_um - focus_um))
+
+    speck = debris_at(x_um, y_um)
+    if speck is not None:
+        away = height_um - (focus_um + speck["offset_um"])
+        # Gaussian in height: sharp within its own width and gone outside it,
+        # which is what makes its peak narrow enough to be told from tissue.
+        showing = math.exp(-(away * away) / (2.0 * speck["width_um"] ** 2))
+        if showing > 1e-3:
+            edges = np.indices((_SPECK_PX, _SPECK_PX)).sum(axis=0) % 2
+            patch = edges * (_SPECK_LEVEL * speck["contrast"] * showing)
+            at = _FRAME_PX // 2 - _SPECK_PX // 2
+            frame = frame.copy()
+            frame[at: at + _SPECK_PX, at: at + _SPECK_PX] += patch
+
+    return np.clip(frame, 0.0, 65535.0).astype("uint16")
 
 
 def _print_the_state(
@@ -350,6 +518,14 @@ def get_state(handle: MockHandle) -> dict:
             "zoom": handle.zoom,
             "pixel_size": {"x": _PIXEL_UM, "y": _PIXEL_UM, "unit": "um"},
             "frame_size": {"x": 1024.0, "y": 1024.0, "unit": "um"},
+            # The active job's z-stack. A capture centres it on wherever the
+            # stage is standing, so this plus the centre is what tells a
+            # caller the height of every plane it got back.
+            "stack": {
+                "planes": _JOBS[handle.job]["z_planes"],
+                "step_um": _JOBS[handle.job]["z_step_um"],
+                "unit": "um",
+            },
         },
     }
 
@@ -396,11 +572,17 @@ def run_procedure(handle: MockHandle, procedure: dict) -> dict:
     name = procedure.get("name")
     if name == "autofocus":
         # Mirror the real drivers' contract: report the sharp z in frame
-        # terms (``frame_z_um``). The mock's "sharp" z is simply wherever
-        # the stage currently sits, which is deterministic and lets the
-        # workflow's focus step run end-to-end offline.
-        frame_z = handle.z - handle.origin_z
-        return {"ran": dict(procedure), "focus_um": handle.z, "frame_z_um": frame_z}
+        # terms (``frame_z_um``). It reports where the sample actually is
+        # above this (x, y), not the height it was driven to -- an autofocus
+        # that hands back its own input measures nothing, and a focus map
+        # built from one would come out flat however wrong it was.
+        where = _user_position(handle)
+        frame_z = sharp_height_um(where["x"], where["y"])
+        return {
+            "ran": dict(procedure),
+            "focus_um": frame_z + handle.origin_z,
+            "frame_z_um": frame_z,
+        }
     return {"ran": dict(procedure)}
 
 

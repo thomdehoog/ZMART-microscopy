@@ -103,6 +103,50 @@ def test_heights_map_onto_the_refined_peak(stack_path):
     assert abs(result["peak_z_um"] - 108.0) < 1.0
 
 
+def _planes_written_one_per_file(tmp_path, blur_at):
+    """The stack a ZMART driver writes: one file per plane, flat, in z order."""
+    sharp = np.random.default_rng(0).integers(0, 4096, size=(64, 64)).astype(np.float64)
+    paths = []
+    for z in range(N_PLANES):
+        path = tmp_path / f"focussing_aaaaaa_K00_P000000_T000000_C00_Z{z:05d}.ome.tiff"
+        tifffile.imwrite(path, _blurred(sharp, blur_at(z)).astype(np.uint16))
+        paths.append(str(path))
+    return paths
+
+
+def test_a_stack_written_one_plane_per_file_scores_the_same(tmp_path, stack_path):
+    """A driver hands back planes, not a stack, so this step accepts them.
+
+    Every ZMART driver writes one 2-D plane per file -- Leica and the mock
+    alike -- so a focus stack arrives as a list of paths in z order, with the
+    heights the caller drove to. Nothing is assembled and nothing is copied:
+    the planes are read where the acquisition left them.
+    """
+    paths = _planes_written_one_per_file(tmp_path, lambda z: abs(z - SHARP_AT))
+    z_um = [100.0 + 2.0 * z for z in range(N_PLANES)]
+
+    data = {"input": {"image_paths": paths, "z_um": z_um}, "metadata": {"verbose": 0}}
+    result = run(data, {})["score_focus"]
+
+    assert result["n_planes"] == N_PLANES
+    assert result["peak_index"] == pytest.approx(SHARP_AT)
+    assert result["peak_z_um"] == pytest.approx(100.0 + 2.0 * SHARP_AT)
+    # The same answer the single-file stack gives, because it is the same stack.
+    assert result["metrics"]["brenner"]["scores"] == pytest.approx(
+        _scored(stack_path)["metrics"]["brenner"]["scores"]
+    )
+
+
+def test_a_plane_list_must_say_where_it_starts_and_ends(tmp_path):
+    """One path is not a stack, and no path at all is not an input."""
+    paths = _planes_written_one_per_file(tmp_path, lambda z: abs(z - SHARP_AT))
+
+    with pytest.raises(ValueError, match="needs an image_path or image_paths"):
+        run({"input": {}, "metadata": {"verbose": 0}}, {})
+    with pytest.raises(ValueError, match="2 heights but the stack has 9 planes"):
+        run({"input": {"image_paths": paths, "z_um": [0.0, 1.0]}, "metadata": {}}, {})
+
+
 def test_a_stack_and_its_heights_must_agree(stack_path):
     data = {
         "input": {"image_path": str(stack_path), "z_um": [0.0, 1.0]},
