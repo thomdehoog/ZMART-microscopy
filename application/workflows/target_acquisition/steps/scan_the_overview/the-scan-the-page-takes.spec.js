@@ -133,8 +133,8 @@ test("the pixels stay in the TIFFs; only a copy is drawn", async () => {
   // Looking is what makes the copies: nothing is made for a scan nobody opens.
   await fetch(`${bridge.pictures}/tiles.json`);
 
-  const data = path.join(bridge.folder, "overview", "data");
-  const view = path.join(bridge.folder, "overview", "view");
+  const data = path.join(bridge.run, "overview", "data");
+  const view = path.join(bridge.run, "overview", "view");
 
   /* Two folders, and the acquisition is in only one of them. A display copy is
      lossy on purpose and nothing is ever read back out of it, so the run's own

@@ -96,7 +96,12 @@ if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
 import zmart_controller  # noqa: E402
-from application.parts.storage.output import position_label  # noqa: E402
+from application.parts.storage.output import (  # noqa: E402
+    move_record_images,
+    position_label,
+    prepare_acquisition,
+    prepare_experiment,
+)
 from application.parts.analysis import warm  # noqa: E402
 from application.parts.microscope import focus_score  # noqa: E402
 from application.parts.microscope.focus_run import measure_focus  # noqa: E402
@@ -165,6 +170,16 @@ def _instruments() -> list:
     return zmart_controller.get_instruments()
 
 
+#: What a run made through this page is called. One name for the workflow, so
+#: two runs are told apart by their hash and not by what somebody typed.
+EXPERIMENT = "target-acquisition"
+
+#: This session's run folder: ``<output root>/target-acquisition_<hash6>``,
+#: made at connect. Everything a session captures goes under it, which is what
+#: makes one run a run -- without it every scan piles into the same folder and
+#: the second is indistinguishable from the first.
+_run: Path | None = None
+
 #: Where runs go, when this bridge was started with somewhere to put them.
 #: A driver that discovers its own (the Leica finds the root beside LAS X)
 #: needs none of this; one that cannot has to be told, and the page has
@@ -182,17 +197,20 @@ def _connect(asked: dict) -> dict:
         )
     if _output_root is not None:
         connection = {**connection, "output_root": _output_root}
+    global _run
     _session = zmart_controller.set_instrument(connection)
     _context = dict(_session.context)
     info = _session.get_info()
-    return {"context": _context, "info": info}
+    _run = prepare_experiment(info["output_root"], EXPERIMENT)
+    return {"context": _context, "info": info, "run": str(_run)}
 
 
 def _disconnect() -> dict:
-    global _session
+    global _session, _run
     if _session is not None:
         _session.disconnect()
         _session = None
+    _run = None
     # The workers outlive a focus map on purpose, but not the session: a
     # disconnected page is not about to measure anything.
     warm.close()
@@ -489,6 +507,7 @@ def _measure_focus(asked: dict) -> dict:
             for point in asked.get("points", [])
         ],
         score=_score_a_stack(),
+        output_root=_the_run(),
     )
     return {
         "points": [
@@ -525,6 +544,9 @@ def _scan_worker(positions: list, acquisition_type: str = "overview") -> None:
                     acquisition_type=acquisition_type,
                     position_label=_label_for(i, position),
                 )
+                move_record_images(
+                    record, prepare_acquisition(_the_run(), acquisition_type).data
+                )
             _scan["records"].append(record)
             _scan["done"] = i + 1
     except Exception as why:  # noqa: BLE001 — the window shows the sentence
@@ -540,8 +562,15 @@ VIEW = "view"
 
 
 def view_of(acquisition_type: str) -> Path:
-    """Where this kind of scan's pictures are, under the driver's output root."""
-    return Path(_require_session().get_info()["output_root"]) / acquisition_type / VIEW
+    """Where this kind of scan's pictures are, in this run's own folder."""
+    return _the_run() / acquisition_type / VIEW
+
+
+def _the_run() -> Path:
+    """This session's run folder, or a refusal that says what to do."""
+    if _run is None:
+        raise RuntimeError("no run is open — connect first")
+    return _run
 
 
 def _the_view_of(acquisition_type: str) -> Path | None:

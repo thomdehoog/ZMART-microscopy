@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -49,6 +50,7 @@ class _Driver:
         self.ran: list[dict] = []
         self.captured: list[tuple] = []
         self.height_key = height_key
+        self.staging = Path(tempfile.mkdtemp(prefix="zmart-driver-"))
 
     def get_xyz(self) -> dict:
         return {axis: {"value": v, "unit": "um"} for axis, v in self.at.items()}
@@ -61,12 +63,21 @@ class _Driver:
     def acquire(self, *, acquisition_type, position_label, options=None) -> dict:
         """A focussing capture: a stack around wherever the stage is standing."""
         self.captured.append((acquisition_type, position_label))
+        where = self.staging / acquisition_type
+        where.mkdir(parents=True, exist_ok=True)
+        planes = []
+        for index in range(5):
+            path = where / f"{position_label}_Z{index:05d}.tiff"
+            path.write_bytes(b"a plane")
+            planes.append({
+                "t": 0, "c": 0, "z": index, "path": str(path),
+                "x_um": self.at["x"], "y_um": self.at["y"], "z_um": self.at["z"],
+            })
         return {
             "acquisition_type": acquisition_type,
-            "planes": [
-                {"t": 0, "c": 0, "z": index, "z_um": self.at["z"], "path": f"plane-{index}"}
-                for index in range(5)
-            ],
+            "position_label": position_label,
+            "images": [plane["path"] for plane in planes],
+            "planes": planes,
             "found_at": self.at["z"] if self.height_key else None,
         }
 
@@ -152,6 +163,20 @@ def test_a_measured_point_carries_the_curve_it_was_chosen_from(driver):
     """A height alone cannot be argued with; the plot is how it shows its work."""
     got = bridge._measure_focus({"points": [{"x": 1, "y": 2}]})
     assert got["points"][0]["traces"] == {"brenner": {}}
+
+
+@pytest.fixture(autouse=True)
+def _a_run_to_write_into(tmp_path, monkeypatch):
+    """A run folder, as connecting would have made.
+
+    These tests set the session directly instead of connecting, so they get
+    the other half of a session too: everything a run captures goes under its
+    own folder, and without one there is nothing to write into.
+    """
+    run = tmp_path / "target-acquisition_000001"
+    run.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(bridge, "_run", run)
+    return run
 
 
 @pytest.fixture(autouse=True)
@@ -308,20 +333,30 @@ def test_a_setting_is_applied_as_the_changeable_half_of_state(monkeypatch):
 
 
 class _Capturing(_Driver):
-    """A driver that records what it was asked to capture."""
+    """A driver that records what it was asked to capture, and writes it.
+
+    It writes because a real driver does: a client may move a record's files
+    into the run's folder, and a fake that named files it had not written
+    would let that break unnoticed.
+    """
 
     def __init__(self):
         super().__init__()
         self.asked = []
+        self.staging = Path(tempfile.mkdtemp(prefix="zmart-capture-"))
 
     def acquire(self, *, acquisition_type, position_label, options=None):
         self.asked.append((acquisition_type, position_label, options))
+        where = self.staging / acquisition_type
+        where.mkdir(parents=True, exist_ok=True)
+        path = where / f"{position_label}.tiff"
+        path.write_bytes(b"a plane")
         return {
             "acquisition_type": acquisition_type,
             "position_label": position_label,
-            "images": [f"/root/{acquisition_type}/{position_label}.tiff"],
-            "planes": [{"t": 0, "z": 0, "c": 0,
-                        "path": f"/root/{acquisition_type}/{position_label}.tiff"}],
+            "images": [str(path)],
+            "planes": [{"t": 0, "z": 0, "c": 0, "path": str(path),
+                        "x_um": 0.0, "y_um": 0.0, "z_um": 0.0}],
         }
 
 
@@ -338,7 +373,9 @@ def test_a_capture_answers_with_the_record_the_driver_made(monkeypatch):
         "acquisition_type": "overview",
         "position_label": "K00_M000001_G000000_P000007_V00",
     })
-    assert record["images"] == ["/root/overview/K00_M000001_G000000_P000007_V00.tiff"]
+    assert [Path(p).name for p in record["images"]] == [
+        "K00_M000001_G000000_P000007_V00.tiff"
+    ]
     assert record["planes"][0]["c"] == 0
 
 
@@ -463,14 +500,16 @@ def test_a_scan_really_captures_at_every_position(monkeypatch, tmp_path):
         "K00_M000002_G000002_P000002_V00",
     ]
     # Every capture wrote what it says it wrote, where a driver writes it.
-    written = sorted((tmp_path / "overview" / "data").glob("*.ome.tiff"))
+    written = sorted((bridge._run / "overview" / "data").glob("*.ome.tiff"))
     assert len(written) == 3
     for record in records:
         for path in record["images"]:
             assert Path(path).is_file()
-            assert Path(path).parent == tmp_path / "overview" / "data"
+            assert Path(path).parent == bridge._run / "overview" / "data"
     # And the state it was captured under is printed beside them, once each.
-    printed = sorted((tmp_path / "overview" / "data" / "metadata" / "ZMART_state").iterdir())
+    printed = sorted(
+        (bridge._run / "overview" / "data" / "metadata" / "ZMART_state").iterdir()
+    )
     assert len(printed) == 3
 
 
@@ -566,8 +605,8 @@ def test_the_viewer_makes_a_picture_of_every_field_that_was_imaged(monkeypatch, 
     here, there = note["tiles"]
     assert here["x0"] + here["w"] / 2 == pytest.approx(0.0)
     assert there["x0"] + there["w"] / 2 == pytest.approx(900.0)
-    # And the acquisition itself is untouched, in the folder the driver wrote.
-    assert list((tmp_path / "overview" / "data").glob("*.ome.tiff"))
+    # And the acquisition itself is untouched, kept under this run.
+    assert list((bridge._run / "overview" / "data").glob("*.ome.tiff"))
     assert not list(view.glob("*.tiff"))
 
 
