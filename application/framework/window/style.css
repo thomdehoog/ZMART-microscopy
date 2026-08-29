@@ -1612,6 +1612,8 @@ canvas.livecv[hidden] { display: none; }
 
 
 .sf-tools { display: flex; gap: 6px; }
+/* The worded press at the row's far end, as tall as the glyphs beside it. */
+.sf-tools .sf-clear-all { margin-left: auto; padding: 0 12px; height: auto; }
 .sf-tool {
   flex: 1; height: 46px; display: grid; place-content: center; padding: 0;
   border: 1px solid var(--line-strong); border-radius: 8px;

@@ -631,14 +631,9 @@ export default {
       redraw();
     });
 
-    /* Both columns are headed, so neither control has to be recognised by its
-       face alone: the row reads as two things this box does rather than one
-       labelled field with a button left over beside it. */
-    overlapRow.append(
-      el("div", "side-sub", "Tile overlap (%)"),
-      el("div", "side-sub", "Placed tiles"),
-      overlapNum, clearAll,
-    );
+    /* One labelled number here; the press that empties the plan lives at
+       the end of the tool row, beside the tools that fill it. */
+    overlapRow.append(el("div", "side-sub", "Tile overlap (%)"), overlapNum);
 
     const toolRow = el("div", "sf-tools");
     for (const t of TOOLS) {
@@ -660,6 +655,7 @@ export default {
       });
       toolRow.append(b);
     }
+    toolRow.append(clearAll);
     layout.append(toolRow);
 
     /* The four numbers and the button that acts on them, side by side: the
