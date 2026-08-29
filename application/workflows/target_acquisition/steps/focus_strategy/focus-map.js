@@ -783,15 +783,13 @@ function renderFocusBar() {
   for (const id of ["fp-place", "fp-place-all", "fp-count", "fp-count-all"]) {
     el(id).disabled = frozen || !run.plan.length || ran;
   }
-  el("fp-clear").disabled = frozen || !f.points.length || ran;
+  el("fp-clear").disabled = frozen || (!f.points.length && !ran);
   /* One slot for the one act: the step's own press makes the map, and
      Rerun takes the cell once there is one to measure again — the two were
      briefly on screen together, both meaning measure it. */
   document.querySelector(".focus-action").hidden = ran;
   el("fp-rerun").hidden = !ran;
-  for (const id of ["fp-rerun", "fp-reset"]) {
-    el(id).disabled = !ran || !!run.running;
-  }
+  el("fp-rerun").disabled = !ran || !!run.running;
   /* The traces are what the run came back with, so the box that reads them
      is not there until it has. What the map came to is in the rows: a height
      for every point and how far each sits from the surface. */
@@ -1598,10 +1596,24 @@ window.addEventListener("keydown", (e) => {
   stage.draw(); renderPointList(); drawTrace(); renderActionBar();
 });
 
+/* One press for the whole way back: the points, and the map measured from
+   them if one exists -- Reset said the second half and read as a second
+   subject. */
 el("fp-clear").addEventListener("click", () => {
-  run.focus.points = [];
+  if (run.running) return;
+  const f = run.focus;
+  f.points = [];
+  f.surface = null;
+  f.residual = 0;
+  f.worst = -1;
+  f.selected = 0;
+  f.applied = false;
   picked().clear();
-  stage.draw(); renderPointList(); drawTrace(); renderActionBar();
+  /* The step is not done any more either: with the map thrown away, the
+     press at the foot of the panel makes one for the first time again. */
+  run.done.delete(step(run.activeIdx).id);
+  run.ran.delete(step(run.activeIdx).id);
+  stage.draw(); renderPointList(); drawTrace(); renderFocusBar(); renderActionBar(); renderSide();
 });
 
 /* Measuring an existing map again. Both presses re-run every point that is
@@ -1632,24 +1644,6 @@ el("fp-rerun").addEventListener("click", (e) => runAgain("stage", e.currentTarge
    the points it was fitted through, and the fact that it was ever run. What is
    left is the step as it stood before anybody pressed anything, which is what
    an operator wants when the answer is wrong in a way no rerun will mend. */
-el("fp-reset").addEventListener("click", () => {
-  if (run.running) return;
-  const f = run.focus;
-  f.points = [];
-  f.surface = null;
-  f.residual = 0;
-  f.worst = -1;
-  f.selected = 0;
-  f.applied = false;
-  picked().clear();
-  /* The step is not done any more either, and has not been run: Reset throws
-     the map away, so the press at the foot of the panel is what makes one for
-     the first time again rather than what runs it "again". */
-  run.done.delete(step(run.activeIdx).id);
-  run.ran.delete(step(run.activeIdx).id);
-  stage.draw(); renderPointList(); drawTrace(); renderFocusBar(); renderActionBar(); renderSide();
-});
-
 /* Measure every placed point with the current metric, then fit the plane.
    The backend drives to each point and focuses there; what comes back is
    the height, the traces the chart draws, and the speck the preview shows.
