@@ -1129,13 +1129,18 @@ function paintSlice(img) {
   /* While the slider is held, the cut shows itself: a wide dashed black
      line at the height being chosen, gone when the hand lets go. */
   if (cutting) {
+    /* Black and white alternating, so the line reads on bright ground and
+       dark alike. */
     const y = orthoCut * sliceCv.height;
     g.save();
-    g.strokeStyle = css("--ink");
     g.lineWidth = 3;
-    g.setLineDash([10, 7]);
     g.beginPath();
     g.moveTo(0, y); g.lineTo(sliceCv.width, y);
+    g.setLineDash([10, 10]);
+    g.strokeStyle = "#000000";
+    g.stroke();
+    g.lineDashOffset = 10;
+    g.strokeStyle = "#ffffff";
     g.stroke();
     g.restore();
   }
