@@ -53,11 +53,13 @@
             <div class="fp-ways">
               <div class="fp-way">
                 <div class="side-sub">Focus points</div>
-                <!-- One row for the whole act: the crosshair arms placing by
-                     hand -- a press on a point picks or moves it either way,
-                     so no select tool is needed -- and beside it the two
-                     automatics, each with its own count. -->
+                <!-- One row for the whole act: the two hand tools, then the
+                     two automatics, each count joined to its press. -->
                 <div class="fp-one">
+                <button type="button" class="sf-tool" id="fp-select"
+                        title="Select — press a point to choose it, drag to move it">
+                  <span class="sf-glyph">↖</span>
+                </button>
                 <button type="button" class="sf-tool" id="fp-pick"
                         title="Place focus points — press the map to put one down, press one to take it away">
                   <!-- The mark it puts down, drawn at the size a glyph is: the
