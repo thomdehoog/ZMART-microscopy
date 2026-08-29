@@ -193,9 +193,11 @@ def measure_focus(
                 for plane in (record or {}).get("planes", [])
             ],
         }
-        if output is not None:
+        if output is not None and record is not None:
             # The whole measurement, not just the score: a kept height that
-            # does not say where it was measured cannot be accounted for.
+            # does not say where it was measured cannot be accounted for. A
+            # point lost before its capture has no record to file it beside
+            # -- indexing the None ended a run the armor had just saved.
             _keep(measurement, output.root, record)
         measured.append(measurement)
         if on_point is not None:

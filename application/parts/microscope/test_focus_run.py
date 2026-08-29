@@ -10,9 +10,12 @@ from application.workflows.target_acquisition.steps.focus_strategy.focus_surface
 class _StubSession:
     """Minimal controller session: records moves and captures a scripted stack."""
 
-    def __init__(self, focus_by_xy, current_z=0.0):
+    def __init__(self, focus_by_xy, current_z=0.0, staging=None):
         self.focus_by_xy = focus_by_xy
         self.current_z = current_z
+        # a directory to write real plane files into, for tests that give
+        # measure_focus a run folder and so exercise the moving and filing
+        self.staging = staging
         self.moves = []
         self.captured = []
         self.applied = []
@@ -27,15 +30,27 @@ class _StubSession:
         self.applied.append(state)
         return {"applied": state}
 
+    def _plane(self, label, index):
+        if self.staging is None:
+            return f"plane-{label}-{index}"
+        made = self.staging / f"plane-{label}-{index}.ome.tiff"
+        made.write_bytes(b"pixels")
+        return str(made)
+
     def acquire(self, *, acquisition_type, position_label, options=None):
         x, y, _z = self.moves[-1]
         self.captured.append((acquisition_type, position_label, options))
+        planes = [
+            {"t": 0, "z": index, "c": 0, "z_um": float(index),
+             "path": self._plane(position_label, index)}
+            for index in range(5)
+        ]
         return {
             "acquisition_type": acquisition_type,
-            "planes": [
-                {"t": 0, "z": index, "c": 0, "z_um": float(index), "path": f"{x}-{y}-{index}"}
-                for index in range(5)
-            ],
+            "acquisition_hash": "abc123",
+            "position_label": position_label,
+            "images": [plane["path"] for plane in planes],
+            "planes": planes,
             # the height this stack was taken around, for the stub scorer
             "focus_by_xy": self.focus_by_xy[(x, y)],
         }
@@ -137,10 +152,14 @@ def test_a_point_that_cannot_be_scored_is_lost_and_the_map_marches_on():
     assert measured[1]["z_um"] == 1.5
 
 
-def test_a_point_whose_drive_fails_is_lost_and_the_map_marches_on():
+def test_a_point_whose_drive_fails_is_lost_and_the_map_marches_on(tmp_path):
     """A flaking position read once ended the run two points in. Every drive
-    is absolute, so the next point is untouched by this one's failure."""
-    session = _StubSession({(0.0, 0.0): 1.0, (10.0, 0.0): 1.5}, current_z=0.3)
+    is absolute, so the next point is untouched by this one's failure. With
+    a run folder given, because filing the lost point's measurement beside a
+    capture that never happened is exactly where the march once crashed."""
+    session = _StubSession(
+        {(0.0, 0.0): 1.0, (10.0, 0.0): 1.5}, current_z=0.3, staging=tmp_path
+    )
     real_set = session.set_xyz
     def flaky_set(x, y, z, **kw):
         if x == 0.0:
@@ -149,7 +168,8 @@ def test_a_point_whose_drive_fails_is_lost_and_the_map_marches_on():
     session.set_xyz = flaky_set
 
     measured = measure_focus(
-        session, [{"x": 0.0, "y": 0.0}, {"x": 10.0, "y": 0.0}], score=_score
+        session, [{"x": 0.0, "y": 0.0}, {"x": 10.0, "y": 0.0}], score=_score,
+        output_root=tmp_path,
     )
     assert len(measured) == 2
     assert measured[0]["z_um"] is None, "the undriveable point is lost"
