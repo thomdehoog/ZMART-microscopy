@@ -119,7 +119,10 @@ def _write_a_note_of(root: Path, how_many: int, note: dict) -> None:
         name = f"F{index:05d}.jpg"
         here = pictures / name
         if not here.exists():
-            os.link(source, here)
+            # Copied, not hard-linked: NTFS caps a file at 1023 links, and a
+            # ten-thousand-field fixture could never be built on Windows. The
+            # copies are four kilobytes each.
+            shutil.copy(source, here)
         tiles.append(dict(one, label=f"F{index:05d}", src=name,
                           x0=column * one["w"], y0=row * one["h"]))
     (pictures / "tiles.json").write_text(
@@ -164,23 +167,24 @@ def _what_was_drawn(page):
         return np.asarray(picture.convert("L"), dtype=np.float32)
 
 
-def test_ten_thousand_fields_open_without_asking_for_a_single_picture(browser, a_served_scan):
+def test_ten_thousand_fields_are_asked_for_once_each(browser, a_served_scan):
     """The size this exists to survive, and the restraint that lets it.
 
-    Zoomed out to the whole of ten thousand fields, each one is a handful of
-    pixels wide. Fetching and decoding ten thousand pictures to paint that is
-    work thrown away twice over — it is slow, and what it draws is
-    indistinguishable from the one colour each field already carries. So none
-    of them is fetched, and the scan appears at once.
+    Zoomed out to the whole of ten thousand fields, each is decoded at the
+    few pixels it is drawn — a kilobyte apiece, so all of them fit in the
+    byte budget together. The restraint that matters is that nothing is
+    thrown away and immediately asked for again: a cache smaller than one
+    drawn scan once refetched its own evictions forever, and the operator
+    watched a grey band crawl through a finished overview.
     """
     root, url, note = a_served_scan
     _write_a_note_of(root, 10_000, note)
 
     page, asked = _open(browser, url)
-    page.wait_for_timeout(1500)
-    assert asked == [], (
-        f"{len(asked)} pictures were fetched to draw fields a few pixels wide; "
-        "at this zoom the colour each field already carries says the same thing"
+    page.wait_for_timeout(4000)
+    assert len(asked) == len(set(asked)), (
+        f"{len(asked) - len(set(asked))} pictures were fetched more than once; "
+        "evicted work is being asked for again"
     )
     page.close()
 
@@ -216,10 +220,11 @@ def test_the_scan_looks_the_same_everywhere_at_any_zoom(browser, a_served_scan):
     showing through onto the screen, which is not something an operator should
     ever be shown.
 
-    So whether a field gets its real picture is decided by how large it is
-    drawn, and that size is worked out from the window such that no more fields
-    can qualify at once than can be kept. Either every field on screen has its
-    picture or none of them does, and this checks both halves of that.
+    So every field is decoded at the size it is drawn: far out, tiny and
+    cheap for all alike; close in, full pictures for the few on screen. The
+    halves checked here are that the close view gives every visible field
+    its picture, and that nothing is thrown away and asked for again on the
+    way.
     """
     root, url, note = a_served_scan
     _write_a_note_of(root, 2_500, note)
@@ -229,20 +234,25 @@ def test_the_scan_looks_the_same_everywhere_at_any_zoom(browser, a_served_scan):
     kept = page.evaluate("() => window.__viewer.howManyPicturesAreKept()")
     switches_at = ((A_WINDOW["width"] * A_WINDOW["height"]) / (kept * 2 / 3)) ** 0.5
 
-    # Comfortably below the size at which pictures start: nothing is fetched,
-    # so the whole scan is drawn from the colours in its note.
+    # Far out, every field is fetched small, and none twice.
     # The middle of the scan, so the screen is full of fields and the count
     # below is a fair one.
     middle = page.evaluate("() => window.__viewer.getView().centre")
     page.evaluate("([centre, zoom]) => window.__viewer.setView({centre, zoom})",
                   [middle, a_field_is / (switches_at * 0.7)])
+    # The opening view fetched at its own size before this phase began; the
+    # ledger starts when the phase does, as it does below.
+    del asked[:]
     page.wait_for_timeout(2500)
-    assert asked == [], (
-        f"{len(asked)} pictures were fetched for fields too small to show anything"
+    assert len(asked) == len(set(asked)), (
+        "a far-zoom picture was fetched more than once"
     )
 
-    # Comfortably above it: every field on screen gets a picture, and the total
-    # still fits in what can be kept, so nothing is fetched twice.
+    # Closer in, a field is drawn large, so it is decoded again at the larger
+    # size — the far-zoom fetches above are a different question, and the
+    # ledger starts afresh here.
+    del asked[:]
+    # Every field on screen gets a picture, and nothing is fetched twice.
     page.evaluate("([centre, zoom]) => window.__viewer.setView({centre, zoom})",
                   [middle, a_field_is / (switches_at * 1.3)])
     page.wait_for_timeout(5000)
@@ -264,7 +274,7 @@ def test_the_scan_looks_the_same_everywhere_at_any_zoom(browser, a_served_scan):
         "thrown away and immediately asked for again"
     )
     assert len(set(asked)) <= kept, (
-        f"{len(set(asked))} pictures were asked for but only {kept} can be kept decoded"
+        f"{len(set(asked))} full pictures were asked for but only {kept} fit the budget"
     )
     page.close()
 

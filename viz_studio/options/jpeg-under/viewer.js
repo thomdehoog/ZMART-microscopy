@@ -53,16 +53,25 @@
 import { onlyPanAndZoom } from "../gestures.js";
 
 /**
- * How many decoded pictures to keep at once.
+ * How much decoded picture to keep, in bytes -- because the cost is bytes,
+ * and any count scales with nothing: a fixed count sat below one drawn scan
+ * and the cache evicted pictures still decoding, forever.
  *
- * A field kept at 128 pixels is four kilobytes as a JPEG and sixty-four
- * decoded, so the budget is memory: four thousand is a quarter of a
- * gigabyte at worst. What the budget must never be is smaller than the
- * largest scan on screen -- with more fields in view than the cache holds,
- * every draw evicted pictures still being decoded and fetched them again,
- * and a 2061-field overview never finished loading at all.
+ * Each field is decoded at the size it is drawn, in steps: a far-zoom field
+ * sixteen pixels wide is a kilobyte, so sixty thousand of them fit; a
+ * full-size field is sixty-four kilobytes, so about a thousand do -- which
+ * is the count once measured as the sixty-frames point, now a consequence
+ * instead of a constant.
  */
-const HOW_MANY_TO_KEEP_DECODED = 4096;
+const KEEP_DECODED_BYTES = 64 * 1024 * 1024;
+
+/** The sizes a field is decoded at: the smallest step not below its drawn size. */
+const BUCKETS = [16, 32, 64, 128];
+const bucketFor = (drawnPx) => BUCKETS.find((b) => b >= drawnPx) ?? 128;
+const bytesOf = (key) => {
+  const bucket = Number(key.slice(key.lastIndexOf("#") + 1));
+  return bucket * bucket * 4;
+};
 
 /** Open the viewer inside `element`. See `viz_studio/options/contract.md`. */
 export async function openViewer(element, options = {}) {
@@ -195,7 +204,12 @@ export async function openViewer(element, options = {}) {
     /* How many pictures may be held decoded at once. Said out loud because it
        is what decides how far out a field still gets its real picture, so a
        test that checks the scan looks even should not have to guess it. */
-    howManyPicturesAreKept() { return HOW_MANY_TO_KEEP_DECODED; },
+    howManyPicturesAreKept() {
+      // How many full-size pictures the byte budget holds. Small far-zoom
+      // decodes cost a fraction of this each, so the practical count is far
+      // higher; this is the floor a test can lean on.
+      return Math.floor(KEEP_DECODED_BYTES / (128 * 128 * 4));
+    },
 
     async tilesMayHaveLanded() {
       if (own.destroyed) return;
@@ -370,35 +384,52 @@ function askForAFrame(own) {
  * and putting it straight back is enough to say "still wanted" — no second
  * list to keep in step, and it costs the same however many are being kept.
  */
-function pictureFor(own, src) {
-  const already = own.decoded.get(src);
-  if (already) {
-    own.decoded.delete(src);
-    own.decoded.set(src, already);
+function pictureFor(own, src, drawnPx) {
+  const bucket = bucketFor(drawnPx);
+  const key = `${src}#${bucket}`;
+  if (own.decoded.has(key)) {
+    const already = own.decoded.get(key);
+    own.decoded.delete(key);
+    own.decoded.set(key, already);
     return already;
+  }
+
+  /* While the right size is coming, a size already decoded keeps the field
+     a picture instead of flashing back to its colour on every zoom. */
+  let standIn = null;
+  for (const b of BUCKETS) {
+    const held = own.decoded.get(`${src}#${b}`);
+    if (held && typeof held.width === "number") standIn = held;
   }
 
   const coming = fetch(src)
     .then((answer) => (answer.ok ? answer.blob() : null))
-    .then((blob) => (blob ? createImageBitmap(blob) : null))
+    .then((blob) => (blob
+      ? createImageBitmap(blob, bucket < 128
+        ? { resizeWidth: bucket, resizeHeight: bucket, resizeQuality: "high" }
+        : {})
+      : null))
     .then((picture) => {
       if (own.destroyed) {
         picture?.close?.();
         return null;
       }
-      own.decoded.set(src, picture);
+      own.decoded.set(key, picture);
       askForAFrame(own);
       return picture;
     })
     .catch(() => null);
 
-  own.decoded.set(src, coming);
-  while (own.decoded.size > HOW_MANY_TO_KEEP_DECODED) {
+  own.decoded.set(key, coming);
+  own.heldBytes = (own.heldBytes ?? 0) + bytesOf(key);
+  while (own.heldBytes > KEEP_DECODED_BYTES && own.decoded.size > 1) {
     const oldest = own.decoded.keys().next().value;
-    own.decoded.get(oldest)?.close?.();
+    own.heldBytes -= bytesOf(oldest);
+    const held = own.decoded.get(oldest);
+    if (held && typeof held.close === "function") held.close();
     own.decoded.delete(oldest);
   }
-  return coming;
+  return standIn ?? coming;
 }
 
 /**
@@ -440,7 +471,7 @@ function drawEverything(own) {
          until its picture has arrived. Refusing to fetch below a size drew
          the whole overview as flat grey blocks at plate zoom, which is the
          zoom an operator judges a scan at. */
-      const ready = pictureFor(own, tile.src);
+      const ready = pictureFor(own, tile.src, Math.max(across, down) * density);
       if (ready && typeof ready.width === "number") {
         // Smoothing on while a picture is being made smaller, off once it is
         // being made much larger. Shrinking without it means the browser picks
