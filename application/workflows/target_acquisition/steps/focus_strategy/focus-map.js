@@ -791,10 +791,6 @@ function renderFocusBar() {
      briefly on screen together, both meaning measure it. */
   document.querySelector(".focus-action").hidden = ran;
   el("fp-rerun").hidden = !ran;
-  /* The foot's shape follows its words: "Run focus map" needs half the row,
-     "Rerun" fits the hand tools' column and lets Clear all align under the
-     pairs. */
-  el("fp-again").classList.toggle("ran", ran);
   el("fp-rerun").disabled = !ran || !!run.running;
   el("fp-runnew").disabled = frozen || !ran || !!run.running;
   /* The traces are what the run came back with, so the box that reads them
