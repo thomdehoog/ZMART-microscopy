@@ -570,10 +570,12 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
 }
 /* The two words stand over the row's two halves: the first column is as
    wide as the two 44px tools and the gap between them. */
-.fp-heads { display: grid; grid-template-columns: 100px minmax(0, 1fr); gap: 12px; }
+.fp-heads { display: grid; grid-template-columns: 94px minmax(0, 1fr); gap: 12px; }
 .fp-heads .side-sub { margin: 0; }
 /* The whole act on one row: the crosshair, then the two automatics. */
-.fp-one { display: grid; grid-template-columns: auto auto minmax(0, 1fr); gap: 12px; align-items: stretch; }
+.fp-one { display: grid; grid-template-columns: auto auto minmax(0, 1fr); gap: 6px; align-items: stretch; }
+/* The two tools stand together; the automatics keep their distance. */
+.fp-one .fp-lays { margin-left: 6px; }
 .fp-one .sf-tool { height: var(--control); width: 44px; }
 /* Two presses each since Refine and Accept went; the rows stay even. */
 .ft-acts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
