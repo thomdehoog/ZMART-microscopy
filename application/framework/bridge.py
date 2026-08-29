@@ -107,7 +107,7 @@ from application.parts.storage.output import (  # noqa: E402
 )
 from application.parts.analysis import warm  # noqa: E402
 from application.parts.microscope import detection, focus_score  # noqa: E402
-from application.parts.microscope.focus_run import measure_focus  # noqa: E402
+from application.parts.microscope.focus_run import FOCUSSING, measure_focus  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # The session, and the one lock that guards it
@@ -549,6 +549,7 @@ def _focus_worker(asked: list, state: dict | None = None) -> None:
         _focus["points"].append({
             **point, "zAuto": found["z_um"], "z": found["z_um"],
             "lost": found["z_um"] is None, "traces": found["traces"],
+            "slices": _the_slice_copies_of(found.get("planes") or []),
         })
         _focus["done"] = index + 1
 
@@ -657,6 +658,25 @@ def _the_run() -> Path:
 #: after it.
 _view_lock = threading.Lock()
 _view_built: dict[str, int] = {}
+
+
+def _the_slice_copies_of(planes: list) -> list:
+    """Small copies of one focus stack, one per height, for the panel's eye.
+
+    Made as the point lands -- on the worker's time, never a request's -- and
+    named to the page without their folder: where pictures are fetched from
+    stays ``viewOf``'s answer. A stack that cannot be copied (a driver whose
+    files are not canonical planes) costs the preview and never the run.
+    """
+    from viz_studio.backend.jpeg_tiles import make_slice_copies  # noqa: PLC0415
+
+    try:
+        return make_slice_copies(view_of(FOCUSSING) , planes)
+    except Exception as why:  # noqa: BLE001 -- the preview is optional, the height is not
+        import logging
+
+        logging.getLogger(__name__).warning("no slice copies for a focus point: %s", why)
+        return []
 
 
 def _the_view_of(acquisition_type: str) -> Path | None:
@@ -886,8 +906,13 @@ class _Bridge(BaseHTTPRequestHandler):
         if not kind or not name or name != Path(name).name or wanted is None:
             self._answer({"error": f"no picture {rest!r}"}, status=404)
             return
-        note = _the_view_of(kind)
-        where = None if note is None else (note if name == "tiles.json" else note.parent / name)
+        if kind == FOCUSSING:
+            # A focus stack's slices: written as each point lands, no note --
+            # the point itself tells the page their names and heights.
+            where = view_of(kind) / name
+        else:
+            note = _the_view_of(kind)
+            where = None if note is None else (note if name == "tiles.json" else note.parent / name)
         if where is None or not where.is_file():
             self._answer({"error": f"nothing has been imaged at {rest}"}, status=404)
             return

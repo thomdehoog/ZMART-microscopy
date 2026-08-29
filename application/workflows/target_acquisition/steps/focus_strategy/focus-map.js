@@ -1041,6 +1041,57 @@ async function rerunOne(f, at, p) {
 
 const traceCv = el("trace-canvas");
 
+/* ---- the slice at whatever height the line is sitting on ---------------
+   The real captured plane nearest the black line, so a peak the metric
+   loved can be seen to be a speck rather than trusted not to be. The
+   backend serves the copies and the point names them; a backend that
+   names none simply keeps the box hidden. */
+const sliceBox = el("zpreview");
+const sliceCv = el("zpreview-canvas");
+const sliceImages = new Map();
+let sliceShown = null;
+window.__theSliceShown = () => sliceShown;
+
+function paintSlice(img) {
+  const g = sliceCv.getContext("2d");
+  g.clearRect(0, 0, sliceCv.width, sliceCv.height);
+  g.imageSmoothingEnabled = true;
+  g.imageSmoothingQuality = "high";
+  g.drawImage(img, 0, 0, sliceCv.width, sliceCv.height);
+}
+
+function drawZSlice(point) {
+  const at = ctx.backend.slicesAt?.();
+  const slices = point?.slices ?? [];
+  const show = !!at && slices.length > 0 && point.z !== null && !point.stale;
+  sliceBox.hidden = !show;
+  if (!show) { sliceShown = null; return; }
+
+  let nearest = slices[0];
+  for (const s of slices) {
+    if (Math.abs(s.z_um - point.z) < Math.abs(nearest.z_um - point.z)) nearest = s;
+  }
+  sliceShown = nearest.name;
+  el("zpreview-z").textContent = `${(nearest.z_um ?? 0).toFixed(1)} µm`;
+  const state = el("zpreview-state");
+  state.classList.toggle("manual", !!point.manual);
+  state.textContent = point.manual
+    ? `moved by hand · ${point.z - point.zAuto >= 0 ? "+" : ""}${(point.z - point.zAuto).toFixed(1)} µm off the pick`
+    : `slice ${slices.indexOf(nearest) + 1} of ${slices.length}`;
+
+  const src = `${at}/${nearest.name}`;
+  let img = sliceImages.get(src);
+  if (!img) {
+    img = new Image();
+    /* Painted when it lands, but only if the line still stands on it: a slow
+       fetch must not paint a slice the operator has already scrubbed past. */
+    img.onload = () => { if (sliceShown === nearest.name) paintSlice(img); };
+    img.src = src;
+    sliceImages.set(src, img);
+  }
+  if (img.complete && img.naturalWidth) paintSlice(img);
+}
+
 /**
  * The curve on screen for a point: what was measured there, or nothing.
  *
@@ -1092,7 +1143,7 @@ function drawTrace() {
      -- and the message says so; but the curve it had stayed painted under
      the message, because the wipe came after the bail. */
   ctx.clearRect(0, 0, w, h);
-  if (!has) return;
+  if (!has) { drawZSlice(null); return; }
 
   // the plot stands on the same white the box does: a tinted panel inside a
   // white card read as a second surface for one of the three parts
@@ -1310,6 +1361,7 @@ function drawTrace() {
      while the eye was on the shape. */
 
   traceGeom = { zLo, zHi, P, w, h, samples: t.samples };
+  drawZSlice(p);
 }
 
 let traceGeom = null;

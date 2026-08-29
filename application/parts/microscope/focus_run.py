@@ -164,6 +164,12 @@ def measure_focus(
             "y_um": point["y"],
             "z_um": found.get("z_um"),
             "traces": found.get("traces"),
+            # The stack's own files ride with the measurement, height by
+            # height, so the chosen number can be looked at as well as read.
+            "planes": [
+                {"path": str(plane.get("path")), "z_um": plane.get("z_um")}
+                for plane in record.get("planes", [])
+            ],
         }
         if output is not None:
             # The whole measurement, not just the score: a kept height that

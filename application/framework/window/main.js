@@ -1628,7 +1628,13 @@ let stageWatch = null;
      on the stage and is handed it. */
   const focusMap = openTheFocusMap({
     run: state,
-    backend: { measureFocus: (...a) => backend.measureFocus(...a) },
+    backend: {
+      measureFocus: (...a) => backend.measureFocus(...a),
+      /* Where a focus stack's slice pictures are fetched from -- the same
+         answer every other picture gets, and `null` from a backend that
+         serves none, which is what hides the preview. */
+      slicesAt: () => backend.viewOf?.("focussing") ?? null,
+    },
     stage,
     el, css, sizeCanvas,
     step: () => step(state.activeIdx),

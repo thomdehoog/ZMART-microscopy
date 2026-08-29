@@ -770,7 +770,13 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
    top, the sweep beneath it. The image first because it is the answer — the
    curve is the working — and the curve is given a modest fixed height, since
    its shape is what is being read and no amount of extra height adds to that. */
-.trace-host { position: relative; min-height: 0; display: grid; grid-template-rows: 152px; }
+.trace-host {
+  position: relative; min-height: 0; display: grid;
+  /* the slice beside the plot; with the preview hidden its column is 0 */
+  grid-template-columns: auto 1fr; grid-template-rows: 152px; gap: 0 10px;
+}
+.trace-host .zpreview { padding-left: 14px; }
+.trace-host .zframe { width: 152px; }
 /* Flush with the box that holds it, which brings its own padding. */
 /* Wide as the box, so the plot's frame lands on the column the heading and
    the rows above it keep — but not pulled down over the box's bottom padding
