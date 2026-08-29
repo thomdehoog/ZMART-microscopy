@@ -796,6 +796,7 @@ function renderFocusBar() {
      pairs. */
   el("fp-again").classList.toggle("ran", ran);
   el("fp-rerun").disabled = !ran || !!run.running;
+  el("fp-runnew").disabled = frozen || !ran || !!run.running;
   /* The traces are what the run came back with, so the box that reads them
      is not there until it has. What the map came to is in the rows: a height
      for every point and how far each sits from the surface. */
@@ -1645,6 +1646,34 @@ const runAgain = async (from, button) => {
   stage.draw(); renderPointList(); drawTrace(); renderFocusBar(); renderActionBar(); renderSide();
 };
 el("fp-rerun").addEventListener("click", (e) => runAgain("stage", e.currentTarget));
+
+/* Only the points with no reading: placed since the last run, or moved since
+   they were read. The measured ones keep their heights -- this is how a map
+   grows without being rebuilt. With nothing new it measures nothing. */
+el("fp-runnew").addEventListener("click", async (e) => {
+  const f = run.focus;
+  if (run.running || !f.applied) return;
+  const fresh = f.points
+    .map((point, at) => ({ point, at }))
+    .filter(({ point }) => point.z === null || point.stale);
+  if (!fresh.length) return;
+  const button = e.currentTarget;
+  run.running = true;
+  button.classList.add("on");
+  renderFocusBar(); renderActionBar();
+  try {
+    for (const { point, at } of fresh) {
+      await rerunOne(f, at, point);
+      stage.draw(); renderPointList(); drawTrace();
+    }
+  } finally {
+    run.running = false;
+    button.classList.remove("on");
+  }
+  refitSurface();
+  f.selected = Math.max(0, Math.min(f.selected, f.points.length - 1));
+  stage.draw(); renderPointList(); drawTrace(); renderFocusBar(); renderActionBar(); renderSide();
+});
 
 /* Everything the step has to show for itself, thrown away together: the map,
    the points it was fitted through, and the fact that it was ever run. What is
