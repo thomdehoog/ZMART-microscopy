@@ -390,12 +390,8 @@ export default {
     for (const f of fields) {
       const hot = on(f.id);
       if (isPointLike(f.type)) {
-        /* In the page's own blue, whatever ink the preset draws with: a
-           position point drawn in a preset red read as a focus point, and
-           the rest of the page already says "the operator's thing" in
-           accent. */
         drawPoint(ctx, f, {
-          ink: accentInk(), toScreen, scale, marked: hot, frameUm: preset?.frameUm ?? 0,
+          ink, toScreen, scale, marked: hot, frameUm: preset?.frameUm ?? 0,
         });
         continue;
       }
@@ -1423,10 +1419,6 @@ export default {
  * up. A crosshair marks the ones placed by hand, which are few and are meant
  * to be found again.
  */
-/** The page's accent, read off the root so the point follows the theme. */
-const accentInk = () =>
-  getComputedStyle(document.documentElement).getPropertyValue("--accent").trim() || "#0284c7";
-
 function drawPoint(ctx, f, { ink, toScreen, scale, marked, frameUm }) {
   if (f.source === "grid") return;
   const [x, y] = toScreen(f.x, f.y);
