@@ -1314,7 +1314,8 @@ function drawTrace() {
   const zs = t.samples.map((p) => p.z);
   const zLo = Math.min(...zs), zHi = Math.max(...zs);
   const sHi = 1.16;
-  const X = (z) => P.l + ((z - zLo) / (zHi - zLo)) * (w - P.l - P.r);
+  /* Inverted on purpose: + stands on the left and - on the right. */
+  const X = (z) => P.l + ((zHi - z) / (zHi - zLo)) * (w - P.l - P.r);
   const Y = (s) => (h - P.b) - (s / sHi) * (h - P.t - P.b);
   const decidingPeak = Math.max(...t.samples.map((q) => q.s)) || 1;
 
@@ -1328,8 +1329,8 @@ function drawTrace() {
   ctx.fillStyle = css("--ink-3");
   ctx.font = '10.5px ui-monospace, Consolas, monospace';
   ctx.textAlign = "center";
-  ctx.fillText(`${zLo.toFixed(0)}`, X(zLo) + 10, h - P.b + AXIS_TEXT_DROP);
-  ctx.fillText(`${zHi.toFixed(0)} µm`, X(zHi) - 16, h - P.b + AXIS_TEXT_DROP);
+  ctx.fillText(`${zHi.toFixed(0)}`, X(zHi) + 10, h - P.b + AXIS_TEXT_DROP);
+  ctx.fillText(`${zLo.toFixed(0)} µm`, X(zLo) - 16, h - P.b + AXIS_TEXT_DROP);
   /* Both titles in the same grey as the heights they label: they say what the
      axis is, which is the quietest thing on the plot, and the curves are what
      is being read. The fill is the one set for the numbers above. */
@@ -1486,7 +1487,7 @@ function scrubTo(clientOffsetX) {
   if (!traceGeom) return;
   const { zLo, zHi, P, w } = traceGeom;
   const t = Math.max(0, Math.min(1, (clientOffsetX - P.l) / (w - P.l - P.r)));
-  chooseHeight(zLo + t * (zHi - zLo));
+  chooseHeight(zHi - t * (zHi - zLo));
 }
 
 traceCv.addEventListener("pointerdown", (e) => {
@@ -1538,7 +1539,8 @@ traceCv.setAttribute("aria-label", "focus height for the selected point");
 traceCv.addEventListener("keydown", (e) => {
   const f = run.focus;
   if (f.strategy !== "plane" || !f.applied) return;
-  const nudge = { ArrowLeft: -0.5, ArrowRight: 0.5, PageDown: -3, PageUp: 3 }[e.key];
+  // left is + now, so the arrows follow the eye rather than the number
+  const nudge = { ArrowLeft: 0.5, ArrowRight: -0.5, PageDown: -3, PageUp: 3 }[e.key];
   if (nudge === undefined) return;
   const p = f.points[f.selected];
   if (!p || p.stale) return;
