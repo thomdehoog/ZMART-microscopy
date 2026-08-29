@@ -471,7 +471,10 @@ class TestAcquire(unittest.TestCase):
         """Everything an ``acquire`` needs stood in for, so a test says one thing."""
         written = image_paths or {0: Path("/tmp/out/img.ome.tif")}
 
+        calls = {}
+
         def fake_save(client, acq, output_root, naming, **kwargs):
+            calls["state"] = kwargs.get("state")
             return SimpleNamespace(image_paths=dict(written), naming=naming)
 
         patches = _patch_position(job="Overview")
@@ -485,7 +488,7 @@ class TestAcquire(unittest.TestCase):
             patch.object(adapter._scanfields, "get_template_state", return_value="fresh"),
             patches[0], patches[1], patches[2], patches[3],
         ):
-            yield {}
+            yield calls
 
     def test_get_info_says_how_far_the_stage_can_go_and_what_the_session_stands_on(self):
         """The two things the operator page reads at connect, and the mock invented.
@@ -671,6 +674,81 @@ class TestAcquire(unittest.TestCase):
             record = adapter.acquire(h, acquisition_type="focussing", position_label="A1")
 
         self.assertEqual([p["z_um"] for p in record["planes"]], [100.0, 110.0, 120.0])
+
+    def test_the_stack_is_read_before_the_capture_deafens_the_instrument(self):
+        """LAS X answers nothing for a while after a capture finishes.
+
+        Measured on the simulator: every post-capture read failed on every
+        point of a day's runs, so every plane of a real 2-step sweep was
+        stamped at the drive's height and no focus could ever be placed. The
+        stack and the state document therefore come from reads made while
+        the instrument still answers -- which is also the truer moment: the
+        stack that produced the planes is the one armed at capture start.
+        """
+        h = _handle()
+        h.driven_to = {"x": 0.0, "y": 0.0, "z": 100.0, "z_wide_um": 1000.0}
+        planes = {i: Path(f"/tmp/out/img_z{i}.ome.tif") for i in range(2)}
+        deaf = {"is": False}
+
+        def capture(client, job, **kwargs):
+            deaf["is"] = True
+            return SimpleNamespace(job=job)
+
+        def settings(client, job, **kwargs):
+            if deaf["is"]:
+                raise RuntimeError("no receipt: the instrument is busy")
+            return {"stack": {"begin": 997.5, "end": 1002.3, "sections": 2}}
+
+        with (
+            self._capturing(image_paths=planes) as calls,
+            patch.object(adapter._capture, "acquire", capture),
+            patch.object(adapter._readers, "get_job_settings", settings),
+        ):
+            record = adapter.acquire(h, acquisition_type="focussing", position_label="A1")
+
+        for got, want in zip([p["z_um"] for p in record["planes"]], [97.5, 102.3]):
+            self.assertAlmostEqual(got, want, places=9)
+        self.assertEqual(
+            calls["state"]["job_settings"]["stack"]["sections"], 2,
+            "the state document lost the stack it was taken with",
+        )
+
+    def test_the_capture_holds_until_the_instrument_answers_again(self):
+        """Control comes back only when LAS X is answering reads again.
+
+        Handing it back sooner turns the caller's very next question into a
+        failure the instrument never deserved: on the simulator, the two
+        points after a capture died on "could not read stage XY position"
+        while LAS X was still digesting the capture before them. The
+        recovery seconds pass either way; they are spent waiting here, once,
+        instead of failing everywhere else.
+        """
+        h = _handle()
+        h.driven_to = {"x": 0.0, "y": 0.0, "z": 100.0, "z_wide_um": 1000.0}
+        deaf = {"is": False, "unanswered": 0}
+
+        def capture(client, job, **kwargs):
+            deaf["is"] = True
+            return SimpleNamespace(job=job)
+
+        def xy(client, **kwargs):
+            if deaf["is"] and deaf["unanswered"] < 3:
+                deaf["unanswered"] += 1
+                return None
+            return {"x_um": 1.0, "y_um": 2.0}
+
+        with (
+            self._capturing() as calls,
+            patch.object(adapter._capture, "acquire", capture),
+            patch.object(adapter._readers, "get_xy", xy),
+        ):
+            adapter.acquire(h, acquisition_type="overview", position_label="A1")
+
+        del calls
+        self.assertEqual(
+            deaf["unanswered"], 3,
+            "acquire returned while the instrument was still deaf",
+        )
 
     def test_acquire_applies_the_rigs_measured_orientation(self):
         """The microscope's measured turn reaches ``save``, so saved planes are

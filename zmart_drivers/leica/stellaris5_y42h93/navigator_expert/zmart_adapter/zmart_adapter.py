@@ -782,34 +782,51 @@ def _try(fn):
     try:
         return fn()
     except Exception as exc:  # noqa: BLE001 -- provenance capture is best-effort
-        log.debug("export-state field unavailable: %s", exc)
+        log.warning("export-state field unavailable: %s", exc)
         return None
+
+
+def _state_readings(handle: ZmartHandle, job: str) -> dict:
+    """The machine's answers, read while it still answers.
+
+    LAS X stops answering questions while it prints a capture's export, so
+    these are asked BEFORE the job fires -- which is also the truer record:
+    the stack and state that produce the planes are the ones armed at
+    capture start. Asked afterwards, a day of focus maps filed all-null
+    state documents and stamped every plane of a real sweep at one height.
+    Every field stays best-effort: a missing reader degrades to ``None``,
+    loudly, rather than failing the save.
+    """
+    machine_state = _try(lambda: get_state(handle))
+    return {
+        "hardware": _try(lambda: _readers.get_hardware_info(handle.client)),
+        "job_settings": _try(lambda: _readers.get_job_settings(handle.client, job)),
+        "job_state": (machine_state or {}).get("changeable") if machine_state else None,
+        "position": _try(lambda: get_xyz(handle)),
+    }
 
 
 def _export_state(
     handle: ZmartHandle,
     *,
+    readings: dict,
     acquisition_type: str,
     position_label: str,
     acquisition_hash: str,
     job: str,
 ) -> dict:
-    """A JSON-serialisable snapshot of machine/software state at export time.
+    """A JSON-serialisable snapshot of machine/software state for the export.
 
-    Every field is captured best-effort: a missing reader degrades to
-    ``None`` rather than failing the save. Embedded per-plane by ``save``.
+    ``readings`` is :func:`_state_readings`, taken before the capture fired.
+    Embedded per-plane by ``save``.
     """
-    machine_state = _try(lambda: get_state(handle))
     return {
         "software": {
             "driver_version": _DRIVER_VERSION,
             "client": handle.connection.get("client"),
             "api": handle.connection.get("api"),
         },
-        "hardware": _try(lambda: _readers.get_hardware_info(handle.client)),
-        "job_settings": _try(lambda: _readers.get_job_settings(handle.client, job)),
-        "job_state": (machine_state or {}).get("changeable") if machine_state else None,
-        "position": _try(lambda: get_xyz(handle)),
+        **readings,
         "provenance": {
             "acquisition_type": acquisition_type,
             "position_label": position_label,
@@ -875,6 +892,8 @@ def acquire(
     if apply_backlash:
         _motion.correct_backlash(handle.client, passes=backlash_rounds)
 
+    readings = _state_readings(handle, job)
+
     acq = _capture.acquire(handle.client, job)
 
     label = position_label if position_label is not None else _next_position_label(handle)
@@ -886,6 +905,7 @@ def acquire(
     )
     state = _export_state(
         handle,
+        readings=readings,
         acquisition_type=acquisition_type,
         position_label=label,
         acquisition_hash=acquisition_hash,
@@ -912,8 +932,10 @@ def acquire(
         cleanup_source=resolved["cleanup_source"],
     )
 
+    _answers_again(handle)
+
     written = sorted(saved.image_paths.items())
-    taken_at = _where_the_planes_are(handle, job, len(written))
+    taken_at = _where_the_planes_are(handle, readings["job_settings"], len(written))
     planes = [
         {
             "t": int(getattr(index, "t", 0)),
@@ -951,12 +973,37 @@ def acquire(
 # =============================================================================
 
 
-def _where_the_planes_are(handle: ZmartHandle, job: str, count: int):
+def _answers_again(handle: ZmartHandle, ceiling_s: float = 30.0) -> None:
+    """The success-poll's last leg: the instrument answers questions again.
+
+    While LAS X prints an export it takes orders but returns empty answers,
+    and an acquire that returned during that stretch handed the silence to
+    its caller: the focus map's next "where are you?" declared two healthy
+    points dead. The acquisition is not over until the instrument is back.
+    The seconds pass either way -- spent finishing here, once, instead of
+    failing in every caller. Never raises: past *ceiling_s* the silence is
+    warned about and released, and the next read says plainly what is wrong.
+    """
+    deadline = time.monotonic() + ceiling_s
+    while time.monotonic() < deadline:
+        try:
+            if _readers.get_xy(handle.client):
+                return
+        except Exception:  # noqa: BLE001 -- silence is the condition waited out
+            pass
+    log.warning(
+        "the instrument still answers nothing %.0fs after its capture", ceiling_s
+    )
+
+
+def _where_the_planes_are(handle: ZmartHandle, settings: Any, count: int):
     """Answer, per plane, where on the sample it was captured.
 
     In the frame :func:`set_xyz` takes, so a position handed back can be
     handed straight back in. A saved file cannot say this and neither can the
-    drive alone: the job states its stack in absolute z-wide, so each height
+    drive alone: ``settings`` -- the job's stack read before the capture
+    fired, while the instrument still answered -- states it in absolute
+    z-wide, so each height
     is the frame the drive was sent to, displaced by how far that slice sits
     from the z-wide the drive was realized at. Nothing is assumed about where
     in its stack the drive stands. No stack, or one that does not describe the
@@ -964,9 +1011,12 @@ def _where_the_planes_are(handle: ZmartHandle, job: str, count: int):
     guessed spread is worse than none.
     """
     at = handle.driven_to
-    slices = _readers.stack_z_wide_um(
-        _readers.get_job_settings(handle.client, job) or {}, count
-    )
+    slices = _readers.stack_z_wide_um(settings or {}, count)
+    if slices is None and count > 1:
+        log.warning(
+            "the job said nothing usable about its stack; "
+            "%d planes are stamped at the drive's height", count,
+        )
     def where(ordinal: int) -> dict:
         if at is None:
             return {"x_um": None, "y_um": None, "z_um": None}
