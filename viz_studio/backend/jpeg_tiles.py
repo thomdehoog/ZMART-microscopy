@@ -440,6 +440,52 @@ def add_a_small_picture(
     return note
 
 
+def make_slice_copies(
+    into: Path | str,
+    planes: list[dict],
+    *,
+    budget_px: int = SMALL_ENOUGH,
+    quality: int = GOOD_ENOUGH,
+) -> list[dict]:
+    """One small JPEG per height of one field's stack, brightened together.
+
+    ``planes`` are the acquisition record's own -- each the file and the
+    height it was taken at -- because a TIFF names its channel and step but
+    never its micrometres. Channels at one height fold to colour exactly as
+    an overview field's do; heights are kept apart, because the point of
+    these copies is to look *through* the stack, one slice at a time.
+
+    One dark point and one bright point are settled across the whole stack
+    and shared by every slice. Stretched each over its own range, a blurred
+    slice comes out as crisp-bright as the focused one -- and an operator
+    choosing focus by eye would be shown a stack of slices all claiming to
+    be sharpest.
+
+    Returns ``[{"z_um", "name"}]`` by ascending height.
+    """
+    into = Path(into)
+    into.mkdir(parents=True, exist_ok=True)
+    height_of = {str(Path(plane["path"])): plane.get("z_um") for plane in planes}
+    parsed = _planes_among([plane["path"] for plane in planes])
+    by_height: dict[int, list[Plane]] = {}
+    for plane in parsed:
+        by_height.setdefault(plane.z, []).append(plane)
+
+    slices, pictures = [], []
+    for z, group in sorted(by_height.items()):
+        first = group[0]
+        pictures.append(_shrink_to(_flatten(group), budget_px))
+        slices.append({
+            "z_um": height_of.get(str(first.path)),
+            "name": f"{first.acquisition}_{first.hash6}_{first.label}_Z{z:05d}.jpg",
+        })
+
+    low, high = _one_brightening_for_the_whole_scan(pictures)
+    for entry, picture in zip(slices, pictures):
+        (into / entry["name"]).write_bytes(_as_jpeg(_stretch(picture, low, high), quality))
+    return slices
+
+
 def _planes_among(paths: list[Path | str]) -> list[Plane]:
     """The planes of one field, in a settled order, from the files naming them."""
     planes = []

@@ -28,7 +28,8 @@ from viz_studio.backend.jpeg_tiles import (  # noqa: E402
 
 
 def _export_a_plane(folder: Path, label: str, *, c: int = 0, z: int = 0, t: int = 0,
-                    size: int = 128, um_per_pixel: float = 0.5, seed: int = 0) -> Path:
+                    size: int = 128, um_per_pixel: float = 0.5, seed: int = 0,
+                    bright: float = 1.0) -> Path:
     """Write one plane the way the microscope exports it."""
     folder.mkdir(parents=True, exist_ok=True)
     name = f"overview_a1b2c3_{label}_T{t:06d}_C{c:02d}_Z{z:05d}.ome.tiff"
@@ -39,8 +40,8 @@ def _export_a_plane(folder: Path, label: str, *, c: int = 0, z: int = 0, t: int 
         f'PhysicalSizeX="{um_per_pixel}" PhysicalSizeY="{um_per_pixel}"/></Image></OME>'
     )
     rng = np.random.default_rng(seed)
-    frame = (rng.random((size, size)) * 3000).astype(np.uint16)
-    frame[size // 2, size // 2] = 65535  # something unmistakable in the middle
+    frame = (rng.random((size, size)) * 3000 * bright).astype(np.uint16)
+    frame[size // 2, size // 2] = int(65535 * bright)  # something unmistakable in the middle
     path = folder / name
     tifffile.imwrite(path, frame, description=described)
     return path
@@ -465,3 +466,39 @@ def test_a_corrupt_note_is_rebuilt_not_fatal(tmp_path):
         (into / "tiles.json").read_text(encoding="utf-8") + "\n{}garbage", encoding="utf-8")
     note = make_small_pictures(data, {"P0001": (0.0, 0.0)}, into)
     assert len(note["tiles"]) == 1
+
+
+def test_a_stacks_slices_are_copied_one_per_height_and_brightened_together(tmp_path):
+    """The focus preview pages through the stack, so the stack needs pages.
+
+    One small JPEG per height, and one brightening across all of them --
+    a blurred slice stretched over its own range comes out as crisp-bright
+    as the focused one, and the operator choosing focus by eye would be
+    shown three slices all claiming to be sharpest.
+    """
+    from viz_studio.backend.jpeg_tiles import make_slice_copies
+
+    data, view = tmp_path / "data", tmp_path / "view"
+    planes = []
+    for z, bright in [(0, 1.0), (1, 0.05), (2, 1.0)]:
+        made = _export_a_plane(data, "P0001", z=z, seed=z, bright=bright)
+        planes.append({"path": str(made), "z_um": -400.0 + 2.0 * z})
+
+    slices = make_slice_copies(view, planes)
+
+    assert [s["z_um"] for s in slices] == [-400.0, -398.0, -396.0], "by ascending height"
+    for entry in slices:
+        assert entry["name"].endswith(".jpg")
+        assert (view / entry["name"]).is_file(), f"{entry['name']} was not written"
+    assert len({entry["name"] for entry in slices}) == 3, "each height its own copy"
+
+    from PIL import Image
+    means = []
+    for entry in slices:
+        with Image.open(view / entry["name"]) as picture:
+            grey = np.asarray(picture.convert("L"), dtype=float)
+        means.append(grey.mean())
+    assert means[1] < means[0] * 0.5, (
+        "the dim slice came out as bright as its neighbours; "
+        "each slice was stretched over its own range instead of the stack's"
+    )

@@ -158,6 +158,24 @@ test("an operator walks from Connect to a scanned overview", async ({ page }) =>
     return kept.some((m) => Math.abs(m.x_um - (asked.x + ox)) < 1 && Math.abs(m.y_um - (asked.y + oy)) < 1);
   }, { message: "no capture was taken where the stage should have gone", timeout: 60_000 }).toBe(true);
 
+  /* The slice at the black line. The box beside the plot shows the real
+     captured plane nearest the chosen height, and dragging the height walks
+     the stack -- so the two ends of the plot must show two different
+     slices, fetched from the bridge, not drawn from anything invented. */
+  await expect(page.locator("#zpreview")).toBeVisible();
+  const plotBox = await page.locator("#trace-canvas").boundingBox();
+  const scrubTo = async (x) => {
+    await page.mouse.move(plotBox.x + x, plotBox.y + plotBox.height / 2);
+    await page.mouse.down();
+    await page.mouse.up();
+    await page.waitForTimeout(200);
+    return page.evaluate(() => window.__theSliceShown());
+  };
+  const lowSlice = await scrubTo(45);
+  const highSlice = await scrubTo(plotBox.width - 60);
+  expect(lowSlice, "a slice of the stack is on show").toBeTruthy();
+  expect(highSlice, "the line's height picks the slice").not.toBe(lowSlice);
+
   /* The run finishes when its promise does, and the rail refuses to move
      while a step is working. The done badge is no signal -- recording a
      focus preset settles the step before anything has driven -- so what the

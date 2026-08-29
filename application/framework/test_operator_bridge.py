@@ -933,3 +933,32 @@ def test_a_field_that_lands_during_a_build_is_not_signed_off_as_built(monkeypatc
     bridge._the_view_of("overview")
     bridge._the_view_of("overview")
     assert built == [1, 2], "the field that landed mid-build was signed off unbuilt"
+
+
+def test_a_measured_point_names_the_slices_of_the_stack_it_kept(monkeypatch):
+    """What the preview shows is the stack the point really captured.
+
+    The worker asks the viewer for small copies of the stack's planes as the
+    point lands, and the point carries their names and heights to the page;
+    where they are fetched from stays `viewOf`'s answer. A stack that cannot
+    be copied costs the preview, never the run -- which is also why the
+    copier is stubbed here the way the view builder is."""
+    import sys
+    import types
+
+    handed = []
+    stub = types.ModuleType("viz_studio.backend.jpeg_tiles")
+    stub.make_slice_copies = lambda into, planes: (
+        handed.append(planes) or [{"z_um": 1.0, "name": "s_Z00000.jpg"}])
+    monkeypatch.setitem(sys.modules, "viz_studio.backend.jpeg_tiles", stub)
+    monkeypatch.setattr(bridge, "_session", _Driver())
+    monkeypatch.setattr(
+        bridge, "_focus",
+        {"running": True, "done": 0, "of": 1, "error": None, "points": []})
+
+    bridge._focus_worker([{"x": 1.0, "y": 2.0}])
+
+    point = bridge._focus["points"][0]
+    assert point["slices"] == [{"z_um": 1.0, "name": "s_Z00000.jpg"}]
+    assert handed and len(handed[0]) > 0, "the record's planes reached the copier"
+    assert all("path" in plane and "z_um" in plane for plane in handed[0])
