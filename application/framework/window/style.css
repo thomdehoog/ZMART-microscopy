@@ -565,7 +565,7 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
 .fp-one .fp-lay input { padding: 0 6px; }
 .fp-one .fp-lay input { border-radius: 7px 0 0 7px; border-right: none; }
 .fp-one .fp-lay .sf-flat {
-  grid-column: 2; padding: 0 8px; font-size: 12px;
+  grid-column: 2; padding: 0 8px;
   border-radius: 0 7px 7px 0;
 }
 /* The two words stand over the row's two halves: the first column is as
