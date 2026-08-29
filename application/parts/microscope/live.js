@@ -48,6 +48,22 @@ async function ask(route, payload) {
 
 const rest = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+/**
+ * Ask again through a rough patch. A poll's dropped fetch is not the run
+ * failing: the instrument keeps going whether or not one request lands, and
+ * a busy bridge declared a healthy 864-field scan "failed" over one hiccup.
+ */
+const askedPatiently = async (path) => {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await ask(path);
+    } catch (why) {
+      if (attempt >= 3) throw why;
+      await rest(700);
+    }
+  }
+};
+
 /** How often the connection's health is asked for while it is still answering. */
 export const POLL_MS = 250;
 
@@ -196,7 +212,7 @@ export const backend = {
     await ask("/api/focus/measure", { points, metric, state });
     let shown = 0;
     for (;;) {
-      const progress = await ask("/api/focus/measure");
+      const progress = await askedPatiently("/api/focus/measure");
       for (; shown < progress.points.length; shown++) onPoint?.(progress.points[shown], shown);
       if (progress.error) throw new Error(progress.error);
       if (!progress.running) return { points: progress.points };
@@ -214,7 +230,7 @@ export const backend = {
     await ask("/api/targets/discover", { fields, settings });
     let shown = 0;
     for (;;) {
-      const progress = await ask("/api/targets/discover");
+      const progress = await askedPatiently("/api/targets/discover");
       for (; shown < progress.fields.length; shown++) onField?.(progress.fields[shown]);
       if (progress.error) throw new Error(progress.error);
       if (!progress.running) return { fields: progress.fields };
@@ -231,7 +247,7 @@ export const backend = {
   async scanOverview({ positions, acquisition_type = "overview", state = null, onProgress } = {}) {
     await ask("/api/scan", { positions, acquisition_type, state });
     for (;;) {
-      const progress = await ask("/api/scan");
+      const progress = await askedPatiently("/api/scan");
       onProgress?.(progress.done, progress.of);
       if (progress.error) throw new Error(progress.error);
       if (!progress.running) {

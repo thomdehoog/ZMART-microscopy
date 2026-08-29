@@ -213,6 +213,7 @@ def _connect(asked: dict) -> dict:
     # into this run's view -- a just-connected canvas showed a scan nobody
     # had taken.
     _records.clear()
+    _view_built.clear()
     _scan.update(running=False, done=0, of=0, error=None, acquisition_type=None)
     _focus.update(running=False, done=0, of=0, error=None, points=[])
     _targets.update(running=False, done=0, of=0, error=None, fields=[])
@@ -650,6 +651,14 @@ def _the_run() -> Path:
     return _run
 
 
+#: One view-builder at a time, and only when the scan has grown: every file
+#: request used to rebuild the whole view, and two rebuilding at once
+#: interleaved their writes into a corrupt note that failed every request
+#: after it.
+_view_lock = threading.Lock()
+_view_built: dict[str, int] = {}
+
+
 def _the_view_of(acquisition_type: str) -> Path | None:
     """Ask the viewer to bring this scan's pictures up to date, and say where.
 
@@ -660,10 +669,17 @@ def _the_view_of(acquisition_type: str) -> Path | None:
     """
     from viz_studio.backend.jpeg_tiles import make_what_is_missing  # noqa: PLC0415
 
-    return make_what_is_missing(view_of(acquisition_type), {
-        record["position_label"]: (record["images"], _the_middle_of(record))
-        for record in _records.get(acquisition_type, [])
-    })
+    with _view_lock:
+        records = _records.get(acquisition_type, [])
+        note = view_of(acquisition_type) / "tiles.json"
+        if _view_built.get(acquisition_type) == len(records) and note.is_file():
+            return note if records else None
+        made = make_what_is_missing(view_of(acquisition_type), {
+            record["position_label"]: (record["images"], _the_middle_of(record))
+            for record in records
+        })
+        _view_built[acquisition_type] = len(records)
+        return made
 
 
 def _the_middle_of(record: dict) -> tuple:
