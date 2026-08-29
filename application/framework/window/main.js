@@ -1260,8 +1260,12 @@ let stageWatch = null;
          operator snaps a point. */
       reach: (() => {
         const [fw, fh] = stage.travelUm;
+        const [sx, sy] = stage.travelOriginUm;
         const [ox, oy] = stage.carrierOriginUm();
-        return { xMin: -ox, xMax: fw - ox, yMin: -oy, yMax: fh - oy };
+        return {
+          xMin: sx - ox, xMax: sx + fw - ox,
+          yMin: sy - oy, yMax: sy + fh - oy,
+        };
       })(),
       onChange: (next) => {
         state.fields = next;
@@ -1367,6 +1371,7 @@ let stageWatch = null;
           backend?.disconnect?.().catch((why) => console.warn(`closing: ${why.message}`));
           resetRun();
           thePicture.reset();
+          stage.forgetTheCanvas();
           renderAll();
         },
         changed: () => { renderSetup(); renderActionBar(); },

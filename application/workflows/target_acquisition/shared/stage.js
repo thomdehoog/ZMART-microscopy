@@ -121,12 +121,30 @@ const view = {
    is the placeholder, so the picture has a frame to draw. */
 const TRAVEL_BEFORE_A_SESSION = [120_000, 80_000];
 const STAGE_UM = [...TRAVEL_BEFORE_A_SESSION];
+/* Where the travel begins. The size alone assumed every instrument's frame
+   starts at zero -- true of the mock alone; the Leica's canvas straddles it,
+   and discarding the offset laid the plan outside the travel. */
+const STAGE_ORIGIN_UM = [0, 0];
 let stageReported = null;
 
 function takeTheCanvas(canvas) {
-  if (!canvas?.x_um || !canvas?.y_um) return;
+  if (!canvas?.x_um || !canvas?.y_um) {
+    console.warn("the instrument reported no canvas; the picture keeps the placeholder travel");
+    return;
+  }
+  STAGE_ORIGIN_UM[0] = canvas.x_um[0];
+  STAGE_ORIGIN_UM[1] = canvas.y_um[0];
   STAGE_UM[0] = canvas.x_um[1] - canvas.x_um[0];
   STAGE_UM[1] = canvas.y_um[1] - canvas.y_um[0];
+  view.fitted = false;
+  drawStage();
+}
+
+/** The session is over, and its travel with it: the placeholder comes back,
+    so a second instrument never inherits the first one's canvas. */
+function forgetTheCanvas() {
+  [STAGE_UM[0], STAGE_UM[1]] = TRAVEL_BEFORE_A_SESSION;
+  [STAGE_ORIGIN_UM[0], STAGE_ORIGIN_UM[1]] = [0, 0];
   view.fitted = false;
   drawStage();
 }
@@ -164,7 +182,10 @@ function carrierOriginUm() {
      plate and it is the only placement that can be worked out rather than
      measured. A default, and the line above is the answer that replaces it. */
   const [w, h] = carrierWidget.extentUm(run.carrier);
-  return [(STAGE_UM[0] - w) / 2, (STAGE_UM[1] - h) / 2];
+  return [
+    STAGE_ORIGIN_UM[0] + (STAGE_UM[0] - w) / 2,
+    STAGE_ORIGIN_UM[1] + (STAGE_UM[1] - h) / 2,
+  ];
 }
 
 /* How much clear space the travel is framed with, in screen pixels. */
@@ -205,7 +226,10 @@ function fitView() {
 function whereFitPutsIt(w, h, zoom) {
   const [fw] = STAGE_UM;
   const [ox, oy] = carrierOriginUm();
-  return { x: fw / 2 - ox, y: (h / 2 - FIT_MARGIN) * zoom - oy };
+  return {
+    x: STAGE_ORIGIN_UM[0] + fw / 2 - ox,
+    y: STAGE_ORIGIN_UM[1] + (h / 2 - FIT_MARGIN) * zoom - oy,
+  };
 }
 
 /**
@@ -244,8 +268,8 @@ function insideTheLimits(where) {
   return {
     zoom,
     centre: {
-      x: held(where.centre.x, w, -ox, fw - ox, parked.x),
-      y: held(where.centre.y, h, -oy, fh - oy, parked.y),
+      x: held(where.centre.x, w, STAGE_ORIGIN_UM[0] - ox, STAGE_ORIGIN_UM[0] + fw - ox, parked.x),
+      y: held(where.centre.y, h, STAGE_ORIGIN_UM[1] - oy, STAGE_ORIGIN_UM[1] + fh - oy, parked.y),
     },
   };
 }
@@ -318,14 +342,6 @@ function keepItOnScreen(where) {
  * answer to keep right, and would be wrong the first time a step forgot to
  * write to it.
  */
-/* Where the stage is parked before the run has driven it anywhere, as a
-   fraction of the travel. In the corner rather than the middle, and far
-   enough into the corner to be off the carrier as well as off the middle of
-   it: a carrier is mounted centred, so the margin around it is the only part
-   of the travel where a mark is on the picture without being on top of a
-   well. A real driver replaces this with the position it reads. */
-const PARKED = [0.04, 0.04];
-
 function whereTheStageIs() {
   /* What the instrument reported is where the stage is, and nothing may
      stand in for it: an invented height handed to the focus map as the
@@ -443,7 +459,7 @@ function tipTheStageMark(e) {
    of this can reach, which is context for everything else rather than a
    thing in its own right. */
 function drawStageLimits(ctx, onTheStage, scale) {
-  const [x, y] = onTheStage(0, 0);
+  const [x, y] = onTheStage(STAGE_ORIGIN_UM[0], STAGE_ORIGIN_UM[1]);
   ctx.save();
   ctx.strokeStyle = css("--line-strong");
   ctx.lineWidth = 1;
@@ -987,7 +1003,9 @@ async function driveTheStageTo(e) {
   if (run.running || layersLocked() || !ctx.driveTo) return;
   const [x, y] = toWorld(e.offsetX, e.offsetY);
   const [fw, fh] = STAGE_UM;
-  if (x < 0 || y < 0 || x > fw || y > fh) return;
+  const [ox, oy] = carrierOriginUm();
+  const [sx, sy] = [STAGE_ORIGIN_UM[0] - ox, STAGE_ORIGIN_UM[1] - oy];
+  if (x < sx || y < sy || x > sx + fw || y > sy + fh) return;
   const at = await ctx.driveTo({ x, y });
   if (at) takeThePosition(at);
 }
@@ -1026,6 +1044,7 @@ ctx.fitButton.addEventListener("click", () => {
     cursor(shape) { stageBox.style.cursor = shape; },
     view,
     travelUm: STAGE_UM,
+    travelOriginUm: STAGE_ORIGIN_UM,
     toScreen,
     toWorld,
     /* Lent to a panel that draws its own small picture and wants the page's
@@ -1045,6 +1064,7 @@ ctx.fitButton.addEventListener("click", () => {
       return toScreen(x + ox, y + oy);
     },
     takeTheCanvas,
+    forgetTheCanvas,
     takeThePosition,
     openScannedGround: openTheGroundThatHasBeenScanned,
     closeTheGround() { theCanvas.seeThrough([]); },
