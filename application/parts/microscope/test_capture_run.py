@@ -26,7 +26,12 @@ def test_visits_each_position_and_returns_records(mic):
 
     records = capture_positions(mic, positions, "overview")
 
-    assert [r["position"] for r in records] == positions
+    # Where each capture was taken is read off its planes: `position` is a key
+    # only the mock happens to emit, and a test leaning on it passes against
+    # the mock alone.
+    assert [
+        (r["planes"][0]["x_um"], r["planes"][0]["y_um"]) for r in records
+    ] == [(10.0, 20.0), (30.0, 40.0)]
     assert [r["position_label"] for r in records] == ["1", "2"]
     assert all(r["acquisition_type"] == "overview" for r in records)
 

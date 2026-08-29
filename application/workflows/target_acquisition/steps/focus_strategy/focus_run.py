@@ -1,8 +1,8 @@
 """Measure focus at operator-chosen points -- controller surface only.
 
 Step 4: the workflow decides WHERE to focus (its own logic); this moves to each
-frame (x, y) point and runs the driver's ``autofocus`` procedure, collecting the
-frame-z the driver reports. Feed the result to
+frame (x, y) point, captures a stack there and has ZMART_analysis score it --
+no vendor autofocus anywhere. Feed the result to
 :func:`_focus_surface.fit_focus_surface`.
 
 The loop itself lives in :mod:`application.parts.microscope.focus_run`,
