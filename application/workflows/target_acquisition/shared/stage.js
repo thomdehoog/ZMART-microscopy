@@ -44,10 +44,9 @@ export function openTheStage(ctx) {
   const {
     css, sizeCanvas, el, run, carrierWidget, scanfieldsWidget,
     activePreset, indexOfStep, sideWidget, step,
-    anchorPressed, detectPressed, density, trueZ,
+    anchorPressed, detectPressed,
     renderActionBar, renderRail, liveOverview, thePicture,
   } = ctx;
-  const theSample = ctx.sample;
   const {
     focusPressed, focusCursor, focusDraggedTo, focusGrabbed, focusHovered,
     focusMarqueeTo, focusMarqueeTook, drawFocusLayer,
@@ -328,24 +327,15 @@ function keepItOnScreen(where) {
 const PARKED = [0.04, 0.04];
 
 function whereTheStageIs() {
-  const [ox, oy] = carrierOriginUm();
-  /* What the instrument reported is where the stage is. Nothing below may
-     stand in for it: the rest of this function is the rehearsal -- a plan
-     tile for x and y, the pretend sample's height for z -- and on a real
-     microscope that height was handed to the focus map as the centre of a
-     stack, which drove the stage millimetres from focus or out of range. */
+  /* What the instrument reported is where the stage is, and nothing may
+     stand in for it: an invented height handed to the focus map as the
+     centre of a stack once drove a real stage millimetres from focus.
+     Before the first report there is no position, and the mark and its tip
+     simply are not drawn. */
   if (stageReported) {
     return { x: stageReported.x, y: stageReported.y, z: stageReported.z };
   }
-  const taken = run.plan[Math.min(run.tilesShown, run.plan.length) - 1];
-  const [cx, cy] = taken
-    ? [taken.x, taken.y]
-    : [STAGE_UM[0] * PARKED[0] - ox, STAGE_UM[1] * PARKED[1] - oy];
-  /* The height is the sample's, because that is what the objective is on
-     when it is anywhere at all. Before a focus strategy has been applied it
-     is what the surface would be if it were measured there, which is the
-     same claim the rest of the mock makes about the theSample(). */
-  return { x: cx + ox, y: cy + oy, z: trueZ(cx, cy) };
+  return null;
 }
 
 /* Where the microscope is standing, over everything else on the picture.
@@ -387,7 +377,7 @@ const STAGE_MARK_REACH = 15;
 /** Where the mark is on screen, for the pointer to be measured against. */
 const stageMarkAt = () => {
   const at = whereTheStageIs();
-  return toScreen(at.x, at.y);
+  return at ? toScreen(at.x, at.y) : null;
 };
 
 /* Where the microscope is standing, drawn on the stage.
@@ -410,6 +400,7 @@ const stageMarkAt = () => {
  * hover, and the mark thickens to say it is the thing being asked about. */
 function drawWhereTheStageIs(ctx, onTheStage) {
   const at = whereTheStageIs();
+  if (!at) return;
   const [x, y] = onTheStage(at.x, at.y);
   ctx.save();
   ctx.strokeStyle = css("--mark-stage");
@@ -430,7 +421,9 @@ function drawWhereTheStageIs(ctx, onTheStage) {
  * the page says: a stage is driven in millimetres and focused in micrometres.
  */
 function tipTheStageMark(e) {
-  const [mx, my] = stageMarkAt();
+  const mark = stageMarkAt();
+  if (!mark) return false;
+  const [mx, my] = mark;
   const hot = Math.hypot(e.offsetX - mx, e.offsetY - my) <= STAGE_MARK_REACH;
   if (hot !== stageMarkHot) { stageMarkHot = hot; drawStage(); }
   if (!hot) return false;
@@ -492,19 +485,6 @@ function toStage(p) {
 function toCarrier(p) {
   const [ox, oy] = carrierOriginUm();
   return { ...p, x: p.x - ox, y: p.y - oy };
-}
-
-function tileTexture(ctx, tile, place, scale) {
-  const [sx, sy] = place(tile.x - tile.frameUm / 2, tile.y - tile.frameUm / 2);
-  const sz = tile.frameUm * scale;
-
-  // tile ground with a gentle per-tile vignette — the flat-field seam
-  // an operator actually sees in a stitched overview
-  const g = ctx.createRadialGradient(sx + sz / 2, sy + sz / 2, sz * 0.1, sx + sz / 2, sy + sz / 2, sz * 0.75);
-  g.addColorStop(0, "#0d1a24");
-  g.addColorStop(1, "#05090e");
-  ctx.fillStyle = g;
-  ctx.fillRect(sx, sy, sz + 0.6, sz + 0.6);
 }
 
 /* Which layers are off, how solid they are drawn and whether the picture is
@@ -631,7 +611,7 @@ function thePicturesOwnLayers(theRun) {
     scale: {
       key: "scale",
       label: "Scale bar",
-      explains: "How far a stretch of screen is on the theSample(). A reading rather than a "
+      explains: "How far a stretch of screen is on the sample. A reading rather than a "
         + "drawing, so it stays solid — a scale bar you can half see through is a scale "
         + "bar you cannot trust.",
       /* A reading about a stage nobody has connected to yet would be a
@@ -656,11 +636,11 @@ function thePicturesOwnLayers(theRun) {
  */
 function theStageLayers({ shown, ch0, ch1, editing }) {
   const theRun = {
-    run, css, drawnIn, theSample, carrierWidget, scanfieldsWidget,
+    run, css, drawnIn, carrierWidget, scanfieldsWidget,
     activePreset, indexOfStep, step,
     activeMode: step(run.activeIdx).mode,
     editing, shown, ch0, ch1,
-    crosshair, tileTexture, density, trueZ,
+    crosshair,
     drawFocusLayer, drawStageLimits, drawWhereTheStageIs, drawScaleBar,
     /* What a layer needs to answer for a gesture of its own. Handed over rather
        than reached for, so a layer says what a press on it means without
@@ -953,8 +933,7 @@ stageBox.addEventListener("pointermove", (e) => {
   let hit = null;
   if (run.cellsShown) {
     let best = 12 / view.scale;
-    for (const c of theSample().cells) {
-      if (!run.detected.has(c.id)) continue;
+    for (const c of run.cells.values()) {
       const d = Math.hypot(c.x - world.x, c.y - world.y);
       if (d < best) { best = d; hit = c; }
     }

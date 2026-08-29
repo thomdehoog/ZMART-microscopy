@@ -16,9 +16,19 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { colourSpread, fractionLit, photograph } from "./pixels.js";
+import { existsSync } from "node:fs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const WRITER = path.resolve(HERE, "..", "..", "live_overview_demo.py");
+
+/* The writer's python: `zmart_storage` writes OME-Zarr, and the operator's
+   own environment deliberately carries no zarr -- the page reads runs in the
+   browser, and only this demo writes one. `PYTHON=` overrides, for a machine
+   that keeps a writer-capable environment elsewhere. */
+const A_PYTHON_WITH_THE_WRITER =
+  "C:/ProgramData/MinicondaZMB/envs/dino3_test/python.exe";
+const pythonForTheWriter = () =>
+  process.env.PYTHON ?? (existsSync(A_PYTHON_WITH_THE_WRITER) ? A_PYTHON_WITH_THE_WRITER : "python");
+const WRITER = path.resolve(HERE, "..", "..", "..", "..", "live_overview_demo.py");
 
 /** Where the photographs are kept, so a failure can be looked at rather than
     only read about. */
@@ -55,7 +65,7 @@ export async function startDemoRun({
   fs.mkdirSync(SHOTS, { recursive: true });
 
   const writer = spawn(
-    process.env.PYTHON ?? "python",
+    pythonForTheWriter(),
     [
       WRITER, "--folder", folder, "--port", String(port), "--interval", "0",
       "--pattern", pattern, "--planes", String(planes),

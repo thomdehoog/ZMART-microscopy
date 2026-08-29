@@ -138,7 +138,9 @@ test("an operator walks from Connect to a scanned overview", async ({ page }) =>
   expect(Math.hypot(ox, oy), "the carrier stands off the stage's zero").toBeGreaterThan(1000);
   const asked = await page.evaluate(() => window.__theFocusPoints());
   await expect.poll(async () => {
-    const where = path.join(bridge.run, "focussing", "analysis");
+    /* The page's own Connect opened a fresh run; what it captured is there,
+       not in the run this harness's connect made. */
+    const where = path.join(bridge.currentRun(), "focussing", "analysis");
     if (!fs.existsSync(where)) return false;  // nothing scored yet
     const kept = fs.readdirSync(where)
       .map((name) => JSON.parse(fs.readFileSync(path.join(where, name), "utf8")));
