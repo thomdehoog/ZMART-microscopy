@@ -554,8 +554,12 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
   gap: var(--fp-gap); align-items: center;
 }
 .fp-hand .sf-flat, .fp-lay .sf-flat { grid-column: 2 / -1; height: var(--control); }
-/* Both ways of laying points on one row, half the column each. */
+/* Both ways of laying points on one row, half the column each. The count
+   is two digits at most, so its box keeps to that and the press takes the
+   rest. */
 .fp-lays { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--fp-gap); }
+.fp-lays .fp-lay { grid-template-columns: 44px minmax(0, 1fr); }
+.fp-lays .fp-lay .sf-flat { grid-column: 2; }
 /* Two presses each since Refine and Accept went; the rows stay even. */
 .fp-again, .ft-acts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 /* The two tools share the first cell between them. */
@@ -786,8 +790,8 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
 .trace-host .trace-plot { margin: 0 14px 0 0; }
 .trace-host .zpreview {
   padding: 0 14px; display: grid;
-  /* two fixed squares, titles sitting exactly over them */
-  grid-template-columns: repeat(2, minmax(0, 176px)); gap: 4px 8px; align-items: start;
+  /* two equal squares splitting the row, titles sitting exactly over them */
+  grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 8px; align-items: start;
 }
 .trace-host .zpreview .side-sub { margin: 0; }
 .trace-host .zframe { width: 100%; max-width: none; }
