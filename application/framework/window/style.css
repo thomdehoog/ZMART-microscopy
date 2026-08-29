@@ -1524,6 +1524,9 @@ canvas.livecv[hidden] { display: none; }
    the box's own spacing the buttons above looked as though they belonged to the
    word underneath them. */
 .side-sub:not(:first-child) { margin-top: 12px; }
+/* The tileset box's two sections stand as close as the focus box's do: the
+   body's own gap is most of the air, and the shared margin doubled it. */
+.side-sub.sf-sub:not(:first-child) { margin-top: 2px; }
 /* A heading that also carries a count puts it at the far end of its own line.
    In the amber the rest of the page warns in, and in the page's own type
    rather than the heading's small caps: it is a sentence about the list, not
