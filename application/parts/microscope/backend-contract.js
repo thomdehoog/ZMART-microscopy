@@ -117,7 +117,7 @@ export function promisesOfABackend(expect) {
     {
       what: "leaves an axis alone when it is not asked about",
       async keep(backend) {
-        const start = somewhereElse(um(await backend.get_xyz()));
+        const start = somewhereElse(um(await backend.get_xyz()), await theCanvasOf(backend));
         await backend.set_xyz(start);
         const now = um(await backend.set_xyz({ x: start.x - 5_000 }));
         expect(now.y, "y held").toBeCloseTo(start.y, 0);
