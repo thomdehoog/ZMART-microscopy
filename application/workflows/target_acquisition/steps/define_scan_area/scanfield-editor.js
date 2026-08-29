@@ -1423,10 +1423,9 @@ export default {
  * up. A crosshair marks the ones placed by hand, which are few and are meant
  * to be found again.
  */
-/** The deep accent, read off the root so the point follows the theme --
-    deeper than the tiles' blue, or the mark drowned among them. */
+/** The page's accent, read off the root so the point follows the theme. */
 const accentInk = () =>
-  getComputedStyle(document.documentElement).getPropertyValue("--accent-deep").trim() || "#0369a1";
+  getComputedStyle(document.documentElement).getPropertyValue("--accent").trim() || "#0284c7";
 
 function drawPoint(ctx, f, { ink, toScreen, scale, marked, frameUm }) {
   if (f.source === "grid") return;
@@ -1435,14 +1434,14 @@ function drawPoint(ctx, f, { ink, toScreen, scale, marked, frameUm }) {
   const arm = frameUm * CROSS_FRAC * scale;
   ctx.beginPath();
   ctx.arc(x, y, Math.max(1.5, frameUm * DOT_FRAC * scale), 0, Math.PI * 2);
-  ctx.fillStyle = marked ? lit : withAlpha(ink, 0.5);
+  ctx.fillStyle = marked ? lit : withAlpha(ink, 0.25);
   ctx.fill();
   if (arm < 2) return;
   ctx.beginPath();
   ctx.moveTo(x - arm, y); ctx.lineTo(x + arm, y);
   ctx.moveTo(x, y - arm); ctx.lineTo(x, y + arm);
-  ctx.strokeStyle = marked ? lit : withAlpha(ink, 0.9);
-  ctx.lineWidth = (marked ? MARKED_W : FIELD_W) + 1;
+  ctx.strokeStyle = marked ? lit : withAlpha(ink, REST_INK);
+  ctx.lineWidth = marked ? MARKED_W : FIELD_W;
   ctx.stroke();
 }
 
