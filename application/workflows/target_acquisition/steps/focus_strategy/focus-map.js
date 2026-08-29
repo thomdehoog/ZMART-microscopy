@@ -639,6 +639,24 @@ function focusHovered(e) {
    step where every press moves the plan is a step nobody can look around in.
 
    The point lands where the press landed, on ground that has none. */
+/* The route is settled the moment the map changes: a point added or moved
+   slots into its place in the itinerary at once, so the number a row shows
+   is always the point's place on the route the stage will take -- a corner
+   that is the sixth stop says 6, however few of the six are measured yet.
+   Selection and holds follow their points through the shuffle. */
+function settleTheRoute() {
+  const f = run.focus;
+  const chosen = f.points[f.selected];
+  const holding = [...picked()].map((i) => f.points[i]);
+  f.points = visitOrder(f.points);
+  f.selected = Math.max(0, f.points.indexOf(chosen));
+  picked().clear();
+  for (const point of holding) {
+    const at = f.points.indexOf(point);
+    if (at >= 0) picked().add(at);
+  }
+}
+
 function focusPressed(px, py) {
   const f = run.focus;
   if (step(run.activeIdx).mode !== "focus") return false;
@@ -659,6 +677,7 @@ function focusPressed(px, py) {
   picked().clear();
   picked().add(f.points.length - 1);
   f.selected = f.points.length - 1;
+  settleTheRoute();
   drawTrace();
   stage.draw(); renderPointList(); renderActionBar();
   return true;
@@ -1863,7 +1882,17 @@ function refitSurface() {
     focusMarqueeTo, focusMarqueeTook,
     marqueeing: () => focusMarquee,
     dragging: () => focusDrag,
-    endDrag: () => { const held = focusDrag; focusDrag = null; return held ?? {}; },
+    endDrag: () => {
+      const held = focusDrag;
+      focusDrag = null;
+      /* A moved point slots into its new place on the route the moment the
+         hand lets go, and the rows renumber to match. */
+      if (held?.moved) {
+        settleTheRoute();
+        stage.draw(); renderPointList(); drawTrace(); renderActionBar();
+      }
+      return held ?? {};
+    },
     /* Two presses that belong to other steps and live here because the
        geometry they need does: placing a carrier anchor, and picking the
        position detection is tried on. They move when that geometry does. */
