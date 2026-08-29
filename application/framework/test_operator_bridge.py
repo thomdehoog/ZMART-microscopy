@@ -873,3 +873,29 @@ def test_the_recorded_settings_reach_the_instrument_before_a_scan(monkeypatch):
                        state={"job": "Overview"})
     assert driver.applied == [{"job": "Overview"}]
     assert scanned["done"] == 1
+
+
+def test_the_view_is_built_once_per_scan_state(monkeypatch, tmp_path):
+    """Every file request rebuilt the whole view, and two rebuilding at once
+    interleaved their writes into a corrupt note that 400d every request
+    after. One builder at a time, and only when the scan has grown."""
+    import sys
+    import types
+
+    built = []
+    stub = types.ModuleType("viz_studio.backend.jpeg_tiles")
+    stub.make_what_is_missing = lambda into, fields: built.append(len(fields)) or Path(into)
+    monkeypatch.setitem(sys.modules, "viz_studio.backend.jpeg_tiles", stub)
+    record = _Driver().acquire(acquisition_type="overview", position_label="P0")
+    monkeypatch.setattr(bridge, "_records", {"overview": [record]})
+    monkeypatch.setattr(bridge, "_view_built", {})
+
+    (bridge._run / "overview" / "view").mkdir(parents=True)
+    (bridge._run / "overview" / "view" / "tiles.json").write_text("{}", encoding="utf-8")
+    bridge._the_view_of("overview")
+    bridge._the_view_of("overview")
+    assert built == [1], "the second request found nothing new to build"
+
+    bridge._records["overview"].append(record)
+    bridge._the_view_of("overview")
+    assert built == [1, 2], "a grown scan is built again"

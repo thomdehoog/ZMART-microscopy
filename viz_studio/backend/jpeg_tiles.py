@@ -469,10 +469,23 @@ def _planes_among(paths: list[Path | str]) -> list[Plane]:
 
 
 def _note_in(into: Path) -> dict:
-    """The note as it stands, or a fresh one for a scan with no pictures yet."""
+    """The note as it stands, or a fresh one for a scan with no pictures yet.
+
+    A note that cannot be read is rebuilt rather than fatal -- interleaved
+    writers once left trailing garbage in it, and every view request after
+    failed on the one bad file -- but loudly, because losing the note means
+    re-encoding the fields it named.
+    """
     where = into / "tiles.json"
     if where.is_file():
-        return json.loads(where.read_text(encoding="utf-8"))
+        try:
+            return json.loads(where.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as why:
+            import logging
+
+            logging.getLogger(__name__).warning(
+                "the note at %s could not be read (%s); rebuilding it", where, why
+            )
     return {"units": "um", "tiles": []}
 
 

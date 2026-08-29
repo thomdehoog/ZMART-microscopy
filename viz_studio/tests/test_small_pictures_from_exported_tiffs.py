@@ -451,3 +451,17 @@ def test_a_channels_colour_is_its_index_not_its_turn(tmp_path):
     r, g, b = picture.getpixel((picture.width // 2, picture.height // 2))
     assert r <= 2, "no first channel means no red"
     assert g > b > 0
+
+
+def test_a_corrupt_note_is_rebuilt_not_fatal(tmp_path):
+    """Interleaved writers once left trailing garbage in tiles.json, and every
+    view request afterwards failed on it. A note that cannot be read is
+    rebuilt, loudly, from the pictures the scan still has."""
+    data = tmp_path / "data"
+    _export_a_flat_channel(data, "P0001", 0, 2000)
+    into = tmp_path / "view"
+    make_small_pictures(data, {"P0001": (0.0, 0.0)}, into)
+    (into / "tiles.json").write_text(
+        (into / "tiles.json").read_text(encoding="utf-8") + "\n{}garbage", encoding="utf-8")
+    note = make_small_pictures(data, {"P0001": (0.0, 0.0)}, into)
+    assert len(note["tiles"]) == 1
