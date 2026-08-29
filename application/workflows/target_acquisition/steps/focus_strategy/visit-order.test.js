@@ -1,8 +1,8 @@
 /**
  * The order a focus map is visited in — pinned as behavior, because a stage
- * watched live must look deliberate: two levels of one rule. The tilesets
- * are swept as a serpentine of their centres, and each tileset's points as
- * a serpentine inside it, top-left first at both levels.
+ * watched live must be short AND look deliberate: two levels of one rule,
+ * a cheap shortest path (nearest-neighbour from the top-left, untangled by
+ * 2-opt) over the tilesets' centres and again inside each tileset.
  */
 
 import { describe, expect, it } from "vitest";
@@ -17,19 +17,30 @@ describe("the order a focus map is visited in", () => {
       [[0, 0], [10, 0], [20, 0], [20, 10], [10, 10], [0, 10]]);
   });
 
+  it("follows a U of points around the U, not across its mouth", () => {
+    const u = [
+      p(0, 0), p(200, 100), p(0, 200), p(100, 300),
+      p(200, 200), p(0, 100), p(200, 0),
+    ];
+    expect(visitOrder(u).map(({ x, y }) => [x, y])).toEqual([
+      [0, 0], [0, 100], [0, 200], [100, 300],
+      [200, 200], [200, 100], [200, 0],
+    ]);
+  });
+
   it("keeps a jittered row together instead of splitting it", () => {
     const rows = [p(0, 0), p(10, 2), p(20, 1), p(20, 1000), p(10, 1002), p(0, 1001)];
     expect(visitOrder(rows).map(({ x }) => x)).toEqual([0, 10, 20, 20, 10, 0]);
   });
 
-  it("sweeps the tilesets themselves shortest-path, whatever their tags", () => {
+  it("routes the tilesets themselves shortest-path, whatever their tags", () => {
     const points = [
       p(9000, 0, { tileset: 0 }), p(0, 0, { tileset: 5 }), p(10, 0, { tileset: 5 }),
     ];
     expect(visitOrder(points).map(({ x }) => x)).toEqual([0, 10, 9000]);
   });
 
-  it("sweeps the tilesets in rows too, next row swept back", () => {
+  it("routes the tilesets in rows too, next row walked back", () => {
     const wells = [
       p(0, 9000, { tileset: 0 }), p(9000, 9000, { tileset: 1 }),
       p(9000, 0, { tileset: 2 }), p(0, 0, { tileset: 3 }),
