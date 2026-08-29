@@ -585,6 +585,10 @@ let stageWatch = null;
 
     if (s.mode === "detect") {
       state.cells = new Map();
+      /* A fresh discovery invalidates the gate: the old ids name objects the
+         new run may not contain, and a stale id crashed the draw. */
+      state.gate = null;
+      state.gated = new Set();
       state.cellsShown = true;
       backend.discoverTargets({
         settings: settingsFor(state.detect),

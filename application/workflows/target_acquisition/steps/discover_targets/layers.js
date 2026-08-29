@@ -7,6 +7,11 @@
  */
 export function targetLayers(theRun) {
   const { run, css, drawnIn, activeMode } = theRun;
+  /* How far a press reaches, in world units. Taken from the last paint --
+     which always precedes a press -- because `reaches` is handed a place and
+     no frame; reading `scale` here was a ReferenceError, and every click on
+     a cell died on it. */
+  let reach = 12 / 0.03;
   return {
     cells: {
     key: "cells",
@@ -17,6 +22,7 @@ export function targetLayers(theRun) {
     paint: (frame) => {
       const ctx = frame.context;
       const { place, scale, w, h } = drawnIn(frame);
+      reach = 12 / scale;
       const ctxRad = Math.max(1.1, 1.4 * Math.sqrt(scale / 0.03));
       ctx.fillStyle = css("--mark-context");
       ctx.globalAlpha = 0.55;
@@ -35,6 +41,7 @@ export function targetLayers(theRun) {
       const gr = Math.max(3, 4.2 * Math.sqrt(scale / 0.03));
       for (const id of run.gated) {
         const c = run.cells.get(id);
+        if (!c) continue;
         const [x, y] = place(c.x, c.y);
         if (x < -10 || y < -10 || x > w + 10 || y > h + 10) continue;
         ctx.beginPath(); ctx.arc(x, y, gr, 0, Math.PI * 2);
@@ -43,7 +50,7 @@ export function targetLayers(theRun) {
       }
     },
     reaches: (at) => {
-      let best = 12 / scale, hit = null;
+      let best = reach, hit = null;
       for (const c of run.cells.values()) {
         const d = Math.hypot(c.x - at.x, c.y - at.y);
         if (d < best) { best = d; hit = c; }
