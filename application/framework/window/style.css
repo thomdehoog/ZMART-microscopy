@@ -774,7 +774,7 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
   position: relative; min-height: 0; display: grid;
   /* the slice above, the plot at full width below it: side by side they
      fought over one narrow column and the plot lost its legend */
-  grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto 140px; gap: 16px 0;
+  grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto 140px; gap: 10px 0;
 }
 /* The slice and the side view: two squares of the same size, half the row
    each. The base zframe caps itself at 176px for the box it grew up in;
@@ -786,7 +786,8 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
 .trace-host .trace-plot { margin: 0 14px; }
 .trace-host .zpreview {
   padding: 0 14px; display: grid;
-  grid-template-columns: 1fr 1fr; gap: 8px; align-items: start;
+  /* two fixed squares, titles sitting exactly over them */
+  grid-template-columns: repeat(2, minmax(0, 176px)); gap: 4px 8px; align-items: start;
 }
 .trace-host .zpreview .side-sub { margin: 0; }
 .trace-host .zframe { width: 100%; max-width: none; }
@@ -803,7 +804,7 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
    the rows above it keep — but not pulled down over the box's bottom padding
    as well: with the legend a pixel off the edge the box's rounded corners cut
    past it and the whole card read as clipped short. */
-.side-group-body .trace-host { margin: 0 -14px; }
+.side-group-body .trace-host { margin: 8px -14px 0; }
 /* Every canvas here is measured from its parent, so each one needs a parent
    that is its own box and nothing else's. */
 .trace-plot { position: relative; min-height: 0; }
