@@ -157,6 +157,30 @@ def _as_bool(value: str | None) -> bool:
     return str(value).strip().lower() in {"1", "true", "yes"}
 
 
+def _names_the_job(path: Path, job: str) -> bool:
+    """True when this OME-TIFF is the export of *job*.
+
+    LAS X names the export after the job -- "AF Job" becomes
+    "AF Job001.ome.tif" -- so a file whose stem does not carry the job's
+    name cannot be this acquisition's product, however fresh it is. In a
+    reused project every earlier job's file is rewritten in place, and
+    freshness alone once anchored a focus stack on the overview's
+    single-plane file: the scorer was handed one path where a stack was
+    promised.
+    """
+    stem = path.name
+    for suffix in (".ome.tiff", ".ome.tif"):
+        if stem.lower().endswith(suffix):
+            stem = stem[: -len(suffix)]
+            break
+    stem = stem.strip().lower()
+    want = job.strip().lower()
+    if not want or not stem.startswith(want):
+        return False
+    rest = stem[len(want):]
+    return rest == "" or rest.strip("0123456789-_ ") == ""
+
+
 def _detect_from_relative_path(
     client: Any,
     base: Path,
@@ -174,7 +198,9 @@ def _detect_from_relative_path(
         candidates.extend(project / raw.name for project in _project_dirs(base))
     for candidate in candidates:
         if _is_native_ome_tiff(candidate) and _is_under(candidate, base):
-            if _is_from_acquisition(candidate, acq):
+            # The hint can lag a save behind: a stale pointer at another
+            # job's freshly rewritten file is not believed.
+            if _names_the_job(candidate, acq.job) and _is_from_acquisition(candidate, acq):
                 return candidate
     return None
 
@@ -256,7 +282,11 @@ def _fresh_native_tiffs(base: Path, acq: AcquisitionResult) -> list[Path]:
     out = []
     for project in _project_dirs(base):
         for p in sorted(project.rglob("*.ome.tif")):
-            if _is_native_ome_tiff(p) and _is_from_acquisition(p, acq):
+            if (
+                _is_native_ome_tiff(p)
+                and _names_the_job(p, acq.job)
+                and _is_from_acquisition(p, acq)
+            ):
                 out.append(p)
     return sorted(out, key=lambda p: (p.stat().st_mtime, str(p)))
 
