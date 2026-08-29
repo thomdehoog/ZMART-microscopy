@@ -544,6 +544,10 @@ let stageWatch = null;
            stays undone: a connection that failed is not a session. */
         state.failed = s.id;
         state.running = null;
+        /* The bridge had already opened the driver's session before a check
+           failed; left open, the next press opened a second one. A failed
+           connection is not a session, so it is closed like one. */
+        backend?.disconnect?.().catch(() => {});
         if (!state.checks.some((c) => c.result !== null && isFailed(c.result))) {
           state.checks = [...state.checks.filter((c) => c.result !== null),
             { label: "Connection failed", result: `failed — ${why.message}` }];
@@ -593,10 +597,14 @@ let stageWatch = null;
 
     if (s.mode === "detect") {
       state.cells = new Map();
-      /* A fresh discovery invalidates the gate: the old ids name objects the
-         new run may not contain, and a stale id crashed the draw. */
+      /* A fresh discovery invalidates everything named by the old ids: the
+         gate, and the acquired pairs and their verdicts -- a stale id crashed
+         the draw and the gallery alike. */
       state.gate = null;
       state.gated = new Set();
+      state.acquired = [];
+      state.acquiredLabels = {};
+      state.verdicts = {};
       state.cellsShown = true;
       backend.discoverTargets({
         settings: settingsFor(state.detect),
