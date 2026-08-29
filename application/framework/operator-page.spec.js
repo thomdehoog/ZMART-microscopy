@@ -719,7 +719,7 @@ test("the tools and the grid are on screen together, over what the grid laid",
     /* The two ways of laying a tileset, and nothing else: how they are placed
        once they are down has a box of its own below this one. */
     await expect(page.locator(".side-group:has(.sf-tools) .side-sub"))
-      .toHaveText(["Manual", "Automatic"]);
+      .toHaveText(["Manual", "Automatic per tileset", "Automatic per carrier"]);
     await expect(page.locator(".side-group:has(#sf-overlap) .side-sub"))
       .toHaveText(["Tile overlap (%)", "Placed tiles"]);
     await expect(page.locator(".sf-readout")).toContainText("864 positions");

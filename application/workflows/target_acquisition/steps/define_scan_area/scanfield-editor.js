@@ -664,7 +664,15 @@ export default {
     }
     layout.append(toolRow);
 
-    layout.append(el("div", "side-sub sf-sub", "Automatic"));
+    /* Two automatics side by side, like the focus panel's pair: the grid
+       this box lays today is per tileset; the carrier-wide one has its title
+       and awaits its controls. */
+    const autoHeads = el("div", "sf-autoheads");
+    autoHeads.append(
+      el("div", "side-sub sf-sub", "Automatic per tileset"),
+      el("div", "side-sub sf-sub", "Automatic per carrier"),
+    );
+    layout.append(autoHeads);
     /* The four numbers and the button that acts on them, side by side: the
        numbers are narrower than the box and the button takes the room they
        leave, standing as tall as both their rows. A button drawn across the
