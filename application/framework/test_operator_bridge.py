@@ -900,3 +900,36 @@ def test_the_view_is_built_once_per_scan_state(monkeypatch, tmp_path):
         _Driver().acquire(acquisition_type="overview", position_label="P1"))
     bridge._the_view_of("overview")
     assert built == [1, 2], "a grown scan is built again"
+
+
+def test_a_field_that_lands_during_a_build_is_not_signed_off_as_built(monkeypatch):
+    """The 8932-field scan ended one stride short, for good: the builder took
+    a live reference to the records, built the fields it saw, and then signed
+    itself done with the list's length -- measured after the scan had grown
+    under it. The 46 fields that landed during the last build were never
+    encoded, and no later request would ever build them. What was built is
+    all that may be signed for."""
+    import sys
+    import types
+
+    built = []
+    stub = types.ModuleType("viz_studio.backend.jpeg_tiles")
+
+    def build(into, fields):
+        built.append(len(fields))
+        if len(built) == 1:
+            bridge._records["overview"].append(
+                _Driver().acquire(acquisition_type="overview", position_label="P1"))
+        return Path(into)
+
+    stub.make_what_is_missing = build
+    monkeypatch.setitem(sys.modules, "viz_studio.backend.jpeg_tiles", stub)
+    record = _Driver().acquire(acquisition_type="overview", position_label="P0")
+    monkeypatch.setattr(bridge, "_records", {"overview": [record]})
+    monkeypatch.setattr(bridge, "_view_built", {})
+    (bridge._run / "overview" / "view").mkdir(parents=True)
+    (bridge._run / "overview" / "view" / "tiles.json").write_text("{}", encoding="utf-8")
+
+    bridge._the_view_of("overview")
+    bridge._the_view_of("overview")
+    assert built == [1, 2], "the field that landed mid-build was signed off unbuilt"

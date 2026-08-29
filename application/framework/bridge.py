@@ -666,11 +666,15 @@ def _the_view_of(acquisition_type: str) -> Path | None:
     sample it was taken -- all read off the records, because the acquisition is
     what says where it was. What a display copy is, and how one is made, is the
     viewer's own business.
+
+    The records are copied at the door: a field that lands while a build runs
+    is not in the snapshot and must not be signed for -- counting the live
+    list once marked a run's last stride built without building it.
     """
     from viz_studio.backend.jpeg_tiles import make_what_is_missing  # noqa: PLC0415
 
     with _view_lock:
-        records = _records.get(acquisition_type, [])
+        records = list(_records.get(acquisition_type, []))
         note = view_of(acquisition_type) / "tiles.json"
         if _view_built.get(acquisition_type) == len(records) and note.is_file():
             return note if records else None
