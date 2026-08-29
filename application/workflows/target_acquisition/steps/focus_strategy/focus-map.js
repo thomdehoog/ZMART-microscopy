@@ -783,7 +783,9 @@ function renderFocusBar() {
   for (const id of ["fp-place", "fp-place-all", "fp-count", "fp-count-all"]) {
     el(id).disabled = frozen || !run.plan.length || ran;
   }
-  el("fp-clear").disabled = frozen || (!f.points.length && !ran);
+  /* Never greyed while a hand could mean it -- the presses under the plot
+     follow the same rule. With nothing to clear it simply clears nothing. */
+  el("fp-clear").disabled = frozen || !!run.running;
   /* One slot for the one act: the step's own press makes the map, and
      Rerun takes the cell once there is one to measure again — the two were
      briefly on screen together, both meaning measure it. */
