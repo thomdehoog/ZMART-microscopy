@@ -561,21 +561,23 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
    control: joined edges, no air inside, real air between the pairs. The
    press is as wide as its words and no wider. */
 .fp-lays { display: flex; gap: 12px; align-items: stretch; }
-.fp-lays .fp-lay { height: var(--control); flex: 1; }
-.fp-lays .fp-lay { grid-template-columns: 44px minmax(0, 1fr); gap: 0; }
+.fp-lays .fp-lay { height: var(--control); }
+.fp-lays .fp-lay { grid-template-columns: 44px auto; gap: 0; }
 .fp-lays .fp-lay input { border-radius: 7px 0 0 7px; border-right: none; }
 .fp-lays .fp-lay .sf-flat {
-  grid-column: 2; padding: 0 10px; font-size: 12px;
+  grid-column: 2; padding: 0 12px; font-size: 12px;
   border-radius: 0 7px 7px 0;
 }
 /* The two words stand over the row's two halves: the first column is as
    wide as the two 44px tools and the gap between them. */
-.fp-heads { display: grid; grid-template-columns: calc(2 * var(--control) + 3px) minmax(0, 1fr); gap: 12px; }
-.fp-heads .side-sub { margin: 0; }
+.fp-heads { display: grid; grid-template-columns: calc(2 * var(--control) + 3px) minmax(0, 1fr); gap: 24px; }
+/* Both words on one baseline: the shared not-first-child margin lands later
+   in this file and pushed Automatic below Manual. */
+.fp-heads .side-sub, .fp-heads .side-sub:not(:first-child) { margin: 0; }
 /* The whole act on one row: the crosshair, then the two automatics. */
 .fp-one { display: grid; grid-template-columns: auto auto minmax(0, 1fr); gap: 3px; align-items: stretch; }
 /* The two tools stand together; the automatics keep their distance. */
-.fp-one .fp-lays { margin-left: 9px; }
+.fp-one .fp-lays { margin-left: 21px; }
 .fp-one .sf-tool { height: var(--control); width: var(--control); }
 /* Two presses each since Refine and Accept went; the rows stay even. */
 .ft-acts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
