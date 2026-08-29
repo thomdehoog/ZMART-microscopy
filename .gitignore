@@ -54,3 +54,5 @@ application/framework/window/static/
 *.writing
 *-positions-arriving.jsonl
 zmart-coverage/
+mock-output/
+application/mock-output/
