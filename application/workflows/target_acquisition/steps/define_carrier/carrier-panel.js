@@ -741,11 +741,11 @@ export default {
       if (key) {
         tie = el("button", "carrier-link");
         tie.type = "button";
-        /* Two rings, interlocked: the plain sign for "these move together",
-           drawn in the button's own ink so linked wears the accent. */
+        /* Two rings: apart, each number moves alone; linked they slide in
+           and interlock, wearing the accent. The state is the picture. */
         tie.innerHTML = '<svg viewBox="0 0 20 12" width="18" height="11" aria-hidden="true" '
           + 'fill="none" stroke="currentColor" stroke-width="1.6">'
-          + '<circle cx="7" cy="6" r="4.2"/><circle cx="13" cy="6" r="4.2"/></svg>';
+          + '<circle cx="5.2" cy="6" r="4.2"/><circle cx="14.8" cy="6" r="4.2"/></svg>';
         tie.dataset.key = key;
         tie.title = "Move both together";
         tie.addEventListener("click", () => {
