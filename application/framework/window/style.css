@@ -568,6 +568,10 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
   grid-column: 2; padding: 0 10px; font-size: 12px;
   border-radius: 0 7px 7px 0;
 }
+/* The two words stand over the row's two halves: the first column is as
+   wide as the two 44px tools and the gap between them. */
+.fp-heads { display: grid; grid-template-columns: 100px minmax(0, 1fr); gap: 12px; }
+.fp-heads .side-sub { margin: 0; }
 /* The whole act on one row: the crosshair, then the two automatics. */
 .fp-one { display: grid; grid-template-columns: auto auto minmax(0, 1fr); gap: 12px; align-items: stretch; }
 .fp-one .sf-tool { height: var(--control); width: 44px; }
