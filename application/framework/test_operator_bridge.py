@@ -701,3 +701,74 @@ def _asked_for(paths):
         probe._send_the_page(path)
         said[path] = probe.sent
     return said
+
+
+# --- discovering targets -----------------------------------------------------
+
+
+def _an_overview_of_two_fields(monkeypatch):
+    """A scanned overview to detect on, and a finder that answers without pixels."""
+    records = [
+        _Driver().acquire(acquisition_type="overview", position_label=f"P{i}")
+        for i in range(2)
+    ]
+    monkeypatch.setattr(bridge, "_scan", {**bridge._scan, "running": False, "records": records})
+    monkeypatch.setattr(
+        bridge,
+        "_find_targets",
+        lambda: (lambda record, field, settings: [{
+            "id": f"{record['position_label']}_obj1", "field": field,
+            "x": 100.0 * field, "y": 2.0, "area": 50.0, "intensity": 3.0, "r": 4.0,
+            "diameter_asked": settings.get("diameter"),
+        }]),
+    )
+    return records
+
+
+def _discovered(asked):
+    """Start discovery and wait for it, handing back what the page would poll."""
+    import time
+
+    bridge._discover_targets(asked)
+    for _ in range(200):
+        if not bridge._targets["running"]:
+            break
+        time.sleep(0.01)
+    assert bridge._targets["error"] is None, bridge._targets["error"]
+    return dict(bridge._targets)
+
+
+def test_targets_are_found_field_by_field_over_the_overview(monkeypatch):
+    """Every field the scan captured, in the order it captured them."""
+    _an_overview_of_two_fields(monkeypatch)
+    got = _discovered({"settings": {"diameter": 20.0, "cellprob": 0.0}})
+    assert got["done"] == got["of"] == 2
+    assert [field["field"] for field in got["fields"]] == [0, 1]
+    assert got["fields"][1]["cells"][0]["id"] == "P1_obj1"
+    assert got["fields"][1]["cells"][0]["diameter_asked"] == 20.0
+
+
+def test_one_field_can_be_tried_on_its_own(monkeypatch):
+    """Settings are tried on one field before the whole overview is run."""
+    _an_overview_of_two_fields(monkeypatch)
+    got = _discovered({"fields": [1], "settings": {}})
+    assert [field["field"] for field in got["fields"]] == [1]
+    assert got["of"] == 1
+
+
+def test_what_was_found_is_kept_beside_the_overview(monkeypatch):
+    """The targets live with the pixels they were found in, not only on screen."""
+    _an_overview_of_two_fields(monkeypatch)
+    _discovered({"settings": {}})
+    kept = sorted((bridge._run / "overview" / "analysis").glob("*_targets.json"))
+    assert [path.name for path in kept] == [
+        "overview_aaaaaa_P0_T000000_targets.json",
+        "overview_aaaaaa_P1_T000000_targets.json",
+    ]
+    assert json.loads(kept[1].read_text(encoding="utf-8"))[0]["id"] == "P1_obj1"
+
+
+def test_nothing_to_discover_on_before_an_overview(monkeypatch):
+    monkeypatch.setattr(bridge, "_scan", {**bridge._scan, "records": []})
+    with pytest.raises(RuntimeError, match="overview"):
+        bridge._discover_targets({"settings": {}})

@@ -200,6 +200,24 @@ export const backend = {
   },
 
   /**
+   * Find the targets in the overview's fields -- all of them, or the ones
+   * named in `fields` -- and follow the search as the scan is followed: the
+   * bridge detects in a background thread, this polls, and each field's
+   * targets reach `onField(field)` as they are found.
+   */
+  async discoverTargets({ fields = null, settings = {}, onField } = {}) {
+    await ask("/api/targets/discover", { fields, settings });
+    let shown = 0;
+    for (;;) {
+      const progress = await ask("/api/targets/discover");
+      for (; shown < progress.fields.length; shown++) onField?.(progress.fields[shown]);
+      if (progress.error) throw new Error(progress.error);
+      if (!progress.running) return { fields: progress.fields };
+      await rest(300);
+    }
+  },
+
+  /**
    * Start the overview scan and follow it by asking, not by being told: the
    * bridge drives the stage in a background thread, and this polls its
    * progress until the drive is over. The window's live picture watches the
