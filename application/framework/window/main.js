@@ -574,6 +574,15 @@ let stageWatch = null;
       return;
     }
 
+    if (s.mode === "focus" && state.focus.strategy === "plane") {
+      /* The one step that drives the stage must finish on its promise, not on
+         a rehearsal timer: finishing first marked the map done -- and the rail
+         green -- before the objective had moved, and kept it done when the run
+         failed on the instrument. */
+      remeasure().then(() => { state.focus.selected = 0; return finish(); }, itFailed);
+      return;
+    }
+
     if (s.mode === "detect") {
       state.cells = new Map();
       state.cellsShown = true;
@@ -622,7 +631,6 @@ let stageWatch = null;
 
       if (s.mode === "focus") {
         const f = state.focus;
-        if (f.strategy === "plane") { await remeasure(); f.selected = 0; }
         f.applied = true;
         stageWatch?.refresh();
         state.notes[s.id] =
