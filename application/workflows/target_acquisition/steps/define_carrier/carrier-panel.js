@@ -428,9 +428,13 @@ export default {
        within them. */
     const fits = [];
 
+    /* Custom leads, for every type alike: the way out of the catalogue is
+       found at the top, not below a list that grows. The selection itself is
+       set from the configuration after the options are built, so leading
+       never makes Custom the default. */
     const presetOptions = (typeId) => [
-      ...carrierType(typeId).presets.map((p, i) => new Option(p.label, String(i))),
       new Option("Custom", "-1"),
+      ...carrierType(typeId).presets.map((p, i) => new Option(p.label, String(i))),
     ];
 
     /* The catalogue and the three things done with a whole carrier go straight
