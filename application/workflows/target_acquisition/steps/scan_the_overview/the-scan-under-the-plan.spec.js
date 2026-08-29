@@ -196,17 +196,20 @@ test("shows only where the drawing above it has been opened up", async ({ page }
   await throughToAScannedPlate(page);
   await page.waitForFunction(() => !!window.__thePicture, null, { timeout: 20_000 });
 
-  /* Nothing shows to begin with. The page's own surface is the bottom layer of
-     the stack and it covers everything, which is what an operator sees before
-     they ask for the picture. */
+  /* The run opened its own ground: the scan already shows through the fields
+     it imaged, and nowhere else. The fields are 20x frames, 676 µm against
+     wells of 6.6 mm, so the open ground is small on the canvas: a fraction
+     of a percent open is the whole plan showing. */
   await page.waitForTimeout(400);
-  expect(await howMuchIsOpen(page), "the scan was showing before anything opened").toBeLessThan(0.0002);
+  expect(await howMuchIsOpen(page), "the scan does not show through what it imaged")
+    .toBeGreaterThan(0.0004);
 
-  /* A window over the fields that have landed. The scan appears there and
-     nowhere else — this is the whole arrangement in one gesture. The fields
-     are 20x frames now, 676 µm against wells of 6.6 mm, so the windows are
-     small on the canvas: a fraction of a percent open is the whole plan
-     showing, and the closed checks above and below sit well under it. */
+  /* Closed by hand, the surface covers everything again — what an operator
+     sees before they ask for the picture. */
+  await page.evaluate(() => window.__theStageCanvas.closeTheGround());
+  await page.waitForTimeout(400);
+  expect(await howMuchIsOpen(page), "the scan was showing with the ground closed").toBeLessThan(0.0002);
+
   await page.evaluate(() => window.__theStageCanvas.openScannedGround());
   await page.waitForTimeout(500);
   const throughTheWindow = await howMuchIsOpen(page);

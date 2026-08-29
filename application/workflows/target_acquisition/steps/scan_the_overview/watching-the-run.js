@@ -140,9 +140,9 @@ export function watchTheRun(ctx) {
          and the scan quietly drew nowhere. Asking for the view is one answer
          instead of two. */
       const v = ctx.view();
-      if (inTheStagesFrame()) {
+      if (inTheStagesFrame() && v?.centre) {
         const [ox, oy] = ctx.carrierOriginUm();
-        viewer.setView({ ...v, x: v.x + ox, y: v.y + oy });
+        viewer.setView({ ...v, centre: { x: v.centre.x + ox, y: v.centre.y + oy } });
         return;
       }
       viewer.setView(v);
