@@ -180,6 +180,12 @@ def test_a_measured_point_carries_the_curve_it_was_chosen_from(driver):
 
 
 @pytest.fixture(autouse=True)
+def _nothing_scanned_yet(monkeypatch):
+    """What one test's scan captured is not the next test's overview."""
+    monkeypatch.setattr(bridge, "_records", {})
+
+
+@pytest.fixture(autouse=True)
 def _a_run_to_write_into(tmp_path, monkeypatch):
     """A run folder, as connecting would have made.
 
@@ -417,12 +423,12 @@ def test_the_options_a_capture_is_given_reach_the_driver(monkeypatch):
 def _scanned(driver, positions, monkeypatch, **asked):
     """Run a scan to completion on this driver and hand back what it kept."""
     monkeypatch.setattr(bridge, "_session", driver)
-    bridge._scan.update(
-        running=True, done=0, of=len(positions), error=None, records=[]
-    )
+    kind = asked.get("acquisition_type", "overview")
+    bridge._records[kind] = []
+    bridge._scan.update(running=True, done=0, of=len(positions), error=None, acquisition_type=kind)
     bridge._scan_worker(positions, **asked)
     assert bridge._scan["error"] is None, bridge._scan["error"]
-    return bridge._scan
+    return bridge._the_scan()
 
 
 def test_a_scan_labels_every_position_the_canonical_way(monkeypatch):
@@ -499,15 +505,16 @@ def test_a_scan_really_captures_at_every_position(monkeypatch, tmp_path):
             {"x": 0.0, "y": 700.0, "z": 5_000.0, "compartment": 2, "group": 2},
         ]
         bridge._scan.update(
-        running=True, done=0, of=len(positions), error=None, records=[]
+        running=True, done=0, of=len(positions), error=None, acquisition_type="overview"
     )
+        bridge._records["overview"] = []
         bridge._scan_worker(positions)
         assert bridge._scan["error"] is None, bridge._scan["error"]
     finally:
         session.disconnect()
 
     assert bridge._scan["done"] == 3
-    records = bridge._scan["records"]
+    records = bridge._records["overview"]
     assert [record["position_label"] for record in records] == [
         "K00_M000001_G000001_P000000_V00",
         "K00_M000001_G000001_P000001_V00",
@@ -561,7 +568,7 @@ def test_a_scan_stops_and_says_so_when_a_capture_fails(monkeypatch, tmp_path):
     monkeypatch.setattr(bridge, "_session", _FailsOnTheSecond(session))
     try:
         positions = [{"x": 0.0, "y": 0.0}, {"x": 900.0, "y": 0.0}, {"x": 1_800.0, "y": 0.0}]
-        bridge._scan.update(running=True, done=0, of=3, error=None, records=[])
+        bridge._scan.update(running=True, done=0, of=3, error=None, acquisition_type="overview")
         bridge._scan_worker(positions)
     finally:
         session.disconnect()
@@ -569,7 +576,7 @@ def test_a_scan_stops_and_says_so_when_a_capture_fails(monkeypatch, tmp_path):
     assert bridge._scan["error"] == "the shutter did not open"
     assert bridge._scan["done"] == 1  # the one that finished, not the one that failed
     assert bridge._scan["running"] is False
-    assert len(bridge._scan["records"]) == 1
+    assert len(bridge._records["overview"]) == 1
 
 
 # --- what the canvas is given to draw ----------------------------------------
@@ -597,7 +604,7 @@ def test_the_viewer_makes_a_picture_of_every_field_that_was_imaged(monkeypatch, 
             {"x": 0.0, "y": 0.0, "z": 5_000.0},
             {"x": 900.0, "y": 0.0, "z": 5_000.0},
         ]
-        bridge._scan.update(running=True, done=0, of=2, error=None, records=[])
+        bridge._scan.update(running=True, done=0, of=2, error=None, acquisition_type="overview")
         bridge._scan_worker(positions)
         assert bridge._scan["error"] is None, bridge._scan["error"]
 
@@ -635,7 +642,7 @@ def test_nothing_is_drawn_for_a_scan_that_has_imaged_nothing(monkeypatch, tmp_pa
     session = zmart_controller.set_instrument(instrument)
     monkeypatch.setattr(bridge, "_session", session)
     try:
-        bridge._scan.update(running=False, done=0, of=0, error=None, records=[])
+        bridge._scan.update(running=False, done=0, of=0, error=None, acquisition_type="overview")
         assert bridge._the_view_of("overview") is None
     finally:
         session.disconnect()
@@ -712,7 +719,7 @@ def _an_overview_of_two_fields(monkeypatch):
         _Driver().acquire(acquisition_type="overview", position_label=f"P{i}")
         for i in range(2)
     ]
-    monkeypatch.setattr(bridge, "_scan", {**bridge._scan, "running": False, "records": records})
+    monkeypatch.setattr(bridge, "_records", {"overview": records})
     monkeypatch.setattr(
         bridge,
         "_find_targets",
@@ -769,6 +776,6 @@ def test_what_was_found_is_kept_beside_the_overview(monkeypatch):
 
 
 def test_nothing_to_discover_on_before_an_overview(monkeypatch):
-    monkeypatch.setattr(bridge, "_scan", {**bridge._scan, "records": []})
+    monkeypatch.setattr(bridge, "_records", {})
     with pytest.raises(RuntimeError, match="overview"):
         bridge._discover_targets({"settings": {}})

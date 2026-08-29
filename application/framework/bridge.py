@@ -550,7 +550,13 @@ def _focus_worker(asked: list) -> None:
 # The scan: a background thread drives the stage; the window watches the run
 # ---------------------------------------------------------------------------
 
-_scan = {"running": False, "done": 0, "of": 0, "error": None, "records": []}
+_scan = {"running": False, "done": 0, "of": 0, "error": None, "acquisition_type": None}
+
+#: What every scan captured, by the kind of scan. The overview's records are
+#: what discovery reads and what its pictures are made from, and a targets
+#: scan taken afterwards must not replace them -- it did, when there was one
+#: list, and the overview's view filled with the targets' pictures.
+_records: dict[str, list] = {}
 
 
 def _scan_worker(positions: list, acquisition_type: str = "overview") -> None:
@@ -575,7 +581,7 @@ def _scan_worker(positions: list, acquisition_type: str = "overview") -> None:
                 move_record_images(
                     record, prepare_acquisition(_the_run(), acquisition_type).data
                 )
-            _scan["records"].append(record)
+            _records.setdefault(acquisition_type, []).append(record)
             _scan["done"] = i + 1
     except Exception as why:  # noqa: BLE001 — the window shows the sentence
         _scan["error"] = str(why)
@@ -613,7 +619,7 @@ def _the_view_of(acquisition_type: str) -> Path | None:
 
     return make_what_is_missing(view_of(acquisition_type), {
         record["position_label"]: (record["images"], _the_middle_of(record))
-        for record in _scan["records"]
+        for record in _records.get(acquisition_type, [])
     })
 
 
@@ -647,15 +653,18 @@ def _start_scan(asked: dict) -> dict:
     if _scan["running"]:
         raise RuntimeError("a scan is already running")
     positions = asked.get("positions", [])
+    acquisition_type = str(asked.get("acquisition_type", "overview"))
+    _records[acquisition_type] = []
     _scan.update(
-        running=True, done=0, of=len(positions), error=None, records=[]
+        running=True, done=0, of=len(positions), error=None, acquisition_type=acquisition_type
     )
-    threading.Thread(
-        target=_scan_worker,
-        args=(positions, str(asked.get("acquisition_type", "overview"))),
-        daemon=True,
-    ).start()
-    return dict(_scan)
+    threading.Thread(target=_scan_worker, args=(positions, acquisition_type), daemon=True).start()
+    return _the_scan()
+
+
+def _the_scan() -> dict:
+    """The scan under way or last finished, with what it has captured so far."""
+    return {**_scan, "records": _records.get(_scan["acquisition_type"], [])}
 
 
 # ---------------------------------------------------------------------------
@@ -686,7 +695,7 @@ def _discover_targets(asked: dict) -> dict:
     """
     if _targets["running"]:
         raise RuntimeError("targets are already being discovered")
-    records = _scan["records"]
+    records = _records.get("overview", [])
     if not records:
         raise RuntimeError("no overview has been scanned, so there is nothing to find targets in")
     chosen = asked.get("fields")
@@ -702,7 +711,7 @@ def _targets_worker(fields: list, settings: dict) -> None:
     try:
         find = _find_targets()
         for field in fields:
-            record = _scan["records"][field]
+            record = _records["overview"][field]
             cells = find(record, field, settings)
             _keep_targets(cells, record)
             _targets["fields"].append({
@@ -856,7 +865,7 @@ class _Bridge(BaseHTTPRequestHandler):
                 with _the_instruments_turn:
                     self._answer(_acquisition_options())
             elif path == "/api/scan":
-                self._answer(dict(_scan))
+                self._answer(_the_scan())
             elif path == "/api/focus/measure":
                 self._answer(dict(_focus))
             elif path == "/api/targets/discover":
