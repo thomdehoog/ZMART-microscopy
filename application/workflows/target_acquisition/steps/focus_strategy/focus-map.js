@@ -424,6 +424,14 @@ function drawFocusPoints(ctx, toScreen) {
       // it can run dark
       ctx.strokeStyle = "rgba(255, 255, 255, 0.75)";
       ctx.stroke();
+      if (lit) {
+        /* A thin black rim between halo and red, so the chosen point is
+           picked out by an edge as well as by weight. */
+        reticle(x, y);
+        ctx.lineWidth = 5;
+        ctx.strokeStyle = "rgba(15, 23, 42, 0.9)";
+        ctx.stroke();
+      }
       reticle(x, y);
       ctx.lineWidth = lit ? 4 : 1.9;
       ctx.strokeStyle = css(lit ? "--mark-focus-lit" : "--mark-focus");
