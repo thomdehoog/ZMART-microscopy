@@ -1036,8 +1036,6 @@ ctx.fitButton.addEventListener("click", () => {
        matters: the two are drawn by different code on different surfaces,
        and the only thing making them one picture is that they agree. */
     plan: () => run.plan.map(({ x, y, frameUm }) => ({ x, y, frameUm })),
-    /** The plan as the instrument is driven through it: on the stage, not the carrier. */
-    planOnStage: () => run.plan.map(toStage),
     toStage, toCarrier,
     project: (x, y) => {
       const [ox, oy] = carrierOriginUm();

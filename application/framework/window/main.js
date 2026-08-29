@@ -556,7 +556,13 @@ let stageWatch = null;
     if (s.mode === "scan") {
       state.tilesShown = 0;
       backend.scanOverview({
-        positions: stage.planOnStage(),
+        /* Each position at the measured focus height for that place. One
+           with no surface to read carries no height, and the bridge images
+           it where the objective stands -- never at an invented zero. */
+        positions: state.plan.map((p) => {
+          const z = heightAt(p.x, p.y);
+          return stage.toStage(z === null ? p : { ...p, z });
+        }),
         onProgress: (done) => {
           if (state.running !== s.id) return;
           state.tilesShown = done;
@@ -609,7 +615,8 @@ let stageWatch = null;
       backend.scanOverview({
         positions: picked.map((id) => {
           const { x, y } = state.cells.get(id);
-          return stage.toStage({ x, y });
+          const z = heightAt(x, y);
+          return stage.toStage(z === null ? { x, y } : { x, y, z });
         }),
         acquisition_type: "targets",
       }).then(({ records }) => {
@@ -1595,7 +1602,7 @@ let stageWatch = null;
   const {
     drawFocusLayer, focusPressed, focusCursor, focusDraggedTo, focusGrabbed,
     focusHovered, focusMarqueeTo, focusMarqueeTook, anchorPressed, detectPressed,
-    nearestPosition, renderFocusBar, renderPointList, drawTrace,
+    heightAt, nearestPosition, renderFocusBar, renderPointList, drawTrace,
     refitSurface, remeasure,
   } = focusMap;
 

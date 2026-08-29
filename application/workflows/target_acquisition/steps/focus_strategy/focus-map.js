@@ -92,6 +92,14 @@ function carrierBox() {
   return { xMin: 0, yMin: 0, xMax: w, yMax: h };
 }
 
+/** The measured surface's height at a place — in the frame the driver
+    reports z in — or null while there is no surface to read. What the scan
+    and the targets drive each position to. */
+function heightAt(x, y) {
+  const surf = focusSurface();
+  return surf ? surfaceZ(surf, x, y) : null;
+}
+
 /* How far the positions themselves reach — the plate while there are none. */
 function planBox() {
   if (!run.plan.length) return carrierBox();
@@ -1628,8 +1636,8 @@ function refitSurface() {
        geometry they need does: placing a carrier anchor, and picking the
        position detection is tried on. They move when that geometry does. */
     anchorPressed, detectPressed,
-    // where a position is
-    nearestPosition,
+    // the surface's height at a place, and where a position is
+    heightAt, nearestPosition,
     // the channel
     renderFocusBar, renderPointList, drawTrace, refitSurface, remeasure,
     mounted: focusMounted,
