@@ -18,17 +18,29 @@ const PAD = { l: 62, r: 18, t: 18, b: 46 };
 const A_DRAG_AT_LEAST = 6;
 
 /**
- * Which cells a gate takes: the detected ones inside it, area and intensity
- * both. The one rule of this step, so it is said once and can be tested
- * without a canvas.
+ * Which cells a gate takes: the ones inside it, area and intensity both. The
+ * one rule of this step, so it is said once and can be tested without a
+ * canvas. `cells` is any iterable of them.
  */
-export function cellsInGate(cells, detected, gate) {
-  if (!gate) return new Set();
-  return new Set(cells
-    .filter((c) => detected.has(c.id)
-      && c.area >= gate.aLo && c.area <= gate.aHi
-      && c.intensity >= gate.iLo && c.intensity <= gate.iHi)
-    .map((c) => c.id));
+export function cellsInGate(cells, gate) {
+  const taken = new Set();
+  if (!gate) return taken;
+  for (const c of cells) {
+    if (c.area >= gate.aLo && c.area <= gate.aHi
+      && c.intensity >= gate.iLo && c.intensity <= gate.iHi) taken.add(c.id);
+  }
+  return taken;
+}
+
+/**
+ * The axes, read off the cells: area across and intensity up, each from zero
+ * to the largest there is. An instrument's intensities are in its own units,
+ * so the scale comes from what was found rather than being assumed.
+ */
+export function axesFor(cells) {
+  let aHi = 0, iHi = 0;
+  for (const c of cells) { aHi = Math.max(aHi, c.area); iHi = Math.max(iHi, c.intensity); }
+  return { aHi: aHi || 1, iHi: iHi || 1 };
 }
 
 /** What the readout under the scatter says. */
@@ -47,9 +59,9 @@ export default {
    * Build the channel and draw the run into it.
    *
    * `ctx` carries:
-   *   `cells()` `detected()` `gated()` `acquired()` `gate()`  what to draw
+   *   `cells()` `gated()` `acquired()` `gate()`  what to draw; `cells()` is
+   *                    every target discovery found, any iterable of them
    *   `showing()`      whether discovery has run, so there is anything to gate
-   *   `areaRange`      the axis across, as the sample defines it
    *   `setGate(gate, ids)`  the operator has gated; the run takes both
    *   `sizeCanvas(cv)` `css(name)`  the page's canvas plumbing
    *
@@ -57,7 +69,7 @@ export default {
    * when the run has moved on and the same points mean something new.
    */
   mount(host, ctx) {
-    const [AREA_LO, AREA_HI] = ctx.areaRange;
+    let axes = axesFor([]);
 
     const side = document.createElement("div");
     side.className = "analysis-side";
@@ -104,15 +116,15 @@ export default {
     /* Where a cell sits on the scatter, and back again for a gate drawn on
        it. Four lines rather than a projection object: this picture is two
        axes and never pans or zooms. */
-    const sx = (area, w) => PAD.l + ((area - AREA_LO) / (AREA_HI - AREA_LO)) * (w - PAD.l - PAD.r);
-    const sy = (inten, h) => (h - PAD.b) - inten * (h - PAD.t - PAD.b);
-    const invX = (px, w) => AREA_LO + ((px - PAD.l) / (w - PAD.l - PAD.r)) * (AREA_HI - AREA_LO);
-    const invY = (py, h) => ((h - PAD.b) - py) / (h - PAD.t - PAD.b);
+    const sx = (area, w) => PAD.l + (area / axes.aHi) * (w - PAD.l - PAD.r);
+    const sy = (inten, h) => (h - PAD.b) - (inten / axes.iHi) * (h - PAD.t - PAD.b);
+    const invX = (px, w) => ((px - PAD.l) / (w - PAD.l - PAD.r)) * axes.aHi;
+    const invY = (py, h) => (((h - PAD.b) - py) / (h - PAD.t - PAD.b)) * axes.iHi;
 
     const drag = { active: false, x0: 0, y0: 0, x1: 0, y1: 0 };
 
     const sayTheGate = () => {
-      readout.textContent = gateReadout(ctx.gate(), ctx.gated().size, ctx.detected().size);
+      readout.textContent = gateReadout(ctx.gate(), ctx.gated().size, [...ctx.cells()].length);
     };
 
     function draw() {
@@ -129,16 +141,18 @@ export default {
       paint.fillStyle = ctx.css("--ink-3");
       paint.font = "11.5px ui-monospace, Consolas, monospace";
       paint.textAlign = "right";
-      for (let v = 0; v <= 1.0001; v += 0.25) {
-        const y = sy(v, h);
+      const cells = [...ctx.cells()];
+      axes = axesFor(cells);
+      for (let n = 0; n <= 4; n++) {
+        const v = (axes.iHi * n) / 4, y = sy(v, h);
         paint.beginPath(); paint.moveTo(PAD.l, y); paint.lineTo(w - PAD.r, y); paint.stroke();
-        paint.fillText(v.toFixed(2), PAD.l - 9, y + 4);
+        paint.fillText(v >= 10 ? v.toFixed(0) : v.toFixed(2), PAD.l - 9, y + 4);
       }
       paint.textAlign = "center";
-      for (let a = 100; a <= AREA_HI; a += 100) {
-        const x = sx(a, w);
+      for (let n = 1; n <= 4; n++) {
+        const a = (axes.aHi * n) / 4, x = sx(a, w);
         paint.beginPath(); paint.moveTo(x, PAD.t); paint.lineTo(x, h - PAD.b); paint.stroke();
-        paint.fillText(String(a), x, h - PAD.b + 18);
+        paint.fillText(a.toFixed(0), x, h - PAD.b + 18);
       }
 
       // axis titles
@@ -148,17 +162,17 @@ export default {
       paint.save();
       paint.translate(16, (PAD.t + h - PAD.b) / 2);
       paint.rotate(-Math.PI / 2);
-      paint.fillText("mean intensity · ch2", 0, 0);
+      paint.fillText("mean intensity", 0, 0);
       paint.restore();
 
-      const cells = ctx.cells(), detected = ctx.detected(), gated = ctx.gated();
+      const gated = ctx.gated();
 
       // the cells that were found but not taken, quietly
       paint.fillStyle = ctx.css("--mark-context");
       paint.globalAlpha = 0.5;
       paint.beginPath();
       for (const c of cells) {
-        if (!detected.has(c.id) || gated.has(c.id)) continue;
+        if (gated.has(c.id)) continue;
         const x = sx(c.area, w), y = sy(c.intensity, h);
         paint.moveTo(x + 2, y); paint.arc(x, y, 2, 0, Math.PI * 2);
       }
@@ -197,7 +211,7 @@ export default {
     }
 
     const gateTo = (g) => {
-      ctx.setGate(g, cellsInGate(ctx.cells(), ctx.detected(), g));
+      ctx.setGate(g, cellsInGate(ctx.cells(), g));
       sayTheGate();
       draw();
     };
@@ -220,7 +234,6 @@ export default {
       // the nearest detected cell, if the pointer is near one at all
       let hit = null, best = 9;
       for (const c of ctx.cells()) {
-        if (!ctx.detected().has(c.id)) continue;
         const d = Math.hypot(sx(c.area, w) - e.offsetX, sy(c.intensity, h) - e.offsetY);
         if (d < best) { best = d; hit = c; }
       }

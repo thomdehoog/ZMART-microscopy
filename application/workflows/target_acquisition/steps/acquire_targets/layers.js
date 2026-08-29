@@ -2,7 +2,7 @@
  * What step 8 draws on the picture: the targets that have been imaged.
  */
 export function acquiredLayers(theRun) {
-  const { run, drawnIn, theSample } = theRun;
+  const { run, drawnIn } = theRun;
   return {
     targets: {
     key: "targets",
@@ -13,7 +13,7 @@ export function acquiredLayers(theRun) {
       const ctx = frame.context;
       const { place, scale } = drawnIn(frame);
       for (const id of run.acquired) {
-        const c = theSample().cells[id - 1];
+        const c = run.cells.get(id);
         const [x, y] = place(c.x, c.y);
         const rr = Math.max(7, 9 * Math.sqrt(scale / 0.03));
         ctx.beginPath(); ctx.arc(x, y, rr, 0, Math.PI * 2);

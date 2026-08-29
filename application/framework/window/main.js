@@ -32,7 +32,7 @@ import {
 } from "../../parts/microscope/recordings.js";
 import carrierWidget from "../../workflows/target_acquisition/steps/define_carrier/carrier-panel.js";
 import scanfieldsWidget, { presetInk } from "../../workflows/target_acquisition/steps/define_scan_area/scanfield-editor.js";
-import detectionPanel, { ALGOS, detects }
+import detectionPanel, { ALGOS, settingsFor }
   from "../../workflows/target_acquisition/steps/discover_targets/detection.js";
 import gatingPanel from "../../workflows/target_acquisition/steps/refine_targets/gate.js";
 import galleryWidget from "../../workflows/target_acquisition/steps/acquire_targets/gallery.js";
@@ -41,9 +41,7 @@ import galleryWidget from "../../workflows/target_acquisition/steps/acquire_targ
    fitting — is imported rather than written here, so the unit tests and the
    page read the same arithmetic. These files used to exist twice, once here
    and once beside the mock, and the two copies could disagree in silence. */
-import {
-  AREA_HI, AREA_LO, cellsInTile as cellsOf, densityAt, sampleFor,
-} from "../../parts/microscope/pretend-sample/sample.js";
+import { densityAt, sampleFor } from "../../parts/microscope/pretend-sample/sample.js";
 import { METRICS, METRIC_KEYS, scoreAt } from "../../parts/microscope/pretend-sample/sweep.js";
 import {
   affineSurface, fitSurface, residualsUm, surfaceZ,
@@ -90,7 +88,30 @@ let stageWatch = null;
   }
 
   const density = (x, y) => densityAt(sample.tissue, x, y);
-  const cellsInTile = (tile) => cellsOf(sample, tile);
+
+  /* A field's targets, as discovery reports them: in the stage's frame, where
+     the instrument imaged them. They are kept in the carrier's frame, as
+     everything drawn on the picture is, and the field's label is kept with
+     them, because it is where the field's picture is. */
+  function fieldFound(field) {
+    state.fieldLabels[field.field] = field.position_label;
+    for (const cell of field.cells) state.cells.set(cell.id, stage.toCarrier(cell));
+  }
+
+  /** Where a capture's picture is: the viewer's small copy, by the capture's label. */
+  const pictureOf = (kind, label) => {
+    const where = backend.viewOf(kind);
+    return where && label ? `${where}/${label}.jpg` : null;
+  };
+
+  /* Targets arrive far faster than a picture can be drawn. One redraw per
+     frame, however many fields landed in it. */
+  let redrawPending = false;
+  function redrawSoon() {
+    if (redrawPending) return;
+    redrawPending = true;
+    requestAnimationFrame(() => { redrawPending = false; drawStage(); renderAll(); });
+  }
 
   /* ============================================================
      run state
@@ -134,12 +155,11 @@ let stageWatch = null;
   function newDetect() {
     return {
       algo: "cellpose",
-      diameter: 18,
+      diameter: 30,
       cellprob: 0,
-      thresh: 0.35,
-      minArea: 80,
       tile: 0,
       tested: false,
+      tried: [],
     };
   }
 
@@ -221,11 +241,15 @@ let stageWatch = null;
     focusMaps: {},
     focusFor: null,
     detect: newDetect(),
-    detected: new Set(),
+    /* What discovery found, by id, and the label of the field each came
+       from, which is where its picture is. */
+    cells: new Map(),
+    fieldLabels: {},
     cellsShown: false,
     gate: null,          // {aLo,aHi,iLo,iHi}
     gated: new Set(),
     acquired: [],
+    acquiredLabels: {},
     verdicts: {},
     locked: false,
   };
@@ -340,8 +364,9 @@ let stageWatch = null;
       fields: [], plan: [], checks: [],
       tabs: [], tab: null, tilesShown: 0,
       focus: newFocus(), focusMaps: {}, focusFor: null,
-      detect: newDetect(), detected: new Set(),
-      cellsShown: false, gate: null, gated: new Set(), acquired: [], verdicts: {},
+      detect: newDetect(), cells: new Map(), fieldLabels: {},
+      cellsShown: false, gate: null, gated: new Set(), acquired: [], acquiredLabels: {},
+      verdicts: {},
       locked: false,
     });
     view.fitted = false;
@@ -559,6 +584,40 @@ let stageWatch = null;
       return;
     }
 
+    if (s.mode === "detect") {
+      state.cells = new Map();
+      state.cellsShown = true;
+      backend.discoverTargets({
+        settings: settingsFor(state.detect),
+        onField: (field) => {
+          if (state.running !== s.id) return;
+          fieldFound(field);
+          state.notes[s.id] = `${state.cells.size} targets · ${ALGOS[state.detect.algo].label}`;
+          redrawSoon();
+        },
+      }).then(finish, itFailed);
+      return;
+    }
+
+    if (s.mode === "targets") {
+      /* Imaging the targets is a scan whose positions are the gated cells,
+         driven in the stage's frame like the overview was. */
+      const picked = [...state.gated];
+      backend.scanOverview({
+        positions: picked.map((id) => {
+          const { x, y } = state.cells.get(id);
+          return stage.toStage({ x, y });
+        }),
+        acquisition_type: "targets",
+      }).then(({ records }) => {
+        state.acquired = picked;
+        state.acquiredLabels = Object.fromEntries(
+          picked.map((id, i) => [id, records[i]?.position_label]));
+        return finish();
+      }, itFailed);
+      return;
+    }
+
     /* Finishing a step: the connect step finishes when its backend resolves,
        every other step when its rehearsal's time is up. A declaration, so the
        connect arm above — which returns early — can reach it. */
@@ -592,17 +651,11 @@ let stageWatch = null;
         stageWatch?.refresh();
       }
       if (s.mode === "detect") {
-        // the settings proven on one tile, now applied to every tile
-        state.detected = new Set(sample.cells
-          .filter((c) => detects(state.detect, c)).map((c) => c.id));
-        state.cellsShown = true;
-        state.notes[s.id] = `${state.detected.size} targets · ${ALGOS[state.detect.algo].label}`;
+        state.notes[s.id] = `${state.cells.size} targets · ${ALGOS[state.detect.algo].label}`;
       }
       if (s.mode === "select") { state.notes[s.id] = `${state.gated.size} targets selected`; }
       if (s.mode === "targets") {
-        const picked = [...state.gated].slice(0, 12);
-        state.acquired = picked;
-        state.notes[s.id] = `${picked.length} pairs acquired`;
+        state.notes[s.id] = `${state.acquired.length} pairs acquired`;
         galleryPanel?.rebuild();
       }
 
@@ -872,8 +925,9 @@ let stageWatch = null;
     detectionShown = detectionPanel.mount(host, {
       settings: () => state.detect,
       plan: () => state.plan,
-      cellsInTile,
-      density,
+      tryOn: (field, settings) => backend.discoverTargets({ fields: [field], settings })
+        .then(({ fields }) => ({ ...fields[0], cells: fields[0].cells.map(stage.toCarrier) })),
+      pictureOf: (label) => pictureOf("overview", label),
       sizeCanvas, css, drawScaleBar,
       changed: () => renderActionBar(),
     });
@@ -887,13 +941,11 @@ let stageWatch = null;
   let gatingShown = null;
   const gatingMount = (host) => {
     gatingShown = gatingPanel.mount(host, {
-      cells: () => sample.cells,
-      detected: () => state.detected,
+      cells: () => state.cells.values(),
       gated: () => state.gated,
       acquired: () => state.acquired,
       gate: () => state.gate,
       showing: () => state.cellsShown,
-      areaRange: [AREA_LO, AREA_HI],
       setGate: (gate, ids) => {
         state.gate = gate;
         state.gated = ids;
@@ -919,7 +971,12 @@ let stageWatch = null;
     galleryPanel = galleryWidget.mount(host, {
       acquired: () => state.acquired,
       verdicts: () => state.verdicts,
-      cellById: (id) => sample.cells[id - 1],
+      cellById: (id) => state.cells.get(id),
+      fieldOf: (cell) => ({
+        ...state.plan[cell.field],
+        picture: pictureOf("overview", state.fieldLabels[cell.field]),
+      }),
+      pictureOf: (id) => pictureOf("targets", state.acquiredLabels[id]),
       recordingSlot: (into, opts) => renderRecordingSlot(into, recordingOptions(opts)),
       changed: () => renderActionBar(),
     });

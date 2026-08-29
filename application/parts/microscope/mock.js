@@ -23,9 +23,10 @@
  * `scanOverview` drives the whole plan. On the live side these move a real
  * stage, which is why they are separate verbs and not part of any readout.
  *
- * The seam stops at the overview scan for now: discovery, refinement and
- * acquisition of targets are still rehearsed inside the window, and their
- * verbs arrive here when that work starts.
+ * `discoverTargets` finds the targets in the scanned fields; on the live side
+ * that is the analysis reading the overview's pixels, and here it is invented
+ * from the fields the scan was asked for. Acquiring the targets is
+ * `scanOverview` again, with the targets as the positions.
  */
 
 import { APIS } from "./instruments.js";
@@ -244,6 +245,7 @@ export const backend = {
    * the real instrument has. This only says how far along the drive is.
    */
   async scanOverview({ positions, acquisition_type = "overview", ms = 2600, onProgress }) {
+    scanned[acquisition_type] = positions;
     const total = positions.length;
     const records = [];
     const started = performance.now();
@@ -269,6 +271,42 @@ export const backend = {
        so a page reading a finished run does not have to know which backend
        ran it. */
     return { done: total, of: total, records };
+  },
+
+  /**
+   * The targets in the overview's fields -- all of them, or the ones named --
+   * each field's reaching `onField` as it is looked at. Invented: a handful of
+   * cells per field, the same ones every time, laid inside the field the scan
+   * was asked for. The settings are taken and ignored, because there are no
+   * pixels here for a diameter to be right or wrong about.
+   */
+  async discoverTargets({ fields = null, settings = {}, onField } = {}) {
+    void settings;
+    await wait(150);
+    const positions = scanned.overview ?? [];
+    const found = (fields ?? positions.map((_, field) => field)).map((field) => {
+      const at = positions[field];
+      const r = makeRng(4400 + field);
+      const frame = at.frameUm ?? 1000;
+      const cells = Array.from({ length: 6 + Math.floor(r() * 10) }, (_, n) => {
+        const area = 62 + 330 * Math.pow(r(), 1.7);
+        return {
+          id: `overview_r${String(field).padStart(3, "0")}_c000_obj${String(n + 1).padStart(5, "0")}`,
+          field,
+          x: at.x + (r() - 0.5) * frame,
+          y: at.y + (r() - 0.5) * frame,
+          area,
+          intensity: 0.2 + 0.7 * r(),
+          r: Math.sqrt(area / Math.PI),
+        };
+      });
+      return { field, position_label: labelFor(field, at), cells };
+    });
+    for (const one of found) {
+      await wait(0);
+      onField?.(one);
+    }
+    return { fields: found };
   },
 };
 
@@ -318,6 +356,10 @@ const labelFor = (index, position = {}) => {
 /* How many captures this instrument has taken, so two at one place still get
    names of their own — which is what the hash is for on a real one. */
 let captures = 0;
+
+/* The positions each kind of scan was asked for, as the bridge keeps each
+   scan's records: what discovery is over, once there has been an overview. */
+const scanned = {};
 
 /* The jobs this pretend instrument has stored, and which is chosen. The same
    three the controller's mock driver keeps, so the page meets one instrument

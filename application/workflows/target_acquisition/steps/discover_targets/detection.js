@@ -1,23 +1,21 @@
 /**
- * Step 6 — finding the targets: the settings, and the one position they are
- * tried on before the whole sample is run.
+ * Step 6 — finding the targets: the settings, and the one field they are
+ * tried on before the whole overview is run.
  *
  * Detection is tuned rather than configured: a diameter that is well off the
  * truth loses objects at both ends, and the only way to see that is to look.
- * So the channel shows one position, drawn with every object the settings
- * would keep coloured and every object they would throw away still visible —
- * what a setting discards matters as much as what it keeps.
- *
- * The rule itself is exported, because the run applies it to every position
- * once the operator is satisfied with it: what is tried here and what is run
- * there must be the same sentence, not two that agree today.
+ * So the channel shows one field of the overview, its picture, with every
+ * object the settings found drawn over it. The finding is the analysis's: the
+ * page asks the backend and draws what comes back, with the same settings the
+ * run then applies to every field — what is tried here and what is run there
+ * is one request, not two that agree today.
  */
 
 /** The algorithms this page offers, and what their settings mean. */
 /* One, for now. A plain brightness threshold was offered beside it and is
-   parked rather than deleted — `detects` still answers for it, and the row that
-   chose between the two comes back the day a second is wanted. A picker with
-   one option in it is a control that cannot be used. */
+   parked rather than deleted — the row that chose between the two comes back
+   the day a second is wanted. A picker with one option in it is a control
+   that cannot be used. */
 export const ALGOS = {
   cellpose: {
     label: "Cellpose",
@@ -26,41 +24,38 @@ export const ALGOS = {
 };
 
 /**
- * Whether these settings would keep this object. The one rule of the step,
- * used by the tile test and by the run across the whole sample.
+ * The settings as the backend is asked for them: what detection needs, and
+ * nothing the page keeps for its own bookkeeping.
  */
-export function detects(settings, cell) {
-  if (settings.algo === "cellpose") {
-    const diameter = 2 * cell.r;
-    /* A diameter well off the truth costs objects at both ends — which is the
-       whole reason to try it on one position before running the sample. */
-    return diameter > settings.diameter * 0.70
-      && diameter < settings.diameter * 1.55
-      && cell.intensity > 0.36 + settings.cellprob * 0.05;
-  }
-  return cell.intensity >= settings.thresh && cell.area >= settings.minArea;
-}
+export const settingsFor = (settings) => ({
+  diameter: settings.diameter, cellprob: settings.cellprob,
+});
 
 /** Golden-angle hues, so neighbouring labels never share a colour. */
-export const labelColour = (id, alpha = 1) =>
-  `hsla(${(id * 137.508) % 360}, 68%, 58%, ${alpha})`;
+export const labelColour = (n, alpha = 1) =>
+  `hsla(${(n * 137.508) % 360}, 68%, 58%, ${alpha})`;
 
 export default {
   id: "detect",
   label: "Discover Targets",
 
   /**
-   * Build the channel and draw the position being tried on.
+   * Build the channel and draw the field being tried on.
    *
    * `ctx` carries:
-   *   `settings()`   the detection settings, changed here
-   *   `plan()`       the positions, one of which is being looked at
-   *   `cellsInTile(i)` `density(x, y)`  what the sample has there
+   *   `settings()`   the detection settings, changed here; `tile` is the field
+   *                  being tried on, `tested` whether it has been, `tried`
+   *                  what was found there
+   *   `plan()`       the fields, one of which is being looked at
+   *   `tryOn(field, settings)`  ask the backend for this one field's targets;
+   *                  resolves `{ cells, position_label }`
+   *   `pictureOf(label)`  where a field's picture is, or null when the backend
+   *                  makes none
    *   `sizeCanvas(cv)` `css(name)` `drawScaleBar(ctx, w, h, scale)`  plumbing
    *   `changed()`    say that what the page shows around this has changed
    *
    * Returns a handle whose `redraw()` draws it again — after the canvas has
-   * been used to pick a different position, or on a theme change.
+   * been used to pick a different field, or on a theme change.
    */
   mount(host, ctx) {
     const side = document.createElement("div");
@@ -107,7 +102,19 @@ export default {
     side.append(head, bar, testHead, canvasHost, readout);
     host.append(side);
 
-    /** The position being tried on, drawn larger than life. */
+    /* The field's picture, fetched once a field has been tried and drawn when
+       it arrives. */
+    let picture = null;
+    function showThePictureOf(label) {
+      const where = ctx.pictureOf(label);
+      picture = null;
+      if (!where) return;
+      const img = new Image();
+      img.onload = () => { picture = img; drawTheTile(); };
+      img.src = where;
+    }
+
+    /** The field being tried on, drawn larger than life. */
     function drawTheTile() {
       if (!ctx.sizeCanvas(cv)) return;
       const paint = cv.getContext("2d");
@@ -134,36 +141,19 @@ export default {
 
       paint.fillStyle = "#05090e";
       paint.fillRect(ox, oy, frame * scale, frame * scale);
+      if (picture) paint.drawImage(picture, ox, oy, frame * scale, frame * scale);
 
-      // the tissue this position happens to sit on, at the brightness it has
-      const dens = ctx.density(tile.x, tile.y);
-      const cx = X(tile.x), cy = Y(tile.y), rr = frame * 0.8 * scale;
-      const glow = paint.createRadialGradient(cx, cy, 0, cx, cy, rr);
-      glow.addColorStop(0, `rgba(34,211,238,${0.30 * dens})`);
-      glow.addColorStop(0.6, `rgba(34,211,238,${0.10 * dens})`);
-      glow.addColorStop(1, "rgba(34,211,238,0)");
-      paint.fillStyle = glow;
-      paint.beginPath(); paint.arc(cx, cy, rr, 0, Math.PI * 2); paint.fill();
-
-      /* Objects are drawn larger than life: at this magnification a cell is a
-         couple of pixels, and the point of this view is to judge the labels. */
-      const here = ctx.cellsInTile(settings.tile);
-      for (const cell of here) {
-        const r = Math.max(5, cell.r * scale * 2.4);
-        const kept = settings.tested && detects(settings, cell);
+      /* What the settings found here, each object at its own size: the point
+         of this view is to judge whether the diameter is right. */
+      (settings.tested ? settings.tried : []).forEach((cell, n) => {
+        const r = Math.max(3, cell.r * scale);
         paint.beginPath(); paint.arc(X(cell.x), Y(cell.y), r, 0, Math.PI * 2);
-        if (kept) {
-          paint.fillStyle = labelColour(cell.id, 0.55);
-          paint.fill();
-          paint.lineWidth = 1.6;
-          paint.strokeStyle = labelColour(cell.id, 1);
-          paint.stroke();
-        } else {
-          // what a setting threw away stays visible
-          paint.fillStyle = `rgba(226,232,240,${settings.tested ? 0.26 : 0.62})`;
-          paint.fill();
-        }
-      }
+        paint.fillStyle = labelColour(n, 0.35);
+        paint.fill();
+        paint.lineWidth = 1.4;
+        paint.strokeStyle = labelColour(n, 1);
+        paint.stroke();
+      });
       paint.restore();
 
       paint.strokeStyle = ctx.css("--line-strong");
@@ -195,29 +185,28 @@ export default {
         params.append(wrap);
       };
 
-      if (settings.algo === "cellpose") {
-        number("Diameter", "diameter", 4, 60, 1, "µm");
-        number("Cell prob.", "cellprob", -6, 6, 0.5, "");
-      } else {
-        number("Level", "thresh", 0, 1, 0.05, "");
-        number("Min area", "minArea", 20, 400, 10, "µm²");
-      }
+      number("Diameter", "diameter", 4, 200, 1, "µm");
+      number("Cell prob.", "cellprob", -6, 6, 0.5, "");
 
       const test = document.createElement("button");
       test.className = "ghost";
       test.type = "button";
       test.textContent = "Test on this tile";
       test.addEventListener("click", () => {
-        settings.tested = true;
-        refresh();
+        settings.tested = false;
+        readout.textContent = `looking at position ${settings.tile + 1}…`;
+        ctx.tryOn(settings.tile, settingsFor(settings)).then((found) => {
+          settings.tried = found.cells;
+          settings.tested = true;
+          showThePictureOf(found.position_label);
+          refresh();
+        }, (why) => { readout.textContent = why.message; });
       });
       params.append(test);
 
       if (settings.tested) {
-        const here = ctx.cellsInTile(settings.tile);
-        const kept = here.filter((cell) => detects(settings, cell)).length;
         readout.textContent =
-          `${kept} of ${here.length} objects at position ${settings.tile + 1}`;
+          `${settings.tried.length} objects at position ${settings.tile + 1}`;
       } else {
         readout.textContent = ALGOS[settings.algo].blurb;
       }
@@ -235,6 +224,7 @@ export default {
         const total = ctx.plan().length || 1;
         settings.tile = (settings.tile + step + total) % total;
         settings.tested = false;
+        picture = null;
         refresh();
       });
     }
