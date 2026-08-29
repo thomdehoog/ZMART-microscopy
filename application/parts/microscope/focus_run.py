@@ -53,6 +53,8 @@ University of Zurich (thom.dehoog@zmb.uzh.ch, thomdehoog@gmail.com).
 
 from __future__ import annotations
 
+import time
+
 import json
 from pathlib import Path
 from typing import Any
@@ -89,7 +91,10 @@ def _stackless(record: dict) -> bool:
         return True
     first = min(int(plane.get("c", 0)) for plane in planes)
     heights = {plane.get("z") for plane in planes if int(plane.get("c", 0)) == first}
-    return len(heights) < 2
+    # The scorer skips two planes at each end before choosing, so anything
+    # under five heights cannot be focused -- a two-plane stack from a
+    # half-armed job is as unusable as a single plane.
+    return len(heights) < 5
 
 
 def log_focus_scoring_failed(index: int, why: Exception) -> None:
@@ -167,36 +172,46 @@ def measure_focus(
                 f"{len(points)}: {index} point(s) measured, and no further "
                 "stage move was made."
             )
-        centre = point.get("z")
-        if not isinstance(centre, (int, float)):
-            if start_z is None and standing is None:
-                # asked once, and only if some point needs it: on this
-                # microscope reading the stage is the call that can hang
-                standing = float(session.get_xyz()["z"]["value"])
-            centre = start_z if start_z is not None else standing
-        session.set_xyz(point["x"], point["y"], float(centre))
+        record = None
+        found = {"z_um": None, "traces": None}
+        try:
+            centre = point.get("z")
+            if not isinstance(centre, (int, float)):
+                if start_z is None and standing is None:
+                    # asked once, and only if some point needs it: on this
+                    # microscope reading the stage is the call that can hang
+                    standing = float(session.get_xyz()["z"]["value"])
+                centre = start_z if start_z is not None else standing
+            session.set_xyz(point["x"], point["y"], float(centre))
 
-        record = session.acquire(
-            acquisition_type=FOCUSSING, position_label=position_label(index)
-        )
-        if _stackless(record):
-            # The first capture after freshly applied settings can race them:
-            # on the LAS X simulator the z-stack definition arms a beat late,
-            # and the first stack of a run came back as a single plane twice
-            # in a row. The stage is still standing here, so one more take is
-            # cheap -- and the second take carried the stack both times.
             record = session.acquire(
                 acquisition_type=FOCUSSING, position_label=position_label(index)
             )
-        if output is not None:
-            move_record_images(record, output.data)
-        try:
+            # Freshly applied settings arm GRADUALLY on the LAS X simulator:
+            # the first capture of a run came back with one plane, a retake
+            # with two, and only later takes with the whole stack. The stage
+            # is standing here anyway, so keep taking, with a breath between
+            # takes, until the stack arrives or patience runs out -- the
+            # scorer cannot use a short stack however it is guarded.
+            for _breath in range(3):
+                if not _stackless(record):
+                    break
+                time.sleep(0.7)
+                record = session.acquire(
+                    acquisition_type=FOCUSSING, position_label=position_label(index)
+                )
+            if output is not None:
+                move_record_images(record, output.data)
             found = score(record)
+        except RunCancelled:
+            raise
         except Exception as why:  # noqa: BLE001 -- one bad point must not end the map
-            # A point that cannot be scored is a LOST point, not the end of
-            # the run: the map marches on and the row says what happened.
-            # Stopping here once threw away every point after the first.
-            found = {"z_um": None, "traces": None}
+            # A point that cannot be driven to, captured, or scored is a
+            # LOST point, not the end of the run: every drive is absolute,
+            # so the next point is untouched by this one's failure. The map
+            # marches on and the row says what happened. A flaking CAM read
+            # once ended the run two points in; the sentence belongs on one
+            # row, not across the whole map.
             log_focus_scoring_failed(index, why)
         measurement = {
             "x_um": point["x"],
@@ -207,7 +222,7 @@ def measure_focus(
             # height, so the chosen number can be looked at as well as read.
             "planes": [
                 {"path": str(plane.get("path")), "z_um": plane.get("z_um")}
-                for plane in record.get("planes", [])
+                for plane in (record or {}).get("planes", [])
             ],
         }
         if output is not None:

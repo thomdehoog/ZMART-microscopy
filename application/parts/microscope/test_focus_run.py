@@ -137,24 +137,42 @@ def test_a_point_that_cannot_be_scored_is_lost_and_the_map_marches_on():
     assert measured[1]["z_um"] == 1.5
 
 
-def test_a_stackless_capture_is_taken_again_once():
-    """The first capture after fresh settings can race them (the LAS X
-    simulator arms the z-stack a beat late): a single-plane take is retried
-    once while the stage is still standing there, and the retry's stack is
-    what gets scored."""
+def test_a_short_capture_is_retaken_until_the_stack_arrives():
+    """Fresh settings arm gradually on the LAS X simulator: one plane, then
+    two, then the stack. The point is retaken, with patience, until the
+    stack is really there -- and the full take is what gets scored."""
     session = _StubSession({(0.0, 0.0): 2.0}, current_z=0.3)
     real_acquire = session.acquire
     calls = {"n": 0}
 
-    def racing_acquire(**kw):
+    def arming_acquire(**kw):
         calls["n"] += 1
         record = real_acquire(**kw)
-        if calls["n"] == 1:
-            record["planes"] = record["planes"][:1]
+        if calls["n"] < 3:
+            record["planes"] = record["planes"][:calls["n"]]
         return record
 
-    session.acquire = racing_acquire
+    session.acquire = arming_acquire
     measured = measure_focus(session, [{"x": 0.0, "y": 0.0}], score=_score)
-    assert calls["n"] == 2, "the short capture was taken again"
+    assert calls["n"] == 3, "the takes continued until the stack arrived"
     assert measured[0]["z_um"] == 2.0
-    assert len(measured[0]["planes"]) == 5, "the retry's full stack rides the measurement"
+    assert len(measured[0]["planes"]) == 5, "the full stack rides the measurement"
+
+
+def test_a_point_whose_drive_fails_is_lost_and_the_map_marches_on():
+    """A flaking position read once ended the run two points in. Every drive
+    is absolute, so the next point is untouched by this one's failure."""
+    session = _StubSession({(0.0, 0.0): 1.0, (10.0, 0.0): 1.5}, current_z=0.3)
+    real_set = session.set_xyz
+    def flaky_set(x, y, z, **kw):
+        if x == 0.0:
+            raise RuntimeError("could not read stage XY position")
+        return real_set(x, y, z, **kw)
+    session.set_xyz = flaky_set
+
+    measured = measure_focus(
+        session, [{"x": 0.0, "y": 0.0}, {"x": 10.0, "y": 0.0}], score=_score
+    )
+    assert len(measured) == 2
+    assert measured[0]["z_um"] is None, "the undriveable point is lost"
+    assert measured[1]["z_um"] == 1.5, "the next point was still measured"
