@@ -1505,9 +1505,8 @@ canvas.livecv[hidden] { display: none; }
 .carrier-link:hover:enabled, .carrier-shape:hover:enabled, .carrier-reset:hover:enabled {
   border-color: var(--accent); color: var(--accent);
 }
-.carrier-link::before { content: "↔"; }
+.carrier-link svg { display: block; margin: 0 auto; }
 .carrier-link.on { border-color: var(--accent); color: var(--accent); background: var(--surface-3); }
-.carrier-link.on::before { content: "⇄"; }
 .carrier-shape::before { content: "▢"; font-size: 14px; }
 .carrier-shape.round::before { content: "◯"; }
 .carrier-link:disabled, .carrier-shape:disabled, .carrier-reset:disabled { opacity: 0.5; cursor: default; }
