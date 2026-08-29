@@ -1120,7 +1120,7 @@ function drawOrtho() {
   /* The chosen height, horizontal: heights run down the picture, so the
      bar rides up and down with the black line in the plot. */
   const y = ((orthoBuffer.height - 1 - orthoAt + 0.5) / orthoBuffer.height) * orthoCv.height;
-  g.strokeStyle = css("--ink");
+  g.strokeStyle = css("--bad");
   g.lineWidth = 3;
   g.beginPath();
   g.moveTo(0, y);
