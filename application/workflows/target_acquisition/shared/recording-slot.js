@@ -290,8 +290,17 @@ export function renderRecordingSlot(host, opts) {
     }));
     list.append(done);
   }
-  body.append(list);
-  if (unnamed) body.append(box);
+  if (unnamed) {
+    /* The reading and the press that replaces it share one row. Both are
+       short -- a collapsed reading, a one-word button -- and stacked they
+       read as two subjects when the button is the answer to the row. */
+    const beside = document.createElement("div");
+    beside.className = "rec-beside";
+    beside.append(list, box);
+    body.append(beside);
+  } else {
+    body.append(list);
+  }
 }
 
 /* The carrier is what the canvas is drawing, so its controls sit beside the
