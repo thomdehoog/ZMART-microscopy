@@ -819,3 +819,25 @@ def test_the_reading_survives_a_leica_shaped_state(monkeypatch):
         "serial_number": "STELLARIS-1", "pixel_size": None, "frame_size": None,
     }))
     assert "STELLARIS-1" in bridge._reading("acquisition")["summary"]
+
+
+def test_a_fresh_connect_forgets_the_last_sessions_runs(monkeypatch, tmp_path):
+    """The bridge outlives the page. A new session opened over old records
+    rebuilt the previous scan's pictures into the fresh run's view, so a
+    just-connected canvas showed a scan nobody had taken."""
+    import zmart_controller
+    from zmart_drivers.mock import mock_driver
+
+    mock_driver.register_mock()
+    instrument = next(i for i in zmart_controller.get_instruments() if i["vendor"] == "mock")
+    instrument["output_root"] = str(tmp_path)
+    bridge._records["overview"] = [{"stale": True}]
+    bridge._scan.update(running=False, done=5, of=5, error=None, acquisition_type="overview")
+    bridge._focus.update(running=False, done=3, of=3, error=None, points=[{"x": 1}])
+    try:
+        bridge._connect({"connection": instrument})
+        assert bridge._records == {}
+        assert bridge._the_scan()["done"] == 0 and bridge._the_scan()["records"] == []
+        assert bridge._focus["points"] == []
+    finally:
+        bridge._disconnect()
