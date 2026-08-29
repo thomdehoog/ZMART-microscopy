@@ -689,6 +689,10 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
    start. */
 .anchor-count { text-align: left; }
 .anchor-add { grid-column: 2 / -1; justify-content: center; white-space: nowrap; }
+/* The two presses take the whole row between them: the 30px stub column is
+   the tie's, and a row without a tie leaves it to Robust. */
+.anchor-lay .anchor-fast { grid-column: 1; }
+.anchor-lay .anchor-robust { grid-column: 2 / -1; }
 
 .carrier-card .sf-flat {
   /* Named, not inherited: the alignment rows are monospaced so their numbers
