@@ -1134,15 +1134,16 @@ function paintSlice(img) {
   g.imageSmoothingQuality = "high";
   g.drawImage(img, 0, 0, sliceCv.width, sliceCv.height);
   /* The cut the side view is taken along, said on the slice itself, or the
-     pair beside each other reads as two unrelated pictures. Green, because
-     it is the operator's own handle and not a reading; dashed over a dark
-     halo so it stays legible on bright and dark ground alike. */
+     pair beside each other reads as two unrelated pictures. Red -- the
+     plot's automatic-focus dashes went, so red is this handle's alone --
+     dashed over a dark halo so it stays legible on bright and dark ground
+     alike. */
   const x = orthoCut * sliceCv.width;
   g.save();
   g.strokeStyle = "rgba(5, 9, 14, 0.4)";
   g.lineWidth = 3;
   g.beginPath(); g.moveTo(x, 0); g.lineTo(x, sliceCv.height); g.stroke();
-  g.strokeStyle = "#16a34a";
+  g.strokeStyle = css("--bad");
   g.lineWidth = 1.6;
   g.setLineDash([6, 5]);
   g.beginPath(); g.moveTo(x, 0); g.lineTo(x, sliceCv.height); g.stroke();
@@ -1367,19 +1368,6 @@ function drawTrace() {
     lx += wLab + 18;
   }
 
-  /* Last on the line, and the one entry that is not a control: the two before
-     it are pressed to choose which metric decides, and this only says what the
-     red line in the plot is. It is not in `legendHits`, so pressing it does
-     nothing — there is nothing it could switch to. */
-  ctx.save();
-  ctx.strokeStyle = css("--bad");
-  ctx.lineWidth = 1.4;
-  ctx.setLineDash([5, 4]);
-  ctx.beginPath(); ctx.moveTo(lx, legendY - 4); ctx.lineTo(lx + 16, legendY - 4); ctx.stroke();
-  ctx.restore();
-  ctx.font = LEGEND_FONT;
-  ctx.fillStyle = css("--ink");
-  ctx.fillText("Automatic focus", lx + 22, legendY);
 
   // everything below is drawn against the deciding curve, so its raw scores
   // are normalised the same way the curve was
@@ -1429,21 +1417,6 @@ function drawTrace() {
   ctx.beginPath();
   ctx.moveTo(xSel, P.t); ctx.lineTo(xSel, h - P.b);
   ctx.stroke();
-
-  /* The height the autofocus chose, always drawn and never moved. Drawn over
-     the marker rather than under it, because until the operator drags it the
-     two are the same height: dashes of red over the black line is what says
-     so, where a red line hidden underneath would say nothing at all. Apart,
-     they are the whole of what overruling a measurement looks like. */
-  ctx.save();
-  ctx.strokeStyle = css("--bad");
-  ctx.lineWidth = 1.4;
-  ctx.setLineDash([5, 4]);
-  ctx.beginPath();
-  ctx.moveTo(X(p.zAuto), P.t); ctx.lineTo(X(p.zAuto), h - P.b);
-  ctx.stroke();
-  ctx.restore();
-
 
   // a grab handle, so it reads as draggable
   ctx.fillStyle = css("--ink");
