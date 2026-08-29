@@ -815,16 +815,11 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
 .trace-host .zpreview .side-sub { margin: 0; }
 .trace-host .zframe { width: 100%; max-width: none; grid-row: 2; grid-column: 1; }
 .trace-host .zpreview .zx-title { grid-column: 3; }
-/* The label runs down beside the track: horizontal it widened the middle
-   column to its own length and crammed the picture titles together. */
-.trace-host .zpreview .zcut-title {
-  grid-row: 2; grid-column: 2; justify-self: end; align-self: center;
-  writing-mode: vertical-rl; margin: 0;
-}
+.trace-host .zpreview .zcut-title { grid-column: 2; justify-self: center; }
 /* The cut is the operator's own control, so it wears the page's accent --
    red stays the height's colour, and a red cut read as a second height. */
 .trace-host .zcut {
-  grid-row: 2; grid-column: 2; align-self: stretch; justify-self: start;
+  grid-row: 2; grid-column: 2; align-self: stretch; justify-self: center;
   writing-mode: vertical-lr;
   -webkit-appearance: none; appearance: none;
   width: 14px; margin: 0; background: transparent;
