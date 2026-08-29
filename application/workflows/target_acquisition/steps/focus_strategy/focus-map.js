@@ -784,12 +784,11 @@ function renderFocusBar() {
     el(id).disabled = frozen || !run.plan.length || ran;
   }
   el("fp-clear").disabled = frozen || !f.points.length || ran;
-  /* And the step's own press goes when they arrive. Once a map exists the bar
-     offers "Run again", which is what Rerun does and says less about how — two
-     presses a hand's width apart, both meaning measure it again, one of them
-     silent about where the search starts. Before there is a map it is the only
-     way to make one, so it stays until there is. */
-  document.querySelector(".fp-run").hidden = ran;
+  /* One slot for the one act: the step's own press makes the map, and
+     Rerun takes the cell once there is one to measure again — the two were
+     briefly on screen together, both meaning measure it. */
+  document.querySelector(".focus-action").hidden = ran;
+  el("fp-rerun").hidden = !ran;
   for (const id of ["fp-rerun", "fp-reset"]) {
     el(id).disabled = !ran || !!run.running;
   }

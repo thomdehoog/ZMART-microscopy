@@ -597,20 +597,12 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
    to measure, which is the whole of what there is to say. Laid on the same two
    columns as the row above — indented past the hand's column, so `Clear` is
    exactly as wide as the `Place` it undoes. */
-/* The step's own press, on the same three columns as everything else in the
-   box and holding the first of them — the column the numbers hold and Rerun
-   holds, which is what it is the first version of. */
-.fp-run {
-  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: var(--fp-gap); align-items: center;
-}
-/* A `display` of its own beats the `hidden` attribute's browser rule, so the
-   row that carries the step's own press has to be put away explicitly — the
-   carrier designer above has the same line for the same reason. Without it the
-   press stayed on screen beside Rerun, both meaning measure it again. */
-.fp-run[hidden] { display: none; }
-.fp-run .focus-action { grid-column: 1; display: flex; align-items: center; }
-.fp-run .focus-action button.run { width: 100%; padding: 0 6px; white-space: nowrap; }
+/* The step's own press shares Rerun's cell: one of the two is always put
+   away, and a `display` of its own beats the `hidden` attribute, so both
+   are put away explicitly. */
+.fp-again .focus-action { display: flex; align-items: stretch; }
+.fp-again .focus-action[hidden] { display: none; }
+.fp-again .focus-action button.run { width: 100%; padding: 0 6px; white-space: nowrap; }
 
 /* What can be done to a map that has been run: three presses of one width,
    because none of them is the main one — the main one is above, and this row
