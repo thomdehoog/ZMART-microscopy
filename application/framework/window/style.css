@@ -812,7 +812,7 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
 .trace-host .zpreview .side-sub { margin: 0; }
 .trace-host .zframe { width: 100%; max-width: none; }
 /* The green cut is dragged left and right, and the pointer says so. */
-.trace-host .zframe canvas { cursor: ew-resize; touch-action: none; }
+.trace-host .zframe canvas { cursor: ns-resize; touch-action: none; }
 .trace-host .zortho { min-width: 0; }
 .trace-host .zortho canvas {
   width: 100%; aspect-ratio: 1 / 1; height: auto; display: block;

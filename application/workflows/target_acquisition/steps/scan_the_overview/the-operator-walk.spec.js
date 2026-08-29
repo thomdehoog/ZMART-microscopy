@@ -214,7 +214,7 @@ test("an operator walks from Connect to a scanned overview", async ({ page }) =>
     return same;
   }, { message: "the side view never settled", timeout: 30_000 }).toBe(true);
   const sliceBox = await page.locator("#zpreview-canvas").boundingBox();
-  await page.mouse.move(sliceBox.x + sliceBox.width * 0.2, sliceBox.y + sliceBox.height / 2);
+  await page.mouse.move(sliceBox.x + sliceBox.width / 2, sliceBox.y + sliceBox.height * 0.2);
   await page.mouse.down();
   await page.mouse.up();
   await page.waitForTimeout(300);

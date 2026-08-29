@@ -1072,19 +1072,16 @@ function buildOrtho(at, slices) {
     if (orthoOf !== slices || cut !== orthoCut) return;
     if (!orthoBuffer) {
       orthoBuffer = document.createElement("canvas");
-      orthoBuffer.width = img.naturalHeight;
+      orthoBuffer.width = img.naturalWidth;
       orthoBuffer.height = slices.length;
     }
     const g = orthoBuffer.getContext("2d");
-    const column = Math.min(img.naturalWidth - 1, Math.floor(img.naturalWidth * orthoCut));
-    /* Side-on: each slice's cut becomes one horizontal row, highest height
-       at the top, so up in the picture is up on the instrument. The swap
-       transform turns the slice's vertical cut into that row. */
-    g.save();
-    g.setTransform(0, 1, 1, 0, 0, 0);
-    g.drawImage(img, column, 0, 1, img.naturalHeight,
-      slices.length - 1 - index, 0, 1, orthoBuffer.width);
-    g.restore();
+    const row = Math.min(img.naturalHeight - 1, Math.floor(img.naturalHeight * orthoCut));
+    /* Side-on, zx: the cut row of each slice becomes one row here, highest
+       height at the top, so up in the picture is up on the instrument and
+       left stays left. */
+    g.drawImage(img, 0, row, img.naturalWidth, 1,
+      0, slices.length - 1 - index, orthoBuffer.width, 1);
     drawOrtho();
   }));
 }
@@ -1108,7 +1105,7 @@ function drawOrtho() {
   g.stroke();
 }
 
-/* Where the side view cuts through the slice, as a fraction of its width.
+/* Where the side view cuts through the slice, as a fraction of its height.
    The operator's to drag; it holds across scrubs and stacks, because the
    place worth looking along rarely changes with the height. */
 let orthoCut = 0.5;
@@ -1121,18 +1118,16 @@ function paintSlice(img) {
   g.imageSmoothingEnabled = true;
   g.imageSmoothingQuality = "high";
   g.drawImage(img, 0, 0, sliceCv.width, sliceCv.height);
-  /* Where the side view cuts: a red triangle on the picture's top edge --
-     the same grab handle the plot's height wears -- dragged left and right.
-     No line under it, so the mark says where without drawing over the
-     tissue it is about. */
-  const x = orthoCut * sliceCv.width;
+  /* Where the side view cuts: a red triangle on the picture's left edge --
+     the same grab handle the plot's height wears -- dragged up and down.
+     The zx view is this line of the picture at every focus height. */
+  const y = orthoCut * sliceCv.height;
   g.save();
   g.fillStyle = css("--bad");
   g.strokeStyle = "rgba(255, 255, 255, 0.8)";
   g.lineWidth = 1.5;
-  const bottom = sliceCv.height;
   g.beginPath();
-  g.moveTo(x - 7, bottom); g.lineTo(x + 7, bottom); g.lineTo(x, bottom - 10);
+  g.moveTo(0, y - 7); g.lineTo(0, y + 7); g.lineTo(10, y);
   g.closePath();
   g.fill();
   g.stroke();
@@ -1144,7 +1139,7 @@ function paintSlice(img) {
 let cutHeld = false;
 
 function cutTo(e) {
-  orthoCut = Math.max(0, Math.min(1, e.offsetX / sliceCv.clientWidth));
+  orthoCut = Math.max(0, Math.min(1, e.offsetY / sliceCv.clientHeight));
   if (sliceOn) paintSlice(sliceOn);
   if (orthoFrom) buildOrtho(orthoFrom.at, orthoFrom.slices);
 }
