@@ -62,24 +62,6 @@ import { onlyPanAndZoom } from "../gestures.js";
  */
 const HOW_MANY_TO_KEEP_DECODED = 1000;
 
-/**
- * How large a field has to be drawn before its real picture is worth fetching.
- *
- * Worked out from the size of the window rather than fixed, so that no more
- * fields can qualify at once than can be kept decoded. That is the whole
- * reason it is a calculation and not a number: with a fixed one, zooming to
- * where a thousand fields all deserved a picture would give pictures to
- * whichever ones were asked for first and flat colours to the rest, drawing
- * the memory limit onto the screen as a patch of sharpness. Deciding by size
- * means the scan looks the same everywhere at every zoom.
- *
- * The two thirds is room for the ring of half-visible fields around the edge
- * of the screen, which need a picture each just like the whole ones do.
- */
-function bigEnoughForItsPicture(width, height) {
-  return Math.sqrt((width * height) / (HOW_MANY_TO_KEEP_DECODED * (2 / 3)));
-}
-
 /** Open the viewer inside `element`. See `viz_studio/options/contract.md`. */
 export async function openViewer(element, options = {}) {
   const { acquisitions = [], background = "#05070d", onViewChanged = null } = options;
@@ -446,14 +428,17 @@ function drawEverything(own) {
 
   const picture = clear(own.surfaces.picture);
   if (own.showing) {
-    const worthIt = bigEnoughForItsPicture(width, height);
     for (const tile of everyFieldOnShow(own)) {
       const { x: left, y: top } = where.project(tile.x0, tile.y0);
       const across = tile.w / where.zoom;
       const down = tile.h / where.zoom;
       if (left + across < 0 || top + down < 0 || left > width || top > height) continue;
 
-      const ready = Math.max(across, down) >= worthIt ? pictureFor(own, tile.src) : null;
+      /* Always the picture, at any size: a field's mean grey stands in only
+         until its picture has arrived. Refusing to fetch below a size drew
+         the whole overview as flat grey blocks at plate zoom, which is the
+         zoom an operator judges a scan at. */
+      const ready = pictureFor(own, tile.src);
       if (ready && typeof ready.width === "number") {
         // Smoothing on while a picture is being made smaller, off once it is
         // being made much larger. Shrinking without it means the browser picks
