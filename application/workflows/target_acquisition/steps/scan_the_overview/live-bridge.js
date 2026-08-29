@@ -97,6 +97,16 @@ export async function startTheBridge({ port } = {}) {
     /* Where this session's run landed. The bridge makes it at connect and
        says so, because a run has to be told from the one before it. */
     run: opened.run,
+    /* Where the newest run landed. Every connect makes a fresh run, so a test
+       that walks the page's own Connect opens a second one -- and what it
+       captures lands there, not in the run this harness's connect made. */
+    currentRun: () => {
+      const runs = fs.readdirSync(folder)
+        .filter((name) => name.startsWith("target-acquisition_"))
+        .map((name) => path.join(folder, name))
+        .sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs);
+      return runs[0] ?? opened.run;
+    },
     folder,
     async image(positions) {
       if ((process.env.LIVE_BRIDGE_SABOTAGE ?? "") === "stalled") return;
