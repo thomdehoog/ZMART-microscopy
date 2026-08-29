@@ -155,7 +155,7 @@
 /* The width of the column beside a canvas, wherever one stands. A little
    generous by default — the channel is where the work happens — and the
    divider hands the rest to whoever needs it. */
-:root { --side-w: 460px; }
+:root { --side-w: 500px; }
 
 * { box-sizing: border-box; }
 
