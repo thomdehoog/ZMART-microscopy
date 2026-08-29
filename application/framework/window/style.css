@@ -1506,6 +1506,9 @@ canvas.livecv[hidden] { display: none; }
   border-color: var(--accent); color: var(--accent);
 }
 .carrier-link svg { display: block; margin: 0 auto; }
+.carrier-link svg circle { transition: transform 0.15s ease; }
+.carrier-link.on svg circle:first-child { transform: translateX(1.8px); }
+.carrier-link.on svg circle:last-child { transform: translateX(-1.8px); }
 .carrier-link.on { border-color: var(--accent); color: var(--accent); background: var(--surface-3); }
 .carrier-shape::before { content: "▢"; font-size: 14px; }
 .carrier-shape.round::before { content: "◯"; }
