@@ -47,7 +47,7 @@ def what_was_captured(record: dict, *, field: int, pixel_um: float, settings: di
         "image_path": plane["path"],
         "tile_id": [record["acquisition_type"], int(field), 0],
         "tile_stage_xy_um": [float(plane["x_um"]), float(plane["y_um"])],
-        "tile_zwide_um": float(plane["z_um"]),
+        "tile_z_um": float(plane["z_um"]),
         "source_pixel_size_um": [float(pixel_um), float(pixel_um)],
         "image_to_stage": IMAGE_TO_STAGE,
         "gpu": True,

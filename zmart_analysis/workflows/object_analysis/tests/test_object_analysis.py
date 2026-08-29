@@ -79,7 +79,7 @@ def _payload(image_path: Path, **extra):
         "image_path": str(image_path),
         "tile_id": ["R0", 3, 7],
         "tile_stage_xy_um": [1000.0, 2000.0],
-        "tile_zwide_um": 250.0,
+        "tile_z_um": 250.0,
         "source_pixel_size_um": [2.0, 3.0],
         "source_image_size_px": [48, 40],
         "image_to_stage": [[1.0, 0.0], [0.0, 1.0]],

@@ -183,7 +183,8 @@ def discover_targets(
                 # The notebook's overviews are a flat ordered list.
                 "tile_id": ("overview", 0, index),
                 "tile_stage_xy_um": tuple(overview["center_frame_um"]),
-                "tile_zwide_um": 0.0,
+                # The notebook's overviews carry no height; a fabricated 0.0
+                # was written into every saved row as if measured.
                 "source_pixel_size_um": (
                     float(overview["pixel_size_um"]),
                     float(overview["pixel_size_um"]),

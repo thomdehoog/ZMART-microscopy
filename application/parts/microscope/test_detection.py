@@ -34,7 +34,7 @@ def test_the_nuclei_plane_is_what_the_detector_reads():
     assert given["image_path"].endswith("_C00_Z00000.ome.tiff")
     assert given["tile_id"] == ["overview", 4, 0]
     assert given["tile_stage_xy_um"] == [3000.0, 2000.0]
-    assert given["tile_zwide_um"] == 8.5
+    assert given["tile_z_um"] == 8.5
     assert given["source_pixel_size_um"] == [4.0, 4.0]
     assert given["image_to_stage"] == [[1.0, 0.0], [0.0, 1.0]]
 

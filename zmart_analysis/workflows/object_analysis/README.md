@@ -21,7 +21,7 @@ Submit one tile at a time:
     "image_path": "path/to/position",      # OME-Zarr position or OME-TIFF
     "tile_id": ["R0", 3, 7],
     "tile_stage_xy_um": [10000.0, 15000.0],
-    "tile_zwide_um": 2500.0,
+    "tile_z_um": 2500.0,               # capture height; optional
     "source_pixel_size_um": [0.65, 0.65],
     "source_image_size_px": [2048, 2048],  # (nx, ny)
     "image_to_stage": [[0.0, -1.0], [1.0, 0.0]],

@@ -81,7 +81,8 @@ def main():
     parser.add_argument("image_path", help="Path to a TIFF tile.")
     parser.add_argument("--tile-id", default="R0,0,0")
     parser.add_argument("--stage-xy-um", type=_parse_pair, default=[0.0, 0.0])
-    parser.add_argument("--zwide-um", type=float, default=0.0)
+    parser.add_argument("--z-um", type=float, default=None,
+                        help="the height the tile was captured at; omitted is honest")
     parser.add_argument("--pixel-size-um", type=_parse_pair, default=[1.0, 1.0])
     parser.add_argument(
         "--image-to-stage",
@@ -113,7 +114,7 @@ def main():
         "image_path": str(image_path),
         "tile_id": _parse_tile_id(args.tile_id),
         "tile_stage_xy_um": args.stage_xy_um,
-        "tile_zwide_um": args.zwide_um,
+        "tile_z_um": args.z_um,
         "source_pixel_size_um": args.pixel_size_um,
         "source_image_size_px": _image_size_px(image_path, args.channel_axis),
         "image_to_stage": args.image_to_stage,

@@ -96,7 +96,7 @@ def _written_to(tmp_path, image):
         "image_path": str(image),
         "tile_id": ("R0", 3, 7),
         "tile_stage_xy_um": (0.0, 0.0),
-        "tile_zwide_um": 0.0,
+        "tile_z_um": 0.0,
         "source_pixel_size_um": (1.0, 1.0),
         "image_to_stage": [[1.0, 0.0], [0.0, 1.0]],
     }
