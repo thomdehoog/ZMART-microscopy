@@ -1757,6 +1757,11 @@ async function remeasure({ from = null } = {}) {
        fill in rather than a spinner, and sees a bad point while the stage is
        still working through the rest. */
     onPoint: (measured, index) => {
+      /* The mark follows the run: each measurement says where the stage
+         stood, and the watch's own poll cannot get a turn while the run
+         holds the instrument -- so the mark froze for exactly as long as
+         things were moving. */
+      stage.takeThePosition({ x: measured.x_um, y: measured.y_um, z: measured.z_um ?? 0 });
       /* A fresh reading is not one anybody has moved: the echo of the
          asked point carries `manual`, and keeping it silenced the dust
          warning on a brand-new height. */
