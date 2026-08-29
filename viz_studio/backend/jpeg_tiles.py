@@ -193,12 +193,15 @@ def pixel_size_um(path: Path | str) -> float:
 
 
 def _flatten(planes: list[Plane]) -> Any:
-    """Turn one field's planes into a single greyscale picture of it.
+    """Turn one field's planes into the one picture its copy is made from.
 
-    Brightest-wins across everything taken at that place. This is a display
-    copy: the point is that a cell present in any channel or at any depth can
-    be seen at a glance, not that the channels stay apart. Anything wanting
-    the channels apart wants the TIFFs.
+    Depth folds — brightest-wins over z, so a cell at any height can be seen
+    at a glance. The channels are the colours: up to three of them come out
+    as red, green and blue, in channel order, because that is what a channel
+    *is* to the operator looking at an overview. One channel is a greyscale
+    picture, as it always was; more channels than colours fold to grey until
+    compositing is a real chapter. Anything wanting the channels apart wants
+    the TIFFs.
 
     The numbers are left in whatever the microscope wrote them as, rather than
     being widened to decimals. That is partly to save memory — a scan of ten
@@ -209,15 +212,26 @@ def _flatten(planes: list[Plane]) -> Any:
     import numpy as np
     import tifffile
 
-    stack = None
+    channels: dict[int, Any] = {}
     for plane in planes:
         frame = np.asarray(tifffile.imread(plane.path))
         while frame.ndim > 2:
             frame = frame.max(axis=0)
-        stack = frame if stack is None else np.maximum(stack, frame)
-    if stack is None:
+        held = channels.get(plane.c)
+        channels[plane.c] = frame if held is None else np.maximum(held, frame)
+    if not channels:
         raise ValueError("a field with no planes cannot be pictured")
-    return stack
+    folded = [channels[c] for c in sorted(channels)]
+    if len(folded) == 1:
+        return folded[0]
+    if len(folded) > 3:
+        out = folded[0]
+        for one in folded[1:]:
+            out = np.maximum(out, one)
+        return out
+    while len(folded) < 3:
+        folded.append(np.zeros_like(folded[0]))
+    return np.stack(folded, axis=-1)
 
 
 def _shrink_to(array: Any, budget_px: int) -> Any:
@@ -331,7 +345,7 @@ def _as_jpeg(stretched: Any, quality: int) -> bytes:
 
     eight_bit = np.asarray(stretched, dtype=np.float32).round().astype(np.uint8)
     buffer = io.BytesIO()
-    Image.fromarray(eight_bit, mode="L").save(
+    Image.fromarray(eight_bit, mode="RGB" if eight_bit.ndim == 3 else "L").save(
         buffer, format="JPEG", quality=quality, subsampling=0
     )
     return buffer.getvalue()

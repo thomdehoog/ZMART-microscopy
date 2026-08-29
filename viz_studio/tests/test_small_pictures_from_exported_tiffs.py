@@ -383,3 +383,55 @@ def test_the_note_is_never_read_half_written(tmp_path):
 
     assert not list(view.glob("*.part"))
     assert json.loads((view / "tiles.json").read_text(encoding="utf-8"))["tiles"]
+
+
+def _export_a_flat_channel(folder: Path, label: str, c: int, value: int, *, size: int = 64) -> None:
+    """One flat plane of one colour, so a channel's share of a pixel is known."""
+    folder.mkdir(parents=True, exist_ok=True)
+    name = f"overview_a1b2c3_{label}_T000000_C{c:02d}_Z00000.ome.tiff"
+    described = (
+        '<OME xmlns="http://www.openmicroscopy.org/Schemas/OME/2016-06">'
+        f'<Image><Pixels DimensionOrder="XYCZT" Type="uint16" SizeX="{size}" SizeY="{size}" '
+        'SizeC="1" SizeZ="1" SizeT="1" PhysicalSizeX="2.0" PhysicalSizeY="2.0"/></Image></OME>'
+    )
+    frame = np.full((size, size), value, dtype=np.uint16)
+    tifffile.imwrite(folder / name, frame, description=described)
+
+
+def _the_one_picture(into: Path):
+    from PIL import Image
+
+    note = json.loads((into / "tiles.json").read_text(encoding="utf-8"))
+    return Image.open(into / note["tiles"][0]["src"])
+
+
+def test_three_channels_come_out_in_colour(tmp_path):
+    """A field's channels are its colours: the first red, the second green,
+    the third blue — brightened together, so the mix stays true."""
+    data = tmp_path / "data"
+    for c, value in ((0, 3000), (1, 1500), (2, 0)):
+        _export_a_flat_channel(data, "P0001", c, value)
+    into = tmp_path / "view"
+    make_small_pictures(data, {"P0001": (0.0, 0.0)}, into)
+    picture = _the_one_picture(into)
+    assert picture.mode == "RGB"
+    r, g, b = picture.getpixel((picture.width // 2, picture.height // 2))
+    assert r > g > b, f"the mix came out {r}, {g}, {b}"
+    assert b <= 2, "an empty channel must stay dark"
+
+
+def test_one_channel_stays_a_grey_picture(tmp_path):
+    data = tmp_path / "data"
+    _export_a_flat_channel(data, "P0001", 0, 2000)
+    into = tmp_path / "view"
+    make_small_pictures(data, {"P0001": (0.0, 0.0)}, into)
+    assert _the_one_picture(into).mode == "L"
+
+
+def test_more_channels_than_colours_fold_to_grey(tmp_path):
+    data = tmp_path / "data"
+    for c in range(4):
+        _export_a_flat_channel(data, "P0001", c, 1000 + c)
+    into = tmp_path / "view"
+    make_small_pictures(data, {"P0001": (0.0, 0.0)}, into)
+    assert _the_one_picture(into).mode == "L"
