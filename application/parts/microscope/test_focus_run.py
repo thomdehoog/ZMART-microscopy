@@ -117,3 +117,44 @@ def test_measure_then_fit_round_trip():
     )
     surface = fit_focus_surface(measured)
     assert surface.z_at(5, 5) == pytest.approx(4.5)
+
+
+def test_a_point_that_cannot_be_scored_is_lost_and_the_map_marches_on():
+    """One bad point once ended the whole run: the scorer raised on point 1
+    and points 2..N were never even acquired. A run is a march, not a chain."""
+    session = _StubSession({(0.0, 0.0): 1.0, (10.0, 0.0): 1.5}, current_z=0.3)
+
+    def scoring(record):
+        if record["focus_by_xy"] == 1.0:
+            raise ValueError("one plane cannot be focused")
+        return _score(record)
+
+    measured = measure_focus(
+        session, [{"x": 0.0, "y": 0.0}, {"x": 10.0, "y": 0.0}], score=scoring
+    )
+    assert len(measured) == 2, "the second point was still measured"
+    assert measured[0]["z_um"] is None, "the unscorable point is lost, not invented"
+    assert measured[1]["z_um"] == 1.5
+
+
+def test_a_stackless_capture_is_taken_again_once():
+    """The first capture after fresh settings can race them (the LAS X
+    simulator arms the z-stack a beat late): a single-plane take is retried
+    once while the stage is still standing there, and the retry's stack is
+    what gets scored."""
+    session = _StubSession({(0.0, 0.0): 2.0}, current_z=0.3)
+    real_acquire = session.acquire
+    calls = {"n": 0}
+
+    def racing_acquire(**kw):
+        calls["n"] += 1
+        record = real_acquire(**kw)
+        if calls["n"] == 1:
+            record["planes"] = record["planes"][:1]
+        return record
+
+    session.acquire = racing_acquire
+    measured = measure_focus(session, [{"x": 0.0, "y": 0.0}], score=_score)
+    assert calls["n"] == 2, "the short capture was taken again"
+    assert measured[0]["z_um"] == 2.0
+    assert len(measured[0]["planes"]) == 5, "the retry's full stack rides the measurement"

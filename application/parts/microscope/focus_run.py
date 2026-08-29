@@ -78,6 +78,29 @@ class RunCancelled(RuntimeError):
     """
 
 
+def _stackless(record: dict) -> bool:
+    """True when this capture holds no stack to score.
+
+    One channel's distinct heights are the stack; fewer than two of them
+    cannot be focused, whatever else the record carries.
+    """
+    planes = record.get("planes") or []
+    if not planes:
+        return True
+    first = min(int(plane.get("c", 0)) for plane in planes)
+    heights = {plane.get("z") for plane in planes if int(plane.get("c", 0)) == first}
+    return len(heights) < 2
+
+
+def log_focus_scoring_failed(index: int, why: Exception) -> None:
+    """Say which point was lost and why, where the run's log is read."""
+    import logging
+
+    logging.getLogger(__name__).warning(
+        "focus point %d could not be scored and is LOST: %s", index + 1, why
+    )
+
+
 def _keep(measured: dict, acquisition: Any, record: dict) -> None:
     """Write what the analysis said, beside the stack it read.
 
@@ -156,9 +179,25 @@ def measure_focus(
         record = session.acquire(
             acquisition_type=FOCUSSING, position_label=position_label(index)
         )
+        if _stackless(record):
+            # The first capture after freshly applied settings can race them:
+            # on the LAS X simulator the z-stack definition arms a beat late,
+            # and the first stack of a run came back as a single plane twice
+            # in a row. The stage is still standing here, so one more take is
+            # cheap -- and the second take carried the stack both times.
+            record = session.acquire(
+                acquisition_type=FOCUSSING, position_label=position_label(index)
+            )
         if output is not None:
             move_record_images(record, output.data)
-        found = score(record)
+        try:
+            found = score(record)
+        except Exception as why:  # noqa: BLE001 -- one bad point must not end the map
+            # A point that cannot be scored is a LOST point, not the end of
+            # the run: the map marches on and the row says what happened.
+            # Stopping here once threw away every point after the first.
+            found = {"z_um": None, "traces": None}
+            log_focus_scoring_failed(index, why)
         measurement = {
             "x_um": point["x"],
             "y_um": point["y"],
