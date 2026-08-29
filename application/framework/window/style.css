@@ -1564,9 +1564,6 @@ canvas.livecv[hidden] { display: none; }
 /* The tileset box's two sections stand as close as the focus box's do: the
    body's own gap is most of the air, and the shared margin doubled it. */
 .side-sub.sf-sub:not(:first-child) { margin-top: 2px; }
-/* The two automatics' titles on one row; their spacing is the row's. */
-.sf-autoheads { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.sf-autoheads .side-sub { margin: 0; }
 /* A heading that also carries a count puts it at the far end of its own line.
    In the amber the rest of the page warns in, and in the page's own type
    rather than the heading's small caps: it is a sentence about the list, not
