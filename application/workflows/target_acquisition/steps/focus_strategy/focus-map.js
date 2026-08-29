@@ -1092,13 +1092,19 @@ function buildOrtho(at, slices) {
     if (orthoOf !== slices || cut !== orthoCut) return;
     if (!orthoBuffer) {
       orthoBuffer = document.createElement("canvas");
-      orthoBuffer.width = slices.length;
-      orthoBuffer.height = img.naturalHeight;
+      orthoBuffer.width = img.naturalHeight;
+      orthoBuffer.height = slices.length;
     }
     const g = orthoBuffer.getContext("2d");
     const column = Math.min(img.naturalWidth - 1, Math.floor(img.naturalWidth * orthoCut));
+    /* Side-on: each slice's cut becomes one horizontal row, highest height
+       at the top, so up in the picture is up on the instrument. The swap
+       transform turns the slice's vertical cut into that row. */
+    g.save();
+    g.setTransform(0, 1, 1, 0, 0, 0);
     g.drawImage(img, column, 0, 1, img.naturalHeight,
-      index, 0, 1, orthoBuffer.height);
+      slices.length - 1 - index, 0, 1, orthoBuffer.width);
+    g.restore();
     drawOrtho();
   }));
 }
@@ -1111,12 +1117,14 @@ function drawOrtho() {
   g.imageSmoothingQuality = "high";
   g.drawImage(orthoBuffer, 0, 0, orthoCv.width, orthoCv.height);
   if (orthoAt < 0) return;
-  const x = ((orthoAt + 0.5) / orthoBuffer.width) * orthoCv.width;
+  /* The chosen height, horizontal: heights run down the picture, so the
+     bar rides up and down with the black line in the plot. */
+  const y = ((orthoBuffer.height - 1 - orthoAt + 0.5) / orthoBuffer.height) * orthoCv.height;
   g.strokeStyle = css("--ink");
   g.lineWidth = 3;
   g.beginPath();
-  g.moveTo(x, 0);
-  g.lineTo(x, orthoCv.height);
+  g.moveTo(0, y);
+  g.lineTo(orthoCv.width, y);
   g.stroke();
 }
 
