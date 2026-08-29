@@ -814,8 +814,10 @@ window.__theStageCanvas = {
 
 /* Carrier coordinates for the editor: it places fields inside the carrier,
    so it is handed where the pointer is in that frame rather than where it is
-   on the stage. */
-function toCarrier(px, py) {
+   on the stage. A different question from `toCarrier(point)`, which turns a
+   stage point into a carrier point — this turns a screen pixel into one, and
+   sharing the name let it shadow the other and corrupt every converted point. */
+function pointerInCarrier(px, py) {
   const [wx, wy] = toWorld(px, py);
   const [ox, oy] = carrierOriginUm();
   return { x: wx - ox, y: wy - oy };
@@ -829,7 +831,7 @@ function editorTook(kind, e) {
      are untouched — the lock is about picking, not about looking. */
   if (layersLocked()) return false;
   if (sideWidget()?.id !== "scanfields" || !run.editor) return false;
-  const { x, y } = toCarrier(e.offsetX, e.offsetY);
+  const { x, y } = pointerInCarrier(e.offsetX, e.offsetY);
   const took = run.editor.pointer(kind, { x, y, shift: e.shiftKey, scale: view.scale });
   // the redraw is also what puts the cursor right, and it has to happen after
   // the editor has been told, or the answer is for where the pointer was

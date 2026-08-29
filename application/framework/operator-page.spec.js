@@ -1364,14 +1364,18 @@ test("one walk of the whole run", async ({ page }) => {
   await expect(page.locator(".panel.on button.step-run"),
     "discovery may not run on settings nobody has seen work").toBeDisabled();
   await page.getByRole("button", { name: "Test on this tile" }).click();
-  await page.waitForTimeout(250);
-  await runStep(page, 2200);
+  await page.waitForTimeout(400);
+  /* Every field's targets land as the backend reports them; the pretend one
+     reports 864 fields in a few seconds. */
+  await runStep(page, 6000);
 
   await gotoStep(page, "Refine Targets");
   const sc = await page.locator("#scatter-canvas").boundingBox();
-  await page.mouse.move(sc.x + sc.width * 0.42, sc.y + sc.height * 0.18);
+  /* A tight gate on the largest, brightest corner — a handful of targets, the
+     way an operator refines rather than takes everything found. */
+  await page.mouse.move(sc.x + sc.width * 0.88, sc.y + sc.height * 0.10);
   await page.mouse.down();
-  await page.mouse.move(sc.x + sc.width * 0.85, sc.y + sc.height * 0.62, { steps: 8 });
+  await page.mouse.move(sc.x + sc.width * 0.93, sc.y + sc.height * 0.17, { steps: 8 });
   await page.mouse.up();
   await page.waitForTimeout(300);
   await expect(page.locator("#gate-readout")).toContainText("detected gated");

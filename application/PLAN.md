@@ -68,3 +68,23 @@ Own branch off `main`, PR, then merged in.
 4. **Done when** someone who has never seen the code opens `application/` and
    finds a step, its backend verb and its test in under a minute, from the
    folder names alone.
+
+## Found on the way (2026-08-29), not fixed, so they are not forgotten
+
+- **Scans drive z to 0.** The plan's positions carry no `z`; the bridge drives
+  `position.get("z", 0.0)`. On the mock the sample is at 8 µm so it images
+  blurred-but-fine; on a real scope the overview and the targets should be
+  taken at the focus map's height. The scan should place its positions
+  through the surface, as the focus step already can.
+- **Which way the image lies on the stage** (`image_to_stage`) is assumed to
+  be identity in `parts/microscope/detection.py`. True for the mock; the Leica
+  keeps its turn in `orientation.json`, and the record is where it belongs.
+- **The view is a greyscale brightest-of across channels.** The viewer's
+  small copies (`jpeg_tiles._flatten`) fold the three channels into one; a
+  colour composite is the viewer's later chapter.
+- **Detection costs ~21 s per 256 px field on the mock** (50 s the first time,
+  while the worker and model come up) even with CUDA on. Not measured why;
+  measure before guessing (binning, features in a second environment, GPU
+  actually used).
+- **Targets are imaged with whatever job is selected**, as the overview is:
+  neither scan applies its recorded preset first. Consistent, and open.

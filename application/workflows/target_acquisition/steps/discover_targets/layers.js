@@ -6,7 +6,7 @@
  * at rather than a thing the run produced.
  */
 export function targetLayers(theRun) {
-  const { run, css, drawnIn, theSample, activeMode } = theRun;
+  const { run, css, drawnIn, activeMode } = theRun;
   return {
     cells: {
     key: "cells",
@@ -21,8 +21,8 @@ export function targetLayers(theRun) {
       ctx.fillStyle = css("--mark-context");
       ctx.globalAlpha = 0.55;
       ctx.beginPath();
-      for (const c of theSample().cells) {
-        if (!run.detected.has(c.id) || run.gated.has(c.id)) continue;
+      for (const c of run.cells.values()) {
+        if (run.gated.has(c.id)) continue;
         const [x, y] = place(c.x, c.y);
         if (x < -8 || y < -8 || x > w + 8 || y > h + 8) continue;
         ctx.moveTo(x + ctxRad, y);
@@ -33,8 +33,8 @@ export function targetLayers(theRun) {
 
       // gated cells — ringed, so identity is not carried by colour alone
       const gr = Math.max(3, 4.2 * Math.sqrt(scale / 0.03));
-      for (const c of theSample().cells) {
-        if (!run.gated.has(c.id)) continue;
+      for (const id of run.gated) {
+        const c = run.cells.get(id);
         const [x, y] = place(c.x, c.y);
         if (x < -10 || y < -10 || x > w + 10 || y > h + 10) continue;
         ctx.beginPath(); ctx.arc(x, y, gr, 0, Math.PI * 2);
@@ -44,8 +44,7 @@ export function targetLayers(theRun) {
     },
     reaches: (at) => {
       let best = 12 / scale, hit = null;
-      for (const c of theSample().cells) {
-        if (!run.detected.has(c.id)) continue;
+      for (const c of run.cells.values()) {
         const d = Math.hypot(c.x - at.x, c.y - at.y);
         if (d < best) { best = d; hit = c; }
       }
