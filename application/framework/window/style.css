@@ -791,6 +791,10 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
    edges for the plot's sake, and each row steps back in evenly. */
 .trace-host > .side-sub { padding-left: 14px; }
 .trace-host .trace-plot { margin: 0 14px 0 0; }
+/* `display: grid` beats the `hidden` attribute's own display: none, so a
+   backend with no slice pictures showed two black voids where the box
+   thought it was hidden. Said explicitly. */
+.trace-host .zpreview[hidden] { display: none; }
 .trace-host .zpreview {
   padding: 0 14px; display: grid;
   /* two equal squares splitting the row, titles sitting exactly over them */
