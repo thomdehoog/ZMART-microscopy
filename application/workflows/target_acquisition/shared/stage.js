@@ -731,11 +731,10 @@ function openTheGroundThatHasBeenScanned(howMuch = 1) {
 /**
  * What the canvas will answer to, from outside it.
  *
- * There is no picture drawn beneath this canvas yet — that is the next piece
- * of work — so nothing on the page calls these. They are here rather than
- * held back because they are what the picture will be shown *through*, and
- * because a rule nobody can exercise is a rule nobody can check. The browser
- * tests drive them.
+ * The scan is drawn beneath this canvas, and the run opens the ground over
+ * every field it has imaged (`groundFollowsTheScan` on the handle), so the
+ * picture appears through the drawing exactly where it was taken. These stay
+ * exposed for the browser tests, which drive the same rules by hand.
  */
 window.__theStageCanvas = {
   /** Open the ground the scan has covered, so a picture beneath shows there. */
@@ -1014,6 +1013,10 @@ ctx.fitButton.addEventListener("click", () => {
        the same place, rather than working it out a second time from numbers
        that would then have to agree. */
     pictureView: () => theCanvas.view,
+    /* The ground opens over what the scan has imaged, so the picture beneath
+       shows through the drawing exactly where it was taken. Called as tiles
+       land, and again when a run is reset and there is nothing to show. */
+    groundFollowsTheScan: openTheGroundThatHasBeenScanned,
     fit: fitView,
     /* The canvas is the picture's; the page says when its box has changed
        shape, and what the pointer should look like over it. */

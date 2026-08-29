@@ -102,6 +102,9 @@ export function theDrawingAbove(layers = [], { dial = 1, seeThrough = [] } = {})
 
     cutTheWindows(frame, seeThrough);
 
+    /* All the way down means the picture alone: a mark that never fades
+       still steps aside when the operator asks for maximum transparency. */
+    if (fade === 0) return;
     for (const layer of drawable) {
       if (layer.shown === false || !layer.staysSolid) continue;
       paintOneLayer(frame, layer, clamped(layer.opacity ?? 1));

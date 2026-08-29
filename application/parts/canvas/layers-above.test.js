@@ -190,3 +190,13 @@ describe("what a click reaches", () => {
     expect(whoIsAt(stack, { x: 5, y: 5 }).what).toBe("positions");
   });
 });
+describe("fade taken all the way down", () => {
+  it("leaves the picture alone — the marks that never fade step aside too", () => {
+    const surface = aPretendSurface();
+    theDrawingAbove(
+      [aLayerThatMarks("plan"), aLayerThatMarks("mark", { staysSolid: true })],
+      { dial: 0 },
+    )(aFrame(surface));
+    expect(surface.done).toEqual([]);
+  });
+});
