@@ -120,6 +120,17 @@ test("an operator walks from Connect to a scanned overview", async ({ page }) =>
   await record(page, "focus-preset", "af");
   await page.locator("#fp-place").click();
   await page.waitForTimeout(400);
+  /* The reticles stand above the plan. The stack order is the draw order,
+     and the points were once part of a layer early enough that the plan's
+     grid painted over the very thing the operator was placing. They also
+     survive the shared fade: fading the plan to see the picture is not a
+     request to lose the focus points too. */
+  const stack = await page.evaluate(() => window.__theStageCanvas.layers());
+  const order = stack.map((l) => l.key);
+  expect(order.indexOf("focusPoints"), "the points are a layer above the plan")
+    .toBeGreaterThan(order.indexOf("plan"));
+  expect(stack.find((l) => l.key === "focusPoints")?.staysSolid,
+    "the points survive the shared fade").toBe(true);
   await page.locator(".panel.on button.step-run").click();
   /* Watched on disk rather than on screen. What has to be true of this step is
      that the instrument really captured stacks and something really scored

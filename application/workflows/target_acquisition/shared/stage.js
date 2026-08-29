@@ -49,7 +49,7 @@ export function openTheStage(ctx) {
   } = ctx;
   const {
     focusPressed, focusCursor, focusDraggedTo, focusGrabbed, focusHovered,
-    focusMarqueeTo, focusMarqueeTook, drawFocusLayer,
+    focusMarqueeTo, focusMarqueeTook, drawFocusLayer, drawFocusPoints,
     /* A gesture already under way belongs to the panel that started it; the
        picture only asks whether one is, and says when it ends. */
     marqueeing, dragging: focusDragging, endDrag: endFocusDrag,
@@ -553,7 +553,7 @@ function drawnIn(frame) {
  */
 const THE_STACK = [
   "ground", "limits", "carrier", "tiles", "cells", "targets",
-  "focus", "plan", "detect", "editing", "anchors", "stage", "scale",
+  "focus", "plan", "focusPoints", "detect", "editing", "anchors", "stage", "scale",
 ];
 
 /**
@@ -657,7 +657,7 @@ function theStageLayers({ shown, ch0, ch1, editing }) {
     activeMode: step(run.activeIdx).mode,
     editing, shown, ch0, ch1,
     crosshair,
-    drawFocusLayer, drawStageLimits, drawWhereTheStageIs, drawScaleBar,
+    drawFocusLayer, drawFocusPoints, drawStageLimits, drawWhereTheStageIs, drawScaleBar,
     /* What a layer needs to answer for a gesture of its own. Handed over rather
        than reached for, so a layer says what a press on it means without
        knowing anything about the page it is drawn on. */

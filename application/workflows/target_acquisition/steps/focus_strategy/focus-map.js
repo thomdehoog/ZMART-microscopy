@@ -327,6 +327,50 @@ function drawFocusLayer(ctx, toScreen, scale, w, h) {
     ctx.textAlign = "left";
   }
 
+  // ---- ramp legend
+  if (showSurface) {
+    // the legend sits ON the field, so it carries its own plate
+    const bw = 132, bh = 9, bx = 20, by = h - 26;
+    const padL = 8, top = by - 36;
+    ctx.fillStyle = css("--screen");
+    ctx.globalAlpha = 0.88;
+    ctx.fillRect(bx - padL, top, bw + padL * 2, (by + bh + 7) - top);
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = css("--line");
+    ctx.lineWidth = 1;
+    ctx.strokeRect(bx - padL + 0.5, top + 0.5, bw + padL * 2 - 1, (by + bh + 7) - top - 1);
+
+    for (let i = 0; i < bw; i++) {
+      ctx.fillStyle = zColor(i / bw);
+      ctx.fillRect(bx + i, by, 1.4, bh);
+    }
+    ctx.strokeStyle = css("--line-strong");
+    ctx.strokeRect(bx - 0.5, by - 0.5, bw + 1, bh + 1);
+
+    ctx.fillStyle = css("--ink-3");
+    ctx.font = '11.5px system-ui, sans-serif';
+    ctx.fillText("predicted focus height", bx, top + 14);
+    ctx.font = '11px ui-monospace, Consolas, monospace';
+    ctx.fillStyle = css("--ink-2");
+    ctx.fillText(`${zLo.toFixed(0)}`, bx, by - 5);
+    ctx.textAlign = "right";
+    ctx.fillText(`${zHi.toFixed(0)} µm`, bx + bw, by - 5);
+    ctx.textAlign = "left";
+  }
+
+}
+
+/**
+ * The focus points alone, drawn above the plan.
+ *
+ * Split from the map on the note the map itself carried: drawn as one
+ * layer, being early enough to keep the scan fields readable also meant
+ * the plan's grid painted over the very reticles the operator was
+ * placing. The map stays early and fades with the drawing it colours;
+ * these stand above the plan and stay solid through the shared fade.
+ */
+function drawFocusPoints(ctx, toScreen) {
+  const f = run.focus;
   /* ---- focus points, as a reticle rather than a dot.
      Open in the middle, because the middle is the thing being pointed at:
      a filled marker hides the one pixel of the map it is about. The height
@@ -387,38 +431,6 @@ function drawFocusLayer(ctx, toScreen, scale, w, h) {
       ctx.lineCap = "butt";
     });
   }
-
-  // ---- ramp legend
-  if (showSurface) {
-    // the legend sits ON the field, so it carries its own plate
-    const bw = 132, bh = 9, bx = 20, by = h - 26;
-    const padL = 8, top = by - 36;
-    ctx.fillStyle = css("--screen");
-    ctx.globalAlpha = 0.88;
-    ctx.fillRect(bx - padL, top, bw + padL * 2, (by + bh + 7) - top);
-    ctx.globalAlpha = 1;
-    ctx.strokeStyle = css("--line");
-    ctx.lineWidth = 1;
-    ctx.strokeRect(bx - padL + 0.5, top + 0.5, bw + padL * 2 - 1, (by + bh + 7) - top - 1);
-
-    for (let i = 0; i < bw; i++) {
-      ctx.fillStyle = zColor(i / bw);
-      ctx.fillRect(bx + i, by, 1.4, bh);
-    }
-    ctx.strokeStyle = css("--line-strong");
-    ctx.strokeRect(bx - 0.5, by - 0.5, bw + 1, bh + 1);
-
-    ctx.fillStyle = css("--ink-3");
-    ctx.font = '11.5px system-ui, sans-serif';
-    ctx.fillText("predicted focus height", bx, top + 14);
-    ctx.font = '11px ui-monospace, Consolas, monospace';
-    ctx.fillStyle = css("--ink-2");
-    ctx.fillText(`${zLo.toFixed(0)}`, bx, by - 5);
-    ctx.textAlign = "right";
-    ctx.fillText(`${zHi.toFixed(0)} µm`, bx + bw, by - 5);
-    ctx.textAlign = "left";
-  }
-
 }
 
 /* A focus point being dragged: which one, and whether the pointer has
@@ -1637,8 +1649,8 @@ function refitSurface() {
      here because the points are here: a press on the canvas over a point is
      about this step, whoever owns the canvas. */
   return {
-    // the layer it draws on the stage
-    drawFocusLayer,
+    // the layers it draws on the stage: the map early, the points above the plan
+    drawFocusLayer, drawFocusPoints,
     // the gestures it owns, and whether one is under way
     focusPressed, focusCursor, focusDraggedTo, focusGrabbed, focusHovered,
     focusMarqueeTo, focusMarqueeTook,

@@ -1579,6 +1579,7 @@ let stageWatch = null;
       focusMarqueeTo: (...a) => focusMarqueeTo(...a),
       focusMarqueeTook: (...a) => focusMarqueeTook(...a),
       drawFocusLayer: (...a) => drawFocusLayer(...a),
+      drawFocusPoints: (...a) => drawFocusPoints(...a),
       marqueeing: () => focusMap.marqueeing(),
       dragging: () => focusMap.dragging(),
       endDrag: () => focusMap.endDrag(),
@@ -1638,7 +1639,7 @@ let stageWatch = null;
 
   /* The page's own names for what it asks of the focus map. */
   const {
-    drawFocusLayer, focusPressed, focusCursor, focusDraggedTo, focusGrabbed,
+    drawFocusLayer, drawFocusPoints, focusPressed, focusCursor, focusDraggedTo, focusGrabbed,
     focusHovered, focusMarqueeTo, focusMarqueeTook, anchorPressed, detectPressed,
     heightAt, nearestPosition, renderFocusBar, renderPointList, drawTrace,
     refitSurface, remeasure,
