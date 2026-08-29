@@ -664,7 +664,7 @@ export default {
     }
     layout.append(toolRow);
 
-    layout.append(el("div", "side-sub sf-sub", "Automatic per tileset"));
+    layout.append(el("div", "side-sub sf-sub", "Automatic"));
     /* The four numbers and the button that acts on them, side by side: the
        numbers are narrower than the box and the button takes the room they
        leave, standing as tall as both their rows. A button drawn across the
