@@ -807,6 +807,12 @@ def _keep_targets(cells: list, record: dict) -> None:
 
 
 class _Bridge(BaseHTTPRequestHandler):
+    # Keep the connection: HTTP/1.0 opened a fresh TCP connection per
+    # picture, which is 34 measured milliseconds a tile and seventy seconds
+    # for a 2061-field overview. Every response carries its Content-Length,
+    # which is what keep-alive requires.
+    protocol_version = "HTTP/1.1"
+
     def _answer(self, payload: dict, status: int = 200) -> None:
         body = json.dumps(payload, default=str).encode()
         self.send_response(status)

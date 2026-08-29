@@ -56,11 +56,13 @@ import { onlyPanAndZoom } from "../gestures.js";
  * How many decoded pictures to keep at once.
  *
  * A field kept at 128 pixels is four kilobytes as a JPEG and sixty-four
- * decoded, so they cannot all be held. A thousand is a few tens of megabytes,
- * which measured out as the point where panning still runs at a full sixty
- * frames a second.
+ * decoded, so the budget is memory: four thousand is a quarter of a
+ * gigabyte at worst. What the budget must never be is smaller than the
+ * largest scan on screen -- with more fields in view than the cache holds,
+ * every draw evicted pictures still being decoded and fetched them again,
+ * and a 2061-field overview never finished loading at all.
  */
-const HOW_MANY_TO_KEEP_DECODED = 1000;
+const HOW_MANY_TO_KEEP_DECODED = 4096;
 
 /** Open the viewer inside `element`. See `viz_studio/options/contract.md`. */
 export async function openViewer(element, options = {}) {
