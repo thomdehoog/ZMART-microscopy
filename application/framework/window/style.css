@@ -815,6 +815,7 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
 .trace-host .zpreview .side-sub { margin: 0; }
 .trace-host .zframe { width: 100%; max-width: none; grid-row: 2; grid-column: 1; }
 .trace-host .zpreview .zx-title { grid-column: 3; }
+.trace-host .zpreview .zcut-title { grid-column: 2; justify-self: center; }
 /* The cut is the operator's own control, so it wears the page's accent --
    red stays the height's colour, and a red cut read as a second height. */
 .trace-host .zcut {
