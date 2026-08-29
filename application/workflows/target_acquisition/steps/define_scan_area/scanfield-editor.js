@@ -1088,7 +1088,7 @@ export default {
         if (kind === "down") return down(x, y, scale);
         if (kind === "move") return moveTo(x, y, scale);
         if (kind === "up") return up(scale);
-        if (kind === "finish") return finish(x, y, scale);
+        if (kind === "finish") return finish(scale);
         if (kind === "leave") {
           const had = ed.hover || ed.hoverGrip || ed.cursor;
           ed.hover = null;
@@ -1212,8 +1212,8 @@ export default {
      * the last one — only the operator knows. Hunting for the first point to
      * click again is a second, smaller drawing problem on top of the first.
      * Fewer than three points is not a region, so it is thrown away instead. */
-    function finish(x, y, scale) {
-      if (!ed.poly.length) return addVertexAt(x, y, scale);
+    function finish(scale) {
+      if (!ed.poly.length) return false;
       const points = withoutTrailingDuplicate(ed.poly, DUPLICATE_PX / scale);
       ed.poly = [];
       ed.tool = "pointer";
@@ -1227,12 +1227,12 @@ export default {
       return true;
     }
 
-    /* Double-click on a selected polygon's edge and a vertex appears there:
-       the shape grows where it is asked to instead of being redrawn. Worked
-       in world space, the same round trip a dragged vertex takes, so a
-       rotated polygon neither drifts nor turns. Off the edge, or with no
-       polygon selected, the double-click keeps its old meaning. */
-    function addVertexAt(x, y, scale) {
+    /* Press the selected polygon's edge and a vertex grows under the hand,
+       already held: drag on and it moves, let go and it stays on the line.
+       Worked in world space, the same round trip a dragged vertex takes, so
+       a rotated polygon neither drifts nor turns. Double-click stays the
+       stage's own gesture. */
+    function vertexFromEdge(x, y, scale) {
       const f = single();
       if (!f || !f.points) return false;
       const rot = f.rotation || 0;
@@ -1257,7 +1257,10 @@ export default {
         y: world.reduce((sum, p) => sum + p.y, 0) / world.length,
       };
       const points = world.map((p) => rotatePoint(p.x, p.y, nc.x, nc.y, -rot));
-      commit(ed.fields.map((g) => (g.id === f.id ? { ...f, points } : g)));
+      pushHistory();
+      const updated = { ...f, points };
+      commit(ed.fields.map((g) => (g.id === f.id ? updated : g)));
+      ed.drag = { kind: "resize", id: f.id, index: best.at, start: updated };
       sync();
       return true;
     }
@@ -1315,6 +1318,10 @@ export default {
         pushHistory();
         return true;
       }
+
+      /* Between the grips and the pick: an existing vertex answers first,
+         and only then may the edge between two of them grow a new one. */
+      if (vertexFromEdge(x, y, scale)) return true;
 
       const hit = hitField(x, y, scale);
       if (hit && ed.shift) {
