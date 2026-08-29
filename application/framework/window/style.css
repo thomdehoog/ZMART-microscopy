@@ -660,7 +660,8 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
   color: inherit; text-align: left; cursor: pointer;
 }
 .point-drop { flex: none; margin-right: 6px; }
-.point-row:hover { background: var(--surface-3); }
+/* The hand hovering a row previews the pick, in the pick's own tint. */
+.point-row:hover { background: var(--accent-tint); }
 /* The anchor points, and the press that ties each to where the stage is. */
 .anchor-snap { flex: none; margin-left: auto; }
 
