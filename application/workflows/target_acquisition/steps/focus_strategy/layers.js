@@ -7,7 +7,7 @@
  */
 export function focusLayers(theRun) {
   const {
-    run, drawnIn, activeMode, drawFocusLayer, asAPress, renderActionBar,
+    run, drawnIn, activeMode, drawFocusLayer, drawFocusPoints, asAPress, renderActionBar,
     focusGrabbed, marqueeing, focusMarqueeTo, focusMarqueeTook,
     focusDragging, focusDraggedTo, endFocusDrag, focusPressed,
   } = theRun;
@@ -15,30 +15,41 @@ export function focusLayers(theRun) {
     focus: {
     key: "focus",
     label: "Focus",
-    explains: "Where the microscope will focus, and what it has measured there. Stays "
-      + "solid however far the rest is faded: fading the plan to see the picture is "
-      + "not a request to lose the focus points too.",
+    explains: "Where the microscope will focus, and what it has measured there. The "
+      + "points stand above the plan and stay solid however far the rest is faded: "
+      + "fading the plan to see the picture is not a request to lose them too.",
     /* Only while standing on that step — walking away leaves the canvas the
        plain picture every other step reads. */
     shown: activeMode === "focus",
-    /* Not held back to the end, though it was at first. The scan fields are
-       drawn *over* the focus map — that is the order the page had before
-       any of this was a stack — and holding the map back put it on top
-       instead, which covered the very fields the operator is placing focus
-       points among. A layer that stays solid is a layer drawn last, so it
-       cannot also be a layer drawn early: this one has to be early, and the
-       cost is that the shared fade reaches it. Splitting the map from the
-       points would buy back both, and is the thing to do if that fade ever
-       matters here. */
+    /* Early on purpose. The scan fields are drawn *over* the measured heat,
+       so a predicted height never covers a field the operator can read, and
+       the cost -- the shared fade reaches the map -- is right for a surface
+       that colours the drawing. The points used to be in here too, and were
+       painted over by the plan's grid; they are their own layer now, above
+       the plan, which is the split this comment used to promise. */
     paint: (frame) => {
       const { place, scale, w, h } = drawnIn(frame);
       drawFocusLayer(frame.context, place, scale, w, h);
+    },
+  },
+  /* The reticles, split from the map: they stand above the plan, where
+     nothing paints over the thing the operator is placing, and they follow
+     the Focus button rather than carrying a second one. */
+  focusPoints: {
+    key: "focusPoints",
+    follows: "focus",
+    shown: activeMode === "focus",
+    staysSolid: true,
+    paint: (frame) => {
+      const { place } = drawnIn(frame);
+      drawFocusPoints(frame.context, place);
     },
     /* A point already on the map is taken hold of before the picture is: it is
        the small thing on top, and a press that finds one should move it rather
        than move everything. Shift on empty ground draws a rectangle round a set
        of them instead — which the canvas offers rather than refusing, precisely
-       so this can mean something. */
+       so this can mean something. The presses live on this layer because the
+       points do: claims are asked top of the stack down. */
     claims: (drag) => {
       const press = asAPress(drag);
       if (drag.phase === "started") return focusGrabbed(press);
