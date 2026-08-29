@@ -435,3 +435,19 @@ def test_more_channels_than_colours_fold_to_grey(tmp_path):
     into = tmp_path / "view"
     make_small_pictures(data, {"P0001": (0.0, 0.0)}, into)
     assert _the_one_picture(into).mode == "L"
+
+
+def test_a_channels_colour_is_its_index_not_its_turn(tmp_path):
+    """Planes at c=1,2 with no c=0: green and blue, red dark. The colour is
+    the channel's own index, or two scans of one sample with different
+    channel subsets stop being comparable."""
+    data = tmp_path / "data"
+    _export_a_flat_channel(data, "P0001", 1, 3000)
+    _export_a_flat_channel(data, "P0001", 2, 1500)
+    into = tmp_path / "view"
+    make_small_pictures(data, {"P0001": (0.0, 0.0)}, into)
+    picture = _the_one_picture(into)
+    assert picture.mode == "RGB"
+    r, g, b = picture.getpixel((picture.width // 2, picture.height // 2))
+    assert r <= 2, "no first channel means no red"
+    assert g > b > 0

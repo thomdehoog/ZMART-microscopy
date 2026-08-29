@@ -221,17 +221,18 @@ def _flatten(planes: list[Plane]) -> Any:
         channels[plane.c] = frame if held is None else np.maximum(held, frame)
     if not channels:
         raise ValueError("a field with no planes cannot be pictured")
-    folded = [channels[c] for c in sorted(channels)]
-    if len(folded) == 1:
-        return folded[0]
-    if len(folded) > 3:
-        out = folded[0]
-        for one in folded[1:]:
-            out = np.maximum(out, one)
+    if len(channels) == 1:
+        return next(iter(channels.values()))
+    if any(c > 2 for c in channels) or len(channels) > 3:
+        out = None
+        for one in channels.values():
+            out = one if out is None else np.maximum(out, one)
         return out
-    while len(folded) < 3:
-        folded.append(np.zeros_like(folded[0]))
-    return np.stack(folded, axis=-1)
+    # The colour is the channel's own index -- red, green, blue -- not its
+    # turn in the list: two scans of one sample with different channel
+    # subsets must stay comparable, so an absent channel is a dark colour.
+    zeros = np.zeros_like(next(iter(channels.values())))
+    return np.stack([channels.get(c, zeros) for c in (0, 1, 2)], axis=-1)
 
 
 def _shrink_to(array: Any, budget_px: int) -> Any:

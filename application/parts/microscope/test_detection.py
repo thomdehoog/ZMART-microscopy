@@ -48,11 +48,18 @@ def test_the_settings_reach_the_detector_in_its_own_units():
     assert given["cellprob_threshold"] == -1.0
 
 
-def test_a_record_without_a_first_channel_cannot_be_detected_on():
+def test_detection_reads_the_first_channel_the_capture_has():
+    """A Leica job's channels can start at 1; requiring the number 0 refused
+    it. The lowest channel present is the first channel."""
     record = _record()
     record["planes"] = [p for p in record["planes"] if p["c"] != 0]
-    with pytest.raises(RuntimeError, match="channel"):
-        detection.what_was_captured(record, field=0, pixel_um=4.0, settings={})
+    given = detection.what_was_captured(record, field=0, pixel_um=4.0, settings={})
+    assert given["image_path"].endswith("_C01_Z00000.ome.tiff")
+
+
+def test_a_record_without_planes_cannot_be_detected_on():
+    with pytest.raises(RuntimeError, match="planes"):
+        detection.what_was_captured({"planes": []}, field=0, pixel_um=4.0, settings={})
 
 
 def test_the_object_table_comes_back_as_targets_on_the_stage():
