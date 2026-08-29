@@ -1496,12 +1496,6 @@ canvas.livecv[hidden] { display: none; }
 .carrier-link { width: 30px; }
 .carrier-shape { width: 30px; }
 .carrier-reset { padding: 0 12px; }
-/* The catalogue on one line and what can be done with a whole carrier on the
-   next, in equal thirds: none of the three is the one usually wanted, so none
-   of them is given the room that would say so. */
-.carrier-group:has(.carrier-files) { flex-direction: column; }
-.carrier-files { display: flex; gap: 6px; }
-.carrier-files .carrier-reset { flex: 1; padding: 0; }
 .carrier-link:hover:enabled, .carrier-shape:hover:enabled, .carrier-reset:hover:enabled {
   border-color: var(--accent); color: var(--accent);
 }

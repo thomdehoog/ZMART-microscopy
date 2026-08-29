@@ -652,57 +652,6 @@ test("every carrier is designed in one panel, showing what that carrier has",
     expect(await showing()).toEqual(["WIDTH (mm)", "HEIGHT (mm)"]);
   });
 
-test("a carrier made up here can be saved to a file and loaded back",
-  async ({ page }, testInfo) => {
-    await connect(page);
-    await gotoStep(page, "Define Carrier");
-    await page.locator(".carrier-type[data-type='chamber']").click();
-    await page.waitForTimeout(150);
-
-    const width = page.locator("input[data-field='w']");
-    const rows = page.locator("input[data-field='rows']");
-
-    /* A chamber this lab made up: not the catalogue part it started as, which
-       is the whole reason there is anywhere to put it. */
-    await rows.fill("3");
-    await rows.blur();
-    await width.fill("17.5");
-    await width.blur();
-    await page.waitForTimeout(200);
-    await expect(page.locator(".carrier-preset")).toHaveValue("-1");
-
-    const saved = testInfo.outputPath("carrier.json");
-    const [download] = await Promise.all([
-      page.waitForEvent("download"),
-      page.locator(".carrier-files button", { hasText: "Save" }).click(),
-    ]);
-    await download.saveAs(saved);
-
-    /* Reset puts the catalogue part back, so there is something to load over:
-       whichever carrier this type opens on, which is named rather than first
-       in the list. What matters here is that it is a catalogue part again. */
-    await page.locator(".carrier-files button", { hasText: "Reset" }).click();
-    await page.waitForTimeout(200);
-    await expect(page.locator(".carrier-preset")).not.toHaveValue("-1");
-    await expect(rows).not.toHaveValue("3");
-
-    /* Loading is the save read back: the same numbers, and the carrier is
-       once more not a catalogue part. */
-    await page.locator(".carrier-files input[type=file]").setInputFiles(saved);
-    await page.waitForTimeout(300);
-    await expect(rows).toHaveValue("3");
-    await expect(width).toHaveValue("17.50");
-    await expect(page.locator(".carrier-preset")).toHaveValue("-1");
-
-    // a file that is not a carrier leaves the one on screen exactly as it was
-    await page.locator(".carrier-files input[type=file]").setInputFiles({
-      name: "junk.json", mimeType: "application/json",
-      buffer: Buffer.from('{"type":"not-a-carrier"}'),
-    });
-    await page.waitForTimeout(300);
-    await expect(rows).toHaveValue("3");
-    await expect(width).toHaveValue("17.50");
-  });
 
 test("the tools and the grid are on screen together, over what the grid laid",
   async ({ page }) => {

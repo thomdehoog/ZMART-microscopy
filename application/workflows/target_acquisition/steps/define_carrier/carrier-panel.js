@@ -487,67 +487,7 @@ export default {
       commit(next);
     };
 
-    /* Three things to do with a whole carrier, under the catalogue it is
-       chosen from, because all three are about the configuration rather than
-       about any one number in it.
-
-       Save and load are a file and not a list kept somewhere. A carrier that
-       is not in the catalogue is one this lab made up, and what is wanted for
-       one of those is to hand it to the next person and to the machine in the
-       next room — which a list living in this browser cannot do. */
-    const fileRow = el("div", "carrier-files");
-
-    const load = el("button", "sf-flat carrier-reset", "Load");
-    load.type = "button";
-    const picker = document.createElement("input");
-    picker.type = "file";
-    picker.accept = "application/json,.json";
-    picker.hidden = true;
-    picker.addEventListener("change", async () => {
-      const file = picker.files?.[0];
-      picker.value = "";
-      if (!file) return;
-      try {
-        const read = JSON.parse(await file.text());
-        /* Read as a carrier and not as whatever the file happened to hold: a
-           configuration is the fields this panel edits, and anything else in
-           there is somebody else's. An unreadable file leaves the carrier
-           alone rather than half-replacing it. */
-        if (!carrierType(read.type)) return;
-        take({
-          type: read.type,
-          rows: Math.max(1, Math.round(read.rows ?? 1)),
-          cols: Math.max(1, Math.round(read.cols ?? 1)),
-          w: read.w, h: read.h, d: read.d ?? 0,
-          gapX: read.gapX ?? 0, gapY: read.gapY ?? 0,
-          cornerRatio: read.cornerRatio ?? 0,
-        });
-      } catch { /* not a carrier; the one on screen stands */ }
-    });
-    load.addEventListener("click", () => picker.click());
-
-    const save = el("button", "sf-flat carrier-reset", "Save");
-    save.type = "button";
-    save.addEventListener("click", () => {
-      const file = new Blob([`${JSON.stringify(cfg, null, 2)}\n`],
-        { type: "application/json" });
-      const a = document.createElement("a");
-      a.href = URL.createObjectURL(file);
-      a.download = `carrier-${cfg.type}-${cfg.cols}x${cfg.rows}.json`;
-      a.click();
-      URL.revokeObjectURL(a.href);
-    });
-
-    const reset = el("button", "sf-flat carrier-reset", "Reset");
-    reset.type = "button";
-    reset.addEventListener("click", () =>
-      take(fromPreset(cfg.type, opensOn(carrierType(cfg.type)))));
-
-    fileRow.append(load, save, reset, picker);
-    /* Straight into the box, with no second frame around them: the box is
-       already the object these belong to, and an edge inside an edge says the
-       same thing twice. */
-    templateCard.append(presets, fileRow);
+    templateCard.append(presets);
     typeCard.append(templateCard);
 
     /* Every number the carrier is made of goes in one box: rows and columns,
