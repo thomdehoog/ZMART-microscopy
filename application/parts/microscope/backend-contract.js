@@ -41,11 +41,31 @@ export const um = (reading) => ({
  * than written down, because the two backends are two different instruments
  * and only one of them is pretend.
  */
-const somewhereElse = (from) => ({
-  x: from.x > 60_000 ? from.x - 20_000 : from.x + 20_000,
-  y: from.y > 40_000 ? from.y - 15_000 : from.y + 15_000,
-  z: from.z,
+const somewhereElse = (from, canvas) => {
+  const mid = (range) => (range[0] + range[1]) / 2;
+  const step = (range) => (range[1] - range[0]) / 6;
+  return {
+    x: from.x > mid(canvas.x_um) ? from.x - step(canvas.x_um) : from.x + step(canvas.x_um),
+    y: from.y > mid(canvas.y_um) ? from.y - step(canvas.y_um) : from.y + step(canvas.y_um),
+    z: from.z,
+  };
+};
+
+/** The instrument's own travel, for every coordinate a promise drives to:
+    written numbers were the mock's stage, and out-of-travel drives on
+    anything real. */
+const theCanvasOf = async (backend) => (await backend.info()).canvas;
+
+/** A place a given fraction of the way across the travel. */
+const across = (canvas, fx, fy) => ({
+  x: canvas.x_um[0] + fx * (canvas.x_um[1] - canvas.x_um[0]),
+  y: canvas.y_um[0] + fy * (canvas.y_um[1] - canvas.y_um[0]),
 });
+
+const spanOf = (canvas) => [
+  canvas.x_um[1] - canvas.x_um[0],
+  canvas.y_um[1] - canvas.y_um[0],
+];
 
 /**
  * Every promise, in the order they are worth reading.
@@ -77,7 +97,7 @@ export function promisesOfABackend(expect) {
     {
       what: "is standing where it was driven",
       async keep(backend) {
-        const going = somewhereElse(um(await backend.get_xyz()));
+        const going = somewhereElse(um(await backend.get_xyz()), await theCanvasOf(backend));
         await backend.set_xyz(going);
         const now = um(await backend.get_xyz());
         expect(now.x, "x arrived").toBeCloseTo(going.x, 0);
@@ -87,7 +107,7 @@ export function promisesOfABackend(expect) {
     {
       what: "answers a drive with where it ended up",
       async keep(backend) {
-        const going = somewhereElse(um(await backend.get_xyz()));
+        const going = somewhereElse(um(await backend.get_xyz()), await theCanvasOf(backend));
         const answered = um(await backend.set_xyz(going));
         /* The answer and the reading afterwards agree, which is what lets the
            page move the mark on the answer instead of waiting for the watch. */
@@ -172,9 +192,10 @@ export function promisesOfABackend(expect) {
     {
       what: "measures a focus point and reports a height for it",
       async keep(backend) {
+        const canvas = await theCanvasOf(backend);
         const { points } = await backend.measureFocus(
-          [{ x: 30_000, y: 25_000 }],
-          { metric: "brenner", extent: [120_000, 80_000] },
+          [across(canvas, 0.25, 0.3)],
+          { metric: "brenner", extent: spanOf(canvas) },
         );
         expect(points.length, "one point asked for, one back").toBe(1);
         const [point] = points;
@@ -192,13 +213,14 @@ export function promisesOfABackend(expect) {
     {
       what: "keeps every point it was asked about, in the order asked",
       async keep(backend) {
+        const canvas = await theCanvasOf(backend);
         const asked = [
-          { x: 10_000, y: 10_000 },
-          { x: 50_000, y: 30_000 },
-          { x: 90_000, y: 60_000 },
+          across(canvas, 0.1, 0.15),
+          across(canvas, 0.4, 0.4),
+          across(canvas, 0.75, 0.75),
         ];
         const { points } = await backend.measureFocus(asked, {
-          metric: "brenner", extent: [120_000, 80_000],
+          metric: "brenner", extent: spanOf(canvas),
         });
         expect(points.map((p) => [p.x, p.y])).toEqual(asked.map((p) => [p.x, p.y]));
       },
@@ -220,6 +242,29 @@ export function promisesOfABackend(expect) {
         }
         expect(checks.length, "the checks are named as they are asked").toBeGreaterThan(0);
         await backend.disconnect();
+      },
+    },
+    {
+      what: "captures where it stands, and every plane says where it was taken",
+      async keep(backend) {
+        /* The whole display path leans on these three fields, and no promise
+           held them: the record is the only thing that knows where on the
+           sample a file came from. */
+        const canvas = await theCanvasOf(backend);
+        const going = across(canvas, 0.5, 0.5);
+        await backend.set_xyz({ ...going, z: um(await backend.get_xyz()).z });
+        const record = await backend.acquire({
+          acquisition_type: "overview", position_label: "contract",
+        });
+        expect(record.planes.length, "a capture has planes").toBeGreaterThan(0);
+        for (const plane of record.planes) {
+          for (const key of ["t", "c", "z"]) {
+            expect(typeof plane[key], `${key} is a number`).toBe("number");
+          }
+          expect(typeof plane.path, "a plane names its file").toBe("string");
+          expect(plane.x_um, "x_um is where the stage stood").toBeCloseTo(going.x, 0);
+          expect(plane.y_um, "y_um is where the stage stood").toBeCloseTo(going.y, 0);
+        }
       },
     },
     {

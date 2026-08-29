@@ -188,7 +188,9 @@ export const backend = {
       format: options?.format ?? "ome-tiff",
       position: { ...where },
       images: [path],
-      planes: [{ t: 0, z: 0, c: 0, path }],
+      /* Where each plane was taken travels with it, as the real record's
+         planes do: the record is the only thing that knows. */
+      planes: [{ t: 0, z: 0, c: 0, path, x_um: where.x, y_um: where.y, z_um: where.z }],
     };
   },
 
@@ -257,10 +259,17 @@ export const backend = {
         const done = Math.round(t * total);
         while (records.length < done) {
           const at = records.length;
+          const p = positions[at];
+          const path = `${acquisition_type}/${acquisition_type}_pretend_`
+            + `${labelFor(at, p)}_T000000_C00_Z00000.ome.tiff`;
           records.push({
             acquisition_type,
-            position_label: labelFor(at, positions[at]),
-            images: [], planes: [],
+            position_label: labelFor(at, p),
+            /* One plane per record, saying where it was driven: a record
+               with empty planes read fine against the page and undefined
+               against anything that looked inside. */
+            images: [path],
+            planes: [{ t: 0, c: 0, z: 0, path, x_um: p.x, y_um: p.y, z_um: p.z ?? null }],
           });
         }
         onProgress?.(done, total);
