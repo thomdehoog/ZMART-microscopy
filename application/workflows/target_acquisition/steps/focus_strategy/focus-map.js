@@ -1122,6 +1122,20 @@ function paintSlice(img) {
   g.imageSmoothingEnabled = true;
   g.imageSmoothingQuality = "high";
   g.drawImage(img, 0, 0, sliceCv.width, sliceCv.height);
+  /* The cut the side view is taken along -- the slice's middle column --
+     said on the slice itself, or the pair beside each other reads as two
+     unrelated pictures. Dashed and faint over a dark halo, so it stays
+     legible on bright and dark ground alike without covering either. */
+  const x = sliceCv.width / 2;
+  g.save();
+  g.strokeStyle = "rgba(5, 9, 14, 0.4)";
+  g.lineWidth = 3;
+  g.beginPath(); g.moveTo(x, 0); g.lineTo(x, sliceCv.height); g.stroke();
+  g.strokeStyle = "rgba(255, 255, 255, 0.85)";
+  g.lineWidth = 1;
+  g.setLineDash([6, 5]);
+  g.beginPath(); g.moveTo(x, 0); g.lineTo(x, sliceCv.height); g.stroke();
+  g.restore();
 }
 
 function drawZSlice(point) {
