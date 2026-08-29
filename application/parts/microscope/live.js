@@ -248,7 +248,11 @@ export const backend = {
     await ask("/api/scan", { positions, acquisition_type, state });
     for (;;) {
       const progress = await askedPatiently("/api/scan");
-      onProgress?.(progress.done, progress.of);
+      /* Where the scan stood when it answered -- the last record's own plane,
+         which is the only account of the stage that is already in hand. */
+      const plane = progress.records?.[progress.done - 1]?.planes?.[0];
+      onProgress?.(progress.done, progress.of,
+        plane ? { x: plane.x_um, y: plane.y_um, z: plane.z_um } : null);
       if (progress.error) throw new Error(progress.error);
       if (!progress.running) {
         /* The records come back with the run: what each capture wrote and

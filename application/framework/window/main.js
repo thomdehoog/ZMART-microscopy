@@ -572,9 +572,12 @@ let stageWatch = null;
            a recording that gated the step and configured nothing left every
            capture on whatever job was selected. */
         state: activeRecording(state.overviewPreset)?.changeable ?? null,
-        onProgress: (done) => {
+        onProgress: (done, of, at) => {
           if (state.running !== s.id) return;
           state.tilesShown = done;
+          /* The mark moves with the scan: each answer says where the stage
+             stood, and the watch's own poll is seconds behind it. */
+          if (at) takeThePosition(at);
           state.notes[s.id] = scanNote();
           stage.groundFollowsTheScan();
           /* Each position the scan reports is a reason to read the run again,
