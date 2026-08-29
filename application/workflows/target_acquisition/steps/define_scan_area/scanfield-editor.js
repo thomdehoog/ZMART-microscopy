@@ -1088,7 +1088,7 @@ export default {
         if (kind === "down") return down(x, y, scale);
         if (kind === "move") return moveTo(x, y, scale);
         if (kind === "up") return up(scale);
-        if (kind === "finish") return finish(scale);
+        if (kind === "finish") return finish(x, y, scale);
         if (kind === "leave") {
           const had = ed.hover || ed.hoverGrip || ed.cursor;
           ed.hover = null;
@@ -1212,8 +1212,8 @@ export default {
      * the last one — only the operator knows. Hunting for the first point to
      * click again is a second, smaller drawing problem on top of the first.
      * Fewer than three points is not a region, so it is thrown away instead. */
-    function finish(scale) {
-      if (!ed.poly.length) return false;
+    function finish(x, y, scale) {
+      if (!ed.poly.length) return addVertexAt(x, y, scale);
       const points = withoutTrailingDuplicate(ed.poly, DUPLICATE_PX / scale);
       ed.poly = [];
       ed.tool = "pointer";
@@ -1223,6 +1223,41 @@ export default {
       const f = clamped({ id: nextId(), type: "polygon", points, rotation: 0 });
       commit([...ed.fields, f]);
       ed.selected = new Set([f.id]);
+      sync();
+      return true;
+    }
+
+    /* Double-click on a selected polygon's edge and a vertex appears there:
+       the shape grows where it is asked to instead of being redrawn. Worked
+       in world space, the same round trip a dragged vertex takes, so a
+       rotated polygon neither drifts nor turns. Off the edge, or with no
+       polygon selected, the double-click keeps its old meaning. */
+    function addVertexAt(x, y, scale) {
+      const f = single();
+      if (!f || !f.points) return false;
+      const rot = f.rotation || 0;
+      const c = centroid(f);
+      const world = f.points.map((p) => rotatePoint(p.x, p.y, c.x, c.y, rot));
+      // within a hand's reach of the line, in screen pixels
+      const reach = 8 / scale;
+      let best = null;
+      world.forEach((a, i) => {
+        const b = world[(i + 1) % world.length];
+        const vx = b.x - a.x, vy = b.y - a.y;
+        const len = vx * vx + vy * vy;
+        const t = len ? Math.max(0, Math.min(1, ((x - a.x) * vx + (y - a.y) * vy) / len)) : 0;
+        const px = a.x + t * vx, py = a.y + t * vy;
+        const d = Math.hypot(x - px, y - py);
+        if (d <= reach && (!best || d < best.d)) best = { d, at: i + 1, p: { x: px, y: py } };
+      });
+      if (!best) return false;
+      world.splice(best.at, 0, best.p);
+      const nc = {
+        x: world.reduce((sum, p) => sum + p.x, 0) / world.length,
+        y: world.reduce((sum, p) => sum + p.y, 0) / world.length,
+      };
+      const points = world.map((p) => rotatePoint(p.x, p.y, nc.x, nc.y, -rot));
+      commit(ed.fields.map((g) => (g.id === f.id ? { ...f, points } : g)));
       sync();
       return true;
     }
