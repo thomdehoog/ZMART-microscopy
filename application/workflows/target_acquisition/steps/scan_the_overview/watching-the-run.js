@@ -95,6 +95,10 @@ export function watchTheRun(ctx) {
        not known until the operator has connected, and this closure is built
        before the page has anything on it. */
     const pointedAt = () => search.get("picture") ?? ctx.pictures?.("overview") ?? null;
+    /* A backend's pictures are in the frame the instrument reported -- the
+       stage's -- and the canvas draws the carrier's; the two differ by the
+       measured origin. A store pointed at by hand is taken as it is. */
+    const inTheStagesFrame = () => !search.get("picture");
     const engine = search.get("engine") ?? "jpeg-under";
     const host = ctx.pictureHost;
     let viewer = null;
@@ -135,7 +139,13 @@ export function watchTheRun(ctx) {
          picture above moved to the shared canvas those numbers stopped existing
          and the scan quietly drew nowhere. Asking for the view is one answer
          instead of two. */
-      viewer.setView(ctx.view());
+      const v = ctx.view();
+      if (inTheStagesFrame()) {
+        const [ox, oy] = ctx.carrierOriginUm();
+        viewer.setView({ ...v, x: v.x + ox, y: v.y + oy });
+        return;
+      }
+      viewer.setView(v);
     }
 
     return {
