@@ -52,6 +52,9 @@ The verbs, and what they are made of
   to each position, acquire, report progress. ``GET /api/scan`` reads the
   progress. The window's live picture watches the run's own store, so nothing
   here needs to push pixels at the browser.
+* ``POST /api/targets/discover`` — find the targets in the overview's fields,
+  all of them or the ones named, through the warm analysis; ``GET`` reads the
+  progress, each field's targets appended as they are found.
 * ``POST /api/disconnect`` — close the session.
 
 This bridge deliberately stops at the overview scan. Discovery, refinement and
@@ -103,7 +106,7 @@ from application.parts.storage.output import (  # noqa: E402
     prepare_experiment,
 )
 from application.parts.analysis import warm  # noqa: E402
-from application.parts.microscope import focus_score  # noqa: E402
+from application.parts.microscope import detection, focus_score  # noqa: E402
 from application.parts.microscope.focus_run import measure_focus  # noqa: E402
 
 # ---------------------------------------------------------------------------
@@ -656,6 +659,79 @@ def _start_scan(asked: dict) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# The targets: detection over the overview's fields, watched like the scan
+# ---------------------------------------------------------------------------
+
+#: Discovery under way, polled by the page the way the scan is. Each field is
+#: appended as its targets are found, so the page can draw them while the
+#: rest of the overview is still being looked at.
+_targets = {"running": False, "done": 0, "of": 0, "error": None, "fields": []}
+
+
+def _find_targets():
+    """The finder for this session: detection through the warm analysis, in
+    the pixels the instrument reports. Built when discovery starts rather than
+    at import, so the bridge loads with no analysis installed."""
+    with _the_instruments_turn:
+        observed = _require_session().get_state().get("observed", {})
+    pixel_um = float(observed.get("pixel_size", {}).get("x", 1.0))
+    return detection.through(warm.the_analysis(), pixel_um=pixel_um)
+
+
+def _discover_targets(asked: dict) -> dict:
+    """Start detection over the overview: every field, or only the ones named.
+
+    ``fields`` names the overview's fields by index -- one, to try settings on
+    before the whole sample is run -- and left out means all of them.
+    """
+    if _targets["running"]:
+        raise RuntimeError("targets are already being discovered")
+    records = _scan["records"]
+    if not records:
+        raise RuntimeError("no overview has been scanned, so there is nothing to find targets in")
+    chosen = asked.get("fields")
+    fields = list(range(len(records))) if chosen is None else [int(field) for field in chosen]
+    _targets.update(running=True, done=0, of=len(fields), error=None, fields=[])
+    threading.Thread(
+        target=_targets_worker, args=(fields, dict(asked.get("settings") or {})), daemon=True
+    ).start()
+    return dict(_targets)
+
+
+def _targets_worker(fields: list, settings: dict) -> None:
+    try:
+        find = _find_targets()
+        for field in fields:
+            record = _scan["records"][field]
+            cells = find(record, field, settings)
+            _keep_targets(cells, record)
+            _targets["fields"].append({
+                "field": field, "position_label": record["position_label"], "cells": cells,
+            })
+            _targets["done"] += 1
+    except Exception as why:  # noqa: BLE001 -- the window shows the sentence
+        _targets["error"] = str(why)
+    finally:
+        _targets["running"] = False
+
+
+def _keep_targets(cells: list, record: dict) -> None:
+    """Write what was found beside the field it was found in.
+
+    ``<acquisition>/analysis``, next to the ``data`` the objects came from, the
+    way a focus curve is kept: without this the only copy is on the operator's
+    screen, and it goes when the window does.
+    """
+    where = _the_run() / record["acquisition_type"] / "analysis"
+    where.mkdir(parents=True, exist_ok=True)
+    name = (
+        f"{record['acquisition_type']}_{record['acquisition_hash']}_"
+        f"{record['position_label']}_T000000_targets.json"
+    )
+    (where / name).write_text(json.dumps(cells, indent=2), encoding="utf-8")
+
+
+# ---------------------------------------------------------------------------
 # The HTTP shell: routes in, JSON out, errors as sentences
 # ---------------------------------------------------------------------------
 
@@ -783,6 +859,8 @@ class _Bridge(BaseHTTPRequestHandler):
                 self._answer(dict(_scan))
             elif path == "/api/focus/measure":
                 self._answer(dict(_focus))
+            elif path == "/api/targets/discover":
+                self._answer(dict(_targets))
             elif path.startswith("/view/"):
                 self._send_a_picture(path)
             elif not path.startswith("/api/"):
@@ -814,6 +892,8 @@ class _Bridge(BaseHTTPRequestHandler):
                 self._answer(_measure_focus(asked))
             elif self.path == "/api/scan":
                 self._answer(_start_scan(asked))
+            elif self.path == "/api/targets/discover":
+                self._answer(_discover_targets(asked))
             else:
                 self._answer({"error": f"no route {self.path}"}, status=404)
         except Exception as why:  # noqa: BLE001
