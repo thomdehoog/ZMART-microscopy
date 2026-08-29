@@ -288,7 +288,8 @@ export const howManyAnchorsFit = (config) => anchorsUm(config, Infinity).length;
  * drives no longer than a well; the fifth, on the right edge of the last
  * area in the same row -- at the same height as the first one's left mark --
  * pins how the carrier is turned, read over the longest lever the row
- * offers. A carrier whose first row is one area wide simply has no fifth.
+ * offers; the sixth does the same down the first column, on the top edge of
+ * its lowest area. A carrier one area wide or tall simply has fewer.
  */
 export function robustAnchorsUm(config) {
   const halfW = config.w / 2, halfH = config.h / 2;
@@ -306,6 +307,9 @@ export function robustAnchorsUm(config) {
   const rowEnd = areas.reduce((held, a) =>
     (near(a.y, first.y) && a.x > held.x ? a : held), first);
   if (rowEnd !== first) marks.push({ at: "right", x: rowEnd.x + halfW, y: rowEnd.y });
+  const columnEnd = areas.reduce((held, a) =>
+    (near(a.x, first.x) && a.y > held.y ? a : held), first);
+  if (columnEnd !== first) marks.push({ at: "top", x: columnEnd.x, y: columnEnd.y - halfH });
   return marks.map((m) => ({ at: m.at, x: m.x * MM_UM, y: m.y * MM_UM }));
 }
 
@@ -582,7 +586,7 @@ export default {
     const fastBtn = modeButton("fast", "Fast",
       "One point: drives the carrier to where it really is");
     const robustBtn = modeButton("robust", "Robust",
-      "Five points: four around the first well area, and the far end of its row for the turn");
+      "Six points: four around the first well area, the far end of its row, and the foot of its column");
     anchorSeg.append(fastBtn, robustBtn);
     sayChecked();
 
