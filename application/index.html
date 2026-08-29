@@ -95,19 +95,15 @@
               </div>
             </div>
 
-            <!-- The press that measures what was laid, at the end of the box
-                 that laid it, and beside it the way back out: both act on every
-                 point there is, where the row above acts on one tileset at a
-                 time. -->
-            <div class="fp-run">
-              <div class="focus-action"></div>
-            </div>
-
             <!-- What can be done to a map that has already been run, and not
                  there before one has: every press here is about a map that
                  exists, and three greyed buttons under the press that makes one
                  say nothing the greyed press has not already said. -->
             <div class="fp-again" id="fp-again">
+              <!-- One slot for the one act: the step's own press makes the
+                   map, and Rerun stands here once there is one to measure
+                   again. -->
+              <div class="focus-action"></div>
               <button type="button" class="sf-flat sf-doing" id="fp-rerun"
                       title="Measure every point again, each search starting from the height the objective is at now">
                 Rerun
