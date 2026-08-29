@@ -1228,7 +1228,7 @@ test("focus points are laid so many to a tileset", async ({ page }) => {
   /* A measured map holds the box that laid it: the points and the surface
      through them are one answer, so a fresh set goes down only after Reset has
      thrown the old one away. */
-  await page.locator("#fp-reset").click();
+  await page.locator("#fp-clear").click();
   await page.waitForTimeout(250);
   await page.locator("#fp-count").fill("3");
   await page.locator("#fp-count").dispatchEvent("input");
@@ -1247,7 +1247,7 @@ test("focus points are laid so many to a tileset", async ({ page }) => {
     .toBeGreaterThan(0.2);
 
   // and pressing it again with the same number lays the same three
-  await page.locator("#fp-reset").click();
+  await page.locator("#fp-clear").click();
   await page.waitForTimeout(250);
   await page.locator("#fp-count").fill("3");
   await page.locator("#fp-count").dispatchEvent("input");
@@ -1260,7 +1260,7 @@ test("focus points are laid so many to a tileset", async ({ page }) => {
 
   /* More than the tileset holds is what it holds: a number is a wish, and the
      positions are what there is to measure. */
-  await page.locator("#fp-reset").click();
+  await page.locator("#fp-clear").click();
   await page.waitForTimeout(250);
   await page.locator("#fp-count").fill("99");
   await page.locator("#fp-count").dispatchEvent("input");
@@ -1270,22 +1270,20 @@ test("focus points are laid so many to a tileset", async ({ page }) => {
   const all = await placed();
   expect(all.length, "as many as the tileset has positions").toBeGreaterThan(3);
 
-  /* Reset is what empties a measured map: the points and the surface fitted
-     through them are one answer, and Clear is held while that answer stands. */
-  await expect(page.locator("#fp-clear")).toBeDisabled();
-  await page.locator("#fp-reset").click();
+  /* One press for the whole way back: Clear all empties the measured map --
+     the points and the surface through them are one answer, thrown away
+     together. (Reset, which once owned this half, is gone.) */
+  await page.locator("#fp-clear").click();
   await page.waitForTimeout(250);
   expect(await page.locator(".point-row").count()).toBe(0);
 
-  /* Clear is for a set that has not been measured yet, and says it is empty by
-     refusing to be pressed. */
-  await expect(page.locator("#fp-clear")).toBeDisabled();
+  /* And an unmeasured set goes the same way: laid, thrown away, gone. The
+     press stays offered either way -- one button, one meaning. */
   await page.locator("#fp-place").click();
   await page.waitForTimeout(300);
-  await expect(page.locator("#fp-clear")).toBeEnabled();
   await page.locator("#fp-clear").click();
   await page.waitForTimeout(250);
-  await expect(page.locator("#fp-clear")).toBeDisabled();
+  expect(await page.locator(".point-row").count()).toBe(0);
 });
 
 test("one walk of the whole run", async ({ page }) => {

@@ -1001,11 +1001,15 @@ stageBox.addEventListener("dblclick", (e) => {
  */
 async function driveTheStageTo(e) {
   if (run.running || layersLocked() || !ctx.driveTo) return;
+  /* `toWorld` answers in the stage's own frame, so the travel's bounds are
+     compared in it directly. Subtracting the carrier origin here treated the
+     press as a carrier coordinate and shifted the accepted region by half
+     the travel-minus-carrier -- the top of the travel drove and the bottom
+     third refused, silently. */
   const [x, y] = toWorld(e.offsetX, e.offsetY);
   const [fw, fh] = STAGE_UM;
-  const [ox, oy] = carrierOriginUm();
-  const [sx, sy] = [STAGE_ORIGIN_UM[0] - ox, STAGE_ORIGIN_UM[1] - oy];
-  if (x < sx || y < sy || x > sx + fw || y > sy + fh) return;
+  if (x < STAGE_ORIGIN_UM[0] || y < STAGE_ORIGIN_UM[1]
+    || x > STAGE_ORIGIN_UM[0] + fw || y > STAGE_ORIGIN_UM[1] + fh) return;
   const at = await ctx.driveTo({ x, y });
   if (at) takeThePosition(at);
 }
