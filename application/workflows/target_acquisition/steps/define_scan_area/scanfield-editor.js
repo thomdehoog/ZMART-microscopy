@@ -52,7 +52,6 @@ const TOOLS = [
   { id: "pointer", key: "v", glyph: "↖", label: "Select", why: "Select, move, resize and rotate" },
   { id: "point", key: ".", glyph: "+", label: "Point", why: "Place positions · press again to stop" },
   { id: "rectangle", key: "r", glyph: "▭", label: "Rectangle", why: "Drag a rectangular region" },
-  { id: "triangle", key: "t", glyph: "△", label: "Triangle", why: "Drag a triangular region" },
   { id: "ellipse", key: "e", glyph: "◯", label: "Ellipse", why: "Drag to draw · Shift for a circle" },
   { id: "polygon", key: "p", path: POLYGON_GLYPH, label: "Polygon", why: "Click to add points · double-click to finish" },
 ];
