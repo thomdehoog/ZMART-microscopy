@@ -132,20 +132,11 @@
             <!-- What can be done to a map that has already been run, and not
                  there before one has: every press here is about a map that
                  exists, and three greyed buttons under the press that makes one
-                 say nothing the greyed press has not already said.
-
-                 Rerun and Refine differ only in where each search begins — at
-                 the height the objective is standing at now, or at what the map
-                 already predicts for that point — which is the whole of what an
-                 operator is choosing between. -->
+                 say nothing the greyed press has not already said. -->
             <div class="fp-again" id="fp-again" hidden>
               <button type="button" class="sf-flat sf-doing" id="fp-rerun"
                       title="Measure every point again, each search starting from the height the objective is at now">
                 Rerun
-              </button>
-              <button type="button" class="sf-flat sf-doing" id="fp-refine"
-                      title="Measure every point again, each search starting from the height this map predicts there">
-                Refine
               </button>
               <button type="button" class="sf-flat" id="fp-reset"
                       title="Throw the map away, and the points it was measured from with it">
@@ -168,7 +159,6 @@
                  a second look: a list four rows deep scrolls, so the count is
                  what says there is something to scroll to. -->
             <div class="side-sub">Focus points<span class="tallies"><span
-                 class="edit-count" id="fp-edited"></span><span
                  class="warn-count" id="fp-warned"></span></span></div>
             <!-- Three rows deep, and scrolled past that: the list is here to
                  choose from, and a list as long as the map pushes the picture
@@ -205,19 +195,14 @@
               <div class="trace-empty" id="trace-empty">Run the strategy to measure each point, then its sweep appears here.</div>
             </div>
 
-            <!-- What can be done to the one point being read, on the same
-                 three columns the presses above use. Rerun measures it again;
-                 Accept says the operator has looked at it and it stands,
-                 which takes its marks off the list; Reset puts it back to the
-                 height the instrument chose. -->
+            <!-- What can be done to the one point being read. Rerun measures
+                 it again; Reset puts it back to the height the instrument
+                 chose. There is no Accept: a height the operator drags simply
+                 stands, because moving it is the look. -->
             <div class="ft-acts">
               <button type="button" class="sf-flat sf-doing" id="ft-rerun"
                       title="Measure this one point again, starting from the height the objective is at now">
                 Rerun
-              </button>
-              <button type="button" class="sf-flat" id="ft-accept"
-                      title="This height stands — take its marks off the list">
-                Accept
               </button>
               <button type="button" class="sf-flat" id="ft-reset"
                       title="Put this point back to the height the autofocus chose">
