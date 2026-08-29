@@ -360,6 +360,7 @@ let stageWatch = null;
       locked: false,
     });
     view.fitted = false;
+    stage?.groundFollowsTheScan();
     focusPanelsFor(0);
     gatingShown?.redraw();
     renderPointList();
@@ -567,6 +568,7 @@ let stageWatch = null;
           if (state.running !== s.id) return;
           state.tilesShown = done;
           state.notes[s.id] = scanNote();
+          stage.groundFollowsTheScan();
           /* Each position the scan reports is a reason to read the run again,
              because the tile it just saved is new picture that nothing on disk
              announces — the images were declared at their full size before any
@@ -657,6 +659,7 @@ let stageWatch = null;
       if (s.mode === "scan") {
         state.tilesShown = state.plan.length;
         state.notes[s.id] = scanNote();
+        stage.groundFollowsTheScan();
         stageWatch?.refresh();
       }
       if (s.mode === "detect") {
