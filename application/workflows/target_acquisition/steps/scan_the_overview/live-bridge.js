@@ -36,7 +36,7 @@ export const rest = (ms) => new Promise((done) => setTimeout(done, ms));
  * `PYTHON=` overrides, for a machine that keeps it elsewhere.
  */
 const THE_OPERATORS_PYTHON =
-  "C:\ProgramData\MinicondaZMB\envs\zmart-microscopy\python.exe";
+  "C:/ProgramData/MinicondaZMB/envs/zmart-microscopy/python.exe";
 
 export const pythonForTheBridge = () =>
   process.env.PYTHON ?? (existsSync(THE_OPERATORS_PYTHON) ? THE_OPERATORS_PYTHON : "python");
