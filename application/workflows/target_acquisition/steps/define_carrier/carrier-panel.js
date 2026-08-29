@@ -566,34 +566,21 @@ export default {
 
     /* How many to lay. Beside the button rather than above it, because the two
        are one sentence: this many points, put them down. */
-    /* Two ways, not a number. Fast is the one point most runs need: the
-       carrier is where the holder put it, and one landmark says how far off
-       that was. Robust rings the first well area and adds the far end of its
-       row, so the turn is measured too. */
-    let mode = "fast";
-    const anchorSeg = el("div", "seg anchor-mode");
-    const sayChecked = () => {
-      fastBtn.setAttribute("aria-checked", String(mode === "fast"));
-      robustBtn.setAttribute("aria-checked", String(mode === "robust"));
-    };
-    const modeButton = (name, label, title) => {
-      const button = el("button", "", label);
-      button.type = "button";
-      button.title = title;
-      button.addEventListener("click", () => { mode = name; sayChecked(); });
-      return button;
-    };
-    const fastBtn = modeButton("fast", "Fast",
-      "One point: drives the carrier to where it really is");
-    const robustBtn = modeButton("robust", "Robust",
-      "Six points: four around the first well area, the far end of its row, and the foot of its column");
-    anchorSeg.append(fastBtn, robustBtn);
-    sayChecked();
+    /* Two presses, not a mode and a press. Fast lays the one point most
+       runs need: the carrier is where the holder put it, and one landmark
+       says how far off that was. Robust rings the first well area and reads
+       both levers. Each press lays its own set there and then. */
+    const fastBtn = el("button", "sf-flat sf-doing anchor-fast", "Fast");
+    fastBtn.type = "button";
+    fastBtn.title = "One point: drives the carrier to where it really is";
+    const robustBtn = el("button", "sf-flat sf-doing anchor-robust", "Robust");
+    robustBtn.type = "button";
+    robustBtn.title = "Up to six points: four around the first well area, the far end of its row, and the foot of its column";
 
     /* The box's own action, filled like Connect on the step before and Update
        optical configuration on the step after: one obvious thing to press per
        box, and it looks the same wherever it is. */
-    const anchorAdd = el("button", "run anchor-add", "Add alignment points");
+    const anchorAdd = el("button", "run anchor-add", "Reset");
     anchorAdd.type = "button";
     /* Put them all down at once. Where a carrier is registered from is a
        property of its shape, not something an operator should have to find by
@@ -605,13 +592,12 @@ export default {
        which is what an operator wants after dragging three of them somewhere
        unhelpful and what asking for a different number needs first — with the
        carrier back where a carrier sits when nobody has aligned it. */
-    const layThem = () => (anchors.list().length
-      ? anchors.suggest([])
-      : anchors.suggest(mode === "robust" ? robustAnchorsUm(cfg) : anchorsUm(cfg, 1)));
-    anchorAdd.addEventListener("click", layThem);
+    fastBtn.addEventListener("click", () => anchors.suggest(anchorsUm(cfg, 1)));
+    robustBtn.addEventListener("click", () => anchors.suggest(robustAnchorsUm(cfg)));
+    anchorAdd.addEventListener("click", () => anchors.suggest([]));
 
     const anchorLay = el("div", "anchor-lay");
-    anchorLay.append(anchorSeg, anchorAdd);
+    anchorLay.append(fastBtn, robustBtn, anchorAdd);
 
     const anchorList = el("div", "point-list anchor-list");
     /* Say how many and press, and the list of them appears underneath: the row
@@ -623,7 +609,6 @@ export default {
       /* The set is complete or it is not there — where a carrier is aligned
          from is a property of its shape. So the one press lays them and takes
          them away again, and says which of the two it is about to do. */
-      anchorAdd.textContent = anchors.list().length ? "Reset" : "Add alignment points";
       /* The box says what is down while anything is, and what would be laid
          otherwise: a number left over from before would claim six where four
          are showing. */
@@ -634,7 +619,9 @@ export default {
          nothing left to say, and the press — now Reset — belongs under the
          column of Snaps it undoes rather than above them. */
       const down = anchors.list().length > 0;
-      anchorSeg.hidden = down;
+      fastBtn.hidden = down;
+      robustBtn.hidden = down;
+      anchorAdd.hidden = !down;
       anchorCard.append(...(down ? [anchorList, anchorLay] : [anchorLay, anchorList]));
       /* An empty list is not an empty list on screen: it keeps the rules that
          separate its rows, and with no rows between them they read as one
