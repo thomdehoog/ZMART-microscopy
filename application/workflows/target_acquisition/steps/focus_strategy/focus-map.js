@@ -1141,20 +1141,20 @@ function paintSlice(img) {
   g.imageSmoothingEnabled = true;
   g.imageSmoothingQuality = "high";
   g.drawImage(img, 0, 0, sliceCv.width, sliceCv.height);
-  /* The cut the side view is taken along, said on the slice itself, or the
-     pair beside each other reads as two unrelated pictures. Red -- the
-     plot's automatic-focus dashes went, so red is this handle's alone --
-     dashed over a dark halo so it stays legible on bright and dark ground
-     alike. */
+  /* Where the side view cuts: a red triangle on the picture's top edge --
+     the same grab handle the plot's height wears -- dragged left and right.
+     No line under it, so the mark says where without drawing over the
+     tissue it is about. */
   const x = orthoCut * sliceCv.width;
   g.save();
-  g.strokeStyle = "rgba(5, 9, 14, 0.4)";
-  g.lineWidth = 3;
-  g.beginPath(); g.moveTo(x, 0); g.lineTo(x, sliceCv.height); g.stroke();
-  g.strokeStyle = css("--bad");
-  g.lineWidth = 1.6;
-  g.setLineDash([6, 5]);
-  g.beginPath(); g.moveTo(x, 0); g.lineTo(x, sliceCv.height); g.stroke();
+  g.fillStyle = css("--bad");
+  g.strokeStyle = "rgba(255, 255, 255, 0.8)";
+  g.lineWidth = 1.5;
+  g.beginPath();
+  g.moveTo(x - 7, 0); g.lineTo(x + 7, 0); g.lineTo(x, 10);
+  g.closePath();
+  g.fill();
+  g.stroke();
   g.restore();
 }
 
