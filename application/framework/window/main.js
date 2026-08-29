@@ -792,14 +792,35 @@ let stageWatch = null;
   function focusFollowsPreset() {
     const id = activeRecording(state.focusPreset)?.id ?? null;
     if (id === state.focusFor) return;
-    if (state.focusFor) state.focusMaps[state.focusFor] = state.focus;
+    const leaving = state.focus;
+    if (state.focusFor) state.focusMaps[state.focusFor] = leaving;
     state.focusFor = id;
-    state.focus = id ? (state.focusMaps[id] ?? newFocus()) : newFocus();
+    state.focus = id ? (state.focusMaps[id] ?? inheritedFocus(leaving)) : newFocus();
     // and maps whose preset has been forgotten go with it
     const kept = new Set(state.focusPreset.records.map((r) => r.id));
     for (const held of Object.keys(state.focusMaps)) {
       if (!kept.has(held)) delete state.focusMaps[held];
     }
+  }
+
+  /* An updated configuration does not take the operator's places with it.
+     The recording is right that its READINGS are its own -- a height read
+     through optics this recording no longer describes goes stale, and the
+     surface fitted through such heights goes with them -- but the points
+     are where the operator decided to measure, and pressing Update used to
+     throw the whole laid map away with the reading it replaced. */
+  function inheritedFocus(leaving) {
+    if (!leaving || leaving.strategy !== "plane" || !leaving.points.length) {
+      return newFocus();
+    }
+    return {
+      ...newFocus(),
+      metric: leaving.metric,
+      perField: leaving.perField,
+      perCarrier: leaving.perCarrier,
+      points: leaving.points.map((p) =>
+        (p.z !== null || p.traces || p.lost) ? { ...p, stale: true } : { ...p }),
+    };
   }
 
   /* The recording settles the step. A hardware autofocus is held by the stand
