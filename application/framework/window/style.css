@@ -798,6 +798,7 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
 .trace-host .zortho canvas {
   width: 100%; aspect-ratio: 1 / 1; height: auto; display: block;
   border-radius: 6px; background: #05090e;
+  cursor: ns-resize; touch-action: none;
 }
 /* Flush with the box that holds it, which brings its own padding. */
 /* Wide as the box, so the plot's frame lands on the column the heading and
