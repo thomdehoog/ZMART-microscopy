@@ -159,15 +159,16 @@ def measure_focus(
         if output is not None:
             move_record_images(record, output.data)
         found = score(record)
-        if output is not None:
-            _keep(found, output.root, record)
-
         measurement = {
             "x_um": point["x"],
             "y_um": point["y"],
             "z_um": found.get("z_um"),
             "traces": found.get("traces"),
         }
+        if output is not None:
+            # The whole measurement, not just the score: a kept height that
+            # does not say where it was measured cannot be accounted for.
+            _keep(measurement, output.root, record)
         measured.append(measurement)
         if on_point is not None:
             on_point(measurement)

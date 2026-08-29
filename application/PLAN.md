@@ -88,3 +88,11 @@ Own branch off `main`, PR, then merged in.
   actually used).
 - **Targets are imaged with whatever job is selected**, as the overview is:
   neither scan applies its recorded preset first. Consistent, and open.
+- **`live_overview_demo.py` is the last pretend outside the mock driver.** It
+  writes a run through the real writer but invents its tiles, because the
+  OME-Zarr watching path (`?overview=`) has nothing else to watch: the mock
+  driver writes flat TIFFs, and in the real system the Zarr is zmart_live's
+  builder reading any driver's TIFFs. The honest replacement: the specs point
+  at a run the builder made from a bridge-driven mock scan, and the demo
+  dies. Until then it stays, found again by the harness (its path had gone
+  stale in the restructure).

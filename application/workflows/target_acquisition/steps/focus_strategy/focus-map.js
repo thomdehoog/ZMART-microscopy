@@ -20,8 +20,7 @@
  */
 
 import carrierWidget from "../define_carrier/carrier-panel.js";
-import { makeRng } from "../../../../parts/microscope/pretend-sample/rng.js";
-import { METRICS, METRIC_KEYS, sweep }
+import { METRICS, METRIC_KEYS }
   from "../../../../parts/microscope/pretend-sample/sweep.js";
 import { MIN_TISSUE_WIDTH_UM, findCandidates, pickPeak }
   from "../../../../parts/microscope/focus-peaks.js";
@@ -42,13 +41,8 @@ export function openTheFocusMap(ctx) {
     run, backend, stage, el, css, sizeCanvas, step,
     focusControls, renderActionBar, renderSide,
   } = ctx;
-  const theSample = ctx.sample;
 
 const carrierSpan = () => carrierWidget.extentUm(run.carrier);
-const trueZ = (x, y) => {
-  const [w, h] = carrierSpan();
-  return -412 + 96 * (x / w - 0.5) + 61 * (y / h - 0.5);
-};
 
 function focusSurface() {
   const f = run.focus;
@@ -100,7 +94,14 @@ function carrierBox() {
 
 /* How far the positions themselves reach — the plate while there are none. */
 function planBox() {
-  return theSample().bounds ?? carrierBox();
+  if (!run.plan.length) return carrierBox();
+  let xMin = Infinity, yMin = Infinity, xMax = -Infinity, yMax = -Infinity;
+  for (const t of run.plan) {
+    const half = t.frameUm / 2;
+    xMin = Math.min(xMin, t.x - half); xMax = Math.max(xMax, t.x + half);
+    yMin = Math.min(yMin, t.y - half); yMax = Math.max(yMax, t.y + half);
+  }
+  return { xMin, yMin, xMax, yMax };
 }
 
 /* Every position inside one compartment, by where it is rather than by any
@@ -992,7 +993,7 @@ el("ft-rerun").addEventListener("click", async (e) => {
 });
 
 async function rerunOne(f, at, p) {
-  const startZ = stage.whereTheStageIs().z;
+  const startZ = stage.whereTheStageIs()?.z;
   /* Asked as a point nobody has touched. A backend keeps a height the operator
      moved by hand — that is what makes a hand-set height survive a change of
      metric — and here that would have the rerun hand back the very height it
@@ -1211,8 +1212,8 @@ function drawTrace() {
   // are normalised the same way the curve was
   const N = (s) => s / decidingPeak;
   const p = f.points[f.selected];
-  // sweep() is deterministic, so the recomputed candidate at the recorded
-  // height is the same peak the rule picked when the strategy ran
+  // candidates are recomputed from the recorded curve, so the one at the
+  // recorded height is the same peak the rule picked when the strategy ran
   const chosen = t.candidates.find((c) => Math.abs(c.z - p.zAuto) < 1e-6) || t.candidates[0];
 
   /* The peaks the rule turned down are not ringed. Every bump in the curve is
@@ -1540,7 +1541,7 @@ function settled(p) {
 
 async function remeasure({ from = null } = {}) {
   const f = run.focus;
-  const stageZ = () => stage.whereTheStageIs().z;
+  const stageZ = () => stage.whereTheStageIs()?.z;
   const beginsAt = (p) => {
     if (from === "stage") return stageZ();
     if (from === "map") return f.surface ? surfaceZ(f.surface, p.x, p.y) : stageZ();
@@ -1627,8 +1628,8 @@ function refitSurface() {
        geometry they need does: placing a carrier anchor, and picking the
        position detection is tried on. They move when that geometry does. */
     anchorPressed, detectPressed,
-    // what the sample's surface is said to be, and where a position is
-    trueZ, nearestPosition,
+    // where a position is
+    nearestPosition,
     // the channel
     renderFocusBar, renderPointList, drawTrace, refitSurface, remeasure,
     mounted: focusMounted,

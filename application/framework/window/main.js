@@ -41,8 +41,7 @@ import galleryWidget from "../../workflows/target_acquisition/steps/acquire_targ
    fitting — is imported rather than written here, so the unit tests and the
    page read the same arithmetic. These files used to exist twice, once here
    and once beside the mock, and the two copies could disagree in silence. */
-import { densityAt, sampleFor } from "../../parts/microscope/pretend-sample/sample.js";
-import { METRICS, METRIC_KEYS, scoreAt } from "../../parts/microscope/pretend-sample/sweep.js";
+import { METRICS, METRIC_KEYS } from "../../parts/microscope/pretend-sample/sweep.js";
 import {
   affineSurface, fitSurface, residualsUm, surfaceZ,
 } from "../../parts/microscope/pretend-sample/surface.js";
@@ -71,23 +70,14 @@ let stageWatch = null;
 (() => {
   "use strict";
 
-  /* What the pretend instrument would find, rebuilt whenever the plan or the
-     plate changes — either changes what there is to find. It lives behind the
-     microscope seam, because it is the instrument's answer and not the page's
-     invention; a real backend reports what it imaged instead. */
-  let sample = { tissue: [], cells: [], bounds: null };
-
-  function rebuildSample() {
+  function rebuildPlan() {
     state.plan = scanfieldsWidget.plan(state.fields, activePreset(), state.carrier);
     /* Left where a test can reach it, the way the live picture is. The plan is
        what this half of the run produces — where the stage goes and what each
        frame covers — and a suite that could only read the sentence beside it
        was asking how many positions there are, never where. */
     window.__plan = state.plan;
-    sample = sampleFor(carrierWidget.extentUm(state.carrier), state.plan);
   }
-
-  const density = (x, y) => densityAt(sample.tissue, x, y);
 
   /* A field's targets, as discovery reports them: in the stage's frame, where
      the instrument imaged them. They are kept in the carrier's frame, as
@@ -1136,6 +1126,7 @@ let stageWatch = null;
                to register the carrier from it. Falling back to it only for the
                case where there is no instrument to ask. */
             const at = (await stageWatch?.refresh()) ?? whereTheStageIs();
+            if (!at) return;
             state.anchors = state.anchors.map((a, n) =>
               (n === i ? { ...a, stage: { x: at.x, y: at.y, z: at.z } } : a));
             /* The carrier is where the anchors say it is now, so everything
@@ -1159,7 +1150,7 @@ let stageWatch = null;
           carrierSettled();
           // the tissue is spread over the plate, so a different plate is a
           // different sample even before the plan moves
-          rebuildSample();
+          rebuildPlan();
           view.fitted = false;
           drawStage();
           renderRail();
@@ -1303,7 +1294,7 @@ let stageWatch = null;
      step is done once there is something to scan, and undone again if the last
      field is removed. */
   function scanfieldsSettled() {
-    rebuildSample();
+    rebuildPlan();
     if (indexOfStep("scanfields") < 0) return;
     const positions = state.plan.length;
     if (positions) {
@@ -1486,7 +1477,6 @@ let stageWatch = null;
     fitButton: theCanvas.parts.fit,
     css, sizeCanvas, el,
     run: state,
-    sample: () => sample,
     carrierWidget, scanfieldsWidget,
     activePreset: () => activePreset(),
     indexOfStep, sideWidget,
@@ -1496,8 +1486,6 @@ let stageWatch = null;
        the picture has to tell it the numbers moved. */
     anchorsChanged: () => redrawAnchors(),
     detectPressed: (...a) => detectPressed(...a),
-    density: (...a) => density(...a),
-    trueZ: (...a) => trueZ(...a),
     renderActionBar: () => renderActionBar(),
     renderRail: () => renderRail(),
     /**
@@ -1582,7 +1570,6 @@ let stageWatch = null;
      on the stage and is handed it. */
   const focusMap = openTheFocusMap({
     run: state,
-    sample: () => sample,
     backend: { measureFocus: (...a) => backend.measureFocus(...a) },
     stage,
     el, css, sizeCanvas,
@@ -1596,7 +1583,7 @@ let stageWatch = null;
   const {
     drawFocusLayer, focusPressed, focusCursor, focusDraggedTo, focusGrabbed,
     focusHovered, focusMarqueeTo, focusMarqueeTook, anchorPressed, detectPressed,
-    trueZ, nearestPosition, renderFocusBar, renderPointList, drawTrace,
+    nearestPosition, renderFocusBar, renderPointList, drawTrace,
     refitSurface, remeasure,
   } = focusMap;
 
@@ -1621,7 +1608,7 @@ let stageWatch = null;
   mo.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
 
   renderPointList();
-  rebuildSample();
+  rebuildPlan();
   focusPanelsFor(0);
   renderAll();
 })();

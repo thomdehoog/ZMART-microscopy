@@ -6,34 +6,26 @@
  * which is what an operator watches fill in.
  */
 export function overviewLayers(theRun) {
-  const { run, css, drawnIn, theSample, shown, ch0, ch1, tileTexture, density } = theRun;
+  const { run, css, drawnIn, shown } = theRun;
   return {
     tiles: {
     key: "tiles",
     label: "Tiles",
-    explains: "The fields the scan has taken, in the order it wrote them, with the "
-      + "tissue each one found. This is what the run has actually seen.",
+    explains: "The fields the scan has taken, in the order it wrote them. The pictures "
+      + "themselves are the scan, drawn beneath; this is the run's own account.",
     shown: shown > 0,
     paint: (frame) => {
       const ctx = frame.context;
       const { place, scale } = drawnIn(frame);
       ctx.save();
-      const done = run.plan.slice(0, shown);
-      for (const t of done) tileTexture(ctx, t, place, scale);
-      /* Tissue is drawn inside the tiles that have been taken, because an
-         image is the only way the run knows it is there. */
-      ctx.globalCompositeOperation = "lighter";
-      for (const t of done) {
-        const d = density(t.x, t.y);
-        if (d < 0.02) continue;
-        const [bx, by] = place(t.x, t.y);
-        const br = (t.frameUm * 0.75) * scale;
-        const g = ctx.createRadialGradient(bx, by, 0, bx, by, br);
-        if (ch0) g.addColorStop(0, `rgba(34,211,238,${0.34 * d})`);
-        g.addColorStop(0.55, ch1 ? `rgba(245,158,11,${0.16 * d})` : `rgba(34,211,238,${0.12 * d})`);
-        g.addColorStop(1, "rgba(0,0,0,0)");
-        ctx.fillStyle = g;
-        ctx.beginPath(); ctx.arc(bx, by, br, 0, Math.PI * 2); ctx.fill();
+      /* An outline per taken field, never a picture of one: the pixels are
+         the engine's, drawn beneath, and anything painted here would stand
+         in front of what was actually imaged. */
+      ctx.strokeStyle = css("--line");
+      ctx.lineWidth = 1;
+      for (const t of run.plan.slice(0, shown)) {
+        const [sx, sy] = place(t.x - t.frameUm / 2, t.y - t.frameUm / 2);
+        ctx.strokeRect(sx + 0.5, sy + 0.5, t.frameUm * scale - 1, t.frameUm * scale - 1);
       }
       ctx.restore();
 
@@ -46,19 +38,6 @@ export function overviewLayers(theRun) {
         ctx.setLineDash([5, 4]);
         ctx.strokeRect(fx, fy, t.frameUm * scale, t.frameUm * scale);
         ctx.setLineDash([]);
-      }
-
-      /* ---- sample bounds: the edge of what has been imaged, so it exists
-         once something has been. Drawn from the first tile it was a second
-         square sitting in the plate's corner before any of this had
-         happened, which says the run has a sample somewhere it does not yet
-         have one. */
-      if (theSample().bounds) {
-        const b = theSample().bounds;
-        const [bx, by] = place(b.xMin, b.yMin);
-        ctx.strokeStyle = css("--line-strong");
-        ctx.lineWidth = 1;
-        ctx.strokeRect(bx, by, (b.xMax - b.xMin) * scale, (b.yMax - b.yMin) * scale);
       }
     },
     /* A click on a taken field is a click on that field. This is what
