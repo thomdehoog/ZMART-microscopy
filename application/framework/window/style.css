@@ -1233,6 +1233,10 @@ canvas.livecv[hidden] { display: none; }
    replaces a reading begins where every other second-column press does. */
 .rec-new.alone.again { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .rec-new.alone.again button.run { grid-column: 2 / -1; width: 100%; }
+/* The reading and its Update press on one row; the reading gives way first. */
+.rec-beside { display: grid; grid-template-columns: minmax(0, 1fr) max-content; gap: 6px; align-items: start; }
+.rec-beside .rec-new.alone.again { grid-template-columns: max-content; }
+.rec-beside .rec-new.alone.again button.run { grid-column: 1; width: auto; }
 
 .rec-fold, .rec-new input { grid-column: 1; }
 .rec-pick { grid-column: 2; }
