@@ -168,6 +168,43 @@ test("an operator walks from Connect to a scanned overview", async ({ page }) =>
 
   expect(scanned.covered, `the overview never reached the screen: ${scanned.covered}px`)
     .toBeGreaterThan(empty.covered + 40);
+
+  /* Where the picture stands, asked of the picture itself: the first planned
+     field, driven through the under-viewer's own projection, must be lit
+     tissue on screen. Coverage alone let a misplaced picture pass -- there
+     was tissue somewhere, just not under the plan. */
+  const placed = await page.evaluate(() => {
+    const where = window.__thePicture.whereThingsAreDrawn();
+    const [ox, oy] = window.__theStageCanvas.carrierOriginUm();
+    const tile = window.__theStageCanvas.plan()[0];
+    const at = where.project(tile.x + ox, tile.y + oy);
+    return { x: at.x, y: at.y, w: where.width, h: where.height };
+  });
+  expect(placed.x, "the first field is on screen").toBeGreaterThan(0);
+  expect(placed.y, "the first field is on screen").toBeGreaterThan(0);
+  const shot = await photograph(page, "#picture-host", 1);
+  const px = (x, y) => {
+    const i = (Math.round(y) * shot.width + Math.round(x)) * 4;
+    return [shot.data[i], shot.data[i + 1], shot.data[i + 2]];
+  };
+  const corner = px(1, 1);
+  /* The tissue nearest the projected first field must be within a tile's
+     reach of it. A knife-edge sample lost to a few pixels of border slop
+     between the host and the engine's canvas; a real misplacement -- an
+     origin's worth -- is tens of pixels and still fails this. */
+  const cx = placed.x * (shot.width / placed.w);
+  const cy = placed.y * (shot.height / placed.h);
+  let nearest = Infinity;
+  for (let y = 0; y < shot.height; y += 2) {
+    for (let x = 0; x < shot.width; x += 2) {
+      const there = px(x, y);
+      if (corner.some((c, i) => Math.abs(c - there[i]) > 12)) {
+        nearest = Math.min(nearest, Math.hypot(x - cx, y - cy));
+      }
+    }
+  }
+  expect(nearest, `the nearest tissue is ${nearest.toFixed(0)}px from the ` +
+    `projected first field at ${JSON.stringify(placed)}`).toBeLessThan(40);
   console.log(`covered: ${empty.covered}px -> ${scanned.covered}px, ${plan.length} positions`);
   expect(complaints, "the page complained while walking").toEqual([]);
 });
