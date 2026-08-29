@@ -827,7 +827,12 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
   width: 18px; margin: -8px 0; background: transparent;
 }
 .trace-host .zcut::-webkit-slider-runnable-track {
-  width: 12px; background: var(--line-strong); border-radius: 6px;
+  /* the input overhangs the row so the thumb's travel maps true; the paint
+     stays inside it, so the visible bar spans exactly the pictures */
+  width: 12px;
+  background: linear-gradient(to bottom,
+    transparent 8px, var(--line-strong) 8px,
+    var(--line-strong) calc(100% - 8px), transparent calc(100% - 8px));
 }
 /* The thumb is a triangle pointing at the picture whose row it selects. */
 .trace-host .zcut::-webkit-slider-thumb {
