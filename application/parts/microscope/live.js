@@ -85,7 +85,12 @@ export const backend = {
    * has failed.
    */
   async connect(session, { onChecks, onCheck } = {}) {
-    await ask("/api/connect", { connection: session?.connection });
+    /* The password travels with the connection: a gate that demanded it and
+       then discarded it authenticated nothing. What a driver does with it is
+       the driver's business. */
+    await ask("/api/connect", {
+      connection: { ...session?.connection, password: session?.password },
+    });
     let keys = null;
     const answered = new Set();
     for (;;) {

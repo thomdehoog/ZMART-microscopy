@@ -268,7 +268,11 @@ def _optics(observed: dict) -> str:
     """
     lens = observed.get("objective") or observed.get("active_objective") or {}
     said = []
-    if lens.get("magnification"):
+    if lens.get("name"):
+        # The Leica names its lens outright, and the name is what identifies
+        # it on the shelf; magnification and aperture only qualify it.
+        said.append(str(lens["name"]))
+    elif lens.get("magnification"):
         said.append(f"{lens['magnification']:g}x")
     if lens.get("numerical_aperture"):
         na = f"{lens['numerical_aperture']:g} NA"

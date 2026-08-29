@@ -841,3 +841,14 @@ def test_a_fresh_connect_forgets_the_last_sessions_runs(monkeypatch, tmp_path):
         assert bridge._focus["points"] == []
     finally:
         bridge._disconnect()
+
+
+def test_the_optics_line_names_the_leica_lens(monkeypatch):
+    """The Leica's objective is {name, magnification, slotIndex} -- no
+    aperture, no immersion. The name is what identifies the lens on the
+    shelf, and the line read only the mock's sub-keys."""
+    monkeypatch.setattr(bridge, "_session", _Optics({
+        "active_objective": {"name": "HC PL APO 63x/1.40 OIL CS2", "magnification": 63.0},
+        "pixel_size": None, "frame_size": None,
+    }))
+    assert "HC PL APO 63x/1.40 OIL CS2" in bridge._reading("acquisition")["summary"]

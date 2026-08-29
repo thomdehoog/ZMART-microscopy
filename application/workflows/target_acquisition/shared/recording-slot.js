@@ -158,7 +158,15 @@ function renderOpenBar({
     /* A readout off the instrument, never a procedure: the state as it is
        set now, through the backend. Nothing on the instrument moves. */
     readSetting(type, { nth })
-      .then((reading) => recorded(box.value, reading));
+      .then((reading) => recorded(box.value, reading), (why) => {
+        /* The instrument's side said no. The button comes back and says so --
+           it read "reading…" forever, disabled, with the sentence lost to an
+           unhandled rejection. */
+        go.disabled = !!running();
+        go.textContent = "failed — retry";
+        go.title = why.message;
+        console.error(`recording failed: ${why.message}`);
+      });
   });
 
   /* The name leads, the way it leads a recorded row: it is the thing being

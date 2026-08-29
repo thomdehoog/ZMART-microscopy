@@ -14,6 +14,7 @@ export function acquiredLayers(theRun) {
       const { place, scale } = drawnIn(frame);
       for (const id of run.acquired) {
         const c = run.cells.get(id);
+        if (!c) continue;
         const [x, y] = place(c.x, c.y);
         const rr = Math.max(7, 9 * Math.sqrt(scale / 0.03));
         ctx.beginPath(); ctx.arc(x, y, rr, 0, Math.PI * 2);

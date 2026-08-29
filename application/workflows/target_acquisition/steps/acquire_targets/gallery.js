@@ -186,7 +186,9 @@ export default {
 
     const rebuild = () => {
       pairs.textContent = "";
-      ctx.acquired().forEach((id) => pairs.append(cardFor(id)));
+      /* Only ids the run still knows: a re-discovery invalidates the old
+         ones, and a card for a cell nobody can look up crashed the panel. */
+      ctx.acquired().filter((id) => ctx.cellById(id)).forEach((id) => pairs.append(cardFor(id)));
       sayTheTally();
     };
 
