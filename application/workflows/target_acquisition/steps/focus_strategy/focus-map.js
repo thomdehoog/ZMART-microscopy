@@ -1673,9 +1673,14 @@ el("fp-rerun").addEventListener("click", (e) => runAgain("stage", e.currentTarge
 el("fp-runnew").addEventListener("click", async (e) => {
   const f = run.focus;
   if (run.running || !f.applied) return;
-  const fresh = f.points
-    .map((point, at) => ({ point, at }))
-    .filter(({ point }) => point.z === null || point.stale);
+  /* The batch marches the same way a full run does -- tilesets whole, a
+     serpentine sweep inside each -- not in the order the points happened to
+     be added. The route orders the points; each keeps its own row. */
+  const route = new Map(f.points
+    .map((point, at) => [point, at])
+    .filter(([point]) => point.z === null || point.stale));
+  const fresh = visitOrder([...route.keys()])
+    .map((point) => ({ point, at: route.get(point) }));
   if (!fresh.length) return;
   const button = e.currentTarget;
   run.running = true;
