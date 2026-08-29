@@ -380,8 +380,9 @@ def _reading(kind: str) -> dict:
     if kind == "autofocus":
         # The stand does not say which family its autofocus is; software is
         # the safe default and the Leica driver's state will name its own.
+        # Said in ``kind`` and not in the summary: the row is for the numbers
+        # an operator checks, and the family led it as a word nobody asked for.
         reading["kind"] = "software"
-        reading["summary"] = f"Software · {summary}"
     return reading
 
 
