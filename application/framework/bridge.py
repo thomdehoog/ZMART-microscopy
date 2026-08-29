@@ -208,6 +208,14 @@ def _connect(asked: dict) -> dict:
     _context = dict(_session.context)
     info = _session.get_info()
     _run = prepare_experiment(info["output_root"], EXPERIMENT)
+    # A fresh session has scanned nothing. The bridge outlives the page, and
+    # records carried over from the last session rebuilt its scan's pictures
+    # into this run's view -- a just-connected canvas showed a scan nobody
+    # had taken.
+    _records.clear()
+    _scan.update(running=False, done=0, of=0, error=None, acquisition_type=None)
+    _focus.update(running=False, done=0, of=0, error=None, points=[])
+    _targets.update(running=False, done=0, of=0, error=None, fields=[])
     return {"context": _context, "info": info, "run": str(_run)}
 
 
