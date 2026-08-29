@@ -800,6 +800,11 @@ function renderFocusBar() {
   const pick = el("fp-pick");
   pick.disabled = frozen || !run.plan.length;
   pick.classList.toggle("on", !!f.placing && !frozen);
+  /* One of the two is always on, so a press on the map is never a question:
+     the crosshair puts a point down, and the arrow picks one that is. */
+  const select = el("fp-select");
+  select.disabled = frozen || !run.plan.length;
+  select.classList.toggle("on", !f.placing && !frozen);
   // the cursor says what the next press will do, the way it does when a
   // scan field is being drawn — worked out in one place, and set there
   stage.cursor(focusCursor());
@@ -1552,6 +1557,10 @@ el("fp-count").addEventListener("blur", () => { renderFocusBar(); });
 el("fp-pick").addEventListener("click", () => {
   const f = run.focus;
   f.placing = !f.placing;
+  renderPointList();
+});
+el("fp-select").addEventListener("click", () => {
+  run.focus.placing = false;
   renderPointList();
 });
 /* A fresh set, not more on top: the points are settled against each other —
