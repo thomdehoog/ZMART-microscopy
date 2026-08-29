@@ -28,6 +28,7 @@ import {
   affineSurface, fitSurface, residualsUm, surfaceZ,
 } from "../../../../parts/microscope/pretend-sample/surface.js";
 import { sharePoints } from "../../shared/scanfields.js";
+import { visitOrder } from "./visit-order.js";
 import { activeRecording } from "../../../../parts/microscope/recordings.js";
 
 
@@ -190,9 +191,11 @@ function patternFocusPoints(over = "tileset") {
      let off the middle of its share. */
   const vary = over === "carrier" && drawn.length > 1;
   const groups = over === "carrier" ? [inScanOrder(run.plan)] : drawn;
-  return groups
-    .flatMap((held) => sharePoints(held, n, { vary }))
-    .map((t) => ({ x: t.x, y: t.y, z: null }));
+  return groups.flatMap((held, order) =>
+    sharePoints(held, n, { vary })
+      /* Which tileset laid a point rides along: the visiting order drains
+         one tileset before the next, and this is how it knows them. */
+      .map((t) => ({ x: t.x, y: t.y, z: null, tileset: order })));
 }
 
 /* The position under the pointer, if it is over one. A list of positions has
@@ -857,12 +860,16 @@ function renderPointList() {
   }
 
   let doubtful = 0;
+  let listed = 0;
   f.points.forEach((p, i) => {
-    /* Every point on the map, whatever it has to say. One the search came back
-       from with nothing, one that has moved since it was read, one put down a
-       moment ago and never measured at all: each says so in its own row and
-       waits there. A point that is on the map and not in the list is a point
-       nobody can pick, rerun or take away. */
+    /* The list is the run's own account, and it grows with the acquisitions:
+       a row appears the moment the stage sets off to measure its point, and
+       fills in when the reading lands. A point laid and never visited lives
+       on the canvas -- placed, dragged and thrown away there -- and has
+       nothing to report here yet. */
+    const visited = p.z !== null || p.lost === true || !!p.traces || p.stale;
+    if (!visited && !(run.running && i === f.selected)) return;
+    listed++;
 
     /* A row, not a button: it holds one — the row itself picks the point —
        and a cross of its own for throwing it away. A button inside a button
@@ -915,6 +922,13 @@ function renderPointList() {
     row.append(pick, drop);
     host.append(row);
   });
+
+  if (!listed) {
+    const d = document.createElement("div");
+    d.className = "none";
+    d.textContent = "Rows appear here as the run measures its points.";
+    host.append(d);
+  }
 
   /* Said once at the top, because the list scrolls: four rows are on screen
      and a mark on the fifth is a mark nobody sees. The number is how many
@@ -1580,7 +1594,7 @@ el("fp-select").addEventListener("click", () => {
    is kept by not pressing either of these. */
 const layPoints = (over) => {
   const f = run.focus;
-  f.points = patternFocusPoints(over);
+  f.points = visitOrder(patternFocusPoints(over));
   picked().clear();
   f.selected = 0;
   stage.draw(); renderPointList(); drawTrace(); renderActionBar();
@@ -1669,6 +1683,12 @@ el("fp-runnew").addEventListener("click", async (e) => {
   renderFocusBar(); renderActionBar();
   try {
     for (const { point, at } of fresh) {
+      /* The mark and the row lead here too: this is the point being
+         measured, so it is the one lit and marked while the stage works. */
+      f.selected = at;
+      const dest = stage.toStage(point);
+      stage.takeThePosition({ x: dest.x, y: dest.y });
+      stage.draw(); renderPointList(); drawTrace();
       await rerunOne(f, at, point);
       stage.draw(); renderPointList(); drawTrace();
     }
@@ -1729,6 +1749,16 @@ function settled(p) {
 
 async function remeasure({ from = null } = {}) {
   const f = run.focus;
+  if (!f.points.length) return;
+  /* The itinerary is settled before the stage moves: tilesets whole, in the
+     plan's own order, a serpentine sweep inside each -- and the list grows
+     in this same order, so reading it top to bottom replays the run. The
+     mark and the first row lead the stage from the first drive on. */
+  f.points = visitOrder(f.points);
+  f.selected = 0;
+  const first = stage.toStage(f.points[0]);
+  stage.takeThePosition({ x: first.x, y: first.y });
+  renderPointList(); drawTrace(); stage.draw();
   const stageZ = () => stage.whereTheStageIs()?.z;
   const beginsAt = (p) => {
     if (from === "stage") return stageZ();
@@ -1757,11 +1787,6 @@ async function remeasure({ from = null } = {}) {
        fill in rather than a spinner, and sees a bad point while the stage is
        still working through the rest. */
     onPoint: (measured, index) => {
-      /* The mark follows the run: each measurement says where the stage
-         stood, and the watch's own poll cannot get a turn while the run
-         holds the instrument -- so the mark froze for exactly as long as
-         things were moving. */
-      stage.takeThePosition({ x: measured.x_um, y: measured.y_um, z: measured.z_um ?? 0 });
       /* A fresh reading is not one anybody has moved: the echo of the
          asked point carries `manual`, and keeping it silenced the dust
          warning on a brand-new height. */
@@ -1772,10 +1797,19 @@ async function remeasure({ from = null } = {}) {
          until the run ended, every point that landed stayed hidden and the
          whole map appeared at once. */
       f.applied = true;
-      /* The point that just landed is the one to look at: its row is lit and
-         its curve is the one on the plot, so the operator follows the stage
-         through the map rather than reading the list afterwards. */
-      f.selected = index;
+      /* The mark and the lit row lead the stage rather than trail it: when
+         a measurement lands the run is already off to the next point, so
+         the mark jumps there and that row appears -- the last point keeps
+         both, and the run ends where the stage ends. */
+      const heading = f.points[index + 1];
+      if (heading) {
+        const at = stage.toStage(heading);
+        stage.takeThePosition({ x: at.x, y: at.y });
+        f.selected = index + 1;
+      } else {
+        stage.takeThePosition({ x: measured.x_um, y: measured.y_um });
+        f.selected = index;
+      }
       refitSurface();
       renderPointList(); renderFocusBar(); drawTrace(); stage.draw();
     },

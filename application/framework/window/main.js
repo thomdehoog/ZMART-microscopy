@@ -598,7 +598,9 @@ let stageWatch = null;
          a rehearsal timer: finishing first marked the map done -- and the rail
          green -- before the objective had moved, and kept it done when the run
          failed on the instrument. */
-      remeasure().then(() => { state.focus.selected = 0; return finish(); }, itFailed);
+      /* Nothing goes back to point one when the map is done: the stage,
+         the mark and the lit row all end on the last point measured. */
+      remeasure().then(finish, itFailed);
       return;
     }
 
