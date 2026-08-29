@@ -582,9 +582,11 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
 .fp-one .sf-tool { height: var(--control); width: var(--control); }
 /* Two presses each since Refine and Accept went; the rows stay even. */
 .ft-acts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-/* The foot mirrors the row above: the run press under the hand tools,
-   Clear all starting where the pairs start. */
-.fp-again { grid-template-columns: calc(2 * var(--control) + 15px) minmax(0, 1fr); gap: 12px; }
+/* The foot follows its words: before a map exists, Run focus map takes an
+   equal half; once one does, the short Rerun keeps to the hand tools'
+   column and Clear all starts where the pairs start. */
+.fp-again { grid-template-columns: 1fr 1fr; gap: 12px; }
+.fp-again.ran { grid-template-columns: calc(2 * var(--control) + 15px) minmax(0, 1fr); }
 /* The two tools share the first cell between them. */
 .fp-tools { grid-column: 1; display: flex; gap: var(--fp-gap); }
 .fp-tools .sf-tool { flex: 1; }
