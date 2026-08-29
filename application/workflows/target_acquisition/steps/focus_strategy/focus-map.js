@@ -1118,16 +1118,17 @@ function paintSlice(img) {
   g.imageSmoothingEnabled = true;
   g.imageSmoothingQuality = "high";
   g.drawImage(img, 0, 0, sliceCv.width, sliceCv.height);
-  /* Where the side view cuts: a red triangle on the picture's left edge --
-     the same grab handle the plot's height wears -- dragged up and down.
-     The zx view is this line of the picture at every focus height. */
+  /* Where the side view cuts: a red triangle on the picture's right edge,
+     beside the zx view it drives -- dragged up and down. The zx view is
+     this line of the picture at every focus height. */
   const y = orthoCut * sliceCv.height;
+  const right = sliceCv.width;
   g.save();
   g.fillStyle = css("--bad");
   g.strokeStyle = "rgba(255, 255, 255, 0.8)";
   g.lineWidth = 1.5;
   g.beginPath();
-  g.moveTo(0, y - 7); g.lineTo(0, y + 7); g.lineTo(10, y);
+  g.moveTo(right, y - 7); g.lineTo(right, y + 7); g.lineTo(right - 10, y);
   g.closePath();
   g.fill();
   g.stroke();
