@@ -99,3 +99,17 @@ def test_through_runs_the_object_pipeline_once_per_field():
     assert analysis.asked[0][0] == "object_analysis"
     assert analysis.asked[0][1]["diameter"] == 5.0
     assert targets[0]["x"] == 1.0 and targets[0]["area"] == 64.0
+
+
+def test_a_stack_is_one_channels_planes_in_depth_order():
+    """A Leica focus job can carry several channels; interleaving them scored
+    a curve of nothing real. The stack is the first channel's planes."""
+    from application.parts.microscope import focus_score
+
+    record = {"planes": [
+        {"t": 0, "c": c, "z": z, "path": f"p_c{c}_z{z}", "z_um": float(z)}
+        for z in (2, 0, 1) for c in (0, 1)
+    ]}
+    given = focus_score.what_was_captured(record)
+    assert given["image_paths"] == ["p_c0_z0", "p_c0_z1", "p_c0_z2"]
+    assert given["z_um"] == [0.0, 1.0, 2.0]

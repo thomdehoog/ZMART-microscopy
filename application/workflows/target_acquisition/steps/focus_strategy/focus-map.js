@@ -1344,10 +1344,13 @@ traceCv.addEventListener("pointerdown", (e) => {
     e.offsetX >= g.x0 && e.offsetX <= g.x1 && e.offsetY >= g.y0 && e.offsetY <= g.y1);
   if (hit) {
     if (hit.key !== f.metric) {
+      /* The curves for every metric are already in hand -- the backend sends
+         them all -- so choosing one is a re-reading, never a re-drive: a
+         legend click used to send the stage through the whole map again. */
       f.metric = hit.key;
-      remeasure().then(() => {
-        drawTrace(); renderPointList(); stage.draw(); renderActionBar();
-      });
+      f.points = f.points.map((p) => settled(p));
+      refitSurface();
+      drawTrace(); renderPointList(); stage.draw(); renderActionBar();
     }
     return;
   }
@@ -1574,7 +1577,11 @@ async function remeasure({ from = null } = {}) {
        fill in rather than a spinner, and sees a bad point while the stage is
        still working through the rest. */
     onPoint: (measured, index) => {
-      f.points[index] = settled(stage.toCarrier(measured));
+      /* A fresh reading is not one anybody has looked at: the echo of the
+         asked point carries `accepted` and `manual`, and keeping them
+         silenced the dust warning on a brand-new height. */
+      f.points[index] = settled(stage.toCarrier(
+        { ...measured, accepted: false, manual: false, stale: false }));
       /* There is a map from the first point on. `applied` is what opens the
          traces box, draws the surface and puts the heights in the rows; held
          until the run ended, every point that landed stayed hidden and the
@@ -1588,7 +1595,8 @@ async function remeasure({ from = null } = {}) {
       renderPointList(); renderFocusBar(); drawTrace(); stage.draw();
     },
   });
-  f.points = points.map((p) => settled(stage.toCarrier(p)));
+  f.points = points.map((p) => settled(stage.toCarrier(
+    { ...p, accepted: false, manual: false, stale: false })));
   refitSurface();
 }
 
