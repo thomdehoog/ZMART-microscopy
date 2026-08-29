@@ -193,6 +193,33 @@ test("an operator walks from Connect to a scanned overview", async ({ page }) =>
   }), { message: "the orthogonal view never filled", timeout: 30_000 })
     .toBeGreaterThan(0.05);
 
+  /* The cut is the operator's: drag the green line across the slice and the
+     side view is re-cut along it. Held as a weighted sum of the side view's
+     pixels, which moves when the columns it is built from do. */
+  const orthoInk = () => page.evaluate(() => {
+    const cv = document.getElementById("zortho-canvas");
+    const d = cv.getContext("2d").getImageData(0, 0, cv.width, cv.height).data;
+    let sum = 0;
+    for (let i = 0; i < d.length; i += 4) sum += d[i] * (((i >> 2) % 997) + 1);
+    return sum;
+  });
+  /* Settled first, or the assertion is a coin toss: the side view fills as
+     slices arrive, so two samples differ on their own until it is whole --
+     and this test once passed with no feature behind it exactly that way. */
+  let cutBefore = await orthoInk();
+  await expect.poll(async () => {
+    const now = await orthoInk();
+    const same = now === cutBefore && now !== 0;
+    cutBefore = now;
+    return same;
+  }, { message: "the side view never settled", timeout: 30_000 }).toBe(true);
+  const sliceBox = await page.locator("#zpreview-canvas").boundingBox();
+  await page.mouse.move(sliceBox.x + sliceBox.width * 0.2, sliceBox.y + sliceBox.height / 2);
+  await page.mouse.down();
+  await page.mouse.up();
+  await page.waitForTimeout(300);
+  expect(await orthoInk(), "dragging the cut re-cuts the side view").not.toBe(cutBefore);
+
   /* The run finishes when its promise does, and the rail refuses to move
      while a step is working. The done badge is no signal -- recording a
      focus preset settles the step before anything has driven -- so what the

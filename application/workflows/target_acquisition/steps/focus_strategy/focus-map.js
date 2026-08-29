@@ -1081,19 +1081,23 @@ function sliceImage(src, ready) {
 let orthoOf = null;      // the slices array the buffer was built from
 let orthoBuffer = null;  // one column per slice, at the slices' own pixels
 let orthoAt = -1;        // which column the black line stands on
+let orthoFrom = null;    // where the columns come from, so a moved cut can re-cut
 
 function buildOrtho(at, slices) {
   orthoOf = slices;
+  orthoFrom = { at, slices };
   orthoBuffer = null;
+  const cut = orthoCut;
   slices.forEach((entry, index) => sliceImage(`${at}/${entry.name}`, (img) => {
-    if (orthoOf !== slices) return;
+    if (orthoOf !== slices || cut !== orthoCut) return;
     if (!orthoBuffer) {
       orthoBuffer = document.createElement("canvas");
       orthoBuffer.width = slices.length;
       orthoBuffer.height = img.naturalHeight;
     }
     const g = orthoBuffer.getContext("2d");
-    g.drawImage(img, Math.floor(img.naturalWidth / 2), 0, 1, img.naturalHeight,
+    const column = Math.min(img.naturalWidth - 1, Math.floor(img.naturalWidth * orthoCut));
+    g.drawImage(img, column, 0, 1, img.naturalHeight,
       index, 0, 1, orthoBuffer.height);
     drawOrtho();
   }));
@@ -1116,27 +1120,53 @@ function drawOrtho() {
   g.stroke();
 }
 
+/* Where the side view cuts through the slice, as a fraction of its width.
+   The operator's to drag; it holds across scrubs and stacks, because the
+   place worth looking along rarely changes with the height. */
+let orthoCut = 0.5;
+let sliceOn = null;   // the slice image on show, so the cut can repaint it
+
 function paintSlice(img) {
+  sliceOn = img;
   const g = sliceCv.getContext("2d");
   g.clearRect(0, 0, sliceCv.width, sliceCv.height);
   g.imageSmoothingEnabled = true;
   g.imageSmoothingQuality = "high";
   g.drawImage(img, 0, 0, sliceCv.width, sliceCv.height);
-  /* The cut the side view is taken along -- the slice's middle column --
-     said on the slice itself, or the pair beside each other reads as two
-     unrelated pictures. Dashed and faint over a dark halo, so it stays
-     legible on bright and dark ground alike without covering either. */
-  const x = sliceCv.width / 2;
+  /* The cut the side view is taken along, said on the slice itself, or the
+     pair beside each other reads as two unrelated pictures. Green, because
+     it is the operator's own handle and not a reading; dashed over a dark
+     halo so it stays legible on bright and dark ground alike. */
+  const x = orthoCut * sliceCv.width;
   g.save();
   g.strokeStyle = "rgba(5, 9, 14, 0.4)";
   g.lineWidth = 3;
   g.beginPath(); g.moveTo(x, 0); g.lineTo(x, sliceCv.height); g.stroke();
-  g.strokeStyle = "rgba(255, 255, 255, 0.85)";
-  g.lineWidth = 1;
+  g.strokeStyle = "#16a34a";
+  g.lineWidth = 1.6;
   g.setLineDash([6, 5]);
   g.beginPath(); g.moveTo(x, 0); g.lineTo(x, sliceCv.height); g.stroke();
   g.restore();
 }
+
+/* Drag the cut and the side view is re-cut along it, live: the columns come
+   off pictures already decoded, so rebuilding is a repaint, not a fetch. */
+let cutHeld = false;
+
+function cutTo(e) {
+  orthoCut = Math.max(0, Math.min(1, e.offsetX / sliceCv.clientWidth));
+  if (sliceOn) paintSlice(sliceOn);
+  if (orthoFrom) buildOrtho(orthoFrom.at, orthoFrom.slices);
+}
+
+sliceCv.addEventListener("pointerdown", (e) => {
+  e.preventDefault();
+  cutHeld = true;
+  sliceCv.setPointerCapture(e.pointerId);
+  cutTo(e);
+});
+sliceCv.addEventListener("pointermove", (e) => { if (cutHeld) cutTo(e); });
+sliceCv.addEventListener("pointerup", () => { cutHeld = false; });
 
 function drawZSlice(point) {
   const at = ctx.backend.slicesAt?.();
