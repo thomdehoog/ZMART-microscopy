@@ -1416,19 +1416,17 @@ function drawTrace() {
   const zSel = p.z;
   const xSel = X(zSel);
   /* The height that will be used, and the thing dragged left and right to
-     change it. Black, because it is the answer rather than a warning about
-     one: whether the peak under it is too narrow to be tissue is said in the
-     point's row above and against the rejected peaks drawn here. A red slider
-     would have every ordinary point look like a problem, beside a red line
-     that means something else. */
-  ctx.strokeStyle = css("--ink");
+     change it. Red, on Thom's word: since the automatic-focus dashes went,
+     red is the colour of the operator's own handles -- this line, and the
+     cut's triangle on the picture above. */
+  ctx.strokeStyle = css("--bad");
   ctx.lineWidth = 2;
   ctx.beginPath();
   ctx.moveTo(xSel, P.t); ctx.lineTo(xSel, h - P.b);
   ctx.stroke();
 
   // a grab handle, so it reads as draggable
-  ctx.fillStyle = css("--ink");
+  ctx.fillStyle = css("--bad");
   ctx.beginPath();
   ctx.moveTo(xSel - 5, P.t); ctx.lineTo(xSel + 5, P.t); ctx.lineTo(xSel, P.t + 7);
   ctx.closePath(); ctx.fill();
