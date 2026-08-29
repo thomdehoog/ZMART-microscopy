@@ -368,7 +368,14 @@ def _reading(kind: str) -> dict:
     # answer "how much ground does one press get me", and a pixel size answers
     # that only once multiplied by a format the line does not carry.
     summary = f"{summary} · {frame_um} × {frame_um} µm"
-    reading = {"summary": summary, "detail": rows, "frameUm": frame_um}
+    reading = {
+        "summary": summary, "detail": rows, "frameUm": frame_um,
+        # The reapplicable half, kept with the reading: a recording is the
+        # instrument's changeable state, and the step that recorded it hands
+        # it back when it runs. Without this the recordings were readouts
+        # that configured nothing.
+        "changeable": state.get("changeable", {}),
+    }
     if kind == "autofocus":
         # The stand does not say which family its autofocus is; software is
         # the safe default and the Leica driver's state will name its own.
@@ -521,7 +528,9 @@ def _measure_focus(asked: dict) -> dict:
         raise RuntimeError("a focus map is already being measured")
     asked_points = asked.get("points", [])
     _focus.update(running=True, done=0, of=len(asked_points), error=None, points=[])
-    threading.Thread(target=_focus_worker, args=(asked_points,), daemon=True).start()
+    threading.Thread(
+        target=_focus_worker, args=(asked_points, asked.get("state")), daemon=True
+    ).start()
     return dict(_focus)
 
 
@@ -531,7 +540,7 @@ def _measure_focus(asked: dict) -> dict:
 _focus = {"running": False, "done": 0, "of": 0, "error": None, "points": []}
 
 
-def _focus_worker(asked: list) -> None:
+def _focus_worker(asked: list, state: dict | None = None) -> None:
     def landed(index: int, found: dict) -> None:
         # `startZ` said where to begin this search; echoing it back would have
         # the next run silently begin where this one did.
@@ -553,6 +562,7 @@ def _focus_worker(asked: list) -> None:
                     for point in asked
                 ],
                 score=_score_a_stack(),
+                state=state,
                 output_root=_the_run(),
                 on_point=lambda m, _n=[0]: (landed(_n[0], m), _n.__setitem__(0, _n[0] + 1)),
             )
@@ -575,7 +585,9 @@ _scan = {"running": False, "done": 0, "of": 0, "error": None, "acquisition_type"
 _records: dict[str, list] = {}
 
 
-def _scan_worker(positions: list, acquisition_type: str = "overview") -> None:
+def _scan_worker(
+    positions: list, acquisition_type: str = "overview", state: dict | None = None
+) -> None:
     """Drive to each position, capture, and keep what came back.
 
     The records are kept because nothing else can reconstruct them: where a
@@ -585,6 +597,12 @@ def _scan_worker(positions: list, acquisition_type: str = "overview") -> None:
     """
     standing = None
     try:
+        if state:
+            # The recorded configuration for this kind of scan, applied once
+            # before the first drive -- recording it and never applying it
+            # captured everything with whatever job happened to be selected.
+            with _the_instruments_turn:
+                _require_session().set_state(state)
         for i, position in enumerate(positions):
             with _the_instruments_turn:
                 session = _require_session()
@@ -683,7 +701,9 @@ def _start_scan(asked: dict) -> dict:
     _scan.update(
         running=True, done=0, of=len(positions), error=None, acquisition_type=acquisition_type
     )
-    threading.Thread(target=_scan_worker, args=(positions, acquisition_type), daemon=True).start()
+    threading.Thread(
+        target=_scan_worker, args=(positions, acquisition_type, asked.get("state")), daemon=True
+    ).start()
     return _the_scan()
 
 

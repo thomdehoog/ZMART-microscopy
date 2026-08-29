@@ -72,6 +72,9 @@ export const withRecording = (slot, { name, reading }) => {
        do with it — an autofocus is software or hardware, and only one of
        them has a focus surface to measure. */
     kind: reading.kind ?? null,
+    /* The reapplicable half of the reading: the instrument's changeable
+       state, handed back when the step that recorded it runs. */
+    changeable: reading.changeable ?? null,
   };
   return { ...slot, seq, records: [record], active: id };
 };

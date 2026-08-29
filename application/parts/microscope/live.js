@@ -192,8 +192,8 @@ export const backend = {
    * back without them and the chart stays empty until the driver can report
    * real sweeps.
    */
-  async measureFocus(points, { metric, onPoint } = {}) {
-    await ask("/api/focus/measure", { points, metric });
+  async measureFocus(points, { metric, state = null, onPoint } = {}) {
+    await ask("/api/focus/measure", { points, metric, state });
     let shown = 0;
     for (;;) {
       const progress = await ask("/api/focus/measure");
@@ -228,8 +228,8 @@ export const backend = {
    * progress until the drive is over. The window's live picture watches the
    * run's own store, exactly as it does on the pretend side.
    */
-  async scanOverview({ positions, acquisition_type = "overview", onProgress } = {}) {
-    await ask("/api/scan", { positions, acquisition_type });
+  async scanOverview({ positions, acquisition_type = "overview", state = null, onProgress } = {}) {
+    await ask("/api/scan", { positions, acquisition_type, state });
     for (;;) {
       const progress = await ask("/api/scan");
       onProgress?.(progress.done, progress.of);

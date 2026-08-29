@@ -28,6 +28,7 @@ import {
   affineSurface, fitSurface, residualsUm, surfaceZ,
 } from "../../../../parts/microscope/pretend-sample/surface.js";
 import { sharePoints } from "../../shared/scanfields.js";
+import { activeRecording } from "../../../../parts/microscope/recordings.js";
 
 
 /**
@@ -1015,6 +1016,7 @@ async function rerunOne(f, at, p) {
   const { points } = await backend.measureFocus([stage.toStage(asked)], {
     metric: f.metric,
     extent: carrierSpan(),
+    state: activeRecording(run.focusPreset)?.changeable ?? null,
   });
   const [got] = points;
   if (got) {
@@ -1572,6 +1574,9 @@ async function remeasure({ from = null } = {}) {
   const { points } = await backend.measureFocus(asked.map(stage.toStage), {
     metric: f.metric,
     extent: carrierSpan(),
+    /* The recorded focussing configuration, applied once before the run: the
+       stack a point captures is whatever this recording says it is. */
+    state: activeRecording(run.focusPreset)?.changeable ?? null,
     /* Each point goes onto the map the moment it is measured, and the surface
        is fitted through what is there so far: the operator watches the map
        fill in rather than a spinner, and sees a bad point while the stage is

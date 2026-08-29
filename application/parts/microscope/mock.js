@@ -206,7 +206,8 @@ export const backend = {
    * is a fraction of the plate, so the mock needs to know how big the plate
    * is. The live backend ignores it — a real sample has its own tilt.
    */
-  async measureFocus(points, { metric, extent, onPoint }) {
+  async measureFocus(points, { metric, extent, onPoint, state } = {}) {
+    void state; // the pretend instrument has no configuration to reapply
     await wait(200);
     const measured = points.map((p, index) => {
       const focusZ = focusZAt(p.x, p.y, extent);
@@ -244,7 +245,8 @@ export const backend = {
    * store and re-reads it as tiles are saved, which is the same arrangement
    * the real instrument has. This only says how far along the drive is.
    */
-  async scanOverview({ positions, acquisition_type = "overview", ms = 2600, onProgress }) {
+  async scanOverview({ positions, acquisition_type = "overview", ms = 2600, onProgress, state }) {
+    void state;
     scanned[acquisition_type] = positions;
     const total = positions.length;
     const records = [];
