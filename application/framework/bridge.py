@@ -258,7 +258,7 @@ def _optics(observed: dict) -> str:
     and the caller falls back to naming the instrument, because a line of
     blanks says less than a serial number.
     """
-    lens = observed.get("objective") or {}
+    lens = observed.get("objective") or observed.get("active_objective") or {}
     said = []
     if lens.get("magnification"):
         said.append(f"{lens['magnification']:g}x")
@@ -339,7 +339,9 @@ def _reading(kind: str) -> dict:
     session = _require_session()
     state = session.get_state()
     observed = state.get("observed", {})
-    pixel = observed.get("pixel_size", {})
+    # `or {}`, not a default: the Leica reports pixel_size as None when the
+    # job's geometry fails to parse, and the default never fires on None.
+    pixel = observed.get("pixel_size") or {}
     pixel_um = float(pixel.get("x", 1.0))
     frame_um = _frame_across(observed, pixel_um)
 
@@ -347,9 +349,9 @@ def _reading(kind: str) -> dict:
     _flatten("", state.get("changeable", {}), rows)
     _flatten("", observed, rows)
 
-    summary = _optics(observed) or observed.get(
-        "serial", _context.get("microscope", "instrument")
-    )
+    summary = (_optics(observed) or observed.get("serial")
+               or observed.get("serial_number")
+               or _context.get("microscope", "instrument"))
     # The frame, not the pixel size: a collapsed configuration is read to
     # answer "how much ground does one press get me", and a pixel size answers
     # that only once multiplied by a format the line does not carry.
@@ -519,7 +521,9 @@ _focus = {"running": False, "done": 0, "of": 0, "error": None, "points": []}
 
 def _focus_worker(asked: list) -> None:
     def landed(index: int, found: dict) -> None:
-        point = asked[index]
+        # `startZ` said where to begin this search; echoing it back would have
+        # the next run silently begin where this one did.
+        point = {key: value for key, value in asked[index].items() if key != "startZ"}
         _focus["points"].append({
             **point, "zAuto": found["z_um"], "z": found["z_um"],
             "lost": found["z_um"] is None, "traces": found["traces"],
@@ -567,13 +571,22 @@ def _scan_worker(positions: list, acquisition_type: str = "overview") -> None:
     were dropped on the floor here, so a run could be caused and never
     accounted for.
     """
+    standing = None
     try:
         for i, position in enumerate(positions):
             with _the_instruments_turn:
                 session = _require_session()
-                session.set_xyz(
-                    float(position["x"]), float(position["y"]), float(position.get("z", 0.0))
-                )
+                z = position.get("z")
+                if z is None:
+                    # A position that names no height means "image where the
+                    # objective stands", read once. It defaulted to 0.0 -- an
+                    # absolute drive to the frame's z-zero for every field of
+                    # every scan, while the panel above reported a measured
+                    # focus map.
+                    if standing is None:
+                        standing = float(session.get_xyz()["z"]["value"])
+                    z = standing
+                session.set_xyz(float(position["x"]), float(position["y"]), float(z))
                 record = session.acquire(
                     acquisition_type=acquisition_type,
                     position_label=_label_for(i, position),
@@ -683,7 +696,7 @@ def _find_targets():
     at import, so the bridge loads with no analysis installed."""
     with _the_instruments_turn:
         observed = _require_session().get_state().get("observed", {})
-    pixel_um = float(observed.get("pixel_size", {}).get("x", 1.0))
+    pixel_um = float((observed.get("pixel_size") or {}).get("x", 1.0))
     return detection.through(warm.the_analysis(), pixel_um=pixel_um)
 
 

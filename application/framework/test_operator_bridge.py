@@ -779,3 +779,43 @@ def test_nothing_to_discover_on_before_an_overview(monkeypatch):
     monkeypatch.setattr(bridge, "_records", {})
     with pytest.raises(RuntimeError, match="overview"):
         bridge._discover_targets({"settings": {}})
+
+
+def test_a_position_without_a_height_is_scanned_where_the_objective_stands(monkeypatch):
+    """z = 0 is a coordinate, not an omission.
+
+    The default drove every field of every scan to an absolute height of
+    zero while the panel above reported a measured focus map. A position
+    that names no height means "image where the objective stands", read
+    once, not a drive to the frame's z-zero.
+    """
+    driver = _Driver()
+    driver.at = {"x": 0.0, "y": 0.0, "z": -37.5}
+    scanned = _scanned(driver, [{"x": 1.0, "y": 2.0}, {"x": 3.0, "y": 4.0, "z": 5.0}], monkeypatch)
+    assert scanned["done"] == 2
+    assert driver.drove_to[0] == (1.0, 2.0, -37.5)
+    assert driver.drove_to[1] == (3.0, 4.0, 5.0)
+
+
+def test_a_start_height_is_an_instruction_not_an_answer(driver):
+    """`startZ` said where to begin this search; echoing it back would have
+    the next run silently begin where this one did."""
+    got = _measured({"points": [{"x": 1, "y": 2, "startZ": -350.0}]})
+    assert "startZ" not in got["points"][0]
+
+
+def test_the_reading_survives_a_leica_shaped_state(monkeypatch):
+    """The adapter reports `serial_number` and `active_objective`, and its
+    `pixel_size` is None when job geometry fails to parse. The reading read
+    the mock's keys and crashed on the None."""
+    monkeypatch.setattr(bridge, "_session", _Optics({
+        "serial_number": "STELLARIS-1", "active_objective": {"magnification": 20.0},
+        "pixel_size": None, "frame_size": None,
+    }))
+    reading = bridge._reading("acquisition")
+    assert "20x" in reading["summary"]
+
+    monkeypatch.setattr(bridge, "_session", _Optics({
+        "serial_number": "STELLARIS-1", "pixel_size": None, "frame_size": None,
+    }))
+    assert "STELLARIS-1" in bridge._reading("acquisition")["summary"]
