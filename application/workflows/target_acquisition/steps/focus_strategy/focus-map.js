@@ -1126,16 +1126,40 @@ function paintSlice(img) {
   g.imageSmoothingEnabled = true;
   g.imageSmoothingQuality = "high";
   g.drawImage(img, 0, 0, sliceCv.width, sliceCv.height);
+  /* While the slider is held, the cut shows itself: a wide dashed black
+     line at the height being chosen, gone when the hand lets go. */
+  if (cutting) {
+    const y = orthoCut * sliceCv.height;
+    g.save();
+    g.strokeStyle = css("--ink");
+    g.lineWidth = 3;
+    g.setLineDash([10, 7]);
+    g.beginPath();
+    g.moveTo(0, y); g.lineTo(sliceCv.width, y);
+    g.stroke();
+    g.restore();
+  }
 }
 
 /* The slider between the pictures is the cut: slide it and the side view
    is re-cut along that height, live -- the rows come off pictures already
    decoded, so rebuilding is a repaint, not a fetch. */
+let cutting = false;
 el("zcut-slider").addEventListener("input", (e) => {
   orthoCut = Math.max(0, Math.min(1, Number(e.currentTarget.value) / 1000));
   if (sliceOn) paintSlice(sliceOn);
   if (orthoFrom) buildOrtho(orthoFrom.at, orthoFrom.slices);
 });
+el("zcut-slider").addEventListener("pointerdown", () => {
+  cutting = true;
+  if (sliceOn) paintSlice(sliceOn);
+});
+for (const done of ["pointerup", "pointercancel"]) {
+  el("zcut-slider").addEventListener(done, () => {
+    cutting = false;
+    if (sliceOn) paintSlice(sliceOn);
+  });
+}
 
 /* The bar on the side view is the same height by another handle. Top of the
    picture is the highest slice, so up on the bar is up on the instrument. */
