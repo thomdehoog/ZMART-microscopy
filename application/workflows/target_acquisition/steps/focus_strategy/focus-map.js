@@ -639,6 +639,23 @@ function focusHovered(e) {
    step where every press moves the plan is a step nobody can look around in.
 
    The point lands where the press landed, on ground that has none. */
+/* Which tileset's leg of the route a place belongs to: the one whose
+   frames it sits inside. Geometry answers, not how the point came to be --
+   a point put down by hand inside a tileset marches with that tileset, and
+   one dragged into another changes legs. Outside every tileset, it joins
+   the tail the route walks last. */
+function tilesetAt(x, y) {
+  const drawn = tilesByField();
+  for (let order = 0; order < drawn.length; order++) {
+    for (const t of drawn[order]) {
+      const half = t.frameUm / 2;
+      if (x >= t.x - half && x <= t.x + half
+        && y >= t.y - half && y <= t.y + half) return order;
+    }
+  }
+  return undefined;
+}
+
 /* The route is settled the moment the map changes: a point added or moved
    slots into its place in the itinerary at once, so the number a row shows
    is always the point's place on the route the stage will take -- a corner
@@ -648,6 +665,7 @@ function settleTheRoute() {
   const f = run.focus;
   const chosen = f.points[f.selected];
   const holding = [...picked()].map((i) => f.points[i]);
+  for (const point of f.points) point.tileset = tilesetAt(point.x, point.y);
   f.points = visitOrder(f.points);
   f.selected = Math.max(0, f.points.indexOf(chosen));
   picked().clear();
@@ -1778,7 +1796,7 @@ async function remeasure({ from = null } = {}) {
      plan's own order, a serpentine sweep inside each -- and the list grows
      in this same order, so reading it top to bottom replays the run. The
      mark and the first row lead the stage from the first drive on. */
-  f.points = visitOrder(f.points);
+  settleTheRoute();
   f.selected = 0;
   const first = stage.toStage(f.points[0]);
   stage.takeThePosition({ x: first.x, y: first.y });
