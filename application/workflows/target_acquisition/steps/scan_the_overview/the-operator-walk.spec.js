@@ -147,6 +147,12 @@ test("an operator walks from Connect to a scanned overview", async ({ page }) =>
     return kept.some((m) => Math.abs(m.x_um - (asked.x + ox)) < 1 && Math.abs(m.y_um - (asked.y + oy)) < 1);
   }, { message: "no capture was taken where the stage should have gone", timeout: 60_000 }).toBe(true);
 
+  /* The run finishes when its promise does, and the rail refuses to move
+     while a step is working. The done badge is no signal -- recording a
+     focus preset settles the step before anything has driven -- so what the
+     walk waits for is what the operator watches: the button coming back. */
+  await expect(page.locator(".panel.on button.step-run")).toHaveText("Run again", { timeout: 180_000 });
+
   // 5. Scan. Nothing tells the page where the pictures will be: it asks its
   //    own backend, which is the join this walk exists to prove.
   await gotoStep(page, "Scan the overview");

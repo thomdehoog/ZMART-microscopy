@@ -1580,6 +1580,7 @@ let stageWatch = null;
      did nothing rather than only that it did. */
   window.__theRunState = () => JSON.parse(JSON.stringify({
     running: state.running, failed: state.failed, notes: state.notes,
+    activeIdx: state.activeIdx, done: [...state.done], ran: [...state.ran],
     focus: { strategy: state.focus.strategy, applied: state.focus.applied,
              points: state.focus.points.length, selected: state.focus.selected },
   }));
