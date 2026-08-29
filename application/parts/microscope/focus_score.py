@@ -56,9 +56,17 @@ def what_was_captured(record: dict) -> dict:
     Nothing is assembled and nothing is copied: the planes are read where the
     acquisition left them.
     """
-    planes = sorted(record.get("planes") or [], key=lambda plane: plane.get("z", 0))
-    if not planes:
+    every = record.get("planes") or []
+    if not every:
         raise RuntimeError("the capture reported no planes, so there is no stack to score")
+    # One channel's planes are the stack. A focus job that captures several
+    # channels repeats every height once per channel, and scoring the
+    # interleaved list refines a peak on a curve nobody measured.
+    first = min(int(plane.get("c", 0)) for plane in every)
+    planes = sorted(
+        (plane for plane in every if int(plane.get("c", 0)) == first),
+        key=lambda plane: plane.get("z", 0),
+    )
     heights = [plane.get("z_um") for plane in planes]
     if any(height is None for height in heights):
         raise RuntimeError(
