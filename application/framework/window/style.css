@@ -822,10 +822,10 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
   grid-row: 2; grid-column: 2; align-self: stretch; justify-self: center;
   writing-mode: vertical-lr;
   -webkit-appearance: none; appearance: none;
-  width: 14px; margin: 0; background: transparent;
+  width: 18px; margin: 0; background: transparent;
 }
 .trace-host .zcut::-webkit-slider-runnable-track {
-  width: 8px; background: var(--line-strong); border-radius: 4px;
+  width: 12px; background: var(--line-strong); border-radius: 6px;
 }
 /* The thumb is a triangle pointing at the picture whose row it selects. */
 .trace-host .zcut::-webkit-slider-thumb {
