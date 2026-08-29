@@ -1178,6 +1178,28 @@ sliceCv.addEventListener("pointerdown", (e) => {
 sliceCv.addEventListener("pointermove", (e) => { if (cutHeld) cutTo(e); });
 sliceCv.addEventListener("pointerup", () => { cutHeld = false; });
 
+/* The bar on the side view is the same height by another handle. Top of the
+   picture is the highest slice, so up on the bar is up on the instrument. */
+let barHeld = false;
+
+function barTo(e) {
+  const slices = orthoFrom?.slices;
+  if (!slices?.length) return;
+  const t = Math.max(0, Math.min(1, e.offsetY / orthoCv.clientHeight));
+  const top = slices[slices.length - 1].z_um;
+  const bottom = slices[0].z_um;
+  chooseHeight(top + t * (bottom - top));
+}
+
+orthoCv.addEventListener("pointerdown", (e) => {
+  e.preventDefault();
+  barHeld = true;
+  orthoCv.setPointerCapture(e.pointerId);
+  barTo(e);
+});
+orthoCv.addEventListener("pointermove", (e) => { if (barHeld) barTo(e); });
+orthoCv.addEventListener("pointerup", () => { barHeld = false; });
+
 function drawZSlice(point) {
   const at = ctx.backend.slicesAt?.();
   const slices = point?.slices ?? [];
@@ -1456,17 +1478,17 @@ let legendHits = [];
    speck, and the operator decides by looking rather than by trusting. */
 let scrubbing = false;
 
-function scrubTo(clientOffsetX) {
+/* One height, two handles: the plot's line drags it left and right, the
+   side view's bar drags it up and down, and both land here. */
+function chooseHeight(z) {
   const f = run.focus;
-  if (!traceGeom || f.strategy !== "plane" || !f.applied) return;
+  if (f.strategy !== "plane" || !f.applied) return;
   const p = f.points[f.selected];
   /* Nothing is drawn for a moved point, and the geometry left behind belongs
      to whichever point was read before it: a press on the covered plot would
      otherwise set this one's height from another one's axis. */
   if (!p || p.stale) return;
-  const { zLo, zHi, P, w } = traceGeom;
-  const t = Math.max(0, Math.min(1, (clientOffsetX - P.l) / (w - P.l - P.r)));
-  p.z = zLo + t * (zHi - zLo);
+  p.z = z;
   p.manual = Math.abs(p.z - p.zAuto) > 0.05;
   /* Accepting settles the height as it stands. Moving it afterwards is a new
      answer, and one nobody has accepted — otherwise a point accepted once
@@ -1474,6 +1496,13 @@ function scrubTo(clientOffsetX) {
   p.accepted = false;
   refitSurface();
   drawTrace(); renderPointList(); stage.draw();
+}
+
+function scrubTo(clientOffsetX) {
+  if (!traceGeom) return;
+  const { zLo, zHi, P, w } = traceGeom;
+  const t = Math.max(0, Math.min(1, (clientOffsetX - P.l) / (w - P.l - P.r)));
+  chooseHeight(zLo + t * (zHi - zLo));
 }
 
 traceCv.addEventListener("pointerdown", (e) => {
