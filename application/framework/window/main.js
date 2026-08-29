@@ -1353,6 +1353,7 @@ let stageWatch = null;
         disconnect: () => {
           backend?.disconnect?.().catch((why) => console.warn(`closing: ${why.message}`));
           resetRun();
+          thePicture.reset();
           renderAll();
         },
         changed: () => { renderSetup(); renderActionBar(); },
