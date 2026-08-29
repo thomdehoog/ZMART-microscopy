@@ -641,7 +641,6 @@ export default {
       overlapNum, clearAll,
     );
 
-    layout.append(el("div", "side-sub sf-sub", "Manual"));
     const toolRow = el("div", "sf-tools");
     for (const t of TOOLS) {
       const b = el("button", "sf-tool");
