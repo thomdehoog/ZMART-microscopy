@@ -1150,8 +1150,9 @@ function paintSlice(img) {
   g.fillStyle = css("--bad");
   g.strokeStyle = "rgba(255, 255, 255, 0.8)";
   g.lineWidth = 1.5;
+  const bottom = sliceCv.height;
   g.beginPath();
-  g.moveTo(x - 7, 0); g.lineTo(x + 7, 0); g.lineTo(x, 10);
+  g.moveTo(x - 7, bottom); g.lineTo(x + 7, bottom); g.lineTo(x, bottom - 10);
   g.closePath();
   g.fill();
   g.stroke();
