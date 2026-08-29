@@ -1,12 +1,14 @@
 /**
- * The order a focus map is visited in: tilesets whole, in the plan's own
- * order, and a serpentine sweep inside each.
+ * The order a focus map is visited in: two levels of one rule. The tilesets
+ * are swept as a serpentine of their centres, and each tileset's points as
+ * a serpentine inside it -- top-left first at both levels, groups never
+ * interleaved.
  *
  * Nearest-neighbour was considered and lost: it is short, but watched live
  * it looks like a random walk -- diagonal hops to whatever is closest. A
  * serpentine reads the way the scan does: rows top to bottom, the first
- * swept left to right and the next right to left, top-left first, ending
- * wherever the bottom corner is. Short, and it looks deliberate.
+ * swept left to right and the next right to left, ending wherever the
+ * bottom corner is. Short, and it looks deliberate.
  *
  * The panel's list shows this same order, so reading it top to bottom
  * replays the run.
@@ -15,10 +17,9 @@
 /**
  * The points in visiting order.
  *
- * Tilesets never interleave: a group is drained before the next is begun.
- * Their order is the plan's own -- a higher-order fact this function
- * inherits rather than invents. Points of no tileset (laid by hand) are
- * visited last, swept the same way.
+ * A point's `tileset` tag says which leg it marches with; the legs are
+ * ordered by where they stand, not by their tags. Points of no tileset
+ * (laid by hand outside every frame) are visited last, swept the same way.
  */
 export function visitOrder(points) {
   const groups = new Map();
@@ -27,8 +28,19 @@ export function visitOrder(points) {
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push(point);
   }
-  return [...groups.keys()].sort((a, b) => a - b)
-    .flatMap((key) => serpentine(groups.get(key)));
+  const tail = groups.get(Infinity) ?? [];
+  groups.delete(Infinity);
+  /* Each leg is stood in for by its centre, and the centres are swept by
+     the same serpentine the points inside are -- one rule, two levels. */
+  const legs = [...groups.values()].map((held) => ({
+    held,
+    x: held.reduce((sum, point) => sum + point.x, 0) / held.length,
+    y: held.reduce((sum, point) => sum + point.y, 0) / held.length,
+  }));
+  return [
+    ...serpentine(legs).flatMap(({ held }) => serpentine(held)),
+    ...serpentine(tail),
+  ];
 }
 
 /**
