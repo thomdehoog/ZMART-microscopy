@@ -825,7 +825,7 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
   width: 14px; margin: 0; background: transparent;
 }
 .trace-host .zcut::-webkit-slider-runnable-track {
-  width: 5px; background: var(--line-strong); border-radius: 2.5px;
+  width: 8px; background: var(--line-strong); border-radius: 4px;
 }
 /* The thumb is a triangle pointing at the picture whose row it selects. */
 .trace-host .zcut::-webkit-slider-thumb {
