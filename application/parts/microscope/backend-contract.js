@@ -281,5 +281,26 @@ export function promisesOfABackend(expect) {
         }
       },
     },
+    {
+      what: "says where it stood as a scan goes",
+      async keep(backend) {
+        /* The mark on the canvas follows these answers. The watch's own poll
+           is seconds behind a stage that moves on every field, so a scan the
+           operator is watching had a mark that trailed the run -- the
+           positions are in every progress answer already, and saying them is
+           the backend's job because only its records know where it stood. */
+        const canvas = await theCanvasOf(backend);
+        const positions = [across(canvas, 0.4, 0.4), across(canvas, 0.6, 0.6)];
+        const stood = [];
+        await backend.scanOverview({
+          positions, ms: 200,
+          onProgress: (done, of, at) => { if (at) stood.push(at); },
+        });
+        expect(stood.length, "progress says where it stood").toBeGreaterThan(0);
+        const last = stood[stood.length - 1];
+        expect(last.x, "x is the last field's").toBeCloseTo(positions[1].x, 0);
+        expect(last.y, "y is the last field's").toBeCloseTo(positions[1].y, 0);
+      },
+    },
   ];
 }

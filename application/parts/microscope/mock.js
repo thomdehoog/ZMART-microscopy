@@ -36,6 +36,11 @@ import { METRICS, METRIC_KEYS, sweep } from "./pretend-sample/sweep.js";
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+/* The page's frames where there are frames, a timer where there are none:
+   the contract suite runs this backend headless, and the pretend scan must
+   tick there exactly as it ticks on screen. */
+const frame = globalThis.requestAnimationFrame ?? ((tick) => setTimeout(tick, 16));
+
 /* The pretend sample is not flat and not level: a gentle tilt across the
    carrier, the same surface wherever the plan decides to look at it. This is
    the mock's knowledge of the world — the page never computes it, it asks. */
@@ -272,11 +277,12 @@ export const backend = {
             planes: [{ t: 0, c: 0, z: 0, path, x_um: p.x, y_um: p.y, z_um: p.z ?? null }],
           });
         }
-        onProgress?.(done, total);
-        if (t < 1) requestAnimationFrame(tick);
+        const at = records[done - 1]?.planes[0];
+        onProgress?.(done, total, at ? { x: at.x_um, y: at.y_um, z: at.z_um } : null);
+        if (t < 1) frame(tick);
         else resolve();
       };
-      requestAnimationFrame(tick);
+      frame(tick);
     });
     /* The same shape the bridge answers with: a record for every position,
        so a page reading a finished run does not have to know which backend
