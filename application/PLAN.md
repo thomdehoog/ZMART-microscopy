@@ -96,3 +96,9 @@ Own branch off `main`, PR, then merged in.
   at a run the builder made from a bridge-driven mock scan, and the demo
   dies. Until then it stays, found again by the harness (its path had gone
   stale in the restructure).
+- **Far-zoom convergence is fetch-queue order, not priority** (seen at 8400
+  fields): every field wants its small picture at once and they arrive in
+  scan order, so mid-scan the view resolves in patches. Accepted for now;
+  the real fix is a pyramid — one downsampled image per zoom level, costing
+  the screen rather than the field count — which is the viewer's own
+  chapter, deliberately not started while workflow work is open.
