@@ -781,8 +781,13 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
 /* The slice and the side view: two squares of the same size, half the row
    each. The base zframe caps itself at 176px for the box it grew up in;
    here the row is the measure and the cap comes off. */
+/* Every row of the box on the same margins: the pictures, their titles,
+   the plot's heading and the plot itself -- the host bleeds to the card's
+   edges for the plot's sake, and each row steps back in evenly. */
+.trace-host > .side-sub { padding-left: 14px; }
+.trace-host .trace-plot { margin: 0 14px; }
 .trace-host .zpreview {
-  padding-left: 14px; display: grid;
+  padding: 0 14px; display: grid;
   grid-template-columns: 1fr 1fr; gap: 8px; align-items: start;
 }
 .trace-host .zpreview .side-sub { margin: 0; }
