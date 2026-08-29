@@ -557,9 +557,16 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
 /* Both ways of laying points on one row, half the column each. The count
    is two digits at most, so its box keeps to that and the press takes the
    rest. */
-.fp-lays { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--fp-gap); }
-.fp-lays .fp-lay { grid-template-columns: 44px minmax(0, 1fr); }
-.fp-lays .fp-lay .sf-flat { grid-column: 2; padding: 0 4px; font-size: 12px; }
+/* Each count belongs to its press, and the pair says so by being one
+   control: joined edges, no air inside, real air between the pairs. The
+   press is as wide as its words and no wider. */
+.fp-lays { display: flex; gap: 16px; }
+.fp-lays .fp-lay { grid-template-columns: 44px auto; gap: 0; }
+.fp-lays .fp-lay input { border-radius: 7px 0 0 7px; border-right: none; }
+.fp-lays .fp-lay .sf-flat {
+  grid-column: 2; padding: 0 10px; font-size: 12px;
+  border-radius: 0 7px 7px 0;
+}
 /* The whole act on one row: the crosshair, then the two automatics. */
 .fp-one { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--fp-gap); align-items: stretch; }
 .fp-one .sf-tool { height: var(--control); width: 44px; }
