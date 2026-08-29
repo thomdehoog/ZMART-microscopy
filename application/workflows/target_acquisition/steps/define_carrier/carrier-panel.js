@@ -281,6 +281,34 @@ export function anchorsUm(config, howMany = POINTS_BY_DEFAULT) {
 /** As many as this carrier has borders to put them on. See `anchorsUm`. */
 export const howManyAnchorsFit = (config) => anchorsUm(config, Infinity).length;
 
+/**
+ * The robust set: the first well area ringed, and the far end of its row.
+ *
+ * Four marks on the first area's own edges pin where the carrier is with
+ * drives no longer than a well; the fifth, on the right edge of the last
+ * area in the same row -- at the same height as the first one's left mark --
+ * pins how the carrier is turned, read over the longest lever the row
+ * offers. A carrier whose first row is one area wide simply has no fifth.
+ */
+export function robustAnchorsUm(config) {
+  const halfW = config.w / 2, halfH = config.h / 2;
+  const areas = centres(config);
+  if (!areas.length) return [];
+  const near = (v, w) => Math.abs(v - w) < 1e-6;
+  const first = areas.reduce((held, a) =>
+    (a.y < held.y - 1e-6 || (near(a.y, held.y) && a.x < held.x) ? a : held));
+  const marks = [
+    { at: "left", x: first.x - halfW, y: first.y },
+    { at: "top", x: first.x, y: first.y - halfH },
+    { at: "right", x: first.x + halfW, y: first.y },
+    { at: "bottom", x: first.x, y: first.y + halfH },
+  ];
+  const rowEnd = areas.reduce((held, a) =>
+    (near(a.y, first.y) && a.x > held.x ? a : held), first);
+  if (rowEnd !== first) marks.push({ at: "right", x: rowEnd.x + halfW, y: rowEnd.y });
+  return marks.map((m) => ({ at: m.at, x: m.x * MM_UM, y: m.y * MM_UM }));
+}
+
 
 export default {
   id: "carrier",
@@ -534,14 +562,29 @@ export default {
 
     /* How many to lay. Beside the button rather than above it, because the two
        are one sentence: this many points, put them down. */
-    let howMany = POINTS_BY_DEFAULT;
-    const anchorCount = document.createElement("input");
-    anchorCount.type = "number";
-    anchorCount.className = "carrier-num anchor-count";
-    anchorCount.min = "1";
-    anchorCount.step = "1";
-    anchorCount.setAttribute("aria-label", "how many points to align this carrier from");
-    anchorCount.title = "How many points to align this carrier from";
+    /* Two ways, not a number. Fast is the one point most runs need: the
+       carrier is where the holder put it, and one landmark says how far off
+       that was. Robust rings the first well area and adds the far end of its
+       row, so the turn is measured too. */
+    let mode = "fast";
+    const anchorSeg = el("div", "seg anchor-mode");
+    const sayChecked = () => {
+      fastBtn.setAttribute("aria-checked", String(mode === "fast"));
+      robustBtn.setAttribute("aria-checked", String(mode === "robust"));
+    };
+    const modeButton = (name, label, title) => {
+      const button = el("button", "", label);
+      button.type = "button";
+      button.title = title;
+      button.addEventListener("click", () => { mode = name; sayChecked(); });
+      return button;
+    };
+    const fastBtn = modeButton("fast", "Fast",
+      "One point: drives the carrier to where it really is");
+    const robustBtn = modeButton("robust", "Robust",
+      "Five points: four around the first well area, and the far end of its row for the turn");
+    anchorSeg.append(fastBtn, robustBtn);
+    sayChecked();
 
     /* The box's own action, filled like Connect on the step before and Update
        optical configuration on the step after: one obvious thing to press per
@@ -560,27 +603,11 @@ export default {
        carrier back where a carrier sits when nobody has aligned it. */
     const layThem = () => (anchors.list().length
       ? anchors.suggest([])
-      : anchors.suggest(anchorsUm(cfg, howManyAsked())));
-    /* Never more than the carrier has borders to put them on, and never fewer
-       than the one it takes to say where it is. Clamped when it is read rather
-       than while it is being typed, so that reaching 12 by way of 1 does not
-       fight the operator's hands. */
-    const howManyAsked = () => {
-      const most = howManyAnchorsFit(cfg);
-      return Math.max(1, Math.min(most, Math.round(howMany) || POINTS_BY_DEFAULT));
-    };
-    anchorCount.addEventListener("input", () => {
-      const v = parseFloat(anchorCount.value);
-      if (anchorCount.value !== "" && !Number.isNaN(v)) howMany = v;
-    });
-    anchorCount.addEventListener("blur", () => {
-      howMany = howManyAsked();
-      anchorCount.value = String(howMany);
-    });
+      : anchors.suggest(mode === "robust" ? robustAnchorsUm(cfg) : anchorsUm(cfg, 1)));
     anchorAdd.addEventListener("click", layThem);
 
     const anchorLay = el("div", "anchor-lay");
-    anchorLay.append(anchorCount, anchorAdd);
+    anchorLay.append(anchorSeg, anchorAdd);
 
     const anchorList = el("div", "point-list anchor-list");
     /* Say how many and press, and the list of them appears underneath: the row
@@ -596,16 +623,6 @@ export default {
       /* The box says what is down while anything is, and what would be laid
          otherwise: a number left over from before would claim six where four
          are showing. */
-      if (document.activeElement !== anchorCount) {
-        /* What is down, while anything is; the number a carrier is aligned from
-           unless somebody says otherwise, once nothing is. Falling back to the
-           last number asked for instead meant the box followed the list down as
-           marks were deleted and stayed there: delete three of four and the box
-           read one, so the next press laid one point where four were wanted. */
-        howMany = anchors.list().length || POINTS_BY_DEFAULT;
-        anchorCount.value = String(howManyAsked());
-      }
-      anchorCount.max = String(howManyAnchorsFit(cfg));
       anchorAdd.classList.toggle("on", anchors.arming());
       /* Two shapes, one for each thing the box is doing. With nothing down it
          asks how many and offers to lay them, so the number leads and the press
@@ -613,7 +630,7 @@ export default {
          nothing left to say, and the press — now Reset — belongs under the
          column of Snaps it undoes rather than above them. */
       const down = anchors.list().length > 0;
-      anchorCount.hidden = down;
+      anchorSeg.hidden = down;
       anchorCard.append(...(down ? [anchorList, anchorLay] : [anchorLay, anchorList]));
       /* An empty list is not an empty list on screen: it keeps the rules that
          separate its rows, and with no rows between them they read as one
