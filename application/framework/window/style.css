@@ -774,10 +774,11 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
    its shape is what is being read and no amount of extra height adds to that. */
 .trace-host {
   position: relative; min-height: 0; display: grid;
-  /* the slice beside the plot; with the preview hidden its column is 0 */
-  grid-template-columns: auto 1fr; grid-template-rows: 152px; gap: 0 10px;
+  /* the slice above, the plot at full width below it: side by side they
+     fought over one narrow column and the plot lost its legend */
+  grid-template-columns: minmax(0, 1fr); grid-template-rows: auto 152px; gap: 8px 0;
 }
-.trace-host .zpreview { padding-left: 14px; }
+.trace-host .zpreview { padding-left: 14px; justify-content: flex-start; }
 .trace-host .zframe { width: 152px; }
 /* Flush with the box that holds it, which brings its own padding. */
 /* Wide as the box, so the plot's frame lands on the column the heading and
