@@ -181,6 +181,49 @@ class TestCollectNativeAutoSave:
         assert exported.image_files == [target]
         assert other not in exported.source_files
 
+    def test_a_fresh_file_of_another_job_is_never_this_acquisitions(
+        self,
+        tmp_path,
+        successful_acq,
+    ):
+        """A reused project rewrites every job's file in place, so freshness
+        alone once anchored a focus stack on the overview's single-plane
+        file. The job's name is on the export, and only files carrying it
+        are candidates -- on the CAM-hint path and the freshness path
+        alike: here the hint points at another job's file and both files
+        are equally fresh, and the acquisition still finds its own."""
+        root = tmp_path / "native-root"
+        project = _native_project(root)
+        wrong = _write_native_ome_tiff(
+            project / "AF Job001.ome.tif",
+            _native_data(),
+        )
+        target = _write_native_ome_tiff(
+            project / "Overview001.ome.tif",
+            _native_data() + 1,
+        )
+        with (
+            patch.object(
+                native._files,
+                "read_relative_path",
+                return_value=wrong.name,
+            ),
+            patch.object(
+                native._files,
+                "wait_all_stable",
+                return_value={"success": True},
+            ),
+        ):
+            exported = native.collect_lasx_native_autosave(
+                None,
+                successful_acq,
+                autosave_root=root,
+                lcf_path=_native_lcf(tmp_path, root),
+                export_completion_timeout=0.01,
+            )
+        assert exported.image_files == [target]
+        assert wrong not in exported.source_files
+
     def test_multiple_fresh_native_candidates_fail_closed(
         self,
         tmp_path,
