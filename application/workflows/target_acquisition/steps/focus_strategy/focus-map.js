@@ -1048,9 +1048,73 @@ const traceCv = el("trace-canvas");
    names none simply keeps the box hidden. */
 const sliceBox = el("zpreview");
 const sliceCv = el("zpreview-canvas");
+const orthoCv = el("zortho-canvas");
 const sliceImages = new Map();
 let sliceShown = null;
 window.__theSliceShown = () => sliceShown;
+
+/* One fetch per slice, whoever asks: the picture wants the slice on show,
+   the side view wants every slice once. `crossOrigin` because the side view
+   is read back by the tests, and a canvas that drew a cross-origin picture
+   without it refuses to be read at all. */
+function sliceImage(src, ready) {
+  let held = sliceImages.get(src);
+  if (!held) {
+    held = { img: new Image(), waiting: [] };
+    held.img.crossOrigin = "anonymous";
+    held.img.onload = () => {
+      const call = held.waiting;
+      held.waiting = [];
+      for (const tell of call) tell(held.img);
+    };
+    held.img.src = src;
+    sliceImages.set(src, held);
+  }
+  if (held.img.complete && held.img.naturalWidth) ready(held.img);
+  else held.waiting.push(ready);
+}
+
+/* ---- the stack seen from the side --------------------------------------
+   One column per height: the middle column of each slice, left to right up
+   the stack, the same direction the plot's axis runs. Built once per stack
+   as its slices arrive, and repainted with the marker on every scrub. */
+let orthoOf = null;      // the slices array the buffer was built from
+let orthoBuffer = null;  // one column per slice, at the slices' own pixels
+let orthoAt = -1;        // which column the black line stands on
+
+function buildOrtho(at, slices) {
+  orthoOf = slices;
+  orthoBuffer = null;
+  slices.forEach((entry, index) => sliceImage(`${at}/${entry.name}`, (img) => {
+    if (orthoOf !== slices) return;
+    if (!orthoBuffer) {
+      orthoBuffer = document.createElement("canvas");
+      orthoBuffer.width = slices.length;
+      orthoBuffer.height = img.naturalHeight;
+    }
+    const g = orthoBuffer.getContext("2d");
+    g.drawImage(img, Math.floor(img.naturalWidth / 2), 0, 1, img.naturalHeight,
+      index, 0, 1, orthoBuffer.height);
+    drawOrtho();
+  }));
+}
+
+function drawOrtho() {
+  if (!orthoBuffer) return;
+  const g = orthoCv.getContext("2d");
+  g.clearRect(0, 0, orthoCv.width, orthoCv.height);
+  g.imageSmoothingEnabled = true;
+  g.imageSmoothingQuality = "high";
+  g.drawImage(orthoBuffer, 0, 0, orthoCv.width, orthoCv.height);
+  if (orthoAt < 0) return;
+  const x = ((orthoAt + 0.5) / orthoBuffer.width) * orthoCv.width;
+  g.strokeStyle = css("--ink");
+  g.lineWidth = 3;
+  g.beginPath();
+  g.moveTo(x, 0);
+  g.lineTo(x, orthoCv.height);
+  g.stroke();
+}
 
 function paintSlice(img) {
   const g = sliceCv.getContext("2d");
@@ -1073,17 +1137,15 @@ function drawZSlice(point) {
   }
   sliceShown = nearest.name;
 
-  const src = `${at}/${nearest.name}`;
-  let img = sliceImages.get(src);
-  if (!img) {
-    img = new Image();
-    /* Painted when it lands, but only if the line still stands on it: a slow
-       fetch must not paint a slice the operator has already scrubbed past. */
-    img.onload = () => { if (sliceShown === nearest.name) paintSlice(img); };
-    img.src = src;
-    sliceImages.set(src, img);
-  }
-  if (img.complete && img.naturalWidth) paintSlice(img);
+  /* Painted when it lands, but only if the line still stands on it: a slow
+     fetch must not paint a slice the operator has already scrubbed past. */
+  sliceImage(`${at}/${nearest.name}`, (img) => {
+    if (sliceShown === nearest.name) paintSlice(img);
+  });
+
+  if (orthoOf !== slices) buildOrtho(at, slices);
+  orthoAt = slices.indexOf(nearest);
+  drawOrtho();
 }
 
 /**

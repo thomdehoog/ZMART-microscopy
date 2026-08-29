@@ -778,8 +778,14 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
      fought over one narrow column and the plot lost its legend */
   grid-template-columns: minmax(0, 1fr); grid-template-rows: auto 180px; gap: 16px 0;
 }
-.trace-host .zpreview { padding-left: 14px; justify-content: flex-start; }
+.trace-host .zpreview { padding-left: 14px; justify-content: flex-start; gap: 8px; align-items: stretch; }
 .trace-host .zframe { width: 260px; }
+/* The side view takes the room the slice leaves. */
+.trace-host .zortho { flex: 1; min-width: 0; }
+.trace-host .zortho canvas {
+  width: 100%; height: 260px; display: block;
+  border-radius: 6px; background: #05090e;
+}
 /* Flush with the box that holds it, which brings its own padding. */
 /* Wide as the box, so the plot's frame lands on the column the heading and
    the rows above it keep — but not pulled down over the box's bottom padding
