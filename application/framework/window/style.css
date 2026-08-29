@@ -819,8 +819,21 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
    red stays the height's colour, and a red cut read as a second height. */
 .trace-host .zcut {
   grid-row: 2; grid-column: 2; align-self: stretch; justify-self: center;
-  writing-mode: vertical-lr; appearance: slider-vertical;
-  width: 16px; margin: 0; accent-color: var(--accent);
+  writing-mode: vertical-lr;
+  -webkit-appearance: none; appearance: none;
+  width: 14px; margin: 0; background: transparent;
+}
+.trace-host .zcut::-webkit-slider-runnable-track {
+  width: 2px; background: var(--line-strong); border-radius: 1px;
+}
+/* The thumb is a triangle pointing at the picture whose row it selects. */
+.trace-host .zcut::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 0; height: 0; background: transparent; border-radius: 0;
+  border-top: 6px solid transparent;
+  border-bottom: 6px solid transparent;
+  border-right: 9px solid var(--accent);
+  margin-left: -3.5px;
 }
 .trace-host .zortho { grid-row: 2; grid-column: 3; }
 /* The green cut is dragged left and right, and the pointer says so. */
