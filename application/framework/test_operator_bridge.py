@@ -49,11 +49,16 @@ class _Driver:
         self.drove_to: list[tuple] = []
         self.ran: list[dict] = []
         self.captured: list[tuple] = []
+        self.applied: list[dict] = []
         self.height_key = height_key
         self.staging = Path(tempfile.mkdtemp(prefix="zmart-driver-"))
 
     def get_xyz(self) -> dict:
         return {axis: {"value": v, "unit": "um"} for axis, v in self.at.items()}
+
+    def set_state(self, state: dict) -> dict:
+        self.applied.append(dict(state))
+        return {"applied": dict(state)}
 
     def set_xyz(self, x, y, z, **_kw) -> dict:
         self.drove_to.append((x, y, z))
@@ -852,3 +857,19 @@ def test_the_optics_line_names_the_leica_lens(monkeypatch):
         "pixel_size": None, "frame_size": None,
     }))
     assert "HC PL APO 63x/1.40 OIL CS2" in bridge._reading("acquisition")["summary"]
+
+
+def test_the_recorded_settings_reach_the_instrument_before_a_focus_map(driver):
+    """The page records a focussing configuration and nothing applied it: the
+    stacks were captured with whatever job the instrument had selected."""
+    _measured({"points": [{"x": 1, "y": 2}], "state": {"job": "ZStack"}})
+    assert driver.applied == [{"job": "ZStack"}]
+    assert driver.captured, "and the capture still happened"
+
+
+def test_the_recorded_settings_reach_the_instrument_before_a_scan(monkeypatch):
+    driver = _Driver()
+    scanned = _scanned(driver, [{"x": 1.0, "y": 2.0, "z": 0.0}], monkeypatch,
+                       state={"job": "Overview"})
+    assert driver.applied == [{"job": "Overview"}]
+    assert scanned["done"] == 1

@@ -568,6 +568,10 @@ let stageWatch = null;
           const z = heightAt(p.x, p.y);
           return stage.toStage(z === null ? p : { ...p, z });
         }),
+        /* The recorded overview configuration, reapplied as the scan starts:
+           a recording that gated the step and configured nothing left every
+           capture on whatever job was selected. */
+        state: activeRecording(state.overviewPreset)?.changeable ?? null,
         onProgress: (done) => {
           if (state.running !== s.id) return;
           state.tilesShown = done;
@@ -629,6 +633,7 @@ let stageWatch = null;
           return stage.toStage(z === null ? { x, y } : { x, y, z });
         }),
         acquisition_type: "targets",
+        state: activeRecording(state.targetType)?.changeable ?? null,
       }).then(({ records }) => {
         state.acquired = picked;
         state.acquiredLabels = Object.fromEntries(
