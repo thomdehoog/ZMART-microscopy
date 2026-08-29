@@ -1642,6 +1642,8 @@ canvas.livecv[hidden] { display: none; }
 .sf-auto {
   display: grid; grid-template-columns: minmax(0, 1fr) 74px; gap: 8px;
   align-items: stretch;
+  /* a breath between the hand's tools and the grid, now no heading holds it */
+  margin-top: 6px;
 }
 /* The button's lane: a blank label, then the button taking everything under
    it, so it starts level with the boxes and ends level with them. */
