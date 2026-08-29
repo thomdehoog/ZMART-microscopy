@@ -556,6 +556,8 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
 .fp-hand .sf-flat, .fp-lay .sf-flat { grid-column: 2 / -1; height: var(--control); }
 /* Both ways of laying points on one row, half the column each. */
 .fp-lays { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--fp-gap); }
+/* Two presses each since Refine and Accept went; the rows stay even. */
+.fp-again, .ft-acts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 /* The two tools share the first cell between them. */
 .fp-tools { grid-column: 1; display: flex; gap: var(--fp-gap); }
 .fp-tools .sf-tool { flex: 1; }
@@ -746,10 +748,6 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
    is the operator's answer rather than the instrument's. It leads the marks,
    because it is the older fact — the reading was moved, and then the rule had
    something to say about where it ended up. */
-.point-row .edit {
-  margin-left: auto; color: var(--edit-ink); font-size: 12px; cursor: help;
-}
-.point-row .edit + .warn, .point-row .edit + .z { margin-left: 0; }
 .point-row .warn {
   margin-left: auto; color: var(--warn-ink); font-size: 12px; cursor: help;
 }
@@ -776,7 +774,7 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
   position: relative; min-height: 0; display: grid;
   /* the slice above, the plot at full width below it: side by side they
      fought over one narrow column and the plot lost its legend */
-  grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto 180px; gap: 16px 0;
+  grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto 140px; gap: 16px 0;
 }
 /* The slice and the side view: two squares of the same size, half the row
    each. The base zframe caps itself at 176px for the box it grew up in;
@@ -1557,7 +1555,7 @@ canvas.livecv[hidden] { display: none; }
    a second title for it. */
 .side-sub:has(.tallies) { display: flex; align-items: baseline; }
 .tallies { margin-left: auto; display: flex; gap: 5px; }
-.edit-count, .warn-count {
+.warn-count {
   font-family: var(--sans); font-size: 11px; font-weight: 600;
   letter-spacing: 0; text-transform: none;
 }

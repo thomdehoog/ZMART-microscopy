@@ -582,7 +582,7 @@ function focusDraggedTo(px, py) {
       z: null, residual: null, stale: p.z !== null || !!p.stale,
       wasRead: p.wasRead ?? (p.z !== null ? {
         x: p.x, y: p.y, z: p.z, zAuto: p.zAuto, traces: p.traces,
-        manual: !!p.manual, accepted: !!p.accepted, onNarrow: !!p.onNarrow,
+        manual: !!p.manual, onNarrow: !!p.onNarrow,
         lost: !!p.lost, speck: p.speck,
       } : undefined),
     };
@@ -720,10 +720,9 @@ function doubtsAbout(point, i) {
      on top of them would have the count at the head of the list promising
      something to look at that nobody can look at yet. */
   if (point.stale) return [];
-  /* Accepted: the operator has looked at this one and it stands. Whatever was
-     doubtful about it was doubtful to the rule, not to them, and a mark they
-     have already answered is a mark that never comes off the list. */
-  if (point.accepted) return [];
+  /* A height the operator set by hand stands: the warnings are about the
+     automatic pick, and dragging past it is the look they asked for. */
+  if (point.manual) return [];
   const out = [];
   if (point.lost) {
     out.push("The search swept its whole range without finding a peak — no height was measured here.");
@@ -773,8 +772,8 @@ function renderFocusBar() {
   if (document.activeElement !== countAll) countAll.value = String(perCarrier(f));
   count.disabled = frozen;
 
-  /* Only once there is a map to act on. Rerun and Refine both measure points
-     that are already down; Reset throws away what a run produced. */
+  /* Only once there is a map to act on. Rerun measures points that are
+     already down; Reset throws away what a run produced. */
   const ran = f.strategy === "plane" && f.applied && f.points.length > 0;
   /* And nothing lays a fresh set over a map that has been measured. The points
      and the surface fitted through them are one answer: laying new ones would
@@ -792,7 +791,7 @@ function renderFocusBar() {
      silent about where the search starts. Before there is a map it is the only
      way to make one, so it stays until there is. */
   document.querySelector(".fp-run").hidden = ran;
-  for (const id of ["fp-rerun", "fp-refine", "fp-reset"]) {
+  for (const id of ["fp-rerun", "fp-reset"]) {
     el(id).disabled = !ran || !!run.running;
   }
   /* The traces are what the run came back with, so the box that reads them
@@ -828,9 +827,7 @@ function renderPointList() {
      was counted from — every way out of this function below leaves it as it
      is found here. */
   const warned = el("fp-warned");
-  const edited = el("fp-edited");
   warned.textContent = "";
-  edited.textContent = "";
   renderFocusBar();
 
   if (f.strategy !== "plane") {
@@ -852,7 +849,7 @@ function renderPointList() {
     return;
   }
 
-  let doubtful = 0, edits = 0;
+  let doubtful = 0;
   f.points.forEach((p, i) => {
     /* Every point on the map, whatever it has to say. One the search came back
        from with nothing, one that has moved since it was read, one put down a
@@ -871,15 +868,12 @@ function renderPointList() {
       String(picked().has(i) || (!picked().size && i === f.selected)));
     const doubts = doubtsAbout(p, i);
     const suspect = doubts.length > 0;
-    const handSet = !!p.manual && !p.accepted;
     if (suspect) doubtful++;
-    if (handSet) edits++;
     const pick = document.createElement("button");
     pick.className = "point-pick"; pick.type = "button";
     pick.innerHTML =
       `<span class="idx">${i + 1}</span>` +
       `<span>${(p.x / 1000).toFixed(2)}, ${(p.y / 1000).toFixed(2)} mm</span>` +
-      (handSet ? '<span class="edit" title="This height was moved by hand.">✎</span>' : "") +
       (suspect ? `<span class="warn" title="${doubts.join("&#10;")}">⚠</span>` : "") +
       `<span class="z${p.z === null ? " pending" : ""}"` +
       `${suspect && !p.manual ? ' style="color:var(--warn-ink)"' : ""}>` +
@@ -916,15 +910,10 @@ function renderPointList() {
   });
 
   /* Said once at the top, because the list scrolls: four rows are on screen
-     and a mark on the fifth is a mark nobody sees. Each number is how many
-     rows carry that mark, not how many things are wrong with them — and the
-     comma belongs to the first only while there is a second to separate it
-     from. */
+     and a mark on the fifth is a mark nobody sees. The number is how many
+     rows carry a warning, not how many things are wrong with them. */
   warned.textContent = doubtful
     ? `${doubtful} warning${doubtful === 1 ? "" : "s"}`
-    : "";
-  edited.textContent = edits
-    ? `${edits} edit${edits === 1 ? "" : "s"}${doubtful ? "," : ""}`
     : "";
 }
 
@@ -933,7 +922,7 @@ function renderPointList() {
  *
  * Not the same thing as `f.points[f.selected]`: a point that has moved since
  * the map was measured is selected, and drawn as selected, with no height and
- * no curve. Accepting one would be accepting nothing. Rerun and Reset take
+ * no curve. Rerun and Reset take
  * the selected point itself, because giving a moved point a reading back is
  * exactly what those two are for.
  */
@@ -959,13 +948,6 @@ function pointToRerun() {
    slider. Each does nothing when there is nothing to do, which is what a
    press for one point should do anyway. */
 
-el("ft-accept").addEventListener("click", () => {
-  const p = pointOnShow();
-  if (!p || run.running) return;
-  p.accepted = true;
-  renderPointList(); drawTrace(); stage.draw();
-});
-
 el("ft-reset").addEventListener("click", () => {
   const f = run.focus;
   if (run.running) return;
@@ -978,7 +960,7 @@ el("ft-reset").addEventListener("click", () => {
   if (moved?.stale && moved.wasRead) {
     const { wasRead, ...rest } = moved;
     f.points[f.points.indexOf(moved)] = {
-      ...rest, ...wasRead, stale: false, accepted: false,
+      ...rest, ...wasRead, stale: false,
     };
   } else {
     const p = pointOnShow();
@@ -987,7 +969,6 @@ el("ft-reset").addEventListener("click", () => {
        point put back is a point nobody has looked at yet. */
     p.z = p.zAuto;
     p.manual = false;
-    p.accepted = false;
   }
   refitSurface();
   renderPointList(); drawTrace(); stage.draw();
@@ -1035,7 +1016,7 @@ async function rerunOne(f, at, p) {
     /* And no longer moved-since-measured: what was just read was read where
        the point is standing now, which is the whole of what `stale` meant. */
     const { wasRead, ...came } = stage.toCarrier(got);
-    f.points[at] = settled({ ...came, accepted: false, stale: false, manual: false });
+    f.points[at] = settled({ ...came, stale: false, manual: false });
   }
 }
 
@@ -1490,10 +1471,6 @@ function chooseHeight(z) {
   if (!p || p.stale) return;
   p.z = z;
   p.manual = Math.abs(p.z - p.zAuto) > 0.05;
-  /* Accepting settles the height as it stands. Moving it afterwards is a new
-     answer, and one nobody has accepted — otherwise a point accepted once
-     would take every later move in silence. */
-  p.accepted = false;
   refitSurface();
   drawTrace(); renderPointList(); stage.draw();
 }
@@ -1561,10 +1538,6 @@ traceCv.addEventListener("keydown", (e) => {
   e.preventDefault();
   p.z += nudge * (e.shiftKey ? 4 : 1);
   p.manual = Math.abs(p.z - p.zAuto) > 0.05;
-  /* Accepting settles the height as it stands. Moving it afterwards is a new
-     answer, and one nobody has accepted — otherwise a point accepted once
-     would take every later move in silence. */
-  p.accepted = false;
   refitSurface();
   drawTrace(); renderPointList(); stage.draw();
 });
@@ -1659,7 +1632,6 @@ const runAgain = async (from, button) => {
   stage.draw(); renderPointList(); drawTrace(); renderFocusBar(); renderActionBar(); renderSide();
 };
 el("fp-rerun").addEventListener("click", (e) => runAgain("stage", e.currentTarget));
-el("fp-refine").addEventListener("click", (e) => runAgain("map", e.currentTarget));
 
 /* Everything the step has to show for itself, thrown away together: the map,
    the points it was fitted through, and the fact that it was ever run. What is
@@ -1755,11 +1727,11 @@ async function remeasure({ from = null } = {}) {
        fill in rather than a spinner, and sees a bad point while the stage is
        still working through the rest. */
     onPoint: (measured, index) => {
-      /* A fresh reading is not one anybody has looked at: the echo of the
-         asked point carries `accepted` and `manual`, and keeping them
-         silenced the dust warning on a brand-new height. */
+      /* A fresh reading is not one anybody has moved: the echo of the
+         asked point carries `manual`, and keeping it silenced the dust
+         warning on a brand-new height. */
       f.points[index] = settled(stage.toCarrier(
-        { ...measured, accepted: false, manual: false, stale: false }));
+        { ...measured, manual: false, stale: false }));
       /* There is a map from the first point on. `applied` is what opens the
          traces box, draws the surface and puts the heights in the rows; held
          until the run ended, every point that landed stayed hidden and the
