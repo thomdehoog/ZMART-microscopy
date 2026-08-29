@@ -779,7 +779,7 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
   grid-template-columns: minmax(0, 1fr); grid-template-rows: auto 152px; gap: 8px 0;
 }
 .trace-host .zpreview { padding-left: 14px; justify-content: flex-start; }
-.trace-host .zframe { width: 152px; }
+.trace-host .zframe { width: 200px; }
 /* Flush with the box that holds it, which brings its own padding. */
 /* Wide as the box, so the plot's frame lands on the column the heading and
    the rows above it keep — but not pulled down over the box's bottom padding
