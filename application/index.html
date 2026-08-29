@@ -175,7 +175,6 @@
                  it belongs to off the screen. -->
             <div class="point-list" id="point-list"></div>
 
-            <div class="side-sub">Focus plot</div>
             <!-- its own host: the canvas is sized from its parent's box -->
             <div class="trace-host">
               <!-- the slice of the stack at the height the black line stands
@@ -183,6 +182,11 @@
                    operator chooses focus by looking rather than by trusting
                    the curve. Hidden while the backend names no slices. -->
               <div class="zpreview" id="zpreview" hidden>
+                <!-- each picture named with its plane: the slice is the
+                     sample's own (xy); the side view is the cut along the
+                     red line, heights across (zy). -->
+                <div class="side-sub">Focus trace (xy)</div>
+                <div class="side-sub">Focus trace (zy)</div>
                 <div class="zframe">
                   <canvas id="zpreview-canvas" width="176" height="176"></canvas>
                 </div>
@@ -194,6 +198,7 @@
                   <canvas id="zortho-canvas" width="176" height="520"></canvas>
                 </div>
               </div>
+              <div class="side-sub">Focus plot</div>
               <div class="trace-plot">
                 <canvas id="trace-canvas"></canvas>
               </div>
