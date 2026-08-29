@@ -783,7 +783,7 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
    here the row is the measure and the cap comes off. */
 .trace-host .zpreview {
   padding-left: 14px; display: grid;
-  grid-template-columns: 0.9fr 1.1fr; gap: 8px; align-items: start;
+  grid-template-columns: 1fr 1fr; gap: 8px; align-items: start;
 }
 .trace-host .zpreview .side-sub { margin: 0; }
 .trace-host .zframe { width: 100%; max-width: none; }
