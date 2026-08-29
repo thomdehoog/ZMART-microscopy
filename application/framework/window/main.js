@@ -1162,12 +1162,24 @@ let stageWatch = null;
                case where there is no instrument to ask. */
             const at = (await stageWatch?.refresh()) ?? whereTheStageIs();
             if (!at) return;
+            const [oxBefore, oyBefore] = stage.carrierOriginUm();
             state.anchors = state.anchors.map((a, n) =>
               (n === i ? { ...a, stage: { x: at.x, y: at.y, z: at.z } } : a));
-            /* The carrier is where the anchors say it is now, so everything
-               drawn in its frame moves with it — the plan, the focus map, the
-               cells. What the operator sees is the green point they just drove
-               to landing on the red one. */
+            /* The carrier's frame just moved under everything already
+               measured. What was measured was measured on the stage — that
+               truth is unchanged — so its carrier coordinates are re-derived
+               by the shift, or the cells and the focus map silently stand a
+               frame-move away from the plan they were measured against. */
+            const [oxAfter, oyAfter] = stage.carrierOriginUm();
+            const dx = oxBefore - oxAfter, dy = oyBefore - oyAfter;
+            if (dx || dy) {
+              const moved = (p) => ({ ...p, x: p.x + dx, y: p.y + dy });
+              state.cells = new Map(
+                [...state.cells].map(([id, c]) => [id, moved(c)]));
+              for (const map of [state.focus, ...Object.values(state.focusMaps)]) {
+                map.points = map.points.map(moved);
+              }
+            }
             redrawAnchors(); drawStage();
           },
           onChange: (fn) => { redrawAnchors = fn; },
