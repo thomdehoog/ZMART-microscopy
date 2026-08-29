@@ -1118,41 +1118,16 @@ function paintSlice(img) {
   g.imageSmoothingEnabled = true;
   g.imageSmoothingQuality = "high";
   g.drawImage(img, 0, 0, sliceCv.width, sliceCv.height);
-  /* Where the side view cuts: a red triangle on the picture's right edge,
-     beside the zx view it drives -- dragged up and down. The zx view is
-     this line of the picture at every focus height. */
-  const y = orthoCut * sliceCv.height;
-  const right = sliceCv.width;
-  g.save();
-  g.fillStyle = css("--bad");
-  g.strokeStyle = "rgba(255, 255, 255, 0.8)";
-  g.lineWidth = 1.5;
-  g.beginPath();
-  g.moveTo(right, y - 7); g.lineTo(right, y + 7); g.lineTo(right - 10, y);
-  g.closePath();
-  g.fill();
-  g.stroke();
-  g.restore();
 }
 
-/* Drag the cut and the side view is re-cut along it, live: the columns come
-   off pictures already decoded, so rebuilding is a repaint, not a fetch. */
-let cutHeld = false;
-
-function cutTo(e) {
-  orthoCut = Math.max(0, Math.min(1, e.offsetY / sliceCv.clientHeight));
+/* The slider between the pictures is the cut: slide it and the side view
+   is re-cut along that height, live -- the rows come off pictures already
+   decoded, so rebuilding is a repaint, not a fetch. */
+el("zcut-slider").addEventListener("input", (e) => {
+  orthoCut = Math.max(0, Math.min(1, Number(e.currentTarget.value) / 1000));
   if (sliceOn) paintSlice(sliceOn);
   if (orthoFrom) buildOrtho(orthoFrom.at, orthoFrom.slices);
-}
-
-sliceCv.addEventListener("pointerdown", (e) => {
-  e.preventDefault();
-  cutHeld = true;
-  sliceCv.setPointerCapture(e.pointerId);
-  cutTo(e);
 });
-sliceCv.addEventListener("pointermove", (e) => { if (cutHeld) cutTo(e); });
-sliceCv.addEventListener("pointerup", () => { cutHeld = false; });
 
 /* The bar on the side view is the same height by another handle. Top of the
    picture is the highest slice, so up on the bar is up on the instrument. */

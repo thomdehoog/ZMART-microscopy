@@ -151,14 +151,16 @@
                      sample's own (xy); the side view is the cut along the
                      red line, x across and heights down (zx). -->
                 <div class="side-sub">Focus trace (xy)</div>
-                <div class="side-sub">Focus trace (zx)</div>
+                <div class="side-sub zx-title">Focus trace (zx)</div>
                 <div class="zframe">
                   <canvas id="zpreview-canvas" width="176" height="176"></canvas>
                 </div>
-                <!-- the stack seen from the side: one column per height, in
-                     the direction the plot's axis runs, with the chosen
-                     height marked. What no single slice can show -- where
-                     the tissue sits in the sweep. -->
+                <!-- the slider between the pictures is the cut: its thumb is
+                     the height on the left picture that the right one unrolls
+                     through the stack. -->
+                <input type="range" class="zcut" id="zcut-slider"
+                       min="0" max="1000" value="500"
+                       aria-label="where on the picture the zx view cuts">
                 <div class="zortho">
                   <canvas id="zortho-canvas" width="352" height="352"></canvas>
                 </div>
