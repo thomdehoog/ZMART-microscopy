@@ -423,3 +423,32 @@ def test_the_drawings_are_handed_the_frame_every_other_engine_hands_them(browser
     # Micrometres out and back again should land where they started.
     assert seen["roundTripX"] == pytest.approx(1000)
     assert seen["roundTripY"] == pytest.approx(500)
+
+
+def test_a_picture_the_scan_had_not_written_yet_arrives_later(browser, a_served_scan):
+    """A fetch can race the scan: the note names a field whose picture is
+    still being encoded. Remembering that failure forever left a finished
+    overview with grey holes nothing would fill; the signal that something
+    landed forgets it, and the field is asked for again."""
+    root, url, note = a_served_scan
+    _write_a_note_of(root, 9, note)
+    pictures = root / "scan"
+    late = pictures / "F00004.jpg"
+    held_back = late.read_bytes()
+    late.unlink()
+
+    page, asked = _open(browser, url)
+    page.evaluate("([centre, zoom]) => window.__viewer.setView({centre, zoom})",
+                  [{"x": note["tiles"][0]["w"] * 1.5, "y": note["tiles"][0]["h"] * 1.5},
+                   note["tiles"][0]["w"] / 200])
+    page.wait_for_timeout(1500)
+    first = asked.count(f"{url}/scan/F00004.jpg")
+    assert first >= 1, "the missing picture was never even asked for"
+
+    late.write_bytes(held_back)
+    page.evaluate("() => window.__viewer.tilesMayHaveLanded()")
+    page.wait_for_timeout(1500)
+    assert asked.count(f"{url}/scan/F00004.jpg") > first, (
+        "the picture landed and was never asked for again"
+    )
+    page.close()
