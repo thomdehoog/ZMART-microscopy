@@ -778,12 +778,17 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
      fought over one narrow column and the plot lost its legend */
   grid-template-columns: minmax(0, 1fr); grid-template-rows: auto 180px; gap: 16px 0;
 }
-.trace-host .zpreview { padding-left: 14px; justify-content: flex-start; gap: 8px; align-items: stretch; }
-.trace-host .zframe { width: 260px; }
-/* The side view takes the room the slice leaves. */
-.trace-host .zortho { flex: 1; min-width: 0; }
+/* The slice and the side view: two squares of the same size, half the row
+   each. The base zframe caps itself at 176px for the box it grew up in;
+   here the row is the measure and the cap comes off. */
+.trace-host .zpreview {
+  padding-left: 14px; display: grid;
+  grid-template-columns: 1fr 1fr; gap: 8px; align-items: start;
+}
+.trace-host .zframe { width: 100%; max-width: none; }
+.trace-host .zortho { min-width: 0; }
 .trace-host .zortho canvas {
-  width: 100%; height: 260px; display: block;
+  width: 100%; aspect-ratio: 1 / 1; height: auto; display: block;
   border-radius: 6px; background: #05090e;
 }
 /* Flush with the box that holds it, which brings its own padding. */
