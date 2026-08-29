@@ -1072,12 +1072,6 @@ function drawZSlice(point) {
     if (Math.abs(s.z_um - point.z) < Math.abs(nearest.z_um - point.z)) nearest = s;
   }
   sliceShown = nearest.name;
-  el("zpreview-z").textContent = `${(nearest.z_um ?? 0).toFixed(1)} µm`;
-  const state = el("zpreview-state");
-  state.classList.toggle("manual", !!point.manual);
-  state.textContent = point.manual
-    ? `moved by hand · ${point.z - point.zAuto >= 0 ? "+" : ""}${(point.z - point.zAuto).toFixed(1)} µm off the pick`
-    : `slice ${slices.indexOf(nearest) + 1} of ${slices.length}`;
 
   const src = `${at}/${nearest.name}`;
   let img = sliceImages.get(src);
