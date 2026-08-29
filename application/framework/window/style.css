@@ -831,9 +831,9 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
 .trace-host .zcut::-webkit-slider-thumb {
   -webkit-appearance: none; appearance: none;
   width: 0; height: 0; background: transparent; border-radius: 0;
-  border-top: 6px solid transparent;
-  border-bottom: 6px solid transparent;
-  border-right: 9px solid var(--accent);
+  border-top: 8px solid transparent;
+  border-bottom: 8px solid transparent;
+  border-right: 12px solid var(--accent);
   margin-left: -3.5px;
 }
 .trace-host .zortho { grid-row: 2; grid-column: 3; }
