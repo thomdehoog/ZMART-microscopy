@@ -1513,8 +1513,10 @@ canvas.livecv[hidden] { display: none; }
 .carrier-link.on svg .tie-left, .carrier-link.on svg .tie-right { transform: none; }
 .carrier-link.on svg .tie-bar { opacity: 1; }
 .carrier-link.on { border-color: var(--accent); color: var(--accent); background: var(--surface-3); }
-.carrier-shape::before { content: "▢"; font-size: 14px; }
-.carrier-shape.round::before { content: "◯"; }
+.carrier-shape svg { display: block; }
+.carrier-shape svg .shape-round { display: none; }
+.carrier-shape.round svg .shape-round { display: block; }
+.carrier-shape.round svg .shape-square { display: none; }
 .carrier-link:disabled, .carrier-shape:disabled, .carrier-reset:disabled { opacity: 0.5; cursor: default; }
 
 

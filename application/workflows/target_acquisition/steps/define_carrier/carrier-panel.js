@@ -901,6 +901,12 @@ export default {
 
     const shapeBtn = el("button", "carrier-shape");
     shapeBtn.type = "button";
+    /* Drawn, not typed: the font's box and ring rendered small and woolly.
+       Both shapes ride in the button and the class says which shows. */
+    shapeBtn.innerHTML = '<svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true" '
+      + 'fill="none" stroke="currentColor" stroke-width="1.6">'
+      + '<rect class="shape-square" x="2.5" y="2.5" width="11" height="11" rx="1.5"/>'
+      + '<circle class="shape-round" cx="8" cy="8" r="5.5"/></svg>';
     shapeBtn.title = "Square off, or round completely";
     shapeBtn.addEventListener("click", () => commit({ cornerRatio: cfg.cornerRatio >= 0.99 ? 0 : 1 }));
     shapeGrid.append(cornerIn, areaIn, shapeBtn);
