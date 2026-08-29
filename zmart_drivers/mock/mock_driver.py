@@ -42,15 +42,15 @@ _ACTUATORS: dict[str, list[str]] = {
 _DEFAULT_ACTUATORS: dict[str, str] = {"x": "motoric", "y": "motoric", "z": "motoric"}
 
 
-#: How much sample one pixel covers, in micrometres. Reported in the state and
-#: written into every frame, so the two cannot come to disagree.
-#: How much sample one pixel covers. The frames written here are small so that
-#: a test can take a hundred of them, and the pixel is correspondingly large --
-#: 64 of them across 1024 um, which is what ``frame_size`` reports. A driver
-#: whose state and whose files disagreed about how much sample it had seen
-#: would place every picture wrongly, and only on the second one would anybody
-#: notice.
-_PIXEL_UM = 16.0
+#: How much sample one pixel covers. Reported in the state and written into
+#: every frame, so the two cannot come to disagree: a driver whose state and
+#: whose files disagreed about how much sample it had seen would place every
+#: picture wrongly, and only on the second one would anybody notice. The frames
+#: are small so that a test can take a hundred of them, and the pixel is
+#: correspondingly large -- 256 of them across 1024 um, which is what
+#: ``frame_size`` reports, and at which the sample's nuclei come out a few
+#: tens of micrometres wide, the size a detector is told to look for.
+_PIXEL_UM = 4.0
 
 #: The jobs this pretend instrument has stored, in the order it lists them.
 _JOBS: tuple[str, ...] = ("Overview", "HiRes", "Survey")
@@ -61,11 +61,14 @@ _JOBS: tuple[str, ...] = ("Overview", "HiRes", "Survey")
 #: A ``focussing`` capture is a stack -- 61 planes over +/-34 um, fine enough
 #: that a speck a micrometre or two wide lands on a plane at all. A stack that
 #: stepped past its dust could not show the failure focusing exists to survive.
-#: Everything else is the single plane an imaging scan takes.
-_ONE_PLANE = {"z_planes": 1, "z_step_um": 0.0}
-_STACKS: dict[str, dict] = {"focussing": {"z_planes": 61, "z_step_um": 68.0 / 60.0}}
+#: It takes one channel, as a focus job does. Everything else is the single
+#: plane an imaging scan takes, in every channel the sample has.
+_ONE_PLANE = {"z_planes": 1, "z_step_um": 0.0, "channels": 3}
+_STACKS: dict[str, dict] = {
+    "focussing": {"z_planes": 61, "z_step_um": 68.0 / 60.0, "channels": 1}
+}
 
-# The pretend sample: a sheet of tissue lying at a slight tilt across the
+# The pretend sample: a real micrograph lying at a slight tilt across the
 # stage, sharp where the focal plane meets it and blurring with distance from
 # it. A driver that returned the same picture at every height would let a
 # broken focus routine pass, so this one does not.
@@ -317,11 +320,16 @@ def acquire(
     # is what every ZMART driver writes -- a stack is a list of planes, never
     # one stacked file.
     heights = stack_heights(handle, acquisition_type)
+    taken = [
+        (channel, z_index, height)
+        for z_index, height in enumerate(heights)
+        for channel in range(channels_of(acquisition_type))
+    ]
     paths = [
         _write_a_frame(
-            handle, acquisition_type, acquisition_hash, position_label, index, height
+            handle, acquisition_type, acquisition_hash, position_label, channel, z_index, height
         )
-        for index, height in enumerate(heights)
+        for channel, z_index, height in taken
     ]
     printed = _print_the_state(
         handle, paths[0].parent, acquisition_type, acquisition_hash, position_label
@@ -340,14 +348,14 @@ def acquire(
     planes = [
         {
             "t": 0,
-            "z": index,
-            "c": 0,
+            "z": z_index,
+            "c": channel,
             "path": str(path),
             "x_um": where["x"],
             "y_um": where["y"],
             "z_um": height,
         }
-        for index, (height, path) in enumerate(zip(heights, paths))
+        for (channel, z_index, height), path in zip(taken, paths)
     ]
     return {
         "acquisition_type": acquisition_type,
@@ -378,11 +386,17 @@ def stack_heights(handle: MockHandle, acquisition_type: str) -> list[float]:
     return [centre + (index - middle) * stack["z_step_um"] for index in range(stack["z_planes"])]
 
 
+def channels_of(acquisition_type: str) -> int:
+    """How many channels this kind of capture takes, one file per channel."""
+    return _STACKS.get(acquisition_type, _ONE_PLANE)["channels"]
+
+
 def _write_a_frame(
     handle: MockHandle,
     acquisition_type: str,
     acquisition_hash: str,
     position_label: str,
+    channel: int,
     z_index: int,
     height_um: float,
 ) -> Path:
@@ -411,12 +425,12 @@ def _write_a_frame(
     # be opened to know what it holds.
     path = root / acquisition_type / "data" / (
         f"{acquisition_type}_{acquisition_hash}_{position_label}_"
-        f"T000000_C00_Z{z_index:05d}.ome.tiff"
+        f"T000000_C{channel:02d}_Z{z_index:05d}.ome.tiff"
     )
     path.parent.mkdir(parents=True, exist_ok=True)
     px = _PIXEL_UM
     where = _user_position(handle)
-    frame = _the_sample_from(np, where["x"], where["y"], height_um)
+    frame = _the_sample_from(np, where["x"], where["y"], height_um, channel)
     size = frame.shape[0]
     tifffile.imwrite(
         path,
@@ -431,19 +445,31 @@ def _write_a_frame(
     return path
 
 
-#: How wide a captured frame is, in pixels. Small: these are read to check a
-#: file arrived and to score its sharpness, never to look at.
-_FRAME_PX = 64
-
-
-#: How smooth the tissue is when it is in focus. Real tissue is not white
-#: noise, and if it were, nothing could ever out-score it -- least of all the
-#: speck of dust this driver exists to be able to show.
-_TISSUE_GRAIN = 3
+#: How wide a captured frame is, in pixels: a quarter of the micrograph.
+_FRAME_PX = 256
 
 #: The speck's size in pixels, and how much of the full range its edges span.
-_SPECK_PX = 6
+#: Its squares are two pixels wide: a sharpness metric reads the difference two
+#: pixels apart, and squares one pixel wide cancel in it, leaving a speck that
+#: real tissue out-scores at every height.
+_SPECK_PX = 32
 _SPECK_LEVEL = 4095.0
+
+#: The micrograph the sample is made of, loaded on the first capture: one
+#: plane of scikit-image's mouse kidney, its three channels first. Real
+#: tissue rather than noise, because a detector run over the overview has to
+#: find real cells, and nothing made of random numbers has any.
+_sample = None
+
+
+def _the_micrograph(np):
+    """The kidney's middle plane as (channel, row, column), read once."""
+    global _sample
+    if _sample is None:
+        from skimage.data import kidney  # noqa: PLC0415 -- see _write_a_frame
+
+        _sample = np.moveaxis(kidney()[8], -1, 0).astype("float64")
+    return _sample
 
 
 def _softened(np, plane):
@@ -465,22 +491,35 @@ def _blurred(np, plane, radius: float):
     return (1.0 - part) * plane + part * _softened(np, plane)
 
 
-def _the_sample_from(np, x_um: float, y_um: float, height_um: float):
+def _mirrored(np, index, length: int):
+    """*index* folded back into ``0 .. length-1``, reflecting at both ends."""
+    period = 2 * length - 2
+    index = index % period
+    return np.where(index >= length, period - index, index)
+
+
+def _the_sample_from(np, x_um: float, y_um: float, height_um: float, channel: int):
     """The sample as it looks from *height_um*: the tissue, and any dust with it.
 
-    The tissue is one fixed texture, softened by how far the drive is from
-    where the sheet lies here -- detail is what a sharpness metric measures and
-    blur is what removes it. Where it comes into focus changes with position,
-    because the sheet is tilted; what it looks like does not, because this
-    instrument images a uniform pretend tissue.
+    The tissue is the micrograph, one pixel of it per pixel of the frame, laid
+    across the whole stage mirrored edge to edge so that every position has
+    tissue under it and no seam where a picture ends -- a seam is an edge, and
+    a detector run over the overview would find it. The frame is the piece
+    centred on (x, y). It is softened by how far the
+    drive is from where the sheet lies here -- detail is what a sharpness
+    metric measures and blur is what removes it. Where it comes into focus
+    changes with position, because the sheet is tilted.
 
     A speck of dust, where there is one, is added on top: a hard-edged patch
     whose contrast collapses within a micrometre or two of its own height. That
     is the whole failure this driver can show -- a peak sharper than the tissue
     and far narrower, at a height the tissue is not at.
     """
-    tissue = np.random.default_rng(0).integers(0, 4096, size=(_FRAME_PX, _FRAME_PX))
-    tissue = _blurred(np, tissue.astype("float64"), _TISSUE_GRAIN)
+    micrograph = _the_micrograph(np)[channel]
+    half = _FRAME_PX // 2
+    rows = _mirrored(np, int(round(y_um / _PIXEL_UM)) - half + np.arange(_FRAME_PX), micrograph.shape[0])
+    cols = _mirrored(np, int(round(x_um / _PIXEL_UM)) - half + np.arange(_FRAME_PX), micrograph.shape[1])
+    tissue = micrograph[np.ix_(rows, cols)]
     focus_um = sharp_height_um(x_um, y_um)
     frame = _blurred(np, tissue, _BLUR_PER_UM * abs(height_um - focus_um))
 
@@ -491,7 +530,7 @@ def _the_sample_from(np, x_um: float, y_um: float, height_um: float):
         # which is what makes its peak narrow enough to be told from tissue.
         showing = math.exp(-(away * away) / (2.0 * speck["width_um"] ** 2))
         if showing > 1e-3:
-            edges = np.indices((_SPECK_PX, _SPECK_PX)).sum(axis=0) % 2
+            edges = (np.indices((_SPECK_PX, _SPECK_PX)).sum(axis=0) // 2) % 2
             patch = edges * (_SPECK_LEVEL * speck["contrast"] * showing)
             at = _FRAME_PX // 2 - _SPECK_PX // 2
             frame = frame.copy()

@@ -21,6 +21,7 @@ dependencies:
   - numpy>=1.24
   - scipy>=1.10
   - scikit-image>=0.22,<0.26 # registration: ORB, RANSAC, phase_cross_correlation
+  - pooch                   # fetches scikit-image's sample data: the mock driver's kidney volume
   - opencv>=4.8             # registration: cv2 feature matching
   - tifffile>=2024.1        # read/write OME-TIFF image data
   - pillow>=10              # PNG/image encoding used by reports and widgets
@@ -34,7 +35,6 @@ dependencies:
   # here. The steps themselves each run in their own SMART--* environment and
   # bring their own packages; this is only what it takes to ask.
   - pyyaml>=6
-  - pooch                    # the mock driver's sample: scikit-image's kidney volume
 
   # --- live LAS X API (Python <-> .NET bridge) ---
   # The LAS X CAM API DLLs ship with LAS X and load from the install dir;

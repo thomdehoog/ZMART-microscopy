@@ -100,7 +100,8 @@ class TestAcquire:
         """
         rec = mic.acquire(acquisition_type="overview", position_label="K00_P000001")
         assert rec["images"] == [plane["path"] for plane in rec["planes"]]
-        assert len(rec["planes"]) == 1
+        # one plane per channel, and this sample has three
+        assert [plane["c"] for plane in rec["planes"]] == [0, 1, 2]
         plane = rec["planes"][0]
         assert (plane["t"], plane["z"], plane["c"]) == (0, 0, 0)
         # The canonical name, flat and complete: what the capture was, which
@@ -167,7 +168,7 @@ class TestAcquire:
         assert sum(heights) / len(heights) == pytest.approx(mic.get_xyz()["z"]["value"])
 
         plain = mic.acquire(acquisition_type="overview", position_label="K00_P000006")
-        assert len(plain["planes"]) == 1
+        assert {plane["z"] for plane in plain["planes"]} == {0}
         assert plain["planes"][0]["z_um"] == pytest.approx(mic.get_xyz()["z"]["value"])
 
     def test_acquire_options_override(self, mic):
