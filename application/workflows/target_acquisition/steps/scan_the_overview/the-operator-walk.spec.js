@@ -163,6 +163,10 @@ test("an operator walks from Connect to a scanned overview", async ({ page }) =>
      the stack -- so the two ends of the plot must show two different
      slices, fetched from the bridge, not drawn from anything invented. */
   await expect(page.locator("#zpreview")).toBeVisible();
+  /* The preview above pushed the plot below the fold, and a mouse press at
+     an off-screen coordinate scrubs nothing -- it clicked whatever was at
+     the clamped spot and the line never moved. */
+  await page.locator("#trace-canvas").scrollIntoViewIfNeeded();
   const plotBox = await page.locator("#trace-canvas").boundingBox();
   const scrubTo = async (x) => {
     await page.mouse.move(plotBox.x + x, plotBox.y + plotBox.height / 2);
@@ -175,6 +179,19 @@ test("an operator walks from Connect to a scanned overview", async ({ page }) =>
   const highSlice = await scrubTo(plotBox.width - 60);
   expect(lowSlice, "a slice of the stack is on show").toBeTruthy();
   expect(highSlice, "the line's height picks the slice").not.toBe(lowSlice);
+
+  /* The stack seen from the side, beside the slice: one column per height,
+     so the tissue's place in the sweep is visible at a glance. It fills as
+     the slices arrive, so it is polled rather than glanced at once. */
+  await expect.poll(() => page.evaluate(() => {
+    const cv = document.getElementById("zortho-canvas");
+    if (!cv || !cv.width) return 0;
+    const d = cv.getContext("2d").getImageData(0, 0, cv.width, cv.height).data;
+    let lit = 0;
+    for (let i = 0; i < d.length; i += 4) if (d[i] > 10 || d[i + 1] > 10) lit += 1;
+    return lit / (d.length / 4);
+  }), { message: "the orthogonal view never filled", timeout: 30_000 })
+    .toBeGreaterThan(0.05);
 
   /* The run finishes when its promise does, and the rail refuses to move
      while a step is working. The done badge is no signal -- recording a
