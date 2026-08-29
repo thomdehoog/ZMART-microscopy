@@ -11,23 +11,15 @@ export function overviewLayers(theRun) {
     tiles: {
     key: "tiles",
     label: "Tiles",
-    explains: "The fields the scan has taken, in the order it wrote them. The pictures "
-      + "themselves are the scan, drawn beneath; this is the run's own account.",
+    explains: "The field the stage is imaging right now. What has been taken needs no "
+      + "mark of its own: the scan's picture shows through the ground exactly there.",
     shown: shown > 0,
     paint: (frame) => {
       const ctx = frame.context;
       const { place, scale } = drawnIn(frame);
-      ctx.save();
-      /* An outline per taken field, never a picture of one: the pixels are
-         the engine's, drawn beneath, and anything painted here would stand
-         in front of what was actually imaged. */
-      ctx.strokeStyle = css("--line");
-      ctx.lineWidth = 1;
-      for (const t of run.plan.slice(0, shown)) {
-        const [sx, sy] = place(t.x - t.frameUm / 2, t.y - t.frameUm / 2);
-        ctx.strokeRect(sx + 0.5, sy + 0.5, t.frameUm * scale - 1, t.frameUm * scale - 1);
-      }
-      ctx.restore();
+      /* Nothing is painted over a taken field: the pixels beneath are what
+         was imaged there, and an outline on a window's edge survived the cut
+         as a hairline over the tissue. */
 
       // ---- scan frontier: the tile the stage is standing on
       if (run.running === "scan" && run.plan[shown]) {
