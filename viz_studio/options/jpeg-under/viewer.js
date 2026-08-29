@@ -213,6 +213,16 @@ export async function openViewer(element, options = {}) {
 
     async tilesMayHaveLanded() {
       if (own.destroyed) return;
+      /* Something new landed, so a picture that failed to come may exist
+         now. A failure remembered forever left a finished scan with grey
+         holes nothing would ever fill; forgotten here, the next draw asks
+         again, and the step's heartbeat keeps saying this until it sticks. */
+      for (const [key, held] of [...own.decoded]) {
+        if (held === null) {
+          own.decoded.delete(key);
+          own.heldBytes = (own.heldBytes ?? 0) - bytesOf(key);
+        }
+      }
       await readTheNotes(own);
       askForAFrame(own);
     },
