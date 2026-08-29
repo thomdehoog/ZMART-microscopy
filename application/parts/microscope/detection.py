@@ -34,15 +34,15 @@ def what_was_captured(record: dict, *, field: int, pixel_um: float, settings: di
     page's units -- a diameter in micrometres -- and leave in the detector's,
     pixels, since the detector has never seen the instrument.
     """
-    planes = [
-        plane for plane in record.get("planes") or []
-        if int(plane.get("c", 0)) == 0 and int(plane.get("z", 0)) == 0
-    ]
-    if not planes:
+    every = [plane for plane in record.get("planes") or [] if int(plane.get("z", 0)) == 0]
+    if not every:
         raise RuntimeError(
-            "the capture reported no first-channel plane, so there is nothing to detect on"
+            "the capture reported no planes, so there is nothing to detect on"
         )
-    plane = planes[0]
+    # The first channel the capture has, whatever the instrument numbers it:
+    # requiring the number 0 refused a Leica job whose channels start at 1.
+    first = min(int(plane.get("c", 0)) for plane in every)
+    plane = next(plane for plane in every if int(plane.get("c", 0)) == first)
     given = {
         "image_path": plane["path"],
         "tile_id": [record["acquisition_type"], int(field), 0],
