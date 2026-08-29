@@ -157,6 +157,14 @@ export function watchTheRun(ctx) {
       followTheStage,
       /** A field has landed, so there may be more of the scan to read. */
       mayHaveLanded() { viewer?.tilesMayHaveLanded?.(); },
+      /** The session is over, and what was opened belongs to it. A reconnect
+          is a fresh session: its run starts with nothing scanned, and the
+          picture of the last one must not stand in for it. */
+      reset() {
+        viewer?.destroy?.();
+        viewer = null;
+        window.__thePicture = null;
+      },
     };
   })();
 
