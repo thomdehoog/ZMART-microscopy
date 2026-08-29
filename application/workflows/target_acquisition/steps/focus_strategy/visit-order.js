@@ -1,14 +1,14 @@
 /**
  * The order a focus map is visited in: two levels of one rule. The tilesets
- * are swept as a serpentine of their centres, and each tileset's points as
- * a serpentine inside it -- top-left first at both levels, groups never
- * interleaved.
+ * are routed as their centres, and each tileset's points inside it --
+ * top-left first at both levels, legs never interleaved.
  *
- * Nearest-neighbour was considered and lost: it is short, but watched live
- * it looks like a random walk -- diagonal hops to whatever is closest. A
- * serpentine reads the way the scan does: rows top to bottom, the first
- * swept left to right and the next right to left, ending wherever the
- * bottom corner is. Short, and it looks deliberate.
+ * The rule is a cheap shortest path that stays readable: nearest-neighbour
+ * from the top-left point, then 2-opt untangling until no crossing remains.
+ * Raw nearest-neighbour watched live looks like a random walk; a rigid
+ * serpentine reads well but is not short on scattered layouts. A
+ * crossing-free path is both -- and on a regular grid it collapses into
+ * the page-sweep anyway: top row left to right, next row back.
  *
  * The panel's list shows this same order, so reading it top to bottom
  * replays the run.
@@ -19,7 +19,7 @@
  *
  * A point's `tileset` tag says which leg it marches with; the legs are
  * ordered by where they stand, not by their tags. Points of no tileset
- * (laid by hand outside every frame) are visited last, swept the same way.
+ * (laid by hand outside every frame) are visited last, routed the same way.
  */
 export function visitOrder(points) {
   const groups = new Map();
@@ -30,56 +30,64 @@ export function visitOrder(points) {
   }
   const tail = groups.get(Infinity) ?? [];
   groups.delete(Infinity);
-  /* Each leg is stood in for by its centre, and the centres are swept by
-     the same serpentine the points inside are -- one rule, two levels. */
+  /* Each leg is stood in for by its centre, and the centres are routed by
+     the same rule the points inside are -- one rule, two levels. */
   const legs = [...groups.values()].map((held) => ({
     held,
     x: held.reduce((sum, point) => sum + point.x, 0) / held.length,
     y: held.reduce((sum, point) => sum + point.y, 0) / held.length,
   }));
   return [
-    ...serpentine(legs).flatMap(({ held }) => serpentine(held)),
-    ...serpentine(tail),
+    ...route(legs).flatMap(({ held }) => route(held)),
+    ...route(tail),
   ];
 }
 
+const apart = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+
 /**
- * Rows top to bottom, alternating direction.
+ * A cheap shortest path, top-left first.
  *
- * Rows are found by the vertical gaps. Two kinds exist: jitter, between
- * points meant as one row, and pitch, between the rows themselves -- and a
- * pitch is not slightly larger than a jitter, it is another order of thing.
- * So the gaps are sorted and the first twenty-fold jump splits the two
- * kinds; rows bind below it. Gaps all of one kind (an exact grid) are all
- * pitches, and every one starts a row.
+ * Greedy nearest-neighbour builds it -- from the point nearest the layout's
+ * top-left corner, always onward to the closest unvisited, ties broken
+ * upward then leftward so a grid reads like a page -- and 2-opt untangles
+ * it: any stretch whose reversal shortens the walk is reversed, until
+ * nothing improves. Greedy alone leaves crossings and stranded hops; the
+ * untangling removes exactly those, and a path that never crosses itself
+ * is the one an operator reads as deliberate.
  */
-function serpentine(held) {
+function route(held) {
   if (held.length < 2) return held;
-  const sorted = [...held].sort((a, b) => a.y - b.y || a.x - b.x);
-  const gaps = [];
-  for (let i = 1; i < sorted.length; i++) {
-    const gap = sorted[i].y - sorted[i - 1].y;
-    if (gap > 1e-6) gaps.push(gap);
+  const corner = {
+    x: Math.min(...held.map((p) => p.x)),
+    y: Math.min(...held.map((p) => p.y)),
+  };
+  const left = [...held];
+  left.sort((a, b) => apart(a, corner) - apart(b, corner) || a.y - b.y || a.x - b.x);
+  const path = [left.shift()];
+  while (left.length) {
+    const from = path[path.length - 1];
+    left.sort((a, b) => apart(a, from) - apart(b, from) || a.y - b.y || a.x - b.x);
+    path.push(left.shift());
   }
-  gaps.sort((a, b) => a - b);
-  let tolerance = gaps.length ? gaps[0] / 2 : 0;
-  for (let i = 1; i < gaps.length; i++) {
-    if (gaps[i] / gaps[i - 1] >= 20) {
-      tolerance = Math.sqrt(gaps[i - 1] * gaps[i]);
-      break;
+  for (let pass = 0, better = true; better && pass < 24; pass++) {
+    better = false;
+    for (let i = 1; i < path.length - 1; i++) {
+      for (let j = i + 1; j < path.length; j++) {
+        /* Reversing path[i..j] swaps two edges: the way in, and -- when the
+           stretch is not the tail -- the way out. The start stays the start:
+           top-left first is the rule, not a candidate for shortening. */
+        const before = apart(path[i - 1], path[i])
+          + (j + 1 < path.length ? apart(path[j], path[j + 1]) : 0);
+        const after = apart(path[i - 1], path[j])
+          + (j + 1 < path.length ? apart(path[i], path[j + 1]) : 0);
+        if (after + 1e-9 < before) {
+          let lo = i, hi = j;
+          while (lo < hi) { [path[lo], path[hi]] = [path[hi], path[lo]]; lo++; hi--; }
+          better = true;
+        }
+      }
     }
   }
-  const rows = [];
-  let rowY = null;
-  for (const point of sorted) {
-    if (rowY === null || point.y - rowY > tolerance) {
-      rows.push([]);
-      rowY = point.y;
-    }
-    rows[rows.length - 1].push(point);
-  }
-  return rows.flatMap((row, i) => {
-    const swept = [...row].sort((a, b) => a.x - b.x);
-    return i % 2 ? swept.reverse() : swept;
-  });
+  return path;
 }

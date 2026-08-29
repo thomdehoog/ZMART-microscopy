@@ -1710,8 +1710,8 @@ el("fp-rerun").addEventListener("click", (e) => runAgain("stage", e.currentTarge
 el("fp-runnew").addEventListener("click", async (e) => {
   const f = run.focus;
   if (run.running || !f.applied) return;
-  /* The batch marches the same way a full run does -- tilesets whole, a
-     serpentine sweep inside each -- not in the order the points happened to
+  /* The batch marches the same way a full run does -- tilesets whole,
+     shortest path inside each -- not in the order the points happened to
      be added. The route orders the points; each keeps its own row. */
   const route = new Map(f.points
     .map((point, at) => [point, at])
@@ -1792,10 +1792,10 @@ function settled(p) {
 async function remeasure({ from = null } = {}) {
   const f = run.focus;
   if (!f.points.length) return;
-  /* The itinerary is settled before the stage moves: tilesets whole, in the
-     plan's own order, a serpentine sweep inside each -- and the list grows
-     in this same order, so reading it top to bottom replays the run. The
-     mark and the first row lead the stage from the first drive on. */
+  /* The itinerary is settled before the stage moves: tilesets whole, a
+     cheap shortest path over their centres and again inside each -- and the
+     list grows in this same order, so reading it top to bottom replays the
+     run. The mark and the first row lead the stage from the first drive. */
   settleTheRoute();
   f.selected = 0;
   const first = stage.toStage(f.points[0]);
