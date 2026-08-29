@@ -896,6 +896,7 @@ def test_the_view_is_built_once_per_scan_state(monkeypatch, tmp_path):
     bridge._the_view_of("overview")
     assert built == [1], "the second request found nothing new to build"
 
-    bridge._records["overview"].append(record)
+    bridge._records["overview"].append(
+        _Driver().acquire(acquisition_type="overview", position_label="P1"))
     bridge._the_view_of("overview")
     assert built == [1, 2], "a grown scan is built again"
