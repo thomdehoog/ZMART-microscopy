@@ -43,14 +43,13 @@
   --mark-gated: #0284c7;
   --mark-acquired: #16a34a;
   --mark-context: #94a3b8;
-  /* where the microscope is standing. The one red on the picture, and it is
-     not the red of a bad answer: a stage has no opinion about whether being
-     somewhere is good. Kept apart from --bad for that reason, so neither can
-     be changed into the other by accident. */
-  --mark-stage: #e11d48;
-  /* where focus is measured. Red, by the operator's ask — a plain red kept
-     apart from the stage's rose (--mark-stage) and the error red (--bad), so
-     none of the three can be mistaken for another. */
+  /* where the microscope is standing. A deep blue, on Thom's word: the red
+     it wore read as a focus point, and the page already speaks blue -- so
+     the mark joins the page's family, darker and heavier than the tiles. */
+  --mark-stage: #1e40af;
+  /* where focus is measured. Red, by the operator's ask — kept apart from
+     the error red (--bad); the stage mark wears blue now, so red carries
+     one meaning fewer. */
   --mark-focus: #dc2626;
   /* and the ones held, or found by the pointer: the same red turned up —
      brighter and a little heavier. A picked point is the same thing picked

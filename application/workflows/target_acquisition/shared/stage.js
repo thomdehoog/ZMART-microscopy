@@ -421,8 +421,8 @@ function drawWhereTheStageIs(ctx, onTheStage) {
   ctx.save();
   ctx.strokeStyle = css("--mark-stage");
   ctx.fillStyle = css("--mark-stage");
-  ctx.lineWidth = stageMarkHot ? 2.5 : 1.5;
-  crosshair(ctx, x, y, 12, 4, stageMarkHot ? 2.2 : 1.6);
+  ctx.lineWidth = stageMarkHot ? 3 : 2.2;
+  crosshair(ctx, x, y, 12, 4, stageMarkHot ? 2.6 : 2);
   ctx.restore();
 }
 
