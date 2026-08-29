@@ -515,7 +515,7 @@ def test_a_scan_really_captures_at_every_position(monkeypatch, tmp_path):
     ]
     # Every capture wrote what it says it wrote, where a driver writes it.
     written = sorted((bridge._run / "overview" / "data").glob("*.ome.tiff"))
-    assert len(written) == 3
+    assert len(written) == 3 * 3  # three positions, one file per channel
     for record in records:
         for path in record["images"]:
             assert Path(path).is_file()
