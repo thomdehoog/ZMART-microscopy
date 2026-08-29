@@ -293,10 +293,16 @@ export function renderRecordingSlot(host, opts) {
   if (unnamed) {
     /* The reading and the press that replaces it share one row. Both are
        short -- a collapsed reading, a one-word button -- and stacked they
-       read as two subjects when the button is the answer to the row. */
+       read as two subjects when the button is the answer to the row.
+
+       Unfolded, the reading is the whole subject: the detail underneath is
+       what is being read, and Update beside it crowded the row it answers.
+       Folding it away brings the press back -- the fold rerenders. */
     const beside = document.createElement("div");
     beside.className = "rec-beside";
-    beside.append(list, box);
+    const reading = slot.records.some((record) => unfolded.has(record.id));
+    if (reading) beside.append(list);
+    else beside.append(list, box);
     body.append(beside);
   } else {
     body.append(list);
