@@ -53,19 +53,11 @@
             <div class="fp-ways">
               <div class="fp-way">
                 <div class="side-sub">Focus points</div>
-                <!-- Armed like a drawing tool, and drawn like one: placing
-                     points by hand is the same kind of act as drawing a
-                     tileset. Nothing on the canvas answers to a press until it
-                     is armed. -->
-                <div class="fp-hand">
-                <div class="fp-tools">
-                <!-- The hand's two states, the way the step before names them:
-                     picking what is already down, or putting another down. One
-                     is always on, so a press on the map is never a question. -->
-                <button type="button" class="sf-tool" id="fp-select"
-                        title="Select — press a point to choose it, drag to move it">
-                  <span class="sf-glyph">↖</span>
-                </button>
+                <!-- One row for the whole act: the crosshair arms placing by
+                     hand -- a press on a point picks or moves it either way,
+                     so no select tool is needed -- and beside it the two
+                     automatics, each with its own count. -->
+                <div class="fp-one">
                 <button type="button" class="sf-tool" id="fp-pick"
                         title="Place focus points — press the map to put one down, press one to take it away">
                   <!-- The mark it puts down, drawn at the size a glyph is: the
@@ -78,25 +70,6 @@
                              M 11 5.5 L 11 7.75 M 11 14.25 L 11 16.5" />
                   </svg>
                 </button>
-                </div>
-                <!-- Beside the hand, because the hand is what fills a map one
-                     point at a time and this is the way back out of it. -->
-                <button type="button" class="sf-flat" id="fp-clear">Clear all</button>
-                </div>
-              </div>
-
-              <!-- Two automatics, each with its own number, because they are
-                   answers to different questions and an operator wants both to
-                   hand: so many in every drawn thing, or so many over the whole
-                   carrier. One number serving both meant choosing between them
-                   before either could be pressed. -->
-              <div class="fp-way">
-                <!-- One word over both rows: each press says which of the two
-                     it is, and a heading repeating it said the same thing
-                     twice down a narrow column. -->
-                <div class="side-sub">Automatic</div>
-                <!-- Side by side on one row: two ways of laying the same
-                     points, not two acts one after the other. -->
                 <div class="fp-lays">
                 <!-- Every drawn thing measured in its own right: so many
                      points inside each tileset, however many tilesets there
@@ -118,6 +91,7 @@
                   <button type="button" class="sf-flat sf-doing" id="fp-place-all">Per carrier</button>
                 </div>
                 </div>
+                </div>
               </div>
             </div>
 
@@ -133,10 +107,14 @@
                  there before one has: every press here is about a map that
                  exists, and three greyed buttons under the press that makes one
                  say nothing the greyed press has not already said. -->
-            <div class="fp-again" id="fp-again" hidden>
+            <div class="fp-again" id="fp-again">
               <button type="button" class="sf-flat sf-doing" id="fp-rerun"
                       title="Measure every point again, each search starting from the height the objective is at now">
                 Rerun
+              </button>
+              <button type="button" class="sf-flat" id="fp-clear"
+                      title="Take every placed point away">
+                Clear all
               </button>
               <button type="button" class="sf-flat" id="fp-reset"
                       title="Throw the map away, and the points it was measured from with it">
