@@ -53,8 +53,6 @@ University of Zurich (thom.dehoog@zmb.uzh.ch, thomdehoog@gmail.com).
 
 from __future__ import annotations
 
-import time
-
 import json
 from pathlib import Path
 from typing import Any
@@ -78,23 +76,6 @@ class RunCancelled(RuntimeError):
     operator pressing Stop from an instrument refusing a move. The workflow
     re-exports its own, which this is compatible with.
     """
-
-
-def _stackless(record: dict) -> bool:
-    """True when this capture holds no stack to score.
-
-    One channel's distinct heights are the stack; fewer than two of them
-    cannot be focused, whatever else the record carries.
-    """
-    planes = record.get("planes") or []
-    if not planes:
-        return True
-    first = min(int(plane.get("c", 0)) for plane in planes)
-    heights = {plane.get("z") for plane in planes if int(plane.get("c", 0)) == first}
-    # The scorer skips two planes at each end before choosing, so anything
-    # under five heights cannot be focused -- a two-plane stack from a
-    # half-armed job is as unusable as a single plane.
-    return len(heights) < 5
 
 
 def log_focus_scoring_failed(index: int, why: Exception) -> None:
@@ -187,19 +168,6 @@ def measure_focus(
             record = session.acquire(
                 acquisition_type=FOCUSSING, position_label=position_label(index)
             )
-            # Freshly applied settings arm GRADUALLY on the LAS X simulator:
-            # the first capture of a run came back with one plane, a retake
-            # with two, and only later takes with the whole stack. The stage
-            # is standing here anyway, so keep taking, with a breath between
-            # takes, until the stack arrives or patience runs out -- the
-            # scorer cannot use a short stack however it is guarded.
-            for _breath in range(3):
-                if not _stackless(record):
-                    break
-                time.sleep(0.7)
-                record = session.acquire(
-                    acquisition_type=FOCUSSING, position_label=position_label(index)
-                )
             if output is not None:
                 move_record_images(record, output.data)
             found = score(record)

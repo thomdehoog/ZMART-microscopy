@@ -91,17 +91,18 @@ def run(pipeline_data: dict, state: dict, **params) -> dict:
         raise ValueError(
             f"z_um has {len(z_um)} heights but the stack has {len(planes)} planes."
         )
-    if len(planes) <= 2 * skip_ends:
-        raise ValueError(
-            f"skip_ends={skip_ends} leaves no plane to choose from in a "
-            f"{len(planes)}-plane stack."
-        )
+    # The sweep's ends are skipped to dodge edge artefacts -- when there is
+    # room. A short stack is scored whole instead of refused: the answer an
+    # incomplete capture can give, flagged by `found` and the curve itself,
+    # beats a refusal that ends with no answer at all. One plane scores as
+    # itself.
+    skip = min(skip_ends, max(0, (len(planes) - 1) // 2))
 
     metrics = {}
     for name, measure in METRICS.items():
         scores = [measure(plane) for plane in planes]
-        peak_index = _refine_peak(scores, skip_ends)
-        found = _inside_the_sweep(peak_index, len(scores), skip_ends)
+        peak_index = _refine_peak(scores, skip)
+        found = _inside_the_sweep(peak_index, len(scores), skip)
         metrics[name] = {
             "scores": scores,
             "peak_index": peak_index,

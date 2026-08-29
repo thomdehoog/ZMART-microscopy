@@ -137,28 +137,6 @@ def test_a_point_that_cannot_be_scored_is_lost_and_the_map_marches_on():
     assert measured[1]["z_um"] == 1.5
 
 
-def test_a_short_capture_is_retaken_until_the_stack_arrives():
-    """Fresh settings arm gradually on the LAS X simulator: one plane, then
-    two, then the stack. The point is retaken, with patience, until the
-    stack is really there -- and the full take is what gets scored."""
-    session = _StubSession({(0.0, 0.0): 2.0}, current_z=0.3)
-    real_acquire = session.acquire
-    calls = {"n": 0}
-
-    def arming_acquire(**kw):
-        calls["n"] += 1
-        record = real_acquire(**kw)
-        if calls["n"] < 3:
-            record["planes"] = record["planes"][:calls["n"]]
-        return record
-
-    session.acquire = arming_acquire
-    measured = measure_focus(session, [{"x": 0.0, "y": 0.0}], score=_score)
-    assert calls["n"] == 3, "the takes continued until the stack arrived"
-    assert measured[0]["z_um"] == 2.0
-    assert len(measured[0]["planes"]) == 5, "the full stack rides the measurement"
-
-
 def test_a_point_whose_drive_fails_is_lost_and_the_map_marches_on():
     """A flaking position read once ended the run two points in. Every drive
     is absolute, so the next point is untouched by this one's failure."""
