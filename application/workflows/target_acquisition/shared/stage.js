@@ -945,6 +945,28 @@ stageBox.addEventListener("pointermove", (e) => {
 
   // hover the nearest visible cell
   const world = theCanvas.unproject(e.offsetX, e.offsetY);
+
+  /* A tile under the pointer on the discover step is one press from being
+     the test position: the hand and a lit frame both say so. */
+  if (step(run.activeIdx).mode === "detect" && !run.running) {
+    let overTile = -1;
+    for (let i = 0; i < run.plan.length; i++) {
+      const t = run.plan[i];
+      const half = t.frameUm / 2;
+      if (Math.abs(world.x - t.x) <= half
+        && Math.abs(world.y - t.y) <= half) { overTile = i; break; }
+    }
+    if (run.detect.hovered !== overTile) {
+      run.detect.hovered = overTile;
+      drawStage();
+    }
+    stageBox.style.cursor = overTile >= 0 ? "pointer" : "";
+  } else if (run.detect.hovered !== -1) {
+    run.detect.hovered = -1;
+    stageBox.style.cursor = "";
+    drawStage();
+  }
+
   let hit = null;
   if (run.cellsShown) {
     let best = 12 / view.scale;
@@ -968,6 +990,8 @@ stageBox.addEventListener("pointermove", (e) => {
 stageBox.addEventListener("pointerleave", (e) => {
   editorTook("leave", e);
   stageTip.classList.remove("on");
+  if (run.detect.hovered !== -1) { run.detect.hovered = -1; drawStage(); }
+  stageBox.style.cursor = "";
   // the pointer is off the canvas, so it is off the mark whatever it was on
   if (stageMarkHot) { stageMarkHot = false; drawStage(); }
 });

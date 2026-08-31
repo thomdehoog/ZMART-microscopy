@@ -136,6 +136,20 @@ export function targetLayers(theRun) {
       ctx.strokeStyle = css("--accent");
       ctx.lineWidth = 2;
       ctx.strokeRect(x, y, t.frameUm * scale, t.frameUm * scale);
+
+      /* And the one under the pointer, lightly: the press it invites picks
+         it as the test position. */
+      const over = run.plan[run.detect.hovered];
+      if (over && run.detect.hovered !== run.detect.tile) {
+        const oh = over.frameUm / 2;
+        const [hx, hy] = place(over.x - oh, over.y - oh);
+        ctx.globalAlpha = 0.5;
+        ctx.setLineDash([4, 4]);
+        ctx.lineWidth = 1.5;
+        ctx.strokeRect(hx, hy, over.frameUm * scale, over.frameUm * scale);
+        ctx.setLineDash([]);
+        ctx.globalAlpha = 1;
+      }
     },
   },
   };
