@@ -243,6 +243,7 @@ let stageWatch = null;
     cells: new Map(),
     fieldLabels: {},
     overviewPictures: backendFor().viewOf("overview"),
+    targetPictures: backendFor().viewOf("targets"),
     cellsShown: false,
     gates: [],           // [{fx, fy, vertices: [[x, y], ...]}] — see gating.js
     gated: new Set(),
@@ -364,6 +365,7 @@ let stageWatch = null;
       focus: newFocus(), focusMaps: {}, focusFor: null,
       detect: newDetect(), cells: new Map(), fieldLabels: {},
       overviewPictures: backendFor().viewOf("overview"),
+    targetPictures: backendFor().viewOf("targets"),
       cellsShown: false, gate: null, gated: new Set(), acquired: [], acquiredLabels: {},
       verdicts: {},
       locked: false,
@@ -722,6 +724,9 @@ let stageWatch = null;
         state.acquired = got;
         state.acquiredLabels = Object.fromEntries(
           got.map((id, i) => [id, records[i]?.position_label]));
+        /* How wide each acquired frame is on the sample, for the canvas to
+           print the picture at its true size and place. */
+        state.targetFrameUm = activeRecording(state.targetType)?.frameUm ?? null;
         return stopped
           ? stoppedShort(`stopped by hand — ${records.length} of ${picked.length} pairs acquired`)
           : finish();
