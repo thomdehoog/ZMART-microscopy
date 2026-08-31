@@ -20,7 +20,11 @@ from application.parts.storage.zarr_positions import position_store_from_record
 
 
 def a_record(planes: list[dict]) -> dict:
-    return {"position_label": "K00_M000000_G000000_P000007_V00", "planes": planes}
+    return {
+        "acquisition_type": "overview",
+        "position_label": "K00_M000000_G000000_P000007_V00",
+        "planes": planes,
+    }
 
 
 def one_file_per_plane(folder, *, channels=2, size=256) -> dict:
@@ -59,7 +63,7 @@ def one_file_whole_capture(folder, *, channels=3, size=128) -> dict:
 class TestTheStore:
     def test_a_position_is_ome_zarr_five_with_tczyx(self, tmp_path):
         store = position_store_from_record(one_file_per_plane(tmp_path), tmp_path / "positions")
-        assert store.name == "K00_M000000_G000000_P000007_V00.ome.zarr"
+        assert store.name == "overview_K00_M000000_G000000_P000007_V00.ome.zarr"
         description = json.loads((store / "zarr.json").read_text())
         assert description["zarr_format"] == 3
         ome = description["attributes"]["ome"]
