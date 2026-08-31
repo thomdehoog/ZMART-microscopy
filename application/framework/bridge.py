@@ -891,6 +891,16 @@ def _the_mask_view_for(kind: str, label: str):
     return None
 
 
+def _the_label_map_for(kind: str, label: str):
+    """The raw label-mask PNG for the *kind* field labelled *label*, or None."""
+    from application.parts.microscope.mask_view import label_map_of
+
+    for record in _records.get(kind, []):
+        if record.get("position_label") == label:
+            return label_map_of(record, label)
+    return None
+
+
 def _keep_targets(cells: list, record: dict) -> None:
     """Write what was found beside the field it was found in.
 
@@ -993,6 +1003,10 @@ class _Bridge(BaseHTTPRequestHandler):
             # asks by the field's label, and a field detection has not
             # visited answers 404 rather than a broken picture.
             where = _the_mask_view_for(kind, name[: -len(".mask.png")])
+        elif name.endswith(".labels.png"):
+            # The raw labels, losslessly: what lets the page light one
+            # object's true shape rather than a blob where it stands.
+            where = _the_label_map_for(kind, name[: -len(".labels.png")])
         elif kind == FOCUSSING:
             # A focus stack's slices: written as each point lands, no note --
             # the point itself tells the page their names and heights.

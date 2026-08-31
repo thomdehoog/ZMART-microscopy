@@ -75,6 +75,9 @@ def as_targets(table: dict, *, field: int, pixel_um: float) -> list[dict]:
             "area": area,
             "intensity": float(props["intensity_mean"][index]),
             "r": math.sqrt(area / math.pi),
+            # The mask label this object wears in its field's checkpoint --
+            # what lets the page paint exactly this cell's pixels.
+            "label": int(props["label"][index]),
             # The whole feature row rides along: what an operator gates on is
             # a decision made later, and a column dropped here is an axis the
             # page cannot offer.
