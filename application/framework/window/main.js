@@ -149,6 +149,7 @@ let stageWatch = null;
       diameter: 30,
       cellprob: 0,
       tile: 0,
+      hovered: -1,     // the tile under the pointer, a press from being tested
       tested: false,
       tried: [],
     };
