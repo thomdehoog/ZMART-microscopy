@@ -357,7 +357,7 @@ export const backend = {
       gave.push(one);
       onProgress?.(gave.length, found.length);
     }
-    return { fields: gave, stopped: stopAsked.targets };
+    return { fields: gave, failed: [], stopped: stopAsked.targets };
   },
 
   /** The operator's Interrupt for discovery, as the bridge offers it. */

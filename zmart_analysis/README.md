@@ -66,6 +66,10 @@ Kept minimal, so a re-sync stays cheap.
 - `_segmentation.py` reads through `_image_io`; `segment_tiff` became
   `segment_position`. It gained `filter_masks_by_border` for tile overlap, and
   `segmentation_params` now accepts per-submission overrides.
+- `to_builtin` (in `build_object_table.py` and `detect_objects.py`) takes the
+  `item()` door only for 0-d values: a one-element numpy array also answers
+  `item()`, which collapsed a single-object field's columns to scalars and
+  crashed the table step with `len()` on an int.
 - `run_pipeline.py` reads through the same contract.
 - The `environments/setup_env.py` and `clean_env.py` scripts (focus and
   object_analysis alike) had their `__main__` blocks sitting mid-file above

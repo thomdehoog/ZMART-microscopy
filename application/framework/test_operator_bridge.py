@@ -809,6 +809,36 @@ def test_the_operators_hand_stops_discovery_between_fields(monkeypatch):
     assert [field["field"] for field in got["fields"]] == [0]
 
 
+def test_a_field_that_fails_does_not_take_the_run_down(monkeypatch):
+    """One bad field is reported and stepped over; the rest are still found.
+
+    A run of many fields died whole when one field's analysis threw, and
+    nothing short of running everything again could recover it. The run now
+    files the failure beside the fields that worked, the way the focus map
+    files a lost point."""
+    _an_overview_of_two_fields(monkeypatch)
+    good = bridge._find_targets
+
+    def finder():
+        find = good()
+
+        def find_or_die(record, field, settings):
+            if field == 0:
+                raise RuntimeError("the pipeline choked on this field")
+            return find(record, field, settings)
+
+        return find_or_die
+
+    monkeypatch.setattr(bridge, "_find_targets", finder)
+    got = _discovered({"settings": {}})
+    assert [field["field"] for field in got["fields"]] == [1]
+    assert got["done"] == 2
+    assert got["error"] is None
+    assert len(got["failed"]) == 1
+    assert got["failed"][0]["field"] == 0
+    assert "choked" in got["failed"][0]["why"]
+
+
 def test_a_worker_put_down_by_the_hand_is_a_stop_not_a_failure(monkeypatch):
     """Interrupt may kill the analysis mid-field; the run says stopped, not error.
 

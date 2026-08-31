@@ -830,7 +830,7 @@ def _the_scan() -> dict:
 #: rest of the overview is still being looked at.
 _targets = {
     "running": False, "done": 0, "of": 0, "error": None, "stopped": False,
-    "fields": [],
+    "fields": [], "failed": [],
 }
 
 
@@ -860,7 +860,7 @@ def _discover_targets(asked: dict) -> dict:
     _stop_asked["targets"] = False
     _targets.update(
         running=True, done=0, of=len(fields), error=None, stopped=False,
-        fields=[], doing=None,
+        fields=[], failed=[], doing=None,
     )
     threading.Thread(
         target=_targets_worker, args=(fields, dict(asked.get("settings") or {})), daemon=True
@@ -879,7 +879,21 @@ def _targets_worker(fields: list, settings: dict) -> None:
             _targets["doing"] = (
                 f"segmenting position {field + 1} ({number + 1} of {len(fields)})"
             )
-            cells = find(record, field, settings)
+            try:
+                cells = find(record, field, settings)
+            except Exception as why:  # noqa: BLE001 -- filed, not fatal
+                if _stop_asked["targets"]:
+                    # The hand that stopped the run also put its worker
+                    # down; that death is the stop, not a bad field.
+                    _targets["stopped"] = True
+                    break
+                # One bad field is filed and stepped over, the way the focus
+                # map files a lost point: a nine-field run died whole on the
+                # one field the pipeline choked on, and nothing short of
+                # running everything again could recover it.
+                _targets["failed"].append({"field": field, "why": str(why)})
+                _targets["done"] += 1
+                continue
             _keep_targets(cells, record)
             _targets["fields"].append({
                 "field": field, "position_label": record["position_label"], "cells": cells,
