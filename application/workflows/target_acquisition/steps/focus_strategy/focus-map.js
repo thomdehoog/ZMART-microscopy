@@ -94,10 +94,11 @@ function carrierBox() {
   return { xMin: 0, yMin: 0, xMax: w, yMax: h };
 }
 
-/** The measured surface's height at a place — in the frame the driver
-    reports z in — or null while there is no surface to read. What the scan
-    and the targets drive each position to. */
-function heightAt(x, y) {
+/** The measured surface's z at a place — in the frame the stage drives in —
+    or null while there is no surface to read. What the scan and the targets
+    drive each position to. Named for z rather than "height", which on a
+    screen reads as y. */
+function surfaceZAt(x, y) {
   const surf = focusSurface();
   return surf ? surfaceZ(surf, x, y) : null;
 }
@@ -839,7 +840,11 @@ function renderFocusBar() {
      briefly on screen together, both meaning measure it. */
   document.querySelector(".focus-action").hidden = ran;
   el("fp-rerun").hidden = !ran;
-  el("fp-rerun").disabled = !ran || !!run.running;
+  /* While a run is out, the Rerun cell is the brake — one press, one place,
+     whichever press started the run. The backend stops between two points,
+     and what was measured stands. */
+  el("fp-rerun").textContent = run.running ? "Interrupt" : "Rerun";
+  el("fp-rerun").disabled = run.running ? false : !ran;
   el("fp-runnew").disabled = frozen || !ran || !!run.running;
   /* The traces are what the run came back with, so the box that reads them
      is not there until it has. What the map came to is in the rows: a height
@@ -1691,6 +1696,7 @@ const runAgain = async (from, button) => {
   const f = run.focus;
   if (run.running || !f.applied || !f.points.length) return;
   run.running = true;
+  interruptAsked = false;
   button.classList.add("on");
   renderFocusBar(); renderActionBar();
   try {
@@ -1702,14 +1708,30 @@ const runAgain = async (from, button) => {
   f.selected = Math.max(0, Math.min(f.selected, f.points.length - 1));
   stage.draw(); renderPointList(); drawTrace(); renderFocusBar(); renderActionBar(); renderSide();
 };
-el("fp-rerun").addEventListener("click", (e) => runAgain("stage", e.currentTarget));
+
+/* The operator's hand on the brake. One flag, two readers: the backend stops
+   its run between two points, and the Run-new-points loop below reads the
+   same flag between its own. Whichever press started the run, the Rerun cell
+   is where the brake stands while it is out. */
+let interruptAsked = false;
+const interruptTheRun = () => {
+  interruptAsked = true;
+  backend.stopFocusMeasure?.();
+  el("fp-rerun").disabled = true;
+  el("fp-rerun").textContent = "stopping…";
+};
+el("fp-rerun").addEventListener("click", (e) => {
+  if (run.running) return interruptTheRun();
+  runAgain("stage", e.currentTarget);
+});
 
 /* Only the points with no reading: placed since the last run, or moved since
    they were read. The measured ones keep their heights -- this is how a map
    grows without being rebuilt. With nothing new it measures nothing. */
 el("fp-runnew").addEventListener("click", async (e) => {
   const f = run.focus;
-  if (run.running || !f.applied) return;
+  if (run.running) return interruptTheRun();
+  if (!f.applied) return;
   /* The batch marches the same way a full run does -- tilesets whole,
      shortest path inside each -- not in the order the points happened to
      be added. The route orders the points; each keeps its own row. */
@@ -1721,10 +1743,14 @@ el("fp-runnew").addEventListener("click", async (e) => {
   if (!fresh.length) return;
   const button = e.currentTarget;
   run.running = true;
+  interruptAsked = false;
   button.classList.add("on");
   renderFocusBar(); renderActionBar();
   try {
     for (const { point, at } of fresh) {
+      /* Between two points, on the operator's say-so: the ones measured
+         stand, and the rest are still rows that say they have no reading. */
+      if (interruptAsked) break;
       /* The mark and the row lead here too: this is the point being
          measured, so it is the one lit and marked while the stage works. */
       f.selected = at;
@@ -1818,7 +1844,7 @@ async function remeasure({ from = null } = {}) {
      each reader of them learning to cope with a missing field. */
   /* Points are laid on the carrier; the instrument is driven in its own
      frame. Out through `toStage`, back through `toCarrier` -- see stage.js. */
-  const { points } = await backend.measureFocus(asked.map(stage.toStage), {
+  const { points, stopped } = await backend.measureFocus(asked.map(stage.toStage), {
     metric: f.metric,
     extent: carrierSpan(),
     /* The recorded focussing configuration, applied once before the run: the
@@ -1856,9 +1882,15 @@ async function remeasure({ from = null } = {}) {
       renderPointList(); renderFocusBar(); drawTrace(); stage.draw();
     },
   });
-  f.points = points.map((p) => settled(stage.toCarrier(
-    { ...p, accepted: false, manual: false, stale: false })));
+  /* A stopped run keeps the map as it stands: the points that landed are
+     already in it, and the ones never reached are still places to measure —
+     replacing the list with the short answer dropped them. */
+  if (!stopped) {
+    f.points = points.map((p) => settled(stage.toCarrier(
+      { ...p, accepted: false, manual: false, stale: false })));
+  }
   refitSurface();
+  return { stopped: !!stopped };
 }
 
 function refitSurface() {
@@ -1915,8 +1947,8 @@ function refitSurface() {
        geometry they need does: placing a carrier anchor, and picking the
        position detection is tried on. They move when that geometry does. */
     anchorPressed, detectPressed,
-    // the surface's height at a place, and where a position is
-    heightAt, nearestPosition,
+    // the surface's z at a place, and where a position is
+    surfaceZAt, nearestPosition,
     // the channel
     renderFocusBar, renderPointList, drawTrace, refitSurface, remeasure,
     mounted: focusMounted,

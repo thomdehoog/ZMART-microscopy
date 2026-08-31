@@ -54,6 +54,7 @@ University of Zurich (thom.dehoog@zmb.uzh.ch, thomdehoog@gmail.com).
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 from typing import Any
 
@@ -78,6 +79,54 @@ class RunCancelled(RuntimeError):
     """
 
 
+def apply_state_settled(session: Any, settings: dict, *, timeout_s: float = 8.0) -> None:
+    """Apply recorded settings, and wait until the instrument says they took.
+
+    Two lessons from one morning at the Stellaris, both of which ran a scan
+    on the wrong job.
+
+    **The shape.** The driver reads ``changeable`` off what it is handed and
+    applies that; the page's recordings store the changeable half bare. Passed
+    through unwrapped, the driver found no ``changeable``, applied nothing,
+    and said so to nobody — every capture ran on whatever job was selected by
+    hand. So a caller holding the bare half has it wrapped, and a caller with
+    a full ``get_state`` answer passes it through.
+
+    **The wait.** ``set_state`` answers when the selection is dispatched, not
+    when LAS X has finished swapping jobs, and the first field of a scan
+    fired on the job the focus run left selected — a six-plane stack where an
+    overview frame belonged. So the changeable state is read back until it
+    matches what was asked. The readback can itself lag reality on this
+    instrument, which is why a timeout proceeds with a warning rather than
+    refusing a run the instrument may well be ready for.
+    """
+    state = settings if "changeable" in settings else {"changeable": dict(settings)}
+    session.set_state(state)
+    asked = state.get("changeable") or {}
+    # A session that cannot report its state has nothing to wait for — the
+    # controller's sessions all can, but the stubs the tests drive need not.
+    reader = getattr(session, "get_state", None)
+    if not asked or reader is None:
+        return
+    deadline = time.monotonic() + timeout_s
+    standing: dict = {}
+    while time.monotonic() < deadline:
+        try:
+            standing = reader().get("changeable") or {}
+        except Exception:  # noqa: BLE001 — a flaking readback is not a failed apply
+            standing = {}
+        if all(standing.get(key) == value for key, value in asked.items()):
+            return
+        time.sleep(0.25)
+    import logging
+
+    logging.getLogger(__name__).warning(
+        "the instrument's settings did not read back as asked within %.0fs "
+        "(asked %r, standing %r) — capturing anyway",
+        timeout_s, asked, standing,
+    )
+
+
 def log_focus_scoring_failed(index: int, why: Exception) -> None:
     """Say which point was lost and why, where the run's log is read."""
     import logging
@@ -85,6 +134,65 @@ def log_focus_scoring_failed(index: int, why: Exception) -> None:
     logging.getLogger(__name__).warning(
         "focus point %d could not be scored and is LOST: %s", index + 1, why
     )
+
+
+def _the_drive_frames_shift(record: dict | None, centre_um) -> float:
+    """How far the stack's own z axis sits from the frame the stage drives in.
+
+    The analysis answers in the axis the planes carry, and on the Leica that
+    is the sweep's own: a stack taken with the stage standing at 5781.8 µm
+    files its planes as −6…+6, and the peak comes back as "+3.6". Kept that
+    way, a surface was fitted through offsets and the overview drove every
+    field to 3.6 micrometres above z-zero — five and three quarter
+    millimetres from the sample it had just measured.
+
+    The shift is what centres the sweep on the height the stage was driven
+    to: the midpoint of the planes' own axis subtracted, the stack's centre
+    added. A driver whose planes are already absolute has its midpoint at
+    the centre, and the shift is zero.
+    """
+    planes = (record or {}).get("planes") or []
+    zs = [p.get("z_um") for p in planes if isinstance(p.get("z_um"), (int, float))]
+    if not zs or not isinstance(centre_um, (int, float)):
+        return 0.0
+    return float(centre_um) - (min(zs) + max(zs)) / 2.0
+
+
+def _shifted_into_the_drive_frame(found: dict, shift: float) -> dict:
+    """The score's answer, moved by *shift*: the height, and every z its
+    curves carry.
+
+    The curves too, not just the number: the plot is dragged to choose a
+    height, and an axis left in the sweep's frame would hand back the very
+    offsets the shift exists to retire.
+    """
+    if not shift:
+        return found
+    moved = dict(found)
+    if isinstance(found.get("z_um"), (int, float)):
+        moved["z_um"] = float(found["z_um"]) + shift
+    traces = found.get("traces")
+    if isinstance(traces, dict):
+        moved["traces"] = {
+            name: _a_curve_shifted(curve, shift) for name, curve in traces.items()
+        }
+    return moved
+
+
+def _a_curve_shifted(curve, shift: float):
+    if not isinstance(curve, dict):
+        return curve
+    moved = dict(curve)
+    if isinstance(curve.get("samples"), list):
+        moved["samples"] = [
+            {**sample, "z": float(sample["z"]) + shift}
+            if isinstance(sample, dict) and isinstance(sample.get("z"), (int, float))
+            else sample
+            for sample in curve["samples"]
+        ]
+    if isinstance(curve.get("peak_z_um"), (int, float)):
+        moved["peak_z_um"] = float(curve["peak_z_um"]) + shift
+    return moved
 
 
 def _keep(measured: dict, acquisition: Any, record: dict) -> None:
@@ -129,6 +237,14 @@ def measure_focus(
     a missing one: a surface is fitted through these, so one invented zero
     drags the whole map towards a place nobody measured.
 
+    What comes back is **in the frame the stage drives in**, whatever axis
+    the score answered in: the sweep's own zero is replaced with the height
+    the stack was actually centred on, for the peak, the curves and the
+    planes alike. Every consumer of a measurement — the fitted surface, a
+    refine's start, the scan that drives to what the map predicts — speaks
+    stage z, and one relative peak among them sent a whole overview five
+    millimetres from the sample.
+
     ``state`` (from :meth:`Session.get_state`) is the focussing settings, and
     is applied once before the run rather than per point. ``output_root`` is
     the run's own folder: given one, each stack is moved into it before being
@@ -143,7 +259,7 @@ def measure_focus(
         prepare_acquisition(output_root, FOCUSSING) if output_root is not None else None
     )
     if state is not None:
-        session.set_state(state)
+        apply_state_settled(session, state)
     standing = None
     measured = []
     for index, point in enumerate(points):
@@ -155,6 +271,7 @@ def measure_focus(
             )
         record = None
         found = {"z_um": None, "traces": None}
+        shift = 0.0
         try:
             centre = point.get("z")
             if not isinstance(centre, (int, float)):
@@ -170,7 +287,8 @@ def measure_focus(
             )
             if output is not None:
                 move_record_images(record, output.data)
-            found = score(record)
+            shift = _the_drive_frames_shift(record, centre)
+            found = _shifted_into_the_drive_frame(score(record), shift)
         except RunCancelled:
             raise
         except Exception as why:  # noqa: BLE001 -- one bad point must not end the map
@@ -187,9 +305,15 @@ def measure_focus(
             "z_um": found.get("z_um"),
             "traces": found.get("traces"),
             # The stack's own files ride with the measurement, height by
-            # height, so the chosen number can be looked at as well as read.
+            # height, so the chosen number can be looked at as well as read —
+            # each height in the drive frame, like the number it argues for.
             "planes": [
-                {"path": str(plane.get("path")), "z_um": plane.get("z_um")}
+                {
+                    "path": str(plane.get("path")),
+                    "z_um": float(plane["z_um"]) + shift
+                    if isinstance(plane.get("z_um"), (int, float))
+                    else plane.get("z_um"),
+                }
                 for plane in (record or {}).get("planes", [])
             ],
         }

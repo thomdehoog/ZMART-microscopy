@@ -215,8 +215,22 @@ export const backend = {
    */
   async measureFocus(points, { metric, extent, onPoint, state } = {}) {
     void state; // the pretend instrument has no configuration to reapply
+    stopAsked.focus = false;
     await wait(200);
-    const measured = points.map((p, index) => {
+    const measured = [];
+    for (const [index, p] of points.entries()) {
+      /* Between two points, as the bridge stops: what was measured stands.
+         The gap is a yield, not a pause — long enough for a stop press to
+         land between two points, and short enough that the rehearsal's pace
+         stays the pace every budget in the specs was set to. */
+      if (stopAsked.focus) return { points: measured, stopped: true };
+      if (index) await wait(0);
+      measured.push(measureOne(p, index));
+      onPoint?.(measured[index], index);
+    }
+    return { points: measured, stopped: false };
+
+    function measureOne(p, index) {
       const focusZ = focusZAt(p.x, p.y, extent);
       /* Where this search begins. The objective is driven there and swept about
          it, so running the map again from wherever the stage is standing is a
@@ -240,9 +254,13 @@ export const backend = {
          dust won a point unflagged. */
       const tallest = traces[metric].samples.reduce((a, q) => (q.s > a.s ? q : a));
       return { ...was, z: p.manual ? p.z : tallest.z, zAuto: tallest.z, lost: false, traces };
-    });
-    measured.forEach((point, index) => onPoint?.(point, index));
-    return { points: measured };
+    }
+  },
+
+  /** The operator's Interrupt for the focus run, as the bridge offers it. */
+  async stopFocusMeasure() {
+    stopAsked.focus = true;
+    return {};
   },
 
   /**
@@ -254,12 +272,16 @@ export const backend = {
    */
   async scanOverview({ positions, acquisition_type = "overview", ms = 2600, onProgress, state }) {
     void state;
+    stopAsked.scan = false;
     scanned[acquisition_type] = positions;
     const total = positions.length;
     const records = [];
     const started = performance.now();
+    let stopped = false;
     await new Promise((resolve) => {
       const tick = () => {
+        /* Between two fields, as the bridge stops: what landed stands. */
+        if (stopAsked.scan) { stopped = true; resolve(); return; }
         const t = Math.min(1, (performance.now() - started) / ms);
         const done = Math.round(t * total);
         while (records.length < done) {
@@ -287,7 +309,13 @@ export const backend = {
     /* The same shape the bridge answers with: a record for every position,
        so a page reading a finished run does not have to know which backend
        ran it. */
-    return { done: total, of: total, records };
+    return { done: records.length, of: total, records, stopped };
+  },
+
+  /** The operator's Interrupt for the scan, as the bridge offers it. */
+  async stopScan() {
+    stopAsked.scan = true;
+    return {};
   },
 
   /**
@@ -377,6 +405,10 @@ let captures = 0;
 /* The positions each kind of scan was asked for, as the bridge keeps each
    scan's records: what discovery is over, once there has been an overview. */
 const scanned = {};
+
+/* The operator's hand on the brake, as the bridge keeps it: set by the stop
+   verbs, read by the pretend runs between two fields. */
+const stopAsked = { scan: false, focus: false };
 
 /* The jobs this pretend instrument has stored, and which is chosen. The same
    three the controller's mock driver keeps, so the page meets one instrument

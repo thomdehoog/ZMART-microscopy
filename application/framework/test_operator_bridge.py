@@ -861,9 +861,12 @@ def test_the_optics_line_names_the_leica_lens(monkeypatch):
 
 def test_the_recorded_settings_reach_the_instrument_before_a_focus_map(driver):
     """The page records a focussing configuration and nothing applied it: the
-    stacks were captured with whatever job the instrument had selected."""
+    stacks were captured with whatever job the instrument had selected. And
+    when something finally did, it applied the bare half the page stores —
+    a shape the driver reads ``changeable`` off and finds nothing in. The
+    driver's own contract is asserted here, wrapper and all."""
     _measured({"points": [{"x": 1, "y": 2}], "state": {"job": "ZStack"}})
-    assert driver.applied == [{"job": "ZStack"}]
+    assert driver.applied == [{"changeable": {"job": "ZStack"}}]
     assert driver.captured, "and the capture still happened"
 
 
@@ -871,7 +874,7 @@ def test_the_recorded_settings_reach_the_instrument_before_a_scan(monkeypatch):
     driver = _Driver()
     scanned = _scanned(driver, [{"x": 1.0, "y": 2.0, "z": 0.0}], monkeypatch,
                        state={"job": "Overview"})
-    assert driver.applied == [{"job": "Overview"}]
+    assert driver.applied == [{"changeable": {"job": "Overview"}}]
     assert scanned["done"] == 1
 
 

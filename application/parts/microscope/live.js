@@ -215,9 +215,19 @@ export const backend = {
       const progress = await askedPatiently("/api/focus/measure");
       for (; shown < progress.points.length; shown++) onPoint?.(progress.points[shown], shown);
       if (progress.error) throw new Error(progress.error);
-      if (!progress.running) return { points: progress.points };
+      if (!progress.running) {
+        /* `stopped` is the operator's own hand, never a failure: the points
+           measured before the press stand, and the caller says so. */
+        return { points: progress.points, stopped: !!progress.stopped };
+      }
       await rest(300);
     }
+  },
+
+  /** The operator's Interrupt for the focus run: the bridge stops between
+      two points, and the poll above ends with what was measured. */
+  async stopFocusMeasure() {
+    return ask("/api/focus/measure/stop", {});
   },
 
   /**
@@ -257,10 +267,20 @@ export const backend = {
       if (!progress.running) {
         /* The records come back with the run: what each capture wrote and
            where. Nothing else can reconstruct them, so a run that ended
-           without them is a run nobody can account for. */
-        return { done: progress.done, of: progress.of, records: progress.records };
+           without them is a run nobody can account for. `stopped` rides
+           along -- the operator's own hand is not a failure. */
+        return {
+          done: progress.done, of: progress.of, records: progress.records,
+          stopped: !!progress.stopped,
+        };
       }
       await rest(300);
     }
+  },
+
+  /** The operator's Interrupt for the scan: the bridge stops between two
+      fields, and the poll above ends with what was captured. */
+  async stopScan() {
+    return ask("/api/scan/stop", {});
   },
 };

@@ -38,10 +38,13 @@ class _StubSession:
         return str(made)
 
     def acquire(self, *, acquisition_type, position_label, options=None):
-        x, y, _z = self.moves[-1]
+        x, y, z = self.moves[-1]
         self.captured.append((acquisition_type, position_label, options))
+        # Planes centred on the height the stage was driven to, as a driver
+        # reporting absolute heights files them: the sweep's midpoint IS the
+        # centre, so nothing about the answer is moved on the way out.
         planes = [
-            {"t": 0, "z": index, "c": 0, "z_um": float(index),
+            {"t": 0, "z": index, "c": 0, "z_um": float(z) + (index - 2) * 1.0,
              "path": self._plane(position_label, index)}
             for index in range(5)
         ]
@@ -110,6 +113,42 @@ def test_every_point_is_named_for_where_it_was_taken():
         "K00_M000000_G000000_P000000_V00",
         "K00_M000000_G000000_P000001_V00",
     ]
+
+
+def test_a_sweep_answered_in_its_own_frame_comes_back_in_the_drives():
+    """The Leica files a stack's planes as −6…+6 around the height it was
+    driven to, and the analysis answers on that axis. What leaves the loop is
+    stage z — the surface, the refine and the scan all drive with it, and a
+    relative peak among them once sent an overview five millimetres from the
+    sample. The peak, the curves and the planes move together: the plot is
+    dragged to choose a height, and an axis left behind hands back offsets."""
+    session = _StubSession({(0.0, 0.0): 3.6}, current_z=5781.8)
+    real_acquire = session.acquire
+
+    def sweep_framed(**kw):
+        record = real_acquire(**kw)
+        for index, plane in enumerate(record["planes"]):
+            plane["z_um"] = float(index - 2)  # the sweep's own zero, not the stage's
+        return record
+
+    session.acquire = sweep_framed
+    relative = lambda record: {  # noqa: E731 — the whole scorer is one shape
+        "z_um": 1.4,
+        "traces": {"brenner": {
+            "samples": [{"z": -2.0, "s": 1.0}, {"z": 2.0, "s": 9.0}],
+            "peak_z_um": 1.4,
+        }},
+    }
+
+    measured = measure_focus(session, [{"x": 0.0, "y": 0.0}], score=relative)
+
+    assert measured[0]["z_um"] == pytest.approx(5781.8 + 1.4)
+    curve = measured[0]["traces"]["brenner"]
+    assert [s["z"] for s in curve["samples"]] == [
+        pytest.approx(5781.8 - 2.0), pytest.approx(5781.8 + 2.0)]
+    assert curve["peak_z_um"] == pytest.approx(5781.8 + 1.4)
+    assert [p["z_um"] for p in measured[0]["planes"]] == [
+        pytest.approx(5781.8 + d) for d in (-2.0, -1.0, 0.0, 1.0, 2.0)]
 
 
 def test_a_stack_nothing_could_be_chosen_from_reports_no_height():
