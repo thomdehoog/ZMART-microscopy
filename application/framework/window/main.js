@@ -444,11 +444,34 @@ let stageWatch = null;
     const blocked = readiness(s);
 
     const run = document.createElement("button");
-    /* marked as the step's own, because where it sits depends on the step */
-    run.className = "run step-run"; run.type = "button";
-    run.textContent = running ? "working…" : (state.ran.has(s.id) ? "Run again" : s.btn);
-    run.disabled = !!state.running || !!blocked;
-    run.addEventListener("click", () => runStep(i));
+    /* marked as the step's own, because where it sits depends on the step —
+       and marked `running` while the step is, because the label is for the
+       operator and changes with what pressing it means ("working…",
+       "Interrupt", "stopping…"): anything that needs to know whether the
+       run is still going reads the class, never the prose. */
+    run.className = `run step-run${running ? " running" : ""}`; run.type = "button";
+    /* A running step the operator can stop offers its own brake: the press
+       that started the run becomes Interrupt, and the backend stops between
+       two fields — what was captured stands. The steps that drive the stage
+       for minutes are exactly the ones a hand must be able to reach. */
+    const brake = {
+      scan: () => backend.stopScan?.(),
+      targets: () => backend.stopScan?.(),
+      focus: () => backend.stopFocusMeasure?.(),
+    }[s.mode];
+    if (running && brake) {
+      run.textContent = state.interrupting === s.id ? "stopping…" : "Interrupt";
+      run.disabled = state.interrupting === s.id;
+      run.addEventListener("click", () => {
+        state.interrupting = s.id;
+        brake();
+        renderActionBar();
+      });
+    } else {
+      run.textContent = running ? "working…" : (state.ran.has(s.id) ? "Run again" : s.btn);
+      run.disabled = !!state.running || !!blocked;
+      run.addEventListener("click", () => runStep(i));
+    }
     host.append(run);
 
     /* The focus step says nothing beside its press. What it waits for is the
@@ -565,7 +588,7 @@ let stageWatch = null;
            with no surface to read carries no height, and the bridge images
            it where the objective stands -- never at an invented zero. */
         positions: state.plan.map((p) => {
-          const z = heightAt(p.x, p.y);
+          const z = surfaceZAt(p.x, p.y);
           return stage.toStage(z === null ? p : { ...p, z });
         }),
         /* The recorded overview configuration, reapplied as the scan starts:
@@ -589,7 +612,9 @@ let stageWatch = null;
           liveOverview.tileMayHaveLanded();
           drawStage(); renderAll();
         },
-      }).then(finish, itFailed);
+      }).then((outcome) => (outcome?.stopped
+        ? stoppedShort(`stopped by hand — ${scanNote()}`)
+        : finish()), itFailed);
       return;
     }
 
@@ -600,7 +625,13 @@ let stageWatch = null;
          failed on the instrument. */
       /* Nothing goes back to point one when the map is done: the stage,
          the mark and the lit row all end on the last point measured. */
-      remeasure().then(finish, itFailed);
+      remeasure().then((came) => {
+        if (!came?.stopped) return finish();
+        const f = state.focus;
+        const measured = f.points.filter((p) => Number.isFinite(p.z)).length;
+        return stoppedShort(
+          `stopped by hand — ${measured} of ${f.points.length} points measured`);
+      }, itFailed);
       return;
     }
 
@@ -634,16 +665,21 @@ let stageWatch = null;
       backend.scanOverview({
         positions: picked.map((id) => {
           const { x, y } = state.cells.get(id);
-          const z = heightAt(x, y);
+          const z = surfaceZAt(x, y);
           return stage.toStage(z === null ? { x, y } : { x, y, z });
         }),
         acquisition_type: "targets",
         state: activeRecording(state.targetType)?.changeable ?? null,
-      }).then(({ records }) => {
-        state.acquired = picked;
+      }).then(({ records, stopped }) => {
+        /* A stopped run accounts for what it took, and claims nothing more:
+           only the cells with a record are acquired. */
+        const got = stopped ? picked.slice(0, records.length) : picked;
+        state.acquired = got;
         state.acquiredLabels = Object.fromEntries(
-          picked.map((id, i) => [id, records[i]?.position_label]));
-        return finish();
+          got.map((id, i) => [id, records[i]?.position_label]));
+        return stopped
+          ? stoppedShort(`stopped by hand — ${records.length} of ${picked.length} pairs acquired`)
+          : finish();
       }, itFailed);
       return;
     }
@@ -656,6 +692,7 @@ let stageWatch = null;
          anyway would mark a failed connection as a session. */
       if (state.failed === s.id) return;
       state.running = null;
+      state.interrupting = null;
       state.done.add(s.id);
       state.ran.add(s.id);
       if (s.note) state.notes[s.id] = s.note;
@@ -697,6 +734,18 @@ let stageWatch = null;
     }
     setTimeout(() => finish().catch(itFailed), s.ms);
 
+    /** The operator's own Interrupt: not a failure, and not a finish either.
+        What the run measured stands; the step is not marked done, so the
+        press that stopped a run leaves a step that can simply be run again. */
+    function stoppedShort(note) {
+      state.running = null;
+      state.interrupting = null;
+      state.ran.add(s.id);
+      state.notes[s.id] = note;
+      focusPanelsFor(state.activeIdx);
+      renderAll();
+    }
+
     /** The step stops, marked as the failure it is, saying what went wrong. */
     function itFailed(why) {
       /* Said in the console too: the focus step draws no note, so a failure
@@ -704,6 +753,7 @@ let stageWatch = null;
       console.error(`${s.id} failed:`, why);
       state.failed = s.id;
       state.running = null;
+      state.interrupting = null;
       state.notes[s.id] = `failed — ${why.message}`;
       renderAll();
     }
@@ -1672,7 +1722,7 @@ let stageWatch = null;
   const {
     drawFocusLayer, drawFocusPoints, focusPressed, focusCursor, focusDraggedTo, focusGrabbed,
     focusHovered, focusMarqueeTo, focusMarqueeTook, anchorPressed, detectPressed,
-    heightAt, nearestPosition, renderFocusBar, renderPointList, drawTrace,
+    surfaceZAt, nearestPosition, renderFocusBar, renderPointList, drawTrace,
     refitSurface, remeasure,
   } = focusMap;
 

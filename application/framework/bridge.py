@@ -52,6 +52,10 @@ The verbs, and what they are made of
   to each position, acquire, report progress. ``GET /api/scan`` reads the
   progress. The window's live picture watches the run's own store, so nothing
   here needs to push pixels at the browser.
+* ``POST /api/scan/stop`` and ``POST /api/focus/measure/stop`` — the
+  operator's Interrupt: ask the run to stop between two fields. What was
+  captured stands; the answer is the run as it stood, ``stopped`` set once
+  the worker has honoured it.
 * ``POST /api/targets/discover`` — find the targets in the overview's fields,
   all of them or the ones named, through the warm analysis; ``GET`` reads the
   progress, each field's targets appended as they are found.
@@ -107,7 +111,12 @@ from application.parts.storage.output import (  # noqa: E402
 )
 from application.parts.analysis import warm  # noqa: E402
 from application.parts.microscope import detection, focus_score  # noqa: E402
-from application.parts.microscope.focus_run import FOCUSSING, measure_focus  # noqa: E402
+from application.parts.microscope.focus_run import (  # noqa: E402
+    FOCUSSING,
+    RunCancelled,
+    apply_state_settled,
+    measure_focus,
+)
 
 # ---------------------------------------------------------------------------
 # The session, and the one lock that guards it
@@ -529,17 +538,41 @@ def _measure_focus(asked: dict) -> dict:
     if _focus["running"]:
         raise RuntimeError("a focus map is already being measured")
     asked_points = asked.get("points", [])
-    _focus.update(running=True, done=0, of=len(asked_points), error=None, points=[])
+    _stop_asked["focus"] = False
+    _focus.update(
+        running=True, done=0, of=len(asked_points), error=None, stopped=False,
+        points=[],
+    )
     threading.Thread(
         target=_focus_worker, args=(asked_points, asked.get("state")), daemon=True
     ).start()
     return dict(_focus)
 
 
+def _stop_focus() -> dict:
+    """The operator's Interrupt: ask the focus run to stop between two points.
+
+    The flag is all this does; the loop reads it before each drive, so the
+    point being measured completes and is kept. Idempotent, and harmless
+    when nothing runs.
+    """
+    _stop_asked["focus"] = True
+    return dict(_focus)
+
+
 #: The focus map under way, polled by the page the way the scan is. Each
 #: point is added the moment it is measured, so the window can show a height
 #: while the stage is still working through the rest.
-_focus = {"running": False, "done": 0, "of": 0, "error": None, "points": []}
+_focus = {
+    "running": False, "done": 0, "of": 0, "error": None, "stopped": False,
+    "points": [],
+}
+
+#: The operator's hand on the brake, one per procedure. Set by the stop
+#: routes, read by the workers between two fields — never mid-capture: the
+#: capture in flight completes and is kept, because a field interrupted
+#: halfway is a file nobody can account for.
+_stop_asked = {"scan": False, "focus": False}
 
 
 def _focus_worker(asked: list, state: dict | None = None) -> None:
@@ -568,7 +601,12 @@ def _focus_worker(asked: list, state: dict | None = None) -> None:
                 state=state,
                 output_root=_the_run(),
                 on_point=lambda m, _n=[0]: (landed(_n[0], m), _n.__setitem__(0, _n[0] + 1)),
+                cancel=lambda: _stop_asked["focus"],
             )
+    except RunCancelled:
+        # The operator's own hand, not a failure: the points measured so far
+        # stand, and the row of the one not taken says nothing at all.
+        _focus["stopped"] = True
     except Exception as why:  # noqa: BLE001 — the window shows the sentence
         _focus["error"] = str(why)
     finally:
@@ -579,7 +617,10 @@ def _focus_worker(asked: list, state: dict | None = None) -> None:
 # The scan: a background thread drives the stage; the window watches the run
 # ---------------------------------------------------------------------------
 
-_scan = {"running": False, "done": 0, "of": 0, "error": None, "acquisition_type": None}
+_scan = {
+    "running": False, "done": 0, "of": 0, "error": None, "stopped": False,
+    "acquisition_type": None,
+}
 
 #: What every scan captured, by the kind of scan. The overview's records are
 #: what discovery reads and what its pictures are made from, and a targets
@@ -602,11 +643,18 @@ def _scan_worker(
     try:
         if state:
             # The recorded configuration for this kind of scan, applied once
-            # before the first drive -- recording it and never applying it
-            # captured everything with whatever job happened to be selected.
+            # before the first drive and CONFIRMED to have taken -- recording
+            # it and never applying it captured everything with whatever job
+            # happened to be selected, and applying without waiting let the
+            # first field fire on the job the step before left behind.
             with _the_instruments_turn:
-                _require_session().set_state(state)
+                apply_state_settled(_require_session(), state)
         for i, position in enumerate(positions):
+            if _stop_asked["scan"]:
+                # Between two fields, on the operator's say-so: what was
+                # captured stands, and no further stage move is made.
+                _scan["stopped"] = True
+                break
             with _the_instruments_turn:
                 session = _require_session()
                 z = position.get("z")
@@ -739,12 +787,25 @@ def _start_scan(asked: dict) -> dict:
     positions = asked.get("positions", [])
     acquisition_type = str(asked.get("acquisition_type", "overview"))
     _records[acquisition_type] = []
+    _stop_asked["scan"] = False
     _scan.update(
-        running=True, done=0, of=len(positions), error=None, acquisition_type=acquisition_type
+        running=True, done=0, of=len(positions), error=None, stopped=False,
+        acquisition_type=acquisition_type,
     )
     threading.Thread(
         target=_scan_worker, args=(positions, acquisition_type, asked.get("state")), daemon=True
     ).start()
+    return _the_scan()
+
+
+def _stop_scan() -> dict:
+    """The operator's Interrupt: ask the scan to stop between two fields.
+
+    The flag is all this does; the worker reads it before each drive, so the
+    field being captured completes and is kept. Idempotent, and harmless
+    when nothing runs.
+    """
+    _stop_asked["scan"] = True
     return _the_scan()
 
 
@@ -996,8 +1057,12 @@ class _Bridge(BaseHTTPRequestHandler):
                     self._answer(_capture(asked))
             elif self.path == "/api/focus/measure":
                 self._answer(_measure_focus(asked))
+            elif self.path == "/api/focus/measure/stop":
+                self._answer(_stop_focus())
             elif self.path == "/api/scan":
                 self._answer(_start_scan(asked))
+            elif self.path == "/api/scan/stop":
+                self._answer(_stop_scan())
             elif self.path == "/api/targets/discover":
                 self._answer(_discover_targets(asked))
             else:
