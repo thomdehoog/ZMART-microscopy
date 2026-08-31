@@ -52,7 +52,8 @@ The verbs, and what they are made of
   to each position, acquire, report progress. ``GET /api/scan`` reads the
   progress. The window's live picture watches the run's own store, so nothing
   here needs to push pixels at the browser.
-* ``POST /api/scan/stop`` and ``POST /api/focus/measure/stop`` — the
+* ``POST /api/scan/stop``, ``POST /api/focus/measure/stop`` and
+  ``POST /api/targets/discover/stop`` — the
   operator's Interrupt: ask the run to stop between two fields. What was
   captured stands; the answer is the run as it stood, ``stopped`` set once
   the worker has honoured it.
@@ -572,7 +573,7 @@ _focus = {
 #: routes, read by the workers between two fields — never mid-capture: the
 #: capture in flight completes and is kept, because a field interrupted
 #: halfway is a file nobody can account for.
-_stop_asked = {"scan": False, "focus": False}
+_stop_asked = {"scan": False, "focus": False, "targets": False}
 
 
 def _focus_worker(asked: list, state: dict | None = None) -> None:
@@ -827,7 +828,10 @@ def _the_scan() -> dict:
 #: Discovery under way, polled by the page the way the scan is. Each field is
 #: appended as its targets are found, so the page can draw them while the
 #: rest of the overview is still being looked at.
-_targets = {"running": False, "done": 0, "of": 0, "error": None, "fields": []}
+_targets = {
+    "running": False, "done": 0, "of": 0, "error": None, "stopped": False,
+    "fields": [],
+}
 
 
 def _find_targets():
@@ -853,7 +857,11 @@ def _discover_targets(asked: dict) -> dict:
         raise RuntimeError("no overview has been scanned, so there is nothing to find targets in")
     chosen = asked.get("fields")
     fields = list(range(len(records))) if chosen is None else [int(field) for field in chosen]
-    _targets.update(running=True, done=0, of=len(fields), error=None, fields=[], doing=None)
+    _stop_asked["targets"] = False
+    _targets.update(
+        running=True, done=0, of=len(fields), error=None, stopped=False,
+        fields=[], doing=None,
+    )
     threading.Thread(
         target=_targets_worker, args=(fields, dict(asked.get("settings") or {})), daemon=True
     ).start()
@@ -864,6 +872,9 @@ def _targets_worker(fields: list, settings: dict) -> None:
     try:
         find = _find_targets()
         for number, field in enumerate(fields):
+            if _stop_asked["targets"]:
+                _targets["stopped"] = True
+                break
             record = _records["overview"][field]
             _targets["doing"] = (
                 f"segmenting position {field + 1} ({number + 1} of {len(fields)})"
@@ -875,10 +886,30 @@ def _targets_worker(fields: list, settings: dict) -> None:
             })
             _targets["done"] += 1
     except Exception as why:  # noqa: BLE001 -- the window shows the sentence
-        _targets["error"] = str(why)
+        if _stop_asked["targets"]:
+            # The hand that stopped the run also put its worker down, and a
+            # worker dying of that press is the stop itself, not a failure.
+            _targets["stopped"] = True
+        else:
+            _targets["error"] = str(why)
     finally:
         _targets["running"] = False
         _targets["doing"] = None
+
+
+def _stop_targets() -> dict:
+    """The operator's Interrupt for discovery: stop now, not at the next field.
+
+    Sets the brake and puts the analysis workers down. Unlike a capture, an
+    analysis field in flight loses nothing when it dies -- its pixels are on
+    disk and detection re-runs from its own checkpoint -- and killing the
+    worker is the only hand that reaches one that has genuinely wedged, now
+    that no clock cuts a step short. The workers respawn on the next run.
+    """
+    _stop_asked["targets"] = True
+    if _targets["running"]:
+        warm.close()
+    return dict(_targets)
 
 
 def _the_mask_view_for(kind: str, label: str):
@@ -1098,6 +1129,8 @@ class _Bridge(BaseHTTPRequestHandler):
                 self._answer(_measure_focus(asked))
             elif self.path == "/api/focus/measure/stop":
                 self._answer(_stop_focus())
+            elif self.path == "/api/targets/discover/stop":
+                self._answer(_stop_targets())
             elif self.path == "/api/scan":
                 self._answer(_start_scan(asked))
             elif self.path == "/api/scan/stop":

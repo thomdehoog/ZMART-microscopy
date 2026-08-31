@@ -465,7 +465,7 @@ let stageWatch = null;
        for minutes are exactly the ones a hand must be able to reach. */
     const brake = {
       scan: () => backend.stopScan?.(),
-      targets: () => backend.stopScan?.(),
+      targets: () => backend.stopTargets?.(),
       focus: () => backend.stopFocusMeasure?.(),
     }[s.mode];
     if (running && brake) {
@@ -675,7 +675,9 @@ let stageWatch = null;
           state.notes[s.id] = `${state.cells.size} targets · ${ALGOS[state.detect.algo].label}`;
           redrawSoon();
         },
-      }).then(finish, itFailed);
+      }).then((out) => (out?.stopped
+        ? stoppedShort(`stopped by hand — ${state.cells.size} targets found`)
+        : finish()), itFailed);
       return;
     }
 
