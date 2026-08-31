@@ -13,6 +13,9 @@ function targetPicture(base, label, redraw) {
   pictures.set(label, null);
   const img = new Image();
   img.onload = () => { pictures.set(label, img); redraw(); };
+  /* A miss is forgotten, not kept: a view asked for a beat too early would
+     otherwise stay a hole forever -- the next redraw simply asks again. */
+  img.onerror = () => pictures.delete(label);
   img.src = `${base}/${label}.jpg`;
   return null;
 }

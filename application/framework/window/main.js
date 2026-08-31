@@ -725,8 +725,11 @@ let stageWatch = null;
         state.acquiredLabels = Object.fromEntries(
           got.map((id, i) => [id, records[i]?.position_label]));
         /* How wide each acquired frame is on the sample, for the canvas to
-           print the picture at its true size and place. */
+           print the picture at its true size and place -- and a redraw, so
+           the frames appear the moment the run answers rather than at the
+           next pan. */
         state.targetFrameUm = activeRecording(state.targetType)?.frameUm ?? null;
+        redrawSoon();
         return stopped
           ? stoppedShort(`stopped by hand — ${records.length} of ${picked.length} pairs acquired`)
           : finish();
