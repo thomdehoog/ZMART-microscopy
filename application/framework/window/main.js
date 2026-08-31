@@ -1074,6 +1074,12 @@ let stageWatch = null;
         state.gated = ids;
         drawStage(); renderTabs(); renderActionBar();
       },
+      /* The refinement's hand on the selection alone: the gates stand, and a
+         random draw of what they let through becomes what step 8 images. */
+      takeSelection: (ids) => {
+        state.gated = ids;
+        drawStage(); renderTabs(); renderActionBar();
+      },
       sizeCanvas, css,
     });
   };
