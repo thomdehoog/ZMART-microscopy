@@ -88,6 +88,26 @@ export const backend = {
   },
 
   /**
+   * The OME-Zarr pictures of this run, as the viewer server beside the bridge
+   * serves them: one entry per acquisition source, each a whole address an
+   * engine can open. `null` while the viewer is not up or holds nothing yet —
+   * the page then falls back to the JPEG copies, so a machine without the
+   * viewer installed draws exactly as it always has.
+   */
+  async viewerSources() {
+    try {
+      const state = await ask("/api/viewer");
+      const all = [];
+      for (const sources of Object.values(state?.sources ?? {})) {
+        for (const source of sources) all.push({ url: source.url, name: source.name });
+      }
+      return all.length ? all : null;
+    } catch {
+      return null;
+    }
+  },
+
+  /**
    * Open the session through the bridge, then watch the driver's own
    * connection checks answer.
    *

@@ -59,6 +59,11 @@ export const backend = {
     return null;
   },
 
+  /** No viewer server on the pretend side; the page draws its rehearsal. */
+  async viewerSources() {
+    return null;
+  },
+
   /** What can be connected to: the registry's entries, as the controller lists them. */
   async instruments() {
     return pretendInstruments();
