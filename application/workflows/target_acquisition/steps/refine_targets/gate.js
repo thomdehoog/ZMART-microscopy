@@ -253,6 +253,10 @@ export default {
         xHi = Math.max(xHi, cellFeature(c, fx));
         yHi = Math.max(yHi, cellFeature(c, fy));
       }
+      /* A little headroom, so the outermost cells sit inside the plot
+         instead of on its axis line. */
+      xHi *= 1.05;
+      yHi *= 1.05;
 
       // recessive grid
       paint.strokeStyle = ctx.css("--line");
@@ -260,16 +264,28 @@ export default {
       paint.fillStyle = ctx.css("--ink-3");
       paint.font = "11.5px ui-monospace, Consolas, monospace";
       paint.textAlign = "right";
-      for (let n = 0; n <= 4; n++) {
-        const v = (yHi * n) / 4, y = sy(v, h);
+      /* Round-number ticks: the step is the nearest 1/2/5 decade to a
+         quarter of the span, so the grid says 50, 100, 150 -- never 0.95,
+         1.90, 2.84. The labels are the numbers themselves, trimmed. */
+      const tickStep = (span) => {
+        const raw = span / 4;
+        const mag = 10 ** Math.floor(Math.log10(raw));
+        const unit = raw / mag;
+        return (unit < 1.5 ? 1 : unit < 3 ? 2 : unit < 7 ? 5 : 10) * mag;
+      };
+      const sayTick = (v) => String(parseFloat(v.toPrecision(3)));
+      const yStep = tickStep(yHi);
+      for (let v = 0; v <= yHi * 1.001; v += yStep) {
+        const y = sy(v, h);
         paint.beginPath(); paint.moveTo(PAD.l, y); paint.lineTo(w - PAD.r, y); paint.stroke();
-        paint.fillText(v >= 10 ? v.toFixed(0) : v.toFixed(2), PAD.l - 9, y + 4);
+        paint.fillText(sayTick(v), PAD.l - 9, y + 4);
       }
       paint.textAlign = "center";
-      for (let n = 1; n <= 4; n++) {
-        const v = (xHi * n) / 4, x = sx(v, w);
+      const xStep = tickStep(xHi);
+      for (let v = xStep; v <= xHi * 1.001; v += xStep) {
+        const x = sx(v, w);
         paint.beginPath(); paint.moveTo(x, PAD.t); paint.lineTo(x, h - PAD.b); paint.stroke();
-        paint.fillText(v >= 10 ? v.toFixed(0) : v.toFixed(2), x, h - PAD.b + 18);
+        paint.fillText(sayTick(v), x, h - PAD.b + 18);
       }
 
       // axis titles are the chosen features, because that is what this plot IS
@@ -284,14 +300,19 @@ export default {
 
       const gated = ctx.gated();
 
-      // every cell, quietly; the survivors of ALL gates, ringed
+      // every cell, quietly; the survivors of ALL gates, ringed.
+      // The quiet dots earn their size: thousands of them at radius 2
+      // fused into a slab that hid its own density, so a crowded plot
+      // draws smaller and fainter and the structure shows through.
+      const crowd = cells.length;
+      const dot = crowd > 3000 ? 1.2 : crowd > 800 ? 1.7 : 2;
       paint.fillStyle = ctx.css("--mark-context");
-      paint.globalAlpha = 0.5;
+      paint.globalAlpha = crowd > 3000 ? 0.35 : 0.5;
       paint.beginPath();
       for (const c of cells) {
         if (gated.has(c.id)) continue;
         const x = sx(cellFeature(c, fx), w), y = sy(cellFeature(c, fy), h);
-        paint.moveTo(x + 2, y); paint.arc(x, y, 2, 0, Math.PI * 2);
+        paint.moveTo(x + dot, y); paint.arc(x, y, dot, 0, Math.PI * 2);
       }
       paint.fill();
       paint.globalAlpha = 1;

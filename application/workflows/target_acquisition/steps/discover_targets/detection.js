@@ -141,9 +141,13 @@ export default {
     });
     greyToggle.append(greyBtn);
 
-    /* The picker rides the image's own bottom line, centred between the
-       mask presses and the image toggle. */
-    canvasHost.append(cv, maskToggle, picker, greyToggle);
+    /* One flex line under the image: mask presses, the picker, the grey
+       toggle -- spaced by the row itself, so nothing can ever collide the
+       way absolutely-centred pieces could. */
+    const line = document.createElement("div");
+    line.className = "tile-line";
+    line.append(maskToggle, picker, greyToggle);
+    canvasHost.append(cv, line);
 
     const readout = document.createElement("div");
     readout.className = "side-note";
