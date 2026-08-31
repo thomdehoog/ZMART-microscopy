@@ -429,13 +429,35 @@ def test_one_channel_stays_a_grey_picture(tmp_path):
     assert _the_one_picture(into).mode == "L"
 
 
-def test_more_channels_than_colours_fold_to_grey(tmp_path):
+def test_a_fourth_channel_gets_its_own_colour_instead_of_folding_to_grey(tmp_path):
+    """The compositing chapter, arrived: every channel its own colour, added
+    and clipped, never normalised. The fourth is magenta by convention, and
+    the palette is fixed by index, so two scans of one sample with different
+    channel subsets stay comparable -- the same law the first three obey.
+    (A field with one channel alone stays the grey picture it always was;
+    the chapter begins where there is a mix to make.)"""
     data = tmp_path / "data"
-    for c in range(4):
-        _export_a_flat_channel(data, "P0001", c, 1000 + c)
+    # an empty first channel rides along, as real background does: it keeps
+    # a dark band for the scan-wide dark point to settle on
+    _export_a_flat_channel(data, "P0001", 0, 0)
+    _export_a_flat_channel(data, "P0001", 3, 3000)
     into = tmp_path / "view"
     make_small_pictures(data, {"P0001": (0.0, 0.0)}, into)
-    assert _the_one_picture(into).mode == "L"
+    picture = _the_one_picture(into)
+    assert picture.mode == "RGB"
+    r, g, b = picture.getpixel((picture.width // 2, picture.height // 2))
+    assert r > 2 and b > 2, f"magenta means red and blue lit, got {r},{g},{b}"
+    assert abs(r - b) <= 2, "red and blue both come from the fourth channel alone"
+    assert g <= 2, "nothing here lends green"
+
+
+def test_many_channels_come_out_mixed_not_grey(tmp_path):
+    data = tmp_path / "data"
+    for c in range(5):
+        _export_a_flat_channel(data, "P0001", c, 2000)
+    into = tmp_path / "view"
+    make_small_pictures(data, {"P0001": (0.0, 0.0)}, into)
+    assert _the_one_picture(into).mode == "RGB"
 
 
 def test_a_channels_colour_is_its_index_not_its_turn(tmp_path):
