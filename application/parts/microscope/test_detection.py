@@ -66,6 +66,7 @@ def test_the_object_table_comes_back_as_targets_on_the_stage():
     """Each object: where it is on the stage, how large in micrometres, how bright."""
     table = {"objects": {"n_objects": 2, "properties": {
         "object_id": ["overview_r004_c000_obj0001", "overview_r004_c000_obj0002"],
+        "label": [1, 2],
         "stage_x_um": [2950.0, 3100.0], "stage_y_um": [1980.0, 2040.0],
         "area": [100, 400], "intensity_mean": [1200.0, 3000.0],
     }}}
@@ -77,13 +78,20 @@ def test_the_object_table_comes_back_as_targets_on_the_stage():
         "id": "overview_r004_c000_obj0001", "field": 4,
         "x": 2950.0, "y": 1980.0,
         "area": 1600.0, "intensity": 1200.0, "r": math.sqrt(1600.0 / math.pi),
+        "label": 1,
+        # the whole numeric row rides along, raw and unit-less, for the axes
+        "features": {
+            "label": 1.0, "stage_x_um": 2950.0, "stage_y_um": 1980.0,
+            "area": 100.0, "intensity_mean": 1200.0,
+        },
     }
     assert targets[1]["area"] == 6400.0
 
 
 def test_an_empty_table_is_no_targets_not_an_error():
     table = {"objects": {"n_objects": 0, "properties": {
-        "object_id": [], "stage_x_um": [], "stage_y_um": [], "area": [], "intensity_mean": [],
+        "object_id": [], "label": [],
+        "stage_x_um": [], "stage_y_um": [], "area": [], "intensity_mean": [],
     }}}
     assert detection.as_targets(table, field=0, pixel_um=4.0) == []
 
@@ -96,7 +104,7 @@ def test_through_runs_the_object_pipeline_once_per_field():
         def run(self, pipeline, given):
             self.asked.append((pipeline, given))
             return {"object_analysis": {"objects": {"n_objects": 1, "properties": {
-                "object_id": ["overview_r000_c000_obj0001"],
+                "object_id": ["overview_r000_c000_obj0001"], "label": [7],
                 "stage_x_um": [1.0], "stage_y_um": [2.0], "area": [4], "intensity_mean": [9.0],
             }}}}
 
@@ -120,3 +128,39 @@ def test_a_stack_is_one_channels_planes_in_depth_order():
     given = focus_score.what_was_captured(record)
     assert given["image_paths"] == ["p_c0_z0", "p_c0_z1", "p_c0_z2"]
     assert given["z_um"] == [0.0, 1.0, 2.0]
+
+
+def test_every_other_channel_rides_along_for_per_colour_features():
+    """Segmentation reads the first channel; the rest travel with it so the
+    features can be measured on every colour -- and each measured column
+    (intensity_mean_c1, ...) becomes a gating axis with no page work."""
+    record = {
+        "acquisition_type": "overview",
+        "planes": [
+            {"t": 0, "z": 0, "c": 1, "z_um": 8.5, "x_um": 3000.0, "y_um": 2000.0,
+             "path": "f_C01_Z00000.ome.tiff"},
+            {"t": 0, "z": 0, "c": 2, "z_um": 8.5, "x_um": 3000.0, "y_um": 2000.0,
+             "path": "f_C02_Z00000.ome.tiff"},
+            {"t": 0, "z": 0, "c": 3, "z_um": 8.5, "x_um": 3000.0, "y_um": 2000.0,
+             "path": "f_C03_Z00000.ome.tiff"},
+        ],
+    }
+    given = detection.what_was_captured(record, field=0, pixel_um=4.0, settings={})
+    assert given["image_path"] == "f_C01_Z00000.ome.tiff"
+    assert given["extra_channel_paths"] == [
+        "f_C02_Z00000.ome.tiff", "f_C03_Z00000.ome.tiff",
+    ]
+
+
+def test_a_single_colour_capture_carries_no_extra_channels():
+    """One channel means no extras key at all: the pipeline's single-image
+    path stays exactly what it was."""
+    record = {
+        "acquisition_type": "overview",
+        "planes": [
+            {"t": 0, "z": 0, "c": 0, "z_um": 8.5, "x_um": 3000.0, "y_um": 2000.0,
+             "path": "f_C00_Z00000.ome.tiff"},
+        ],
+    }
+    given = detection.what_was_captured(record, field=0, pixel_um=4.0, settings={})
+    assert "extra_channel_paths" not in given
