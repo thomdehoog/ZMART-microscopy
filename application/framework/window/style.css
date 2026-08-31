@@ -1865,3 +1865,10 @@ canvas.livecv[hidden] { display: none; }
 }
 .gate-row .idx { color: var(--ink-3); font-family: ui-monospace, monospace; }
 .gate-row .gate-n { margin-left: auto; color: var(--ink-3); }
+
+/* Steps 6-8 in the same boxes as the steps before them. The picker sits as
+   its own right-leaning row inside the test card; Clear gates rides the axis
+   row's far end; the pairs card says what it holds beside how it is marked. */
+.side-group-body > .tile-pick { display: flex; align-items: center; gap: 8px; justify-content: flex-end; }
+.gate-axes .ghost.tiny { margin-left: auto; }
+.gallery-about { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
