@@ -1,3 +1,4 @@
+import { status } from "./status.js";
 import "./style.css";
 import { sideGroup } from "./panels.js";
 import { renderRecordingSlot }
@@ -598,6 +599,7 @@ let stageWatch = null;
         onProgress: (done, of, at) => {
           if (state.running !== s.id) return;
           state.tilesShown = done;
+          status.say(`scanning field ${done} of ${state.plan.length}`);
           /* The mark moves with the scan: each answer says where the stage
              stood, and the watch's own poll is seconds behind it. */
           if (at) takeThePosition(at);
@@ -612,9 +614,17 @@ let stageWatch = null;
           liveOverview.tileMayHaveLanded();
           drawStage(); renderAll();
         },
-      }).then((outcome) => (outcome?.stopped
-        ? stoppedShort(`stopped by hand — ${scanNote()}`)
-        : finish()), itFailed);
+      }).then((outcome) => {
+        /* The scan's records name every field's picture. Dropped, the test
+           tile on the discover step stayed black until a discovery answered;
+           kept, a field can be looked at the moment its scan is done. */
+        (outcome?.records ?? []).forEach((r, i) => {
+          if (r?.position_label) state.fieldLabels[i] = r.position_label;
+        });
+        return outcome?.stopped
+          ? stoppedShort(`stopped by hand — ${scanNote()}`)
+          : finish();
+      }, itFailed);
       return;
     }
 
@@ -648,6 +658,7 @@ let stageWatch = null;
       state.cellsShown = true;
       backend.discoverTargets({
         settings: settingsFor(state.detect),
+        onDoing: (sentence) => status.say(sentence),
         onField: (field) => {
           if (state.running !== s.id) return;
           fieldFound(field);
@@ -691,6 +702,7 @@ let stageWatch = null;
       /* A step that failed while running was already put down; finishing it
          anyway would mark a failed connection as a session. */
       if (state.failed === s.id) return;
+      status.quiet();
       state.running = null;
       state.interrupting = null;
       state.done.add(s.id);
@@ -738,6 +750,7 @@ let stageWatch = null;
         What the run measured stands; the step is not marked done, so the
         press that stopped a run leaves a step that can simply be run again. */
     function stoppedShort(note) {
+      status.quiet();
       state.running = null;
       state.interrupting = null;
       state.ran.add(s.id);
@@ -751,6 +764,7 @@ let stageWatch = null;
       /* Said in the console too: the focus step draws no note, so a failure
          there had nowhere on screen to land and nobody could say why. */
       console.error(`${s.id} failed:`, why);
+      status.quiet();
       state.failed = s.id;
       state.running = null;
       state.interrupting = null;
@@ -1033,6 +1047,7 @@ let stageWatch = null;
          label as it landed, so the panel can show a field's picture without
          having tested anything on it. */
       labelOf: (field) => state.fieldLabels[field],
+      status,
       sizeCanvas, css, drawScaleBar,
       changed: () => renderActionBar(),
     });

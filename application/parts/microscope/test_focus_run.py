@@ -213,3 +213,21 @@ def test_a_point_whose_drive_fails_is_lost_and_the_map_marches_on(tmp_path):
     assert len(measured) == 2
     assert measured[0]["z_um"] is None, "the undriveable point is lost"
     assert measured[1]["z_um"] == 1.5, "the next point was still measured"
+
+def test_the_run_says_what_it_is_doing_and_what_each_point_cost(tmp_path):
+    """The status sentence's food, and the timing line: each point announces
+    driving, capturing and scoring as they begin, and its measurement carries
+    what each phase cost -- so "is anything running?" always has an answer,
+    and a slow run says which phase the time went to."""
+    session = _StubSession({(0.0, 0.0): 1.0}, current_z=0.3, staging=tmp_path)
+    said = []
+    measured = measure_focus(
+        session,
+        [{"x": 0.0, "y": 0.0}],
+        score=_score,
+        on_doing=lambda index, phase: said.append((index, phase)),
+    )
+    assert said == [(0, "driving"), (0, "capturing"), (0, "scoring")]
+    cost = measured[0]["cost_s"]
+    assert set(cost) == {"drive", "capture", "score"}
+    assert all(value >= 0 for value in cost.values())

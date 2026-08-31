@@ -29,6 +29,7 @@ import {
 } from "../../../../parts/microscope/pretend-sample/surface.js";
 import { sharePoints } from "../../shared/scanfields.js";
 import { visitOrder } from "./visit-order.js";
+import { status } from "../../../../framework/window/status.js";
 import { activeRecording } from "../../../../parts/microscope/recordings.js";
 
 
@@ -1704,6 +1705,7 @@ const runAgain = async (from, button) => {
   } finally {
     run.running = false;
     button.classList.remove("on");
+    status.quiet();
   }
   f.selected = Math.max(0, Math.min(f.selected, f.points.length - 1));
   stage.draw(); renderPointList(); drawTrace(); renderFocusBar(); renderActionBar(); renderSide();
@@ -1763,6 +1765,7 @@ el("fp-runnew").addEventListener("click", async (e) => {
   } finally {
     run.running = false;
     button.classList.remove("on");
+    status.quiet();
   }
   refitSurface();
   f.selected = Math.max(0, Math.min(f.selected, f.points.length - 1));
@@ -1847,6 +1850,8 @@ async function remeasure({ from = null } = {}) {
   const { points, stopped } = await backend.measureFocus(asked.map(stage.toStage), {
     metric: f.metric,
     extent: carrierSpan(),
+    /* The status bar reads the bridge's own sentence about the run. */
+    onDoing: (sentence) => status.say(sentence),
     /* The recorded focussing configuration, applied once before the run: the
        stack a point captures is whatever this recording says it is. */
     state: activeRecording(run.focusPreset)?.changeable ?? null,

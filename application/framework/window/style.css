@@ -1828,3 +1828,23 @@ canvas.livecv[hidden] { display: none; }
   color: var(--ink-2); cursor: pointer;
 }
 .fit-on-canvas:hover { color: var(--ink); background: var(--surface-3); }
+
+/* The status bar: one quiet pill above the bottom chrome, there only while
+   something is running. It floats over the picture rather than claiming a
+   row of its own, and hides itself the moment there is nothing to say. */
+.status-bar {
+  position: fixed;
+  left: 50%;
+  bottom: 54px;
+  transform: translateX(-50%);
+  background: rgba(28, 35, 48, 0.92);
+  color: #f5f7fb;
+  font-size: 12.5px;
+  letter-spacing: 0.02em;
+  padding: 6px 14px;
+  border-radius: 999px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
+  pointer-events: none;
+  white-space: nowrap;
+  z-index: 60;
+}
