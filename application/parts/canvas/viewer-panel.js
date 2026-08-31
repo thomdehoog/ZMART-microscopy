@@ -115,7 +115,9 @@ export async function mountViewerPanel(near, { viewer, acquisitions }) {
   let folded = false;
   fold.addEventListener("click", () => {
     folded = !folded;
-    open.hidden = folded;
+    /* The display is set directly, not through `hidden`: the box carries an
+       inline `display:flex`, which wins over the attribute's own none. */
+    open.style.display = folded ? "none" : "flex";
     fold.textContent = folded ? "▸" : "◂";
     fold.title = folded ? "open the picture's controls" : "fold the picture's controls away";
     /* Folded, the panel is a slim vertical bar: the way back in, and no
@@ -245,11 +247,21 @@ export async function mountViewerPanel(near, { viewer, acquisitions }) {
     eye.style.cssText = "margin:0;";
     eye.addEventListener("click", (press) => press.stopPropagation());
     eye.addEventListener("change", () => viewer.setChannel(index, { visible: eye.checked }));
-    const swatch = document.createElement("span");
+    /* The colour is the operator's to change, the way the viewer offers it. */
+    const swatch = document.createElement("input");
+    swatch.type = "color";
+    swatch.value = row.color ?? "#ffffff";
     swatch.style.cssText = [
-      "display:inline-block", "width:10px", "height:10px", "border-radius:50%",
-      "border:1px solid #d1d5db", `background:${row.color ?? "#f3f4f6"}`,
+      "width:16px", "height:16px", "padding:0", "border:1px solid #d1d5db",
+      "border-radius:3px", "background:none", "cursor:pointer",
     ].join(";");
+    swatch.addEventListener("click", (press) => press.stopPropagation());
+    swatch.addEventListener("input", () => {
+      const hex = swatch.value.replace("#", "");
+      viewer.setChannel(index, {
+        colour: [0, 2, 4].map((at) => parseInt(hex.slice(at, at + 2), 16) / 255),
+      });
+    });
     const name = document.createElement("span");
     name.textContent = row.name;
     /* A press on the row picks the channel out for the display settings
@@ -258,6 +270,57 @@ export async function mountViewerPanel(near, { viewer, acquisitions }) {
     line.append(eye, swatch, name);
     open.append(line);
   });
+
+  /* -- what the picture as a whole offers: the master switch, the stack's
+     depth, and the volume, each only when the engine says it is there. -- */
+  const pictureRow = document.createElement("label");
+  pictureRow.style.cssText =
+    "display:flex;align-items:center;gap:7px;cursor:pointer;padding:6px 4px 2px;margin-top:6px;border-top:1px solid #e5e7eb;";
+  const pictureEye = document.createElement("input");
+  pictureEye.type = "checkbox";
+  pictureEye.checked = true;
+  pictureEye.style.cssText = "margin:0;";
+  pictureEye.addEventListener("change", () => viewer.showPicture?.(pictureEye.checked));
+  pictureRow.append(pictureEye, Object.assign(document.createElement("span"), {
+    textContent: "picture",
+  }));
+  open.append(pictureRow);
+
+  const depth = viewer.theDepthItCanShow?.();
+  if (depth && depth.highUm > depth.lowUm) {
+    const depthTitle = document.createElement("div");
+    depthTitle.textContent = "depth (z)";
+    depthTitle.style.cssText =
+      "font-weight:600;font-size:11px;letter-spacing:0.04em;text-transform:uppercase;color:#6b7280;margin:8px 0 2px;";
+    const depthSlider = document.createElement("input");
+    depthSlider.type = "range";
+    depthSlider.min = String(depth.lowUm);
+    depthSlider.max = String(depth.highUm);
+    depthSlider.step = String(depth.stepUm || 1);
+    depthSlider.value = String(depth.atUm ?? depth.lowUm);
+    depthSlider.style.cssText = "width:176px;margin:0;";
+    const depthNote = document.createElement("div");
+    depthNote.style.cssText = "font-size:10px;color:#9ca3af;";
+    depthNote.textContent = `${Math.round(Number(depthSlider.value))} µm`;
+    depthSlider.addEventListener("input", () => {
+      viewer.setPlane?.(Number(depthSlider.value));
+      depthNote.textContent = `${Math.round(Number(depthSlider.value))} µm`;
+    });
+    open.append(depthTitle, depthSlider, depthNote);
+
+    if (viewer.canShowVolume) {
+      const volume = document.createElement("label");
+      volume.style.cssText = "display:flex;align-items:center;gap:7px;cursor:pointer;padding:2px 4px;";
+      const wants = document.createElement("input");
+      wants.type = "checkbox";
+      wants.style.cssText = "margin:0;";
+      wants.addEventListener("change", () => viewer.showVolume?.(wants.checked));
+      volume.append(wants, Object.assign(document.createElement("span"), {
+        textContent: "draw the stack as a volume",
+      }));
+      open.append(volume);
+    }
+  }
   /* The first channel starts picked out, so the histogram is not an empty
      box waiting for a click nobody was told to make. */
   const firstLine = open.querySelector("[data-channel-row]");
