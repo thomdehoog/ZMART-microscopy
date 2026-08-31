@@ -10,7 +10,7 @@ export const detectCells = {
   id: "detect",
   title: "Discover Targets",
   why: "Segments every overview tile. Each cell found becomes one target candidate.",
-  btn: "Discover Targets",
+  btn: "Segment all",
   panels: [],
   ms: 1600,
   mode: "detect",

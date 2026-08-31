@@ -238,12 +238,15 @@ export const backend = {
    * bridge detects in a background thread, this polls, and each field's
    * targets reach `onField(field)` as they are found.
    */
-  async discoverTargets({ fields = null, settings = {}, onField, onDoing } = {}) {
+  async discoverTargets({
+    fields = null, settings = {}, onField, onDoing, onProgress,
+  } = {}) {
     await ask("/api/targets/discover", { fields, settings });
     let shown = 0;
     for (;;) {
       const progress = await askedPatiently("/api/targets/discover");
       onDoing?.(progress.running ? progress.doing : null);
+      onProgress?.(progress.done, progress.of);
       for (; shown < progress.fields.length; shown++) onField?.(progress.fields[shown]);
       if (progress.error) throw new Error(progress.error);
       if (!progress.running) {
