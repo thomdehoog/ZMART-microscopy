@@ -1,6 +1,17 @@
 """Create conda environments for the object_analysis workflow."""
 
 from __future__ import annotations
+
+import argparse
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+# conda_utils lives in the shared engine, three directories up — on the path
+# before it is imported, so this runs as a plain script from anywhere.
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "engine"))
+
 from conda_utils import (  # noqa: E402
     detect_gpu,
     env_exists,
@@ -10,12 +21,6 @@ from conda_utils import (  # noqa: E402
     gpu_label,
     list_envs_by_prefix,
 )
-import time
-import subprocess
-
-import argparse
-import sys
-from pathlib import Path
 
 
 
@@ -92,21 +97,6 @@ def _selected_profile() -> dict:
         expected = ", ".join(sorted(STEP_PROFILES))
         raise SystemExit(f"Unknown --step {args.step!r}. Expected one of: {expected}")
     return STEP_PROFILES[args.step]
-
-
-if __name__ == "__main__":
-    profile = _selected_profile()
-    setup_workflow_env(
-        workflow=WORKFLOW,
-        pip_packages=profile["pip_packages"],
-        diagnostics=profile["diagnostics"],
-        python_version=PYTHON_VERSION,
-        install_torch=profile["install_torch"],
-        default_step="vision",
-    )
-
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "engine"))
 
 
 WIDTH = 70
@@ -503,3 +493,15 @@ def _run_torch_backend_check(conda: str, env_name: str, gpu: str) -> None:
     if result.stderr.strip():
         print(result.stderr.strip())
     sys.exit(1)
+
+
+if __name__ == "__main__":
+    profile = _selected_profile()
+    setup_workflow_env(
+        workflow=WORKFLOW,
+        pip_packages=profile["pip_packages"],
+        diagnostics=profile["diagnostics"],
+        python_version=PYTHON_VERSION,
+        install_torch=profile["install_torch"],
+        default_step="vision",
+    )

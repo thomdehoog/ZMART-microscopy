@@ -1,6 +1,17 @@
 """Remove conda environments for the object_analysis workflow."""
 
 from __future__ import annotations
+
+import argparse
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+# conda_utils lives in the shared engine, three directories up — on the path
+# before it is imported, so this runs as a plain script from anywhere.
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "engine"))
+
 from conda_utils import (  # noqa: E402
     detect_gpu,
     env_exists,
@@ -10,20 +21,6 @@ from conda_utils import (  # noqa: E402
     gpu_label,
     list_envs_by_prefix,
 )
-import time
-import subprocess
-import argparse
-
-import sys
-from pathlib import Path
-
-
-
-if __name__ == "__main__":
-    clean_workflow_envs(workflow="object_analysis")
-
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "engine"))
 
 
 WIDTH = 70
@@ -420,3 +417,7 @@ def _run_torch_backend_check(conda: str, env_name: str, gpu: str) -> None:
     if result.stderr.strip():
         print(result.stderr.strip())
     sys.exit(1)
+
+
+if __name__ == "__main__":
+    clean_workflow_envs(workflow="object_analysis")
