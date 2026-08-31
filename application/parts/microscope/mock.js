@@ -325,7 +325,7 @@ export const backend = {
    * was asked for. The settings are taken and ignored, because there are no
    * pixels here for a diameter to be right or wrong about.
    */
-  async discoverTargets({ fields = null, settings = {}, onField } = {}) {
+  async discoverTargets({ fields = null, settings = {}, onField, onProgress } = {}) {
     void settings;
     stopAsked.targets = false;
     await wait(150);
@@ -349,11 +349,13 @@ export const backend = {
       return { field, position_label: labelFor(field, at), cells };
     });
     const gave = [];
+    onProgress?.(0, found.length);
     for (const one of found) {
       if (stopAsked.targets) break;
       await wait(0);
       onField?.(one);
       gave.push(one);
+      onProgress?.(gave.length, found.length);
     }
     return { fields: gave, stopped: stopAsked.targets };
   },

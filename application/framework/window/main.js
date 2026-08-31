@@ -666,18 +666,32 @@ let stageWatch = null;
       state.acquiredLabels = {};
       state.verdicts = {};
       state.cellsShown = true;
+      detectionShown?.progress?.({ start: true });
       backend.discoverTargets({
         settings: settingsFor(state.detect),
-        onDoing: (sentence) => status.say(sentence),
+        onDoing: (sentence) => {
+          status.say(sentence);
+          detectionShown?.progress?.({ doing: sentence });
+        },
+        onProgress: (done, of) => detectionShown?.progress?.({ done, of }),
         onField: (field) => {
           if (state.running !== s.id) return;
           fieldFound(field);
           state.notes[s.id] = `${state.cells.size} targets · ${ALGOS[state.detect.algo].label}`;
           redrawSoon();
         },
-      }).then((out) => (out?.stopped
-        ? stoppedShort(`stopped by hand — ${state.cells.size} targets found`)
-        : finish()), itFailed);
+      }).then((out) => {
+        detectionShown?.progress?.({
+          ended: true,
+          note: out?.stopped ? "stopped by hand" : "segmentation finished",
+        });
+        return out?.stopped
+          ? stoppedShort(`stopped by hand — ${state.cells.size} targets found`)
+          : finish();
+      }, (why) => {
+        detectionShown?.progress?.({ ended: true, note: why.message });
+        return itFailed(why);
+      });
       return;
     }
 

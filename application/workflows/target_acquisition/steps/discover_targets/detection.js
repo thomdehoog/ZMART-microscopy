@@ -76,7 +76,7 @@ export default {
     params.className = "detect-params";
     settings.body.append(params);
 
-    const test = sideGroup("Test position");
+    const test = sideGroup("Test object detection");
     const picker = document.createElement("div");
     picker.className = "tile-pick";
     const prev = document.createElement("button");
@@ -102,9 +102,33 @@ export default {
     readout.id = "detect-readout";
 
     test.body.append(picker, canvasHost, readout);
-    /* Tune first, run second: the discovery press stands under the settings
-       it will run with, not above them. */
-    side.append(settings.group, act, test.group);
+
+    /* The whole segmentation, press to progress, in one card: the input
+       rows, the tile-sized try, and Segment all under them -- while the
+       image the try is judged on stands above it, first in the channel. */
+    const tryBtn = document.createElement("button");
+    tryBtn.className = "ghost";
+    tryBtn.type = "button";
+    tryBtn.id = "detect-try";
+    tryBtn.textContent = "Test this tile";
+    settings.body.append(tryBtn, act);
+
+    /* Where the run says how it is going: hidden until a run begins, then
+       one line for what is being segmented and one for the arithmetic --
+       done, still to go, and the time that pace projects. The projection is
+       re-figured every time a field lands, so the first field paying the
+       workers' spawn corrects itself instead of colouring the estimate. */
+    const progress = sideGroup("Progress");
+    progress.group.style.display = "none";
+    const doingLine = document.createElement("div");
+    doingLine.className = "side-note";
+    doingLine.id = "detect-doing";
+    const countLine = document.createElement("div");
+    countLine.className = "side-note";
+    countLine.id = "detect-count";
+    progress.body.append(doingLine, countLine);
+
+    side.append(test.group, settings.group, progress.group);
     host.append(side);
 
     /* The picture of the field being looked at, drawn when it arrives. The
@@ -212,33 +236,6 @@ export default {
          to the full frame, and the features are still measured there. */
       number("Binning", "binning", 1, 8, 1, "×");
 
-      const test = document.createElement("button");
-      test.className = "ghost";
-      test.type = "button";
-      test.textContent = "Test on this tile";
-      test.addEventListener("click", () => {
-        settings.tested = false;
-        readout.textContent = `looking at position ${settings.tile + 1}…`;
-        /* The first test on a cold machine pays the worker's whole spawn --
-           a silent minute that read as a dead button. The bar says so, and
-           counts, so the wait has a size instead of a mood. */
-        const began = performance.now();
-        const saying = () => ctx.status?.say(
-          `testing on position ${settings.tile + 1} — segmenting… `
-          + `${Math.round((performance.now() - began) / 1000)} s`);
-        saying();
-        const ticking = setInterval(saying, 1000);
-        const settled = () => { clearInterval(ticking); ctx.status?.quiet(); };
-        ctx.tryOn(settings.tile, settingsFor(settings)).then((found) => {
-          settled();
-          settings.tried = found.cells;
-          settings.tested = true;
-          showThePictureOf(found.position_label);
-          refresh();
-        }, (why) => { settled(); readout.textContent = why.message; });
-      });
-      params.append(test);
-
       if (settings.tested) {
         readout.textContent =
           `${settings.tried.length} objects at position ${settings.tile + 1}`;
@@ -263,10 +260,72 @@ export default {
       });
     }
 
+    tryBtn.addEventListener("click", () => {
+      const settings = ctx.settings();
+      settings.tested = false;
+      readout.textContent = `looking at position ${settings.tile + 1}…`;
+      /* The first test on a cold machine pays the worker's whole spawn --
+         a silent minute that read as a dead button. The bar says so, and
+         counts, so the wait has a size instead of a mood. */
+      const began = performance.now();
+      const saying = () => ctx.status?.say(
+        `testing on position ${settings.tile + 1} — segmenting… `
+        + `${Math.round((performance.now() - began) / 1000)} s`);
+      saying();
+      const ticking = setInterval(saying, 1000);
+      const settled = () => { clearInterval(ticking); ctx.status?.quiet(); };
+      ctx.tryOn(settings.tile, settingsFor(settings)).then((found) => {
+        settled();
+        settings.tried = found.cells;
+        settings.tested = true;
+        showThePictureOf(found.position_label);
+        refresh();
+      }, (why) => { settled(); readout.textContent = why.message; });
+    });
+
+    /** A duration in the box's own words. */
+    const saySpan = (s) => (s >= 90
+      ? `${Math.floor(s / 60)} min ${String(Math.round(s % 60)).padStart(2, "0")} s`
+      : `${s >= 10 ? Math.round(s) : Math.max(0.1, s).toFixed(1)} s`);
+
+    /* When the run under way began, for the pace the count line projects.
+       Cleared when the run ends; restarted if the panel was remounted
+       mid-run, which loses the early pace but never shows a stale one. */
+    let ranSince = null;
+
+    /** One discovery's story, told as the page hears it land. */
+    function sayProgress(snap) {
+      progress.group.style.display = "";
+      if (snap.start) {
+        ranSince = performance.now();
+        doingLine.textContent = "starting the workers…";
+        countLine.textContent = "";
+        return;
+      }
+      if (snap.doing != null) doingLine.textContent = snap.doing;
+      if (snap.done != null && snap.of) {
+        if (ranSince === null) ranSince = performance.now();
+        const gone = (performance.now() - ranSince) / 1000;
+        const per = snap.done ? gone / snap.done : null;
+        const still = snap.of - snap.done;
+        countLine.textContent = per === null
+          ? `0 of ${snap.of} segmented`
+          : `${snap.done} of ${snap.of} segmented · ${still} still to go`
+            + (still ? ` · ≈ ${saySpan(per * still)} left (${saySpan(per)} each)` : "");
+      }
+      if (snap.ended) {
+        doingLine.textContent = snap.note;
+        ranSince = null;
+      }
+    }
+
     new ResizeObserver(() => drawTheTile()).observe(canvasHost);
 
     drawTheControls();
     drawTheTile();
-    return { redraw: () => { drawTheControls(); drawTheTile(); } };
+    return {
+      redraw: () => { drawTheControls(); drawTheTile(); },
+      progress: sayProgress,
+    };
   },
 };
