@@ -70,11 +70,23 @@ def run(pipeline_data: dict, state: dict, **params) -> dict:
     # the single image it was handed.
     image = detection["image"]
     extra_paths = inp.get("extra_channel_paths") or []
+    extra_channels = inp.get("extra_channel_indices") or []
     if extra_paths:
         from tifffile import imread
 
         planes = [np.asarray(image)]
         planes += [np.asarray(imread(str(path))) for path in extra_paths]
+        image = np.stack(planes, axis=-1)
+    elif extra_channels:
+        # The multichannel case when the input is one store rather than one
+        # file per plane: the other colours live in the same image, so they
+        # are read from it by index -- the same lazy per-channel read the
+        # segmenter uses -- and stacked channel-last exactly like the paths.
+        planes = [np.asarray(image)]
+        planes += [
+            np.asarray(load_plane(inp["image_path"], c=int(channel))[0])
+            for channel in extra_channels
+        ]
         image = np.stack(planes, axis=-1)
     pipeline_data["preprocess"] = {"image": image}
     pipeline_data["segment"] = {

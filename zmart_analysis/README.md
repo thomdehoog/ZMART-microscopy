@@ -94,6 +94,11 @@ Kept minimal, so a re-sync stays cheap.
   texture, background correction, neighbourhood and morphology all become
   gating axes on the page — and, per the extractor's channelisation, each
   channelised feature is reported per colour like the intensity columns.
+- `detect_objects.py` accepts `extra_channel_indices` beside
+  `extra_channel_paths`: when the input is one OME-Zarr position rather than
+  one file per plane, the other colours are read from the same store by index
+  (through `load_plane`) and stacked channel-last exactly like the paths, so
+  per-colour features survive the move to zarr input.
 
 ## Running the tests
 
