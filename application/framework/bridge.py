@@ -541,7 +541,7 @@ def _measure_focus(asked: dict) -> dict:
     _stop_asked["focus"] = False
     _focus.update(
         running=True, done=0, of=len(asked_points), error=None, stopped=False,
-        points=[],
+        points=[], doing=None,
     )
     threading.Thread(
         target=_focus_worker, args=(asked_points, asked.get("state")), daemon=True
@@ -583,6 +583,7 @@ def _focus_worker(asked: list, state: dict | None = None) -> None:
         _focus["points"].append({
             **point, "zAuto": found["z_um"], "z": found["z_um"],
             "lost": found["z_um"] is None, "traces": found["traces"],
+            "cost_s": found.get("cost_s"),
             "slices": _the_slice_copies_of(found.get("planes") or []),
         })
         _focus["done"] = index + 1
@@ -599,6 +600,10 @@ def _focus_worker(asked: list, state: dict | None = None) -> None:
                 ],
                 score=_score_a_stack(),
                 state=state,
+                # The status bar's food: one sentence about the phase under way.
+                on_doing=lambda index, phase: _focus.__setitem__(
+                    "doing", f"{phase} point {index + 1} of {len(asked)}"
+                ),
                 output_root=_the_run(),
                 on_point=lambda m, _n=[0]: (landed(_n[0], m), _n.__setitem__(0, _n[0] + 1)),
                 cancel=lambda: _stop_asked["focus"],
@@ -611,6 +616,7 @@ def _focus_worker(asked: list, state: dict | None = None) -> None:
         _focus["error"] = str(why)
     finally:
         _focus["running"] = False
+        _focus["doing"] = None
 
 
 # ---------------------------------------------------------------------------
@@ -847,7 +853,7 @@ def _discover_targets(asked: dict) -> dict:
         raise RuntimeError("no overview has been scanned, so there is nothing to find targets in")
     chosen = asked.get("fields")
     fields = list(range(len(records))) if chosen is None else [int(field) for field in chosen]
-    _targets.update(running=True, done=0, of=len(fields), error=None, fields=[])
+    _targets.update(running=True, done=0, of=len(fields), error=None, fields=[], doing=None)
     threading.Thread(
         target=_targets_worker, args=(fields, dict(asked.get("settings") or {})), daemon=True
     ).start()
@@ -857,8 +863,11 @@ def _discover_targets(asked: dict) -> dict:
 def _targets_worker(fields: list, settings: dict) -> None:
     try:
         find = _find_targets()
-        for field in fields:
+        for number, field in enumerate(fields):
             record = _records["overview"][field]
+            _targets["doing"] = (
+                f"segmenting position {field + 1} ({number + 1} of {len(fields)})"
+            )
             cells = find(record, field, settings)
             _keep_targets(cells, record)
             _targets["fields"].append({
@@ -869,6 +878,7 @@ def _targets_worker(fields: list, settings: dict) -> None:
         _targets["error"] = str(why)
     finally:
         _targets["running"] = False
+        _targets["doing"] = None
 
 
 def _keep_targets(cells: list, record: dict) -> None:

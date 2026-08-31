@@ -107,6 +107,7 @@ export default {
        the picture comes with the field -- not, as it first did, only after a
        test had already been run blind on it. */
     let picture = null;
+    let pictureFor = null;
     function showThePictureOf(label) {
       const where = ctx.pictureOf(label);
       picture = null;
@@ -122,6 +123,14 @@ export default {
       const paint = cv.getContext("2d");
       const w = cv.cssW, h = cv.cssH;
       const settings = ctx.settings();
+
+      /* The picture follows the field, whoever chose it: the arrows, a press
+         on the canvas, the step coming up. Drawn-for is tracked so a redraw
+         is never a refetch, and a changed tile always is. */
+      if (pictureFor !== settings.tile) {
+        pictureFor = settings.tile;
+        showThePictureOf(ctx.labelOf?.(settings.tile));
+      }
 
       paint.clearRect(0, 0, w, h);
       paint.fillStyle = ctx.css("--surface-3");
@@ -197,12 +206,16 @@ export default {
       test.addEventListener("click", () => {
         settings.tested = false;
         readout.textContent = `looking at position ${settings.tile + 1}…`;
+        /* The first test on a cold machine pays the worker's whole spawn --
+           a silent minute that read as a dead button. The bar says so. */
+        ctx.status?.say(`testing on position ${settings.tile + 1} — segmenting…`);
         ctx.tryOn(settings.tile, settingsFor(settings)).then((found) => {
+          ctx.status?.quiet();
           settings.tried = found.cells;
           settings.tested = true;
           showThePictureOf(found.position_label);
           refresh();
-        }, (why) => { readout.textContent = why.message; });
+        }, (why) => { ctx.status?.quiet(); readout.textContent = why.message; });
       });
       params.append(test);
 
@@ -226,14 +239,12 @@ export default {
         const total = ctx.plan().length || 1;
         settings.tile = (settings.tile + step + total) % total;
         settings.tested = false;
-        showThePictureOf(ctx.labelOf?.(settings.tile));
         refresh();
       });
     }
 
     new ResizeObserver(() => drawTheTile()).observe(canvasHost);
 
-    showThePictureOf(ctx.labelOf?.(ctx.settings().tile));
     drawTheControls();
     drawTheTile();
     return { redraw: () => { drawTheControls(); drawTheTile(); } };

@@ -208,11 +208,13 @@ export const backend = {
    * back without them and the chart stays empty until the driver can report
    * real sweeps.
    */
-  async measureFocus(points, { metric, state = null, onPoint } = {}) {
+  async measureFocus(points, { metric, state = null, onPoint, onDoing } = {}) {
     await ask("/api/focus/measure", { points, metric, state });
     let shown = 0;
     for (;;) {
       const progress = await askedPatiently("/api/focus/measure");
+      /* The bridge's own sentence about the phase under way, gone when it is. */
+      onDoing?.(progress.running ? progress.doing : null);
       for (; shown < progress.points.length; shown++) onPoint?.(progress.points[shown], shown);
       if (progress.error) throw new Error(progress.error);
       if (!progress.running) {
@@ -236,11 +238,12 @@ export const backend = {
    * bridge detects in a background thread, this polls, and each field's
    * targets reach `onField(field)` as they are found.
    */
-  async discoverTargets({ fields = null, settings = {}, onField } = {}) {
+  async discoverTargets({ fields = null, settings = {}, onField, onDoing } = {}) {
     await ask("/api/targets/discover", { fields, settings });
     let shown = 0;
     for (;;) {
       const progress = await askedPatiently("/api/targets/discover");
+      onDoing?.(progress.running ? progress.doing : null);
       for (; shown < progress.fields.length; shown++) onField?.(progress.fields[shown]);
       if (progress.error) throw new Error(progress.error);
       if (!progress.running) return { fields: progress.fields };

@@ -221,6 +221,7 @@ def measure_focus(
     start_z: float | None = None,
     output_root: Any = None,
     on_point: Any = None,
+    on_doing: Any = None,
     cancel: Any = None,
 ) -> list[dict]:
     """Capture a focus stack at each frame ``(x, y)`` and have it scored.
@@ -252,6 +253,11 @@ def measure_focus(
 
     ``on_point(measurement)`` fires as each point completes, so a caller can
     show a height while the stage is still working through the rest.
+    ``on_doing(index, phase)`` fires as each phase begins -- ``"driving"``,
+    ``"capturing"``, ``"scoring"`` -- which is what a status line reads. Each
+    measurement carries ``cost_s``, what every finished phase took: a slow
+    run says which phase the time went to, and a lost point carries the
+    phases it completed, which is where it died.
     ``cancel`` is asked before every move; answering True raises
     :class:`RunCancelled` cleanly between two points, having moved nothing.
     """
@@ -272,7 +278,11 @@ def measure_focus(
         record = None
         found = {"z_um": None, "traces": None}
         shift = 0.0
+        cost = {}
         try:
+            if on_doing is not None:
+                on_doing(index, "driving")
+            began = time.perf_counter()
             centre = point.get("z")
             if not isinstance(centre, (int, float)):
                 if start_z is None and standing is None:
@@ -281,14 +291,24 @@ def measure_focus(
                     standing = float(session.get_xyz()["z"]["value"])
                 centre = start_z if start_z is not None else standing
             session.set_xyz(point["x"], point["y"], float(centre))
+            cost["drive"] = time.perf_counter() - began
 
+            if on_doing is not None:
+                on_doing(index, "capturing")
+            began = time.perf_counter()
             record = session.acquire(
                 acquisition_type=FOCUSSING, position_label=position_label(index)
             )
             if output is not None:
                 move_record_images(record, output.data)
+            cost["capture"] = time.perf_counter() - began
+
+            if on_doing is not None:
+                on_doing(index, "scoring")
+            began = time.perf_counter()
             shift = _the_drive_frames_shift(record, centre)
             found = _shifted_into_the_drive_frame(score(record), shift)
+            cost["score"] = time.perf_counter() - began
         except RunCancelled:
             raise
         except Exception as why:  # noqa: BLE001 -- one bad point must not end the map
@@ -304,6 +324,7 @@ def measure_focus(
             "y_um": point["y"],
             "z_um": found.get("z_um"),
             "traces": found.get("traces"),
+            "cost_s": {key: round(value, 3) for key, value in cost.items()},
             # The stack's own files ride with the measurement, height by
             # height, so the chosen number can be looked at as well as read —
             # each height in the drive frame, like the number it argues for.
