@@ -223,6 +223,7 @@ def measure_focus(
     on_point: Any = None,
     on_doing: Any = None,
     cancel: Any = None,
+    keep: Any = None,
 ) -> list[dict]:
     """Capture a focus stack at each frame ``(x, y)`` and have it scored.
 
@@ -301,6 +302,11 @@ def measure_focus(
             )
             if output is not None:
                 move_record_images(record, output.data)
+                # The caller's own keeping of the landed capture -- the
+                # bridge converts it to the run's canonical store -- done
+                # here so it happens for every stack, lost or scored.
+                if keep is not None:
+                    keep(record)
             cost["capture"] = time.perf_counter() - began
 
             if on_doing is not None:

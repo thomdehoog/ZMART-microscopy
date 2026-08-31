@@ -111,6 +111,7 @@ from application.parts.storage.output import (  # noqa: E402
     prepare_experiment,
 )
 from application.parts.storage.zarr_positions import position_store_from_record  # noqa: E402
+from application.parts.storage import viewer_service  # noqa: E402
 from application.parts.analysis import warm  # noqa: E402
 from application.parts.microscope import detection, focus_score  # noqa: E402
 from application.parts.microscope.focus_run import (  # noqa: E402
@@ -228,6 +229,13 @@ def _connect(asked: dict) -> dict:
     _scan.update(running=False, done=0, of=0, error=None, acquisition_type=None)
     _focus.update(running=False, done=0, of=0, error=None, points=[])
     _targets.update(running=False, done=0, of=0, error=None, fields=[])
+    # The picture server, beside the run: the viewer links each acquisition's
+    # positions into one live picture and serves it to the page's own engine.
+    # An optional guest -- a machine without it still scans, and still draws
+    # the JPEG copies -- so a viewer that cannot start is a sentence on
+    # /api/viewer, never a failed connect.
+    viewer_service.stop()
+    viewer_service.start(_run)
     return {"context": _context, "info": info, "run": str(_run)}
 
 
@@ -240,6 +248,8 @@ def _disconnect() -> dict:
     # The workers outlive a focus map on purpose, but not the session: a
     # disconnected page is not about to measure anything.
     warm.close()
+    # The picture server belongs to the session's run, and goes with it.
+    viewer_service.stop()
     return {"closed": True}
 
 
@@ -609,6 +619,9 @@ def _focus_worker(asked: list, state: dict | None = None) -> None:
                 output_root=_the_run(),
                 on_point=lambda m, _n=[0]: (landed(_n[0], m), _n.__setitem__(0, _n[0] + 1)),
                 cancel=lambda: _stop_asked["focus"],
+                # Every focus stack also stands as an OME-Zarr position, so
+                # the focussing is a source of its own in the viewer.
+                keep=lambda record: _keep_position_as_zarr(record, FOCUSSING),
             )
     except RunCancelled:
         # The operator's own hand, not a failure: the points measured so far
@@ -697,19 +710,24 @@ def _scan_worker(
 
 def _keep_position_as_zarr(record: dict, acquisition_type: str) -> None:
     """The capture's canonical form: one OME-Zarr 0.5 position in
-    ``<acquisition type>/positions/``, converted from the vendor's own files
+    ``positions/<acquisition type>/``, converted from the vendor's own files
     the moment they land — see :mod:`application.parts.storage.zarr_positions`.
+    The folder is named by the type because the viewer names the one picture
+    it links a folder into after the folder itself.
 
     A conversion that fails is filed on the record rather than felling the
     scan: the vendor's files are on disk and the conversion can be run again,
     while a stage drive cut short cannot.
     """
     try:
-        record["zarr"] = str(position_store_from_record(
-            record, _the_run() / acquisition_type / "positions"
-        ))
+        folder = _the_run() / "positions" / acquisition_type
+        record["zarr"] = str(position_store_from_record(record, folder))
     except Exception as why:  # noqa: BLE001 -- filed, not fatal
         record["zarr_error"] = str(why)
+        return
+    # The viewer beside this bridge links the folder into one live picture;
+    # the first position of a kind opens it, the rest ring the doorbell.
+    viewer_service.a_position_landed(acquisition_type, folder)
 
 
 #: Where a scan's display copies go: beside ``data``, under the acquisition
@@ -1190,6 +1208,8 @@ class _Bridge(BaseHTTPRequestHandler):
                 self._answer(dict(_targets))
             elif path == "/api/targets/embedding":
                 self._answer(dict(_embedding))
+            elif path == "/api/viewer":
+                self._answer(viewer_service.status())
             elif path.startswith("/view/"):
                 self._send_a_picture(path)
             elif not path.startswith("/api/"):

@@ -88,3 +88,9 @@ dependencies:
   # flag is safe on any machine.
   - pip:
       - pywebview>=5
+      # The ZMART viewer's server, run beside the bridge to serve the run's
+      # OME-Zarr positions as linked live pictures (application/parts/storage/
+      # viewer_service.py). Not on PyPI: install from a local checkout of
+      # github.com/thomdehoog/ZMART-viewer with `pip install -e <checkout>`.
+      # Optional -- without it the operator page draws the JPEG copies.
+      # - zmart-viewer

@@ -70,7 +70,12 @@ def position_store_from_record(record: dict, into: Path | str) -> Path:
 
     into = Path(into)
     into.mkdir(parents=True, exist_ok=True)
-    store = into / f"{record['position_label']}.ome.zarr"
+    # The store's name leads with the acquisition type, the way the run
+    # writers name theirs (``overview_pos00000.ome.zarr``): the viewer reads
+    # which stores belong together off the names, and a store named only by
+    # its position would stand under a heading of its own.
+    kind = record.get("acquisition_type") or "capture"
+    store = into / f"{kind}_{record['position_label']}.ome.zarr"
 
     depth_max = _the_depth_of(volume.dtype)
     tile_shape = (nz, ny, nx)
@@ -122,9 +127,12 @@ def _the_volume_of(planes: list[dict]) -> tuple[np.ndarray, tuple[float, float]]
         first = files[str(planes[0]["path"])]
         pixel_size_um = _the_pixel_size_of(first.ome_metadata or "")
 
-        frames = max(int(p.get("t", 0)) for p in planes) + 1
-        channels = max(int(p.get("c", 0)) for p in planes) + 1
-        depth = max(int(p.get("z", 0)) for p in planes) + 1
+        # The vendor's own numbering is packed down to 0..n-1 per axis: a
+        # Leica job numbers its channels from 1, and taking the numbers as
+        # array indices left channel 0 an empty black plane.
+        frames = _packed(planes, "t")
+        channels = _packed(planes, "c")
+        depth = _packed(planes, "z")
 
         volume: np.ndarray | None = None
         for plane in planes:
@@ -132,16 +140,25 @@ def _the_volume_of(planes: list[dict]) -> tuple[np.ndarray, tuple[float, float]]
             image = _one_plane_of(held, plane)
             if volume is None:
                 volume = np.zeros(
-                    (frames, channels, depth, *image.shape), dtype=image.dtype
+                    (len(frames), len(channels), len(depth), *image.shape),
+                    dtype=image.dtype,
                 )
             volume[
-                int(plane.get("t", 0)), int(plane.get("c", 0)), int(plane.get("z", 0))
+                frames[int(plane.get("t", 0))],
+                channels[int(plane.get("c", 0))],
+                depth[int(plane.get("z", 0))],
             ] = image
         assert volume is not None  # planes was checked non-empty above
         return volume, pixel_size_um
     finally:
         for held in files.values():
             held.close()
+
+
+def _packed(planes: list[dict], axis: str) -> dict[int, int]:
+    """The vendor's numbers along one axis, packed down to 0..n-1 in order."""
+    seen = sorted({int(p.get(axis, 0)) for p in planes})
+    return {number: index for index, number in enumerate(seen)}
 
 
 def _one_plane_of(held, plane: dict) -> np.ndarray:
