@@ -884,7 +884,13 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
    The same shape as focus: the step happens on the canvas — the cells it
    finds land there — and the channel holds the settings, with the one
    position they are tried on beneath them. */
-.detect-side { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+/* The last three steps' columns wear the same gutter as the focus step's:
+   the channel reads the same whichever step is standing in it, and boxes
+   that ran edge to edge read as another kind of screen inside the same one. */
+.detect-side {
+  display: flex; flex-direction: column; flex: 1; min-height: 0;
+  gap: var(--box-gap); padding: var(--box-gap) 14px 14px;
+}
 .detect-bar {
   display: flex; flex-direction: column; gap: 8px;
   padding: 10px 12px 12px; border-bottom: 1px solid var(--line);
@@ -903,9 +909,12 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
 /* ---- the selection channel ----------------------------------------------
    The gated cells light up on the canvas; the channel holds the scatter they
    are gated on, and widening the channel is how the plot gets room. */
-.analysis-side { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.analysis-side {
+  display: flex; flex-direction: column; flex: 1; min-height: 0;
+  gap: var(--box-gap); padding: var(--box-gap) 14px 14px;
+}
+/* Inside a card now, so it carries no divider of its own. */
 .analysis-legend {
-  padding: 9px 14px; border-bottom: 1px solid var(--line);
   font-size: 12px; color: var(--ink-2);
 }
 .scatter-wrap { padding: 12px 14px 0; }
@@ -922,7 +931,10 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
 /* ---- the gallery channel -------------------------------------------------
    The acquired pairs and their verdicts. One column at the default width;
    widening the channel is how the grid gets more. */
-.gallery-side { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.gallery-side {
+  display: flex; flex-direction: column; flex: 1; min-height: 0;
+  gap: var(--box-gap); padding: var(--box-gap) 14px 14px;
+}
 .side-head .readout {
   margin: 0 0 0 auto; letter-spacing: normal; text-transform: none; font-weight: 400;
 }
