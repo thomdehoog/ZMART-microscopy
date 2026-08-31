@@ -69,14 +69,12 @@ export default {
     const act = document.createElement("div");
     act.className = "detect-action side-act";
 
-    /* The same boxed groups every earlier step's channel is made of: a
-       heading above a card, controls inside the card and nothing else. */
-    const settings = sideGroup("Cellpose segmentation");
+    /* One box carries the whole act of looking: the image being judged,
+       the settings that produced it, and the presses that try them -- the
+       operator tunes and looks in one place instead of two cards apart. */
+    const test = sideGroup("Test object detection");
     const params = document.createElement("div");
     params.className = "detect-params";
-    settings.body.append(params);
-
-    const test = sideGroup("Test object detection");
     const picker = document.createElement("div");
     picker.className = "tile-pick";
     const prev = document.createElement("button");
@@ -101,17 +99,23 @@ export default {
     readout.className = "side-note";
     readout.id = "detect-readout";
 
-    test.body.append(picker, canvasHost, readout);
-
-    /* The whole segmentation, press to progress, in one card: the input
-       rows, the tile-sized try, and Segment all under them -- while the
-       image the try is judged on stands above it, first in the channel. */
+    /* Inside the card, the segmentation is a grey header over its rows --
+       a section of the box, not a box of its own -- and the two presses
+       share one row: try it here, or run it everywhere. */
+    const cellposeHead = document.createElement("div");
+    cellposeHead.className = "side-subhead";
+    cellposeHead.textContent = "Cellpose segmentation";
     const tryBtn = document.createElement("button");
     tryBtn.className = "ghost";
     tryBtn.type = "button";
     tryBtn.id = "detect-try";
     tryBtn.textContent = "Test this tile";
-    settings.body.append(tryBtn, act);
+    const presses = document.createElement("div");
+    presses.className = "detect-presses";
+    presses.append(tryBtn, act);
+    /* The picker under the image it pages through, centred: the hand moves
+       between the picture and its arrows without crossing the card. */
+    test.body.append(canvasHost, picker, readout, cellposeHead, params, presses);
 
     /* Where the run says how it is going: hidden until a run begins, then
        one line for what is being segmented and one for the arithmetic --
@@ -128,7 +132,7 @@ export default {
     countLine.id = "detect-count";
     progress.body.append(doingLine, countLine);
 
-    side.append(test.group, settings.group, progress.group);
+    side.append(test.group, progress.group);
     host.append(side);
 
     /* The picture of the field being looked at, drawn when it arrives. The
