@@ -196,12 +196,13 @@ def _flatten(planes: list[Plane]) -> Any:
     """Turn one field's planes into the one picture its copy is made from.
 
     Depth folds — brightest-wins over z, so a cell at any height can be seen
-    at a glance. The channels are the colours: up to three of them come out
-    as red, green and blue, in channel order, because that is what a channel
-    *is* to the operator looking at an overview. One channel is a greyscale
-    picture, as it always was; more channels than colours fold to grey until
-    compositing is a real chapter. Anything wanting the channels apart wants
-    the TIFFs.
+    at a glance. The channels are the colours: the first three come out as
+    red, green and blue, and past them the conventional secondaries -- the
+    fourth magenta, the fifth yellow, the sixth cyan, anything beyond white.
+    Tinted and added, never normalised: a channel's brightness is its own
+    testimony, and a mix rescaled to look balanced would be a lie about how
+    bright the sample was. One channel is a greyscale picture, as it always
+    was. Anything wanting the channels apart wants the TIFFs.
 
     The numbers are left in whatever the microscope wrote them as, rather than
     being widened to decimals. That is partly to save memory — a scan of ten
@@ -224,9 +225,22 @@ def _flatten(planes: list[Plane]) -> Any:
     if len(channels) == 1:
         return next(iter(channels.values()))
     if any(c > 2 for c in channels) or len(channels) > 3:
-        out = None
-        for one in channels.values():
-            out = one if out is None else np.maximum(out, one)
+        # The compositing chapter: every channel its own colour, tinted and
+        # added in float; the shared stretch afterwards clips as it always
+        # has. The palette is fixed by INDEX like the stack below, so two
+        # scans of one sample with different channel subsets stay comparable.
+        palette = {
+            0: (1.0, 0.0, 0.0), 1: (0.0, 1.0, 0.0), 2: (0.0, 0.0, 1.0),
+            3: (1.0, 0.0, 1.0), 4: (1.0, 1.0, 0.0), 5: (0.0, 1.0, 1.0),
+        }
+        shape = next(iter(channels.values())).shape
+        out = np.zeros((*shape, 3), dtype=np.float32)
+        for c, one in channels.items():
+            tint = palette.get(c, (1.0, 1.0, 1.0))
+            frame = np.asarray(one, dtype=np.float32)
+            for band in range(3):
+                if tint[band]:
+                    out[..., band] += frame * tint[band]
         return out
     # The colour is the channel's own index -- red, green, blue -- not its
     # turn in the list: two scans of one sample with different channel
