@@ -21,7 +21,7 @@ METADATA = {
     "description": "Detect objects in a TIFF tile with Cellpose",
     "version": "1.0",
     "max_workers": 1,
-    "environment": "SMART--object_analysis--vision",
+    "environment": "ZMART--object_analysis--vision",
 }
 
 

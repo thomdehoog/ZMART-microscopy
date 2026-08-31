@@ -42,7 +42,7 @@ METADATA = {
     "description": "Score plane sharpness in a z-stack and find the peak",
     "version": "1.0",
     "max_workers": 1,
-    "environment": "SMART--focus--main",
+    "environment": "ZMART--focus--main",
 }
 
 

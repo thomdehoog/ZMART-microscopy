@@ -78,6 +78,10 @@ Kept minimal, so a re-sync stays cheap.
   spawns corrupted each other's activation and every worker but the first died
   naming an environment that exists. Worth offering upstream — it is a
   property of conda, not of this checkout.
+- The environment prefix is **`ZMART--`** — the brand here — where upstream
+  says `SMART--`: the step metadata, the environment scripts and
+  `environment.yml` all name `ZMART--<workflow>--<step>`. The engine's own
+  tests keep upstream's `SMART--basic_test--env_a`, being upstream's tests.
 
 ## Running the tests
 

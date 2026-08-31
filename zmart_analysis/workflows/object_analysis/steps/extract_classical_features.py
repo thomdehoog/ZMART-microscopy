@@ -8,7 +8,7 @@ import numpy as np
 METADATA = {
     "description": "Per-object features (shape / intensity / neighbourhood / texture)",
     "version": "3.0",
-    "environment": "SMART--object_analysis--classical",
+    "environment": "ZMART--object_analysis--classical",
 }
 
 
