@@ -66,7 +66,10 @@ test("a moved point loses its curve", async ({ page }) => {
   await page.locator("#fp-place").click();
   await page.waitForTimeout(400);
   await page.locator(".panel.on button.step-run").click();
-  await expect(page.locator(".panel.on button.step-run")).not.toContainText("working", { timeout: 120_000 });
+  /* The class, not the label: the button says "Interrupt" while a stoppable
+     run is out, so waiting for "working" to leave the prose returned before
+     the run had measured a thing. */
+  await expect(page.locator(".panel.on button.step-run")).not.toHaveClass(/\brunning\b/, { timeout: 120_000 });
   await rest(500);
 
   const before = await drawnPixels(page);

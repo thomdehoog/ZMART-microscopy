@@ -33,6 +33,15 @@ const gotoStep = (page, name) => page.locator(`.step:has-text("${name}")`).first
 async function runStep(page, ms = 1000) {
   await page.locator(".panel.on button.step-run").click();
   await page.waitForTimeout(ms);
+  /* The wait above matches the rehearsal's pace; this expect covers the slow
+     machines, the same way connect() does. `running` is the class the button
+     carries while the step is out — read instead of its label, which changes
+     with what pressing it means. A finished step may put its button away
+     (the focus step does), so a gone button is as good as a still one. */
+  const run = page.locator(".panel.on button.step-run");
+  if (await run.count()) {
+    await expect(run).not.toHaveClass(/\brunning\b/, { timeout: 60_000 });
+  }
 }
 
 /** Connect has its own button at the end of its card, not one the frame drives. */
@@ -1287,6 +1296,11 @@ test("focus points are laid so many to a tileset", async ({ page }) => {
 });
 
 test("one walk of the whole run", async ({ page }) => {
+  /* The whole run, honestly waited for: 96 focus points measured and 864
+     positions marched, with runStep holding until each run truly ends. On a
+     slower machine that is more than the 30-second default — the same
+     allowance the live specs give themselves. */
+  test.setTimeout(300_000);
   await throughFields(page);
 
   await placeFocusPoints(page);
