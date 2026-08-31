@@ -133,7 +133,9 @@ export default {
     wrap.append(pairs);
 
     pairsBox.body.append(about, wrap);
-    side.append(act, recording, pairsBox.group);
+    /* Settle what to image first, then press: the run stands under the
+       settings it will image with, the way Segment all stands under its. */
+    side.append(recording, act, pairsBox.group);
     host.append(side);
 
     ctx.recordingSlot(recording, {
