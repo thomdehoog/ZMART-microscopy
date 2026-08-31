@@ -66,6 +66,10 @@ def what_was_captured(record: dict, *, field: int, pixel_um: float, settings: di
         given["diameter"] = float(settings["diameter"]) / float(pixel_um)
     if settings.get("cellprob") is not None:
         given["cellprob_threshold"] = float(settings["cellprob"])
+    if settings.get("border"):
+        # The page says micrometres from the field's edge; the detector is
+        # told pixels, like the diameter. Zero means the filter stays off.
+        given["border_margin_px"] = float(settings["border"]) / float(pixel_um)
     return given
 
 

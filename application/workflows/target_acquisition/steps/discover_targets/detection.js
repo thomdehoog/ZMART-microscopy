@@ -29,6 +29,7 @@ export const ALGOS = {
  */
 export const settingsFor = (settings) => ({
   diameter: settings.diameter, cellprob: settings.cellprob,
+  border: settings.border,
 });
 
 /** Golden-angle hues, so neighbouring labels never share a colour. */
@@ -200,6 +201,10 @@ export default {
 
       number("Diameter", "diameter", 4, 200, 1, "µm");
       number("Cell prob.", "cellprob", -6, 6, 0.5, "");
+      /* A cell nearer the field's edge than this is dropped: a clipped cell
+         measures as a smaller, dimmer thing that it is not. Zero keeps
+         everything, edges included. */
+      number("Border", "border", 0, 500, 1, "µm");
 
       const test = document.createElement("button");
       test.className = "ghost";

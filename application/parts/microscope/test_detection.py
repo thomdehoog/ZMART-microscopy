@@ -164,3 +164,16 @@ def test_a_single_colour_capture_carries_no_extra_channels():
     }
     given = detection.what_was_captured(record, field=0, pixel_um=4.0, settings={})
     assert "extra_channel_paths" not in given
+
+
+def test_the_border_margin_reaches_the_detector_in_pixels():
+    """The page says micrometres from the field's edge; the detector is told
+    pixels -- and zero means the filter is not sent at all."""
+    given = detection.what_was_captured(
+        _record(), field=0, pixel_um=4.0, settings={"border": 20.0}
+    )
+    assert given["border_margin_px"] == 5.0
+    off = detection.what_was_captured(
+        _record(), field=0, pixel_um=4.0, settings={"border": 0}
+    )
+    assert "border_margin_px" not in off
