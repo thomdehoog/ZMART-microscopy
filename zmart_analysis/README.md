@@ -83,6 +83,10 @@ Kept minimal, so a re-sync stays cheap.
   `environment.yml` all name `ZMART--<workflow>--<step>`. The engine's own
   tests keep upstream's `SMART--basic_test--env_a`, being upstream's tests.
 
+- `detect_objects.py` stacks `extra_channel_paths` channel-last into the
+  image the feature extractor measures, so intensity features come out per
+  colour; segmentation itself still reads the one image it was handed.
+
 ## Running the tests
 
     python -m pytest zmart_analysis

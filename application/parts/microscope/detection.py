@@ -43,6 +43,10 @@ def what_was_captured(record: dict, *, field: int, pixel_um: float, settings: di
     # requiring the number 0 refused a Leica job whose channels start at 1.
     first = min(int(plane.get("c", 0)) for plane in every)
     plane = next(plane for plane in every if int(plane.get("c", 0)) == first)
+    others = sorted(
+        (p for p in every if int(p.get("c", 0)) != first),
+        key=lambda p: int(p.get("c", 0)),
+    )
     given = {
         "image_path": plane["path"],
         "tile_id": [record["acquisition_type"], int(field), 0],
@@ -52,6 +56,12 @@ def what_was_captured(record: dict, *, field: int, pixel_um: float, settings: di
         "image_to_stage": IMAGE_TO_STAGE,
         "gpu": True,
     }
+    if others:
+        # Segmentation stays on the first channel; the rest ride along so
+        # the features can be measured on every colour -- each measured
+        # column (intensity_mean_c1, ...) becomes a gating axis with no
+        # page work at all.
+        given["extra_channel_paths"] = [p["path"] for p in others]
     if settings.get("diameter") is not None:
         given["diameter"] = float(settings["diameter"]) / float(pixel_um)
     if settings.get("cellprob") is not None:

@@ -65,7 +65,18 @@ def run(pipeline_data: dict, state: dict, **params) -> dict:
 
     pipeline_data["detect_objects"] = detection
     # Bridge to the shared classical feature extractor's current input contract.
-    pipeline_data["preprocess"] = {"image": detection["image"]}
+    # Extra channels ride along channel-last, so intensity features come out
+    # per colour (name, name_c0, name_c1, ...); segmentation itself stays on
+    # the single image it was handed.
+    image = detection["image"]
+    extra_paths = inp.get("extra_channel_paths") or []
+    if extra_paths:
+        from tifffile import imread
+
+        planes = [np.asarray(image)]
+        planes += [np.asarray(imread(str(path))) for path in extra_paths]
+        image = np.stack(planes, axis=-1)
+    pipeline_data["preprocess"] = {"image": image}
     pipeline_data["segment"] = {
         "masks": detection["masks"],
         "n_cells": detection["n_objects"],
