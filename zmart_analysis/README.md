@@ -67,8 +67,17 @@ Kept minimal, so a re-sync stays cheap.
   `segment_position`. It gained `filter_masks_by_border` for tile overlap, and
   `segmentation_params` now accepts per-submission overrides.
 - `run_pipeline.py` reads through the same contract.
-
-Nothing in `engine/` was modified.
+- The `environments/setup_env.py` and `clean_env.py` scripts (focus and
+  object_analysis alike) had their `__main__` blocks sitting mid-file above
+  the functions they call, and the `sys.path` line for the engine's
+  `conda_utils` below the import that needs it — none of the four could run
+  at all. Reordered: imports, path, definitions, call at the end.
+- `engine/_worker.py` serialises worker spawn-to-connect under one process-wide
+  lock. `conda run` on Windows writes its activation through a temp file whose
+  name is not unique across concurrent invocations from one parent; parallel
+  spawns corrupted each other's activation and every worker but the first died
+  naming an environment that exists. Worth offering upstream — it is a
+  property of conda, not of this checkout.
 
 ## Running the tests
 
