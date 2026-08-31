@@ -881,6 +881,16 @@ def _targets_worker(fields: list, settings: dict) -> None:
         _targets["doing"] = None
 
 
+def _the_mask_view_for(kind: str, label: str):
+    """The colorized mask PNG for the *kind* field labelled *label*, or None."""
+    from application.parts.microscope.mask_view import mask_view_of
+
+    for record in _records.get(kind, []):
+        if record.get("position_label") == label:
+            return mask_view_of(record, label)
+    return None
+
+
 def _keep_targets(cells: list, record: dict) -> None:
     """Write what was found beside the field it was found in.
 
@@ -959,7 +969,7 @@ class _Bridge(BaseHTTPRequestHandler):
     #: What a view folder is allowed to hold, and what to call it when sent.
     #: A short list rather than a guess, because this hands out files by a name
     #: the page chose: anything not on it is not a picture and is not sent.
-    PICTURES = {".jpg": "image/jpeg", "tiles.json": "application/json"}
+    PICTURES = {".jpg": "image/jpeg", ".png": "image/png", "tiles.json": "application/json"}
 
     def _send_a_picture(self, path: str) -> None:
         """Hand out one file from a scan's view folder.
@@ -978,7 +988,12 @@ class _Bridge(BaseHTTPRequestHandler):
         if not kind or not name or name != Path(name).name or wanted is None:
             self._answer({"error": f"no picture {rest!r}"}, status=404)
             return
-        if kind == FOCUSSING:
+        if name.endswith(".mask.png"):
+            # A field's detection mask, colorized on first request: the page
+            # asks by the field's label, and a field detection has not
+            # visited answers 404 rather than a broken picture.
+            where = _the_mask_view_for(kind, name[: -len(".mask.png")])
+        elif kind == FOCUSSING:
             # A focus stack's slices: written as each point lands, no note --
             # the point itself tells the page their names and heights.
             where = view_of(kind) / name

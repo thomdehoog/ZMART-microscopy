@@ -236,6 +236,7 @@ let stageWatch = null;
        from, which is where its picture is. */
     cells: new Map(),
     fieldLabels: {},
+    overviewPictures: backend.viewOf("overview"),
     cellsShown: false,
     gate: null,          // {aLo,aHi,iLo,iHi}
     gated: new Set(),
@@ -356,6 +357,7 @@ let stageWatch = null;
       tabs: [], tab: null, tilesShown: 0,
       focus: newFocus(), focusMaps: {}, focusFor: null,
       detect: newDetect(), cells: new Map(), fieldLabels: {},
+      overviewPictures: backend.viewOf("overview"),
       cellsShown: false, gate: null, gated: new Set(), acquired: [], acquiredLabels: {},
       verdicts: {},
       locked: false,

@@ -5,8 +5,28 @@
  * position the channel's preview is of — a question about what you are looking
  * at rather than a thing the run produced.
  */
+/* One mask picture per field, fetched when first painted. A field whose
+   detection has not run answers 404; that is remembered briefly and asked
+   again, because a discovery marching across the sample fills them in. */
+const maskImages = new Map();
+
+function maskImage(base, label, redraw) {
+  const held = maskImages.get(label);
+  if (held) {
+    if (held.ready) return held.img;
+    if (!held.failed || performance.now() - held.failed < 5000) return null;
+  }
+  const img = new Image();
+  const keep = { img, ready: false, failed: 0 };
+  maskImages.set(label, keep);
+  img.onload = () => { keep.ready = true; redraw(); };
+  img.onerror = () => { keep.failed = performance.now(); };
+  img.src = `${base}/${label}.mask.png`;
+  return null;
+}
+
 export function targetLayers(theRun) {
-  const { run, css, drawnIn, activeMode } = theRun;
+  const { run, css, drawnIn, activeMode, redraw } = theRun;
   /* How far a press reaches, in world units. Taken from the last paint --
      which always precedes a press -- because `reaches` is handed a place and
      no frame; reading `scale` here was a ReferenceError, and every click on
@@ -56,6 +76,34 @@ export function targetLayers(theRun) {
         if (d < best) { best = d; hit = c; }
       }
       return hit;
+    },
+  },
+    segmentation: {
+    key: "segmentation",
+    label: "Segmentation",
+    explains: "Cellpose's masks laid over the fields they were found in, each "
+      + "object in its own colour -- what detection actually saw, not just "
+      + "where it put a point.",
+    shown: true,
+    paint: (frame) => {
+      const ctx = frame.context;
+      const { place, scale, w, h } = drawnIn(frame);
+      const base = run.overviewPictures;
+      if (!base) return;
+      for (let i = 0; i < run.plan.length; i++) {
+        const label = run.fieldLabels[i];
+        if (!label) continue;
+        const t = run.plan[i];
+        const half = t.frameUm / 2;
+        const [x, y] = place(t.x - half, t.y - half);
+        const size = t.frameUm * scale;
+        if (x > w || y > h || x + size < 0 || y + size < 0) continue;
+        const img = maskImage(base, label, redraw);
+        if (!img) continue;
+        ctx.globalAlpha = 0.45;
+        ctx.drawImage(img, x, y, size, size);
+        ctx.globalAlpha = 1;
+      }
     },
   },
     detect: {
