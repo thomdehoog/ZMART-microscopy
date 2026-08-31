@@ -97,6 +97,17 @@ def _native_data_single_t() -> np.ndarray:
     return data
 
 
+def _native_data_zcyx() -> "np.ndarray":
+    """The measured Leica shape for a coloured stack: Z outer, C inner, no T
+    axis at all -- the 2026-06-01 archive's (3, 4, 512, 512). Each plane
+    carries ``10 * z + c`` so a swapped axis cannot pass as a shifted one."""
+    data = np.zeros((3, 2, 8, 8), dtype=np.uint8)
+    for z in range(3):
+        for c in range(2):
+            data[z, c, :, :] = 10 * z + c
+    return data
+
+
 class TestCollectNativeAutoSave:
     def test_collect_maps_native_multipage_tiff_by_axes(
         self,
@@ -142,6 +153,51 @@ class TestCollectNativeAutoSave:
                     assert source.page_index is not None
                     value = tif.pages[source.page_index].asarray()[0, 0]
                     assert value == 100 * idx.t + 10 * idx.z + idx.c
+
+    def test_a_two_colour_z_stack_lands_flat_with_every_plane_where_its_name_says(
+        self,
+        tmp_path,
+        successful_acq,
+    ):
+        """The owed two-colour bench: a ZCYX export -- the shape LAS X was
+        measured to write for a z-stack with channels -- split into flat
+        planes whose (z, c) assignment is proven by the pixels, not the
+        metadata alone. A collector that swapped the inner and outer axes
+        would file channel 1's planes under channel 0's names and no shape
+        check would ever notice."""
+        root = tmp_path / "native-root"
+        project = _native_project(root)
+        tiff = _write_native_ome_tiff(
+            project / "Overview001.ome.tif", _native_data_zcyx(), axes="ZCYX",
+        )
+        with (
+            patch.object(native._files, "read_relative_path", return_value=""),
+            patch.object(
+                native._files,
+                "wait_all_stable",
+                return_value={"success": True},
+            ),
+        ):
+            exported = native.collect_lasx_native_autosave(
+                None,
+                successful_acq,
+                autosave_root=root,
+                lcf_path=_native_lcf(tmp_path, root),
+                export_completion_timeout=0.01,
+            )
+
+        assert exported.metadata.size_t == 1
+        assert exported.metadata.size_z == 3
+        assert exported.metadata.size_c == 2
+        assert len(exported.positions) == 1
+        planes = exported.positions[0].planes
+        assert len(planes) == 6, "three heights times two colours, every one"
+        with tifffile.TiffFile(str(tiff)) as tif:
+            for idx, source in planes.items():
+                value = tif.pages[source.page_index].asarray()[0, 0]
+                assert value == 10 * idx.z + idx.c, (
+                    f"plane t{idx.t} z{idx.z} c{idx.c} holds {value}"
+                )
 
     def test_relative_path_anchors_native_when_multiple_fresh_files_exist(
         self,
