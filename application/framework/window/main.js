@@ -148,6 +148,7 @@ let stageWatch = null;
       algo: "cellpose",
       diameter: 30,
       cellprob: 0,
+      border: 0,       // µm from the field's edge inside which a cell is dropped
       tile: 0,
       hovered: -1,     // the tile under the pointer, a press from being tested
       tested: false,
