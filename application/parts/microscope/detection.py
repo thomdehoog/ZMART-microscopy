@@ -12,6 +12,7 @@ University of Zurich (thom.dehoog@zmb.uzh.ch, thomdehoog@gmail.com).
 from __future__ import annotations
 
 import math
+from pathlib import Path
 from typing import Any, Callable
 
 #: The ZMART_analysis workflow that finds the objects in one field.
@@ -62,6 +63,24 @@ def what_was_captured(record: dict, *, field: int, pixel_um: float, settings: di
         # column (intensity_mean_c1, ...) becomes a gating axis with no
         # page work at all.
         given["extra_channel_paths"] = [p["path"] for p in others]
+    if record.get("zarr"):
+        # The capture's canonical form is its OME-Zarr position, and the
+        # analysis reads it when there is one: the same reader handles both
+        # (`load_plane`), so this only renames the door. The store's channels
+        # are packed 0..n-1, so channel 0 is the first channel whatever the
+        # instrument numbered it; segmentation stays on it, and the rest ride
+        # along by index for the per-colour features. Results stay filed
+        # beside the vendor's `data`, where every reader already looks.
+        given["image_path"] = record["zarr"]
+        given["channels"] = [0]
+        given.pop("extra_channel_paths", None)
+        if others:
+            given["extra_channel_indices"] = list(range(1, len(others) + 1))
+        analysis = Path(plane["path"]).parent
+        while analysis.name and analysis.name != "data":
+            analysis = analysis.parent
+        if analysis.name == "data":
+            given["output_dir"] = str(analysis.parent / "analysis")
     if settings.get("diameter") is not None:
         given["diameter"] = float(settings["diameter"]) / float(pixel_um)
     if settings.get("cellprob") is not None:
