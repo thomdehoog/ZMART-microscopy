@@ -89,8 +89,17 @@ def position_store_from_record(record: dict, into: Path | str) -> Path:
         levels=how_many_copies_a_position_can_keep(tile_shape, PIECE),
         voxel_size_um=(dz, pixel_size_um[0], pixel_size_um[1]),
         origin_um=corner_um,
+        # Each channel opens on a window measured from its own pixels — the
+        # pixels are already in hand, so this costs nothing. Declaring the
+        # camera's whole range instead is honest but useless on screen: a
+        # real acquisition sits in the bottom few per cent of it, and the
+        # picture opened very nearly black.
         channel_blocks=[
-            Channel(f"channel {index}").described(depth_max) for index in range(channels)
+            Channel(
+                f"channel {index}",
+                window=_a_window_onto(volume[:, index], depth_max),
+            ).described(depth_max)
+            for index in range(channels)
         ],
         ome_zarr_version="0.5",
     )
@@ -226,6 +235,21 @@ def _the_corner_of(
         y_um - frame_yx[0] * pixel_size_um[0] / 2.0,
         x_um - frame_yx[1] * pixel_size_um[1] / 2.0,
     )
+
+
+def _a_window_onto(channel: np.ndarray, depth_max: int) -> tuple[int, int]:
+    """The brightness range this channel should first be shown with.
+
+    The darkest percentile to just past the brightest, so a stray hot pixel
+    cannot stretch the window and flatten everything else. A channel with
+    nothing in it (all one value) falls back to the camera's whole range —
+    a degenerate window is refused by readers.
+    """
+    low, high = np.percentile(channel, [1.0, 99.9])
+    low, high = int(low), int(np.ceil(high))
+    if high <= low:
+        return (0, depth_max)
+    return (low, min(high, depth_max))
 
 
 def _the_depth_of(dtype: np.dtype) -> int:
