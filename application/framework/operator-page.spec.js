@@ -1320,8 +1320,8 @@ test("one walk of the whole run", async ({ page }) => {
 
   await gotoStep(page, "Discover Targets");
   await expect(page.locator("#tile-label")).toHaveText("1 / 864");
-  await expect(page.locator(".panel.on button.step-run"),
-    "discovery may not run on settings nobody has seen work").toBeDisabled();
+  /* Discovery runs on the operator's say-so, tested or not -- the tile test
+     is an offer. This walk still takes it, the way an operator would. */
   await page.getByRole("button", { name: "Test on this tile" }).click();
   await page.waitForTimeout(400);
   /* Every field's targets land as the backend reports them; the pretend one

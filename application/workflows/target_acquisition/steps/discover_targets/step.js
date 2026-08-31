@@ -14,7 +14,9 @@ export const detectCells = {
   panels: [],
   ms: 1600,
   mode: "detect",
-  /* Settings are tried on a single tile first, because running them over every
-     tile and then finding they were wrong is a long way to go for an answer. */
-  ready: ({ detect }) => (detect.tested ? null : "try it on one tile first"),
+  /* Trying settings on one tile first is offered, never demanded: the
+     operator decides when the settings are worth the whole sample, and a
+     press that refused until a test had been staged was a step doing the
+     deciding for them. */
+  ready: () => null,
 };

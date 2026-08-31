@@ -39,6 +39,11 @@ export function targetLayers(theRun) {
     explains: "What detection found. The ones that passed the gate are ringed, so which "
       + "is which does not rest on colour alone.",
     shown: run.cellsShown,
+    /* Readable over the very fields they were found in: the see-through
+       windows that reveal the picture cut every layer beneath them, and the
+       objects were cut away exactly where the tissue is. The layer's own
+       button remains the way to put them away. */
+    staysSolid: true,
     paint: (frame) => {
       const ctx = frame.context;
       const { place, scale, w, h } = drawnIn(frame);
@@ -85,6 +90,7 @@ export function targetLayers(theRun) {
       + "object in its own colour -- what detection actually saw, not just "
       + "where it put a point.",
     shown: true,
+    staysSolid: true,
     paint: (frame) => {
       const ctx = frame.context;
       const { place, scale, w, h } = drawnIn(frame);
