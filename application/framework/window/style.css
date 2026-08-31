@@ -422,15 +422,22 @@ button.run:disabled { opacity: 0.4; cursor: default; }
   flex: 1 1 240px; min-width: 0; min-height: 3.2em; white-space: normal; line-height: 1.35;
 }
 .tile-pick { display: flex; justify-content: center; align-items: center; gap: 6px; font-family: var(--mono); font-size: 12px; }
-/* On the canvas's own bottom line: the mask presses at the left, the
-   picker centred, the image's grey toggle at the right. */
+/* One flex line under the image: mask presses left, picker in the
+   middle, grey toggle right -- the row itself spaces them, so nothing
+   collides however narrow the channel gets. */
 .tile-host { position: relative; }
-.tile-host .tile-pick {
-  position: absolute; left: 50%; bottom: 0; transform: translateX(-50%);
+.tile-line {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  display: flex; align-items: center; gap: 8px;
 }
-.mask-toggle { position: absolute; left: 0; bottom: 0; display: flex; gap: 2px; align-items: center; }
+.tile-line .tile-pick { margin: 0 auto; }
+/* One chip family on the image's control line: every press the same
+   height and corner, however it is built. */
+.tile-host .tile-pick .ghost.tiny,
+.mask-toggle .ghost.tiny,
+.image-toggle .ghost.tiny { border-radius: 6px; height: 22px; }
+.mask-toggle { display: flex; gap: 2px; align-items: center; }
 .mask-toggle .mask-alpha { width: 56px; margin-left: 4px; accent-color: var(--accent, #0284c7); }
-.image-toggle { position: absolute; right: 0; bottom: 0; }
 .mask-toggle .ghost.tiny[aria-pressed="true"],
 .image-toggle .ghost.tiny[aria-pressed="true"] {
   background: var(--surface-2); border-color: var(--line-strong); color: var(--ink);
@@ -1907,14 +1914,19 @@ canvas.livecv[hidden] { display: none; }
   border: 1px solid var(--line-strong); border-radius: 6px; padding: 4px 7px;
 }
 .gate-list { display: flex; flex-direction: column; gap: 2px; padding-top: 6px; }
-.gate-row { display: flex; align-items: stretch; gap: 2px; }
+/* The whole row is the pill -- label, count and the remove press live
+   inside one border, instead of the x dangling past it. */
+.gate-row {
+  display: flex; align-items: stretch; gap: 2px;
+  border: 1px solid transparent; border-radius: 6px; padding-right: 4px;
+}
 .gate-row .gate-open {
   flex: 1; display: flex; gap: 10px; align-items: center;
   font-size: 12.5px; padding: 5px 8px; text-align: left;
-  background: none; border: 1px solid transparent; border-radius: 6px;
+  background: none; border: none; border-radius: 6px;
   cursor: pointer; color: inherit;
 }
-.gate-row[aria-current="true"] .gate-open {
+.gate-row[aria-current="true"] {
   background: var(--surface-2); border-color: var(--line);
 }
 .gate-row .idx { color: var(--ink-3); font-family: ui-monospace, monospace; }

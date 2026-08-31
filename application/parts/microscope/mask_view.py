@@ -48,14 +48,21 @@ def mask_view_of(record: dict, label: str) -> Path | None:
     out = np.zeros((height, width, 4), dtype=np.uint8)
     found = labels > 0
     if found.any():
-        # Each object its own colour, spread around the wheel by a stride
-        # coprime to it, so neighbouring labels never share a hue.
-        hue = (labels.astype(np.int64) * 47) % 360
-        section = (hue // 60) % 6
-        ramp = ((hue % 60) * 255 // 60).astype(np.uint8)
-        r = np.choose(section, [255, 255 - ramp, 0, 0, ramp, 255])
-        g = np.choose(section, [ramp, 255, 255, 255 - ramp, 0, 0])
-        b = np.choose(section, [0, 0, ramp, 255, 255, 255 - ramp])
+        # The page's own object palette -- golden-angle hues at 68%
+        # saturation, 58% lightness, the same law as labelColour() in the
+        # test box -- so the masks and every ring drawn beside them speak
+        # one set of colours. Full-saturation primaries read as confetti
+        # over grey tissue; these read as marks made by the same hand.
+        hue = (labels.astype(np.float64) * 137.508) % 360.0
+        chroma = (1.0 - abs(2.0 * 0.58 - 1.0)) * 0.68
+        ramp = chroma * (1.0 - np.abs((hue / 60.0) % 2.0 - 1.0))
+        lift = 0.58 - chroma / 2.0
+        zero = np.zeros_like(ramp)
+        full = np.full_like(ramp, chroma)
+        section = (hue // 60).astype(np.int64) % 6
+        r = ((np.choose(section, [full, ramp, zero, zero, ramp, full]) + lift) * 255).astype(np.uint8)
+        g = ((np.choose(section, [ramp, full, full, ramp, zero, zero]) + lift) * 255).astype(np.uint8)
+        b = ((np.choose(section, [zero, zero, ramp, full, full, ramp]) + lift) * 255).astype(np.uint8)
         out[..., 0] = np.where(found, r, 0)
         out[..., 1] = np.where(found, g, 0)
         out[..., 2] = np.where(found, b, 0)
