@@ -327,6 +327,7 @@ export const backend = {
    */
   async discoverTargets({ fields = null, settings = {}, onField } = {}) {
     void settings;
+    stopAsked.targets = false;
     await wait(150);
     const positions = scanned.overview ?? [];
     const found = (fields ?? positions.map((_, field) => field)).map((field) => {
@@ -347,11 +348,20 @@ export const backend = {
       });
       return { field, position_label: labelFor(field, at), cells };
     });
+    const gave = [];
     for (const one of found) {
+      if (stopAsked.targets) break;
       await wait(0);
       onField?.(one);
+      gave.push(one);
     }
-    return { fields: found };
+    return { fields: gave, stopped: stopAsked.targets };
+  },
+
+  /** The operator's Interrupt for discovery, as the bridge offers it. */
+  async stopTargets() {
+    stopAsked.targets = true;
+    return {};
   },
 };
 
@@ -408,7 +418,7 @@ const scanned = {};
 
 /* The operator's hand on the brake, as the bridge keeps it: set by the stop
    verbs, read by the pretend runs between two fields. */
-const stopAsked = { scan: false, focus: false };
+const stopAsked = { scan: false, focus: false, targets: false };
 
 /* The jobs this pretend instrument has stored, and which is chosen. The same
    three the controller's mock driver keeps, so the page meets one instrument

@@ -81,16 +81,41 @@ def test_a_failed_pipeline_is_raised_and_not_answered_for():
         analysis.run("focus", {"image_paths": []})
 
 
-def test_a_pipeline_that_never_answers_gives_up_rather_than_hangs():
-    """A page waiting forever on a hung worker is a page nobody can use."""
+def test_an_answer_that_takes_its_time_is_waited_for():
+    """Analysis started is analysis finished: no clock of ours may cut it.
 
-    class _Silent(_Engine):
+    A job is as long as the pixels make it -- the first of a session pays the
+    model loading, a big frame pays its own size -- and every give-up number
+    we ever chose was wrong for somebody's field. The way out of a genuinely
+    wedged worker is the operator's hand (shutdown), never a timer.
+    """
+
+    class _Slow(_Engine):
+        def __init__(self):
+            super().__init__()
+            self.asked = 0
+
         def results(self, name):
-            return []
+            self.asked += 1
+            return super().results(name) if self.asked > 5 else []
 
-    analysis = warm.Analysis(_Silent())
-    with pytest.raises(TimeoutError, match="did not answer"):
-        analysis.run("focus", {"image_paths": []}, patience_s=0.0)
+    got = warm.Analysis(_Slow()).run("focus", {"image_paths": []})
+    assert got == {"ran": "focus"}
+
+
+def test_the_engine_is_built_with_no_per_call_clock(monkeypatch):
+    """The engine's own default cuts a step at 300 s; ours must not exist."""
+    import zmart_analysis.engine as engine_module
+
+    built = {}
+
+    class _Caught:
+        def __init__(self, **kwargs):
+            built.update(kwargs)
+
+    monkeypatch.setattr(engine_module, "Engine", _Caught)
+    warm.Analysis().engine
+    assert built.get("execution_timeout", "unset") is None
 
 
 def test_the_workers_are_let_go_and_can_start_again():

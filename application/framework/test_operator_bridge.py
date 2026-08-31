@@ -19,6 +19,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import tempfile
+import time
 from pathlib import Path
 
 import pytest
@@ -784,6 +785,55 @@ def test_nothing_to_discover_on_before_an_overview(monkeypatch):
     monkeypatch.setattr(bridge, "_records", {})
     with pytest.raises(RuntimeError, match="overview"):
         bridge._discover_targets({"settings": {}})
+
+
+def test_the_operators_hand_stops_discovery_between_fields(monkeypatch):
+    """Interrupt ends the run after the field in hand; what was found stands."""
+    _an_overview_of_two_fields(monkeypatch)
+    unbraked = bridge._find_targets
+
+    def finder():
+        find = unbraked()
+
+        def find_and_press(record, field, settings):
+            cells = find(record, field, settings)
+            bridge._stop_targets()
+            return cells
+
+        return find_and_press
+
+    monkeypatch.setattr(bridge, "_find_targets", finder)
+    got = _discovered({"settings": {}})
+    assert got["stopped"] is True
+    assert got["done"] == 1
+    assert [field["field"] for field in got["fields"]] == [0]
+
+
+def test_a_worker_put_down_by_the_hand_is_a_stop_not_a_failure(monkeypatch):
+    """Interrupt may kill the analysis mid-field; the run says stopped, not error.
+
+    The brake is allowed to reach work in flight because a killed analysis
+    field loses nothing -- its pixels are on disk and detection re-runs from
+    its own checkpoint -- unlike a capture, which is why the scan's brake
+    waits and this one does not have to.
+    """
+    _an_overview_of_two_fields(monkeypatch)
+
+    def finder():
+        def find_and_die(record, field, settings):
+            bridge._stop_targets()
+            raise RuntimeError("worker crashed: put down by the operator")
+
+        return find_and_die
+
+    monkeypatch.setattr(bridge, "_find_targets", finder)
+    bridge._discover_targets({"settings": {}})
+    for _ in range(200):
+        if not bridge._targets["running"]:
+            break
+        time.sleep(0.01)
+    assert bridge._targets["stopped"] is True
+    assert bridge._targets["error"] is None
 
 
 def test_a_position_without_a_height_is_scanned_where_the_objective_stands(monkeypatch):

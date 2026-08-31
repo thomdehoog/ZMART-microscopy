@@ -898,7 +898,13 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
 .detect-bar .seg { width: 100%; }
 .detect-bar .seg button { flex: 1; min-width: 0; }
 /* the params read as label — value pairs down the column */
-.detect-params { display: flex; flex-direction: column; gap: 6px; }
+/* Two rows, read downward then across: Diameter and Cell prob. on the
+   left, Border and Binning beside them -- the card stays two rows tall
+   however it widens. */
+.detect-params {
+  display: grid; grid-template-columns: 1fr 1fr;
+  grid-auto-flow: column; grid-template-rows: auto auto; gap: 6px 16px;
+}
 /* Label, input, unit: three settled columns, so every input starts on one
    line whether or not a unit follows it -- flexed labels left the rows
    ragged wherever the unit was missing. */

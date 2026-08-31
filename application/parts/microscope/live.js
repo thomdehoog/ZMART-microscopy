@@ -246,9 +246,19 @@ export const backend = {
       onDoing?.(progress.running ? progress.doing : null);
       for (; shown < progress.fields.length; shown++) onField?.(progress.fields[shown]);
       if (progress.error) throw new Error(progress.error);
-      if (!progress.running) return { fields: progress.fields };
+      if (!progress.running) {
+        return { fields: progress.fields, stopped: !!progress.stopped };
+      }
       await rest(300);
     }
+  },
+
+  /** The operator's Interrupt for discovery: the bridge stops the search --
+      putting the field in hand down with it, because an analysis field
+      re-runs from its checkpoint -- and the poll above ends with what was
+      found. */
+  async stopTargets() {
+    return ask("/api/targets/discover/stop", {});
   },
 
   /**

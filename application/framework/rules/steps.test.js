@@ -122,8 +122,8 @@ describe("readiness belongs to the step, not the frame", () => {
     }))).toMatch(/focussing preset/);
   });
 
-  it("detection wants a tile tested first", () => {
-    expect(blockedBecause(byId("detect"), run())).toMatch(/one tile/);
+  it("detection never blocks: trying a tile first is offered, not demanded", () => {
+    expect(blockedBecause(byId("detect"), run())).toBeNull();
     expect(blockedBecause(byId("detect"), run({ detect: { tested: true } }))).toBeNull();
   });
 
