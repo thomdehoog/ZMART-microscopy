@@ -1701,6 +1701,10 @@ let stageWatch = null;
     /* Where this backend's scans can be fetched from, if anywhere. The live
        one serves what the microscope wrote; the pretend one has nothing. */
     pictures: (kind) => backend?.viewOf(kind) ?? null,
+    /* The run's OME-Zarr sources, as the viewer server beside the bridge
+       serves them — the real picture, linked position by position. `null`
+       while there is none, and the JPEG copies stand in. */
+    viewerSources: () => backend?.viewerSources?.() ?? null,
     overviewCanvas: theCanvas.parts.overviewCanvas,
     overviewNote: theCanvas.parts.overviewNote,
     view: () => stage.pictureView(),

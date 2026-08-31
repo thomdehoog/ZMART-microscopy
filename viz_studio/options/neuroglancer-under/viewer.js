@@ -915,7 +915,12 @@ async function theRunsOwnDescription(url) {
   // a run written either way opens the same.
   for (const [file, unwrap] of [
     [".zattrs", (doc) => doc],
-    ["zarr.json", (doc) => doc?.attributes ?? doc],
+    // Version 3 folds the description into `zarr.json` under `attributes`,
+    // and OME-Zarr 0.5 folds the OME half one level further, under an `ome`
+    // key that holds `multiscales` and `omero` alike — so a 0.5 store read
+    // only at `attributes` answered with neither, and a run written 0.5
+    // opened as a single white channel however many colours it named.
+    ["zarr.json", (doc) => doc?.attributes?.ome ?? doc?.attributes ?? doc],
   ]) {
     try {
       // Never from the browser's own copy. These runs are written into while

@@ -91,31 +91,71 @@ export function watchTheRun(ctx) {
    */
   const thePicture = (() => {
     const search = new URLSearchParams(location.search);
-    /* Asked each time rather than settled once: which backend is running is
-       not known until the operator has connected, and this closure is built
-       before the page has anything on it. */
-    const pointedAt = () => search.get("picture") ?? ctx.pictures?.("overview") ?? null;
-    /* A backend's pictures are in the frame the instrument reported -- the
-       stage's -- and the canvas draws the carrier's; the two differ by the
-       measured origin. A store pointed at by hand is taken as it is. */
-    const inTheStagesFrame = () => !search.get("picture");
-    const engine = search.get("engine") ?? "jpeg-under";
     const host = ctx.pictureHost;
     let viewer = null;
     let opening = false;
+    /* What the open viewer was opened on, so a change — the run growing a
+       second kind of scan — is noticed and the viewer reopened over it. */
+    let openedOn = null;
+    let inStageFrame = true;
+    let panel = null;
+
+    /**
+     * What there is to draw, asked fresh each time.
+     *
+     * Three answers, in order of preference: a store the address named
+     * (`?picture=`, taken as it is); the run's own OME-Zarr sources, served
+     * by the viewer beside the bridge — the real picture, every acquisition
+     * type a source of its own; and the backend's JPEG copies, which is what
+     * a machine without the viewer draws. `?engine=` still overrides the
+     * engine either way, so the comparisons stay askable.
+     */
+    async function whatToOpen() {
+      const picture = search.get("picture");
+      if (picture) {
+        return {
+          engine: search.get("engine") ?? "jpeg-under",
+          acquisitions: [{ url: picture, name: picture.split("/").filter(Boolean).pop() ?? "scan" }],
+          signature: `picture:${picture}`,
+          inStageFrame: false,
+        };
+      }
+      const sources = await ctx.viewerSources?.();
+      if (sources?.length) {
+        return {
+          engine: search.get("engine") ?? "neuroglancer-under",
+          acquisitions: sources,
+          signature: `sources:${sources.map((s) => s.url).join("|")}`,
+          inStageFrame: true,
+        };
+      }
+      const jpegs = ctx.pictures?.("overview");
+      if (jpegs) {
+        return {
+          engine: search.get("engine") ?? "jpeg-under",
+          acquisitions: [{ url: jpegs, name: "scan" }],
+          signature: `jpegs:${jpegs}`,
+          inStageFrame: true,
+        };
+      }
+      return null;
+    }
 
     async function open() {
-      const asked = pointedAt();
-      if (!asked || viewer || opening) return;
+      if (viewer || opening) return;
       opening = true;
       try {
-        const openViewer = await openerFor(engine);
+        const wanted = await whatToOpen();
+        if (!wanted) return;
+        const openViewer = await openerFor(wanted.engine);
         viewer = await openViewer(host, {
-          acquisitions: [{ url: asked, name: asked.split("/").filter(Boolean).pop() ?? "scan" }],
+          acquisitions: wanted.acquisitions,
           /* The same colour the page paints, so the seam between the scan's own
              background and the ground above it never shows. */
           background: ctx.css("--screen"),
         });
+        openedOn = wanted.signature;
+        inStageFrame = wanted.inStageFrame;
         /* Left where a test can reach it. What matters about a picture is what
            reached the screen, and a viewer that reports itself perfectly opened
            while drawing nothing is the failure this project keeps meeting — so
@@ -123,8 +163,19 @@ export function watchTheRun(ctx) {
            where it is looking. */
         window.__thePicture = viewer;
         followTheStage();
+        /* The viewer's own controls — the acquisitions and their channels —
+           on the left, the workflow's step panels keeping the right. Only for
+           the run's own sources: a JPEG copy has no channels to offer. */
+        panel?.destroy?.();
+        panel = null;
+        if (wanted.signature.startsWith("sources:")) {
+          const { mountViewerPanel } = await import("../../../../parts/canvas/viewer-panel.js");
+          panel = await mountViewerPanel(host.parentElement ?? host, {
+            viewer, acquisitions: wanted.acquisitions, css: ctx.css,
+          });
+        }
       } catch (e) {
-        console.error(`the scan at ${asked} could not be opened by ${engine} — ${e.message}`);
+        console.error(`the scan could not be opened — ${e.message}`);
       } finally {
         opening = false;
       }
@@ -140,7 +191,7 @@ export function watchTheRun(ctx) {
          and the scan quietly drew nowhere. Asking for the view is one answer
          instead of two. */
       const v = ctx.view();
-      if (inTheStagesFrame() && v?.centre) {
+      if (inStageFrame && v?.centre) {
         const [ox, oy] = ctx.carrierOriginUm();
         viewer.setView({ ...v, centre: { x: v.centre.x + ox, y: v.centre.y + oy } });
         return;
@@ -148,23 +199,41 @@ export function watchTheRun(ctx) {
       viewer.setView(v);
     }
 
+    /** A run that grew — a new acquisition type, a store that moved — wants
+        the viewer opened over the new whole, not nudged. Asked cheaply on the
+        clock below; nothing happens while the answer is the one already open. */
+    async function reopenIfTheRunGrew() {
+      if (!viewer || opening) return;
+      const wanted = await whatToOpen();
+      if (!wanted || wanted.signature === openedOn) return;
+      reset();
+      await open();
+    }
+
+    function reset() {
+      panel?.destroy?.();
+      panel = null;
+      viewer?.destroy?.();
+      viewer = null;
+      openedOn = null;
+      window.__thePicture = null;
+    }
+
     return {
-      /** Whether this page was pointed at a scan at all. */
-      get asked() { return !!pointedAt(); },
+      /** Whether this page was pointed at a scan by its own address. The run's
+          sources are asked for asynchronously, so they do not answer here. */
+      get asked() { return !!(search.get("picture") ?? ctx.pictures?.("overview")); },
       /** Whether there was a scan there to open, and it opened. */
       get opened() { return !!viewer; },
       open,
       followTheStage,
+      reopenIfTheRunGrew,
       /** A field has landed, so there may be more of the scan to read. */
       mayHaveLanded() { viewer?.tilesMayHaveLanded?.(); },
       /** The session is over, and what was opened belongs to it. A reconnect
           is a fresh session: its run starts with nothing scanned, and the
           picture of the last one must not stand in for it. */
-      reset() {
-        viewer?.destroy?.();
-        viewer = null;
-        window.__thePicture = null;
-      },
+      reset,
     };
   })();
 
@@ -188,9 +257,19 @@ export function watchTheRun(ctx) {
      the cost of this when there is nothing new is one small request every
      couple of seconds. */
   setInterval(() => {
-    if (!thePicture.asked) return;
-    if (thePicture.opened) thePicture.mayHaveLanded();
-    else thePicture.open();
+    if (thePicture.opened) {
+      thePicture.mayHaveLanded();
+      /* And whether the run has grown a source the open viewer does not
+         hold — the targets landing beside the overview, say. The check is
+         one small request, and nothing happens while the answer is the one
+         already open. */
+      thePicture.reopenIfTheRunGrew();
+    } else {
+      /* Asked even when the page's own address names nothing: the run's
+         sources appear only once something has been captured, and the page
+         cannot know when that is without asking. */
+      thePicture.open();
+    }
   }, 1500);
 
   const liveOverview = (() => {
