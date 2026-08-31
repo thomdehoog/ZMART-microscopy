@@ -1,0 +1,1131 @@
+:root {
+  --bg: #eef2f7;
+  --screen: #ffffff;
+  --surface-2: #f8fafc;
+  --surface-3: #f1f5f9;
+  --line: #e2e8f0;
+  --line-strong: #cbd5e1;
+  --ink: #0f172a;
+  --ink-2: #475569;
+  --ink-3: #6b7c93;
+  --accent: #0284c7;
+  --accent-deep: #0369a1;
+  --accent-tint: #eff6ff;
+  --accent-line: #dbeafe;
+  --good: #16a34a;
+  --bad: #b91c1c;
+  --warn-bg: #fffbeb;
+  --warn-ink: #92400e;
+  --warn-line: #fde68a;
+  /* data marks — validated for BOTH surfaces, so they never change */
+  --mark-gated: #0284c7;
+  --mark-acquired: #16a34a;
+  --mark-context: #94a3b8;
+  /* the three sharpness metrics, as three series on one plot */
+  --m-brenner: #0369a1;
+  --m-dct: #7c3aed;
+  --shadow: 0 1px 2px rgba(15, 23, 42, 0.05), 0 12px 32px rgba(15, 23, 42, 0.07);
+  --mono: ui-monospace, "Cascadia Mono", "Segoe UI Mono", Consolas, monospace;
+  --sans: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #05080f;
+    --screen: #0b1220;
+    --surface-2: #101b2c;
+    --surface-3: #16233a;
+    --line: #1e2b41;
+    --line-strong: #33415a;
+    --ink: #e6edf6;
+    --ink-2: #9fb0c6;
+    --ink-3: #7d8ea6;
+    --accent: #38bdf8;
+    --accent-deep: #7dd3fc;
+    --accent-tint: #0c1f31;
+    --accent-line: #164e63;
+    --good: #4ade80;
+    --bad: #f87171;
+    --warn-bg: #221a08;
+    --warn-ink: #fcd34d;
+    --warn-line: #57430f;
+    --mark-context: #64748b;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 16px 40px rgba(0, 0, 0, 0.5);
+  }
+}
+
+:root[data-theme="dark"] {
+  --bg: #05080f;
+  --screen: #0b1220;
+  --surface-2: #101b2c;
+  --surface-3: #16233a;
+  --line: #1e2b41;
+  --line-strong: #33415a;
+  --ink: #e6edf6;
+  --ink-2: #9fb0c6;
+  --ink-3: #7d8ea6;
+  --accent: #38bdf8;
+  --accent-deep: #7dd3fc;
+  --accent-tint: #0c1f31;
+  --accent-line: #164e63;
+  --good: #4ade80;
+  --bad: #f87171;
+  --warn-bg: #221a08;
+  --warn-ink: #fcd34d;
+  --warn-line: #57430f;
+  --mark-context: #64748b;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 16px 40px rgba(0, 0, 0, 0.5);
+}
+
+:root[data-theme="light"] {
+  --bg: #eef2f7;
+  --screen: #ffffff;
+  --surface-2: #f8fafc;
+  --surface-3: #f1f5f9;
+  --line: #e2e8f0;
+  --line-strong: #cbd5e1;
+  --ink: #0f172a;
+  --ink-2: #475569;
+  --ink-3: #6b7c93;
+  --accent: #0284c7;
+  --accent-deep: #0369a1;
+  --accent-tint: #eff6ff;
+  --accent-line: #dbeafe;
+  --good: #16a34a;
+  --bad: #b91c1c;
+  --warn-bg: #fffbeb;
+  --warn-ink: #92400e;
+  --warn-line: #fde68a;
+  --mark-context: #94a3b8;
+  --shadow: 0 1px 2px rgba(15, 23, 42, 0.05), 0 12px 32px rgba(15, 23, 42, 0.07);
+}
+
+/* the width of the column beside a canvas, wherever one stands */
+:root { --side-w: 320px; }
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 15px;
+  line-height: 1.55;
+}
+
+.wrap { height: 100vh; display: flex; flex-direction: column; }
+
+/* ---- the app screen, full bleed ---- */
+.screen {
+  background: var(--screen);
+  overflow: hidden;
+  display: grid;
+  grid-template-columns: minmax(268px, 312px) 1fr;
+  flex: 1;
+  min-height: 0;
+}
+
+/* ---- left column ---- */
+.rail {
+  border-right: 1px solid var(--line);
+  background: var(--surface-2);
+  display: grid;
+  grid-template-rows: auto 1fr;
+  min-height: 0;
+}
+
+.wf-box {
+  padding: 14px 14px 15px;
+  border-bottom: 1px solid var(--line);
+  background: var(--screen);
+  display: flex; flex-direction: column; gap: 9px;
+}
+.wf-label {
+  font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--ink-3);
+}
+.wf-row { display: flex; gap: 8px; align-items: center; }
+/* The chooser takes whatever room the rail has and no more. Left to itself a
+   dropdown is as wide as its longest choice, and the rail is a fixed column — so
+   naming a workflow a few words longer than the others used to push the Restart
+   button beside it clean off the rail and under the panel next door, where it
+   could not be pressed. A name is a thing somebody will change; the layout
+   should not depend on how long they make it. */
+select.wf-select {
+  flex: 1 1 0; min-width: 0; width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font: inherit; font-size: 14px; font-weight: 600; color: var(--ink);
+  background: var(--surface-2);
+  border: 1px solid var(--line-strong); border-radius: 8px;
+  padding: 7px 9px; cursor: pointer;
+}
+.wf-meta { font-size: 12.5px; color: var(--ink-3); }
+.wf-meta.locked { color: var(--warn-ink); }
+button.ghost {
+  font: inherit; font-size: 13px; font-weight: 600;
+  color: var(--ink-2); background: var(--surface-3);
+  border: 1px solid var(--line-strong); border-radius: 8px;
+  padding: 6px 11px; cursor: pointer;
+}
+button.ghost:hover:enabled { background: var(--line); color: var(--ink); }
+button.ghost:disabled { opacity: 0.45; cursor: default; }
+
+/* A button that undoes something the rest of the run rests on. Shaped like
+   any other, in the colour this page already uses for a bad answer, so the
+   one destructive control says which one it is before it is pressed. */
+button.danger {
+  font: inherit; font-size: 13px; font-weight: 600;
+  color: var(--screen); background: var(--bad);
+  border: 1px solid var(--bad); border-radius: 8px;
+  padding: 6px 11px; cursor: pointer;
+}
+button.danger:hover:enabled { filter: brightness(0.9); }
+button.danger:disabled { opacity: 0.45; cursor: default; }
+
+.steps { overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 4px; min-height: 0; }
+
+.step {
+  border: 1px solid transparent; border-radius: 9px;
+  background: transparent; padding: 7px 9px;
+  display: flex; flex-direction: column; gap: 2px;
+  cursor: pointer; text-align: left; font: inherit; color: inherit; width: 100%;
+}
+.step:hover { background: var(--surface-3); }
+/* The rail is now navigation, so which step you are standing on has to be
+   unmistakable at a glance rather than a faint tint. */
+.step.active {
+  background: var(--accent-tint); border-color: var(--accent);
+  cursor: default;
+}
+/* A finished step says so in its number, the way the one being worked on
+   does: one badge carrying one fact, rather than a badge here and a mark
+   further along the row.
+
+   Standing on a finished step keeps the blue. Where you are is the more
+   immediate fact and it changes as you move, while done does not — and that
+   step shows its result underneath, which says it ran. So this comes first
+   and the active rule wins on the step that is both. */
+.step.done .step-n { background: var(--good); color: #ffffff; }
+.step.active .step-n { background: var(--accent); color: #ffffff; }
+:root[data-theme="dark"] .step.done .step-n,
+:root[data-theme="dark"] .step.active .step-n { color: #04121d; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .step.done .step-n,
+  :root:not([data-theme="light"]) .step.active .step-n { color: #04121d; }
+}
+.step.active .step-name { font-weight: 700; }
+.step.locked { cursor: not-allowed; }
+.step.locked .step-head { opacity: 0.5; }
+.step-head { display: flex; align-items: center; gap: 8px; }
+.step-n {
+  font-family: var(--mono); font-size: 11px; font-weight: 600;
+  color: var(--ink-3); font-variant-numeric: tabular-nums;
+  min-width: 22px; height: 20px; padding: 0 5px;
+  display: inline-grid; place-items: center; border-radius: 999px;
+  background: var(--surface-3); flex: none;
+}
+.step-name { font-size: 13.5px; font-weight: 600; flex: 1; min-width: 0; }
+.step.active .step-name { color: var(--accent-deep); }
+.step.done .step-name { color: var(--ink-2); font-weight: 550; }
+.spin {
+  width: 11px; height: 11px; border-radius: 50%;
+  border: 2px solid var(--line-strong); border-top-color: var(--accent);
+  animation: spin 0.7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.step-body { display: flex; flex-direction: column; gap: 8px; padding: 4px 0 2px 28px; }
+.step-note { font-size: 12.5px; color: var(--ink-3); font-family: var(--mono); }
+.step-note.ok { color: var(--good); }
+.step-note.bad { color: var(--bad); }
+button.run {
+  align-self: flex-start; font: inherit; font-size: 13px; font-weight: 600;
+  color: #fff; background: var(--accent); border: none; border-radius: 7px;
+  padding: 6px 14px; cursor: pointer;
+}
+:root[data-theme="dark"] button.run, :root:not([data-theme="light"]) button.run { color: #04121d; }
+@media (prefers-color-scheme: light) { :root:not([data-theme="dark"]) button.run { color: #fff; } }
+button.run:hover:enabled { background: var(--accent-deep); }
+/* Faded, the way every other disabled control here is. A grey slab was the
+   heaviest thing on a bar whose point is the field beside it. */
+button.run:disabled { opacity: 0.4; cursor: default; }
+
+/* ---- right column ---- */
+/* tabs, then the panel — the action moved inside the panel it operates */
+.stage { display: grid; grid-template-rows: auto minmax(0, 1fr); min-width: 0; min-height: 0; }
+
+/* The run lives at the end of the panel it operates. Empty for a step that
+   builds its own button, and then it takes no room at all. */
+.panel-foot {
+  display: flex; align-items: center; gap: 12px;
+  padding: 11px 16px; border-top: 1px solid var(--line);
+  background: var(--screen);
+  position: relative; z-index: 1;
+}
+.panel-foot:empty { display: none; }
+
+/* The canvas keeps its whole height; the controls that read it sit under it in
+   one bar — what is drawn, then what to draw and what to do next. */
+#panel-canvas.on { grid-template-rows: minmax(0, 1fr) auto; }
+.canvas-foot {
+  display: flex; align-items: stretch;
+  border-top: 1px solid var(--line); background: var(--screen);
+}
+.canvas-foot > .toolbar { flex: 1 1 auto; border-top: none; border-bottom: none; }
+.canvas-foot > .panel-foot { border-top: none; }
+.action-hint { font-size: 12.5px; color: var(--ink-3); font-family: var(--mono); flex: none; }
+.action-hint.ok { color: var(--good); }
+.action-hint.bad { color: var(--bad); }
+/* names the channel over the column it heads, at the far end of the tab row */
+.side-tab {
+  /* out past the row's own padding, so it stands over the whole channel */
+  margin-left: auto; margin-right: calc(-1 * var(--tabs-pad));
+  width: var(--side-w); flex: none;
+  display: flex; align-items: flex-end; height: 100%;
+}
+/* Reads as the tab it stands in for: same size, same weight, same blue, and a
+   rule as wide as the name rather than as the column under it. It is the
+   heading of a column that is always shown, so it is always in the selected
+   state — there is no other. The name carries all of that and the box around
+   it carries none, or the rule runs the width of the channel and stops looking
+   like the thing it stands in for. */
+.side-tab > span {
+  font-size: 13.5px; font-weight: 600; color: var(--accent-deep);
+  border-bottom: 2px solid var(--accent);
+  padding: 0 var(--tab-pad-x) var(--tab-pad-b);
+}
+.tabs {
+  --tabs-pad: 12px;
+  /* what a tab holds off its own name, so the heading standing in for one at
+     the end of the row sits the same distance off its own and lands on the
+     same rule */
+  --tab-pad-x: 13px;
+  --tab-pad-b: 11px;
+  display: flex; align-items: stretch; gap: 2px;
+  padding: 0 var(--tabs-pad); border-bottom: 1px solid var(--line);
+  background: var(--surface-2); overflow-x: auto;
+}
+.tab {
+  font: inherit; font-size: 13.5px; font-weight: 600; color: var(--ink-3);
+  background: none; border: none; border-bottom: 2px solid transparent;
+  padding: 0 var(--tab-pad-x) var(--tab-pad-b); cursor: pointer; white-space: nowrap;
+  display: flex; align-items: center; gap: 7px;
+}
+.tab:hover { color: var(--ink); }
+.tab[aria-selected="true"] { color: var(--accent-deep); border-bottom-color: var(--accent); }
+
+.tab .count {
+  font-family: var(--mono); font-size: 11px; font-variant-numeric: tabular-nums;
+  background: var(--surface-3); border: 1px solid var(--line);
+  border-radius: 999px; padding: 1px 6px; color: var(--ink-2);
+}
+
+.panel { position: relative; min-width: 0; min-height: 0; display: none; }
+.panel.on { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; }
+
+.toolbar {
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+  padding: 8px 14px; border-bottom: 1px solid var(--line); background: var(--screen);
+  font-size: 12.5px; color: var(--ink-2); min-height: 43px;
+}
+.param .hint { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 46ch; }
+
+/* Two rows of fixed height. Content inside a row may change freely; the
+   toolbar's height cannot, so the canvas never moves under the cursor. */
+.focus-toolbar { display: grid; grid-template-rows: 28px; align-content: center; }
+.focus-toolbar .tb-row {
+  display: flex; align-items: center; gap: 10px;
+  min-width: 0; overflow-x: auto; overflow-y: hidden; white-space: nowrap;
+  scrollbar-width: thin;
+}
+/* The canvas demonstration needs two rows: which engine is drawing, and which
+   of the three layers are on. */
+.viewer-toolbar { grid-template-rows: 28px auto; row-gap: 6px; }
+/* The row of layer buttons carries an explanation beside it, and an engine that
+   cannot draw beneath the picture explains that in three or four lines. So this
+   is the one row here that wraps rather than running off the side: a reason an
+   operator cannot read is no better than no reason at all.
+
+   Its height is reserved whether or not there is anything to say, because a
+   sentence appearing when a button is pressed would otherwise push the picture
+   down under the operator's cursor. */
+.viewer-toolbar .layer-row {
+  white-space: normal; overflow: visible; align-items: flex-start; padding-top: 4px;
+}
+.viewer-toolbar .layer-row .seg { flex: none; }
+.layer-why {
+  flex: 1 1 240px; min-width: 0; min-height: 3.2em; white-space: normal; line-height: 1.35;
+}
+.tb-label { font-weight: 600; color: var(--ink-3); flex: none; }
+.tile-pick { display: inline-flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: 12px; }
+.tile-pick #tile-label { min-width: 62px; text-align: center; color: var(--ink-2); }
+button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
+#tile-canvas { cursor: default; }
+.toolbar .group { display: flex; align-items: center; gap: 9px; }
+.toolbar label { display: flex; align-items: center; gap: 5px; cursor: pointer; user-select: none; }
+.toolbar input[type="checkbox"] { accent-color: var(--accent); margin: 0; }
+.swatch { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
+.sep { width: 1px; height: 16px; background: var(--line); }
+/* The readout shrinks rather than wrapping: a toolbar that changes height
+   moves the canvas under the cursor, and points get placed where they were
+   not clicked. */
+.readout {
+  margin-left: auto; font-family: var(--mono); font-size: 12px; color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+  flex: 1 1 0; min-width: 0; text-align: right;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+.seg { display: inline-flex; border: 1px solid var(--line-strong); border-radius: 8px; overflow: hidden; }
+.seg button {
+  font: inherit; font-size: 12.5px; font-weight: 600; color: var(--ink-3);
+  background: var(--surface-2); border: none; border-right: 1px solid var(--line);
+  padding: 5px 10px; cursor: pointer; white-space: nowrap;
+}
+.seg button:last-child { border-right: none; }
+.seg button:hover { color: var(--ink); background: var(--surface-3); }
+/* Two kinds of button live in these strips and they look the same when they are
+   on. A row of engines is a choice between them, so exactly one is checked; a
+   row of layers is three switches that happen to sit together, so any number of
+   them may be pressed at once. The colour says "this one is on" in both cases,
+   which is the only thing an operator needs to read off it. */
+.seg button[aria-checked="true"],
+.seg button[aria-pressed="true"] { background: var(--accent); color: #fff; }
+:root[data-theme="dark"] .seg button[aria-checked="true"],
+:root[data-theme="dark"] .seg button[aria-pressed="true"] { color: #04121d; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .seg button[aria-checked="true"],
+  :root:not([data-theme="light"]) .seg button[aria-pressed="true"] { color: #04121d; }
+}
+/* A layer cannot be turned on while there is no picture to turn it on in. Said
+   by making the button plainly unavailable rather than by letting it be pressed
+   and do nothing. */
+.seg button:disabled { opacity: 0.45; cursor: default; }
+.seg button:disabled:hover { color: var(--ink-3); background: var(--surface-2); }
+.param { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--ink-2); }
+.param input[type="number"], .param select {
+  font: inherit; font-family: var(--mono); font-size: 12px;
+  background: var(--surface-2); color: var(--ink);
+  border: 1px solid var(--line-strong); border-radius: 6px; padding: 4px 7px; width: 88px;
+}
+.param select { width: auto; font-family: var(--sans); font-weight: 600; }
+.param .hint { color: var(--ink-3); }
+
+/* The focus controls, stacked down the channel beside the canvas. There is no
+   map here any more — the map is the canvas — so this is only what is said
+   about it: how the points are made, which ones there are, and the sweep
+   behind whichever one is picked.
+
+   The list is the part that grows, so it is the part that scrolls: sixteen
+   points must not push the trace off the bottom of the column, because the
+   trace is what a point is picked in order to look at. */
+#focus-controls { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+#focus-controls[hidden] { display: none; }
+.focus-side { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.focus-strip {
+  display: flex; flex-direction: column; flex: none;
+  border-top: 1px solid var(--line);
+}
+
+.fp-bar {
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 10px 12px 12px; border-bottom: 1px solid var(--line);
+}
+/* the choice is the width of the column, because it is the first thing asked */
+.fp-bar .seg { width: 100%; }
+.fp-bar .seg button { flex: 1; min-width: 0; }
+.fp-row { display: flex; align-items: center; gap: 8px; }
+.fp-row button.ghost { flex: 1; }
+.fp-label {
+  font-size: 11px; font-family: var(--mono); font-weight: 600;
+  letter-spacing: 0.04em; text-transform: uppercase; color: var(--ink-3);
+}
+.fp-bar input[type="number"] {
+  width: 58px; font: inherit; font-size: 13px; font-family: var(--mono);
+  padding: 4px 6px; border: 1px solid var(--line-strong); border-radius: 6px;
+  background: var(--screen); color: var(--ink);
+}
+/* what the two answers actually come to, since one of them multiplies */
+.fp-hint {
+  margin-left: auto; font-size: 11.5px; font-family: var(--mono); color: var(--ink-3);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.side-head {
+  font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--ink-3); padding: 9px 12px 7px; border-bottom: 1px solid var(--line);
+  display: flex; align-items: baseline; gap: 8px;
+}
+.side-head span { font-family: var(--mono); font-size: 11px; letter-spacing: 0; text-transform: none; color: var(--ink-2); }
+.trace-head { border-top: 1px solid var(--line); }
+.point-list { overflow-y: auto; min-height: 0; flex: 1; }
+.point-row {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  padding: 6px 12px; border: none; border-bottom: 1px solid var(--line);
+  background: none; font: inherit; text-align: left; cursor: pointer;
+  font-family: var(--mono); font-size: 11.5px; color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+.point-row:hover { background: var(--surface-3); }
+.point-row[aria-current="true"] { background: var(--accent-tint); color: var(--accent-deep); }
+.point-row .idx { color: var(--ink-3); min-width: 16px; }
+.point-row[aria-current="true"] .idx { color: var(--accent-deep); }
+.point-row .res { margin-left: auto; color: var(--ink-3); font-size: 11px; }
+.point-row .z { margin-left: auto; font-weight: 600; }
+.point-row .res + .z { margin-left: 0; min-width: 62px; text-align: right; }
+.point-row .z.pending { color: var(--ink-3); font-weight: 400; }
+.point-list .none { padding: 12px; font-size: 12.5px; color: var(--ink-3); font-family: var(--sans); }
+/* Stacked, now that this sits in a column: the image the sweep picks out on
+   top, the sweep beneath it. The image first because it is the answer — the
+   curve is the working — and the curve is given a modest fixed height, since
+   its shape is what is being read and no amount of extra height adds to that. */
+.trace-host { position: relative; min-height: 0; display: grid; grid-template-rows: auto 152px; }
+/* Every canvas here is measured from its parent, so each one needs a parent
+   that is its own box and nothing else's. */
+.trace-plot { position: relative; min-height: 0; }
+#trace-canvas { display: block; width: 100%; height: 100%; cursor: ew-resize; touch-action: none; }
+.zpreview {
+  display: flex; justify-content: center; padding: 12px 14px 14px; min-height: 0;
+}
+/* The readings sit on the image, so they are placed against the image's own box
+   rather than the column's — a caption wider than what it captions reads as a
+   band across the panel. */
+.zframe { position: relative; width: 100%; max-width: 176px; }
+.zpreview canvas {
+  width: 100%; height: auto; aspect-ratio: 1 / 1;
+  border-radius: 6px; background: #05090e; display: block;
+}
+.zcap {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  display: flex; flex-direction: column; align-items: center; gap: 1px;
+  padding: 5px 6px 6px; border-radius: 0 0 6px 6px;
+  background: linear-gradient(rgba(5, 9, 14, 0), rgba(5, 9, 14, 0.82) 38%);
+  pointer-events: none;
+}
+.zcap .zval {
+  font-family: var(--mono); font-size: 12px; font-variant-numeric: tabular-nums;
+  color: #ffffff; font-weight: 600;
+}
+.zcap .zstate { font-size: 10.5px; color: rgba(226, 232, 240, 0.85); text-align: center; line-height: 1.3; }
+.zcap .zstate.manual { color: #fcd34d; }
+.trace-empty {
+  position: absolute; inset: 0; display: grid; place-content: center; text-align: center;
+  padding: 16px; font-size: 12.5px; color: var(--ink-3); line-height: 1.45;
+  background: var(--surface-2); z-index: 2;
+}
+.trace-empty.hidden { display: none; }
+
+.plot-host { position: relative; min-height: 0; }
+canvas.plot { display: block; width: 100%; height: 100%; touch-action: none; }
+/* No grabbing hand. The canvas is a picture that happens to pan, not a sheet
+   of paper being shoved about, and a hand on it says the panning is the point
+   when the point is what is drawn.
+
+   The cursor answers what the next press will do instead, which only the scan
+   fields editor knows — so while that step is standing here it sets the cursor
+   itself and this is the resting state underneath. */
+canvas.stagecv { cursor: default; }
+canvas.scattercv { cursor: crosshair; }
+
+/* The acquired overview lies over the plan, in the same place and at the same
+   size, because it is the same square of stage seen for real rather than a
+   second view of it. It is dark, the way an unimaged region is, so a canvas
+   with nothing written into it yet looks empty rather than looking broken.
+
+   The `hidden` attribute needs saying again here: the rule above gives every
+   canvas in this panel `display: block`, and that would otherwise keep showing
+   a canvas the page had asked to put away. */
+canvas.livecv { position: absolute; inset: 0; background: #05070d; }
+canvas.livecv[hidden] { display: none; }
+
+/* The box the canvas draws in, on the step that is nothing but the canvas. It
+   holds nothing of its own: whatever drawing surfaces the chosen engine needs
+   are made inside it, sized to fill it, and taken away again when the panel
+   closes.
+
+   The colour is here as well as in the panel, and the two have to match. The
+   panel tells the engine this same colour so that no seam shows between one
+   drawing surface and the next; the box is painted with it because an engine is
+   fetched when the step is first opened, and until it arrives the box would be
+   page-white — a second or two of blank white where a dark, empty microscope
+   image belongs, which reads as something having gone wrong. Change this and
+   change `THE_COLOUR_BEHIND_THE_PICTURE` in `src/canvas/panel.js` with it. */
+.viewer-box { position: absolute; inset: 0; background: #05070d; }
+
+/* The viewer: one picture, taking the whole panel.
+
+   This held two columns until the operator page stopped being a place to compare
+   engines; comparing them side by side is what the rig in `viz_studio/options/`
+   is for. `min-width: 0` stays and is not decoration — without it a canvas
+   refuses to shrink below the width of what it has put inside itself, so the
+   picture pushes the panel wider instead of fitting it.
+
+   A panel is ordinarily a toolbar, its content and a foot. This one has no
+   toolbar of its own — the viewer carries its own buttons — so it is two rows,
+   and the picture takes everything that is left. */
+#panel-viewer-canvas.on { grid-template-rows: minmax(0, 1fr) auto; }
+.one-viewer {
+  position: relative; min-width: 0; min-height: 0; padding: 8px;
+  display: flex; flex-direction: column; gap: 5px;
+}
+/* The box is the only part that grows, and it grows from nothing — `flex: 1 1 0`
+   rather than `auto`, so its height comes from the room left over rather than
+   from whatever the engine put inside it. With `auto` a canvas sizes the box and
+   the box sizes the column, and two engines with two ideas about how large a
+   canvas should be give two differently sized pictures. */
+.one-viewer .viewer-box { position: relative; inset: auto; flex: 1 1 0; min-height: 0; }
+
+/* `hidden` is an attribute and `display: flex` is a rule, and the rule wins, so a
+   row of buttons the page has hidden would otherwise still be on the screen. */
+.seg[hidden] { display: none; }
+/* Where in the stack the picture comes from. A row rather than a column so it
+   costs one line of the picture's height, and the reading sits beside the slider
+   because "plane 417 of 833" is what an operator is actually navigating by. */
+.through-the-stack {
+  display: flex; align-items: center; gap: 8px; min-width: 0;
+  font-size: 10.5px; color: var(--ink-2);
+}
+.through-the-stack input[type="range"] { flex: 1 1 auto; min-width: 0; }
+.through-the-stack .readout { flex: 0 0 auto; white-space: nowrap; }
+
+.one-viewer .live-note { bottom: 8px; max-width: calc(100% - 16px); }
+.viewer-head { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.viewer-name {
+  font-family: var(--mono); font-size: 11.5px; font-weight: 600; color: var(--ink-2);
+  white-space: nowrap;
+}
+.viewer-head .readout { margin-left: auto; font-size: 10.5px; }
+/* Reserved whether or not there is anything to say, so that a sentence appearing
+   when a button is pressed cannot shove the picture down under the cursor.
+
+   `flex: 0 0 auto` is the important part and it is easy to lose. The rule this
+   inherits from was written for the engine's sentence sitting *beside* its
+   buttons in a horizontal toolbar, where `flex: 1 1 240px` means "take the rest
+   of the row". Here the column runs downwards, so the same rule means "take the
+   rest of the height" — and it did: measured, it grew to 475px and left the
+   picture 235px at the bottom of a 774px column.
+
+   A fixed height rather than a minimum, so that changing engine cannot resize the
+   picture: one of them has a paragraph to say about what it cannot draw and the
+   other has a line, and a picture that jumped every time the button was pressed
+   would make the two impossible to compare by flicking between them. Three lines
+   holds the sentence that matters; the whole of it is on the element's `title`,
+   which is where hovering finds it. */
+.one-viewer .layer-why {
+  flex: 0 0 auto;
+  height: 3.9em; overflow: hidden;
+  font-size: 10.5px; line-height: 1.3; white-space: normal;
+}
+
+/* What the picture is doing, said quietly in the corner of it: which run is
+   open, or why it could not be. */
+.live-note {
+  position: absolute; left: 10px; bottom: 10px; z-index: 6; max-width: 70%;
+  background: rgba(5, 7, 13, 0.72); color: #e2e8f0;
+  border: 1px solid rgba(148, 163, 184, 0.35); border-radius: 7px;
+  padding: 5px 9px; font-size: 11px; font-family: var(--mono);
+}
+.live-note[hidden] { display: none; }
+
+.tip {
+  position: absolute; pointer-events: none; z-index: 5;
+  background: var(--screen); border: 1px solid var(--line-strong); border-radius: 7px;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.14);
+  padding: 6px 9px; font-size: 12px; line-height: 1.45; color: var(--ink);
+  font-family: var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap;
+  opacity: 0; transition: opacity 0.1s;
+}
+.tip.on { opacity: 1; }
+.tip b { color: var(--ink-3); font-weight: 500; }
+
+
+/* gallery */
+.gallery-wrap { overflow-y: auto; padding: 14px; }
+.pairs { display: grid; grid-template-columns: repeat(auto-fill, minmax(196px, 1fr)); gap: 12px; }
+.pair {
+  border: 1px solid var(--line); border-radius: 9px; overflow: hidden;
+  background: var(--surface-2); display: flex; flex-direction: column;
+}
+.pair .imgs { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--line); }
+.pair canvas { display: block; width: 100%; height: auto; background: #000; }
+.pair .meta {
+  display: flex; align-items: center; gap: 6px; padding: 6px 8px;
+  font-family: var(--mono); font-size: 11.5px; color: var(--ink-3); font-variant-numeric: tabular-nums;
+}
+.pair .verdict { margin-left: auto; display: flex; gap: 4px; }
+.verdict button {
+  font: inherit; font-size: 12px; line-height: 1; padding: 4px 7px;
+  border: 1px solid var(--line-strong); border-radius: 6px;
+  background: var(--screen); color: var(--ink-3); cursor: pointer;
+}
+.verdict button.pick-good[aria-pressed="true"] { background: var(--good); border-color: var(--good); color: var(--screen); }
+.verdict button.pick-bad[aria-pressed="true"] { background: var(--bad); border-color: var(--bad); color: var(--screen); }
+
+.legend { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.legend span { display: flex; align-items: center; gap: 6px; }
+.dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+.dot.ring { box-shadow: 0 0 0 2px var(--screen), 0 0 0 3.5px var(--mark-gated); }
+
+:where(button, select, [tabindex]):focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
+}
+
+@media (max-width: 900px) {
+  .screen { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
+  .rail { border-right: none; border-bottom: 1px solid var(--line); }
+  .steps { max-height: 200px; }
+}
+
+/* ---- setup panel -------------------------------------------------------
+   What the run is configured with, shown while there is no acquired data to
+   put on the canvas. Each row fills in as its step completes, so the operator
+   can see the run taking shape instead of an empty stage. */
+.setup-wrap { overflow-y: auto; padding: 22px 26px; }
+.setup-list {
+  display: grid; gap: 18px; max-width: 720px;
+  grid-template-columns: minmax(0, 1fr);
+}
+.setup-row {
+  display: grid; grid-template-columns: 22px minmax(130px, auto) 1fr; align-items: baseline;
+  gap: 12px; padding: 12px 14px;
+  border: 1px solid var(--line); border-radius: 10px; background: var(--surface-2);
+}
+.setup-row.pending { border-style: dashed; background: transparent; }
+.setup-mark {
+  font-family: var(--mono); font-size: 12px; font-weight: 700;
+  color: var(--good); justify-self: center;
+}
+.setup-row.pending .setup-mark { color: var(--ink-3); font-weight: 400; }
+.setup-name { font-size: 13.5px; font-weight: 600; color: var(--ink); }
+.setup-row.pending .setup-name { color: var(--ink-3); font-weight: 550; }
+.setup-value {
+  font-family: var(--mono); font-size: 12.5px; color: var(--ink-2);
+  font-variant-numeric: tabular-nums; text-align: right;
+}
+.setup-row.pending .setup-value { color: var(--ink-3); }
+
+/* ---- session card ------------------------------------------------------
+   The whole card reads top to bottom: what it is for, what it was opened
+   with, every question the session was asked, what that came to, and the
+   button. Nothing sits in the corner, and the button is last because it acts
+   on all of it. */
+.session-card {
+  border: 1px solid var(--line-strong); border-radius: 10px;
+  background: var(--surface-2); padding: 14px 16px 16px;
+  display: flex; flex-direction: column; gap: 12px;
+}
+.session-card.done { border-color: var(--line); }
+.session-head { display: flex; align-items: baseline; gap: 12px; }
+.session-title { font-size: 13.5px; font-weight: 660; }
+
+.session-form { display: flex; flex-direction: column; gap: 9px; }
+.field { display: grid; grid-template-columns: 96px 1fr; align-items: center; gap: 12px; }
+.field > span { font-size: 13px; color: var(--ink-2); }
+/* What a field looks like on this page, said once. The open bar in Optical
+   Configuration asks for the same two things a session does — a choice and a
+   name — so it is the same control, not one that resembles it. */
+.field select, .field input,
+.rec-new select, .rec-new input {
+  font: inherit; font-size: 13px; color: var(--ink);
+  background: var(--screen); border: 1px solid var(--line-strong);
+  border-radius: 7px; padding: 7px 9px; width: 100%;
+}
+/* No ring while a field holds the caret — the caret says so. Said once here,
+   so a session and the open bar behave the same way as well as look it. */
+.field select:focus, .field input:focus,
+.rec-new select:focus, .rec-new input:focus { outline: none; }
+
+.field input { font-family: var(--mono); letter-spacing: 0.08em; }
+.field select:disabled, .field input:disabled { opacity: 0.55; }
+.session-foot { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+.session-hint { font-size: 12.5px; color: var(--ink-3); }
+
+/* The sentence the checks end on. Green, because it is the same answer the
+   marks above it gave, said once in words. The two names in it were chosen
+   rather than written, so they carry the weight the heading does. */
+.session-done { font-size: 12.5px; color: var(--good); }
+.session-done b { font-weight: 660; }
+
+.check-list { display: flex; flex-direction: column; gap: 1px; }
+/* The whole list arrives with the session, so the rows come in together. What
+   lands one at a time after that is the mark, which is the only part that has
+   an answer to wait for. */
+.check-row {
+  display: grid; grid-template-columns: 18px minmax(150px, auto) 1fr;
+  align-items: baseline; gap: 10px; padding: 5px 0;
+  font-size: 12.5px;
+  animation: check-in 0.22s ease-out;
+}
+.check-mark {
+  color: var(--good); font-weight: 700; justify-self: center;
+  transition: opacity 0.18s ease-out;
+}
+.check-row.pending .check-mark { opacity: 0; }
+.check-row.pending .check-name { color: var(--ink-3); }
+.check-name { color: var(--ink-2); }
+.check-value {
+  font-family: var(--mono); font-size: 12px; color: var(--ink-3);
+  text-align: right; font-variant-numeric: tabular-nums;
+}
+@keyframes check-in { from { opacity: 0; transform: translateY(-2px); } }
+
+/* An explicit display beats the hidden attribute, so say so. */
+
+/* ---- the two header bars line up --------------------------------------
+   The workflow box on the left and the tab bar on the right both sit above a
+   rule that runs the width of the app. One shared height keeps that rule
+   continuous instead of stepping down where the columns meet. */
+:root { --head-h: 110px; }
+.wf-box { height: var(--head-h); justify-content: center; padding-top: 0; padding-bottom: 0; }
+.tabs { height: var(--head-h); align-items: center; }
+.tabs .tab { height: 100%; }
+
+/* The first step should not crowd the rule under the workflow selector. */
+.steps { padding-top: 18px; }
+
+/* Both header bars sit their contents toward the bottom of the bar, so the
+   selector and the tab labels line up with each other and with the rule. */
+.wf-box { justify-content: flex-end; padding-bottom: 13px; }
+.tabs .tab { align-items: flex-end; }
+
+/* ---- wordmark ----------------------------------------------------------
+   Typographic rather than a drawn logo: ZMART set tight and heavy, the
+   discipline trailing it light, so the pair reads as one lockup at a glance.
+   --brand is its own token — point it at the institute's blue when the real
+   brand values are to hand and nothing else has to change. */
+:root { --brand: var(--accent-deep); }
+.wf-box { justify-content: space-between; padding-top: 12px; }
+.brand { display: flex; align-items: baseline; gap: 6px; user-select: none; }
+.brand-mark {
+  font-size: 21px; font-weight: 750; letter-spacing: -0.02em;
+  color: var(--brand); line-height: 1;
+}
+.brand-sub {
+  font-size: 15px; font-weight: 400; letter-spacing: 0.01em;
+  color: var(--ink-3); line-height: 1;
+}
+
+.session-hint.bad { color: var(--bad); }
+
+/* ---- recording an optical configuration --------------------------------
+   One shape in two states. A recorded preset is a line of text; the bar
+   waiting to take the next one holds controls. They differ by what they
+   carry, not by shape — same box, same columns, same edges — so the list
+   does not jog as it grows.
+
+   The fold leads both rows, which is what lets a preset's name and the kind
+   selector begin in the same column. Its width and the gap beside it are
+   named here because three things depend on them: the two row grids, and how
+   far an unfolded detail is indented to sit under the name it explains. */
+.setting-box {
+  --fold-col: 22px;
+  --row-gap: 10px;
+  display: grid; align-items: center;
+  border: 1px solid var(--line-strong); border-radius: 10px;
+  background: var(--surface-2); padding: 6px 16px;
+}
+.setting-box.done { border-color: var(--line); }
+/* The bar waiting to take the next preset is not a box. A recorded preset is
+   an object the run holds and is drawn as one; this is the act of taking the
+   next, and an outline around it drew a second object where there is only a
+   field being filled in. Without the frame its controls open on the edge the
+   boxes stand on, so the column still has one left edge. */
+.setting-box.open { border: none; padding: 0; background: transparent; }
+
+.rec-row, .rec-new {
+  display: grid; align-items: center; gap: var(--row-gap); min-height: 28px;
+}
+.rec-row { grid-template-columns: var(--fold-col) minmax(120px, 1fr) auto 26px; }
+/* The open bar carries no empty fold column. It opens with the name it is
+   there to take, where a recorded row opens with its triangle, so the two
+   begin on the same edge instead of the bar sitting indented behind a column
+   reserved for something it has not got. The kind is as wide as the kind and
+   sits after the name, so it stands beside the field it describes rather than
+   in front of it.
+
+   The name field is as wide as a preset name needs and no wider: a box drawn
+   to the panel's edge offers room for a sentence when what goes in it is a
+   word. Everything after it follows on directly and the slack collects at the
+   end, where it says nothing rather than holding the bar apart. */
+.rec-new { grid-template-columns: 240px max-content max-content 1fr; }
+
+.rec-fold, .rec-new input { grid-column: 1; }
+.rec-name, .rec-new select { grid-column: 2; }
+.rec-state { grid-column: 3; }
+.rec-drop { grid-column: 4; }
+/* The base rule starts a button at the top of its row, which left this one
+   riding above the fields. Stretched instead of centred, so it stands exactly
+   as tall as the name box beside it — taken from the row rather than set to a
+   height of its own that would have to be kept in step by hand. */
+.rec-new button.run {
+  grid-column: 3; justify-self: start; align-self: stretch; padding: 0 14px;
+}
+/* a native select renders a pixel short of a text field; same treatment */
+.rec-new select { align-self: stretch; }
+.rec-new .session-hint { grid-column: 1 / -1; margin-top: -2px; }
+
+.rec-name { font-family: var(--mono); font-size: 12.5px; color: var(--ink); font-weight: 600; }
+.rec-state {
+  font-family: var(--mono); font-size: 12px; color: var(--ink-2);
+  text-align: right; font-variant-numeric: tabular-nums;
+}
+/* The controls sit on the bar rather than in boxes of their own. A bordered
+   field inside a bordered box inside a bordered group is three edges saying
+   the same thing, and it made the one thing being filled in the hardest part
+   to see. Without them the open bar is the line of text it is about to
+   become, and it needs no height of its own to hold them. */
+/* Wide enough for its own text and no wider, so the arrow stays next to the
+   kind it belongs to instead of drifting to the end of the column — plus room
+   at the end for the arrow itself, which the browser draws inside the box and
+   which otherwise sits pressed against the edge. */
+.rec-new select { width: auto; justify-self: start; padding-right: 30px; }
+.rec-new input { font-family: var(--mono); }
+.rec-new input::placeholder { color: var(--ink-3); }
+
+/* Square, so turning it to point down at what it opened moves the glyph and
+   not the column. Sized to the column it leads rather than to its own text. */
+.rec-fold {
+  display: grid; place-content: center;
+  width: var(--fold-col); height: var(--fold-col); padding: 0;
+  font: inherit; font-size: 15px; line-height: 1;
+  border: none; background: none; color: var(--ink-3); cursor: pointer;
+  border-radius: 6px; transition: transform 0.15s;
+}
+.rec-fold:hover { color: var(--ink); background: var(--surface-3); }
+.rec-fold.open { transform: rotate(90deg); }
+
+.rec-drop {
+  font: inherit; font-size: 12px; line-height: 1; padding: 2px 5px;
+  border: none; background: none; color: var(--ink-3); cursor: pointer; border-radius: 5px;
+}
+.rec-drop:hover:enabled { color: var(--bad); background: var(--surface-3); }
+.rec-drop:disabled { visibility: hidden; }
+
+/* Indented past the fold to start under the name it belongs to, rather than
+   hanging off the left of the row that opened it. */
+.rec-detail {
+  display: grid; grid-template-columns: 130px 1fr; gap: 3px 12px;
+  margin: 8px 0 2px calc(var(--fold-col) + var(--row-gap));
+  padding-top: 8px; border-top: 1px solid var(--line);
+  font-size: 12.5px;
+}
+.rec-detail dt { color: var(--ink-3); }
+.rec-detail dd {
+  margin: 0; font-family: var(--mono); font-size: 12px; color: var(--ink-2);
+}
+
+/* An empty hint still claimed a grid row, so the open bar sat taller than it
+   looked and its contents rode high in the box. */
+.session-hint:empty { display: none; }
+
+/* Settings of one kind sit close; one kind and the next stand apart. Named
+   once above the group, quietly: enough to see two groups, not to shout. */
+.setting-group { display: flex; flex-direction: column; gap: 6px; }
+.setting-group + .setting-group { margin-top: 16px; }
+.group-label {
+  font-size: 11px; font-weight: 600; letter-spacing: 0.07em; text-transform: uppercase;
+  color: var(--ink-3); margin: 0 0 2px; padding: 0;
+}
+
+/* ---- the carrier configuration panel ------------------------------------
+   Controls down one side, the carrier drawn beside them. The drawing is the
+   check on the numbers: a wrong pitch is hard to see in a field and obvious
+   as soon as the areas overlap. */
+/* The canvas keeps the room; a step whose work is about the frame gets a
+   column beside it. Scrolls on its own so the picture never moves. */
+/* one width, so the channel and the name above it stand in the same column */
+.canvas-body { display: grid; grid-template-columns: minmax(0, 1fr) auto; min-height: 0; }
+.canvas-side {
+  width: var(--side-w); overflow-y: auto; min-height: 0;
+  border-left: 1px solid var(--line); background: var(--surface-2);
+}
+.canvas-side[hidden] { display: none; }
+
+.carrier-card { display: flex; flex-direction: column; height: 100%; }
+.carrier-controls {
+  display: flex; flex-direction: column; gap: 8px; padding: 14px;
+}
+
+.carrier-types { display: flex; gap: 5px; }
+.carrier-type {
+  flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px;
+  padding: 8px 4px 6px; font: inherit; font-size: 10px; font-weight: 500;
+  font-family: var(--mono); letter-spacing: 0.03em;
+  color: var(--ink-3); background: none; cursor: pointer;
+  border: 1.5px solid transparent; border-radius: 9px;
+}
+.carrier-type:hover:enabled { border-color: var(--line); color: var(--ink-2); }
+.carrier-type.on { border-color: var(--accent); color: var(--accent); font-weight: 700; }
+.carrier-type:disabled { opacity: 0.5; cursor: default; }
+
+.carrier-group {
+  display: flex; gap: 6px;
+  background: var(--screen); border: 1px solid var(--line);
+  border-radius: 9px; padding: 10px 12px;
+}
+/* Two numbers and the button that ties them, in one shape for all three pairs
+   so a row of boxes means the same thing wherever it appears. */
+.carrier-pair {
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 30px;
+  gap: 4px 6px; align-items: center; width: 100%;
+}
+/* One line each: a label that wraps takes its box with it and the two halves
+   of a pair stop standing level. */
+.carrier-label {
+  font-size: 9px; font-family: var(--mono); font-weight: 600;
+  letter-spacing: 0.02em; color: var(--ink-3); white-space: nowrap;
+}
+.carrier-num, .carrier-preset {
+  font: inherit; font-size: 12px; font-family: var(--mono); color: var(--ink);
+  background: var(--surface-2); border: 1px solid var(--line-strong);
+  border-radius: 6px; padding: 5px 7px; width: 100%; min-width: 0;
+}
+.carrier-num:focus, .carrier-preset:focus { outline: none; }
+.carrier-preset { flex: 1; font-family: inherit; }
+.carrier-num:disabled, .carrier-preset:disabled { opacity: 0.55; }
+
+.carrier-link, .carrier-shape, .carrier-reset {
+  display: grid; place-content: center; height: 30px;
+  font: inherit; font-size: 12px; font-family: var(--mono); color: var(--ink-3);
+  background: var(--surface-2); border: 1px solid var(--line-strong);
+  border-radius: 6px; cursor: pointer;
+}
+.carrier-link { width: 30px; }
+.carrier-shape { width: 30px; }
+.carrier-reset { padding: 0 12px; }
+.carrier-link:hover:enabled, .carrier-shape:hover:enabled, .carrier-reset:hover:enabled {
+  border-color: var(--accent); color: var(--accent);
+}
+.carrier-link::before { content: "↔"; }
+.carrier-link.on { border-color: var(--accent); color: var(--accent); background: var(--surface-3); }
+.carrier-link.on::before { content: "⇄"; }
+.carrier-shape::before { content: "▢"; font-size: 14px; }
+.carrier-shape.round::before { content: "◯"; }
+.carrier-link:disabled, .carrier-shape:disabled, .carrier-reset:disabled { opacity: 0.5; cursor: default; }
+
+
+/* ---- the scan fields channel -------------------------------------------
+   The same column the carrier docks in, laid out the way the design session
+   settled it: the choice of how to say it first, then a group per question,
+   then the shortcuts folded away because they are reference rather than
+   workflow. Colours are this page's own tokens, so the column reads in both
+   surfaces rather than carrying a second palette. */
+.sf-card { display: flex; flex-direction: column; height: 100%; }
+.sf-controls { display: flex; flex-direction: column; gap: 10px; padding: 16px 14px; }
+
+.sf-modes { display: flex; gap: 6px; }
+.sf-mode {
+  flex: 1; display: flex; flex-direction: column; align-items: center; gap: 5px;
+  padding: 10px 6px 8px; cursor: pointer;
+  border: 1.5px solid transparent; border-radius: 10px;
+  background: transparent; color: var(--ink-3); font: inherit;
+}
+.sf-mode:hover { border-color: var(--line); color: var(--ink-2); }
+.sf-mode.on { border-color: var(--accent); background: var(--accent-tint); color: var(--accent-deep); }
+.sf-mode-icon { font-size: 17px; line-height: 20px; }
+.sf-mode-label {
+  font-size: 10px; font-family: var(--mono); font-weight: 500; letter-spacing: 0.04em;
+}
+.sf-mode.on .sf-mode-label { font-weight: 700; }
+
+.sf-group {
+  display: flex; flex-direction: column; gap: 10px;
+  padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px;
+  background: var(--surface-3);
+}
+.sf-group[hidden] { display: none; }
+.sf-group-title {
+  font-size: 11px; font-family: var(--mono); font-weight: 700;
+  color: var(--ink); letter-spacing: 0.03em;
+}
+
+.sf-tools { display: flex; gap: 6px; }
+.sf-tool {
+  flex: 1; height: 46px; display: grid; place-content: center; padding: 0;
+  border: 1px solid var(--line-strong); border-radius: 8px;
+  background: var(--screen); color: var(--ink-2); cursor: pointer;
+}
+.sf-tool:hover:enabled { color: var(--ink); }
+.sf-tool.on { color: var(--accent-deep); border-color: var(--accent); background: var(--accent-tint); }
+.sf-glyph { font-size: 19px; line-height: 24px; }
+.sf-tool.on .sf-glyph { font-weight: 700; }
+/* Drawn rather than typed, so it takes its weight from the stroke instead of
+   the font — and its colour from the button, like every other glyph here. */
+.sf-glyph-drawn {
+  width: 21px; height: 21px; display: block;
+  fill: none; stroke: currentColor; stroke-width: 1.5;
+  stroke-linejoin: round; stroke-linecap: round;
+}
+.sf-tool.on .sf-glyph-drawn { stroke-width: 2; }
+
+.sf-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.sf-num { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.sf-num-label {
+  font-size: 10px; font-family: var(--mono); font-weight: 600;
+  color: var(--ink-3); letter-spacing: 0.04em;
+}
+.sf-num input {
+  font: inherit; font-size: 12px; font-family: var(--mono); color: var(--ink);
+  background: var(--screen); border: 1px solid var(--line-strong);
+  border-radius: 6px; padding: 0 8px; height: 32px; width: 100%;
+}
+.sf-num input:focus { outline: none; }
+
+/* One press says what the next field is taken with. The dot is the colour it
+   is drawn in, so the canvas needs no legend. */
+.sf-presets { display: flex; flex-direction: column; gap: 6px; }
+.sf-preset {
+  display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 10px;
+  background: var(--screen); border: 1px solid var(--line-strong);
+  border-radius: 6px; cursor: pointer; font: inherit;
+}
+.sf-preset.on { border-color: var(--accent); background: var(--accent-tint); }
+.sf-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.sf-preset-name {
+  flex: 1; min-width: 0; text-align: left; overflow: hidden; text-overflow: ellipsis;
+  font-size: 11px; font-family: var(--mono); font-weight: 500; color: var(--ink-2);
+}
+.sf-preset.on .sf-preset-name { font-weight: 700; color: var(--accent-deep); }
+.sf-preset-frame { font-size: 9.5px; font-family: var(--mono); color: var(--ink-3); }
+
+.sf-row { display: flex; gap: 6px; }
+.sf-flat {
+  flex: 1; height: 30px; padding: 0 8px;
+  font: inherit; font-size: 11px; font-family: var(--mono); font-weight: 600;
+  letter-spacing: 0.02em; white-space: nowrap;
+  color: var(--ink-2); background: var(--screen);
+  border: 1px solid var(--line-strong); border-radius: 6px; cursor: pointer;
+}
+.sf-flat:hover:enabled { border-color: var(--accent); color: var(--accent-deep); }
+.sf-flat:disabled { opacity: 0.55; cursor: not-allowed; }
+
+.sf-keys {
+  border: 1px solid var(--line); border-radius: 10px;
+  background: var(--surface-3); overflow: hidden;
+}
+.sf-keys-head {
+  width: 100%; display: flex; align-items: center; gap: 8px; padding: 10px 14px;
+  background: transparent; border: none; cursor: pointer; text-align: left;
+  font: inherit; font-size: 11px; font-family: var(--mono); font-weight: 700;
+  color: var(--ink); letter-spacing: 0.03em;
+}
+.sf-keys-head > span:first-child { flex: 1; }
+.sf-chev { color: var(--ink-3); font-size: 12px; transition: transform 0.15s; }
+.sf-keys.open .sf-chev { transform: rotate(180deg); }
+.sf-keys-body { padding: 0 14px 12px; display: flex; flex-direction: column; gap: 4px; }
+.sf-keys-body[hidden] { display: none; }
+.sf-key { display: flex; gap: 8px; font-size: 10px; font-family: var(--mono); line-height: 1.5; }
+.sf-key-name { width: 84px; flex: none; color: var(--ink-2); font-weight: 600; }
+.sf-key-what { color: var(--ink-3); }
+
+/* What the plan comes to, at the foot of the column the way the run's own
+   results sit at the foot of a panel. */
+.sf-readout {
+  margin-top: auto; padding: 12px 14px; border-top: 1px solid var(--line);
+  font-size: 12px; font-family: var(--mono); color: var(--ink-2);
+}

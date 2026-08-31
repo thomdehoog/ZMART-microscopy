@@ -1,0 +1,30 @@
+# Node dependencies and the built page are generated, not source. No trailing
+# slash on the packages: a measurement often links them across from another
+# checkout rather than installing a second copy, and a trailing slash matches
+# only a real directory, so a linked one would show up as something to commit.
+frontend/node_modules
+frontend/dist/
+
+# The demo volume is generated on first run.
+backend/demo_store/
+
+# The store run_live_run_demo.py declares and fills; rebuilt on every run.
+backend/live_run_demo/
+
+# Python and test scratch.
+**/__pycache__/
+backend/_check/
+
+# What measure_cold_open.py writes out for comparing two runs.
+cold_open_*.json
+
+# The options harness borrows the viewer's packages through a link made at build
+# time, and builds into its own dist. Both are generated.
+options/node_modules
+options/harness/dist/
+
+# The acquisitions the measurements are taken against. `options/measure/run.py`
+# writes them fresh each time it runs, and they are large, so they are not worth
+# keeping in the history -- the readings taken from them are, and those live in
+# options/measurements/.
+options/measurements/acquisitions/

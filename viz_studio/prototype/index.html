@@ -1,0 +1,1070 @@
+<title>ZMART viewer — interactive prototype</title>
+<style>
+  :root{
+    --bg:#0b0d10; --panel:#12161c; --panel2:#161b22; --line:#232a33; --line2:#2c333d;
+    --ink:#c9d1d9; --ink-dim:#8b95a3; --ink-faint:#6b7684; --accent:#2f6feb; --accent-soft:#1b3a6b;
+    color-scheme:dark;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    background:radial-gradient(1400px 900px at 50% -15%,#14181f 0%,#0a0c0f 60%,#070809 100%);
+    color:var(--ink);font:13px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif;
+    display:flex;align-items:center;justify-content:center;padding:22px;min-height:100vh;
+  }
+  .frame{
+    width:min(1160px,100%);height:min(760px,calc(100vh - 44px));display:flex;flex-direction:column;
+    border:1px solid #20262e;border-radius:12px;overflow:hidden;box-shadow:0 30px 80px rgba(0,0,0,.6);background:var(--bg);
+  }
+
+  /* window chrome */
+  .titlebar{height:38px;flex:0 0 auto;display:flex;align-items:center;gap:8px;padding:0 12px;
+    background:linear-gradient(#171b21,#12151a);border-bottom:1px solid #20262e;user-select:none}
+  .dot{width:11px;height:11px;border-radius:50%}
+  .dot.r{background:#ff5f57}.dot.y{background:#febc2e}.dot.g{background:#28c840}
+  .titlebar .title{margin-left:6px;font:600 12px/1 system-ui;color:var(--ink-dim)}
+  .titlebar .badge{margin-left:auto;font:600 10px/1 system-ui;text-transform:uppercase;letter-spacing:.09em;
+    color:var(--ink-faint);border:1px solid #262d36;border-radius:999px;padding:4px 9px}
+  .shell{flex:1;display:flex;min-height:0}
+
+  /* sidebar */
+  .side{width:252px;flex:0 0 auto;background:var(--panel);border-right:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
+  .side .scroll{overflow-y:auto;overflow-x:hidden;flex:1;min-height:0}
+  .sec-head{padding:12px 14px 8px;font:600 11px/1 system-ui;letter-spacing:.08em;text-transform:uppercase;
+    color:var(--ink-faint);display:flex;align-items:center;gap:8px}
+  .sec-head .hint{margin-left:auto;font-weight:600;letter-spacing:0;text-transform:none;color:var(--ink-dim)}
+  .divider{height:1px;background:var(--line);margin:2px 0}
+
+  /* layer-control widgets */
+  .ctrls{padding:2px 14px 12px;display:flex;flex-direction:column;gap:11px}
+  .ctrl{display:grid;grid-template-columns:60px 1fr 36px;align-items:center;gap:9px}
+  .ctrl label{color:var(--ink-dim);font-size:12px}
+  .ctrl .val{font:500 11px/1 ui-monospace,Menlo,monospace;color:var(--ink-faint);text-align:right}
+  input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:3px;border-radius:2px;background:#2a323c;outline:none;cursor:pointer}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:13px;height:13px;border-radius:50%;background:#e8edf2;border:2px solid #0b0d10;box-shadow:0 0 0 1px #3a4551;cursor:pointer}
+  input[type=range]::-moz-range-thumb{width:13px;height:13px;border-radius:50%;background:#e8edf2;border:2px solid #0b0d10;cursor:pointer}
+  input[type=range]:focus-visible{box-shadow:0 0 0 2px var(--accent)}
+  .hist{width:100%;height:40px;display:block;background:#0d1116;border:1px solid var(--line);border-radius:5px;grid-column:1/-1}
+  .contrast-rows{grid-column:1/-1;display:flex;flex-direction:column;gap:7px}
+  .crow{display:grid;grid-template-columns:34px 1fr 34px;align-items:center;gap:9px}
+  .crow span:first-child{color:var(--ink-dim);font-size:11px}
+  .crow .val{font:500 11px/1 ui-monospace,Menlo,monospace;color:var(--ink-faint);text-align:right}
+  .swatches{grid-column:1/-1;display:flex;gap:7px;align-items:center;flex-wrap:wrap}
+  .swatch-label{color:var(--ink-dim);font-size:12px;margin-right:2px}
+  .swatch{width:17px;height:17px;border-radius:4px;border:1px solid #39424e;cursor:pointer;padding:0;transition:transform .08s}
+  .swatch:hover{transform:scale(1.12)}
+  .swatch.on{box-shadow:0 0 0 2px var(--accent);border-color:var(--accent)}
+  .note{grid-column:1/-1;color:var(--ink-faint);font-size:12px;line-height:1.5}
+  .btn{border:1px solid var(--line2);background:#161a20;color:var(--ink-dim);border-radius:6px;padding:6px 10px;font:600 11px/1 system-ui;cursor:pointer;transition:.1s}
+  .btn:hover{background:#1b212a;color:var(--ink)}
+  .btn.tiny{padding:5px 8px}
+  .auto-row{grid-column:1/-1;display:flex;justify-content:flex-end}
+
+  /* layer list */
+  .layers{padding:2px 8px 8px;display:flex;flex-direction:column;gap:2px}
+  .lrow{display:flex;align-items:center;gap:9px;padding:7px 8px;border-radius:6px;cursor:pointer;border:1px solid transparent}
+  .lrow:hover{background:#171c23}
+  .lrow.sel{background:#1b212a;border-color:#26303b}
+  .lrow.anno{margin-top:3px;border-top:1px dashed #232a33;border-radius:6px}
+  .lrow .eye{background:none;border:none;color:var(--ink);cursor:pointer;font-size:14px;width:16px;padding:0;line-height:1}
+  .lrow .eye.off{opacity:.32}
+  .lrow .sw{width:13px;height:13px;border-radius:3px;border:1px solid #39424e;flex:0 0 auto}
+  .lrow .sw.pt{border-radius:50%}
+  .lrow .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .lrow .tag{font:500 10px/1 ui-monospace,Menlo,monospace;color:var(--ink-faint)}
+
+  /* tools */
+  .tools{display:flex;gap:6px;padding:0 14px 4px}
+  .tool{flex:1;border:1px solid var(--line2);background:#161a20;color:var(--ink-dim);border-radius:7px;padding:8px 4px;
+    font:600 11px/1.2 system-ui;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:5px;transition:.1s}
+  .tool svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.6}
+  .tool:hover{background:#1b212a;color:var(--ink)}
+  .tool.on{background:var(--accent-soft);border-color:var(--accent);color:#dbe7ff}
+
+  /* targets list */
+  .targets{padding:2px 14px 10px;display:flex;flex-direction:column;gap:6px}
+  .empty{color:var(--ink-faint);font-size:12px;line-height:1.5;padding:2px 0 4px}
+  .trow{display:flex;align-items:center;gap:9px;padding:7px 9px;background:var(--panel2);border:1px solid var(--line);border-radius:7px}
+  .trow .mk{width:10px;height:10px;border-radius:2px;flex:0 0 auto}
+  .trow .mk.pt{border-radius:50%}
+  .trow .tl{flex:1;overflow:hidden}
+  .trow .tl b{font:600 12px/1.2 system-ui;color:var(--ink);display:block}
+  .trow .tl small{color:var(--ink-faint);font:500 10px/1.3 ui-monospace,Menlo,monospace}
+  .trow .go{border:none;background:none;color:var(--accent);cursor:pointer;font:600 11px/1 system-ui;padding:4px}
+  .trow .go:hover{text-decoration:underline}
+  .trow .rm{border:none;background:none;color:#5b6470;cursor:pointer;font-size:14px;padding:2px 4px;line-height:1}
+  .trow .rm:hover{color:#ff6b6b}
+  .send-all{margin:2px 14px 14px;display:block;width:calc(100% - 28px);text-align:center;background:var(--accent);
+    border:none;color:#fff;border-radius:7px;padding:9px;font:600 12px/1 system-ui;cursor:pointer}
+  .send-all:hover{background:#3f7bf5}
+  .send-all:disabled{background:#1c2530;color:#4a5563;cursor:default}
+
+  /* stage */
+  .stage{flex:1;position:relative;background:#000;overflow:hidden;min-width:0}
+  canvas#view{position:absolute;inset:0;width:100%;height:100%;display:block}
+  .stage.cross{cursor:crosshair}
+  .toggle{position:absolute;top:14px;left:14px;z-index:10;display:flex;border-radius:7px;overflow:hidden;border:1px solid var(--line2);box-shadow:0 1px 5px rgba(0,0,0,.55)}
+  .toggle button{padding:7px 16px;border:none;background:#161a20cc;backdrop-filter:blur(3px);color:var(--ink-dim);font:600 12px/1 system-ui;cursor:pointer}
+  .toggle button.on{background:var(--accent);color:#fff}
+  .hud{position:absolute;top:14px;right:14px;z-index:8;text-align:right;font:500 11px/1.55 ui-monospace,Menlo,monospace;color:#8994a2;text-shadow:0 1px 3px #000;pointer-events:none}
+  .hud b{color:#c3ccd8}
+  .scalebar{position:absolute;left:18px;bottom:84px;z-index:6;display:flex;flex-direction:column;align-items:center;gap:4px;pointer-events:none}
+  .scalebar .ln{height:3px;background:#e8edf2;border-radius:1px}
+  .scalebar .lb{font:600 11px/1 ui-monospace,Menlo,monospace;color:#e8edf2;text-shadow:0 1px 2px #000}
+  .zdock{position:absolute;left:0;right:0;bottom:0;z-index:9;display:flex;flex-direction:column;gap:3px;padding:7px 18px;
+    background:linear-gradient(#0d1116cc,#0d1116);border-top:1px solid var(--line);backdrop-filter:blur(3px)}
+  .zrow{display:flex;align-items:center;gap:12px;height:26px}
+  .zrow.hide{display:none}
+  .zrow .axis{font:700 11px/1 system-ui;letter-spacing:.05em;width:12px}
+  .zrow.z .axis{color:var(--accent)}
+  .zrow.t .axis{color:#f0a34a}
+  .zrow input[type=range]{flex:1}
+  .zrow .rd{font:500 11px/1 ui-monospace,Menlo,monospace;color:var(--ink-faint);min-width:82px;text-align:right}
+  .hint-pill{position:absolute;left:50%;top:14px;transform:translateX(-50%);z-index:8;background:#161a20e6;border:1px solid var(--line2);
+    border-radius:999px;padding:6px 13px;font:500 11px/1 system-ui;color:#c9d1d9;box-shadow:0 2px 8px rgba(0,0,0,.5);pointer-events:none;opacity:0;transition:opacity .2s}
+  .hint-pill.show{opacity:1}
+  .toasts{position:absolute;right:16px;bottom:84px;z-index:20;display:flex;flex-direction:column;gap:8px;align-items:flex-end}
+  .toast{background:#12161ce6;border:1px solid var(--line2);border-left:3px solid var(--accent);border-radius:8px;padding:9px 13px;
+    font:500 12px/1.35 system-ui;color:var(--ink);box-shadow:0 6px 20px rgba(0,0,0,.5);max-width:280px;animation:pop .25s ease}
+  .toast b{color:#dbe7ff}
+  @keyframes pop{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+
+  .foot{flex:0 0 auto;height:26px;display:flex;align-items:center;padding:0 14px;background:#0d1116;border-top:1px solid var(--line);font:500 10.5px/1 system-ui;color:#4e5763}
+  .foot b{color:#69737f;font-weight:600}
+
+  .btn:focus-visible,.tool:focus-visible,.swatch:focus-visible,.toggle button:focus-visible,.eye:focus-visible,.go:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+  @media (prefers-reduced-motion:reduce){.toast{animation:none}}
+  @media (max-width:720px){.side{width:214px}}
+</style>
+
+<div class="frame">
+  <div class="titlebar">
+    <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+    <span class="title">ZMART&nbsp;·&nbsp;viewer</span>
+    <span class="badge" id="badge">sample</span>
+  </div>
+
+  <div class="shell">
+    <aside class="side">
+      <div class="scroll">
+        <div class="sec-head">layer controls <span class="hint" id="selName"></span></div>
+        <div class="ctrls" id="ctrls"></div>
+        <div class="divider"></div>
+        <div class="sec-head">layers <span class="hint" id="chCount"></span></div>
+        <div class="layers" id="layers"></div>
+        <div class="divider"></div>
+        <div class="sec-head">tools</div>
+        <div class="tools" id="tools">
+          <button class="tool on" data-tool="nav" title="Pan / scroll / rotate">
+            <svg viewBox="0 0 20 20"><path d="M10 2v16M2 10h16"/><circle cx="10" cy="10" r="3"/></svg>navigate</button>
+          <button class="tool" data-tool="point" title="Mark a target cell">
+            <svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="3.2" fill="currentColor" stroke="none"/><circle cx="10" cy="10" r="7"/></svg>point</button>
+          <button class="tool" data-tool="box" title="Mark a region to re-image">
+            <svg viewBox="0 0 20 20"><rect x="3.5" y="3.5" width="13" height="13" rx="1.5"/></svg>box</button>
+        </div>
+        <div class="sec-head">targets <span class="hint" id="tCount"></span></div>
+        <div class="targets" id="targets"></div>
+      </div>
+      <button class="send-all" id="sendAll" disabled>Send targets to microscope</button>
+    </aside>
+
+    <main class="stage" id="stage">
+      <canvas id="view"></canvas>
+      <div class="toggle">
+        <button id="b2d" class="on" title="One plane; scroll to move through z">2D</button>
+        <button id="b3d" title="Rotatable volume">3D</button>
+      </div>
+      <div class="hud" id="hud"></div>
+      <div class="hint-pill" id="hintPill"></div>
+      <div class="scalebar" id="scalebar"><div class="ln" id="scaleLn"></div><div class="lb" id="scaleLb"></div></div>
+      <div class="zdock" id="zdock">
+        <div class="zrow z" id="rowZ"><span class="axis">Z</span><input type="range" id="zslider"><span class="rd" id="zread"></span></div>
+        <div class="zrow t" id="rowT"><span class="axis">T</span><input type="range" id="tslider"><span class="rd" id="tread"></span></div>
+      </div>
+      <div class="toasts" id="toasts"></div>
+    </main>
+  </div>
+
+  <div class="foot">
+    <span>Interactive prototype of the ZMART viewer design. Channels, timepoints, colours and scale are read from the sample dataset — production renders real OME-Zarr through the <b>neuroglancer</b> engine, out-of-core.</span>
+  </div>
+</div>
+
+<script>
+"use strict";
+/* ============================================================================
+   ZMART viewer — interactive prototype
+   ----------------------------------------------------------------------------
+   A single self-contained page that demonstrates the viewer's INTERFACE. It
+   generates a synthetic multi-channel, multi-timepoint lightsheet volume and
+   draws it with a small built-in renderer. The production viewer keeps this
+   exact interface and swaps the renderer for the neuroglancer engine reading
+   real OME-Zarr, out-of-core.
+
+   Design rule honoured throughout: nothing is fixed to a channel count, a
+   volume size, or a number of timepoints. The DATASET object below stands in
+   for the metadata that would be read from an OME-Zarr store, and every part
+   of the interface is derived from it. Change DATASET and the UI follows.
+
+   The file reads top-to-bottom in one logical flow:
+     1. utilities            small pure helpers
+     2. dataset + geometry   the sample descriptor and the constants it implies
+     3. sample data          synthetic volume/cloud/histograms  (PROTOTYPE ONLY)
+     4. state                what the viewer is currently showing
+     5. rendering            2-D plane, 3-D volume, annotation overlay, HUD
+     6. control panel        per-layer widgets
+     7. layer + target lists the napari-style lists
+     8. interaction          tools, mouse, sliders, mode toggle
+     9. microscope + chrome  the target handoff, toasts, hints
+    10. animation + boot     the render loop and start-up
+   ========================================================================== */
+
+/* ---------------------------------------------------------------------------
+   1. UTILITIES
+   ------------------------------------------------------------------------- */
+
+// A tiny seeded random generator, so the synthetic sample looks identical on
+// every load instead of reshuffling. Returns a function giving values in [0,1).
+function makeRandom(seed){
+  return function(){
+    seed |= 0; seed = (seed + 0x6D2B79F5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
+const rgbToCss = (rgb) => `rgb(${rgb.map(v => Math.round(v * 255)).join(",")})`;
+
+/* ---------------------------------------------------------------------------
+   2. DATASET + GEOMETRY
+   The sample descriptor stands in for OME-Zarr metadata. The default is a
+   two-channel timelapse, but you can ask for a different sample from the URL,
+   without editing this file — see resolveDataset() below.
+   ------------------------------------------------------------------------- */
+
+// The default sample: a two-channel, multi-timepoint lightsheet volume.
+const DEFAULT_DATASET = {
+  nx: 200, ny: 200, nz: 60, nt: 8, voxelUm: 1.1,
+  channels: [
+    { name: "Ch488", tag: "GFP",     color: [0.10, 1.00, 0.42], gen: { count: 380, rMin: 1.6, rMax: 3.4, shell: 0.90 } },
+    { name: "Ch647", tag: "far-red", color: [1.00, 0.22, 1.00], gen: { count: 135, rMin: 2.6, rMax: 5.6, shell: 0.16 } },
+  ],
+};
+
+// Sensible display colours by excitation wavelength, so a channel named for its
+// laser line comes up in the colour a microscopist expects.
+const WAVELENGTH_COLORS = {
+  405: [0.36, 0.50, 1.00], 488: [0.10, 1.00, 0.42], 561: [1.00, 0.78, 0.16],
+  594: [1.00, 0.55, 0.20], 647: [1.00, 0.22, 1.00], 730: [1.00, 0.32, 0.30],
+};
+const FALLBACK_COLORS = [[0.10,1,0.42],[1,0.22,1],[0.25,0.82,1],[1,0.78,0.16],[0.36,0.5,1],[1,0.32,0.30],[0.85,0.88,0.92]];
+
+// Build a channel descriptor. Later channels get a distinct look (fewer, larger,
+// more interior cells) so a multi-channel sample does not render as one blob.
+function makeChannel(name, color, i){
+  return { name, tag: "ch" + i, color,
+    gen: { count: Math.max(40, 380 - 80*i), rMin: 1.6 + 0.3*i, rMax: 3.4 + 0.5*i, shell: Math.max(0.12, 0.9 - 0.2*i) } };
+}
+
+// Resolve the dataset to open. With no URL parameters this is the default
+// sample. Parameters let you show a different synthetic sample for a demo
+// without touching the code:
+//   ?channels=488,561,647   one channel per laser line (coloured by wavelength)
+//   ?channels=4             four channels from the fallback palette
+//   ?nt=12  ?nz=100  ?nx=256&ny=256  ?vox=0.9
+//   ?dataset=<url-encoded JSON>   a full descriptor, for complete control
+// Anything out of sensible bounds is clamped, so a bad URL can never wedge the
+// viewer or ask for a volume too large to build.
+function resolveDataset(){
+  const p = new URLSearchParams(location.search);
+  if (p.has("dataset")){
+    try {
+      const d = JSON.parse(p.get("dataset"));
+      if (Array.isArray(d.channels) && d.channels.length) return sanitizeDataset(d);
+    } catch (e){ console.warn("Ignoring malformed ?dataset= JSON:", e); }
+  }
+  const d = structuredClone(DEFAULT_DATASET);
+  for (const key of ["nx", "ny", "nz", "nt"]) if (p.has(key)) d[key] = parseInt(p.get(key));
+  if (p.has("vox")) d.voxelUm = parseFloat(p.get("vox"));
+  if (p.has("channels")){
+    const spec = p.get("channels");
+    if (/^\d+$/.test(spec)){
+      const n = parseInt(spec);
+      d.channels = Array.from({ length: n }, (_, i) => makeChannel("Ch" + (i + 1), FALLBACK_COLORS[i % FALLBACK_COLORS.length], i));
+    } else {
+      d.channels = spec.split(",").map((s, i) => {
+        const wl = s.trim();
+        return makeChannel("Ch" + wl, WAVELENGTH_COLORS[wl] || FALLBACK_COLORS[i % FALLBACK_COLORS.length], i);
+      });
+    }
+  }
+  return sanitizeDataset(d);
+}
+
+// Clamp a descriptor to buildable bounds and drop anything malformed.
+function sanitizeDataset(d){
+  const int = (v, lo, hi, dflt) => Number.isFinite(+v) ? clamp(Math.round(+v), lo, hi) : dflt;
+  d.nx = int(d.nx, 1, 1024, 200); d.ny = int(d.ny, 1, 1024, 200);
+  d.nz = int(d.nz, 1, 512, 60);   d.nt = int(d.nt, 1, 64, 1);
+  d.voxelUm = Number.isFinite(+d.voxelUm) && +d.voxelUm > 0 ? +d.voxelUm : 1.1;
+  d.channels = (d.channels || []).slice(0, 16).map((c, i) => ({
+    name: c.name || ("Ch" + (i + 1)), tag: c.tag || ("ch" + i),
+    color: Array.isArray(c.color) && c.color.length === 3 ? c.color : FALLBACK_COLORS[i % FALLBACK_COLORS.length],
+    gen: c.gen || makeChannel("", [0,0,0], i).gen,
+  }));
+  if (!d.channels.length) d.channels = DEFAULT_DATASET.channels.map(c => ({ ...c }));
+  // Keep the whole synthetic store within a safe memory budget (it is held as
+  // one byte per voxel across every timepoint and channel). Drop timepoints
+  // first, then shrink the in-plane resolution, so even an extreme URL yields a
+  // small but valid sample instead of running the machine out of memory.
+  const BUDGET = 120e6;
+  const total = () => d.nx * d.ny * d.nz * d.nt * d.channels.length;
+  while (total() > BUDGET && d.nt > 1) d.nt--;
+  if (total() > BUDGET){
+    const scale = Math.sqrt(BUDGET / total());
+    d.nx = Math.max(16, Math.floor(d.nx * scale));
+    d.ny = Math.max(16, Math.floor(d.ny * scale));
+  }
+  return d;
+}
+
+const DATASET = resolveDataset();
+
+// Constants implied by the dataset. Everything downstream reads these, never
+// literal numbers, so a different dataset needs no other edits.
+const NX = DATASET.nx, NY = DATASET.ny, NZ = DATASET.nz, NT = DATASET.nt;
+const VOX = DATASET.voxelUm, NC = DATASET.channels.length;
+const PLANE = NX * NY;                      // voxels in one z-plane
+const voxelIndex = (x, y, z) => (z * NY + y) * NX + x;
+const DEPTH_STRETCH = 2.0;                  // exaggerates z in 3-D so shape reads
+const CLOUD_CAP = 1400;                     // brightest voxels kept per channel for 3-D
+const TWO_PI = Math.PI * 2;                 // a full turn, in radians
+const SCALEBAR_UM = 50;                     // physical length the on-screen scale bar represents
+
+// Colours offered when recolouring an image layer, and when recolouring targets.
+const PALETTE = [
+  { name: "green",  rgb: [0.10, 1.00, 0.42] }, { name: "magenta", rgb: [1.00, 0.22, 1.00] },
+  { name: "cyan",   rgb: [0.25, 0.82, 1.00] }, { name: "amber",   rgb: [1.00, 0.78, 0.16] },
+  { name: "blue",   rgb: [0.36, 0.50, 1.00] }, { name: "red",     rgb: [1.00, 0.32, 0.30] },
+  { name: "grey",   rgb: [0.85, 0.88, 0.92] },
+];
+const TARGET_COLORS = [["#ffd34d","amber"],["#ffffff","white"],["#57e0ff","cyan"],["#ff6b6b","red"],["#8affc1","green"]];
+
+/* ---------------------------------------------------------------------------
+   3. SAMPLE DATA  (PROTOTYPE ONLY)
+   Build a synthetic embryo-like volume that evolves over time, plus the derived
+   structures the two renderers need. In production the engine streams real
+   chunks instead, so none of this section survives — but the interface above
+   and below it does, unchanged.
+   ------------------------------------------------------------------------- */
+
+// vol[t][c]      full intensity volume per timepoint and channel (2-D renderer)
+// cloud[t][c]    the brightest voxels only, as flat typed arrays (3-D renderer)
+// histogram[c]   intensity distribution per channel (contrast panel)
+const vol = Array.from({ length: NT }, () => Array.from({ length: NC }, () => new Uint8Array(NX * NY * NZ)));
+const cloud = Array.from({ length: NT }, () => new Array(NC));
+const histogram = new Array(NC);
+
+// Add one soft, round blob of signal into a volume (a cell body). The intensity
+// falls off as a Gaussian from the centre, and we skip voxels too faint to see.
+function addBlob(volume, cx, cy, cz, radius, peak){
+  const reach = Math.ceil(radius * 2.2), falloff = 1 / (2 * radius * radius);
+  for (let dz = -reach; dz <= reach; dz++){
+    const zz = cz + dz; if (zz < 0 || zz >= NZ) continue;
+    for (let dy = -reach; dy <= reach; dy++){
+      const yy = cy + dy; if (yy < 0 || yy >= NY) continue;
+      for (let dx = -reach; dx <= reach; dx++){
+        const xx = cx + dx; if (xx < 0 || xx >= NX) continue;
+        const g = peak * Math.exp(-(dx*dx + dy*dy + dz*dz) * falloff);
+        if (g < 3) continue;
+        const p = voxelIndex(xx, yy, zz), sum = volume[p] + g;
+        volume[p] = sum > 255 ? 255 : sum;
+      }
+    }
+  }
+}
+
+// Seed a channel's worth of cells, each with a small drift velocity so the
+// sample genuinely changes across timepoints (something for the T slider to do).
+function seedCells(channelIndex){
+  const g = DATASET.channels[channelIndex].gen;
+  const rand = makeRandom(20260723 + channelIndex * 7919);
+  const cx = NX/2, cy = NY/2, cz = NZ/2, ax = NX*0.36, ay = NY*0.28, az = NZ*0.37;
+  const cells = [];
+  for (let i = 0; i < g.count; i++){
+    const u = rand()*2 - 1, theta = rand()*TWO_PI, ring = Math.sqrt(1 - u*u);
+    // A fraction `shell` of cells sit near the surface, the rest fill the interior.
+    const rf = rand() < g.shell ? 0.62 + rand()*0.42 : Math.pow(rand(), 0.6) * 0.92;
+    cells.push({
+      x: cx + ax*rf*ring*Math.cos(theta) + (rand()-0.5)*7,
+      y: cy + ay*rf*ring*Math.sin(theta) + (rand()-0.5)*7,
+      z: cz + az*rf*u + (rand()-0.5)*4,
+      radius: g.rMin + rand()*(g.rMax - g.rMin), peak: 110 + rand()*140,
+      vx: (rand()-0.5)*1.1, vy: (rand()-0.5)*1.1, vz: (rand()-0.5)*0.5, phase: rand()*TWO_PI,
+    });
+  }
+  return cells;
+}
+
+// Paint every (timepoint, channel) volume from its drifting, pulsing cells.
+function buildVolumes(){
+  for (let c = 0; c < NC; c++){
+    const cells = seedCells(c);
+    for (let t = 0; t < NT; t++){
+      const volume = vol[t][c];
+      for (const cell of cells){
+        const x = (cell.x + cell.vx*t) | 0, y = (cell.y + cell.vy*t) | 0, z = (cell.z + cell.vz*t) | 0;
+        const peak = cell.peak * (0.82 + 0.18*Math.sin(cell.phase + t*0.6));
+        addBlob(volume, x, y, z, cell.radius, peak);
+      }
+    }
+  }
+}
+
+// Extract the brightest voxels of each volume into flat typed arrays, with
+// coordinates pre-centred for 3-D so the render loop only rotates and projects.
+// Storing points as parallel typed arrays (not objects) keeps the hot path free
+// of per-frame allocation.
+function buildClouds(){
+  for (let t = 0; t < NT; t++){
+    for (let c = 0; c < NC; c++){
+      const volume = vol[t][c];
+      // First pass: collect indices of bright voxels so we can keep the top N.
+      const bright = [];
+      for (let p = 0; p < volume.length; p++) if (volume[p] >= 44) bright.push(p);
+      bright.sort((a, b) => volume[b] - volume[a]);
+      const n = Math.min(bright.length, CLOUD_CAP);
+      const X = new Float32Array(n), Y = new Float32Array(n), Z = new Float32Array(n), V = new Uint8Array(n);
+      for (let i = 0; i < n; i++){
+        const p = bright[i], z = (p / PLANE) | 0, r = p - z*PLANE, y = (r / NX) | 0, x = r - y*NX;
+        X[i] = x - NX/2; Y[i] = y - NY/2; Z[i] = (z - NZ/2) * DEPTH_STRETCH; V[i] = volume[p];
+      }
+      cloud[t][c] = { n, X, Y, Z, V };
+    }
+  }
+}
+
+// A coarse 64-bin intensity histogram per channel, used to draw the contrast
+// panel and to pick sensible auto-contrast limits. Computed from the first
+// timepoint only: it is enough to set contrast, and keeping it fixed means
+// scrolling the time slider does not recompute a histogram each step.
+function buildHistograms(){
+  for (let c = 0; c < NC; c++){
+    const bins = new Float32Array(64), volume = vol[0][c];
+    for (let p = 0; p < volume.length; p++){ const v = volume[p]; if (v > 4) bins[v >> 2]++; }
+    let peak = 0; for (let i = 0; i < 64; i++) peak = Math.max(peak, bins[i]);
+    // Gamma-compress for display so faint-but-real bins stay visible next to tall ones.
+    for (let i = 0; i < 64; i++) bins[i] = peak ? Math.pow(bins[i] / peak, 0.42) : 0;
+    histogram[c] = bins;
+  }
+}
+
+// Choose black/white points from the cumulative histogram: clip the darkest 2%
+// and brightest ~1.5%, which is what makes a narrow-band 16-bit image visible.
+function autoContrast(layer){
+  const bins = histogram[layer.ch];
+  let total = 0; for (let i = 0; i < 64; i++) total += bins[i];
+  let cum = 0, low = 8, high = 200, foundLow = false;
+  for (let i = 0; i < 64; i++){
+    cum += bins[i]; const frac = cum / total;
+    if (!foundLow && frac > 0.02){ low = i * 4; foundLow = true; }
+    if (frac > 0.985){ high = i * 4; break; }
+  }
+  layer.low = Math.max(4, low);
+  layer.high = Math.max(layer.low + 12, high);
+}
+
+/* ---------------------------------------------------------------------------
+   4. STATE
+   The single source of truth for what the viewer is showing. The renderers read
+   it; the controls write it and ask for a redraw.
+   ------------------------------------------------------------------------- */
+
+// One image layer per channel, derived from the dataset.
+const layers = DATASET.channels.map((c, i) => ({
+  name: c.name, tag: c.tag, ch: i, color: c.color.slice(),
+  visible: true, opacity: 1, low: 20, high: 180,
+}));
+
+// Annotations live in their own layer, separate from the image (as in napari):
+// hide it, or recolour every target, without touching the channels.
+const targetLayer = { name: "Targets", visible: true, color: "#ffd34d" };
+const targets = [];      // { type:"point"|"box", x, y, z, t, x2?, y2?, label }
+let targetCount = 0;
+
+const view = {
+  selected: 0,           // selected layer: an index into `layers`, or "targets"
+  mode: "2d",            // "2d" (plane) | "3d" (volume)
+  z: Math.floor(NZ / 2), // current plane in the 2-D view
+  t: 0,                  // current timepoint
+  tool: "nav",           // "nav" | "point" | "box"
+  yaw: 0.6, pitch: -0.35, zoom: 1,   // 3-D camera
+};
+let drag = null;         // in-progress mouse gesture, or null
+
+/* ---------------------------------------------------------------------------
+   5. RENDERING
+   drawScene() paints the canvas (cheap, may run every animation frame).
+   refresh() also updates the text HUD (only for discrete changes, so the HUD is
+   never rewritten 60 times a second — a real source of jank if it were).
+   ------------------------------------------------------------------------- */
+
+const stage = document.getElementById("stage");
+const canvas = document.getElementById("view");
+const ctx = canvas.getContext("2d");
+
+// An offscreen canvas the size of one plane; the 2-D view is composited here at
+// native resolution, then scaled up once, which the GPU does smoothly.
+const plane = document.createElement("canvas"); plane.width = NX; plane.height = NY;
+const planeCtx = plane.getContext("2d");
+const planePixels = planeCtx.createImageData(NX, NY);
+
+// Per-channel glow sprites for the 3-D view, tinted to match the layer colour.
+const sprites = new Array(NC);
+function rebuildSprites(){ for (let i = 0; i < NC; i++) sprites[i] = makeGlowSprite(layers[i].color); }
+function makeGlowSprite(rgb){
+  const s = document.createElement("canvas"); s.width = s.height = 32;
+  const c = s.getContext("2d"), col = `${rgb[0]*255|0},${rgb[1]*255|0},${rgb[2]*255|0}`;
+  const grad = c.createRadialGradient(16, 16, 0, 16, 16, 16);
+  grad.addColorStop(0, `rgba(${col},1)`); grad.addColorStop(0.35, `rgba(${col},0.55)`); grad.addColorStop(1, `rgba(${col},0)`);
+  c.fillStyle = grad; c.fillRect(0, 0, 32, 32);
+  return s;
+}
+
+// Scratch buffers for the 3-D pass, sized once to the largest possible point
+// count, then reused every frame so rotation allocates nothing.
+const MAX_POINTS = CLOUD_CAP * NC;
+const scr = { sx: new Float32Array(MAX_POINTS), sy: new Float32Array(MAX_POINTS),
+              alpha: new Float32Array(MAX_POINTS), chan: new Uint8Array(MAX_POINTS) };
+
+// Canvas size and the transform mapping volume pixels to screen pixels.
+let viewW = 0, viewH = 0, dpr = 1;
+const fit = { scale: 1, ox: 0, oy: 0 };                 // 2-D fit: volume pixel -> screen pixel
+const cam = { cos: 1, sin: 0, cosP: 1, sinP: 0, scale: 1, cx: 0, cy: 0 };  // 3-D camera
+
+// Position the scale bar for the current fit and zoom. Kept in one place, using
+// the SCALEBAR_UM constant, so the bar's length and its label can never drift.
+function updateScaleBar(){
+  const s = view.mode === "2d" ? fit.scale : fit.scale * view.zoom;
+  document.getElementById("scaleLn").style.width = Math.round((SCALEBAR_UM / VOX) * s) + "px";
+}
+
+function onResize(){
+  dpr = Math.min(window.devicePixelRatio || 1, 2);
+  viewW = stage.clientWidth; viewH = stage.clientHeight;
+  canvas.width = viewW * dpr; canvas.height = viewH * dpr;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const s = Math.min(viewW / NX, viewH / NY) * 0.92;
+  fit.scale = s; fit.ox = (viewW - NX*s) / 2; fit.oy = (viewH - NY*s) / 2;
+  updateScaleBar();
+  refresh();
+}
+
+// Zoom the 3-D view without resizing the canvas: change the zoom, move the scale
+// bar, and redraw. Reallocating the drawing buffer on every wheel notch (which a
+// full resize would do) is needless work and can stutter a fast scroll.
+function applyZoom(factor){
+  view.zoom = clamp(view.zoom * factor, 0.5, 3);
+  updateScaleBar();
+  refresh();
+}
+
+const planeToScreen = (x, y) => [fit.ox + x*fit.scale, fit.oy + y*fit.scale];
+const screenToPlane = (x, y) => [(x - fit.ox) / fit.scale, (y - fit.oy) / fit.scale];
+
+function updateCamera(){
+  cam.cos = Math.cos(view.yaw); cam.sin = Math.sin(view.yaw);
+  cam.cosP = Math.cos(view.pitch); cam.sinP = Math.sin(view.pitch);
+  cam.scale = Math.min(viewW / NX, viewH / NY) * 0.92 * view.zoom;
+  cam.cx = viewW / 2; cam.cy = viewH / 2;
+}
+
+// --- 2-D: composite the current plane, additively over black --------------
+function draw2D(){
+  // Gather the visible layers' contrast constants once, outside the pixel loop.
+  const active = [];
+  for (const L of layers) if (L.visible) active.push({ vol: vol[view.t][L.ch], low: L.low,
+    inv: 1 / (L.high - L.low), r: L.color[0]*L.opacity, g: L.color[1]*L.opacity, b: L.color[2]*L.opacity });
+
+  const px = planePixels.data, base = view.z * PLANE;
+  for (let p = 0; p < PLANE; p++){
+    let r = 0, g = 0, b = 0;
+    for (let a = 0; a < active.length; a++){
+      const L = active[a], v = L.vol[base + p];
+      if (v <= L.low) continue;
+      let n = (v - L.low) * L.inv; if (n > 1) n = 1;
+      r += L.r * n; g += L.g * n; b += L.b * n;
+    }
+    const q = p * 4;
+    px[q] = r > 1 ? 255 : r*255; px[q+1] = g > 1 ? 255 : g*255; px[q+2] = b > 1 ? 255 : b*255; px[q+3] = 255;
+  }
+  planeCtx.putImageData(planePixels, 0, 0);
+  ctx.fillStyle = "#000"; ctx.fillRect(0, 0, viewW, viewH);
+  ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(plane, fit.ox, fit.oy, NX*fit.scale, NY*fit.scale);
+}
+
+// --- 3-D: rotate the brightest voxels and draw them as additive glow -------
+// No depth sort is needed: additive blending ("lighter") sums the sprites, and
+// addition does not care about order, so the points can be drawn as they come.
+function draw3D(){
+  updateCamera();
+  ctx.fillStyle = "#000"; ctx.fillRect(0, 0, viewW, viewH);
+
+  // Rotate every visible point for this timepoint into the scratch buffers.
+  let count = 0;
+  for (const L of layers){
+    if (!L.visible || L.opacity <= 0.01) continue;
+    const c = cloud[view.t][L.ch], inv = 1 / (L.high - L.low), op = L.opacity;
+    for (let i = 0; i < c.n; i++){
+      const v = c.V[i]; if (v <= L.low) continue;
+      let n = (v - L.low) * inv; if (n > 1) n = 1;
+      const rx = c.X[i]*cam.cos + c.Z[i]*cam.sin;
+      const rz = -c.X[i]*cam.sin + c.Z[i]*cam.cos;
+      const ry = c.Y[i]*cam.cosP - rz*cam.sinP;
+      scr.sx[count] = cam.cx + rx*cam.scale;
+      scr.sy[count] = cam.cy + ry*cam.scale;
+      scr.alpha[count] = n * op; scr.chan[count] = L.ch; count++;
+    }
+  }
+
+  ctx.globalCompositeOperation = "lighter";
+  const size = Math.max(5, cam.scale * 3.0);
+  for (let i = 0; i < count; i++){
+    ctx.globalAlpha = scr.alpha[i];
+    ctx.drawImage(sprites[scr.chan[i]], scr.sx[i] - size/2, scr.sy[i] - size/2, size, size);
+  }
+  ctx.globalAlpha = 1; ctx.globalCompositeOperation = "source-over";
+}
+
+// --- annotation overlay (both modes) --------------------------------------
+function drawOverlay(){
+  // Placed markers: only when the Targets layer is visible and holds something.
+  // Checking first means an empty experiment allocates nothing here per frame.
+  if (targetLayer.visible && targets.length){
+    // Draw each marker on its own rather than batching them into one big filled
+    // path. Filling a single Path2D of many *overlapping* circles is fast only
+    // when they are spread out; in 3-D the volume projects to a compact cluster,
+    // where that fill's per-scanline cost grows with the number of overlapping
+    // edges and stalls. Per-marker drawing rasterises each independently and so
+    // stays cheap at any scale. Projection is inlined (as in draw3D) to keep the
+    // loop free of per-marker allocations and calls.
+    const twoD = view.mode === "2d";
+    const detailed = targets.length <= 40;   // few: circle + ring + label; many: fast square dots
+    ctx.fillStyle = targetLayer.color; ctx.strokeStyle = targetLayer.color; ctx.lineWidth = 1.6;
+    if (detailed) ctx.font = "600 11px system-ui";
+    else ctx.globalAlpha = twoD ? 0.9 : 0.85;   // one alpha for the whole cheap batch
+
+    for (const a of targets){
+      let sx, sy, far = false;
+      if (twoD){ sx = fit.ox + a.x*fit.scale; sy = fit.oy + a.y*fit.scale; far = Math.abs(a.z - view.z) > 2; }
+      else {
+        const cx = a.x - NX/2, cy = a.y - NY/2, cz = (a.z - NZ/2)*DEPTH_STRETCH, rz = -cx*cam.sin + cz*cam.cos;
+        sx = cam.cx + (cx*cam.cos + cz*cam.sin)*cam.scale;
+        sy = cam.cy + (cy*cam.cosP - rz*cam.sinP)*cam.scale;
+      }
+      if (a.type === "box"){
+        let ex, ey;
+        if (twoD){ ex = fit.ox + a.x2*fit.scale; ey = fit.oy + a.y2*fit.scale; }
+        else {
+          const cx = a.x2 - NX/2, cy = a.y2 - NY/2, cz = (a.z - NZ/2)*DEPTH_STRETCH, rz = -cx*cam.sin + cz*cam.cos;
+          ex = cam.cx + (cx*cam.cos + cz*cam.sin)*cam.scale;
+          ey = cam.cy + (cy*cam.cosP - rz*cam.sinP)*cam.scale;
+        }
+        if (detailed) ctx.globalAlpha = far ? 0.3 : (twoD ? 1 : 0.95);
+        ctx.strokeRect(Math.min(sx, ex), Math.min(sy, ey), Math.abs(ex - sx), Math.abs(ey - sy));
+      } else if (detailed){
+        ctx.globalAlpha = far ? 0.3 : (twoD ? 1 : 0.95);
+        ctx.beginPath(); ctx.arc(sx, sy, 4, 0, TWO_PI); ctx.fill();     // dot
+        ctx.beginPath(); ctx.arc(sx, sy, 9, 0, TWO_PI); ctx.stroke();   // ring
+        ctx.fillText(a.label, sx + 11, sy - 7);
+      } else {
+        ctx.fillRect(sx - 2, sy - 2, 4, 4);   // compact dot; stays cheap into the tens of thousands
+      }
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  // The rubber-band box while a box is being dragged out — drawn even if the
+  // Targets layer is hidden, because it is a live preview of the tool, not a target.
+  if (drag && drag.mode === "box" && view.mode === "2d"){
+    const [x1, y1] = planeToScreen(drag.x, drag.y), [x2, y2] = planeToScreen(drag.cx, drag.cy);
+    ctx.setLineDash([5, 4]); ctx.strokeStyle = "#fff"; ctx.lineWidth = 1.4;
+    ctx.strokeRect(Math.min(x1, x2), Math.min(y1, y2), Math.abs(x2 - x1), Math.abs(y2 - y1));
+    ctx.setLineDash([]);
+  }
+}
+
+function drawScene(){
+  if (view.mode === "2d") draw2D(); else draw3D();
+  drawOverlay();
+}
+function refresh(){ drawScene(); updateHud(); }
+
+function updateHud(){
+  document.getElementById("hud").innerHTML = view.mode === "2d"
+    ? `voxel <b>${VOX} × ${VOX} µm</b><br>z <b>${view.z+1}</b>/${NZ} · t <b>${view.t+1}</b>/${NT}<br>${NC} channels · <b>L0</b> full res`
+    : `volume <b>${NX}·${NY}·${NZ}</b><br>t <b>${view.t+1}</b>/${NT} · out-of-core<br>zoom <b>${view.zoom.toFixed(2)}×</b>`;
+}
+
+/* ---------------------------------------------------------------------------
+   6. CONTROL PANEL
+   Small, flat DOM builders — one per widget — and a single buildControls() that
+   assembles the panel for whichever layer is selected.
+   ------------------------------------------------------------------------- */
+
+const controlsEl = document.getElementById("ctrls");
+
+function sliderRow(label, min, max, step, value, format, onInput){
+  const row = document.createElement("div"); row.className = "ctrl";
+  const name = document.createElement("label"); name.textContent = label;
+  const input = document.createElement("input"); input.type = "range";
+  input.min = min; input.max = max; input.step = step; input.value = value;
+  const read = document.createElement("span"); read.className = "val"; read.textContent = format(value);
+  input.oninput = () => { const v = parseFloat(input.value); read.textContent = format(v); onInput(v); };
+  row.append(name, input, read); return row;
+}
+function contrastRow(label, value, onInput){
+  const row = document.createElement("div"); row.className = "crow";
+  const name = document.createElement("span"); name.textContent = label;
+  const input = document.createElement("input"); input.type = "range";
+  input.min = 0; input.max = 255; input.step = 1; input.value = value;
+  const read = document.createElement("span"); read.className = "val"; read.textContent = Math.round(value);
+  // The callback clamps its input (black must stay below white) and returns the
+  // value it actually stored, so the thumb and the readout show what is rendered.
+  input.oninput = () => { const applied = onInput(parseInt(input.value)); input.value = applied; read.textContent = applied; };
+  row.append(name, input, read); return row;
+}
+function swatchRow(colours, isSelected, onPick){
+  const wrap = document.createElement("div"); wrap.className = "swatches";
+  const label = document.createElement("span"); label.className = "swatch-label"; label.textContent = "colour";
+  wrap.appendChild(label);
+  for (const c of colours){
+    const b = document.createElement("button"); b.className = "swatch" + (isSelected(c) ? " on" : "");
+    b.style.background = c.css; b.title = c.name; b.onclick = () => onPick(c);
+    wrap.appendChild(b);
+  }
+  return wrap;
+}
+
+function buildControls(){
+  controlsEl.replaceChildren();
+  if (view.selected === "targets"){ buildTargetControls(); return; }
+
+  const L = layers[view.selected];
+  document.getElementById("selName").textContent = L.name;
+
+  controlsEl.appendChild(sliderRow("opacity", 0, 1, 0.01, L.opacity, v => v.toFixed(2),
+    v => { L.opacity = v; drawScene(); }));
+
+  const hist = document.createElement("canvas"); hist.className = "hist"; hist.width = 212; hist.height = 40;
+  controlsEl.appendChild(hist); drawHistogram(hist, L);
+
+  const rows = document.createElement("div"); rows.className = "contrast-rows";
+  rows.appendChild(contrastRow("black", L.low,  v => { L.low  = Math.min(v, L.high - 4); drawHistogram(hist, L); drawScene(); return L.low; }));
+  rows.appendChild(contrastRow("white", L.high, v => { L.high = Math.max(v, L.low  + 4); drawHistogram(hist, L); drawScene(); return L.high; }));
+  const autoWrap = document.createElement("div"); autoWrap.className = "auto-row";
+  const auto = document.createElement("button"); auto.className = "btn tiny"; auto.textContent = "auto contrast";
+  auto.onclick = () => { autoContrast(L); buildControls(); drawScene(); showToast(`Auto-contrast · <b>${L.name}</b>`); };
+  autoWrap.appendChild(auto); rows.appendChild(autoWrap);
+  controlsEl.appendChild(rows);
+
+  const colours = PALETTE.map(p => ({ css: rgbToCss(p.rgb), name: p.name, rgb: p.rgb }));
+  controlsEl.appendChild(swatchRow(colours,
+    c => c.rgb.every((v, i) => Math.abs(v - L.color[i]) < 0.02),
+    c => { L.color = c.rgb.slice(); rebuildSprites(); buildControls(); buildLayerList(); drawScene(); }));
+}
+
+function buildTargetControls(){
+  document.getElementById("selName").textContent = targetLayer.name;
+  const note = document.createElement("div"); note.className = "note";
+  note.innerHTML = `<b style="color:#c9d1d9">${targets.length}</b> target${targets.length === 1 ? "" : "s"} in this layer. `
+    + `Points and regions you draw live here — hide the layer with its eye, or recolour every target below.`;
+  controlsEl.appendChild(note);
+  const colours = TARGET_COLORS.map(([css, name]) => ({ css, name }));
+  controlsEl.appendChild(swatchRow(colours,
+    c => targetLayer.color.toLowerCase() === c.css,
+    c => { targetLayer.color = c.css; buildControls(); buildLayerList(); buildTargetList(); drawScene(); }));
+}
+
+function drawHistogram(canvasEl, layer){
+  const c = canvasEl.getContext("2d"), w = canvasEl.width, h = canvasEl.height;
+  const bins = histogram[layer.ch], lowX = (layer.low / 255) * w, highX = (layer.high / 255) * w;
+  c.clearRect(0, 0, w, h);
+  c.fillStyle = "#0d1116"; c.fillRect(0, 0, w, h);
+  c.fillStyle = "rgba(47,111,235,0.14)"; c.fillRect(lowX, 0, highX - lowX, h);   // the kept window
+  c.fillStyle = "#41505f"; const bw = w / 64;
+  for (let i = 0; i < 64; i++){ const bh = bins[i] * (h - 4); c.fillRect(i*bw, h - bh, bw - 0.5, bh); }
+  c.strokeStyle = "#e8edf2"; c.lineWidth = 1;
+  c.beginPath(); c.moveTo(lowX, 0); c.lineTo(lowX, h); c.moveTo(highX, 0); c.lineTo(highX, h); c.stroke();
+}
+
+/* ---------------------------------------------------------------------------
+   7. LAYER LIST + TARGET LIST  (napari-style)
+   ------------------------------------------------------------------------- */
+
+const layerListEl = document.getElementById("layers");
+
+function eyeButton(isOn, onToggle){
+  const b = document.createElement("button"); b.className = "eye" + (isOn ? "" : " off");
+  b.textContent = isOn ? "◉" : "◎"; b.title = isOn ? "Hide" : "Show";
+  b.onclick = (e) => { e.stopPropagation(); onToggle(); };
+  return b;
+}
+function layerRow(opts){
+  const row = document.createElement("div"); row.className = "lrow" + (opts.selected ? " sel" : "") + (opts.anno ? " anno" : "");
+  row.onclick = opts.onSelect;
+  const swatch = document.createElement("span"); swatch.className = "sw" + (opts.round ? " pt" : ""); swatch.style.background = opts.swatch;
+  const name = document.createElement("span"); name.className = "nm"; name.textContent = opts.name;
+  const tag = document.createElement("span"); tag.className = "tag"; tag.textContent = opts.tag;
+  row.append(eyeButton(opts.visible, opts.onToggle), swatch, name, tag);
+  return row;
+}
+function buildLayerList(){
+  document.getElementById("chCount").textContent = NC + " ch";
+  const rows = layers.map((L, i) => layerRow({
+    selected: view.selected === i, visible: L.visible, swatch: rgbToCss(L.color), name: L.name, tag: L.tag,
+    onSelect: () => { view.selected = i; buildControls(); buildLayerList(); },
+    onToggle: () => { L.visible = !L.visible; buildLayerList(); drawScene(); },
+  }));
+  rows.push(layerRow({
+    anno: true, round: true, selected: view.selected === "targets", visible: targetLayer.visible,
+    swatch: targetLayer.color, name: targetLayer.name, tag: targets.length ? targets.length + " pts" : "empty",
+    onSelect: () => { view.selected = "targets"; buildControls(); buildLayerList(); },
+    onToggle: () => { targetLayer.visible = !targetLayer.visible; buildLayerList(); drawScene(); },
+  }));
+  layerListEl.replaceChildren(...rows);
+}
+
+const targetListEl = document.getElementById("targets");
+const um = v => Math.round(v * VOX);
+
+// Build one target row. Shared by the full rebuild and the incremental append,
+// so adding a target is O(1) DOM work rather than re-creating the whole list.
+function makeTargetRow(a){
+  const row = document.createElement("div"); row.className = "trow";
+  const mark = document.createElement("span"); mark.className = "mk" + (a.type === "point" ? " pt" : ""); mark.style.background = targetLayer.color;
+  const text = document.createElement("div"); text.className = "tl";
+  text.innerHTML = `<b>${a.label}</b><small>${a.type} · x${um(a.x)} y${um(a.y)} z${Math.round(a.z*VOX)} µm · t${a.t+1}</small>`;
+  const go = document.createElement("button"); go.className = "go"; go.textContent = "→ scope"; go.onclick = () => sendToScope(a);
+  const remove = document.createElement("button"); remove.className = "rm"; remove.textContent = "✕"; remove.onclick = () => removeTarget(a, row);
+  row.append(mark, text, go, remove); return row;
+}
+function removeTarget(a, row){
+  targets.splice(targets.indexOf(a), 1);
+  row.remove();
+  if (targets.length === 0) buildTargetList();   // restore the "no targets yet" message
+  document.getElementById("tCount").textContent = targets.length || "";
+  document.getElementById("sendAll").disabled = targets.length === 0;
+  updateTargetTag(); drawScene();
+  if (view.selected === "targets") buildControls();
+}
+// Update just the "N pts" tag on the Targets layer row, without rebuilding the
+// whole layer list — cheap enough to call on every add or remove.
+function updateTargetTag(){
+  const tag = document.querySelector(".lrow.anno .tag");
+  if (tag) tag.textContent = targets.length ? targets.length + " pts" : "empty";
+}
+function buildTargetList(){
+  document.getElementById("tCount").textContent = targets.length || "";
+  document.getElementById("sendAll").disabled = targets.length === 0;
+  if (targets.length === 0){
+    const empty = document.createElement("div"); empty.className = "empty";
+    empty.innerHTML = "No targets yet. Pick the <b>point</b> or <b>box</b> tool and click the image to mark cells or regions to image.";
+    targetListEl.replaceChildren(empty); return;
+  }
+  targetListEl.replaceChildren(...targets.map(makeTargetRow));
+}
+
+/* ---------------------------------------------------------------------------
+   8. INTERACTION
+   Tools, the stage mouse gestures, the Z/T sliders, and the 2-D/3-D toggle.
+   ------------------------------------------------------------------------- */
+
+document.getElementById("tools").addEventListener("click", (e) => {
+  const button = e.target.closest(".tool"); if (!button) return;
+  view.tool = button.dataset.tool;
+  for (const t of document.querySelectorAll(".tool")) t.classList.toggle("on", t === button);
+  stage.classList.toggle("cross", view.tool !== "nav" && view.mode === "2d");
+  if (view.tool !== "nav" && view.mode === "3d") showHint("Switch to 2-D to place targets on a plane");
+  else if (view.tool === "point") showHint("Click a cell to drop a target point");
+  else if (view.tool === "box") showHint("Drag to mark a region to re-image");
+  else hideHint();
+});
+
+function mousePos(e){ const r = canvas.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; }
+
+canvas.addEventListener("mousedown", (e) => {
+  const [sx, sy] = mousePos(e);
+  if (view.mode === "3d"){ drag = { mode: "rotate", x: e.clientX, y: e.clientY, yaw: view.yaw, pitch: view.pitch }; return; }
+  if (view.tool === "point"){
+    const [x, y] = screenToPlane(sx, sy);
+    if (x < 0 || y < 0 || x >= NX || y >= NY) return;
+    addTarget({ type: "point", x, y, z: view.z, t: view.t });
+  } else if (view.tool === "box"){
+    // Clamp to the volume so a box can't be started in the black margin (which
+    // would give negative or out-of-range coordinates). Same guard the point
+    // tool applies by rejecting out-of-bounds clicks.
+    const [px, py] = screenToPlane(sx, sy);
+    const x = clamp(px, 0, NX), y = clamp(py, 0, NY);
+    drag = { mode: "box", x, y, cx: x, cy: y };
+  }
+});
+window.addEventListener("mousemove", (e) => {
+  if (!drag) return;
+  if (drag.mode === "rotate"){
+    view.yaw = drag.yaw + (e.clientX - drag.x) * 0.008;
+    view.pitch = clamp(drag.pitch + (e.clientY - drag.y) * 0.008, -1.4, 1.4);
+    drawScene();
+  } else if (drag.mode === "box"){
+    const [sx, sy] = mousePos(e); const [px, py] = screenToPlane(sx, sy);
+    drag.cx = clamp(px, 0, NX); drag.cy = clamp(py, 0, NY); drawScene();
+  }
+});
+window.addEventListener("mouseup", () => {
+  if (drag && drag.mode === "box" && Math.abs(drag.cx - drag.x) > 3 && Math.abs(drag.cy - drag.y) > 3)
+    addTarget({ type: "box", x: drag.x, y: drag.y, x2: drag.cx, y2: drag.cy, z: view.z, t: view.t });
+  drag = null; drawScene();
+  startSpin();   // resume the idle 3-D rotation now that the drag is over
+});
+canvas.addEventListener("wheel", (e) => {
+  e.preventDefault();
+  if (view.mode === "2d") setPlane(view.z + (e.deltaY > 0 ? 1 : -1));   // scroll through z
+  else applyZoom(e.deltaY > 0 ? 0.92 : 1.08);                           // zoom the volume
+}, { passive: false });
+
+function addTarget(a){
+  a.label = (a.type === "point" ? "Target " : "Region ") + (++targetCount);
+  const wasEmpty = targets.length === 0;
+  const revealed = !targetLayer.visible;   // drawing into a hidden layer reveals it, as in napari
+  targetLayer.visible = true;
+  targets.push(a);
+  if (wasEmpty) buildTargetList();                        // clears the empty message, builds the first row
+  else targetListEl.appendChild(makeTargetRow(a));        // otherwise just append one row — O(1)
+  document.getElementById("tCount").textContent = targets.length;
+  document.getElementById("sendAll").disabled = false;
+  if (wasEmpty || revealed) buildLayerList(); else updateTargetTag();
+  if (view.selected === "targets") buildControls();       // refresh the "N targets" note if that layer is showing
+  drawScene();
+  showToast(`Marked <b>${a.label}</b>`);
+}
+
+// Add many targets at once — the path a detection or tracking step would use to
+// hand hundreds of cells to the viewer. It rebuilds the list and redraws once
+// for the whole batch, rather than paying that cost per target as addTarget does.
+function addTargets(list){
+  if (!list.length) return;
+  targetLayer.visible = true;
+  for (const a of list){
+    a.label = a.label || (a.type === "point" ? "Target " : "Region ") + (++targetCount);
+    targets.push(a);
+  }
+  buildTargetList(); buildLayerList();
+  if (view.selected === "targets") buildControls();
+  drawScene();
+}
+
+// --- dimension sliders ----------------------------------------------------
+const zSlider = document.getElementById("zslider");
+const tSlider = document.getElementById("tslider");
+zSlider.min = 0; zSlider.max = Math.max(0, NZ - 1); zSlider.value = view.z;
+tSlider.min = 0; tSlider.max = Math.max(0, NT - 1); tSlider.value = view.t;
+zSlider.oninput = () => setPlane(parseInt(zSlider.value));
+tSlider.oninput = () => setTime(parseInt(tSlider.value));
+
+function setPlane(z){
+  view.z = clamp(z, 0, NZ - 1); zSlider.value = view.z;
+  document.getElementById("zread").textContent = `plane ${view.z + 1} / ${NZ}`;
+  refresh();
+}
+function setTime(t){
+  view.t = clamp(t, 0, NT - 1); tSlider.value = view.t;
+  document.getElementById("tread").textContent = `time ${view.t + 1} / ${NT}`;
+  refresh();
+}
+
+// --- mode toggle + dock layout -------------------------------------------
+function layoutDock(){
+  // Only show a slider for an axis that actually exists, and drop the depth
+  // slider in 3-D, where z is a displayed axis rather than one you scroll.
+  document.getElementById("rowZ").classList.toggle("hide", view.mode !== "2d" || NZ <= 1);
+  document.getElementById("rowT").classList.toggle("hide", NT <= 1);
+  const dockHeight = document.getElementById("zdock").offsetHeight;
+  document.getElementById("scalebar").style.bottom = (dockHeight + 14) + "px";
+  document.getElementById("toasts").style.bottom = (dockHeight + 14) + "px";
+}
+function setMode(mode){
+  view.mode = mode;
+  document.getElementById("b2d").classList.toggle("on", mode === "2d");
+  document.getElementById("b3d").classList.toggle("on", mode === "3d");
+  stage.classList.toggle("cross", view.tool !== "nav" && mode === "2d");
+  if (mode === "3d" && view.tool !== "nav") showHint("Rotating volume — switch to 2-D to place targets"); else hideHint();
+  layoutDock(); onResize();
+  if (mode === "3d") startSpin();   // begin the idle rotation; harmless (self-stops) in 2-D
+}
+document.getElementById("b2d").onclick = () => setMode("2d");
+document.getElementById("b3d").onclick = () => setMode("3d");
+
+/* ---------------------------------------------------------------------------
+   9. MICROSCOPE HANDOFF + TRANSIENT CHROME
+   The step that makes this a ZMART tool: a target carries physical coordinates
+   and can be sent to the stage. Mocked here with a toast.
+   ------------------------------------------------------------------------- */
+
+function sendToScope(a){
+  showToast(`Moving stage → <b>${a.label}</b><br><span style="color:#8b95a3">x${Math.round(a.x*VOX)} y${Math.round(a.y*VOX)} z${Math.round(a.z*VOX)} µm</span>`);
+  setTimeout(() => showToast(`<b>${a.label}</b> acquired ✓`), 1100);
+}
+document.getElementById("sendAll").onclick = () => {
+  if (targets.length === 0) return;
+  const n = targets.length, plural = n > 1 ? "s" : "";
+  showToast(`Queuing <b>${n}</b> target${plural} for acquisition…`);
+  setTimeout(() => showToast(`Acquisition run started · <b>${n}</b> position${plural}`), 1100);
+};
+
+const toastsEl = document.getElementById("toasts");
+function showToast(html){
+  const t = document.createElement("div"); t.className = "toast"; t.innerHTML = html;
+  toastsEl.appendChild(t);
+  setTimeout(() => { t.style.transition = "opacity .4s"; t.style.opacity = "0"; setTimeout(() => t.remove(), 400); }, 2600);
+}
+let hintTimer = null;
+function showHint(text){
+  const pill = document.getElementById("hintPill"); pill.textContent = text; pill.classList.add("show");
+  clearTimeout(hintTimer); hintTimer = setTimeout(hideHint, 2600);
+}
+function hideHint(){ document.getElementById("hintPill").classList.remove("show"); }
+
+/* ---------------------------------------------------------------------------
+   10. ANIMATION + BOOT
+   The volume view idles with a gentle rotation. The animation loop runs ONLY
+   while the 3-D view is actually spinning: it stops in 2-D, during a drag, or
+   under reduced-motion, and the view is redrawn on demand instead — so an idle
+   viewer costs nothing. Only the canvas is redrawn in the loop, never the HUD.
+   ------------------------------------------------------------------------- */
+
+const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+let spinning = false;
+function spin(){
+  if (view.mode !== "3d" || drag || reduceMotion){ spinning = false; return; }   // nothing to animate → stop
+  view.yaw += 0.0025; drawScene();
+  requestAnimationFrame(spin);
+}
+function startSpin(){ if (!spinning){ spinning = true; requestAnimationFrame(spin); } }
+
+// Build the sample once, wire the derived UI to the dataset, and start.
+buildVolumes(); buildClouds(); buildHistograms();
+layers.forEach(autoContrast); rebuildSprites();
+document.getElementById("badge").textContent =
+  `sample · ${NC} channel${NC === 1 ? "" : "s"} · ${NT} timepoint${NT === 1 ? "" : "s"}`;
+document.getElementById("scaleLb").textContent = SCALEBAR_UM + " µm";
+buildControls(); buildLayerList(); buildTargetList();
+window.addEventListener("resize", () => { layoutDock(); onResize(); });
+layoutDock(); onResize();            // size the canvas before the first real draw
+setPlane(view.z); setTime(view.t);   // start in 2-D, so no animation loop runs yet
+
+// Exposed only so the automated stress tests can drive and measure the viewer.
+window.__viewer = { view, layers, targets, setPlane, setTime, setMode, drawScene, addTarget, addTargets, autoContrast,
+  stats: () => ({ NC, NT, NZ, targets: targets.length, points: MAX_POINTS }) };
+</script>
