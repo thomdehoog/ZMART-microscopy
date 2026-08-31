@@ -1519,7 +1519,13 @@ canvas.livecv[hidden] { display: none; }
 /* The canvas keeps the room; a step whose work is about the frame gets a
    column beside it. Scrolls on its own so the picture never moves. */
 /* one width, so the channel and the name above it stand in the same column */
-.canvas-body { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; min-height: 0; }
+/* Four columns, not three: the picture's own panel (the acquisitions and
+   their channels, parts/canvas/viewer-panel.js) stands between the picture
+   and the step's channel when there is a picture server to feed it. A grid
+   given more children than columns quietly wraps them onto a second row,
+   which scrambled the whole page the first time the panel appeared. */
+.canvas-body { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; min-height: 0; }
+.canvas-body > .viewer-panel { overflow-y: auto; min-height: 0; }
 .canvas-side {
   width: var(--side-w); overflow-y: auto; min-height: 0;
   border-left: 1px solid var(--line); background: var(--surface-2);
