@@ -650,12 +650,12 @@ function thePicturesOwnLayers(theRun) {
  * layer says for itself whether the run has anything for it, which is a
  * different question from whether the operator wants to see it.
  */
-function theStageLayers({ shown, ch0, ch1, editing }) {
+function theStageLayers({ shown, editing }) {
   const theRun = {
     run, css, drawnIn, carrierWidget, scanfieldsWidget,
     activePreset, indexOfStep, step,
     activeMode: step(run.activeIdx).mode,
-    editing, shown, ch0, ch1,
+    editing, shown,
     crosshair,
     drawFocusLayer, drawFocusPoints, drawStageLimits, drawWhereTheStageIs, drawScaleBar,
     /* What a layer needs to answer for a gesture of its own. Handed over rather
@@ -687,11 +687,9 @@ function drawStage() {
   const editing = sideWidget()?.id === "scanfields" ? run.editor : null;
   const stack = theStageLayers({
     shown: Math.max(run.tilesShown, 0),
-    /* Both colours, always. Which channels are mixed is a question about a
-       picture, and the viewer that draws it is where it will be asked —
-       which is why the switches that used to be under the canvas are gone. */
-    ch0: true,
-    ch1: true,
+    /* Which channels are mixed is a question about a picture, and the
+       drawing that answers it reads the run's own description -- the two
+       booleans that used to ride through here reached nothing at all. */
     editing,
   });
 
