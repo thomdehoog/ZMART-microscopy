@@ -62,3 +62,40 @@ def mask_view_of(record: dict, label: str) -> Path | None:
         out[..., 3] = np.where(found, 255, 0)
     Image.fromarray(out, "RGBA").save(view)
     return view
+
+
+def label_map_of(record: dict, label: str):
+    """The field's raw label mask as a lossless PNG the page can read back.
+
+    Each pixel's mask label rides in the colour -- R the low byte, G the
+    next, B the next, opaque wherever an object is -- so a page that reads
+    the pixels back holds the exact segmentation, and can light any one
+    object's true shape. Cached beside ``masks.tif`` like the view.
+    """
+    planes = record.get("planes") or []
+    if not planes:
+        return None
+    tiles = Path(planes[0]["path"]).parent.parent / "analysis" / "tiles"
+    if not tiles.is_dir():
+        return None
+    masks = [p for p in tiles.glob("*/masks.tif") if label in p.parent.name]
+    if not masks:
+        return None
+    mask = masks[0]
+    out = mask.with_name("masks_labels.png")
+    if out.is_file() and out.stat().st_mtime >= mask.stat().st_mtime:
+        return out
+
+    import numpy as np
+    import tifffile
+    from PIL import Image
+
+    labels = tifffile.imread(mask).astype(np.int64)
+    height, width = labels.shape
+    png = np.zeros((height, width, 4), dtype=np.uint8)
+    png[..., 0] = labels & 255
+    png[..., 1] = (labels >> 8) & 255
+    png[..., 2] = (labels >> 16) & 255
+    png[..., 3] = np.where(labels > 0, 255, 0)
+    Image.fromarray(png, "RGBA").save(out)
+    return out

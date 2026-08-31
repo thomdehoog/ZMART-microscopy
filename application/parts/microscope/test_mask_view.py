@@ -4,7 +4,7 @@ import numpy as np
 import tifffile
 from PIL import Image
 
-from application.parts.microscope.mask_view import mask_view_of
+from application.parts.microscope.mask_view import label_map_of, mask_view_of
 
 LABEL = "K00_M000000_G000000_P000004_V00"
 
@@ -45,3 +45,13 @@ def test_the_view_is_cached_beside_its_mask(tmp_path):
     assert first == again
     assert first.name == "masks_view.png"
     assert first.parent.name.endswith("_T000000")
+
+
+def test_the_label_map_carries_each_pixels_label_in_its_colour(tmp_path):
+    record = _a_checkpointed_field(tmp_path)
+    out = label_map_of(record, LABEL)
+    assert out is not None and out.name == "masks_labels.png"
+    px = np.array(Image.open(out))
+    assert px[0, 0, 3] == 0, "background stays see-through"
+    assert (px[0, 1, 0], px[0, 1, 1], px[0, 1, 2]) == (1, 0, 0), "label 1 in the low byte"
+    assert (px[1, 0, 0], px[1, 0, 1], px[1, 0, 2]) == (2, 0, 0), "label 2 in the low byte"
