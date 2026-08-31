@@ -89,7 +89,10 @@ export function targetLayers(theRun) {
     explains: "Cellpose's masks laid over the fields they were found in, each "
       + "object in its own colour -- what detection actually saw, not just "
       + "where it put a point.",
-    shown: true,
+    /* Everywhere but the refine step: gating is about the selection, and the
+       masks under every cell drowned the few being chosen. The layer's own
+       button still brings them back wherever wanted. */
+    shown: activeMode !== "select",
     staysSolid: true,
     paint: (frame) => {
       const ctx = frame.context;
