@@ -193,7 +193,7 @@ CARRIER_TYPES.push({
   deep: false,
   presets: [
     { label: "50 mesh · EMS", rows: 6, cols: 6, shape: "rect", w: 0.42, h: 0.42, gap: 0.08, corner: 0 },
-    { label: "75 mesh · EMS", rows: 8, cols: 8, shape: "rect", w: 0.285, h: 0.285, gap: 0.055, corner: 0 },
+    { label: "75 mesh · EMS", rows: 9, cols: 9, shape: "rect", w: 0.285, h: 0.285, gap: 0.055, corner: 0 },
     { label: "100 mesh · EMS", rows: 12, cols: 12, shape: "rect", w: 0.205, h: 0.205, gap: 0.045, corner: 0 },
     { label: "150 mesh · Ted Pella", rows: 18, cols: 18, shape: "rect", w: 0.125, h: 0.125, gap: 0.04, corner: 0 },
       /* Ted Pella's centre-rim 150 is the same mesh with the middle square
@@ -201,8 +201,6 @@ CARRIER_TYPES.push({
     { label: "200 mesh · EMS", rows: 24, cols: 24, shape: "rect", w: 0.09, h: 0.09, gap: 0.035, corner: 0 },
     { label: "200 mesh · SPI", rows: 24, cols: 24, shape: "rect", w: 0.095, h: 0.095, gap: 0.03, corner: 0 },
     { label: "300 mesh · SPI", rows: 36, cols: 36, shape: "rect", w: 0.058, h: 0.058, gap: 0.025, corner: 0 },
-    { label: "parallel bar 340 µm · EMS", rows: 8, cols: 8, shape: "rect", w: 0.27, h: 0.27, gap: 0.07, corner: 0 },
-    { label: "parallel bar 500 µm · EMS", rows: 6, cols: 6, shape: "rect", w: 0.416, h: 0.416, gap: 0.084, corner: 0 },
   ],
 });
 
@@ -263,10 +261,10 @@ export const DEFAULT_CARRIER = fromPreset(
 export const depthMm = (config) => (carrierType(config.type).deep ? config.d : 0);
 
 /* A tenth of a micrometre. Five micrometres was the tolerance while everything
-   here was a plate or a slide, and it is far too coarse for an EM grid: a 50
-   mesh has 0.42 mm holes and a 500 µm parallel bar has 0.416 mm ones, four
-   micrometres apart, and the picker called them the same part. Every figure in
-   this file is quoted to four decimals, so an exact match is exact. */
+   here was a plate or a slide, and it is far too coarse for an EM grid: EMS's
+   200 mesh has 0.09 mm holes and SPI's has 0.095 mm ones, five micrometres
+   apart, and the picker called them the same part. Every figure in this file
+   is quoted to four decimals, so an exact match is exact. */
 const close = (a, b) => Math.abs(a - b) < 1e-4;
 
 /**
