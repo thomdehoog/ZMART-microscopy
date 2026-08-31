@@ -15,7 +15,7 @@
  */
 
 import {
-  cellFeature, cellsInAllGates, featureNames, gateForPair,
+  cellFeature, cellsInAllGates, featureNames, gateForPair, sursDraw,
 } from "./gating.js";
 import { sideGroup } from "../../../../framework/window/panels.js";
 
@@ -465,22 +465,21 @@ export default {
       const inGates = cellsInAllGates(cells, ctx.gates());
       if (!inGates.size) return;
       const n = Math.max(1, Math.round(Number(drawN.value) || 0));
-      /* So many from EACH tileset: a cap per compartment, so one crowded
-         well cannot spend the whole budget and an empty one costs nothing. */
+      /* So many from EACH tileset, drawn systematically over its area --
+         SURS, one grid and one random start per tileset -- so the sample is
+         spread evenly across the compartment instead of clumping wherever
+         cells are dense. A plain shuffle over-draws the crowded corners,
+         which is exactly the density bias the grid exists to remove. */
       const byTileset = new Map();
       for (const c of cells) {
         if (!inGates.has(c.id)) continue;
         const key = ctx.tilesetOf?.(c.field) ?? c.field;
         if (!byTileset.has(key)) byTileset.set(key, []);
-        byTileset.get(key).push(c.id);
+        byTileset.get(key).push(c);
       }
       const took = new Set();
-      for (const ids of byTileset.values()) {
-        for (let i = ids.length - 1; i > 0; i--) {
-          const j = Math.floor(Math.random() * (i + 1));
-          [ids[i], ids[j]] = [ids[j], ids[i]];
-        }
-        for (const id of ids.slice(0, n)) took.add(id);
+      for (const pool of byTileset.values()) {
+        for (const id of sursDraw(pool, n)) took.add(id);
       }
       ctx.takeSelection(took);
       sayIt(); renderList(); draw();
