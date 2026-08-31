@@ -150,6 +150,8 @@ let stageWatch = null;
       cellprob: 0,
       border: 0,       // µm from the field's edge inside which a cell is dropped
       binning: 1,      // segment on a copy this many times smaller each side
+      maskShow: "fill", // how the test view wears the masks: fill | line | off
+      imageGrey: false, // the test image in grey (set by a landed test, hand-flipped)
       tile: 0,
       hovered: -1,     // the tile under the pointer, a press from being tested
       tested: false,
@@ -1073,6 +1075,11 @@ let stageWatch = null;
          label as it landed, so the panel can show a field's picture without
          having tested anything on it. */
       labelOf: (field) => state.fieldLabels[field],
+      /* The field's colorized segmentation, served beside its picture. */
+      maskOf: (label) => {
+        const where = backend.viewOf("overview");
+        return where && label ? `${where}/${label}.mask.png` : null;
+      },
       status,
       sizeCanvas, css, drawScaleBar,
       changed: () => renderActionBar(),
@@ -1673,6 +1680,8 @@ let stageWatch = null;
     /* The list of anchors is drawn by the carrier panel, so a mark dragged on
        the picture has to tell it the numbers moved. */
     anchorsChanged: () => redrawAnchors(),
+    /* A tile chosen on the canvas appears in the test box at once. */
+    tileChosen: () => detectionShown?.redraw(),
     detectPressed: (...a) => detectPressed(...a),
     renderActionBar: () => renderActionBar(),
     renderRail: () => renderRail(),

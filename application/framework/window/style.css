@@ -422,11 +422,17 @@ button.run:disabled { opacity: 0.4; cursor: default; }
   flex: 1 1 240px; min-width: 0; min-height: 3.2em; white-space: normal; line-height: 1.35;
 }
 .tile-pick { display: flex; justify-content: center; align-items: center; gap: 6px; font-family: var(--mono); font-size: 12px; }
-/* On the canvas's own bottom line: centred, with the scale bar to its
-   right in the image's margin. */
+/* On the canvas's own bottom line: the mask presses at the left, the
+   picker centred, the image's grey toggle at the right. */
 .tile-host { position: relative; }
 .tile-host .tile-pick {
   position: absolute; left: 50%; bottom: 0; transform: translateX(-50%);
+}
+.mask-toggle { position: absolute; left: 0; bottom: 0; display: flex; gap: 2px; }
+.image-toggle { position: absolute; right: 0; bottom: 0; }
+.mask-toggle .ghost.tiny[aria-pressed="true"],
+.image-toggle .ghost.tiny[aria-pressed="true"] {
+  background: var(--surface-2); border-color: var(--line-strong); color: var(--ink);
 }
 /* the pager sits at the far end of the heading it belongs to */
 .side-head .tile-pick { margin-left: auto; letter-spacing: normal; text-transform: none; }
