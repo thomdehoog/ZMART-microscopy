@@ -52,6 +52,19 @@ WORKER_SCRIPT = ENGINE_DIR / "worker_script.py"
 # Maximum bytes of stderr to retain for crash diagnostics.
 _STDERR_BUFFER = 8192
 
+#: One spawn at a time, for the whole process. `conda run` on Windows writes
+#: its activation through a temp file whose name is NOT unique across
+#: concurrent invocations from one parent -- two spawns racing corrupt each
+#: other's activation ("The process cannot access the file because it is
+#: being used by another process"), the worker never connects, and conda's
+#: dying words name an environment that exists. Any submission fan-out that
+#: needs more than one worker spawns several at once and lost all but the
+#: first; one at a time costs a few serial seconds at warm-up, once, against
+#: a run that died at its fan-out. Reproduced directly: four concurrent
+#: ``conda run -n <env> python -c ...`` from one parent, three failed on the
+#: same ``__conda_tmp_<n>.txt``.
+_spawn_turn = threading.Lock()
+
 
 class _StderrDrainer:
     """Background thread that reads stderr so the pipe never fills.
@@ -152,37 +165,41 @@ class Worker:
         env_label = self.environment or "orchestrator"
         logger.debug("Worker spawning: env=%s, port=%d", env_label, port)
 
-        try:
-            self._process = subprocess.Popen(
-                cmd, env=env, stdout=subprocess.DEVNULL,
-                stderr=subprocess.PIPE, **kwargs,
-            )
-        except Exception as e:
-            logger.error("Worker spawn failed for env=%s: %s", env_label, e)
-            self._cleanup()
-            raise WorkerSpawnError(
-                f"Failed to start worker for '{env_label}': {e}"
-            ) from e
+        # Spawn-to-connect under the one turn: the conda activation is what
+        # races, and it runs in the child between Popen and the connect back,
+        # so the turn is held until the worker is on the line.
+        with _spawn_turn:
+            try:
+                self._process = subprocess.Popen(
+                    cmd, env=env, stdout=subprocess.DEVNULL,
+                    stderr=subprocess.PIPE, **kwargs,
+                )
+            except Exception as e:
+                logger.error("Worker spawn failed for env=%s: %s", env_label, e)
+                self._cleanup()
+                raise WorkerSpawnError(
+                    f"Failed to start worker for '{env_label}': {e}"
+                ) from e
 
-        logger.debug("Worker process started: pid=%d, env=%s",
-                     self._process.pid, env_label)
+            logger.debug("Worker process started: pid=%d, env=%s",
+                         self._process.pid, env_label)
 
-        # Drain stderr in background so the pipe buffer never fills.
-        # Without this, a worker logging errors to stderr can block
-        # permanently after ~4KB of output (Windows pipe buffer size).
-        self._stderr_drainer = _StderrDrainer(self._process.stderr)
+            # Drain stderr in background so the pipe buffer never fills.
+            # Without this, a worker logging errors to stderr can block
+            # permanently after ~4KB of output (Windows pipe buffer size).
+            self._stderr_drainer = _StderrDrainer(self._process.stderr)
 
-        try:
-            self._conn = self._listener.accept()
-        except Exception as e:
-            stderr = self._stderr_drainer.get_output() if self._stderr_drainer else ""
-            logger.error("Worker connect failed: pid=%d, env=%s, stderr=%s",
-                         self._process.pid, env_label, stderr[:500])
-            self._cleanup()
-            raise WorkerSpawnError(
-                f"Worker for '{env_label}' failed to connect "
-                f"within {self.connect_timeout}s. stderr: {stderr}"
-            ) from e
+            try:
+                self._conn = self._listener.accept()
+            except Exception as e:
+                stderr = self._stderr_drainer.get_output() if self._stderr_drainer else ""
+                logger.error("Worker connect failed: pid=%d, env=%s, stderr=%s",
+                             self._process.pid, env_label, stderr[:500])
+                self._cleanup()
+                raise WorkerSpawnError(
+                    f"Worker for '{env_label}' failed to connect "
+                    f"within {self.connect_timeout}s. stderr: {stderr}"
+                ) from e
 
         self._last_active = time.monotonic()
         logger.info("Worker ready: pid=%d, env=%s",
