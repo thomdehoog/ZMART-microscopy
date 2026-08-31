@@ -1841,3 +1841,27 @@ canvas.livecv[hidden] { display: none; }
   color: #1e40af;
   overflow-wrap: break-word;
 }
+
+/* The gating channel: a feature per axis, and the gates as rows. A row is
+   pressed to bring its own plot back, so the pair each polygon lives on is
+   one press away rather than a hunt through two dropdowns. */
+.gate-axes { display: flex; gap: 14px; padding: 2px 0 6px; }
+.gate-axes label {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 11.5px; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--ink-3);
+}
+.gate-axes select { font-size: 12.5px; max-width: 150px; }
+.gate-list { display: flex; flex-direction: column; gap: 2px; padding-top: 6px; }
+.gate-row { display: flex; align-items: stretch; gap: 2px; }
+.gate-row .gate-open {
+  flex: 1; display: flex; gap: 10px; align-items: center;
+  font-size: 12.5px; padding: 5px 8px; text-align: left;
+  background: none; border: 1px solid transparent; border-radius: 6px;
+  cursor: pointer; color: inherit;
+}
+.gate-row[aria-current="true"] .gate-open {
+  background: var(--surface-2); border-color: var(--line);
+}
+.gate-row .idx { color: var(--ink-3); font-family: ui-monospace, monospace; }
+.gate-row .gate-n { margin-left: auto; color: var(--ink-3); }
