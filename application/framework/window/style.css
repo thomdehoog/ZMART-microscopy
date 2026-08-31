@@ -899,7 +899,11 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
 .detect-bar .seg button { flex: 1; min-width: 0; }
 /* the params read as label — value pairs down the column */
 .detect-params { display: flex; flex-direction: column; gap: 6px; }
-.detect-params .param label { flex: 1; }
+/* Label, input, unit: three settled columns, so every input starts on one
+   line whether or not a unit follows it -- flexed labels left the rows
+   ragged wherever the unit was missing. */
+.detect-params .param { display: grid; grid-template-columns: 1fr 88px 26px; }
+.detect-params .param label { flex: none; }
 .detect-params button.ghost { margin-top: 2px; }
 .tile-host { padding: 12px 14px 0; }
 .tile-host canvas { display: block; width: 100%; aspect-ratio: 1 / 1; border-radius: 6px; }

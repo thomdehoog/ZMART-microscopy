@@ -177,3 +177,14 @@ def test_the_border_margin_reaches_the_detector_in_pixels():
         _record(), field=0, pixel_um=4.0, settings={"border": 0}
     )
     assert "border_margin_px" not in off
+
+
+def test_binning_reaches_the_detector_and_one_means_nothing_sent():
+    given = detection.what_was_captured(
+        _record(), field=0, pixel_um=4.0, settings={"binning": 2}
+    )
+    assert given["segmentation_binning"] == 2
+    full = detection.what_was_captured(
+        _record(), field=0, pixel_um=4.0, settings={"binning": 1}
+    )
+    assert "segmentation_binning" not in full
