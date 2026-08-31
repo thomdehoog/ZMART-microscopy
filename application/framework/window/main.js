@@ -467,10 +467,13 @@ let stageWatch = null;
     /* A running step the operator can stop offers its own brake: the press
        that started the run becomes Interrupt, and the backend stops between
        two fields — what was captured stands. The steps that drive the stage
-       for minutes are exactly the ones a hand must be able to reach. */
+       for minutes are exactly the ones a hand must be able to reach. Each
+       brake matches the machinery its run drives: acquiring the targets is a
+       scan under the hood, and discovery is the analysis run. */
     const brake = {
       scan: () => backend.stopScan?.(),
-      targets: () => backend.stopTargets?.(),
+      detect: () => backend.stopTargets?.(),
+      targets: () => backend.stopScan?.(),
       focus: () => backend.stopFocusMeasure?.(),
     }[s.mode];
     if (running && brake) {
@@ -695,6 +698,7 @@ let stageWatch = null;
               ? `finished — ${failed.length} field(s) failed; the first said: ${failed[0].why}`
               : "segmentation finished",
         });
+        mapTheCells();
         return out?.stopped
           ? stoppedShort(`stopped by hand — ${state.cells.size} targets found`)
           : finish();
@@ -702,6 +706,29 @@ let stageWatch = null;
         detectionShown?.progress?.({ ended: true, note: why.message });
         return itFailed(why);
       });
+      /* The map over the whole population: umap_1/umap_2 fold every measured
+         feature into two gate axes. It is about the population, not a field,
+         so it starts when discovery answers, and it lands quietly -- the
+         axes appear in the pickers when the map is done, and a map that
+         fails costs the two axes, never the step. */
+      function mapTheCells() {
+        const cells = state.cells;
+        if (!cells.size || !backend.embedTargets) return;
+        backend.embedTargets().then(({ points }) => {
+          if (state.cells !== cells) return; // a fresh discovery owns the page now
+          let landed = false;
+          for (const [id, at] of Object.entries(points ?? {})) {
+            const cell = cells.get(id);
+            if (!cell || !Array.isArray(at)) continue;
+            cell.features = { ...(cell.features ?? {}), umap_1: at[0], umap_2: at[1] };
+            landed = true;
+          }
+          /* The gate keeps its state and mounts once, so its axis pickers
+             only re-read the features when it is told to draw again --
+             renderAll alone leaves them as they were before the map landed. */
+          if (landed) { gatingShown?.redraw(); renderAll(); }
+        }).catch((why) => console.warn("the cell map was not drawn:", why.message));
+      }
       return;
     }
 
@@ -709,6 +736,10 @@ let stageWatch = null;
       /* Imaging the targets is a scan whose positions are the gated cells,
          driven in the stage's frame like the overview was. */
       const picked = [...state.gated];
+      /* How wide each acquired frame is on the sample, for the canvas to
+         print each picture at its true size and place -- known before the
+         run starts, so the frames can be printed as they are captured. */
+      state.targetFrameUm = activeRecording(state.targetType)?.frameUm ?? null;
       backend.scanOverview({
         positions: picked.map((id) => {
           const { x, y } = state.cells.get(id);
@@ -717,6 +748,19 @@ let stageWatch = null;
         }),
         acquisition_type: "targets",
         state: activeRecording(state.targetType)?.changeable ?? null,
+        /* Each capture prints itself onto the canvas as it lands, the way the
+           overview's tiles do: the records so far name the pictures, and only
+           the cells with a record are drawn as acquired. */
+        onProgress: (done, of, at, records = []) => {
+          if (state.running !== s.id) return;
+          status.say(`acquiring pair ${done} of ${picked.length}`);
+          if (at) takeThePosition(at);
+          state.acquired = picked.slice(0, records.length);
+          state.acquiredLabels = Object.fromEntries(
+            state.acquired.map((id, i) => [id, records[i]?.position_label]));
+          state.notes[s.id] = `${done} / ${picked.length} pairs`;
+          redrawSoon(); renderAll();
+        },
       }).then(({ records, stopped }) => {
         /* A stopped run accounts for what it took, and claims nothing more:
            only the cells with a record are acquired. */
@@ -724,11 +768,6 @@ let stageWatch = null;
         state.acquired = got;
         state.acquiredLabels = Object.fromEntries(
           got.map((id, i) => [id, records[i]?.position_label]));
-        /* How wide each acquired frame is on the sample, for the canvas to
-           print the picture at its true size and place -- and a redraw, so
-           the frames appear the moment the run answers rather than at the
-           next pan. */
-        state.targetFrameUm = activeRecording(state.targetType)?.frameUm ?? null;
         redrawSoon();
         return stopped
           ? stoppedShort(`stopped by hand — ${records.length} of ${picked.length} pairs acquired`)

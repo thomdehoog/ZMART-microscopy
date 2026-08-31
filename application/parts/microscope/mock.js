@@ -300,7 +300,8 @@ export const backend = {
           });
         }
         const at = records[done - 1]?.planes[0];
-        onProgress?.(done, total, at ? { x: at.x_um, y: at.y_um, z: at.z_um } : null);
+        /* The records so far ride along, as the bridge's poll answers them. */
+        onProgress?.(done, total, at ? { x: at.x_um, y: at.y_um, z: at.z_um } : null, records);
         if (t < 1) frame(tick);
         else resolve();
       };
@@ -357,6 +358,7 @@ export const backend = {
       gave.push(one);
       onProgress?.(gave.length, found.length);
     }
+    discovered = gave.flatMap((one) => one.cells);
     return { fields: gave, failed: [], stopped: stopAsked.targets };
   },
 
@@ -364,6 +366,31 @@ export const backend = {
   async stopTargets() {
     stopAsked.targets = true;
     return {};
+  },
+
+  /**
+   * A pretend map with real structure: size along one axis, glow along the
+   * other, jittered. Enough for the page to offer umap axes and gate on
+   * them with no instrument anywhere near it. Same shape as the bridge's:
+   * each cell's id to its [umap_1, umap_2], and the same refusal to map a
+   * population too small to say anything about.
+   */
+  async embedTargets() {
+    await wait(200);
+    if (discovered.length < 10) {
+      throw new Error(
+        `only ${discovered.length} cells were discovered; a map needs at `
+        + "least 10 to say anything about the population");
+    }
+    const r = makeRng(9100);
+    const points = {};
+    for (const cell of discovered) {
+      points[cell.id] = [
+        Math.sqrt(cell.area) / 4 + (r() - 0.5),
+        cell.intensity * 10 + (r() - 0.5),
+      ];
+    }
+    return { points };
   },
 };
 
@@ -421,6 +448,10 @@ const scanned = {};
 /* The operator's hand on the brake, as the bridge keeps it: set by the stop
    verbs, read by the pretend runs between two fields. */
 const stopAsked = { scan: false, focus: false, targets: false };
+
+/* What the last discovery found, all fields together — the population the
+   pretend map is drawn over, as the bridge draws its over its own fields. */
+let discovered = [];
 
 /* The jobs this pretend instrument has stored, and which is chosen. The same
    three the controller's mock driver keeps, so the page meets one instrument

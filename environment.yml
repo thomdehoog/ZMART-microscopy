@@ -36,6 +36,11 @@ dependencies:
   # bring their own packages; this is only what it takes to ask.
   - pyyaml>=6
 
+  # --- the cell map (application/parts/analysis/embedding.py) ---
+  # UMAP over every discovered cell's features, computed in the bridge
+  # because an embedding is about the whole population, not one field.
+  - umap-learn>=0.5
+
   # --- live LAS X API (Python <-> .NET bridge) ---
   # The LAS X CAM API DLLs ship with LAS X and load from the install dir;
   # only the bridge itself is a package.

@@ -269,6 +269,22 @@ export const backend = {
   },
 
   /**
+   * The map over the whole population: the bridge folds every measured
+   * feature into two UMAP axes, one space for all discovered cells. Started
+   * here and followed by asking, like discovery -- the first map also pays
+   * umap's compile-on-first-use, which can be a long moment.
+   */
+  async embedTargets() {
+    await ask("/api/targets/embedding", {});
+    for (;;) {
+      const progress = await askedPatiently("/api/targets/embedding");
+      if (progress.error) throw new Error(progress.error);
+      if (!progress.running) return { points: progress.points ?? {} };
+      await rest(300);
+    }
+  },
+
+  /**
    * Start the overview scan and follow it by asking, not by being told: the
    * bridge drives the stage in a background thread, and this polls its
    * progress until the drive is over. The window's live picture watches the
@@ -281,8 +297,12 @@ export const backend = {
       /* Where the scan stood when it answered -- the last record's own plane,
          which is the only account of the stage that is already in hand. */
       const plane = progress.records?.[progress.done - 1]?.planes?.[0];
+      /* The records so far ride along: each one names the picture the bridge
+         has already made of it, so the page can print a field the moment it
+         lands rather than when the run answers. */
       onProgress?.(progress.done, progress.of,
-        plane ? { x: plane.x_um, y: plane.y_um, z: plane.z_um } : null);
+        plane ? { x: plane.x_um, y: plane.y_um, z: plane.z_um } : null,
+        progress.records ?? []);
       if (progress.error) throw new Error(progress.error);
       if (!progress.running) {
         /* The records come back with the run: what each capture wrote and

@@ -926,6 +926,60 @@ def _stop_targets() -> dict:
     return dict(_targets)
 
 
+# ---------------------------------------------------------------------------
+# The map: UMAP over every discovered cell, one space for the population
+# ---------------------------------------------------------------------------
+
+#: The map being drawn or last drawn, polled by the page the way discovery
+#: is. ``points`` is the answer: each cell's id to its ``[umap_1, umap_2]``.
+_embedding = {"running": False, "error": None, "of": 0, "points": None}
+
+
+def _embed_targets() -> dict:
+    """Start the map: UMAP over every discovered cell, in a worker.
+
+    An embedding is a statement about the whole population -- two fields
+    mapped apart would land in unrelated spaces -- so it runs here, once,
+    after discovery has answered, never inside the per-field pipeline.
+    """
+    if _embedding["running"]:
+        raise RuntimeError("the cell map is already being drawn")
+    if _targets["running"]:
+        raise RuntimeError(
+            "discovery is still running; the map waits for the whole population"
+        )
+    cells = [cell for field in _targets["fields"] for cell in field["cells"]]
+    if not cells:
+        raise RuntimeError("no targets have been discovered, so there is nothing to map")
+    _embedding.update(running=True, error=None, of=len(cells), points=None)
+    threading.Thread(target=_embedding_worker, args=(cells,), daemon=True).start()
+    return dict(_embedding)
+
+
+def _embedding_worker(cells: list) -> None:
+    try:
+        # Imported when first asked for, like the finder: umap is a heavy
+        # import and the bridge must load on machines that only scan.
+        from application.parts.analysis import embedding
+
+        points = embedding.umap_embedding(cells)
+        _keep_embedding(points)
+        _embedding["points"] = points
+    except Exception as why:  # noqa: BLE001 -- the window shows the sentence
+        _embedding["error"] = str(why)
+    finally:
+        _embedding["running"] = False
+
+
+def _keep_embedding(points: dict) -> None:
+    """Write the map beside the discovery's own outputs, for the same reason
+    the targets are written: without this the only copy is on the operator's
+    screen, and it goes when the window does."""
+    where = _the_run() / "overview" / "analysis"
+    where.mkdir(parents=True, exist_ok=True)
+    (where / "umap.json").write_text(json.dumps(points, indent=2), encoding="utf-8")
+
+
 def _the_mask_view_for(kind: str, label: str):
     """The colorized mask PNG for the *kind* field labelled *label*, or None."""
     from application.parts.microscope.mask_view import mask_view_of
@@ -1112,6 +1166,8 @@ class _Bridge(BaseHTTPRequestHandler):
                 self._answer(dict(_focus))
             elif path == "/api/targets/discover":
                 self._answer(dict(_targets))
+            elif path == "/api/targets/embedding":
+                self._answer(dict(_embedding))
             elif path.startswith("/view/"):
                 self._send_a_picture(path)
             elif not path.startswith("/api/"):
@@ -1151,6 +1207,8 @@ class _Bridge(BaseHTTPRequestHandler):
                 self._answer(_stop_scan())
             elif self.path == "/api/targets/discover":
                 self._answer(_discover_targets(asked))
+            elif self.path == "/api/targets/embedding":
+                self._answer(_embed_targets())
             else:
                 self._answer({"error": f"no route {self.path}"}, status=404)
         except Exception as why:  # noqa: BLE001
