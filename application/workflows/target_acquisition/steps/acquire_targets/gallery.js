@@ -77,6 +77,8 @@ export function galleryTally(acquired, verdicts) {
     : "—";
 }
 
+import { sideGroup } from "../../../../framework/window/panels.js";
+
 export default {
   id: "acquire",
   label: "Acquire Targets",
@@ -101,23 +103,23 @@ export default {
     const side = document.createElement("div");
     side.className = "gallery-side";
 
-    // what the targets are imaged with, read off the instrument here
+    /* What the targets are imaged with, read off the instrument here -- the
+       shared recording slot, which brings its own boxed group the way the
+       scan area's does on step 3. */
     const recording = document.createElement("div");
-    recording.className = "side-pad";
     recording.id = "target-type";
 
-    const head = document.createElement("div");
-    head.className = "side-head";
-    head.append("Acquired pairs");
+    const pairsBox = sideGroup("Acquired pairs");
+    const about = document.createElement("div");
+    about.className = "gallery-about";
+    const note = document.createElement("div");
+    note.className = "side-note";
+    note.textContent = "overview crop · target frame — mark each ✓ or ✗";
     const readout = document.createElement("span");
     readout.className = "readout";
     readout.id = "gallery-readout";
     readout.textContent = "—";
-    head.append(readout);
-
-    const note = document.createElement("div");
-    note.className = "side-note";
-    note.textContent = "overview crop · target frame — mark each ✓ or ✗";
+    about.append(note, readout);
 
     const wrap = document.createElement("div");
     wrap.className = "gallery-wrap";
@@ -126,7 +128,8 @@ export default {
     pairs.id = "pairs";
     wrap.append(pairs);
 
-    side.append(recording, head, note, wrap);
+    pairsBox.body.append(about, wrap);
+    side.append(recording, pairsBox.group);
     host.append(side);
 
     ctx.recordingSlot(recording, {

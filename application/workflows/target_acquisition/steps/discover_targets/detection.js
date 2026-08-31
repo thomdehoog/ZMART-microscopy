@@ -35,6 +35,8 @@ export const settingsFor = (settings) => ({
 export const labelColour = (n, alpha = 1) =>
   `hsla(${(n * 137.508) % 360}, 68%, 58%, ${alpha})`;
 
+import { sideGroup } from "../../../../framework/window/panels.js";
+
 export default {
   id: "detect",
   label: "Discover Targets",
@@ -61,20 +63,15 @@ export default {
     const side = document.createElement("div");
     side.className = "detect-side";
 
-    const head = document.createElement("div");
-    head.className = "side-head";
-    head.textContent = "Cellpose segmentation";
-
-    const bar = document.createElement("div");
-    bar.className = "detect-bar";
+    /* The same boxed groups every earlier step's channel is made of: a
+       heading above a card, controls inside the card and nothing else. */
+    const settings = sideGroup("Cellpose segmentation");
     const params = document.createElement("div");
     params.className = "detect-params";
-    bar.append(params);
+    settings.body.append(params);
 
-    const testHead = document.createElement("div");
-    testHead.className = "side-head";
-    testHead.append("Test position");
-    const picker = document.createElement("span");
+    const test = sideGroup("Test position");
+    const picker = document.createElement("div");
     picker.className = "tile-pick";
     const prev = document.createElement("button");
     prev.type = "button"; prev.className = "ghost tiny";
@@ -87,7 +84,6 @@ export default {
     next.setAttribute("aria-label", "next position");
     next.textContent = "▶";
     picker.append(prev, which, next);
-    testHead.append(picker);
 
     const canvasHost = document.createElement("div");
     canvasHost.className = "tile-host";
@@ -99,7 +95,8 @@ export default {
     readout.className = "side-note";
     readout.id = "detect-readout";
 
-    side.append(head, bar, testHead, canvasHost, readout);
+    test.body.append(picker, canvasHost, readout);
+    side.append(settings.group, test.group);
     host.append(side);
 
     /* The picture of the field being looked at, drawn when it arrives. The

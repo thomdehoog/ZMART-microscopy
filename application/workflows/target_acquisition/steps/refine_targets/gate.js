@@ -17,6 +17,7 @@
 import {
   cellFeature, cellsInAllGates, featureNames, gateForPair,
 } from "./gating.js";
+import { sideGroup } from "../../../../framework/window/panels.js";
 
 /** Room for the axes, in pixels. */
 const PAD = { l: 62, r: 18, t: 18, b: 46 };
@@ -52,15 +53,13 @@ export default {
     const side = document.createElement("div");
     side.className = "analysis-side";
 
-    const head = document.createElement("div");
-    head.className = "side-head";
-    head.append("Gates");
+    /* The same boxed group every earlier step's channel is made of. */
+    const boxed = sideGroup("Gates");
     const clear = document.createElement("button");
     clear.type = "button";
     clear.className = "ghost tiny";
     clear.id = "clear-gate";
     clear.textContent = "Clear gates";
-    head.append(clear);
 
     /* One feature per axis: the gate drawn here is drawn across these. */
     const axes = document.createElement("div");
@@ -76,6 +75,7 @@ export default {
     };
     const pickX = pick("gate-fx", "x");
     const pickY = pick("gate-fy", "y");
+    axes.append(clear);
 
     const legend = document.createElement("div");
     legend.className = "legend analysis-legend";
@@ -107,7 +107,8 @@ export default {
     list.className = "gate-list";
     list.id = "gate-list";
 
-    side.append(head, axes, legend, wrap, readout, list);
+    boxed.body.append(axes, legend, wrap, readout, list);
+    side.append(boxed.group);
     host.append(side);
 
     const sx = (v, w) => PAD.l + (v / xHi) * (w - PAD.l - PAD.r);
