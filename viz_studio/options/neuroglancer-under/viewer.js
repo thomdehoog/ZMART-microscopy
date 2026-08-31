@@ -646,7 +646,7 @@ async function start(own, acquisitions) {
       type: "image",
       source: row.url,
       shader: shaderFor(row.colour),
-      shaderControls: { normalized: { range: [row.window.low, row.window.high] } },
+      shaderControls: controlsFor(row),
       // How solid this layer is. The engine's own default for an image layer is
       // a half, which is right for looking through one layer at another and
       // wrong for the channels of one acquisition, because those are separate
@@ -1230,37 +1230,72 @@ function countFromTheCornerOfTheVoxelRatherThanItsMiddle(own) {
  * second.
  */
 function shaderFor(colour, { asAVolume = false } = {}) {
-  const [r, g, b] = colour;
-  /* Two different programs, because a flat layer and a volume ask opposite
-     things of the same numbers.
-     
-     **Flat**: the colour carries the brightness and the transparency says only
-     whether this spot was imaged — `colour × v`, alpha one wherever the value
-     clears the window's floor. Turning the contrast handles then changes what
-     the picture looks like, and ground nobody has imaged stays clear so the
-     layers under it show through.
-     
-     **A volume**: the colour is emitted at full strength and the *alpha* carries
-     the value. That is what makes a ray accumulate — a sample contributes in
-     proportion to what is there — and it is what `viz_studio/frontend/src/scene.js`
-     has always done, which is the copy of this that demonstrably renders volumes.
-     
-     Getting this wrong is quiet and was: emitting `colour × v` with alpha `v`
-     attenuates twice, and the volume came out at 1.0% of the window lit against
-     15.7% for the same data flat. It looked like the engine failing to render and
-     was arithmetic. */
+  void colour; // kept in the signature for the call sites; the colour travels
+  //             as a control now, so a colour change never recompiles.
+  /* The ZMART viewer's own programs, ported verbatim from its
+     `app/page/src/scene.js` (`shaderFor`), because that is the look the
+     microscope's operators have tested and know. Three things distinguish
+     them from what stood here before:
+
+     - the colour is a `color` uicontrol, not a number baked into the text,
+       so changing it is a control write instead of a recompile;
+     - `weight` is the channel's own opacity, multiplying the value;
+     - alpha in the flat program comes from `imaged()` — an invlerp over the
+       RAW value — not from the windowed one. That difference is load-bearing:
+       alpha from the windowed value punched holes wherever a pixel sat below
+       the window's floor, so raising MIN made the specimen see-through. */
   if (asAVolume) {
     return (
       "#uicontrol invlerp normalized\n" +
-      "#uicontrol float opacity slider(min=0, max=1, default=1)\n" +
-      `void main() { emitRGBA(vec4(${r}, ${g}, ${b}, normalized() * opacity)); }`
+      "#uicontrol float weight slider(min=0, max=1, default=1)\n" +
+      "#uicontrol invlerp imaged(range=[0, 1], clamp=false)\n" +
+      '#uicontrol vec3 color color(default="white")\n' +
+      "#uicontrol float attenuation slider(min=0, max=8, default=0)\n" +
+      "void main() {\n" +
+      "  float v = normalized();\n" +
+      "  vec3 shown = color * (v * weight);\n" +
+      "  float faded = exp(-attenuation * depthAtRayPosition);\n" +
+      "  emitIntensity(v * weight * faded);\n" +
+      "  emitRGBA(vec4(shown * faded, v * weight * faded));\n" +
+      "}\n"
     );
   }
   return (
     "#uicontrol invlerp normalized\n" +
-    "void main() { float v = normalized();" +
-    ` emitRGBA(vec4(vec3(${r}, ${g}, ${b}) * v, v > 0.0 ? 1.0 : 0.0)); }`
+    "#uicontrol float weight slider(min=0, max=1, default=1)\n" +
+    "#uicontrol invlerp imaged(range=[0, 1], clamp=false)\n" +
+    '#uicontrol vec3 color color(default="white")\n' +
+    "void main() {\n" +
+    "  float v = normalized();\n" +
+    "  vec3 shown = color * (v * weight);\n" +
+    "  emitRGBA(vec4(shown, imaged() > 0.0 ? 1.0 : 0.0));\n" +
+    "}\n"
   );
+}
+
+/** A colour as the engine's `color` control wants it: six hex digits. */
+function hexColourFor(colour) {
+  return `#${(colour ?? WHITE)
+    .map((part) => Math.round(Math.min(1, Math.max(0, part)) * 255)
+      .toString(16).padStart(2, "0"))
+    .join("")}`;
+}
+
+/**
+ * Every shader control of one row, as one whole object.
+ *
+ * Always restored whole, never piecewise: a partial restore is how one
+ * control quietly resets another to its default. This mirrors the viewer's
+ * own `shaderControlsFor` in `app/page/src/scene.js`.
+ */
+function controlsFor(row, { asAVolume = false } = {}) {
+  const controls = {
+    normalized: { range: [row.window.low, row.window.high] },
+    weight: row.weight ?? 1,
+    color: hexColourFor(row.colour),
+  };
+  if (asAVolume) controls.attenuation = row.attenuation ?? 0;
+  return controls;
 }
 
 
@@ -1871,9 +1906,14 @@ function handleFor(own) {
           layer.volumeRenderingGain.value = own.showingVolume ? A_VOLUME_NEEDS_LIFTING : 0;
         }
         // And the little program, because how a sample contributes is the whole
-        // difference between a volume and a fog. See `shaderFor`.
+        // difference between a volume and a fog. See `shaderFor`. A fresh
+        // program starts on its controls' defaults, so the row's own values
+        // are restored right after it — whole, never piecewise.
         if (layer.fragmentMain) {
           layer.fragmentMain.value = shaderFor(row.colour, { asAVolume: own.showingVolume });
+          layer.shaderControlState.restoreState(
+            controlsFor(row, { asAVolume: own.showingVolume }),
+          );
         }
       }
     },
@@ -1903,7 +1943,7 @@ function handleFor(own) {
       }
     },
 
-    setChannel(index, { visible, colour, window: brightness } = {}) {
+    setChannel(index, { visible, colour, window: brightness, weight } = {}) {
       const row = own.rows[index];
       if (!row || !row.managed) return;
       if (visible !== undefined) row.visible = visible;
@@ -1917,20 +1957,19 @@ function handleFor(own) {
       }
       const layer = row.managed.layer;
       if (!layer) return;
-      if (colour) {
-        row.colour = colour;
-        // Setting the shader to the text it already holds is ignored by the
-        // engine, so this costs nothing when the colour has not changed.
-        layer.fragmentMain.value = shaderFor(colour);
-      }
-      if (brightness) {
-        row.window = brightness;
-        // The window travels separately, as a value for a control the program
-        // declares, so it reaches a program that is already compiled. That is
-        // what makes dragging a contrast handle smooth however much is open.
-        layer.shaderControlState.restoreState({
-          normalized: { range: [brightness.low, brightness.high] },
-        });
+      if (colour) row.colour = colour;
+      if (brightness) row.window = brightness;
+      /* `weight` is the channel's own opacity, an extension the viewer's
+         panel uses; an option without it simply ignores the key. */
+      if (weight !== undefined) row.weight = weight;
+      if (colour || brightness || weight !== undefined) {
+        // Everything travels as values for controls the compiled program
+        // declares — the colour included, so no change here recompiles.
+        // Restored whole, never piecewise: a partial restore is how one
+        // control quietly resets another to its default.
+        layer.shaderControlState.restoreState(
+          controlsFor(row, { asAVolume: own.showingVolume }),
+        );
       }
     },
 

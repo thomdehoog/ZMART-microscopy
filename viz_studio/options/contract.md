@@ -52,6 +52,9 @@ viewer.canShowVolume               // true or false: can it draw the stack as a 
 viewer.canShowVolumeBecause        // one sentence saying why it is what it is
 viewer.showVolume(on)              // draw the whole stack rather than one plane of it
 viewer.setChannel(index, { visible, colour, window })
+                                   // `weight` (0..1, the channel's own opacity) is an
+                                   // optional extension the operator page's viewer panel
+                                   // sends; an option without it ignores the key
 viewer.handDragsTo(handler)        // a drag means something other than panning; null gives panning back
 viewer.drawUnder(paint)            // the application's drawing beneath the picture
 viewer.drawOver(paint)             // the application's drawing above it
