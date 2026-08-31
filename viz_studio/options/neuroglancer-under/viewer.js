@@ -696,6 +696,7 @@ async function start(own, acquisitions) {
   pinTheAxesThatMeasureDistance(own.viewer);
   startTimeAtTheFirstMoment(own.viewer);
   countFromTheCornerOfTheVoxelRatherThanItsMiddle(own);
+  everyHeightBeginsAtNought(own);
   // A page may open several acquisitions at once, and they do not all arrive
   // together — the axes become known as soon as the first of them is read, so a
   // second one may still be on its way. Each layer is therefore looked at again
@@ -704,7 +705,10 @@ async function start(own, acquisitions) {
   // alone, which is why this cannot creep half a voxel further with each pass.
   own.stopWatchingTheSources = own.rows
     .map((row) => row.managed?.layer?.dataSourcesChanged?.add(
-      () => countFromTheCornerOfTheVoxelRatherThanItsMiddle(own),
+      () => {
+        countFromTheCornerOfTheVoxelRatherThanItsMiddle(own);
+        everyHeightBeginsAtNought(own);
+      },
     ))
     .filter(Boolean);
   // The engine chooses a starting magnification the first moment it believes it
@@ -954,11 +958,12 @@ async function theRunsOwnDescription(url) {
 async function rowsFor(acquisitions) {
   const rows = [];
   for (const acquisition of acquisitions) {
+    const itsOwnDescription = await theRunsOwnDescription(acquisition.url);
     // What the page said, where it said anything; otherwise what the run says
     // about itself; and only if the run says nothing either, one white channel.
     const described = acquisition.channels && acquisition.channels.length
       ? acquisition.channels
-      : channelsTheStoreDescribes(await theRunsOwnDescription(acquisition.url))
+      : channelsTheStoreDescribes(itsOwnDescription)
         || [{ name: acquisition.name, colour: [...WHITE], window: null }];
     /* Whatever is still without a window is read out of the picture, one channel
        at a time.
@@ -1007,6 +1012,53 @@ async function rowsFor(acquisitions) {
     });
   }
   return rows;
+}
+
+/**
+ * Every store's height re-based to nought, so the map can show them all.
+ *
+ * The canvas is a two-dimensional map of the specimen, and the engine keeps
+ * one z for the whole space — so an overview captured at one height and a
+ * focus stack spanning another could never be on screen together: each store
+ * drew only when the shared z sat exactly on one of its own planes, and "the
+ * overview is not showing up" was a focus stack holding the z somewhere
+ * else. On the instrument the heights genuinely differ — the focus map is
+ * micrometres of real slope — and a slice a single voxel thick forgives
+ * none of it.
+ *
+ * So the height is taken out of the placement: each layer's z translation is
+ * set to nought, the way the half-voxel corner shift above rewrites the same
+ * matrix, and every acquisition then begins at the same plane. The recorded
+ * heights are untouched in the stores — this bends the drawing, not the
+ * data. A stack still spans its planes (from nought), and browsing them
+ * walks above the flat captures; the map's own plane is the first one.
+ * Idempotent, because nought written twice is nought.
+ */
+function everyHeightBeginsAtNought(own) {
+  for (const row of own.rows) {
+    const placing = row.managed?.layer?.dataSources?.[0]?.loadState?.transform;
+    if (!placing) continue;
+    const placed = placing.value;
+    const { rank, outputSpace } = placed;
+    const heightAxis = outputSpace?.names?.indexOf?.("z");
+    if (heightAxis === undefined || heightAxis < 0) continue;
+    const moved = Float64Array.from(placed.transform);
+    const at = rank * (rank + 1) + heightAxis;
+    if (moved[at] === 0) continue;
+    moved[at] = 0;
+    placing.value = { ...placed, transform: moved };
+  }
+  // And the map opens on that first plane, rather than wherever the engine's
+  // own centring left the height standing.
+  const space = own.viewer.navigationState.position.coordinateSpace.value;
+  const heightAxis = space?.names?.indexOf?.("z") ?? -1;
+  if (heightAxis >= 0) {
+    const standing = Float32Array.from(own.viewer.navigationState.position.value);
+    if (Number.isFinite(standing[heightAxis]) && standing[heightAxis] !== 0.5) {
+      standing[heightAxis] = 0.5;
+      own.viewer.navigationState.position.value = standing;
+    }
+  }
 }
 
 /**
