@@ -23,5 +23,11 @@ object_analysis:
       gpu: true
 
   - extract_classical_features:
+      # Every extras family: texture (gradients, stat_texture, lbp, fft,
+      # glrlm), background (global_bg, local_bg), neighbourhood, morphology.
+      # Each becomes a gating axis on the page, and every channelised extra
+      # is reported per colour (name, name_c0, name_c1, ...), the same
+      # contract the intensity columns already follow.
+      extras: [all]
 
   - build_object_table:

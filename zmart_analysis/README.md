@@ -90,6 +90,10 @@ Kept minimal, so a re-sync stays cheap.
 - `detect_objects.py` stacks `extra_channel_paths` channel-last into the
   image the feature extractor measures, so intensity features come out per
   colour; segmentation itself still reads the one image it was handed.
+- `object_analysis.yaml` turns every extras family on (`extras: [all]`):
+  texture, background correction, neighbourhood and morphology all become
+  gating axes on the page — and, per the extractor's channelisation, each
+  channelised feature is reported per colour like the intensity columns.
 
 ## Running the tests
 
