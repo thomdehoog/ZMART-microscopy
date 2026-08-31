@@ -254,6 +254,10 @@ export default {
       const mode = settings.maskShow ?? "fill";
       const masksWanted = settings.tested && mode !== "off";
       const showingMasks = Boolean(masksWanted && mask);
+      /* Honest pixels: shown larger than captured, a frame keeps its own
+         blocks rather than a smoothed guess at detail nobody measured --
+         the same rule the simulator's target mock lives by. */
+      paint.imageSmoothingEnabled = false;
       if (picture) {
         if (settings.imageGrey) paint.filter = "grayscale(1)";
         paint.drawImage(picture, ox, oy, frame * scale, frame * scale);
@@ -316,10 +320,12 @@ export default {
     function drawTheControls() {
       const settings = ctx.settings();
       which.textContent = `${settings.tile + 1} / ${ctx.plan().length}`;
-      /* The mask controls exist once there are masks to wear: before a
-         test they were presses that did nothing, standing in the way of
-         the picker. */
-      maskToggle.style.display = settings.tested ? "" : "none";
+      /* The mask controls stand in their place from the start, disabled
+         until a test gives them masks to wear: a control that appears
+         from nowhere moves the line; one that wakes up does not. */
+      for (const el of maskToggle.querySelectorAll("button, input")) {
+        el.disabled = !settings.tested;
+      }
       for (const b of maskToggle.querySelectorAll("button")) {
         b.setAttribute(
           "aria-pressed", String(b.dataset.mode === (settings.maskShow ?? "fill")));
