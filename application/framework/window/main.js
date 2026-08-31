@@ -429,7 +429,10 @@ let stageWatch = null;
     for (const panel of Object.values(thePanels)) {
       if (panel.foot) panel.foot.textContent = "";
     }
-    for (const slot of document.querySelectorAll(".carrier-action, .scan-action, .focus-action")) {
+    for (const slot of document.querySelectorAll(
+      ".carrier-action, .scan-action, .focus-action, "
+      + ".detect-action, .select-action, .acquire-action",
+    )) {
       slot.textContent = "";
     }
     if (!shown) return;
@@ -1080,6 +1083,11 @@ let stageWatch = null;
       takeSelection: (ids) => {
         state.gated = ids;
         drawStage(); renderTabs(); renderActionBar();
+      },
+      /* Which compartment a field belongs to, for the per-tileset draw. */
+      tilesetOf: (field) => {
+        const t = state.plan[field];
+        return t ? (t.tileset ?? t.fieldId ?? field) : field;
       },
       sizeCanvas, css,
     });

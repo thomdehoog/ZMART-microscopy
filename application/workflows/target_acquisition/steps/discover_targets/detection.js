@@ -63,6 +63,11 @@ export default {
     const side = document.createElement("div");
     side.className = "detect-side";
 
+    /* The step's own press lives at the top of its channel, not in the
+       bar under the panel: the hand finds Run where the controls begin. */
+    const act = document.createElement("div");
+    act.className = "detect-action side-act";
+
     /* The same boxed groups every earlier step's channel is made of: a
        heading above a card, controls inside the card and nothing else. */
     const settings = sideGroup("Cellpose segmentation");
@@ -96,7 +101,7 @@ export default {
     readout.id = "detect-readout";
 
     test.body.append(picker, canvasHost, readout);
-    side.append(settings.group, test.group);
+    side.append(act, settings.group, test.group);
     host.append(side);
 
     /* The picture of the field being looked at, drawn when it arrives. The

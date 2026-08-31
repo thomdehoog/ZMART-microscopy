@@ -53,6 +53,10 @@ export default {
     const side = document.createElement("div");
     side.className = "analysis-side";
 
+    /* The step's own press at the top of its channel, like the others. */
+    const act = document.createElement("div");
+    act.className = "select-action side-act";
+
     /* The same boxed group every earlier step's channel is made of. */
     const boxed = sideGroup("Gates");
     const clear = document.createElement("button");
@@ -117,6 +121,9 @@ export default {
     drawN.type = "number"; drawN.min = "1"; drawN.step = "1";
     drawN.id = "gate-draw-n";
     drawN.value = "50";
+    const per = document.createElement("span");
+    per.className = "hint";
+    per.textContent = "per tileset";
     const drawBtn = document.createElement("button");
     drawBtn.type = "button"; drawBtn.className = "ghost tiny";
     drawBtn.id = "gate-draw";
@@ -125,10 +132,10 @@ export default {
     allBtn.type = "button"; allBtn.className = "ghost tiny";
     allBtn.id = "gate-draw-all";
     allBtn.textContent = "All in gates";
-    refine.append(drawN, drawBtn, allBtn);
+    refine.append(drawN, per, drawBtn, allBtn);
 
     boxed.body.append(axes, legend, wrap, readout, list, refine);
-    side.append(boxed.group);
+    side.append(act, boxed.group);
     host.append(side);
 
     const sx = (v, w) => PAD.l + (v / xHi) * (w - PAD.l - PAD.r);
@@ -454,14 +461,28 @@ export default {
     });
 
     drawBtn.addEventListener("click", () => {
-      const whole = [...cellsInAllGates(theCells(), ctx.gates())];
-      if (!whole.length) return;
-      const n = Math.max(1, Math.min(whole.length, Math.round(Number(drawN.value) || 0)));
-      for (let i = whole.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [whole[i], whole[j]] = [whole[j], whole[i]];
+      const cells = theCells();
+      const inGates = cellsInAllGates(cells, ctx.gates());
+      if (!inGates.size) return;
+      const n = Math.max(1, Math.round(Number(drawN.value) || 0));
+      /* So many from EACH tileset: a cap per compartment, so one crowded
+         well cannot spend the whole budget and an empty one costs nothing. */
+      const byTileset = new Map();
+      for (const c of cells) {
+        if (!inGates.has(c.id)) continue;
+        const key = ctx.tilesetOf?.(c.field) ?? c.field;
+        if (!byTileset.has(key)) byTileset.set(key, []);
+        byTileset.get(key).push(c.id);
       }
-      ctx.takeSelection(new Set(whole.slice(0, n)));
+      const took = new Set();
+      for (const ids of byTileset.values()) {
+        for (let i = ids.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [ids[i], ids[j]] = [ids[j], ids[i]];
+        }
+        for (const id of ids.slice(0, n)) took.add(id);
+      }
+      ctx.takeSelection(took);
       sayIt(); renderList(); draw();
     });
     allBtn.addEventListener("click", () => {

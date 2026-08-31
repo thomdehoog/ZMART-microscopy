@@ -50,9 +50,10 @@ export function targetLayers(theRun) {
       reach = 12 / scale;
       const ctxRad = Math.max(1.1, 1.4 * Math.sqrt(scale / 0.03));
       /* Each step its own funnel: discovery shows everything found and
-         nothing chosen, refine lights the selection over quiet context, and
-         acquisition shows the chosen alone. */
-      if (activeMode !== "acquire") {
+         nothing chosen; refine and acquisition show the chosen alone --
+         context dots on the tissue read as clutter once the step is about
+         the selection. */
+      if (activeMode === "detect") {
         ctx.fillStyle = css("--mark-context");
         ctx.globalAlpha = 0.55;
         ctx.beginPath();
