@@ -250,7 +250,11 @@ export const backend = {
       for (; shown < progress.fields.length; shown++) onField?.(progress.fields[shown]);
       if (progress.error) throw new Error(progress.error);
       if (!progress.running) {
-        return { fields: progress.fields, stopped: !!progress.stopped };
+        return {
+          fields: progress.fields,
+          failed: progress.failed ?? [],
+          stopped: !!progress.stopped,
+        };
       }
       await rest(300);
     }

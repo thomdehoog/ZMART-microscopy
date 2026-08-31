@@ -298,3 +298,37 @@ class _StubCellposeModel:
 class _ShapeAgnosticCellposeModel:
     def eval(self, x, channel_axis=None, **kwargs):
         return np.zeros(x.shape[:2], dtype=np.int32), None, None
+
+
+def test_a_single_object_field_survives_to_builtin_and_the_table():
+    """A one-element numpy column must stay a list.
+
+    ``.item()`` answers on a one-element array as happily as on a scalar,
+    and taking it collapsed every column of a single-object field to a bare
+    number -- ``len()`` then died on an int at the top of the table step.
+    Dense test fields never showed it; the first field with exactly one
+    cell killed a whole nine-field run.
+    """
+    assert build_object_table.to_builtin(np.array([5])) == [5]
+    assert build_object_table.to_builtin(np.int32(5)) == 5
+    assert detect_objects.to_builtin(np.array([2.0])) == [2.0]
+
+    props = {name: np.array([value]) for name, value in [
+        ("label", 1), ("centroid-0", 5.0), ("centroid-1", 6.0),
+        ("bbox-0", 1), ("bbox-1", 2), ("bbox-2", 9), ("bbox-3", 9),
+        ("area", 64.0), ("intensity_mean", 10.0), ("eccentricity", 0.5),
+    ]}
+    data = {
+        "metadata": {},
+        "input": {
+            "tile_id": ["overview", 2, 0], "tile_stage_xy_um": [0.0, 0.0],
+            "source_pixel_size_um": [4.0, 4.0],
+            "source_image_size_px": [64, 64],
+            "image_to_stage": [[1, 0], [0, 1]],
+        },
+        "detect_objects": {"image_size_px": [64, 64]},
+        "extract_features": {"properties": props},
+    }
+    out = build_object_table.run(data, {})
+    assert out["object_analysis"]["objects"]["n_objects"] == 1
+    assert out["object_analysis"]["objects"]["properties"]["label"] == [1]

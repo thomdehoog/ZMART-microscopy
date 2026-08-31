@@ -886,7 +886,11 @@ def to_builtin(obj: Any) -> Any:
         return {str(key): to_builtin(value) for key, value in obj.items()}
     if isinstance(obj, (list, tuple)):
         return [to_builtin(value) for value in obj]
-    if hasattr(obj, "item"):
+    if hasattr(obj, "item") and getattr(obj, "ndim", 0) == 0:
+        # Only true scalars take the item() door: a ONE-element numpy array
+        # answers item() just as happily, and taking it collapsed every
+        # column of a single-object field to a bare number -- len() then
+        # died on an int at the top of the table step.
         try:
             return to_builtin(obj.item())
         except (TypeError, ValueError):

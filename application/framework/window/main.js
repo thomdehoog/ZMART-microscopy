@@ -684,9 +684,14 @@ let stageWatch = null;
           redrawSoon();
         },
       }).then((out) => {
+        const failed = out?.failed ?? [];
         detectionShown?.progress?.({
           ended: true,
-          note: out?.stopped ? "stopped by hand" : "segmentation finished",
+          note: out?.stopped
+            ? "stopped by hand"
+            : failed.length
+              ? `finished — ${failed.length} field(s) failed; the first said: ${failed[0].why}`
+              : "segmentation finished",
         });
         return out?.stopped
           ? stoppedShort(`stopped by hand — ${state.cells.size} targets found`)
