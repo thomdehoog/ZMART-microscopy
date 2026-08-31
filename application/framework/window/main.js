@@ -1029,6 +1029,10 @@ let stageWatch = null;
       tryOn: (field, settings) => backend.discoverTargets({ fields: [field], settings })
         .then(({ fields }) => ({ ...fields[0], cells: fields[0].cells.map(stage.toCarrier) })),
       pictureOf: (label) => pictureOf("overview", label),
+      /* Which capture stands at a plan position: the scan filed each field's
+         label as it landed, so the panel can show a field's picture without
+         having tested anything on it. */
+      labelOf: (field) => state.fieldLabels[field],
       sizeCanvas, css, drawScaleBar,
       changed: () => renderActionBar(),
     });

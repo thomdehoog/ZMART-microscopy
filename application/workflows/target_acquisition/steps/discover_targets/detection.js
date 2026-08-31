@@ -102,8 +102,10 @@ export default {
     side.append(head, bar, testHead, canvasHost, readout);
     host.append(side);
 
-    /* The field's picture, fetched once a field has been tried and drawn when
-       it arrives. */
+    /* The picture of the field being looked at, drawn when it arrives. The
+       whole point of this view is judging a diameter against the tissue, so
+       the picture comes with the field -- not, as it first did, only after a
+       test had already been run blind on it. */
     let picture = null;
     function showThePictureOf(label) {
       const where = ctx.pictureOf(label);
@@ -224,13 +226,14 @@ export default {
         const total = ctx.plan().length || 1;
         settings.tile = (settings.tile + step + total) % total;
         settings.tested = false;
-        picture = null;
+        showThePictureOf(ctx.labelOf?.(settings.tile));
         refresh();
       });
     }
 
     new ResizeObserver(() => drawTheTile()).observe(canvasHost);
 
+    showThePictureOf(ctx.labelOf?.(ctx.settings().tile));
     drawTheControls();
     drawTheTile();
     return { redraw: () => { drawTheControls(); drawTheTile(); } };
