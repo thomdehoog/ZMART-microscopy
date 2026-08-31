@@ -151,6 +151,7 @@ let stageWatch = null;
       border: 0,       // µm from the field's edge inside which a cell is dropped
       binning: 1,      // segment on a copy this many times smaller each side
       maskShow: "fill", // how the test view wears the masks: fill | line | off
+      maskAlpha: 1,     // how strongly the masks sit on the image (0..1)
       imageGrey: false, // the test image in grey (set by a landed test, hand-flipped)
       tile: 0,
       hovered: -1,     // the tile under the pointer, a press from being tested

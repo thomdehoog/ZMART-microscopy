@@ -110,6 +110,20 @@ export default {
       });
       maskToggle.append(b);
     }
+    /* And how strongly the masks sit on the image, a small slider beside
+       the presses. */
+    const alpha = document.createElement("input");
+    alpha.type = "range";
+    alpha.min = "10";
+    alpha.max = "100";
+    alpha.step = "5";
+    alpha.className = "mask-alpha";
+    alpha.title = "mask opacity";
+    alpha.addEventListener("input", () => {
+      ctx.settings().maskAlpha = Number(alpha.value) / 100;
+      drawTheTile();
+    });
+    maskToggle.append(alpha);
 
     /* And the image's own dress at the right: colour or grey, flipped by
        hand -- a landed test flips it to grey so the coloured masks stand
@@ -216,11 +230,10 @@ export default {
       const tile = ctx.plan()[settings.tile];
       if (!tile) return;
       const frame = tile.frameUm;
-      /* Flush with the card's content: the image starts where the rows
-         below it start, full width, with one line under it kept for the
-         scale bar and the picker. */
-      const pad = 26;
-      const scale = Math.min(w / frame, (h - pad) / frame);
+      /* Flush with the card's content: the canvas IS the image now --
+         the control line lives below it in the host's own bottom room,
+         so nothing inside the frame is margin. */
+      const scale = Math.min(w / frame, h / frame);
       const ox = 0, oy = 0;
       const X = (x) => ox + (x - (tile.x - frame / 2)) * scale;
       const Y = (y) => oy + (y - (tile.y - frame / 2)) * scale;
@@ -242,23 +255,39 @@ export default {
         paint.drawImage(picture, ox, oy, frame * scale, frame * scale);
         paint.filter = "none";
       }
+      const maskAlpha = settings.maskAlpha ?? 1;
       if (showingMasks && mode === "fill") {
+        paint.globalAlpha = maskAlpha;
         paint.drawImage(mask, ox, oy, frame * scale, frame * scale);
+        paint.globalAlpha = 1;
       }
       if (showingMasks && mode === "line") {
-        /* The fill punched out of an offscreen copy by four shifted
-           stampings of itself: what survives is each object's rim, still
-           in that object's own colour. */
-        const o = document.createElement("canvas");
-        o.width = Math.max(1, Math.round(frame * scale));
-        o.height = o.width;
-        const op = o.getContext("2d");
-        op.drawImage(mask, 0, 0, o.width, o.height);
-        op.globalCompositeOperation = "destination-out";
+        /* The rim is the mask minus its own eroded self. Erode first --
+           destination-in against four shifted copies keeps only the pixels
+           covered from every direction, the interior -- then punch that
+           interior out of the full mask. Punching with shifted copies
+           directly erased the rim too: every edge pixel is covered by the
+           copy shifted INTO its object, and four directions cover them all. */
+        const size = Math.max(1, Math.round(frame * scale));
+        const eroded = document.createElement("canvas");
+        eroded.width = size;
+        eroded.height = size;
+        const ep = eroded.getContext("2d");
+        ep.drawImage(mask, 0, 0, size, size);
+        ep.globalCompositeOperation = "destination-in";
         for (const [dx, dy] of [[2, 0], [-2, 0], [0, 2], [0, -2]]) {
-          op.drawImage(mask, dx, dy, o.width, o.height);
+          ep.drawImage(mask, dx, dy, size, size);
         }
+        const o = document.createElement("canvas");
+        o.width = size;
+        o.height = size;
+        const op = o.getContext("2d");
+        op.drawImage(mask, 0, 0, size, size);
+        op.globalCompositeOperation = "destination-out";
+        op.drawImage(eroded, 0, 0);
+        paint.globalAlpha = maskAlpha;
         paint.drawImage(o, ox, oy, frame * scale, frame * scale);
+        paint.globalAlpha = 1;
       }
 
       /* What the settings found, each object at its own size, drawn as
@@ -283,11 +312,16 @@ export default {
     function drawTheControls() {
       const settings = ctx.settings();
       which.textContent = `${settings.tile + 1} / ${ctx.plan().length}`;
+      /* The mask controls exist once there are masks to wear: before a
+         test they were presses that did nothing, standing in the way of
+         the picker. */
+      maskToggle.style.display = settings.tested ? "" : "none";
       for (const b of maskToggle.querySelectorAll("button")) {
         b.setAttribute(
           "aria-pressed", String(b.dataset.mode === (settings.maskShow ?? "fill")));
       }
       greyBtn.setAttribute("aria-pressed", String(Boolean(settings.imageGrey)));
+      alpha.value = String(Math.round((settings.maskAlpha ?? 1) * 100));
 
       params.textContent = "";
       const number = (label, key, min, max, step, unit) => {

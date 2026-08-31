@@ -428,7 +428,8 @@ button.run:disabled { opacity: 0.4; cursor: default; }
 .tile-host .tile-pick {
   position: absolute; left: 50%; bottom: 0; transform: translateX(-50%);
 }
-.mask-toggle { position: absolute; left: 0; bottom: 0; display: flex; gap: 2px; }
+.mask-toggle { position: absolute; left: 0; bottom: 0; display: flex; gap: 2px; align-items: center; }
+.mask-toggle .mask-alpha { width: 56px; margin-left: 4px; accent-color: var(--accent, #0284c7); }
 .image-toggle { position: absolute; right: 0; bottom: 0; }
 .mask-toggle .ghost.tiny[aria-pressed="true"],
 .image-toggle .ghost.tiny[aria-pressed="true"] {
@@ -934,7 +935,9 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
 .detect-params .param { display: grid; grid-template-columns: 1fr 88px 26px; }
 .detect-params .param label { flex: none; }
 .detect-params button.ghost { margin-top: 2px; }
-.tile-host { padding: 12px 14px 0; }
+/* No side padding: the image starts and ends where the card's rows do,
+   and the bottom room is the control line's, under the picture. */
+.tile-host { padding: 0 0 30px; }
 .tile-host canvas { display: block; width: 100%; aspect-ratio: 1 / 1; border-radius: 6px; }
 /* the channel's closing line: what was found, or what the controls listen to */
 .side-note { padding: 8px 14px 12px; font-size: 12px; color: var(--ink-3); line-height: 1.4; }
