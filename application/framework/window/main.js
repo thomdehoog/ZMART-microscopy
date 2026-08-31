@@ -1111,13 +1111,7 @@ let stageWatch = null;
         state.gated = ids;
         drawStage(); renderTabs(); renderActionBar();
       },
-      /* The refinement's hand on the selection alone: the gates stand, and a
-         random draw of what they let through becomes what step 8 images. */
-      takeSelection: (ids) => {
-        state.gated = ids;
-        drawStage(); renderTabs(); renderActionBar();
-      },
-      /* Which compartment a field belongs to, for the per-tileset draw. */
+      /* Which compartment a field belongs to, for the per-tileset ceiling. */
       tilesetOf: (field) => {
         const t = state.plan[field];
         return t ? (t.tileset ?? t.fieldId ?? field) : field;

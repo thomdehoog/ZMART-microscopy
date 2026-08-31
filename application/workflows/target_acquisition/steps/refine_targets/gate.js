@@ -112,33 +112,28 @@ export default {
     list.className = "gate-list";
     list.id = "gate-list";
 
-    /* A further refinement: X of what the gates let through, drawn at
-       random -- for a run that wants a sample rather than everything. The
-       draw touches only the selection; the gates stand and All in gates
-       takes the whole intersection back. */
+    boxed.body.append(axes, legend, wrap, readout, list);
+
+    /* The sub-curation in a box of its own: one ceiling, standing over the
+       Confirm that takes the result. The cap is a spatial SURS draw over
+       EACH tileset's own extent -- a grid over the stage coordinates of
+       the gated cells, never over the plot's axes -- so what survives is
+       spread evenly across the compartment. The plot above is untouched:
+       gates show what they let through; the ceiling decides what is kept. */
+    const curate = sideGroup("Selection");
     const refine = document.createElement("div");
     refine.className = "gate-draw";
-    const drawN = document.createElement("input");
-    drawN.type = "number"; drawN.min = "1"; drawN.step = "1";
-    drawN.id = "gate-draw-n";
-    drawN.value = "50";
-    const per = document.createElement("span");
-    per.className = "hint";
-    per.textContent = "per tileset";
-    const drawBtn = document.createElement("button");
-    /* Full-size presses: these do the step's real work, and the tiny
-       chips beside a taller input read as an afterthought. */
-    drawBtn.type = "button"; drawBtn.className = "ghost";
-    drawBtn.id = "gate-draw";
-    drawBtn.textContent = "Draw at random";
-    const allBtn = document.createElement("button");
-    allBtn.type = "button"; allBtn.className = "ghost";
-    allBtn.id = "gate-draw-all";
-    allBtn.textContent = "All in gates";
-    refine.append(drawN, per, drawBtn, allBtn);
+    const maxLabel = document.createElement("label");
+    maxLabel.textContent = "Max objects per tileset";
+    maxLabel.htmlFor = "gate-max";
+    const maxN = document.createElement("input");
+    maxN.type = "number"; maxN.min = "1"; maxN.step = "1";
+    maxN.id = "gate-max";
+    maxN.value = "50";
+    refine.append(maxLabel, maxN);
+    curate.body.append(refine, act);
 
-    boxed.body.append(axes, legend, wrap, readout, list, refine);
-    side.append(boxed.group, act);
+    side.append(boxed.group, curate.group);
     host.append(side);
 
     const sx = (v, w) => PAD.l + (v / xHi) * (w - PAD.l - PAD.r);
@@ -149,13 +144,34 @@ export default {
     const theCells = () => [...ctx.cells()];
     const shownGate = () => gateForPair(ctx.gates(), fx, fy);
 
-    /* Gates changed: the run takes the list and the intersection together. */
+    /** What the gates let through, held under the per-tileset ceiling. */
+    const capped = (gates) => {
+      const cells = theCells();
+      const inGates = cellsInAllGates(cells, gates);
+      const max = Math.max(1, Math.round(Number(maxN.value) || 0));
+      const byTileset = new Map();
+      for (const c of cells) {
+        if (!inGates.has(c.id)) continue;
+        const key = ctx.tilesetOf?.(c.field) ?? c.field;
+        if (!byTileset.has(key)) byTileset.set(key, []);
+        byTileset.get(key).push(c);
+      }
+      const took = new Set();
+      for (const pool of byTileset.values()) {
+        for (const id of sursDraw(pool, max)) took.add(id);
+      }
+      return took;
+    };
+
+    /* Gates changed: the run takes the list and the capped selection
+       together -- there is no separate draw press to remember. */
     const commit = (gates) => {
-      ctx.setGates(gates, cellsInAllGates(theCells(), gates));
+      ctx.setGates(gates, capped(gates));
       sayIt();
       renderList();
       draw();
     };
+    maxN.addEventListener("input", () => commit([...ctx.gates()]));
 
     const sayIt = () => {
       const cells = theCells();
@@ -166,14 +182,14 @@ export default {
         return;
       }
       if (!gates.length) {
-        readout.textContent = "click to lay a polygon gate — close it on its first point";
+        readout.textContent = "";
         return;
       }
       const inGates = cellsInAllGates(cells, gates).size;
       const took = ctx.gated().size;
       readout.textContent =
         (took < inGates
-          ? `${took} drawn at random of ${inGates} in gates · `
+          ? `${took} kept of ${inGates} in gates · `
           : `${took} of ${cells.length} selected · `)
         + `${gates.length} gate${gates.length === 1 ? "" : "s"}`;
     };
@@ -484,35 +500,6 @@ export default {
         chosen = -1;
         commit(ctx.gates().filter((g) => g !== gate));
       }
-    });
-
-    drawBtn.addEventListener("click", () => {
-      const cells = theCells();
-      const inGates = cellsInAllGates(cells, ctx.gates());
-      if (!inGates.size) return;
-      const n = Math.max(1, Math.round(Number(drawN.value) || 0));
-      /* So many from EACH tileset, drawn systematically over its area --
-         SURS, one grid and one random start per tileset -- so the sample is
-         spread evenly across the compartment instead of clumping wherever
-         cells are dense. A plain shuffle over-draws the crowded corners,
-         which is exactly the density bias the grid exists to remove. */
-      const byTileset = new Map();
-      for (const c of cells) {
-        if (!inGates.has(c.id)) continue;
-        const key = ctx.tilesetOf?.(c.field) ?? c.field;
-        if (!byTileset.has(key)) byTileset.set(key, []);
-        byTileset.get(key).push(c);
-      }
-      const took = new Set();
-      for (const pool of byTileset.values()) {
-        for (const id of sursDraw(pool, n)) took.add(id);
-      }
-      ctx.takeSelection(took);
-      sayIt(); renderList(); draw();
-    });
-    allBtn.addEventListener("click", () => {
-      ctx.takeSelection(cellsInAllGates(theCells(), ctx.gates()));
-      sayIt(); renderList(); draw();
     });
 
     clear.addEventListener("click", () => { draft = null; chosen = -1; commit([]); });
