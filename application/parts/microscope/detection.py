@@ -75,6 +75,14 @@ def as_targets(table: dict, *, field: int, pixel_um: float) -> list[dict]:
             "area": area,
             "intensity": float(props["intensity_mean"][index]),
             "r": math.sqrt(area / math.pi),
+            # The whole feature row rides along: what an operator gates on is
+            # a decision made later, and a column dropped here is an axis the
+            # page cannot offer.
+            "features": {
+                name: float(values[index])
+                for name, values in props.items()
+                if isinstance(values[index], (int, float))
+            },
         })
     return targets
 
