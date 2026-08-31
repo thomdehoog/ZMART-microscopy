@@ -16,9 +16,19 @@ test("the engine draws the store, and the console says nothing", async ({ page }
 
   const said = [];
   page.on("console", (message) => {
-    if (["error", "warning"].includes(message.type())) said.push(message.text());
+    const text = message.text();
+    // vite's own chatter is not the engine's
+    if (text.startsWith("[vite]")) return;
+    said.push(`${message.type()}: ${text}`);
   });
   page.on("pageerror", (why) => said.push(`pageerror: ${why.message}`));
+  const asked = [];
+  page.on("response", (response) => {
+    const url = response.url();
+    if (url.includes("/data/")) {
+      asked.push(`${response.status()} ${url.split("/data/")[1]}`);
+    }
+  });
 
   await page.goto("/?backend=pretend");
   await page.evaluate(async ({ source, cx, cy, zoom }) => {
@@ -35,11 +45,15 @@ test("the engine draws the store, and the console says nothing", async ({ page }
     });
     window.__engineLook.setView({ centre: { x: cx, y: cy }, zoom });
   }, { source, cx, cy, zoom });
-  await page.waitForTimeout(8000);
+  await page.waitForTimeout(20000);
   await page.evaluate(({ cx, cy, zoom }) => {
     window.__engineLook.setView({ centre: { x: cx, y: cy }, zoom });
   }, { cx, cy, zoom });
-  await page.waitForTimeout(2000);
+  await page.waitForTimeout(8000);
   await page.screenshot({ path: "test-results/engine-look.png" });
+  const layers = await page.evaluate(() =>
+    window.__engineLook?.layersForMeasurement?.() ?? null);
+  console.log("layers:", JSON.stringify(layers, null, 1));
   console.log("console said:", JSON.stringify(said, null, 2));
+  console.log("data asked for:", JSON.stringify(asked, null, 1));
 });

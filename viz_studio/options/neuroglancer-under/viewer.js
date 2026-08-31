@@ -696,7 +696,18 @@ async function start(own, acquisitions) {
   pinTheAxesThatMeasureDistance(own.viewer);
   startTimeAtTheFirstMoment(own.viewer);
   countFromTheCornerOfTheVoxelRatherThanItsMiddle(own);
-  everyHeightBeginsAtNought(own);
+  /* Kept on a clock until every row has settled, because a slow store (a
+     linked scene takes seconds to load) has no transform to rewrite yet at
+     this moment, and no signal announces the moment it does. Idempotent,
+     cheap, and it puts itself down. */
+  if (!everyHeightBeginsAtNought(own)) {
+    own.heightsBecomeNought = setInterval(() => {
+      if (everyHeightBeginsAtNought(own) && own.heightsBecomeNought) {
+        clearInterval(own.heightsBecomeNought);
+        own.heightsBecomeNought = null;
+      }
+    }, 500);
+  }
   // A page may open several acquisitions at once, and they do not all arrive
   // together — the axes become known as soon as the first of them is read, so a
   // second one may still be on its way. Each layer is therefore looked at again
@@ -1035,18 +1046,27 @@ async function rowsFor(acquisitions) {
  * Idempotent, because nought written twice is nought.
  */
 function everyHeightBeginsAtNought(own) {
+  let settled = true;
   for (const row of own.rows) {
     const placing = row.managed?.layer?.dataSources?.[0]?.loadState?.transform;
-    if (!placing) continue;
+    if (!placing?.value?.outputSpace) {
+      // Not loaded yet: a slow store (a linked scene takes seconds) has no
+      // transform to rewrite at the moment the axes become known, and no
+      // later signal announces it — which is why the caller keeps a clock
+      // on this until every row has settled.
+      settled = false;
+      continue;
+    }
     const placed = placing.value;
     const { rank, outputSpace } = placed;
     const heightAxis = outputSpace?.names?.indexOf?.("z");
     if (heightAxis === undefined || heightAxis < 0) continue;
     const moved = Float64Array.from(placed.transform);
     const at = rank * (rank + 1) + heightAxis;
-    if (moved[at] === 0) continue;
-    moved[at] = 0;
-    placing.value = { ...placed, transform: moved };
+    if (moved[at] !== 0) {
+      moved[at] = 0;
+      placing.value = { ...placed, transform: moved };
+    }
   }
   // And the map opens on that first plane, rather than wherever the engine's
   // own centring left the height standing.
@@ -1059,6 +1079,7 @@ function everyHeightBeginsAtNought(own) {
       own.viewer.navigationState.position.value = standing;
     }
   }
+  return settled;
 }
 
 /**
@@ -2052,6 +2073,35 @@ function handleFor(own) {
     },
 
     /**
+     * Every row's standing, for a measurement — like `gesturesSoFar`, not
+     * part of the interface an application would use. What a test needs when
+     * a layer is invisible and nothing on screen says why: whether the
+     * engine holds it, what space it landed in, and where the view stands.
+     */
+    layersForMeasurement() {
+      const space = own.viewer.navigationState.position.coordinateSpace.value;
+      return own.rows.map((row) => {
+        const source = row.managed?.layer?.dataSources?.[0];
+        const landed = source?.loadState?.transform?.outputSpace?.value;
+        return {
+          name: row.layerName,
+          visible: row.managed?.visible,
+          window: row.window,
+          weight: row.weight ?? 1,
+          matrix: source?.loadState?.transform?.value?.transform
+            ? Array.from(source.loadState.transform.value.transform)
+            : null,
+          error: source?.loadState?.error?.message ?? null,
+          dims: landed ? Array.from(landed.names) : null,
+          lower: landed?.bounds ? Array.from(landed.bounds.lowerBounds) : null,
+          upper: landed?.bounds ? Array.from(landed.bounds.upperBounds) : null,
+          navDims: Array.from(space?.names ?? []),
+          nav: Array.from(own.viewer.navigationState.position.value ?? []),
+        };
+      });
+    },
+
+    /**
      * The operator's own drawing.
      *
      * Hand over one function. It is called at the moment this option considers
@@ -2208,6 +2258,10 @@ function handleFor(own) {
     destroy() {
       if (own.destroyed) return;
       own.destroyed = true;
+      if (own.heightsBecomeNought) {
+        clearInterval(own.heightsBecomeNought);
+        own.heightsBecomeNought = null;
+      }
       // The gestures come off first. Listeners left behind on a box that is
       // still in the page would go on answering the operator's hand after the
       // viewer they belonged to had gone. The little record of what they saw is
