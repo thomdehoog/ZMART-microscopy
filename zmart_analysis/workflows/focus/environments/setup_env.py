@@ -1,6 +1,6 @@
 """Create the conda environment for the focus workflow.
 
-One environment, ``SMART--focus--main``. Scoring sharpness needs numpy, a DCT
+One environment, ``ZMART--focus--main``. Scoring sharpness needs numpy, a DCT
 from scipy, and the readers -- no cellpose, no torch, no GPU. Keeping it out
 of the vision environment means a focus run costs a small environment rather
 than a deep-learning one.
@@ -126,7 +126,7 @@ def setup_workflow_env(
     install_torch: bool = True,
     default_step: str = "main",
 ) -> None:
-    """Create a SMART--<workflow>--<step> conda env."""
+    """Create a ZMART--<workflow>--<step> conda env."""
     parser = argparse.ArgumentParser(
         description=f"Set up conda env for {workflow} workflow"
     )
@@ -152,11 +152,11 @@ def setup_workflow_env(
     )
     args = parser.parse_args()
 
-    env_name = f"SMART--{workflow}--{args.step}"
+    env_name = f"ZMART--{workflow}--{args.step}"
     gpu = (args.gpu or detect_gpu()) if install_torch else None
     t_start = time.time()
 
-    banner("SMART Analysis -- Environment Setup")
+    banner("ZMART Analysis -- Environment Setup")
 
     section("System")
     import platform as pf
@@ -288,7 +288,7 @@ def setup_workflow_env(
 
 
 def clean_workflow_envs(*, workflow: str) -> None:
-    """Remove SMART--<workflow>--* conda envs."""
+    """Remove ZMART--<workflow>--* conda envs."""
     parser = argparse.ArgumentParser(
         description=f"Remove conda envs for {workflow} workflow"
     )
@@ -304,10 +304,10 @@ def clean_workflow_envs(*, workflow: str) -> None:
     )
     args = parser.parse_args()
 
-    prefix = f"SMART--{workflow}--"
+    prefix = f"ZMART--{workflow}--"
     t_start = time.time()
 
-    banner("SMART Analysis -- Environment Cleanup")
+    banner("ZMART Analysis -- Environment Cleanup")
 
     section("Conda")
     try:

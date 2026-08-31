@@ -32,7 +32,7 @@ dependencies:
   # --- reaching ZMART_analysis ---
   # The analysis engine reads its pipelines from YAML, and it runs inside
   # whatever process asks it for a measurement -- the operator page's bridge,
-  # here. The steps themselves each run in their own SMART--* environment and
+  # here. The steps themselves each run in their own ZMART--* environment and
   # bring their own packages; this is only what it takes to ask.
   - pyyaml>=6
 
