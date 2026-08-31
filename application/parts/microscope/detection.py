@@ -70,6 +70,11 @@ def what_was_captured(record: dict, *, field: int, pixel_um: float, settings: di
         # The page says micrometres from the field's edge; the detector is
         # told pixels, like the diameter. Zero means the filter stays off.
         given["border_margin_px"] = float(settings["border"]) / float(pixel_um)
+    if int(settings.get("binning") or 1) > 1:
+        # Segment on a copy this many times smaller each side: most of the
+        # waiting gone, the masks scaled back to the full frame by the
+        # pipeline itself. One means full size and nothing is sent.
+        given["segmentation_binning"] = int(settings["binning"])
     return given
 
 

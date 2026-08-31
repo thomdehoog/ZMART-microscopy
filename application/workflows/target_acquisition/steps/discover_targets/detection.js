@@ -29,7 +29,7 @@ export const ALGOS = {
  */
 export const settingsFor = (settings) => ({
   diameter: settings.diameter, cellprob: settings.cellprob,
-  border: settings.border,
+  border: settings.border, binning: settings.binning,
 });
 
 /** Golden-angle hues, so neighbouring labels never share a colour. */
@@ -102,7 +102,9 @@ export default {
     readout.id = "detect-readout";
 
     test.body.append(picker, canvasHost, readout);
-    side.append(act, settings.group, test.group);
+    /* Tune first, run second: the discovery press stands under the settings
+       it will run with, not above them. */
+    side.append(settings.group, act, test.group);
     host.append(side);
 
     /* The picture of the field being looked at, drawn when it arrives. The
@@ -205,6 +207,10 @@ export default {
          measures as a smaller, dimmer thing that it is not. Zero keeps
          everything, edges included. */
       number("Border", "border", 0, 500, 1, "µm");
+      /* Segment on a smaller copy: 2 halves each side before cellpose sees
+         it, which is most of the waiting gone -- the masks come back scaled
+         to the full frame, and the features are still measured there. */
+      number("Binning", "binning", 1, 8, 1, "×");
 
       const test = document.createElement("button");
       test.className = "ghost";
@@ -214,15 +220,22 @@ export default {
         settings.tested = false;
         readout.textContent = `looking at position ${settings.tile + 1}…`;
         /* The first test on a cold machine pays the worker's whole spawn --
-           a silent minute that read as a dead button. The bar says so. */
-        ctx.status?.say(`testing on position ${settings.tile + 1} — segmenting…`);
+           a silent minute that read as a dead button. The bar says so, and
+           counts, so the wait has a size instead of a mood. */
+        const began = performance.now();
+        const saying = () => ctx.status?.say(
+          `testing on position ${settings.tile + 1} — segmenting… `
+          + `${Math.round((performance.now() - began) / 1000)} s`);
+        saying();
+        const ticking = setInterval(saying, 1000);
+        const settled = () => { clearInterval(ticking); ctx.status?.quiet(); };
         ctx.tryOn(settings.tile, settingsFor(settings)).then((found) => {
-          ctx.status?.quiet();
+          settled();
           settings.tried = found.cells;
           settings.tested = true;
           showThePictureOf(found.position_label);
           refresh();
-        }, (why) => { ctx.status?.quiet(); readout.textContent = why.message; });
+        }, (why) => { settled(); readout.textContent = why.message; });
       });
       params.append(test);
 

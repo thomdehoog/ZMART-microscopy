@@ -149,6 +149,7 @@ let stageWatch = null;
       diameter: 30,
       cellprob: 0,
       border: 0,       // µm from the field's edge inside which a cell is dropped
+      binning: 1,      // segment on a copy this many times smaller each side
       tile: 0,
       hovered: -1,     // the tile under the pointer, a press from being tested
       tested: false,
@@ -489,7 +490,9 @@ let stageWatch = null;
     const hint = document.createElement("span");
     if (s.mode === "focus") { host.append(hint); return; }
     if (blocked) { hint.className = "action-hint"; hint.textContent = blocked; }
-    else if (running) { hint.className = "action-hint"; hint.textContent = "working…"; }
+    /* Only when the button itself says Interrupt: a hint repeating the
+       button's own "working…" said the same thing twice, side by side. */
+    else if (running && brake) { hint.className = "action-hint"; hint.textContent = "working…"; }
     else if (s.mode === "select" && !done) { hint.className = "action-hint ok"; hint.textContent = `${state.gated.size} gated`; }
     /* What a step came to is said beside the button that produced it — except
        on the focus step, which has a box of its own for the answer: the traces,
