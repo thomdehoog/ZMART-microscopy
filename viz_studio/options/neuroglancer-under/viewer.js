@@ -1037,13 +1037,26 @@ async function rowsFor(acquisitions) {
  * micrometres of real slope — and a slice a single voxel thick forgives
  * none of it.
  *
- * So the height is taken out of the placement: each layer's z translation is
- * set to nought, the way the half-voxel corner shift above rewrites the same
- * matrix, and every acquisition then begins at the same plane. The recorded
- * heights are untouched in the stores — this bends the drawing, not the
- * data. A stack still spans its planes (from nought), and browsing them
- * walks above the flat captures; the map's own plane is the first one.
- * Idempotent, because nought written twice is nought.
+ * So the height is taken out of the placement: each layer is moved down by
+ * its own lower edge in z, and every acquisition then begins at the same
+ * plane. The recorded heights are untouched in the stores — this bends the
+ * drawing, not the data. A stack still spans its planes (from nought), and
+ * browsing them walks above the flat captures; the map's own plane is the
+ * first one. Idempotent, because a layer already standing at nought has a
+ * lower edge of nought, and taking nought away moves nothing.
+ *
+ * Where the height actually lives was learned the hard way, and it is worth
+ * a paragraph so nobody relearns it. A store says where it sits through the
+ * `translation` in its own description, and the engine does **not** carry
+ * that as a translation in the layer's matrix: it folds it into the layer's
+ * *bounds* (`datasource/zarr/frontend.js` writes it into the model space's
+ * `lowerBounds` and hands the layer an identity matrix). An earlier version
+ * of this function set the matrix's z translation to nought — which wrote
+ * nought over nought, changed nothing, and left a linked scene hanging at
+ * its stage height, invisible 10 µm from the plane the map shows. So the
+ * lower edge is read from the layer's own bounds and *subtracted* through
+ * the matrix, which the engine folds back into new bounds beginning at
+ * nought.
  */
 function everyHeightBeginsAtNought(own) {
   let settled = true;
@@ -1061,12 +1074,12 @@ function everyHeightBeginsAtNought(own) {
     const { rank, outputSpace } = placed;
     const heightAxis = outputSpace?.names?.indexOf?.("z");
     if (heightAxis === undefined || heightAxis < 0) continue;
+    // Where the layer's z begins today — bounds, not matrix; see above.
+    const standing = outputSpace?.bounds?.lowerBounds?.[heightAxis];
+    if (!Number.isFinite(standing) || standing === 0) continue;
     const moved = Float64Array.from(placed.transform);
-    const at = rank * (rank + 1) + heightAxis;
-    if (moved[at] !== 0) {
-      moved[at] = 0;
-      placing.value = { ...placed, transform: moved };
-    }
+    moved[rank * (rank + 1) + heightAxis] -= standing;
+    placing.value = { ...placed, transform: moved };
   }
   // And the map opens on that first plane, rather than wherever the engine's
   // own centring left the height standing.
