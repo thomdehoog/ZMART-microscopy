@@ -427,7 +427,7 @@ button.run:disabled { opacity: 0.4; cursor: default; }
    collides however narrow the channel gets. */
 .tile-host { position: relative; }
 .tile-line {
-  position: absolute; left: 0; right: 0; bottom: 0;
+  position: absolute; left: 0; right: 0; bottom: 0; height: 24px;
   display: flex; align-items: center; gap: 8px;
 }
 .tile-line .tile-pick { margin: 0 auto; }
@@ -933,18 +933,25 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
 .detect-bar .seg button { flex: 1; min-width: 0; }
 /* the params read as label — value pairs down the column */
 #detect-readout:empty { display: none; }
+/* The gate readout keeps its line even when it has nothing to say:
+   hiding it moved the plot the moment the first sentence landed, and
+   every press after that missed by the jump. */
+#gate-readout { min-height: 18px; }
 /* A grey section header inside a card: the house heading without the
    box it usually crowns. */
 .side-subhead {
   font-size: 11px; font-weight: 700; letter-spacing: 0.08em;
   text-transform: uppercase; color: var(--ink-3); padding: 10px 0 0 6px;
 }
-/* The try and the run share one row and fill it half-and-half: two
-   small buttons huddled left of dead space read as unfinished. */
+/* The try and the run share one row, fill it half-and-half, and stand
+   the same height: two presses of different builds must not read as
+   different weights of control. */
 .detect-presses { display: flex; align-items: center; gap: 8px; }
 .detect-presses > .ghost { flex: 1; }
 .detect-presses .side-act { flex: 1; }
 .detect-presses .side-act .step-run { width: 100%; }
+.detect-presses > .ghost,
+.detect-presses .side-act .step-run { height: 34px; }
 
 /* Two rows, read downward then across: Diameter and Cell prob. on the
    left, Border and Binning beside them -- the card stays two rows tall
@@ -1970,6 +1977,7 @@ canvas.livecv[hidden] { display: none; }
 /* The random draw: one row under the gate list -- how many, the draw, and
    the way back to everything the gates let through. */
 .gate-draw { display: flex; align-items: center; gap: 8px; }
+.gate-draw label { flex: 1; font-size: 12.5px; color: var(--ink-2); }
 .gate-draw input {
   font: inherit; font-family: var(--mono); font-size: 12px;
   background: var(--surface-2); color: var(--ink);
