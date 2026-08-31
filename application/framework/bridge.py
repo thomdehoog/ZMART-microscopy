@@ -110,6 +110,7 @@ from application.parts.storage.output import (  # noqa: E402
     prepare_acquisition,
     prepare_experiment,
 )
+from application.parts.storage.zarr_positions import position_store_from_record  # noqa: E402
 from application.parts.analysis import warm  # noqa: E402
 from application.parts.microscope import detection, focus_score  # noqa: E402
 from application.parts.microscope.focus_run import (  # noqa: E402
@@ -682,12 +683,33 @@ def _scan_worker(
                 move_record_images(
                     record, prepare_acquisition(_the_run(), acquisition_type).data
                 )
+            # Outside the instrument's turn: the conversion reads files the
+            # capture already wrote, and holding the lock for it would keep
+            # the stage waiting on disk work.
+            _keep_position_as_zarr(record, acquisition_type)
             _records.setdefault(acquisition_type, []).append(record)
             _scan["done"] = i + 1
     except Exception as why:  # noqa: BLE001 — the window shows the sentence
         _scan["error"] = str(why)
     finally:
         _scan["running"] = False
+
+
+def _keep_position_as_zarr(record: dict, acquisition_type: str) -> None:
+    """The capture's canonical form: one OME-Zarr 0.5 position in
+    ``<acquisition type>/positions/``, converted from the vendor's own files
+    the moment they land — see :mod:`application.parts.storage.zarr_positions`.
+
+    A conversion that fails is filed on the record rather than felling the
+    scan: the vendor's files are on disk and the conversion can be run again,
+    while a stage drive cut short cannot.
+    """
+    try:
+        record["zarr"] = str(position_store_from_record(
+            record, _the_run() / acquisition_type / "positions"
+        ))
+    except Exception as why:  # noqa: BLE001 -- filed, not fatal
+        record["zarr_error"] = str(why)
 
 
 #: Where a scan's display copies go: beside ``data``, under the acquisition
