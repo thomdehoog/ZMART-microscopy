@@ -126,11 +126,13 @@ export default {
     per.className = "hint";
     per.textContent = "per tileset";
     const drawBtn = document.createElement("button");
-    drawBtn.type = "button"; drawBtn.className = "ghost tiny";
+    /* Full-size presses: these do the step's real work, and the tiny
+       chips beside a taller input read as an afterthought. */
+    drawBtn.type = "button"; drawBtn.className = "ghost";
     drawBtn.id = "gate-draw";
     drawBtn.textContent = "Draw at random";
     const allBtn = document.createElement("button");
-    allBtn.type = "button"; allBtn.className = "ghost tiny";
+    allBtn.type = "button"; allBtn.className = "ghost";
     allBtn.id = "gate-draw-all";
     allBtn.textContent = "All in gates";
     refine.append(drawN, per, drawBtn, allBtn);
@@ -445,7 +447,9 @@ export default {
         `<b>cell</b> ${hit.id}<br><b>${fx}</b> ${cellFeature(hit, fx).toFixed(2)}<br>`
         + `<b>${fy}</b> ${cellFeature(hit, fy).toFixed(2)}<br>`
         + `<b>at</b> ${(hit.x / 1000).toFixed(2)}, ${(hit.y / 1000).toFixed(2)} mm`;
-      tip.style.left = `${Math.min(e.offsetX + 14, w - 160)}px`;
+      /* Clamped by the tip's own width, not a guess at it: 160 was a
+         guess, and a long cell id spilled past the plot's edge. */
+      tip.style.left = `${Math.min(e.offsetX + 14, w - 214)}px`;
       tip.style.top = `${Math.max(6, e.offsetY - 68)}px`;
     });
 

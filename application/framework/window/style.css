@@ -437,11 +437,25 @@ button.run:disabled { opacity: 0.4; cursor: default; }
 .mask-toggle .ghost.tiny,
 .image-toggle .ghost.tiny { border-radius: 6px; height: 22px; }
 .mask-toggle { display: flex; gap: 2px; align-items: center; }
-.mask-toggle .mask-alpha { width: 56px; margin-left: 4px; accent-color: var(--accent, #0284c7); }
+/* The slider in the house dress too: a slim line and a small round
+   thumb, not the browser's chunky default -- the last raw widget on an
+   otherwise finished line. */
+.mask-toggle .mask-alpha {
+  -webkit-appearance: none; appearance: none;
+  width: 56px; height: 3px; margin-left: 4px; border-radius: 2px;
+  background: var(--line-strong); cursor: pointer;
+}
+.mask-toggle .mask-alpha::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 11px; height: 11px; border-radius: 50%;
+  background: var(--accent, #0284c7); border: none;
+}
 .mask-toggle .ghost.tiny[aria-pressed="true"],
 .image-toggle .ghost.tiny[aria-pressed="true"] {
   background: var(--surface-2); border-color: var(--line-strong); color: var(--ink);
 }
+.mask-toggle .ghost.tiny:disabled { opacity: 0.45; cursor: default; }
+.mask-toggle .mask-alpha:disabled { opacity: 0.35; cursor: default; }
 /* the pager sits at the far end of the heading it belongs to */
 .side-head .tile-pick { margin-left: auto; letter-spacing: normal; text-transform: none; }
 .tile-pick #tile-label { min-width: 62px; text-align: center; color: var(--ink-2); }
@@ -923,11 +937,14 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
    box it usually crowns. */
 .side-subhead {
   font-size: 11px; font-weight: 700; letter-spacing: 0.08em;
-  text-transform: uppercase; color: var(--ink-3); padding: 4px 0 0 6px;
+  text-transform: uppercase; color: var(--ink-3); padding: 10px 0 0 6px;
 }
-/* The try and the run share one row, smallest press first. */
+/* The try and the run share one row and fill it half-and-half: two
+   small buttons huddled left of dead space read as unfinished. */
 .detect-presses { display: flex; align-items: center; gap: 8px; }
+.detect-presses > .ghost { flex: 1; }
 .detect-presses .side-act { flex: 1; }
+.detect-presses .side-act .step-run { width: 100%; }
 
 /* Two rows, read downward then across: Diameter and Cell prob. on the
    left, Border and Binning beside them -- the card stays two rows tall
@@ -964,8 +981,12 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
 /* the tip positions against the plot exactly, so the box it lives in is the
    canvas's own and nothing wider */
 .scatter-host { position: relative; }
+/* A long cell id wraps inside the tip instead of widening it offscreen. */
+#scatter-tip { max-width: 200px; overflow-wrap: anywhere; }
 .scatter-host canvas {
-  display: block; width: 100%; aspect-ratio: 1 / 1;
+  /* Slightly wider than tall: a square plot as wide as the channel
+     pushed the gate list and the step's own Confirm below the fold. */
+  display: block; width: 100%; aspect-ratio: 5 / 4;
   touch-action: none; cursor: crosshair;
 }
 /* a button in a heading keeps its own case */
@@ -1900,7 +1921,11 @@ canvas.livecv[hidden] { display: none; }
 /* The gating channel: a feature per axis, and the gates as rows. A row is
    pressed to bring its own plot back, so the pair each polygon lives on is
    one press away rather than a hunt through two dropdowns. */
+/* The two pickers split the row evenly, so its geometry does not
+   change with whichever feature happens to be chosen. */
 .gate-axes { display: flex; gap: 14px; padding: 2px 0 6px; }
+.gate-axes label { flex: 1; }
+.gate-axes select { flex: 1; max-width: none; min-width: 0; }
 .gate-axes label {
   display: flex; align-items: center; gap: 6px;
   font-size: 11.5px; letter-spacing: 0.08em; text-transform: uppercase;
@@ -1929,6 +1954,7 @@ canvas.livecv[hidden] { display: none; }
 .gate-row[aria-current="true"] {
   background: var(--surface-2); border-color: var(--line);
 }
+.gate-row:not([aria-current="true"]):hover { background: var(--surface-2); }
 .gate-row .idx { color: var(--ink-3); font-family: ui-monospace, monospace; }
 .gate-row .gate-n { margin-left: auto; color: var(--ink-3); }
 
