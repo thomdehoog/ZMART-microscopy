@@ -93,9 +93,43 @@ export default {
     canvasHost.className = "tile-host";
     const cv = document.createElement("canvas");
     cv.id = "tile-canvas";
-    /* The picker rides the image's own bottom line, centred beside the
-       scale bar rather than on a row of its own. */
-    canvasHost.append(cv, picker);
+    /* How the segmentation is worn -- filled, outline only, or not at
+       all -- three small presses at the line's left. */
+    const maskToggle = document.createElement("div");
+    maskToggle.className = "mask-toggle";
+    const maskModes = [["fill", "Fill"], ["line", "Line"], ["off", "Off"]];
+    for (const [mode, label] of maskModes) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "ghost tiny";
+      b.dataset.mode = mode;
+      b.textContent = label;
+      b.addEventListener("click", () => {
+        ctx.settings().maskShow = mode;
+        refresh();
+      });
+      maskToggle.append(b);
+    }
+
+    /* And the image's own dress at the right: colour or grey, flipped by
+       hand -- a landed test flips it to grey so the coloured masks stand
+       on quiet ground, and this is the way back. */
+    const greyToggle = document.createElement("div");
+    greyToggle.className = "image-toggle";
+    const greyBtn = document.createElement("button");
+    greyBtn.type = "button";
+    greyBtn.className = "ghost tiny";
+    greyBtn.textContent = "Grey";
+    greyBtn.addEventListener("click", () => {
+      const settings = ctx.settings();
+      settings.imageGrey = !settings.imageGrey;
+      refresh();
+    });
+    greyToggle.append(greyBtn);
+
+    /* The picker rides the image's own bottom line, centred between the
+       mask presses and the image toggle. */
+    canvasHost.append(cv, maskToggle, picker, greyToggle);
 
     const readout = document.createElement("div");
     readout.className = "side-note";
@@ -140,14 +174,24 @@ export default {
        the picture comes with the field -- not, as it first did, only after a
        test had already been run blind on it. */
     let picture = null;
+    let mask = null;
     let pictureFor = null;
     function showThePictureOf(label) {
       const where = ctx.pictureOf(label);
       picture = null;
+      mask = null;
       if (!where) return;
       const img = new Image();
       img.onload = () => { picture = img; drawTheTile(); };
       img.src = where;
+      /* The field's segmentation, when one has been made: served beside the
+         picture, transparent where nothing was found. Fetched fresh each
+         time because a re-test redraws the same file's masks. */
+      const maskWhere = ctx.maskOf?.(label);
+      if (!maskWhere) return;
+      const overlay = new Image();
+      overlay.onload = () => { mask = overlay; drawTheTile(); };
+      overlay.src = `${maskWhere}?t=${Date.now()}`;
     }
 
     /** The field being tried on, drawn larger than life. */
@@ -188,11 +232,38 @@ export default {
 
       paint.fillStyle = "#05090e";
       paint.fillRect(ox, oy, frame * scale, frame * scale);
-      if (picture) paint.drawImage(picture, ox, oy, frame * scale, frame * scale);
+      /* The image wears what the toggles say: grey ground or its own
+         colours, and the segmentation filled, outlined, or absent. */
+      const mode = settings.maskShow ?? "fill";
+      const masksWanted = settings.tested && mode !== "off";
+      const showingMasks = Boolean(masksWanted && mask);
+      if (picture) {
+        if (settings.imageGrey) paint.filter = "grayscale(1)";
+        paint.drawImage(picture, ox, oy, frame * scale, frame * scale);
+        paint.filter = "none";
+      }
+      if (showingMasks && mode === "fill") {
+        paint.drawImage(mask, ox, oy, frame * scale, frame * scale);
+      }
+      if (showingMasks && mode === "line") {
+        /* The fill punched out of an offscreen copy by four shifted
+           stampings of itself: what survives is each object's rim, still
+           in that object's own colour. */
+        const o = document.createElement("canvas");
+        o.width = Math.max(1, Math.round(frame * scale));
+        o.height = o.width;
+        const op = o.getContext("2d");
+        op.drawImage(mask, 0, 0, o.width, o.height);
+        op.globalCompositeOperation = "destination-out";
+        for (const [dx, dy] of [[2, 0], [-2, 0], [0, 2], [0, -2]]) {
+          op.drawImage(mask, dx, dy, o.width, o.height);
+        }
+        paint.drawImage(o, ox, oy, frame * scale, frame * scale);
+      }
 
-      /* What the settings found here, each object at its own size: the point
-         of this view is to judge whether the diameter is right. */
-      (settings.tested ? settings.tried : []).forEach((cell, n) => {
+      /* What the settings found, each object at its own size, drawn as
+         circles only where no true mask picture is to be had. */
+      (masksWanted && !mask ? settings.tried : []).forEach((cell, n) => {
         const r = Math.max(3, cell.r * scale);
         paint.beginPath(); paint.arc(X(cell.x), Y(cell.y), r, 0, Math.PI * 2);
         paint.fillStyle = labelColour(n, 0.35);
@@ -206,13 +277,17 @@ export default {
       paint.strokeStyle = ctx.css("--line-strong");
       paint.lineWidth = 1;
       paint.strokeRect(ox + 0.5, oy + 0.5, frame * scale - 1, frame * scale - 1);
-      ctx.drawScaleBar(paint, w, h, scale);
     }
 
     /** The settings, the position picker and the sentence underneath. */
     function drawTheControls() {
       const settings = ctx.settings();
       which.textContent = `${settings.tile + 1} / ${ctx.plan().length}`;
+      for (const b of maskToggle.querySelectorAll("button")) {
+        b.setAttribute(
+          "aria-pressed", String(b.dataset.mode === (settings.maskShow ?? "fill")));
+      }
+      greyBtn.setAttribute("aria-pressed", String(Boolean(settings.imageGrey)));
 
       params.textContent = "";
       const number = (label, key, min, max, step, unit) => {
@@ -287,6 +362,7 @@ export default {
         settled();
         settings.tried = found.cells;
         settings.tested = true;
+        settings.imageGrey = true;
         showThePictureOf(found.position_label);
         refresh();
       }, (why) => { settled(); readout.textContent = why.message; });

@@ -994,6 +994,21 @@ stageBox.addEventListener("pointerleave", (e) => {
   if (stageMarkHot) { stageMarkHot = false; drawStage(); }
 });
 
+/* On the discover step a single press on the tile under the pointer makes
+   it the test position -- the one step where a plain click has no other
+   meaning. Ignored while a run is out, like the hover that leads to it. */
+stageBox.addEventListener("click", (e) => {
+  void e;
+  if (step(run.activeIdx).mode !== "detect" || run.running) return;
+  if (run.detect.hovered < 0) return;
+  if (run.detect.tile !== run.detect.hovered) {
+    run.detect.tile = run.detect.hovered;
+    run.detect.tested = false;
+    ctx.tileChosen?.();
+  }
+  drawStage();
+});
+
 /* An outline with no last point of its own is ended by saying the same press
    twice. Not a drag, so it does not go through the claims. */
 stageBox.addEventListener("dblclick", (e) => {
