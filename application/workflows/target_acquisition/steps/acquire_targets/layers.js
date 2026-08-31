@@ -9,6 +9,10 @@ export function acquiredLayers(theRun) {
     label: "Targets",
     explains: "The cells that have been imaged at high resolution.",
     shown: run.acquired.length > 0,
+    /* Readable over the very fields they were acquired in, like the cells
+       and the masks: the see-through windows cut every non-solid layer, and
+       the green rings survived only off the picture. */
+    staysSolid: true,
     paint: (frame) => {
       const ctx = frame.context;
       const { place, scale } = drawnIn(frame);
