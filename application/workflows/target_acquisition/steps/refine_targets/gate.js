@@ -53,7 +53,8 @@ export default {
     const side = document.createElement("div");
     side.className = "analysis-side";
 
-    /* The step's own press at the top of its channel, like the others. */
+    /* The step's own press below the gates it confirms: gate, draw,
+       then commit -- the hand reads the channel in the order it works. */
     const act = document.createElement("div");
     act.className = "select-action side-act";
 
@@ -135,7 +136,7 @@ export default {
     refine.append(drawN, per, drawBtn, allBtn);
 
     boxed.body.append(axes, legend, wrap, readout, list, refine);
-    side.append(act, boxed.group);
+    side.append(boxed.group, act);
     host.append(side);
 
     const sx = (v, w) => PAD.l + (v / xHi) * (w - PAD.l - PAD.r);

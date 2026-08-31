@@ -1873,7 +1873,13 @@ canvas.livecv[hidden] { display: none; }
   font-size: 11.5px; letter-spacing: 0.08em; text-transform: uppercase;
   color: var(--ink-3);
 }
-.gate-axes select { font-size: 12.5px; max-width: 150px; }
+/* The axis pickers and the draw count wear the house form style --
+   the browser's raw widgets sat unstyled in an otherwise finished card. */
+.gate-axes select {
+  font: inherit; font-size: 12.5px; font-weight: 600; max-width: 150px;
+  background: var(--surface-2); color: var(--ink);
+  border: 1px solid var(--line-strong); border-radius: 6px; padding: 4px 7px;
+}
 .gate-list { display: flex; flex-direction: column; gap: 2px; padding-top: 6px; }
 .gate-row { display: flex; align-items: stretch; gap: 2px; }
 .gate-row .gate-open {
@@ -1898,7 +1904,12 @@ canvas.livecv[hidden] { display: none; }
 /* The random draw: one row under the gate list -- how many, the draw, and
    the way back to everything the gates let through. */
 .gate-draw { display: flex; align-items: center; gap: 8px; }
-.gate-draw input { width: 72px; }
+.gate-draw input {
+  font: inherit; font-family: var(--mono); font-size: 12px;
+  background: var(--surface-2); color: var(--ink);
+  border: 1px solid var(--line-strong); border-radius: 6px;
+  padding: 4px 7px; width: 72px;
+}
 
 /* The step's own press at the top of its channel: the button and its
    sentence in one quiet row, gone entirely when the renderer left it empty. */
