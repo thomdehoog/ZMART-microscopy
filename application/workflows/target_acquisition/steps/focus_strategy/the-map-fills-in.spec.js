@@ -61,7 +61,10 @@ test("points appear in the list one at a time while the map is measured", async 
     const lit = await page.locator('#focus-traces .point-row[aria-current="true"]').first()
       .textContent().catch(() => "");
     if (lit) selected.add(lit.trim().slice(0, 12));
-    if (!(await page.locator(".panel.on button.step-run").textContent()).includes("working")) break;
+    /* The class, not the label: what the button says changes with what
+       pressing it means ("working…", "Interrupt"), and a sentinel read off
+       prose broke the day the prose improved. */
+    if (!((await page.locator(".panel.on button.step-run").getAttribute("class")) ?? "").includes("running")) break;
     await rest(100);
   } while (Date.now() < until);
 
