@@ -236,9 +236,9 @@ let stageWatch = null;
        from, which is where its picture is. */
     cells: new Map(),
     fieldLabels: {},
-    overviewPictures: backend.viewOf("overview"),
+    overviewPictures: backendFor().viewOf("overview"),
     cellsShown: false,
-    gate: null,          // {aLo,aHi,iLo,iHi}
+    gates: [],           // [{fx, fy, vertices: [[x, y], ...]}] — see gating.js
     gated: new Set(),
     acquired: [],
     acquiredLabels: {},
@@ -357,7 +357,7 @@ let stageWatch = null;
       tabs: [], tab: null, tilesShown: 0,
       focus: newFocus(), focusMaps: {}, focusFor: null,
       detect: newDetect(), cells: new Map(), fieldLabels: {},
-      overviewPictures: backend.viewOf("overview"),
+      overviewPictures: backendFor().viewOf("overview"),
       cellsShown: false, gate: null, gated: new Set(), acquired: [], acquiredLabels: {},
       verdicts: {},
       locked: false,
@@ -652,7 +652,7 @@ let stageWatch = null;
       /* A fresh discovery invalidates everything named by the old ids: the
          gate, and the acquired pairs and their verdicts -- a stale id crashed
          the draw and the gallery alike. */
-      state.gate = null;
+      state.gates = [];
       state.gated = new Set();
       state.acquired = [];
       state.acquiredLabels = {};
@@ -1065,11 +1065,12 @@ let stageWatch = null;
     gatingShown = gatingPanel.mount(host, {
       cells: () => state.cells.values(),
       gated: () => state.gated,
+      gates: () => state.gates,
       acquired: () => state.acquired,
-      gate: () => state.gate,
+
       showing: () => state.cellsShown,
-      setGate: (gate, ids) => {
-        state.gate = gate;
+      setGates: (gates, ids) => {
+        state.gates = gates;
         state.gated = ids;
         drawStage(); renderTabs(); renderActionBar();
       },

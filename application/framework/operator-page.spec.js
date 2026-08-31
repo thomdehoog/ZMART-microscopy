@@ -1330,20 +1330,24 @@ test("one walk of the whole run", async ({ page }) => {
 
   await gotoStep(page, "Refine Targets");
   const sc = await page.locator("#scatter-canvas").boundingBox();
-  /* A tight gate on the largest, brightest corner — a handful of targets, the
-     way an operator refines rather than takes everything found. */
-  await page.mouse.move(sc.x + sc.width * 0.88, sc.y + sc.height * 0.10);
-  await page.mouse.down();
-  await page.mouse.move(sc.x + sc.width * 0.93, sc.y + sc.height * 0.17, { steps: 8 });
-  await page.mouse.up();
+  /* A polygon gate on the largest, brightest corner — laid point by point
+     and closed on its first vertex, the way the scan-area polygon is. */
+  const corner = [[0.86, 0.08], [0.96, 0.08], [0.96, 0.22], [0.86, 0.22]];
+  for (const [gx, gy] of corner) {
+    await page.mouse.click(sc.x + sc.width * gx, sc.y + sc.height * gy);
+    await page.waitForTimeout(120);
+  }
+  await page.mouse.click(sc.x + sc.width * 0.86, sc.y + sc.height * 0.08);
   await page.waitForTimeout(300);
-  await expect(page.locator("#gate-readout")).toContainText("detected gated");
+  await expect(page.locator("#gate-readout")).toContainText("selected");
+  await expect(page.locator("#gate-list .gate-row")).toHaveCount(1);
 
   // the gate belongs to the run, not to the panel that drew it
   await page.locator('.tab:has-text("Canvas")').click();
   await page.waitForTimeout(250);
   await gotoStep(page, "Refine Targets");
-  await expect(page.locator("#gate-readout")).toContainText("detected gated");
+  await expect(page.locator("#gate-readout")).toContainText("selected");
+  await expect(page.locator("#gate-list .gate-row")).toHaveCount(1);
 
   await runStep(page, 1000);
   await gotoStep(page, "Acquire Targets");
