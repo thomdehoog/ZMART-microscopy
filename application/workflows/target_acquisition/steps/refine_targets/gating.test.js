@@ -8,6 +8,7 @@
 import { describe, expect, it } from "vitest";
 import {
   cellFeature, cellsInAllGates, featureNames, gateForPair, insidePolygon,
+  sursDraw,
 } from "./gating.js";
 
 const cell = (id, features, more = {}) => ({
@@ -63,5 +64,43 @@ describe("the gating rules", () => {
     expect(names).toContain("odd_moment");
     expect(names).toContain("area");
     expect(names).toContain("intensity");
+  });
+
+
+  it("a systematic draw spreads over the area instead of clumping", () => {
+    /* 100 cells on a 10x10 lattice; a fixed random start makes the draw
+       deterministic. 25 asked for: every quadrant must contribute its share,
+       which a shuffle cannot promise and SURS does by construction. */
+    const lattice = [];
+    for (let gx = 0; gx < 10; gx++) {
+      for (let gy = 0; gy < 10; gy++) {
+        lattice.push({ id: `c${gx}-${gy}`, x: gx * 10, y: gy * 10 });
+      }
+    }
+    const drawn = sursDraw(lattice, 25, () => 0.5);
+    expect(drawn).toHaveLength(25);
+    expect(new Set(drawn).size).toBe(25);
+    const counts = { nw: 0, ne: 0, sw: 0, se: 0 };
+    for (const id of drawn) {
+      const cell = lattice.find((c) => c.id === id);
+      const key = `${cell.y < 45 ? "n" : "s"}${cell.x < 45 ? "w" : "e"}`;
+      counts[key] += 1;
+    }
+    for (const share of Object.values(counts)) {
+      expect(share).toBeGreaterThanOrEqual(4);
+      expect(share).toBeLessThanOrEqual(9);
+    }
+  });
+
+  it("a pool smaller than the ask is returned whole", () => {
+    const few = [{ id: "a", x: 0, y: 0 }, { id: "b", x: 5, y: 5 }];
+    expect(sursDraw(few, 50, () => 0.5).sort()).toEqual(["a", "b"]);
+  });
+
+  it("the same random start draws the same sample", () => {
+    const cells = Array.from({ length: 40 }, (_, i) => ({
+      id: `c${i}`, x: (i * 37) % 100, y: (i * 53) % 100,
+    }));
+    expect(sursDraw(cells, 10, () => 0.25)).toEqual(sursDraw(cells, 10, () => 0.25));
   });
 });

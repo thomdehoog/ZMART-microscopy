@@ -64,3 +64,50 @@ export function cellsInAllGates(cells, gates) {
   }
   return taken;
 }
+
+
+/**
+ * Systematic Uniform Random Sampling of n cells -- the stereology standard,
+ * ported from the lab's MD-HCS curation core (`sample_cells`), which follows
+ * stereology.info/sampling: lay a grid sized for n points over the pool's
+ * own extent, give the WHOLE grid one uniform-random offset (the random
+ * start), and take the nearest not-yet-chosen cell at each grid point. Even
+ * spatial coverage over the area, yet unbiased, because where the grid falls
+ * is random -- a plain shuffle draws clumps, and a clump is a density bias.
+ *
+ * `rand` is the source of the two offset numbers, injectable so a test can
+ * pin the draw. Fewer cells than asked for returns them all.
+ */
+export function sursDraw(cells, n, rand = Math.random) {
+  if (cells.length <= n) return cells.map((c) => c.id);
+  let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+  for (const c of cells) {
+    x0 = Math.min(x0, c.x); x1 = Math.max(x1, c.x);
+    y0 = Math.min(y0, c.y); y1 = Math.max(y1, c.y);
+  }
+  const w = (x1 - x0) || 1;
+  const h = (y1 - y0) || 1;
+  const ncol = Math.max(1, Math.round(Math.sqrt((n * w) / h)));
+  const nrow = Math.max(1, Math.ceil(n / ncol));
+  const tx = w / ncol;
+  const ty = h / nrow;
+  const offX = rand();
+  const offY = rand();
+  const taken = new Set();
+  const chosen = [];
+  for (let i = 0; i < ncol && chosen.length < n; i++) {
+    const gx = x0 + (i + offX) * tx;
+    for (let j = 0; j < nrow && chosen.length < n; j++) {
+      const gy = y0 + (j + offY) * ty;
+      let best = null;
+      let bestD = Infinity;
+      for (const c of cells) {
+        if (taken.has(c.id)) continue;
+        const d = (c.x - gx) ** 2 + (c.y - gy) ** 2;
+        if (d < bestD) { bestD = d; best = c; }
+      }
+      if (best) { taken.add(best.id); chosen.push(best.id); }
+    }
+  }
+  return chosen;
+}
