@@ -93,7 +93,9 @@ export default {
     canvasHost.className = "tile-host";
     const cv = document.createElement("canvas");
     cv.id = "tile-canvas";
-    canvasHost.append(cv);
+    /* The picker rides the image's own bottom line, centred beside the
+       scale bar rather than on a row of its own. */
+    canvasHost.append(cv, picker);
 
     const readout = document.createElement("div");
     readout.className = "side-note";
@@ -113,9 +115,7 @@ export default {
     const presses = document.createElement("div");
     presses.className = "detect-presses";
     presses.append(tryBtn, act);
-    /* The picker under the image it pages through, centred: the hand moves
-       between the picture and its arrows without crossing the card. */
-    test.body.append(canvasHost, picker, readout, cellposeHead, params, presses);
+    test.body.append(canvasHost, readout, cellposeHead, params, presses);
 
     /* Where the run says how it is going: hidden until a run begins, then
        one line for what is being segmented and one for the arithmetic --
@@ -165,16 +165,19 @@ export default {
         showThePictureOf(ctx.labelOf?.(settings.tile));
       }
 
+      /* Nothing painted behind: the image square sits straight on the
+         card, its margins the card's own white rather than a grey mat. */
       paint.clearRect(0, 0, w, h);
-      paint.fillStyle = ctx.css("--surface-3");
-      paint.fillRect(0, 0, w, h);
 
       const tile = ctx.plan()[settings.tile];
       if (!tile) return;
       const frame = tile.frameUm;
-      const pad = 18;
-      const scale = Math.min((w - 2 * pad) / frame, (h - 2 * pad) / frame);
-      const ox = (w - frame * scale) / 2, oy = (h - frame * scale) / 2;
+      /* Flush with the card's content: the image starts where the rows
+         below it start, full width, with one line under it kept for the
+         scale bar and the picker. */
+      const pad = 26;
+      const scale = Math.min(w / frame, (h - pad) / frame);
+      const ox = 0, oy = 0;
       const X = (x) => ox + (x - (tile.x - frame / 2)) * scale;
       const Y = (y) => oy + (y - (tile.y - frame / 2)) * scale;
 
@@ -244,7 +247,9 @@ export default {
         readout.textContent =
           `${settings.tried.length} objects at position ${settings.tile + 1}`;
       } else {
-        readout.textContent = ALGOS[settings.algo].blurb;
+        /* Nothing to say until something was measured: the card carries no
+           standing caption, only results and errors. */
+        readout.textContent = "";
       }
     }
 
