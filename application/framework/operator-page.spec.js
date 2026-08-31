@@ -1355,11 +1355,12 @@ test("one walk of the whole run", async ({ page }) => {
      recorded off the instrument in this step's own channel, and the button
      waits for it. */
   await expect(page.locator(".panel.on button.step-run")).toBeDisabled();
+  /* The slot imports the configuration off the instrument and names it
+     itself, the way the scan area's and the focus step's slots do. */
   const tt = page.locator("#target-type .setting-box.open");
-  await tt.locator("input").fill("hires");
   await tt.locator("button.run").click();
   await page.waitForTimeout(650);
-  await expect(page.locator("#target-type .rec-name")).toHaveText("Hires");
+  await expect(page.locator("#target-type .setting-box.done")).toHaveCount(1);
   await runStep(page, 3000);
   await page.locator(".pair").first().locator("button.pick-good").click();
   await expect(page.locator("#gallery-readout")).toContainText("1 marked");

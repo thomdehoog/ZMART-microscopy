@@ -103,6 +103,10 @@ export default {
     const side = document.createElement("div");
     side.className = "gallery-side";
 
+    /* The step's own press at the top of its channel, like the others. */
+    const act = document.createElement("div");
+    act.className = "acquire-action side-act";
+
     /* What the targets are imaged with, read off the instrument here -- the
        shared recording slot, which brings its own boxed group the way the
        scan area's does on step 3. */
@@ -129,13 +133,17 @@ export default {
     wrap.append(pairs);
 
     pairsBox.body.append(about, wrap);
-    side.append(recording, pairsBox.group);
+    side.append(act, recording, pairsBox.group);
     host.append(side);
 
     ctx.recordingSlot(recording, {
-      /* Just the thing, not the gesture: the heading already says "Record",
-         so a label that says it too reads "Record record …" on screen. */
-      label: "Acquisition type", key: "targetType",
+      /* The same opening as the scan area's and the focus step's: the
+         configuration is read off the instrument and named after what it
+         is, imported with one press. */
+      label: "Target acquisition settings", key: "targetType",
+      unnamed: true,
+      takes: "Import target acquisition settings",
+      retakes: "Update",
       changed: () => ctx.changed(),
     });
 
