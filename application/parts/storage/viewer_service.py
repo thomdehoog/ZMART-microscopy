@@ -186,5 +186,15 @@ def _allow_the_page_to_read(server) -> None:
         self.send_header("Access-Control-Allow-Origin", "*")
         plain(self)
 
+    def do_OPTIONS(self):  # noqa: N802, ANN001 -- http.server's own naming
+        # The browser's preflight for a cross-origin POST (the page asking
+        # /api/measure for a histogram). Answered here because the viewer
+        # never needed to hear one: its own page lives on its own origin.
+        self.send_response(204)
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.end_headers()
+
     handler.end_headers = end_headers
+    handler.do_OPTIONS = do_OPTIONS
     handler._zmart_cors_added = True
