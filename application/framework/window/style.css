@@ -1872,3 +1872,8 @@ canvas.livecv[hidden] { display: none; }
 .side-group-body > .tile-pick { display: flex; align-items: center; gap: 8px; justify-content: flex-end; }
 .gate-axes .ghost.tiny { margin-left: auto; }
 .gallery-about { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+
+/* The random draw: one row under the gate list -- how many, the draw, and
+   the way back to everything the gates let through. */
+.gate-draw { display: flex; align-items: center; gap: 8px; }
+.gate-draw input { width: 72px; }

@@ -107,7 +107,27 @@ export default {
     list.className = "gate-list";
     list.id = "gate-list";
 
-    boxed.body.append(axes, legend, wrap, readout, list);
+    /* A further refinement: X of what the gates let through, drawn at
+       random -- for a run that wants a sample rather than everything. The
+       draw touches only the selection; the gates stand and All in gates
+       takes the whole intersection back. */
+    const refine = document.createElement("div");
+    refine.className = "gate-draw";
+    const drawN = document.createElement("input");
+    drawN.type = "number"; drawN.min = "1"; drawN.step = "1";
+    drawN.id = "gate-draw-n";
+    drawN.value = "50";
+    const drawBtn = document.createElement("button");
+    drawBtn.type = "button"; drawBtn.className = "ghost tiny";
+    drawBtn.id = "gate-draw";
+    drawBtn.textContent = "Draw at random";
+    const allBtn = document.createElement("button");
+    allBtn.type = "button"; allBtn.className = "ghost tiny";
+    allBtn.id = "gate-draw-all";
+    allBtn.textContent = "All in gates";
+    refine.append(drawN, drawBtn, allBtn);
+
+    boxed.body.append(axes, legend, wrap, readout, list, refine);
     side.append(boxed.group);
     host.append(side);
 
@@ -139,8 +159,12 @@ export default {
         readout.textContent = "click to lay a polygon gate — close it on its first point";
         return;
       }
+      const inGates = cellsInAllGates(cells, gates).size;
+      const took = ctx.gated().size;
       readout.textContent =
-        `${ctx.gated().size} of ${cells.length} selected · `
+        (took < inGates
+          ? `${took} drawn at random of ${inGates} in gates · `
+          : `${took} of ${cells.length} selected · `)
         + `${gates.length} gate${gates.length === 1 ? "" : "s"}`;
     };
 
@@ -427,6 +451,22 @@ export default {
         chosen = -1;
         commit(ctx.gates().filter((g) => g !== gate));
       }
+    });
+
+    drawBtn.addEventListener("click", () => {
+      const whole = [...cellsInAllGates(theCells(), ctx.gates())];
+      if (!whole.length) return;
+      const n = Math.max(1, Math.min(whole.length, Math.round(Number(drawN.value) || 0)));
+      for (let i = whole.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [whole[i], whole[j]] = [whole[j], whole[i]];
+      }
+      ctx.takeSelection(new Set(whole.slice(0, n)));
+      sayIt(); renderList(); draw();
+    });
+    allBtn.addEventListener("click", () => {
+      ctx.takeSelection(cellsInAllGates(theCells(), ctx.gates()));
+      sayIt(); renderList(); draw();
     });
 
     clear.addEventListener("click", () => { draft = null; chosen = -1; commit([]); });

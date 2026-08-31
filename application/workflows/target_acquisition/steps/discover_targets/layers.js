@@ -38,7 +38,7 @@ export function targetLayers(theRun) {
     label: "Cells",
     explains: "What detection found. The ones that passed the gate are ringed, so which "
       + "is which does not rest on colour alone.",
-    shown: run.cellsShown,
+    shown: run.cellsShown && ["detect", "select", "acquire"].includes(activeMode),
     /* Readable over the very fields they were found in: the see-through
        windows that reveal the picture cut every layer beneath them, and the
        objects were cut away exactly where the tissue is. The layer's own
@@ -49,22 +49,27 @@ export function targetLayers(theRun) {
       const { place, scale, w, h } = drawnIn(frame);
       reach = 12 / scale;
       const ctxRad = Math.max(1.1, 1.4 * Math.sqrt(scale / 0.03));
-      ctx.fillStyle = css("--mark-context");
-      ctx.globalAlpha = 0.55;
-      ctx.beginPath();
-      for (const c of run.cells.values()) {
-        if (run.gated.has(c.id)) continue;
-        const [x, y] = place(c.x, c.y);
-        if (x < -8 || y < -8 || x > w + 8 || y > h + 8) continue;
-        ctx.moveTo(x + ctxRad, y);
-        ctx.arc(x, y, ctxRad, 0, Math.PI * 2);
+      /* Each step its own funnel: discovery shows everything found and
+         nothing chosen, refine lights the selection over quiet context, and
+         acquisition shows the chosen alone. */
+      if (activeMode !== "acquire") {
+        ctx.fillStyle = css("--mark-context");
+        ctx.globalAlpha = 0.55;
+        ctx.beginPath();
+        for (const c of run.cells.values()) {
+          if (activeMode !== "detect" && run.gated.has(c.id)) continue;
+          const [x, y] = place(c.x, c.y);
+          if (x < -8 || y < -8 || x > w + 8 || y > h + 8) continue;
+          ctx.moveTo(x + ctxRad, y);
+          ctx.arc(x, y, ctxRad, 0, Math.PI * 2);
+        }
+        ctx.fill();
+        ctx.globalAlpha = 1;
       }
-      ctx.fill();
-      ctx.globalAlpha = 1;
 
       // gated cells — ringed, so identity is not carried by colour alone
       const gr = Math.max(3, 4.2 * Math.sqrt(scale / 0.03));
-      for (const id of run.gated) {
+      for (const id of (activeMode === "detect" ? [] : run.gated)) {
         const c = run.cells.get(id);
         if (!c) continue;
         const [x, y] = place(c.x, c.y);
@@ -89,10 +94,10 @@ export function targetLayers(theRun) {
     explains: "Cellpose's masks laid over the fields they were found in, each "
       + "object in its own colour -- what detection actually saw, not just "
       + "where it put a point.",
-    /* Everywhere but the refine step: gating is about the selection, and the
-       masks under every cell drowned the few being chosen. The layer's own
-       button still brings them back wherever wanted. */
-    shown: activeMode !== "select",
+    /* The masks belong to the step that tunes them: from the refine step
+       on, the picture is about the selection, and later the acquisition.
+       The layer's own button still brings them back wherever wanted. */
+    shown: activeMode === "detect",
     staysSolid: true,
     paint: (frame) => {
       const ctx = frame.context;
