@@ -1,26 +1,69 @@
 /**
- * The viewer's own controls: the acquisitions and their channels.
+ * The viewer's own controls, ported from the ZMART viewer's sidebar.
  *
- * A white column of its own, standing to the right of the canvas and to the
- * left of whatever step panel the workflow is showing — the same dress and
- * the same side the ZMART viewer's own window wears at this microscope. It
- * folds to a slim vertical bar on its own button, so the picture can have
- * the room back without losing the way in.
+ * The structure, the dress and the behaviour follow the viewer's
+ * `app/page/src/LayerPanel.jsx` (its `data` and `channel settings` cards) as
+ * closely as a vanilla port can: the 264px bar with its 14px fold strip, the
+ * card-on-panel grounds, the eye glyph, the swatch that opens a palette, the
+ * 60px histogram with dimmed out-of-window bars and two accent edge lines the
+ * hand can drag, the min/max sliders with typed value boxes, and opacity per
+ * channel. Where this file and that one disagree, that one is right.
  *
- * The rows are read from each store's own description (the `omero` block the
- * run writers fill in), enumerated exactly the way the engine enumerates its
- * rows — one per channel, acquisitions in order — so the flat index handed to
- * `viewer.setChannel(index, …)` names the same row on both sides. A store
- * that describes nothing stands as one row named after its acquisition,
- * which is also what the engine draws for it.
- *
- * Deliberately lean: names, colours and eyes. The histogram, the windows and
- * the rest of the viewer's furniture can grow here once these are worth more
- * than they cost.
+ * The rows are enumerated exactly the way the engine enumerates its own —
+ * one per channel, acquisitions in order — so the flat index handed to
+ * `viewer.setChannel(index, …)` names the same row on both sides.
  */
 
-/** The store's description, read where either generation of the format keeps
-    it — the same two spellings the engine tries, unwrapped the same way. */
+/* The viewer's light dress, inlined from its `theme.css` — the operator page
+   has no dark mode, so only the light values travel. */
+const INK = {
+  pageBg: "#e7eaee", cardBg: "#f7f8fa", inputBg: "#ffffff",
+  panelBorder: "#c7cdd6", controlBorder: "#b6bec9", subtleBorder: "#dce0e6",
+  textBright: "#10161f", textPrimary: "#26303c", textMuted: "#5a6675",
+  textFaint: "#67727f", accent: "#2563cf", chosenGround: "#dde8f7",
+  ghost: "rgba(0, 0, 0, 0.05)", sliderTrack: "#c2c9d2",
+};
+
+/* The viewer's palette, verbatim (`LayerPanel.jsx` PALETTE + css()). */
+const PALETTE = [
+  { name: "green", rgb: [0.0, 1.0, 0.4] },
+  { name: "magenta", rgb: [1.0, 0.2, 1.0] },
+  { name: "cyan", rgb: [0.2, 0.8, 1.0] },
+  { name: "amber", rgb: [1.0, 0.75, 0.1] },
+  { name: "blue", rgb: [0.3, 0.45, 1.0] },
+  { name: "red", rgb: [1.0, 0.15, 0.15] },
+  { name: "grey", rgb: null },
+];
+const cssOf = (rgb) =>
+  rgb ? `rgb(${rgb.map((v) => Math.round(v * 255)).join(",")})` : "#d8dee6";
+
+/* The 15% rule: the window's edges are drawn at 15% and 85% of the axis. */
+const WINDOW_SITS_FROM = 0.15;
+
+const font = (weight, size) => `${weight} ${size}px/1 system-ui, sans-serif`;
+
+/* The viewer's filled slider skin, said once per page. */
+const SLIDER_CSS = `
+.zv-range { -webkit-appearance:none; appearance:none; background:transparent; height:16px; padding:0; width:100%; cursor:pointer; }
+.zv-range::-webkit-slider-runnable-track { height:4px; border-radius:2px;
+  background: linear-gradient(to right, ${INK.accent} var(--fill, 0%), ${INK.sliderTrack} var(--fill, 0%)); }
+.zv-range::-webkit-slider-thumb { -webkit-appearance:none; width:14px; height:14px; margin-top:-5px; border-radius:50%; border:none; background:${INK.accent}; }
+.zv-range:disabled { opacity:.45; cursor:default; }`;
+
+function dressed(slider) {
+  const fill = () => {
+    const low = Number(slider.min), high = Number(slider.max);
+    const share = high > low ? (Number(slider.value) - low) / (high - low) : 0;
+    slider.style.setProperty("--fill", `${Math.min(1, Math.max(0, share)) * 100}%`);
+  };
+  slider.classList.add("zv-range");
+  slider.addEventListener("input", fill);
+  slider.refill = fill;
+  fill();
+  return slider;
+}
+
+/** The store's description, read where either generation of the format keeps it. */
 async function theStoresDescription(url) {
   const bar = url.indexOf("|");
   const address = (bar < 0 ? url : url.slice(0, bar)).replace(/\/+$/, "");
@@ -38,9 +81,7 @@ async function theStoresDescription(url) {
   return null;
 }
 
-/** One flat row list, matching the engine's own numbering. Each row carries
-    its acquisition's source address and its channel index within it, which
-    is what the measuring server wants to hear. */
+/** One flat row list, matching the engine's own numbering. */
 async function theRows(acquisitions) {
   const rows = [];
   for (const acquisition of acquisitions) {
@@ -49,18 +90,27 @@ async function theRows(acquisitions) {
       ? described.map((channel, at) => ({
         name: channel?.label || `channel ${at + 1}`,
         color: typeof channel?.color === "string" ? `#${channel.color}` : null,
+        window: channel?.window && Number.isFinite(channel.window.start)
+          ? { low: channel.window.start, high: channel.window.end }
+          : null,
         within: at,
       }))
-      : [{ name: acquisition.name, color: null, within: 0 }];
+      : [{ name: acquisition.name, color: null, window: null, within: 0 }];
     for (const channel of channels) {
-      rows.push({ ...channel, acquisition: acquisition.name, source: acquisition.url });
+      rows.push({
+        ...channel,
+        acquisition: acquisition.name,
+        source: acquisition.url,
+        visible: true,
+        weight: 1,
+      });
     }
   }
   return rows;
 }
 
-/** Ask the viewer's server about one channel's brightness: the histogram and
-    a window it would choose itself. `null` when it will not say. */
+/** Ask the viewer's server about one channel: its histogram and a window it
+    would choose itself. `null` when it will not say. */
 async function measured(row) {
   try {
     const origin = new URL(row.source).origin;
@@ -79,259 +129,482 @@ async function measured(row) {
   }
 }
 
+const el = (tag, style, text) => {
+  const made = document.createElement(tag);
+  if (style) made.style.cssText = style;
+  if (text !== undefined) made.textContent = text;
+  return made;
+};
+
+const HEADING = `font:${font(600, 11)};letter-spacing:.08em;text-transform:uppercase;color:${INK.textFaint};padding:0 12px 5px;`;
+const CARD = `border-top:1px solid ${INK.panelBorder};border-bottom:1px solid ${INK.panelBorder};padding:8px 0 12px;margin-bottom:12px;background:${INK.cardBg};flex-shrink:0;`;
+
+/** The viewer's eye, verbatim proportions. */
+function anEye(open) {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 16 16");
+  svg.style.cssText = "width:14px;height:14px;display:block;";
+  svg.innerHTML =
+    '<path d="M1 8s2.6-4.2 7-4.2S15 8 15 8s-2.6 4.2-7 4.2S1 8 1 8z" fill="none" stroke="currentColor" stroke-width="1.3"/>'
+    + '<circle cx="8" cy="8" r="1.9" fill="currentColor"/>'
+    + (open ? "" : '<path d="M2.5 13.5L13.5 2.5" stroke="currentColor" stroke-width="1.3"/>');
+  return svg;
+}
+
 /**
- * Mount the panel and wire its eyes to `viewer.setChannel`. Returns
- * `{ destroy }`. `near` is any element inside the canvas's own box; the
- * panel stands as a flex column of the same row, directly to the canvas's
- * right, so the step panels keep their own side untouched.
+ * Mount the panel and wire it to the engine handle. Returns `{ destroy }`.
+ * `near` is any element inside the canvas's own box; the panel stands as a
+ * column of the same grid row, directly to the canvas's right.
  */
 export async function mountViewerPanel(near, { viewer, acquisitions }) {
   const rows = await theRows(acquisitions);
 
+  if (!document.getElementById("zv-slider-skin")) {
+    const skin = document.createElement("style");
+    skin.id = "zv-slider-skin";
+    skin.textContent = SLIDER_CSS;
+    document.head.append(skin);
+  }
+
   const body = near?.closest?.(".canvas-body");
   const plotHost = body?.querySelector(".plot-host");
 
-  const panel = document.createElement("aside");
+  /* The strip and the bar, the viewer's own arrangement: the 14px fold strip
+     stands between the picture and the bar and stays when the bar goes. */
+  const panel = el("aside", "display:flex;flex-direction:row;min-height:0;overflow:hidden;");
   panel.className = "viewer-panel";
-  panel.style.cssText = [
-    "flex:0 0 auto", "width:200px", "overflow-y:auto", "box-sizing:border-box",
-    "display:flex", "flex-direction:column", "gap:2px", "padding:10px 12px",
-    "background:#ffffff", "color:#1f2937", "font-size:12px",
-    "border-left:1px solid #e5e7eb",
-  ].join(";");
 
-  const open = document.createElement("div");
-  open.style.cssText = "display:flex;flex-direction:column;gap:2px;";
-
-  const fold = document.createElement("button");
+  const fold = el("button", [
+    "align-self:stretch", "width:14px", "border:none",
+    `border-left:1px solid ${INK.panelBorder}`, `border-right:1px solid ${INK.panelBorder}`,
+    `background:${INK.cardBg}`, `color:${INK.textMuted}`,
+    `font:${font(400, 12)}`, "cursor:pointer", "padding:0",
+  ].join(";"), "›");
   fold.type = "button";
-  fold.textContent = "◂";
-  fold.title = "fold the picture's controls away";
-  fold.style.cssText = [
-    "align-self:flex-end", "border:1px solid #e5e7eb", "background:#ffffff",
-    "color:#6b7280", "border-radius:4px", "cursor:pointer", "font-size:11px",
-    "padding:1px 6px", "margin-bottom:4px",
-  ].join(";");
+  fold.title = "Fold the controls away";
+
+  const bar = el("div", [
+    "width:264px", "flex-shrink:0", "display:flex", "flex-direction:column",
+    "min-height:0", "overflow-y:auto", `background:${INK.pageBg}`,
+    "padding:12px 0 0", `font:${font(400, 13)}`, `color:${INK.textPrimary}`,
+  ].join(";"));
+  bar.style.lineHeight = "1.4";
+  panel.append(fold, bar);
+
   let folded = false;
   fold.addEventListener("click", () => {
     folded = !folded;
-    /* The display is set directly, not through `hidden`: the box carries an
-       inline `display:flex`, which wins over the attribute's own none. */
-    open.style.display = folded ? "none" : "flex";
-    fold.textContent = folded ? "▸" : "◂";
-    fold.title = folded ? "open the picture's controls" : "fold the picture's controls away";
-    /* Folded, the panel is a slim vertical bar: the way back in, and no
-       more. The engine notices the canvas's new size through its own
-       resize watcher. */
-    panel.style.width = folded ? "26px" : "200px";
-    panel.style.padding = folded ? "6px 2px" : "10px 12px";
-    fold.style.alignSelf = folded ? "center" : "flex-end";
+    bar.style.display = folded ? "none" : "flex";
+    fold.textContent = folded ? "‹" : "›";
+    fold.title = folded ? "Show the controls" : "Fold the controls away";
   });
-  panel.append(fold, open);
 
-  /* -- display settings: one set of controls, for the channel picked out
-     below, the way the viewer's own window arranges it. The histogram and
-     the starting window come from the viewer's server, measured from the
-     pixels themselves. -- */
-  const settings = document.createElement("div");
-  settings.style.cssText = "display:flex;flex-direction:column;gap:4px;margin-bottom:4px;";
-  const settingsTitle = document.createElement("div");
-  settingsTitle.textContent = "display settings";
-  settingsTitle.style.cssText = [
-    "font-weight:600", "font-size:11px", "letter-spacing:0.04em",
-    "text-transform:uppercase", "color:#6b7280",
+  /* ---- channel settings (built first, filled by the selection) ---- */
+  const settings = el("div", CARD);
+  settings.append(el("div", HEADING, "channel settings"));
+  const chosenHead = el("div", "display:flex;flex-direction:column;gap:3px;padding:5px 12px 6px;");
+  const chosenLine = el("div", [
+    "display:flex", "align-items:center", "gap:8px", "min-width:0",
+    `background:${INK.chosenGround}`, "border-radius:3px", "padding:4px 6px",
+    `font:${font(600, 12)}`, `color:${INK.textBright}`,
+  ].join(";"), "pick a channel below");
+  chosenHead.append(chosenLine);
+
+  const plotWrap = el("div", "padding:1px 12px 4px;");
+  const plot = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  plot.setAttribute("preserveAspectRatio", "none");
+  plot.style.cssText = [
+    "display:block", "width:100%", "height:60px", `color:${INK.textBright}`,
+    `background:${INK.inputBg}`, `border:1px solid ${INK.subtleBorder}`,
+    "border-radius:3px", "touch-action:none",
   ].join(";");
-  const chosenName = document.createElement("div");
-  chosenName.style.cssText = "font-size:11px;color:#9ca3af;";
-  chosenName.textContent = "pick a channel below";
-  const plot = document.createElement("canvas");
-  plot.width = 176; plot.height = 54;
-  plot.style.cssText = "width:176px;height:54px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:3px;";
-  const blackSlider = document.createElement("input");
-  const whiteSlider = document.createElement("input");
-  for (const slider of [blackSlider, whiteSlider]) {
+  plotWrap.append(plot);
+
+  const buttonRow = el("div", "display:flex;gap:6px;justify-content:center;padding:2px 12px;");
+  const autoButton = el("button", [
+    "height:24px", "padding:0 10px", `border:1px solid ${INK.controlBorder}`,
+    "border-radius:4px", `background:${INK.ghost}`, `color:${INK.textPrimary}`,
+    `font:${font(600, 11)}`, "cursor:pointer",
+  ].join(";"), "Auto");
+  const logButton = autoButton.cloneNode(false);
+  logButton.textContent = "Log";
+  for (const button of [autoButton, logButton]) button.type = "button";
+  buttonRow.append(autoButton, logButton);
+
+  const controlRow = (label) => {
+    const line = el("label",
+      `display:grid;grid-template-columns:58px 1fr 58px;gap:6px;align-items:center;padding:2px 12px;font-size:10px;color:${INK.textMuted};`);
+    line.append(el("span", "", label));
+    const slider = dressed(el("input"));
     slider.type = "range";
     slider.disabled = true;
-    slider.style.cssText = "width:176px;margin:0;";
-  }
-  const sliderNote = document.createElement("div");
-  sliderNote.style.cssText = "font-size:10px;color:#9ca3af;display:flex;justify-content:space-between;width:176px;";
-  settings.append(settingsTitle, chosenName, plot, blackSlider, whiteSlider, sliderNote);
+    const box = el("span",
+      `text-align:right;font-variant-numeric:tabular-nums;color:${INK.textPrimary};font-size:11px;`);
+    line.append(slider, box);
+    return { line, slider, box };
+  };
+  const minRow = controlRow("min");
+  const maxRow = controlRow("max");
+  const opacityRow = controlRow("opacity");
+  opacityRow.slider.min = "0"; opacityRow.slider.max = "1"; opacityRow.slider.step = "0.01";
+  opacityRow.slider.value = "1";
+  settings.append(chosenHead, plotWrap, buttonRow, minRow.line, maxRow.line, opacityRow.line);
 
-  let chosen = null;           // the flat row index being adjusted
-  let shape = null;            // the chosen channel's measured histogram
+  /* ---- the state the settings act on ---- */
+  let chosen = null;   // the flat row index picked out
+  let shape = null;    // its measured histogram {low, high, counts, autoWindow}
+  let logScale = false;
+
+  const windowOf = (row) => row.window
+    ?? (shape?.autoWindow && chosen !== null && rows[chosen] === row ? shape.autoWindow : null)
+    ?? { low: 0, high: 65535 };
+
+  function theAxis(row) {
+    /* The window sits at 15%..85% of the drawn axis, clamped to what was
+       measured — the viewer's own framing. */
+    const window_ = windowOf(row);
+    const across = (window_.high - window_.low) / (1 - 2 * WINDOW_SITS_FROM) || 1;
+    const beyond = across * WINDOW_SITS_FROM;
+    const bounds = shape ? { low: shape.low, high: shape.high } : null;
+    return {
+      low: bounds ? Math.max(Math.min(bounds.low, window_.low), window_.low - beyond) : window_.low - beyond,
+      high: bounds ? Math.min(Math.max(bounds.high, window_.high), window_.high + beyond) : window_.high + beyond,
+    };
+  }
 
   function drawTheHistogram() {
-    const paint = plot.getContext("2d");
-    paint.clearRect(0, 0, plot.width, plot.height);
-    if (!shape) return;
-    const counts = shape.counts ?? [];
-    const most = Math.max(1, ...counts);
-    const wide = plot.width / Math.max(1, counts.length);
-    /* The chosen window shaded behind the bars, so the sliders can be read
-       against the distribution they are cutting. */
-    const span = shape.high - shape.low || 1;
-    const x0 = ((Number(blackSlider.value) - shape.low) / span) * plot.width;
-    const x1 = ((Number(whiteSlider.value) - shape.low) / span) * plot.width;
-    paint.fillStyle = "#e0ecff";
-    paint.fillRect(x0, 0, Math.max(1, x1 - x0), plot.height);
-    paint.fillStyle = "#6b7280";
-    counts.forEach((count, at) => {
-      const h = (Math.log1p(count) / Math.log1p(most)) * (plot.height - 2);
-      paint.fillRect(at * wide, plot.height - h, Math.max(1, wide - 0.5), h);
-    });
-  }
-
-  function applyTheWindow() {
+    while (plot.firstChild) plot.firstChild.remove();
     if (chosen === null) return;
-    let low = Number(blackSlider.value);
-    let high = Number(whiteSlider.value);
-    if (high <= low) { high = low + 1; whiteSlider.value = String(high); }
-    viewer.setChannel(chosen, { window: { low, high } });
-    sliderNote.textContent = "";
-    sliderNote.append(
-      Object.assign(document.createElement("span"), { textContent: Math.round(low) }),
-      Object.assign(document.createElement("span"), { textContent: Math.round(high) }),
-    );
-    drawTheHistogram();
-  }
-  blackSlider.addEventListener("input", applyTheWindow);
-  whiteSlider.addEventListener("input", applyTheWindow);
-
-  async function chooseRow(index, row, line) {
-    chosen = index;
-    chosenName.textContent = `${row.acquisition} · ${row.name}`;
-    for (const other of open.querySelectorAll("[data-channel-row]")) {
-      other.style.background = "";
+    const row = rows[chosen];
+    const window_ = windowOf(row);
+    const counts = shape?.counts ?? [];
+    plot.setAttribute("viewBox", `0 0 ${Math.max(counts.length, 1)} 24`);
+    const axis = theAxis(row);
+    const span = axis.high - axis.low || 1;
+    const at = (value) =>
+      Math.min(Math.max((value - axis.low) / span, 0), 1) * Math.max(counts.length, 1);
+    if (shape && counts.length) {
+      const bins = shape.high - shape.low || 1;
+      const brightnessOf = (index) => shape.low + ((index + 0.5) * bins) / counts.length;
+      const peak = Math.max(...counts, 1);
+      counts.forEach((count, index) => {
+        const share = logScale ? Math.log1p(count) / Math.log1p(peak) : count / peak;
+        const height = share * 22;
+        const inside = brightnessOf(index) >= window_.low && brightnessOf(index) <= window_.high;
+        const starts = at(shape.low + (index * bins) / counts.length);
+        const ends = at(shape.low + ((index + 1) * bins) / counts.length);
+        const barEl = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+        barEl.setAttribute("x", starts);
+        barEl.setAttribute("y", 24 - height);
+        barEl.setAttribute("width", Math.max(ends - starts, 0.0001));
+        barEl.setAttribute("height", height);
+        barEl.setAttribute("fill", "currentColor");
+        barEl.setAttribute("opacity", inside ? "1" : "0.25");
+        plot.append(barEl);
+      });
     }
-    line.style.background = "#eff6ff";
-    shape = null;
-    drawTheHistogram();
-    const answer = await measured(row);
-    if (chosen !== index) return;
-    if (!answer) { chosenName.textContent += " · could not be measured"; return; }
-    shape = answer.histogram;
-    for (const slider of [blackSlider, whiteSlider]) {
-      slider.min = String(Math.floor(shape.low));
-      slider.max = String(Math.ceil(shape.high));
+    /* The edge bars are 0.8 of a bin wide, so they are only drawn against a
+       real histogram — against an empty one bin they would fill the box. */
+    if (!counts.length) return;
+    for (const edge of [window_.low, window_.high]) {
+      const x = at(edge);
+      if (x <= 0 || x >= counts.length) continue;
+      const line = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+      line.setAttribute("x", x);
+      line.setAttribute("y", "0");
+      line.setAttribute("width", "0.8");
+      line.setAttribute("height", "24");
+      line.setAttribute("fill", INK.accent);
+      plot.append(line);
+    }
+  }
+
+  function refreshControls() {
+    if (chosen === null) return;
+    const row = rows[chosen];
+    const window_ = windowOf(row);
+    const axis = theAxis(row);
+    for (const { slider } of [minRow, maxRow]) {
+      slider.min = String(Math.floor(axis.low));
+      slider.max = String(Math.ceil(axis.high));
       slider.step = "1";
       slider.disabled = false;
     }
-    const first = answer.window ?? shape.autoWindow ?? { low: shape.low, high: shape.high };
-    blackSlider.value = String(Math.floor(first.low));
-    whiteSlider.value = String(Math.ceil(first.high));
-    applyTheWindow();
+    minRow.slider.value = String(Math.floor(window_.low));
+    maxRow.slider.value = String(Math.ceil(window_.high));
+    minRow.box.textContent = String(Math.floor(window_.low));
+    maxRow.box.textContent = String(Math.ceil(window_.high));
+    opacityRow.slider.disabled = false;
+    opacityRow.slider.value = String(row.weight);
+    opacityRow.box.textContent = `${Math.round(row.weight * 100)}%`;
+    for (const { slider } of [minRow, maxRow, opacityRow]) slider.refill();
+    drawTheHistogram();
   }
 
-  open.append(settings);
+  function takeTheWindow(next) {
+    if (chosen === null) return;
+    const row = rows[chosen];
+    const low = Math.min(next.low, next.high - 1);
+    row.window = { low, high: Math.max(next.high, low + 1) };
+    viewer.setChannel(chosen, { window: row.window });
+    refreshControls();
+  }
 
+  minRow.slider.addEventListener("input", () => takeTheWindow({
+    low: Number(minRow.slider.value), high: windowOf(rows[chosen]).high,
+  }));
+  maxRow.slider.addEventListener("input", () => takeTheWindow({
+    low: windowOf(rows[chosen]).low, high: Number(maxRow.slider.value),
+  }));
+  opacityRow.slider.addEventListener("input", () => {
+    if (chosen === null) return;
+    rows[chosen].weight = Number(opacityRow.slider.value);
+    viewer.setChannel(chosen, { weight: rows[chosen].weight });
+    opacityRow.box.textContent = `${Math.round(rows[chosen].weight * 100)}%`;
+  });
+  logButton.addEventListener("click", () => {
+    logScale = !logScale;
+    logButton.style.background = logScale ? INK.accent : INK.ghost;
+    logButton.style.color = logScale ? "#fff" : INK.textPrimary;
+    drawTheHistogram();
+  });
+  autoButton.addEventListener("click", async () => {
+    if (chosen === null) return;
+    const row = rows[chosen];
+    const answer = await measured(row);
+    if (answer?.histogram) shape = answer.histogram;
+    const wanted = answer?.window ?? shape?.autoWindow;
+    if (wanted) takeTheWindow(wanted);
+  });
+
+  /* The window's edges can be taken hold of on the histogram itself, with
+     the viewer's six pixels of grace. */
+  let held = null;
+  const valueUnder = (event) => {
+    const face = plot.getBoundingClientRect();
+    const axis = theAxis(rows[chosen]);
+    const share = Math.min(1, Math.max(0, (event.clientX - face.left) / face.width));
+    return axis.low + share * (axis.high - axis.low);
+  };
+  plot.addEventListener("pointerdown", (event) => {
+    if (chosen === null || !shape) return;
+    const window_ = windowOf(rows[chosen]);
+    const face = plot.getBoundingClientRect();
+    const axis = theAxis(rows[chosen]);
+    const grace = (6 / face.width) * (axis.high - axis.low);
+    const pressed = valueUnder(event);
+    if (Math.abs(pressed - window_.low) <= grace) held = "low";
+    else if (Math.abs(pressed - window_.high) <= grace) held = "high";
+    else return;
+    plot.setPointerCapture(event.pointerId);
+  });
+  plot.addEventListener("pointermove", (event) => {
+    if (chosen === null) return;
+    const window_ = windowOf(rows[chosen]);
+    if (!held) {
+      if (!shape) return;
+      const face = plot.getBoundingClientRect();
+      const axis = theAxis(rows[chosen]);
+      const grace = (6 / face.width) * (axis.high - axis.low);
+      const over = valueUnder(event);
+      const overBar = Math.abs(over - window_.low) <= grace
+        || Math.abs(over - window_.high) <= grace;
+      plot.style.cursor = overBar ? "ew-resize" : "default";
+      return;
+    }
+    const value = valueUnder(event);
+    takeTheWindow(held === "low"
+      ? { low: Math.min(value, window_.high - 1), high: window_.high }
+      : { low: window_.low, high: Math.max(value, window_.low + 1) });
+  });
+  for (const done of ["pointerup", "pointercancel"]) {
+    plot.addEventListener(done, () => { held = null; });
+  }
+
+  /* ---- the data card: groups, eyes, swatches, names ---- */
+  const data = el("div", CARD);
+  data.append(el("div", HEADING, "data"));
+
+  let chooserOpen = null;
+  const closeChooser = () => { chooserOpen?.remove(); chooserOpen = null; };
+  document.addEventListener("pointerdown", closeChooser, true);
+
+  function aSwatch(index, row) {
+    const swatch = el("button", [
+      "width:13px", "height:13px", "border-radius:3px",
+      `border:1px solid ${INK.controlBorder}`, "display:inline-block",
+      "flex-shrink:0", "padding:0", "cursor:pointer", "appearance:none",
+      `background:${row.color ?? cssOf(null)}`,
+    ].join(";"));
+    swatch.type = "button";
+    swatch.title = "Choose this channel's colour";
+    swatch.addEventListener("pointerdown", (press) => press.stopPropagation());
+    swatch.addEventListener("click", (press) => {
+      press.stopPropagation();
+      closeChooser();
+      const face = swatch.getBoundingClientRect();
+      const list = el("div", [
+        "position:fixed", `left:${face.right + 6}px`, `top:${face.top - 4}px`,
+        "z-index:40", "min-width:116px", `background:${INK.cardBg}`,
+        `border:1px solid ${INK.panelBorder}`, "border-radius:6px",
+        "padding:4px", "box-shadow:0 2px 10px rgba(25,35,50,0.22)",
+        "display:flex", "flex-direction:column", "gap:2px",
+      ].join(";"));
+      for (const choice of PALETTE) {
+        const entry = el("button",
+          `display:flex;align-items:center;gap:7px;border:none;background:none;cursor:pointer;padding:3px 6px;border-radius:3px;font:${font(400, 12)};color:${INK.textPrimary};text-align:left;`);
+        entry.type = "button";
+        entry.append(
+          el("span", `display:inline-block;width:22px;height:11px;border-radius:2px;border:1px solid ${INK.controlBorder};background:${cssOf(choice.rgb)};`),
+          el("span", "", choice.name),
+        );
+        entry.addEventListener("pointerdown", (press) => press.stopPropagation());
+        entry.addEventListener("click", () => {
+          const rgb = choice.rgb ?? [0.847, 0.871, 0.902];
+          row.color = cssOf(choice.rgb);
+          swatch.style.background = row.color;
+          viewer.setChannel(index, { colour: rgb });
+          closeChooser();
+        });
+        list.append(entry);
+      }
+      document.body.append(list);
+      chooserOpen = list;
+    });
+    return swatch;
+  }
+
+  const rowLines = [];
   let heading = null;
+  let groupBox = null;
   rows.forEach((row, index) => {
     if (row.acquisition !== heading) {
       heading = row.acquisition;
-      const title = document.createElement("div");
-      title.textContent = heading;
-      title.style.cssText = [
-        "font-weight:600", "font-size:11px", "letter-spacing:0.04em",
-        "text-transform:uppercase", "color:#6b7280", "margin:8px 0 2px",
-      ].join(";");
-      open.append(title);
-    }
-    const line = document.createElement("div");
-    line.dataset.channelRow = "1";
-    line.style.cssText =
-      "display:flex;align-items:center;gap:7px;cursor:pointer;padding:2px 4px;border-radius:3px;";
-    const eye = document.createElement("input");
-    eye.type = "checkbox";
-    eye.checked = true;
-    eye.style.cssText = "margin:0;";
-    eye.addEventListener("click", (press) => press.stopPropagation());
-    eye.addEventListener("change", () => viewer.setChannel(index, { visible: eye.checked }));
-    /* The colour is the operator's to change, the way the viewer offers it. */
-    const swatch = document.createElement("input");
-    swatch.type = "color";
-    swatch.value = row.color ?? "#ffffff";
-    swatch.style.cssText = [
-      "width:16px", "height:16px", "padding:0", "border:1px solid #d1d5db",
-      "border-radius:3px", "background:none", "cursor:pointer",
-    ].join(";");
-    swatch.addEventListener("click", (press) => press.stopPropagation());
-    swatch.addEventListener("input", () => {
-      const hex = swatch.value.replace("#", "");
-      viewer.setChannel(index, {
-        colour: [0, 2, 4].map((at) => parseInt(hex.slice(at, at + 2), 16) / 255),
+      const group = el("div", `border-bottom:1px solid ${INK.subtleBorder};`);
+      const head = el("div", "display:flex;align-items:center;gap:6px;padding:5px 12px 3px;");
+      const groupEye = el("button",
+        `background:none;border:none;color:${INK.textPrimary};cursor:pointer;padding:0;`);
+      groupEye.type = "button";
+      groupEye.dataset.on = "1";
+      groupEye.append(anEye(true));
+      groupEye.title = "Hide this acquisition";
+      const members = rows.map((one, at) => ({ one, at }))
+        .filter(({ one }) => one.acquisition === heading);
+      groupEye.addEventListener("click", () => {
+        const on = groupEye.dataset.on !== "1";
+        groupEye.dataset.on = on ? "1" : "0";
+        groupEye.replaceChildren(anEye(on));
+        groupEye.style.opacity = on ? "1" : "0.4";
+        groupEye.title = on ? "Hide this acquisition" : "Show this acquisition";
+        for (const { one, at } of members) {
+          viewer.setChannel(at, { visible: on && one.visible });
+        }
       });
+      head.append(groupEye, el("span",
+        `flex:1;font:${font(600, 12)};letter-spacing:.02em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;`,
+        heading));
+      groupBox = el("div", `padding-left:8px;border-left:2px solid ${INK.subtleBorder};margin-left:16px;`);
+      group.append(head, groupBox);
+      data.append(group);
+    }
+    const line = el("div",
+      "position:relative;padding:1px 0;cursor:pointer;margin-right:12px;border-radius:3px;");
+    const inner = el("div", "display:flex;align-items:center;gap:8px;padding:5px 12px;");
+    const eye = el("button",
+      `background:none;border:none;color:${INK.textPrimary};cursor:pointer;padding:0;`);
+    eye.type = "button";
+    eye.append(anEye(true));
+    eye.title = "Hide this channel";
+    eye.addEventListener("click", (press) => {
+      press.stopPropagation();
+      row.visible = !row.visible;
+      eye.replaceChildren(anEye(row.visible));
+      eye.style.opacity = row.visible ? "1" : "0.4";
+      eye.title = row.visible ? "Hide this channel" : "Show this channel";
+      viewer.setChannel(index, { visible: row.visible });
     });
-    const name = document.createElement("span");
-    name.textContent = row.name;
-    /* A press on the row picks the channel out for the display settings
-       above — one set of controls, adjusted one channel at a time. */
-    line.addEventListener("click", () => chooseRow(index, row, line));
-    line.append(eye, swatch, name);
-    open.append(line);
+    inner.append(eye, aSwatch(index, row), el("span",
+      "overflow:hidden;text-overflow:ellipsis;white-space:nowrap;", row.name));
+    line.append(inner);
+    line.addEventListener("click", () => chooseRow(index));
+    rowLines.push(line);
+    groupBox.append(line);
   });
 
-  /* -- what the picture as a whole offers: the master switch, the stack's
-     depth, and the volume, each only when the engine says it is there. -- */
-  const pictureRow = document.createElement("label");
-  pictureRow.style.cssText =
-    "display:flex;align-items:center;gap:7px;cursor:pointer;padding:6px 4px 2px;margin-top:6px;border-top:1px solid #e5e7eb;";
-  const pictureEye = document.createElement("input");
+  async function chooseRow(index) {
+    chosen = index;
+    const row = rows[index];
+    rowLines.forEach((line, at) => {
+      line.style.background = at === index ? INK.chosenGround : "";
+    });
+    chosenLine.replaceChildren(
+      el("span", `font:${font(600, 12)};color:${INK.textPrimary};`, row.acquisition),
+      el("span", "overflow:hidden;text-overflow:ellipsis;white-space:nowrap;", row.name),
+    );
+    shape = null;
+    refreshControls();
+    const answer = await measured(row);
+    if (chosen !== index || !answer) return;
+    shape = answer.histogram;
+    if (!row.window && answer.window) row.window = answer.window;
+    refreshControls();
+  }
+
+  /* ---- the picture as a whole: master switch, depth, volume ---- */
+  const whole = el("div", CARD);
+  whole.append(el("div", HEADING, "picture"));
+  const pictureLine = el("label",
+    "display:flex;align-items:center;gap:8px;cursor:pointer;padding:5px 12px;");
+  const pictureEye = el("input");
   pictureEye.type = "checkbox";
   pictureEye.checked = true;
   pictureEye.style.cssText = "margin:0;";
   pictureEye.addEventListener("change", () => viewer.showPicture?.(pictureEye.checked));
-  pictureRow.append(pictureEye, Object.assign(document.createElement("span"), {
-    textContent: "picture",
-  }));
-  open.append(pictureRow);
+  pictureLine.append(pictureEye, el("span", "", "draw the picture"));
+  whole.append(pictureLine);
 
   const depth = viewer.theDepthItCanShow?.();
   if (depth && depth.highUm > depth.lowUm) {
-    const depthTitle = document.createElement("div");
-    depthTitle.textContent = "depth (z)";
-    depthTitle.style.cssText =
-      "font-weight:600;font-size:11px;letter-spacing:0.04em;text-transform:uppercase;color:#6b7280;margin:8px 0 2px;";
-    const depthSlider = document.createElement("input");
+    const depthLine = el("label",
+      `display:grid;grid-template-columns:58px 1fr 58px;gap:6px;align-items:center;padding:2px 12px;font-size:10px;color:${INK.textMuted};`);
+    depthLine.append(el("span", "", "depth (z)"));
+    const depthSlider = dressed(el("input"));
     depthSlider.type = "range";
     depthSlider.min = String(depth.lowUm);
     depthSlider.max = String(depth.highUm);
     depthSlider.step = String(depth.stepUm || 1);
     depthSlider.value = String(depth.atUm ?? depth.lowUm);
-    depthSlider.style.cssText = "width:176px;margin:0;";
-    const depthNote = document.createElement("div");
-    depthNote.style.cssText = "font-size:10px;color:#9ca3af;";
-    depthNote.textContent = `${Math.round(Number(depthSlider.value))} µm`;
+    const depthBox = el("span",
+      `text-align:right;font-variant-numeric:tabular-nums;color:${INK.textPrimary};font-size:11px;`,
+      `${Math.round(Number(depthSlider.value))} µm`);
     depthSlider.addEventListener("input", () => {
       viewer.setPlane?.(Number(depthSlider.value));
-      depthNote.textContent = `${Math.round(Number(depthSlider.value))} µm`;
+      depthBox.textContent = `${Math.round(Number(depthSlider.value))} µm`;
     });
-    open.append(depthTitle, depthSlider, depthNote);
-
+    depthLine.append(depthSlider, depthBox);
+    whole.append(depthLine);
     if (viewer.canShowVolume) {
-      const volume = document.createElement("label");
-      volume.style.cssText = "display:flex;align-items:center;gap:7px;cursor:pointer;padding:2px 4px;";
-      const wants = document.createElement("input");
+      const volumeLine = el("label",
+        "display:flex;align-items:center;gap:8px;cursor:pointer;padding:5px 12px;");
+      const wants = el("input");
       wants.type = "checkbox";
       wants.style.cssText = "margin:0;";
       wants.addEventListener("change", () => viewer.showVolume?.(wants.checked));
-      volume.append(wants, Object.assign(document.createElement("span"), {
-        textContent: "draw the stack as a volume",
-      }));
-      open.append(volume);
+      volumeLine.append(wants, el("span", "", "draw the stack as a volume"));
+      whole.append(volumeLine);
     }
   }
-  /* The first channel starts picked out, so the histogram is not an empty
-     box waiting for a click nobody was told to make. */
-  const firstLine = open.querySelector("[data-channel-row]");
-  if (rows.length && firstLine) chooseRow(0, rows[0], firstLine);
 
+  bar.append(data, settings, whole);
   if (plotHost) plotHost.after(panel);
   else (body ?? near)?.append(panel);
   /* Left where a test can reach it, the way the picture itself is. */
   window.__viewerPanel = panel;
+  if (rows.length) chooseRow(0);
   return {
     destroy() {
+      closeChooser();
+      document.removeEventListener("pointerdown", closeChooser, true);
       panel.remove();
       if (window.__viewerPanel === panel) window.__viewerPanel = null;
     },
