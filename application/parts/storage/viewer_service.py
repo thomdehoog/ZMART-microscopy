@@ -43,9 +43,13 @@ _viewer: dict = {
     # viewer heading (the acquisition type, read off the store names) -> the
     # engine-ready sources: [{"url": ..., "name": ...}], each a whole address.
     "sources": {},
-    # the positions folders already opened as sources, so a landed capture
-    # only rings the doorbell after the first of its kind.
-    "opened": set(),
+    # positions folder -> how many stores it held when it was opened. The
+    # count matters, not just membership: a folder opened at ONE store was
+    # opened as that store, and the viewer's watching grows scenes, not
+    # single stores — so the moment a second store lands, the dataset has to
+    # be closed and the folder opened again, which now links it into one
+    # picture. From then on the watching carries it.
+    "opened": {},
 }
 _the_turn = threading.Lock()
 
@@ -83,7 +87,7 @@ def stop() -> None:
     """The session is over, and the viewer with it."""
     with _the_turn:
         server = _viewer["server"]
-        _viewer.update(server=None, thread=None, port=None, sources={}, opened=set())
+        _viewer.update(server=None, thread=None, port=None, sources={}, opened={})
         if server is not None:
             try:
                 server.shutdown()
@@ -112,16 +116,27 @@ def a_position_landed(acquisition_type: str, positions_folder: Path | str) -> No
     picture, not the scan.
     """
     folder = str(positions_folder)
+    stores_now = len(list(Path(folder).glob("*.ome.zarr")))
     with _the_turn:
         port = _viewer["port"]
         if port is None:
             return
-        fresh = folder not in _viewer["opened"]
+        opened_at = _viewer["opened"].get(folder)
     try:
-        if fresh:
+        if opened_at is None:
             answered = _ask(port, "/api/stores/open", {"path": folder})
             with _the_turn:
-                _viewer["opened"].add(folder)
+                _viewer["opened"][folder] = stores_now
+                _viewer["sources"] = _the_sources_in(answered, port)
+        elif opened_at == 1 and stores_now >= 2:
+            # Opened at one store, the folder was opened AS that store, and
+            # watching cannot grow a single store into a run. Closed and
+            # opened again, the folder now links into one picture — and the
+            # watching carries every position after this.
+            _ask(port, "/api/stores/close", {"group": acquisition_type})
+            answered = _ask(port, "/api/stores/open", {"path": folder})
+            with _the_turn:
+                _viewer["opened"][folder] = stores_now
                 _viewer["sources"] = _the_sources_in(answered, port)
         _ask(port, "/api/announce", {})
     except Exception as why:  # noqa: BLE001 -- the picture lags, the scan goes on
