@@ -704,7 +704,35 @@ a zoomed-out impression.
   passed with 15 intentional skips, the production build passed, and all eight
   relevant Microscopy browser tests passed. The isolated install selected
   Viewer 0.2.0 from the pinned sibling checkout and reached `/api/measure`.
-- Package H was requested after that cleanup checkpoint. Its reference
-  inspection and inventory are complete, but histogram/layer UX parity is not
-  claimed until the new interaction, preservation, build, coordinate-invariance,
-  and screenshot gates above pass.
+- Package H is complete as a separate UX-similarity package. The real Viewer
+  0.2 panel and its tests were inspected at `9ff10b0`; the concise comparison is
+  in `2026-09-01-smart-viewer-panel-ux-inventory.md`. Its components were too
+  coupled to the complete Viewer application to be a clean dependency, so the
+  proven interactions are implemented behind the existing Operator panel and
+  engine-adapter interfaces rather than copying or mounting the Viewer page.
+- The Operator now owns stable requested acquisition/channel state while
+  engine-observed visibility, window, opacity, sources, and mismatch history
+  remain separately inspectable. Acquisition eyes preserve individual channel
+  requests; selection, colour, opacity, window, axis, Log, and collapse survive
+  stable source growth and panel reconstruction. Later sources keep the same
+  Viewer instance.
+- Histogram edge drag, background pan, wheel zoom, double-click reset, typed
+  values, sliders, Auto, Log, pointer feedback, stale-response cancellation,
+  and visible failure behavior pass as browser interactions. Auto and initial
+  measurement use unmodified responses from the real Viewer 0.2
+  `/api/measure`; a failed or superseded response leaves the operator window
+  unchanged.
+- Package H verification on 2026-09-01: all 365 JavaScript unit tests passed
+  with 15 intentional skips; all 12 focused panel/reference/production browser
+  tests passed; the real live-bridge source-growth and whole-plate Fit browser
+  regression passed; and the production bundle rebuilt successfully. Matrix
+  snapshots, including Z, are exactly equal before and after group/channel
+  visibility actions. No coordinate or Z-placement production code changed.
+- The five visually inspected Package H captures and adjacent JSON records are
+  under `docs/reviews/evidence/2026-09-01-smart-viewer-panel-ux/`. They show the
+  real Viewer reference, the comparable Operator selection/histogram state,
+  focussing overlay, overview-only state, and the rebuilt production page. They
+  explicitly link to rather than replace the accepted real-kidney 0/3/6/9,
+  whole-plate, overview-only, and close-up Step 5 evidence. The UX-similarity
+  gates pass; pixel-identical styling and identical component internals are not
+  claimed.

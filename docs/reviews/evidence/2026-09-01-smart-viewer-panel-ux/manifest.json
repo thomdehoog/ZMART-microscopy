@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-09-01T17:22:27Z",
+  "purpose": "Separate Smart Viewer-inspired histogram and layer-panel UX work package",
+  "authorities": {
+    "viewer": {"version": "0.2.0", "commit": "9ff10b04e803fbe2a71a1735a8065a845ea803dd"},
+    "operatorBehaviorCommit": "cd88f5b79bbf1711ec5af03dc27f5d00c378306b"
+  },
+  "records": [
+    "smart-viewer-0.2-reference.json",
+    "smart-operator-comparable-panel.json",
+    "smart-operator-focussing-overlay.json",
+    "smart-operator-overview-only.json",
+    "smart-operator-production-build.json"
+  ],
+  "browserTest": "application/viewer-panel-ux-evidence.spec.js",
+  "coordinateEvidence": [
+    "../2026-09-01-smart-viewer-step-five/0-of-9.json",
+    "../2026-09-01-smart-viewer-step-five/3-of-9.json",
+    "../2026-09-01-smart-viewer-step-five/6-of-9.json",
+    "../2026-09-01-smart-viewer-step-five/9-of-9-harness.json",
+    "../2026-09-01-smart-viewer-step-five/9-of-9-run.json",
+    "../2026-09-01-smart-viewer-step-five/whole-plate.json",
+    "../2026-09-01-smart-viewer-step-five/overview-only.json",
+    "../2026-09-01-smart-viewer-step-five/kidney-close-up.json"
+  ],
+  "separation": "Panel screenshots exercise Operator-native requested/observed state through an engine-adapter fixture and real Viewer measurements. They do not replace the real-kidney Step 5 pixel, projection, Fit, 0/3/6/9, whole-plate, overview-only, or close-up records."
+}
