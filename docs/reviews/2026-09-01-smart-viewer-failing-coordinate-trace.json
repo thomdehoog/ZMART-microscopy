@@ -160,9 +160,10 @@
     ]
   },
   "conclusion": {
-    "first_divergent_coordinate_boundary": null,
-    "registration_fix_required": false,
-    "registration_commit_omitted": true,
-    "reason": "Carrier-local plan + carrier origin equals the acquisition request and OME-Zarr centre. Engine bounds contain the same physical points, and stage/engine screen projections differ by less than one pixel."
+    "first_divergent_xy_boundary": null,
+    "xy_registration_fix_required": false,
+    "first_visibility_boundary": "The position writer used measured focus height as the z translation of a flat overview. The store placed position 0 at z 15.9358 um and the engine reported it around z 13.6198-14.5022 while the shared map plane was z 0.5.",
+    "visibility_fix_required": true,
+    "reason": "Carrier-local x/y plan + carrier origin equals the acquisition request and OME-Zarr x/y centre. Engine x/y bounds contain the same physical points, and stage/engine screen projections differ by less than one pixel. The flat overview nevertheless diverges first at the writer's z translation."
   }
 }
