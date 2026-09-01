@@ -79,6 +79,30 @@ micrometres on a live page: that distinguishes the viewer placing the composed
 scene wrongly, the adapter's transform being wrong, and the plan disagreeing
 with the mock instrument's stage about where zero is.
 
+**One commit is a suspect, and it is one of ours.** The offset was measured on
+`claude/step-five-kidney-evidence`, which contains `4ab5903` — the commit that
+gave the canvas a view of its own. That commit does not only add a fallback; it
+also changes `intoTheStore` and `outOfTheStore`, which are the conversions
+between the frame the page thinks in and the frame the store is described in,
+and which are where the reconciliation between the carrier's micrometres and the
+stage's lives (`pictureOffsetUm`, section 5 of
+`2026-09-01-why-the-acquired-overview-never-appeared.md`). A commit that rewrites
+those conversions, on a branch that then draws the picture tens of millimetres
+from the plan, is the first place a translation error would be looked for.
+
+This is a suspicion and not a finding. What would settle it is running the same
+nine-field walk at `93e374c`, the commit `4ab5903` was taken from, with PR #24's
+`viewer_service.py` in place so that the fields actually reach the canvas: if
+the offset is there too it is older than this work, and if it is not, `4ab5903`
+introduced it. That run has not been done.
+
+Worth stating for balance: the port branch touched none of the pipeline that
+`2026-09-01-why-the-acquired-overview-never-appeared.md` describes.
+`zarr_positions.py` and `viewer_service.py` are untouched on it, and
+`_the_corner_of`, `THE_SMALLEST_COPY_WORTH_KEEPING`, `A_PICTURE_MAY_STAND_FOR`,
+`pictureOffsetUm` and `whenChannelsChange` are all still present. Whatever went
+wrong, it did not go wrong by undoing those.
+
 ### 1.2 The engine's opening view replaces the operator's framing
 
 When an acquisition lands, the drawing engine's own opening view takes over and
