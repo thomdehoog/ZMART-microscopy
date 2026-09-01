@@ -294,6 +294,10 @@ export async function openViewer(element, options = {}) {
     // Who wants to hear that which channels are drawn has changed. See
     // `whenChannelsChange` on the handle for why anything would.
     told: [],
+    // And how to stop each listener that asked to hear the view move. Kept so
+    // that closing the viewer really lets go of everything, even of a panel
+    // that was taken down without saying so. See `whenTheViewMoves`.
+    stopTellingAboutTheView: [],
     // How many times the operator's drawing has been repainted, and how many
     // frames the engine has announced. Kept because a measurement has to be
     // able to tell "the drawing never moved" from "the drawing moved to the
@@ -1173,6 +1177,12 @@ function tearDown(own) {
   own.stopHoldingOn?.();
   own.stopStandingOnTheFirstPlane?.();
   own.stopStandingOnTheFirstPlane = null;
+  /* Anything that asked to hear the view move is let go of here as well, so a
+     panel that was taken down without unsubscribing cannot keep a listener
+     alive on an engine that is about to be disposed of. */
+  for (const stop of own.stopTellingAboutTheView || []) stop();
+  own.stopTellingAboutTheView = [];
+  own.told = [];
   for (const stop of own.stopWatchingTheSources || []) stop();
   own.stopWatchingTheSources = null;
   own.paint = null;
@@ -2176,6 +2186,46 @@ function handleFor(own) {
       own.told.push(tell);
       return () => {
         own.told = own.told.filter((one) => one !== tell);
+      };
+    },
+
+    /**
+     * Be told whenever the picture has moved.
+     *
+     * The view moves for reasons a panel knows nothing about — the scroll
+     * wheel, a step of the workflow driving the stage, this viewer opening
+     * itself on the plane the specimen is actually on. A control that is only
+     * ever written to goes on showing where it last put the operator, which
+     * after any of those is not where the picture is. So anything drawing a
+     * control for the depth, the moment or the view asks to hear about a
+     * movement it did not make itself, and reads the answer back out of
+     * `theDepthItCanShow()` rather than remembering its own.
+     *
+     * Hand over a function; hand back what stops it being called. Like
+     * `whenChannelsChange`, it reports *that* the picture moved rather than
+     * where to, because the one honest answer to "where is it now" is the one
+     * this viewer gives when it is asked.
+     */
+    whenTheViewMoves(tell) {
+      if (typeof tell !== "function") return () => {};
+      /* The engine's own announcement that its navigation changed, which
+         covers every way the view can move: the gestures, `setPlane`,
+         `setView`, and the engine's own re-centring when a late source
+         arrives. Guarded, for the same reason `sayTheChannelsChanged` is —
+         a listener that fails must not stop the view from moving. */
+      const stopHearing = own.viewer.navigationState.changed.add(() => {
+        if (own.destroyed) return;
+        try {
+          tell();
+        } catch (why) {
+          console.warn("something listening for the view moving failed", why);
+        }
+      });
+      own.stopTellingAboutTheView.push(stopHearing);
+      return () => {
+        own.stopTellingAboutTheView =
+          own.stopTellingAboutTheView.filter((one) => one !== stopHearing);
+        stopHearing();
       };
     },
 

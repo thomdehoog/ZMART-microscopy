@@ -147,6 +147,30 @@ def test_every_option_can_switch_the_picture_off_without_reopening():
         )
 
 
+def test_every_option_can_say_when_its_picture_has_moved():
+    """`whenTheViewMoves` is on every handle, so no control has to guess.
+
+    A control that only ever writes to the viewer shows where it last put the
+    operator, and that stops being true the moment anything else moves the
+    picture — the scroll wheel, a step of the workflow driving the stage, the
+    viewer settling on the plane the specimen is actually on. The panel's depth
+    slider was exactly that for a while, and it is the same untruth as an eye
+    that stays open on a channel nobody is drawing.
+
+    A page cannot work around a missing announcement except by asking again on
+    a timer, which is either too slow to read or wasteful all day. So every
+    option answers it, including `jpeg-under`, which has no stack to move
+    through but does pan and zoom.
+    """
+    for option in EVERY_OPTION + ["jpeg-under"]:
+        source = _without_comments((_OPTIONS / option / "viewer.js").read_text())
+        assert re.search(r"\bwhenTheViewMoves\s*\(", source), (
+            f"{option}/viewer.js has no whenTheViewMoves, so a control drawn "
+            "for the depth or the moment can only follow the picture by asking "
+            "again on a timer; see options/contract.md."
+        )
+
+
 def _without_comments(source: str) -> str:
     """The code with the prose taken out, roughly but well enough for this.
 

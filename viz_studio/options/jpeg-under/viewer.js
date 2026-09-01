@@ -104,6 +104,9 @@ export async function openViewer(element, options = {}) {
     surfaces: null,
     gestures: null,
     frameAsked: false,
+    // Who has asked to hear that the picture has moved, and how to stop
+    // telling them. See `whenTheViewMoves` on the handle.
+    watchingTheView: [],
   };
 
   buildTheThreeSurfaces(own);
@@ -136,6 +139,24 @@ export async function openViewer(element, options = {}) {
     theDepthItCanShow() { return null; },
     setPlane() {},
     setMoment() {},
+
+    /**
+     * Be told whenever the picture has moved.
+     *
+     * There is no stack here to move through, so nothing this answers will
+     * ever be about depth. It still pans and zooms, though, and a movement an
+     * operator can plainly see is not one to stay quiet about — so a listener
+     * hears whenever the view settles, exactly as `onViewChanged` does.
+     *
+     * Hand over a function; hand back what stops it being called.
+     */
+    whenTheViewMoves(tell) {
+      if (typeof tell !== "function") return () => {};
+      own.watchingTheView.push(tell);
+      return () => {
+        own.watchingTheView = own.watchingTheView.filter((one) => one !== tell);
+      };
+    },
     setChannel() {},
 
     canShowVolume: false,
@@ -229,6 +250,10 @@ export async function openViewer(element, options = {}) {
 
     destroy() {
       own.destroyed = true;
+      /* Anything that asked to hear the view move is let go of here too, so a
+         panel taken down without unsubscribing cannot keep a listener alive on
+         a viewer that has closed. */
+      own.watchingTheView = [];
       own.gestures?.stop?.();
       for (const picture of own.decoded.values()) picture?.close?.();
       own.decoded.clear();
@@ -366,7 +391,18 @@ function whereThingsAre(own) {
 }
 
 function settled(own) {
-  if (own.destroyed || !own.onViewChanged) return;
+  if (own.destroyed) return;
+  /* One listener failing must not stop the next from hearing, and must not
+     take down the movement that caused it: the picture has already moved by
+     the time this runs. */
+  for (const tell of own.watchingTheView) {
+    try {
+      tell();
+    } catch (why) {
+      console.warn("something listening for the view moving failed", why);
+    }
+  }
+  if (!own.onViewChanged) return;
   own.onViewChanged(whereThingsAre(own));
 }
 
