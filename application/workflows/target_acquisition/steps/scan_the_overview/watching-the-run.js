@@ -100,7 +100,13 @@ export function watchTheRun(ctx) {
     let openedOn = null;
     let inStageFrame = true;
     let panel = null;
-    const requestedVisibility = { acquisitions: new Map(), channels: new Map() };
+    const requestedPanelState = {
+      acquisitions: new Map(),
+      channels: new Map(),
+      collapsed: new Map(),
+      selectedKey: null,
+      lastMismatch: null,
+    };
 
     /* Every address that materially shapes a Viewer acquisition.  Smart
        Viewer puts the position stores on the channel rows, not beside the
@@ -195,7 +201,8 @@ export function watchTheRun(ctx) {
         if (wanted.signature.startsWith("sources:")) {
           const { mountViewerPanel } = await import("../../../../parts/canvas/viewer-panel.js");
           panel = await mountViewerPanel(host.parentElement ?? host, {
-            viewer, acquisitions: wanted.acquisitions, css: ctx.css, requestedVisibility,
+            viewer, acquisitions: wanted.acquisitions, css: ctx.css,
+            requestedState: requestedPanelState,
           });
         }
       } catch (e) {
@@ -239,6 +246,7 @@ export function watchTheRun(ctx) {
             && openedOn?.startsWith("sources:")
             && await viewer.addSources?.(wanted.acquisitions)) {
           openedOn = wanted.signature;
+          await panel?.sourcesChanged?.(wanted.acquisitions);
           return;
         }
         closePicture();
@@ -256,8 +264,11 @@ export function watchTheRun(ctx) {
       openedOn = null;
       window.__thePicture = null;
       if (forgetVisibility) {
-        requestedVisibility.acquisitions.clear();
-        requestedVisibility.channels.clear();
+        requestedPanelState.acquisitions.clear();
+        requestedPanelState.channels.clear();
+        requestedPanelState.collapsed.clear();
+        requestedPanelState.selectedKey = null;
+        requestedPanelState.lastMismatch = null;
       }
     }
 

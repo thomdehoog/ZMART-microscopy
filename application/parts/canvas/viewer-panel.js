@@ -36,6 +36,14 @@ const PALETTE = [
 ];
 const cssOf = (rgb) =>
   rgb ? `rgb(${rgb.map((v) => Math.round(v * 255)).join(",")})` : "#d8dee6";
+const hexOf = (rgb) => rgb
+  ? `#${rgb.map((value) => Math.round(Math.min(1, Math.max(0, value)) * 255)
+    .toString(16).padStart(2, "0")).join("")}`
+  : "#ffffff";
+const rgbOf = (hex) => {
+  const value = parseInt(hex.replace("#", ""), 16);
+  return [(value >> 16 & 255) / 255, (value >> 8 & 255) / 255, (value & 255) / 255];
+};
 
 /* The 15% rule: the window's edges are drawn at 15% and 85% of the axis. */
 const WINDOW_SITS_FROM = 0.15;
@@ -103,6 +111,7 @@ export async function viewerRowsFor(acquisitions) {
         color: Array.isArray(channel.colour)
           ? cssOf(channel.colour)
           : channel.color ?? null,
+        colour: Array.isArray(channel.colour) ? channel.colour : null,
         window: channel.window ?? null,
         within: Array.isArray(channel.localPosition)
           ? channel.localPosition[0]
@@ -117,6 +126,9 @@ export async function viewerRowsFor(acquisitions) {
         ? described.map((channel, at) => ({
           name: channel?.label || `channel ${at + 1}`,
           color: typeof channel?.color === "string" ? `#${channel.color}` : null,
+          colour: typeof channel?.color === "string"
+            ? [0, 2, 4].map((at) => parseInt(channel.color.slice(at, at + 2), 16) / 255)
+            : null,
           window: channel?.window && Number.isFinite(channel.window.start)
             ? { low: channel.window.start, high: channel.window.end }
             : null,
@@ -130,6 +142,7 @@ export async function viewerRowsFor(acquisitions) {
         : [{
           name: acquisition.name,
           color: null,
+          colour: null,
           window: null,
           within: 0,
           source: acquisition.url,
@@ -171,6 +184,54 @@ async function measured(row) {
   }
 }
 
+/** A channel identity that survives source growth and panel remounting. */
+export const viewerChannelKey = (row) =>
+  `${row.acquisition}\u0000${row.within}\u0000${row.name}`;
+
+/**
+ * Smart Operator's requested panel state.
+ *
+ * The engine is deliberately absent. This object records what the operator
+ * asked for and can be handed to a replacement panel or Viewer without making
+ * either of them the owner of the controls.
+ */
+export function createViewerPanelState() {
+  return {
+    acquisitions: new Map(),
+    channels: new Map(),
+    collapsed: new Map(),
+    selectedKey: null,
+    lastMismatch: null,
+  };
+}
+
+function completePanelState(given) {
+  const state = given ?? createViewerPanelState();
+  state.acquisitions ??= new Map();
+  state.channels ??= new Map();
+  state.collapsed ??= new Map();
+  state.selectedKey ??= null;
+  state.lastMismatch ??= null;
+  return state;
+}
+
+function rememberedChannel(state, row) {
+  const saved = state.channels.get(viewerChannelKey(row));
+  /* Visibility-only maps were used by the cleanup before the rest of the
+     panel became persistent. Accept them so a running session upgrades rather
+     than forgetting the eyes the operator already set. */
+  const remembered = typeof saved === "boolean" ? { visible: saved } : (saved ?? {});
+  return {
+    visible: remembered.visible ?? row.visible,
+    color: remembered.color ?? row.color,
+    colour: remembered.colour ?? row.colour,
+    window: remembered.window ?? row.window,
+    weight: remembered.weight ?? row.weight ?? 1,
+    log: remembered.log ?? false,
+    axis: remembered.axis ?? null,
+  };
+}
+
 const el = (tag, style, text) => {
   const made = document.createElement(tag);
   if (style) made.style.cssText = style;
@@ -198,22 +259,25 @@ function anEye(open) {
  * `near` is any element inside the canvas's own box; the panel stands as a
  * column of the same grid row, directly to the canvas's right.
  */
-export async function mountViewerPanel(near, { viewer, acquisitions, requestedVisibility = null }) {
+export async function mountViewerPanel(near, {
+  viewer,
+  acquisitions,
+  requestedState = null,
+  /* Kept for callers from the first cleanup checkpoint. */
+  requestedVisibility = null,
+}) {
   const rows = await viewerRowsFor(acquisitions);
-  /* Source growth replaces the engine instance, not the operator's choices.
-     The watcher owns these two maps and hands the same ones to every panel it
-     mounts for one session. Channel choices and the acquisition-wide switch
-     are deliberately separate: hiding a group must not erase which of its
-     channels should return when the group is shown again. */
-  const rememberedGroups = requestedVisibility?.acquisitions ?? new Map();
-  const rememberedChannels = requestedVisibility?.channels ?? new Map();
+  /* Source/config growth may replace this DOM, never the operator's choices.
+     Acquisition and channel visibility are deliberately separate: hiding a
+     group must not erase which channels return when the group is shown again. */
+  const panelState = completePanelState(requestedState ?? requestedVisibility);
+  const rememberedGroups = panelState.acquisitions;
+  const rememberedChannels = panelState.channels;
   let visibilityReady = false;
-  let visibilityTimer = null;
-  const keyFor = (row) => `${row.acquisition}\u0000${row.within}\u0000${row.name}`;
+  let observationTimer = null;
   rows.forEach((row) => {
-    if (rememberedChannels.has(keyFor(row))) {
-      row.visible = rememberedChannels.get(keyFor(row));
-    }
+    Object.assign(row, rememberedChannel(panelState, row));
+    rememberedChannels.set(viewerChannelKey(row), rememberedChannel(panelState, row));
   });
 
   if (!document.getElementById("zv-slider-skin")) {
@@ -260,12 +324,16 @@ export async function mountViewerPanel(near, { viewer, acquisitions, requestedVi
   const settings = el("div", CARD);
   settings.append(el("div", HEADING, "channel settings"));
   const chosenHead = el("div", "display:flex;flex-direction:column;gap:3px;padding:5px 12px 6px;");
+  const chosenGroup = el("div", [
+    `font:${font(600, 12)}`, `color:${INK.textPrimary}`, "letter-spacing:.02em",
+    "overflow:hidden", "text-overflow:ellipsis", "white-space:nowrap",
+  ].join(";"));
   const chosenLine = el("div", [
     "display:flex", "align-items:center", "gap:8px", "min-width:0",
     `background:${INK.chosenGround}`, "border-radius:3px", "padding:4px 6px",
     `font:${font(600, 12)}`, `color:${INK.textBright}`,
-  ].join(";"), "pick a channel below");
-  chosenHead.append(chosenLine);
+  ].join(";"));
+  chosenHead.append(chosenGroup, chosenLine);
 
   const plotWrap = el("div", "padding:1px 12px 4px;");
   const plot = document.createElementNS("http://www.w3.org/2000/svg", "svg");
@@ -286,6 +354,9 @@ export async function mountViewerPanel(near, { viewer, acquisitions, requestedVi
   const logButton = autoButton.cloneNode(false);
   logButton.textContent = "Log";
   for (const button of [autoButton, logButton]) button.type = "button";
+  autoButton.setAttribute("aria-label", "auto contrast");
+  logButton.setAttribute("aria-label", "logarithmic counts");
+  logButton.setAttribute("aria-pressed", "false");
   buttonRow.append(autoButton, logButton);
 
   const controlRow = (label) => {
@@ -311,6 +382,18 @@ export async function mountViewerPanel(near, { viewer, acquisitions, requestedVi
   let chosen = null;   // the flat row index picked out
   let shape = null;    // its measured histogram {low, high, counts, autoWindow}
   let logScale = false;
+
+  const remember = (row) => {
+    rememberedChannels.set(viewerChannelKey(row), {
+      visible: row.visible,
+      color: row.color,
+      colour: row.colour,
+      window: row.window,
+      weight: row.weight,
+      log: row.log ?? false,
+      axis: row.axis ?? null,
+    });
+  };
 
   const windowOf = (row) => row.window
     ?? (shape?.autoWindow && chosen !== null && rows[chosen] === row ? shape.autoWindow : null)
@@ -379,6 +462,10 @@ export async function mountViewerPanel(near, { viewer, acquisitions, requestedVi
   function refreshControls() {
     if (chosen === null) return;
     const row = rows[chosen];
+    minRow.slider.setAttribute("aria-label", `min ${row.name}`);
+    maxRow.slider.setAttribute("aria-label", `max ${row.name}`);
+    opacityRow.slider.setAttribute("aria-label", `opacity ${row.name}`);
+    autoButton.setAttribute("aria-label", `auto contrast ${row.name}`);
     const window_ = windowOf(row);
     const axis = theAxis(row);
     for (const { slider } of [minRow, maxRow]) {
@@ -403,6 +490,7 @@ export async function mountViewerPanel(near, { viewer, acquisitions, requestedVi
     const row = rows[chosen];
     const low = Math.min(next.low, next.high - 1);
     row.window = { low, high: Math.max(next.high, low + 1) };
+    remember(row);
     viewer.setChannel(chosen, { window: row.window });
     refreshControls();
   }
@@ -416,13 +504,19 @@ export async function mountViewerPanel(near, { viewer, acquisitions, requestedVi
   opacityRow.slider.addEventListener("input", () => {
     if (chosen === null) return;
     rows[chosen].weight = Number(opacityRow.slider.value);
+    remember(rows[chosen]);
     viewer.setChannel(chosen, { weight: rows[chosen].weight });
     opacityRow.box.textContent = `${Math.round(rows[chosen].weight * 100)}%`;
   });
   logButton.addEventListener("click", () => {
     logScale = !logScale;
+    if (chosen !== null) {
+      rows[chosen].log = logScale;
+      remember(rows[chosen]);
+    }
     logButton.style.background = logScale ? INK.accent : INK.ghost;
     logButton.style.color = logScale ? "#fff" : INK.textPrimary;
+    logButton.setAttribute("aria-pressed", logScale ? "true" : "false");
     drawTheHistogram();
   });
   autoButton.addEventListener("click", async () => {
@@ -481,10 +575,71 @@ export async function mountViewerPanel(near, { viewer, acquisitions, requestedVi
   /* ---- the data card: groups, eyes, swatches, names ---- */
   const data = el("div", CARD);
   data.append(el("div", HEADING, "data"));
+  const engineNotice = el("div", [
+    "display:none", "margin:0 12px 8px", "padding:5px 7px",
+    `border:1px solid ${INK.controlBorder}`, "border-radius:4px",
+    `background:${INK.inputBg}`, `color:${INK.textMuted}`,
+    `font:${font(400, 10)}`, "line-height:1.35",
+  ].join(";"));
+  engineNotice.setAttribute("role", "status");
+  engineNotice.dataset.engineState = "agrees";
+  data.append(engineNotice);
 
   let chooserOpen = null;
   const closeChooser = () => { chooserOpen?.remove(); chooserOpen = null; };
-  document.addEventListener("pointerdown", closeChooser, true);
+  const closeChooserOnOutsidePress = (event) => {
+    if (chooserOpen?.contains(event.target)) return;
+    closeChooser();
+  };
+  document.addEventListener("pointerdown", closeChooserOnOutsidePress, true);
+
+  const swatches = rows.map(() => new Set());
+  const channelEyes = rows.map(() => new Set());
+
+  const paintSwatches = (index) => {
+    for (const swatch of swatches[index] ?? []) {
+      swatch.style.background = rows[index].color ?? cssOf(null);
+    }
+  };
+
+  const paintChannelEyes = (index) => {
+    const row = rows[index];
+    for (const eye of channelEyes[index] ?? []) {
+      eye.replaceChildren(anEye(row.visible));
+      eye.style.opacity = row.visible ? "1" : "0.4";
+      eye.title = row.visible ? "Hide this channel" : "Show this channel";
+      eye.setAttribute("aria-pressed", row.visible ? "true" : "false");
+    }
+  };
+
+  const setChannelVisible = (index, visible) => {
+    const row = rows[index];
+    row.visible = visible;
+    remember(row);
+    paintChannelEyes(index);
+    if (visibilityReady) {
+      viewer.setChannel(index, {
+        visible: groupShown.get(row.acquisition) !== false && row.visible,
+      });
+    }
+  };
+
+  function aChannelEye(index, { chosenControl = false } = {}) {
+    const row = rows[index];
+    const eye = el("button",
+      `background:none;border:none;color:${INK.textPrimary};cursor:pointer;padding:0;`);
+    eye.type = "button";
+    eye.setAttribute("aria-label", chosenControl
+      ? "toggle the chosen channel"
+      : `toggle ${row.name}`);
+    eye.addEventListener("click", (press) => {
+      press.stopPropagation();
+      setChannelVisible(index, !row.visible);
+    });
+    channelEyes[index].add(eye);
+    paintChannelEyes(index);
+    return eye;
+  }
 
   function aSwatch(index, row) {
     const swatch = el("button", [
@@ -494,7 +649,9 @@ export async function mountViewerPanel(near, { viewer, acquisitions, requestedVi
       `background:${row.color ?? cssOf(null)}`,
     ].join(";"));
     swatch.type = "button";
+    swatch.setAttribute("aria-label", `colour ${row.name}`);
     swatch.title = "Choose this channel's colour";
+    swatches[index].add(swatch);
     swatch.addEventListener("pointerdown", (press) => press.stopPropagation());
     swatch.addEventListener("click", (press) => {
       press.stopPropagation();
@@ -507,10 +664,34 @@ export async function mountViewerPanel(near, { viewer, acquisitions, requestedVi
         "padding:4px", "box-shadow:0 2px 10px rgba(25,35,50,0.22)",
         "display:flex", "flex-direction:column", "gap:2px",
       ].join(";"));
+      const custom = el("label", [
+        "position:relative", "display:flex", "align-items:center", "gap:7px",
+        "cursor:pointer", "padding:3px 6px", "border-radius:3px",
+        `font:${font(400, 12)}`, `color:${INK.textPrimary}`,
+      ].join(";"));
+      custom.append(
+        el("span", `display:inline-block;width:22px;height:11px;border-radius:2px;border:1px solid ${INK.controlBorder};background:transparent;`),
+        el("span", "", "custom"),
+      );
+      const picker = el("input", "position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer;");
+      picker.type = "color";
+      picker.value = hexOf(row.colour);
+      picker.setAttribute("aria-label", `choose a colour for ${row.name}`);
+      picker.addEventListener("input", () => {
+        row.colour = rgbOf(picker.value);
+        row.color = cssOf(row.colour);
+        remember(row);
+        paintSwatches(index);
+        viewer.setChannel(index, { colour: row.colour });
+        closeChooser();
+      });
+      custom.append(picker);
+      list.append(custom);
       for (const choice of PALETTE) {
         const entry = el("button",
           `display:flex;align-items:center;gap:7px;border:none;background:none;cursor:pointer;padding:3px 6px;border-radius:3px;font:${font(400, 12)};color:${INK.textPrimary};text-align:left;`);
         entry.type = "button";
+        entry.setAttribute("aria-label", `${choice.name} for ${row.name}`);
         entry.append(
           el("span", `display:inline-block;width:22px;height:11px;border-radius:2px;border:1px solid ${INK.controlBorder};background:${cssOf(choice.rgb)};`),
           el("span", "", choice.name),
@@ -519,7 +700,9 @@ export async function mountViewerPanel(near, { viewer, acquisitions, requestedVi
         entry.addEventListener("click", () => {
           const rgb = choice.rgb ?? [0.847, 0.871, 0.902];
           row.color = cssOf(choice.rgb);
-          swatch.style.background = row.color;
+          row.colour = rgb;
+          remember(row);
+          paintSwatches(index);
           viewer.setChannel(index, { colour: rgb });
           closeChooser();
         });
@@ -541,6 +724,11 @@ export async function mountViewerPanel(near, { viewer, acquisitions, requestedVi
       const groupName = heading;
       const group = el("div", `border-bottom:1px solid ${INK.subtleBorder};`);
       const head = el("div", "display:flex;align-items:center;gap:6px;padding:5px 12px 3px;");
+      const disclosure = el("button", [
+        "background:none", "border:none", `color:${INK.textMuted}`,
+        "cursor:pointer", "font-size:10px", "padding:0", "width:10px",
+      ].join(";"));
+      disclosure.type = "button";
       const groupEye = el("button",
         `background:none;border:none;color:${INK.textPrimary};cursor:pointer;padding:0;`);
       groupEye.type = "button";
@@ -550,6 +738,8 @@ export async function mountViewerPanel(near, { viewer, acquisitions, requestedVi
       groupShown.set(groupName, initiallyOn);
       groupEye.dataset.on = initiallyOn ? "1" : "0";
       groupEye.dataset.acquisition = groupName;
+      groupEye.setAttribute("aria-label", `toggle group ${groupName}`);
+      groupEye.setAttribute("aria-pressed", initiallyOn ? "true" : "false");
       groupEye.append(anEye(initiallyOn));
       groupEye.style.opacity = initiallyOn ? "1" : "0.4";
       groupEye.title = initiallyOn ? "Hide this acquisition" : "Show this acquisition";
@@ -561,6 +751,7 @@ export async function mountViewerPanel(near, { viewer, acquisitions, requestedVi
         groupShown.set(groupName, on);
         rememberedGroups.set(groupName, on);
         groupEye.replaceChildren(anEye(on));
+        groupEye.setAttribute("aria-pressed", on ? "true" : "false");
         groupEye.style.opacity = on ? "1" : "0.4";
         groupEye.title = on ? "Hide this acquisition" : "Show this acquisition";
         if (visibilityReady) {
@@ -569,78 +760,179 @@ export async function mountViewerPanel(near, { viewer, acquisitions, requestedVi
           }
         }
       });
-      head.append(groupEye, el("span",
+      head.append(disclosure, groupEye, el("span",
         `flex:1;font:${font(600, 12)};letter-spacing:.02em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;`,
         groupName), el("span", `font:${font(400, 11)};color:${INK.textMuted};`, String(members.length)));
-      groupBox = el("div", `padding-left:8px;border-left:2px solid ${INK.subtleBorder};margin-left:16px;`);
-      group.append(head, groupBox);
+      const thisGroupBox = el("div", `padding-left:8px;border-left:2px solid ${INK.subtleBorder};margin-left:16px;`);
+      groupBox = thisGroupBox;
+      const showMembers = (show) => {
+        panelState.collapsed.set(groupName, !show);
+        thisGroupBox.style.display = show ? "block" : "none";
+        disclosure.textContent = show ? "▾" : "▸";
+        disclosure.setAttribute("aria-label", `${show ? "collapse" : "expand"} ${groupName}`);
+        disclosure.setAttribute("aria-expanded", show ? "true" : "false");
+      };
+      disclosure.addEventListener("click", () => {
+        showMembers(thisGroupBox.style.display === "none");
+      });
+      group.append(head, thisGroupBox);
       data.append(group);
+      showMembers(panelState.collapsed.get(groupName) !== true);
     }
     const line = el("div",
       "position:relative;padding:1px 0;cursor:pointer;margin-right:12px;border-radius:3px;");
     line.dataset.channelRow = row.name;
     const inner = el("div", "display:flex;align-items:center;gap:8px;padding:5px 12px;");
-    const eye = el("button",
-      `background:none;border:none;color:${INK.textPrimary};cursor:pointer;padding:0;`);
-    eye.type = "button";
-    eye.append(anEye(row.visible));
-    eye.style.opacity = row.visible ? "1" : "0.4";
-    eye.title = row.visible ? "Hide this channel" : "Show this channel";
-    eye.addEventListener("click", (press) => {
-      press.stopPropagation();
-      row.visible = !row.visible;
-      rememberedChannels.set(keyFor(row), row.visible);
-      eye.replaceChildren(anEye(row.visible));
-      eye.style.opacity = row.visible ? "1" : "0.4";
-      eye.title = row.visible ? "Hide this channel" : "Show this channel";
-      if (visibilityReady) {
-        viewer.setChannel(index, {
-          visible: groupShown.get(row.acquisition) !== false && row.visible,
-        });
-      }
-    });
-    inner.append(eye, aSwatch(index, row), el("span",
+    inner.append(aChannelEye(index), aSwatch(index, row), el("span",
       "overflow:hidden;text-overflow:ellipsis;white-space:nowrap;", row.name));
     line.append(inner);
     line.addEventListener("click", () => chooseRow(index));
     rowLines.push(line);
     groupBox.append(line);
   });
-  /* A newly opened engine may answer after its first acquisition has axes but
-     before later sources have coordinate spaces. Keep the panel in the layout
-     immediately, then replay visibility when every declared source has either
-     bounds or an explicit error. Hiding the only ready layer sooner can leave
-     the later flat map loaded but blank. */
-  const restoreVisibility = () => {
-    const standing = viewer.layersForMeasurement?.() ?? [];
+  const observedRows = () => viewer.layersForMeasurement?.() ?? null;
+  const effectiveVisibility = (row) =>
+    groupShown.get(row.acquisition) !== false && row.visible;
+  const sameWindow = (a, b) => !a || (!!b
+    && Math.abs(a.low - b.low) < 0.01
+    && Math.abs(a.high - b.high) < 0.01);
+
+  const applyRequested = (index) => {
+    const row = rows[index];
+    viewer.setChannel(index, {
+      visible: effectiveVisibility(row),
+      colour: row.colour,
+      window: row.window,
+      weight: row.weight,
+    });
+  };
+
+  const readyEngineRows = () => {
+    const standing = observedRows();
+    if (standing === null) return [];
     const ready = standing.length === rows.length
       && standing.every((engineRow, index) =>
         (engineRow.sources?.length ?? 0) === rows[index].sources.length
         && (engineRow.sources ?? []).every((source) => source.error
           || (Array.isArray(source.lower) && Array.isArray(source.upper))));
-    if (!ready) return false;
-    visibilityReady = true;
-    rows.forEach((row, index) => viewer.setChannel(index, {
-      visible: groupShown.get(row.acquisition) !== false && row.visible,
-    }));
+    return ready ? standing : null;
+  };
+
+  /**
+   * Read the engine without adopting its values. A mismatch is named, then
+   * Smart Operator's requested state is reapplied through the adapter.
+   */
+  const refreshObserved = () => {
+    const standing = readyEngineRows();
+    if (standing === null) return false;
+    if (!visibilityReady) {
+      visibilityReady = true;
+      rows.forEach((_row, index) => applyRequested(index));
+      return true;
+    }
+    if (!standing.length && !viewer.layersForMeasurement) return true;
+    const mismatches = [];
+    standing.forEach((seen, index) => {
+      const row = rows[index];
+      const wanted = {
+        visible: effectiveVisibility(row),
+        window: row.window,
+        weight: row.weight,
+      };
+      if (seen.visible !== wanted.visible
+          || (Number.isFinite(seen.weight) && Math.abs(seen.weight - wanted.weight) > 0.001)
+          || !sameWindow(wanted.window, seen.window)) {
+        mismatches.push({
+          key: viewerChannelKey(row),
+          requested: wanted,
+          observed: { visible: seen.visible, window: seen.window, weight: seen.weight },
+        });
+        applyRequested(index);
+      }
+    });
+    if (mismatches.length) {
+      panelState.lastMismatch = { at: new Date().toISOString(), rows: mismatches };
+      engineNotice.dataset.engineState = "reconciling";
+      engineNotice.style.display = "block";
+      engineNotice.textContent = `Viewer state differed for ${mismatches.length} channel${mismatches.length === 1 ? "" : "s"}; restoring the Operator settings.`;
+    } else {
+      engineNotice.dataset.engineState = "agrees";
+      engineNotice.style.display = "none";
+      engineNotice.textContent = "";
+    }
     return true;
   };
-  if (!restoreVisibility()) {
-    visibilityTimer = setInterval(() => {
-      if (!restoreVisibility()) return;
-      clearInterval(visibilityTimer);
-      visibilityTimer = null;
-    }, 50);
-  }
+
+  refreshObserved();
+  observationTimer = setInterval(refreshObserved, 100);
+
+  const panelSnapshot = () => {
+    const standing = observedRows() ?? [];
+    return {
+      selectedKey: panelState.selectedKey,
+      lastMismatch: panelState.lastMismatch,
+      acquisitions: Object.fromEntries(
+        [...groupShown].map(([name, visible]) => [name, {
+          visible,
+          collapsed: panelState.collapsed.get(name) === true,
+        }]),
+      ),
+      channels: rows.map((row, index) => ({
+        key: viewerChannelKey(row),
+        acquisition: row.acquisition,
+        name: row.name,
+        requested: {
+          visible: row.visible,
+          effectiveVisible: effectiveVisibility(row),
+          color: row.color,
+          colour: row.colour,
+          opacity: row.weight,
+          window: row.window,
+          log: row.log ?? false,
+          axis: row.axis ?? null,
+        },
+        observed: standing[index] ? {
+          visible: standing[index].visible,
+          opacity: standing[index].weight,
+          window: standing[index].window,
+          sources: standing[index].sources,
+        } : null,
+      })),
+    };
+  };
+
+  const sourcesChanged = async (nextAcquisitions) => {
+    const next = await viewerRowsFor(nextAcquisitions);
+    if (next.length !== rows.length
+        || next.some((row, index) => viewerChannelKey(row) !== viewerChannelKey(rows[index]))) {
+      return false;
+    }
+    next.forEach((fresh, index) => {
+      rows[index].source = fresh.source;
+      rows[index].sources = fresh.sources;
+      rows[index].histogram = fresh.histogram;
+    });
+    refreshObserved();
+    return true;
+  };
 
   async function chooseRow(index) {
     chosen = index;
     const row = rows[index];
+    panelState.selectedKey = viewerChannelKey(row);
+    logScale = row.log ?? false;
+    logButton.style.background = logScale ? INK.accent : INK.ghost;
+    logButton.style.color = logScale ? "#fff" : INK.textPrimary;
+    logButton.setAttribute("aria-pressed", logScale ? "true" : "false");
     rowLines.forEach((line, at) => {
       line.style.background = at === index ? INK.chosenGround : "";
+      if (at === index) line.setAttribute("aria-current", "true");
+      else line.removeAttribute("aria-current");
     });
+    chosenGroup.textContent = row.acquisition;
     chosenLine.replaceChildren(
-      el("span", `font:${font(600, 12)};color:${INK.textPrimary};`, row.acquisition),
+      aChannelEye(index, { chosenControl: true }),
+      aSwatch(index, row),
       el("span", "overflow:hidden;text-overflow:ellipsis;white-space:nowrap;", row.name),
     );
     shape = null;
@@ -700,14 +992,26 @@ export async function mountViewerPanel(near, { viewer, acquisitions, requestedVi
   bar.append(data, settings, whole);
   if (plotHost) plotHost.after(panel);
   else (body ?? near)?.append(panel);
-  /* Left where a test can reach it, the way the picture itself is. */
+  /* Left where a test can reach both requested and observed state, the way
+     the picture itself is. These methods do not expose Neuroglancer. */
+  panel.snapshot = panelSnapshot;
+  panel.sourcesChanged = sourcesChanged;
+  panel.requestedState = panelState;
   window.__viewerPanel = panel;
-  if (rows.length) chooseRow(0);
+  if (rows.length) {
+    const remembered = rows.findIndex(
+      (row) => viewerChannelKey(row) === panelState.selectedKey,
+    );
+    chooseRow(remembered >= 0 ? remembered : 0);
+  }
   return {
+    element: panel,
+    snapshot: panelSnapshot,
+    sourcesChanged,
     destroy() {
-      if (visibilityTimer) clearInterval(visibilityTimer);
+      if (observationTimer) clearInterval(observationTimer);
       closeChooser();
-      document.removeEventListener("pointerdown", closeChooser, true);
+      document.removeEventListener("pointerdown", closeChooserOnOutsidePress, true);
       panel.remove();
       if (window.__viewerPanel === panel) window.__viewerPanel = null;
     },
