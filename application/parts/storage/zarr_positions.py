@@ -225,13 +225,20 @@ def _the_corner_of(
     """Where the store's first voxel sits on the stage, in (z, y, x) µm.
 
     The record's stage point is the centre of the frame; the store's
-    convention is the corner of the first voxel.
+    convention is the corner of the first voxel along the sample.
+
+    A scan follows the measured focus surface, so neighbouring flat captures
+    are normally taken at different objective heights. That height remains in
+    the acquisition record and the vendor files, but it is not picture
+    geometry: placing each one-plane field at its focus height turns a flat
+    overview into a sparse stack with only a few fields on any visible plane.
+    Every position therefore begins at z zero. A real stack still keeps all of
+    its planes and its measured spacing, beginning from that common zero.
     """
     x_um = float(planes[0].get("x_um") or 0.0)
     y_um = float(planes[0].get("y_um") or 0.0)
-    z_um = min(float(p.get("z_um") or 0.0) for p in planes)
     return (
-        z_um,
+        0.0,
         y_um - frame_yx[0] * pixel_size_um[0] / 2.0,
         x_um - frame_yx[1] * pixel_size_um[1] / 2.0,
     )

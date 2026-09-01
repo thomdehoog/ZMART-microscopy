@@ -40,12 +40,19 @@ position sources behind every row. No engine layer reported a loading error.
 
 ## Finding
 
-There is no divergent coordinate boundary on this cleanup branch. The carrier
-origin is already applied exactly once before writing; the OME-Zarr placements
-and engine bounds describe those same absolute-stage points; and both screen
-projections agree. The plan therefore requires that the registration-fix commit
-be omitted rather than manufactured. In particular, subtracting the carrier
-origin would introduce the offset that this trace disproves.
+There is no divergent **x/y** coordinate boundary on this cleanup branch. The
+carrier origin is already applied exactly once before writing; the OME-Zarr
+x/y placements and engine bounds describe those same absolute-stage points;
+and both screen projections agree. Subtracting the carrier origin would
+introduce the offset that this trace disproves.
+
+The trace does expose an earlier visibility divergence along z. Position 0's
+flat overview store carries a level-0 z translation of 15.9358 µm; the engine
+reports its loaded z bounds around 13.6198–14.5022 while the shared map plane is
+z = 0.5. Measured focus height belongs in the acquisition record, not in the
+geometry of a flat overview. The first boundary to correct is therefore the
+position writer's z translation: all flat positions begin at z zero while real
+stacks retain their planes and spacing from that common origin.
 
 Two independent failures remain visible and are not coordinate fixes:
 

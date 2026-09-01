@@ -92,6 +92,17 @@ class TestTheStore:
         assert kinds["scale"]["scale"][3] == pytest.approx(2.5)
         assert kinds["scale"]["scale"][4] == pytest.approx(2.5)
 
+    def test_focus_height_does_not_turn_a_flat_overview_into_a_stack(self, tmp_path):
+        # This one-plane field was acquired at z -410 um. That measured height
+        # belongs to the run record, not to the overview's picture geometry:
+        # every flat field must occupy the same visible z plane.
+        store = position_store_from_record(one_file_per_plane(tmp_path), tmp_path / "positions")
+        description = json.loads((store / "zarr.json").read_text())
+        finest = description["attributes"]["ome"]["multiscales"][0]["datasets"][0]
+        kinds = {t["type"]: t for t in finest["coordinateTransformations"]}
+        assert kinds["translation"]["translation"][2] == 0.0
+        assert kinds["scale"]["scale"][2] == pytest.approx(1.0)
+
     def test_a_whole_capture_file_lands_channel_by_channel(self, tmp_path):
         record = one_file_whole_capture(tmp_path, channels=3, size=128)
         store = position_store_from_record(record, tmp_path / "positions")
