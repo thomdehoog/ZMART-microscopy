@@ -475,9 +475,11 @@ export async function mountViewerPanel(near, { viewer, acquisitions }) {
   }
 
   const rowLines = [];
-  /* Each row's eye, so the panel can be brought back into agreement with the
-     picture whenever the two might have parted — see `refresh`. */
+  /* Each row's eye, and each acquisition heading's, so the panel can be
+     brought back into agreement with the picture whenever the two might have
+     parted — see `refresh`. */
   const eyes = new Map();
+  const groupEyes = [];
   let heading = null;
   let groupBox = null;
   rows.forEach((row, index) => {
@@ -489,18 +491,23 @@ export async function mountViewerPanel(near, { viewer, acquisitions }) {
         `background:none;border:none;color:${INK.textPrimary};cursor:pointer;padding:0;`);
       groupEye.type = "button";
       groupEye.dataset.on = "1";
-      groupEye.append(anEye(true));
-      groupEye.title = "Hide this acquisition";
+      dressTheEye(groupEye, true, "acquisition");
       const members = rows.map((one, at) => ({ one, at }))
         .filter(({ one }) => one.acquisition === heading);
+      /* Kept so that `refresh` can bring this eye back into agreement with
+         the picture too. A whole acquisition turned off from elsewhere used
+         to leave its heading's eye wide open, which is the same untruth as
+         a channel's and rather more visible. */
+      groupEyes.push({ eye: groupEye, members });
       groupEye.addEventListener("click", () => {
         const on = groupEye.dataset.on !== "1";
         groupEye.dataset.on = on ? "1" : "0";
-        groupEye.replaceChildren(anEye(on));
-        groupEye.style.opacity = on ? "1" : "0.4";
-        groupEye.title = on ? "Hide this acquisition" : "Show this acquisition";
+        dressTheEye(groupEye, on, "acquisition");
         for (const { one, at } of members) {
-          viewer.setChannel(at, { visible: on && one.visible });
+          /* A channel the operator had already turned off stays off when the
+             acquisition is shown again: turning a whole acquisition back on
+             is not a request to undo every choice made inside it. */
+          viewer.setChannel(at, { visible: on && one.visible !== false });
         }
       });
       head.append(groupEye, el("span",
@@ -630,6 +637,16 @@ export async function mountViewerPanel(near, { viewer, acquisitions }) {
         if (rows[at]) rows[at].visible = shown;
         dressTheEye(eye, shown);
       });
+      /* An acquisition's own eye is open while any of its channels is being
+         drawn: the heading says whether there is anything of this
+         acquisition on screen, which is the question it is there to answer. */
+      for (const { eye, members } of groupEyes) {
+        const anyShown = members.some(
+          ({ at }) => standing[at] && standing[at].visible !== false,
+        );
+        eye.dataset.on = anyShown ? "1" : "0";
+        dressTheEye(eye, anyShown, "acquisition");
+      }
     },
     destroy() {
       closeChooser();
@@ -647,9 +664,12 @@ export async function mountViewerPanel(near, { viewer, acquisitions }) {
  * into agreement with the picture, so an eye cannot say one thing while the
  * channel does another.
  */
-function dressTheEye(eye, shown) {
+function dressTheEye(eye, shown, what = "channel") {
   eye.replaceChildren(anEye(shown));
   eye.style.opacity = shown ? "1" : "0.4";
-  eye.title = shown ? "Hide this channel" : "Show this channel";
+  eye.title = shown ? `Hide this ${what}` : `Show this ${what}`;
+  /* Said in words as well as drawn, so the state can be read by a test and
+     by somebody using a screen reader rather than only seen. */
+  eye.dataset.shown = shown ? "1" : "0";
   eye.setAttribute("aria-pressed", String(!shown));
 }
