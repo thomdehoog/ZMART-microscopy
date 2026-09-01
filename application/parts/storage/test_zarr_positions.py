@@ -61,7 +61,13 @@ def one_file_whole_capture(folder, *, channels=3, size=128) -> dict:
     ])
 
 
-def a_z_stack(folder, heights=(12.0, 10.0, 8.0), *, requested_z=10.0) -> dict:
+def a_z_stack(
+    folder,
+    heights=(12.0, 10.0, 8.0),
+    *,
+    requested_z=10.0,
+    acquisition_type="focussing",
+) -> dict:
     """A source whose array order runs towards decreasing raw stage Z."""
     planes = []
     for z, height in enumerate(heights):
@@ -72,7 +78,7 @@ def a_z_stack(folder, heights=(12.0, 10.0, 8.0), *, requested_z=10.0) -> dict:
             "x_um": 1000.0, "y_um": 2000.0, "z_um": height,
         })
     record = a_record(planes)
-    record["acquisition_type"] = "focussing"
+    record["acquisition_type"] = acquisition_type
     if requested_z is not None:
         record["requested_position_um"] = {"x": 1000.0, "y": 2000.0, "z": requested_z}
     return record
@@ -142,9 +148,14 @@ class TestTheStore:
             "registered_specimen_z": False,
         }
 
-    def test_flat_sources_with_different_acquisition_z_share_display_anchor_zero(self, tmp_path):
+    @pytest.mark.parametrize("acquisition_type", ["overview", "focussing", "target"])
+    def test_every_flat_acquisition_type_uses_the_shared_display_anchor(
+        self, tmp_path, acquisition_type
+    ):
         low = one_file_per_plane(tmp_path / "low", channels=1)
         high = one_file_per_plane(tmp_path / "high", channels=1)
+        low["acquisition_type"] = acquisition_type
+        high["acquisition_type"] = acquisition_type
         high["position_label"] = "K00_M000000_G000000_P000008_V00"
         high["planes"][0]["z_um"] = 137.5
         stores = [
@@ -164,8 +175,14 @@ class TestTheStore:
             )
             assert display_z == pytest.approx(0.0)
 
-    def test_stack_anchor_moves_to_zero_without_changing_signed_spacing(self, tmp_path):
-        store = position_store_from_record(a_z_stack(tmp_path), tmp_path / "positions")
+    @pytest.mark.parametrize("acquisition_type", ["overview", "focussing", "target"])
+    def test_every_stack_acquisition_type_preserves_local_z_geometry(
+        self, tmp_path, acquisition_type
+    ):
+        store = position_store_from_record(
+            a_z_stack(tmp_path, acquisition_type=acquisition_type),
+            tmp_path / "positions",
+        )
         description = json.loads((store / "zarr.json").read_text())
         dataset = description["attributes"]["ome"]["multiscales"][0]["datasets"][0]
         transforms = {item["type"]: item for item in dataset["coordinateTransformations"]}
