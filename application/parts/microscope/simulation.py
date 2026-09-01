@@ -135,6 +135,8 @@ class SimulatedSession:
         return {
             "changeable": {"job": self.job},
             "observed": {
+                "channel_count": 1,
+                "channels": [{"key": "simulated-channel-0", "index": 0, "label": "channel 1"}],
                 "limits": {
                     "schema_version": 1,
                     "source": "machine",

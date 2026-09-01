@@ -16,7 +16,13 @@ import pytest
 tifffile = pytest.importorskip("tifffile")
 zarr = pytest.importorskip("zarr")
 
-from application.parts.storage.zarr_positions import position_store_from_record
+from application.parts.storage.acquisition_description import (
+    AcquisitionDescriptionError,
+    write_acquisition_description,
+)  # noqa: E402
+from application.parts.storage.zarr_positions import (  # noqa: E402
+    position_store_from_record,
+)
 
 
 def described() -> dict:
@@ -91,6 +97,7 @@ class TestTheStore:
         first = one_file_per_plane(tmp_path / "dim", channels=1, offset=0)
         second = one_file_per_plane(tmp_path / "bright", channels=1, offset=20000)
         second["position_label"] = "K00_M000000_G000000_P000008_V00"
+        write_acquisition_description(positions, described(), channel_count=1)
 
         stores = [
             position_store_from_record(first, positions, acquisition_description=described()),
@@ -109,6 +116,15 @@ class TestTheStore:
                 "start": 300,
                 "end": 4200,
             }
+
+    def test_a_published_count_mismatch_is_a_fatal_contract_error(self, tmp_path):
+        positions = tmp_path / "positions" / "overview"
+        write_acquisition_description(positions, described(), channel_count=1)
+
+        with pytest.raises(AcquisitionDescriptionError, match="1 channel.*2 were expected"):
+            position_store_from_record(
+                one_file_per_plane(tmp_path / "source", channels=2), positions
+            )
 
     def test_no_description_keeps_the_existing_per_position_window(self, tmp_path):
         positions = tmp_path / "positions" / "overview"

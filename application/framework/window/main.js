@@ -602,6 +602,7 @@ let stageWatch = null;
 
     if (s.mode === "scan") {
       state.tilesShown = 0;
+      const recording = activeRecording(state.overviewPreset);
       backend.scanOverview({
         /* Each position at the measured focus height for that place. One
            with no surface to read carries no height, and the bridge images
@@ -613,7 +614,9 @@ let stageWatch = null;
         /* The recorded overview configuration, reapplied as the scan starts:
            a recording that gated the step and configured nothing left every
            capture on whatever job was selected. */
-        state: activeRecording(state.overviewPreset)?.changeable ?? null,
+        state: recording?.changeable ?? null,
+        channels: recording?.channels ?? null,
+        channelCount: recording?.channelCount ?? null,
         onProgress: (done, of, at) => {
           if (state.running !== s.id) return;
           state.tilesShown = done;
@@ -740,6 +743,7 @@ let stageWatch = null;
          print each picture at its true size and place -- known before the
          run starts, so the frames can be printed as they are captured. */
       state.targetFrameUm = activeRecording(state.targetType)?.frameUm ?? null;
+      const recording = activeRecording(state.targetType);
       backend.scanOverview({
         positions: picked.map((id) => {
           const { x, y } = state.cells.get(id);
@@ -747,7 +751,9 @@ let stageWatch = null;
           return stage.toStage(z === null ? { x, y } : { x, y, z });
         }),
         acquisition_type: "targets",
-        state: activeRecording(state.targetType)?.changeable ?? null,
+        state: recording?.changeable ?? null,
+        channels: recording?.channels ?? null,
+        channelCount: recording?.channelCount ?? null,
         /* Each capture prints itself onto the canvas as it lands, the way the
            overview's tiles do: the records so far name the pictures, and only
            the cells with a record are drawn as acquired. */

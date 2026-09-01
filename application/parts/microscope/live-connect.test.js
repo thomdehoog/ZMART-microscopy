@@ -110,10 +110,11 @@ describe("the live connect", () => {
       ) };
     });
 
-    await backend.scanOverview({ positions: [], channels });
+    await backend.scanOverview({ positions: [], channels, channelCount: 1 });
 
     expect(sent[0].url).toMatch(/\/api\/scan$/);
     expect(sent[0].body.channels).toEqual(channels);
+    expect(sent[0].body.channel_count).toBe(1);
     expect(sent[1].body).toBeNull();
   });
 });

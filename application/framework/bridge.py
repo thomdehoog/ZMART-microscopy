@@ -114,6 +114,7 @@ from application.parts.microscope.focus_run import (  # noqa: E402
 )
 from application.parts.storage import viewer_service  # noqa: E402
 from application.parts.storage.acquisition_description import (  # noqa: E402
+    AcquisitionDescriptionError,
     acquisition_description,
     write_acquisition_description,
 )
@@ -402,6 +403,11 @@ def _reading(kind: str) -> dict:
         # that configured nothing.
         "changeable": state.get("changeable", {}),
     }
+    channels = observed.get("channels")
+    channel_count = observed.get("channel_count")
+    if isinstance(channels, list) and isinstance(channel_count, int):
+        reading["channels"] = channels
+        reading["channelCount"] = channel_count
     if kind == "autofocus":
         # The stand does not say which family its autofocus is; software is
         # the safe default and the Leica driver's state will name its own.
@@ -726,6 +732,11 @@ def _keep_position_as_zarr(record: dict, acquisition_type: str) -> None:
     try:
         folder = _the_run() / "positions" / acquisition_type
         record["zarr"] = str(position_store_from_record(record, folder))
+    except AcquisitionDescriptionError:
+        # A contract contradiction repeats at every remaining position.  It is
+        # not a recoverable vendor conversion failure: let the worker stop and
+        # put the sentence in the scan's visible error field.
+        raise
     except Exception as why:  # noqa: BLE001 -- filed, not fatal
         record["zarr_error"] = str(why)
         return
@@ -839,9 +850,38 @@ def _start_scan(asked: dict) -> dict:
     acquisition_type = str(asked.get("acquisition_type", "overview"))
     channels = asked.get("channels")
     if channels is not None:
-        described = acquisition_description(acquisition_type, channels)
+        claimed_count = asked.get("channel_count")
+        if isinstance(claimed_count, bool) or not isinstance(claimed_count, int):
+            raise ValueError(
+                "channels require channel_count from the acquisition configuration"
+            )
+        # Apply the recorded job before asking the instrument how many channels
+        # it will capture.  The count is deliberately not trusted from the same
+        # browser document it validates: that was the self-check which let a
+        # two-channel descriptor start a three-channel scan.
+        with _the_instruments_turn:
+            session = _require_session()
+            if asked.get("state") is not None:
+                apply_state_settled(session, asked["state"])
+            observed = (session.get_state().get("observed") or {})
+        channel_count = observed.get("channel_count")
+        if isinstance(channel_count, bool) or not isinstance(channel_count, int):
+            raise ValueError(
+                "the instrument does not report the acquisition channel count, so a "
+                "display contract cannot be published safely"
+            )
+        if claimed_count != channel_count:
+            raise ValueError(
+                f"the recorded acquisition says {claimed_count} channel(s), but the "
+                f"instrument is configured to capture {channel_count}"
+            )
+        described = acquisition_description(
+            acquisition_type, channels, channel_count=channel_count
+        )
         write_acquisition_description(
-            _the_run() / "positions" / acquisition_type, described
+            _the_run() / "positions" / acquisition_type,
+            described,
+            channel_count=channel_count,
         )
     _records[acquisition_type] = []
     _stop_asked["scan"] = False

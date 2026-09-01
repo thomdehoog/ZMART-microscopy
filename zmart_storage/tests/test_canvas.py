@@ -947,53 +947,21 @@ def _multiscale(store: Path) -> dict:
     return _description(store)["multiscales"][0]
 
 
-def test_a_channel_always_declares_a_complete_window(tmp_path):
-    """Every channel states a whole brightness window, asked for or not.
+def test_an_unresolved_run_omits_the_whole_omero_block(tmp_path):
+    """No OME channel block is safer than an incomplete or invented window.
 
     A channel's window has four numbers. ``min`` and ``max`` say what the camera
     can count between, which is a plain fact about the data. ``start`` and ``end``
     say what brightness the image should first be *displayed* between, which is a
     request about how it looks.
 
-    This test used to say the opposite: that a run which asked for no window got
-    no ``start`` and no ``end``, so that a viewer would measure a good one from
-    the pixels instead. That reasoning was sound, but the file it produced was
-    not. Measured against ngio, an image whose describing block names a channel
-    without ``start`` and ``end`` fails to open at all, while the very same image
-    with no describing block whatever opens perfectly well. So the real choice
-    was never "a measured window or a declared one" — it was "a complete window
-    or no channel names and colours at all". Names and colours are worth having,
-    so a complete window is always written, and the camera's whole range is the
-    honest thing to declare when nothing better is known.
-
-    It is worth knowing what that looks like at the microscope. A real
-    acquisition sits in the bottom few per cent of a camera's range: a few
-    hundred counts of background with the signal not far above. An image opened
-    on the camera's whole range therefore looks almost black until somebody drags
-    the contrast slider. A run that knows roughly how bright its images are
-    should pass a window, and its acquisitions will open looking like something.
+    ngio rejects ``min``/``max`` without ``start``/``end``. The previous answer
+    filled those display fields with the camera range, which was valid but made a
+    real acquisition nearly black. The interoperable unresolved shape is no
+    advisory ``omero`` block at all.
     """
     canvases = _canvases(tmp_path)
-    window = _omero_channels(canvases.paths[0])[0]["window"]
-
-    for named in ("min", "max", "start", "end"):
-        assert named in window, (
-            f"the channel's window leaves out {named}: {window}. A describing "
-            f"block with an incomplete window makes the whole image refuse to "
-            f"open, so an acquisition written this way would not be readable at "
-            f"all in ngio and tools like it."
-        )
-    # The camera's own range says what the numbers mean, and with nothing else
-    # asked for it is also what the image opens on.
-    assert (window["min"], window["max"]) == (0, 65535), (
-        f"a 16-bit camera counts from 0 to 65535, but the channel says its "
-        f"numbers run from {window['min']} to {window['max']}"
-    )
-    assert (window["start"], window["end"]) == (0, 65535), (
-        f"no window was asked for, so the honest fallback is the camera's whole "
-        f"range, 0 to 65535. The channel opens on {window['start']} to "
-        f"{window['end']} instead."
-    )
+    assert "omero" not in _description(canvases.paths[0])
 
     # And a run that does say how bright its images are gets exactly what it
     # asked for, which is how an acquisition is made to open looking like
@@ -1040,7 +1008,10 @@ def test_a_channel_is_named_and_coloured_the_way_it_was_asked_for(tmp_path):
         tmp_path, name="overview",
         canvas_shape=(2, 640, 640), tile_shape=TILE, tile_step=BUTTED_UP,
         voxel_size_um=(2.0, 0.35, 0.35),
-        channels=[Channel("488"), Channel("nuclei", color="AABBCC")],
+        channels=[
+            Channel("488", window=(100, 4000)),
+            Channel("nuclei", color="AABBCC", window=(200, 5000)),
+        ],
         levels=2, chunk=64,
     )
     described = _omero_channels(canvases.paths[0])
@@ -1070,7 +1041,7 @@ def test_a_channel_nobody_has_a_colour_for_is_drawn_white(tmp_path):
         tmp_path, name="overview",
         canvas_shape=(2, 640, 640), tile_shape=TILE, tile_step=BUTTED_UP,
         voxel_size_um=(2.0, 0.35, 0.35),
-        channels=[Channel("brightfield")],
+        channels=[Channel("brightfield", window=(100, 4000))],
         levels=2, chunk=64,
     )
     assert _omero_channels(canvases.paths[0])[0]["color"] == "FFFFFF"

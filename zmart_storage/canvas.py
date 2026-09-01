@@ -1047,29 +1047,22 @@ class Channel:
         The ``start`` and ``end`` are a different thing: they are the brightness
         range the image should first be *displayed* with.
 
-        These used to be left out when a run did not ask for a window, on the
-        reasoning that a viewer would then measure a good one from the pixels.
-        That reasoning was sound but the file it produced was not: **a describing
-        block with an incomplete window is refused outright.** Checked against
-        ngio, a block naming a channel without ``start`` and ``end`` fails to
-        open, while the same image with no describing block at all opens
-        perfectly well. So the choice was never "a measured window or a declared
-        one" — it was "a complete window or no channel names and colours at all",
-        and names and colours are worth having.
-
-        So a window is always written now. When the run did not ask for one, the
-        camera's whole range is declared, because that is the honest thing to say
-        when nothing is known. Be aware of what that looks like: a real
-        acquisition sits in the bottom few per cent of a camera's range — a few
-        hundred counts of background with the signal not far above — so an image
-        opened on the whole range looks almost black until somebody drags the
-        contrast slider. **A run that knows roughly how bright its images are
-        should pass a window**, and its acquisitions will open looking like
-        something.
+        Strict readers refuse a channel block whose window has ``min``/``max``
+        but no ``start``/``end``. Inventing the camera range for the missing
+        display pair makes real images open almost black, so an unresolved run
+        omits its entire advisory ``omero`` block instead.
         """
+        if self.window is None:
+            raise ValueError(
+                f"channel {self.name!r} has no display window; omit the whole omero block"
+            )
         color = self.color or _CHANNEL_COLORS.get(self.name, "FFFFFF")
-        window = {"min": 0, "max": depth_max}
-        window["start"], window["end"] = self.window or (0, depth_max)
+        window = {
+            "min": 0,
+            "max": depth_max,
+            "start": self.window[0],
+            "end": self.window[1],
+        }
         return {
             "label": self.name,
             "color": color,
@@ -1437,7 +1430,11 @@ class TileCanvases:
             levels=levels,
             voxel_size_um=voxel_size_um,
             origin_um=origin_um,
-            channel_blocks=[c.described(depth_max) for c in channels],
+            channel_blocks=(
+                []
+                if any(channel.window is None for channel in channels)
+                else [channel.described(depth_max) for channel in channels]
+            ),
             ome_zarr_version=ome_zarr_version,
             shard=shard,
             keeps_its_tiles_in=keeps_its_tiles_in,
@@ -2246,17 +2243,16 @@ def _write_the_description(
         # replacing the file, because that file also holds what zarr needs in order
         # to recognise the store at all -- writing over it by hand would leave an
         # image nothing could open.
-        group.attrs.update({
-            "ome": {
-                "version": "0.5",
-                "multiscales": [multiscale],
-                "omero": {"channels": channel_blocks},
-            }
-        })
+        ome = {"version": "0.5", "multiscales": [multiscale]}
+        if channel_blocks:
+            ome["omero"] = {"channels": channel_blocks}
+        group.attrs.update({"ome": ome})
     else:
         # In 0.4 it is a file of its own beside the image, and each multiscale
         # carries the version itself.
-        (store / ".zattrs").write_text(json.dumps({
-            "multiscales": [{"version": "0.4", **multiscale}],
-            "omero": {"channels": channel_blocks},
-        }, indent=2), encoding="utf-8")
+        described = {"multiscales": [{"version": "0.4", **multiscale}]}
+        if channel_blocks:
+            described["omero"] = {"channels": channel_blocks}
+        (store / ".zattrs").write_text(
+            json.dumps(described, indent=2), encoding="utf-8"
+        )

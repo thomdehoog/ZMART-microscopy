@@ -40,10 +40,10 @@ from pathlib import Path
 import numpy as np
 
 from application.parts.storage.acquisition_description import (
+    AcquisitionDescriptionError,
     ome_channel_blocks,
     read_acquisition_description,
     validate_acquisition_description,
-    write_acquisition_description,
 )
 from zmart_storage.canvas import Channel, _declare_one
 from zmart_storage.positions import how_many_copies_a_position_can_keep
@@ -117,16 +117,29 @@ def position_store_from_record(
     store = into / f"{kind}_{record['position_label']}.ome.zarr"
 
     depth_max = _the_depth_of(volume.dtype)
-    description = acquisition_description
-    if description is not None:
-        description = validate_acquisition_description(
-            description, acquisition_type=kind, channel_count=channels
-        )
-        write_acquisition_description(into, description)
-    else:
-        description = read_acquisition_description(
-            into, acquisition_type=kind, channel_count=channels
-        )
+    try:
+        published = read_acquisition_description(into, channel_count=channels)
+        description = acquisition_description
+        if description is not None:
+            description = validate_acquisition_description(
+                description, acquisition_type=kind, channel_count=channels
+            )
+            if published is None:
+                raise ValueError(
+                    "an acquisition description was supplied for a position, but the "
+                    "run-start publisher has not created zmart-acquisition.json"
+                )
+            if published != description:
+                raise ValueError(
+                    "the position's acquisition description differs from the published "
+                    "run-start contract"
+                )
+        else:
+            description = published
+    except ValueError as exc:
+        raise AcquisitionDescriptionError(
+            f"the {kind!r} acquisition display contract cannot describe this position: {exc}"
+        ) from exc
 
     local_windows = [
         _a_window_onto(volume[:, index], depth_max) for index in range(channels)

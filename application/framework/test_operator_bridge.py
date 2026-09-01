@@ -310,6 +310,20 @@ def test_an_instrument_that_says_neither_gets_a_guess(monkeypatch):
     assert _frame({"pixel_size": {"x": 1.0}}, monkeypatch) == bridge._A_GUESSED_FORMAT_PX
 
 
+def test_an_acquisition_recording_keeps_machine_readable_channels(monkeypatch):
+    channels = [{"key": "488", "index": 0, "label": "GFP"}]
+    monkeypatch.setattr(
+        bridge,
+        "_session",
+        _Optics({"channel_count": 1, "channels": channels}),
+    )
+
+    reading = bridge._reading("acquisition")
+
+    assert reading["channelCount"] == 1
+    assert reading["channels"] == channels
+
+
 # --- what the instrument offers ----------------------------------------------
 
 
@@ -424,6 +438,97 @@ def test_the_options_a_capture_is_given_reach_the_driver(monkeypatch):
 
 
 # --- the scan ----------------------------------------------------------------
+
+
+_ONE_CHANNEL_DESCRIPTION = [
+    {
+        "key": "488",
+        "index": 0,
+        "label": "GFP",
+        "color": "00FF00",
+        "range": {"min": 0, "max": 65535},
+    }
+]
+
+
+def test_a_scan_contract_is_published_before_its_worker_can_start(monkeypatch):
+    from application.parts.storage.acquisition_description import (
+        read_acquisition_description,
+    )
+
+    bridge._scan["running"] = False
+    monkeypatch.setattr(bridge, "_session", _Optics({"channel_count": 1}))
+    observed = {}
+
+    class _Thread:
+        def __init__(self, *, target, args, daemon):
+            observed.update(target=target, args=args, daemon=daemon)
+
+        def start(self):
+            folder = bridge._run / "positions" / "overview"
+            observed["description"] = read_acquisition_description(
+                folder, channel_count=1
+            )
+
+    monkeypatch.setattr(bridge.threading, "Thread", _Thread)
+
+    bridge._start_scan(
+        {
+            "positions": [],
+            "channels": _ONE_CHANNEL_DESCRIPTION,
+            "channel_count": 1,
+        }
+    )
+
+    assert observed["description"]["channels"][0]["label"] == "GFP"
+    assert observed["daemon"] is True
+    bridge._scan["running"] = False
+
+
+def test_a_wrong_declared_channel_count_is_refused_before_a_scan_starts(monkeypatch):
+    bridge._scan["running"] = False
+    monkeypatch.setattr(bridge, "_session", _Optics({"channel_count": 2}))
+    monkeypatch.setattr(
+        bridge.threading,
+        "Thread",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("must not start")),
+    )
+
+    with pytest.raises(ValueError, match="recorded acquisition says 1 channel.*capture 2"):
+        bridge._start_scan(
+            {
+                "positions": [{"x": 1, "y": 2}],
+                "channels": _ONE_CHANNEL_DESCRIPTION,
+                "channel_count": 1,
+            }
+        )
+
+    assert not (bridge._run / "positions" / "overview" / "zmart-acquisition.json").exists()
+
+
+def test_a_contract_failure_stops_the_scan_and_reaches_its_error_field(monkeypatch):
+    from application.parts.storage.acquisition_description import (
+        AcquisitionDescriptionError,
+    )
+
+    driver = _Capturing()
+    monkeypatch.setattr(bridge, "_session", driver)
+    monkeypatch.setattr(
+        bridge,
+        "position_store_from_record",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AcquisitionDescriptionError("published channels disagree with captured pixels")
+        ),
+    )
+    bridge._scan.update(
+        running=True, done=0, of=2, error=None, acquisition_type="overview"
+    )
+
+    bridge._scan_worker([{"x": 0, "y": 0}, {"x": 10, "y": 0}])
+
+    assert bridge._scan["done"] == 0
+    assert bridge._scan["error"] == "published channels disagree with captured pixels"
+    assert len(driver.asked) == 1, "the same contract failure must not repeat for every field"
 
 
 def _scanned(driver, positions, monkeypatch, **asked):

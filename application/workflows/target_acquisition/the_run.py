@@ -163,7 +163,6 @@ def run_overview(
     on_record: Any = None,
     cancel: Any = None,
     output_root: Any = None,
-    channels: list[dict] | dict | None = None,
 ) -> list[dict]:
     """Step 5: acquire an overview at each frame position (z from the focus surface).
 
@@ -183,7 +182,6 @@ def run_overview(
         on_record=on_record,
         cancel=cancel,
         output_root=output_root,
-        channels=channels,
     )
 
 
@@ -228,7 +226,6 @@ def acquire_targets(
     on_record: Any = None,
     cancel: Any = None,
     output_root: Any = None,
-    channels: list[dict] | dict | None = None,
 ) -> list[dict]:
     """Step 7: acquire a target at each discovered frame position (z from the focus surface).
 
@@ -247,7 +244,6 @@ def acquire_targets(
         on_record=on_record,
         cancel=cancel,
         output_root=output_root,
-        channels=channels,
     )
 
 

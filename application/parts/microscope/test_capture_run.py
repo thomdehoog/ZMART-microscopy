@@ -124,47 +124,6 @@ def test_cancel_checked_before_the_first_move_too():
         )
 
 
-def test_channel_description_is_complete_before_the_first_move(tmp_path):
-    from application.parts.microscope.capture_run import RunCancelled
-    from application.parts.storage.acquisition_description import read_acquisition_description
-
-    channels = [
-        {
-            "key": "488",
-            "index": 0,
-            "label": "GFP",
-            "color": "00FF00",
-            "range": {"min": 0, "max": 65535},
-            "displayWindow": {"start": 300, "end": 4200},
-            "windowProvenance": {
-                "method": "preset",
-                "resolvedFrom": "acquisition-record",
-            },
-        }
-    ]
-
-    class _Session:
-        def set_xyz(self, *_args):
-            raise AssertionError("a cancelled run must not move")
-
-        def acquire(self, **_kwargs):
-            raise AssertionError("a cancelled run must not acquire")
-
-    with pytest.raises(RunCancelled):
-        capture_positions(
-            _Session(),
-            [{"x": 0.0, "y": 0.0, "z": 0.0}],
-            "overview",
-            output_root=tmp_path,
-            channels=channels,
-            cancel=lambda: True,
-        )
-
-    written = read_acquisition_description(tmp_path / "positions" / "overview")
-    assert written is not None
-    assert written["channels"][0]["displayWindow"] == {"start": 300, "end": 4200}
-
-
 def test_output_run_uses_driver_hash_vendor_location_and_full_final_paths(tmp_path):
     class _Session:
         count = 0

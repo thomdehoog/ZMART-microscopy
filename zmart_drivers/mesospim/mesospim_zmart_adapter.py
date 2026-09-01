@@ -369,6 +369,12 @@ def get_state(handle: MesospimHandle) -> dict:
     state = _readers.get_state(handle.client)
     changeable = {key: state.get(key) for key in _MUTABLE_KEYS if state.get(key) is not None}
     observed = dict(handle.immutable)
+    # The current mesoSPIM capture path records one laser/filter product.  This
+    # becomes a richer list when its documented multi-channel TODO is implemented.
+    observed["channel_count"] = 1
+    observed["channels"] = [
+        {"key": "mesospim-channel-0", "index": 0, "label": "channel 1"}
+    ]
     observed["limits"] = (
         None if handle.function_limits is None else handle.function_limits.describe()
     )
