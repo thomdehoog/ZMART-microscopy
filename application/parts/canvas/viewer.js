@@ -312,7 +312,29 @@ async function beforeWeGiveUp(promise, sayWhat) {
  *   tearing itself down need not keep track of the order.
  */
 export function putTheCanvasIn({
-  box, note, chooser, layers, why, readout, name, acquisitions, engine,
+  box, note, chooser, layers, why, readout, name,
+  /* The run's images, as whole addresses. A canvas may open with none — an
+     operator laying positions out on an empty plate is looking at exactly
+     that — and be given them later, when the run has something to show, with
+     `drawTheseAcquisitions` on the handle. */
+  acquisitions: openedOn = [],
+  engine,
+  /* Where the pictures sit, relative to what the layers are drawn in, in
+     micrometres.
+
+     The layers of a workflow are drawn in whatever frame that workflow thinks
+     in — for target acquisition that is the carrier's, whose zero is a corner
+     of the plate. The run's images say where they are on the *stage*, whose
+     zero is somewhere else entirely. The two differ by wherever the carrier
+     was put down, and something has to reconcile them.
+
+     It used to be reconciled by a second viewer: the acquisition had a viewer
+     of its own and the canvas forwarded its view to it with the offset added.
+     That is what left two opinions about where the picture was. Now there is
+     one viewer, and the offset is applied here, in the one place the canvas
+     talks to it — so a page keeps thinking in its own frame and the picture
+     still lands where the plan says. */
+  pictureOffsetUm = null,
   depth, plane, planeReadout, volume,
   /* What the workflow wants drawn above the picture, bottom of the stack
      first. Left empty by a page that is only looking at the canvas, which then
@@ -352,6 +374,29 @@ export function putTheCanvasIn({
      to hear about it, or the two come apart the first time somebody zooms. */
   onViewMoved = null,
 }) {
+  /* What the canvas is drawing now. Seeded from what it was opened on and
+     changed by `drawTheseAcquisitions`, because a run has nothing to show
+     when the operator first stands in front of it and something to show a
+     few minutes later. */
+  let acquisitions = [...openedOn];
+
+  /* The offset, read afresh each time: where the carrier sits on the stage is
+     measured during a run and changes when it is measured again. */
+  const offset = () => {
+    const said = typeof pictureOffsetUm === "function" ? pictureOffsetUm() : pictureOffsetUm;
+    const [x, y] = said ?? [0, 0];
+    return { x: Number(x) || 0, y: Number(y) || 0 };
+  };
+  /* A place in the page's frame, as the pictures know it, and back. */
+  const intoTheStore = (at) => {
+    const by = offset();
+    return { x: at.x + by.x, y: at.y + by.y };
+  };
+  const outOfTheStore = (at) => {
+    const by = offset();
+    return { x: at.x - by.x, y: at.y - by.y };
+  };
+
   /* Somewhere harmless to write for the things this host is not offering.
      A page that shows no engine chooser, or no running commentary about what
      the picture is doing, passes nothing for them; the code that writes has
@@ -722,12 +767,18 @@ export function putTheCanvasIn({
            being shown: the picture is switched with `showPicture` below rather
            than by opening without it. Opening with none is now only what happens
            when the page was never given a run at all. */
-        acquisitions: acquisitions.map((url) => ({
-          url,
-          // The last part of the address, which is what the run is called on disk
-          // and the only name this page has for it.
-          name: url.split("/").filter(Boolean).pop() ?? url,
-        })),
+        /* An acquisition may be given as a bare address or as an address with
+           a name beside it. The run's own sources arrive named — "overview",
+           "focussing" — and those names are what the operator reads on the
+           panel, so they are kept where they are given. A bare address falls
+           back to its last part, which is what the run is called on disk and
+           the only name this page could invent for it. */
+        acquisitions: acquisitions.map((one) => {
+          const url = typeof one === "string" ? one : one.url;
+          const name = (typeof one === "string" ? null : one.name)
+            ?? url.split("/").filter(Boolean).pop() ?? url;
+          return { url, name };
+        }),
         // The run's record of where it has imaged, which this page does not have.
         // Given nothing, an engine draws the whole of the room the run declared
         // rather than only the part it has been to, which costs a few more
@@ -1259,6 +1310,58 @@ export function putTheCanvasIn({
     get layersAbove() { return stackAbove.map((layer) => ({ ...layer })); },
 
     /**
+     * Draw these acquisitions, in place of whatever is being drawn now.
+     *
+     * A canvas is put in front of an operator before the run has anything to
+     * show — laying positions out on an empty plate is exactly that — and the
+     * run's own pictures appear minutes later, and change again as more of
+     * them are written. So what the canvas draws is not settled when it is
+     * opened; this is how it is told.
+     *
+     * There used to be a second viewer for the acquisition, sitting in a box
+     * of its own beneath this one, with the view forwarded to it by hand.
+     * That is what this replaces. Two viewers meant two opinions about where
+     * the picture was: when the panel opened and made the canvas narrower,
+     * one refitted and the other did not, and the wells went oval with a
+     * column of the plate hidden. One viewer cannot disagree with itself.
+     *
+     * Handing over the same addresses again does nothing, because reopening
+     * is not free and this is called from a clock.
+     *
+     * @param list addresses, or `{url, name}` pairs; empty draws no picture.
+     */
+    async drawTheseAcquisitions(list = []) {
+      const asked = list.map((one) => (typeof one === "string" ? { url: one } : one));
+      const same = asked.length === acquisitions.length
+        && asked.every((one, at) => {
+          const held = acquisitions[at];
+          return one.url === (typeof held === "string" ? held : held?.url);
+        });
+      if (same) return;
+      acquisitions = asked;
+      if (!viewer) return;  // still opening; it will open on these
+      await openItAgain(
+        {},
+        asked.length ? "opening the run's picture…" : "putting the picture away…",
+      );
+    },
+
+    /** What is being drawn, as the addresses it was asked for. */
+    get drawing() {
+      return acquisitions.map((one) => (typeof one === "string" ? one : one.url));
+    },
+
+    /**
+     * The engine's own handle, for a page that needs to reach the picture
+     * itself — the viewer panel's channels and eyes, most of all.
+     *
+     * Handed out rather than wrapped because the panel is written against the
+     * engine's interface (`viz_studio/options/contract.md`) and wrapping it
+     * here would mean a second thing to keep in step with it.
+     */
+    get picture() { return viewer; },
+
+    /**
      * Where the drawing above the picture is opened up, in micrometres.
      *
      * Each entry is `{ x, y, w, h, letThrough }` — a piece of sample, and how
@@ -1307,8 +1410,16 @@ export function putTheCanvasIn({
      * than throwing, because the panels open independently and one being ready
      * before another is ordinary.
      */
-    get view() { return viewer?.getView?.() ?? null; },
-    lookAt(where) { if (where) viewer?.setView?.(where); },
+    get view() {
+      const where = viewer?.getView?.();
+      return where ? { ...where, centre: outOfTheStore(where.centre) } : null;
+    },
+    lookAt(where) {
+      if (!where) return;
+      viewer?.setView?.(
+        where.centre ? { ...where, centre: intoTheStore(where.centre) } : where,
+      );
+    },
 
     /**
      * Where a place on the sample is on screen, and back again.
@@ -1321,11 +1432,13 @@ export function putTheCanvasIn({
      */
     project(x, y) {
       const where = viewer?.whereThingsAreDrawn?.();
-      return where ? where.project(x, y) : { x: 0, y: 0 };
+      if (!where) return { x: 0, y: 0 };
+      const at = intoTheStore({ x, y });
+      return where.project(at.x, at.y);
     },
     unproject(px, py) {
       const where = viewer?.whereThingsAreDrawn?.();
-      return where ? where.unproject(px, py) : { x: 0, y: 0 };
+      return where ? outOfTheStore(where.unproject(px, py)) : { x: 0, y: 0 };
     },
 
     changeTo,

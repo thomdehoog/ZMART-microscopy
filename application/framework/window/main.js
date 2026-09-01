@@ -1698,13 +1698,19 @@ let stageWatch = null;
 
   const { thePicture, liveOverview } = watchTheRun({
     pictureHost: theCanvas.parts.pictureHost,
-    /* Where this backend's scans can be fetched from, if anywhere. The live
-       one serves what the microscope wrote; the pretend one has nothing. */
-    pictures: (kind) => backend?.viewOf(kind) ?? null,
+    /* Where the viewer's own controls go: beside the canvas, not inside the
+       box the picture is drawn in. */
+    panelHost: theCanvas.parts.pictureHost.parentElement ?? theCanvas.parts.pictureHost,
     /* The run's OME-Zarr sources, as the viewer server beside the bridge
-       serves them — the real picture, linked position by position. `null`
-       while there is none, and the JPEG copies stand in. */
+       serves them — the real picture, linked position by position, and the
+       only thing that draws acquired image data on this canvas. `null` while
+       there is none, and then nothing is drawn rather than something else
+       standing in for it. */
     viewerSources: () => backend?.viewerSources?.() ?? null,
+    /* Handed to the one canvas that draws them. Written as functions rather
+       than values because the stage is built a few lines below this. */
+    drawTheseAcquisitions: (list) => stage.drawTheseAcquisitions(list),
+    picture: () => stage.picture,
     overviewCanvas: theCanvas.parts.overviewCanvas,
     overviewNote: theCanvas.parts.overviewNote,
     view: () => stage.pictureView(),
