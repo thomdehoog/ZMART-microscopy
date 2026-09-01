@@ -47,6 +47,7 @@ viewer.getView()                   // → { centre, zoom }, the view now on scre
 viewer.theDepthItCanShow()         // → { lowUm, highUm, stepUm, atUm }, or null when flat
 viewer.setPlane(z)                 // which plane of the stack, in micrometres
 viewer.setMoment(t)                // which moment of a timelapse, counted from the first
+viewer.whenTheViewMoves(tell)      // be told when the picture has moved; hand back what stops it
 viewer.showPicture(on)             // draw the acquisitions, or not; the viewer stays open
 viewer.canShowVolume               // true or false: can it draw the stack as a volume?
 viewer.canShowVolumeBecause        // one sentence saying why it is what it is
@@ -440,6 +441,54 @@ half. It asks three things of the picture: that both channels are there, that
 each is in the colour the run names rather than a colour the viewer guessed, and
 that a page which *does* say what it wants still gets exactly that. Each of the
 three has been made to fail on purpose.
+
+---
+
+## Added while the operator's panel was built: `whenTheViewMoves`
+
+`theDepthItCanShow()` says how deep the stack is and which plane the picture is
+standing on. That is enough to *draw* a control for the depth, and it is not
+enough to keep one honest, because the picture moves for reasons the panel knows
+nothing about: the scroll wheel, a step of the workflow driving the stage, the
+viewer opening itself on a plane chosen from the specimen. A slider that is only
+ever written to shows where it last put the operator, which after any of those is
+not where the picture is.
+
+That is the same kind of untruth as an eye that stays open on a channel nobody is
+drawing, and it is why `whenChannelsChange` exists. `whenTheViewMoves` is its
+twin for the view:
+
+```js
+const stopListening = viewer.whenTheViewMoves(() => {
+  // go and ask again: theDepthItCanShow(), getView(), theMomentsItCanShow()
+});
+// …later, when the panel is taken down
+stopListening();
+```
+
+Three things about the shape, each of which is deliberate.
+
+**It reports *that* something moved, never what.** The one honest answer to
+"where is the picture now" is the one the viewer gives when it is asked, so a
+listener that is told to go and ask cannot drift from it. Passing the new
+position instead would create a second account of the view that could disagree
+with the first.
+
+**It hands back the way to stop.** Anything that mounts and is later taken down —
+a panel, a step of a workflow — has to be able to let go, or the viewer keeps a
+dead listener alive for as long as it is open.
+
+**One listener failing must not stop the next, or the movement.** The view has
+already moved by the time this runs. A panel that cannot redraw its slider is a
+smaller fault than a viewer that stops responding to the wheel, so each listener
+is called inside its own guard and a failure is reported rather than raised.
+
+Every option answers it. `neuroglancer-under` hands on the engine's own
+announcement that its navigation changed; the two Viv options tell their
+listeners at the one place a view is written, and when a plane or a moment is
+chosen; `jpeg-under` has no depth to move through, but it does pan and zoom, so
+it tells its listeners when its view settles rather than staying silent about a
+movement an operator can plainly see.
 
 ---
 

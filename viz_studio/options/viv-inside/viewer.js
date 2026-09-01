@@ -176,6 +176,10 @@ export async function openViewer(element, options = {}) {
     background,
     onViewChanged,
     boundToCoverage: boundToCoverage && Boolean(coverage?.regions?.length),
+    // Who has asked to hear that the picture has moved, and how to stop
+    // telling them. See `whenTheViewMoves` on the handle for why anything
+    // would want to know.
+    watchingTheView: [],
     canvas: null,
     deck: null,
     // The two gestures, listening on the box. Put on when the viewer opens and
@@ -1195,6 +1199,26 @@ function readTheView(own) {
  * drawing in any frame were placed from the same numbers. There is no follower
  * and nothing to lag.
  */
+
+/**
+ * Tell whoever asked that the picture has moved.
+ *
+ * One listener failing must not stop the next from hearing, and must not take
+ * down the movement that caused it: the picture has already moved by the time
+ * this runs, and a panel that fails to redraw its slider is a smaller fault
+ * than a viewer that stops answering the operator's hand.
+ */
+function sayTheViewMoved(own) {
+  if (own.destroyed) return;
+  for (const tell of own.watchingTheView) {
+    try {
+      tell();
+    } catch (why) {
+      console.warn("something listening for the view moving failed", why);
+    }
+  }
+}
+
 function writeTheView(own, asked) {
   const now = own.view;
   own.view = {
@@ -1211,6 +1235,9 @@ function showTheView(own) {
     viewState: theViewStateFor(own),
     layers: layersFor(own),
   });
+  // Every way the picture can move ends here — the gestures, `setView`,
+  // `setPlane`, `setMoment` — so this is the one place that has to say so.
+  sayTheViewMoved(own);
 }
 
 // ---------------------------------------------------------------------------
@@ -1468,6 +1495,30 @@ function handleFor(own) {
     },
 
     /**
+     * Be told whenever the picture has moved.
+     *
+     * The view moves for reasons a panel knows nothing about — the scroll
+     * wheel, a step of the workflow driving the stage, a plane chosen from
+     * somewhere other than the control that shows it. A control that is only
+     * ever written to goes on showing where it last put the operator, which
+     * after any of those is not where the picture is. So anything drawing a
+     * control for the depth, the moment or the view asks to hear about a
+     * movement it did not make itself, and reads the answer back out of
+     * `theDepthItCanShow()` rather than remembering its own.
+     *
+     * Hand over a function; hand back what stops it being called. It reports
+     * *that* the picture moved rather than where to, because the one honest
+     * answer to "where is it now" is the one this viewer gives when asked.
+     */
+    whenTheViewMoves(tell) {
+      if (typeof tell !== "function") return () => {};
+      own.watchingTheView.push(tell);
+      return () => {
+        own.watchingTheView = own.watchingTheView.filter((one) => one !== tell);
+      };
+    },
+
+    /**
      * Change one channel: whether it shows, what colour it is drawn in, and the
      * brightness window applied to it.
      *
@@ -1681,6 +1732,10 @@ function handleFor(own) {
     destroy() {
       if (own.destroyed) return;
       own.destroyed = true;
+      /* Anything that asked to hear the view move is let go of here too, so a
+         panel taken down without unsubscribing cannot keep a listener alive on
+         a viewer that has closed. */
+      own.watchingTheView = [];
       // The gestures come off first. Listeners left behind on a box that is
       // still in the page would go on answering the operator's hand after the
       // viewer they belonged to had gone. The little record of what they saw is

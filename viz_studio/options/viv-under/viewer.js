@@ -216,6 +216,10 @@ export async function openViewer(element, options = {}) {
     background,
     onViewChanged,
     boundToCoverage: boundToCoverage && Boolean(coverage?.regions?.length),
+    // Who has asked to hear that the picture has moved, and how to stop
+    // telling them. See `whenTheViewMoves` on the handle for why anything
+    // would want to know.
+    watchingTheView: [],
     // The rectangle within the box the engine is currently drawing in, in
     // browser pixels. The whole box unless the drawn region is being bounded.
     engineRect: null,
@@ -1269,6 +1273,26 @@ function readTheView(own) {
 }
 
 /** Tell the engine where to look, in micrometres. */
+
+/**
+ * Tell whoever asked that the picture has moved.
+ *
+ * One listener failing must not stop the next from hearing, and must not take
+ * down the movement that caused it: the picture has already moved by the time
+ * this runs, and a panel that fails to redraw its slider is a smaller fault
+ * than a viewer that stops answering the operator's hand.
+ */
+function sayTheViewMoved(own) {
+  if (own.destroyed) return;
+  for (const tell of own.watchingTheView) {
+    try {
+      tell();
+    } catch (why) {
+      console.warn("something listening for the view moving failed", why);
+    }
+  }
+}
+
 function writeTheView(own, asked) {
   const now = readTheView(own);
   const centre = asked?.centre || now.centre;
@@ -1278,6 +1302,10 @@ function writeTheView(own, asked) {
   own.wanted = { centre, zoom };
   fitTheEngineToItsPatch(own);
   own.deck?.setProps({ viewState: engineViewFor(own) });
+  // Every way the view can move ends here, so this is the one place that has
+  // to say so — the gestures, `setView`, and the page fitting the view to the
+  // ground the run covers all come through it.
+  sayTheViewMoved(own);
 }
 
 // ---------------------------------------------------------------------------
@@ -1483,7 +1511,10 @@ function handleFor(own) {
           changed = true;
         }
       }
-      if (changed) own.deck?.setProps({ layers: layersFor(own) });
+      if (changed) {
+        own.deck?.setProps({ layers: layersFor(own) });
+        sayTheViewMoved(own);
+      }
     },
 
     /** Which moment of a timelapse to show, counted from the first. */
@@ -1496,7 +1527,34 @@ function handleFor(own) {
           changed = true;
         }
       }
-      if (changed) own.deck?.setProps({ layers: layersFor(own) });
+      if (changed) {
+        own.deck?.setProps({ layers: layersFor(own) });
+        sayTheViewMoved(own);
+      }
+    },
+
+    /**
+     * Be told whenever the picture has moved.
+     *
+     * The view moves for reasons a panel knows nothing about — the scroll
+     * wheel, a step of the workflow driving the stage, a plane chosen from
+     * somewhere other than the control that shows it. A control that is only
+     * ever written to goes on showing where it last put the operator, which
+     * after any of those is not where the picture is. So anything drawing a
+     * control for the depth, the moment or the view asks to hear about a
+     * movement it did not make itself, and reads the answer back out of
+     * `theDepthItCanShow()` rather than remembering its own.
+     *
+     * Hand over a function; hand back what stops it being called. It reports
+     * *that* the picture moved rather than where to, because the one honest
+     * answer to "where is it now" is the one this viewer gives when asked.
+     */
+    whenTheViewMoves(tell) {
+      if (typeof tell !== "function") return () => {};
+      own.watchingTheView.push(tell);
+      return () => {
+        own.watchingTheView = own.watchingTheView.filter((one) => one !== tell);
+      };
     },
 
     /**
@@ -1684,6 +1742,10 @@ function handleFor(own) {
     destroy() {
       if (own.destroyed) return;
       own.destroyed = true;
+      /* Anything that asked to hear the view move is let go of here too, so a
+         panel taken down without unsubscribing cannot keep a listener alive on
+         a viewer that has closed. */
+      own.watchingTheView = [];
       // The gestures come off first. Listeners left behind on a box that is
       // still in the page would go on answering the operator's hand after the
       // viewer they belonged to had gone. The little record of what they saw is

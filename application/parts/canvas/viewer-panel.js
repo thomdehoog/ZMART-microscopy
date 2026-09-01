@@ -14,6 +14,8 @@
  * `viewer.setChannel(index, …)` names the same row on both sides.
  */
 
+import { theDepthReads, thePlanesIn } from "./counting-planes.js";
+
 /* The viewer's light dress, inlined from its `theme.css` — the operator page
    has no dark mode, so only the light values travel. */
 const INK = {
@@ -578,37 +580,76 @@ export async function mountViewerPanel(near, { viewer, acquisitions }) {
   pictureLine.append(pictureEye, el("span", "", "draw the picture"));
   whole.append(pictureLine);
 
-  const depth = viewer.theDepthItCanShow?.();
-  if (depth && depth.highUm > depth.lowUm) {
-    const depthLine = el("label",
-      `display:grid;grid-template-columns:58px 1fr 58px;gap:6px;align-items:center;padding:2px 12px;font-size:10px;color:${INK.textMuted};`);
-    depthLine.append(el("span", "", "depth (z)"));
-    const depthSlider = dressed(el("input"));
-    depthSlider.type = "range";
+  /* Moving through the stack.
+     The control is built whether or not there is a stack to move through yet,
+     and hidden until there is. A run gains depth part-way through — the first
+     focussing sweep lands and suddenly there is somewhere to go — and a panel
+     that decided once, at the moment it was mounted, would leave an operator
+     with no way through a stack that is plainly on their screen. */
+  const depthLine = el("label",
+    `display:grid;grid-template-columns:58px 1fr 88px;gap:6px;align-items:center;padding:2px 12px;font-size:10px;color:${INK.textMuted};`);
+  depthLine.append(el("span", "", "depth (z)"));
+  const depthSlider = dressed(el("input"));
+  depthSlider.type = "range";
+  const depthBox = el("span",
+    `text-align:right;font-variant-numeric:tabular-nums;color:${INK.textPrimary};font-size:11px;`);
+  depthLine.append(depthSlider, depthBox);
+  whole.append(depthLine);
+
+  const volumeLine = el("label",
+    "display:flex;align-items:center;gap:8px;cursor:pointer;padding:5px 12px;");
+  const wantsAVolume = el("input");
+  wantsAVolume.type = "checkbox";
+  wantsAVolume.style.cssText = "margin:0;";
+  wantsAVolume.addEventListener("change", () => viewer.showVolume?.(wantsAVolume.checked));
+  volumeLine.append(wantsAVolume, el("span", "", "draw the stack as a volume"));
+  whole.append(volumeLine);
+
+  /* True while the operator has hold of the handle. The picture answers back
+     while a drag is going on — every `setPlane` moves the view, and every
+     movement of the view brings us round here again — and writing the value
+     underneath a hand that is still holding it makes the handle stutter and
+     jump back. So while it is held, the reading is refreshed and the handle is
+     left where the hand has put it. */
+  let handOnTheDepth = false;
+  depthSlider.addEventListener("pointerdown", () => { handOnTheDepth = true; });
+  for (const letGo of ["pointerup", "pointercancel"]) {
+    depthSlider.addEventListener(letGo, () => { handOnTheDepth = false; });
+  }
+
+  /**
+   * Draw the depth control from what the picture is really showing.
+   *
+   * Everything here is read back out of the viewer rather than remembered.
+   * That is the whole point of this control: it used only to write, so moving
+   * through the stack any other way — the scroll wheel, a step of the
+   * workflow, the viewer opening itself on a plane — left it showing where it
+   * had last put the operator, which is not where the picture was.
+   */
+  function showWhereTheDepthIs() {
+    const depth = viewer.theDepthItCanShow?.();
+    const stack = thePlanesIn(depth);
+    depthLine.style.display = stack ? "grid" : "none";
+    /* A volume is a way of looking at a stack, so the offer goes away with the
+       stack, and so does whatever was asked for. */
+    volumeLine.style.display = stack && viewer.canShowVolume ? "flex" : "none";
+    if (!stack) return;
     depthSlider.min = String(depth.lowUm);
     depthSlider.max = String(depth.highUm);
     depthSlider.step = String(depth.stepUm || 1);
-    depthSlider.value = String(depth.atUm ?? depth.lowUm);
-    const depthBox = el("span",
-      `text-align:right;font-variant-numeric:tabular-nums;color:${INK.textPrimary};font-size:11px;`,
-      `${Math.round(Number(depthSlider.value))} µm`);
-    depthSlider.addEventListener("input", () => {
-      viewer.setPlane?.(Number(depthSlider.value));
-      depthBox.textContent = `${Math.round(Number(depthSlider.value))} µm`;
-    });
-    depthLine.append(depthSlider, depthBox);
-    whole.append(depthLine);
-    if (viewer.canShowVolume) {
-      const volumeLine = el("label",
-        "display:flex;align-items:center;gap:8px;cursor:pointer;padding:5px 12px;");
-      const wants = el("input");
-      wants.type = "checkbox";
-      wants.style.cssText = "margin:0;";
-      wants.addEventListener("change", () => viewer.showVolume?.(wants.checked));
-      volumeLine.append(wants, el("span", "", "draw the stack as a volume"));
-      whole.append(volumeLine);
-    }
+    if (!handOnTheDepth) depthSlider.value = String(depth.atUm ?? depth.lowUm);
+    depthBox.textContent = theDepthReads(depth);
+    depthSlider.refill();
   }
+
+  depthSlider.addEventListener("input", () => {
+    viewer.setPlane?.(Number(depthSlider.value));
+    /* And then read back, so the number beside the handle is the picture's
+       answer rather than the handle's request. A viewer that rounded the ask
+       to its nearest plane says so here instead of being contradicted. */
+    showWhereTheDepthIs();
+  });
+  showWhereTheDepthIs();
 
   bar.append(data, settings, whole);
   if (plotHost) plotHost.after(panel);
@@ -616,7 +657,12 @@ export async function mountViewerPanel(near, { viewer, acquisitions }) {
   /* Left where a test can reach it, the way the picture itself is. */
   window.__viewerPanel = panel;
   if (rows.length) chooseRow(0);
-  let stopListening = null;
+
+  /* Everything the panel has asked to be told about, and how to stop being
+     told. Kept as one list because there is more than one now, and a panel
+     that lets go of some of its listeners and not others leaves the viewer
+     calling back into a bar that is no longer on the screen. */
+  const stopListening = [];
 
   const panelHandle = {
     /**
@@ -651,7 +697,8 @@ export async function mountViewerPanel(near, { viewer, acquisitions }) {
       }
     },
     destroy() {
-      stopListening?.();
+      for (const stop of stopListening) stop();
+      stopListening.length = 0;
       closeChooser();
       document.removeEventListener("pointerdown", closeChooser, true);
       panel.remove();
@@ -665,7 +712,18 @@ export async function mountViewerPanel(near, { viewer, acquisitions }) {
      that had been switched off went on showing an open eye. A viewer that
      offers no such announcement simply keeps the panel as it was, and
      `refresh` can still be called. */
-  stopListening = viewer.whenChannelsChange?.(() => panelHandle.refresh());
+  const stopHearingAboutChannels =
+    viewer.whenChannelsChange?.(() => panelHandle.refresh());
+  if (stopHearingAboutChannels) stopListening.push(stopHearingAboutChannels);
+
+  /* And the panel listens for the picture moving, for exactly the same reason.
+     The depth slider used only ever to write, so the scroll wheel, a step of
+     the workflow, or the viewer settling on a plane of its own all left it
+     showing a number that was no longer true. A viewer that offers no such
+     announcement simply keeps the control as it was. */
+  const stopHearingAboutTheView =
+    viewer.whenTheViewMoves?.(() => showWhereTheDepthIs());
+  if (stopHearingAboutTheView) stopListening.push(stopHearingAboutTheView);
 
   return panelHandle;
 }
