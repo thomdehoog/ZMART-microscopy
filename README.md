@@ -1,4 +1,56 @@
-# ZMART-viewer
+# ZMART Microscopy
+
+This repository contains the Smart Operator, microscope workflows, live image
+writer, and the operator-side drawing adapters. The supported high-resolution
+picture server is the separate
+[ZMART-viewer](https://github.com/thomdehoog/ZMART-viewer) package; the copied
+prototype under `viz_studio/backend/` and `viz_studio/frontend/src/` is retained
+only as historical design reference.
+
+## Reproducible Smart Operator setup
+
+The Smart Viewer integration is tested with `zmart-viewer` 0.2.0 at commit
+`9ff10b04e803fbe2a71a1735a8065a845ea803dd`. Keep its checkout beside this one:
+
+```bash
+git clone https://github.com/thomdehoog/ZMART-microscopy.git
+git clone https://github.com/thomdehoog/ZMART-viewer.git
+git -C ZMART-viewer checkout 9ff10b04e803fbe2a71a1735a8065a845ea803dd
+
+cd ZMART-microscopy
+conda env create -f environment.yml
+conda run -n zmart-microscopy python -m pip install -e ".[dev]"
+conda run -n zmart-microscopy python -m pip install --no-deps -e ../ZMART-viewer
+npm --prefix application ci
+conda run -n zmart-microscopy python -m playwright install chromium
+```
+
+The service itself checks the distribution version and refuses any Viewer copy
+imported from inside this repository. Confirm both the import and the exact source
+commit before running the operator:
+
+```bash
+conda run -n zmart-microscopy python - <<'PY'
+from application.parts.storage.viewer_service import viewer_provenance
+print(viewer_provenance())
+PY
+git -C ../ZMART-viewer rev-parse HEAD
+```
+
+Start the simulated operator from the workflow folder:
+
+```bash
+cd application/workflows/target_acquisition
+conda run -n zmart-microscopy python run_webapp.py --demo
+```
+
+## Historical standalone Viewer prototype
+
+The remainder of this document describes the earlier in-repository Viewer
+prototype. It is kept for design history and is not the Smart Operator's runtime
+or installation path.
+
+### ZMART-viewer prototype
 
 A viewer for the large, three-dimensional, multi-channel images a light-sheet or
 confocal microscope produces — including while the microscope is still producing

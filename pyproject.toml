@@ -41,13 +41,12 @@ dependencies = { file = ["requirements.txt"] }
 # code: measurement scripts and the viewer's own front end live here too, and
 # neither belongs in an install.
 #
-# One honest omission. The viewer's server (`viz_studio/backend`) is a set of
-# loose modules that its scripts and tests reach by adding the folder to the
-# import path, rather than a package you can import after installing. Installing
-# therefore gives you the writer and the run control, and the viewer is still
-# started from inside its own folder -- see viz_studio/README.md. Turning it into
-# a package is worth doing and is not a small change, because a dozen scripts and
-# the whole browser test suite import those modules by bare name.
+# The copied `viz_studio/backend` and `viz_studio/frontend/src` trees are
+# historical reference, deliberately excluded from the install. Smart Operator's
+# server is the separate `zmart-viewer` distribution; `viewer_service.py` validates
+# that boundary before starting it. The maintained drawing adapters under
+# `viz_studio/options` are loaded as source by the operator build, not as Python
+# packages.
 packages = ["zmart_storage", "zmart_live"]
 
 [tool.ruff]

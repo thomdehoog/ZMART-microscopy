@@ -1,5 +1,14 @@
 # ZMART Viz Studio
 
+> **Historical reference only.** The copied Python server in `backend/` and the
+> copied React implementation in `frontend/src/` are not imported, built, or
+> launched by the Smart Operator. Its supported server is the separately
+> installed `zmart-viewer` 0.2.0 package at
+> `9ff10b04e803fbe2a71a1735a8065a845ea803dd`; its maintained operator adapter is
+> `options/neuroglancer-under/viewer.js`. The commands below document the old
+> standalone prototype and are retained only to explain historical tests and
+> design decisions.
+
 A visualization tool for large, three-dimensional, multi-channel microscopy
 images — the kind the Stellaris and mesoSPIM produce — that runs as its own
 desktop window and is built entirely from web technology, so **you** own how it
