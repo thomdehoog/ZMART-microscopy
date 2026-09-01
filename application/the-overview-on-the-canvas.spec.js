@@ -71,6 +71,26 @@ test("every well shows its acquired overview, with the focussing hidden", async 
     await page.waitForTimeout(650);
   };
 
+  /* Which acquisition every piece of picture was asked for, so that what is
+     on screen can be attributed rather than admired. This is the evidence
+     that settles the question the photographs cannot: a well full of tissue
+     drawn entirely from overview chunks, with not one focussing chunk
+     fetched while it was being drawn. */
+  let fetched = new Map();
+  page.on("response", (answer) => {
+    const url = answer.url();
+    if (!url.includes("/data/")) return;
+    const store = url.split("/data/")[1].split("/").slice(0, 2).join("/");
+    if (!store.includes(".zarr")) return;
+    const kind = store.includes("focussing") ? "focussing" : "overview";
+    fetched.set(kind, (fetched.get(kind) ?? 0) + 1);
+  });
+  const fetchedSince = () => {
+    const was = Object.fromEntries(fetched);
+    fetched = new Map();
+    return was;
+  };
+
   await page.goto(`/?bridge=${encodeURIComponent(`http://127.0.0.1:${PORT}`)}`);
   await page.locator('.field input[type="password"]').fill("hunter2");
   await page.locator(".session-foot button.run").click();
@@ -107,7 +127,14 @@ test("every well shows its acquired overview, with the focussing hidden", async 
   await rest(30_000);
 
   /* The focussing off, the plan faded well back: what is left on screen is
-     the acquired overview or nothing at all. */
+     the acquired overview or nothing at all.
+
+     Turning it off is not taken on trust. The engine is asked afterwards what
+     it believes each row's visibility to be, and the answer is checked — a
+     screenshot in which the focussing was still being drawn would prove
+     nothing at all, and the panel's own eye beside each channel is not
+     evidence either, because the panel is not told when a page turns a row
+     off from underneath it. */
   const hidden = await page.evaluate(() => {
     const rows = window.__thePicture.layersForMeasurement();
     rows.forEach((row, at) => {
@@ -116,9 +143,20 @@ test("every well shows its acquired overview, with the focussing hidden", async 
       }
     });
     window.__theStageCanvas.fadeTo(0.12);
+    /* And the panel told, so its eyes say what the picture is really doing.
+       A photograph in which the focussing's eye is still open reads as a
+       focussing that is still drawn, whatever the numbers say. */
+    window.__viewerPanelHandle?.refresh?.();
     return rows.map((row) => row.name);
   });
-  console.log("rows:", JSON.stringify(hidden));
+  const standing = await page.evaluate(() =>
+    window.__thePicture.layersForMeasurement()
+      .map((row) => ({ name: row.name, visible: row.visible })));
+  console.log("rows:", JSON.stringify(standing));
+  for (const row of standing) {
+    expect(row.visible, `${row.name} is ${row.visible ? "shown" : "hidden"}`)
+      .toBe(!row.name.startsWith("focussing"));
+  }
 
   /* The whole plate on screen, the way the Fit button frames it. */
   await page.evaluate(() => {
@@ -176,14 +214,36 @@ test("every well shows its acquired overview, with the focussing hidden", async 
     return out;
   }, PORT), null, 1));
 
-  /* A well from the row that looked empty, close up. */
-  await page.evaluate(() => {
+  /* One well close up — and the well farthest from where the focussing
+     stood, so that not even coincidence can put a focus stack under what is
+     photographed. */
+  const wellLookedAt = await page.evaluate(() => {
     const plan = window.__theStageCanvas.plan();
-    const top = plan.reduce((least, at) => (at.y < least.y ? at : least), plan[0]);
-    window.__theStageCanvas.lookAt({ x: top.x, y: top.y, zoom: 6 });
+    const focus = window.__theFocusPoints?.();
+    const far = plan.reduce((furthest, at) => {
+      const away = (p) => (focus ? Math.hypot(p.x - focus.x, p.y - focus.y) : p.x + p.y);
+      return away(at) > away(furthest) ? at : furthest;
+    }, plan[0]);
+    window.__theStageCanvas.lookAt({ x: far.x, y: far.y, zoom: 6 });
+    /* Only where the two are, not everything the focus point remembers: a
+       measured point carries its whole sweep, and printing that buries the
+       one fact this line is for. */
+    return {
+      well: { x: far.x, y: far.y },
+      focusStoodAt: focus ? { x: focus.x, y: focus.y } : null,
+    };
   });
-  await rest(20_000);
-  await page.screenshot({ path: path.join(SHOTS, "a-top-row-well.png") });
+  console.log("looking at:", JSON.stringify(wellLookedAt));
+  await rest(10_000);
+  fetchedSince();
+  await rest(15_000);
+  await page.screenshot({ path: path.join(SHOTS, "a-well-close-up.png") });
+  const whileDrawing = fetchedSince();
+  console.log("fetched while drawing that well:", JSON.stringify(whileDrawing));
+  expect(whileDrawing.overview ?? 0,
+    "the overview's own pieces were fetched for this well").toBeGreaterThan(0);
+  expect(whileDrawing.focussing ?? 0,
+    "no focussing piece was fetched, so what is on screen is the overview").toBe(0);
 
   const shot = path.join(SHOTS, "the-plate.png");
   await page.locator("#stage-canvas").screenshot({ path: shot });
