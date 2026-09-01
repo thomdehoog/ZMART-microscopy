@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-09-01T17:22:27Z",
+  "scope": "Smart Operator panel UX with a real Viewer measurement; not Step 5 pixel evidence",
+  "provenance": {
+    "repository": "thomdehoog/ZMART-microscopy",
+    "branch": "codex/smart-viewer-integration-cleanup",
+    "behaviorCommit": "cd88f5b79bbf1711ec5af03dc27f5d00c378306b",
+    "viewerAuthorityCommit": "9ff10b04e803fbe2a71a1735a8065a845ea803dd"
+  },
+  "sourceSummary": {
+    "acquisitions": ["overview", "focussing", "target"],
+    "channelCounts": {"overview": 3, "focussing": 1, "target": 1},
+    "boundsPerFixtureSource": {"lower": [0, 0, 0], "upper": [1, 64, 64]},
+    "landedPositions": null,
+    "landedPositionsReason": "This isolated UI gate uses engine-adapter rows; canonical Step 5 evidence supplies real landed-position and pixel checks."
+  },
+  "visibleState": {
+    "groups": {"overview": true, "focussing": true, "target": false},
+    "selected": "overview/marker-b",
+    "selectedRequestedVisible": false,
+    "logarithmicCounts": true,
+    "window": {"low": 780, "high": 20800},
+    "axis": {"low": 0, "high": 25090},
+    "opacity": 1
+  },
+  "measurement": {
+    "authority": "real Smart Viewer 0.2 /api/measure response proxied without rewriting values",
+    "state": "ready",
+    "histogramBins": 64
+  },
+  "coordinateSafety": {
+    "sourceMatrices": "all five immutable identity matrices before and after UI actions",
+    "zPlacementChanged": false,
+    "physical3dRegistrationClaimed": false
+  },
+  "pixelCheck": {
+    "applicable": false,
+    "canonicalEvidence": "../2026-09-01-smart-viewer-step-five/9-of-9-harness.json"
+  },
+  "network": {"unexpectedErrors": [], "allowedFormatProbes": []},
+  "artifact": {
+    "file": "smart-operator-comparable-panel.png",
+    "width": 1440,
+    "height": 900,
+    "sha256": "5485fcb63e6cff9f7574c5284fab978ed749dc129a8312d4b294bca6fbd928ed"
+  }
+}
