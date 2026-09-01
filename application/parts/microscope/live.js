@@ -94,6 +94,25 @@ export const backend = {
    * the page then falls back to the JPEG copies, so a machine without the
    * viewer installed draws exactly as it always has.
    */
+  /**
+   * Why the run's viewer is not up, in a sentence, or `null` while it is.
+   *
+   * The bridge starts the viewer beside the run and, before offering it, asks
+   * what it promises about display windows. A viewer too old to promise an
+   * honest "no window yet" is stopped again and this is the sentence left
+   * behind — which the page puts beside the empty picture, because a canvas
+   * that stays blank with the explanation in a status document is the fault
+   * this project keeps meeting.
+   */
+  async viewerTrouble() {
+    try {
+      const state = await ask("/api/viewer");
+      return typeof state?.error === "string" && state.error ? state.error : null;
+    } catch {
+      return null;
+    }
+  },
+
   async viewerSources() {
     try {
       const state = await ask("/api/viewer");

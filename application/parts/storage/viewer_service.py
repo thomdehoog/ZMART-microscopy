@@ -85,6 +85,21 @@ _the_turn = threading.Lock()
 #: has ever been.
 A_PICTURE_MAY_STAND_FOR = 30.0
 
+#: What the Viewer beside this run must promise before the live canvas is
+#: offered on it. Both are exact strings the Viewer names on ``/api/health``.
+#:
+#: The reason is a picture that opened very nearly black. An older Viewer
+#: fills a missing display window with the camera's whole range, and once the
+#: writer stops measuring a window for every position, that older Viewer would
+#: draw every real acquisition as black ground with a slider nobody thinks to
+#: drag. So the writer does not go first: it asks the Viewer what it can do,
+#: and refuses the integrated canvas with a plain sentence when the answer is
+#: not enough. See ``zmart_viewer/acquisition.py`` for the promises themselves.
+THE_VIEWER_MUST_PROMISE = (
+    "acquisition-display-window-v1",
+    "absent-display-window-v1",
+)
+
 
 def start(run_folder: Path | str) -> None:
     """Bring the viewer up beside the run, or record why it cannot come up.
@@ -110,9 +125,45 @@ def start(run_folder: Path | str) -> None:
             _allow_the_page_to_read(made)
             thread = threading.Thread(target=made.serve_forever, daemon=True)
             thread.start()
-            _viewer.update(server=made, thread=thread, port=made.server_address[1])
+            port = made.server_address[1]
+            missing = _what_the_viewer_cannot_promise(port)
+            if missing:
+                # Not a viewer this run may draw through. Stop it cleanly and
+                # leave one sentence that says what to install, rather than
+                # a canvas that opens black and a slider that explains nothing.
+                made.shutdown()
+                thread.join(timeout=5)
+                _viewer["error"] = (
+                    "the installed ZMART Viewer is too old for this run: it does not "
+                    f"promise {', '.join(missing)}. Update the zmart-viewer package "
+                    "(it needs the acquisition-wide display-window contract) and "
+                    "connect again."
+                )
+                return
+            _viewer.update(server=made, thread=thread, port=port)
         except Exception as why:  # noqa: BLE001 -- optional guest, sentence not stack
             _viewer["error"] = f"the viewer server did not start: {why}"
+
+
+def _what_the_viewer_cannot_promise(port: int) -> list[str]:
+    """The promises in :data:`THE_VIEWER_MUST_PROMISE` this Viewer does not make.
+
+    Asked over the same local HTTP the page will use, so the answer is about
+    the server actually running rather than about whichever package happens
+    to be importable. A Viewer that answers nothing useful is treated as
+    promising nothing: an unknown Viewer is exactly the one to be careful of.
+    """
+    import json
+    import urllib.request
+
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/health", timeout=5) as answer:
+            said = json.loads(answer.read().decode("utf-8"))
+    except Exception:  # noqa: BLE001 -- silence is the same as no promise
+        return list(THE_VIEWER_MUST_PROMISE)
+    promised = said.get("capabilities") if isinstance(said, dict) else None
+    promised = set(promised) if isinstance(promised, list) else set()
+    return [one for one in THE_VIEWER_MUST_PROMISE if one not in promised]
 
 
 def stop() -> None:

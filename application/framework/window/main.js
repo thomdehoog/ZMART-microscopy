@@ -1713,6 +1713,7 @@ let stageWatch = null;
        there is none, and then nothing is drawn rather than something else
        standing in for it. */
     viewerSources: () => backend?.viewerSources?.() ?? null,
+    viewerTrouble: () => backend?.viewerTrouble?.() ?? null,
     /* Handed to the one canvas that draws them. Written as functions rather
        than values because the stage is built a few lines below this. */
     drawTheseAcquisitions: (list) => stage.drawTheseAcquisitions(list),

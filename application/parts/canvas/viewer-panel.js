@@ -223,10 +223,26 @@ async function measured(row) {
       return { trouble: `Asked ${where} to measure this channel; it answered ${answer.status}.` };
     }
     const body = await answer.json();
+    if (body?.empty) {
+      /* Nothing to measure yet is not a failure. At the start of a live run
+         it is the ordinary state of every channel, and the server says which
+         kind of nothing it is: pixels not landed yet, or a store it cannot
+         read at all. The two must reach the screen as different sentences —
+         "waiting" over a corrupt store would wait for ever. */
+      return {
+        empty: true,
+        state: body.measurementState === "unreadable" ? "unreadable" : "waiting",
+        error: body.measurementError ?? null,
+      };
+    }
     if (!body?.histogram) {
       return { trouble: `Asked ${where} to measure this channel; it answered without a histogram.` };
     }
-    return { histogram: body.histogram, window: body.window };
+    return {
+      histogram: body.histogram,
+      window: body.window,
+      state: body.measurementState === "settled" ? "settled" : "provisional",
+    };
   } catch (why) {
     if (why?.name === "AbortError") {
       return {
@@ -457,6 +473,7 @@ export async function mountViewerPanel(
 
   /* ---- channel settings (built first, filled by the selection) ---- */
   const settings = el("div", CARD);
+  settings.dataset.brightness = "none";
   settings.append(el("div", HEADING, "channel settings"));
   const chosenHead = el("div", "display:flex;flex-direction:column;gap:3px;padding:5px 12px 6px;");
   const chosenLine = el("div", [
@@ -484,6 +501,22 @@ export async function mountViewerPanel(
     trouble.style.display = saying ? "block" : "none";
     trouble.dataset.trouble = saying ? "1" : "0";
   }
+
+  /* Where the panel says there is no window yet, and why. It stands where the
+     trouble line stands, directly above the histogram it is explaining, and
+     it is hidden the moment a window exists. Two wordings: "waiting for
+     measurable pixels" is the ordinary state of a live run before its first
+     field lands; "this acquisition cannot be read" is a fault, and the two
+     must never share a sentence, because a corrupt store told to wait waits
+     for ever. */
+  const waitingLine = el("div", [
+    "margin:0 12px 6px", "padding:5px 8px", "border-radius:4px",
+    `background:${INK.chosenGround}`, `color:${INK.textMuted}`,
+    `font:${font(400, 11)}`, "display:none",
+  ].join(";"));
+  waitingLine.setAttribute("role", "status");
+  waitingLine.setAttribute("aria-live", "polite");
+  waitingLine.dataset.waiting = "1";
 
   const plotWrap = el("div", "padding:1px 12px 4px;");
   const plot = document.createElementNS("http://www.w3.org/2000/svg", "svg");
@@ -570,7 +603,7 @@ export async function mountViewerPanel(
   const opacityRow = controlRow("opacity");
   opacityRow.slider.min = "0"; opacityRow.slider.max = "1"; opacityRow.slider.step = "0.01";
   opacityRow.slider.value = "1";
-  settings.append(chosenHead, trouble, plotWrap, buttonRow,
+  settings.append(chosenHead, trouble, waitingLine, plotWrap, buttonRow,
     minRow.line, maxRow.line, brightnessRow.line, contrastRow.line, opacityRow.line);
 
   /* ---- the state the settings act on ---- */
@@ -578,14 +611,29 @@ export async function mountViewerPanel(
   let shape = null;    // its measured histogram {low, high, counts, autoWindow}
   let logScale = false;
 
+  /* The window this row is drawn through, or `null` when nobody has decided
+     one. It used to fall back to the whole of a sixteen-bit camera's range,
+     and that fallback is exactly the fault this panel exists to prevent: a
+     picture that is nearly black with two sliders sitting at nought and
+     sixty-five thousand as though somebody had chosen them. Now a channel with
+     no declared and no measured window has no window, the controls say they
+     are waiting, and nothing on screen pretends otherwise. */
   const windowOf = (row) => row.window
     ?? (shape?.autoWindow && chosen !== null && rows[chosen] === row ? shape.autoWindow : null)
-    ?? { low: 0, high: 65535 };
+    ?? null;
+
+  /* Why the chosen channel has no window, when it has none: "waiting" while
+     the run has not landed pixels for it yet, "unreadable" when the store
+     itself cannot be read. Set from the server's own answer, never guessed. */
+  let brightnessState = "waiting";
+  let brightnessError = null;
 
   function theAxis(row) {
     /* The window sits at 15%..85% of the drawn axis, clamped to what was
-       measured — the viewer's own framing. */
+       measured — the viewer's own framing. With no window there is no axis
+       to frame, and the histogram is drawn over the measured spread alone. */
     const window_ = windowOf(row);
+    if (!window_) return shape ? { low: shape.low, high: shape.high } : { low: 0, high: 1 };
     const across = (window_.high - window_.low) / (1 - 2 * WINDOW_SITS_FROM) || 1;
     const beyond = across * WINDOW_SITS_FROM;
     const bounds = shape ? { low: shape.low, high: shape.high } : null;
@@ -619,7 +667,7 @@ export async function mountViewerPanel(
    * hundred counts near the bottom of the range.
    */
   function theTrack(row) {
-    const window_ = windowOf(row);
+    const window_ = windowOf(row) ?? { low: 0, high: 1 };
     /* The best account of where this channel's brightness actually lives, in
        the order they are worth having. A measurement of the pixels is the
        truest. Failing that, the window the run itself declared: a run that
@@ -668,6 +716,7 @@ export async function mountViewerPanel(
     const window_ = windowOf(row);
     const counts = shape?.counts ?? [];
     plot.setAttribute("viewBox", `0 0 ${Math.max(counts.length, 1)} 24`);
+    if (!window_) return;
     const axis = theAxis(row);
     const span = axis.high - axis.low || 1;
     const at = (value) =>
@@ -712,6 +761,31 @@ export async function mountViewerPanel(
     if (chosen === null) return;
     const row = rows[chosen];
     const window_ = windowOf(row);
+    if (!window_) {
+      /* No window to show, so no control pretends to move one. The sentence
+         above the histogram says which kind of nothing this is, and the
+         settings card carries the same word for anything reading the page. */
+      for (const { slider, box } of [minRow, maxRow, brightnessRow, contrastRow]) {
+        slider.disabled = true;
+        box.textContent = "—";
+      }
+      opacityRow.slider.disabled = false;
+      if (!opacityRow.held) opacityRow.slider.value = String(row.weight);
+      opacityRow.box.textContent = `${Math.round(row.weight * 100)}%`;
+      resetButton.disabled = !row.asWritten;
+      settings.dataset.brightness = brightnessState;
+      waitingLine.textContent = brightnessState === "unreadable"
+        ? `this acquisition cannot be read${brightnessError ? `: ${brightnessError}` : ""}`
+        : "waiting for measurable pixels";
+      waitingLine.setAttribute("role", brightnessState === "unreadable" ? "alert" : "status");
+      waitingLine.style.display = "block";
+      drawTheHistogram();
+      return;
+    }
+    waitingLine.style.display = "none";
+    /* "declared" only when the run itself wrote this window; a window that
+       came from a measurement keeps the measurement's own word for itself. */
+    settings.dataset.brightness = row.asWritten && row.window ? "declared" : brightnessState;
     const axis = theAxis(row);
     for (const { slider } of [minRow, maxRow]) {
       slider.min = String(Math.floor(axis.low));
@@ -814,6 +888,12 @@ export async function mountViewerPanel(
     const row = rows[chosen];
     const answer = await measured(row);
     sayTheTrouble(answer.trouble);
+    if (answer.empty) {
+      brightnessState = answer.state;
+      brightnessError = answer.error;
+      refreshControls();
+      return;
+    }
     if (answer.histogram) shape = answer.histogram;
     const wanted = answer.window ?? shape?.autoWindow;
     if (wanted) takeTheWindow(wanted);
@@ -1161,6 +1241,8 @@ export async function mountViewerPanel(
     inner.append(eye, aSwatch(index, row), el("span",
       "overflow:hidden;text-overflow:ellipsis;white-space:nowrap;", row.name));
     line.append(inner);
+    /* Named in the page, so a check can choose exactly the channel it means. */
+    line.dataset.channelRow = String(index);
     line.addEventListener("click", () => chooseRow(index));
     rowLines.push(line);
     groupBox.append(line);
@@ -1187,6 +1269,8 @@ export async function mountViewerPanel(
       el("span", "overflow:hidden;text-overflow:ellipsis;white-space:nowrap;", row.name),
     );
     shape = null;
+    brightnessState = "waiting";
+    brightnessError = null;
     sayTheTrouble(null);
     refreshControls();
     const answer = await measured(row);
@@ -1196,6 +1280,14 @@ export async function mountViewerPanel(
     if (chosen !== index) return;
     sayTheTrouble(answer.trouble);
     if (answer.trouble) return;
+    if (answer.empty) {
+      brightnessState = answer.state;
+      brightnessError = answer.error;
+      refreshControls();
+      return;
+    }
+    brightnessState = answer.state;
+    brightnessError = null;
     shape = answer.histogram;
     if (!row.window && answer.window) row.window = answer.window;
     refreshControls();

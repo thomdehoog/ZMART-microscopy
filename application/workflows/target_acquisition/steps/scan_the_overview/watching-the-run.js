@@ -148,12 +148,26 @@ export function watchTheRun(ctx) {
      * a whole viewer, is the forwarding: the picture no longer has to be told
      * where the plan is looking, because they are the same picture.
      */
+    let toldAbout = null;
     async function draw() {
       if (telling) return;
       telling = true;
       try {
         const wanted = await whatToDraw();
-        if (!wanted || wanted.signature === showing) return;
+        if (!wanted) {
+          /* Nothing to draw, and possibly a reason. A viewer the bridge refused
+             to start — too old to promise an honest display window — leaves a
+             sentence behind, and that sentence belongs beside the empty
+             picture, not in a status document nobody reads. Said once per
+             reason, so a page polling every few seconds does not repeat it. */
+          const trouble = await ctx.viewerTrouble?.();
+          if (trouble && trouble !== toldAbout) {
+            ctx.picture()?.tell?.(`the run's picture cannot be drawn — ${trouble}`);
+            toldAbout = trouble;
+          }
+          return;
+        }
+        if (wanted.signature === showing) return;
         await ctx.drawTheseAcquisitions(wanted.acquisitions);
         showing = wanted.signature;
         /* Left where a test can reach it. What matters about a picture is what
