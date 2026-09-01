@@ -583,26 +583,51 @@ a zoomed-out impression.
 
 ## Current status
 
-- Claude's review and handover have been read and checked against both codebases.
-- The original plan's large engine-module port has been removed.
-- Claude's `d84c6848` source-selection change has been independently reviewed:
-  its focused tests, old-behavior mutation check, storage suite, and a real
-  Smart Viewer config all support the narrow change.
-- The deeper fault is measured: the bridge cached the first config and relinked
-  against Viewer 0.2's watched-folder behavior. The cleanup branch now opens a
-  folder once, refreshes `/api/config`, and retains all current-dataset fields.
-- The original six focused bridge checks and all twenty storage checks pass. A
-  direct real-Viewer service run grew from one to four fields on dataset 0 with
-  one opened folder and no error. The later channel/source checkpoint adds nine
-  focused Python checks plus its JavaScript and browser-panel checks.
-- The first 0/3/6/9 evidence check is rejected: all nine planned boxes could be
-  skipped while the assertion still passed, and the whole-plate screenshot
-  shows the correctly sized image translated away from the plan. It is retained
-  only as a regression-test lesson, not proof of a working integration.
-- The latest verified checkpoint keeps three Smart Viewer channel rows instead
-  of flattening nine positions x three channels into 27 controls, and keeps all
-  spatial sources behind each row. It has focused Python, JavaScript, build,
-  and panel screenshot evidence, but no claim of correct kidney registration.
-- The integration is not complete until the repaired non-vacuous Step 5 kidney
-  run, overview-only visibility check, registration trace, Fit-preservation
-  check, and screenshot manifest all pass.
+- Claude's review, handover, and fault reports were read as context and checked
+  against both codebases. Neither Claude integration branch was merged; only
+  independently reproduced, narrowly bounded behavior was carried across.
+- The coordinate trace found the first divergence at flat-source Z sampling:
+  the only voxel centre is `z=0`, while `z=0.5` is its boundary. The production
+  correction is limited to that boundary. No carrier-origin subtraction or
+  other XY compensation was added.
+- The reversible 2-D display-anchor model now applies without acquisition-name
+  special cases to `overview`, `focussing`, and `target`. Every declared anchor
+  maps to display `z=0`; stacks retain signed spacing, plane order, direction,
+  and raw acquisition/focus Z provenance. No physical 3-D registration is
+  implemented or claimed.
+- Smart Viewer 0.2 keeps three overview channel rows with all nine spatial
+  sources behind each row. The bridge opens each positions folder once,
+  announces later landings, refreshes `/api/config`, and grows stable engine
+  sources without replacing the Viewer or the operator's view and visibility.
+- Acquisition order is presentation state, not geometry. The accepted evidence
+  uses overview as the base and focussing as the diagnostic overlay; reversing
+  that order is valid but can obscure overview pixels and therefore needs its
+  own visibility/blending proof. Hiding focussing through the operator panel
+  leaves every overview field visible and does not change either source's Z.
+- The repaired evidence requires exactly nine projected ROIs; an off-screen or
+  unprojectable ROI fails. The accepted 0/3/6/9, actual Run-button,
+  overview-only, whole-plate, and kidney-close-up records are under
+  `docs/reviews/evidence/2026-09-01-smart-viewer-step-five/`. The complete runs
+  examine and texture all nine ROIs, keep maximum projection error below
+  `0.071 px` (below `2.83 µm`), and report no unexpected request, browser,
+  worker, or bridge error.
+- Histogram and Auto now have direct evidence: selecting overview channel 0 and
+  pressing Auto both receive successful responses from the separate Viewer's
+  `/api/measure`; the evidence records a new request on the Auto press and 66
+  rendered histogram bars.
+- Whole-plate Fit survives first and later image arrivals unless the operator
+  explicitly requests Fit. Empty-canvas pan/zoom, panel visibility, scan-under-
+  plan projection, and the full operator walk pass independently.
+- The larger acceptance examines 54 of 54 six-well overview fields with
+  focussing hidden; every field contains non-uniform kidney texture.
+- Package G is complete: `viewer_service.py` requires the separate
+  `zmart-viewer` 0.2.0 distribution, rejects in-repository copies and unproved
+  releases, the copied `viz_studio/backend/` and `viz_studio/frontend/src/`
+  trees are explicitly reference-only, and the fresh-machine setup pins Viewer
+  commit `9ff10b04e803fbe2a71a1735a8065a845ea803dd`.
+- Final verification on 2026-09-01: 28 upstream Viewer API/data tests passed
+  (four standalone-page pixel tests skipped because that separate page is not
+  built), 103 focused Microscopy Python tests passed, 365 JavaScript unit tests
+  passed with 15 intentional skips, the production build passed, and all eight
+  relevant Microscopy browser tests passed. The isolated install selected
+  Viewer 0.2.0 from the pinned sibling checkout and reached `/api/measure`.
