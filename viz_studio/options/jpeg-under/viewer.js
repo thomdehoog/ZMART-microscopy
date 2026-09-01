@@ -116,6 +116,9 @@ export async function openViewer(element, options = {}) {
   });
 
   const handle = {
+    /* JPEG folders refresh internally; a changed acquisition list is a new scene. */
+    async addSources() { return false; },
+
     setView({ centre, zoom } = {}) {
       if (own.destroyed) return;
       if (centre && Number.isFinite(centre.x) && Number.isFinite(centre.y)) {

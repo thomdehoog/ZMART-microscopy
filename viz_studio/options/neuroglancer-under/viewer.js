@@ -241,14 +241,7 @@ export async function openViewer(element, options = {}) {
       ...(acquisition.channels ?? []).flatMap((channel) => channel.sources ?? []),
     ].filter(Boolean);
     for (const address of new Set(addresses)) {
-      if (/^[a-z]+:\/\//i.test(address)) continue;
-      throw new Error(
-        `the acquisition "${acquisition.name}" was given the address ` +
-          `"${address}", which has no scheme or host in it. ` +
-          "Neuroglancer accepts such an address, builds the layer, raises no " +
-          "error and then never fetches anything at all, so this is refused " +
-          "here instead. Pass the whole address, including http:// and the host.",
-      );
+      sourceAddressIsWhole(address, acquisition.name);
     }
   }
 
@@ -327,6 +320,18 @@ export async function openViewer(element, options = {}) {
     setView: (view) => writeTheView(own, view),
   });
   return handleFor(own);
+}
+
+/** Refuse a source address that Neuroglancer would otherwise fail on silently. */
+function sourceAddressIsWhole(address, acquisition) {
+  if (/^[a-z]+:\/\//i.test(address)) return;
+  throw new Error(
+    `the acquisition "${acquisition}" was given the address ` +
+      `"${address}", which has no scheme or host in it. ` +
+      "Neuroglancer accepts such an address, builds the layer, raises no " +
+      "error and then never fetches anything at all, so this is refused " +
+      "here instead. Pass the whole address, including http:// and the host.",
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -1049,6 +1054,57 @@ async function rowsFor(acquisitions) {
     });
   }
   return rows;
+}
+
+/**
+ * Add later position stores to the layers that already draw their channels.
+ *
+ * Smart Viewer watches one positions folder and grows the source arrays of its
+ * stable acquisition rows. That is an append to an open picture, not a reason
+ * to destroy it: destroying revokes the old `/data/N/` endpoint while its
+ * chunks are still in flight, and it also throws away navigation and operator
+ * choices. This boundary accepts only the shape Viewer promises here — the
+ * same acquisition/channel rows and each old source list as an exact prefix.
+ * A caller that presents a different acquisition shape gets `false` and can
+ * make the separate decision to open a genuinely different scene.
+ */
+async function addSourcesToTheOpenRows(own, acquisitions) {
+  if (own.destroyed) return false;
+  const wanted = await rowsFor(acquisitions);
+  if (wanted.length !== own.rows.length) return false;
+
+  for (let at = 0; at < wanted.length; at += 1) {
+    const held = own.rows[at];
+    const next = wanted[at];
+    if (held.layerName !== next.layerName || next.sources.length < held.sources.length) {
+      return false;
+    }
+    if (held.sources.some((source, sourceAt) => next.sources[sourceAt] !== source)) {
+      return false;
+    }
+  }
+
+  for (let at = 0; at < wanted.length; at += 1) {
+    const held = own.rows[at];
+    const layer = held.managed?.layer;
+    if (!layer) return false;
+    const fresh = wanted[at].sources.slice(held.sources.length);
+    for (const address of fresh) {
+      sourceAddressIsWhole(address, held.acquisition);
+      // Use the same data-source-specification path as initial layer creation,
+      // so a position that lands later receives exactly the same OME-Zarr
+      // handling and source-local transform as the first one.
+      for (const source of layer.getDataSourceSpecifications({ source: [address] })) {
+        layer.addDataSource(source);
+      }
+      held.sources.push(address);
+    }
+    // A row built from its first position uses additive blending. Once it has
+    // spatially placed neighbours, restore ordinary covering so overlapping
+    // edge voxels cannot brighten into seams.
+    if (held.sources.length > 1) layer.blendMode?.reset?.();
+  }
+  return true;
 }
 
 /**
@@ -1832,6 +1888,14 @@ function letGoOfWhatWasAlreadyReplaced(own) {
 
 function handleFor(own) {
   return {
+    /**
+     * Grow stable acquisition rows in place. Returns false when their shape
+     * changed and the caller therefore needs to open a different scene.
+     */
+    addSources(acquisitions) {
+      return addSourcesToTheOpenRows(own, acquisitions);
+    },
+
     /** Move the view. `centre` is in micrometres, `zoom` in µm per screen pixel. */
     setView(view) {
       writeTheView(own, view);

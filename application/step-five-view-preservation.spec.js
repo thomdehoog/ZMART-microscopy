@@ -130,7 +130,18 @@ async function absolutePlan(page) {
 test("first and later overview sources preserve pan, zoom, and whole-plate Fit", async ({ page }) => {
   test.setTimeout(A_WHOLE_RUN);
   const browserErrors = [];
+  const sourceFailures = [];
   page.on("pageerror", (error) => browserErrors.push(error.message));
+  page.on("requestfailed", (request) => {
+    if (request.url().includes("/data/")) {
+      sourceFailures.push({ url: request.url(), error: request.failure()?.errorText ?? null });
+    }
+  });
+  page.on("response", (response) => {
+    if (response.url().includes("/data/") && response.status() >= 400) {
+      sourceFailures.push({ url: response.url(), status: response.status() });
+    }
+  });
 
   await walkToScan(page);
   const positions = await absolutePlan(page);
@@ -161,6 +172,10 @@ test("first and later overview sources preserve pan, zoom, and whole-plate Fit",
   expectSameView(chosen, afterFirst, "first source arrival");
   expect(await acquisitionVisible(page, "focussing"),
     "first source arrival preserves requested focussing visibility").toBe(false);
+  // The first overview field adds a new acquisition beside focussing. From
+  // this point onward the acquisition shape is stable and fields 2–9 must be
+  // appended to this exact Viewer instance.
+  await page.evaluate(() => { window.__pictureBeforeSourceGrowth = window.__thePicture; });
 
   // The deterministic bridge call declares the complete acquisition each
   // time, so later checkpoints repeat the positions already present and add
@@ -177,6 +192,8 @@ test("first and later overview sources preserve pan, zoom, and whole-plate Fit",
   expectSameView(chosen, afterLater, "later source arrival");
   expect(await acquisitionVisible(page, "focussing"),
     "later source arrival preserves requested focussing visibility").toBe(false);
+  expect(await page.evaluate(() => window.__thePicture === window.__pictureBeforeSourceGrowth),
+    "later overview sources keep the same Viewer instance").toBe(true);
 
   await page.locator("#fit-btn").click();
   await rest(500);
@@ -189,7 +206,10 @@ test("first and later overview sources preserve pan, zoom, and whole-plate Fit",
   await rest(2000);
   const afterFitArrival = await stageSnapshot(page, "whole-plate Fit after source 9");
   expectSameView(wholePlate, afterFitArrival, "source arrival after Fit");
+  expect(await page.evaluate(() => window.__thePicture === window.__pictureBeforeSourceGrowth),
+    "the final overview source keeps the same Viewer instance").toBe(true);
   expect(browserErrors, "source replacement raised a browser error").toEqual([]);
+  expect(sourceFailures, "stable source growth aborted or lost a Viewer request").toEqual([]);
 
   fs.writeFileSync(path.join(SHOTS, "view-preservation.json"), JSON.stringify({
     fittedBeforeHand, chosen, afterFirst, afterLater, wholePlate, afterFitArrival,
@@ -199,6 +219,6 @@ test("first and later overview sources preserve pan, zoom, and whole-plate Fit",
       fit: projectionDrift(wholePlate, afterFitArrival),
     },
     requestedVisibility: { focussing: false, overview: true },
-    browserErrors,
+    browserErrors, sourceFailures,
   }, null, 2));
 });
