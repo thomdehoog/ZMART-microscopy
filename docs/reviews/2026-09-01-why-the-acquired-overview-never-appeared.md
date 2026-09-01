@@ -232,9 +232,15 @@ focussing hidden and its eyes asserted closed in the same photographs.
 
 ## 9. What is still open
 
-- **The panel's unported features.** LUTs, the × close, the Z and T sliders
-  with play, and pan and zoom on the histogram are all still in the standalone
-  viewer and not yet in the operator window.
+- **The panel's unported features.** Colour maps, the depth and time sliders
+  with play, brightness and contrast, and a few smaller things are still in the
+  standalone viewer and not yet in the operator window. They are listed as
+  steps, in the order worth doing them, in
+  `2026-09-01-what-is-left-in-the-viewer-port.md`. (Two items named here in an
+  earlier draft have been dropped: the histogram needs no pan and zoom, because
+  the operator window's is already the richer of the two, and the × that closes
+  an acquisition has no honest meaning where the workflow decides what is
+  drawn. The reasons are in section 4 of that note.)
 - **Rebuild the focus environment if it is older than this branch.** Focussing
   now scores the run's own OME-Zarr position rather than the vendor's loose
   plane files (section 7). Reading an OME-Zarr needs `ngio`, which the focus
