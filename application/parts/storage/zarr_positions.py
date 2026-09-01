@@ -45,6 +45,37 @@ from zmart_storage.positions import how_many_copies_a_position_can_keep
 #: The chunk edge in y and x, matching the run stores zmart_storage writes.
 PIECE = 128
 
+#: How small a position's smallest copy of itself is allowed to get, in voxels
+#: along its shorter side.
+#:
+#: A folder of positions is linked into one picture by pointing at the copies
+#: the positions already keep, so **the picture has exactly as many zoomed-out
+#: copies as a single position does**. Left to the chunk size, a 256-voxel
+#: field keeps two — itself and a half-size copy — and that is ample for
+#: looking at one well and hopeless for looking at a plate: ninety-six wells
+#: across a screen is about a hundred and sixty micrometres to a screen pixel,
+#: where the coarsest copy of a 4 µm field offers eight. The engine then draws
+#: the whole plate out of the second-finest copy, which is some thousands of
+#: pieces of picture, each composed on demand; most never arrive, and a plate
+#: that is entirely imaged looks half empty.
+#:
+#: Shrinking to eight voxels gives a field six copies instead of two, so the
+#: coarsest is 128 µm to the voxel and a whole plate is a few dozen pieces
+#: rather than thousands. The copies cost a third of the field again in disk,
+#: which is the usual price of a pyramid and is small beside the TIFFs the
+#: instrument already wrote.
+#:
+#: **What this rests on.** Shrinking keeps every second voxel rather than
+#: averaging four, so a voxel of a coarse copy belongs to exactly one position
+#: — that is what lets the picture point at the positions instead of writing
+#: its own copies. It holds only while each position begins on a whole number
+#: of coarse voxels, which for a run laid out on a grid it does. A run whose
+#: stage has drifted off the grid is the open question in the viewer's
+#: `PLAN_showing_many_stores_as_one.md`, and it is no more open now than it
+#: was: this makes the same arrangement reach further out, it does not change
+#: what the arrangement assumes.
+THE_SMALLEST_COPY_WORTH_KEEPING = 8
+
 #: Metres and friends, as OME spells them, into micrometres. OME's default
 #: unit for a physical size is µm, so a missing unit multiplies by one.
 _TO_UM = {"m": 1e6, "mm": 1e3, "µm": 1.0, "um": 1.0, "nm": 1e-3, "": 1.0}
@@ -86,7 +117,9 @@ def position_store_from_record(record: dict, into: Path | str) -> Path:
         channels=channels,
         dtype=str(volume.dtype),
         chunk=PIECE,
-        levels=how_many_copies_a_position_can_keep(tile_shape, PIECE),
+        levels=how_many_copies_a_position_can_keep(
+            tile_shape, THE_SMALLEST_COPY_WORTH_KEEPING,
+        ),
         voxel_size_um=(dz, pixel_size_um[0], pixel_size_um[1]),
         origin_um=corner_um,
         # Each channel opens on a window measured from its own pixels — the
