@@ -616,7 +616,9 @@ export async function mountViewerPanel(near, { viewer, acquisitions }) {
   /* Left where a test can reach it, the way the picture itself is. */
   window.__viewerPanel = panel;
   if (rows.length) chooseRow(0);
-  return {
+  let stopListening = null;
+
+  const panelHandle = {
     /**
      * Bring the panel back into agreement with the picture.
      *
@@ -649,12 +651,23 @@ export async function mountViewerPanel(near, { viewer, acquisitions }) {
       }
     },
     destroy() {
+      stopListening?.();
       closeChooser();
       document.removeEventListener("pointerdown", closeChooser, true);
       panel.remove();
       if (window.__viewerPanel === panel) window.__viewerPanel = null;
     },
   };
+
+  /* And the panel listens, so it never has to be told by hand. An eye that
+     follows only when somebody remembers to ask is an eye that will one day
+     be photographed saying the wrong thing — which is exactly how a channel
+     that had been switched off went on showing an open eye. A viewer that
+     offers no such announcement simply keeps the panel as it was, and
+     `refresh` can still be called. */
+  stopListening = viewer.whenChannelsChange?.(() => panelHandle.refresh());
+
+  return panelHandle;
 }
 
 /**
