@@ -475,6 +475,9 @@ export async function mountViewerPanel(near, { viewer, acquisitions }) {
   }
 
   const rowLines = [];
+  /* Each row's eye, so the panel can be brought back into agreement with the
+     picture whenever the two might have parted — see `refresh`. */
+  const eyes = new Map();
   let heading = null;
   let groupBox = null;
   rows.forEach((row, index) => {
@@ -513,14 +516,19 @@ export async function mountViewerPanel(near, { viewer, acquisitions }) {
     const eye = el("button",
       `background:none;border:none;color:${INK.textPrimary};cursor:pointer;padding:0;`);
     eye.type = "button";
-    eye.append(anEye(true));
-    eye.title = "Hide this channel";
+    /* Drawn from what the row actually is, not from a hopeful `true`.
+       An eye that always opens is a panel that says a channel is being
+       drawn when it is not: a row turned off from anywhere but this button
+       — by the page, or by a row that opened hidden — kept an open eye, and
+       an operator reading the panel was told the opposite of the truth
+       about their own picture. `dressTheEye` is also what `refresh` below
+       calls, so the two can never drift apart. */
+    dressTheEye(eye, row.visible !== false);
+    eyes.set(index, eye);
     eye.addEventListener("click", (press) => {
       press.stopPropagation();
       row.visible = !row.visible;
-      eye.replaceChildren(anEye(row.visible));
-      eye.style.opacity = row.visible ? "1" : "0.4";
-      eye.title = row.visible ? "Hide this channel" : "Show this channel";
+      dressTheEye(eye, row.visible);
       viewer.setChannel(index, { visible: row.visible });
     });
     inner.append(eye, aSwatch(index, row), el("span",
@@ -602,6 +610,27 @@ export async function mountViewerPanel(near, { viewer, acquisitions }) {
   window.__viewerPanel = panel;
   if (rows.length) chooseRow(0);
   return {
+    /**
+     * Bring the panel back into agreement with the picture.
+     *
+     * The panel and the viewer both hold an opinion about which channels are
+     * being drawn, and the panel's is only ever right because it was the one
+     * that changed it. Anything else that turns a row off — a page, a test,
+     * a step of the workflow — leaves the panel saying the opposite of what
+     * the operator can see. So the viewer is asked what it is really doing
+     * and the eyes are drawn from the answer.
+     */
+    refresh() {
+      const standing = viewer.layersForMeasurement?.();
+      if (!standing) return;
+      standing.forEach((row, at) => {
+        const eye = eyes.get(at);
+        if (!eye) return;
+        const shown = row.visible !== false;
+        if (rows[at]) rows[at].visible = shown;
+        dressTheEye(eye, shown);
+      });
+    },
     destroy() {
       closeChooser();
       document.removeEventListener("pointerdown", closeChooser, true);
@@ -609,4 +638,18 @@ export async function mountViewerPanel(near, { viewer, acquisitions }) {
       if (window.__viewerPanel === panel) window.__viewerPanel = null;
     },
   };
+}
+
+/**
+ * Draw an eye as open or closed, and say so to a reader who cannot see it.
+ *
+ * One place, used when a row is built and whenever the panel is brought back
+ * into agreement with the picture, so an eye cannot say one thing while the
+ * channel does another.
+ */
+function dressTheEye(eye, shown) {
+  eye.replaceChildren(anEye(shown));
+  eye.style.opacity = shown ? "1" : "0.4";
+  eye.title = shown ? "Hide this channel" : "Show this channel";
+  eye.setAttribute("aria-pressed", String(!shown));
 }

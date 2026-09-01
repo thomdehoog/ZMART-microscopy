@@ -197,6 +197,11 @@ export function watchTheRun(ctx) {
           panel = await mountViewerPanel(host.parentElement ?? host, {
             viewer, acquisitions: wanted.acquisitions, css: ctx.css,
           });
+          /* Left where a test can reach it, beside the picture itself: what
+             the panel says about the picture is as much a part of what an
+             operator sees as the picture is, and a photograph cannot tell a
+             truthful eye from a stale one. */
+          window.__viewerPanelHandle = panel;
         }
       } catch (e) {
         console.error(`the scan could not be opened — ${e.message}`);
@@ -237,6 +242,7 @@ export function watchTheRun(ctx) {
     function reset() {
       panel?.destroy?.();
       panel = null;
+      window.__viewerPanelHandle = null;
       viewer?.destroy?.();
       viewer = null;
       openedOn = null;
