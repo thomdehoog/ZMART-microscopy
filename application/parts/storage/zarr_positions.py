@@ -45,7 +45,7 @@ from application.parts.storage.acquisition_description import (
     read_acquisition_description,
     validate_acquisition_description,
 )
-from zmart_storage.canvas import Channel, _declare_one
+from zmart_storage.canvas import _declare_one
 from zmart_storage.positions import how_many_copies_a_position_can_keep
 
 #: The chunk edge in y and x, matching the run stores zmart_storage writes.
@@ -141,23 +141,21 @@ def position_store_from_record(
             f"the {kind!r} acquisition display contract cannot describe this position: {exc}"
         ) from exc
 
-    local_windows = [
-        _a_window_onto(volume[:, index], depth_max) for index in range(channels)
-    ]
+    # The display window is the acquisition's to decide, once, for every
+    # position — never this position's own pixels. A run that has decided one
+    # mirrors it here so napari and Fiji open the store looking right; a run
+    # that has not yet decided writes no channel block at all, because a block
+    # naming a channel without a window is refused by strict readers, and a
+    # window invented from the camera's range opens the picture nearly black.
+    # The Viewer measures a provisional window from the pixels in that case,
+    # and says that it measured it. This used to measure a window per position
+    # and stamp it here; that made a dim field and a bright field of one
+    # acquisition open on different scales, which is the fault the acquisition
+    # description exists to remove.
     channel_blocks = (
-        ome_channel_blocks(
-            description,
-            depth_max=depth_max,
-            # Kept deliberately during M1. The acquisition sidecar is the
-            # composed Viewer's authority; this local value keeps older readers
-            # usable until M2/M3 can remove it safely.
-            fallback_windows=local_windows,
-        )
+        ome_channel_blocks(description, depth_max=depth_max)
         if description is not None
-        else [
-            Channel(f"channel {index}", window=local_windows[index]).described(depth_max)
-            for index in range(channels)
-        ]
+        else []
     )
     tile_shape = (nz, ny, nx)
     arrays = _declare_one(
@@ -172,11 +170,6 @@ def position_store_from_record(
         ),
         voxel_size_um=(dz, pixel_size_um[0], pixel_size_um[1]),
         origin_um=corner_um,
-        # Each channel opens on a window measured from its own pixels — the
-        # pixels are already in hand, so this costs nothing. Declaring the
-        # camera's whole range instead is honest but useless on screen: a
-        # real acquisition sits in the bottom few per cent of it, and the
-        # picture opened very nearly black.
         channel_blocks=channel_blocks,
         ome_zarr_version="0.5",
     )
@@ -337,21 +330,6 @@ def _the_corner_of(
         y_um - frame_yx[0] * pixel_size_um[0] / 2.0,
         x_um - frame_yx[1] * pixel_size_um[1] / 2.0,
     )
-
-
-def _a_window_onto(channel: np.ndarray, depth_max: int) -> tuple[int, int]:
-    """The brightness range this channel should first be shown with.
-
-    The darkest percentile to just past the brightest, so a stray hot pixel
-    cannot stretch the window and flatten everything else. A channel with
-    nothing in it (all one value) falls back to the camera's whole range —
-    a degenerate window is refused by readers.
-    """
-    low, high = np.percentile(channel, [1.0, 99.9])
-    low, high = int(low), int(np.ceil(high))
-    if high <= low:
-        return (0, depth_max)
-    return (low, min(high, depth_max))
 
 
 def _the_depth_of(dtype: np.dtype) -> int:

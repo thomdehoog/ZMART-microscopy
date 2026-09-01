@@ -93,11 +93,20 @@ def test_one_declared_window_reaches_every_reading(tmp_path):
 
 def test_two_positions_that_disagree_give_nobody_the_last_word(tmp_path):
     positions = _two_positions(tmp_path, declared=False)
-
-    # Without a sidecar the M1 writer still measures a window per position,
-    # and a dim field and a bright field measure differently. That is the
-    # legacy disagreement.
     stores = sorted(positions.glob("*.ome.zarr"))
+
+    # The writer no longer stamps a window per position, so a run written
+    # today has none to disagree about. A run written before the migration
+    # did, and that is the shape this half of the test is about: stamp the two
+    # positions the way the old writer would have, a dim field and a bright
+    # field each measured on its own scale.
+    for store, (start, end) in zip(stores, [(90, 1400), (700, 19000)]):
+        held = json.loads((store / "zarr.json").read_text())
+        held["attributes"]["ome"]["omero"] = {"channels": [
+            {"label": "channel 0", "color": "FFFFFF",
+             "window": {"min": 0, "max": 65535, "start": start, "end": end}},
+        ]}
+        (store / "zarr.json").write_text(json.dumps(held), encoding="utf-8")
     windows = [_omero_window_of(store) for store in stores]
     assert windows[0] != windows[1]
 
