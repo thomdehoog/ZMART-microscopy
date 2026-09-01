@@ -3,9 +3,9 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "zmart-viewer"
+name = "zmart-microscopy"
 version = "0.1.0"
-description = "A viewer for large, changing, multi-channel microscopy images, and the writer that feeds it while a run is going."
+description = "The ZMART smart-microscopy operator, acquisition workflow, and live image writer."
 readme = "README.md"
 requires-python = ">=3.10,<3.13"
 license = "MIT"
