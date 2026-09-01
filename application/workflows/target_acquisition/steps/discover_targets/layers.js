@@ -102,7 +102,7 @@ export function targetLayers(theRun) {
     label: "Cells",
     explains: "What detection found. The ones that passed the gate are ringed, so which "
       + "is which does not rest on colour alone.",
-    shown: run.cellsShown && ["detect", "select", "acquire"].includes(activeMode),
+    shown: run.cellsShown && ["detect", "select", "targets"].includes(activeMode),
     /* Readable over the very fields they were found in: the see-through
        windows that reveal the picture cut every layer beneath them, and the
        objects were cut away exactly where the tissue is. The layer's own
@@ -113,16 +113,19 @@ export function targetLayers(theRun) {
       const { place, scale, w, h } = drawnIn(frame);
       reach = 12 / scale;
       const ctxRad = Math.max(1.1, 1.4 * Math.sqrt(scale / 0.03));
-      /* Each step its own funnel: discovery shows everything found and
-         nothing chosen; refine and acquisition show the chosen alone --
-         context dots on the tissue read as clutter once the step is about
-         the selection. */
-      if (activeMode === "detect") {
+      /* Keep the population spatially present through discovery, refinement,
+         and acquisition. Refinement used to draw only the gated cells, which
+         made the canvas empty before the first gate existed and removed the
+         context needed to understand what that gate excluded. Acquisition did
+         the same. The quiet dots are the candidates; the shaped blue/green
+         marks below remain the selected/acquired answer. */
+      if (["detect", "select", "targets"].includes(activeMode)) {
+        const gated = run.gated;
         ctx.fillStyle = css("--mark-context");
-        ctx.globalAlpha = 0.55;
+        ctx.globalAlpha = activeMode === "detect" ? 0.55 : 0.28;
         ctx.beginPath();
         for (const c of run.cells.values()) {
-          if (activeMode !== "detect" && run.gated.has(c.id)) continue;
+          if (activeMode !== "detect" && gated.has(c.id)) continue;
           const [x, y] = place(c.x, c.y);
           if (x < -8 || y < -8 || x > w + 8 || y > h + 8) continue;
           ctx.moveTo(x + ctxRad, y);
