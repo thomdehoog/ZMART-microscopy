@@ -36,12 +36,20 @@ import json
 import re
 import threading
 import urllib.request
+from importlib.metadata import version
 from pathlib import Path
 
 #: The operator asks for the live scene every 1.5 seconds.  A read must finish
 #: before the next question or a stalled Viewer creates an ever-growing queue of
 #: bridge requests while the microscope is meant to keep scanning.
 VIEWER_POLL_TIMEOUT_S = 1.0
+
+#: The operator integration is verified against this separate Smart Viewer
+#: release.  An editable checkout is intentionally allowed, but an old copy of
+#: the viewer living inside this repository is not: those sources are historical
+#: reference material and do not own the runtime boundary.
+SMART_VIEWER_VERSION = "0.2.0"
+_MICROSCOPY_ROOT = Path(__file__).resolve().parents[3]
 
 #: The service's whole state: one viewer per bridge process, like the run.
 _viewer: dict = {
@@ -77,7 +85,7 @@ def start(run_folder: Path | str) -> None:
             return
         _viewer["error"] = None
         try:
-            from zmart_viewer import server as viewer_server
+            viewer_server = _smart_viewer_server()
 
             made = viewer_server.make_server(
                 port=0,
@@ -92,6 +100,46 @@ def start(run_folder: Path | str) -> None:
             _viewer.update(server=made, thread=thread, port=made.server_address[1])
         except Exception as why:  # noqa: BLE001 -- optional guest, sentence not stack
             _viewer["error"] = f"the viewer server did not start: {why}"
+
+
+def viewer_provenance() -> dict[str, str]:
+    """Identify and validate the Smart Viewer package that owns the server.
+
+    Microscopy once carried a copied backend under ``viz_studio``.  It remains
+    useful as historical design evidence, but accepting it at runtime would make
+    imports depend on the current working directory.  The supported boundary is
+    the separately installed ``zmart-viewer`` distribution at the version whose
+    API and browser behavior this integration proves.
+    """
+    import zmart_viewer
+
+    installed_version = version("zmart-viewer")
+    package_path = Path(zmart_viewer.__file__).resolve()
+    _validate_viewer_provenance(installed_version, package_path)
+    return {"version": installed_version, "path": str(package_path)}
+
+
+def _smart_viewer_server():
+    """Return the validated external server module, never a copied backend."""
+    viewer_provenance()
+    from zmart_viewer import server
+
+    return server
+
+
+def _validate_viewer_provenance(installed_version: str, package_path: Path) -> None:
+    """Reject an unproved release or anything imported from this repository."""
+    resolved = package_path.resolve()
+    if resolved.is_relative_to(_MICROSCOPY_ROOT):
+        raise RuntimeError(
+            "Smart Viewer must be installed from its separate ZMART-viewer checkout; "
+            f"refusing the in-repository path {resolved}"
+        )
+    if installed_version != SMART_VIEWER_VERSION:
+        raise RuntimeError(
+            f"Smart Viewer {SMART_VIEWER_VERSION} is required; found {installed_version} "
+            f"at {resolved}"
+        )
 
 
 def stop() -> None:
