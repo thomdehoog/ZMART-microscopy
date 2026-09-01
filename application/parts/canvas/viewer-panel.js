@@ -782,10 +782,20 @@ export async function mountViewerPanel(
       drawTheHistogram();
       return;
     }
-    waitingLine.style.display = "none";
     /* "declared" only when the run itself wrote this window; a window that
        came from a measurement keeps the measurement's own word for itself. */
-    settings.dataset.brightness = row.asWritten && row.window ? "declared" : brightnessState;
+    const declared = Boolean(row.asWritten && row.window);
+    settings.dataset.brightness = declared ? "declared" : brightnessState;
+    /* A window measured while the run is still being written is said to be
+       that — the same sentence the standalone Viewer uses — so an operator
+       knows the picture may brighten as more of it lands. */
+    if (!declared && brightnessState === "provisional") {
+      waitingLine.textContent = "brightness measured from pixels acquired so far";
+      waitingLine.setAttribute("role", "status");
+      waitingLine.style.display = "block";
+    } else {
+      waitingLine.style.display = "none";
+    }
     const axis = theAxis(row);
     for (const { slider } of [minRow, maxRow]) {
       slider.min = String(Math.floor(axis.low));

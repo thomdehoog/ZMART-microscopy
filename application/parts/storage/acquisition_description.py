@@ -277,6 +277,18 @@ def write_acquisition_description(
                     f"{target} was concurrently published with a different display "
                     "contract; the acquisition has not started"
                 ) from None
+        except OSError:
+            # A filesystem with no hard links — removable media, some network
+            # shares. Replace instead, then read back and compare: weaker
+            # against two writers racing, but never silent about the result.
+            os.replace(temporary, target)
+            existing = read_acquisition_description(folder, channel_count=channel_count)
+            if existing != normal:
+                raise ValueError(
+                    f"{target} was published by another writer with a different display "
+                    "contract; the acquisition has not started"
+                )
+            _sync_directory(folder)
         else:
             _sync_directory(folder)
     finally:

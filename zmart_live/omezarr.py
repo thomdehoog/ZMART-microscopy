@@ -351,11 +351,17 @@ def _the_channels(channels: Sequence[str | Channel], dtype: str) -> list[dict]:
     strict readers.
     """
     brightest = _the_brightest_a_pixel_can_be(dtype)
-    described = []
-    for channel in channels:
-        named = channel if isinstance(channel, Channel) else Channel(str(channel))
-        described.append(named.described(brightest))
-    return described
+    named = [
+        channel if isinstance(channel, Channel) else Channel(str(channel)) for channel in channels
+    ]
+    # A channel that has not chosen a window cannot be described: strict
+    # readers refuse a block whose window has no start/end, and inventing the
+    # camera's range opens the picture nearly black. So the whole advisory
+    # block is left out until every channel has decided, exactly as
+    # zmart_storage.canvas.TileCanvases leaves it out.
+    if any(channel.window is None for channel in named):
+        return []
+    return [channel.described(brightest) for channel in named]
 
 
 def the_image_description(
@@ -467,7 +473,9 @@ def the_image_description(
         "multiscales": [multiscale],
     }
     if channels:
-        described["omero"] = {"channels": _the_channels(channels, profile.dtype)}
+        channel_blocks = _the_channels(channels, profile.dtype)
+        if channel_blocks:
+            described["omero"] = {"channels": channel_blocks}
     return described
 
 

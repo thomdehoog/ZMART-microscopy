@@ -586,16 +586,34 @@ def test_the_image_says_how_its_smaller_copies_were_made(a_described_position):
     assert multiscale["metadata"].get("description")
 
 
-def test_the_colours_are_described_the_way_a_reader_expects(a_described_position):
-    """A channel needs a colour and a display window, and both have exact shapes.
+def test_channels_that_have_not_chosen_a_window_write_no_channel_block(a_described_position):
+    """Names alone are not written, because a strict reader refuses them.
 
-    The window is the part worth being careful about. ``min`` and ``max`` are the
-    camera's whole range; ``start`` and ``end`` are the brightness the run asks to
-    be shown between. All four are required, and a description naming a channel
-    with an incomplete window is refused outright by strict readers — the image
-    then fails to open at all, which is a good deal worse than opening dim.
+    ``min`` and ``max`` are the camera's whole range; ``start`` and ``end`` are
+    the brightness the run asks to be shown between. A description naming a
+    channel with an incomplete window is refused outright by strict readers —
+    the image then fails to open at all — and inventing the camera's range for
+    the missing pair makes real images open nearly black. So a run whose
+    channels have not chosen a window writes no channel block; the viewer
+    measures one from the pixels and says that it measured it, and the names
+    reach the store the moment a window is decided.
     """
     store, _ = a_described_position
+
+    assert "omero" not in _the_description_of(store)
+
+
+def test_channels_that_chose_a_window_are_described_the_way_a_reader_expects(tmp_path):
+    """With a window, every channel carries its colour and all four numbers."""
+    from zmart_storage.canvas import Channel
+
+    profile = _a_profile()
+    store = tmp_path / "pos00008.ome.zarr"
+    _write_the_copies(store, profile)
+    chosen = [Channel(name, window=(200, 3200)) for name in COLOURS]
+    describe_the_position(
+        store, profile, name="pos00008", channels=chosen, origin_pixels=CORNER_PIXELS,
+    )
 
     channels = _the_description_of(store)["omero"]["channels"]
 
@@ -609,11 +627,7 @@ def test_the_colours_are_described_the_way_a_reader_expects(a_described_position
         window = channel["window"]
         for named in ("min", "max", "start", "end"):
             assert named in window, f"a channel's window must state {named}"
-        assert window["min"] <= window["start"] <= window["end"] <= window["max"]
-
-
-# -- the pixels themselves ----------------------------------------------------
-
+        assert (window["start"], window["end"]) == (200, 3200)
 
 def test_describing_a_position_does_not_disturb_its_pixels(tmp_path):
     """Describing is meant to add words, never to touch the picture.

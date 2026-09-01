@@ -90,11 +90,28 @@ def test_one_promise_is_not_enough(monkeypatch, tmp_path, fresh):
     assert named == "absent-display-window-v1"
 
 
-def test_a_refused_viewer_is_stopped_not_left_running(monkeypatch, tmp_path, fresh):
-    """The refusal shuts the server it started; nothing is left listening."""
-    import urllib.error
-    import urllib.request
+def _refuses_connections(port: int) -> bool:
+    """True when nothing is listening: the kernel refuses, rather than accepting and idling."""
+    import socket
 
+    with socket.socket() as probe:
+        probe.settimeout(2)
+        try:
+            probe.connect(("127.0.0.1", port))
+        except ConnectionRefusedError:
+            return True
+        except OSError:
+            return False
+        return False
+
+
+def test_a_refused_viewer_is_stopped_and_its_socket_closed(monkeypatch, tmp_path, fresh):
+    """The refusal shuts the server it started and closes the socket.
+
+    A socket left open after the refusal accepts connections that nobody
+    answers; a check that only waited for a timeout would pass over that. So
+    the check is that the kernel refuses outright.
+    """
     made = _a_pretend_viewer({"ok": True})
     port = made.server_address[1]
     import types
@@ -104,5 +121,52 @@ def test_a_refused_viewer_is_stopped_not_left_running(monkeypatch, tmp_path, fre
     monkeypatch.setattr(viewer_service, "_allow_the_page_to_read", lambda _server: None)
     viewer_service.start(tmp_path)
     assert viewer_service.status()["running"] is False
-    with pytest.raises((urllib.error.URLError, ConnectionError, OSError)):
-        urllib.request.urlopen(f"http://127.0.0.1:{port}/api/health", timeout=2).read()
+    assert _refuses_connections(port)
+
+
+def test_an_answer_of_an_unexpected_shape_is_no_promise_and_leaks_no_server(
+    monkeypatch, tmp_path, fresh,
+):
+    """A capabilities list of the wrong shape must not escape as an exception.
+
+    It used to: a list of objects reached ``set(...)``, raised, and the server
+    thread kept running where ``stop()`` could not reach it.
+    """
+    made = _a_pretend_viewer({"ok": True, "capabilities": [{"name": "acquisition-display-window-v1"}]})
+    port = made.server_address[1]
+    import types
+    pretend = types.SimpleNamespace(make_server=lambda **_: made)
+    monkeypatch.setitem(__import__("sys").modules, "zmart_viewer", types.SimpleNamespace(server=pretend))
+    monkeypatch.setitem(__import__("sys").modules, "zmart_viewer.server", pretend)
+    monkeypatch.setattr(viewer_service, "_allow_the_page_to_read", lambda _server: None)
+    viewer_service.start(tmp_path)
+    told = viewer_service.status()
+    assert told["running"] is False
+    assert "too old" in told["error"]
+    assert _refuses_connections(port)
+
+
+def test_a_viewer_that_does_not_answer_is_not_called_too_old(monkeypatch, tmp_path, fresh):
+    """No answer is a different fact from an old answer, and gets its own sentence."""
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+
+    class Silent(BaseHTTPRequestHandler):
+        def do_GET(self):  # noqa: N802
+            self.send_response(404)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+
+        def log_message(self, *_):
+            pass
+
+    made = HTTPServer(("127.0.0.1", 0), Silent)
+    import types
+    pretend = types.SimpleNamespace(make_server=lambda **_: made)
+    monkeypatch.setitem(__import__("sys").modules, "zmart_viewer", types.SimpleNamespace(server=pretend))
+    monkeypatch.setitem(__import__("sys").modules, "zmart_viewer.server", pretend)
+    monkeypatch.setattr(viewer_service, "_allow_the_page_to_read", lambda _server: None)
+    viewer_service.start(tmp_path)
+    told = viewer_service.status()
+    assert told["running"] is False
+    assert "did not answer" in told["error"]
+    assert "too old" not in told["error"]

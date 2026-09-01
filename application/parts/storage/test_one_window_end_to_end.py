@@ -70,7 +70,14 @@ def test_one_declared_window_reaches_every_reading(tmp_path):
     for store in sorted(positions.glob("*.ome.zarr")):
         assert _omero_window_of(store) == THE_WINDOW
 
-    # 3. The composed picture reads it from the sidecar, with its provenance.
+    # 3. The composed picture reads it from the sidecar, with its provenance —
+    #    and not from whichever position sorts first. To prove that by the
+    #    numbers rather than by the provenance label, the first-sorting
+    #    position is tampered with to claim a window of its own.
+    first = sorted(positions.glob("*.ome.zarr"))[0]
+    held = json.loads((first / "zarr.json").read_text())
+    held["attributes"]["ome"]["omero"]["channels"][0]["window"].update({"start": 5, "end": 50})
+    (first / "zarr.json").write_text(json.dumps(held), encoding="utf-8")
     mosaic = read_the_transfer(positions)
     group = json.loads(Composer(mosaic).group_json())["attributes"]
     assert group["ome"]["omero"]["channels"][0]["window"] == THE_WINDOW

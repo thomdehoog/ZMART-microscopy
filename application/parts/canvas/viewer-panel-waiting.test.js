@@ -127,7 +127,10 @@ describe("a channel with no window yet", () => {
     ({ handle } = await mounted());
     const found = settingsOf(document.querySelector(".viewer-panel"));
     expect(found.state).toBe("provisional");
-    expect(found.waiting.style.display).toBe("none");
+    /* Said, the way the standalone Viewer says it, while the run is still
+       being written. */
+    expect(found.waiting.style.display).toBe("block");
+    expect(found.waiting.textContent).toBe("brightness measured from pixels acquired so far");
     expect(found.min.disabled).toBe(false);
     expect(Number(found.min.value)).toBe(120);
     expect(Number(found.max.value)).toBe(880);
