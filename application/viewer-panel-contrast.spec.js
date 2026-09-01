@@ -101,28 +101,45 @@ test("brightness and contrast move the same window min and max do", async ({ pag
   /* Brightness slides the whole window along without changing how wide it is.
      Both edges have to move on screen, and by the same amount — a brightness
      slider that moved only one edge would be a contrast slider wearing the
-     wrong label. */
-  const wasBright = (await control(page, "brightness")).value;
-  await move(page, "brightness", Math.min(95, wasBright + 20));
-  const afterBrightness = await theWindowOnScreen(page);
-  console.log("after moving brightness:", JSON.stringify(afterBrightness));
-  expect(afterBrightness.low, "the low edge moved").not.toBe(atTheStart.low);
-  expect(afterBrightness.high, "the high edge moved").not.toBe(atTheStart.high);
+     wrong label.
+
+     The two values asked for are fixed rather than worked out from where the
+     handle happens to be standing, because where it is standing depends on the
+     run: on a store whose brightness has been measured it opens near the
+     middle, and on one whose measurement did not arrive it opens near the top.
+     A check that asked for "thirty more than now" would sometimes be asking
+     for less than now, and would then be measuring the opposite of what it
+     says. */
+  await move(page, "brightness", 30);
+  const dimmer = await theWindowOnScreen(page);
+  await move(page, "brightness", 70);
+  const brighter = await theWindowOnScreen(page);
+  console.log("brightness 30:", JSON.stringify(dimmer),
+    "and 70:", JSON.stringify(brighter));
+  expect(brighter.low, "a brighter picture is a window further down")
+    .toBeLessThan(dimmer.low);
+  expect(brighter.high, "at both edges").toBeLessThan(dimmer.high);
   expect(
-    Math.abs((afterBrightness.high - afterBrightness.low)
-      - (atTheStart.high - atTheStart.low)),
+    Math.abs((brighter.high - brighter.low) - (dimmer.high - dimmer.low)),
     "and the window is still the same width",
   ).toBeLessThan(2);
+  expect(brighter.low, "the window really did move from where it opened")
+    .not.toBe(atTheStart.low);
 
   /* Contrast draws the window in around its middle. */
-  const wasTight = (await control(page, "contrast")).value;
-  await move(page, "contrast", Math.min(95, wasTight + 30));
-  const afterContrast = await theWindowOnScreen(page);
-  console.log("after moving contrast:", JSON.stringify(afterContrast));
+  await move(page, "contrast", 20);
+  const loose = await theWindowOnScreen(page);
+  await move(page, "contrast", 80);
+  const tight = await theWindowOnScreen(page);
+  console.log("contrast 20:", JSON.stringify(loose), "and 80:", JSON.stringify(tight));
   expect(
-    afterContrast.high - afterContrast.low,
+    tight.high - tight.low,
     "a tighter contrast is a narrower window",
-  ).toBeLessThan(afterBrightness.high - afterBrightness.low);
+  ).toBeLessThan(loose.high - loose.low);
+  expect(
+    Math.abs((tight.low + tight.high) / 2 - (loose.low + loose.high) / 2),
+    "drawn in around the same middle",
+  ).toBeLessThan(2);
 
   /* And the traffic goes both ways. Taking hold of *min* has to move the
      brightness and contrast readings, because all four say the same thing. */
