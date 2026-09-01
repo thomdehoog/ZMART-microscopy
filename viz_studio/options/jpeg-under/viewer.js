@@ -138,6 +138,11 @@ export async function openViewer(element, options = {}) {
        is better than pretending to a depth this cannot show. */
     theDepthItCanShow() { return null; },
     setPlane() {},
+    /* And no time either, for the same reason: a JPEG per field is one picture
+       of one instant, and there is nowhere in it for a second moment to live.
+       Saying so plainly is better than a silence a page would have to guess
+       at. */
+    theMomentsItCanShow() { return null; },
     setMoment() {},
 
     /**

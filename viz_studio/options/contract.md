@@ -46,6 +46,7 @@ viewer.setView({ centre, zoom })   // centre in micrometres, zoom in µm per scr
 viewer.getView()                   // → { centre, zoom }, the view now on screen
 viewer.theDepthItCanShow()         // → { lowUm, highUm, stepUm, atUm }, or null when flat
 viewer.setPlane(z)                 // which plane of the stack, in micrometres
+viewer.theMomentsItCanShow()       // → { count, at }, or null when the run is not a timelapse
 viewer.setMoment(t)                // which moment of a timelapse, counted from the first
 viewer.whenTheViewMoves(tell)      // be told when the picture has moved; hand back what stops it
 viewer.showPicture(on)             // draw the acquisitions, or not; the viewer stays open
@@ -441,6 +442,41 @@ half. It asks three things of the picture: that both channels are there, that
 each is in the colour the run names rather than a colour the viewer guessed, and
 that a page which *does* say what it wants still gets exactly that. Each of the
 three has been made to fail on purpose.
+
+---
+
+## Added at the same time: `theMomentsItCanShow`
+
+`setMoment(t)` has been on the handle since this document was first written, and
+for just as long there has been no way to ask **how many moments there are**. So
+a page could move a timelapse to its fourth moment, but could not draw a control
+for one: to offer a slider you have to know how far it goes. In the operator's
+window that meant no time control at all, and a run recorded over several moments
+showed only its first one, silently.
+
+This is exactly the gap `theDepthItCanShow()` was added to fill for depth, and it
+is its twin:
+
+```js
+viewer.theMomentsItCanShow()   // → { count, at }, or null
+```
+
+`count` is how many moments the run holds; `at` is which one is being drawn,
+counted from nought, the same way `setMoment` counts. `null` means this is not a
+timelapse — one moment, or none the option can find — and a page should then draw
+no control at all rather than a slider that cannot move.
+
+**Why it matters to a run rather than only to a viewer.** A live acquisition that
+keeps going is a timelapse whether or not anybody called it one. Once a run's
+positions carry more than one moment, a panel with no way to reach them shows the
+first moment for the rest of the session, and nothing on screen says that is what
+it is doing.
+
+Every option answers it. `neuroglancer-under` reads its seconds axis out of the
+coordinate space it already holds; the two Viv options read the `t` axis of the
+first image they opened; `jpeg-under` answers `null`, because its pictures are one
+flat JPEG per field with no time in them at all — which is a plain "I cannot"
+rather than a silence.
 
 ---
 
