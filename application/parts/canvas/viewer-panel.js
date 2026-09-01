@@ -61,6 +61,38 @@ const PALETTE = [
 const cssOf = (rgb) =>
   rgb ? `rgb(${rgb.map((v) => Math.round(v * 255)).join(",")})` : "#d8dee6";
 
+/* A word or two saying what each colour map looks like, and a strip of the map
+   itself for the swatch.
+
+   The names are the ones everybody uses, and they mean nothing at all until you
+   have seen one. A biologist meeting this list for the first time should not
+   have to try all four to find out which is which, so each is described in
+   plain colours as well as named. This is the ZMART viewer's own
+   `LUT_DESCRIPTIONS` (`LayerPanel.jsx`), with the little gradient added because
+   a picture of a colour map beats a description of one.
+
+   Which maps are actually on offer is the *engine's* answer, asked for through
+   `lutsItCanDraw` — this table only says how to describe one. A map the engine
+   offers and this table has never heard of is still offered, plainly. */
+const COLOUR_MAP_HINTS = {
+  viridis: {
+    says: "blue → green → yellow",
+    strip: "linear-gradient(to right,#440154,#31688e,#35b779,#fde725)",
+  },
+  magma: {
+    says: "black → purple → cream",
+    strip: "linear-gradient(to right,#000004,#711f81,#f0605d,#fcfdbf)",
+  },
+  fire: {
+    says: "black → red → white",
+    strip: "linear-gradient(to right,#000000,#991a00,#ffa600,#fffee6)",
+  },
+  ice: {
+    says: "black → blue → white",
+    strip: "linear-gradient(to right,#00001a,#0066b3,#66ccff,#ffffff)",
+  },
+};
+
 /* The 15% rule: the window's edges are drawn at 15% and 85% of the axis. */
 const WINDOW_SITS_FROM = 0.15;
 
@@ -127,6 +159,9 @@ async function theRows(acquisitions) {
         source: acquisition.url,
         visible: true,
         weight: 1,
+        /* Which colour map this channel is painted through, or nothing at all
+           for the flat colour it starts in. */
+        lut: null,
         /* The window the run itself declared, kept whole and never written
            over. `window` above is the live one and moves with every drag of a
            handle, so within a moment of the operator taking hold of anything
@@ -778,16 +813,40 @@ export async function mountViewerPanel(near, { viewer, acquisitions }) {
   const closeChooser = () => { chooserOpen?.remove(); chooserOpen = null; };
   document.addEventListener("pointerdown", closeChooser, true);
 
+  /* The colour maps this particular engine can actually paint through. Asked
+     for rather than assumed, so nobody is offered a choice that would do
+     nothing: an engine with none leaves this empty and the swatch offers flat
+     colours alone, exactly as it always did. */
+  const colourMapsOnOffer = Array.isArray(viewer.lutsItCanDraw)
+    ? viewer.lutsItCanDraw
+    : [];
+
+  /** How a colour map is shown: a strip of it if we know one, else a plain box. */
+  const stripFor = (name) =>
+    COLOUR_MAP_HINTS[name]?.strip ?? cssOf(null);
+
   function aSwatch(index, row) {
     const swatch = el("button", [
       "width:13px", "height:13px", "border-radius:3px",
       `border:1px solid ${INK.controlBorder}`, "display:inline-block",
       "flex-shrink:0", "padding:0", "cursor:pointer", "appearance:none",
-      `background:${row.color ?? cssOf(null)}`,
     ].join(";"));
     swatch.type = "button";
-    swatch.title = "Choose this channel's colour";
     swatch.addEventListener("pointerdown", (press) => press.stopPropagation());
+
+    /* The swatch shows what the channel is really painted in — a flat colour as
+       a block, a colour map as a strip of the map itself. A row painted through
+       viridis whose swatch still showed a flat green would be the same small
+       untruth as an eye left open on a hidden channel. */
+    const dressTheSwatch = () => {
+      swatch.style.background = row.lut ? stripFor(row.lut) : (row.color ?? cssOf(null));
+      swatch.title = row.lut
+        ? `Painted through ${row.lut}. Click to choose another colour`
+        : "Choose this channel's colour";
+      swatch.dataset.lut = row.lut ?? "";
+    };
+    dressTheSwatch();
+
     swatch.addEventListener("click", (press) => {
       press.stopPropagation();
       closeChooser();
@@ -798,25 +857,63 @@ export async function mountViewerPanel(near, { viewer, acquisitions }) {
         `border:1px solid ${INK.panelBorder}`, "border-radius:6px",
         "padding:4px", "box-shadow:0 2px 10px rgba(25,35,50,0.22)",
         "display:flex", "flex-direction:column", "gap:2px",
+        "max-height:70vh", "overflow-y:auto",
       ].join(";"));
-      for (const choice of PALETTE) {
+
+      /** One line of the chooser: a sample of the colour, and what it is called. */
+      const anEntry = (sample, name, note, chosen) => {
         const entry = el("button",
-          `display:flex;align-items:center;gap:7px;border:none;background:none;cursor:pointer;padding:3px 6px;border-radius:3px;font:${font(400, 12)};color:${INK.textPrimary};text-align:left;`);
+          `display:flex;align-items:center;gap:7px;border:none;cursor:pointer;padding:3px 6px;border-radius:3px;font:${font(400, 12)};color:${INK.textPrimary};text-align:left;background:${chosen ? INK.chosenGround : "none"};`);
         entry.type = "button";
         entry.append(
-          el("span", `display:inline-block;width:22px;height:11px;border-radius:2px;border:1px solid ${INK.controlBorder};background:${cssOf(choice.rgb)};`),
-          el("span", "", choice.name),
+          el("span", `display:inline-block;width:22px;height:11px;flex-shrink:0;border-radius:2px;border:1px solid ${INK.controlBorder};background:${sample};`),
+          el("span", "", name),
         );
-        entry.addEventListener("pointerdown", (press) => press.stopPropagation());
+        if (note) {
+          entry.append(el("span",
+            `color:${INK.textFaint};font-size:10px;white-space:nowrap;`, note));
+        }
+        entry.addEventListener("pointerdown", (press2) => press2.stopPropagation());
+        list.append(entry);
+        return entry;
+      };
+
+      for (const choice of PALETTE) {
+        const entry = anEntry(cssOf(choice.rgb), choice.name, null,
+          !row.lut && row.color === cssOf(choice.rgb));
         entry.addEventListener("click", () => {
           const rgb = choice.rgb ?? [0.847, 0.871, 0.902];
           row.color = cssOf(choice.rgb);
-          swatch.style.background = row.color;
-          viewer.setChannel(index, { colour: rgb });
+          row.lut = null;
+          dressTheSwatch();
+          /* Both together: choosing a flat colour is also a request to stop
+             painting through a colour map, and sending only the colour would
+             leave the map on with the new colour quietly ignored. */
+          viewer.setChannel(index, { colour: rgb, lut: null });
           closeChooser();
         });
-        list.append(entry);
       }
+
+      if (colourMapsOnOffer.length) {
+        /* A colour map paints one channel in a run of colours rather than one
+           flat colour, which on a single channel usually reads far more detail:
+           the whole range of hue carries the brightness instead of the
+           brightness carrying itself. */
+        list.append(el("div",
+          `margin:4px 6px 2px;padding-top:4px;border-top:1px solid ${INK.subtleBorder};font:${font(600, 10)};letter-spacing:.06em;text-transform:uppercase;color:${INK.textFaint};`,
+          "colour maps"));
+        for (const name of colourMapsOnOffer) {
+          const entry = anEntry(stripFor(name), name,
+            COLOUR_MAP_HINTS[name]?.says, row.lut === name);
+          entry.addEventListener("click", () => {
+            row.lut = name;
+            dressTheSwatch();
+            viewer.setChannel(index, { lut: name });
+            closeChooser();
+          });
+        }
+      }
+
       document.body.append(list);
       chooserOpen = list;
     });

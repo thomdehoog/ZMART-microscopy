@@ -164,6 +164,16 @@ export async function openViewer(element, options = {}) {
     },
     setChannel() {},
 
+    /**
+     * The colour maps this option can paint a channel through: none.
+     *
+     * A colour map is a run of colours worked out from the brightness, and this
+     * option's drawing has no place to work one out. Said plainly as an empty
+     * list, so a panel offers no chooser rather than one whose choices would do
+     * nothing.
+     */
+    lutsItCanDraw: [],
+
     canShowVolume: false,
     canShowVolumeBecause:
       "the pictures are one flat JPEG per field, already flattened over every " +

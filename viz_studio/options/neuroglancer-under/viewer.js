@@ -656,7 +656,7 @@ async function start(own, acquisitions) {
     const managed = makeLayer(own.viewer.layerSpecification, row.layerName, {
       type: "image",
       source: row.url,
-      shader: shaderFor(row.colour),
+      shader: shaderFor(row.colour, { lut: row.lut ?? null }),
       shaderControls: controlsFor(row),
       // How solid this layer is. The engine's own default for an image layer is
       // a half, which is right for looking through one layer at another and
@@ -1430,6 +1430,53 @@ function countFromTheCornerOfTheVoxelRatherThanItsMiddle(own) {
 }
 
 // ---------------------------------------------------------------------------
+// Colour maps
+// ---------------------------------------------------------------------------
+
+/**
+ * The colour maps this engine can paint a channel through.
+ *
+ * A colour map paints one channel in a run of colours rather than one flat
+ * colour: dim values one shade, bright values another, with a smooth path
+ * between. On a single channel that reads far more detail than a plain green or
+ * grey ramp, because the whole range of hue is carrying the brightness rather
+ * than the brightness alone — which is why colour maps are a staple of
+ * microscopy display.
+ *
+ * These four are the well-known perceptually-even maps, taken from the ZMART
+ * viewer's own `viz_studio/frontend/src/scene.js` so that the two panels offer
+ * the same choices and a picture looks the same in both. Perceptually even
+ * means equal steps in the data look like equal steps on screen; none of the
+ * four is red-green, so none of them is lost on a colour-blind reader.
+ *
+ * Each is written as four colour stops, and the shader walks in a straight line
+ * between neighbouring ones. Straight-line blending is faithful here because
+ * the stops were chosen for it, and it keeps the little program small.
+ */
+const COLOUR_MAPS = {
+  viridis: [[0.267, 0.005, 0.329], [0.190, 0.407, 0.556],
+    [0.208, 0.718, 0.473], [0.993, 0.906, 0.144]],
+  magma: [[0.001, 0.000, 0.014], [0.443, 0.122, 0.507],
+    [0.925, 0.412, 0.372], [0.987, 0.991, 0.750]],
+  fire: [[0.000, 0.000, 0.000], [0.600, 0.100, 0.000],
+    [1.000, 0.650, 0.000], [1.000, 1.000, 0.900]],
+  ice: [[0.000, 0.000, 0.100], [0.000, 0.400, 0.700],
+    [0.400, 0.800, 1.000], [1.000, 1.000, 1.000]],
+};
+
+/** The few lines of shader that walk between one map's stops. */
+function theShaderForAMap(stops) {
+  const literal = (colour) => `vec3(${colour.map((v) => v.toFixed(4)).join(",")})`;
+  let body = `  vec3 c = ${literal(stops[0])};\n`;
+  const step = 1.0 / (stops.length - 1);
+  for (let at = 1; at < stops.length; at += 1) {
+    const from = ((at - 1) * step).toFixed(4);
+    body += `  c = mix(c, ${literal(stops[at])}, clamp((v - ${from}) / ${step.toFixed(4)}, 0.0, 1.0));\n`;
+  }
+  return `vec3 zmartLut(float v) {\n${body}  return c;\n}\n`;
+}
+
+// ---------------------------------------------------------------------------
 // The run's own axis of time
 // ---------------------------------------------------------------------------
 
@@ -1497,9 +1544,16 @@ function theMomentAxis(own) {
  * already compiled instead of causing a fresh one to be built several times a
  * second.
  */
-function shaderFor(colour, { asAVolume = false } = {}) {
+function shaderFor(colour, { asAVolume = false, lut = null } = {}) {
   void colour; // kept in the signature for the call sites; the colour travels
   //             as a control now, so a colour change never recompiles.
+  /* A colour map is the one thing here that *does* need a fresh program, and
+     that is the right trade. A map is a run of colours worked out from the
+     brightness, so it has to be written into the little program itself, where a
+     flat colour is only a number the program is handed. Choosing a map is a
+     deliberate act made once, not something a hand drags several times a
+     second, so a recompile costs nothing anybody can feel. */
+  const stops = lut ? COLOUR_MAPS[lut] : null;
   /* The ZMART viewer's own programs, ported verbatim from its
      `app/page/src/scene.js` (`shaderFor`), because that is the look the
      microscope's operators have tested and know. Three things distinguish
@@ -1512,16 +1566,28 @@ function shaderFor(colour, { asAVolume = false } = {}) {
        RAW value — not from the windowed one. That difference is load-bearing:
        alpha from the windowed value punched holes wherever a pixel sat below
        the window's floor, so raising MIN made the specimen see-through. */
+  /* The declarations are the same either way, so that the values the panel
+     sends — the window, the weight, the flat colour — reach a program with the
+     same controls on it whichever look is chosen. The `color` control is left
+     declared even under a colour map, unread, so that turning a map off puts
+     back the colour the row already had rather than a default white. */
+  const declared =
+    "#uicontrol invlerp normalized\n" +
+    "#uicontrol float weight slider(min=0, max=1, default=1)\n" +
+    "#uicontrol invlerp imaged(range=[0, 1], clamp=false)\n" +
+    '#uicontrol vec3 color color(default="white")\n' +
+    (stops ? theShaderForAMap(stops) : "");
+  /* A colour map already carries the brightness in its colour — that is what a
+     colour map is — so the brightness needs no saying a second time here. Only
+     the channel's own weight does. */
+  const shown = stops ? "zmartLut(v) * weight" : "color * (v * weight)";
   if (asAVolume) {
     return (
-      "#uicontrol invlerp normalized\n" +
-      "#uicontrol float weight slider(min=0, max=1, default=1)\n" +
-      "#uicontrol invlerp imaged(range=[0, 1], clamp=false)\n" +
-      '#uicontrol vec3 color color(default="white")\n' +
+      declared +
       "#uicontrol float attenuation slider(min=0, max=8, default=0)\n" +
       "void main() {\n" +
       "  float v = normalized();\n" +
-      "  vec3 shown = color * (v * weight);\n" +
+      `  vec3 shown = ${shown};\n` +
       "  float faded = exp(-attenuation * depthAtRayPosition);\n" +
       "  emitIntensity(v * weight * faded);\n" +
       "  emitRGBA(vec4(shown * faded, v * weight * faded));\n" +
@@ -1529,13 +1595,10 @@ function shaderFor(colour, { asAVolume = false } = {}) {
     );
   }
   return (
-    "#uicontrol invlerp normalized\n" +
-    "#uicontrol float weight slider(min=0, max=1, default=1)\n" +
-    "#uicontrol invlerp imaged(range=[0, 1], clamp=false)\n" +
-    '#uicontrol vec3 color color(default="white")\n' +
+    declared +
     "void main() {\n" +
     "  float v = normalized();\n" +
-    "  vec3 shown = color * (v * weight);\n" +
+    `  vec3 shown = ${shown};\n` +
     "  emitRGBA(vec4(shown, imaged() > 0.0 ? 1.0 : 0.0));\n" +
     "}\n"
   );
@@ -2190,7 +2253,9 @@ function handleFor(own) {
         // program starts on its controls' defaults, so the row's own values
         // are restored right after it — whole, never piecewise.
         if (layer.fragmentMain) {
-          layer.fragmentMain.value = shaderFor(row.colour, { asAVolume: own.showingVolume });
+          layer.fragmentMain.value = shaderFor(
+            row.colour, { asAVolume: own.showingVolume, lut: row.lut ?? null },
+          );
           layer.shaderControlState.restoreState(
             controlsFor(row, { asAVolume: own.showingVolume }),
           );
@@ -2285,7 +2350,17 @@ function handleFor(own) {
       };
     },
 
-    setChannel(index, { visible, colour, window: brightness, weight } = {}) {
+    /**
+     * The colour maps this engine can paint a channel through, by name.
+     *
+     * A panel offers only what the engine can actually draw, so it asks rather
+     * than assuming. An engine with none says so with an empty list, and the
+     * panel then offers no chooser at all — which is honest, where a chooser
+     * whose choices did nothing would not be.
+     */
+    lutsItCanDraw: Object.keys(COLOUR_MAPS),
+
+    setChannel(index, { visible, colour, window: brightness, weight, lut } = {}) {
       const row = own.rows[index];
       if (!row || !row.managed) return;
       if (visible !== undefined) row.visible = visible;
@@ -2305,7 +2380,23 @@ function handleFor(own) {
       /* `weight` is the channel's own opacity, an extension the viewer's
          panel uses; an option without it simply ignores the key. */
       if (weight !== undefined) row.weight = weight;
-      if (colour || brightness || weight !== undefined) {
+      /* A colour map is the one change here that needs a fresh program, because
+         a map is a run of colours worked out from the brightness rather than a
+         number the program can be handed. `undefined` means "leave it alone";
+         `null` means "back to a flat colour", which is why the two are told
+         apart rather than both treated as nothing. The row's own values are
+         restored straight afterwards, because a fresh program starts on its
+         controls' defaults and would otherwise throw away the operator's
+         window. */
+      if (lut !== undefined && lut !== row.lut) {
+        row.lut = lut && COLOUR_MAPS[lut] ? lut : null;
+        if (layer.fragmentMain) {
+          layer.fragmentMain.value = shaderFor(
+            row.colour, { asAVolume: own.showingVolume, lut: row.lut },
+          );
+        }
+      }
+      if (colour || brightness || weight !== undefined || lut !== undefined) {
         // Everything travels as values for controls the compiled program
         // declares — the colour included, so no change here recompiles.
         // Restored whole, never piecewise: a partial restore is how one
