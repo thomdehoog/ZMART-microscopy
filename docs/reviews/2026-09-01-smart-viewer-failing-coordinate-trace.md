@@ -1,9 +1,9 @@
 # Smart Viewer Step 5 failing coordinate trace
 
-**Captured:** 2026-09-01 14:00 UTC  
-**Microscopy:** `codex/smart-viewer-integration-cleanup` at `0389df1e`  
+**Captured:** 2026-09-01 14:00 UTC
+**Microscopy:** `codex/smart-viewer-integration-cleanup` at `0389df1e`
 **Smart Viewer:** 0.2.0 at `9ff10b0`, imported from the separate
-`/Users/thomdehoog/ZMART-viewer` checkout  
+`/Users/thomdehoog/ZMART-viewer` checkout
 **Workflow:** actual Step 5 Run button, actual mock kidney, 9/9 stores landed
 
 This is the pre-production-change trace required by the canonical integration
