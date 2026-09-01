@@ -99,6 +99,7 @@ export function watchTheRun(ctx) {
     let openedOn = null;
     let inStageFrame = true;
     let panel = null;
+    const requestedVisibility = { acquisitions: new Map(), channels: new Map() };
 
     /* Every address that materially shapes a Viewer acquisition.  Smart
        Viewer puts the position stores on the channel rows, not beside the
@@ -134,10 +135,19 @@ export function watchTheRun(ctx) {
       }
       const sources = await ctx.viewerSources?.();
       if (sources?.length) {
+        /* The engine draws acquisitions in the order supplied, first at the
+           bottom. The overview is the base map and focussing is the local
+           diagnostic overlay whose eye must make pixels appear and disappear,
+           so keep that overlay last without changing any Viewer acquisition,
+           channel, or source. */
+        const drawOrder = [
+          ...sources.filter(({ name }) => name !== "focussing"),
+          ...sources.filter(({ name }) => name === "focussing"),
+        ];
         return {
           engine: search.get("engine") ?? "neuroglancer-under",
-          acquisitions: sources,
-          signature: `sources:${addressesIn(sources).join("|")}`,
+          acquisitions: drawOrder,
+          signature: `sources:${addressesIn(drawOrder).join("|")}`,
           inStageFrame: true,
         };
       }
@@ -184,7 +194,7 @@ export function watchTheRun(ctx) {
         if (wanted.signature.startsWith("sources:")) {
           const { mountViewerPanel } = await import("../../../../parts/canvas/viewer-panel.js");
           panel = await mountViewerPanel(host.parentElement ?? host, {
-            viewer, acquisitions: wanted.acquisitions, css: ctx.css,
+            viewer, acquisitions: wanted.acquisitions, css: ctx.css, requestedVisibility,
           });
         }
       } catch (e) {
@@ -219,17 +229,21 @@ export function watchTheRun(ctx) {
       if (!viewer || opening) return;
       const wanted = await whatToOpen();
       if (!wanted || wanted.signature === openedOn) return;
-      reset();
+      closePicture();
       await open();
     }
 
-    function reset() {
+    function closePicture({ forgetVisibility = false } = {}) {
       panel?.destroy?.();
       panel = null;
       viewer?.destroy?.();
       viewer = null;
       openedOn = null;
       window.__thePicture = null;
+      if (forgetVisibility) {
+        requestedVisibility.acquisitions.clear();
+        requestedVisibility.channels.clear();
+      }
     }
 
     return {
@@ -246,7 +260,7 @@ export function watchTheRun(ctx) {
       /** The session is over, and what was opened belongs to it. A reconnect
           is a fresh session: its run starts with nothing scanned, and the
           picture of the last one must not stand in for it. */
-      reset,
+      reset() { closePicture({ forgetVisibility: true }); },
     };
   })();
 

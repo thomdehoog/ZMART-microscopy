@@ -198,8 +198,23 @@ function anEye(open) {
  * `near` is any element inside the canvas's own box; the panel stands as a
  * column of the same grid row, directly to the canvas's right.
  */
-export async function mountViewerPanel(near, { viewer, acquisitions }) {
+export async function mountViewerPanel(near, { viewer, acquisitions, requestedVisibility = null }) {
   const rows = await viewerRowsFor(acquisitions);
+  /* Source growth replaces the engine instance, not the operator's choices.
+     The watcher owns these two maps and hands the same ones to every panel it
+     mounts for one session. Channel choices and the acquisition-wide switch
+     are deliberately separate: hiding a group must not erase which of its
+     channels should return when the group is shown again. */
+  const rememberedGroups = requestedVisibility?.acquisitions ?? new Map();
+  const rememberedChannels = requestedVisibility?.channels ?? new Map();
+  let visibilityReady = false;
+  let visibilityTimer = null;
+  const keyFor = (row) => `${row.acquisition}\u0000${row.within}\u0000${row.name}`;
+  rows.forEach((row) => {
+    if (rememberedChannels.has(keyFor(row))) {
+      row.visible = rememberedChannels.get(keyFor(row));
+    }
+  });
 
   if (!document.getElementById("zv-slider-skin")) {
     const skin = document.createElement("style");
@@ -517,34 +532,46 @@ export async function mountViewerPanel(near, { viewer, acquisitions }) {
   }
 
   const rowLines = [];
+  const groupShown = new Map();
   let heading = null;
   let groupBox = null;
   rows.forEach((row, index) => {
     if (row.acquisition !== heading) {
       heading = row.acquisition;
+      const groupName = heading;
       const group = el("div", `border-bottom:1px solid ${INK.subtleBorder};`);
       const head = el("div", "display:flex;align-items:center;gap:6px;padding:5px 12px 3px;");
       const groupEye = el("button",
         `background:none;border:none;color:${INK.textPrimary};cursor:pointer;padding:0;`);
       groupEye.type = "button";
-      groupEye.dataset.on = "1";
-      groupEye.append(anEye(true));
-      groupEye.title = "Hide this acquisition";
+      const initiallyOn = rememberedGroups.has(groupName)
+        ? rememberedGroups.get(groupName)
+        : true;
+      groupShown.set(groupName, initiallyOn);
+      groupEye.dataset.on = initiallyOn ? "1" : "0";
+      groupEye.dataset.acquisition = groupName;
+      groupEye.append(anEye(initiallyOn));
+      groupEye.style.opacity = initiallyOn ? "1" : "0.4";
+      groupEye.title = initiallyOn ? "Hide this acquisition" : "Show this acquisition";
       const members = rows.map((one, at) => ({ one, at }))
-        .filter(({ one }) => one.acquisition === heading);
+        .filter(({ one }) => one.acquisition === groupName);
       groupEye.addEventListener("click", () => {
         const on = groupEye.dataset.on !== "1";
         groupEye.dataset.on = on ? "1" : "0";
+        groupShown.set(groupName, on);
+        rememberedGroups.set(groupName, on);
         groupEye.replaceChildren(anEye(on));
         groupEye.style.opacity = on ? "1" : "0.4";
         groupEye.title = on ? "Hide this acquisition" : "Show this acquisition";
-        for (const { one, at } of members) {
-          viewer.setChannel(at, { visible: on && one.visible });
+        if (visibilityReady) {
+          for (const { one, at } of members) {
+            viewer.setChannel(at, { visible: on && one.visible });
+          }
         }
       });
       head.append(groupEye, el("span",
         `flex:1;font:${font(600, 12)};letter-spacing:.02em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;`,
-        heading), el("span", `font:${font(400, 11)};color:${INK.textMuted};`, String(members.length)));
+        groupName), el("span", `font:${font(400, 11)};color:${INK.textMuted};`, String(members.length)));
       groupBox = el("div", `padding-left:8px;border-left:2px solid ${INK.subtleBorder};margin-left:16px;`);
       group.append(head, groupBox);
       data.append(group);
@@ -556,15 +583,21 @@ export async function mountViewerPanel(near, { viewer, acquisitions }) {
     const eye = el("button",
       `background:none;border:none;color:${INK.textPrimary};cursor:pointer;padding:0;`);
     eye.type = "button";
-    eye.append(anEye(true));
-    eye.title = "Hide this channel";
+    eye.append(anEye(row.visible));
+    eye.style.opacity = row.visible ? "1" : "0.4";
+    eye.title = row.visible ? "Hide this channel" : "Show this channel";
     eye.addEventListener("click", (press) => {
       press.stopPropagation();
       row.visible = !row.visible;
+      rememberedChannels.set(keyFor(row), row.visible);
       eye.replaceChildren(anEye(row.visible));
       eye.style.opacity = row.visible ? "1" : "0.4";
       eye.title = row.visible ? "Hide this channel" : "Show this channel";
-      viewer.setChannel(index, { visible: row.visible });
+      if (visibilityReady) {
+        viewer.setChannel(index, {
+          visible: groupShown.get(row.acquisition) !== false && row.visible,
+        });
+      }
     });
     inner.append(eye, aSwatch(index, row), el("span",
       "overflow:hidden;text-overflow:ellipsis;white-space:nowrap;", row.name));
@@ -573,6 +606,32 @@ export async function mountViewerPanel(near, { viewer, acquisitions }) {
     rowLines.push(line);
     groupBox.append(line);
   });
+  /* A newly opened engine may answer after its first acquisition has axes but
+     before later sources have coordinate spaces. Keep the panel in the layout
+     immediately, then replay visibility when every declared source has either
+     bounds or an explicit error. Hiding the only ready layer sooner can leave
+     the later flat map loaded but blank. */
+  const restoreVisibility = () => {
+    const standing = viewer.layersForMeasurement?.() ?? [];
+    const ready = standing.length === rows.length
+      && standing.every((engineRow, index) =>
+        (engineRow.sources?.length ?? 0) === rows[index].sources.length
+        && (engineRow.sources ?? []).every((source) => source.error
+          || (Array.isArray(source.lower) && Array.isArray(source.upper))));
+    if (!ready) return false;
+    visibilityReady = true;
+    rows.forEach((row, index) => viewer.setChannel(index, {
+      visible: groupShown.get(row.acquisition) !== false && row.visible,
+    }));
+    return true;
+  };
+  if (!restoreVisibility()) {
+    visibilityTimer = setInterval(() => {
+      if (!restoreVisibility()) return;
+      clearInterval(visibilityTimer);
+      visibilityTimer = null;
+    }, 50);
+  }
 
   async function chooseRow(index) {
     chosen = index;
@@ -646,6 +705,7 @@ export async function mountViewerPanel(near, { viewer, acquisitions }) {
   if (rows.length) chooseRow(0);
   return {
     destroy() {
+      if (visibilityTimer) clearInterval(visibilityTimer);
       closeChooser();
       document.removeEventListener("pointerdown", closeChooser, true);
       panel.remove();

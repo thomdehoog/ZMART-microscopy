@@ -65,6 +65,19 @@ async function frontSourceCount(page, acquisition) {
     .reduce((count, row) => count + (row.sources?.length ?? 0), 0), acquisition);
 }
 
+async function setAcquisitionVisible(page, acquisition, visible) {
+  await page.locator(`.viewer-panel button[data-acquisition="${acquisition}"]`).click();
+  await expect.poll(() => acquisitionVisible(page, acquisition)).toBe(visible);
+}
+
+async function acquisitionVisible(page, acquisition) {
+  return page.evaluate((prefix) => {
+    const rows = (window.__thePicture?.layersForMeasurement?.() ?? [])
+      .filter(({ name }) => name.startsWith(prefix));
+    return rows.length > 0 && rows.every(({ visible }) => Boolean(visible));
+  }, acquisition);
+}
+
 async function stageSnapshot(page, name) {
   return page.evaluate((label) => {
     const box = document.querySelector("#stage-canvas").getBoundingClientRect();
@@ -136,6 +149,7 @@ test("first and later overview sources preserve pan, zoom, and whole-plate Fit",
   const chosen = await stageSnapshot(page, "operator pan and zoom before acquisition");
   expect(projectionDrift(fittedBeforeHand, chosen), "the operator gesture changed the view")
     .toBeGreaterThan(1);
+  await setAcquisitionVisible(page, "focussing", false);
 
   await bridge.image(positions.slice(0, 1));
   await expect.poll(() => frontSourceCount(page, "overview"), {
@@ -145,6 +159,8 @@ test("first and later overview sources preserve pan, zoom, and whole-plate Fit",
   await rest(2000);
   const afterFirst = await stageSnapshot(page, "after source 1 of 9");
   expectSameView(chosen, afterFirst, "first source arrival");
+  expect(await acquisitionVisible(page, "focussing"),
+    "first source arrival preserves requested focussing visibility").toBe(false);
 
   // The deterministic bridge call declares the complete acquisition each
   // time, so later checkpoints repeat the positions already present and add
@@ -159,6 +175,8 @@ test("first and later overview sources preserve pan, zoom, and whole-plate Fit",
   await rest(2000);
   const afterLater = await stageSnapshot(page, "after source 8 of 9");
   expectSameView(chosen, afterLater, "later source arrival");
+  expect(await acquisitionVisible(page, "focussing"),
+    "later source arrival preserves requested focussing visibility").toBe(false);
 
   await page.locator("#fit-btn").click();
   await rest(500);
@@ -180,6 +198,7 @@ test("first and later overview sources preserve pan, zoom, and whole-plate Fit",
       later: projectionDrift(chosen, afterLater),
       fit: projectionDrift(wholePlate, afterFitArrival),
     },
+    requestedVisibility: { focussing: false, overview: true },
     browserErrors,
   }, null, 2));
 });
