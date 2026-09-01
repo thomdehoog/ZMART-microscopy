@@ -58,10 +58,35 @@ Microscopy branch rather than inferred from the older copied viewer.
    provenance checks as well as UI checks.
 8. The cross-engine plane-selection failure predates Claude's seven commits. It
    is existing debt, not evidence that those commits introduced a regression.
-9. The Microscopy and Viewer repositories both currently declare the Python
+9. At baseline the Microscopy and Viewer repositories both declared the Python
    distribution name `zmart-viewer` (versions 0.1.0 and 0.2.0 respectively).
-   That packaging collision can make installation and provenance ambiguous and
-   must be resolved or guarded before this is called reproducible.
+   The cleanup branch now names Microscopy `zmart-microscopy`; a fresh-install
+   provenance gate still has to prove that the real Viewer remains selected.
+10. The first kidney screenshot claim was false. The browser check silently
+    skipped every planned field whose projected box was outside the screenshot,
+    so zero examined fields satisfied an "every field" assertion. Its
+    `overview-only` shot was zoomed inside the image and could not establish
+    registration. Neither image is accepted as evidence.
+11. The whole-plate screenshot from Claude's evidence branch measures a picture
+    of approximately the right 3 x 3 physical extent, but translated about
+    `+23.3 mm` in x and `+29.4 mm` in y from the plan. The slide scale itself is
+    correct. This narrows the remaining registration fault to a translation,
+    not a scale or composition failure.
+12. That translation is close to, but not equal to, the mock's centred-carrier
+    origin (`22.5 mm`, `27.5 mm` for a 75 x 25 mm slide on a 120 x 80 mm
+    stage). This is a diagnostic lead, not a fix. No origin is added, removed,
+    or hard-coded until the live plan point, carrier origin, stored OME-Zarr
+    translation, engine image bounds, and both screen projections are recorded
+    in one coordinate trace.
+13. The engine's opening view replaced the workflow's whole-plate Fit in the
+    failed run. That hid the translation and made all planned boxes off-screen.
+    View preservation and registration are therefore separate assertions even
+    if one code path ultimately caused both.
+14. The current cleanup checkpoint preserves Smart Viewer 0.2's data shape:
+    three logical channel rows, each retaining all of its spatial position
+    sources. Focused Python tests, panel tests, a production build, and a
+    visually inspected panel screenshot pass. This fixes the measured 27-row
+    flattening fault; it does not yet prove kidney registration.
 
 ## Source of truth and chosen boundary
 
@@ -110,6 +135,133 @@ engine internals are not forked.
   produced against a copied or stand-in viewer.
 
 ## Ordered work
+
+### Immediate execution sequence (no speculative patches)
+
+The next implementation work follows this sequence exactly. A failed gate
+stops the sequence; it does not trigger a nearby-looking coordinate patch.
+
+1. **Make the evidence test capable of failing.** Require exactly nine planned
+   fields to be examined. An off-screen or unprojectable field is a failure,
+   never `continue`. Record the source count, bounds, view, and visibility in
+   the evidence manifest. Keep the previously copied evidence spec uncommitted
+   until these assertions are repaired.
+2. **Reproduce on the cleanup branch.** Run the real Smart Viewer 0.2 server and
+   actual Step 5 kidney workflow from a clean process. Capture a whole-plate
+   before image arrival and after 1 and 9 positions. Do not infer cleanup-branch
+   behavior from Claude's branch, because its canvas/view commits differ.
+3. **Take one coordinate trace at the failure.** For the first and last planned
+   fields, record in micrometres:
+   - carrier-local plan centre;
+   - `carrierOriginUm()` and the corresponding absolute stage centre;
+   - the OME-Zarr level-0 scale and translation written for that position;
+   - Smart Viewer/Neuroglancer source bounds;
+   - the plan's stage-canvas screen projection;
+   - the same physical point's image-engine screen projection.
+4. **Name the single owner of the translation.** Use the trace to identify the
+   first boundary where equal physical points diverge. Fix only that boundary:
+   writer metadata, Viewer source transform, adapter transform, or overlay
+   projection. Do not compensate in a later layer for an earlier error.
+5. **Protect the whole-plate view independently.** Prove that first and later
+   source openings do not replace an operator-selected Fit. If the registration
+   trace is correct while the camera moves, fix view ownership separately.
+6. **Run non-vacuous visual acceptance.** Produce 0/3/6/9, whole-plate,
+   overview-only, and kidney-close-up screenshots. The test must report nine of
+   nine examined ROIs, nine of nine textured ROIs, registration error below the
+   declared tolerance, three overview channel rows, and a source/tile ledger
+   accounting for all nine positions per channel at completion. This may be
+   nine placed sources or one composed scene whose ledger contains nine tiles.
+7. **Only then review the remaining Claude candidates.** Adopt an individual
+   change only when a current failing test demonstrates its need. Never merge
+   `claude/viewer-port-remaining-steps-ofm5qp` as a unit.
+
+The completion claim is deliberately binary: until steps 1 through 6 pass on
+the cleanup branch, the PR remains draft and its description says that Step 5
+registration is unresolved.
+
+### Work packages and stop conditions
+
+| Package | Permitted work | Required proof before continuing | Stop condition |
+| --- | --- | --- | --- |
+| A. Preserve Viewer data shape | The already-reviewed bridge, poll, channel-row, and multi-source adapter changes | Focused Python and JS checks; production build; panel screenshot with `overview 3` and one row each for channels 0, 1, and 2 | Any field URL is discarded, any position becomes its own channel row, or the poll can block longer than its interval |
+| B. Repair the evidence harness | Assertions, diagnostics, screenshot timing, and evidence manifest only; no production transform change | Deliberately reintroducing the known translated/off-screen state fails because fewer than nine ROIs are examined or registration exceeds tolerance | The test can pass with zero ROIs, a full-frame tissue crop, a blank whole-plate shot, or an unverified eye icon |
+| C. Record the coordinate trace | Read-only browser/bridge instrumentation and metadata parsing | One table traces two planned fields through carrier, stage, Zarr, Viewer, engine, and screen coordinates | Any coordinate is inferred from a label, screenshot scale, or dataset number rather than read from the running system |
+| D. Correct registration | The smallest boundary identified by package C, plus a regression test | All nine plan/image centres and bounds agree in physical and screen space; kidney pixels occupy those same ROIs | The proposed change applies a compensating offset after the first divergence, hard-codes the current slide origin, or changes scale to hide translation |
+| E. Preserve view ownership | Opening-view and Fit behavior only, independently tested from registration | Whole-plate projections before and after 1/9 and 9/9 arrivals remain equal unless the operator requested a new view; pan and zoom still work before acquisition | Image arrival silently zooms away from the carrier or two components both write the view |
+| F. Prove Step 5 | Real Viewer 0.2, actual kidney mock, deterministic partial bridge, and actual Run button | Complete screenshot set plus machine-readable manifest; overview-only and three-row panel state agree with rendered pixels | Any screenshot was taken against the copied Viewer, any intermediate count was guessed, or any unexpected request/error is ignored |
+| G. Cleanup and delivery | Remove unreachable stand-ins, document install, and update the draft PR | Fresh environment selects Viewer 0.2, `/api/measure` works, focused and browser suites pass, branch is clean | A copied Viewer becomes runtime-reachable, PR wording overstates evidence, or an unrelated Claude commit enters the diff |
+
+Packages are sequential. In particular, production coordinate code cannot
+change during B or C. That separation ensures the failing test and coordinate
+trace describe the original fault rather than a partially corrected version.
+
+### Required coordinate trace
+
+The trace is a checked-in machine-readable record and a human-readable table.
+For plan positions 0 and 8 it contains these values, with units and coordinate
+frame named for every pair:
+
+| Boundary | Required value | Expected relationship |
+| --- | --- | --- |
+| Workflow plan | carrier-local centre `(x, y)` and `frameUm` | Comes directly from `__theStageCanvas.plan()` |
+| Carrier placement | absolute-stage carrier origin `(ox, oy)` | Comes directly from `carrierOriginUm()` |
+| Acquisition request | absolute-stage centre | `plan + carrier origin`, exactly once |
+| Position store | level-0 OME-Zarr `(y, x)` scale and translation | Translation is the absolute-stage top-left of the written frame |
+| Smart Viewer config | acquisition, channel, all source URLs, dataset generation | Three logical channels; all nine physical positions accounted for |
+| Engine | per-source physical bounds and aggregate acquisition bounds | Bounds contain the same absolute-stage centres as the stores |
+| Stage canvas | screen projection of carrier-local plan centre | Uses the carrier-owned view |
+| Picture engine | screen projection of the matching absolute-stage centre | Equals the plan projection within the declared tolerance |
+
+The first row where the expected relationship fails owns the correction. A
+later layer is not allowed to compensate for it.
+
+### Evidence manifest requirements
+
+Every accepted screenshot has a neighbouring JSON record with:
+
+- Microscopy branch and commit;
+- Smart Viewer import path, version, and commit;
+- screenshot name and UTC timestamp;
+- planned, landed, examined, and textured ROI counts;
+- plan bounds, image aggregate bounds, and maximum registration error in
+  micrometres and screen pixels;
+- acquisition headings, logical channel rows, and position/tile count per
+  channel;
+- requested and engine-observed visibility for focussing and overview;
+- current view centre and zoom before and after the relevant arrival/action;
+- required metadata/chunk request totals, unexpected failures, browser errors,
+  bridge errors, and worker errors.
+
+The screenshot and record are one artifact: neither is accepted alone.
+
+### Commit boundaries
+
+| Commit | Contents | Must not contain |
+| --- | --- | --- |
+| 1. Viewer data shape checkpoint | Verified bridge refresh, bounded timeout, three logical channel rows, all spatial sources, focused tests, and rebuilt bundle | Registration claims or the flawed kidney evidence spec |
+| 2. Canonical plan correction | This plan and the corrected review statement rejecting the false-positive screenshots | Production code |
+| 3. Failing evidence and coordinate trace | Non-vacuous test, diagnostic hooks, and a captured failing trace | A coordinate fix |
+| 4. Measured registration fix | One boundary correction and focused regression tests | Panel rewrites, copied Viewer internals, or unrelated Claude changes |
+| 5. View preservation | Only if independently failing after registration; Fit/opening-view fix and tests | Registration compensation |
+| 6. Acceptance evidence | Passing manifest, 0/3/6/9, whole-plate, overview-only, close-up, and test output | Unreviewed implementation changes |
+| 7. Runtime cleanup | Provenance/install guards and removal or quarantine of obsolete runtime paths | New viewer behavior |
+
+Each commit is reviewable and revertible on its own. If a package produces no
+failure, its implementation commit is omitted rather than manufactured.
+
+### Explicit prohibitions
+
+- Do not merge either Claude integration branch wholesale.
+- Do not copy Smart Viewer 0.2's `engine.js`, `scene.js`, `live-refresh.js`, or
+  `LayerPanel.jsx` into Microscopy.
+- Do not use dataset numbers as acquisition identity.
+- Do not restore the 30-second close/reopen timer.
+- Do not hard-code `22.5 mm`, `27.5 mm`, the measured `23.3 mm`, or `29.4 mm`.
+- Do not trust panel eyes, scan completion, HTTP 200, or a non-white crop as
+  pixel/visibility/registration proof by themselves.
+- Do not skip off-screen fields in an acceptance assertion.
+- Do not let image arrival replace an operator-selected Fit silently.
+- Do not call the PR ready while any required evidence record is absent.
 
 ### 0. Make the experiment reproducible and name the server
 
@@ -385,10 +537,18 @@ a zoomed-out impression.
 - The deeper fault is measured: the bridge cached the first config and relinked
   against Viewer 0.2's watched-folder behavior. The cleanup branch now opens a
   folder once, refreshes `/api/config`, and retains all current-dataset fields.
-- Six focused bridge checks and all twenty storage checks pass. A direct
-  real-Viewer service run grew from one to four fields on dataset 0 with one
-  opened folder and no error.
-- Existing 0/3/6/9 screenshots show a synthetic nine-field texture filling the
-  grid, but they are not accepted as the requested kidney proof. The integration
-  is not yet claimed complete until the real Step 5 kidney run, overview-only
-  visibility check, registration check, and screenshot manifest pass.
+- The original six focused bridge checks and all twenty storage checks pass. A
+  direct real-Viewer service run grew from one to four fields on dataset 0 with
+  one opened folder and no error. The later channel/source checkpoint adds nine
+  focused Python checks plus its JavaScript and browser-panel checks.
+- The first 0/3/6/9 evidence check is rejected: all nine planned boxes could be
+  skipped while the assertion still passed, and the whole-plate screenshot
+  shows the correctly sized image translated away from the plan. It is retained
+  only as a regression-test lesson, not proof of a working integration.
+- The latest verified checkpoint keeps three Smart Viewer channel rows instead
+  of flattening nine positions x three channels into 27 controls, and keeps all
+  spatial sources behind each row. It has focused Python, JavaScript, build,
+  and panel screenshot evidence, but no claim of correct kidney registration.
+- The integration is not complete until the repaired non-vacuous Step 5 kidney
+  run, overview-only visibility check, registration trace, Fit-preservation
+  check, and screenshot manifest all pass.
