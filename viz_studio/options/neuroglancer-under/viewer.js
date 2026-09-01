@@ -203,6 +203,9 @@ const SLACK_AROUND_THE_IMAGED_GROUND = 64;
  *                   `whereThingsAreDrawn()` gives back: the centre and zoom in
  *                   micrometres, the size of the box, and `project`/`unproject`
  *                   for placing ordinary HTML elements in the same coordinates.
+ *   `presentation`  `"2d-overlay"` selects the display-anchor plane z=0 already
+ *                   encoded by each source. It changes navigation only; source
+ *                   transforms remain authoritative for placement.
  * @returns {Promise<Viewer>} the handle; see `../contract.md` for what it offers.
  *
  * It can fail in two ways worth knowing about: an address without a scheme is
@@ -217,6 +220,7 @@ export async function openViewer(element, options = {}) {
     coverage = null,
     background = "#000000",
     onViewChanged = null,
+    presentation = "source-geometry",
     // Whether to give the engine only the part of the window that covers ground
     // the run actually imaged. On by default wherever there is a record to go
     // on, because it is the single largest saving in the whole arrangement:
@@ -255,6 +259,7 @@ export async function openViewer(element, options = {}) {
     coverage,
     background,
     onViewChanged,
+    presentation,
     boundToCoverage: boundToCoverage && Boolean(coverage?.regions?.length),
     // The rectangle within the box the engine is currently drawing in, in
     // browser pixels. The whole box unless the drawn region is being bounded.
@@ -715,18 +720,6 @@ async function start(own, acquisitions) {
   pinTheAxesThatMeasureDistance(own.viewer);
   startTimeAtTheFirstMoment(own.viewer);
   countFromTheCornerOfTheVoxelRatherThanItsMiddle(own);
-  /* Kept on a clock until every row has settled, because a slow store (a
-     linked scene takes seconds to load) has no transform to rewrite yet at
-     this moment, and no signal announces the moment it does. Idempotent,
-     cheap, and it puts itself down. */
-  if (!everyHeightBeginsAtNought(own)) {
-    own.heightsBecomeNought = setInterval(() => {
-      if (everyHeightBeginsAtNought(own) && own.heightsBecomeNought) {
-        clearInterval(own.heightsBecomeNought);
-        own.heightsBecomeNought = null;
-      }
-    }, 500);
-  }
   // A page may open several acquisitions at once, and they do not all arrive
   // together — the axes become known as soon as the first of them is read, so a
   // second one may still be on its way. Each layer is therefore looked at again
@@ -737,7 +730,6 @@ async function start(own, acquisitions) {
     .map((row) => row.managed?.layer?.dataSourcesChanged?.add(
       () => {
         countFromTheCornerOfTheVoxelRatherThanItsMiddle(own);
-        everyHeightBeginsAtNought(own);
       },
     ))
     .filter(Boolean);
@@ -760,7 +752,7 @@ async function start(own, acquisitions) {
      the ground the run declared — and so a volume turns about the specimen
      instead of swinging around a point outside it. One small read; nothing else
      waits on it. */
-  const specimen = acquisitions.length
+  const specimen = own.presentation !== "2d-overlay" && acquisitions.length
     ? await whereTheSpecimenIsInThisStore(acquisitions[0].url)
     : null;
   if (own.size?.width > 0 && own.size?.height > 0) {
@@ -1057,63 +1049,6 @@ async function rowsFor(acquisitions) {
     });
   }
   return rows;
-}
-
-/**
- * Every store's height re-based to nought, so the map can show them all.
- *
- * The canvas is a two-dimensional map of the specimen, and the engine keeps
- * one z for the whole space — so an overview captured at one height and a
- * focus stack spanning another could never be on screen together: each store
- * drew only when the shared z sat exactly on one of its own planes, and "the
- * overview is not showing up" was a focus stack holding the z somewhere
- * else. On the instrument the heights genuinely differ — the focus map is
- * micrometres of real slope — and a slice a single voxel thick forgives
- * none of it.
- *
- * So the height is taken out of the placement: each layer's z translation is
- * set to nought, the way the half-voxel corner shift above rewrites the same
- * matrix, and every acquisition then begins at the same plane. The recorded
- * heights are untouched in the stores — this bends the drawing, not the
- * data. A stack still spans its planes (from nought), and browsing them
- * walks above the flat captures; the map's own plane is the first one.
- * Idempotent, because nought written twice is nought.
- */
-function everyHeightBeginsAtNought(own) {
-  let settled = true;
-  for (const row of own.rows) {
-    const placing = row.managed?.layer?.dataSources?.[0]?.loadState?.transform;
-    if (!placing?.value?.outputSpace) {
-      // Not loaded yet: a slow store (a linked scene takes seconds) has no
-      // transform to rewrite at the moment the axes become known, and no
-      // later signal announces it — which is why the caller keeps a clock
-      // on this until every row has settled.
-      settled = false;
-      continue;
-    }
-    const placed = placing.value;
-    const { rank, outputSpace } = placed;
-    const heightAxis = outputSpace?.names?.indexOf?.("z");
-    if (heightAxis === undefined || heightAxis < 0) continue;
-    const moved = Float64Array.from(placed.transform);
-    const at = rank * (rank + 1) + heightAxis;
-    if (moved[at] !== 0) {
-      moved[at] = 0;
-      placing.value = { ...placed, transform: moved };
-    }
-  }
-  // And the map opens on that first plane, rather than wherever the engine's
-  // own centring left the height standing.
-  const space = own.viewer.navigationState.position.coordinateSpace.value;
-  const heightAxis = space?.names?.indexOf?.("z") ?? -1;
-  if (heightAxis >= 0) {
-    const standing = Float32Array.from(own.viewer.navigationState.position.value);
-    if (Number.isFinite(standing[heightAxis]) && standing[heightAxis] !== 0.5) {
-      standing[heightAxis] = 0.5;
-      own.viewer.navigationState.position.value = standing;
-    }
-  }
-  return settled;
 }
 
 /**
@@ -1593,11 +1528,19 @@ function openOnThePlaneWhereTheSpecimenIs(own, specimen) {
   const space = own.viewer.navigationState.position.coordinateSpace.value;
   const depth = info?.displayDimensionIndices?.[2] ?? -1;
   if (depth < 0 || !space?.bounds) return;
+  const moved = Float32Array.from(own.viewer.navigationState.position.value);
+  if (own.presentation === "2d-overlay") {
+    /* Placement already maps each source's explicit anchor voxel centre to
+       shared display z=0. Navigation selects that plane; it must never rewrite
+       a transform or infer an anchor from whichever source loaded first. */
+    moved[depth] = 0;
+    own.viewer.navigationState.position.value = moved;
+    return;
+  }
   const planes = Math.round(
     space.bounds.upperBounds[depth] - space.bounds.lowerBounds[depth],
   );
   if (!(planes > 1)) return;
-  const moved = Float32Array.from(own.viewer.navigationState.position.value);
   // Where the specimen is, where it could be found; the middle of the declared
   // stack otherwise, which is what this did before and is right when a run fills
   // the room it asked for.
@@ -2307,10 +2250,6 @@ function handleFor(own) {
     destroy() {
       if (own.destroyed) return;
       own.destroyed = true;
-      if (own.heightsBecomeNought) {
-        clearInterval(own.heightsBecomeNought);
-        own.heightsBecomeNought = null;
-      }
       // The gestures come off first. Listeners left behind on a box that is
       // still in the page would go on answering the operator's hand after the
       // viewer they belonged to had gone. The little record of what they saw is

@@ -162,6 +162,7 @@ export function watchTheRun(ctx) {
         const openViewer = await openerFor(wanted.engine);
         viewer = await openViewer(host, {
           acquisitions: wanted.acquisitions,
+          presentation: "2d-overlay",
           /* The same colour the page paints, so the seam between the scan's own
              background and the ground above it never shows. */
           background: ctx.css("--screen"),
