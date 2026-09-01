@@ -85,3 +85,74 @@ def test_a_run_written_by_the_microscopes_own_writer_is_measured_in_place(
     written = json.loads(Path(found["written_to"]).read_text())
     assert written["run"] == str(run.resolve())
     assert (Path(found["written_to"]).parent / found["photograph"]).is_file()
+
+
+def test_the_positions_the_microscopes_bridge_writes_can_be_measured(
+    harness_page, measurement_data, tmp_path,
+):
+    """OME-Zarr 0.5, no coverage record: exactly what a run on the microscope PC holds.
+
+    The bridge converts every capture into a position store through
+    ``position_store_from_record``, which writes the newer generation of the
+    format and keeps no coverage record. The rig used to refuse both: it asked
+    for every store in the older generation and drew nothing without a record.
+    Now the whole frame counts as imaged, the answer says so, and the store is
+    read in the generation it was written in.
+    """
+    import sys
+
+    sys.path.insert(0, str(_HERE.parent.parent / "application" / "parts" / "storage"))
+    from test_zarr_positions import one_file_per_plane
+
+    from application.parts.storage.zarr_positions import position_store_from_record
+
+    run = tmp_path / "a-real-run"
+    positions = run / "positions" / "overview"
+    record = one_file_per_plane(tmp_path / "vendor", channels=1, offset=2000)
+    store = position_store_from_record(record, positions)
+    assert (store / "zarr.json").is_file(), "the bridge writes OME-Zarr 0.5"
+    listing_before = sorted(str(p) for p in run.rglob("*"))
+
+    found = real_run.measure(
+        "neuroglancer-under", run, tmp_path / "out", browser=harness_page.browser,
+    )
+
+    assert sorted(str(p) for p in run.rglob("*")) == listing_before
+    assert found["store"] == store.name
+    assert found["coverage_bounded"] is False, "no record was kept, and the answer says so"
+    # The store was read in the generation it was written in, and its pieces
+    # were fetched: the rig can look at what the microscope writes.
+    assert found["requests"]["bytes_of_pieces"] > 0
+    assert found["requests"]["missing"] == 0
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "the rig's own neuroglancer-under places the view beside a five-axis "
+        "OME-Zarr 0.5 store: the layer sits where the store says, the pieces "
+        "arrive, and the navigation lands outside them, so the box photographs "
+        "empty. The same family as test_an_image_from_another_microscope_is_drawn. "
+        "Strict, so the day the rig draws it this mark has to come off."
+    ),
+)
+def test_the_positions_the_microscopes_bridge_writes_are_drawn(
+    harness_page, measurement_data, tmp_path,
+):
+    """Opening is not drawing: the honest number is how much of the box changed."""
+    import sys
+
+    sys.path.insert(0, str(_HERE.parent.parent / "application" / "parts" / "storage"))
+    from test_zarr_positions import one_file_per_plane
+
+    from application.parts.storage.zarr_positions import position_store_from_record
+
+    run = tmp_path / "a-real-run"
+    position_store_from_record(
+        one_file_per_plane(tmp_path / "vendor", channels=1, offset=2000),
+        run / "positions" / "overview",
+    )
+    found = real_run.measure(
+        "neuroglancer-under", run, tmp_path / "out", browser=harness_page.browser,
+    )
+    assert found["drawn_share"] > 0.05, "the store opened but nothing reached the screen"

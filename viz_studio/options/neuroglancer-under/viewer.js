@@ -2167,7 +2167,12 @@ function handleFor(own) {
       const umPerVoxel = space.scales[depth] * UM_PER_M;
       if (!(umPerVoxel > 0)) return;
       const moved = Float32Array.from(own.viewer.navigationState.position.value);
-      moved[depth] = z / umPerVoxel;
+      /* On the centre of plane k, not its lower edge. This engine puts its
+         bounds at voxel edges, so plane k runs from k to k + 1 and its middle
+         is k + ½ — which is where `theDepthItCanShow` above counts from when
+         it takes the half back off. Asked for 4 µm at 2 µm a plane, the
+         picture stands on plane 2 and reads back as 4 µm, not 3. */
+      moved[depth] = z / umPerVoxel + 0.5;
       own.viewer.navigationState.position.value = moved;
     },
 

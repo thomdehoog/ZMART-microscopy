@@ -46,7 +46,9 @@ def the_store_to_open(run: Path) -> tuple[Path, str]:
     run = Path(run).resolve()
     if not run.exists():
         raise FileNotFoundError(f"{run} does not exist")
-    if run.is_dir() and (run / "zarr.json").is_file() or (run / ".zattrs").is_file():
+    if run.is_dir() and ((run / "zarr.json").is_file() or (run / ".zattrs").is_file()):
+        # One store: its parent is served, read-only and to this machine only,
+        # so its sibling stores are reachable by name as well.
         return run.parent, run.name
     candidates: list[Path] = []
     for pattern in (_A_COMPOSED_PICTURE, _A_STORE):
@@ -67,24 +69,32 @@ def the_store_to_open(run: Path) -> tuple[Path, str]:
 
 
 def drawn_share_of(picture) -> float:
-    """What fraction of the photograph is not black: 0 for an empty box, 1 for full.
+    """What fraction of the photograph is not the box's own colour: 0 for empty, up to 1.
 
     The one number that tells "opened and drew" from "opened and drew nothing",
-    which is the failure this project keeps meeting. A run whose picture never
-    arrives reports itself perfectly loaded and photographs as black.
+    which is the failure this project keeps meeting. It counts pixels that
+    differ from the photograph's most common colour, which for an empty box is
+    the box itself — and it must be that, not "brighter than black": the box
+    is painted a dark grey, and a rule that counted anything above black would
+    call an empty box fully drawn. It did, once.
     """
     import numpy as np
 
     pixels = np.asarray(picture)
-    if pixels.ndim == 3:
-        pixels = pixels[..., :3].max(axis=-1)
-    return float((pixels > 16).mean()) if pixels.size else 0.0
+    if pixels.ndim != 3 or not pixels.size:
+        return 0.0
+    flat = pixels[..., :3].reshape(-1, 3)
+    colours, counts = np.unique(flat, axis=0, return_counts=True)
+    box = colours[counts.argmax()]
+    return float((np.abs(flat.astype(int) - box.astype(int)).max(axis=1) > 8).mean())
 
 
 def measure(option: str, run: Path, out: Path, *, browser=None) -> dict:
     """Open ``option`` on ``run`` once and write down what it cost."""
     served_from, store_name = the_store_to_open(run)
-    store = store_name[: -len(".ome.zarr")] if store_name.endswith(".ome.zarr") else store_name
+    # The harness accepts a store's full name; the server resolves it exactly
+    # first, and only falls back to adding .ome.zarr for the rig's own stores.
+    store = store_name
     out = Path(out) / option
     out.mkdir(parents=True, exist_ok=True)
     found = {
@@ -105,6 +115,9 @@ def measure(option: str, run: Path, out: Path, *, browser=None) -> dict:
         found["photograph"] = harness.save_frame(picture, "opened")
         found["drawn_share"] = drawn_share_of(picture)
         found["view"] = harness.believes("window.harness.view()")
+        # Whether the edges of the picture came from a coverage record, or the
+        # whole frame was taken as imaged because none was kept.
+        found["coverage_bounded"] = bool(harness.believes("window.harness.coverageBounded"))
         found["console"] = list(harness.console)[-20:]
     where = out / "real-run.json"
     where.write_text(json.dumps(found, indent=2, default=str), encoding="utf-8")

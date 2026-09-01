@@ -470,8 +470,15 @@ async function boot() {
   // One entry per acquisition the address asked for, in the order they should be
   // drawn: the survey first and the detail scan over it, which is the order the
   // interface takes them in.
+  // Whether the picture's edges come from a record the writer kept, or were
+  // taken to be the whole frame because none was. A measurement reads this
+  // so it never reports a synthesised extent as a bounded one.
+  harness.coverageBounded = !coverage?.synthesized;
   harness.acquisitionsAsked = storeNames.map((name) => ({
-    url: `${dataBase}/${name}.ome.zarr/|zarr2:`,
+    // The store's real folder name and format generation, as the server
+    // found them: the positions a microscope writes are OME-Zarr 0.5 and
+    // keep their own names, and a composed picture is not called .ome.zarr.
+    url: `${dataBase}/${coverages[name]?.store ?? `${name}.ome.zarr`}/|${coverages[name]?.scheme ?? "zarr2"}:`,
     name,
     // Left out altogether when the page has been asked to say nothing about
     // the colours. Left out means left out: the option is handed an
