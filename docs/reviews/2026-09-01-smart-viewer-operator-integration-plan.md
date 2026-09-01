@@ -242,6 +242,7 @@ registration is unresolved.
 | E. Preserve view ownership | Opening-view and Fit behavior only, independently tested from registration | Whole-plate projections before and after 1/9 and 9/9 arrivals remain equal unless the operator requested a new view; pan and zoom still work before acquisition | Image arrival silently zooms away from the carrier or two components both write the view |
 | F. Prove Step 5 | Real Viewer 0.2, actual kidney mock, deterministic partial bridge, and actual Run button | Complete screenshot set plus machine-readable manifest; overview-only and three-row panel state agree with rendered pixels | Any screenshot was taken against the copied Viewer, any intermediate count was guessed, or any unexpected request/error is ignored |
 | G. Cleanup and delivery | Remove unreachable stand-ins, document install, and update the draft PR | Fresh environment selects Viewer 0.2, `/api/measure` works, focused and browser suites pass, branch is clean | A copied Viewer becomes runtime-reachable, PR wording overstates evidence, or an unrelated Claude commit enters the diff |
+| H. Smart Viewer-inspired histogram and layer UX | Operator-native requested state, abortable real measurements, Viewer-like histogram interactions, acquisition/channel presentation, and observed-state reconciliation | Focused interaction/state tests, production build, real Viewer reference screenshots, corresponding Operator screenshots, and unchanged source-transform records | A full Viewer page/component is copied, stable source growth remounts the Viewer, a stale/failing measurement moves the window, engine state silently disagrees, or any UI action changes a source transform |
 
 Packages are sequential. In particular, production coordinate code cannot
 change during B or C. That separation ensures the failing test and coordinate
@@ -297,6 +298,10 @@ The screenshot and record are one artifact: neither is accepted alone.
 | 5. View preservation | Only if independently failing after registration; Fit/opening-view fix and tests | Registration compensation |
 | 6. Acceptance evidence | Passing manifest, 0/3/6/9, whole-plate, overview-only, close-up, and test output | Unreviewed implementation changes |
 | 7. Runtime cleanup | Provenance/install guards and removal or quarantine of obsolete runtime paths | New viewer behavior |
+| 8. Histogram/layer UX plan | Reference inspection, visual/behavior inventory, and package-H gates | Production code or revised Step 5 evidence |
+| 9. Operator panel state and hierarchy | Stable requested state, group/channel/selection/colour/opacity persistence, observed-state reconciliation, and focused tests | Histogram interaction rewrite or coordinate changes |
+| 10. Histogram interaction and measurement lifecycle | Axis/window controls, click/drag/pan/wheel/reset, Auto/Log, abort/stale/failure behavior, and focused tests | Source composition, navigation, or coordinate changes |
+| 11. Panel UX evidence and production bundle | Real Viewer reference, comparable Operator states, overview-only/focussing-overlay screenshots, JSON records, browser gates, and rebuilt bundle | New behavior not covered by the preceding commits |
 
 Each commit is reviewable and revertible on its own. If a package produces no
 failure, its implementation commit is omitted rather than manufactured.
@@ -483,6 +488,49 @@ After the real Viewer-backed acceptance passes:
 - keep historical tests only where they still protect a supported contract;
 - document a fresh-machine installation that selects the same Viewer commit.
 
+### 8. Smart Viewer-inspired histogram and layer UX
+
+This is a separate, reversible work package after the coordinate, source-
+lifecycle, and Step 5 proof. Its inspection record is
+`2026-09-01-smart-viewer-panel-ux-inventory.md`. It does not replace or weaken
+any earlier evidence.
+
+Smart Operator owns requested panel state by stable acquisition/channel key:
+visibility, colour, opacity, window, histogram axis, Log state, selection, and
+collapsed groups. Engine-observed visibility/window/weight are read through the
+adapter and retained separately for inspection. A mismatch is visible and the
+requested state is deterministically reapplied; observed state never silently
+becomes a second UI authority.
+
+Stable acquisition growth continues through `viewer.addSources` and does not
+remount the Viewer or panel. If the acquisition/channel shape genuinely changes
+and the existing scene must be replaced, the new panel receives the same
+operator-owned state object and restores every surviving channel by key.
+
+Histogram interaction follows the proven Viewer 0.2 contract:
+
+- a six-pixel edge hit zone drags one window edge;
+- a background drag pans only the brightness axis;
+- the wheel zooms the brightness axis toward the pointer;
+- double-click resets the axis frame without measuring or changing the window;
+- Auto is a one-shot real `/api/measure` request and Log changes count heights,
+  never brightness positions;
+- superseded measurements are aborted or ignored by generation and operator-
+  action revision;
+- a failed or empty measurement is shown and leaves the current window intact.
+
+The layer panel uses the same acquisition/channel visual vocabulary as Viewer
+0.2 while retaining Operator-native wiring. Acquisition eyes gate a complete
+group without erasing per-channel requests. Overview, focussing, and target are
+independent. Overview remains the base map and focussing the diagnostic overlay;
+panel ordering is not source placement.
+
+Package H is coordinate-inert. Its tests snapshot source matrices and canonical
+Z anchors before and after visibility, selection, collapse, and order actions.
+Every 2-D reference voxel centre remains at display `z=0`; stack geometry and
+raw acquisition/stage Z provenance remain untouched. No physical 3-D placement
+is implemented or claimed.
+
 ## Acceptance gates
 
 All gates are required.
@@ -517,6 +565,25 @@ All gates are required.
   the operator explicitly requests Fit.
 - The same projection controls acquired pixels and workflow overlays after the
   image becomes authoritative.
+
+### Histogram and layer-panel UX gates
+
+- Histogram edge drag, background pan, wheel zoom, double-click reset, typed
+  axis/window values, and sliders are exercised as browser interactions.
+- Auto and Log use real Viewer `/api/measure` data; Log changes bar heights but
+  not x positions. A superseded or failed measurement cannot move the window.
+- The selected acquisition/channel, eye, colour, opacity, window, axis, and Log
+  state survive stable source growth and any necessary panel rebuild.
+- Acquisition eyes hide/show complete groups while preserving every channel's
+  requested choice. Overview, focussing, and target are parameterized in the
+  same tests.
+- Requested and engine-observed state are separately inspectable and converge
+  without remounting the Viewer.
+- Visibility, selection, collapse, panel order, and drawing order leave every
+  source matrix and display-Z anchor unchanged.
+- The production browser evidence includes the real Viewer 0.2 reference,
+  comparable Operator histogram/selection/group states, overview-only,
+  focussing-overlay, and the rebuilt production page.
 
 ### Screenshot protocol
 
@@ -565,6 +632,12 @@ a zoomed-out impression.
 6. Deterministic 0/3/6/9 browser evidence.
 7. Actual Step 5 Run-button walk and overview-only screenshots.
 8. Larger per-field acceptance with focussing hidden.
+9. Panel requested/observed state tests parameterized across overview,
+   focussing, and target.
+10. Histogram pointer, value, Auto/Log, stale-response, and failure browser
+    tests against the real Viewer server.
+11. Coordinate-invariance snapshots, production build, and the separate panel
+    UX screenshot manifest.
 
 ## Delivery and safety
 
@@ -631,3 +704,7 @@ a zoomed-out impression.
   passed with 15 intentional skips, the production build passed, and all eight
   relevant Microscopy browser tests passed. The isolated install selected
   Viewer 0.2.0 from the pinned sibling checkout and reached `/api/measure`.
+- Package H was requested after that cleanup checkpoint. Its reference
+  inspection and inventory are complete, but histogram/layer UX parity is not
+  claimed until the new interaction, preservation, build, coordinate-invariance,
+  and screenshot gates above pass.
