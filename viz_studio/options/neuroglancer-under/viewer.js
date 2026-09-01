@@ -2115,20 +2115,35 @@ function handleFor(own) {
     layersForMeasurement() {
       const space = own.viewer.navigationState.position.coordinateSpace.value;
       return own.rows.map((row) => {
-        const source = row.managed?.layer?.dataSources?.[0];
-        const landed = source?.loadState?.transform?.outputSpace?.value;
+        const sources = Array.from(row.managed?.layer?.dataSources ?? []).map((source, at) => {
+          const landed = source?.loadState?.transform?.outputSpace?.value;
+          return {
+            url: row.sources?.[at] ?? null,
+            matrix: source?.loadState?.transform?.value?.transform
+              ? Array.from(source.loadState.transform.value.transform)
+              : null,
+            error: source?.loadState?.error?.message ?? null,
+            dims: landed ? Array.from(landed.names) : null,
+            scales: landed ? Array.from(landed.scales) : null,
+            units: landed ? Array.from(landed.units) : null,
+            lower: landed?.bounds ? Array.from(landed.bounds.lowerBounds) : null,
+            upper: landed?.bounds ? Array.from(landed.bounds.upperBounds) : null,
+          };
+        });
+        const first = sources[0] ?? {};
         return {
           name: row.layerName,
           visible: row.managed?.visible,
           window: row.window,
           weight: row.weight ?? 1,
-          matrix: source?.loadState?.transform?.value?.transform
-            ? Array.from(source.loadState.transform.value.transform)
-            : null,
-          error: source?.loadState?.error?.message ?? null,
-          dims: landed ? Array.from(landed.names) : null,
-          lower: landed?.bounds ? Array.from(landed.bounds.lowerBounds) : null,
-          upper: landed?.bounds ? Array.from(landed.bounds.upperBounds) : null,
+          matrix: first.matrix ?? null,
+          error: first.error ?? null,
+          dims: first.dims ?? null,
+          scales: first.scales ?? null,
+          units: first.units ?? null,
+          lower: first.lower ?? null,
+          upper: first.upper ?? null,
+          sources,
           navDims: Array.from(space?.names ?? []),
           nav: Array.from(own.viewer.navigationState.position.value ?? []),
         };
