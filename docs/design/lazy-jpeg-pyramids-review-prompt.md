@@ -2,6 +2,12 @@
 
 Date: 2026-09-01
 
+Status: answered on branch `claude/lazy-jpeg-pyramids-review-fhz6te`, commit
+`48f72d64`. The resulting revision is in
+`docs/design/lazy-jpeg-pyramids-for-the-viewer.md`; use
+`docs/design/lazy-jpeg-pyramids-revision-review-prompt.md` for a follow-up
+review.
+
 Please review the design; do not implement it yet.
 
 ## What to read
