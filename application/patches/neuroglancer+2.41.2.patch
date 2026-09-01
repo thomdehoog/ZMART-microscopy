@@ -1,0 +1,15 @@
+diff --git a/node_modules/neuroglancer/lib/chunk_manager/frontend.js b/node_modules/neuroglancer/lib/chunk_manager/frontend.js
+index 9d88f14..f882d5b 100644
+--- a/node_modules/neuroglancer/lib/chunk_manager/frontend.js
++++ b/node_modules/neuroglancer/lib/chunk_manager/frontend.js
+@@ -285,6 +285,10 @@ ChunkQueueManager = __decorateClass([
+ ], ChunkQueueManager);
+ function updateChunk(rpc, x) {
+   const source = rpc.get(x.source);
++  if (source === void 0) {
++    // The source was retired while this worker update was in flight.
++    return;
++  }
+   if (DEBUG_CHUNK_UPDATES) {
+     console.log(
+       `${Date.now()} Chunk.update received: ${source.rpcId} ${x.id} ${x.state} with chunkDataSize ${x.chunkDataSize}`
