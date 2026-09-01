@@ -1804,6 +1804,10 @@ let stageWatch = null;
     project: (x, y) => stage.project(x, y),
     view: () => stage.pictureView(),
     carrierOriginUm: () => stage.carrierOriginUm(),
+    /* Acquisition Z is deliberately distinct from the flat picture's Z=0
+       display plane. Evidence that publishes positions through the bridge
+       must ask the same measured surface the real Step 5 Run path asks. */
+    focusZAt: (x, y) => surfaceZAt(x, y),
   };
   /* The selected focus point, for a test that needs to take hold of one. */
   window.__theFocusPoints = () => state.focus.points[state.focus.selected] ?? null;

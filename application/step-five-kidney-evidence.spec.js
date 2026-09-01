@@ -1,4 +1,4 @@
-/** Real Step 5 kidney evidence. A screenshot without its JSON record is not evidence. */
+/** Real Smart Viewer 0.2 / mock-kidney evidence for operator Step 5. */
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
@@ -11,10 +11,15 @@ import { readPng } from
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.dirname(HERE);
-const SHOTS = path.join(HERE, "test-results", "step-five-kidney");
+const ACCEPTED = process.env.ACCEPT_EVIDENCE === "1";
+const SHOTS = ACCEPTED
+  ? path.join(REPO, "docs", "reviews", "evidence", "2026-09-01-smart-viewer-step-five")
+  : path.join(HERE, "test-results", "step-five-kidney");
 const PORT = Number(process.env.LIVE_BRIDGE_PORT ?? 8812);
+const RUN_PORT = PORT + 2;
 const PYTHON = process.env.PYTHON ?? "python";
 const A_WHOLE_RUN = 900_000;
+const SCREEN_TOLERANCE_PX = 1;
 
 const command = (program, args, cwd = REPO) =>
   execFileSync(program, args, { cwd, encoding: "utf8" }).trim();
@@ -23,40 +28,105 @@ const provenance = {
     branch: command("git", ["branch", "--show-current"]),
     commit: command("git", ["rev-parse", "HEAD"]),
   },
-  viewer: JSON.parse(command(PYTHON, ["-c", [
+  smartViewer: JSON.parse(command(PYTHON, ["-c", [
     "import json",
     "from importlib.metadata import version",
     "from pathlib import Path",
     "import zmart_viewer",
-    "print(json.dumps({'path': str(Path(zmart_viewer.__file__).resolve()), " +
+    "print(json.dumps({'importPath': str(Path(zmart_viewer.__file__).resolve()), " +
       "'version': version('zmart-viewer')}))",
   ].join("; ")])),
 };
-provenance.viewer.commit = command(
-  "git", ["rev-parse", "HEAD"], path.dirname(path.dirname(provenance.viewer.path)),
+provenance.smartViewer.commit = command(
+  "git", ["rev-parse", "HEAD"], path.dirname(path.dirname(provenance.smartViewer.importPath)),
 );
-provenance.viewer.hasMeasure = command(
-  "rg", ["-q", '"/api/measure"', path.join(path.dirname(provenance.viewer.path), "server.py")],
+provenance.smartViewer.measureRoutePresent = command(
+  "rg", ["-q", '"/api/measure"',
+    path.join(path.dirname(provenance.smartViewer.importPath), "server.py")],
 ) === "";
 
-let bridge = null;
+test.beforeAll(() => { fs.mkdirSync(SHOTS, { recursive: true }); });
 
-test.beforeAll(async () => {
-  fs.mkdirSync(SHOTS, { recursive: true });
-  bridge = await startTheBridge({ port: PORT });
-});
-test.afterAll(async () => { await bridge?.stop(); });
+const xy = (value) => Array.isArray(value)
+  ? { x: value[0], y: value[1] }
+  : { x: value?.x, y: value?.y };
+
+function acquisitionOf(name, acquisitions) {
+  return acquisitions.find((acquisition) => acquisition.name === name) ?? null;
+}
+
+function sourcesIn(acquisition) {
+  if (!acquisition) return [];
+  const channelSources = (acquisition.channels ?? [])
+    .flatMap((channel) => channel.sources ?? [channel.source].filter(Boolean));
+  return channelSources.length ? channelSources : [acquisition.url].filter(Boolean);
+}
+
+function acquisitionSummary(acquisitions) {
+  return acquisitions.map((acquisition) => ({
+    name: acquisition.name,
+    datasetNumber: acquisition.dataset_number ?? acquisition.datasetNumber ?? null,
+    url: acquisition.url ?? null,
+    logicalChannelCount: acquisition.channels?.length ?? 0,
+    channels: (acquisition.channels ?? []).map((channel) => ({
+      name: channel.name,
+      visible: channel.visible !== false,
+      sourceCount: channel.sources?.length ?? (channel.source || acquisition.url ? 1 : 0),
+      sources: channel.sources ?? [channel.source ?? acquisition.url].filter(Boolean),
+    })),
+  }));
+}
+
+function unitToUm(unit) {
+  if (unit === "m") return 1e6;
+  if (unit === "mm") return 1e3;
+  if (unit === "nm") return 1e-3;
+  return 1;
+}
+
+function physicalBounds(source) {
+  if (![source?.dims, source?.scales, source?.units, source?.lower, source?.upper]
+    .every(Array.isArray)) return null;
+  const along = (axis, edge) => {
+    const at = source.dims.indexOf(axis);
+    if (at < 0) return null;
+    return source[edge][at] * source.scales[at] * unitToUm(source.units[at]);
+  };
+  const values = {
+    xMin: along("x", "lower"), yMin: along("y", "lower"),
+    xMax: along("x", "upper"), yMax: along("y", "upper"),
+  };
+  return Object.values(values).every(Number.isFinite) ? values : null;
+}
+
+function aggregateBounds(bounds) {
+  const present = bounds.filter(Boolean);
+  if (!present.length) return null;
+  return {
+    frame: "absolute-stage",
+    unit: "um",
+    xMin: Math.min(...present.map(({ xMin }) => xMin)),
+    yMin: Math.min(...present.map(({ yMin }) => yMin)),
+    xMax: Math.max(...present.map(({ xMax }) => xMax)),
+    yMax: Math.max(...present.map(({ yMax }) => yMax)),
+  };
+}
+
+function positionNumber(url) {
+  const found = /P(\d{6})/.exec(url ?? "");
+  return found ? Number(found[1]) : null;
+}
 
 /** Planned field boxes in viewport pixels. Nothing is clipped or skipped. */
 async function fieldsOnScreen(page) {
   return page.evaluate(() => {
-    const xy = (value) => Array.isArray(value)
+    const point = (value) => Array.isArray(value)
       ? { x: value[0], y: value[1] }
       : { x: value?.x, y: value?.y };
     const canvas = document.querySelector("#stage-canvas").getBoundingClientRect();
     return window.__theStageCanvas.plan().map((position, index) => {
-      const middle = xy(window.__theStageCanvas.project(position.x, position.y));
-      const edge = xy(window.__theStageCanvas.project(
+      const middle = point(window.__theStageCanvas.project(position.x, position.y));
+      const edge = point(window.__theStageCanvas.project(
         position.x + position.frameUm / 2,
         position.y + position.frameUm / 2,
       ));
@@ -73,6 +143,76 @@ async function fieldsOnScreen(page) {
       };
     });
   });
+}
+
+/** Zoom around a carrier-local point, then pan it to the canvas centre. */
+async function frameAround(page, centre, targetZoom) {
+  const where = () => page.evaluate(({ at }) => {
+    const projected = window.__theStageCanvas.project(at.x, at.y);
+    const point = Array.isArray(projected)
+      ? { x: projected[0], y: projected[1] }
+      : projected;
+    const box = document.querySelector("#stage-canvas").getBoundingClientRect();
+    return {
+      x: box.left + point.x,
+      y: box.top + point.y,
+      canvas: {
+        left: box.left, top: box.top, right: box.right, bottom: box.bottom,
+        x: box.left + box.width / 2, y: box.top + box.height / 2,
+      },
+    };
+  }, { at: centre });
+
+  for (let turn = 0; turn < 12; turn += 1) {
+    const zoom = await page.evaluate(() => window.__theStageCanvas.view().zoom);
+    if (zoom <= targetZoom) break;
+    const anchor = await where();
+    await page.mouse.move(anchor.x, anchor.y);
+    await page.mouse.wheel(0, -500);
+    await page.waitForTimeout(100);
+  }
+  await expect.poll(
+    () => page.evaluate(() => window.__theStageCanvas.view().zoom),
+    { message: `the view never reached ${targetZoom} um per pixel` },
+  ).toBeLessThanOrEqual(targetZoom);
+
+  for (let turn = 0; turn < 24; turn += 1) {
+    const now = await where();
+    const dx = now.canvas.x - now.x;
+    const dy = now.canvas.y - now.y;
+    if (Math.abs(dx) < 2 && Math.abs(dy) < 2) break;
+    const startX = Math.min(Math.max(now.x, now.canvas.left + 20), now.canvas.right - 20);
+    const startY = Math.min(Math.max(now.y, now.canvas.top + 20), now.canvas.bottom - 20);
+    const movedX = Math.max(now.canvas.left + 20 - startX,
+      Math.min(now.canvas.right - 20 - startX, dx));
+    const movedY = Math.max(now.canvas.top + 20 - startY,
+      Math.min(now.canvas.bottom - 20 - startY, dy));
+    await page.mouse.move(startX, startY);
+    await page.mouse.down();
+    await page.mouse.move(startX + movedX, startY + movedY, { steps: 8 });
+    await page.mouse.up();
+    await page.waitForTimeout(150);
+  }
+  await expect.poll(async () => {
+    const now = await where();
+    return Math.hypot(now.canvas.x - now.x, now.canvas.y - now.y);
+  }, { message: "the requested field never reached the canvas centre" }).toBeLessThan(2);
+  /* Leaving the pointer over a planned field opens the stage-coordinate tip.
+     That is useful to an operator and not part of the acquired pixels; park it
+     in the page margin before taking evidence so it cannot cover an ROI. */
+  await page.mouse.move(4, 4);
+  await page.waitForTimeout(150);
+}
+
+async function framePlannedGrid(page) {
+  const centre = await page.evaluate(() => {
+    const plan = window.__theStageCanvas.plan();
+    return {
+      x: (Math.min(...plan.map(({ x }) => x)) + Math.max(...plan.map(({ x }) => x))) / 2,
+      y: (Math.min(...plan.map(({ y }) => y)) + Math.max(...plan.map(({ y }) => y))) / 2,
+    };
+  });
+  await frameAround(page, centre, 12);
 }
 
 /** Measure one complete planned ROI. Off-screen and non-finite boxes are errors. */
@@ -107,78 +247,130 @@ function inspectField(pixels, box) {
   return { covered: drawn / examined, shades: shades.size };
 }
 
-async function liveState(page) {
-  return page.evaluate(async (port) => {
-    const viewer = await fetch(`http://127.0.0.1:${port}/api/viewer`)
-      .then((answer) => answer.json()).catch((error) => ({ error: error.message }));
-    const acquisitions = viewer.acquisitions ?? [];
-    const layers = window.__thePicture?.layersForMeasurement?.() ?? [];
-    const placed = window.__thePicture?.whereThingsAreDrawn?.() ?? null;
-    const plan = window.__theStageCanvas.plan();
-    const [originX, originY] = window.__theStageCanvas.carrierOriginUm();
-    const tracedPositions = [0, 8].map((index) => {
-      const position = plan[index];
-      if (!position) return null;
-      const absolute = { x: position.x + originX, y: position.y + originY };
-      const stageScreen = window.__theStageCanvas.project(position.x, position.y);
-      const engineScreen = placed?.project?.(absolute.x, absolute.y) ?? null;
-      const stage = Array.isArray(stageScreen)
-        ? { x: stageScreen[0], y: stageScreen[1] }
-        : stageScreen;
+function isTextured(result) {
+  return !result.error && result.covered >= 0.9 && result.shades >= 8;
+}
+
+function pixelChangesInside(first, second, box) {
+  const a = readPng(first);
+  const b = readPng(second);
+  const left = Math.max(0, Math.floor(box.left));
+  const top = Math.max(0, Math.floor(box.top));
+  const right = Math.min(a.width, Math.ceil(box.right));
+  const bottom = Math.min(a.height, Math.ceil(box.bottom));
+  let changed = 0;
+  for (let y = top; y < bottom; y += 1) {
+    for (let x = left; x < right; x += 1) {
+      const at = (y * a.width + x) * a.channels;
+      if ([0, 1, 2].some((channel) => Math.abs(a.data[at + channel] - b.data[at + channel]) > 10)) {
+        changed += 1;
+      }
+    }
+  }
+  return changed;
+}
+
+function expectedFormatProbe(url) {
+  try {
+    return /\/(?:\.zattrs|\.zgroup)$/.test(new URL(url).pathname);
+  } catch {
+    return false;
+  }
+}
+
+function expectedOptionalProbe(url, port) {
+  try {
+    const parsed = new URL(url);
+    return parsed.hostname === "127.0.0.1" && parsed.port === String(port)
+      && parsed.pathname === "/view/overview/tiles.json";
+  } catch {
+    return false;
+  }
+}
+
+function dataRequestKind(url, port) {
+  try {
+    const parsed = new URL(url);
+    if (parsed.hostname !== "127.0.0.1") return null;
+    if (expectedFormatProbe(url)) return "format-probe";
+    if (expectedOptionalProbe(url, port)) return "optional-probe";
+    /* Smart Viewer serves the stores from a data server whose port is chosen
+       at run time. The URL path, not the bridge port, identifies these. */
+    if (/\/data\/\d+\/.+\/zarr\.json$/.test(parsed.pathname)) return "metadata";
+    if (/\/data\/\d+\/.+\.ome\.zarr\/\d+\/c\//.test(parsed.pathname)) return "chunk";
+    if (parsed.port !== String(port)) return null;
+    if (parsed.pathname.startsWith("/api/")) return "api";
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function trackBrowser(page, port) {
+  const pageErrors = [];
+  const consoleErrors = [];
+  const failures = [];
+  const responses = [];
+
+  page.on("pageerror", (error) => pageErrors.push(error.message));
+  page.on("console", (message) => {
+    if (message.type() !== "error") return;
+    const location = message.location()?.url ?? "";
+    if (expectedFormatProbe(location) || expectedOptionalProbe(location, port)) return;
+    consoleErrors.push({ text: message.text(), location });
+  });
+  page.on("requestfailed", (request) => {
+    const kind = dataRequestKind(request.url(), port);
+    if (!kind) return;
+    failures.push({
+      kind, url: request.url(), error: request.failure()?.errorText ?? "failed",
+    });
+  });
+  page.on("response", (response) => {
+    const kind = dataRequestKind(response.url(), port);
+    if (!kind) return;
+    responses.push({ kind, url: response.url(), status: response.status() });
+  });
+
+  return {
+    snapshot() {
+      const successful = (kind) => responses.filter(
+        (response) => response.kind === kind && response.status >= 200 && response.status < 400,
+      ).length;
+      const expectedFormatProbes = [
+        ...failures.filter(({ kind }) => kind === "format-probe"),
+        ...responses.filter(({ kind, status }) => kind === "format-probe" && status >= 400),
+      ];
+      const expectedOptionalProbes = [
+        ...failures.filter(({ kind }) => kind === "optional-probe"),
+        ...responses.filter(({ kind, status }) => kind === "optional-probe" && status >= 400),
+      ];
+      const unexpectedFailures = [
+        ...failures.filter(({ kind }) => !["format-probe", "optional-probe"].includes(kind)),
+        ...responses.filter(({ kind, status }) =>
+          !["format-probe", "optional-probe"].includes(kind) && status >= 400),
+      ];
+      const browserErrors = [
+        ...pageErrors,
+        ...consoleErrors.map(({ text, location }) => `${text}${location ? ` (${location})` : ""}`),
+      ];
       return {
-        index,
-        carrierLocalUm: { x: position.x, y: position.y },
-        carrierOriginUm: { x: originX, y: originY },
-        absoluteStageUm: absolute,
-        stageScreenPx: stage,
-        engineScreenPx: engineScreen,
-        screenErrorPx: stage && engineScreen
-          ? Math.hypot(stage.x - engineScreen.x, stage.y - engineScreen.y)
-          : null,
+        required: {
+          metadata: { successful: successful("metadata") },
+          chunks: { successful: successful("chunk") },
+          api: { successful: successful("api") },
+        },
+        expectedFormatProbes,
+        expectedOptionalProbes,
+        unexpectedFailures,
+        browserErrors,
+        workerErrors: browserErrors.filter((error) => /worker|chunk/i.test(error)),
       };
-    }).filter(Boolean);
-    const view = placed ? {
-      centre: placed.centre,
-      zoom: placed.zoom,
-      width: placed.width,
-      height: placed.height,
-    } : null;
-    const sourceCount = acquisitions.reduce((total, acquisition) => total +
-      (acquisition.channels ?? []).reduce((count, channel) =>
-        count + (channel.sources?.length ?? (channel.source || acquisition.url ? 1 : 0)), 0), 0);
-    return {
-      sourceCount,
-      acquisitions,
-      engine: { layers, view },
-      stage: { view: window.__theStageCanvas.view(), tracedPositions },
-      visibility: layers.map(({ name, visible }) => ({ name, visible })),
-    };
-  }, PORT);
+    },
+  };
 }
 
-function zarrTrace(position) {
-  const folder = path.join(bridge.currentRun(), "positions", "overview");
-  const marker = `P${String(position).padStart(6, "0")}`;
-  const store = fs.readdirSync(folder).find((name) => name.includes(marker));
-  if (!store) return { position, error: "position store not found" };
-  const metadata = JSON.parse(fs.readFileSync(path.join(folder, store, "zarr.json"), "utf8"));
-  const level0 = metadata.attributes.ome.multiscales[0].datasets
-    .find((dataset) => dataset.path === "0");
-  const scale = level0.coordinateTransformations.find(({ type }) => type === "scale")?.scale;
-  const translation = level0.coordinateTransformations
-    .find(({ type }) => type === "translation")?.translation;
-  return { position, store, axes: ["t", "c", "z", "y", "x"], scale, translation };
-}
-
-test("nine kidney fields are all examined; off-screen fields fail", async ({ page }) => {
-  test.setTimeout(A_WHOLE_RUN);
-  const browserErrors = [];
-  const failedRequests = [];
-  page.on("pageerror", (error) => browserErrors.push(error.message));
-  page.on("requestfailed", (request) => failedRequests.push({
-    url: request.url(), error: request.failure()?.errorText ?? "failed",
-  }));
-
+async function walkToScan(page, port) {
   const gotoStep = (name) => page.locator(`.step:has-text("${name}")`).first().click();
   const record = async (host, name) => {
     const bar = page.locator(`#${host} .setting-box.open`);
@@ -187,27 +379,8 @@ test("nine kidney fields are all examined; off-screen fields fail", async ({ pag
     await bar.locator("button.run").click();
     await page.waitForTimeout(650);
   };
-  const imaged = () => page.evaluate(async (port) => {
-    const scan = await (await fetch(`http://127.0.0.1:${port}/api/scan`)).json();
-    return { done: scan.done ?? 0, of: scan.of ?? 0, running: !!scan.running };
-  }, PORT);
-  const shot = async (name, extra = {}) => {
-    const png = await page.screenshot();
-    fs.writeFileSync(path.join(SHOTS, `${name}.png`), png);
-    fs.writeFileSync(path.join(SHOTS, `${name}.json`), JSON.stringify({
-      ...provenance,
-      name,
-      timestampUtc: new Date().toISOString(),
-      bridgePort: PORT,
-      ...(await liveState(page)),
-      browserErrors,
-      failedRequests,
-      ...extra,
-    }, null, 2));
-    return readPng(png);
-  };
 
-  await page.goto(`/?bridge=${encodeURIComponent(`http://127.0.0.1:${PORT}`)}`);
+  await page.goto(`/?bridge=${encodeURIComponent(`http://127.0.0.1:${port}`)}`);
   await page.locator('.field input[type="password"]').fill("hunter2");
   await page.locator(".session-foot button.run").click();
   await page.locator('.step.done:has-text("Connect")').waitFor({ timeout: 60_000 });
@@ -219,9 +392,8 @@ test("nine kidney fields are all examined; off-screen fields fail", async ({ pag
   await record("sf-preset", "overview");
   await page.locator(".sf-apply-grid").click();
   await page.waitForTimeout(800);
-
-  const planned = await page.evaluate(() => window.__theStageCanvas.plan().length);
-  expect(planned, "a three by three tileset").toBe(9);
+  expect(await page.evaluate(() => window.__theStageCanvas.plan().length), "a 3 x 3 plan")
+    .toBe(9);
 
   await gotoStep("Focus strategy");
   await record("focus-preset", "af");
@@ -232,72 +404,479 @@ test("nine kidney fields are all examined; off-screen fields fail", async ({ pag
     .toHaveText("Run again", { timeout: 400_000 });
 
   await gotoStep("Scan the overview");
+  await expect.poll(() => frontOverviewState(page), {
+    timeout: 60_000,
+    message: "the focusing acquisition never opened in Smart Viewer",
+  }).toMatchObject({ focusingRows: 1 });
+  await rest(2500);
+}
+
+async function scanStatus(page, port) {
+  return page.evaluate(async (bridgePort) =>
+    fetch(`http://127.0.0.1:${bridgePort}/api/scan`).then((answer) => answer.json()), port);
+}
+
+async function frontOverviewState(page) {
+  return page.evaluate(() => {
+    const layers = window.__thePicture?.layersForMeasurement?.() ?? [];
+    const overview = layers.filter(({ name }) => name.startsWith("overview"));
+    return {
+      focusingRows: layers.filter(({ name }) => name.startsWith("focussing")).length,
+      overviewRows: overview.length,
+      sourceCounts: overview.map((row) => row.sources?.length ?? 0),
+      errors: overview.flatMap((row) => row.sources ?? []).filter(({ error }) => error).length,
+      bounded: overview.flatMap((row) => row.sources ?? [])
+        .filter((source) => Array.isArray(source.lower) && Array.isArray(source.upper)).length,
+    };
+  });
+}
+
+async function waitForOverview(page, positions) {
+  await expect.poll(() => frontOverviewState(page), {
+    timeout: 90_000,
+    intervals: [250, 500, 1000],
+    message: `Smart Viewer never loaded ${positions} overview positions per channel`,
+  }).toEqual({
+    focusingRows: 1,
+    overviewRows: 3,
+    sourceCounts: [positions, positions, positions],
+    errors: 0,
+    bounded: positions * 3,
+  });
   await rest(1500);
-  await shot("0-of-9", { planned, landed: 0, examined: 0, textured: 0 });
-  expect((await imaged()).done, "nothing is imaged before Run").toBe(0);
-  await page.locator(".panel.on button.step-run").click();
+}
 
-  for (const wanted of [1, 9]) {
-    await expect.poll(async () => (await imaged()).done, {
-      timeout: 400_000,
-      intervals: [100],
-      message: `the scan never reached ${wanted} fields`,
-    }).toBeGreaterThanOrEqual(wanted);
-    await rest(1500);
-    const now = await imaged();
-    await shot(`${wanted}-requested-${now.done}-landed`, {
-      planned, landed: now.done, examined: 0, textured: 0,
-    });
-  }
-  await expect.poll(async () => !(await imaged()).running, {
-    timeout: 400_000,
-    message: "the scan never finished",
-  }).toBe(true);
-  expect((await imaged()).done, "every planned field was imaged").toBe(9);
-  await rest(12_000);
-
-  await page.evaluate(() => {
-    window.__thePicture.layersForMeasurement().forEach((row, index) => {
-      if (row.name.startsWith("focussing")) {
-        window.__thePicture.setChannel(index, { visible: false });
-      }
-    });
-    window.__theStageCanvas.fadeTo(0);
-  });
-  await rest(4000);
-
-  const fields = await fieldsOnScreen(page);
-  expect(fields, "exactly the nine planned ROIs are projected").toHaveLength(9);
+async function texturedIndices(page) {
+  const boxes = await fieldsOnScreen(page);
   const pixels = readPng(await page.screenshot());
-  const results = fields.map((field) => ({ field, result: inspectField(pixels, field) }));
-  const failedProjection = results.filter(({ result }) => result.error);
-  const examined = results.filter(({ result }) => !result.error);
-  const thin = examined.filter(({ result }) => result.covered < 0.9);
-  const flat = examined.filter(({ result }) => result.shades < 8);
-  const trace = {
-    browser: (await liveState(page)).stage.tracedPositions,
-    stores: [zarrTrace(0), zarrTrace(8)],
-    engineLayers: (await liveState(page)).engine.layers,
+  return boxes
+    .filter((field) => isTextured(inspectField(pixels, field)))
+    .map(({ index }) => index);
+}
+
+async function waitForTexture(page, count) {
+  const expected = Array.from({ length: count }, (_, index) => index);
+  await expect.poll(() => texturedIndices(page), {
+    timeout: 90_000,
+    intervals: [500, 1000, 1500],
+    message: `the expected ${count} overview ROIs never became textured`,
+  }).toEqual(expected);
+}
+
+async function setAcquisitionVisible(page, acquisition, visible) {
+  await page.evaluate(({ name, on }) => {
+    const headings = Array.from(document.querySelectorAll(".viewer-panel span"));
+    const label = headings.find((element) => element.textContent.trim() === name
+      && element.parentElement?.querySelector("button[data-on]"));
+    const button = label?.parentElement?.querySelector("button[data-on]");
+    if (!button) throw new Error(`the ${name} visibility control is missing`);
+    if ((button.dataset.on === "1") !== on) button.click();
+  }, { name: acquisition, on: visible });
+  await expect.poll(() => page.evaluate(({ prefix, on }) => {
+    const rows = (window.__thePicture?.layersForMeasurement?.() ?? [])
+      .filter(({ name }) => name.startsWith(prefix));
+    return rows.length > 0 && rows.every((row) => Boolean(row.visible) === on);
+  }, { prefix: acquisition, on: visible }), {
+    message: `${acquisition} visibility did not reach the engine`,
+  }).toBe(true);
+}
+
+async function liveState(page, port) {
+  return page.evaluate(async (bridgePort) => {
+    const viewer = await fetch(`http://127.0.0.1:${bridgePort}/api/viewer`)
+      .then((answer) => answer.json()).catch((error) => ({ error: error.message }));
+    const scan = await fetch(`http://127.0.0.1:${bridgePort}/api/scan`)
+      .then((answer) => answer.json()).catch((error) => ({ error: error.message }));
+    const acquisitions = viewer.acquisitions ?? [];
+    const layers = window.__thePicture?.layersForMeasurement?.() ?? [];
+    const placed = window.__thePicture?.whereThingsAreDrawn?.() ?? null;
+    const plan = window.__theStageCanvas.plan();
+    const [originX, originY] = window.__theStageCanvas.carrierOriginUm();
+    const screen = document.querySelector("#stage-canvas").getBoundingClientRect();
+    const planFrameBounds = {
+      xMin: Math.min(...plan.map(({ x, frameUm }) => x - frameUm / 2)),
+      yMin: Math.min(...plan.map(({ y, frameUm }) => y - frameUm / 2)),
+      xMax: Math.max(...plan.map(({ x, frameUm }) => x + frameUm / 2)),
+      yMax: Math.max(...plan.map(({ y, frameUm }) => y + frameUm / 2)),
+    };
+    const projections = plan.map((position, index) => {
+      const absolute = { x: position.x + originX, y: position.y + originY };
+      const stage = window.__theStageCanvas.project(position.x, position.y);
+      const engine = placed?.project?.(absolute.x, absolute.y) ?? null;
+      const stagePoint = Array.isArray(stage) ? { x: stage[0], y: stage[1] } : stage;
+      return {
+        index,
+        carrierLocalUm: { x: position.x, y: position.y },
+        carrierOriginUm: { x: originX, y: originY },
+        absoluteStageUm: absolute,
+        stageScreenPx: stagePoint,
+        engineScreenPx: engine,
+        errorPx: stagePoint && engine
+          ? Math.hypot(stagePoint.x - engine.x, stagePoint.y - engine.y)
+          : null,
+      };
+    });
+    return {
+      acquisitions,
+      layers,
+      scan,
+      plan,
+      planBounds: {
+        carrierLocal: { frame: "carrier-local", unit: "um", ...planFrameBounds },
+        absoluteStage: {
+          frame: "absolute-stage", unit: "um",
+          xMin: planFrameBounds.xMin + originX,
+          yMin: planFrameBounds.yMin + originY,
+          xMax: planFrameBounds.xMax + originX,
+          yMax: planFrameBounds.yMax + originY,
+        },
+      },
+      stage: {
+        view: window.__theStageCanvas.view(),
+        canvas: {
+          left: screen.left, top: screen.top, right: screen.right, bottom: screen.bottom,
+          width: screen.width, height: screen.height,
+        },
+        projections,
+      },
+      engineView: placed ? {
+        centre: placed.centre, zoom: placed.zoom, width: placed.width, height: placed.height,
+      } : null,
+    };
+  }, port);
+}
+
+function evidenceState(raw) {
+  const overviewLayers = raw.layers.filter(({ name }) => name.startsWith("overview"));
+  const overviewSources = overviewLayers.flatMap((layer) => layer.sources ?? []);
+  const boundedSources = overviewSources.map((source) => ({
+    url: source.url,
+    position: positionNumber(source.url),
+    boundsUm: physicalBounds(source),
+    error: source.error,
+  }));
+  const firstRowByPosition = new Map();
+  for (const source of overviewLayers[0]?.sources ?? []) {
+    const position = positionNumber(source.url);
+    if (position !== null) firstRowByPosition.set(position, physicalBounds(source));
+  }
+  const physicalErrors = raw.plan.flatMap((position, index) => {
+    const bounds = firstRowByPosition.get(index);
+    if (!bounds) return [];
+    const expected = raw.stage.projections[index].absoluteStageUm;
+    const observed = {
+      x: (bounds.xMin + bounds.xMax) / 2,
+      y: (bounds.yMin + bounds.yMax) / 2,
+    };
+    return [{
+      index, expectedAbsoluteStageUm: expected, engineCentreUm: observed,
+      errorUm: Math.hypot(expected.x - observed.x, expected.y - observed.y),
+    }];
+  });
+  const screenErrors = raw.stage.projections
+    .filter(({ engineScreenPx }) => engineScreenPx)
+    .map(({ errorPx }) => errorPx);
+  const engineVisibility = (prefix) => raw.layers
+    .filter(({ name }) => name.startsWith(prefix))
+    .map(({ name, visible }) => ({ row: name, visible: Boolean(visible) }));
+  const sourceCount = raw.acquisitions.reduce(
+    (total, acquisition) => total + sourcesIn(acquisition).length, 0,
+  );
+
+  return {
+    sourceCount,
+    acquisitions: acquisitionSummary(raw.acquisitions),
+    logicalChannelRows: raw.layers.map(({ name, visible, sources, error }) => ({
+      name, visible: Boolean(visible), sourceCount: sources?.length ?? 0,
+      layerError: error ?? null,
+    })),
+    overviewSources: boundedSources,
+    planBoundsUm: raw.planBounds,
+    imageAggregateBoundsUm: aggregateBounds(boundedSources.map(({ boundsUm }) => boundsUm)),
+    registration: {
+      positions: physicalErrors,
+      maximumErrorUm: physicalErrors.length
+        ? Math.max(...physicalErrors.map(({ errorUm }) => errorUm)) : null,
+      maximumErrorPx: screenErrors.length ? Math.max(...screenErrors) : null,
+      declaredTolerancePx: SCREEN_TOLERANCE_PX,
+      screenProjections: raw.stage.projections,
+    },
+    visibility: {
+      engineObserved: {
+        focussing: engineVisibility("focussing"),
+        overview: engineVisibility("overview"),
+      },
+    },
+    stage: raw.stage,
+    engineView: raw.engineView,
+    bridgeErrors: raw.scan.error ? [raw.scan.error] : [],
   };
-  fs.writeFileSync(path.join(SHOTS, "coordinate-trace.json"), JSON.stringify(trace, null, 2));
+}
 
-  await shot("overview-only", {
-    planned,
-    landed: 9,
-    examined: examined.length,
-    textured: examined.length - flat.length,
-    roiResults: results,
-    coordinateTrace: trace,
-  });
-  expect(failedProjection, "no planned ROI is off-screen or unprojectable").toEqual([]);
-  expect(examined, "all nine planned ROIs were examined").toHaveLength(9);
-  expect(thin, "every planned ROI carries picture").toEqual([]);
-  expect(flat, "every planned ROI is textured kidney data").toEqual([]);
+function zarrTrace(bridge, position) {
+  const folder = path.join(bridge.currentRun(), "positions", "overview");
+  const marker = `P${String(position).padStart(6, "0")}`;
+  const store = fs.readdirSync(folder).find((name) => name.includes(marker));
+  if (!store) return { position, error: "position store not found" };
+  const metadata = JSON.parse(fs.readFileSync(path.join(folder, store, "zarr.json"), "utf8"));
+  const array = JSON.parse(fs.readFileSync(path.join(folder, store, "0", "zarr.json"), "utf8"));
+  const level0 = metadata.attributes.ome.multiscales[0].datasets
+    .find((dataset) => dataset.path === "0");
+  const scale = level0.coordinateTransformations.find(({ type }) => type === "scale")?.scale;
+  const translation = level0.coordinateTransformations
+    .find(({ type }) => type === "translation")?.translation;
+  return {
+    position, store, axes: ["t", "c", "z", "y", "x"],
+    level0: { scale, translation, shape: array.shape },
+    zCoordinate: metadata.attributes.zmart_microscopy?.z_coordinate ?? null,
+  };
+}
 
-  await page.evaluate(() => window.__theStageCanvas.fadeTo(0.15));
-  await page.locator("#fit-btn").click();
-  await rest(6000);
-  await shot("whole-plate", {
-    planned, landed: 9, examined: examined.length, textured: examined.length - flat.length,
+function viewRecord(raw) {
+  return { stage: raw.stage.view, engine: raw.engineView };
+}
+
+async function takeEvidence({
+  page, bridge, port, audit, name, captureMethod, landed,
+  inspect = false, expectedTextured = null, requestedVisibility,
+  viewBefore = null, action = null, extra = {},
+}) {
+  const boxes = inspect ? await fieldsOnScreen(page) : [];
+  const png = await page.screenshot();
+  const pixels = readPng(png);
+  const roiResults = boxes.map((field) => ({ field, result: inspectField(pixels, field) }));
+  const examined = roiResults.filter(({ result }) => !result.error);
+  const textured = roiResults.filter(({ result }) => isTextured(result));
+  const raw = await liveState(page, port);
+  const state = evidenceState(raw);
+  const requests = audit.snapshot();
+  const record = {
+    schemaVersion: 1,
+    provenance,
+    sample: "mock kidney",
+    workflowStep: 5,
+    captureMethod,
+    name,
+    timestampUtc: new Date().toISOString(),
+    bridge: { origin: `http://127.0.0.1:${port}` },
+    counts: {
+      planned: raw.plan.length,
+      landed,
+      examined: examined.length,
+      textured: textured.length,
+    },
+    roiResults,
+    ...state,
+    visibility: { requested: requestedVisibility, ...state.visibility },
+    viewTransition: {
+      action,
+      before: viewBefore,
+      after: viewRecord(raw),
+    },
+    requests,
+    browserErrors: requests.browserErrors,
+    workerErrors: requests.workerErrors,
+    ...extra,
+  };
+  fs.writeFileSync(path.join(SHOTS, `${name}.png`), png);
+  fs.writeFileSync(path.join(SHOTS, `${name}.json`), JSON.stringify(record, null, 2));
+  /* Write the paired record even when an assertion below fails. A rejected
+     screenshot is diagnostic evidence too, and it must remain inspectable
+     rather than disappearing at the first mismatch. */
+  if (inspect) {
+    expect(boxes, `${name}: exactly nine planned ROIs are projected`).toHaveLength(9);
+    expect(examined, `${name}: no ROI is off-screen or unprojectable`).toHaveLength(9);
+  }
+  if (expectedTextured !== null) {
+    expect(textured.map(({ field }) => field.index), `${name}: textured ROI ledger`)
+      .toEqual(Array.from({ length: expectedTextured }, (_, index) => index));
+  }
+  return { png, record, raw, roiResults, textured };
+}
+
+function assertCompleteEvidence(record) {
+  const overview = acquisitionOf("overview", record.acquisitions);
+  expect(record.counts).toMatchObject({ planned: 9, landed: 9, examined: 9, textured: 9 });
+  expect(overview.logicalChannelCount, "three overview logical channels").toBe(3);
+  expect(overview.channels.map(({ sourceCount }) => sourceCount),
+    "nine overview positions remain behind every channel").toEqual([9, 9, 9]);
+  expect(record.registration.maximumErrorPx, "screen registration error")
+    .toBeLessThan(SCREEN_TOLERANCE_PX);
+  expect(record.registration.maximumErrorUm, "physical registration error").toBeLessThan(4);
+  expect(record.imageAggregateBoundsUm, "the engine exposes overview bounds").not.toBeNull();
+  expect(record.logicalChannelRows.filter(({ name }) => name.startsWith("overview")))
+    .toHaveLength(3);
+  expect(record.logicalChannelRows.filter(({ layerError }) => layerError)).toEqual([]);
+  expect(record.requests.required.metadata.successful,
+    "required OME-Zarr metadata was fetched").toBeGreaterThan(0);
+  expect(record.requests.required.chunks.successful,
+    "required OME-Zarr chunks were fetched").toBeGreaterThan(0);
+  expect(record.requests.unexpectedFailures, "no unexpected request failed").toEqual([]);
+  expect(record.browserErrors, "no browser error occurred").toEqual([]);
+  expect(record.workerErrors, "no worker error occurred").toEqual([]);
+  expect(record.bridgeErrors, "the bridge completed without error").toEqual([]);
+}
+
+async function absolutePlan(page) {
+  return page.evaluate(() => {
+    const [ox, oy] = window.__theStageCanvas.carrierOriginUm();
+    return window.__theStageCanvas.plan().map(({ x, y }) => {
+      const z = window.__theStageCanvas.focusZAt(x, y);
+      return z === null ? { x: x + ox, y: y + oy } : { x: x + ox, y: y + oy, z };
+    });
   });
+}
+
+test("deterministic kidney evidence records 0, 3, 6, and 9 landed positions", async ({ page }) => {
+  test.setTimeout(A_WHOLE_RUN);
+  const bridge = await startTheBridge({ port: PORT });
+  const audit = trackBrowser(page, PORT);
+  try {
+    await walkToScan(page, PORT);
+    const positions = await absolutePlan(page);
+    const allVisible = { focussing: true, overview: true };
+    const onlyOverview = { focussing: false, overview: true };
+    const zeroBefore = viewRecord(await liveState(page, PORT));
+    await takeEvidence({
+      page, bridge, port: PORT, audit, name: "0-of-9",
+      captureMethod: "deterministic live bridge before acquisition",
+      landed: 0, requestedVisibility: allVisible, viewBefore: zeroBefore,
+      action: "none; Step 5 is ready and Run has not been pressed",
+    });
+
+    /* A focusing field overlaps the middle overview ROI. Hide it while the
+       partial overview ledger is measured so 3 and 6 mean overview positions,
+       not overview positions plus one unrelated focusing image. */
+    await setAcquisitionVisible(page, "focussing", false);
+    await page.evaluate(() => window.__theStageCanvas.fadeTo(0));
+    await framePlannedGrid(page);
+    await rest(1000);
+
+    let before = viewRecord(await liveState(page, PORT));
+    await bridge.image(positions.slice(0, 3));
+    await waitForOverview(page, 3);
+    await waitForTexture(page, 3);
+    const three = await takeEvidence({
+      page, bridge, port: PORT, audit, name: "3-of-9",
+      captureMethod: "deterministic live bridge; cumulative first row",
+      landed: 3, inspect: true, expectedTextured: 3, requestedVisibility: onlyOverview,
+      viewBefore: before, action: "published cumulative positions 0 through 2",
+    });
+
+    before = viewRecord(three.raw);
+    await bridge.image(positions.slice(0, 6));
+    await waitForOverview(page, 6);
+    await waitForTexture(page, 6);
+    const six = await takeEvidence({
+      page, bridge, port: PORT, audit, name: "6-of-9",
+      captureMethod: "deterministic live bridge; cumulative first two rows",
+      landed: 6, inspect: true, expectedTextured: 6, requestedVisibility: onlyOverview,
+      viewBefore: before, action: "published cumulative positions 0 through 5",
+    });
+
+    before = viewRecord(six.raw);
+    await setAcquisitionVisible(page, "focussing", true);
+    await bridge.image(positions);
+    await waitForOverview(page, 9);
+    await waitForTexture(page, 9);
+    const all = await takeEvidence({
+      page, bridge, port: PORT, audit, name: "9-of-9-harness",
+      captureMethod: "deterministic live bridge; all positions",
+      landed: 9, inspect: true, expectedTextured: 9, requestedVisibility: allVisible,
+      viewBefore: before, action: "published cumulative positions 0 through 8",
+      extra: { positionStores: [zarrTrace(bridge, 0), zarrTrace(bridge, 8)] },
+    });
+    assertCompleteEvidence(all.record);
+    expect(all.record.positionStores.map(({ level0 }) => level0.translation[2]),
+      "every traced flat overview begins at z zero").toEqual([0, 0]);
+
+    const beforeVisibility = viewRecord(all.raw);
+    await setAcquisitionVisible(page, "focussing", false);
+    await rest(1500);
+    const overviewOnly = await takeEvidence({
+      page, bridge, port: PORT, audit, name: "overview-only",
+      captureMethod: "deterministic live bridge; panel visibility control",
+      landed: 9, inspect: true, expectedTextured: 9,
+      requestedVisibility: { focussing: false, overview: true },
+      viewBefore: beforeVisibility, action: "clicked the focussing acquisition eye off",
+    });
+    expect(overviewOnly.record.visibility.engineObserved.focussing
+      .every(({ visible }) => !visible), "focussing is hidden in the engine").toBe(true);
+    expect(overviewOnly.record.visibility.engineObserved.overview
+      .every(({ visible }) => visible), "overview remains visible in the engine").toBe(true);
+    const canvas = overviewOnly.record.stage.canvas;
+    const changed = pixelChangesInside(all.png, overviewOnly.png, canvas);
+    expect(changed, "hiding focussing changes acquired pixels on the canvas").toBeGreaterThan(10);
+
+    const beforeFit = viewRecord(overviewOnly.raw);
+    await page.evaluate(() => window.__theStageCanvas.fadeTo(0.15));
+    await page.locator("#fit-btn").click();
+    await rest(1000);
+    const wholePlate = await takeEvidence({
+      page, bridge, port: PORT, audit, name: "whole-plate",
+      captureMethod: "deterministic live bridge; explicit operator Fit",
+      landed: 9, requestedVisibility: { focussing: false, overview: true },
+      viewBefore: beforeFit, action: "operator clicked Fit after image arrival",
+    });
+    const projected = wholePlate.record.registration.screenProjections;
+    expect(projected.every(({ stageScreenPx }) => stageScreenPx.x >= 0
+      && stageScreenPx.y >= 0
+      && stageScreenPx.x <= wholePlate.record.stage.canvas.width
+      && stageScreenPx.y <= wholePlate.record.stage.canvas.height),
+    "the complete overview plan remains in the whole-plate frame").toBe(true);
+
+    const centre = positions[4];
+    const [originX, originY] = await page.evaluate(() => window.__theStageCanvas.carrierOriginUm());
+    const closeCentre = { x: centre.x - originX, y: centre.y - originY };
+    const beforeClose = viewRecord(wholePlate.raw);
+    await page.evaluate(() => window.__theStageCanvas.fadeTo(0));
+    await frameAround(page, closeCentre, 3);
+    await rest(1500);
+    const close = await takeEvidence({
+      page, bridge, port: PORT, audit, name: "kidney-close-up",
+      captureMethod: "deterministic live bridge; operator zoomed to the centre field",
+      landed: 9, requestedVisibility: { focussing: false, overview: true },
+      viewBefore: beforeClose, action: "operator zoomed and panned to position 4",
+    });
+    expect(close.record.stage.view.zoom, "close-up reaches microscopy scale").toBeLessThanOrEqual(3);
+    assertCompleteEvidence(overviewOnly.record);
+  } finally {
+    await bridge.stop();
+  }
+});
+
+test("the actual Step 5 Run button lands and renders all nine kidney fields", async ({ page }) => {
+  test.setTimeout(A_WHOLE_RUN);
+  const bridge = await startTheBridge({ port: RUN_PORT });
+  const audit = trackBrowser(page, RUN_PORT);
+  try {
+    await walkToScan(page, RUN_PORT);
+    const beforeRun = viewRecord(await liveState(page, RUN_PORT));
+    await page.locator(".panel.on button.step-run").click();
+    await expect.poll(async () => (await scanStatus(page, RUN_PORT)).done, {
+      timeout: 400_000,
+      intervals: [100, 250, 500],
+      message: "the actual Step 5 scan never reached nine positions",
+    }).toBe(9);
+    await expect.poll(async () => !(await scanStatus(page, RUN_PORT)).running, {
+      timeout: 400_000,
+      message: "the actual Step 5 scan never finished",
+    }).toBe(true);
+    await waitForOverview(page, 9);
+    await page.evaluate(() => window.__theStageCanvas.fadeTo(0));
+    await framePlannedGrid(page);
+    await waitForTexture(page, 9);
+    await rest(1500);
+    const run = await takeEvidence({
+      page, bridge, port: RUN_PORT, audit, name: "9-of-9-run",
+      captureMethod: "actual Step 5 Run button end to end",
+      landed: 9, inspect: true, expectedTextured: 9,
+      requestedVisibility: { focussing: true, overview: true },
+      viewBefore: beforeRun, action: "operator clicked the Step 5 Run button",
+      extra: { positionStores: [zarrTrace(bridge, 0), zarrTrace(bridge, 8)] },
+    });
+    assertCompleteEvidence(run.record);
+  } finally {
+    await bridge.stop();
+  }
 });
