@@ -33,6 +33,7 @@ License: MIT
 from __future__ import annotations
 
 import json
+import re
 import threading
 import urllib.request
 from pathlib import Path
@@ -43,15 +44,38 @@ _viewer: dict = {
     # viewer heading (the acquisition type, read off the store names) -> the
     # engine-ready sources: [{"url": ..., "name": ...}], each a whole address.
     "sources": {},
-    # positions folder -> how many stores it held when it was opened. The
+    # positions folder -> how many stores it held when it was linked. The
     # count matters, not just membership: a folder opened at ONE store was
-    # opened as that store, and the viewer's watching grows scenes, not
-    # single stores — so the moment a second store lands, the dataset has to
-    # be closed and the folder opened again, which now links it into one
-    # picture. From then on the watching carries it.
+    # opened as that store, and a folder opened at several links exactly the
+    # stores that were there at the time — so what the viewer serves stops
+    # matching the disk the moment another position lands, and the folder has
+    # to be opened again over everything now there.
     "opened": {},
+    # positions folder -> the acquisition type it holds, so a relink knows
+    # which headings to close.
+    "kind": {},
+    # positions folder -> when it was last linked, so a run that lands a
+    # position every half-second is not relinked every half-second.
+    "linked_at": {},
 }
 _the_turn = threading.Lock()
+
+#: How long a linked picture may stand before a grown folder is linked again.
+#:
+#: Every relink closes the acquisition and opens it afresh, and the viewer
+#: numbers what it serves in the order it was opened — so a relink changes the
+#: address. That is the whole reason this waits. Relinking on every landing
+#: renumbered the source several times a second, and the page, which reads the
+#: addresses and then opens them, was always one or two numbers behind: every
+#: open it attempted had already been closed, and the answer was 403. Nothing
+#: ever reached the screen, and nothing said why.
+#:
+#: Five seconds is a compromise between two real wants. An operator watching a
+#: scan wants the picture to grow while they watch; the page wants an address
+#: that is still alive by the time it has opened it. The relink happens as the
+#: page asks what there is to draw (see :func:`status`), so the address it is
+#: handed is always the freshest there has ever been.
+A_PICTURE_MAY_STAND_FOR = 5.0
 
 
 def start(run_folder: Path | str) -> None:
@@ -87,7 +111,10 @@ def stop() -> None:
     """The session is over, and the viewer with it."""
     with _the_turn:
         server = _viewer["server"]
-        _viewer.update(server=None, thread=None, port=None, sources={}, opened={})
+        _viewer.update(
+            server=None, thread=None, port=None,
+            sources={}, opened={}, kind={}, linked_at={},
+        )
         if server is not None:
             try:
                 server.shutdown()
@@ -96,7 +123,16 @@ def stop() -> None:
 
 
 def status() -> dict:
-    """What the operator page asks: is the viewer up, and what does it hold."""
+    """What the operator page asks: is the viewer up, and what does it hold.
+
+    Any acquisition whose folder has grown is linked again first, so the
+    addresses handed back are the freshest that have ever been served. That
+    matters more than it sounds: a relink closes the old address, so an
+    address given out and relinked a moment later is one the page can no
+    longer open. Linking here — as the page asks — makes the gap as small as
+    it can be.
+    """
+    _link_again_what_has_grown()
     with _the_turn:
         port = _viewer["port"]
         return {
@@ -111,37 +147,83 @@ def a_position_landed(acquisition_type: str, positions_folder: Path | str) -> No
     """A capture's position store has been written: make sure the viewer shows it.
 
     The first position of an acquisition type opens its folder as a source of
-    its own; every later one only rings the doorbell, and the viewer re-reads
-    what is on disk. Never raises — a viewer that cannot hear costs the live
-    picture, not the scan.
+    its own. Later ones only ring the doorbell and note that the folder has
+    grown; the linking itself waits until the page next asks what there is to
+    draw, which is where the address it is given is freshest. Never raises —
+    a viewer that cannot hear costs the live picture, not the scan.
     """
     folder = str(positions_folder)
-    stores_now = len(list(Path(folder).glob("*.ome.zarr")))
     with _the_turn:
         port = _viewer["port"]
         if port is None:
             return
-        opened_at = _viewer["opened"].get(folder)
+        _viewer["kind"][folder] = acquisition_type
+        first_time = folder not in _viewer["opened"]
     try:
-        if opened_at is None:
-            answered = _ask(port, "/api/stores/open", {"path": folder})
-            with _the_turn:
-                _viewer["opened"][folder] = stores_now
-                _viewer["sources"] = _the_sources_in(answered, port)
-        elif opened_at == 1 and stores_now >= 2:
-            # Opened at one store, the folder was opened AS that store, and
-            # watching cannot grow a single store into a run. Closed and
-            # opened again, the folder now links into one picture — and the
-            # watching carries every position after this.
-            _ask(port, "/api/stores/close", {"group": acquisition_type})
-            answered = _ask(port, "/api/stores/open", {"path": folder})
-            with _the_turn:
-                _viewer["opened"][folder] = stores_now
-                _viewer["sources"] = _the_sources_in(answered, port)
+        if first_time:
+            _link(port, folder, acquisition_type, closing=False)
         _ask(port, "/api/announce", {})
     except Exception as why:  # noqa: BLE001 -- the picture lags, the scan goes on
         with _the_turn:
             _viewer["error"] = f"the viewer was not told about {acquisition_type}: {why}"
+
+
+def _link_again_what_has_grown() -> None:
+    """Open afresh every acquisition whose folder holds more than it links.
+
+    Rate-limited by :data:`A_PICTURE_MAY_STAND_FOR`, because each relink
+    changes the address the acquisition is served at and an address that
+    changes faster than the page can open it is an address nobody can draw.
+    """
+    import time
+
+    with _the_turn:
+        port = _viewer["port"]
+        if port is None:
+            return
+        standing = list(_viewer["opened"].items())
+        kinds = dict(_viewer["kind"])
+        linked_at = dict(_viewer["linked_at"])
+
+    now = time.monotonic()
+    for folder, linked in standing:
+        if now - linked_at.get(folder, 0.0) < A_PICTURE_MAY_STAND_FOR:
+            continue
+        try:
+            on_disk = len(list(Path(folder).glob("*.ome.zarr")))
+        except OSError:
+            continue
+        if on_disk <= linked:
+            continue
+        try:
+            _link(port, folder, kinds.get(folder, "picture"), closing=True)
+        except Exception as why:  # noqa: BLE001 -- the picture lags, the run goes on
+            with _the_turn:
+                _viewer["error"] = f"the picture of {folder} was not linked again: {why}"
+
+
+def _link(port: int, folder: str, acquisition_type: str, *, closing: bool) -> None:
+    """Open a positions folder, and remember what was linked and when.
+
+    ``closing`` says whether this acquisition is already open and must be let
+    go of first. Both of its names are closed, because the viewer knows the
+    two shapes of an acquisition by different names: a folder opened at one
+    store goes by the acquisition type, and a linked scene by its scene-store
+    name. Closing only the first left every scene standing, so each relink
+    added the same picture again — a growing pile of duplicates, every one of
+    them an address that had already been superseded.
+    """
+    import time
+
+    if closing:
+        for name in (acquisition_type, f"{acquisition_type}.zmartview.zarr"):
+            _ask(port, "/api/stores/close", {"group": name})
+    on_disk = len(list(Path(folder).glob("*.ome.zarr")))
+    answered = _ask(port, "/api/stores/open", {"path": folder})
+    with _the_turn:
+        _viewer["opened"][folder] = on_disk
+        _viewer["linked_at"][folder] = time.monotonic()
+        _viewer["sources"] = _the_sources_in(answered, port)
 
 
 def _the_sources_in(config: dict, port: int) -> dict[str, list[dict]]:
@@ -160,6 +242,14 @@ def _the_sources_in(config: dict, port: int) -> dict[str, list[dict]]:
         if row.get("kind") != "image":
             continue
         group = str(row.get("group") or "picture")
+        # The viewer decorates a label when names collide: a session prefix
+        # ("session-abc · focussing.zmartview.zarr") and a copy number
+        # ("… (2)"). Both are the viewer's own bookkeeping, not the
+        # acquisition's name, so they come off before the store suffix does —
+        # a suffix at the end of a decorated label would otherwise survive
+        # the stripping and stand as a heading of its own.
+        group = group.rsplit(" · ", 1)[-1]
+        group = re.sub(r" \(\d+\)$", "", group)
         for suffix in (".zmartview.zarr", ".ome.zarr", ".zarr"):
             group = group.removesuffix(suffix)
         for address in row.get("sources") or []:
@@ -168,7 +258,44 @@ def _the_sources_in(config: dict, port: int) -> dict[str, list[dict]]:
                 if str(address).startswith("/") else str(address)
             )
             grouped.setdefault(group, {}).setdefault(whole, {"url": whole, "name": group})
-    return {group: list(held.values()) for group, held in grouped.items()}
+    return {
+        group: _only_the_newest_of(held.values()) for group, held in grouped.items()
+    }
+
+
+def _only_the_newest_of(held) -> list[dict]:
+    """One address per acquisition: the most recently opened generation.
+
+    This is the fix for the fault that kept an acquired overview off the
+    operator's canvas, and it is worth writing down because nothing on screen
+    could have shown it.
+
+    Every time a growing folder is linked again, the viewer opens it afresh
+    and numbers what it serves in the order it was opened — so one acquisition
+    ends up served at several addresses, one per generation. Their headings
+    differ only by the viewer's own decoration ("… (2)"), which is stripped
+    just above, so all the generations fall under one heading; and the first
+    one seen was kept, which is the *oldest*. The page was therefore handed a
+    superseded picture. Its description still read correctly, so the layer
+    built, reported no error, and sat at the right place on the canvas — and
+    every piece of picture the engine then asked for came back "not found",
+    because only the newest generation can still build its pieces. An
+    acquisition that is present, correct, and completely invisible.
+
+    The viewer numbers its datasets upwards, so the newest is the one with the
+    highest number in its address. Where an address carries no number at all
+    (a store named directly rather than served by the viewer) the order it
+    arrived in stands.
+    """
+    def numbered(source: dict) -> int:
+        found = re.search(r"/data/(\d+)/", source["url"])
+        return int(found.group(1)) if found else -1
+
+    sources = list(held)
+    if len(sources) <= 1:
+        return sources
+    newest = max(sources, key=numbered)
+    return [newest]
 
 
 def _ask(port: int, route: str, payload: dict) -> dict:

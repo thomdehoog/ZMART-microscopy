@@ -243,6 +243,13 @@ export function watchTheRun(ctx) {
       window.__thePicture = null;
     }
 
+    /* Left where a test can reach it: when the picture is missing, the one
+       question that matters is whether the page believes it is open, is
+       still opening, or has given up — and only the page can answer. */
+    window.__thePictureState = () => ({
+      opened: !!viewer, opening, openedOn,
+    });
+
     return {
       /** Whether this page was pointed at a scan by its own address. The run's
           sources are asked for asynchronously, so they do not answer here. */
