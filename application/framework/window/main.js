@@ -1803,6 +1803,7 @@ let stageWatch = null;
     plan: () => stage.plan(),
     project: (x, y) => stage.project(x, y),
     carrierOriginUm: () => stage.carrierOriginUm(),
+    lookAt: (at) => stage.lookAt(at),
   };
   /* The selected focus point, for a test that needs to take hold of one. */
   window.__theFocusPoints = () => state.focus.points[state.focus.selected] ?? null;

@@ -803,6 +803,17 @@ window.__theStageCanvas = {
     const [ox, oy] = carrierOriginUm();
     return toScreen(x + ox, y + oy);
   },
+  /**
+   * Put the view somewhere, in the carrier's own micrometres.
+   *
+   * The Fit button's move, offered by hand: centre on a place and choose how
+   * much sample one screen pixel covers. A test that wants to photograph a
+   * particular field zooms with this rather than by synthesising wheel
+   * events, which land on whatever happens to be under the pointer.
+   */
+  lookAt({ x, y, zoom }) {
+    theCanvas.lookAt({ centre: { x, y }, zoom });
+  },
 };
 
 /* Carrier coordinates for the editor: it places fields inside the carrier,
@@ -1114,5 +1125,8 @@ ctx.fitButton.addEventListener("click", () => {
       ({ key, label, shown, staysSolid: !!staysSolid })),
     showLayer(key, on) { theCanvas.showLayer(key, on); },
     fadeTo(value) { theCanvas.fadeTo(value); },
+    /* The Fit button's move, offered by hand: centre on a place in the
+       carrier's micrometres and choose how much sample one pixel covers. */
+    lookAt({ x, y, zoom }) { theCanvas.lookAt({ centre: { x, y }, zoom }); },
   };
 }

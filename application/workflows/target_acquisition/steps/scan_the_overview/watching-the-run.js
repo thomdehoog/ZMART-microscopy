@@ -141,6 +141,14 @@ export function watchTheRun(ctx) {
       return null;
     }
 
+    /* How long an open may take before the page stops waiting for it. Long,
+       because a linked scene of a large run honestly takes a while to open —
+       this is not a performance budget but a wedge guard. An open that never
+       settles held `opening` for ever, and with it the whole retry clock: the
+       canvas stayed empty for the rest of the session with nothing on screen
+       or in the console to say why. */
+    const AN_OPEN_MAY_TAKE_MS = 90_000;
+
     async function open() {
       if (viewer || opening) return;
       opening = true;
@@ -148,12 +156,28 @@ export function watchTheRun(ctx) {
         const wanted = await whatToOpen();
         if (!wanted) return;
         const openViewer = await openerFor(wanted.engine);
-        viewer = await openViewer(host, {
+        const being = openViewer(host, {
           acquisitions: wanted.acquisitions,
           /* The same colour the page paints, so the seam between the scan's own
              background and the ground above it never shows. */
           background: ctx.css("--screen"),
         });
+        const wedged = Symbol("the open never settled");
+        const settled = await Promise.race([
+          being,
+          new Promise((tell) => { setTimeout(() => tell(wedged), AN_OPEN_MAY_TAKE_MS); }),
+        ]);
+        if (settled === wedged) {
+          /* Whatever the stuck open eventually builds belongs to nobody now;
+             it is closed the moment it turns up so it cannot sit over a later,
+             successful open. */
+          being.then((late) => late?.destroy?.()).catch(() => {});
+          throw new Error(
+            `the viewer did not open within ${AN_OPEN_MAY_TAKE_MS / 1000} seconds; ` +
+              "it will be asked again",
+          );
+        }
+        viewer = settled;
         openedOn = wanted.signature;
         inStageFrame = wanted.inStageFrame;
         /* Left where a test can reach it. What matters about a picture is what
