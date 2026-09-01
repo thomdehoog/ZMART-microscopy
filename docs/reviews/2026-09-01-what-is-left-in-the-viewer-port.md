@@ -18,6 +18,76 @@ real page; section 8 of the companion lists the commands. Two things that will
 bite a fresh machine: the focus environment needs `ngio` (companion, section 9),
 and the operator page needs `npm install` in `application/`.
 
+One house rule, because it applies to every line you will write here: this
+repository is read by microscopists and biologists who are learning, not by
+software engineers. `CLAUDE.md` at the top of the repository says what that
+means for comments, docstrings and anything an operator sees.
+
+---
+
+## 0a. The map of the code
+
+Five files hold nearly all of this. Knowing which is which saves an afternoon.
+
+| File | What it is |
+|---|---|
+| `application/parts/canvas/viewer-panel.js` | **The panel.** Everything in section 3 that says "panel only" happens here. |
+| `application/parts/canvas/viewer.js` | The canvas part: the picture, the operator's overlay, the view. It owns `pictureOffsetUm`, which reconciles the carrier's micrometres with the stage's. |
+| `application/parts/canvas/engines.js` | Which drawing engines exist and how one is opened. |
+| `viz_studio/options/contract.md` | What every engine promises. Read before changing any engine. |
+| `viz_studio/options/neuroglancer-under/viewer.js` | The engine the operator window draws with. The **only** file allowed to import from `neuroglancer/unstable/...` — see the guard below. |
+
+The panel is mounted in two places, and both matter when you change its
+signature: the run's own view mounts it at
+`application/workflows/target_acquisition/steps/scan_the_overview/watching-the-run.js:182`,
+and the specs mount it directly. Which engine draws the run is one named line
+in `application/workflows/target_acquisition/shared/stage.js`, overridable in
+the page's address with `?engine=`.
+
+**A guard you will meet.** `viz_studio/tests/test_the_options_hold_together.py`
+has `test_the_engine_stays_behind_its_adapter`, which fails if anything outside
+that one adapter file imports neuroglancer. It exists so that swapping the
+engine one day stays a single-file job. Step 6 works inside the adapter, which
+is allowed; reaching for a neuroglancer type from the panel is not.
+
+---
+
+## 0b. A loop you can work in
+
+The slowest thing about this work is getting a real picture in front of you.
+This is the short way.
+
+```bash
+cd application
+npm install                       # once
+npm run dev                       # the page, on 127.0.0.1:5174
+
+# in another shell: the bridge, with the mock instrument
+python framework/bridge.py --port 8811 --output-root /tmp/a-run
+```
+
+Open `http://127.0.0.1:5174/?bridge=8811`, connect to the **mock** instrument,
+and walk the workflow to step 5. Once a scan has landed a field or two, the
+bridge will tell you where the pictures are being served:
+
+```bash
+curl -s http://127.0.0.1:8811/api/viewer
+```
+
+The `sources` in that answer are the addresses the panel and the specs want.
+**They do not stay the same for long** — see the trap below — so ask again
+rather than pasting an old one. Those addresses are what the panel's own spec
+takes:
+
+```bash
+ZV_SOURCE="<focussing url> <overview url>" npx playwright test viewer-panel-eyes.spec.js
+```
+
+That spec is also the pattern to copy for anything you add: it presses a
+control, then asks the *picture* what it is really doing, and requires the two
+to agree. A panel test that only checks the panel proves nothing — the whole
+reason the eyes were wrong for so long is that they agreed with themselves.
+
 ---
 
 Everything below has been checked against the two panels side by side: the
@@ -63,6 +133,42 @@ been thought through yet.
   `viz_studio/options/` answers it, even if the answer is "I cannot".
 - **The engine adapter** (`viz_studio/options/<name>/viewer.js`) — the only
   place that knows how this particular engine works.
+
+---
+
+## 2a. Traps that have already cost this project days
+
+None of these are your fault when you meet them, and all of them look like
+something else.
+
+**A promise that never settles looks exactly like loading.** This is the one
+that keeps happening. An open that cannot finish, a measurement that never
+answers — the screen shows nothing and says nothing, and the natural reading is
+"it is still working". Give anything that waits a way to refuse.
+
+**The addresses the pictures are served on change during a run.** The viewer
+numbers what it serves in the order it was opened, so relinking a growing
+folder lets the old address go, and a page holding one gets `403`. Ask
+`/api/viewer` again rather than keeping an address. Relinking is deliberately
+slowed to once every thirty seconds for the same reason.
+
+**Neuroglancer forces its own canvas opaque at the end of every frame.** So
+nothing painted beneath it is ever seen. That is why the operator's plan and
+marks are drawn on a surface *above* the picture, and why the engine reports
+`drawsUnder: false`. If you find yourself wondering why a drawing vanished,
+this is why.
+
+**A WebGL canvas does not appear in an element screenshot** — only in a
+screenshot of the whole page. Measuring a picture by photographing its own
+element gives a convincingly blank image, and three separate "the overview is
+still empty" conclusions came from exactly that. Photograph the page.
+
+**Measure each field separately.** A scan of fifty-four fields that drew twenty
+looks, from far enough away, exactly like one that drew all fifty-four.
+`every-tile-is-filled.spec.js` exists because of this.
+
+**Look at the screenshots you take.** Not just the assertions — the pictures.
+Several things on this branch passed their tests while plainly wrong on screen.
 
 ---
 
@@ -124,6 +230,10 @@ second far more often.
 each row, and add a *Reset* button beside *Auto*, disabled when there is
 nothing to go back to.
 
+**Done when** dragging the handles about and then pressing *Reset* gives back
+exactly the picture the acquisition opened with, and *Reset* is greyed out on a
+channel whose store declared no window.
+
 ### Step 3 — brightness and contrast, the way Fiji says it
 
 *Needs: nothing but the panel. Half a day.*
@@ -142,6 +252,11 @@ the panel already calls, so nothing outside the panel changes. Brightness runs
 backwards on purpose: pulling the window down towards the dark end makes the
 picture brighter, because more of the image lands above it.
 
+**Done when** moving *brightness* moves *min* and *max* together on screen,
+moving *contrast* draws them in around the middle, and dragging a handle on the
+histogram moves the brightness and contrast numbers back — because underneath
+there is only one window and all four controls have to show it.
+
 ### Step 4 — the panel should say when a measurement failed
 
 *Needs: nothing but the panel. An hour.*
@@ -154,6 +269,9 @@ about: something did not work, and the window looked merely quiet.
 
 A single line of notice under the heading, in the standalone viewer's red
 (`LayerPanel.jsx:680–684`), saying what was asked for and what came back.
+
+**Done when** pointing the panel at an address that is not being served shows a
+line saying so, rather than an empty histogram and no explanation.
 
 ### Step 5 — a stack, and a timelapse, that play
 
@@ -179,6 +297,10 @@ options at once — `neuroglancer-under`, `viv-under`, `viv-inside` and
 timelapse whether or not anybody called it one. Once the run's positions carry
 more than one moment, a panel that cannot reach them shows only the first.
 
+**Done when** a stack plays and wraps, the button stops itself if the stack
+goes away, and a run with one moment shows no time slider at all rather than a
+slider that cannot move.
+
 ### Step 6 — colour maps
 
 *Needs: work inside the engine adapter. About a day.*
@@ -203,6 +325,10 @@ Three pieces:
 This is the largest of the steps and the one most confined to a single file, so
 it is a good one to hand to somebody on their own.
 
+**Done when** a channel drawn through a colour map looks right on screen (look
+at it), the chooser offers only maps the engine can actually draw, and
+`test_the_engine_stays_behind_its_adapter` still passes.
+
 ### Step 7 — tidying a long list of acquisitions
 
 *Needs: nothing but the panel. Half a day.*
@@ -217,6 +343,10 @@ things from the standalone panel help and neither touches the picture:
   at once while keeping its colours in balance. It needs no new engine support:
   it multiplies into the per-channel weight the panel already sends.
 
+**Done when** folding a group away leaves the picture untouched — a fold is
+about the bar, not about what is drawn — and the heading still says how many
+channels are inside it.
+
 ### Step 8 — hold the selection by name, not by row number
 
 *Needs: nothing but the panel. An hour.*
@@ -228,6 +358,10 @@ sliders quietly start adjusting a different channel. The standalone viewer met
 this and fixed it by holding a name instead (`App.jsx:296–299`); the same
 change here is small and worth making before the list starts changing under an
 operator's hands during a run.
+
+**Done when** a channel stays selected across a rebuild of the list, and the
+settings still act on that same channel afterwards. The run landing its first
+target acquisition mid-scan is the case to test.
 
 ---
 
