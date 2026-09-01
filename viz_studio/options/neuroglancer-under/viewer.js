@@ -125,10 +125,6 @@ import { theRangeAStoreHolds } from "../brightness.js";
 // And where to open looking, which the engines disagree about by a factor of
 // twenty if left to themselves. See `../opening-view.js`.
 import { theViewThatShowsAllOf } from "../opening-view.js";
-// And which plane of a stack to open on. This engine's own default is the
-// middle of the volume, which is the same answer — but agreeing by coincidence
-// is not agreeing. See `../planes.js`.
-import { theMiddlePlaneOf } from "../planes.js";
 // And where the specimen sits in the ground the run declared. This engine
 // keeps the store to itself, so it is read here the way the window is.
 import { whereTheSpecimenIsInThisStore } from "../where-the-specimen-is.js";
@@ -306,7 +302,15 @@ export async function openViewer(element, options = {}) {
   };
 
   buildTheTwoSurfaces(own);
-  await start(own, acquisitions);
+  try {
+    await start(own, acquisitions);
+  } catch (why) {
+    /* A failed open must leave the box exactly as it found it. Without this,
+       every retry stacked another half-built engine into the element, and the
+       opaque canvas of a dead one sat over whatever finally opened. */
+    tearDown(own);
+    throw why;
+  }
   // The two gestures go on last, once there is something for them to move. The
   // three lines below are word for word the same in every option, because they
   // have to be: if the three wired up dragging even slightly differently, a
@@ -692,7 +696,7 @@ async function start(own, acquisitions) {
     row.managed = managed;
   }
 
-  await whenTheAxesAreKnown(own.viewer);
+  await whenTheAxesAreKnown(own.viewer, own.rows);
   pinTheAxesThatMeasureDistance(own.viewer);
   startTimeAtTheFirstMoment(own.viewer);
   countFromTheCornerOfTheVoxelRatherThanItsMiddle(own);
@@ -754,7 +758,18 @@ async function start(own, acquisitions) {
     );
     if (showingAllOfIt) writeTheView(own, showingAllOfIt);
   }
-  openOnThePlaneWhereTheSpecimenIs(own, specimen);
+  /* The map stands on the first plane, and it keeps standing there. The
+     engine re-centres the height whenever a late-loading source grows the
+     space it knows about, so pinning it once at open is not enough — the
+     pin is re-applied after every change of the space, a moment later so it
+     lands after the engine's own centring rather than under it. The
+     operator's own choice of plane, made through `setPlane`, ends this. */
+  own.stopStandingOnTheFirstPlane =
+    own.viewer.navigationState.position.coordinateSpace.changed.add(() => {
+      setTimeout(() => {
+        if (!own.destroyed) theMapStandsOnItsFirstPlane(own);
+      }, 0);
+    });
 
   // -- the repaint discipline ---------------------------------------------
   //
@@ -1083,16 +1098,74 @@ function everyHeightBeginsAtNought(own) {
   }
   // And the map opens on that first plane, rather than wherever the engine's
   // own centring left the height standing.
+  theMapStandsOnItsFirstPlane(own);
+  return settled;
+}
+
+/**
+ * Keep the map's height on the first plane, where the flat captures are.
+ *
+ * The engine re-centres the height whenever the space it knows about grows —
+ * a focussing stack finishing its load moves the standing z to the middle of
+ * the stack — and a flat capture one voxel thick is invisible from there. On
+ * a run with both, that looked exactly like "the overview never shows up":
+ * the focussing drew (the height stood inside its span) and the overview
+ * never did. So the height is put back on the first plane every time it is
+ * found elsewhere — until the operator chooses a plane themselves, through
+ * `setPlane`, after which their choice stands.
+ */
+function theMapStandsOnItsFirstPlane(own) {
+  if (own.operatorChoseAPlane) return;
   const space = own.viewer.navigationState.position.coordinateSpace.value;
   const heightAxis = space?.names?.indexOf?.("z") ?? -1;
-  if (heightAxis >= 0) {
-    const standing = Float32Array.from(own.viewer.navigationState.position.value);
-    if (Number.isFinite(standing[heightAxis]) && standing[heightAxis] !== 0.5) {
-      standing[heightAxis] = 0.5;
-      own.viewer.navigationState.position.value = standing;
-    }
+  if (heightAxis < 0) return;
+  const standing = Float32Array.from(own.viewer.navigationState.position.value);
+  if (Number.isFinite(standing[heightAxis]) && standing[heightAxis] !== 0.5) {
+    standing[heightAxis] = 0.5;
+    own.viewer.navigationState.position.value = standing;
   }
-  return settled;
+}
+
+/**
+ * Take everything the viewer built out of the box again.
+ *
+ * One teardown, shared between the handle's `destroy()` and the failure path
+ * of `openViewer` — a viewer that could not finish opening has to be cleared
+ * away just as thoroughly as one that is being closed, or its half-built
+ * surfaces stay in the element under every later attempt.
+ */
+function tearDown(own) {
+  if (own.destroyed) return;
+  own.destroyed = true;
+  if (own.heightsBecomeNought) {
+    clearInterval(own.heightsBecomeNought);
+    own.heightsBecomeNought = null;
+  }
+  // The gestures come off first. Listeners left behind on a box that is
+  // still in the page would go on answering the operator's hand after the
+  // viewer they belonged to had gone. The little record of what they saw is
+  // kept rather than thrown away, so that a check can still ask a closed
+  // viewer whether anything reached it after it shut.
+  own.gestures?.stop();
+  own.watchSize?.disconnect();
+  own.stopFollowing?.();
+  own.stopHoldingOn?.();
+  own.stopStandingOnTheFirstPlane?.();
+  own.stopStandingOnTheFirstPlane = null;
+  for (const stop of own.stopWatchingTheSources || []) stop();
+  own.stopWatchingTheSources = null;
+  own.paint = null;
+  own.paintBeneath = null;
+  for (const row of own.rows) {
+    if (row.managed) deleteLayer(row.managed);
+  }
+  own.rows = [];
+  own.viewer?.dispose?.();
+  own.viewer = null;
+  own.engineHost?.remove();
+  own.overlay?.remove();
+  own.beneath?.remove();
+  own.beneath = null;
 }
 
 /**
@@ -1129,16 +1202,49 @@ function emptyTheEnginesOwnBindings(viewer) {
  * Until they have, the engine is working in a space with no axes at all, and
  * every conversion between the operator's micrometres and the screen would be
  * nonsense.
+ *
+ * And when they never will, this says so instead of waiting for ever. A store
+ * that cannot be read — an address that has gone stale while a live run's
+ * server reshuffled what it serves, a server that is down — leaves the engine
+ * with an error on the layer and a coordinate space that stays empty. Waiting
+ * on that looks exactly like loading, and it once wedged the operator's whole
+ * canvas: the page's open never finished, its "already opening" guard held,
+ * and no retry could ever run. So the layers are looked at as well as the
+ * axes, and the moment every acquisition has answered with an error rather
+ * than data, the promise is rejected with those errors — which lets a caller
+ * catch, log, and try again with fresh addresses.
  */
-function whenTheAxesAreKnown(viewer) {
+function whenTheAxesAreKnown(viewer, rows = []) {
   const { position } = viewer.navigationState;
-  return new Promise((done) => {
+  return new Promise((done, refuse) => {
+    let clock = null;
+    const stopBoth = () => {
+      stop();
+      if (clock) clearInterval(clock);
+    };
     const look = () => {
       if ((position.coordinateSpace.value?.rank ?? 0) === 0) return;
-      stop();
+      stopBoth();
       done();
     };
     const stop = position.coordinateSpace.changed.add(look);
+    /* The errors have no signal of their own worth wiring across every
+       source, so they are read on a slow clock — it runs only while the
+       viewer is opening, and it puts itself down with the promise. */
+    clock = setInterval(() => {
+      const answers = rows.map(
+        (row) => row.managed?.layer?.dataSources?.[0]?.loadState,
+      );
+      const allRefused = answers.length
+        && answers.every((state) => state && state.error);
+      if (!allRefused) return;
+      stopBoth();
+      refuse(new Error(
+        "none of the acquisitions could be read: " +
+          answers.map((state, at) => `${rows[at].layerName}: ${state.error}`)
+            .join("; "),
+      ));
+    }, 500);
     look();
   });
 }
@@ -1567,23 +1673,13 @@ function theSpecimenInMicrometres(own, ground, specimen) {
   };
 }
 
-function openOnThePlaneWhereTheSpecimenIs(own, specimen) {
-  const info = own.viewer.navigationState.displayDimensionRenderInfo.value;
-  const space = own.viewer.navigationState.position.coordinateSpace.value;
-  const depth = info?.displayDimensionIndices?.[2] ?? -1;
-  if (depth < 0 || !space?.bounds) return;
-  const planes = Math.round(
-    space.bounds.upperBounds[depth] - space.bounds.lowerBounds[depth],
-  );
-  if (!(planes > 1)) return;
-  const moved = Float32Array.from(own.viewer.navigationState.position.value);
-  // Where the specimen is, where it could be found; the middle of the declared
-  // stack otherwise, which is what this did before and is right when a run fills
-  // the room it asked for.
-  const plane = specimen?.z ?? theMiddlePlaneOf(planes);
-  moved[depth] = space.bounds.lowerBounds[depth] + plane + 0.5;
-  own.viewer.navigationState.position.value = moved;
-}
+/* There used to be a function here that opened a stack on the plane where the
+   specimen is — the middle of the declared room when the store did not say.
+   On the operator's map that was exactly wrong: a run holds flat captures at
+   the first plane *and* stacks spanning dozens, and standing mid-stack made
+   every flat capture invisible — "the overview never shows up" while the
+   focussing drew. The map's height now belongs to
+   `theMapStandsOnItsFirstPlane`, and browsing a stack is `setPlane`'s job. */
 
 /**
  * How much ground the open acquisitions cover, in micrometres.
@@ -1922,6 +2018,9 @@ function handleFor(own) {
     },
 
     setPlane(z) {
+      /* The operator has chosen a plane, so the map stops putting the height
+         back on the first one — their choice stands until the viewer closes. */
+      own.operatorChoseAPlane = true;
       const info = own.viewer.navigationState.displayDimensionRenderInfo.value;
       const space = own.viewer.navigationState.position.coordinateSpace.value;
       const depth = info.displayDimensionIndices[2];
@@ -2269,35 +2368,7 @@ function handleFor(own) {
 
     /** Close the viewer and let go of everything it was holding. */
     destroy() {
-      if (own.destroyed) return;
-      own.destroyed = true;
-      if (own.heightsBecomeNought) {
-        clearInterval(own.heightsBecomeNought);
-        own.heightsBecomeNought = null;
-      }
-      // The gestures come off first. Listeners left behind on a box that is
-      // still in the page would go on answering the operator's hand after the
-      // viewer they belonged to had gone. The little record of what they saw is
-      // kept rather than thrown away, so that a check can still ask a closed
-      // viewer whether anything reached it after it shut.
-      own.gestures?.stop();
-      own.watchSize?.disconnect();
-      own.stopFollowing?.();
-      own.stopHoldingOn?.();
-      for (const stop of own.stopWatchingTheSources || []) stop();
-      own.stopWatchingTheSources = null;
-      own.paint = null;
-      own.paintBeneath = null;
-      for (const row of own.rows) {
-        if (row.managed) deleteLayer(row.managed);
-      }
-      own.rows = [];
-      own.viewer?.dispose?.();
-      own.viewer = null;
-      own.engineHost?.remove();
-      own.overlay?.remove();
-      own.beneath?.remove();
-      own.beneath = null;
+      tearDown(own);
     },
 
     /**
