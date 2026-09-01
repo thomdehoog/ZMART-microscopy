@@ -1,4 +1,4 @@
-// ../../ZMART-microscopy/application/node_modules/neuroglancer/lib/chunk_worker.bundle.js
+// node_modules/neuroglancer/lib/chunk_worker.bundle.js
 var __create = Object.create;
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
