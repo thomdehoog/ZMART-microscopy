@@ -162,8 +162,15 @@ export function watchTheRun(ctx) {
              reason, so a page polling every few seconds does not repeat it. */
           const trouble = await ctx.viewerTrouble?.();
           if (trouble && trouble !== toldAbout) {
-            ctx.picture()?.tell?.(`the run's picture cannot be drawn — ${trouble}`);
-            toldAbout = trouble;
+            /* Only counted as told once there was a canvas to tell. The canvas
+               opens on its own a moment after the page does, and a reason that
+               arrived before it would otherwise be dropped and never offered
+               again. */
+            const canvas = ctx.picture();
+            if (canvas?.tell) {
+              canvas.tell(`the run's picture cannot be drawn — ${trouble}`);
+              toldAbout = trouble;
+            }
           }
           return;
         }

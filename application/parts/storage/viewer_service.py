@@ -112,6 +112,7 @@ def start(run_folder: Path | str) -> None:
         if _viewer["server"] is not None:
             return
         _viewer["error"] = None
+        made = thread = None
         try:
             from zmart_viewer import server as viewer_server
 
@@ -126,44 +127,78 @@ def start(run_folder: Path | str) -> None:
             thread = threading.Thread(target=made.serve_forever, daemon=True)
             thread.start()
             port = made.server_address[1]
-            missing = _what_the_viewer_cannot_promise(port)
+            try:
+                answered, missing = _what_the_viewer_cannot_promise(port)
+            except Exception:  # noqa: BLE001 -- an unreadable answer is no promise
+                answered, missing = False, list(THE_VIEWER_MUST_PROMISE)
             if missing:
-                # Not a viewer this run may draw through. Stop it cleanly and
-                # leave one sentence that says what to install, rather than
-                # a canvas that opens black and a slider that explains nothing.
-                made.shutdown()
-                thread.join(timeout=5)
-                _viewer["error"] = (
-                    "the installed ZMART Viewer is too old for this run: it does not "
-                    f"promise {', '.join(missing)}. Update the zmart-viewer package "
-                    "(it needs the acquisition-wide display-window contract) and "
-                    "connect again."
-                )
+                # Not a viewer this run may draw through. Stop it cleanly —
+                # the socket too, so nothing is left listening — and leave one
+                # sentence that says what happened, rather than a canvas that
+                # opens black and a slider that explains nothing. Two sentences,
+                # because a Viewer that did not answer is not known to be old.
+                _put_down(made, thread)
+                if not answered:
+                    _viewer["error"] = (
+                        "the ZMART Viewer beside this run started but did not answer "
+                        "its health check, so it cannot be trusted to draw honestly. "
+                        "Check the zmart-viewer installation and connect again."
+                    )
+                else:
+                    _viewer["error"] = (
+                        "the installed ZMART Viewer is too old for this run: it does not "
+                        f"promise {', '.join(missing)}. Update the zmart-viewer package "
+                        "(it needs the acquisition-wide display-window contract) and "
+                        "connect again."
+                    )
                 return
             _viewer.update(server=made, thread=thread, port=port)
         except Exception as why:  # noqa: BLE001 -- optional guest, sentence not stack
+            # Whatever went wrong after the server came up, it must not be
+            # left running where stop() cannot reach it.
+            if made is not None and thread is not None:
+                _put_down(made, thread)
             _viewer["error"] = f"the viewer server did not start: {why}"
 
 
-def _what_the_viewer_cannot_promise(port: int) -> list[str]:
-    """The promises in :data:`THE_VIEWER_MUST_PROMISE` this Viewer does not make.
+def _put_down(server, thread) -> None:
+    """Stop a server this session started and close its socket, quietly."""
+    try:
+        server.shutdown()
+    except Exception:  # noqa: BLE001 -- already going away
+        pass
+    try:
+        thread.join(timeout=5)
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        server.server_close()
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _what_the_viewer_cannot_promise(port: int) -> tuple[bool, list[str]]:
+    """Whether the Viewer answered, and which promises it did not make.
 
     Asked over the same local HTTP the page will use, so the answer is about
     the server actually running rather than about whichever package happens
     to be importable. A Viewer that answers nothing useful is treated as
     promising nothing: an unknown Viewer is exactly the one to be careful of.
+    Parsing is inside the guard too, so an answer of an unexpected shape is
+    "no promise" and never an exception that leaves a server running.
     """
     import json
     import urllib.request
 
     try:
-        with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/health", timeout=5) as answer:
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        with opener.open(f"http://127.0.0.1:{port}/api/health", timeout=5) as answer:
             said = json.loads(answer.read().decode("utf-8"))
+        promised = said.get("capabilities") if isinstance(said, dict) else None
+        promised = {one for one in promised if isinstance(one, str)} if isinstance(promised, list) else set()
     except Exception:  # noqa: BLE001 -- silence is the same as no promise
-        return list(THE_VIEWER_MUST_PROMISE)
-    promised = said.get("capabilities") if isinstance(said, dict) else None
-    promised = set(promised) if isinstance(promised, list) else set()
-    return [one for one in THE_VIEWER_MUST_PROMISE if one not in promised]
+        return False, list(THE_VIEWER_MUST_PROMISE)
+    return True, [one for one in THE_VIEWER_MUST_PROMISE if one not in promised]
 
 
 def stop() -> None:
@@ -178,6 +213,10 @@ def stop() -> None:
             try:
                 server.shutdown()
             except Exception:  # noqa: BLE001 -- already going away
+                pass
+            try:
+                server.server_close()
+            except Exception:  # noqa: BLE001 -- the socket may already be gone
                 pass
 
 

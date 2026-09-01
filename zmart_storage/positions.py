@@ -471,7 +471,13 @@ class Run:
             levels=self._position_levels,
             voxel_size_um=self._voxel_size_um,  # type: ignore[arg-type]
             origin_um=corner_um,  # type: ignore[arg-type]
-            channel_blocks=[one.described(depth_max) for one in self._channels],
+            # No block at all while any channel has no window; see
+            # ``TileCanvases`` for why a block with an incomplete window is worse.
+            channel_blocks=(
+                []
+                if any(one.window is None for one in self._channels)
+                else [one.described(depth_max) for one in self._channels]
+            ),
             ome_zarr_version=self._ome_zarr_version,
         )
         return _Position(
