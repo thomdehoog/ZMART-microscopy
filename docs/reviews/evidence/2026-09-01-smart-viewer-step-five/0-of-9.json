@@ -3,7 +3,7 @@
   "provenance": {
     "microscopy": {
       "branch": "codex/smart-viewer-integration-cleanup",
-      "commit": "e9c01c5c35b2eeddf26eca32efba4291941eec3a"
+      "commit": "77cb291e1efc9a164de604bc92a7e381ea315019"
     },
     "smartViewer": {
       "importPath": "/Users/thomdehoog/ZMART-viewer/zmart_viewer/__init__.py",
@@ -16,7 +16,7 @@
   "workflowStep": 5,
   "captureMethod": "deterministic live bridge before acquisition",
   "name": "0-of-9",
-  "timestampUtc": "2026-09-01T15:54:46.636Z",
+  "timestampUtc": "2026-09-01T16:25:06.447Z",
   "bridge": {
     "origin": "http://127.0.0.1:8812"
   },
@@ -49,7 +49,7 @@
     {
       "name": "focussing",
       "datasetNumber": null,
-      "url": "http://127.0.0.1:50570/data/0/focussing_K00_M000000_G000000_P000000_V00.ome.zarr/|zarr3:",
+      "url": "http://127.0.0.1:52380/data/0/focussing_K00_M000000_G000000_P000000_V00.ome.zarr/|zarr3:",
       "logicalChannelCount": 1,
       "channels": [
         {
@@ -57,7 +57,7 @@
           "visible": true,
           "sourceCount": 1,
           "sources": [
-            "http://127.0.0.1:50570/data/0/focussing_K00_M000000_G000000_P000000_V00.ome.zarr/|zarr3:"
+            "http://127.0.0.1:52380/data/0/focussing_K00_M000000_G000000_P000000_V00.ome.zarr/|zarr3:"
           ]
         }
       ]
@@ -620,10 +620,13 @@
         "successful": 3
       },
       "chunks": {
-        "successful": 4
+        "successful": 3
+      },
+      "measurement": {
+        "successful": 1
       },
       "api": {
-        "successful": 33
+        "successful": 31
       }
     },
     "expectedFormatProbes": [],
