@@ -736,3 +736,13 @@ a zoomed-out impression.
   whole-plate, overview-only, and close-up Step 5 evidence. The UX-similarity
   gates pass; pixel-identical styling and identical component internals are not
   claimed.
+- The full Operator walk now carries target placement through Steps 6–8. Every
+  discovered candidate remains drawn on the shared canvas during discovery,
+  refinement, and acquisition; gated targets retain their distinct selection
+  marks and acquired targets gain their green rings/high-resolution frames.
+  This fixed a concrete mode-name mismatch: Step 8 declares `targets`, while
+  its two canvas layers had checked the unreachable name `acquire`. The browser
+  regression proves the layer materially changes the canvas in all three
+  steps, every target lies inside the overview field that produced it, the
+  target is hoverable at the canvas projection, and carrier-local target
+  coordinates remain exactly unchanged through gating and acquisition.

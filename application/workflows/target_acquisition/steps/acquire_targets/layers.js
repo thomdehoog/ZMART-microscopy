@@ -28,7 +28,7 @@ export function acquiredLayers(theRun) {
     label: "Targets",
     explains: "The cells that have been imaged at high resolution -- each "
       + "acquired frame printed where it was taken, with a ring to find it by.",
-    shown: activeMode === "acquire" && run.acquired.length > 0,
+    shown: activeMode === "targets" && run.acquired.length > 0,
     /* Readable over the very fields they were acquired in, like the cells
        and the masks: the see-through windows cut every non-solid layer, and
        the green rings survived only off the picture. */

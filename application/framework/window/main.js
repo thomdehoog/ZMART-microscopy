@@ -1801,6 +1801,7 @@ let stageWatch = null;
     showLayer: (key, on) => stage.showLayer(key, on),
     fadeTo: (value) => stage.fadeTo(value),
     plan: () => stage.plan(),
+    targets: () => stage.targets(),
     project: (x, y) => stage.project(x, y),
     view: () => stage.pictureView(),
     carrierOriginUm: () => stage.carrierOriginUm(),
