@@ -64,6 +64,11 @@ export const backend = {
     return null;
   },
 
+  /** The pretend side has no viewer to be too old. */
+  async viewerTrouble() {
+    return null;
+  },
+
   /** What can be connected to: the registry's entries, as the controller lists them. */
   async instruments() {
     return pretendInstruments();

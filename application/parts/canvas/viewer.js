@@ -1432,6 +1432,17 @@ export function putTheCanvasIn({
     fadeTo,
 
     /**
+     * Put a sentence beside the picture, from whoever knows why there is none.
+     *
+     * The canvas can only say what it saw for itself — a run that would not
+     * open, an engine that would not draw. Why the run's viewer was never
+     * started at all is known one layer up, by the page that asked the bridge,
+     * and this is how that page hands the reason down so it lands where the
+     * operator is looking, rather than in a console nobody has open.
+     */
+    tell(text) { say(text); },
+
+    /**
      * Draw one of the layers, or stop drawing it.
      *
      * The same thing the button does, for a host that has some other way of

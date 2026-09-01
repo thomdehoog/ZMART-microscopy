@@ -950,7 +950,16 @@ class _WholeTileImage:
             levels=1,
             voxel_size_um=voxel_size_um,
             origin_um=where_um,  # type: ignore[arg-type]
-            channel_blocks=[colour.described(depth_max) for colour in channels],
+            # A channel that has not chosen a window cannot be described in the
+            # OME ``omero`` block, because strict readers refuse a block whose
+            # window has no ``start``/``end``. So the whole advisory block is
+            # left out, exactly as :class:`TileCanvases` leaves it out, and the
+            # viewer measures the pixels instead of being told the camera range.
+            channel_blocks=(
+                []
+                if any(colour.window is None for colour in channels)
+                else [colour.described(depth_max) for colour in channels]
+            ),
             ome_zarr_version=ome_zarr_version,
         )
         return cls(folder, arrays[0])
