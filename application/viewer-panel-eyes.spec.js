@@ -32,6 +32,11 @@ async function whatTheEyesSay(page) {
       panelSays: eyes.map((eye) => ({
         of: eye.title.replace(/^(Hide|Show) this /, ""),
         shown: eye.dataset.shown === "1",
+        /* Which row this eye belongs to, taken from the eye itself rather than
+           counted. The eyes stand in the order heading, channels, heading,
+           channels, so counting to reach a particular channel only works while
+           every acquisition happens to have the same number of colours. */
+        row: eye.dataset.row === undefined ? null : Number(eye.dataset.row),
       })),
       pictureDraws: window.__panelViewer.layersForMeasurement()
         .map((row) => ({ name: row.name, shown: row.visible !== false })),
@@ -132,5 +137,6 @@ test("the eyes hide what they say they hide", async ({ page }) => {
   console.log("after a change made behind the panel's back:", JSON.stringify(afterRefresh));
   expect(afterRefresh.pictureDraws[1].shown, "the row changed from elsewhere is hidden")
     .toBe(false);
-  expect(afterRefresh.panelSays[2].shown, "and its eye followed").toBe(false);
+  expect(afterRefresh.panelSays.find((eye) => eye.row === 1).shown,
+    "and its eye followed").toBe(false);
 });

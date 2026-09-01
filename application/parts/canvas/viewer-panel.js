@@ -620,17 +620,45 @@ export async function mountViewerPanel(
    */
   function theTrack(row) {
     const window_ = windowOf(row);
+    /* The best account of where this channel's brightness actually lives, in
+       the order they are worth having. A measurement of the pixels is the
+       truest. Failing that, the window the run itself declared: a run that
+       says "show this between two hundred and three thousand" has told us
+       roughly where its signal is, which is far better than assuming nothing.
+       Only with neither is the whole of a sixteen-bit camera's range used, and
+       that is a poor track — measured on a real acquisition, the useful part
+       of it was about two pixels of travel. */
+    const measured = shape && Number.isFinite(shape.low) && shape.high > shape.low
+      ? { low: shape.low, high: shape.high }
+      : null;
+    const declared = row.asWritten && row.asWritten.high > row.asWritten.low
+      ? row.asWritten
+      : null;
+    const spread = measured ?? declared;
     let low = 0;
     let high = 65535;
-    if (shape && Number.isFinite(shape.low) && shape.high > shape.low) {
-      const room = (shape.high - shape.low) * 0.2;
-      low = Math.max(0, Math.floor(shape.low - room));
-      high = Math.ceil(shape.high + room);
+    if (spread) {
+      const room = (spread.high - spread.low) * 0.2;
+      low = Math.max(theLowestThisChannelCanGo(row), Math.floor(spread.low - room));
+      high = Math.ceil(spread.high + room);
     }
     return {
       low: Math.min(low, Math.floor(window_.low)),
       high: Math.max(high, Math.ceil(window_.high), low + 1),
     };
+  }
+
+  /**
+   * How far down the *track* the two feel controls travel over may reach.
+   *
+   * Nought for an ordinary camera, which cannot produce a count below it:
+   * there is no point offering travel over brightnesses that cannot occur. But
+   * a run is allowed to say otherwise — a store written from something other
+   * than a photon count may declare a window starting below nought, and that
+   * is the run speaking about its own data, so it is believed.
+   */
+  function theLowestThisChannelCanGo(row) {
+    return Math.min(0, row.asWritten?.low ?? 0);
   }
 
   function drawTheHistogram() {
@@ -730,6 +758,13 @@ export async function mountViewerPanel(
   function takeTheWindow(next) {
     if (chosen === null) return;
     const row = rows[chosen];
+    /* Deliberately not clamped at nought, tempting though it is. A window edge
+       below the darkest value a camera can produce clips nothing and changes
+       the picture not at all — but forcing it back up would change the
+       window's *width*, and the width is what the contrast reading is made of.
+       All four controls have to go on describing one window, and a quiet
+       clamp here is how three of them would start disagreeing with the
+       fourth at the ends of their travel. */
     const low = Math.min(next.low, next.high - 1);
     row.window = { low, high: Math.max(next.high, low + 1) };
     viewer.setChannel(chosen, { window: row.window });
@@ -876,7 +911,7 @@ export async function mountViewerPanel(
       closeChooser();
       const face = swatch.getBoundingClientRect();
       const list = el("div", [
-        "position:fixed", `left:${face.right + 6}px`, `top:${face.top - 4}px`,
+        "position:fixed", "left:0", "top:0", "visibility:hidden",
         "z-index:40", "min-width:116px", `background:${INK.cardBg}`,
         `border:1px solid ${INK.panelBorder}`, "border-radius:6px",
         "padding:4px", "box-shadow:0 2px 10px rgba(25,35,50,0.22)",
@@ -939,6 +974,27 @@ export async function mountViewerPanel(
       }
 
       document.body.append(list);
+      /* And now it is put where it can be read. The bar stands against the
+         right-hand edge of the window, so a list that always opened to the
+         right of the swatch would hang off the screen — which is what happened
+         the moment the colour maps arrived and made the entries wider than the
+         plain colour names had been. So it goes to the right where there is
+         room and to the left where there is not, and is kept on screen at the
+         bottom the same way. Measured after it is in the page rather than
+         guessed at, because how wide it turns out to be depends on how many
+         maps this engine offered and what they are called. */
+      const room = list.getBoundingClientRect();
+      const margin = 8;
+      const toTheRight = face.right + 6;
+      const left = toTheRight + room.width > window.innerWidth - margin
+        ? Math.max(margin, face.left - room.width - 6)
+        : toTheRight;
+      const top = Math.max(margin, Math.min(
+        face.top - 4, window.innerHeight - room.height - margin,
+      ));
+      list.style.left = `${left}px`;
+      list.style.top = `${top}px`;
+      list.style.visibility = "visible";
       chooserOpen = list;
     });
     return swatch;
@@ -981,6 +1037,7 @@ export async function mountViewerPanel(
         `background:none;border:none;color:${INK.textPrimary};cursor:pointer;padding:0;`);
       groupEye.type = "button";
       groupEye.dataset.on = "1";
+      groupEye.dataset.acquisition = heading;
       dressTheEye(groupEye, true, "acquisition");
       const members = rows.map((one, at) => ({ one, at }))
         .filter(({ one }) => one.acquisition === heading);
@@ -989,9 +1046,15 @@ export async function mountViewerPanel(
          to leave its heading's eye wide open, which is the same untruth as
          a channel's and rather more visible. */
       groupEyes.push({ eye: groupEye, members });
+      /* Everything this acquisition holds as a whole: which rows are its own,
+         whether it is being shown, how brightly it is drawn, and whether its
+         channels are folded away in the bar. */
+      const standing = { members, shown: true, weight: 1, folded: false };
+      groupsByName.set(heading, standing);
       groupEye.addEventListener("click", () => {
         const on = groupEye.dataset.on !== "1";
         groupEye.dataset.on = on ? "1" : "0";
+        standing.shown = on;
         dressTheEye(groupEye, on, "acquisition");
         for (const { one, at } of members) {
           /* A channel the operator had already turned off stays off when the
@@ -1042,8 +1105,6 @@ export async function mountViewerPanel(
       groupOpacity.dataset.control = "acquisition opacity";
       groupOpacity.dataset.acquisition = heading;
 
-      const standing = { members, weight: 1, folded: false };
-      groupsByName.set(heading, standing);
       groupWeight.addEventListener("input", () => {
         standing.weight = Number(groupWeight.value);
         groupWeightBox.textContent = `${Math.round(standing.weight * 100)}%`;
@@ -1083,6 +1144,13 @@ export async function mountViewerPanel(
        about their own picture. `dressTheEye` is also what `refresh` below
        calls, so the two can never drift apart. */
     dressTheEye(eye, row.visible !== false);
+    /* Which row this eye belongs to, said in the page itself. The eyes stand
+       in the order heading, channels, heading, channels, so counting them to
+       find a particular channel only works when every acquisition happens to
+       have the same number of colours — and a check that quietly depends on
+       that is a check that stops meaning anything the moment a run records two
+       colours instead of one. */
+    eye.dataset.row = String(index);
     eyes.set(index, eye);
     eye.addEventListener("click", (press) => {
       press.stopPropagation();
@@ -1271,13 +1339,22 @@ export async function mountViewerPanel(
      * and the eyes are drawn from the answer.
      */
     refresh() {
-      const standing = viewer.layersForMeasurement?.();
-      if (!standing) return;
-      standing.forEach((row, at) => {
+      const onScreen = viewer.layersForMeasurement?.();
+      if (!onScreen) return;
+      onScreen.forEach((row, at) => {
         const eye = eyes.get(at);
         if (!eye) return;
         const shown = row.visible !== false;
-        if (rows[at]) rows[at].visible = shown;
+        /* The eye is drawn from what the picture is really doing, always.
+           What is *remembered* is a different question, and getting the two
+           mixed up cost this panel a real fault: while an acquisition was
+           hidden, every one of its channels was recorded as one the operator
+           had turned off, so showing the acquisition again brought nothing
+           back — the heading's eye opened over a picture that stayed dark.
+           So the operator's own choice for a channel is only taken from the
+           screen while its acquisition is being shown at all. */
+        const group = rows[at] && groupsByName.get(rows[at].acquisition);
+        if (rows[at] && group?.shown !== false) rows[at].visible = shown;
         dressTheEye(eye, shown);
       });
       /* An acquisition's own eye is open while any of its channels is being
@@ -1285,7 +1362,7 @@ export async function mountViewerPanel(
          acquisition on screen, which is the question it is there to answer. */
       for (const { eye, members } of groupEyes) {
         const anyShown = members.some(
-          ({ at }) => standing[at] && standing[at].visible !== false,
+          ({ at }) => onScreen[at] && onScreen[at].visible !== false,
         );
         eye.dataset.on = anyShown ? "1" : "0";
         dressTheEye(eye, anyShown, "acquisition");
