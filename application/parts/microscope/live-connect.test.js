@@ -96,4 +96,24 @@ describe("the live connect", () => {
     /* Answered with where the stage ended up, not with what was asked for. */
     expect(at.x.value).toBe(900);
   });
+
+  it("carries an explicit acquisition channel description to the scan door", async () => {
+    const channels = [{ key: "488", index: 0, label: "GFP",
+      range: { min: 0, max: 65535 } }];
+    const sent = [];
+    globalThis.fetch = vi.fn(async (url, how) => {
+      sent.push({ url, body: how?.body ? JSON.parse(how.body) : null });
+      return { ok: true, json: async () => (
+        how?.body
+          ? { running: true }
+          : { running: false, done: 0, of: 0, records: [] }
+      ) };
+    });
+
+    await backend.scanOverview({ positions: [], channels });
+
+    expect(sent[0].url).toMatch(/\/api\/scan$/);
+    expect(sent[0].body.channels).toEqual(channels);
+    expect(sent[1].body).toBeNull();
+  });
 });

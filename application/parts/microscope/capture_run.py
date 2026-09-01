@@ -9,8 +9,13 @@ internals -- only the ``zmart_controller`` session (``set_state`` / ``set_xyz``
 from __future__ import annotations
 
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
+from application.parts.storage.acquisition_description import (
+    acquisition_description,
+    write_acquisition_description,
+)
 from application.parts.storage.output import move_record_images, position_label, prepare_acquisition
 
 
@@ -59,6 +64,7 @@ def capture_positions(
     on_record: Callable[[int, dict, dict], None] | None = None,
     cancel: Callable[[], bool] | None = None,
     output_root: Any = None,
+    channels: list[dict] | dict | None = None,
 ) -> list[dict]:
     """Move to each frame position and acquire; return the records in order.
 
@@ -84,6 +90,13 @@ def capture_positions(
     output = (
         prepare_acquisition(output_root, acquisition_type) if output_root is not None else None
     )
+    if channels is not None:
+        if output_root is None:
+            raise ValueError("channels need output_root so their acquisition description is durable")
+        described = acquisition_description(acquisition_type, channels)
+        write_acquisition_description(
+            Path(output_root) / "positions" / acquisition_type, described
+        )
 
     if state is not None:
         session.set_state(state)

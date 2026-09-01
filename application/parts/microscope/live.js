@@ -310,8 +310,9 @@ export const backend = {
    * progress until the drive is over. The window's live picture watches the
    * run's own store, exactly as it does on the pretend side.
    */
-  async scanOverview({ positions, acquisition_type = "overview", state = null, onProgress } = {}) {
-    await ask("/api/scan", { positions, acquisition_type, state });
+  async scanOverview({ positions, acquisition_type = "overview", state = null,
+                       channels = null, onProgress } = {}) {
+    await ask("/api/scan", { positions, acquisition_type, state, channels });
     for (;;) {
       const progress = await askedPatiently("/api/scan");
       /* Where the scan stood when it answered -- the last record's own plane,
