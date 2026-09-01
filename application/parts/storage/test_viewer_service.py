@@ -3,6 +3,12 @@
 from __future__ import annotations
 
 import json
+import threading
+import urllib.error
+import urllib.request
+from pathlib import Path
+
+import pytest
 
 import application.parts.storage.viewer_service as service
 
@@ -21,6 +27,55 @@ def _empty_service(*, port: int | None = None) -> dict:
         "acquisitions": [],
         "opened": set(),
     }
+
+
+def test_the_installed_smart_viewer_is_the_separate_supported_package():
+    found = service.viewer_provenance()
+
+    assert found["version"] == "0.2.0"
+    assert not Path(found["path"]).is_relative_to(service._MICROSCOPY_ROOT)
+
+
+def test_an_in_repository_viewer_copy_is_refused():
+    copied = service._MICROSCOPY_ROOT / "viz_studio" / "backend" / "zmart_viewer.py"
+
+    with pytest.raises(RuntimeError, match="separate ZMART-viewer checkout"):
+        service._validate_viewer_provenance("0.2.0", copied)
+
+
+def test_an_unproved_viewer_release_is_refused(tmp_path):
+    with pytest.raises(RuntimeError, match="Smart Viewer 0.2.0 is required"):
+        service._validate_viewer_provenance("0.1.0", tmp_path / "zmart_viewer" / "__init__.py")
+
+
+def test_the_external_viewer_owns_the_measurement_route(tmp_path):
+    viewer_server = service._smart_viewer_server()
+    server = viewer_server.make_server(
+        port=0,
+        data_dir=str(tmp_path),
+        live=True,
+        allow_open=True,
+        panel_side="left",
+    )
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    port = server.server_address[1]
+    request = urllib.request.Request(
+        f"http://127.0.0.1:{port}/api/measure",
+        data=b"{}",
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+
+    try:
+        with pytest.raises(urllib.error.HTTPError) as raised:
+            urllib.request.urlopen(request, timeout=service.VIEWER_POLL_TIMEOUT_S)
+        assert raised.value.code == 400
+        assert json.load(raised.value) == {"error": "which picture to measure is needed"}
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
 
 
 def test_every_field_in_one_viewer_dataset_is_kept():
