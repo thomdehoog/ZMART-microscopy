@@ -119,6 +119,34 @@ test("every field the scan took is drawn where the plan put it", async ({ page }
   });
   await rest(4000);
 
+  /* And the panel's own eyes are checked, in the photographs themselves.
+     The engine reporting a row as not drawn is the fact; the eye is what an
+     operator reads. Both have to say the same thing, or the pictures below
+     prove nothing to anybody looking at them. */
+  const eyes = await page.evaluate(() => {
+    const panel = window.__viewerPanel;
+    return [...panel.querySelectorAll("button[data-shown]")].map((eye) => ({
+      of: eye.title.replace(/^(Hide|Show) this /, ""),
+      shown: eye.dataset.shown === "1",
+    }));
+  });
+  const asDrawn = await page.evaluate(() =>
+    window.__thePicture.layersForMeasurement()
+      .map((row) => ({ name: row.name, shown: row.visible !== false })));
+  console.log("eyes:", JSON.stringify(eyes));
+  console.log("as drawn:", JSON.stringify(asDrawn));
+  for (const row of asDrawn) {
+    expect(row.shown, `${row.name} is drawn`).toBe(!row.name.startsWith("focussing"));
+  }
+  /* The first eye is the focussing acquisition's own, the second its one
+     channel: both must read as closed without anybody having poked the
+     panel, because the viewer announces the change and the panel listens. */
+  expect(eyes[0].shown, "the focussing acquisition's eye is closed").toBe(false);
+  expect(eyes[1].shown, "the focussing channel's eye is closed").toBe(false);
+  for (const eye of eyes.slice(2)) {
+    expect(eye.shown, "every overview eye is open").toBe(true);
+  }
+
   /* The plate's fields, gathered into the wells they belong to. */
   const wells = await page.evaluate(() => {
     const gathered = new Map();

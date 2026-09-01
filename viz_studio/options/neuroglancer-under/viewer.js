@@ -291,6 +291,9 @@ export async function openViewer(element, options = {}) {
     // How to put the engine's own handling of arriving pieces back the way it
     // was. Called when the viewer closes.
     stopHoldingOn: null,
+    // Who wants to hear that which channels are drawn has changed. See
+    // `whenChannelsChange` on the handle for why anything would.
+    told: [],
     // How many times the operator's drawing has been repainted, and how many
     // frames the engine has announced. Kept because a measurement has to be
     // able to tell "the drawing never moved" from "the drawing moved to the
@@ -1123,6 +1126,24 @@ function theMapStandsOnItsFirstPlane(own) {
   if (Number.isFinite(standing[heightAxis]) && standing[heightAxis] !== 0.5) {
     standing[heightAxis] = 0.5;
     own.viewer.navigationState.position.value = standing;
+  }
+}
+
+/**
+ * Tell whoever asked that which channels are drawn has changed.
+ *
+ * One listener throwing must not stop the next from hearing, and must not
+ * take down the change that caused it: the picture has already changed by
+ * the time this runs, and a panel that fails to redraw its eyes is a smaller
+ * fault than a viewer that stops working.
+ */
+function sayTheChannelsChanged(own) {
+  for (const tell of own.told) {
+    try {
+      tell();
+    } catch (why) {
+      console.warn("something listening for a change of channels failed", why);
+    }
   }
 }
 
@@ -2126,6 +2147,28 @@ function handleFor(own) {
         if (!row.managed) continue;
         row.managed.setVisible(own.showingPicture && row.visible !== false);
       }
+      sayTheChannelsChanged(own);
+    },
+
+    /**
+     * Be told whenever which channels are drawn changes.
+     *
+     * Anything that keeps its own picture of what is on screen — the panel
+     * with its eyes, most of all — has to hear about a change it did not
+     * make itself, or it ends up saying the opposite of what an operator can
+     * see. Hand over a function; hand back what stops it being called.
+     *
+     * It reports *that* something changed rather than what, because the one
+     * honest answer to "which channels are drawn" is the one this viewer
+     * gives when asked, and a listener that is told to go and ask cannot
+     * drift from it.
+     */
+    whenChannelsChange(tell) {
+      if (typeof tell !== "function") return () => {};
+      own.told.push(tell);
+      return () => {
+        own.told = own.told.filter((one) => one !== tell);
+      };
     },
 
     setChannel(index, { visible, colour, window: brightness, weight } = {}) {
@@ -2140,6 +2183,7 @@ function handleFor(own) {
       if (row.managed.visible !== shouldShow) {
         row.managed.setVisible(shouldShow);
       }
+      if (visible !== undefined) sayTheChannelsChanged(own);
       const layer = row.managed.layer;
       if (!layer) return;
       if (colour) row.colour = colour;
