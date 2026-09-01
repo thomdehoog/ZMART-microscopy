@@ -104,14 +104,6 @@ if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
 import zmart_controller  # noqa: E402
-from application.parts.storage.output import (  # noqa: E402
-    move_record_images,
-    position_label,
-    prepare_acquisition,
-    prepare_experiment,
-)
-from application.parts.storage.zarr_positions import position_store_from_record  # noqa: E402
-from application.parts.storage import viewer_service  # noqa: E402
 from application.parts.analysis import warm  # noqa: E402
 from application.parts.microscope import detection, focus_score  # noqa: E402
 from application.parts.microscope.focus_run import (  # noqa: E402
@@ -120,6 +112,18 @@ from application.parts.microscope.focus_run import (  # noqa: E402
     apply_state_settled,
     measure_focus,
 )
+from application.parts.storage import viewer_service  # noqa: E402
+from application.parts.storage.acquisition_description import (  # noqa: E402
+    acquisition_description,
+    write_acquisition_description,
+)
+from application.parts.storage.output import (  # noqa: E402
+    move_record_images,
+    position_label,
+    prepare_acquisition,
+    prepare_experiment,
+)
+from application.parts.storage.zarr_positions import position_store_from_record  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # The session, and the one lock that guards it
@@ -833,6 +837,12 @@ def _start_scan(asked: dict) -> dict:
         raise RuntimeError("a scan is already running")
     positions = asked.get("positions", [])
     acquisition_type = str(asked.get("acquisition_type", "overview"))
+    channels = asked.get("channels")
+    if channels is not None:
+        described = acquisition_description(acquisition_type, channels)
+        write_acquisition_description(
+            _the_run() / "positions" / acquisition_type, described
+        )
     _records[acquisition_type] = []
     _stop_asked["scan"] = False
     _scan.update(

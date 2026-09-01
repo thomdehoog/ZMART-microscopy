@@ -39,6 +39,12 @@ from pathlib import Path
 
 import numpy as np
 
+from application.parts.storage.acquisition_description import (
+    ome_channel_blocks,
+    read_acquisition_description,
+    validate_acquisition_description,
+    write_acquisition_description,
+)
 from zmart_storage.canvas import Channel, _declare_one
 from zmart_storage.positions import how_many_copies_a_position_can_keep
 
@@ -81,7 +87,9 @@ THE_SMALLEST_COPY_WORTH_KEEPING = 8
 _TO_UM = {"m": 1e6, "mm": 1e3, "µm": 1.0, "um": 1.0, "nm": 1e-3, "": 1.0}
 
 
-def position_store_from_record(record: dict, into: Path | str) -> Path:
+def position_store_from_record(
+    record: dict, into: Path | str, *, acquisition_description: dict | None = None
+) -> Path:
     """Write one OME-Zarr 0.5 position from a capture's record, and return it.
 
     ``record`` is what the driver's acquire returned — its ``planes`` name the
@@ -109,6 +117,35 @@ def position_store_from_record(record: dict, into: Path | str) -> Path:
     store = into / f"{kind}_{record['position_label']}.ome.zarr"
 
     depth_max = _the_depth_of(volume.dtype)
+    description = acquisition_description
+    if description is not None:
+        description = validate_acquisition_description(
+            description, acquisition_type=kind, channel_count=channels
+        )
+        write_acquisition_description(into, description)
+    else:
+        description = read_acquisition_description(
+            into, acquisition_type=kind, channel_count=channels
+        )
+
+    local_windows = [
+        _a_window_onto(volume[:, index], depth_max) for index in range(channels)
+    ]
+    channel_blocks = (
+        ome_channel_blocks(
+            description,
+            depth_max=depth_max,
+            # Kept deliberately during M1. The acquisition sidecar is the
+            # composed Viewer's authority; this local value keeps older readers
+            # usable until M2/M3 can remove it safely.
+            fallback_windows=local_windows,
+        )
+        if description is not None
+        else [
+            Channel(f"channel {index}", window=local_windows[index]).described(depth_max)
+            for index in range(channels)
+        ]
+    )
     tile_shape = (nz, ny, nx)
     arrays = _declare_one(
         store,
@@ -127,13 +164,7 @@ def position_store_from_record(record: dict, into: Path | str) -> Path:
         # camera's whole range instead is honest but useless on screen: a
         # real acquisition sits in the bottom few per cent of it, and the
         # picture opened very nearly black.
-        channel_blocks=[
-            Channel(
-                f"channel {index}",
-                window=_a_window_onto(volume[:, index], depth_max),
-            ).described(depth_max)
-            for index in range(channels)
-        ],
+        channel_blocks=channel_blocks,
         ome_zarr_version="0.5",
     )
 

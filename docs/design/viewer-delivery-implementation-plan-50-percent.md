@@ -1,33 +1,50 @@
-# Viewer delivery implementation plan — 50% review draft
+# Viewer delivery implementation — 50% review checkpoint
 
 Date: 2026-09-01
 
-Status: implementation planning only. No production code is authorised by this
-document. This draft is intentionally complete for the safe prerequisites and
-incomplete for the optional compact-picture experiment.
+Status: the first half of the core migration chain is implemented for review.
+The compatibility-breaking half and every compact-picture experiment remain
+unauthorised.
 
 Based on:
 
 - the design revision at `f1e7190a`;
 - the first review at `48f72d64`;
 - the follow-up review at `e73aa7f1`;
-- ZMART Viewer 0.2.0 at `9ff10b0`.
+- ZMART Viewer 0.2.0 at `9ff10b0`;
+- the Viewer implementation on `codex/viewer-delivery-50-percent`, commit
+  `d243736`;
+- the ZMART-microscopy implementation in the commit containing this document.
 
 ## What “50%” means
 
-This is not a promise that half the implementation has been coded. It means:
+“50%” now means three of the six ordered migration packages are implemented,
+plus the server/config portion of the fourth:
 
-- the architectural decision, dependency order, ownership, migration safety,
-  target files, test families, and rollback boundaries are concrete;
-- proposed schemas and thresholds are specific enough to reject or correct;
-- the real-run fixture selection, the source of preset display windows, the
-  cross-platform session-lock mechanism, and the optional compact-picture UI
-  remain decisions for the next review;
-- no JPEG work and no compact-picture code begins at this stage.
+- V1 is implemented: no pixels produces null windows and a visible waiting
+  state, including a real-browser test;
+- V2 is implemented for ordinary position collections and their composed,
+  declared, baked, ledger-reopened, and standalone-config path;
+- M1 is implemented: an explicit acquisition description is validated,
+  published atomically, and mirrored into every position;
+- I1 has Python integration coverage through the served config, but the
+  ZMART-microscopy embedded-panel half intentionally waits for M2;
+- the old per-position window remains the compatibility fallback whenever no
+  acquisition description exists, and for unresolved channels during M1;
+- the real Leica source of channel descriptions remains deliberately unwired;
+  the Python and HTTP/JavaScript paths accept explicit descriptions, but the
+  operator workflow does not invent one from human-readable preset text;
+- M2, M3, S1, H1, Z1, and compact `uint8` work have not started.
 
-The move from 50% to 80% should close those decisions and turn each work package
-below into an issue or commit checklist with final function signatures and
-accepted benchmark thresholds. It should not expand the product scope.
+This is reviewable production code, not a claim that the migration is ready to
+release. In particular, the two repositories must not be deployed as a new
+writer/old Viewer pair, and `_a_window_onto` must not be removed at this
+checkpoint.
+
+The move from 50% to 80% should review and correct the implementation already
+present, complete I1/M2, and close the named decisions with final interfaces and
+accepted benchmark thresholds. It should not expand the product scope or begin
+M3 before the compatibility gate is proven.
 
 ## Outcome this implementation must produce
 
@@ -227,6 +244,10 @@ M2 are deployed together.
 Repository: `thomdehoog/zmart-viewer`, starting from `9ff10b0` or its reviewed
 successor.
 
+Checkpoint status: implemented at Viewer commit `d243736` for the Python
+measurement/config path and standalone React panel, with a browser test over a
+valid but pixel-empty live array.
+
 ### Behaviour
 
 When no declared window and no measurable values exist:
@@ -289,6 +310,12 @@ the previous Viewer still sees the old position hints.
 ## Work package V2 — composed-source window authority
 
 Repository: ZMART Viewer.
+
+Checkpoint status: implemented at Viewer commit `d243736` for ordinary
+position collections, composed declarations, baked group metadata, persisted
+`tiles.json`, reopen, and standalone config. Review must still identify whether
+the manifest-governed live-run path needs the same sidecar or correctly remains
+under its existing acquisition-profile authority.
 
 ### Behaviour
 
@@ -355,6 +382,12 @@ descriptor is an ignored sidecar to older Viewer versions.
 ## Work package M1 — write the acquisition descriptor without changing pixels
 
 Repository: ZMART-microscopy, this branch's repository.
+
+Checkpoint status: implemented in the commit containing this document. Python
+workflow calls and the live scan API accept explicit `channels`; neither derives
+them from the current Leica reading. Resolved windows are mirrored, unresolved
+windows retain the old M1 compatibility hint, and no-description behavior stays
+unchanged.
 
 ### Behaviour
 
@@ -430,6 +463,11 @@ Rollback removes a sidecar and optional arguments; pixel stores remain valid.
 ## Work package I1 — one authority end to end
 
 Repositories: both.
+
+Checkpoint status: partial. The descriptor reaches positions, the composed
+group, a declared/baked source, its ledger, and standalone config in automated
+tests. Embedded-panel waiting behavior and the final cross-repository browser
+fixture remain behind M2.
 
 Build a fixture using the real M1 writer and open it through V2. Assert:
 

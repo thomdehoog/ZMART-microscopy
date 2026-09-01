@@ -19,6 +19,30 @@ zarr = pytest.importorskip("zarr")
 from application.parts.storage.zarr_positions import position_store_from_record
 
 
+def described() -> dict:
+    return {
+        "schema": "zmart-acquisition-display/1",
+        "acquisitionType": "overview",
+        "channels": [
+            {
+                "key": "488",
+                "index": 0,
+                "label": "GFP",
+                "color": "00FF00",
+                "range": {"min": 0, "max": 65535},
+                "displayWindow": {"start": 300, "end": 4200},
+                "windowProvenance": {
+                    "method": "preset",
+                    "algorithm": None,
+                    "sampleCount": 0,
+                    "resolvedAtRevision": 0,
+                    "resolvedFrom": "acquisition-record",
+                },
+            }
+        ],
+    }
+
+
 def a_record(planes: list[dict]) -> dict:
     return {
         "acquisition_type": "overview",
@@ -27,13 +51,14 @@ def a_record(planes: list[dict]) -> dict:
     }
 
 
-def one_file_per_plane(folder, *, channels=2, size=256) -> dict:
+def one_file_per_plane(folder, *, channels=2, size=256, offset=0) -> dict:
     """A capture the way the media-path exporter writes it: one YX file each."""
+    folder.mkdir(parents=True, exist_ok=True)
     rng = np.random.default_rng(3)
     planes = []
     for c in range(channels):
         path = folder / f"plane_c{c}.ome.tif"
-        image = rng.integers(0, 4000, size=(size, size), dtype=np.uint16)
+        image = rng.integers(offset, offset + 4000, size=(size, size), dtype=np.uint16)
         ome = (
             '<OME><Image><Pixels PhysicalSizeX="2.5e-06" PhysicalSizeXUnit="m" '
             'PhysicalSizeY="2.5e-06" PhysicalSizeYUnit="m" SizeC="1" /></Pixels>'
@@ -61,6 +86,42 @@ def one_file_whole_capture(folder, *, channels=3, size=128) -> dict:
 
 
 class TestTheStore:
+    def test_an_acquisition_window_is_mirrored_in_every_position(self, tmp_path):
+        positions = tmp_path / "positions" / "overview"
+        first = one_file_per_plane(tmp_path / "dim", channels=1, offset=0)
+        second = one_file_per_plane(tmp_path / "bright", channels=1, offset=20000)
+        second["position_label"] = "K00_M000000_G000000_P000008_V00"
+
+        stores = [
+            position_store_from_record(first, positions, acquisition_description=described()),
+            position_store_from_record(second, positions),
+        ]
+
+        for store in stores:
+            channel = json.loads((store / "zarr.json").read_text())["attributes"]["ome"][
+                "omero"
+            ]["channels"][0]
+            assert channel["label"] == "GFP"
+            assert channel["color"] == "00FF00"
+            assert channel["window"] == {
+                "min": 0,
+                "max": 65535,
+                "start": 300,
+                "end": 4200,
+            }
+
+    def test_no_description_keeps_the_existing_per_position_window(self, tmp_path):
+        positions = tmp_path / "positions" / "overview"
+        store = position_store_from_record(
+            one_file_per_plane(tmp_path / "source", channels=1), positions
+        )
+        channel = json.loads((store / "zarr.json").read_text())["attributes"]["ome"][
+            "omero"
+        ]["channels"][0]
+
+        assert channel["window"]["end"] < channel["window"]["max"]
+        assert not (positions / "zmart-acquisition.json").exists()
+
     def test_a_position_is_ome_zarr_five_with_tczyx(self, tmp_path):
         store = position_store_from_record(one_file_per_plane(tmp_path), tmp_path / "positions")
         assert store.name == "overview_K00_M000000_G000000_P000007_V00.ome.zarr"

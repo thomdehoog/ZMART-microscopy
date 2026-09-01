@@ -119,7 +119,9 @@ def preflight_analysis_engine(engine: Any) -> None:
     import numpy as np
     import tifffile
 
-    from application.workflows.target_acquisition.steps.discover_targets.discovery import discover_targets
+    from application.workflows.target_acquisition.steps.discover_targets.discovery import (
+        discover_targets,
+    )
 
     with tempfile.TemporaryDirectory(prefix="zmart-preflight-") as tmp:
         image_path = Path(tmp) / "blank.tiff"
@@ -161,6 +163,7 @@ def run_overview(
     on_record: Any = None,
     cancel: Any = None,
     output_root: Any = None,
+    channels: list[dict] | dict | None = None,
 ) -> list[dict]:
     """Step 5: acquire an overview at each frame position (z from the focus surface).
 
@@ -180,6 +183,7 @@ def run_overview(
         on_record=on_record,
         cancel=cancel,
         output_root=output_root,
+        channels=channels,
     )
 
 
@@ -191,7 +195,9 @@ def overview_inputs_from_records(
     **geometry: Any,
 ) -> list[dict]:
     """Build target-discovery inputs from overview positions and acquire records."""
-    from application.workflows.target_acquisition.steps.discover_targets.discovery import build_overview_inputs
+    from application.workflows.target_acquisition.steps.discover_targets.discovery import (
+        build_overview_inputs,
+    )
 
     if len(positions) != len(records):
         raise ValueError(
@@ -222,6 +228,7 @@ def acquire_targets(
     on_record: Any = None,
     cancel: Any = None,
     output_root: Any = None,
+    channels: list[dict] | dict | None = None,
 ) -> list[dict]:
     """Step 7: acquire a target at each discovered frame position (z from the focus surface).
 
@@ -240,6 +247,7 @@ def acquire_targets(
         on_record=on_record,
         cancel=cancel,
         output_root=output_root,
+        channels=channels,
     )
 
 
