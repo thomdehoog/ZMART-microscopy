@@ -267,33 +267,38 @@ def _the_sources_in(config: dict, port: int) -> dict[str, list[dict]]:
             )
             grouped.setdefault(group, {}).setdefault(whole, {"url": whole, "name": group})
     return {
-        group: _only_the_newest_of(held.values()) for group, held in grouped.items()
+        group: _only_the_newest_generation_of(held.values())
+        for group, held in grouped.items()
     }
 
 
-def _only_the_newest_of(held) -> list[dict]:
-    """One address per acquisition: the most recently opened generation.
+def _only_the_newest_generation_of(held) -> list[dict]:
+    """Every address of an acquisition's most recently opened generation.
 
-    This is the fix for the fault that kept an acquired overview off the
-    operator's canvas, and it is worth writing down because nothing on screen
-    could have shown it.
+    Two different things can put several addresses under one heading, they look
+    identical in the answer, and telling them apart is the whole of this
+    function. Both have cost this project a picture that never appeared.
 
-    Every time a growing folder is linked again, the viewer opens it afresh
-    and numbers what it serves in the order it was opened — so one acquisition
-    ends up served at several addresses, one per generation. Their headings
-    differ only by the viewer's own decoration ("… (2)"), which is stripped
-    just above, so all the generations fall under one heading; and the first
-    one seen was kept, which is the *oldest*. The page was therefore handed a
-    superseded picture. Its description still read correctly, so the layer
-    built, reported no error, and sat at the right place on the canvas — and
-    every piece of picture the engine then asked for came back "not found",
-    because only the newest generation can still build its pieces. An
-    acquisition that is present, correct, and completely invisible.
+    **Generations.** A relink opens a growing folder afresh under a new dataset
+    number, and only the newest opening can still build its pieces. Keeping an
+    older one hands the page a layer that reports no error and is answered "not
+    found" for every piece of picture it asks for — present, correct, and
+    completely invisible. That is the fault this function was written for.
 
-    The viewer numbers its datasets upwards, so the newest is the one with the
-    highest number in its address. Where an address carries no number at all
-    (a store named directly rather than served by the viewer) the order it
-    arrived in stands.
+    **Tiles.** A composed acquisition is one picture made of many fields, and
+    the viewer names every one of its fields in the same row. Keeping one of
+    those is keeping a single square of tissue out of a fifty-four field scan,
+    while the run still reports "54 / 54 tiles" and nothing on screen says
+    otherwise. That is what happened once the viewer began composing, because
+    this function answered with one address however many it was given — it was
+    written when a longer list could only have meant generations.
+
+    The two are told apart by the number the viewer gives each dataset it
+    serves. A later generation is a *different* dataset and counts upwards; the
+    fields of one composed picture all sit inside the *same* one. So the newest
+    dataset number wins, and every address inside it is kept. Where an address
+    carries no number at all — a store named directly rather than served by the
+    viewer — the order it arrived in stands.
     """
     def numbered(source: dict) -> int:
         found = re.search(r"/data/(\d+)/", source["url"])
@@ -302,8 +307,8 @@ def _only_the_newest_of(held) -> list[dict]:
     sources = list(held)
     if len(sources) <= 1:
         return sources
-    newest = max(sources, key=numbered)
-    return [newest]
+    newest = max(numbered(source) for source in sources)
+    return [source for source in sources if numbered(source) == newest]
 
 
 def _ask(port: int, route: str, payload: dict) -> dict:
