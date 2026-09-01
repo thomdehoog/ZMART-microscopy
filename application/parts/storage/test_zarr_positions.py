@@ -25,27 +25,28 @@ from application.parts.storage.zarr_positions import (  # noqa: E402
 )
 
 
-def described() -> dict:
+def described(window=(300, 4200)) -> dict:
+    """One channel, resolved to ``window`` — or unresolved when ``window`` is None."""
+    channel = {
+        "key": "488",
+        "index": 0,
+        "label": "GFP",
+        "color": "00FF00",
+        "range": {"min": 0, "max": 65535},
+    }
+    if window is not None:
+        channel["displayWindow"] = {"start": window[0], "end": window[1]}
+        channel["windowProvenance"] = {
+            "method": "preset",
+            "algorithm": None,
+            "sampleCount": 0,
+            "resolvedAtRevision": 0,
+            "resolvedFrom": "acquisition-record",
+        }
     return {
         "schema": "zmart-acquisition-display/1",
         "acquisitionType": "overview",
-        "channels": [
-            {
-                "key": "488",
-                "index": 0,
-                "label": "GFP",
-                "color": "00FF00",
-                "range": {"min": 0, "max": 65535},
-                "displayWindow": {"start": 300, "end": 4200},
-                "windowProvenance": {
-                    "method": "preset",
-                    "algorithm": None,
-                    "sampleCount": 0,
-                    "resolvedAtRevision": 0,
-                    "resolvedFrom": "acquisition-record",
-                },
-            }
-        ],
+        "channels": [channel],
     }
 
 
@@ -126,17 +127,38 @@ class TestTheStore:
                 one_file_per_plane(tmp_path / "source", channels=2), positions
             )
 
-    def test_no_description_keeps_the_existing_per_position_window(self, tmp_path):
+    def test_no_description_writes_no_channel_block_and_measures_nothing(self, tmp_path):
+        """A position never decides its own window any more.
+
+        Before the acquisition description existed, every position measured a
+        window from its own pixels and stamped it into the store, so a dim
+        field and a bright field of one acquisition opened on two scales. Now
+        a position with no acquisition description writes no channel block at
+        all, and the Viewer measures one window for the whole picture.
+        """
         positions = tmp_path / "positions" / "overview"
         store = position_store_from_record(
             one_file_per_plane(tmp_path / "source", channels=1), positions
         )
-        channel = json.loads((store / "zarr.json").read_text())["attributes"]["ome"][
-            "omero"
-        ]["channels"][0]
+        ome = json.loads((store / "zarr.json").read_text())["attributes"]["ome"]
 
-        assert channel["window"]["end"] < channel["window"]["max"]
+        assert "omero" not in ome
         assert not (positions / "zmart-acquisition.json").exists()
+
+    def test_an_unresolved_description_leaves_bright_and_dim_positions_without_a_window(
+        self, tmp_path,
+    ):
+        """Unresolved means unresolved in every position, not measured per field."""
+        positions = tmp_path / "positions" / "overview"
+        write_acquisition_description(positions, described(window=None), channel_count=1)
+        dim = one_file_per_plane(tmp_path / "dim", channels=1, offset=0)
+        bright = one_file_per_plane(tmp_path / "bright", channels=1, offset=20000)
+        bright["position_label"] = "K00_M000000_G000000_P000008_V00"
+
+        for record in (dim, bright):
+            store = position_store_from_record(record, positions)
+            ome = json.loads((store / "zarr.json").read_text())["attributes"]["ome"]
+            assert "omero" not in ome, "no position may stamp a window of its own"
 
     def test_a_position_is_ome_zarr_five_with_tczyx(self, tmp_path):
         store = position_store_from_record(one_file_per_plane(tmp_path), tmp_path / "positions")

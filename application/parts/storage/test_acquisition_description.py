@@ -151,7 +151,7 @@ def test_malformed_descriptions_are_refused(change, sentence):
 
 
 def test_ome_blocks_mirror_a_resolved_window_exactly():
-    blocks = ome_channel_blocks(described(), depth_max=65535, fallback_windows=[(10, 20)])
+    blocks = ome_channel_blocks(described(), depth_max=65535)
     assert blocks == [
         {
             "label": "GFP",
@@ -161,14 +161,8 @@ def test_ome_blocks_mirror_a_resolved_window_exactly():
     ]
 
 
-def test_unresolved_ome_blocks_keep_the_m1_compatibility_hint():
-    blocks = ome_channel_blocks(
-        described(window=None), depth_max=65535, fallback_windows=[(100, 900)]
-    )
-    assert blocks[0]["window"] == {"min": 0, "max": 65535, "start": 100, "end": 900}
-
-
-def test_unresolved_ome_blocks_without_a_compatibility_hint_omit_omero():
-    assert ome_channel_blocks(
-        described(window=None), depth_max=65535, fallback_windows=None
-    ) == []
+def test_an_unresolved_acquisition_writes_no_channel_block_at_all():
+    """No names, no colours, no window: strict readers open that; they refuse
+    a named channel with an incomplete window, and an invented one opens the
+    picture nearly black."""
+    assert ome_channel_blocks(described(window=None), depth_max=65535) == []

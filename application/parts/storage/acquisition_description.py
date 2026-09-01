@@ -284,17 +284,15 @@ def write_acquisition_description(
     return target
 
 
-def ome_channel_blocks(
-    description: dict,
-    *,
-    depth_max: int,
-    fallback_windows: list[tuple[int, int] | None] | None = None,
-) -> list[dict]:
+def ome_channel_blocks(description: dict, *, depth_max: int) -> list[dict]:
     """Mirror the acquisition contract into ordinary OME channel blocks.
 
-    During the M1 compatibility period an unresolved channel may still receive
-    its old per-position percentile window through ``fallback_windows``. The
-    composed Viewer reads the sidecar and ignores that temporary local hint.
+    A resolved acquisition gives every position the same label, colour and
+    window, so a dim field and a bright field open on one scale. An acquisition
+    with any unresolved channel gives an empty list, and the store is written
+    with no channel block at all: strict readers refuse a block whose window
+    has ``min``/``max`` but no ``start``/``end``, and inventing the camera's
+    range for the missing pair makes real images open almost black.
     """
     normal = validate_acquisition_description(
         description,
@@ -307,10 +305,6 @@ def ome_channel_blocks(
         declared_range = channel.get("range") or {"min": 0, "max": depth_max}
         window = dict(declared_range)
         chosen = channel.get("displayWindow")
-        if chosen is None and fallback_windows is not None:
-            chosen = fallback_windows[channel["index"]]
-            if chosen is not None:
-                chosen = {"start": chosen[0], "end": chosen[1]}
         if chosen is not None:
             window.update(chosen)
         else:
@@ -319,8 +313,6 @@ def ome_channel_blocks(
         if channel.get("color") is not None:
             block["color"] = channel["color"]
         blocks.append(block)
-    # ngio refuses an omero block with min/max but no start/end.  Omitting the
-    # whole advisory block is the interoperable unresolved shape; during M1 the
-    # fallback supplies every channel, so existing position files keep their
-    # names, colours and compatibility windows.
+    # ngio refuses an omero block with min/max but no start/end. Omitting the
+    # whole advisory block is the shape every reader opens.
     return [] if unresolved else blocks
