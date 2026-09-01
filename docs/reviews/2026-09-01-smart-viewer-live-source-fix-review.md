@@ -149,28 +149,36 @@ assertion because `window.__thePicture` never becomes truthy. The same failure
 is present before Claude's integration branch, so it is not caused by this
 change, but it prevents that test from proving registration.
 
-## Screenshot review
+## Screenshot review — correction
 
-An existing 0/3/6/9 screenshot set was inspected. It does show nine synthetic
-fields filling the planned 3 x 3 grid, and its overview-only image shows the
-focussing heading crossed out while overview pixels remain. It is useful
-structural evidence, but it is not the user's requested proof: the pixels are
-the mock's smooth synthetic texture, not visibly identifiable kidney
-microscopy data. The whole-plate image also makes the acquisition too small to
-judge registration by eye.
+The earlier statement that an existing 0/3/6/9 set showed all nine fields
+filling the planned grid was wrong. Its test skipped an ROI whenever projection
+returned no on-screen box, and did not assert how many ROIs it examined. In the
+failed run all nine planned fields were off-screen, so an empty result passed.
+The overview-only image was zoomed inside tissue and therefore could not prove
+that the tissue occupied the planned positions.
 
-Those images are therefore not accepted as the final gate and are not added to
-this branch as proof.
+A later whole-plate measurement shows a picture of approximately the correct
+3 x 3 extent translated about `+23.3 mm` right and `+29.4 mm` down from the
+plan. The scale is credible; registration is not. The screenshots disprove the
+registration claim and are retained only as evidence of the failed test design.
+
+No screenshot set is accepted until exactly nine planned ROIs are examined,
+off-screen fields fail explicitly, the whole plate stays framed, and each ROI
+contains non-uniform kidney data at the same screen coordinates as its plan.
 
 ## Review points still open
 
-1. **Real Step 5 pixels:** capture 0/3/6/9 with the mock kidney dataset and
-   verify every planned ROI is textured rather than white, black, or flat.
+1. **Real Step 5 pixels:** capture 0/3/6/9 with the mock kidney dataset, require
+   exactly nine examined planned ROIs, and verify each is textured rather than
+   white, black, or flat. Off-screen ROIs are failures.
 2. **Visibility truth:** hide focussing, photograph overview still filling all
    nine positions, and verify engine state rather than trusting the eye icon.
-3. **Registration:** repair the harness that waits for `window.__thePicture`,
-   then compare all nine image bounds with the transparent plan to less than
-   one screen pixel.
+3. **Registration:** record carrier-local plan points, carrier origin, absolute
+   stage points, OME-Zarr translations, engine bounds, and screen projections
+   in one live trace; fix the first boundary where they diverge; then compare
+   all nine image bounds with the transparent plan to less than one screen
+   pixel.
 4. **View preservation:** prove the whole-plate Fit survives the first and
    later field arrivals.
 5. **Fresh installation:** install Microscopy and Viewer into a clean
