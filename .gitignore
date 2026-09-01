@@ -1,3 +1,9 @@
+# Node's own workings. The JS project lives in `application/` and ignores
+# these itself; this catches the copy that appears at the top of the tree
+# when a node tool is run from here rather than from in there.
+node_modules/
+.vite/
+
 __pycache__/
 *.pyc
 *.pyo
