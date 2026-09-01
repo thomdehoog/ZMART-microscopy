@@ -8,7 +8,7 @@
  * panel's first appearance was shipped unphotographed, and the canvas grid
  * quietly wrapped it onto a second row.
  */
-import { test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 
 const gotoStep = (page, name) => page.locator(`.step:has-text("${name}")`).first().click();
 
@@ -37,15 +37,33 @@ test("the panel stands between the picture and the channel", async ({ page }) =>
 
   await page.evaluate(async () => {
     const { mountViewerPanel } = await import("/parts/canvas/viewer-panel.js");
+    const sources = Array.from(
+      { length: 9 },
+      (_, at) => `http://127.0.0.1:9/data/0/overview_P${String(at).padStart(6, "0")}.ome.zarr/|zarr3:`,
+    );
     await mountViewerPanel(document.querySelector("#picture-host"), {
       viewer: { setChannel: () => {} },
       acquisitions: [
-        { url: "http://127.0.0.1:9/data/0/overview.zmartview.zarr/|zarr3:", name: "overview" },
-        { url: "http://127.0.0.1:9/data/1/focussing.ome.zarr/|zarr3:", name: "focussing" },
+        {
+          url: sources[0],
+          name: "overview",
+          channels: [0, 1, 2].map((channel) => ({
+            name: `channel ${channel}`,
+            colour: [0, channel / 2, 1],
+            window: { low: 192, high: 2575 },
+            channelIndex: channel,
+            sources,
+          })),
+        },
       ],
     });
   });
   await page.waitForTimeout(600);
+  const panel = page.locator(".viewer-panel");
+  await expect(panel.locator("[data-channel-row]")).toHaveCount(3);
+  await expect(panel.locator('[data-channel-row="channel 0"]')).toHaveCount(1);
+  await expect(panel.locator('[data-channel-row="channel 1"]')).toHaveCount(1);
+  await expect(panel.locator('[data-channel-row="channel 2"]')).toHaveCount(1);
   await page.screenshot({ path: "test-results/viewer-panel-open.png", fullPage: true });
 
   await page.locator(".viewer-panel button").first().click();

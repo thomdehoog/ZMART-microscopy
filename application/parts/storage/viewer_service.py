@@ -38,6 +38,11 @@ import threading
 import urllib.request
 from pathlib import Path
 
+#: The operator asks for the live scene every 1.5 seconds.  A read must finish
+#: before the next question or a stalled Viewer creates an ever-growing queue of
+#: bridge requests while the microscope is meant to keep scanning.
+VIEWER_POLL_TIMEOUT_S = 1.0
+
 #: The service's whole state: one viewer per bridge process, like the run.
 _viewer: dict = {
     "server": None,
@@ -47,6 +52,11 @@ _viewer: dict = {
     # viewer heading (the acquisition type, read off the store names) -> the
     # engine-ready sources: [{"url": ..., "name": ...}], each a whole address.
     "sources": {},
+    # The same answer at Smart Viewer's real boundary: one logical acquisition
+    # per group, whose channel rows each retain every spatial source.  Nine
+    # fields by three channels is therefore one acquisition with three rows,
+    # not nine acquisitions (and never twenty-seven controls).
+    "acquisitions": [],
     # Positions folders already handed to Smart Viewer. Viewer 0.2 watches an
     # opened folder itself and adds later stores to the same dataset number,
     # so each folder is opened exactly once for the life of this service.
@@ -88,7 +98,14 @@ def stop() -> None:
     """The session is over, and the viewer with it."""
     with _the_turn:
         server = _viewer["server"]
-        _viewer.update(server=None, thread=None, port=None, sources={}, opened=set())
+        _viewer.update(
+            server=None,
+            thread=None,
+            port=None,
+            sources={},
+            acquisitions=[],
+            opened=set(),
+        )
         if server is not None:
             try:
                 server.shutdown()
@@ -120,6 +137,7 @@ def status() -> dict:
                 # another server's state.
                 if _viewer["port"] == port:
                     _viewer["sources"] = _the_sources_in(current, port)
+                    _viewer["acquisitions"] = _the_acquisitions_in(current, port)
                     _viewer["error"] = None
 
     with _the_turn:
@@ -128,6 +146,7 @@ def status() -> dict:
             "running": port is not None,
             "url": f"http://127.0.0.1:{port}" if port is not None else None,
             "sources": {kind: list(held) for kind, held in _viewer["sources"].items()},
+            "acquisitions": list(_viewer["acquisitions"]),
             "error": _viewer["error"],
         }
 
@@ -152,7 +171,11 @@ def a_position_landed(acquisition_type: str, positions_folder: Path | str) -> No
             with _the_turn:
                 _viewer["opened"].add(folder)
                 _viewer["sources"] = _the_sources_in(answered, port)
-        _ask(port, "/api/announce", {})
+                _viewer["acquisitions"] = _the_acquisitions_in(answered, port)
+        # A rerun may replace chunks inside the same named store.  Smart Viewer
+        # deliberately distinguishes that case: this wire word tells its live
+        # readers that stable URLs may now contain new bytes.
+        _ask(port, "/api/announce", {"wrote_image_in_place": True})
     except Exception as why:  # noqa: BLE001 -- the picture lags, the scan goes on
         with _the_turn:
             _viewer["error"] = f"the viewer was not told about {acquisition_type}: {why}"
@@ -190,6 +213,101 @@ def _the_sources_in(config: dict, port: int) -> dict[str, list[dict]]:
     return {group: _only_the_newest_generation_of(held.values()) for group, held in grouped.items()}
 
 
+def _the_acquisitions_in(config: dict, port: int) -> list[dict]:
+    """Translate Smart Viewer's layer rows without destroying their shape.
+
+    Smart Viewer 0.2 merges all position stores belonging to one channel into
+    one layer row whose ``sources`` list carries the spatial pieces.  The
+    operator's engine calls the containing group an acquisition and its panel
+    calls each layer a channel, so this is a naming adapter only: every row and
+    every source stays where the Viewer put it.
+
+    The former adapter flattened ``sources`` first.  A 3-by-3, three-channel
+    overview consequently became nine acquisitions and twenty-seven controls.
+    That was not Smart Viewer behaviour and also prevented Neuroglancer from
+    opening the nine tiles as one placed layer.
+    """
+    scene = _the_scene_in(config, port)
+    grouped: dict[str, dict] = {}
+    for layer in scene["layers"]:
+        if layer.get("kind") != "image":
+            continue
+        group = layer["group"]
+        sources = list(layer.get("sources") or [])
+        if not sources:
+            continue
+        acquisition = grouped.setdefault(
+            group,
+            {"name": group, "url": sources[0], "channels": []},
+        )
+        acquisition["channels"].append(
+            {
+                "name": str(layer.get("name") or f"channel {len(acquisition['channels'])}"),
+                "colour": layer.get("color"),
+                "window": layer.get("window"),
+                "histogram": layer.get("histogram"),
+                "channelIndex": layer.get("channelIndex"),
+                "localPosition": layer.get("localPosition"),
+                "visible": layer.get("active") is not False,
+                "sources": sources,
+            }
+        )
+    return list(grouped.values())
+
+
+def _the_scene_in(config: dict, port: int) -> dict:
+    """Smart Viewer's current layer rows, with whole operator-page addresses.
+
+    Reopening an older integration can leave two Viewer dataset generations
+    carrying the same cleaned group label.  Keep the newest dataset exactly as
+    before, but do it *inside each row* so all fields of that generation remain
+    together as the Viewer's multi-source layer.
+    """
+
+    def whole(address: object) -> str:
+        text = str(address)
+        return f"http://127.0.0.1:{port}{text}" if text.startswith("/") else text
+
+    def group_of(row: dict) -> str:
+        group = str(row.get("group") or "picture")
+        group = group.rsplit(" · ", 1)[-1]
+        group = re.sub(r" \(\d+\)$", "", group)
+        for suffix in (".zmartview.zarr", ".ome.zarr", ".zarr"):
+            group = group.removesuffix(suffix)
+        return group
+
+    candidates = []
+    newest: dict[str, int] = {}
+    for original in config.get("layers") or []:
+        if not isinstance(original, dict):
+            continue
+        row = dict(original)
+        row["group"] = group_of(row)
+        row["sources"] = [whole(source) for source in row.get("sources") or []]
+        candidates.append(row)
+        for source in row["sources"]:
+            found = re.search(r"/data/(\d+)/", source)
+            number = int(found.group(1)) if found else -1
+            newest[row["group"]] = max(newest.get(row["group"], -1), number)
+
+    layers = []
+    for row in candidates:
+        wanted = newest.get(row["group"], -1)
+        row["sources"] = [
+            source
+            for source in row["sources"]
+            if (int(found.group(1)) if (found := re.search(r"/data/(\d+)/", source)) else -1)
+            == wanted
+        ]
+        if row["sources"]:
+            layers.append(row)
+    return {
+        **{key: value for key, value in config.items() if key not in {"layers", "groups"}},
+        "layers": layers,
+        "groups": list(dict.fromkeys(row["group"] for row in layers)),
+    }
+
+
 def _only_the_newest_generation_of(held) -> list[dict]:
     """Keep every store in the newest Viewer dataset under a heading.
 
@@ -222,7 +340,9 @@ def _ask(port: int, route: str, payload: dict) -> dict:
 
 
 def _read(port: int, route: str) -> dict:
-    with urllib.request.urlopen(f"http://127.0.0.1:{port}{route}", timeout=30) as answer:
+    with urllib.request.urlopen(
+        f"http://127.0.0.1:{port}{route}", timeout=VIEWER_POLL_TIMEOUT_S
+    ) as answer:
         return json.loads(answer.read() or b"{}")
 
 
