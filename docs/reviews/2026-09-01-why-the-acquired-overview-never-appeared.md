@@ -175,7 +175,32 @@ a channel's and its acquisition's — go through one place.
 
 ---
 
-## 7. How to prove any of this again
+## 7. Focussing was measured on a different arrangement of the same pixels
+
+Not a fault that hid the picture, but the last place where the run's canonical
+image and the number the operator is shown came from different readings.
+
+Every capture is converted to an OME-Zarr position the moment it lands — one
+image, its axes declared, its channels described — and that is what the viewer
+draws and what an operator can open in napari or Fiji. Focus scoring, however,
+still handed the analysis step the vendor's sixty-one loose plane files. The
+step could always read either, so this was habit rather than design; the cost
+is that the height on the focus plot was measured on an arrangement of the
+pixels nobody else looks at.
+
+`what_was_captured` in `application/parts/microscope/focus_score.py` now hands
+over the store where the capture has one, and the plane files only where the
+conversion did not happen — a driver whose captures cannot be converted still
+focusses exactly as before. Measured on the mock: the same stack scores the
+same peak either way, and a live point through the bridge came back at
+22.3 µm rather than lost.
+
+The one thing to know before running this on a microscope is in section 9: the
+store is read with `ngio`, so an old focus environment needs rebuilding.
+
+---
+
+## 8. How to prove any of this again
 
 All of it runs against the mock instrument through the real bridge and the real
 page. From `application/`:
@@ -205,15 +230,20 @@ focussing hidden and its eyes asserted closed in the same photographs.
 
 ---
 
-## 8. What is still open
+## 9. What is still open
 
 - **The panel's unported features.** LUTs, the × close, the Z and T sliders
   with play, and pan and zoom on the histogram are all still in the standalone
   viewer and not yet in the operator window.
-- **The focus analysis still scores the vendor's TIFFs.** Focussing already
-  writes an OME-Zarr position per stack; the scoring pipeline should read that
-  rather than the plane files, so the acquisition's canonical form is what gets
-  measured.
+- **Rebuild the focus environment if it is older than this branch.** Focussing
+  now scores the run's own OME-Zarr position rather than the vendor's loose
+  plane files (section 7). Reading an OME-Zarr needs `ngio`, which the focus
+  environment has listed since it was first written — but an environment built
+  before that line was added does not have it, and every focus point would be
+  lost with `No module named 'ngio'`. Running
+  `python zmart_analysis/workflows/focus/environments/setup_env.py` puts that
+  right, and its own check scores a small stack in an OME-Zarr position, so a
+  green run of it is the answer to whether focussing will work.
 - **A drifted stage.** Everything above assumes positions land on a grid. What
   happens when they do not is written up in the viewer's
   `PLAN_showing_many_stores_as_one.md` and is unchanged by this work.

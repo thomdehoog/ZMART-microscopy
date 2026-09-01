@@ -8,6 +8,7 @@ University of Zurich (thom.dehoog@zmb.uzh.ch, thomdehoog@gmail.com).
 from __future__ import annotations
 
 import math
+from pathlib import Path
 
 import pytest
 
@@ -130,6 +131,46 @@ def test_a_stack_is_one_channels_planes_in_depth_order():
     assert given["z_um"] == [0.0, 1.0, 2.0]
 
 
+def test_a_focus_stack_is_scored_from_the_run_s_own_store_when_there_is_one():
+    """A capture is converted to an OME-Zarr position the moment it lands, and
+    that is the run's canonical form. Scoring it rather than the vendor's loose
+    plane files means the number on the operator's focus plot comes from the
+    same image they can open in the viewer, in napari or in Fiji -- and the
+    step is handed one path instead of sixty-one."""
+    from application.parts.microscope import focus_score
+
+    record = {
+        "zarr": str(Path("run", "positions", "focussing", "focussing_P000000.ome.zarr")),
+        "planes": [
+            {"t": 0, "c": 0, "z": z, "path": f"p_c0_z{z}", "z_um": float(z)}
+            for z in (0, 1, 2)
+        ],
+    }
+    given = focus_score.what_was_captured(record)
+    assert given["image_path"] == record["zarr"]
+    assert "image_paths" not in given
+    # The heights still come off the record: the store says how far apart its
+    # planes are, but only the acquisition knows where the sweep stood.
+    assert given["z_um"] == [0.0, 1.0, 2.0]
+
+
+def test_a_focus_stack_without_a_store_is_scored_from_its_planes():
+    """A conversion that failed leaves no store, and focussing carries on from
+    the vendor's files exactly as it did before."""
+    from application.parts.microscope import focus_score
+
+    record = {
+        "zarr_error": "the vendor's files were not canonical planes",
+        "planes": [
+            {"t": 0, "c": 0, "z": z, "path": f"p_c0_z{z}", "z_um": float(z)}
+            for z in (0, 1, 2)
+        ],
+    }
+    given = focus_score.what_was_captured(record)
+    assert given["image_paths"] == ["p_c0_z0", "p_c0_z1", "p_c0_z2"]
+    assert "image_path" not in given
+
+
 def test_every_other_channel_rides_along_for_per_colour_features():
     """Segmentation reads the first channel; the rest travel with it so the
     features can be measured on every colour -- and each measured column
@@ -171,14 +212,21 @@ def test_a_capture_with_a_position_store_is_read_from_it():
     analysis reads: segmentation on packed channel 0 (the first channel,
     whatever the instrument numbered it), the rest riding along by index, and
     the results still filed beside the vendor's data."""
+    # Built with the running machine's own separator rather than written out
+    # with backslashes. Where the results are filed is worked out by walking
+    # up the plane's path to the `data` folder, and a path written for one
+    # machine is a single long file name on the other -- so this test passed
+    # on Windows and failed on Linux, saying nothing about the code either
+    # time.
+    data = Path("run", "overview", "data")
     record = {
         "acquisition_type": "overview",
-        "zarr": r"run\positions\overview\overview_P000001.ome.zarr",
+        "zarr": str(Path("run", "positions", "overview", "overview_P000001.ome.zarr")),
         "planes": [
             {"t": 0, "z": 0, "c": 1, "z_um": 8.5, "x_um": 3000.0, "y_um": 2000.0,
-             "path": r"run\overview\data\f_C01_Z00000.ome.tiff"},
+             "path": str(data / "f_C01_Z00000.ome.tiff")},
             {"t": 0, "z": 0, "c": 2, "z_um": 8.5, "x_um": 3000.0, "y_um": 2000.0,
-             "path": r"run\overview\data\f_C02_Z00000.ome.tiff"},
+             "path": str(data / "f_C02_Z00000.ome.tiff")},
         ],
     }
     given = detection.what_was_captured(record, field=0, pixel_um=4.0, settings={})

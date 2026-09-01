@@ -45,16 +45,28 @@ _STEP = (
 
 
 def what_was_captured(record: dict) -> dict:
-    """The step's input for one acquire record: the planes, and their heights.
+    """The step's input for one acquire record: the stack, and its heights.
 
-    Both are read straight off the record. A driver writes one 2-D plane per
-    file and says where on the sample each was taken, which is the only place
-    that knows: a saved file carries the size of a pixel and nothing about
-    where it came from, and the stage stands at the middle of a stack while
-    its planes are spread either side of it.
+    The heights are read straight off the record, because that is the only
+    place that knows them: a saved file carries the size of a pixel and
+    nothing about where it came from, and the stage stands at the middle of a
+    stack while its planes are spread either side of it.
 
-    Nothing is assembled and nothing is copied: the planes are read where the
-    acquisition left them.
+    **What is scored is the run's own store of the stack where there is one.**
+    A capture is converted to an OME-Zarr position the moment it lands — one
+    image, its axes declared, its channels described — and that is the run's
+    canonical form. Scoring it rather than the vendor's loose plane files
+    means the numbers on the operator's focus plot come from the same image an
+    operator can open in the viewer, in napari or in Fiji, rather than from a
+    second reading of a different arrangement of the same pixels. It also
+    means the step is handed one path instead of sixty-one, and reads one
+    channel of one level rather than opening every file.
+
+    Where no store has been written the plane files are used exactly as
+    before, so a driver whose captures are not converted still focusses.
+
+    Nothing is assembled and nothing is copied either way: the pixels are read
+    where the acquisition left them.
     """
     every = record.get("planes") or []
     if not every:
@@ -73,9 +85,20 @@ def what_was_captured(record: dict) -> dict:
             "the capture did not say what height each plane was taken at, so "
             "the sharp one cannot be named in micrometres"
         )
+    heights_um = [float(height) for height in heights]
+
+    # The run's own store of this stack, where the capture has already been
+    # converted to one. The bridge files it on the record as `zarr` the moment
+    # it lands, before anything is scored; a conversion that failed leaves
+    # `zarr_error` instead and the planes below are used. See this function's
+    # docstring for why the store is preferred when there is one.
+    kept = record.get("zarr")
+    if kept:
+        return {"image_path": str(kept), "z_um": heights_um}
+
     return {
         "image_paths": [plane["path"] for plane in planes],
-        "z_um": [float(height) for height in heights],
+        "z_um": heights_um,
     }
 
 
