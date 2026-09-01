@@ -2,6 +2,11 @@
 
 Date: 2026-09-01
 
+Status: answered at commit `e73aa7f1` in
+`docs/reviews/2026-09-01-review-of-the-revised-viewer-delivery-plan.md`.
+The next review should use
+`docs/design/viewer-delivery-implementation-plan-50-percent-review-prompt.md`.
+
 Please review the revised decision and plan; do not implement it.
 
 ## Context

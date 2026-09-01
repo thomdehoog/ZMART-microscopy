@@ -10,6 +10,7 @@ Reviewed against:
 - ZMART-microscopy commit `d8a67923`;
 - the review on branch `claude/lazy-jpeg-pyramids-review-fhz6te`, commit
   `48f72d64`;
+- the follow-up review at commit `e73aa7f1`;
 - ZMART Viewer 0.2.0 at commit `9ff10b0`.
 
 ## Decision
@@ -25,16 +26,24 @@ canvas.
 
 The work should now proceed in this order:
 
-1. Give every acquisition one declared display window per logical channel.
-2. Measure Viewer 0.2 on real ZMART runs and the microscope PC, concentrating
+1. Teach Viewer to represent “no display window yet” without substituting the
+   camera range.
+2. Make one durable acquisition descriptor feed the composed source, and make
+   that source the display authority.
+3. Only then stop position stores from measuring independent windows.
+4. Account for and clean the Viewer's session scratch roots.
+5. Measure Viewer 0.2 on real ZMART runs and the microscope PC, concentrating
    on cold opening, coarse warming, browser memory, and bytes actually moved.
-3. Improve the existing composer's lazy serving only where those measurements
+6. Improve the existing composer's lazy serving only where those measurements
    show a problem.
-4. Consider an 8-bit or JPEG response only if bytes or decode cost remain a
-   measured bottleneck. Such a response must use the existing piece addresses,
-   geometry, revision, source, and canvas. It must not create another viewer.
+7. Consider one whole composed picture declared as `uint8` only if response
+   bytes or decoding remain a measured bottleneck. The choice is made when the
+   picture is opened; it is not negotiated at a Zarr chunk address.
 
-JPEG is therefore a conditional delivery encoding, not the architecture.
+JPEG has left this plan. A Zarr chunk address is decoded according to the one
+dtype and codec chain in its array description. Returning JPEG or alternate
+`uint8` bytes at that address would require a second source and, for JPEG, a
+second loader. That contradicts the one-source decision.
 
 ## What changed after review, and what did not
 
@@ -77,6 +86,22 @@ versus `z=0.5` observation came from a debugging report rather than a named
 committed test or trace. The revision labels it reported evidence and requires
 the repository to make it reproducible.
 
+**The conditional JPEG response was impossible under the one-source rule.** A
+Viewer piece address is a Zarr chunk key, not a neutral tile endpoint. Its
+array declares one dtype and codec chain. The later experiment is now a whole
+picture declared as `uint8`, chosen instead of the scientific picture at open
+time. JPEG is out of scope.
+
+**The window migration order was unsafe.** Viewer 0.2 returns `0…65535` when
+nothing can be measured, which is the forbidden camera-range fallback during
+the empty beginning of a live run. Viewer gains an explicit absent state and
+the composed source gains its acquisition window before the position writer
+changes.
+
+**Session scratch is managed storage.** `~/.zmart-viewer/scenes/session-*` and
+`~/.zmart-viewer/replays/session-*` survive an unclean exit today. The revised
+work names those roots, counts them, and safely sweeps orphans on startup.
+
 ### Qualified rather than accepted literally
 
 **Area averaging does not inevitably break registration.** It does break the
@@ -85,29 +110,32 @@ translation is omitted. A different reducer can be registered with explicit
 per-level transforms. The revision keeps that technical possibility while
 making decimation the only default compatible by construction.
 
-**JPEG may still have value, but not yet as a viewer.** Viewer 0.2's existing
+**An 8-bit display source may still have value.** Viewer 0.2's existing
 measurements disprove the field-count motivation. They do not prove that
-16-bit response bytes and browser decoding are optimal for every remote or
-low-memory client. The revision retains one conditional encoding experiment,
-but only behind a fivefold-byte and no-regression gate and only on the existing
-piece route.
+16-bit response bytes and browser decoding are optimal for every client. A
+conditional experiment remains, but it declares the one composed picture as
+`uint8`; it does not vary bytes beneath an existing declaration. It remains
+unauthorised until the real baseline identifies response bytes or decoding as
+the bottleneck.
 
 **The review suggested a persistent cache floor for small runs.** This revision
 does not add one. A floor can violate the user's ten-per-cent limit. When a
 small run's allowance cannot hold a screenful, transient RAM or no persistence
 is safer than silently exceeding the rule.
 
-**The suggested performance margins are starting values.** Two seconds,
-500 ms, fivefold, and 5 GiB are explicit so the gates can fail. They remain
-provisional until agreed before measurement on the microscope PC. They may not
-be relaxed after seeing an unfavourable result merely to preserve a design.
+**The suggested performance margins are starting values.** Cold and warm
+opening must be separated, “useful” must be mechanically observable, all trace
+bytes must be counted, and the memory gate needs a number and cycle count.
+Those definitions belong in the 50% implementation plan and remain reviewable
+before measurement. They may not be relaxed after seeing an unfavourable
+result merely to preserve a design.
 
 ### Retained from the original design
 
 The review agreed with, and this revision keeps:
 
 - TIFFs and canonical scientific data remain authoritative;
-- JPEG or another 8-bit response is display-only;
+- any `uint8` picture is visibly display-only;
 - no silent fallback may conceal a broken scientific path;
 - channels remain independent and colour/gamma stay in the browser;
 - no per-tile or per-level stretch;
@@ -180,19 +208,21 @@ browser invalidates that source and asks again only for visible pieces.
 
 The following are forbidden:
 
-- a JPEG grid beside the Viewer's grid;
-- a JPEG manifest beside the Viewer's source description;
+- another display grid beside the Viewer's grid;
+- another display manifest beside the Viewer's source description;
 - a second live invalidation mechanism;
 - a second layer transform;
-- a hidden fallback that draws JPEG when the scientific path failed;
+- a hidden display fallback when the scientific path failed;
 - a second operator canvas underneath or above the first.
 
-A later encoded response may have another media type or codec, but it remains
-another representation of the same addressed piece and revision.
+A Zarr source has one declared dtype and codec chain. It may not vary by
+request. A future compact view is a separately declared construction selected
+*instead of* the scientific view when the picture is opened. Only one source
+description is live at a time, and the UI must state which one was chosen.
 
 ## Phase 0A: make the display-window contract explicit
 
-This is useful whether or not a JPEG is ever written.
+This is useful whether or not a compact picture is ever authorised.
 
 ### The current gap
 
@@ -205,6 +235,30 @@ The current Viewer can still measure data when a store declares no useful
 window. That is a reversible display choice because the original 16-bit values
 remain. It is not a valid source for an irreversible 8-bit encoding unless the
 chosen result is resolved once and recorded.
+
+### Safe migration order
+
+The authority must never disappear between releases:
+
+1. In ZMART Viewer, change the no-samples result in `contrast.measure` and
+   `contrast.display_window` from `(0, 65535)` to an explicit absent result.
+   Propagate it through the config, standalone panel, and measurement endpoint
+   as “waiting for measurable pixels”; do not draw a numeric camera-range
+   default.
+2. Add a durable acquisition descriptor beside the position collection. The
+   Viewer reads it and writes the same window into the composed source's OME
+   `omero.channels` block, with ZMART provenance beside it.
+3. Make the composed source the one display authority. Position stores mirror
+   the acquisition description for foreign readers, but the ZMART canvases do
+   not select the first position's window. Update the operator application's
+   embedded panel to represent the same absent/waiting state.
+4. Only after the compatible Viewer is required by the operator application,
+   remove `_a_window_onto` as the position writer's fallback. An unresolved
+   acquisition then omits `start` and `end` honestly.
+
+Until step 4, existing per-position windows remain as a compatibility bridge.
+The bridge is deleted once the minimum Viewer capability is enforced; it is not
+a permanent second authority.
 
 ### Authority
 
@@ -242,7 +296,8 @@ ZMART provenance should additionally say how the display pair was obtained:
       "method": "preset",
       "algorithm": null,
       "sampleCount": 0,
-      "resolvedAtRevision": 0
+      "resolvedAtRevision": 0,
+      "resolvedFrom": "acquisition-record"
     }]
   }
 }
@@ -250,8 +305,8 @@ ZMART provenance should additionally say how the display pair was obtained:
 
 The exact spelling belongs to the acquisition/view contract and should be
 settled with the Viewer repository before code changes. The important facts
-are channel identity, the two display bounds, the method, and when the choice
-became fixed.
+are channel identity, the two display bounds, the method, what record supplied
+them, and when the choice became fixed.
 
 ### Resolution policy
 
@@ -265,7 +320,7 @@ Use this order:
 
 Step 4 means the 16-bit Viewer may keep measuring a provisional display range.
 It does not mean the camera range becomes the display range. It also means an
-8-bit derivative must refuse to encode that channel.
+8-bit compact picture must refuse to encode that channel.
 
 Do not compute and stamp a permanent value from the first field. Do not update
 a declared value whenever another field lands. A live automatic policy, if it
@@ -274,7 +329,8 @@ event; until then, use presets or an explicit operator action.
 
 ### Writer and view behaviour
 
-- The acquisition record carries the channel descriptions.
+- A durable acquisition descriptor records where the channel descriptions
+  were decided.
 - `position_store_from_record` receives them rather than inventing a new
   window for each position.
 - Every position in one acquisition mirrors the same channel window where one
@@ -284,9 +340,11 @@ event; until then, use presets or an explicit operator action.
 - The composed/linked Viewer's source description carries the acquisition
   window once and is the authority used by the embedded canvas.
 - A legacy folder whose positions disagree does not silently choose the first
-  store's value. The Viewer measures the composed acquisition or reports the
-  disagreement, then records a resolved value only through an explicit
-  migration or operator action.
+  store's value. When identity, names, or colours disagree, the Viewer refuses
+   the composition. When only display `start`/`end` disagree, it omits that pair
+  from the composed source and measures the composed acquisition provisionally.
+  It records a resolved value only through an explicit migration or operator
+  action.
 
 ### Tests and gate
 
@@ -298,7 +356,11 @@ Tests must prove:
 - a Viewer-measured fallback can change the display without changing pixels;
 - any recorded resolution is stable across reopen and names its provenance;
 - no 8-bit encoder accepts an unresolved channel;
-- existing foreign OME-Zarr without ZMART provenance still opens normally.
+- existing foreign OME-Zarr without ZMART provenance still opens normally;
+- a legacy folder with different per-position windows never inherits the first
+  position's window silently;
+- an empty live source exposes no numeric window until a declaration or
+  measurable pixels exist;
 
 Phase 0A passes when one run-level channel description can be followed from
 the acquisition record to every position and the one Viewer source. It fails
@@ -316,6 +378,11 @@ First read:
 
 Then repeat only the adoption measurements that have not been made on a real
 ZMART run and the actual microscope PC.
+
+The current options rig cannot open a foreign run: its `--data` argument names
+where it writes its own fixtures. Add a separate, read-only `--external-run`
+door before claiming any real-run comparison. It must never write into or
+normalise the supplied acquisition.
 
 ### Fixtures
 
@@ -368,22 +435,40 @@ Measure, rather than infer:
 
 ### Stop gate
 
-Stop after phase 0 when the existing Viewer meets the following on the target
-machine:
+Measure cold and warm separately:
 
-- a useful whole-acquisition picture appears within 2 seconds;
+- **process-cold** means a new Viewer process and an empty managed delivery
+  cache, without pretending the operating-system disk cache can be cleared
+  reproducibly;
+- **warm** means repeating the same trace in that process after its first
+  settled view.
+
+“Useful whole-acquisition picture” means that at least 90% of the covered area
+visible at the opening resolution has answered, the expected visible requests
+have settled, and at least one covered piece contains non-background pixels.
+Coverage, not brightness alone, distinguishes acquired black from ground that
+was never imaged.
+
+The provisional target-machine gates are:
+
+- a useful warm whole-acquisition picture appears within 2 seconds;
+- a useful process-cold finished/baked picture appears within 5 seconds;
+- process-cold unbaked time is measured and reported, not forced under a bound
+  that Viewer 0.2's existing 10,000-position measurement already exceeds;
 - a settled pan or zoom completes within 500 ms at p95;
 - a new live position is visible within 500 ms at p95 after publication;
-- memory reaches a stable bound during repeated navigation;
+- over 20 repetitions of the navigation trace, the combined renderer/GPU
+  process memory is at most 1 GiB and the final ten cycles grow by less than
+  10% or 20 MiB, whichever is larger;
 - automatic duplicate storage stays inside the agreed absolute cap;
-- no position-count-proportional browser request pattern appears.
+- the existing viewport-bounded request behaviour remains a regression check.
 
 These initial usability thresholds should be adjusted only before running the
 trace, with the reason recorded. A threshold may not be loosened after seeing a
 bad result merely to keep an implementation idea alive.
 
-If Viewer 0.2 passes, the JPEG work stops. Embedding the existing canvas is the
-next product task.
+If Viewer 0.2 passes, compact-picture work stops. Embedding the existing canvas
+is the next product task.
 
 ## Storage accounting and the 500 GB case
 
@@ -398,6 +483,8 @@ separately:
 6. automatic persistent delivery cache;
 7. browser HTTP cache;
 8. transient server and browser memory.
+9. `~/.zmart-viewer/scenes/session-*` composed-session scratch;
+10. `~/.zmart-viewer/replays/session-*` replay scratch.
 
 Only categories explicitly documented as rebuildable may be deleted by cache
 eviction. Calling scientific working data a cache does not make it disposable.
@@ -431,6 +518,20 @@ not persist it.
 
 Eviction must be one process-wide service with one lock or database. Two Viewer
 processes must not run independent eviction loops against the same root.
+
+Each session folder needs a lifetime lock. On startup, the Viewer may remove a
+session only after it acquires that folder's lock non-blockingly; an active
+process keeps its lock and is skipped. This makes a crash release the lock
+without relying on a clean shutdown. Cleanup must resolve every candidate
+under the exact `scenes` or `replays` root, refuse symlink traversal, count the
+bytes before removal, and report what it reclaimed. Those roots participate in
+the 5 GiB managed-storage ceiling.
+
+The absence of a persistent floor has a visible consequence: a 200 MB run has
+at most about 20 MB of automatically managed derivatives. If that cannot hold
+a useful screenful, persistence is effectively off and the Viewer serves from
+transient RAM. A small-fixture benchmark must not interpret that as a cache
+implementation fault.
 
 ## Phase 1: improve the existing path only if phase 0 fails
 
@@ -470,98 +571,81 @@ Phase 1 must make the failing phase-0 metric pass without introducing a second
 source or worsening any correctness gate. If it does, stop. Do not proceed to
 8-bit delivery merely because phase 1 was completed.
 
-## Phase 2: conditional 8-bit delivery experiment
+## Phase 2: a conditional compact-picture experiment
 
-Enter this phase only when phase 0 and the smallest phase-1 correction show
-that transfer or decoding of the existing 16-bit pieces is still the dominant
-cost.
+This phase is not authorised by this document. Enter it only when phase 0 and
+the smallest phase-1 correction show that response bytes or decoding of the
+scientific-dtype picture is still the dominant cost.
 
-### Candidates
+A Viewer piece address is a Zarr chunk address. The array's `zarr.json`
+declares one dtype and codec chain, and every chunk body must match. There is no
+per-request representation negotiation.
 
-Compare at least:
-
-1. existing source dtype and codec;
-2. 8-bit linear encoding with the existing chunk codec;
-3. 8-bit grayscale JPEG, if the client can consume it without a parallel
-   source contract.
-
-The conversion is display-only:
+The only experiment that preserves the existing route and client is therefore:
 
 ```text
-source uint16/float
-    -> select the existing resolution
-    -> apply the one resolved acquisition/channel display encoding window
-    -> encode an 8-bit response
+open scientific picture
+    -> one source declared with the source dtype
+
+or, explicitly instead:
+
+open compact display picture
+    -> compose from canonical values
+    -> map through one resolved acquisition/channel window
+    -> one source declared as uint8 with its uint8 codec chain
 ```
 
-The scientific source keeps its dtype. Ordinary browser JPEG does not preserve
-`uint16`; it preserves only an approximate mapping back through the recorded
-window. Gamma, colour, opacity, and the operator's narrower display window stay
-in the GPU and are not baked into the response.
+Exactly one description is live for that opened picture. The operator must be
+able to see whether the open source is scientific or compact. A compact source
+is never offered to analysis and refuses every unresolved channel.
+
+JPEG is not a candidate. It is not a Zarr chunk body understood by the current
+clients and would require a second loader. If remote JPEG viewing is wanted in
+the future, it is a separate product decision with a separate justification.
 
 ### Geometry and reduction
 
-Decimation is the incumbent. Both repositories keep every second pixel so a
-coarse sample remains the low-corner sample of its fine block. The conditional
-experiment starts with those existing levels; it does not build an
-independently resampled pyramid.
+The compact experiment consumes the existing decimated levels. It does not
+build another pyramid. This retains both the current registration convention
+and the zero-copy pointing arrangement that depends on position levels keeping
+the same samples.
 
-Area and maximum reduction may still be useful for sparse fluorescence, but
-they are separate visual experiments. Either one must declare its per-level
-coordinate translation explicitly. Averaging is not inherently impossible to
-register, but reusing a scale-only transform from the decimated pyramid would
-shift the represented sample centre by `(2^k - 1) / 2` fine pixels at level
-`k`. Any alternative must pass the cross-engine registration gate and must not
-replace the incumbent silently.
+Area and maximum reduction remain research alternatives only. OME-NGFF can
+describe a per-level translation, but installed-engine support must be tested,
+and either reducer would lose the current ability to point at the positions'
+own smaller copies. Those costs must be justified before such a reducer enters
+an implementation plan.
 
-Named visual risks:
+### Byte and quality comparison
 
-- decimation can omit a punctum that falls between retained samples;
-- area reduction can dim a small bright punctum;
-- maximum reduction can enlarge hot pixels and make brightness jump with zoom.
+Compare the scientific and compact opens with the identical scripted trace.
+Count every HTTP response body byte from the open request through the final
+settled revisit, including descriptions, chunks, live-state documents, and
+revalidation responses. Do not count only successful image bodies.
 
-### One route, not another pyramid
+Because changing 16-bit samples to 8-bit cannot promise a fivefold raw-byte
+reduction, the provisional compact gate is instead:
 
-The server receives the ordinary Viewer piece address plus an explicitly
-negotiated representation. It composes that ordinary piece from canonical
-data, encodes it, and returns it with the same source identity and revision.
+- at least 40% fewer total trace bytes;
+- at least 20% improvement in the phase-0 metric that authorised this work;
+- no more than a 10% regression in first-picture or p95 navigation time;
+- no increase in stable browser/GPU memory;
+- every overlay and recognisable feature remains registered at every level;
+- dim structures selected in advance remain visible and comparable;
+- cache and scratch remain within both storage caps;
+- only one source description, layer state, grid, and invalidation contract is
+  active for the opened picture.
 
-An encoded response cache, if measurements justify one, is keyed by:
+The mapping profile is part of source identity. Correcting its window creates a
+new compact source generation; it never changes the meaning of existing chunk
+addresses in place.
 
-```text
-source identity
-source revision
-level, t, c, z, row, column
-encoding profile and version
-```
-
-It obeys the shared absolute storage cap. A source or window revision makes
-old encoded entries unreachable. It never rebuilds a JPEG from another JPEG.
-
-The frontend may require a loader adapter, but it may not introduce another
-layer list, navigation state, geometry transform, source manifest, or live
-refresh path.
-
-### Decision gate
-
-Use the identical phase-0 trace. A new representation proceeds only if it:
-
-- reduces transferred bytes by at least fivefold for the four-channel trace;
-- does not make first-picture or p95 navigation time more than ten per cent
-  worse;
-- does not increase stable browser/GPU memory;
-- remains inside the automatic cache ceiling;
-- keeps every overlay and recognisable feature registered with Viewer 0.2 at
-  every resolution;
-- preserves dim structures judged important by the microscopy fixture;
-- adds no second source, grid, scene, or invalidation contract.
-
-If bytes improve but local PyWebView latency does not, do not ship it for the
-operator canvas. A remote-viewing product may make a separate case later.
+If the compact picture reduces bytes but does not improve the local operator
+experience, do not ship it in PyWebView.
 
 ## Z remains a separate correctness track
 
-The JPEG discussion does not own Z. Keep these facts distinct:
+The format discussion does not own Z. Keep these facts distinct:
 
 - source-local Z: plane centres, order, spacing, direction, and anchor;
 - acquisition Z: stage/focus provenance from microscope movement;
@@ -594,6 +678,13 @@ and disappeared at `z=0.5`. That is plausible voxel-centre/boundary evidence,
 but it is not yet named by a committed test, log, or screenshot. The current
 fix should remain narrow, and the repository must record the evidence before
 the plan calls the half-voxel convention proven.
+
+Record it in the existing Playwright evidence path: extend
+`application/the-window-step-by-step.spec.js` to photograph the same one-plane
+source at both sampling positions, and extend
+`application/which-layer-draws.spec.js` to record the source transform and
+sampled slice. The first proves pixels; the second proves which layer and
+coordinate produced them.
 
 Future 3-D placement is not simply raw stage Z. It requires validated Z scale,
 axis direction, anchor, stage calibration, and a common specimen datum. Preserve
@@ -650,8 +741,8 @@ under `viz_studio/backend`.
 5. **Stop if Viewer 0.2 passes.** Embed the one canvas.
 6. **Fix only the measured existing-path bottleneck.** Repeat the trace.
 7. **Stop if it passes.** Do not reward work with more work.
-8. **Run the conditional encoding experiment only if bytes/decode still fail.**
-9. **Adopt an encoding only if every decision gate passes.**
+8. **Draft the compact-picture experiment only if bytes/decode still fail.**
+9. **Declare one `uint8` source at open only if every decision gate passes.**
 10. **Validate the unchanged one-source path in PyWebView on the microscope PC.**
 
 Every step lands separately with its evidence. No phase is authorized merely
@@ -659,17 +750,18 @@ because the previous document described it.
 
 ## Stop conditions
 
-Stop the JPEG/8-bit idea when any of these is true:
+Stop the compact-picture idea when any of these is true:
 
 - Viewer 0.2 already meets the operator thresholds;
 - the remaining delay is bake/warm work that can be made lazy in the composer;
 - transfer bytes are not the dominant cost on local PyWebView;
 - no truthful acquisition-wide channel window is available;
-- the encoded route cannot reuse the existing grid, source, and revision;
+- it would require two simultaneously live source descriptions or a new loader;
 - decoded memory is equal or worse;
 - important dim structures do not survive the mapping;
 - cross-resolution registration differs from the incumbent;
-- the fivefold byte improvement is not reached;
+- the 40% total-trace byte reduction and 20% target-metric improvement are not
+  both reached;
 - automatic duplicate storage cannot remain under both caps.
 
 Stopping is a successful result: it prevents a second production viewer from
@@ -683,11 +775,12 @@ being built for a cost the current viewer already removed.
    the composed view's OME metadata, or both with one named authority?
 3. Does the current linked/baked Viewer persist any duplicate image category
    omitted from the storage accounting above?
-4. Are the 2-second, 500-ms, fivefold, ten-per-cent, and 5-GiB gates appropriate
-   for the microscope PC, before they are measured?
+4. Are the cold/warm definition, 90% useful-coverage rule, 500-ms response
+   gates, memory bound, ten-per-cent storage rule, and 5-GiB root cap
+   appropriate for the microscope PC before they are measured?
 5. Which existing Viewer harness is the smallest extension for response bytes,
    browser memory, and the fixed navigation trace?
-6. Can an 8-bit existing-codec response be consumed by the current engine with
-   less work than JPEG, or would either require a second source in practice?
+6. Is selecting one composed `uint8` picture at open time genuinely a
+   one-source design, and is its proposed 40% byte/20% latency gate sufficient?
 7. Where should the reported `z=0` versus `z=0.5` evidence be recorded and
    gated so the half-voxel correction becomes reproducible?
