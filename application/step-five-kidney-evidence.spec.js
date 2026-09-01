@@ -251,6 +251,38 @@ function isTextured(result) {
   return !result.error && result.covered >= 0.9 && result.shades >= 8;
 }
 
+/** A screenshot-owned pixel result, including views too wide for texture ROIs. */
+function inspectScreenRegion(pixels, box) {
+  if (!box || ![box.x, box.y, box.width, box.height].every(Number.isFinite)) {
+    return { error: "unprojectable" };
+  }
+  const left = Math.max(0, Math.floor(box.x));
+  const top = Math.max(0, Math.floor(box.y));
+  const right = Math.min(pixels.width, Math.ceil(box.x + box.width));
+  const bottom = Math.min(pixels.height, Math.ceil(box.y + box.height));
+  if (right <= left || bottom <= top) return { error: "off-screen" };
+  const { data, width, channels } = pixels;
+  const first = (top * width + left) * channels;
+  const background = [data[first], data[first + 1], data[first + 2]];
+  const shades = new Set();
+  let differentFromCorner = 0;
+  let examined = 0;
+  // Sampling every other pixel keeps the JSON summary small to compute while
+  // still examining tens of thousands of pixels in the operator canvas.
+  for (let y = top; y < bottom; y += 2) {
+    for (let x = left; x < right; x += 2) {
+      const at = (y * width + x) * channels;
+      const rgb = [data[at], data[at + 1], data[at + 2]];
+      examined += 1;
+      if (rgb.some((value, channel) => Math.abs(value - background[channel]) > 10)) {
+        differentFromCorner += 1;
+      }
+      shades.add(`${rgb[0] >> 4}:${rgb[1] >> 4}:${rgb[2] >> 4}`);
+    }
+  }
+  return { examined, differentFromCorner, shadeBins: shades.size, backgroundRgb: background };
+}
+
 function pixelChangesInside(first, second, box) {
   const a = readPng(first);
   const b = readPng(second);
@@ -311,6 +343,7 @@ function trackBrowser(page, port) {
   const consoleErrors = [];
   const failures = [];
   const responses = [];
+  const navigationCancellations = new Set();
 
   page.on("pageerror", (error) => pageErrors.push(error.message));
   page.on("console", (message) => {
@@ -333,6 +366,23 @@ function trackBrowser(page, port) {
   });
 
   return {
+    /**
+     * Bound ordinary browser cancellation to one explicit view transition.
+     * Only chunk reads cancelled with ERR_ABORTED inside this interval qualify;
+     * HTTP failures, metadata/API failures, and anything outside it remain
+     * unexpected. The returned record keeps the cancellations visible.
+     */
+    async duringNavigation(action) {
+      const first = failures.length;
+      await action();
+      for (let at = first; at < failures.length; at += 1) {
+        const failure = failures[at];
+        if (failure.kind === "chunk" && failure.error === "net::ERR_ABORTED") {
+          navigationCancellations.add(at);
+        }
+      }
+    },
+
     snapshot() {
       const successful = (kind) => responses.filter(
         (response) => response.kind === kind && response.status >= 200 && response.status < 400,
@@ -346,7 +396,8 @@ function trackBrowser(page, port) {
         ...responses.filter(({ kind, status }) => kind === "optional-probe" && status >= 400),
       ];
       const unexpectedFailures = [
-        ...failures.filter(({ kind }) => !["format-probe", "optional-probe"].includes(kind)),
+        ...failures.filter(({ kind }, at) => !navigationCancellations.has(at)
+          && !["format-probe", "optional-probe"].includes(kind)),
         ...responses.filter(({ kind, status }) =>
           !["format-probe", "optional-probe"].includes(kind) && status >= 400),
       ];
@@ -362,6 +413,9 @@ function trackBrowser(page, port) {
         },
         expectedFormatProbes,
         expectedOptionalProbes,
+        expectedNavigationCancellations: failures
+          .filter((_, at) => navigationCancellations.has(at))
+          .map((failure) => ({ ...failure, reason: "operator view transition" })),
         unexpectedFailures,
         browserErrors,
         workerErrors: browserErrors.filter((error) => /worker|chunk/i.test(error)),
@@ -642,6 +696,7 @@ async function takeEvidence({
   viewBefore = null, action = null, extra = {},
 }) {
   const boxes = inspect ? await fieldsOnScreen(page) : [];
+  const canvasBox = await page.locator("#stage-canvas").boundingBox();
   const png = await page.screenshot();
   const pixels = readPng(png);
   const roiResults = boxes.map((field) => ({ field, result: inspectField(pixels, field) }));
@@ -664,6 +719,14 @@ async function takeEvidence({
       landed,
       examined: examined.length,
       textured: textured.length,
+    },
+    pixelCheck: {
+      canvas: inspectScreenRegion(pixels, canvasBox),
+      plannedRois: {
+        required: inspect ? 9 : 0,
+        examined: examined.length,
+        textured: textured.length,
+      },
     },
     roiResults,
     ...state,
@@ -691,6 +754,13 @@ async function takeEvidence({
     expect(textured.map(({ field }) => field.index), `${name}: textured ROI ledger`)
       .toEqual(Array.from({ length: expectedTextured }, (_, index) => index));
   }
+  expect(record.pixelCheck.canvas.error, `${name}: the canvas can be sampled`).toBeUndefined();
+  expect(record.pixelCheck.canvas.shadeBins, `${name}: the screenshot contains drawn pixels`)
+    .toBeGreaterThan(3);
+  expect(record.requests.unexpectedFailures, `${name}: no unexpected request failed`).toEqual([]);
+  expect(record.browserErrors, `${name}: no browser error occurred`).toEqual([]);
+  expect(record.workerErrors, `${name}: no worker error occurred`).toEqual([]);
+  expect(record.bridgeErrors, `${name}: the bridge completed without error`).toEqual([]);
   return { png, record, raw, roiResults, textured };
 }
 
@@ -809,9 +879,11 @@ test("deterministic kidney evidence records 0, 3, 6, and 9 landed positions", as
     expect(changed, "hiding focussing changes acquired pixels on the canvas").toBeGreaterThan(10);
 
     const beforeFit = viewRecord(overviewOnly.raw);
-    await page.evaluate(() => window.__theStageCanvas.fadeTo(0.15));
-    await page.locator("#fit-btn").click();
-    await rest(1000);
+    await audit.duringNavigation(async () => {
+      await page.evaluate(() => window.__theStageCanvas.fadeTo(0.15));
+      await page.locator("#fit-btn").click();
+      await rest(1000);
+    });
     const wholePlate = await takeEvidence({
       page, bridge, port: PORT, audit, name: "whole-plate",
       captureMethod: "deterministic live bridge; explicit operator Fit",
@@ -829,9 +901,11 @@ test("deterministic kidney evidence records 0, 3, 6, and 9 landed positions", as
     const [originX, originY] = await page.evaluate(() => window.__theStageCanvas.carrierOriginUm());
     const closeCentre = { x: centre.x - originX, y: centre.y - originY };
     const beforeClose = viewRecord(wholePlate.raw);
-    await page.evaluate(() => window.__theStageCanvas.fadeTo(0));
-    await frameAround(page, closeCentre, 3);
-    await rest(1500);
+    await audit.duringNavigation(async () => {
+      await page.evaluate(() => window.__theStageCanvas.fadeTo(0));
+      await frameAround(page, closeCentre, 3);
+      await rest(1500);
+    });
     const close = await takeEvidence({
       page, bridge, port: PORT, audit, name: "kidney-close-up",
       captureMethod: "deterministic live bridge; operator zoomed to the centre field",
@@ -839,6 +913,8 @@ test("deterministic kidney evidence records 0, 3, 6, and 9 landed positions", as
       viewBefore: beforeClose, action: "operator zoomed and panned to position 4",
     });
     expect(close.record.stage.view.zoom, "close-up reaches microscopy scale").toBeLessThanOrEqual(3);
+    expect(close.record.pixelCheck.canvas.shadeBins,
+      "close-up contains microscopy texture across the canvas").toBeGreaterThan(16);
     assertCompleteEvidence(overviewOnly.record);
   } finally {
     await bridge.stop();
