@@ -166,3 +166,24 @@ def test_an_unresolved_acquisition_writes_no_channel_block_at_all():
     a named channel with an incomplete window, and an invented one opens the
     picture nearly black."""
     assert ome_channel_blocks(described(window=None), depth_max=65535) == []
+
+
+def test_a_filesystem_without_hard_links_still_publishes_and_still_compares(tmp_path, monkeypatch):
+    """Removable media and some shares cannot link; publication must still be honest there."""
+    import os
+
+    def no_links_here(*_args, **_kwargs):
+        raise OSError(1, "Operation not permitted")
+
+    monkeypatch.setattr(os, "link", no_links_here)
+    folder = tmp_path / "overview"
+
+    written = write_acquisition_description(folder, described(), channel_count=1)
+    assert written.is_file()
+    assert read_acquisition_description(folder, channel_count=1) == validate_acquisition_description(
+        described(), acquisition_type="overview", channel_count=1,
+    )
+    # The same value again is accepted; a different one is refused, as with links.
+    write_acquisition_description(folder, described(), channel_count=1)
+    with pytest.raises(ValueError, match="immutable|different"):
+        write_acquisition_description(folder, described(window=(500, 5000)), channel_count=1)

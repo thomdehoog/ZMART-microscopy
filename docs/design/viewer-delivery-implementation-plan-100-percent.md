@@ -54,32 +54,50 @@ locked by the process that made it, for as long as it runs; the operating
 system releases the lock when the process dies, however it dies. On the next
 start, any folder whose lock can be taken has no owner and is reclaimed, and
 any whose lock cannot be taken belongs to a Viewer still running beside this
-one and is left alone. A symlink, a stray file, or anything that resolves
-outside the root is never touched. `GET /api/scratch` reports what the root
-holds, by folder, and what the last start reclaimed, so scratch is counted
-somewhere. `fcntl.flock` on POSIX, `msvcrt.locking` on Windows, behind one
-small function; the Windows half has not been run on Windows in this
-checkpoint.
+one and is left alone. The lock is held all the way through the removal, so
+there is no instant in which a folder is unowned but still there; on Windows,
+which will not delete an open file, the folder is renamed out of the sweep's
+sight first and removed after. A Viewer that makes a folder and finds a
+sweeper already holding its lock makes another. A symlink, a stray file, or
+anything that resolves outside the root is never touched, and the root is
+taken as resolved — a symlinked root is followed. What was reclaimed is
+counted after the removal, not before it, so a folder that would not go is
+reported as stuck rather than as reclaimed. `GET /api/scratch` reports what
+the root holds, by folder, and what the last start reclaimed; it walks the
+root on every call, so it is for looking, not for polling. On a drive or
+share without file locks the Viewer cannot make a scratch folder and says so.
+`fcntl.flock` on POSIX, `msvcrt.locking` on Windows; the Windows half has not
+been run on Windows.
 
 ### Z1 — the half-voxel fact is a test
 
 `viz_studio/tests/test_a_plane_is_sampled_at_its_centre.py` opens a one-plane
-store in a real browser and photographs it drawn. That is what sampling the
-voxel's centre rather than its edge looks like; a source sampled off its edge
-photographs as black, whatever the engine reports about itself. The stack
-half holds each engine to the middle-plane rule in `options/planes.js`, with
-the half-voxel arithmetic inside: four planes at 2 µm open at plane 2, which
-is 4 µm from the first plane, not 3 and not 5.
+store in a real browser and takes two photographs: one where the engine
+opens, which is the voxel's centre, and one after the height has been pushed
+a whole voxel past the only plane there is. The first must hold a picture and
+the second must not, judged by how varied the photograph's colours are — not
+by "brighter than black", because the box is painted a dark grey and that
+rule once called an empty box fully drawn. The edge itself, at exactly one
+voxel, still draws; only a height past it is empty.
 
-It found something. `viv-under` keeps the rule. `neuroglancer-under` does not:
-`theMapStandsOnItsFirstPlane` puts every acquisition on its first plane and
-never asks `planes.js`. That is the debt the earlier reviews named under
-`test_no_option_decides_for_itself_which_plane_to_open_on`, now recorded as a
-strict expected failure that will fail loudly — so the mark has to come off —
-the day the engine opens a stack where the rule says. Changing the engine's
-opening height is outside this package: the first-plane behaviour was put
-there for a documented reason (a flat overview and a focussing stack drawn
-together), and it must be revisited with that case in front of it.
+A second check holds `setPlane` and `theDepthItCanShow` to the same
+arithmetic on both engines: asked for 4 µm at 2 µm a plane, the reading says
+4 µm. It did not: `neuroglancer-under` put the height on a plane's edge and
+read it back from its centre, half a plane short. Fixed in the engine's
+`setPlane`.
+
+The stack half holds each engine to the middle-plane rule in
+`options/planes.js`. `viv-under` keeps it. `neuroglancer-under` does not —
+`theMapStandsOnItsFirstPlane` puts every acquisition on its first plane —
+and that is recorded as a strict expected failure that fails loudly the day
+the engine opens a stack where the rule says. Changing the engine's opening
+height is outside this package: the first-plane behaviour was put there for a
+documented reason (a flat overview and a focussing stack drawn together) and
+must be revisited with that case in front of it.
+
+This is a narrower Z1 than the plan wrote — a test in `viz_studio`, not an
+extension of `the-window-step-by-step.spec.js` with the overlay-anchor and
+raw-Z assertions. Those remain to do.
 
 ### H1 — the rig can look at a run it did not write
 
@@ -87,22 +105,61 @@ together), and it must be revisited with that case in front of it.
 on a real store or run folder, read-only, and writes the result to its own
 folder rather than the results table. It records time to a settled picture,
 requests, and bytes — pieces and descriptions counted apart, so a later "is
-this format smaller" question cannot pick a flattering subset — and how much
-of the box was actually drawn. The ledger in `data_server.py` now counts
-bytes and counts the describing files it used to leave out; the request
-arithmetic the old measurements rest on is unchanged.
+this format smaller" question cannot pick a flattering subset — and the share
+of the box that differs from the box's own colour. The ledger in
+`data_server.py` now counts bytes and counts the describing files it used to
+leave out; the request arithmetic the old measurements rest on is unchanged.
+
+The rig's server now serves both generations of the format — the OME-Zarr
+0.5 positions the microscope's bridge writes as well as the 0.4 stores the
+rig writes for itself — resolves a store by its exact name before adding
+`.ome.zarr`, and, for a store that kept no coverage record, treats the whole
+frame as imaged and says so in its answer (`coverage_bounded: false`). The
+harness takes the store's real name and generation from that answer.
+
+**What H1 does not yet do.** The bridge's positions open and their pieces
+are fetched, but the rig's own `neuroglancer-under` adapter places the view
+beside a five-axis 0.5 store, so the photograph is empty. That is recorded
+as a strict expected failure
+(`test_the_positions_the_microscopes_bridge_writes_are_drawn`) and belongs
+to the same family as the pre-existing foreign-store failure in
+`test_the_options_hold_together.py`. Until it is fixed, `--external-run`
+gives honest request and byte numbers for a bridge-written run and an honest
+zero for how much was drawn. It is also one opening of one store, not the
+plan's ten-step trace, memory proxy, or "reproduce one known Viewer
+measurement within a tolerance" gate.
 
 ### Pre-existing debt found by running everything, and not fixed here
 
-- Four checks in `viz_studio/tests/test_the_options_hold_together.py` fail
-  identically before and after this work: the plane-rule source check, the
-  detail scan not landing inside the survey on `neuroglancer-under`, and the
-  "foreign" store having no coverage record on all three engines. They are
-  harness and fixture debt, named here so nobody reads them as this
-  checkpoint's.
+- Five checks in `viz_studio/tests/test_the_options_hold_together.py` failed
+  identically before this work: the plane-rule source check, the detail scan
+  not landing inside the survey on `neuroglancer-under`, and the "foreign"
+  store on all three engines. The foreign store used to be refused for having
+  no coverage record; with coverage now synthesised it opens and draws less
+  of the window than the check asks for, which is the same drawing gap the
+  bridge's positions show. They are harness and fixture debt, named here so
+  nobody reads them as this checkpoint's.
 - The microscopy suite needs `ome-types`, `matplotlib`, `scikit-image` and
   `pooch` to collect fully; without them whole files error at collection and
   are silently missing from the count.
+
+## What the 100% review asked for, and where each answer is
+
+The review at `docs/reviews/2026-09-02-review-of-the-100-percent-viewer-delivery-implementation.md`
+found the migration core sound and four things wrong in the new packages.
+Each is answered above in its package's section; in short: the drawn-share
+metric now measures against the box's own colour and Z1 is a contrast between
+two photographs; the rig's server serves both format generations, exact
+names, and synthesised coverage for a bridge-written run, with the remaining
+drawing gap recorded as a strict expected failure; the sweep holds its lock
+through the removal and counts what actually went; `setPlane` and the depth
+reading agree. Of the minors: the server stops serving before it lets go of
+its scratch, the served-folder bound is a path check rather than a string
+prefix, the store-resolution precedence is fixed, and the three follow-ups
+the review found untested now have tests (the hard-link fallback, a
+successful measurement's `measurementState`, the corrupt-description
+sentence); the watcher's `toldAbout` still has no test of its own, because
+nothing in the vitest suite reaches `watching-the-run.js`.
 
 ## What the 80% review asked for, and where each answer is
 
@@ -155,7 +212,17 @@ browser walk of the upgrade sentence is still missing.
 
 ## Release
 
-Both repositories release together, from `claude/viewer-delivery-to-100`:
+Both repositories release together, from `claude/viewer-delivery-to-100`.
+On the microscope PC the Viewer is a local checkout installed with
+`pip install -e` (`environment.yml`), so releasing it means pulling that
+checkout; its version number stays `0.2.0` and does not tell the two apart.
+Only `/api/health` does — `pip show` is not evidence of which Viewer is
+installed. The M3 gate items the 80% review asked for have not been
+produced here: the handshake has been seen accepting and refusing only
+pretend servers, not `9ff10b0` running on the microscope PC; no real
+bridge-driven run has been photographed with the five equalities; and the
+cold-open numbers before and after the declared window do not exist yet.
+They are the first things to do on the microscope PC.
 
 - ZMART Viewer first, so that the Viewer on the microscope PC promises both
   capabilities before the writer asks;

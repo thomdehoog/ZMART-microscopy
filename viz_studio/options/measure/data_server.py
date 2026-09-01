@@ -151,6 +151,64 @@ class Ledger:
         }
 
 
+def the_store_named(data_dir: Path, asked: str) -> Path:
+    """The store folder ``asked`` names: the exact name first, then with ``.ome.zarr``.
+
+    The harness has always asked for stores by their base name — ``square`` for
+    ``square.ome.zarr`` — and a composed picture the viewer linked is called
+    ``overview.zmartview.zarr``, which no suffix rule would find. So the exact
+    name wins when it exists, and the old rule stands for everything else.
+    """
+    exact = data_dir / asked
+    if asked.endswith(".zarr") and exact.is_dir():
+        return exact
+    return data_dir / f"{asked}.ome.zarr"
+
+
+def the_description_of(image: Path) -> tuple[dict, str]:
+    """What a store says about itself, and which generation of the format wrote it.
+
+    OME-Zarr 0.4 keeps it in ``.zattrs``; 0.5 keeps it under ``attributes.ome``
+    in ``zarr.json``. The positions the microscope writes are 0.5, the stores
+    this rig writes for itself are 0.4, and a measurement has to open both.
+    The second value is the scheme the engine is told to read the store with.
+    """
+    newer = image / "zarr.json"
+    if newer.is_file():
+        held = json.loads(newer.read_text(encoding="utf-8"))
+        attributes = held.get("attributes") or {}
+        return (attributes.get("ome") or attributes), "zarr3"
+    return json.loads((image / ".zattrs").read_text(encoding="utf-8")), "zarr2"
+
+
+def the_whole_extent_in_voxels(image: Path, described: dict) -> dict | None:
+    """One region covering the full-resolution array, for a store with no coverage record.
+
+    A store nobody kept a record for cannot say where it imaged, so the whole
+    of it is treated as imaged. That is honest for a single position — every
+    voxel of a camera frame was exposed — and it is said in the answer, so a
+    measurement never mistakes it for a bounded record.
+    """
+    datasets = (described.get("multiscales") or [{}])[0].get("datasets") or []
+    if not datasets:
+        return None
+    level = image / str(datasets[0].get("path", "0"))
+    shape = None
+    for name in ("zarr.json", ".zarray"):
+        held = level / name
+        if held.is_file():
+            shape = json.loads(held.read_text(encoding="utf-8")).get("shape")
+            break
+    names = [axis["name"] for axis in (described.get("multiscales") or [{}])[0].get("axes", [])]
+    if not shape or len(shape) != len(names):
+        return None
+    extent = {"z": [0, 1], "y": [0, 1], "x": [0, 1]}
+    for name, size in zip(names, shape):
+        if name in extent:
+            extent[name] = [0, int(size)]
+    return extent
+
+
 def voxel_size_um(image: Path) -> dict:
     """How large one voxel is, in micrometres, read out of the image itself.
 
@@ -161,7 +219,7 @@ def voxel_size_um(image: Path) -> dict:
     reads, so the operator's drawing and the picture cannot end up scaled
     differently from one another.
     """
-    described = json.loads((image / ".zattrs").read_text())
+    described, _ = the_description_of(image)
     multiscales = described["multiscales"][0]
     names = [axis["name"] for axis in multiscales["axes"]]
     units = [axis.get("unit", "") for axis in multiscales["axes"]]
@@ -202,7 +260,7 @@ def origin_um(image: Path) -> dict:
     them. The two are composed here the way the format says: the outer scale
     applies to the inner translation, and the outer translation is added.
     """
-    described = json.loads((image / ".zattrs").read_text())
+    described, _ = the_description_of(image)
     multiscales = described["multiscales"][0]
     names = [axis["name"] for axis in multiscales["axes"]]
     found = {name: 0.0 for name in names if name in ("x", "y", "z")}
@@ -316,24 +374,39 @@ def make_measurement_server(
             from zmart_storage import imaged_regions
 
             asked = parse_qs(urlparse(self.path).query).get("image", [None])[0]
-            where = data_dir / f"{asked}.ome.zarr" if asked else data_dir
+            where = the_store_named(data_dir, asked) if asked else data_dir
             found = imaged_regions(where)
             answer = {
                 "recorded": found.recorded,
                 "regions": [region.as_written() for region in found.regions],
                 "bounds": found.bounds.as_written() if found.bounds else None,
                 "tiles": len(found.tiles),
+                "synthesized": False,
             }
-            if asked and (where / ".zattrs").exists():
+            if asked and ((where / ".zattrs").exists() or (where / "zarr.json").exists()):
+                described, scheme = the_description_of(where)
+                answer["store"] = where.name
+                answer["scheme"] = scheme
                 answer["voxel_size_um"] = voxel_size_um(where)
                 answer["origin_um"] = origin_um(where)
+                if not answer["regions"]:
+                    # No record was kept, as for the positions the microscope's
+                    # bridge writes. The whole frame counts as imaged, and the
+                    # answer says so, so nothing downstream calls it a record.
+                    whole = the_whole_extent_in_voxels(where, described)
+                    if whole is not None:
+                        answer["regions"] = [whole]
+                        answer["bounds"] = whole
+                        answer["synthesized"] = True
             return answer
 
         def _serve_data(self) -> None:
             started = time.perf_counter()
             rel = self.path[len("/data/"):].split("?", 1)[0].split("#", 1)[0]
             target = (data_dir / rel).resolve()
-            if not str(target).startswith(str(data_dir)):
+            # Inside the served folder, judged by path and not by string: a
+            # sibling whose name merely begins with the folder's name is out.
+            if not target.is_relative_to(data_dir):
                 self._send_empty(HTTPStatus.FORBIDDEN)
                 return
             describing = target.name in _DESCRIBING_FILES
