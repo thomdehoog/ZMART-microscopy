@@ -35,19 +35,30 @@ Microscopy branch rather than inferred from the older copied viewer.
 2. Smart Viewer's `POST /api/stores/open` always supplies a per-session scenes
    directory through `_scenes_of_this_session()`. It can therefore compose a
    run of positions without the operator calling `/api/stores/construct`.
-3. `application/parts/storage/viewer_service.py` already calls
-   `/api/stores/open`, closes and reopens a folder when its second store lands,
-   and then calls `/api/announce` as later positions arrive.
-4. The operator bridge currently reduces Smart Viewer's layer configuration to
-   grouped `{url, name}` records in `_the_sources_in()`, and the page flattens
-   those records in `viewerSources()`. Whether that reduction loses anything
-   needed for Step 5 must be measured; it is not assumed to be the first fault.
-5. `/api/measure` exists in Smart Viewer 0.2 and not in the copied server under
+3. A folder opened when it contains one store is watched by Smart Viewer 0.2.
+   As later stores land, `GET /api/config` adds them to the same dataset number
+   and the same acquisition row. A measured synthetic run grew from one to four
+   `/data/0/...` sources without closing or reopening the folder.
+4. The operator bridge froze the config returned by the first
+   `/api/stores/open` call. It therefore kept handing the page one source even
+   after Smart Viewer correctly reported four. Its close/reopen-on-the-second-
+   store workaround fights Viewer 0.2's watch contract and is removed.
+5. Claude's `d84c6848` change correctly distinguishes several stores in one
+   Viewer dataset from older dataset generations. Its six focused checks pass,
+   three fail against the old one-address rule, and real Viewer output confirms
+   all stores in one watched acquisition share `/data/N/`. That reduction fix
+   is necessary but is not sufficient unless the bridge reads the live config.
+6. Opening an already multi-store folder creates one session scene. Reopening a
+   grown folder currently reuses that scene without redeclaring it: in a direct
+   Viewer 0.2 check the disk grew from two stores to three while `zarr.json` and
+   `tiles.json` remained at two. Relinking is therefore not a valid live-growth
+   mechanism for a plain positions folder.
+7. `/api/measure` exists in Smart Viewer 0.2 and not in the copied server under
    `viz_studio/backend/`. A working histogram and Auto control are useful
    provenance checks as well as UI checks.
-6. The cross-engine plane-selection failure predates Claude's seven commits. It
+8. The cross-engine plane-selection failure predates Claude's seven commits. It
    is existing debt, not evidence that those commits introduced a regression.
-7. The Microscopy and Viewer repositories both currently declare the Python
+9. The Microscopy and Viewer repositories both currently declare the Python
    distribution name `zmart-viewer` (versions 0.1.0 and 0.2.0 respectively).
    That packaging collision can make installation and provenance ambiguous and
    must be resolved or guarded before this is called reproducible.
@@ -146,18 +157,21 @@ Capture and inspect:
 - all metadata and chunk requests needed to render the 3 x 3 overview;
 - a screenshot of the Step 5 end state with focussing hidden.
 
-The decisive question is not merely whether there is one URL. It is whether
-there is one overview source whose measured bounds cover all nine planned
-fields in the correct coordinate frame.
+The decisive question is not whether there is one URL. During a live plain-
+folder acquisition, Smart Viewer deliberately exposes one stable dataset with
+one placed source per landed position. The decisive question is whether the
+overview acquisition's combined measured bounds cover all nine planned fields
+in the correct coordinate frame and every source contributes rendered pixels.
 
 ### 2. Follow the evidence branch and stop when it works
 
 | Baseline result | Next action |
 | --- | --- |
 | Viewer is not running, import provenance is wrong, or `/api/viewer` reports an error | Fix only environment/package wiring, restart from a clean process, and repeat Step 1. |
-| One overview source with correct nine-field bounds | Do not change composition or source grouping. Proceed directly to pixel, visibility, and view-state acceptance. |
-| One overview source with single-field or otherwise wrong bounds | Inspect the input coordinate metadata and the scene emitted by `loading.scene_behind_a_run()`; fix the smallest incorrect producer or Viewer behavior. |
-| Multiple overview sources | Call `loading.load()` directly on the exact folder and record why it did not compose. Correct the folder/metadata contract first. Consider `/api/stores/construct` only if `open` legitimately cannot represent this input. |
+| One overview acquisition with nine same-dataset sources and correct combined bounds | This is Smart Viewer 0.2's expected live-folder result. Proceed directly to pixel, visibility, and view-state acceptance. |
+| One composed overview source with correct nine-field bounds | Valid for a folder first opened after several positions already exist. Proceed directly to acceptance; do not force it during live growth. |
+| One overview source with single-field or otherwise wrong bounds | Check whether the bridge froze its first config. If not, inspect input coordinate metadata and the emitted source/scene. |
+| Multiple dataset generations under one overview heading | Keep every source in the newest dataset number and remove the integration behavior that keeps reopening the folder. |
 | Correct source and bounds, but absent/white pixels | Inspect the operator adapter's layer state, shader/window, visibility, selected z plane, and view fit. Do not rewrite the Viewer server. |
 | Correct final picture, but live additions fail | Isolate close/reopen-on-second-position and `/api/announce` behavior with a two-then-nine-position server test before changing publication logic. |
 
@@ -167,9 +181,12 @@ Do not hide an upstream defect with operator-specific source rewriting.
 
 ### 3. Keep the operator seam thin
 
-Only if the baseline proves the current `{url, name}` reduction insufficient,
-replace it with one typed adapter model derived from Smart Viewer's returned
-configuration. Preserve only fields the operator demonstrably consumes:
+The baseline proved that the current `{url, name}` reduction discarded fields
+and that the bridge never refreshed it. For the present adapter, keep the seam
+minimal: read Smart Viewer's current config on the existing operator poll,
+group every image source by acquisition, and retain every URL belonging to the
+newest Viewer dataset number. Preserve only fields the operator demonstrably
+consumes:
 
 - stable acquisition/group and channel identity;
 - every source belonging to the channel;
@@ -177,10 +194,11 @@ configuration. Preserve only fields the operator demonstrably consumes:
 - display window, colour/LUT, opacity, and requested visibility;
 - source revision identity when Smart Viewer supplies it.
 
-Do not infer freshness from numeric URL components, collapse generations by a
-decorated display heading, or make the page rediscover metadata the Viewer has
-already classified. Add a contract fixture generated from real Smart Viewer
-0.2 output so the two sides cannot silently drift.
+Dataset numbers are used only to separate an obsolete opening from the several
+stores of one current opening; they are not acquisition identity. Do not make
+the page rediscover metadata the Viewer has already classified. Keep a contract
+fixture shaped like real Smart Viewer 0.2 output so the two sides cannot
+silently drift.
 
 ### 4. Reuse Claude's fixes through a review ledger
 
@@ -194,6 +212,7 @@ cherry-picked wholesale:
 | `908a201`, `b69013f`, `37613ed` | Engine-neutral contract additions for view changes, timepoints, and LUTs | Keep only the interfaces used by the current panel, with all drawing options answering the contract. |
 | `ec2e5fa` | `counting-planes.js`, `the-window.js`, Reset, and the declared-window contrast fallback | Retain the arithmetic tests and verify the mock kidney histogram and Auto behavior against `/api/measure`. |
 | `0184cb0` | Stable selection by channel name, acquisition fold, and opacity | Retain only behavior confirmed against Smart Viewer 0.2 groups/channels. |
+| `d84c684` | Keeping every field in the newest Viewer dataset instead of one URL | Adopt the narrow source reduction and its regression checks; do not adopt the 30-second relink machinery surrounding it. |
 
 The flat-z, stale-source, plate-scale pyramid, and single-view findings came
 from earlier work and
@@ -229,13 +248,19 @@ hidden.
 
 ### 6. Preserve live publication and reruns
 
-The existing sequence remains the default until a focused test disproves it:
+The focused real-server test establishes the Viewer 0.2 sequence:
 
-1. open the first position;
-2. close and reopen when the second store makes the folder composable;
-3. announce later landed positions;
-4. publish the stable composed overview only at the workflow's acquisition
-   boundary.
+1. open the positions folder once when its first store lands;
+2. announce every later landing;
+3. read `GET /api/config` on the operator's existing 1.5-second poll;
+4. keep the stable dataset open while Smart Viewer adds the new position
+   sources to it;
+5. never close/reopen merely because the folder grew.
+
+This is Smart Viewer's own watched-folder implementation. A 30-second relink
+timer is neither required nor safe: it delays short scans, revokes source URLs,
+and can replace a growing dataset with a session scene whose tile ledger no
+longer grows.
 
 A rerun must replace the correct acquisition using Smart Viewer's identity and
 revision semantics without destroying focussing or another acquisition. No
@@ -263,8 +288,10 @@ All gates are required.
 - Provenance records Smart Viewer 0.2 at the pinned source path/commit.
 - Step 5 writes nine distinct overview position stores for the 3 x 3 plan.
 - Smart Viewer returns separate `overview` and `focussing` acquisitions.
-- The overview resolves to one composed source with bounds covering all nine
-  planned positions.
+- The overview resolves to one acquisition whose combined bounds cover all
+  nine planned positions. During live acquisition this is normally nine
+  placed sources under one stable Viewer dataset number; a completed folder
+  opened later may instead be one composed scene source.
 - Every required overview metadata and chunk request succeeds. Any expected
   format probe failure is named and allow-listed rather than ignored broadly.
 - Neuroglancer reports loaded bounds with no layer error or wedged open.
@@ -321,8 +348,9 @@ a zoomed-out impression.
 ## Test order
 
 1. Current Smart Viewer focused server/loading/composition tests, unchanged.
-2. A direct two-position `loading.load()` and `/api/stores/open` composition
-   contract using the same data layout Step 5 writes.
+2. A direct watched-folder contract proving `/api/stores/open` at one position,
+   later landings, `/api/announce`, and `GET /api/config` grow one stable Viewer
+   dataset from one source to nine.
 3. Microscopy's engine-boundary and cross-option contract tests, carrying the
    known plane-selection debt explicitly until fixed.
 4. Focused bridge tests for import provenance, first/second/later position
@@ -351,7 +379,16 @@ a zoomed-out impression.
 
 - Claude's review and handover have been read and checked against both codebases.
 - The original plan's large engine-module port has been removed.
-- The corrected first action is the real-Viewer baseline measurement.
-- No implementation from the copied viewer has been adopted on this branch.
-- The integration is not yet claimed to work; it must pass the gates above on a
-  clean process using the pinned separate Smart Viewer.
+- Claude's `d84c6848` source-selection change has been independently reviewed:
+  its focused tests, old-behavior mutation check, storage suite, and a real
+  Smart Viewer config all support the narrow change.
+- The deeper fault is measured: the bridge cached the first config and relinked
+  against Viewer 0.2's watched-folder behavior. The cleanup branch now opens a
+  folder once, refreshes `/api/config`, and retains all current-dataset fields.
+- Six focused bridge checks and all twenty storage checks pass. A direct
+  real-Viewer service run grew from one to four fields on dataset 0 with one
+  opened folder and no error.
+- Existing 0/3/6/9 screenshots show a synthetic nine-field texture filling the
+  grid, but they are not accepted as the requested kidney proof. The integration
+  is not yet claimed complete until the real Step 5 kidney run, overview-only
+  visibility check, registration check, and screenshot manifest pass.
