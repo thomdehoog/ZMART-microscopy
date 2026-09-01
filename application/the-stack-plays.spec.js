@@ -26,8 +26,7 @@ const rest = (ms) => new Promise((done) => setTimeout(done, ms));
 async function axis(page, label) {
   return page.evaluate((wanted) => {
     const panel = window.__viewerPanel ?? document.body;
-    const line = [...panel.querySelectorAll("label")]
-      .find((one) => one.textContent.startsWith(wanted));
+    const line = panel.querySelector(`[data-control="${wanted}"]`);
     if (!line) return null;
     const slider = line.querySelector("input[type=range]");
     const play = line.querySelector("button[data-playing]");
@@ -44,8 +43,7 @@ async function axis(page, label) {
 async function pressPlay(page, label) {
   await page.evaluate((wanted) => {
     const panel = window.__viewerPanel ?? document.body;
-    [...panel.querySelectorAll("label")]
-      .find((one) => one.textContent.startsWith(wanted))
+    panel.querySelector(`[data-control="${wanted}"]`)
       .querySelector("button[data-playing]")
       .click();
   }, label);

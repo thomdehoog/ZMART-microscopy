@@ -174,6 +174,16 @@ export function watchTheRun(ctx) {
        left, the workflow's step panels keeping the right. Built again whenever
        what is drawn changes, because the rows it lists are the picture's. */
     async function putThePanelUp(wanted) {
+      /* Which channel the operator had the settings pointed at, kept across
+         the rebuild. This happens in the middle of a scan — the run lands its
+         first target acquisition and the list of channels changes underneath
+         whoever is working in it — and without this the settings jump back to
+         the first channel of the first acquisition, so somebody part-way
+         through choosing a colour finds themselves adjusting something else.
+         It is carried by name rather than by position, because a position is
+         still a valid number after a rebuild and would quietly refer to a
+         different channel. */
+      const wasInHand = panel?.theChannelInHand?.() ?? null;
       panel?.destroy?.();
       panel = null;
       window.__viewerPanelHandle = null;
@@ -182,6 +192,7 @@ export function watchTheRun(ctx) {
       const { mountViewerPanel } = await import("../../../../parts/canvas/viewer-panel.js");
       panel = await mountViewerPanel(ctx.panelHost ?? ctx.pictureHost, {
         viewer: picture, acquisitions: wanted.acquisitions, css: ctx.css,
+        startOn: wasInHand,
       });
       /* Left where a test can reach it, beside the picture itself: what the
          panel says about the picture is as much a part of what an operator
