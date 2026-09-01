@@ -1,919 +1,693 @@
-# A lightweight JPEG pyramid for the ZMART browser viewer
+# Viewer delivery after the JPEG-pyramid review
 
 Date: 2026-09-01
 
-Status: detailed proposal for review. No implementation has been started and
-none of the performance claims below should be treated as measured yet.
+Status: revised design and stop decision. Do not start a separate JPEG-pyramid
+implementation. Begin only with the phase-0 contract and measurement work below.
 
-## The decision this plan proposes
+Reviewed against:
 
-Build a display-only, tiled JPEG pyramid for flat ZMART acquisitions, but do
-not replace the TIFFs, analysis data, or the existing volume viewer with it.
-The JPEG path should be an explicitly selected two-dimensional display engine,
-not a silent fallback that can hide a broken scientific-data path.
+- ZMART-microscopy commit `d8a67923`;
+- the review on branch `claude/lazy-jpeg-pyramids-review-fhz6te`, commit
+  `48f72d64`;
+- ZMART Viewer 0.2.0 at commit `9ff10b0`.
 
-The goal is practical:
+## Decision
 
-- a browser or PyWebView should fetch work in proportion to the screen, not in
-  proportion to the number of microscope fields;
-- a whole plate should begin with a few coarse tiles and sharpen as the
-  operator zooms;
-- close zoom should reach one source pixel per screen pixel for only the area
-  being viewed;
-- ordinary JPEG and a small JSON manifest should be enough to consume the
-  display data;
-- the persistent display cache must have both a relative and an absolute size
-  ceiling, so a 500 GB run can never create a 50 GB “lightweight” cache;
-- deleting the entire display cache must lose no scientific data and must be a
-  supported way to recover space.
+Do not build the proposed `jpeg-pyramid-under` engine.
 
-This is promising, but it earns a production place only if a measured spike
-beats the current Smart Viewer 0.2 path on real ZMART runs. The first phase is
-therefore a comparison, not a port.
+Keep ZMART Viewer 0.2 as the one path that supplies pixels to the operator
+canvas. It already composes only the requested pieces, uses the positions'
+existing multiscale data, and has measured viewport work that stays nearly
+flat over surveys from 64 to 16,384 positions. The old 8,400-request problem
+belonged to the retired `jpeg-under` reference engine, not to the active
+canvas.
 
-## The problem it is meant to solve
+The work should now proceed in this order:
 
-The existing small-picture path in `viz_studio/backend/jpeg_tiles.py` and
-`viz_studio/options/jpeg-under/viewer.js` makes one 128-pixel JPEG per field.
-It proved that ordinary display copies can make ten thousand TIFF fields
-viewable. It also exposed the remaining scaling problem. At roughly 8,400
-fields, every field asks for its own picture and the queue resolves in scan
-order. The work still grows with the field count, even though the screen has a
-fixed number of pixels.
+1. Give every acquisition one declared display window per logical channel.
+2. Measure Viewer 0.2 on real ZMART runs and the microscope PC, concentrating
+   on cold opening, coarse warming, browser memory, and bytes actually moved.
+3. Improve the existing composer's lazy serving only where those measurements
+   show a problem.
+4. Consider an 8-bit or JPEG response only if bytes or decode cost remain a
+   measured bottleneck. Such a response must use the existing piece addresses,
+   geometry, revision, source, and canvas. It must not create another viewer.
 
-A global pyramid changes that relationship. A whole-plate view asks for the
-few coarse tiles covering the screen. A well-sized view asks for a few tiles at
-an intermediate level. A cell-sized view asks for a few full-resolution tiles.
-The number of source fields may grow from 840 to 8,400 without multiplying the
-number of requests needed for one settled view.
+JPEG is therefore a conditional delivery encoding, not the architecture.
 
-The current OME-Zarr/Smart Viewer path may already be close enough after the
-0.2 upgrade. `docs/reviews/2026-09-01-review-of-the-smart-viewer-integration-plan.md`
-correctly requires that this be measured before another viewer path is built.
-JPEG wins only if it is materially faster, smaller, or easier to deploy for
-ZMART's ordinary flat view.
+## What changed after review, and what did not
 
-## Scope
+### Accepted
 
-### In scope
+**The baseline was wrong.** The 8,400-field request queue was measured on the
+old `jpeg-under` option. The workflow now opens `neuroglancer-under`, and
+Viewer 0.2 already builds pieces on demand. The problem statement, phase order,
+and default architecture have all been rewritten around the current path.
 
-- Full-resolution XY slice viewing for acquisitions described as
-  `T x C x Z x Y x X`.
-- Independent channel visibility, colour, window, gamma, colour map, and
-  opacity in the browser.
-- Timepoint and z-plane selection.
-- Live positions arriving while a view is open.
-- Several acquisition types, such as overview and targets, placed together in
-  stage micrometres while retaining separate controls.
-- Browser and PyWebView delivery through the same local HTTP interface.
+**A second production viewer is not justified.** The old plan's ownership
+boundary decided who would maintain the duplication but did not remove it. The
+revision forbids a second grid, manifest, source, invalidation loop, renderer
+state, and canvas. It follows ZMART Viewer's own one-door/one-source direction.
 
-### Not in scope
+**Decimation is the incumbent reducer.** Both repositories retain every second
+pixel. The old plan incorrectly framed the choice as area versus maximum
+reduction. The revision starts from the existing decimated levels and requires
+an explicit coordinate translation plus a registration gate for any other
+reducer.
 
-- Scientific measurement from JPEGs.
-- Replacing the vendor TIFFs or the canonical analysis representation.
-- Arbitrary XZ/YZ slicing or out-of-core volume rendering.
-- Stitching, illumination correction, registration, or blending overlaps into
-  a new scientific image.
-- Supporting an image orientation the run has not recorded.
-- A silent JPEG fallback when the selected scientific-data viewer fails.
+**There is no acquisition-wide encoding window today.** The application
+measures a window separately for every position. The old precedence referred
+to preset and run-level values that are not yet recorded. The first work
+package now creates that contract, and irreversible encoding refuses an
+unresolved channel.
 
-Neuroglancer or another volume-capable engine remains the path for volume
-rendering. The JPEG view is a fast flat view.
+**Camera range is not a display fallback.** It remains valid as numeric
+`min`/`max` provenance, but it may never supply display `start`/`end`. In an
+8-bit derivative that mistake would be irreversible.
 
-## Facts the implementation must preserve
+**The storage arithmetic and gates needed correction.** Ratios now use unique
+compressed bytes actually on disk, storage categories are reported separately,
+one absolute all-runs cap prevents a 500 GB run from receiving a 50 GB cache,
+and the conditional encoding phase must beat Viewer 0.2 by a stated margin.
 
-1. **The TIFFs are authoritative.** JPEGs are lossy, rebuildable display
-   derivatives and nothing may read them for analysis.
-2. **A TIFF does not reliably say where the stage stood.** Placement comes
-   from the acquisition record's `x_um`, `y_um`, pixel size, and recorded image
-   orientation. Filenames must not be parsed to recover facts the run already
-   knows.
-3. **Channels stay separate.** One pyramid belongs to one logical channel.
-   Colour and compositing happen in the browser.
-4. **Time and z select pixels; they do not move a flat image in x/y.** A focus
-   height remains measurement metadata rather than a stage translation for an
-   overview map.
-5. **Unimaged ground and acquired black pixels are different facts.** The JPEG
-   may draw both as black, but the run's coverage record remains available to
-   overlays and tests so the application can tell them apart.
-6. **The grid origin cannot move during a live run.** Otherwise every tile URL
-   would change its physical meaning when a new position arrived.
+**The current Z evidence was overstated.** The separation of acquisition,
+source, presentation, and navigation Z remains sound. However, the `z=0`
+versus `z=0.5` observation came from a debugging report rather than a named
+committed test or trace. The revision labels it reported evidence and requires
+the repository to make it reproducible.
 
-## The dtype question
+### Qualified rather than accepted literally
 
-The coarse levels can keep the same *intensity meaning* as the finest level,
-but ordinary browser JPEG cannot keep a `uint16` or floating-point dtype. It is
-effectively an 8-bit display format in the browsers this project targets.
+**Area averaging does not inevitably break registration.** It does break the
+current scale-only, decimation-based convention if the corresponding half-block
+translation is omitted. A different reducer can be registered with explicit
+per-level transforms. The revision keeps that technical possibility while
+making decimation the only default compatible by construction.
 
-The conversion must therefore be:
+**JPEG may still have value, but not yet as a viewer.** Viewer 0.2's existing
+measurements disprove the field-count motivation. They do not prove that
+16-bit response bytes and browser decoding are optimal for every remote or
+low-memory client. The revision retains one conditional encoding experiment,
+but only behind a fivefold-byte and no-regression gate and only on the existing
+piece route.
 
-```text
-source uint16/float
-    -> downsample in source precision or float
-    -> apply one fixed channel-wide encoding window
-    -> 8-bit grayscale JPEG
-```
+**The review suggested a persistent cache floor for small runs.** This revision
+does not add one. A floor can violate the user's ten-per-cent limit. When a
+small run's allowance cannot hold a screenful, transient RAM or no persistence
+is safer than silently exceeding the rule.
 
-For a channel encoding window `[encoded_low, encoded_high]`:
+**The suggested performance margins are starting values.** Two seconds,
+500 ms, fivefold, and 5 GiB are explicit so the gates can fail. They remain
+provisional until agreed before measurement on the microscope PC. They may not
+be relaxed after seeing an unfavourable result merely to preserve a design.
 
-```text
-jpeg_sample = round(255 * clamp(
-    (source_sample - encoded_low) / (encoded_high - encoded_low), 0, 1
-))
-```
+### Retained from the original design
 
-Every tile and every level of that channel uses the same window. The manifest
-records it. A decoded JPEG value therefore has the same approximate source
-meaning at every zoom. The browser can express an operator window in source
-units by first translating it into this encoded range.
+The review agreed with, and this revision keeps:
 
-The encoder must not bake in display gamma, a colour, or a per-tile stretch.
-Those choices would make fields incomparable and would make later contrast
-controls dishonest. The existing small-picture `_stretch` path deliberately
-bakes in gamma for a fixed preview; it must not be reused unchanged for this
-purpose.
+- TIFFs and canonical scientific data remain authoritative;
+- JPEG or another 8-bit response is display-only;
+- no silent fallback may conceal a broken scientific path;
+- channels remain independent and colour/gamma stay in the browser;
+- no per-tile or per-level stretch;
+- no parent image is built from already lossy children;
+- atomic publication and bounded failures;
+- server-issued addresses and strict range validation;
+- a stable live grid and source revision;
+- acquired black remains distinguishable from unimaged ground;
+- WebView2/WebGL2 is required for PyWebView;
+- raw acquisition Z remains recoverable and does not silently become registered
+  specimen Z.
 
-Values clipped outside the encoding window cannot be recovered. A JPEG view
-must say which range it retained, and the UI must not imply that a slider can
-recover values it cannot. If the operator needs the full 12/16-bit range, the
-scientific-data viewer remains available. A later version may create a second
-cache generation with a wider encoding profile, but it must never mix profiles
-within one channel view.
+## Why the decision changed
 
-### How the encoding window is chosen
+The first proposal used the wrong baseline. Its motivating observation came
+from `viz_studio/backend/jpeg_tiles.py`: one 128-pixel JPEG and one request per
+field. The workflow now selects `neuroglancer-under` in
+`application/workflows/target_acquisition/shared/stage.js`.
 
-The first field must not decide it. A run beginning over empty sample would
-then set a completely different scale from one beginning over bright tissue.
+ZMART Viewer 0.2's `zmart_viewer/compose.py` already indexes the positions per
+level and composes only the piece being asked for. Its recorded measurements
+show:
 
-The first spike should use this precedence:
+- landing-to-visible stays around a few hundred milliseconds through 16,384
+  positions in its container ladder;
+- one additional landing in a warm 10,000-position survey derives in 76 ms
+  and rereads no tiles;
+- a warm baked piece is served in about 0.15 ms;
+- the remaining scale-dependent costs are chiefly the one-time bake and coarse
+  warm, not one browser request per position.
 
-1. an acquisition-wide window declared by the recorded acquisition preset;
-2. a window declared by a run-wide channel description;
-3. a configured camera range only when neither of the first two exists.
+Those figures are synthetic or machine-specific. They still disprove the
+original architectural premise. Real-machine measurement remains necessary,
+but a second image path is not justified before it.
 
-A per-position measurement is not an acquisition-wide window. If the run has
-no stable answer, the spike should report that and compare two explicit
-policies on real data rather than silently inventing one. A robust sampled
-window may become a second cache profile, but switching to it during a live run
-must be deliberate and versioned.
+## Product goal
 
-## Size budget
+The operator must be able to open and navigate ZMART microscopy data in a
+browser or PyWebView with minimal waiting and no scientific ambiguity.
 
-The budget has a per-acquisition relative cap and a cache-root absolute cap. A
-percentage alone is not a safe policy for large microscopy runs, and an
-absolute cap applied once per run would still let a collection of runs fill the
-machine.
+For a settled view:
 
-Provisional defaults for the spike:
+- work should follow the number of visible pieces, not the number of fields;
+- a whole acquisition should appear coarsely first and sharpen on demand;
+- close zoom should show the source resolution in the visible region;
+- channel controls should remain responsive;
+- browser, RAM, and persistent duplicate storage must be bounded;
+- the same picture, geometry, controls, and failure state must appear in the
+  standalone Viewer and the embedded operator canvas.
 
-```text
-per-acquisition soft target = 5% of authoritative source bytes
-per-acquisition hard ceiling = 10% of authoritative source bytes
-all-runs cache-root soft target = 5 GiB
-all-runs cache-root hard ceiling = 10 GiB
-```
+Vendor TIFFs remain authoritative provenance. The OME-Zarr position stores are
+the scientific representation used by the Viewer. Any display encoding is a
+rebuildable derivative and must never be used for analysis.
 
-The effective allowance is the smaller applicable limit. Thus a 500 GB
-acquisition targets no more than 5 GB and can never retain a 50 GB display
-cache. Several runs share the same 10 GiB root ceiling rather than each
-receiving 10 GiB. The exact 5/10 GiB values are review and measurement inputs;
-combining relative per-acquisition limits with one absolute all-runs limit is
-not optional.
+## One path and one source
 
-The source size is the authoritative acquisition's unique source-image bytes
-on disk, counted once, not an uncompressed array estimate and not enlarged by
-counting another derived representation. Cache size includes manifests,
-sidecars, and every persistent display derivative beneath the cache root.
-
-- The soft target starts background/low-priority eviction.
-- The hard ceiling is enforced before atomic publication. A cache write that
-  would cross it triggers eviction or is declined; it never quietly exceeds
-  the limit.
-- Eviction order is incomplete temporary files first, then least-recently-used
-  fine tiles. Coarse tiles and recently visible tiles have greater value
-  because they make the next open fast.
-- A tile that was evicted is regenerated if it is requested again.
-- The cache is deliberately partial. The hard ceiling is more important than
-  retaining every full-resolution tile ever visited.
-
-For intuition, a complete two-dimensional power-of-two pyramid has at most
-`4/3` as many samples as its finest level. Against an uncompressed 16-bit
-source, if a grayscale JPEG averages `b` bits per sample, the approximate
-ratio is `b / 12`. One bit per sample is about 8.3%; two bits per sample is
-about 16.7%. Real TIFFs may already be compressed, so only measurements against
-the files on disk can decide how much of a pyramid fits.
-
-Transient state has separate bounds:
-
-- lossless working pixels used while a live tile is changing are kept in RAM,
-  not as a second persistent pyramid;
-- decoded browser/GPU tiles start with a conservative 128 MiB combined budget;
-- browser accounting assumes up to eight bytes per pixel for a decoded image
-  plus its GPU texture until measurement shows a tighter safe number.
-
-## The spatial grid
-
-One acquisition has one fixed level-0 pixel grid. The run should declare its
-planned extent before the first field is served, because the scan plan already
-knows where it intends to go.
-
-Pixel coordinates refer to pixel edges. A six-number affine transform maps a
-level-0 pixel edge `(px, py)` into stage micrometres:
+The target architecture is the one already described in ZMART Viewer's
+`docs/open/PLAN_one_door_one_source.md` and
+`docs/open/PLAN_two_viewers_one_contract.md`:
 
 ```text
-stage_x = a * px + b * py + tx
-stage_y = c * px + d * py + ty
+acquisition record and OME-Zarr positions
+        -> one Viewer dataset/source
+        -> one piece-address and revision contract
+        -> one embedded canvas
 ```
 
-This records scale, orientation, handedness, and origin without relying on an
-implicit “top-left” convention. The first implementation may accept only the
-axis-aligned orientation actually validated on the target instrument, but it
-must reject unsupported rotation or shear rather than draw it approximately.
+For a live run, the source URL stays stable and its revision advances. The
+browser invalidates that source and asks again only for visible pieces.
 
-Each source position also has a source-pixel-to-stage transform derived from
-its acquisition record. Rasterising that source into the global grid is a
-normal resampling operation. A position that cannot be reconciled within a
-declared tolerance is reported and omitted from the JPEG view; it is not
-snapped silently.
+The following are forbidden:
 
-If a live position falls outside the declared extent, the origin still does
-not move. The safe first-version response is to publish a new pyramid
-generation with a larger extent or refuse that position from this display
-path. Extending only right/down may be supported later, but it must not change
-existing tile coordinates.
+- a JPEG grid beside the Viewer's grid;
+- a JPEG manifest beside the Viewer's source description;
+- a second live invalidation mechanism;
+- a second layer transform;
+- a hidden fallback that draws JPEG when the scientific path failed;
+- a second operator canvas underneath or above the first.
 
-Separate acquisition types keep separate grids and manifests. Their affine
-transforms place them together in stage micrometres in the viewer.
+A later encoded response may have another media type or codec, but it remains
+another representation of the same addressed piece and revision.
 
-## Z has three jobs and must not be one number
+## Phase 0A: make the display-window contract explicit
 
-The reported failure is consistent with distinct roles for Z being combined:
+This is useful whether or not a JPEG is ever written.
 
-- **acquisition Z** is where the microscope drove/focused while capturing a
-  position;
-- **source-local Z** says which plane within that captured source is being
-  sampled;
-- **presentation Z** says how that source is placed for the current view.
+### The current gap
 
-The acquisition value must be preserved, but it must not lift every field of a
-flat overview to a different display height. A focus surface controls imaging;
-it is not automatically the geometry of a two-dimensional plate map.
+`application/parts/storage/zarr_positions.py` calls `_a_window_onto` for every
+position and channel. A bright tissue field and an empty field can therefore
+declare different starting brightness even though they belong to one logical
+acquisition channel.
 
-### The present correction stays narrow
+The current Viewer can still measure data when a store declares no useful
+window. That is a reversible display choice because the original 16-bit values
+remain. It is not a valid source for an irreversible 8-bit encoding unless the
+chosen result is resolved once and recorded.
 
-The current trace proves one boundary correction: the flat source renders when
-its sole voxel centre is sampled at local `z=0`, while `z=0.5` samples the upper
-boundary of that voxel. The current work should correct that sampling and the
-2-D presentation transform only.
+### Authority
 
-It should not attempt physical 3-D registration. It preserves the information a
-future calibrated scene would need, but it neither uses raw stage/focus Z as a
-specimen coordinate nor claims that a translation built from it is correct.
+One acquisition-level channel description owns the opening display window.
+Each channel has a stable key rather than relying only on its array index.
 
-The scene/link builder resolves the source anchor once and records the answer.
-Opening order, asynchronous source arrival, and current navigation can never
-recalculate it. Tests for the present correction must prove:
-
-- every 2-D overlay anchor centre meets display `z=0`;
-- the single-plane source is sampled at its voxel centre;
-- a stack's internal plane order and spacing are unchanged;
-- the original acquisition/focus Z remains recoverable as provenance;
-- no layer adds a second presentation Z offset.
-
-Each source needs one explicit anchor plane. Coordinates refer to plane
-centres, not the boundary above a voxel. If plane `i` has local centre
-`local_z(i)` and the anchor has centre `local_z(anchor)`, the flat presentation
-uses:
-
-```text
-relative_z(i) = local_z(i) - local_z(anchor)
-```
-
-The anchor plane is therefore exactly at display `z=0`. A one-plane source is
-sampled at that plane's centre, not at `+0.5` of a voxel where the image ends.
-
-The anchor rule is deterministic:
-
-1. a single-plane source anchors on its only plane;
-2. a stack anchors on its recorded focus/reference plane;
-3. a legacy stack with no reference uses the middle *plane index* as a warned
-   fallback, not the maximum plane and not a runtime choice;
-4. load order, current visibility, and which source answered first never choose
-   an anchor.
-
-For an even number of legacy planes, “middle” must still name a real plane. The
-proposed fallback is `floor((count - 1) / 2)`, recorded in the manifest so a
-different program reaches the same answer.
-
-### Two-dimensional presentation
-
-All source anchor-plane centres map to the common flat display plane. Channels,
-masks, labels, and annotations that describe the same pixels inherit the same
-source transform. A layer may show/hide or style a source; it does not add a
-second Z translation.
-
-For a global JPEG overview, the manifest's z coordinate is relative to the
-anchor. Fields captured at different focus-surface heights still contribute to
-the same logical `z=0` plane. A real stack retains its relative plane spacing.
-
-This does not require every source to have the same raw acquisition Z. It
-requires the selected anchor centres to agree after the two-dimensional
-presentation transform.
-
-Plane selection is navigation, not placement. A flat one-plane overview should
-not disappear merely because the operator moves through a separate stack. The
-first product spike should test the simplest explicit behaviour: a source with
-one plane remains on its anchor, while a stack selects its requested relative
-plane. If operators switch among several stacks, remembering the last relative
-plane per source may be useful, but that state belongs in the session/view state
-and never changes the source transform.
-
-### Future three-dimensional presentation
-
-A future physical scene may use:
-
-```text
-world_z_3d(i) = calibrated_acquisition_z - specimen_datum + relative_z(i)
-```
-
-That is reversible because acquisition Z, the anchor, and local spacing were
-not overwritten by the flat view. It is safe to describe this as “changing the
-Z translation” only after the following have been validated: units, Z scale,
-axis direction, anchor plane, stage-Z calibration, and a shared specimen datum.
-The objective's focus position is not assumed to be a registered specimen
-coordinate merely because it has micrometre units.
-
-Two lightweight scene descriptions may therefore reference the same source
-pixels:
-
-- a 2-D scene using anchor-relative flat placement;
-- a 3-D scene using calibrated physical placement.
-
-They do not require two copies of the scientific chunks. The JPEG pyramid in
-this proposal remains the display derivative for the 2-D scene; the volume
-engine reads the volume-capable source for 3-D.
-
-The authority chain is:
-
-```text
-local plane centre
-    -> source anchor transform
-    -> mode-specific presentation transform
-    -> layer styling and visibility
-```
-
-Applying acquisition Z once in the source and again in a layer is forbidden.
-The manifest or scene should give channels and derived layers a shared geometry
-identity so this can be checked rather than inferred from nearly equal numbers.
-
-## Levels, tiles, and downsampling
-
-- Level 0 is the finest level.
-- Level `L` has `2^L` level-0 pixels per displayed pixel on each XY axis.
-- Levels continue until the declared acquisition fits in one or a few tiles.
-- Tiles are square and power-of-two sized.
-- The first spike compares 512 and 1024 pixels. It should begin at 512 because
-  decoded memory and four-channel views are the more dangerous failure mode;
-  1024 wins only if real measurements show that fewer requests outweigh the
-  larger decoded textures.
-- Edge tiles carry their valid width and height and must never be stretched to
-  fill a nominal square.
-- Missing tiles answer as missing; they are not enormous all-black files.
-
-Downsampling happens before the 8-bit encoding, in source precision or float,
-and never by decoding a JPEG parent. Repeated JPEG-to-JPEG pyramid building
-would accumulate ringing and quantisation at every level.
-
-Area/box averaging is the reference resampler because it gives a stable,
-anti-aliased view. Fluorescence is sparse, so a max-preserving alternative
-must be compared on real images: averaging may hide tiny bright objects at
-plate scale, while max pooling may exaggerate isolated hot pixels and make
-brightness jump between levels. This is one of the few decisions the design
-cannot settle honestly without photographs and measurements.
-
-JPEG quality is also selected by measurement under the size budget. The spike
-should compare at least quality 85, 90, and 95 per level. “95 at level 0” is a
-candidate, not a promise.
-
-## Overlaps and retakes
-
-Overlap semantics are display semantics, not stitching.
-
-The first implementation should support the arrangement ZMART currently uses:
-grid-aligned positions without ambiguous within-acquisition overlap. It may
-also support exact retakes by giving the highest committed capture sequence
-ownership of the repeated ground.
-
-Any broader overlap has to choose one deterministic rule. The proposed rule is
-latest committed position wins, resolved from the run's sequence number rather
-than a file modification time. No feathering, brightest-wins, or averaging is
-allowed to appear under the name of placement. If the alignment needed to make
-that rule consistent at every pyramid level is absent, the JPEG path refuses
-that acquisition until a proper rasteriser has been measured.
-
-## Manifest and HTTP interface
-
-The browser receives one small manifest per acquisition. A first schema could
-look like this:
+The ordinary OME metadata remains:
 
 ```json
 {
-  "schema": "zmart-jpeg-pyramid/0.1",
-  "datasetId": "overview-abc123",
-  "revision": 37,
-  "complete": false,
-  "axes": {"t": 1, "c": 3, "z": 1},
-  "zModel": {
-    "coordinate": "relative-to-anchor-plane-centre",
-    "planeCentresUm": [0.0],
-    "anchor": {"kind": "only-plane", "index": 0},
-    "acquisitionZ": "preserved-in-capture-record"
-  },
-  "grid": {
-    "width": 32768,
-    "height": 24576,
-    "pixelEdgesToStageUm": [0.65, 0, 1200, 0, 0.65, 3400]
-  },
-  "tile": {
-    "width": 512,
-    "height": 512,
-    "levelZero": "finest",
-    "levels": [
-      {"level": 0, "width": 32768, "height": 24576},
-      {"level": 1, "width": 16384, "height": 12288},
-      {"level": 2, "width": 8192, "height": 6144},
-      {"level": 3, "width": 4096, "height": 3072},
-      {"level": 4, "width": 2048, "height": 1536},
-      {"level": 5, "width": 1024, "height": 768},
-      {"level": 6, "width": 512, "height": 384}
-    ]
-  },
-  "channels": [
-    {
-      "id": "c0",
-      "label": "DAPI",
-      "sourceDtype": "uint16",
-      "encoding": {"transfer": "linear", "low": 80, "high": 3400},
-      "defaultWindow": {"low": 140, "high": 2100}
-    }
-  ],
-  "tileUrl": "planes/{t}/{c}/{z}/{level}/{y}/{x}.jpg",
-  "emptyTile": "204",
-  "defaultBlend": "additive"
+  "label": "488",
+  "color": "00FF00",
+  "window": {
+    "min": 0,
+    "max": 65535,
+    "start": 300,
+    "end": 4200
+  }
 }
 ```
 
-The complete schema also needs a format-generation identifier, JPEG quality,
-resampler, source fingerprint, and cache-budget report. Unknown schema versions
-are refused with a useful message.
+`min` and `max` describe the number type or detector room. `start` and `end`
+describe the initial display. Readers must never substitute the first pair for
+the second.
 
-Suggested routes:
+ZMART provenance should additionally say how the display pair was obtained:
 
-```text
-GET /view/<acquisition>/pyramid.json
-GET /view/<acquisition>/planes/<t>/<c>/<z>/<level>/<y>/<x>.jpg
-GET /view/<acquisition>/cache-status.json
+```json
+{
+  "zmart": {
+    "displayWindows": [{
+      "channelKey": "488",
+      "start": 300,
+      "end": 4200,
+      "method": "preset",
+      "algorithm": null,
+      "sampleCount": 0,
+      "resolvedAtRevision": 0
+    }]
+  }
+}
 ```
 
-Every integer is range-checked before it becomes a path. A dataset identifier
-is server-issued. The route must not accept arbitrary filesystem paths.
+The exact spelling belongs to the acquisition/view contract and should be
+settled with the Viewer repository before code changes. The important facts
+are channel identity, the two display bounds, the method, and when the choice
+became fixed.
 
-### Publication and browser caching
+### Resolution policy
 
-- Manifests and mutable live tiles use stable URLs, `ETag`, and
-  `Cache-Control: no-cache`. “No-cache” permits storage but requires validation;
-  it is different from the current `no-store` response, which throws away a
-  useful JPEG after every request.
-- A completed, content-addressed cache generation may use long-lived immutable
-  responses.
-- Files are written to a temporary sibling and replaced whole. A browser sees
-  the old complete JPEG or the new complete JPEG, never half of either.
-- Concurrent requests for the same missing tile share one bounded generation
-  job.
-- A failed generation leaves no final file. The response names the source and
-  reason in server logs; the browser receives a bounded failure and may retry.
+Use this order:
 
-When `tilesMayHaveLanded()` is called, the viewer revalidates the manifest. If
-its revision changed, it drops only its visible tile-layer memory and
-revalidates those visible URLs. The request count therefore follows the
-viewport even if the manifest revision changes after every position. Server
-ETags avoid retransmitting unchanged tiles.
+1. An explicit window in the acquisition preset or protocol.
+2. An operator-approved window recorded for that run and channel.
+3. A deterministic acquisition-wide measurement made by the existing Viewer
+   and then recorded with its algorithm and revision.
+4. No declared window.
 
-## Lazy generation and a live scan
+Step 4 means the 16-bit Viewer may keep measuring a provisional display range.
+It does not mean the camera range becomes the display range. It also means an
+8-bit derivative must refuse to encode that channel.
 
-“Lazy” means an unviewed run need not acquire a second permanent dataset. It
-does not mean a first-ever open of 10,000 completed fields can be instant
-without reading any summary of those fields. That trade-off must be stated.
+Do not compute and stamp a permanent value from the first field. Do not update
+a declared value whenever another field lands. A live automatic policy, if it
+is later needed, must define a deterministic sampling set and a single freeze
+event; until then, use presets or an explicit operator action.
 
-### Source index
+### Writer and view behaviour
 
-The generator consumes the run's canonical capture records. Each entry names:
+- The acquisition record carries the channel descriptions.
+- `position_store_from_record` receives them rather than inventing a new
+  window for each position.
+- Every position in one acquisition mirrors the same channel window where one
+  is declared.
+- When no acquisition-wide window exists, position stores omit `start` and
+  `end`; they still record honest `min` and `max`.
+- The composed/linked Viewer's source description carries the acquisition
+  window once and is the authority used by the embedded canvas.
+- A legacy folder whose positions disagree does not silently choose the first
+  store's value. The Viewer measures the composed acquisition or reports the
+  disagreement, then records a resolved value only through an explicit
+  migration or operator action.
 
-- dataset/acquisition identity;
-- committed capture sequence and replacement identity;
-- time, channel, and z indices;
-- source file and source region;
-- source-pixel-to-stage transform;
-- source dtype and pixel size.
+### Tests and gate
 
-This index is derived and rebuildable. It must not become a third scientific
-ledger beside the run records and the image metadata. A small spatial index in
-memory maps a requested tile footprint to intersecting captures.
+Tests must prove:
 
-### First request for a tile
+- two fields with very different brightness receive the same declared window;
+- channel identity, not arrival order, maps windows to channels;
+- an absent display window remains absent and never becomes camera min/max;
+- a Viewer-measured fallback can change the display without changing pixels;
+- any recorded resolution is stable across reopen and names its provenance;
+- no 8-bit encoder accepts an unresolved channel;
+- existing foreign OME-Zarr without ZMART provenance still opens normally.
 
-1. Validate the plane, level, and tile coordinates.
-2. Find committed source positions intersecting the tile footprint.
-3. If none intersect, answer 204.
-4. Compute a dependency fingerprint from those source identities, their
-   revisions, the encoding profile, resampler, and format version.
-5. Return a cached JPEG whose sidecar has that fingerprint, if one exists.
-6. Otherwise read the intersecting source data, rasterise it in committed
-   ownership order, downsample in source precision, encode to the channel's
-   fixed 8-bit range, and write the JPEG atomically. A tiled TIFF may permit a
-   rectangular read; a stripped or single-plane export may require decoding a
-   larger strip or the whole intersecting plane. The measurement must record
-   which happened rather than assuming cheap random access.
-7. Record its byte size and enforce both cache ceilings before publication.
+Phase 0A passes when one run-level channel description can be followed from
+the acquisition record to every position and the one Viewer source. It fails
+if two parts of the path remain independent authorities.
 
-The source fingerprint is local to the tile. A position landing elsewhere does
-not make this tile stale merely because the acquisition revision increased.
+## Phase 0B: establish the real Viewer 0.2 baseline
 
-### A position arriving while the view is open
+Do not regenerate the synthetic measurements merely to obtain new numbers.
+First read:
 
-The acquisition thread commits the scientific files and record first. Display
-work happens afterwards in a bounded viewer worker; a slow JPEG must never hold
-the stage or make a successful capture fail.
+- `docs/measured/MEASURED_the_ladder_of_surveys.md`;
+- `docs/open/MEASURED_the_four_ways_of_serving.md`;
+- `docs/how_it_works/HOW_OURS_DIFFERS_FROM_OME_ZARR.md`;
+- `docs/open/PLAN_one_door_one_source.md`.
 
-For every already materialised tile intersecting the new position, the viewer
-has two safe choices:
+Then repeat only the adoption measurements that have not been made on a real
+ZMART run and the actual microscope PC.
 
-1. rebuild it from its authoritative sources; or
-2. while the viewer process remains alive, patch a lossless 8-bit working tile
-   held under a strict RAM LRU, then derive a fresh JPEG from that complete
-   working tile.
+### Fixtures
 
-The second is the proposed live optimisation. It prevents a visible coarse
-tile from rereading every earlier field on every landing, and it also prevents
-repeated JPEG-to-JPEG encoding. It is transient: there is no persistent raw
-pyramid that could defeat the disk goal. If the process restarts, the tile is
-rebuilt from sources once and becomes hot again.
+Use at least:
 
-Tiles that have never been requested are not generated when a position lands.
-Their source fingerprints will cause the right result if they are requested
-later.
+- a representative small run;
+- a multi-channel overview large enough to exercise plate-scale zoom;
+- the largest available real run;
+- a live replay with positions arriving at the expected acquisition rate;
+- a sparse fluorescence run containing dim puncta and bright outliers;
+- a stack plus a one-plane overview for the Z contract.
 
-At the end of a live run the current visible/coarse JPEGs are already warm. An
-unviewed completed run pays for its first coarse view on first open. A later
-optional “warm display cache” command may prebuild coarse levels, but it is not
-part of acquisition and obeys the same caps.
+Record the exact Viewer and ZMART-microscopy commits, browser/PyWebView engine,
+WebView2 version, GPU renderer, CPU, RAM, disk type, and whether source data is
+local or remote.
 
-## Browser renderer
+### One scripted trace
 
-Use a new `jpeg-pyramid-under` option rather than changing `jpeg-under` in
-place. The old option is a useful small, fixed-preview reference and its tests
-should keep meaning what they mean today.
+Run the same trace for `neuroglancer-under` and `viv-under` where both can open
+the fixture:
 
-The first renderer spike should use the deck.gl packages already present in
-`application/package.json`:
+1. cold open and fit the whole acquisition;
+2. wait for the first scientifically recognisable coarse picture;
+3. wait for the requested view to settle;
+4. pan one viewport;
+5. zoom to one well;
+6. zoom to source-pixel scale;
+7. enable four channels and change each display window;
+8. revisit the first whole-acquisition and well views;
+9. publish one new position during the session;
+10. close and reopen.
 
-- `OrthographicView` gives a non-geographic top-down XY view;
-- `TileLayer` selects visible non-geographic tiles, limits requests, passes an
-  `AbortSignal`, and supports a byte-budgeted cache;
-- `BitmapLayer` can place each decoded image over explicit bounds;
-- a small BitmapLayer shader extension applies the source window, gamma,
-  colour map, channel colour, and opacity.
+### Measurements
 
-These are reasons to spike deck.gl, not permission to assume it works. The
-spike must prove the exact installed versions, the target browser, and the
-target PyWebView engine. PyWebView on Windows must use Edge Chromium/WebView2;
-an IE/MSHTML fallback is not an acceptable renderer for this viewer and should
-fail at startup with a clear compatibility message.
+Measure, rather than infer:
 
-One TileLayer is used per visible channel and selected `(t, z)`. The shader
-turns decoded grayscale into display intensity. Version 1 supports additive
-fluorescence compositing and the flat colour maps already offered by the panel.
-Other blend modes wait until one is requested and tested.
+- time to first recognisable picture;
+- time to settled sharp view at each zoom;
+- p50, p95, and worst pan/zoom response;
+- landing-to-visible latency;
+- requests, response bytes, and codec for every step;
+- source blocks read and pieces encoded;
+- Python CPU and peak working set;
+- browser JS heap, decoded image/array memory where exposed, and GPU memory or
+  a defensible proxy;
+- warm and bake duration;
+- bytes persisted in every category described below;
+- correctness: channel count, display windows, placement, live freshness, and
+  absence of transient wrong pixels.
 
-The renderer keeps the existing `viz_studio/options/contract.md`:
+### Stop gate
 
-- centres and zoom are stage micrometres;
-- `setPlane`, `setMoment`, and `setChannel` retain their meanings;
-- the application's overlay remains above the picture;
-- `whenTheViewMoves`, `tilesMayHaveLanded`, and bounded `destroy` remain true;
-- an empty acquisition list opens immediately so a plate can be planned before
-  the microscope has captured anything.
+Stop after phase 0 when the existing Viewer meets the following on the target
+machine:
 
-The viewer may show a coverage/mean-grey placeholder while a first-ever coarse
-tile is being generated, but it must label the state as loading. It must never
-present a placeholder as the finished scientific image.
+- a useful whole-acquisition picture appears within 2 seconds;
+- a settled pan or zoom completes within 500 ms at p95;
+- a new live position is visible within 500 ms at p95 after publication;
+- memory reaches a stable bound during repeated navigation;
+- automatic duplicate storage stays inside the agreed absolute cap;
+- no position-count-proportional browser request pattern appears.
 
-## Browser and PyWebView delivery
+These initial usability thresholds should be adjusted only before running the
+trace, with the reason recorded. A threshold may not be loosened after seeing a
+bad result merely to keep an implementation idea alive.
 
-The same HTTP routes serve both. No JPEG bytes cross a Python-to-JavaScript
-bridge method and no base64 copy is made. PyWebView opens the same local URL as
-an ordinary browser, which keeps testing and caching behaviour identical.
+If Viewer 0.2 passes, the JPEG work stops. Embedding the existing canvas is the
+next product task.
 
-Minimal friction means:
+## Storage accounting and the 500 GB case
 
-- no browser extension;
-- no custom image codec or service worker in version 1;
-- no `file://` mode for the product path;
-- one local server already owned by the application/viewer;
-- a startup capability check for WebGL2 and the required PyWebView engine;
-- ordinary JPEG responses that can be inspected with browser tools or `curl`.
+Do not describe every non-TIFF byte as one cache. Report these categories
+separately:
 
-## Ownership boundary
+1. vendor TIFF source;
+2. canonical OME-Zarr scientific position stores;
+3. position-store pyramid overhead;
+4. linked-view metadata and pointer maps;
+5. baked Viewer pieces;
+6. automatic persistent delivery cache;
+7. browser HTTP cache;
+8. transient server and browser memory.
 
-The recommended production boundary is:
+Only categories explicitly documented as rebuildable may be deleted by cache
+eviction. Calling scientific working data a cache does not make it disposable.
 
-- ZMART-microscopy owns capture records, authoritative files, scan plans, and
-  stage placement facts;
-- ZMART Viewer owns display-cache generation, manifests, tile HTTP responses,
-  and the browser drawing adapter;
-- the operator page owns controls and overlays and speaks only through the
-  viewer contract.
+Every ratio uses the unique compressed source bytes actually present on disk,
+not an uncompressed `width x height x dtype` estimate. Deduplicate hard links,
+reflinks, and repeated references when counting.
 
-This repository may host the measurement spike under `viz_studio/`, because
-the old JPEG reference and the common engine tests already live there. The
-production code should not be copied independently into both repositories.
-Before phase 3, the current ZMART Viewer repository must be open beside this
-one and the API ownership settled file by file.
-
-## Implementation plan
-
-Each phase ends at a gate. Do not continue merely because code has been
-written.
-
-### Phase 0 — measure the current paths
-
-No product code.
-
-1. Install/run the real Smart Viewer 0.2 server, not the vendored historical
-   backend.
-2. Use the same completed and live acquisitions for:
-   - Smart Viewer/OME-Zarr;
-   - current one-JPEG-per-field viewer;
-   - the later pyramid spike.
-3. Record cold and warm time to first meaningful picture, time to settled
-   whole-plate view, requests, transferred bytes, decoded/GPU memory, frame
-   times while panning, and disk bytes.
-4. Repeat at approximately 100, 1,000, and 10,000 fields, and with one and four
-   visible channels.
-5. Name the browser, PyWebView renderer, server commit, and dataset in every
-   result.
-
-Gate: continue only if the present path still has a material viewport or
-deployment cost that JPEG can plausibly remove.
-
-### Phase 1 — static single-plane pyramid generator
-
-Prototype under `viz_studio/`; do not wire it into the workflow.
-
-1. Build the fixed grid and manifest from explicit synthetic capture records.
-2. Generate requested tiles directly from TIFF source regions.
-3. Prove level dimensions, edge tiles, physical placement, stable encoding,
-   and atomic publication.
-4. Compare 512/1024 tiles, JPEG 85/90/95, and area/max downsampling on at least
-   two real ZMART fields: sparse fluorescence and dense tissue.
-5. Enforce both cache ceilings in the generator from the start.
-
-Gate: a static pyramid stays below the target caps or demonstrates useful
-partial-cache eviction, and its rendered view is acceptably faithful to a TIFF
-reference under the same display transform.
-
-### Phase 2 — browser adapter
-
-1. Add a separate `jpeg-pyramid-under` option.
-2. Fetch only tiles intersecting the viewport at the appropriate level.
-3. Apply channel window/colour/gamma/opacity on the GPU.
-4. Enforce request cancellation and a conservative decoded-memory budget.
-5. Meet the whole existing option contract and its placement tests.
-
-Gate: increasing the source from 1,000 to 10,000 fields at the same settled
-whole-plate view does not increase the request count or decoded memory in
-proportion to the field count.
-
-### Phase 3 — time, z, and channels
-
-1. Keep one pyramid per `(t, c, z)`.
-2. Switch planes and moments without changing XY placement.
-3. Make all current panel channel controls truthful against the 8-bit encoding
-   range.
-4. Test at least two channels, three z-planes, and two moments; current one-
-   plane fixtures are not enough.
-
-Gate: the panel, engine read-back, and photographed pixels agree after every
-control change.
-
-### Phase 4 — live publication
-
-1. Append new source records only after the scientific capture is committed.
-2. Revalidate the manifest revision through the existing
-   `tilesMayHaveLanded()` path.
-3. Add the bounded transient working-tile RAM cache.
-4. Prove that a source landing outside the viewport does not regenerate or
-   refetch the visible view.
-5. Prove that a source landing inside it changes only the intersecting tile
-   chain and never exposes a partial JPEG.
-6. Finalise or restart the viewer and prove the same tiles rebuild from source.
-
-Gate: live display work cannot delay or fail acquisition, and the cost of one
-landing is bounded by affected/visible tiles rather than total fields.
-
-### Phase 5 — operator integration
-
-1. Have the real viewer server advertise the JPEG-pyramid manifest as an
-   explicit two-dimensional display source.
-2. Let the workflow choose it deliberately for the flat view. Do not catch an
-   OME-Zarr failure and quietly substitute JPEG.
-3. Keep the volume action on the volume-capable source.
-4. Preserve the canvas view and overlays while a first acquisition arrives.
-5. Show the operator whether they are looking at a display derivative and
-   provide a direct route to the scientific-data view.
-
-Gate: all existing 54-field and 864-field operator walks pass, the plate stays
-on screen, every field is checked separately, and a deliberately broken JPEG
-path produces a visible failure rather than a substitute picture.
-
-### Phase 6 — target-machine proof
-
-Run on the microscope PC in both its supported external browser and PyWebView.
-Measure a completed cold run, a warm run, and a live run. Inspect the pictures,
-not only the assertions.
-
-Gate: both cache ceilings hold, the target view is responsive, WebView2 needs
-no manual intervention beyond installation checks already needed by the app,
-and no scientific workflow reads the derivative.
-
-## Proposed files for the spike
-
-Names are proposed so review can challenge the boundary before code exists.
+The default policy proposed for automatic delivery derivatives is:
 
 ```text
-viz_studio/backend/jpeg_pyramid.py
-    grid, manifest, source index, tile rendering, cache accounting
-
-viz_studio/options/jpeg-pyramid-under/viewer.js
-    option contract and deck.gl TileLayers
-
-viz_studio/options/jpeg-pyramid-under/intensity-bitmap-layer.js
-    the small grayscale/window/colour shader extension
-
-viz_studio/tests/test_jpeg_pyramid.py
-    backend format, geometry, intensity, cache, concurrency
-
-viz_studio/tests/test_the_jpeg_pyramid_viewer.py
-    real-browser fetching, placement, controls, memory/request behaviour
-
-viz_studio/measure_jpeg_pyramid.py
-    the non-asserted scale/quality/size measurements
+per-acquisition hard ceiling = 10% of unique compressed source bytes
+all-runs automatic-cache hard ceiling = 5 GiB
+effective ceiling = the smaller applicable allowance
 ```
 
-Only after the spike passes should production routes be assigned between the
-actual ZMART Viewer server and the thin bridge integration. `application/framework/bridge.py`
-should not absorb a second full viewer backend simply because it already serves
-the old previews.
+The 5 GiB value is a provisional operational default, not a scientific
+constant. It answers the important requirement: a 500 GB source is not granted
+50 GB merely because ten per cent sounds small. With the proposed default, all
+automatically managed runs together cannot exceed 5 GiB.
 
-## Required tests
+Linked-view metadata should be the default because it copies no image pixels.
+An explicit user-requested bake is not silently exempt from accounting: the UI
+must show its estimated and final duplicate bytes. Whether user-requested bakes
+share the automatic cache cap is an operational decision that must be made
+before deployment.
 
-### Backend contracts
+Do not add a persistent per-run floor that violates the ten-per-cent rule. If a
+small allowance cannot hold one screenful, serve it transiently in RAM or do
+not persist it.
 
-- All levels have the declared dimensions and exact physical extent.
-- A source pixel and a tile corner land at the expected stage micrometres.
-- One source value maps to the same approximate JPEG value at every level.
-- Different tiles and fields never choose independent intensity ranges.
-- Edge tiles are cropped or clipped without stretching.
-- Unsupported orientation, extent growth, overlap, and dtype fail visibly.
-- A retake has deterministic ownership.
-- Two concurrent requests produce one valid final tile.
-- Killing generation leaves no published partial file.
-- An unrelated new position leaves a tile fingerprint and ETag unchanged.
-- Cache eviction never crosses either ceiling and never removes source data.
-- Deleting the cache and rebuilding produces equivalent display pixels within
-  the JPEG tolerance.
+Eviction must be one process-wide service with one lock or database. Two Viewer
+processes must not run independent eviction loops against the same root.
 
-### Browser contracts
+## Phase 1: improve the existing path only if phase 0 fails
 
-- Whole-plate requests use coarse global tiles, not one request per field.
-- Zoom selects the next level without a blank flash or a misplaced image.
-- A stale/off-screen request is aborted and is not cached as a success.
-- The byte-budgeted cache remains bounded with four channels.
-- Black/white, gamma, colour, LUT, opacity, and visibility alter only the
-  intended channel.
-- Z and T controls select pixels without translating XY.
-- Every source's anchor-plane centre maps to display z=0 in 2-D, while its
-  original acquisition Z remains recoverable.
-- A one-plane source is sampled at its voxel centre and stays visible while a
-  separate stack changes its local plane.
-- Channels and derived layers share one geometry identity and cannot add a
-  second Z placement.
-- Acquisition types at different pixel sizes align in micrometres.
-- A live visible tile changes after publication; an unrelated one does not.
-- Empty, loading, failed, and genuinely black are distinguishable states.
-- `destroy()` releases requests, ImageBitmaps/textures, listeners, and WebGL
-  resources.
+Classify the measured failure before changing code.
 
-### Visual comparisons
+### If cold open or coarse warm is the problem
 
-Render the TIFF reference and JPEG path through the same display window and
-compare the final screen pixels. Include sparse puncta, smooth gradients,
-dense tissue, a hot pixel, a tile seam, dark acquired ground, and a field
-retake. Numeric image metrics may support the decision, but photographed
-features and seams are the acceptance evidence.
+Work inside ZMART Viewer's composer and one-source plan:
 
-### Performance gates
+- let visible requests pre-empt background warming;
+- make warming cancelable when the source revision changes;
+- consider a sparse cache of already requested coarse pieces using the same
+  existing piece address and codec;
+- persist only where repeated-open measurements show a real benefit;
+- keep live runs unbaked by default, consistent with the existing measurements;
+- bake at run end only when the measured revisit benefit justifies its bytes.
 
-Exact numbers are provisional until phase 0 establishes the target machine.
-The relationships are not provisional:
+Do not create a new grid or frontend source. The existing on-demand composer is
+already the lazy generator.
 
-- requests and decoded memory for one settled view follow viewport area and
-  visible channel count, not source field count;
-- warm panning does no source reads and no JPEG encoding;
-- a position landing outside the view does no visible-tile transfer;
-- persistent cache remains below both ceilings at every point, not only after
-  a cleanup pass;
-- acquisition timing is unchanged within measurement noise when the viewer is
-  closed and when it is open.
+### If bookkeeping is the problem
 
-## Failure behaviour
+Profile the recorded O(number of positions) derive bookkeeping and remove only
+the proven scan. Retain the tests that show a new landing rereads no old tiles
+and that bursts coalesce.
 
-- Missing source: the tile fails and names the source; no black success tile.
-- Unsupported geometry: the acquisition is unavailable in the JPEG engine and
-  the reason is shown.
-- Cache full: evict by policy; if nothing may be evicted, serve an uncached
-  result or decline the tile rather than exceed the ceiling.
-- Bad manifest: refuse the source; do not guess a schema.
-- Renderer unavailable: external browser may still be offered; PyWebView names
-  the missing WebView2/WebGL capability.
-- Generator timeout: bounded failure and later retry; never an endless loading
-  promise.
-- Source changes during a read: discard the result when its fingerprint no
-  longer matches and retry against the committed revision.
+### If browser memory is the problem
 
-## Rejected shortcuts
+First bound the existing engine's cache and visible channel set. Measure Viv
+before writing a deck.gl layer: it already supplies orthographic multiscale
+drawing and per-channel colour/window controls. A new renderer is considered
+only when the installed engines cannot meet the bound.
 
-- **One enormous JPEG per plane.** Small transfer does not prevent enormous
-  decoded memory, and the browser cannot range-decode arbitrary JPEG regions.
-- **Only one thumbnail per field.** Already measured: far-zoom convergence and
-  requests still follow field count.
-- **Build parent JPEGs from child JPEGs.** Loss accumulates at each generation.
-- **Patch and re-encode an old JPEG after every landing.** Unchanged pixels
-  degrade repeatedly. A transient lossless hot tile avoids this without a
-  second persistent dataset.
-- **A per-tile or per-level stretch.** It makes neighbouring fields and zoom
-  levels incomparable.
-- **12/16-bit JPEG for the browser.** It gives up the compatibility and minimal
-  friction that motivate the design.
-- **A persistent uncompressed working pyramid.** It defeats the lightweight
-  disk goal.
-- **Generate every level during acquisition.** It spends microscope time on a
-  view nobody may open.
-- **Automatic JPEG fallback.** It previously made a broken image pipeline look
-  healthy and is deliberately not returning.
-- **Treat z as an XY placement correction.** A flat overview is flat display
-  geometry even when its focus height varies across the sample.
+### Gate
+
+Phase 1 must make the failing phase-0 metric pass without introducing a second
+source or worsening any correctness gate. If it does, stop. Do not proceed to
+8-bit delivery merely because phase 1 was completed.
+
+## Phase 2: conditional 8-bit delivery experiment
+
+Enter this phase only when phase 0 and the smallest phase-1 correction show
+that transfer or decoding of the existing 16-bit pieces is still the dominant
+cost.
+
+### Candidates
+
+Compare at least:
+
+1. existing source dtype and codec;
+2. 8-bit linear encoding with the existing chunk codec;
+3. 8-bit grayscale JPEG, if the client can consume it without a parallel
+   source contract.
+
+The conversion is display-only:
+
+```text
+source uint16/float
+    -> select the existing resolution
+    -> apply the one resolved acquisition/channel display encoding window
+    -> encode an 8-bit response
+```
+
+The scientific source keeps its dtype. Ordinary browser JPEG does not preserve
+`uint16`; it preserves only an approximate mapping back through the recorded
+window. Gamma, colour, opacity, and the operator's narrower display window stay
+in the GPU and are not baked into the response.
+
+### Geometry and reduction
+
+Decimation is the incumbent. Both repositories keep every second pixel so a
+coarse sample remains the low-corner sample of its fine block. The conditional
+experiment starts with those existing levels; it does not build an
+independently resampled pyramid.
+
+Area and maximum reduction may still be useful for sparse fluorescence, but
+they are separate visual experiments. Either one must declare its per-level
+coordinate translation explicitly. Averaging is not inherently impossible to
+register, but reusing a scale-only transform from the decimated pyramid would
+shift the represented sample centre by `(2^k - 1) / 2` fine pixels at level
+`k`. Any alternative must pass the cross-engine registration gate and must not
+replace the incumbent silently.
+
+Named visual risks:
+
+- decimation can omit a punctum that falls between retained samples;
+- area reduction can dim a small bright punctum;
+- maximum reduction can enlarge hot pixels and make brightness jump with zoom.
+
+### One route, not another pyramid
+
+The server receives the ordinary Viewer piece address plus an explicitly
+negotiated representation. It composes that ordinary piece from canonical
+data, encodes it, and returns it with the same source identity and revision.
+
+An encoded response cache, if measurements justify one, is keyed by:
+
+```text
+source identity
+source revision
+level, t, c, z, row, column
+encoding profile and version
+```
+
+It obeys the shared absolute storage cap. A source or window revision makes
+old encoded entries unreachable. It never rebuilds a JPEG from another JPEG.
+
+The frontend may require a loader adapter, but it may not introduce another
+layer list, navigation state, geometry transform, source manifest, or live
+refresh path.
+
+### Decision gate
+
+Use the identical phase-0 trace. A new representation proceeds only if it:
+
+- reduces transferred bytes by at least fivefold for the four-channel trace;
+- does not make first-picture or p95 navigation time more than ten per cent
+  worse;
+- does not increase stable browser/GPU memory;
+- remains inside the automatic cache ceiling;
+- keeps every overlay and recognisable feature registered with Viewer 0.2 at
+  every resolution;
+- preserves dim structures judged important by the microscopy fixture;
+- adds no second source, grid, scene, or invalidation contract.
+
+If bytes improve but local PyWebView latency does not, do not ship it for the
+operator canvas. A remote-viewing product may make a separate case later.
+
+## Z remains a separate correctness track
+
+The JPEG discussion does not own Z. Keep these facts distinct:
+
+- source-local Z: plane centres, order, spacing, direction, and anchor;
+- acquisition Z: stage/focus provenance from microscope movement;
+- presentation Z: the transform that makes sources meet in a viewer scene;
+- navigation Z: which plane an operator last selected.
+
+For the flat two-dimensional overview:
+
+```text
+display_transform(source anchor-plane centre) = world z=0
+```
+
+Overlaying sources need not have equal raw acquisition Z. Their selected
+anchor centres meet at one display plane. Channels, masks, and annotations
+inherit the source transform; layers do not add another independent Z offset.
+
+Single-plane sources anchor on their only plane. Stacks use an explicit
+reference/focus plane. Until one convention is changed everywhere, legacy
+stacks use the existing `theMiddlePlaneOf` rule:
+
+```text
+Math.floor(max(plane_count, 1) / 2)
+```
+
+Resolve and record the fallback when building the scene. Never choose it from
+load order or recompute it adaptively.
+
+The reported debugging trace says a one-plane source rendered at local `z=0`
+and disappeared at `z=0.5`. That is plausible voxel-centre/boundary evidence,
+but it is not yet named by a committed test, log, or screenshot. The current
+fix should remain narrow, and the repository must record the evidence before
+the plan calls the half-voxel convention proven.
+
+Future 3-D placement is not simply raw stage Z. It requires validated Z scale,
+axis direction, anchor, stage calibration, and a common specimen datum. Preserve
+the raw acquisition Z now; do not claim physical registration yet.
+
+Tests must prove:
+
+- every flat overlay anchor maps to `z=0`;
+- the single-plane voxel centre, not its boundary, is sampled;
+- stack plane order and spacing remain unchanged;
+- raw acquisition Z remains recoverable;
+- the layer does not apply a second translation;
+- 2-D/3-D switching changes presentation state, not source metadata;
+- per-source remembered planes remain navigation state.
+
+## HTTP and PyWebView
+
+Use the existing server policy as the starting point. It already distinguishes
+live descriptions and image data from immutable finished data. The browser
+options currently request `cache: "no-store"`, so ETag or immutable-response
+experiments must first name which fetches are allowed to use the browser cache.
+
+PyWebView requires Edge Chromium/WebView2 and WebGL2. The Windows launcher
+already checks for WebView2; phase 0 adds the WebGL2, renderer, and texture-size
+report. MSHTML is not a supported fallback.
+
+## Ownership
+
+ZMART-microscopy owns:
+
+- acquisition records and channel descriptors;
+- authoritative TIFFs and canonical position stores;
+- stage placement and raw acquisition Z provenance;
+- the operator workflow and embedding boundary.
+
+ZMART Viewer owns:
+
+- the one source and piece-address contract;
+- composition, optional bake, and response encoding;
+- cache accounting and invalidation;
+- the browser canvas and its channel controls;
+- performance harnesses for serving and drawing.
+
+Changes spanning those boundaries are planned together but implemented in the
+repository that owns the behaviour. Do not copy Viewer production code back
+under `viz_studio/backend`.
+
+## Delivery order
+
+1. **Adopt this stop decision.** No `jpeg-pyramid-under` implementation.
+2. **Settle the window schema.** Review it with ZMART Viewer before code.
+3. **Implement the run-wide window contract.** Keep legacy fallback reversible.
+4. **Run the real phase-0 trace.** Publish raw results and environment.
+5. **Stop if Viewer 0.2 passes.** Embed the one canvas.
+6. **Fix only the measured existing-path bottleneck.** Repeat the trace.
+7. **Stop if it passes.** Do not reward work with more work.
+8. **Run the conditional encoding experiment only if bytes/decode still fail.**
+9. **Adopt an encoding only if every decision gate passes.**
+10. **Validate the unchanged one-source path in PyWebView on the microscope PC.**
+
+Every step lands separately with its evidence. No phase is authorized merely
+because the previous document described it.
 
 ## Stop conditions
 
-Do not continue to production if any of these holds after the spike:
+Stop the JPEG/8-bit idea when any of these is true:
 
-- Smart Viewer 0.2 already meets the same request, latency, memory, and
-  deployment goals on the target run.
-- Useful fluorescence detail cannot survive a stable 8-bit mapping within the
-  disk caps.
-- A truthful live path needs a persistent lossless pyramid large enough to
-  defeat the size goal.
-- Browser/PyWebView decoded or GPU memory remains excessive at the tile size
-  needed for acceptable request counts.
-- Correct physical placement requires unrecorded orientation or silent stage
-  snapping.
-- Maintaining the JPEG path would create two independent production viewer
-  backends with the same responsibilities.
+- Viewer 0.2 already meets the operator thresholds;
+- the remaining delay is bake/warm work that can be made lazy in the composer;
+- transfer bytes are not the dominant cost on local PyWebView;
+- no truthful acquisition-wide channel window is available;
+- the encoded route cannot reuse the existing grid, source, and revision;
+- decoded memory is equal or worse;
+- important dim structures do not survive the mapping;
+- cross-resolution registration differs from the incumbent;
+- the fivefold byte improvement is not reached;
+- automatic duplicate storage cannot remain under both caps.
 
-## Questions for review
+Stopping is a successful result: it prevents a second production viewer from
+being built for a cost the current viewer already removed.
 
-1. Are the relative and absolute cache caps defined against the right source
-   byte set, especially when the TIFFs are already compressed?
-2. Are 5 GiB soft and 10 GiB hard reasonable defaults on the microscope PC, or
-   should both be lower?
-3. Is the fixed linear 8-bit channel encoding sufficient for the real cameras,
-   or should a versioned nonlinear transfer be tested?
-4. Is transient lossless RAM for hot live tiles enough to avoid repeated
-   coarse-tile rebuilds, including after a viewer restart?
-5. Should the first version refuse all within-acquisition overlap, rather than
-   include latest-committed ownership?
-6. Does deck.gl's TileLayer plus a BitmapLayer shader remain the smallest
-   renderer under the existing option contract?
-7. Which exact responsibilities belong in ZMART Viewer rather than this
-   repository's bridge?
-8. What real datasets and target-machine thresholds should make the stop/go
-   decision?
-9. Is there a cheaper way to make Smart Viewer/OME-Zarr satisfy the same goals
-   without a second display format?
-10. Is the proposed source-anchor model compatible with the actual Smart Viewer
-    scene/link representation, and where should per-source 2-D versus 3-D
-    presentation transforms be stored?
-11. Should a one-plane source remain pinned to its anchor while another stack
-    is navigated, or should the 2-D panel expose per-source plane selection from
-    the start?
+## Questions for the next review
+
+1. Is the acquisition/view boundary the correct authority for a channel's
+   declared display window?
+2. Should an explicitly chosen window live first in the acquisition record,
+   the composed view's OME metadata, or both with one named authority?
+3. Does the current linked/baked Viewer persist any duplicate image category
+   omitted from the storage accounting above?
+4. Are the 2-second, 500-ms, fivefold, ten-per-cent, and 5-GiB gates appropriate
+   for the microscope PC, before they are measured?
+5. Which existing Viewer harness is the smallest extension for response bytes,
+   browser memory, and the fixed navigation trace?
+6. Can an 8-bit existing-codec response be consumed by the current engine with
+   less work than JPEG, or would either require a second source in practice?
+7. Where should the reported `z=0` versus `z=0.5` evidence be recorded and
+   gated so the half-voxel correction becomes reproducible?
