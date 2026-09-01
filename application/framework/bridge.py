@@ -693,6 +693,11 @@ def _scan_worker(
                     acquisition_type=acquisition_type,
                     position_label=_label_for(i, position),
                 )
+                record["requested_position_um"] = {
+                    "x": float(position["x"]),
+                    "y": float(position["y"]),
+                    "z": float(z),
+                }
                 move_record_images(
                     record, prepare_acquisition(_the_run(), acquisition_type).data
                 )
