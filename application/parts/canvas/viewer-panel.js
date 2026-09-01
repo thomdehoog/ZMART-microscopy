@@ -6,8 +6,19 @@
  * closely as a vanilla port can: the 264px bar with its 14px fold strip, the
  * card-on-panel grounds, the eye glyph, the swatch that opens a palette, the
  * 60px histogram with dimmed out-of-window bars and two accent edge lines the
- * hand can drag, the min/max sliders with typed value boxes, and opacity per
- * channel. Where this file and that one disagree, that one is right.
+ * hand can drag, the min/max sliders with typed value boxes, the brightness and
+ * contrast pair beside them, and opacity per channel. Where this file and that
+ * one disagree, that one is right.
+ *
+ * Two habits run through the whole file and are worth knowing before reading
+ * any of it. **Nothing here is remembered that the viewer can be asked.** Every
+ * control is redrawn from what the picture says it is really doing, because a
+ * control that keeps its own account of the picture will one day be
+ * photographed saying the opposite of what an operator can see — which is
+ * exactly how an eye stayed open on a channel nobody was drawing, and how the
+ * depth slider went on showing a plane the picture had left. And **anything
+ * that fails says so on the screen**, because a panel that swallows a failure
+ * looks precisely like a panel that is still working on it.
  *
  * The rows are enumerated exactly the way the engine enumerates its own —
  * one per channel, acquisitions in order — so the flat index handed to
@@ -15,6 +26,11 @@
  */
 
 import { theDepthReads, thePlanesIn } from "./counting-planes.js";
+import {
+  howBrightAndHowTight,
+  theWindowThisBrightnessMeans,
+  theWindowThisContrastMeans,
+} from "./the-window.js";
 
 /* The viewer's light dress, inlined from its `theme.css` — the operator page
    has no dark mode, so only the light values travel. */
@@ -24,6 +40,10 @@ const INK = {
   textBright: "#10161f", textPrimary: "#26303c", textMuted: "#5a6675",
   textFaint: "#67727f", accent: "#2563cf", chosenGround: "#dde8f7",
   ghost: "rgba(0, 0, 0, 0.05)", sliderTrack: "#c2c9d2",
+  /* The standalone viewer's red for a notice, brought over into the light
+     dress the operator page wears: the same warning, legible on a pale
+     ground rather than on a dark one. */
+  troubleInk: "#9e2b25", troubleGround: "#fbeceb", troubleBorder: "#e6bdb9",
 };
 
 /* The viewer's palette, verbatim (`LayerPanel.jsx` PALETTE + css()). */
@@ -105,29 +125,81 @@ async function theRows(acquisitions) {
         source: acquisition.url,
         visible: true,
         weight: 1,
+        /* The window the run itself declared, kept whole and never written
+           over. `window` above is the live one and moves with every drag of a
+           handle, so within a moment of the operator taking hold of anything
+           the original would otherwise be gone for the rest of the session —
+           and "put it back the way the acquisition opened" is the request
+           somebody who has pulled the handles about makes most often. A copy
+           rather than the same object, so moving one cannot move the other. */
+        asWritten: channel.window ? { ...channel.window } : null,
       });
     }
   }
   return rows;
 }
 
-/** Ask the viewer's server about one channel: its histogram and a window it
-    would choose itself. `null` when it will not say. */
+/* How long the panel is willing to wait for a measurement before saying so.
+
+   A promise that never settles looks exactly like loading: the histogram is
+   blank, the sliders sit still, and the natural reading is "it is working on
+   it". That has cost this project days more than once, so anything here that
+   waits is given a way to refuse. Fifteen seconds is generous for a
+   measurement that ordinarily takes well under one, and short enough that
+   nobody sits looking at a blank box wondering. */
+const A_MEASUREMENT_MAY_TAKE_MS = 15_000;
+
+/**
+ * Ask the viewer's server about one channel: its histogram, and a window it
+ * would choose itself.
+ *
+ * Always answers. Either `{ histogram, window }`, or `{ trouble }` — one plain
+ * sentence saying what was asked for and what came back, which the panel puts
+ * on the screen.
+ *
+ * That sentence is the whole point of this function's shape. It used to swallow
+ * every failure and hand back nothing, so a channel whose measurement never
+ * arrived showed an empty histogram and two sliders sitting at their fallback
+ * range of nought to sixty-five thousand, with nothing anywhere to say why.
+ * Something had gone wrong and the window merely looked quiet — which is
+ * exactly the failure this whole piece of work has been about.
+ */
 async function measured(row) {
+  let where;
   try {
-    const origin = new URL(row.source).origin;
-    const answer = await fetch(`${origin}/api/measure`, {
+    where = `${new URL(row.source).origin}/api/measure`;
+  } catch {
+    return { trouble: `This channel's address, ${row.source}, is not one the panel can ask about.` };
+  }
+  const giveUp = new AbortController();
+  const waited = setTimeout(() => giveUp.abort(), A_MEASUREMENT_MAY_TAKE_MS);
+  try {
+    const answer = await fetch(where, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         source: row.source, channel: row.within, box: [[0, 0], [1, 1]],
       }),
+      signal: giveUp.signal,
     });
-    if (!answer.ok) return null;
+    if (!answer.ok) {
+      return { trouble: `Asked ${where} to measure this channel; it answered ${answer.status}.` };
+    }
     const body = await answer.json();
-    return body?.histogram ? body : null;
-  } catch {
-    return null;
+    if (!body?.histogram) {
+      return { trouble: `Asked ${where} to measure this channel; it answered without a histogram.` };
+    }
+    return { histogram: body.histogram, window: body.window };
+  } catch (why) {
+    if (why?.name === "AbortError") {
+      return {
+        trouble: `Asked ${where} to measure this channel; nothing came back within `
+          + `${Math.round(A_MEASUREMENT_MAY_TAKE_MS / 1000)} seconds.`,
+      };
+    }
+    return { trouble: `Could not reach ${where} to measure this channel: ${why?.message ?? why}.` };
+  } finally {
+    clearTimeout(waited);
   }
 }
 
@@ -212,6 +284,25 @@ export async function mountViewerPanel(near, { viewer, acquisitions }) {
   ].join(";"), "pick a channel below");
   chosenHead.append(chosenLine);
 
+  /* Where the panel says a measurement did not work. It stands directly above
+     the histogram, because the empty histogram is the thing it is explaining,
+     and it is empty and out of the way until there is something to say. */
+  const trouble = el("div", [
+    "display:none", "margin:0 12px 6px", "padding:6px 8px",
+    `border:1px solid ${INK.troubleBorder}`, "border-radius:4px",
+    `background:${INK.troubleGround}`, `color:${INK.troubleInk}`,
+    `font:${font(400, 11)}`, "line-height:1.35",
+  ].join(";"));
+  trouble.setAttribute("role", "alert");
+  trouble.dataset.trouble = "0";
+
+  /** Say what went wrong, or take the notice away when nothing has. */
+  function sayTheTrouble(saying) {
+    trouble.textContent = saying ?? "";
+    trouble.style.display = saying ? "block" : "none";
+    trouble.dataset.trouble = saying ? "1" : "0";
+  }
+
   const plotWrap = el("div", "padding:1px 12px 4px;");
   const plot = document.createElementNS("http://www.w3.org/2000/svg", "svg");
   plot.setAttribute("preserveAspectRatio", "none");
@@ -228,10 +319,20 @@ export async function mountViewerPanel(near, { viewer, acquisitions }) {
     "border-radius:4px", `background:${INK.ghost}`, `color:${INK.textPrimary}`,
     `font:${font(600, 11)}`, "cursor:pointer",
   ].join(";"), "Auto");
+  /* *Auto* and *Reset* answer different questions and neither replaces the
+     other. *Auto* re-reads the brightness actually present in this channel and
+     picks a window from it. *Reset* puts back the window the run was written
+     with — what the operator saw at the moment the images opened. Somebody who
+     has dragged the handles about and lost their picture wants the second far
+     more often than a fresh measurement. */
+  const resetButton = autoButton.cloneNode(false);
+  resetButton.textContent = "Reset";
+  resetButton.title = "Put back the window this run was written with";
   const logButton = autoButton.cloneNode(false);
   logButton.textContent = "Log";
-  for (const button of [autoButton, logButton]) button.type = "button";
-  buttonRow.append(autoButton, logButton);
+  for (const button of [autoButton, resetButton, logButton]) button.type = "button";
+  autoButton.title = "Set the window from the brightness measured in this channel";
+  buttonRow.append(autoButton, resetButton, logButton);
 
   const controlRow = (label) => {
     const line = el("label",
@@ -243,14 +344,48 @@ export async function mountViewerPanel(near, { viewer, acquisitions }) {
     const box = el("span",
       `text-align:right;font-variant-numeric:tabular-nums;color:${INK.textPrimary};font-size:11px;`);
     line.append(slider, box);
-    return { line, slider, box };
+    /* Every one of these controls describes the same window, so every one of
+       them is redrawn whenever the window moves — including, a moment later,
+       the one the operator still has hold of. Writing a value back underneath
+       a hand that is mid-drag makes the handle stutter and jump, so a held
+       handle is left where the hand has put it and only its reading is
+       refreshed. */
+    const row = { line, slider, box, held: false };
+    slider.addEventListener("pointerdown", () => { row.held = true; });
+    for (const letGo of ["pointerup", "pointercancel"]) {
+      slider.addEventListener(letGo, () => { row.held = false; });
+    }
+    return row;
   };
   const minRow = controlRow("min");
   const maxRow = controlRow("max");
+  /* The same one window, said the way a microscopist says it. *min* and *max*
+     give where the window's two edges are; *brightness* and *contrast* give how
+     bright its middle is and how tightly it is drawn around that middle. There
+     is only ever one window underneath, so moving either pair moves the other —
+     which is why all four are redrawn together in `refreshControls`. The
+     arithmetic is in `the-window.js`. */
+  const brightnessRow = controlRow("brightness");
+  const contrastRow = controlRow("contrast");
+  for (const row of [brightnessRow, contrastRow]) {
+    row.slider.min = "0";
+    row.slider.step = "1";
+  }
+  /* Brightness may go all the way to a hundred; contrast stops at ninety-nine,
+     because a contrast of a hundred would be a window of no width at all and
+     every value in the picture would land on the same shade. The picture goes
+     flat and nothing on screen says why. */
+  brightnessRow.slider.max = "100";
+  contrastRow.slider.max = "99";
+  brightnessRow.line.title =
+    "Slides the whole window along without changing how wide it is";
+  contrastRow.line.title =
+    "Draws the window in around its middle, so a smaller range of brightness fills the screen";
   const opacityRow = controlRow("opacity");
   opacityRow.slider.min = "0"; opacityRow.slider.max = "1"; opacityRow.slider.step = "0.01";
   opacityRow.slider.value = "1";
-  settings.append(chosenHead, plotWrap, buttonRow, minRow.line, maxRow.line, opacityRow.line);
+  settings.append(chosenHead, trouble, plotWrap, buttonRow,
+    minRow.line, maxRow.line, brightnessRow.line, contrastRow.line, opacityRow.line);
 
   /* ---- the state the settings act on ---- */
   let chosen = null;   // the flat row index picked out
@@ -271,6 +406,44 @@ export async function mountViewerPanel(near, { viewer, acquisitions }) {
     return {
       low: bounds ? Math.max(Math.min(bounds.low, window_.low), window_.low - beyond) : window_.low - beyond,
       high: bounds ? Math.min(Math.max(bounds.high, window_.high), window_.high + beyond) : window_.high + beyond,
+    };
+  }
+
+  /**
+   * How far brightness and contrast are allowed to travel.
+   *
+   * Deliberately *not* the axis the histogram is drawn on. That axis follows
+   * the window — it is what keeps the window's edges at 15% and 85% of the
+   * picture, which is right for the histogram — and a brightness worked out
+   * against a track that moves with the window is always the same number,
+   * because the window sits in the same place on it whatever it does. Read
+   * back, such a slider would spring straight to the middle every time it was
+   * let go of.
+   *
+   * So the travel is taken from the spread of brightness the server actually
+   * measured, with a fifth of that spread of room at either end, and it falls
+   * back to the whole of what a sixteen-bit camera can produce when nothing has
+   * been measured yet. The window in use is always inside it, so a *Reset* to a
+   * window outside the measured spread widens the track rather than stranding a
+   * handle off the end of it.
+   *
+   * This is the ZMART viewer's own `contrastRange` (`LayerPanel.jsx`), for the
+   * reason given there: nought to sixty-five thousand made the sliders very
+   * nearly unusable on real data, where a whole acquisition lives in a few
+   * hundred counts near the bottom of the range.
+   */
+  function theTrack(row) {
+    const window_ = windowOf(row);
+    let low = 0;
+    let high = 65535;
+    if (shape && Number.isFinite(shape.low) && shape.high > shape.low) {
+      const room = (shape.high - shape.low) * 0.2;
+      low = Math.max(0, Math.floor(shape.low - room));
+      high = Math.ceil(shape.high + room);
+    }
+    return {
+      low: Math.min(low, Math.floor(window_.low)),
+      high: Math.max(high, Math.ceil(window_.high), low + 1),
     };
   }
 
@@ -332,14 +505,39 @@ export async function mountViewerPanel(near, { viewer, acquisitions }) {
       slider.step = "1";
       slider.disabled = false;
     }
-    minRow.slider.value = String(Math.floor(window_.low));
-    maxRow.slider.value = String(Math.ceil(window_.high));
+    if (!minRow.held) minRow.slider.value = String(Math.floor(window_.low));
+    if (!maxRow.held) maxRow.slider.value = String(Math.ceil(window_.high));
     minRow.box.textContent = String(Math.floor(window_.low));
     maxRow.box.textContent = String(Math.ceil(window_.high));
+    /* Read back out of the one window rather than remembered, so taking hold of
+       a histogram edge — or of *min*, or of *Reset* — moves the brightness and
+       contrast numbers too. All four controls describe the same thing and each
+       has to show what that thing now is. */
+    const feel = howBrightAndHowTight(window_, theTrack(row));
+    for (const [control, value] of [
+      [brightnessRow, feel.brightness], [contrastRow, feel.contrast],
+    ]) {
+      control.slider.disabled = false;
+      if (!control.held) {
+        control.slider.value = String(Math.min(Number(control.slider.max),
+          Math.max(Number(control.slider.min), value)));
+      }
+      control.box.textContent = String(value);
+    }
     opacityRow.slider.disabled = false;
-    opacityRow.slider.value = String(row.weight);
+    if (!opacityRow.held) opacityRow.slider.value = String(row.weight);
     opacityRow.box.textContent = `${Math.round(row.weight * 100)}%`;
-    for (const { slider } of [minRow, maxRow, opacityRow]) slider.refill();
+    /* Greyed out on a channel whose store declared no window: there is nothing
+       to go back to, and a button that can be pressed and does nothing is worse
+       than one that plainly says it has nothing to offer. */
+    resetButton.disabled = !row.asWritten;
+    resetButton.style.opacity = row.asWritten ? "1" : "0.45";
+    resetButton.style.cursor = row.asWritten ? "pointer" : "default";
+    resetButton.title = row.asWritten
+      ? "Put back the window this run was written with"
+      : "This run declared no window for this channel, so there is none to go back to";
+    for (const { slider } of
+      [minRow, maxRow, brightnessRow, contrastRow, opacityRow]) slider.refill();
     drawTheHistogram();
   }
 
@@ -358,6 +556,21 @@ export async function mountViewerPanel(near, { viewer, acquisitions }) {
   maxRow.slider.addEventListener("input", () => takeTheWindow({
     low: windowOf(rows[chosen]).low, high: Number(maxRow.slider.value),
   }));
+  /* Both of these funnel into the same `takeTheWindow` the two edges use, so
+     nothing outside this panel needs to know that these controls exist: the
+     viewer is told about a window, exactly as before. */
+  brightnessRow.slider.addEventListener("input", () => {
+    if (chosen === null) return;
+    const row = rows[chosen];
+    takeTheWindow(theWindowThisBrightnessMeans(
+      windowOf(row), theTrack(row), Number(brightnessRow.slider.value)));
+  });
+  contrastRow.slider.addEventListener("input", () => {
+    if (chosen === null) return;
+    const row = rows[chosen];
+    takeTheWindow(theWindowThisContrastMeans(
+      windowOf(row), theTrack(row), Number(contrastRow.slider.value)));
+  });
   opacityRow.slider.addEventListener("input", () => {
     if (chosen === null) return;
     rows[chosen].weight = Number(opacityRow.slider.value);
@@ -370,13 +583,20 @@ export async function mountViewerPanel(near, { viewer, acquisitions }) {
     logButton.style.color = logScale ? "#fff" : INK.textPrimary;
     drawTheHistogram();
   });
+  resetButton.addEventListener("click", () => {
+    if (chosen === null) return;
+    const original = rows[chosen].asWritten;
+    if (original) takeTheWindow({ ...original });
+  });
   autoButton.addEventListener("click", async () => {
     if (chosen === null) return;
     const row = rows[chosen];
     const answer = await measured(row);
-    if (answer?.histogram) shape = answer.histogram;
-    const wanted = answer?.window ?? shape?.autoWindow;
+    sayTheTrouble(answer.trouble);
+    if (answer.histogram) shape = answer.histogram;
+    const wanted = answer.window ?? shape?.autoWindow;
     if (wanted) takeTheWindow(wanted);
+    else refreshControls();
   });
 
   /* The window's edges can be taken hold of on the histogram itself, with
@@ -559,9 +779,15 @@ export async function mountViewerPanel(near, { viewer, acquisitions }) {
       el("span", "overflow:hidden;text-overflow:ellipsis;white-space:nowrap;", row.name),
     );
     shape = null;
+    sayTheTrouble(null);
     refreshControls();
     const answer = await measured(row);
-    if (chosen !== index || !answer) return;
+    /* The operator may well have picked another channel while this was in the
+       air, and an answer about the channel they have left would be worse than
+       no answer at all. */
+    if (chosen !== index) return;
+    sayTheTrouble(answer.trouble);
+    if (answer.trouble) return;
     shape = answer.histogram;
     if (!row.window && answer.window) row.window = answer.window;
     refreshControls();
