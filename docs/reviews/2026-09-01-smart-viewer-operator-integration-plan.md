@@ -107,6 +107,52 @@ Smart Operator remains the authority for:
 - the operator-specific panel and workflow actions;
 - the single canvas adapter through which its overlays and pixels are drawn.
 
+### Canonical reversible Z-coordinate model
+
+Step 5 is a two-dimensional presentation. Its shared display `z=0` is an
+overlay anchor, not the microscope stage's zero and not a registered specimen
+datum.
+
+- Every source declares one source-local anchor-plane voxel centre. Its stored
+  transform maps that centre to shared display `z=0`; sources that overlap in
+  2-D do not need equal raw acquisition Z.
+- A single-plane source anchors on its only voxel centre. A stack names an
+  explicit reference/focus plane. If a legacy stack lacks that declaration,
+  its fallback is resolved and recorded once while the source/scene is built;
+  source load order must never choose it adaptively.
+- Re-anchoring preserves source-local plane order, signed spacing, units, axis
+  direction, and the selected anchor. In index notation, a source with signed
+  spacing `s` and anchor index `a` uses `z_display(i) = (i - a) * s`.
+- Raw stage/focus Z remains recoverable provenance. It is not treated as
+  registered specimen Z, and no 2-D display transform may erase or relabel it
+  as such.
+- Z placement has one authority: the source transform produced when the store
+  or scene is declared. The Viewer selects navigation plane `z=0` for the 2-D
+  presentation but does not independently offset a layer transform.
+- Navigation state and source transforms remain separate. Moving the depth
+  control selects a source-local plane; it does not rewrite placement.
+
+Future physical 3-D placement is deliberately outside this delivery. It
+requires validated Z scale and direction, an explicit anchor, calibrated stage
+Z, and a specimen datum. Until those exist, neither this plan nor its evidence
+claims that raw acquisition Z places sources in registered specimen 3-D.
+
+For the present failure, the captured trace proves only the voxel-centre
+boundary: the flat source renders at `z=0`, while `z=0.5` samples its boundary.
+The current work package corrects that boundary and records the reversible
+model; it does not introduce a broader 3-D placement scheme.
+
+Focused gates for this model are:
+
+1. every 2-D source anchor evaluates to display `z=0`, including sources with
+   different raw acquisition Z;
+2. a stack's internal signed spacing, plane order, units, and direction remain
+   unchanged by anchoring;
+3. original plane-centre Z and requested focus Z are recoverable from
+   provenance, explicitly marked as not registered specimen Z;
+4. a legacy fallback, when needed, is present in source/scene metadata before
+   Viewer loading begins.
+
 For this delivery, Smart Operator keeps its existing engine adapter behind
 `viz_studio/options/contract.md`, and current Smart Viewer configuration drives
 that adapter. Smart Viewer's whole page is not mounted as a second canvas, and
@@ -448,6 +494,8 @@ All gates are required.
   format probe failure is named and allow-listed rather than ignored broadly.
 - Neuroglancer reports loaded bounds with no layer error or wedged open.
 - Stage-plan and acquired-image projections agree to less than one screen pixel.
+- Every 2-D source's declared anchor maps to display `z=0`; stacks retain their
+  signed source-local spacing and raw acquisition Z provenance.
 - Every expected tile ROI contains non-uniform kidney microscopy texture; no ROI
   may pass as white, black, or a flat placeholder/overlay colour.
 - Hiding focussing makes its pixels absent while all nine overview ROIs remain
