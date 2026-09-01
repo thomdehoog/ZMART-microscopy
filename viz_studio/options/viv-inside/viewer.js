@@ -1536,6 +1536,16 @@ function handleFor(own) {
      * which is the order they appear in a list on screen.
      */
     /** Whether this engine can draw the stack as a volume. */
+    /**
+     * The colour maps this option can paint a channel through: none.
+     *
+     * A colour map is a run of colours worked out from the brightness, and this
+     * option's drawing has no place to work one out. Said plainly as an empty
+     * list, so a panel offers no chooser rather than one whose choices would do
+     * nothing.
+     */
+    lutsItCanDraw: [],
+
     canShowVolume: false,
 
     canShowVolumeBecause: "this option draws one plane through an orthographic view; Viv has a volume view, and wiring it up is work rather than a setting",

@@ -53,10 +53,12 @@ viewer.showPicture(on)             // draw the acquisitions, or not; the viewer 
 viewer.canShowVolume               // true or false: can it draw the stack as a volume?
 viewer.canShowVolumeBecause        // one sentence saying why it is what it is
 viewer.showVolume(on)              // draw the whole stack rather than one plane of it
-viewer.setChannel(index, { visible, colour, window })
+viewer.setChannel(index, { visible, colour, window, lut })
                                    // `weight` (0..1, the channel's own opacity) is an
                                    // optional extension the operator page's viewer panel
                                    // sends; an option without it ignores the key
+                                   // `lut` names a colour map, or null for a flat colour
+viewer.lutsItCanDraw               // the colour maps this engine can paint through, by name
 viewer.handDragsTo(handler)        // a drag means something other than panning; null gives panning back
 viewer.drawUnder(paint)            // the application's drawing beneath the picture
 viewer.drawOver(paint)             // the application's drawing above it
@@ -442,6 +444,46 @@ half. It asks three things of the picture: that both channels are there, that
 each is in the colour the run names rather than a colour the viewer guessed, and
 that a page which *does* say what it wants still gets exactly that. Each of the
 three has been made to fail on purpose.
+
+---
+
+## And `lutsItCanDraw`, with `setChannel(index, { lut })`
+
+A **colour map** paints one channel in a run of colours rather than one flat
+colour: dim values one shade, bright values another, with a smooth path between.
+On a single-channel image that often reads far better than a flat green, because
+the whole range of hue carries the brightness instead of the brightness carrying
+itself. It is a staple of microscopy display, and every operator arriving from
+Fiji expects to find one.
+
+Two things go on the handle, and the pairing is the point.
+
+```js
+viewer.lutsItCanDraw               // e.g. ["viridis", "magma", "fire", "ice"]
+viewer.setChannel(index, { lut })  // a name from that list, or null for a flat colour
+```
+
+**A panel offers only what the engine says it can draw.** That is why the list is
+asked for rather than assumed. An option with no colour maps answers with an empty
+list, the panel draws no chooser at all, and nobody meets a menu whose choices do
+nothing — which is the failure this whole part of the project has been about, in
+miniature.
+
+`null` means "back to a flat colour" and `undefined` means "leave this alone", so
+an option has to tell the two apart rather than treating both as nothing.
+
+**What it costs.** Everything else `setChannel` carries — the colour, the window,
+the weight — travels as a value handed to a program the graphics card has already
+compiled, so dragging a contrast handle never rebuilds anything. A colour map
+cannot: the run of colours is worked out inside the program, so a new map means a
+new program. That is the right trade, because choosing a map is a deliberate act
+made once rather than something a hand drags several times a second. An option
+that does this must restore the row's own values immediately afterwards — a fresh
+program starts on its controls' defaults, so without that the operator's window
+is quietly thrown away the moment they choose a colour.
+
+Only `neuroglancer-under` draws them today. The two Viv options and `jpeg-under`
+answer with an empty list, which is a plain "I cannot" rather than a silence.
 
 ---
 
