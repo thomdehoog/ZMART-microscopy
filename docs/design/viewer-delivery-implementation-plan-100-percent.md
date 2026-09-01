@@ -104,6 +104,45 @@ arithmetic the old measurements rest on is unchanged.
   `pooch` to collect fully; without them whole files error at collection and
   are silently missing from the count.
 
+## What the 80% review asked for, and where each answer is
+
+The review at `docs/reviews/2026-09-02-review-of-the-80-percent-viewer-delivery-implementation.md`
+accepted the checkpoint with follow-up and named six things to do before M3.
+All six are done, and M3 was landed after them:
+
+1. `zmart_live/omezarr.py` and `zmart_storage/positions.py` omit the channel
+   block when any channel has no window, like every other writer. The
+   `zmart_live` suite, red since `b79fb46e`, is green again (521 passed).
+   `zmart_live` is not dormant: the vendored older viewer under
+   `viz_studio/backend` imports it, so it was fixed rather than retired.
+2. `viewer_service` parses the health answer inside its guard, closes the
+   refused server's socket, shuts down a server that failed after starting,
+   and says "did not answer" rather than "too old" when the Viewer did not
+   answer. Its tests assert a refused connection, not a timeout.
+3. `watching-the-run.js` counts the upgrade sentence as told only once there
+   was a canvas to tell.
+4. `/api/measure` says whether a successful measurement is settled or
+   provisional, and the embedded panel shows "brightness measured from pixels
+   acquired so far" for a provisional one — the standalone Viewer's sentence.
+   Decision 4 is now true as written: the same four states, the same words.
+5. The end-to-end check tampers with the first-sorting position and proves
+   the sidecar's authority by the numbers. Publication falls back to
+   replace-and-compare on a filesystem without hard links; decision 1 no
+   longer assumes them.
+6. The ngio fact is a test against ngio itself
+   (`tests/test_the_channel_shapes_a_strict_reader_accepts.py`), skipped
+   where ngio is not installed, never faked.
+
+One minor from the same review is also done: a description file that is not
+JSON is named as that. Another is noted, not changed: a request for a box
+outside the picture is still answered "waiting", because the panel never
+asks for one.
+
+The review's I1 observation stands corrected in this document: the fifth
+reading in the end-to-end test is the Viewer's own `display_window`, and the
+embedded panel's `asWritten` is covered by the jsdom test only. The missing
+browser walk of the upgrade sentence is still missing.
+
 ## What 100% does not do
 
 - **It does not decide whether the existing Viewer is fast enough.** That is
