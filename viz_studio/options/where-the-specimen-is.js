@@ -46,6 +46,26 @@ import { loadOmeZarr } from "@vivjs/loaders";
 const THE_FLOOR = 0.8;
 
 /**
+ * The most values one plane of "the smallest copy" may hold before this
+ * refuses to read it at all.
+ *
+ * The whole design of this file rests on the smallest copy being cheap, and
+ * for an ordinary store it is: a deep pyramid ends in a plane of a few
+ * hundred thousand values. A *linked scene* breaks the assumption — it keeps
+ * only as many levels as the little position stores it links, so the scene of
+ * a whole plate ends in a "smallest" copy of hundreds of megavalues, every
+ * one composed on demand out of dozens of stores. Asking for that did not
+ * merely open the view in an odd place: it held the viewer's whole open for
+ * minutes, the open's own time limit killed it, and the retry asked again —
+ * the canvas stayed empty for ever with nothing on screen to say why.
+ *
+ * Four thousand squared is roomy for every honest smallest copy met so far
+ * and refuses the pathological ones. Refusing costs only the centred opening
+ * view: the caller keeps the middle of the declared ground.
+ */
+const A_COPY_WORTH_READING = 4096 * 4096;
+
+/**
  * The centre of mass of whatever is bright, along each axis, in voxels.
  *
  * @param {ArrayLike<number>} values the copy, flat, in the order `sizes` gives.
@@ -99,6 +119,19 @@ export async function whereTheSpecimenIs(sources) {
     const labels = smallest.labels || [];
     const deep = labels.indexOf("z") >= 0
       ? smallest.shape[labels.indexOf("z")] : 1;
+
+    /* Is the smallest copy actually small? See A_COPY_WORTH_READING. */
+    const planeHolds = ["y", "x"]
+      .map((name) => (labels.indexOf(name) >= 0 ? smallest.shape[labels.indexOf(name)] : 1))
+      .reduce((held, along) => held * along, 1);
+    if (planeHolds > A_COPY_WORTH_READING) {
+      console.warn(
+        `the smallest copy of this image holds ${planeHolds.toLocaleString()} ` +
+          "values per plane, which is too large to read just to centre the " +
+          "opening view — the view opens on the middle of the declared ground instead.",
+      );
+      return null;
+    }
 
     /* A plane at a time, and not every plane.
      *

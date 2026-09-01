@@ -225,13 +225,38 @@ def _the_corner_of(
     """Where the store's first voxel sits on the stage, in (z, y, x) µm.
 
     The record's stage point is the centre of the frame; the store's
-    convention is the corner of the first voxel.
+    convention is the corner of the first voxel. So half a frame comes off
+    each of the two axes that lie along the sample.
+
+    **Every position begins at height nought, and that is deliberate.** The
+    height a capture was taken at is kept — it is in the run's record and in
+    the vendor's own files — but it is not written into the store as where
+    the picture *sits*, and this is the single most important line in this
+    module for whether an operator ever sees their scan.
+
+    Here is what happens if the measured height is written in. A scan follows
+    the focus map, so each position is taken at a slightly different height:
+    on a plate of six wells that is a couple of dozen distinct heights across
+    fifty-four fields. The viewer links a folder of positions into one
+    picture by laying each store where it says it sits — along depth as much
+    as across the sample — so a *flat* scan composes into a stack twenty-two
+    planes deep, holding two or three fields on each plane. The canvas shows
+    one plane at a time. So the operator sees two fields out of fifty-four,
+    or none, with nothing on screen to say why: every file is present, every
+    layer is placed correctly, and the picture is simply somewhere else in
+    depth. That was measured on the mock instrument, and it is what "the
+    overview never shows up" turned out to be.
+
+    Beginning every position at nought puts a flat scan on one plane, which
+    is what a map of a plate is. A focus stack keeps its own planes and
+    spans them from nought, so stepping through the depth still walks the
+    stack. What is lost is the *stored* height of a capture, which no part of
+    the viewer uses; what is gained is a scan the operator can see.
     """
     x_um = float(planes[0].get("x_um") or 0.0)
     y_um = float(planes[0].get("y_um") or 0.0)
-    z_um = min(float(p.get("z_um") or 0.0) for p in planes)
     return (
-        z_um,
+        0.0,
         y_um - frame_yx[0] * pixel_size_um[0] / 2.0,
         x_um - frame_yx[1] * pixel_size_um[1] / 2.0,
     )
