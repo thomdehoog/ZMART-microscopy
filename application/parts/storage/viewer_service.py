@@ -70,12 +70,20 @@ _the_turn = threading.Lock()
 #: open it attempted had already been closed, and the answer was 403. Nothing
 #: ever reached the screen, and nothing said why.
 #:
-#: Five seconds is a compromise between two real wants. An operator watching a
-#: scan wants the picture to grow while they watch; the page wants an address
-#: that is still alive by the time it has opened it. The relink happens as the
-#: page asks what there is to draw (see :func:`status`), so the address it is
-#: handed is always the freshest there has ever been.
-A_PICTURE_MAY_STAND_FOR = 5.0
+#: Half a minute is a compromise between two real wants, and it was five
+#: seconds until a plate of eight hundred and sixty-four fields showed what
+#: that costs. An operator watching a scan wants the picture to grow while
+#: they watch; but every relink throws the old address away, so anything that
+#: had opened the picture has to open it again — and opening a plate-sized
+#: picture is not free. At five seconds a long scan spent most of its time
+#: rebuilding a picture nobody had finished reading. Half a minute still
+#: shows a plate filling up while you watch it, and leaves each picture
+#: standing long enough to be looked at.
+#:
+#: The relink happens as the page asks what there is to draw (see
+#: :func:`status`), so the address it is handed is always the freshest there
+#: has ever been.
+A_PICTURE_MAY_STAND_FOR = 30.0
 
 
 def start(run_folder: Path | str) -> None:
