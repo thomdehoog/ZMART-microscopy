@@ -1430,6 +1430,43 @@ function countFromTheCornerOfTheVoxelRatherThanItsMiddle(own) {
 }
 
 // ---------------------------------------------------------------------------
+// The run's own axis of time
+// ---------------------------------------------------------------------------
+
+/**
+ * The run's axis of time, if it has one: where it sits, where it starts, and
+ * how many moments are on it.
+ *
+ * Read out of the engine's own coordinate space, which spans every acquisition
+ * it has been given. Two small awkwardnesses are settled here once rather than
+ * in each of the two places that need them.
+ *
+ * The axis is found by its **unit** rather than by its name, because that is
+ * what survives the journey: an OME-Zarr calls the axis `t` and the engine
+ * records the seconds it is measured in.
+ *
+ * And the first moment is not always at a whole number. This engine places a
+ * voxel's *centre* at a whole coordinate for some axes and its *edge* for
+ * others, so the first moment can sit at nought or at a half. Getting that
+ * wrong puts every moment half a step out, which on a timelapse means the
+ * picture never quite lands on the moment that was asked for.
+ */
+function theMomentAxis(own) {
+  const space = own.viewer?.navigationState?.position?.coordinateSpace?.value;
+  if (!space?.units || !space.bounds) return null;
+  const axis = Array.from(space.units).indexOf("s");
+  if (axis < 0) return null;
+  const onWholeNumbers = space.bounds.voxelCenterAtIntegerCoordinates[axis];
+  const lower = space.bounds.lowerBounds[axis];
+  const first = onWholeNumbers ? Math.ceil(lower) : Math.ceil(lower - 0.5) + 0.5;
+  const count = Math.round(
+    space.bounds.upperBounds[axis] - space.bounds.lowerBounds[axis],
+  );
+  if (!(count > 1)) return null;
+  return { axis, first, count };
+}
+
+// ---------------------------------------------------------------------------
 // The little program that runs on the graphics card
 // ---------------------------------------------------------------------------
 
@@ -2071,17 +2108,36 @@ function handleFor(own) {
       own.viewer.navigationState.position.value = moved;
     },
 
+    /**
+     * How many moments the run holds, and which one is being drawn.
+     *
+     * `setMoment` has been here since this option was written, and until now
+     * there was no way to ask how far it went — so a page could move a
+     * timelapse but could not offer a control for one, because a slider needs
+     * to know where it ends. This is the twin of `theDepthItCanShow`, and the
+     * answer counts from nought exactly as `setMoment` does.
+     *
+     * Nothing at all when this is not a timelapse. A run with one moment is not
+     * a timelapse, and a control drawn for it would be a control that cannot
+     * move.
+     */
+    theMomentsItCanShow() {
+      const moment = theMomentAxis(own);
+      if (!moment) return null;
+      const now = own.viewer.navigationState.position.value[moment.axis];
+      return {
+        count: moment.count,
+        at: Math.min(moment.count - 1,
+          Math.max(0, Math.round(now - moment.first))),
+      };
+    },
+
     /** Which moment of a timelapse to show, counted from the first. */
     setMoment(t) {
-      const space = own.viewer.navigationState.position.coordinateSpace.value;
-      if (!space?.units) return;
-      const at = Array.from(space.units).indexOf("s");
-      if (at < 0) return;
-      const onWholeNumbers = space.bounds.voxelCenterAtIntegerCoordinates[at];
-      const lower = space.bounds.lowerBounds[at];
-      const first = onWholeNumbers ? Math.ceil(lower) : Math.ceil(lower - 0.5) + 0.5;
+      const moment = theMomentAxis(own);
+      if (!moment) return;
       const moved = Float32Array.from(own.viewer.navigationState.position.value);
-      moved[at] = first + t;
+      moved[moment.axis] = moment.first + t;
       own.viewer.navigationState.position.value = moved;
     },
 

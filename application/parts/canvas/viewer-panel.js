@@ -25,7 +25,9 @@
  * `viewer.setChannel(index, …)` names the same row on both sides.
  */
 
-import { theDepthReads, thePlanesIn } from "./counting-planes.js";
+import {
+  theDepthReads, theNextPlaneAfter, thePlanesIn,
+} from "./counting-planes.js";
 import {
   howBrightAndHowTight,
   theWindowThisBrightnessMeans,
@@ -223,6 +225,131 @@ function anEye(open) {
     + '<circle cx="8" cy="8" r="1.9" fill="currentColor"/>'
     + (open ? "" : '<path d="M2.5 13.5L13.5 2.5" stroke="currentColor" stroke-width="1.3"/>');
   return svg;
+}
+
+/* How long the picture rests on each step while an axis is being played.
+   Slow enough to see what is there, fast enough that a stack reads as movement
+   rather than as a slideshow — a little over seven steps a second, which is the
+   rate the ZMART viewer settled on (`AxisSlider.jsx`). */
+const A_STEP_RESTS_FOR_MS = 140;
+
+/** The triangle and the two bars a play button wears. */
+function aPlayGlyph(playing) {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 16 16");
+  svg.style.cssText = "width:11px;height:11px;display:block;";
+  svg.innerHTML = playing
+    ? '<rect x="3.5" y="3" width="3.5" height="10" fill="currentColor"/>'
+      + '<rect x="9" y="3" width="3.5" height="10" fill="currentColor"/>'
+    : '<path d="M4 2.5L13 8L4 13.5Z" fill="currentColor"/>';
+  return svg;
+}
+
+/**
+ * One line for moving along an axis: a name, a play button, a slider, a reading.
+ *
+ * Both the depth of a stack and the moments of a timelapse are the same control
+ * with different words on it, so it is built once here. The line knows nothing
+ * about micrometres or moments: it is handed where the axis runs from and to,
+ * where the picture is on it, and what the reading beside it should say, and it
+ * draws that. Whoever mounts it decides what all of those mean.
+ *
+ * The handle it gives back is small on purpose:
+ *
+ * - `show(axis)` draws the line, or hides it entirely when there is no axis.
+ *   Hiding rather than disabling is deliberate — a run with a single plane is
+ *   not a run whose depth control is broken, and a greyed-out slider says the
+ *   second thing.
+ * - `onMove(tell)` — the operator has moved the handle, in the axis's own units.
+ * - `playsWith(step)` — how to take one step. It answers `false` when the axis
+ *   has gone away, and the playing then stops itself.
+ * - `stopPlaying()` — for when the panel is taken down.
+ */
+function anAxisControl(label, playTitle) {
+  const line = el("label",
+    `display:none;grid-template-columns:52px 18px 1fr 96px;gap:6px;align-items:center;padding:2px 12px;font-size:10px;color:${INK.textMuted};`);
+  line.append(el("span", "", label));
+
+  const play = el("button",
+    `background:none;border:none;color:${INK.textPrimary};cursor:pointer;padding:0;display:flex;align-items:center;justify-content:center;`);
+  play.type = "button";
+  const slider = dressed(el("input"));
+  slider.type = "range";
+  const box = el("span",
+    `text-align:right;font-variant-numeric:tabular-nums;color:${INK.textPrimary};font-size:11px;`);
+  line.append(play, slider, box);
+
+  /* True while the operator has hold of the handle. The picture answers back
+     while a drag is going on — every move writes to the viewer, and every
+     movement of the viewer brings us round here again — and writing a value
+     back underneath a hand that is still holding it makes the handle stutter
+     and jump. So while it is held, the reading is refreshed and the handle is
+     left where the hand has put it. */
+  let held = false;
+  slider.addEventListener("pointerdown", () => { held = true; });
+  for (const letGo of ["pointerup", "pointercancel"]) {
+    slider.addEventListener(letGo, () => { held = false; });
+  }
+
+  let timer = null;
+  let takeAStep = null;
+
+  function dressThePlayButton(playing) {
+    play.replaceChildren(aPlayGlyph(playing));
+    play.title = playing ? "Stop" : playTitle;
+    /* Said in words as well as drawn, so a check and a screen reader can both
+       tell what it is doing. */
+    play.dataset.playing = playing ? "1" : "0";
+    play.setAttribute("aria-pressed", String(playing));
+  }
+  dressThePlayButton(false);
+
+  function stopPlaying() {
+    if (timer === null) return;
+    clearInterval(timer);
+    timer = null;
+    dressThePlayButton(false);
+  }
+
+  play.addEventListener("click", (press) => {
+    press.preventDefault();
+    press.stopPropagation();
+    if (timer !== null || !takeAStep) {
+      stopPlaying();
+      return;
+    }
+    dressThePlayButton(true);
+    timer = setInterval(() => {
+      /* The step says whether the axis is still there. Playing an axis the
+         picture no longer has would be a control quietly doing nothing. */
+      if (!takeAStep()) stopPlaying();
+    }, A_STEP_RESTS_FOR_MS);
+  });
+
+  return {
+    line,
+    show(axis) {
+      if (!axis) {
+        line.style.display = "none";
+        stopPlaying();
+        return;
+      }
+      line.style.display = "grid";
+      slider.min = String(axis.low);
+      slider.max = String(axis.high);
+      slider.step = String(axis.step);
+      if (!held) slider.value = String(axis.at);
+      box.textContent = axis.reads;
+      slider.refill();
+    },
+    onMove(tell) {
+      slider.addEventListener("input", () => tell(Number(slider.value)));
+    },
+    playsWith(step) {
+      takeAStep = step;
+    },
+    stopPlaying,
+  };
 }
 
 /**
@@ -806,21 +933,17 @@ export async function mountViewerPanel(near, { viewer, acquisitions }) {
   pictureLine.append(pictureEye, el("span", "", "draw the picture"));
   whole.append(pictureLine);
 
-  /* Moving through the stack.
-     The control is built whether or not there is a stack to move through yet,
-     and hidden until there is. A run gains depth part-way through — the first
-     focussing sweep lands and suddenly there is somewhere to go — and a panel
-     that decided once, at the moment it was mounted, would leave an operator
-     with no way through a stack that is plainly on their screen. */
-  const depthLine = el("label",
-    `display:grid;grid-template-columns:58px 1fr 88px;gap:6px;align-items:center;padding:2px 12px;font-size:10px;color:${INK.textMuted};`);
-  depthLine.append(el("span", "", "depth (z)"));
-  const depthSlider = dressed(el("input"));
-  depthSlider.type = "range";
-  const depthBox = el("span",
-    `text-align:right;font-variant-numeric:tabular-nums;color:${INK.textPrimary};font-size:11px;`);
-  depthLine.append(depthSlider, depthBox);
-  whole.append(depthLine);
+  /* Moving through the stack, and through time.
+     Both controls are built whether or not there is anything yet to move
+     through, and each is hidden until there is. A run gains depth part-way
+     through — the first focussing sweep lands and suddenly there is somewhere
+     to go — and a live acquisition that keeps going is a timelapse whether or
+     not anybody called it one. A panel that decided once, at the moment it was
+     mounted, would leave an operator with no way through a stack that is
+     plainly on their screen. */
+  const stepping = anAxisControl("depth (z)", "Play the stack");
+  const timeStepping = anAxisControl("time (t)", "Play the timelapse");
+  whole.append(stepping.line, timeStepping.line);
 
   const volumeLine = el("label",
     "display:flex;align-items:center;gap:8px;cursor:pointer;padding:5px 12px;");
@@ -831,51 +954,81 @@ export async function mountViewerPanel(near, { viewer, acquisitions }) {
   volumeLine.append(wantsAVolume, el("span", "", "draw the stack as a volume"));
   whole.append(volumeLine);
 
-  /* True while the operator has hold of the handle. The picture answers back
-     while a drag is going on — every `setPlane` moves the view, and every
-     movement of the view brings us round here again — and writing the value
-     underneath a hand that is still holding it makes the handle stutter and
-     jump back. So while it is held, the reading is refreshed and the handle is
-     left where the hand has put it. */
-  let handOnTheDepth = false;
-  depthSlider.addEventListener("pointerdown", () => { handOnTheDepth = true; });
-  for (const letGo of ["pointerup", "pointercancel"]) {
-    depthSlider.addEventListener(letGo, () => { handOnTheDepth = false; });
-  }
-
   /**
-   * Draw the depth control from what the picture is really showing.
+   * Draw both controls from what the picture is really showing.
    *
    * Everything here is read back out of the viewer rather than remembered.
-   * That is the whole point of this control: it used only to write, so moving
-   * through the stack any other way — the scroll wheel, a step of the
-   * workflow, the viewer opening itself on a plane — left it showing where it
-   * had last put the operator, which is not where the picture was.
+   * That is the whole point of these controls: the depth slider used only to
+   * write, so moving through the stack any other way — the scroll wheel, a
+   * step of the workflow, the viewer opening itself on a plane — left it
+   * showing where it had last put the operator, which is not where the picture
+   * was.
    */
-  function showWhereTheDepthIs() {
+  function showWhereThePictureIs() {
     const depth = viewer.theDepthItCanShow?.();
     const stack = thePlanesIn(depth);
-    depthLine.style.display = stack ? "grid" : "none";
+    stepping.show(stack && {
+      low: depth.lowUm, high: depth.highUm, step: depth.stepUm || 1,
+      at: depth.atUm ?? depth.lowUm, reads: theDepthReads(depth),
+    });
     /* A volume is a way of looking at a stack, so the offer goes away with the
        stack, and so does whatever was asked for. */
     volumeLine.style.display = stack && viewer.canShowVolume ? "flex" : "none";
-    if (!stack) return;
-    depthSlider.min = String(depth.lowUm);
-    depthSlider.max = String(depth.highUm);
-    depthSlider.step = String(depth.stepUm || 1);
-    if (!handOnTheDepth) depthSlider.value = String(depth.atUm ?? depth.lowUm);
-    depthBox.textContent = theDepthReads(depth);
-    depthSlider.refill();
+
+    /* And the moments. A run with one moment shows no time control at all,
+       rather than a slider that cannot move — which is the whole difference
+       between "this is not a timelapse" and "this control is broken". */
+    const moments = viewer.theMomentsItCanShow?.();
+    timeStepping.show(moments?.count > 1 && {
+      low: 0, high: moments.count - 1, step: 1, at: moments.at ?? 0,
+      reads: `moment ${(moments.at ?? 0) + 1} / ${moments.count}`,
+    });
   }
 
-  depthSlider.addEventListener("input", () => {
-    viewer.setPlane?.(Number(depthSlider.value));
+  stepping.onMove((to) => {
+    viewer.setPlane?.(to);
     /* And then read back, so the number beside the handle is the picture's
        answer rather than the handle's request. A viewer that rounded the ask
        to its nearest plane says so here instead of being contradicted. */
-    showWhereTheDepthIs();
+    showWhereThePictureIs();
   });
-  showWhereTheDepthIs();
+  timeStepping.onMove((to) => {
+    viewer.setMoment?.(Math.round(to));
+    showWhereThePictureIs();
+  });
+
+  /* Playing.
+     Looking through a stack or a timelapse by hand is a poor way to see
+     movement, and movement is often the whole point — a specimen drifting, a
+     marker brightening. Each of these walks one step at a time and wraps round
+     at the end, so it loops rather than stopping on the last frame and looking
+     as though it has stalled.
+
+     Each step reads where the picture is now and works out the next from that,
+     rather than counting on its own. So a stack being played that somebody
+     scrolls, or that the workflow moves, carries on from where the picture
+     actually got to. And if the axis goes away underneath it — a run swapping
+     its acquisitions, a stack that is no longer a stack — the playing stops
+     itself, because a play button quietly stepping something that is not there
+     is a control saying it is doing something it is not. */
+  stepping.playsWith(() => {
+    const depth = viewer.theDepthItCanShow?.();
+    const next = theNextPlaneAfter(depth);
+    if (next === null) return false;
+    viewer.setPlane?.(next);
+    showWhereThePictureIs();
+    return true;
+  });
+  timeStepping.playsWith(() => {
+    const moments = viewer.theMomentsItCanShow?.();
+    if (!(moments?.count > 1)) return false;
+    const now = moments.at ?? 0;
+    viewer.setMoment?.(now + 1 >= moments.count ? 0 : now + 1);
+    showWhereThePictureIs();
+    return true;
+  });
+
+  showWhereThePictureIs();
 
   bar.append(data, settings, whole);
   if (plotHost) plotHost.after(panel);
@@ -923,6 +1076,11 @@ export async function mountViewerPanel(near, { viewer, acquisitions }) {
       }
     },
     destroy() {
+      /* Anything still playing is stopped first. A timer stepping a viewer
+         through a stack after the bar that started it has left the page is a
+         picture moving with nothing on screen saying why. */
+      stepping.stopPlaying();
+      timeStepping.stopPlaying();
       for (const stop of stopListening) stop();
       stopListening.length = 0;
       closeChooser();
@@ -948,7 +1106,7 @@ export async function mountViewerPanel(near, { viewer, acquisitions }) {
      showing a number that was no longer true. A viewer that offers no such
      announcement simply keeps the control as it was. */
   const stopHearingAboutTheView =
-    viewer.whenTheViewMoves?.(() => showWhereTheDepthIs());
+    viewer.whenTheViewMoves?.(() => showWhereThePictureIs());
   if (stopHearingAboutTheView) stopListening.push(stopHearingAboutTheView);
 
   return panelHandle;

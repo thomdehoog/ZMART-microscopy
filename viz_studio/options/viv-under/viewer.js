@@ -1517,6 +1517,27 @@ function handleFor(own) {
       }
     },
 
+    /**
+     * How many moments the run holds, and which one is being drawn.
+     *
+     * `setMoment` has been here since this option was written, and until now
+     * there was no way to ask how far it went — so a page could move a
+     * timelapse but could not offer a control for one, because a slider needs
+     * to know where it ends. This is the twin of `theDepthItCanShow` above,
+     * and it counts from nought, exactly as `setMoment` does.
+     *
+     * Nothing at all when this is not a timelapse: a run with one moment is not
+     * a timelapse, and a control drawn for it could not move.
+     */
+    theMomentsItCanShow() {
+      const first = own.images[0];
+      const source = first?.sources?.[0];
+      const at = source?.labels?.indexOf("t") ?? -1;
+      const count = at >= 0 ? source.shape[at] : 0;
+      if (!(count > 1)) return null;
+      return { count, at: Math.min(count - 1, Math.max(0, first.moment ?? 0)) };
+    },
+
     /** Which moment of a timelapse to show, counted from the first. */
     setMoment(t) {
       let changed = false;

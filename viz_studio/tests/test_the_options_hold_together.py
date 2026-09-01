@@ -147,6 +147,32 @@ def test_every_option_can_switch_the_picture_off_without_reopening():
         )
 
 
+def test_every_option_can_say_how_many_moments_a_run_holds():
+    """`theMomentsItCanShow` is on every handle, so a timelapse can be reached.
+
+    `setMoment(t)` has been on every handle since the interface was written, and
+    for just as long there was no way to ask how far it went. A page could
+    therefore move a timelapse but could not offer a control for one, because a
+    slider has to know where it ends — so the operator's window had no time
+    control at all, and a run recorded over several moments showed only its
+    first, silently.
+
+    This is the same gap `theDepthItCanShow` was added to fill for depth, and it
+    matters to a run rather than only to a viewer: a live acquisition that keeps
+    going is a timelapse whether or not anybody called it one.
+
+    `jpeg-under` is included and answers `null`, which is a plain "I cannot"
+    rather than a silence.
+    """
+    for option in EVERY_OPTION + ["jpeg-under"]:
+        source = _without_comments((_OPTIONS / option / "viewer.js").read_text())
+        assert re.search(r"\btheMomentsItCanShow\s*\(", source), (
+            f"{option}/viewer.js has setMoment but no theMomentsItCanShow, so a "
+            "page can move a timelapse but cannot draw a control for one; see "
+            "options/contract.md."
+        )
+
+
 def test_every_option_can_say_when_its_picture_has_moved():
     """`whenTheViewMoves` is on every handle, so no control has to guess.
 
