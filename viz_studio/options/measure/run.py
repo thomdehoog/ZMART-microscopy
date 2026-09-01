@@ -93,11 +93,37 @@ def main() -> int:
         action="store_true",
         help="do not rewrite the table in RESULTS.md",
     )
+    parser.add_argument(
+        "--external-run",
+        type=Path,
+        default=None,
+        help=(
+            "measure a real run this rig did not write, read-only: a folder of "
+            "OME-Zarr stores or one store. Nothing is written beside it and the "
+            "synthetic rows are not run; see real_run.py for the trace taken"
+        ),
+    )
     args = parser.parse_args()
 
     drive.require_a_browser()
     out = args.out
     out.mkdir(parents=True, exist_ok=True)
+
+    if args.external_run is not None:
+        # A different question from the table: not "how do the options compare
+        # on stores written for the purpose" but "what does one of them do on a
+        # run somebody actually acquired". Kept apart so the answer to one can
+        # never be mistaken for the other.
+        import real_run
+
+        if args.data is not None:
+            parser.error("--external-run measures a run in place; --data says where to write")
+        wanted = [args.option] if args.option != "all" else options_that_exist()
+        for option in wanted:
+            print(f"\nmeasuring {option} on {args.external_run}", flush=True)
+            found = real_run.measure(option, args.external_run, out / "real-run")
+            print(f"  written to {found['written_to']}", flush=True)
+        return 0
     data_dir = args.data or (out / "acquisitions")
     # Every store the suite needs, checked one by one rather than by looking for
     # a single one of them. A folder written before a new acquisition was added

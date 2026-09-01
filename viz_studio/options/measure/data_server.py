@@ -68,10 +68,22 @@ class Ledger:
         self.entries: list[dict] = []
         self.delay_ms: float = 0.0
 
-    def note(self, path: str, started: float, finished: float, found: bool) -> None:
+    def note(
+        self, path: str, started: float, finished: float, found: bool,
+        *, sent: int = 0, describing: bool = False,
+    ) -> None:
+        """One answered request: when, whether anything was there, and how many bytes went.
+
+        ``describing`` marks the small files that say what a store is, which the
+        older measurements never counted. They are kept apart here so that
+        ``summary()`` goes on reporting the same request counts it always has,
+        while the byte total can include everything that crossed the wire —
+        which is the number a later "is this format smaller" question needs.
+        """
         with self._lock:
             self.entries.append(
-                {"path": path, "started": started, "finished": finished, "found": found}
+                {"path": path, "started": started, "finished": finished, "found": found,
+                 "bytes": int(sent), "describing": bool(describing)}
             )
 
     def clear(self) -> None:
@@ -90,11 +102,20 @@ class Ledger:
         when it started, and the longest lane is how deep the traffic went.
         """
         with self._lock:
-            entries = sorted(self.entries, key=lambda e: e["started"])
+            everything = sorted(self.entries, key=lambda e: e["started"])
+        # Bytes are counted over every answer, descriptions included; the
+        # request arithmetic below stays over image pieces alone, as before.
+        bytes_of_pieces = sum(e.get("bytes", 0) for e in everything if not e.get("describing"))
+        bytes_of_descriptions = sum(e.get("bytes", 0) for e in everything if e.get("describing"))
+        entries = [e for e in everything if not e.get("describing")]
         if not entries:
             return {
                 "requests": 0, "found": 0, "missing": 0, "at_once": 0,
                 "seconds": 0.0, "rounds": 0, "delay_ms": self.delay_ms,
+                "bytes": bytes_of_pieces + bytes_of_descriptions,
+                "bytes_of_pieces": bytes_of_pieces,
+                "bytes_of_descriptions": bytes_of_descriptions,
+                "descriptions": len(everything) - len(entries),
             }
         moments = [(e["started"], 1) for e in entries] + [
             (e["finished"], -1) for e in entries
@@ -123,6 +144,10 @@ class Ledger:
             "seconds": entries[-1]["finished"] - entries[0]["started"],
             "rounds": max(depth) if depth else 0,
             "delay_ms": self.delay_ms,
+            "bytes": bytes_of_pieces + bytes_of_descriptions,
+            "bytes_of_pieces": bytes_of_pieces,
+            "bytes_of_descriptions": bytes_of_descriptions,
+            "descriptions": len(everything) - len(entries),
         }
 
 
@@ -315,6 +340,7 @@ def make_measurement_server(
             if not describing and ledger.delay_ms > 0:
                 time.sleep(ledger.delay_ms / 1000.0)
             found = target.is_file()
+            sent = 0
             if not found:
                 # A piece nobody has imaged is the ordinary case on a sparse run
                 # rather than an error, so it is answered plainly and the
@@ -323,11 +349,12 @@ def make_measurement_server(
                 # that is most of them.
                 self._send_empty(HTTPStatus.NOT_FOUND)
             else:
-                self._send_file(target, describing)
-            if not describing:
-                ledger.note(rel, started, time.perf_counter(), found)
+                sent = self._send_file(target, describing)
+            ledger.note(
+                rel, started, time.perf_counter(), found, sent=sent, describing=describing,
+            )
 
-        def _send_file(self, target: Path, describing: bool) -> None:
+        def _send_file(self, target: Path, describing: bool) -> int:
             # A description is read whole because it is small, and because it is
             # repaired on the way out: this writer spells its units the everyday
             # way ("micrometer") and the engine refuses anything but "um".
@@ -340,7 +367,7 @@ def make_measurement_server(
                 self.send_header("Content-Range", f"bytes */{total}")
                 self.send_header("Content-Length", "0")
                 self.end_headers()
-                return
+                return 0
             start, length = wanted if wanted else (0, total)
             if data is None:
                 with target.open("rb") as handle:
@@ -365,6 +392,8 @@ def make_measurement_server(
             self.end_headers()
             if self.command != "HEAD":
                 self.wfile.write(body)
+                return len(body)
+            return 0
 
         def _wanted_range(self, total: int):
             asked = self.headers.get("Range")
