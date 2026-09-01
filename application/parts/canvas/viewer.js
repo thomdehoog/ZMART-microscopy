@@ -74,6 +74,7 @@
 
 import { theGroundBeneath, theOperatorsMarks } from "./demonstration-drawings.js";
 import { describeEngine, enginesOnOffer, openerFor, whyOneIsMissing } from "./engines.js";
+import { onlyPanAndZoom } from "../../../viz_studio/options/gestures.js";
 import { theDrawingAbove, whoClaims, whoIsAt } from "./layers-above.js";
 // What a strict reader will refuse in a store's own description, so bad news
 // can name a cause instead of reporting a silence. See that file for why the
@@ -444,6 +445,178 @@ export function putTheCanvasIn({
      the same view moments apart. */
   let carriedOver = null;
 
+  /* ---- where the canvas is looking, when the engine cannot say ----
+   *
+   * Every one of the operator's own layers — the carrier, the tilesets, the
+   * focus points, the plan — is positioned in micrometres on the sample and
+   * has to be turned into a place on the screen before it can be drawn. That
+   * sum is normally the drawing engine's to do, because the engine is also
+   * placing the picture and the two must agree to the pixel.
+   *
+   * But an engine can only do that sum once it has an acquisition. Neuroglancer
+   * takes its axes from its image layers, so before a run has captured anything
+   * it has no coordinate space at all, and every answer it gives about where
+   * things are comes back as `NaN`. The first four steps of a workflow are
+   * exactly that situation: an operator lays a plan out on an empty plate, and
+   * there is no picture yet by definition.
+   *
+   * What that looked like on screen: an empty canvas. The plate, the tilesets
+   * and the focus points were all there, all switched on, and every one of them
+   * was being drawn at `NaN, NaN` — which is nowhere. The only thing that
+   * appeared was the scale bar, because a scale bar is drawn in screen pixels
+   * and needs no such sum. Nothing anywhere said why, which is what made it
+   * hard to see: the canvas looked *blank*, not *broken*.
+   *
+   * So the canvas keeps its own account of where it is looking, and uses it
+   * whenever the engine cannot place things. Two rules keep the two honest:
+   *
+   * - while the engine *can* place things it is the only authority, and this
+   *   copy simply follows it, so the drawing and the picture can never disagree;
+   * - the engine is never asked to pretend. An engine with no coordinate space
+   *   says so by answering `NaN`, which is the truth, and this is the canvas
+   *   answering the question the engine could not.
+   */
+
+  /** Where the canvas is looking, in the pictures' own micrometres. */
+  let ourOwnView = { centre: { x: 0, y: 0 }, zoom: 1 };
+
+  /** Whether a view or a frame has real numbers in it and can place anything. */
+  const canPlaceThings = (where) =>
+    !!where && Number.isFinite(where.zoom) && where.zoom > 0
+    && Number.isFinite(where.centre?.x) && Number.isFinite(where.centre?.y);
+
+  /** How big the box is, for the sums below. */
+  const theBoxIs = () => {
+    const face = box.getBoundingClientRect();
+    return { width: Math.max(face.width, 1), height: Math.max(face.height, 1) };
+  };
+
+  /**
+   * A frame the layers can really be drawn with.
+   *
+   * Handed the frame the engine drew with. If the engine could place things,
+   * that frame is the answer and the canvas remembers where it was looking, so
+   * that the moment the engine stops being able to — a run closing, an engine
+   * being changed — the drawing carries on from the same view rather than
+   * jumping. Otherwise the same shape of frame is built from the canvas's own
+   * view, so every layer lands where it would have.
+   */
+  function aFrameWeCanDrawWith(frame) {
+    if (canPlaceThings(frame)) {
+      ourOwnView = { centre: { ...frame.centre }, zoom: frame.zoom };
+      return frame;
+    }
+    const { centre, zoom } = ourOwnView;
+    const width = Number.isFinite(frame?.width) ? frame.width : theBoxIs().width;
+    const height = Number.isFinite(frame?.height) ? frame.height : theBoxIs().height;
+    return {
+      ...frame,
+      centre: { ...centre },
+      zoom,
+      width,
+      height,
+      project: (x, y) => ({
+        x: width / 2 + (x - centre.x) / zoom,
+        y: height / 2 + (y - centre.y) / zoom,
+      }),
+      unproject: (x, y) => ({
+        x: centre.x + (x - width / 2) * zoom,
+        y: centre.y + (y - height / 2) * zoom,
+      }),
+    };
+  }
+
+  /** Where things are drawn, asked of the engine and answered by the canvas
+      when the engine cannot say. The same answer the layers are drawn with. */
+  const whereThingsAreReallyDrawn = () =>
+    aFrameWeCanDrawWith(viewer?.whereThingsAreDrawn?.() ?? null);
+
+  /** The view now, in the same terms — the engine's while it has one. */
+  const theViewNow = () => {
+    const said = viewer?.getView?.();
+    if (canPlaceThings(said)) {
+      ourOwnView = { centre: { ...said.centre }, zoom: said.zoom };
+      return said;
+    }
+    return { centre: { ...ourOwnView.centre }, zoom: ourOwnView.zoom };
+  };
+
+  /**
+   * Put the layers on screen again after the canvas moved itself.
+   *
+   * While an engine is placing things it draws frames of its own and the
+   * drawing follows them. When the canvas is placing them there is nothing
+   * driving a repaint, so handing the slots their drawings again is what asks
+   * for one — every option repaints when it is given a drawing.
+   */
+  function drawTheLayersAgain() {
+    if (!viewer) return;
+    handTheSlotsTheirDrawings();
+  }
+
+  /* ---- panning and zooming when the engine cannot ----
+   *
+   * The two gestures normally belong to the engine: it moves its own view, and
+   * the operator's layers follow because they are drawn from the frame the
+   * engine drew with. An engine that cannot place things cannot move either, so
+   * on an empty plate the plate could be seen and not looked *at* — no zooming
+   * in on a well, no panning across the carrier.
+   *
+   * So the canvas listens too, using the very same shared gestures every option
+   * uses, so that a drag and a wheel mean exactly what they mean everywhere
+   * else. Only one of the two ever does anything: while the engine can place
+   * things this set is silent, and while it cannot the engine's is moving a
+   * view made of `NaN`, which changes nothing anybody can see.
+   *
+   * The same swap decides who may lend a drag out to a tool. A drag has to
+   * reach a layer through whichever of the two knows where the pointer is on
+   * the sample — handed to the other, a mark would be recorded at `NaN` and
+   * land nowhere. So the lending follows the placing, and is moved across
+   * whenever that changes.
+   */
+  let ourGestures = null;
+  let theEngineWasPlacingThings = null;
+
+  /** Move the canvas's own view, and put the layers back on screen. */
+  function moveOurOwnView(asked) {
+    ourOwnView = {
+      centre: asked?.centre ? { ...asked.centre } : { ...ourOwnView.centre },
+      zoom: Number.isFinite(asked?.zoom) && asked.zoom > 0
+        ? asked.zoom : ourOwnView.zoom,
+    };
+    sayWhereTheViewIs(null);
+    onViewMoved?.({ centre: { ...ourOwnView.centre }, zoom: ourOwnView.zoom });
+    drawTheLayersAgain();
+  }
+
+  /**
+   * Give the placing, and the drags that depend on it, to whichever of the two
+   * can actually do it.
+   *
+   * Exactly one at a time, which is the whole point. The canvas's own pair of
+   * gestures is not merely idle while the engine can place things — it is not
+   * listening at all, so a canvas with a picture behaves exactly as it always
+   * did, with one set of listeners and one authority. The moment the engine
+   * gains or loses its coordinate space the two swap over.
+   */
+  function whoeverCanPlaceThingsHoldsTheDrags() {
+    const engineCan = canPlaceThings(viewer?.getView?.());
+    if (engineCan === theEngineWasPlacingThings) return;
+    theEngineWasPlacingThings = engineCan;
+    viewer?.handDragsTo?.(engineCan ? theLayersMayHaveThisDrag : null);
+    if (engineCan) {
+      ourGestures?.stop();
+      ourGestures = null;
+      return;
+    }
+    if (ourGestures) return;
+    ourGestures = onlyPanAndZoom(box, {
+      getView: () => theViewNow(),
+      setView: moveOurOwnView,
+    });
+    ourGestures.handDragsTo(theLayersMayHaveThisDrag);
+  }
+
   /* Which of the three layers are being drawn. The picture starts on and the
      operator's own two start off, which is the state that costs the least: told
      there is nothing to draw in a slot, an engine need not lay a drawing surface
@@ -495,8 +668,12 @@ export function putTheCanvasIn({
      specimen one screen pixel covers are the two numbers that say it, and they
      are the same two numbers whichever engine is drawing — which is a large part
      of why the engines can be compared at all. */
-  function sayWhereTheViewIs(where) {
-    if (!where) {
+  function sayWhereTheViewIs(said) {
+    /* Asked of the engine and answered by the canvas when the engine cannot
+       say, so the reading never shows `NaN` at an operator — which is what it
+       did for every step before a run had captured anything. */
+    const where = canPlaceThings(said) ? said : theViewNow();
+    if (!canPlaceThings(where)) {
       readout.textContent = "—";
       return;
     }
@@ -623,14 +800,21 @@ export function putTheCanvasIn({
   function handTheSlotsTheirDrawings(picture = viewer, { openedJustNow = false } = {}) {
     if (!picture) return;
     const nothingToDraw = openedJustNow ? null : paintNothingAtAll;
-    picture.drawUnder(showing.beneath ? theGroundBeneath : nothingToDraw);
+    /* Every drawing is handed a frame that can really place things — the
+       engine's while it has one, and the canvas's own when it has not. Without
+       this, a run that has captured nothing yet draws the operator's whole plan
+       at `NaN, NaN`, which is nowhere. */
+    const placed = (paint) => (paint ? (frame) => paint(aFrameWeCanDrawWith(frame)) : paint);
+    picture.drawUnder(showing.beneath ? placed(theGroundBeneath) : nothingToDraw);
     /* The whole stack above the picture arrives as one drawing, because that is
        what the interface takes: one function per slot. Which layers are in it,
        how faint each is and where it has been opened up are all settled here
        and the engine never learns about any of it — which is what makes all of
        this cost nothing per engine and behave the same whichever one is
        drawing. */
-    picture.drawOver(theDrawingAbove(stackAbove, { dial, seeThrough }) ?? nothingToDraw);
+    picture.drawOver(
+      placed(theDrawingAbove(stackAbove, { dial, seeThrough })) ?? nothingToDraw,
+    );
   }
 
   /**
@@ -681,7 +865,7 @@ export function putTheCanvasIn({
    * back to saying where the view is the moment the pointer leaves, which is
    * the only reading there is when nothing is being pointed at. */
   box.addEventListener("pointermove", (event) => {
-    const where = viewer?.whereThingsAreDrawn?.();
+    const where = whereThingsAreReallyDrawn();
     if (!where?.unproject) return;
     const bounds = box.getBoundingClientRect();
     const at = where.unproject(event.clientX - bounds.left, event.clientY - bounds.top);
@@ -785,7 +969,13 @@ export function putTheCanvasIn({
         // requests and is right in every other way.
         coverage: null,
         background,
-        onViewChanged: (where) => { sayWhereTheViewIs(where); onViewMoved?.(where); },
+        onViewChanged: (where) => {
+          /* The moment the engine gains a coordinate space — the run's first
+             field landing — it takes over the placing, and the drags with it. */
+          whoeverCanPlaceThingsHoldsTheDrags();
+          sayWhereTheViewIs(where);
+          onViewMoved?.(where);
+        },
       }),
       acquisitions.length ? wanted : `${wanted}, opened with no acquisition,`,
     );
@@ -798,8 +988,12 @@ export function putTheCanvasIn({
     offerTheVolume(opened);
     offerTheStack(opened);
     if (carriedOver) opened.setView(carriedOver);
-    opened.handDragsTo?.(theLayersMayHaveThisDrag);
     viewer = opened;
+    /* Who holds the drags follows who can place things, and a freshly opened
+       engine may be able to or may not — an engine opened on a run that has
+       captured nothing has no coordinate space yet. */
+    theEngineWasPlacingThings = null;
+    whoeverCanPlaceThingsHoldsTheDrags();
     sayWhichEngineIsDrawing();
     sayWhatTheLayersAreDoing();
     sayWhereTheViewIs(opened.getView());
@@ -1411,14 +1605,28 @@ export function putTheCanvasIn({
      * before another is ordinary.
      */
     get view() {
-      const where = viewer?.getView?.();
+      const where = theViewNow();
       return where ? { ...where, centre: outOfTheStore(where.centre) } : null;
     },
     lookAt(where) {
       if (!where) return;
-      viewer?.setView?.(
-        where.centre ? { ...where, centre: intoTheStore(where.centre) } : where,
-      );
+      const asked = where.centre
+        ? { ...where, centre: intoTheStore(where.centre) }
+        : where;
+      /* Written down here as well as passed on, so that Fit and every other
+         "look at this" still moves the view when the engine has no coordinate
+         space to move — which is every step of a workflow before the run has
+         captured anything. */
+      ourOwnView = {
+        centre: asked.centre ? { ...asked.centre } : { ...ourOwnView.centre },
+        zoom: Number.isFinite(asked.zoom) && asked.zoom > 0 ? asked.zoom : ourOwnView.zoom,
+      };
+      viewer?.setView?.(asked);
+      if (!canPlaceThings(viewer?.getView?.())) {
+        sayWhereTheViewIs(null);
+        drawTheLayersAgain();
+      }
+      whoeverCanPlaceThingsHoldsTheDrags();
     },
 
     /**
@@ -1431,14 +1639,16 @@ export function putTheCanvasIn({
      * and the difference is a mark you cannot click on.
      */
     project(x, y) {
-      const where = viewer?.whereThingsAreDrawn?.();
-      if (!where) return { x: 0, y: 0 };
+      const where = whereThingsAreReallyDrawn();
+      if (!where?.project) return { x: 0, y: 0 };
       const at = intoTheStore({ x, y });
       return where.project(at.x, at.y);
     },
     unproject(px, py) {
-      const where = viewer?.whereThingsAreDrawn?.();
-      return where ? outOfTheStore(where.unproject(px, py)) : { x: 0, y: 0 };
+      const where = whereThingsAreReallyDrawn();
+      return where?.unproject
+        ? outOfTheStore(where.unproject(px, py))
+        : { x: 0, y: 0 };
     },
 
     changeTo,
@@ -1511,8 +1721,13 @@ export function putTheCanvasIn({
     destroy() {
       if (destroyed) return;
       destroyed = true;
-      /* Closing the canvas takes its gestures down with it — they belong to the
-         canvas now, so there is nothing left here to unhook. */
+      /* Closing the canvas takes the engine's gestures down with it — they
+         belong to the engine. The canvas's own pair, the ones that move the
+         view while no engine can, are this file's to unhook: left on the box
+         they would go on answering the operator's hand after the canvas they
+         belonged to had gone. */
+      ourGestures?.stop();
+      ourGestures = null;
       viewer?.destroy();
       viewer = null;
       box.textContent = "";
