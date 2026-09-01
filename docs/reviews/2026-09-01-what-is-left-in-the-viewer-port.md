@@ -6,6 +6,20 @@ built, in the order it is worth building.
 **Branch:** `claude/viewer-layer-020-617xad`.
 **Date:** 2026-09-01.
 
+## 0. If you are picking this up cold
+
+Work on `claude/viewer-layer-020-617xad`. Read the companion note first — it is
+the account of four faults that each reported success while keeping the picture
+off the screen, and it will stop you re-deriving them. Then read section 2
+below, which is the one rule that decides where each of these steps belongs.
+
+Everything runs against the mock instrument through the real bridge and the
+real page; section 8 of the companion lists the commands. Two things that will
+bite a fresh machine: the focus environment needs `ngio` (companion, section 9),
+and the operator page needs `npm install` in `application/`.
+
+---
+
 Everything below has been checked against the two panels side by side: the
 standalone viewer's `viz_studio/frontend/src/LayerPanel.jsx` and
 `AxisSlider.jsx`, and the operator window's vanilla port in
