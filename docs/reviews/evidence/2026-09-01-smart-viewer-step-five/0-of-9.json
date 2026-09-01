@@ -1,0 +1,664 @@
+{
+  "schemaVersion": 1,
+  "provenance": {
+    "microscopy": {
+      "branch": "codex/smart-viewer-integration-cleanup",
+      "commit": "e9c01c5c35b2eeddf26eca32efba4291941eec3a"
+    },
+    "smartViewer": {
+      "importPath": "/Users/thomdehoog/ZMART-viewer/zmart_viewer/__init__.py",
+      "version": "0.2.0",
+      "commit": "9ff10b04e803fbe2a71a1735a8065a845ea803dd",
+      "measureRoutePresent": true
+    }
+  },
+  "sample": "mock kidney",
+  "workflowStep": 5,
+  "captureMethod": "deterministic live bridge before acquisition",
+  "name": "0-of-9",
+  "timestampUtc": "2026-09-01T15:54:46.636Z",
+  "bridge": {
+    "origin": "http://127.0.0.1:8812"
+  },
+  "counts": {
+    "planned": 9,
+    "landed": 0,
+    "examined": 0,
+    "textured": 0
+  },
+  "pixelCheck": {
+    "canvas": {
+      "examined": 69930,
+      "differentFromCorner": 7588,
+      "shadeBins": 46,
+      "backgroundRgb": [
+        255,
+        255,
+        255
+      ]
+    },
+    "plannedRois": {
+      "required": 0,
+      "examined": 0,
+      "textured": 0
+    }
+  },
+  "roiResults": [],
+  "sourceCount": 1,
+  "acquisitions": [
+    {
+      "name": "focussing",
+      "datasetNumber": null,
+      "url": "http://127.0.0.1:50570/data/0/focussing_K00_M000000_G000000_P000000_V00.ome.zarr/|zarr3:",
+      "logicalChannelCount": 1,
+      "channels": [
+        {
+          "name": "channel 0",
+          "visible": true,
+          "sourceCount": 1,
+          "sources": [
+            "http://127.0.0.1:50570/data/0/focussing_K00_M000000_G000000_P000000_V00.ome.zarr/|zarr3:"
+          ]
+        }
+      ]
+    }
+  ],
+  "logicalChannelRows": [
+    {
+      "name": "focussing/channel 0",
+      "visible": true,
+      "sourceCount": 1,
+      "layerError": null
+    }
+  ],
+  "overviewSources": [],
+  "planBoundsUm": {
+    "carrierLocal": {
+      "frame": "carrier-local",
+      "unit": "um",
+      "xMin": 34964,
+      "yMin": 9964,
+      "xMax": 38036,
+      "yMax": 13036
+    },
+    "absoluteStage": {
+      "frame": "absolute-stage",
+      "unit": "um",
+      "xMin": 58464,
+      "yMin": 38464,
+      "xMax": 61536,
+      "yMax": 41536
+    }
+  },
+  "imageAggregateBoundsUm": null,
+  "registration": {
+    "positions": [],
+    "maximumErrorUm": null,
+    "maximumErrorPx": 0.07031875004350369,
+    "declaredTolerancePx": 1,
+    "screenProjections": [
+      {
+        "index": 0,
+        "carrierLocalUm": {
+          "x": 35476,
+          "y": 10476
+        },
+        "carrierOriginUm": {
+          "x": 23500,
+          "y": 28500
+        },
+        "absoluteStageUm": {
+          "x": 58976,
+          "y": 38976
+        },
+        "stageScreenPx": {
+          "x": 322.84586666666667,
+          "y": 222.1792
+        },
+        "engineScreenPx": {
+          "x": 322.845869140625,
+          "y": 222.24951875
+        },
+        "errorPx": 0.07031875004350369
+      },
+      {
+        "index": 1,
+        "carrierLocalUm": {
+          "x": 36500,
+          "y": 10476
+        },
+        "carrierOriginUm": {
+          "x": 23500,
+          "y": 28500
+        },
+        "absoluteStageUm": {
+          "x": 60000,
+          "y": 38976
+        },
+        "stageScreenPx": {
+          "x": 328,
+          "y": 222.1792
+        },
+        "engineScreenPx": {
+          "x": 328.0000024739583,
+          "y": 222.24951875
+        },
+        "errorPx": 0.07031875004350369
+      },
+      {
+        "index": 2,
+        "carrierLocalUm": {
+          "x": 37524,
+          "y": 10476
+        },
+        "carrierOriginUm": {
+          "x": 23500,
+          "y": 28500
+        },
+        "absoluteStageUm": {
+          "x": 61024,
+          "y": 38976
+        },
+        "stageScreenPx": {
+          "x": 333.15413333333333,
+          "y": 222.1792
+        },
+        "engineScreenPx": {
+          "x": 333.15413580729165,
+          "y": 222.24951875
+        },
+        "errorPx": 0.07031875004350369
+      },
+      {
+        "index": 3,
+        "carrierLocalUm": {
+          "x": 35476,
+          "y": 11500
+        },
+        "carrierOriginUm": {
+          "x": 23500,
+          "y": 28500
+        },
+        "absoluteStageUm": {
+          "x": 58976,
+          "y": 40000
+        },
+        "stageScreenPx": {
+          "x": 322.84586666666667,
+          "y": 227.33333333333334
+        },
+        "engineScreenPx": {
+          "x": 322.845869140625,
+          "y": 227.40365208333333
+        },
+        "errorPx": 0.07031875004350369
+      },
+      {
+        "index": 4,
+        "carrierLocalUm": {
+          "x": 36500,
+          "y": 11500
+        },
+        "carrierOriginUm": {
+          "x": 23500,
+          "y": 28500
+        },
+        "absoluteStageUm": {
+          "x": 60000,
+          "y": 40000
+        },
+        "stageScreenPx": {
+          "x": 328,
+          "y": 227.33333333333334
+        },
+        "engineScreenPx": {
+          "x": 328.0000024739583,
+          "y": 227.40365208333333
+        },
+        "errorPx": 0.07031875004350369
+      },
+      {
+        "index": 5,
+        "carrierLocalUm": {
+          "x": 37524,
+          "y": 11500
+        },
+        "carrierOriginUm": {
+          "x": 23500,
+          "y": 28500
+        },
+        "absoluteStageUm": {
+          "x": 61024,
+          "y": 40000
+        },
+        "stageScreenPx": {
+          "x": 333.15413333333333,
+          "y": 227.33333333333334
+        },
+        "engineScreenPx": {
+          "x": 333.15413580729165,
+          "y": 227.40365208333333
+        },
+        "errorPx": 0.07031875004350369
+      },
+      {
+        "index": 6,
+        "carrierLocalUm": {
+          "x": 35476,
+          "y": 12524
+        },
+        "carrierOriginUm": {
+          "x": 23500,
+          "y": 28500
+        },
+        "absoluteStageUm": {
+          "x": 58976,
+          "y": 41024
+        },
+        "stageScreenPx": {
+          "x": 322.84586666666667,
+          "y": 232.48746666666668
+        },
+        "engineScreenPx": {
+          "x": 322.845869140625,
+          "y": 232.55778541666666
+        },
+        "errorPx": 0.07031875004350369
+      },
+      {
+        "index": 7,
+        "carrierLocalUm": {
+          "x": 36500,
+          "y": 12524
+        },
+        "carrierOriginUm": {
+          "x": 23500,
+          "y": 28500
+        },
+        "absoluteStageUm": {
+          "x": 60000,
+          "y": 41024
+        },
+        "stageScreenPx": {
+          "x": 328,
+          "y": 232.48746666666668
+        },
+        "engineScreenPx": {
+          "x": 328.0000024739583,
+          "y": 232.55778541666666
+        },
+        "errorPx": 0.07031875004350369
+      },
+      {
+        "index": 8,
+        "carrierLocalUm": {
+          "x": 37524,
+          "y": 12524
+        },
+        "carrierOriginUm": {
+          "x": 23500,
+          "y": 28500
+        },
+        "absoluteStageUm": {
+          "x": 61024,
+          "y": 41024
+        },
+        "stageScreenPx": {
+          "x": 333.15413333333333,
+          "y": 232.48746666666668
+        },
+        "engineScreenPx": {
+          "x": 333.15413580729165,
+          "y": 232.55778541666666
+        },
+        "errorPx": 0.07031875004350369
+      }
+    ]
+  },
+  "visibility": {
+    "requested": {
+      "focussing": true,
+      "overview": true
+    },
+    "engineObserved": {
+      "focussing": [
+        {
+          "row": "focussing/channel 0",
+          "visible": true
+        }
+      ],
+      "overview": []
+    }
+  },
+  "stage": {
+    "view": {
+      "centre": {
+        "x": 8884.105960264904,
+        "y": 39731.06374172185
+      },
+      "zoom": 198.67549668874173
+    },
+    "canvas": {
+      "left": 284,
+      "top": 110,
+      "right": 662,
+      "bottom": 848.859375,
+      "width": 378,
+      "height": 738.859375
+    },
+    "projections": [
+      {
+        "index": 0,
+        "carrierLocalUm": {
+          "x": 35476,
+          "y": 10476
+        },
+        "carrierOriginUm": {
+          "x": 23500,
+          "y": 28500
+        },
+        "absoluteStageUm": {
+          "x": 58976,
+          "y": 38976
+        },
+        "stageScreenPx": {
+          "x": 322.84586666666667,
+          "y": 222.1792
+        },
+        "engineScreenPx": {
+          "x": 322.845869140625,
+          "y": 222.24951875
+        },
+        "errorPx": 0.07031875004350369
+      },
+      {
+        "index": 1,
+        "carrierLocalUm": {
+          "x": 36500,
+          "y": 10476
+        },
+        "carrierOriginUm": {
+          "x": 23500,
+          "y": 28500
+        },
+        "absoluteStageUm": {
+          "x": 60000,
+          "y": 38976
+        },
+        "stageScreenPx": {
+          "x": 328,
+          "y": 222.1792
+        },
+        "engineScreenPx": {
+          "x": 328.0000024739583,
+          "y": 222.24951875
+        },
+        "errorPx": 0.07031875004350369
+      },
+      {
+        "index": 2,
+        "carrierLocalUm": {
+          "x": 37524,
+          "y": 10476
+        },
+        "carrierOriginUm": {
+          "x": 23500,
+          "y": 28500
+        },
+        "absoluteStageUm": {
+          "x": 61024,
+          "y": 38976
+        },
+        "stageScreenPx": {
+          "x": 333.15413333333333,
+          "y": 222.1792
+        },
+        "engineScreenPx": {
+          "x": 333.15413580729165,
+          "y": 222.24951875
+        },
+        "errorPx": 0.07031875004350369
+      },
+      {
+        "index": 3,
+        "carrierLocalUm": {
+          "x": 35476,
+          "y": 11500
+        },
+        "carrierOriginUm": {
+          "x": 23500,
+          "y": 28500
+        },
+        "absoluteStageUm": {
+          "x": 58976,
+          "y": 40000
+        },
+        "stageScreenPx": {
+          "x": 322.84586666666667,
+          "y": 227.33333333333334
+        },
+        "engineScreenPx": {
+          "x": 322.845869140625,
+          "y": 227.40365208333333
+        },
+        "errorPx": 0.07031875004350369
+      },
+      {
+        "index": 4,
+        "carrierLocalUm": {
+          "x": 36500,
+          "y": 11500
+        },
+        "carrierOriginUm": {
+          "x": 23500,
+          "y": 28500
+        },
+        "absoluteStageUm": {
+          "x": 60000,
+          "y": 40000
+        },
+        "stageScreenPx": {
+          "x": 328,
+          "y": 227.33333333333334
+        },
+        "engineScreenPx": {
+          "x": 328.0000024739583,
+          "y": 227.40365208333333
+        },
+        "errorPx": 0.07031875004350369
+      },
+      {
+        "index": 5,
+        "carrierLocalUm": {
+          "x": 37524,
+          "y": 11500
+        },
+        "carrierOriginUm": {
+          "x": 23500,
+          "y": 28500
+        },
+        "absoluteStageUm": {
+          "x": 61024,
+          "y": 40000
+        },
+        "stageScreenPx": {
+          "x": 333.15413333333333,
+          "y": 227.33333333333334
+        },
+        "engineScreenPx": {
+          "x": 333.15413580729165,
+          "y": 227.40365208333333
+        },
+        "errorPx": 0.07031875004350369
+      },
+      {
+        "index": 6,
+        "carrierLocalUm": {
+          "x": 35476,
+          "y": 12524
+        },
+        "carrierOriginUm": {
+          "x": 23500,
+          "y": 28500
+        },
+        "absoluteStageUm": {
+          "x": 58976,
+          "y": 41024
+        },
+        "stageScreenPx": {
+          "x": 322.84586666666667,
+          "y": 232.48746666666668
+        },
+        "engineScreenPx": {
+          "x": 322.845869140625,
+          "y": 232.55778541666666
+        },
+        "errorPx": 0.07031875004350369
+      },
+      {
+        "index": 7,
+        "carrierLocalUm": {
+          "x": 36500,
+          "y": 12524
+        },
+        "carrierOriginUm": {
+          "x": 23500,
+          "y": 28500
+        },
+        "absoluteStageUm": {
+          "x": 60000,
+          "y": 41024
+        },
+        "stageScreenPx": {
+          "x": 328,
+          "y": 232.48746666666668
+        },
+        "engineScreenPx": {
+          "x": 328.0000024739583,
+          "y": 232.55778541666666
+        },
+        "errorPx": 0.07031875004350369
+      },
+      {
+        "index": 8,
+        "carrierLocalUm": {
+          "x": 37524,
+          "y": 12524
+        },
+        "carrierOriginUm": {
+          "x": 23500,
+          "y": 28500
+        },
+        "absoluteStageUm": {
+          "x": 61024,
+          "y": 41024
+        },
+        "stageScreenPx": {
+          "x": 333.15413333333333,
+          "y": 232.48746666666668
+        },
+        "engineScreenPx": {
+          "x": 333.15413580729165,
+          "y": 232.55778541666666
+        },
+        "errorPx": 0.07031875004350369
+      }
+    ]
+  },
+  "engineView": {
+    "centre": {
+      "x": 32384.10546875,
+      "y": 68231.0625
+    },
+    "zoom": 198.67549668874173,
+    "width": 378,
+    "height": 739
+  },
+  "bridgeErrors": [],
+  "viewTransition": {
+    "action": "none; Step 5 is ready and Run has not been pressed",
+    "before": {
+      "stage": {
+        "centre": {
+          "x": 8884.105960264904,
+          "y": 39731.06374172185
+        },
+        "zoom": 198.67549668874173
+      },
+      "engine": {
+        "centre": {
+          "x": 32384.10546875,
+          "y": 68231.0625
+        },
+        "zoom": 198.67549668874173,
+        "width": 378,
+        "height": 739
+      }
+    },
+    "after": {
+      "stage": {
+        "centre": {
+          "x": 8884.105960264904,
+          "y": 39731.06374172185
+        },
+        "zoom": 198.67549668874173
+      },
+      "engine": {
+        "centre": {
+          "x": 32384.10546875,
+          "y": 68231.0625
+        },
+        "zoom": 198.67549668874173,
+        "width": 378,
+        "height": 739
+      }
+    }
+  },
+  "requests": {
+    "required": {
+      "metadata": {
+        "successful": 3
+      },
+      "chunks": {
+        "successful": 4
+      },
+      "api": {
+        "successful": 33
+      }
+    },
+    "expectedFormatProbes": [],
+    "expectedOptionalProbes": [
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8812/view/overview/tiles.json",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8812/view/overview/tiles.json",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8812/view/overview/tiles.json",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8812/view/overview/tiles.json",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8812/view/overview/tiles.json",
+        "status": 404
+      }
+    ],
+    "expectedNavigationCancellations": [],
+    "unexpectedFailures": [],
+    "browserErrors": [],
+    "workerErrors": []
+  },
+  "browserErrors": [],
+  "workerErrors": []
+}
