@@ -49,6 +49,7 @@ viewer.getView()                   // → { centre, zoom }, the view now on scre
 viewer.theDepthItCanShow()         // → { lowUm, highUm, stepUm, atUm }, or null when flat
 viewer.setPlane(z)                 // which plane of the stack, in micrometres
 viewer.setMoment(t)                // which moment of a timelapse, counted from the first
+viewer.addSources(acquisitions)    // append-only growth of the same rows; Promise<boolean>
 viewer.showPicture(on)             // draw the acquisitions, or not; the viewer stays open
 viewer.canShowVolume               // true or false: can it draw the stack as a volume?
 viewer.canShowVolumeBecause        // one sentence saying why it is what it is
@@ -66,6 +67,13 @@ viewer.whereThingsAreDrawn()       // the transform, for placing ordinary HTML
 viewer.tilesMayHaveLanded({ coverage })   // "go and look, a tile may have arrived"
 viewer.destroy()
 ```
+
+`addSources` is the live-folder boundary. It returns `true` when the supplied
+acquisitions have the same row identities and each row merely appends position
+sources, including when there is nothing new. The existing Viewer instance,
+navigation, visibility, colour, and brightness remain untouched. It returns
+`false` when the acquisition/channel shape changed, so the caller can treat
+that as a different scene. An option that cannot grow in place returns `false`.
 
 Nothing else is public. Add your option's name to
 `harness/src/options.js` — one line — and the page, the drawing, the

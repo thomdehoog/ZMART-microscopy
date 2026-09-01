@@ -94,6 +94,7 @@ export function watchTheRun(ctx) {
     const host = ctx.pictureHost;
     let viewer = null;
     let opening = false;
+    let checkingForGrowth = false;
     /* What the open viewer was opened on, so a change — the run growing a
        second kind of scan — is noticed and the viewer reopened over it. */
     let openedOn = null;
@@ -222,15 +223,29 @@ export function watchTheRun(ctx) {
       viewer.setView(v);
     }
 
-    /** A run that grew — a new acquisition type, a store that moved — wants
-        the viewer opened over the new whole, not nudged. Asked cheaply on the
-        clock below; nothing happens while the answer is the one already open. */
+    /** Add positions of the stable acquisition to its existing layers.
+
+        A new acquisition type or a replaced source list is a different scene
+        and still takes the reopen path. Merely growing the watched positions
+        folder must not: closing it revokes `/data/N/` while chunks belonging
+        to that same picture may still be in flight. */
     async function reopenIfTheRunGrew() {
-      if (!viewer || opening) return;
-      const wanted = await whatToOpen();
-      if (!wanted || wanted.signature === openedOn) return;
-      closePicture();
-      await open();
+      if (!viewer || opening || checkingForGrowth) return;
+      checkingForGrowth = true;
+      try {
+        const wanted = await whatToOpen();
+        if (!wanted || wanted.signature === openedOn) return;
+        if (wanted.signature.startsWith("sources:")
+            && openedOn?.startsWith("sources:")
+            && await viewer.addSources?.(wanted.acquisitions)) {
+          openedOn = wanted.signature;
+          return;
+        }
+        closePicture();
+        await open();
+      } finally {
+        checkingForGrowth = false;
+      }
     }
 
     function closePicture({ forgetVisibility = false } = {}) {
