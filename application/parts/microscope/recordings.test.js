@@ -45,6 +45,12 @@ describe("a slot holds one reading of the instrument", () => {
     expect(only.detail.map(([label]) => label)).toContain("Metric");
   });
 
+  it("keeps acquisition channels as data rather than parsing the detail rows later", () => {
+    const [only] = record(emptySlot("acquisition"), "overview").records;
+    expect(only.channelCount).toBe(2);
+    expect(only.channels.map((channel) => channel.label)).toEqual(["DAPI", "GFP"]);
+  });
+
   it("leaves the slot it was handed alone", () => {
     const slot = emptySlot("acquisition");
     record(slot, "overview");

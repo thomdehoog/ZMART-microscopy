@@ -1028,6 +1028,69 @@ def _where_the_planes_are(handle: ZmartHandle, settings: Any, count: int):
     return where
 
 
+def _acquisition_channels(settings: dict) -> list[dict] | None:
+    """The output channels the selected LAS X job has armed.
+
+    The LRP/API readers preserve each active detector's ``ImageChannelArray``
+    under ``_ImageChannels``.  Count its detector channel identifiers across
+    the master and sequential parts of the job, excluding the autofocus-only
+    branch.  Silence stays ``None``: a guessed count is precisely what the
+    run-start display contract must not trust.
+    """
+    armed: dict[str, str] = {}
+
+    def visit(value, path: tuple[str, ...] = ()) -> None:
+        if isinstance(value, dict):
+            for key, child in value.items():
+                if str(key).lower() == "autofocus":
+                    continue
+                if key == "_Detectors" and isinstance(child, list):
+                    for at, detector in enumerate(child):
+                        if not isinstance(detector, dict):
+                            continue
+                        outputs = detector.get("_ImageChannels")
+                        if not isinstance(outputs, list) or not any(
+                            isinstance(output, dict)
+                            and str(output.get("IsEnabled", "1")) != "0"
+                            for output in outputs
+                        ):
+                            continue
+                        identity = detector.get("Channel") or detector.get("ChannelName")
+                        identity = str(identity if identity is not None else (*path, at))
+                        label = str(detector.get("ChannelName") or f"Channel {identity}")
+                        armed.setdefault(identity, label)
+                else:
+                    visit(child, (*path, str(key)))
+        elif isinstance(value, list):
+            for at, child in enumerate(value):
+                visit(child, (*path, str(at)))
+
+    visit(settings)
+    if not armed:
+        return None
+
+    def order(item: tuple[str, str]):
+        identity = item[0]
+        try:
+            return (0, int(identity))
+        except ValueError:
+            return (1, identity)
+
+    return [
+        {
+            "key": f"leica-channel-{identity}",
+            "index": index,
+            "label": label,
+        }
+        for index, (identity, label) in enumerate(sorted(armed.items(), key=order))
+    ]
+
+
+def _acquisition_channel_count(settings: dict) -> int | None:
+    channels = _acquisition_channels(settings)
+    return None if channels is None else len(channels)
+
+
 def get_state(handle: ZmartHandle) -> dict:
     """The instrument state: the changeable part first, then the observed report.
 
@@ -1089,6 +1152,8 @@ def get_state(handle: ZmartHandle) -> dict:
             "active_objective": dict(active_objective or {}),
             "pixel_size": pixel_size,
             "frame_size": frame_size,
+            "channel_count": _acquisition_channel_count(settings),
+            "channels": _acquisition_channels(settings),
             "jobs": normal,
             "autofocus_jobs": autofocus,
             # Which function-limits file governs this session (evidence, not

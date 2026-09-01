@@ -575,6 +575,15 @@ def get_state(handle: MockHandle) -> dict:
             "gain": handle.gain,
         },
         "observed": {
+            "channel_count": _ONE_PLANE["channels"],
+            "channels": [
+                {
+                    "key": f"mock-channel-{index}",
+                    "index": index,
+                    "label": f"channel {index + 1}",
+                }
+                for index in range(_ONE_PLANE["channels"])
+            ],
             "serial": handle.serial,
             "objective": {
                 "magnification": handle.magnification,

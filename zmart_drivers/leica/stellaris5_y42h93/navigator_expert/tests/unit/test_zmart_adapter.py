@@ -1115,6 +1115,45 @@ class TestStateAndProcedures(unittest.TestCase):
             {"x": 0.1, "y": 0.2, "unit": "um"},
         )
 
+    def test_state_counts_armed_job_channels_without_counting_autofocus(self):
+        h = _handle()
+        p = self._state_patches()
+        settings = {
+            "Master": {
+                "_Detectors": [
+                    {"Channel": "1"},
+                    {"Channel": "2", "_ImageChannels": [{"IsEnabled": "1"}]},
+                ]
+            },
+            "Sequential": {
+                "_Detectors": [
+                    {"Channel": "3", "_ImageChannels": [{"IsEnabled": "1"}]},
+                    {"Channel": "4", "_ImageChannels": [{"IsEnabled": "0"}]},
+                ]
+            },
+            "AutoFocus": {
+                "_Detectors": [
+                    {"Channel": "5", "_ImageChannels": [{"IsEnabled": "1"}]}
+                ]
+            },
+        }
+        with (
+            p[0],
+            p[1],
+            p[2],
+            patch.object(adapter._readers, "get_job_settings", return_value=settings),
+        ):
+            observed = adapter.get_state(h)["observed"]
+
+        self.assertEqual(observed["channel_count"], 2)
+        self.assertEqual(
+            observed["channels"],
+            [
+                {"key": "leica-channel-2", "index": 0, "label": "Channel 2"},
+                {"key": "leica-channel-3", "index": 1, "label": "Channel 3"},
+            ],
+        )
+
     def test_set_state_refuses_an_autofocus_job(self):
         h = _handle()
         p = self._state_patches()

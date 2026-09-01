@@ -33,6 +33,15 @@
  */
 const acquisition = ({ objective, pixelUm, framePx, channels, zStack }) => {
   const frameUm = Math.round(framePx * pixelUm);
+  const describedChannels = channels.map((said, index) => {
+    const label = said.split("·")[0].trim() || `channel ${index + 1}`;
+    const wavelength = said.match(/\b(\d+)\s*nm\b/i)?.[1];
+    return {
+      key: wavelength ? `${wavelength}-${index}` : `channel-${index}`,
+      index,
+      label,
+    };
+  });
   /* The line an operator checks a configuration by: the objective as the
      instrument names it, and how much sample one frame covers. The name
      already carries the magnification and the aperture, so picking those back
@@ -48,6 +57,8 @@ const acquisition = ({ objective, pixelUm, framePx, channels, zStack }) => {
   const summary = `${objective}, ${frameUm} × ${frameUm} µm`;
   return {
     summary, pixelUm, framePx, frameUm,
+    channels: describedChannels,
+    channelCount: describedChannels.length,
     detail: [
       ["Objective", objective],
       ["Pixel size", `${pixelUm.toFixed(2)} µm`],

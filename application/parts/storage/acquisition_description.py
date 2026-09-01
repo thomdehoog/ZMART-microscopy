@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import time
 import uuid
 from copy import deepcopy
 from pathlib import Path
@@ -12,6 +13,11 @@ from typing import Any
 
 DESCRIPTION_NAME = "zmart-acquisition.json"
 SCHEMA = "zmart-acquisition-display/1"
+_STALE_TEMPORARY_AFTER_S = 24 * 60 * 60
+
+
+class AcquisitionDescriptionError(ValueError):
+    """The acquisition-wide display contract is absent, invalid or contradictory."""
 
 
 def _finite_numbers(value: Any, what: str) -> None:
@@ -169,21 +175,22 @@ def validate_acquisition_description(
     return {"schema": SCHEMA, "acquisitionType": found_type, "channels": channels}
 
 
-def acquisition_description(acquisition_type: str, channels: list[dict] | dict) -> dict:
-    """Make the complete document from an explicit API ``channels`` value."""
+def acquisition_description(
+    acquisition_type: str, channels: list[dict] | dict, *, channel_count: int
+) -> dict:
+    """Make a document checked against the acquisition's independent channel count."""
     document = (
         channels
         if isinstance(channels, dict)
         else {"schema": SCHEMA, "acquisitionType": acquisition_type, "channels": channels}
     )
-    count = len(document.get("channels") or []) if isinstance(document, dict) else 0
     return validate_acquisition_description(
-        document, acquisition_type=acquisition_type, channel_count=count
+        document, acquisition_type=acquisition_type, channel_count=channel_count
     )
 
 
 def read_acquisition_description(
-    folder: Path | str, *, acquisition_type: str | None = None, channel_count: int | None = None
+    folder: Path | str, *, channel_count: int
 ) -> dict | None:
     """Read and validate the complete sidecar, or return ``None`` when absent."""
     folder = Path(folder)
@@ -194,26 +201,58 @@ def read_acquisition_description(
         value = json.loads(source.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise ValueError(f"{source} is not readable JSON") from exc
-    found_type = acquisition_type or value.get("acquisitionType")
-    raw_channels = value.get("channels") if isinstance(value, dict) else None
-    count = channel_count if channel_count is not None else len(raw_channels or [])
     return validate_acquisition_description(
-        value, acquisition_type=found_type, channel_count=count
+        value, acquisition_type=folder.name, channel_count=channel_count
     )
 
 
-def write_acquisition_description(folder: Path | str, description: dict) -> Path:
-    """Publish one immutable description atomically and idempotently."""
+def _sweep_abandoned_temporaries(folder: Path) -> None:
+    """Remove only old, certainly abandoned siblings; never race a live writer."""
+    now = time.time()
+    for temporary in folder.glob(f".{DESCRIPTION_NAME}.*.tmp"):
+        try:
+            if now - temporary.stat().st_mtime > _STALE_TEMPORARY_AFTER_S:
+                temporary.unlink()
+        except OSError:
+            continue
+
+
+def _sync_directory(folder: Path) -> None:
+    """Make the newly linked filename durable where directory fsync exists."""
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+    try:
+        descriptor = os.open(folder, flags)
+    except OSError:
+        return
+    try:
+        os.fsync(descriptor)
+    except OSError:
+        # Windows supports the atomic hard link below but not directory fsync.
+        pass
+    finally:
+        os.close(descriptor)
+
+
+def write_acquisition_description(
+    folder: Path | str, description: dict, *, channel_count: int
+) -> Path:
+    """Publish one immutable description atomically and without a writer race.
+
+    The contract is create-once, so a hard link is stronger than replacing the
+    target: two writers can both prepare complete files, but only one can create
+    the target name.  The loser then compares against the winner and either
+    accepts the identical value or refuses the contradiction.
+    """
     folder = Path(folder)
-    raw_channels = description.get("channels") if isinstance(description, dict) else None
     normal = validate_acquisition_description(
         description,
         acquisition_type=folder.name,
-        channel_count=len(raw_channels or []),
+        channel_count=channel_count,
     )
     folder.mkdir(parents=True, exist_ok=True)
+    _sweep_abandoned_temporaries(folder)
     target = folder / DESCRIPTION_NAME
-    existing = read_acquisition_description(folder)
+    existing = read_acquisition_description(folder, channel_count=channel_count)
     if existing is not None:
         if existing != normal:
             raise ValueError(
@@ -229,7 +268,17 @@ def write_acquisition_description(folder: Path | str, description: dict) -> Path
             stream.write("\n")
             stream.flush()
             os.fsync(stream.fileno())
-        os.replace(temporary, target)
+        try:
+            os.link(temporary, target)
+        except FileExistsError:
+            existing = read_acquisition_description(folder, channel_count=channel_count)
+            if existing != normal:
+                raise ValueError(
+                    f"{target} was concurrently published with a different display "
+                    "contract; the acquisition has not started"
+                ) from None
+        else:
+            _sync_directory(folder)
     finally:
         temporary.unlink(missing_ok=True)
     return target
@@ -253,6 +302,7 @@ def ome_channel_blocks(
         channel_count=len(description.get("channels") or []),
     )
     blocks = []
+    unresolved = False
     for channel in normal["channels"]:
         declared_range = channel.get("range") or {"min": 0, "max": depth_max}
         window = dict(declared_range)
@@ -263,8 +313,14 @@ def ome_channel_blocks(
                 chosen = {"start": chosen[0], "end": chosen[1]}
         if chosen is not None:
             window.update(chosen)
+        else:
+            unresolved = True
         block = {"label": channel["label"], "window": window}
         if channel.get("color") is not None:
             block["color"] = channel["color"]
         blocks.append(block)
-    return blocks
+    # ngio refuses an omero block with min/max but no start/end.  Omitting the
+    # whole advisory block is the interoperable unresolved shape; during M1 the
+    # fallback supplies every channel, so existing position files keep their
+    # names, colours and compatibility windows.
+    return [] if unresolved else blocks
