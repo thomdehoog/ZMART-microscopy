@@ -111,7 +111,9 @@ Smart Operator remains the authority for:
 
 Step 5 is a two-dimensional presentation. Its shared display `z=0` is an
 overlay anchor, not the microscope stage's zero and not a registered specimen
-datum.
+datum. This model applies uniformly to every acquisition type, including
+`overview`, `focussing`, and `target`; no acquisition name selects different Z
+arithmetic.
 
 - Every source declares one source-local anchor-plane voxel centre. Its stored
   transform maps that centre to shared display `z=0`; sources that overlap in
@@ -131,6 +133,9 @@ datum.
   presentation but does not independently offset a layer transform.
 - Navigation state and source transforms remain separate. Moving the depth
   control selects a source-local plane; it does not rewrite placement.
+- Acquisition draw order and visibility remain independent presentation state.
+  Putting a target above an overview, or hiding focussing, does not alter any
+  source's anchor or Z transform.
 
 Future physical 3-D placement is deliberately outside this delivery. It
 requires validated Z scale and direction, an explicit anchor, calibrated stage
@@ -145,9 +150,10 @@ model; it does not introduce a broader 3-D placement scheme.
 Focused gates for this model are:
 
 1. every 2-D source anchor evaluates to display `z=0`, including sources with
-   different raw acquisition Z;
+   different raw acquisition Z, parameterized across `overview`, `focussing`,
+   and `target`;
 2. a stack's internal signed spacing, plane order, units, and direction remain
-   unchanged by anchoring;
+   unchanged by anchoring, parameterized across the same acquisition types;
 3. original plane-centre Z and requested focus Z are recoverable from
    provenance, explicitly marked as not registered specimen Z;
 4. a legacy fallback, when needed, is present in source/scene metadata before
