@@ -100,6 +100,18 @@ export function watchTheRun(ctx) {
     let inStageFrame = true;
     let panel = null;
 
+    /* Every address that materially shapes a Viewer acquisition.  Smart
+       Viewer puts the position stores on the channel rows, not beside the
+       acquisition.  Leaving those addresses out made a growing run look
+       unchanged after its first field, so the engine never received fields
+       two through nine. */
+    const addressesIn = (acquisitions) => acquisitions.flatMap((acquisition) => {
+      const channelSources = (acquisition.channels ?? []).flatMap(
+        (channel) => channel.sources ?? [],
+      );
+      return channelSources.length ? channelSources : [acquisition.url];
+    }).filter(Boolean);
+
     /**
      * What there is to draw, asked fresh each time.
      *
@@ -125,7 +137,7 @@ export function watchTheRun(ctx) {
         return {
           engine: search.get("engine") ?? "neuroglancer-under",
           acquisitions: sources,
-          signature: `sources:${sources.map((s) => s.url).join("|")}`,
+          signature: `sources:${addressesIn(sources).join("|")}`,
           inStageFrame: true,
         };
       }

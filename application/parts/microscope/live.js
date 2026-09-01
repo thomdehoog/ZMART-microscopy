@@ -88,15 +88,23 @@ export const backend = {
   },
 
   /**
-   * The OME-Zarr pictures of this run, as the viewer server beside the bridge
-   * serves them: one entry per acquisition source, each a whole address an
-   * engine can open. `null` while the viewer is not up or holds nothing yet —
-   * the page then falls back to the JPEG copies, so a machine without the
-   * viewer installed draws exactly as it always has.
+   * The OME-Zarr pictures of this run, in Smart Viewer's own grouping: one
+   * entry per acquisition, one channel entry per Viewer layer, and every
+   * spatial store retained in that channel's `sources` list.  This shape is
+   * load-bearing — nine fields of a three-channel overview are three channel
+   * controls backed by nine sources, not twenty-seven controls.
+   *
+   * `null` while the Viewer is not up or holds nothing yet; the page then
+   * falls back to the JPEG copies, so a machine without the Viewer installed
+   * draws exactly as it always has.  The `sources` fallback keeps this page
+   * able to speak to an older bridge during a rolling update.
    */
   async viewerSources() {
     try {
       const state = await ask("/api/viewer");
+      if (Array.isArray(state?.acquisitions) && state.acquisitions.length) {
+        return state.acquisitions;
+      }
       const all = [];
       for (const sources of Object.values(state?.sources ?? {})) {
         for (const source of sources) all.push({ url: source.url, name: source.name });

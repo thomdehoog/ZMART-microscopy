@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import application.parts.storage.viewer_service as service
 
 
@@ -16,6 +18,7 @@ def _empty_service(*, port: int | None = None) -> dict:
         "port": port,
         "error": None,
         "sources": {},
+        "acquisitions": [],
         "opened": set(),
     }
 
@@ -58,6 +61,65 @@ def test_only_the_newest_dataset_generation_is_kept():
 
     assert len(answered["overview"]) == 3
     assert all("/data/2/" in one["url"] for one in answered["overview"])
+
+
+def test_smart_viewer_channel_rows_keep_all_their_spatial_sources():
+    sources = [f"/data/7/overview_P{number:06d}.ome.zarr/|zarr3:" for number in range(9)]
+    answered = service._the_acquisitions_in(
+        _config(
+            *[
+                {
+                    "group": "overview",
+                    "name": f"channel {channel}",
+                    "channelIndex": channel,
+                    "color": [0, channel / 2, 1],
+                    "window": {"low": 192, "high": 2575},
+                    "histogram": {"counts": [1, 2, 3], "low": 0, "high": 4095},
+                    "sources": sources,
+                }
+                for channel in range(3)
+            ]
+        ),
+        port=8848,
+    )
+
+    assert len(answered) == 1
+    assert answered[0]["name"] == "overview"
+    assert len(answered[0]["channels"]) == 3
+    assert [channel["name"] for channel in answered[0]["channels"]] == [
+        "channel 0",
+        "channel 1",
+        "channel 2",
+    ]
+    assert all(len(channel["sources"]) == 9 for channel in answered[0]["channels"])
+    assert all(
+        source.startswith("http://127.0.0.1:8848/data/7/")
+        for channel in answered[0]["channels"]
+        for source in channel["sources"]
+    )
+
+
+def test_scene_discards_an_old_generation_without_flattening_the_new_one():
+    answered = service._the_acquisitions_in(
+        _config(
+            {
+                "group": "overview",
+                "name": "channel 0",
+                "channelIndex": 0,
+                "sources": [
+                    "/data/3/old-a.ome.zarr/|zarr3:",
+                    "/data/3/old-b.ome.zarr/|zarr3:",
+                    "/data/17/current-a.ome.zarr/|zarr3:",
+                    "/data/17/current-b.ome.zarr/|zarr3:",
+                    "/data/17/current-c.ome.zarr/|zarr3:",
+                ],
+            }
+        ),
+        port=8848,
+    )
+
+    assert len(answered[0]["channels"][0]["sources"]) == 3
+    assert all("/data/17/" in source for source in answered[0]["channels"][0]["sources"])
 
 
 def test_viewer_decorations_do_not_make_an_extra_acquisition():
@@ -104,6 +166,9 @@ def test_status_reads_the_live_viewer_config_afresh(monkeypatch):
 
     assert asked == [(8848, "/api/config")]
     assert len(state["sources"]["overview"]) == 4
+    assert len(state["acquisitions"]) == 1
+    assert len(state["acquisitions"][0]["channels"]) == 1
+    assert len(state["acquisitions"][0]["channels"][0]["sources"]) == 4
 
 
 def test_status_keeps_the_last_picture_when_a_refresh_stumbles(monkeypatch):
@@ -154,9 +219,33 @@ def test_a_growing_folder_is_opened_once_and_then_only_announced(monkeypatch, tm
         service._viewer.clear()
         service._viewer.update(before)
 
-    assert [route for route, _ in calls] == [
-        "/api/stores/open",
-        "/api/announce",
-        "/api/announce",
+    assert calls == [
+        ("/api/stores/open", {"path": str(tmp_path)}),
+        ("/api/announce", {"wrote_image_in_place": True}),
+        ("/api/announce", {"wrote_image_in_place": True}),
     ]
     assert not any(route == "/api/stores/close" for route, _ in calls)
+
+
+def test_live_config_read_finishes_before_the_next_operator_poll(monkeypatch):
+    seen: list[tuple[str, float]] = []
+
+    class Answer:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *ignored):
+            return None
+
+        def read(self):
+            return json.dumps({"layers": []}).encode()
+
+    def urlopen(url: str, timeout: float):
+        seen.append((url, timeout))
+        return Answer()
+
+    monkeypatch.setattr(service.urllib.request, "urlopen", urlopen)
+
+    assert service._read(8848, "/api/config") == {"layers": []}
+    assert seen == [("http://127.0.0.1:8848/api/config", service.VIEWER_POLL_TIMEOUT_S)]
+    assert service.VIEWER_POLL_TIMEOUT_S < 1.5

@@ -232,10 +232,15 @@ export async function openViewer(element, options = {}) {
   } = options;
 
   for (const acquisition of acquisitions) {
-    if (!/^[a-z]+:\/\//i.test(acquisition.url || "")) {
+    const addresses = [
+      acquisition.url,
+      ...(acquisition.channels ?? []).flatMap((channel) => channel.sources ?? []),
+    ].filter(Boolean);
+    for (const address of new Set(addresses)) {
+      if (/^[a-z]+:\/\//i.test(address)) continue;
       throw new Error(
         `the acquisition "${acquisition.name}" was given the address ` +
-          `"${acquisition.url}", which has no scheme or host in it. ` +
+          `"${address}", which has no scheme or host in it. ` +
           "Neuroglancer accepts such an address, builds the layer, raises no " +
           "error and then never fetches anything at all, so this is refused " +
           "here instead. Pass the whole address, including http:// and the host.",
@@ -642,9 +647,14 @@ async function start(own, acquisitions) {
 
   own.rows = await rowsFor(acquisitions);
   for (const [at, row] of own.rows.entries()) {
-    const managed = makeLayer(own.viewer.layerSpecification, row.layerName, {
+    const description = {
       type: "image",
-      source: row.url,
+      // Smart Viewer 0.2's central rule: every position store of one channel
+      // is a source of the SAME layer.  Neuroglancer places each one from the
+      // transform in its OME-Zarr metadata.  Flattening this array into one
+      // acquisition per address is what produced 27 controls for a 3-channel,
+      // 3-by-3 overview and is deliberately impossible here.
+      source: row.sources.length === 1 ? row.sources[0] : row.sources,
       shader: shaderFor(row.colour),
       shaderControls: controlsFor(row),
       // How solid this layer is. The engine's own default for an image layer is
@@ -673,7 +683,11 @@ async function start(own, acquisitions) {
        * window showed green against Viv's 0.029% on the same view, and Viv is
        * doing the arithmetic this asks the engine for.
        */
-      blend: "additive",
+      // Follow Smart Viewer 0.2's seam rule.  Additive blending is safe for a
+      // row fed by one store; with several spatial stores it can brighten the
+      // overlap at every tile join, so the multi-source row keeps the engine's
+      // covering rule.
+      ...(row.sources.length === 1 ? { blend: "additive" } : {}),
       // Where a store keeps its channels inside one array, this is what picks
       // the channel out: the engine offers it as a dimension belonging to the
       // layer, and each row pins it to its own index. Nothing splits the data —
@@ -686,8 +700,13 @@ async function start(own, acquisitions) {
       // and is simply lost. Measured before it was moved here: a run with two
       // channels drew both of its layers from the same channel, so one colour
       // was missing and the other was drawn twice.
-      localPosition: [row.channelIndex],
-    });
+      ...(Array.isArray(row.localPosition)
+        ? { localPosition: row.localPosition }
+        : row.channelIndex != null
+          ? { localPosition: [row.channelIndex] }
+          : {}),
+    };
+    const managed = makeLayer(own.viewer.layerSpecification, row.layerName, description);
     own.viewer.layerSpecification.add(managed, at);
     row.managed = managed;
   }
@@ -969,10 +988,13 @@ async function theRunsOwnDescription(url) {
 async function rowsFor(acquisitions) {
   const rows = [];
   for (const acquisition of acquisitions) {
-    const itsOwnDescription = await theRunsOwnDescription(acquisition.url);
+    const explicitlyDescribed = acquisition.channels && acquisition.channels.length;
+    const itsOwnDescription = explicitlyDescribed
+      ? null
+      : await theRunsOwnDescription(acquisition.url);
     // What the page said, where it said anything; otherwise what the run says
     // about itself; and only if the run says nothing either, one white channel.
-    const described = acquisition.channels && acquisition.channels.length
+    const described = explicitlyDescribed
       ? acquisition.channels
       : channelsTheStoreDescribes(itsOwnDescription)
         || [{ name: acquisition.name, colour: [...WHITE], window: null }];
@@ -990,15 +1012,25 @@ async function rowsFor(acquisitions) {
        viewer's own backend; this is the same fault in the canvas. */
     const channels = [];
     for (const [within, channel] of described.entries()) {
+      const sources = channel.sources?.length
+        ? [...channel.sources]
+        : [channel.source ?? acquisition.url];
       channels.push(channel.window ? channel : {
         ...channel,
-        window: (await theRangeAStoreHolds(acquisition.url, { channel: within }))
+        sources,
+        window: (await theRangeAStoreHolds(sources[0], {
+          channel: channel.channelIndex ?? within,
+        }))
           || { ...AN_ORDINARY_WINDOW },
       });
     }
     channels.forEach((channel, within) => {
+      const sources = channel.sources?.length
+        ? [...channel.sources]
+        : [channel.source ?? acquisition.url];
       rows.push({
-        url: acquisition.url,
+        url: sources[0],
+        sources,
         acquisition: acquisition.name,
         name: channel.name,
         // The engine keeps one flat list of layers and needs their names to be
@@ -1016,8 +1048,10 @@ async function rowsFor(acquisitions) {
         // drawn in the colour it had asked for the first. Nothing on screen
         // could have told an operator that. The other two options have always
         // said which channel they mean, and now all three do.
-        channelIndex: within,
+        channelIndex: channel.channelIndex === undefined ? within : channel.channelIndex,
+        localPosition: channel.localPosition,
         visible: channel.visible !== false,
+        weight: channel.weight ?? 1,
         managed: null,
       });
     });

@@ -81,28 +81,67 @@ async function theStoresDescription(url) {
   return null;
 }
 
-/** One flat row list, matching the engine's own numbering. */
-async function theRows(acquisitions) {
+/** One flat row list, matching the engine's own numbering.
+ *
+ * Smart Viewer has already classified and measured its rows.  When those are
+ * present on `acquisition.channels`, use them directly and, crucially, keep
+ * each row's spatial `sources` together.  Reading every store as though it
+ * were a new acquisition is the 9 × 3 = 27 bug this adapter exists to prevent.
+ */
+export async function viewerRowsFor(acquisitions) {
   const rows = [];
   for (const acquisition of acquisitions) {
-    const described = (await theStoresDescription(acquisition.url))?.omero?.channels;
-    const channels = Array.isArray(described) && described.length
-      ? described.map((channel, at) => ({
-        name: channel?.label || `channel ${at + 1}`,
-        color: typeof channel?.color === "string" ? `#${channel.color}` : null,
-        window: channel?.window && Number.isFinite(channel.window.start)
-          ? { low: channel.window.start, high: channel.window.end }
-          : null,
-        within: at,
+    const offered = Array.isArray(acquisition.channels) && acquisition.channels.length
+      ? acquisition.channels
+      : null;
+    const described = offered
+      ? null
+      : (await theStoresDescription(acquisition.url))?.omero?.channels;
+    const channels = offered
+      ? offered.map((channel, at) => ({
+        name: channel.name || `channel ${at}`,
+        color: Array.isArray(channel.colour)
+          ? cssOf(channel.colour)
+          : channel.color ?? null,
+        window: channel.window ?? null,
+        within: Array.isArray(channel.localPosition)
+          ? channel.localPosition[0]
+          : channel.channelIndex ?? at,
+        source: (channel.sources ?? [channel.source ?? acquisition.url])[0],
+        sources: channel.sources ?? [channel.source ?? acquisition.url],
+        histogram: channel.histogram ?? null,
+        visible: channel.visible !== false,
+        weight: channel.weight ?? 1,
       }))
-      : [{ name: acquisition.name, color: null, window: null, within: 0 }];
+      : Array.isArray(described) && described.length
+        ? described.map((channel, at) => ({
+          name: channel?.label || `channel ${at + 1}`,
+          color: typeof channel?.color === "string" ? `#${channel.color}` : null,
+          window: channel?.window && Number.isFinite(channel.window.start)
+            ? { low: channel.window.start, high: channel.window.end }
+            : null,
+          within: at,
+          source: acquisition.url,
+          sources: [acquisition.url],
+          histogram: null,
+          visible: true,
+          weight: 1,
+        }))
+        : [{
+          name: acquisition.name,
+          color: null,
+          window: null,
+          within: 0,
+          source: acquisition.url,
+          sources: [acquisition.url],
+          histogram: null,
+          visible: true,
+          weight: 1,
+        }];
     for (const channel of channels) {
       rows.push({
         ...channel,
         acquisition: acquisition.name,
-        source: acquisition.url,
-        visible: true,
-        weight: 1,
       });
     }
   }
@@ -112,6 +151,9 @@ async function theRows(acquisitions) {
 /** Ask the viewer's server about one channel: its histogram and a window it
     would choose itself. `null` when it will not say. */
 async function measured(row) {
+  const alreadyKnown = row.histogram
+    ? { histogram: row.histogram, window: row.window ?? row.histogram.autoWindow }
+    : null;
   try {
     const origin = new URL(row.source).origin;
     const answer = await fetch(`${origin}/api/measure`, {
@@ -121,11 +163,11 @@ async function measured(row) {
         source: row.source, channel: row.within, box: [[0, 0], [1, 1]],
       }),
     });
-    if (!answer.ok) return null;
+    if (!answer.ok) return alreadyKnown;
     const body = await answer.json();
-    return body?.histogram ? body : null;
+    return body?.histogram ? body : alreadyKnown;
   } catch {
-    return null;
+    return alreadyKnown;
   }
 }
 
@@ -157,7 +199,7 @@ function anEye(open) {
  * column of the same grid row, directly to the canvas's right.
  */
 export async function mountViewerPanel(near, { viewer, acquisitions }) {
-  const rows = await theRows(acquisitions);
+  const rows = await viewerRowsFor(acquisitions);
 
   if (!document.getElementById("zv-slider-skin")) {
     const skin = document.createElement("style");
@@ -502,13 +544,14 @@ export async function mountViewerPanel(near, { viewer, acquisitions }) {
       });
       head.append(groupEye, el("span",
         `flex:1;font:${font(600, 12)};letter-spacing:.02em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;`,
-        heading));
+        heading), el("span", `font:${font(400, 11)};color:${INK.textMuted};`, String(members.length)));
       groupBox = el("div", `padding-left:8px;border-left:2px solid ${INK.subtleBorder};margin-left:16px;`);
       group.append(head, groupBox);
       data.append(group);
     }
     const line = el("div",
       "position:relative;padding:1px 0;cursor:pointer;margin-right:12px;border-radius:3px;");
+    line.dataset.channelRow = row.name;
     const inner = el("div", "display:flex;align-items:center;gap:8px;padding:5px 12px;");
     const eye = el("button",
       `background:none;border:none;color:${INK.textPrimary};cursor:pointer;padding:0;`);
