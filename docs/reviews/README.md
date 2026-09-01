@@ -14,6 +14,10 @@ Three documents live at the top level:
 - `2026-07-19-leica-driver-review.md` — the Leica driver review: how the
   driver is organized, the limits model, the reorganization that followed,
   and the quirk catalog with what is resolved and what remains.
+- `2026-09-01-review-of-the-lazy-jpeg-pyramid-design.md` — a review of the
+  proposal to build a display-only JPEG pyramid for the browser viewer. The
+  design itself lives on another branch; this note names the commit it read,
+  and the reasoning applies more widely than that one proposal.
 
 Everything in `archive/` is history: earlier review rounds, the prompts
 that were used to run them, and progress snapshots from along the way.
