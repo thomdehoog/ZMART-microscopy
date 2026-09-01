@@ -1802,6 +1802,7 @@ let stageWatch = null;
     fadeTo: (value) => stage.fadeTo(value),
     plan: () => stage.plan(),
     project: (x, y) => stage.project(x, y),
+    view: () => stage.pictureView(),
     carrierOriginUm: () => stage.carrierOriginUm(),
   };
   /* The selected focus point, for a test that needs to take hold of one. */
