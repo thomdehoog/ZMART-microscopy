@@ -30,8 +30,7 @@ const rest = (ms) => new Promise((done) => setTimeout(done, ms));
 async function control(page, label) {
   return page.evaluate((wanted) => {
     const panel = window.__viewerPanel ?? document.body;
-    const line = [...panel.querySelectorAll("label")]
-      .find((one) => one.textContent.startsWith(wanted));
+    const line = panel.querySelector(`[data-control="${wanted}"]`);
     const slider = line?.querySelector("input[type=range]");
     const box = line?.querySelector("span:last-child");
     return slider
@@ -44,8 +43,7 @@ async function control(page, label) {
 async function move(page, label, to) {
   await page.evaluate(({ wanted, value }) => {
     const panel = window.__viewerPanel ?? document.body;
-    const line = [...panel.querySelectorAll("label")]
-      .find((one) => one.textContent.startsWith(wanted));
+    const line = panel.querySelector(`[data-control="${wanted}"]`);
     const slider = line.querySelector("input[type=range]");
     slider.value = String(value);
     slider.dispatchEvent(new Event("input", { bubbles: true }));

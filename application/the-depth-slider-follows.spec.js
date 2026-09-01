@@ -25,10 +25,7 @@ const rest = (ms) => new Promise((done) => setTimeout(done, ms));
 async function whatTheDepthSays(page) {
   return page.evaluate(() => {
     const panel = window.__viewerPanel ?? document.body;
-    /* The depth slider is the one in the "picture" card, which is the last of
-       the three; the settings card's sliders are the contrast ones. */
-    const line = [...panel.querySelectorAll("label")]
-      .find((one) => one.textContent.startsWith("depth (z)"));
+    const line = panel.querySelector("[data-control='depth (z)']");
     const slider = line?.querySelector("input[type=range]");
     const box = line?.querySelector("span:last-child");
     return {

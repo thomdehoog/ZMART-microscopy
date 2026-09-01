@@ -303,6 +303,7 @@ function aPlayGlyph(playing) {
 function anAxisControl(label, playTitle) {
   const line = el("label",
     `display:none;grid-template-columns:52px 18px 1fr 96px;gap:6px;align-items:center;padding:2px 12px;font-size:10px;color:${INK.textMuted};`);
+  line.dataset.control = label;
   line.append(el("span", "", label));
 
   const play = el("button",
@@ -388,11 +389,30 @@ function anAxisControl(label, playTitle) {
 }
 
 /**
- * Mount the panel and wire it to the engine handle. Returns `{ destroy }`.
+ * Mount the panel and wire it to the engine handle.
+ *
  * `near` is any element inside the canvas's own box; the panel stands as a
  * column of the same grid row, directly to the canvas's right.
+ *
+ * `startOn` is which channel the settings should be pointed at, given as
+ * `{ acquisition, name }` — what `theChannelInHand()` on the returned handle
+ * gives back. It is there for the moment this panel is built again because the
+ * run has landed a new kind of acquisition: without it the settings jump back
+ * to the first channel of the first acquisition, and an operator part-way
+ * through setting up a colour finds themselves adjusting something else. A
+ * channel that is no longer there is simply not found, and the first row is
+ * chosen as before.
+ *
+ * Names rather than row numbers, and that is the whole point of this argument.
+ * A row number stays a perfectly valid number when the list is rebuilt and
+ * quietly refers to whatever now occupies that slot, so the sliders go on
+ * working while adjusting a channel nobody is looking at. A name that is no
+ * longer in the list simply is not found, which is a thing the panel can see
+ * and act on.
  */
-export async function mountViewerPanel(near, { viewer, acquisitions }) {
+export async function mountViewerPanel(
+  near, { viewer, acquisitions, startOn = null },
+) {
   const rows = await theRows(acquisitions);
 
   if (!document.getElementById("zv-slider-skin")) {
@@ -506,6 +526,10 @@ export async function mountViewerPanel(near, { viewer, acquisitions }) {
     const box = el("span",
       `text-align:right;font-variant-numeric:tabular-nums;color:${INK.textPrimary};font-size:11px;`);
     line.append(slider, box);
+    /* Named in the page itself, so a check — or anything else reading the
+       panel — can reach exactly the control it means rather than the first one
+       whose words happen to start the same way. */
+    line.dataset.control = label;
     /* Every one of these controls describes the same window, so every one of
        them is redrawn whenever the window moves — including, a moment later,
        the one the operator still has hold of. Writing a value back underneath
@@ -736,7 +760,7 @@ export async function mountViewerPanel(near, { viewer, acquisitions }) {
   opacityRow.slider.addEventListener("input", () => {
     if (chosen === null) return;
     rows[chosen].weight = Number(opacityRow.slider.value);
-    viewer.setChannel(chosen, { weight: rows[chosen].weight });
+    sendTheWeightFor(chosen);
     opacityRow.box.textContent = `${Math.round(rows[chosen].weight * 100)}%`;
   });
   logButton.addEventListener("click", () => {
@@ -926,6 +950,26 @@ export async function mountViewerPanel(near, { viewer, acquisitions }) {
      parted — see `refresh`. */
   const eyes = new Map();
   const groupEyes = [];
+  /* Each acquisition by name: which rows belong to it, how brightly it is
+     drawn as a whole, and whether its channels are folded away. */
+  const groupsByName = new Map();
+
+  /**
+   * Tell the viewer how brightly one channel should be drawn.
+   *
+   * Two numbers meet here and neither belongs to the other. A channel has its
+   * own opacity, set on the row's slider, and the acquisition it belongs to has
+   * one of its own, which dims all of its channels together. What the viewer
+   * needs is the two multiplied — and it is worked out in this one place so the
+   * two can never fall out of step, which is what happens when a group slider
+   * writes a weight that the next touch of a channel slider quietly overwrites.
+   */
+  function sendTheWeightFor(index) {
+    const row = rows[index];
+    if (!row) return;
+    const group = groupsByName.get(row.acquisition);
+    viewer.setChannel(index, { weight: row.weight * (group?.weight ?? 1) });
+  }
   let heading = null;
   let groupBox = null;
   rows.forEach((row, index) => {
@@ -956,11 +1000,73 @@ export async function mountViewerPanel(near, { viewer, acquisitions }) {
           viewer.setChannel(at, { visible: on && one.visible !== false });
         }
       });
-      head.append(groupEye, el("span",
+      /* Folding an acquisition's channels away. A run with three acquisitions
+         and several colours each fills the whole bar, and most of the time an
+         operator is working in one of them. The fold is about the bar and
+         nothing else: what is drawn is untouched by it, which is why the
+         channel count stays beside the heading — a folded group still has to
+         say how much is inside it. */
+      const disclose = el("button",
+        `background:none;border:none;color:${INK.textMuted};cursor:pointer;padding:0;width:10px;font:${font(400, 10)};line-height:1;`,
+        "▾");
+      disclose.type = "button";
+      const count = el("span",
+        `font:${font(400, 10)};color:${INK.textFaint};font-variant-numeric:tabular-nums;`,
+        String(members.length));
+      head.append(disclose, groupEye, el("span",
         `flex:1;font:${font(600, 12)};letter-spacing:.02em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;`,
-        heading));
+        heading), count);
       groupBox = el("div", `padding-left:8px;border-left:2px solid ${INK.subtleBorder};margin-left:16px;`);
-      group.append(head, groupBox);
+
+      /* How brightly this whole acquisition is drawn.
+
+         It needs nothing at all from the engine: it multiplies into the weight
+         the panel already sends for each channel, so an acquisition dims as a
+         whole while the balance of colours the operator chose inside it stays
+         exactly as they set it. That matters — a focussing sweep taken down to
+         a fifth so the overview beneath it can be read must not also flatten
+         the difference between its own two colours. */
+      const groupOpacity = el("label",
+        `display:flex;align-items:center;gap:6px;padding:0 12px 4px 26px;font:${font(400, 10)};color:${INK.textMuted};`);
+      const groupWeight = dressed(el("input"));
+      groupWeight.type = "range";
+      groupWeight.min = "0";
+      groupWeight.max = "1";
+      groupWeight.step = "0.01";
+      groupWeight.value = "1";
+      groupWeight.title = "How brightly this whole acquisition is drawn";
+      const groupWeightBox = el("span",
+        `width:32px;text-align:right;font-variant-numeric:tabular-nums;color:${INK.textPrimary};`,
+        "100%");
+      groupOpacity.append(el("span", "", "opacity"), groupWeight, groupWeightBox);
+      groupOpacity.dataset.control = "acquisition opacity";
+      groupOpacity.dataset.acquisition = heading;
+
+      const standing = { members, weight: 1, folded: false };
+      groupsByName.set(heading, standing);
+      groupWeight.addEventListener("input", () => {
+        standing.weight = Number(groupWeight.value);
+        groupWeightBox.textContent = `${Math.round(standing.weight * 100)}%`;
+        for (const { at } of members) sendTheWeightFor(at);
+      });
+
+      const folding = groupBox;
+      disclose.title = "Fold this acquisition's channels away";
+      disclose.setAttribute("aria-expanded", "true");
+      disclose.dataset.folded = "0";
+      disclose.addEventListener("click", (press) => {
+        press.stopPropagation();
+        standing.folded = !standing.folded;
+        folding.style.display = standing.folded ? "none" : "";
+        disclose.textContent = standing.folded ? "▸" : "▾";
+        disclose.dataset.folded = standing.folded ? "1" : "0";
+        disclose.setAttribute("aria-expanded", String(!standing.folded));
+        disclose.title = standing.folded
+          ? "Show this acquisition's channels"
+          : "Fold this acquisition's channels away";
+      });
+
+      group.append(head, groupOpacity, groupBox);
       data.append(group);
     }
     const line = el("div",
@@ -991,6 +1097,16 @@ export async function mountViewerPanel(near, { viewer, acquisitions }) {
     rowLines.push(line);
     groupBox.append(line);
   });
+
+  /** What names a channel, in a way that survives the list being rebuilt. */
+  const theNameOf = (row) => ({ acquisition: row.acquisition, name: row.name });
+
+  /** Which row that name is now, or `-1` when this run no longer has it. */
+  function theRowNamed(named) {
+    if (!named) return -1;
+    return rows.findIndex((row) => row.acquisition === named.acquisition
+      && row.name === named.name);
+  }
 
   async function chooseRow(index) {
     chosen = index;
@@ -1132,7 +1248,10 @@ export async function mountViewerPanel(near, { viewer, acquisitions }) {
   else (body ?? near)?.append(panel);
   /* Left where a test can reach it, the way the picture itself is. */
   window.__viewerPanel = panel;
-  if (rows.length) chooseRow(0);
+  /* Pointed back at the channel the operator was working on where that channel
+     is still here, and at the first row otherwise. */
+  const asked = theRowNamed(startOn);
+  if (rows.length) chooseRow(asked >= 0 ? asked : 0);
 
   /* Everything the panel has asked to be told about, and how to stop being
      told. Kept as one list because there is more than one now, and a panel
@@ -1172,6 +1291,18 @@ export async function mountViewerPanel(near, { viewer, acquisitions }) {
         dressTheEye(eye, anyShown, "acquisition");
       }
     },
+    /**
+     * Which channel the settings are pointed at, by name.
+     *
+     * Handed back so that whoever mounts this panel can point the next one at
+     * the same channel when the list is built again — which happens whenever
+     * the run lands a new kind of acquisition, often in the middle of a scan.
+     * `null` when nothing is chosen.
+     */
+    theChannelInHand() {
+      return chosen === null || !rows[chosen] ? null : theNameOf(rows[chosen]);
+    },
+
     destroy() {
       /* Anything still playing is stopped first. A timer stepping a viewer
          through a stack after the bar that started it has left the page is a
