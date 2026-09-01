@@ -1882,6 +1882,40 @@ function letGoOfWhatWasAlreadyReplaced(own) {
   own.superseded.clear();
 }
 
+/** Which fraction of the flat picture is currently inside the engine panel. */
+function measurementBoxFor(own) {
+  const { position } = own.viewer.navigationState;
+  const space = position.coordinateSpace.value;
+  if (!space?.rank || own.showingVolume) return null;
+  const render = own.viewer.navigationState.pose.displayDimensionRenderInfo.value;
+  const drawn = Array.from(render?.displayDimensionIndices ?? []).slice(0, 2);
+  if (drawn.length < 2) return null;
+  let viewport = null;
+  for (const panel of own.viewer.display?.panels ?? []) {
+    if ("sliceView" in panel) viewport = panel.renderViewport;
+  }
+  if (!viewport?.logicalWidth || !viewport?.logicalHeight) return null;
+  const zoom = own.viewer.navigationState.zoomFactor.value;
+  const { lowerBounds, upperBounds } = space.bounds;
+  const centre = position.value;
+  const names = Array.from(space.names);
+  const share = {};
+  drawn.forEach((axis, slot) => {
+    const factor = render.canonicalVoxelFactors[slot] || 1;
+    const pixels = slot === 0 ? viewport.logicalWidth : viewport.logicalHeight;
+    const half = (pixels / 2) * (zoom / factor);
+    const low = lowerBounds[axis];
+    const high = upperBounds[axis];
+    if (!Number.isFinite(low) || !Number.isFinite(high) || high <= low) return;
+    share[names[axis]] = [
+      (centre[axis] - half - low) / (high - low),
+      (centre[axis] + half - low) / (high - low),
+    ];
+  });
+  if (!share.y || !share.x) return null;
+  return [[share.y[0], share.x[0]], [share.y[1], share.x[1]]];
+}
+
 // ---------------------------------------------------------------------------
 // The handle
 // ---------------------------------------------------------------------------
@@ -1904,6 +1938,11 @@ function handleFor(own) {
     /** The view now on screen, in the same units. */
     getView() {
       return readTheView(own);
+    },
+
+    /** The visible flat rectangle, normalized for Smart Viewer's measure API. */
+    measurementBox() {
+      return measurementBoxFor(own);
     },
 
     /**

@@ -145,7 +145,7 @@ test("selection, colour, opacity, window, Log, and collapse persist through grow
   });
   await expect(page.locator('[data-channel-row="focussing 1"]')).toHaveAttribute("aria-current", "true");
   await expect(page.getByLabel("expand overview")).toBeVisible();
-  await expect(page.getByLabel("logarithmic counts")).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByLabel("plain counts")).toHaveAttribute("aria-pressed", "true");
 
   const after = await snapshot(page);
   const selected = after.channels.find((row) => row.key === after.selectedKey);

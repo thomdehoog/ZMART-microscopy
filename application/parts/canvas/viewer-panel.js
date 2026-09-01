@@ -119,6 +119,7 @@ export async function viewerRowsFor(acquisitions) {
         source: (channel.sources ?? [channel.source ?? acquisition.url])[0],
         sources: channel.sources ?? [channel.source ?? acquisition.url],
         histogram: channel.histogram ?? null,
+        range: channel.range ?? null,
         visible: channel.visible !== false,
         weight: channel.weight ?? 1,
       }))
@@ -136,6 +137,7 @@ export async function viewerRowsFor(acquisitions) {
           source: acquisition.url,
           sources: [acquisition.url],
           histogram: null,
+          range: null,
           visible: true,
           weight: 1,
         }))
@@ -148,6 +150,7 @@ export async function viewerRowsFor(acquisitions) {
           source: acquisition.url,
           sources: [acquisition.url],
           histogram: null,
+          range: null,
           visible: true,
           weight: 1,
         }];
@@ -161,26 +164,33 @@ export async function viewerRowsFor(acquisitions) {
   return rows;
 }
 
-/** Ask the viewer's server about one channel: its histogram and a window it
-    would choose itself. `null` when it will not say. */
-async function measured(row) {
-  const alreadyKnown = row.histogram
-    ? { histogram: row.histogram, window: row.window ?? row.histogram.autoWindow }
-    : null;
+/** Ask the real Viewer server about one channel without inventing a fallback. */
+export async function measureViewerRow(row, {
+  signal = null,
+  box = [[0, 0], [1, 1]],
+  span = null,
+} = {}) {
   try {
     const origin = new URL(row.source).origin;
     const answer = await fetch(`${origin}/api/measure`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      signal,
       body: JSON.stringify({
-        source: row.source, channel: row.within, box: [[0, 0], [1, 1]],
+        source: row.source, channel: row.within, box, span,
       }),
     });
-    if (!answer.ok) return alreadyKnown;
-    const body = await answer.json();
-    return body?.histogram ? body : alreadyKnown;
-  } catch {
-    return alreadyKnown;
+    if (!answer.ok) {
+      return { ok: false, message: `Measurement failed (${answer.status}).` };
+    }
+    const body = await answer.json().catch(() => null);
+    if (!body?.histogram || body.empty || !body.window) {
+      return { ok: false, empty: true, message: "No imaged pixels are visible to measure." };
+    }
+    return { ok: true, answer: body };
+  } catch (error) {
+    if (error?.name === "AbortError") return { ok: false, aborted: true };
+    return { ok: false, message: "Measurement failed; the current window was kept." };
   }
 }
 
@@ -229,6 +239,7 @@ function rememberedChannel(state, row) {
     weight: remembered.weight ?? row.weight ?? 1,
     log: remembered.log ?? false,
     axis: remembered.axis ?? null,
+    histogram: remembered.histogram ?? row.histogram,
   };
 }
 
@@ -345,10 +356,40 @@ export async function mountViewerPanel(near, {
   ].join(";");
   plotWrap.append(plot);
 
-  const buttonRow = el("div", "display:flex;gap:6px;justify-content:center;padding:2px 12px;");
+  const measurementNotice = el("div", [
+    "display:none", "margin:0 12px 5px", "padding:4px 6px",
+    `border:1px solid ${INK.controlBorder}`, "border-radius:3px",
+    `background:${INK.inputBg}`, `color:${INK.textMuted}`,
+    `font:${font(400, 10)}`, "line-height:1.35",
+  ].join(";"));
+  measurementNotice.setAttribute("role", "status");
+  measurementNotice.dataset.measurementState = "idle";
+
+  const histogramValue = el("output", [
+    "display:block", "min-height:13px", "padding:0 12px 2px",
+    `color:${INK.textMuted}`, `font:${font(400, 10)}`,
+    "font-variant-numeric:tabular-nums", "text-align:right",
+  ].join(";"), "point at the histogram");
+  histogramValue.setAttribute("aria-label", "histogram value");
+
+  const valueInput = (label) => {
+    const input = el("input", [
+      "width:54px", "height:24px", "box-sizing:border-box",
+      `background:${INK.inputBg}`, `border:1px solid ${INK.subtleBorder}`,
+      "border-radius:3px", `color:${INK.textPrimary}`, `font:${font(400, 10)}`,
+      "font-variant-numeric:tabular-nums", "text-align:right", "padding:1px 3px",
+    ].join(";"));
+    input.type = "text";
+    input.inputMode = "numeric";
+    input.setAttribute("aria-label", label);
+    return input;
+  };
+
+  const axisRow = el("div", "display:flex;align-items:center;justify-content:space-between;gap:6px;padding:0 12px 14px;");
+  const axisLow = valueInput("axis from");
   const autoButton = el("button", [
-    "height:24px", "padding:0 10px", `border:1px solid ${INK.controlBorder}`,
-    "border-radius:4px", `background:${INK.ghost}`, `color:${INK.textPrimary}`,
+    "width:54px", "height:24px", "padding:0", `border:1px solid ${INK.controlBorder}`,
+    "border-radius:3px", `background:${INK.ghost}`, `color:${INK.textPrimary}`,
     `font:${font(600, 11)}`, "cursor:pointer",
   ].join(";"), "Auto");
   const logButton = autoButton.cloneNode(false);
@@ -357,7 +398,10 @@ export async function mountViewerPanel(near, {
   autoButton.setAttribute("aria-label", "auto contrast");
   logButton.setAttribute("aria-label", "logarithmic counts");
   logButton.setAttribute("aria-pressed", "false");
-  buttonRow.append(autoButton, logButton);
+  const axisButtons = el("span", "display:flex;align-items:center;gap:4px;");
+  axisButtons.append(autoButton, logButton);
+  const axisHigh = valueInput("axis to");
+  axisRow.append(axisLow, axisButtons, axisHigh);
 
   const controlRow = (label) => {
     const line = el("label",
@@ -366,8 +410,8 @@ export async function mountViewerPanel(near, {
     const slider = dressed(el("input"));
     slider.type = "range";
     slider.disabled = true;
-    const box = el("span",
-      `text-align:right;font-variant-numeric:tabular-nums;color:${INK.textPrimary};font-size:11px;`);
+    const box = valueInput(`${label} value`);
+    box.disabled = true;
     line.append(slider, box);
     return { line, slider, box };
   };
@@ -376,12 +420,19 @@ export async function mountViewerPanel(near, {
   const opacityRow = controlRow("opacity");
   opacityRow.slider.min = "0"; opacityRow.slider.max = "1"; opacityRow.slider.step = "0.01";
   opacityRow.slider.value = "1";
-  settings.append(chosenHead, plotWrap, buttonRow, minRow.line, maxRow.line, opacityRow.line);
+  settings.append(
+    chosenHead, measurementNotice, plotWrap, histogramValue, axisRow,
+    minRow.line, maxRow.line, opacityRow.line,
+  );
 
   /* ---- the state the settings act on ---- */
   let chosen = null;   // the flat row index picked out
   let shape = null;    // its measured histogram {low, high, counts, autoWindow}
   let logScale = false;
+  let measurementGeneration = 0;
+  let measurementController = null;
+  let measurementTimer = null;
+  const actionRevision = new Map();
 
   const remember = (row) => {
     rememberedChannels.set(viewerChannelKey(row), {
@@ -392,6 +443,7 @@ export async function mountViewerPanel(near, {
       weight: row.weight,
       log: row.log ?? false,
       axis: row.axis ?? null,
+      histogram: row.histogram ?? null,
     });
   };
 
@@ -399,18 +451,71 @@ export async function mountViewerPanel(near, {
     ?? (shape?.autoWindow && chosen !== null && rows[chosen] === row ? shape.autoWindow : null)
     ?? { low: 0, high: 65535 };
 
-  function theAxis(row) {
-    /* The window sits at 15%..85% of the drawn axis, clamped to what was
-       measured — the viewer's own framing. */
+  const imageRange = (row) => {
+    const declared = row.range;
+    if (Number.isFinite(declared?.high) && declared.high > (declared.low ?? 0)) {
+      return { low: declared.low ?? 0, high: declared.high };
+    }
+    const window_ = windowOf(row);
+    return {
+      low: Math.min(0, shape?.low ?? window_.low),
+      high: Math.max(65535, shape?.high ?? window_.high),
+    };
+  };
+
+  function restingAxis(row) {
+    /* The window aims to sit at 15%..85% of the drawn axis. The image range
+       is the wall; an axis must not describe brightness the source cannot hold. */
     const window_ = windowOf(row);
     const across = (window_.high - window_.low) / (1 - 2 * WINDOW_SITS_FROM) || 1;
     const beyond = across * WINDOW_SITS_FROM;
-    const bounds = shape ? { low: shape.low, high: shape.high } : null;
+    const bounds = imageRange(row);
     return {
-      low: bounds ? Math.max(Math.min(bounds.low, window_.low), window_.low - beyond) : window_.low - beyond,
-      high: bounds ? Math.min(Math.max(bounds.high, window_.high), window_.high + beyond) : window_.high + beyond,
+      low: Math.floor(Math.max(bounds.low, window_.low - beyond)),
+      high: Math.ceil(Math.min(bounds.high, window_.high + beyond)),
     };
   }
+
+  function theAxis(row) {
+    return row.axis ?? restingAxis(row);
+  }
+
+  function heldAxis(row, next) {
+    const bounds = imageRange(row);
+    const total = bounds.high - bounds.low;
+    const width = Math.min(Math.max(next.high - next.low, total / 256), total);
+    const low = Math.min(Math.max(next.low, bounds.low), bounds.high - width);
+    return { low, high: low + width };
+  }
+
+  function setTheAxis(row, next) {
+    markOperatorAction(row);
+    row.axis = next ? heldAxis(row, next) : null;
+    remember(row);
+    refreshControls();
+  }
+
+  const sayMeasurement = (state, message = "") => {
+    measurementNotice.dataset.measurementState = state;
+    measurementNotice.textContent = message;
+    measurementNotice.style.display = message ? "block" : "none";
+    measurementNotice.style.color = state === "failed" ? "#a51d2d" : INK.textMuted;
+  };
+
+  const cancelMeasurement = () => {
+    measurementGeneration += 1;
+    measurementController?.abort();
+    measurementController = null;
+    if (measurementTimer) clearTimeout(measurementTimer);
+    measurementTimer = null;
+  };
+
+  const markOperatorAction = (row) => {
+    const key = viewerChannelKey(row);
+    actionRevision.set(key, (actionRevision.get(key) ?? 0) + 1);
+    cancelMeasurement();
+    sayMeasurement("idle");
+  };
 
   function drawTheHistogram() {
     while (plot.firstChild) plot.firstChild.remove();
@@ -462,10 +567,18 @@ export async function mountViewerPanel(near, {
   function refreshControls() {
     if (chosen === null) return;
     const row = rows[chosen];
+    plot.setAttribute("role", "img");
+    plot.setAttribute("aria-label", `histogram ${row.name}`);
     minRow.slider.setAttribute("aria-label", `min ${row.name}`);
     maxRow.slider.setAttribute("aria-label", `max ${row.name}`);
     opacityRow.slider.setAttribute("aria-label", `opacity ${row.name}`);
     autoButton.setAttribute("aria-label", `auto contrast ${row.name}`);
+    logButton.setAttribute("aria-label", logScale ? "plain counts" : "logarithmic counts");
+    axisLow.setAttribute("aria-label", `axis from ${row.name}`);
+    axisHigh.setAttribute("aria-label", `axis to ${row.name}`);
+    minRow.box.setAttribute("aria-label", `min value ${row.name}`);
+    maxRow.box.setAttribute("aria-label", `max value ${row.name}`);
+    opacityRow.box.setAttribute("aria-label", `opacity value ${row.name}`);
     const window_ = windowOf(row);
     const axis = theAxis(row);
     for (const { slider } of [minRow, maxRow]) {
@@ -476,20 +589,39 @@ export async function mountViewerPanel(near, {
     }
     minRow.slider.value = String(Math.floor(window_.low));
     maxRow.slider.value = String(Math.ceil(window_.high));
-    minRow.box.textContent = String(Math.floor(window_.low));
-    maxRow.box.textContent = String(Math.ceil(window_.high));
+    for (const [input, value] of [
+      [axisLow, Math.round(axis.low)],
+      [axisHigh, Math.round(axis.high)],
+      [minRow.box, Math.floor(window_.low)],
+      [maxRow.box, Math.ceil(window_.high)],
+      [opacityRow.box, `${Math.round(row.weight * 100)}%`],
+    ]) {
+      input.disabled = false;
+      if (document.activeElement !== input) input.value = String(value);
+    }
     opacityRow.slider.disabled = false;
     opacityRow.slider.value = String(row.weight);
-    opacityRow.box.textContent = `${Math.round(row.weight * 100)}%`;
     for (const { slider } of [minRow, maxRow, opacityRow]) slider.refill();
     drawTheHistogram();
   }
 
-  function takeTheWindow(next) {
+  function takeTheWindow(next, { operator = true, reframe = false } = {}) {
     if (chosen === null) return;
     const row = rows[chosen];
-    const low = Math.min(next.low, next.high - 1);
-    row.window = { low, high: Math.max(next.high, low + 1) };
+    if (operator) {
+      if (!row.axis) row.axis = theAxis(row);
+      markOperatorAction(row);
+    }
+    const bounds = imageRange(row);
+    const low = Math.min(
+      Math.max(next.low, bounds.low),
+      Math.min(next.high, bounds.high) - 1,
+    );
+    row.window = {
+      low,
+      high: Math.max(Math.min(next.high, bounds.high), low + 1),
+    };
+    if (reframe) row.axis = null;
     remember(row);
     viewer.setChannel(chosen, { window: row.window });
     refreshControls();
@@ -506,8 +638,99 @@ export async function mountViewerPanel(near, {
     rows[chosen].weight = Number(opacityRow.slider.value);
     remember(rows[chosen]);
     viewer.setChannel(chosen, { weight: rows[chosen].weight });
-    opacityRow.box.textContent = `${Math.round(rows[chosen].weight * 100)}%`;
+    opacityRow.box.value = `${Math.round(rows[chosen].weight * 100)}%`;
   });
+
+  const commitOnLeaving = (input, take) => {
+    const commit = () => {
+      const value = Number(input.value.replace("%", ""));
+      if (Number.isFinite(value)) take(value);
+      refreshControls();
+    };
+    input.addEventListener("focus", () => input.select());
+    input.addEventListener("blur", commit);
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") input.blur();
+      if (event.key === "Escape") {
+        refreshControls();
+        input.blur();
+      }
+    });
+  };
+  commitOnLeaving(axisLow, (value) => {
+    if (chosen === null) return;
+    const row = rows[chosen];
+    const axis = theAxis(row);
+    setTheAxis(row, { low: Math.min(value, axis.high - 1), high: axis.high });
+  });
+  commitOnLeaving(axisHigh, (value) => {
+    if (chosen === null) return;
+    const row = rows[chosen];
+    const axis = theAxis(row);
+    setTheAxis(row, { low: axis.low, high: Math.max(value, axis.low + 1) });
+  });
+  commitOnLeaving(minRow.box, (value) => {
+    if (chosen === null) return;
+    takeTheWindow({ low: value, high: windowOf(rows[chosen]).high });
+  });
+  commitOnLeaving(maxRow.box, (value) => {
+    if (chosen === null) return;
+    takeTheWindow({ low: windowOf(rows[chosen]).low, high: value });
+  });
+  commitOnLeaving(opacityRow.box, (value) => {
+    if (chosen === null) return;
+    const row = rows[chosen];
+    row.weight = Math.min(1, Math.max(0, value / 100));
+    remember(row);
+    viewer.setChannel(chosen, { weight: row.weight });
+  });
+
+  async function requestMeasurement(index, { auto = false, debounce = 0 } = {}) {
+    cancelMeasurement();
+    const generation = measurementGeneration;
+    const row = rows[index];
+    const key = viewerChannelKey(row);
+    const revision = actionRevision.get(key) ?? 0;
+    const controller = new AbortController();
+    measurementController = controller;
+    sayMeasurement("measuring", "Measuring with Smart Viewer…");
+    if (debounce) {
+      await new Promise((resolve) => {
+        measurementTimer = setTimeout(resolve, debounce);
+        controller.signal.addEventListener("abort", resolve, { once: true });
+      });
+      measurementTimer = null;
+    }
+    if (controller.signal.aborted || generation !== measurementGeneration) return null;
+    const result = await measureViewerRow(row, {
+      signal: controller.signal,
+      box: viewer.measurementBox?.(index) ?? [[0, 0], [1, 1]],
+    });
+    if (controller.signal.aborted
+        || generation !== measurementGeneration
+        || chosen !== index
+        || (actionRevision.get(key) ?? 0) !== revision) {
+      return null;
+    }
+    measurementController = null;
+    if (!result.ok) {
+      if (!result.aborted) sayMeasurement("failed", result.message);
+      return result;
+    }
+    shape = result.answer.histogram;
+    row.histogram = shape;
+    if (auto) {
+      takeTheWindow(result.answer.window, { operator: false, reframe: true });
+    } else if (!row.window && result.answer.window) {
+      takeTheWindow(result.answer.window, { operator: false, reframe: true });
+    } else {
+      remember(row);
+      refreshControls();
+    }
+    sayMeasurement("ready", "Smart Viewer measurement ready.");
+    return result;
+  }
+
   logButton.addEventListener("click", () => {
     logScale = !logScale;
     if (chosen !== null) {
@@ -517,19 +740,14 @@ export async function mountViewerPanel(near, {
     logButton.style.background = logScale ? INK.accent : INK.ghost;
     logButton.style.color = logScale ? "#fff" : INK.textPrimary;
     logButton.setAttribute("aria-pressed", logScale ? "true" : "false");
-    drawTheHistogram();
+    refreshControls();
   });
-  autoButton.addEventListener("click", async () => {
-    if (chosen === null) return;
-    const row = rows[chosen];
-    const answer = await measured(row);
-    if (answer?.histogram) shape = answer.histogram;
-    const wanted = answer?.window ?? shape?.autoWindow;
-    if (wanted) takeTheWindow(wanted);
+  autoButton.addEventListener("click", () => {
+    if (chosen !== null) requestMeasurement(chosen, { auto: true });
   });
 
-  /* The window's edges can be taken hold of on the histogram itself, with
-     the viewer's six pixels of grace. */
+  /* Window edges drag; the remaining histogram surface pans its brightness
+     axis. The two actions share the Viewer 0.2 six-pixel edge hit zone. */
   let held = null;
   const valueUnder = (event) => {
     const face = plot.getBoundingClientRect();
@@ -537,40 +755,87 @@ export async function mountViewerPanel(near, {
     const share = Math.min(1, Math.max(0, (event.clientX - face.left) / face.width));
     return axis.low + share * (axis.high - axis.low);
   };
-  plot.addEventListener("pointerdown", (event) => {
-    if (chosen === null || !shape) return;
+  const barUnder = (event) => {
+    if (!shape || chosen === null) return null;
     const window_ = windowOf(rows[chosen]);
     const face = plot.getBoundingClientRect();
     const axis = theAxis(rows[chosen]);
     const grace = (6 / face.width) * (axis.high - axis.low);
-    const pressed = valueUnder(event);
-    if (Math.abs(pressed - window_.low) <= grace) held = "low";
-    else if (Math.abs(pressed - window_.high) <= grace) held = "high";
-    else return;
-    plot.setPointerCapture(event.pointerId);
-  });
-  plot.addEventListener("pointermove", (event) => {
-    if (chosen === null) return;
-    const window_ = windowOf(rows[chosen]);
-    if (!held) {
-      if (!shape) return;
-      const face = plot.getBoundingClientRect();
-      const axis = theAxis(rows[chosen]);
-      const grace = (6 / face.width) * (axis.high - axis.low);
-      const over = valueUnder(event);
-      const overBar = Math.abs(over - window_.low) <= grace
-        || Math.abs(over - window_.high) <= grace;
-      plot.style.cursor = overBar ? "ew-resize" : "default";
+    const value = valueUnder(event);
+    if (Math.abs(value - window_.low) <= grace) return "low";
+    if (Math.abs(value - window_.high) <= grace) return "high";
+    return null;
+  };
+  const showValueUnder = (event) => {
+    if (!shape?.counts?.length) {
+      histogramValue.textContent = `value ${Math.round(valueUnder(event))}`;
       return;
     }
     const value = valueUnder(event);
-    takeTheWindow(held === "low"
-      ? { low: Math.min(value, window_.high - 1), high: window_.high }
-      : { low: window_.low, high: Math.max(value, window_.low + 1) });
+    const share = (value - shape.low) / ((shape.high - shape.low) || 1);
+    const at = Math.min(shape.counts.length - 1, Math.max(0, Math.floor(share * shape.counts.length)));
+    const count = value >= shape.low && value <= shape.high ? shape.counts[at] : 0;
+    histogramValue.textContent = `value ${Math.round(value)} · ${count} pixels`;
+  };
+  plot.addEventListener("pointerdown", (event) => {
+    if (chosen === null || !shape) return;
+    const axis = theAxis(rows[chosen]);
+    const bar = barUnder(event);
+    held = bar
+      ? { bar }
+      : { panFrom: event.clientX, axisWas: { low: axis.low, high: axis.high } };
+    plot.setPointerCapture(event.pointerId);
+    plot.style.cursor = bar ? "ew-resize" : "grabbing";
+  });
+  plot.addEventListener("pointermove", (event) => {
+    if (chosen === null) return;
+    showValueUnder(event);
+    const window_ = windowOf(rows[chosen]);
+    if (!held) {
+      plot.style.cursor = barUnder(event) ? "ew-resize" : "grab";
+      return;
+    }
+    if (held.bar) {
+      const value = valueUnder(event);
+      takeTheWindow(held.bar === "low"
+        ? { low: Math.min(value, window_.high - 1), high: window_.high }
+        : { low: window_.low, high: Math.max(value, window_.low + 1) });
+      return;
+    }
+    const face = plot.getBoundingClientRect();
+    const width = held.axisWas.high - held.axisWas.low;
+    const moved = ((held.panFrom - event.clientX) / face.width) * width;
+    setTheAxis(rows[chosen], {
+      low: held.axisWas.low + moved,
+      high: held.axisWas.high + moved,
+    });
   });
   for (const done of ["pointerup", "pointercancel"]) {
-    plot.addEventListener(done, () => { held = null; });
+    plot.addEventListener(done, () => {
+      held = null;
+      plot.style.cursor = "grab";
+    });
   }
+  plot.addEventListener("pointerleave", () => {
+    if (!held) histogramValue.textContent = "point at the histogram";
+  });
+  plot.addEventListener("dblclick", () => {
+    if (chosen !== null) setTheAxis(rows[chosen], null);
+  });
+  plot.addEventListener("wheel", (event) => {
+    if (chosen === null || !shape) return;
+    event.preventDefault();
+    const row = rows[chosen];
+    const axis = theAxis(row);
+    const face = plot.getBoundingClientRect();
+    const fraction = Math.min(1, Math.max(0, (event.clientX - face.left) / face.width));
+    const anchor = axis.low + fraction * (axis.high - axis.low);
+    const factor = Math.exp(event.deltaY * 0.002);
+    setTheAxis(row, {
+      low: anchor - (anchor - axis.low) * factor,
+      high: anchor + (axis.high - anchor) * factor,
+    });
+  }, { passive: false });
 
   /* ---- the data card: groups, eyes, swatches, names ---- */
   const data = el("div", CARD);
@@ -871,6 +1136,10 @@ export async function mountViewerPanel(near, {
     return {
       selectedKey: panelState.selectedKey,
       lastMismatch: panelState.lastMismatch,
+      measurement: {
+        state: measurementNotice.dataset.measurementState,
+        message: measurementNotice.textContent,
+      },
       acquisitions: Object.fromEntries(
         [...groupShown].map(([name, visible]) => [name, {
           visible,
@@ -910,13 +1179,20 @@ export async function mountViewerPanel(near, {
     next.forEach((fresh, index) => {
       rows[index].source = fresh.source;
       rows[index].sources = fresh.sources;
-      rows[index].histogram = fresh.histogram;
+      rows[index].range = fresh.range ?? rows[index].range;
+      rows[index].histogram = fresh.histogram ?? rows[index].histogram;
+      remember(rows[index]);
     });
+    if (chosen !== null) {
+      shape = rows[chosen].histogram ?? shape;
+      refreshControls();
+    }
     refreshObserved();
     return true;
   };
 
-  async function chooseRow(index) {
+  function chooseRow(index) {
+    cancelMeasurement();
     chosen = index;
     const row = rows[index];
     panelState.selectedKey = viewerChannelKey(row);
@@ -935,13 +1211,10 @@ export async function mountViewerPanel(near, {
       aSwatch(index, row),
       el("span", "overflow:hidden;text-overflow:ellipsis;white-space:nowrap;", row.name),
     );
-    shape = null;
+    shape = row.histogram ?? null;
+    sayMeasurement("idle");
     refreshControls();
-    const answer = await measured(row);
-    if (chosen !== index || !answer) return;
-    shape = answer.histogram;
-    if (!row.window && answer.window) row.window = answer.window;
-    refreshControls();
+    requestMeasurement(index, { debounce: 120 });
   }
 
   /* ---- the picture as a whole: master switch, depth, volume ---- */
@@ -1009,6 +1282,7 @@ export async function mountViewerPanel(near, {
     snapshot: panelSnapshot,
     sourcesChanged,
     destroy() {
+      cancelMeasurement();
       if (observationTimer) clearInterval(observationTimer);
       closeChooser();
       document.removeEventListener("pointerdown", closeChooserOnOutsidePress, true);
