@@ -36,6 +36,14 @@ const PALETTE = [
 ];
 const cssOf = (rgb) =>
   rgb ? `rgb(${rgb.map((v) => Math.round(v * 255)).join(",")})` : "#d8dee6";
+const hexOf = (rgb) => rgb
+  ? `#${rgb.map((value) => Math.round(Math.min(1, Math.max(0, value)) * 255)
+    .toString(16).padStart(2, "0")).join("")}`
+  : "#ffffff";
+const rgbOf = (hex) => {
+  const value = parseInt(hex.replace("#", ""), 16);
+  return [(value >> 16 & 255) / 255, (value >> 8 & 255) / 255, (value & 255) / 255];
+};
 
 /* The 15% rule: the window's edges are drawn at 15% and 85% of the axis. */
 const WINDOW_SITS_FROM = 0.15;
@@ -81,52 +89,158 @@ async function theStoresDescription(url) {
   return null;
 }
 
-/** One flat row list, matching the engine's own numbering. */
-async function theRows(acquisitions) {
+/** One flat row list, matching the engine's own numbering.
+ *
+ * Smart Viewer has already classified and measured its rows.  When those are
+ * present on `acquisition.channels`, use them directly and, crucially, keep
+ * each row's spatial `sources` together.  Reading every store as though it
+ * were a new acquisition is the 9 × 3 = 27 bug this adapter exists to prevent.
+ */
+export async function viewerRowsFor(acquisitions) {
   const rows = [];
   for (const acquisition of acquisitions) {
-    const described = (await theStoresDescription(acquisition.url))?.omero?.channels;
-    const channels = Array.isArray(described) && described.length
-      ? described.map((channel, at) => ({
-        name: channel?.label || `channel ${at + 1}`,
-        color: typeof channel?.color === "string" ? `#${channel.color}` : null,
-        window: channel?.window && Number.isFinite(channel.window.start)
-          ? { low: channel.window.start, high: channel.window.end }
-          : null,
-        within: at,
+    const offered = Array.isArray(acquisition.channels) && acquisition.channels.length
+      ? acquisition.channels
+      : null;
+    const described = offered
+      ? null
+      : (await theStoresDescription(acquisition.url))?.omero?.channels;
+    const channels = offered
+      ? offered.map((channel, at) => ({
+        name: channel.name || `channel ${at}`,
+        color: Array.isArray(channel.colour)
+          ? cssOf(channel.colour)
+          : channel.color ?? null,
+        colour: Array.isArray(channel.colour) ? channel.colour : null,
+        window: channel.window ?? null,
+        within: Array.isArray(channel.localPosition)
+          ? channel.localPosition[0]
+          : channel.channelIndex ?? at,
+        source: (channel.sources ?? [channel.source ?? acquisition.url])[0],
+        sources: channel.sources ?? [channel.source ?? acquisition.url],
+        histogram: channel.histogram ?? null,
+        range: channel.range ?? null,
+        visible: channel.visible !== false,
+        weight: channel.weight ?? 1,
       }))
-      : [{ name: acquisition.name, color: null, window: null, within: 0 }];
+      : Array.isArray(described) && described.length
+        ? described.map((channel, at) => ({
+          name: channel?.label || `channel ${at + 1}`,
+          color: typeof channel?.color === "string" ? `#${channel.color}` : null,
+          colour: typeof channel?.color === "string"
+            ? [0, 2, 4].map((at) => parseInt(channel.color.slice(at, at + 2), 16) / 255)
+            : null,
+          window: channel?.window && Number.isFinite(channel.window.start)
+            ? { low: channel.window.start, high: channel.window.end }
+            : null,
+          within: at,
+          source: acquisition.url,
+          sources: [acquisition.url],
+          histogram: null,
+          range: null,
+          visible: true,
+          weight: 1,
+        }))
+        : [{
+          name: acquisition.name,
+          color: null,
+          colour: null,
+          window: null,
+          within: 0,
+          source: acquisition.url,
+          sources: [acquisition.url],
+          histogram: null,
+          range: null,
+          visible: true,
+          weight: 1,
+        }];
     for (const channel of channels) {
       rows.push({
         ...channel,
         acquisition: acquisition.name,
-        source: acquisition.url,
-        visible: true,
-        weight: 1,
       });
     }
   }
   return rows;
 }
 
-/** Ask the viewer's server about one channel: its histogram and a window it
-    would choose itself. `null` when it will not say. */
-async function measured(row) {
+/** Ask the real Viewer server about one channel without inventing a fallback. */
+export async function measureViewerRow(row, {
+  signal = null,
+  box = [[0, 0], [1, 1]],
+  span = null,
+} = {}) {
   try {
     const origin = new URL(row.source).origin;
     const answer = await fetch(`${origin}/api/measure`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      signal,
       body: JSON.stringify({
-        source: row.source, channel: row.within, box: [[0, 0], [1, 1]],
+        source: row.source, channel: row.within, box, span,
       }),
     });
-    if (!answer.ok) return null;
-    const body = await answer.json();
-    return body?.histogram ? body : null;
-  } catch {
-    return null;
+    if (!answer.ok) {
+      return { ok: false, message: `Measurement failed (${answer.status}).` };
+    }
+    const body = await answer.json().catch(() => null);
+    if (!body?.histogram || body.empty || !body.window) {
+      return { ok: false, empty: true, message: "No imaged pixels are visible to measure." };
+    }
+    return { ok: true, answer: body };
+  } catch (error) {
+    if (error?.name === "AbortError") return { ok: false, aborted: true };
+    return { ok: false, message: "Measurement failed; the current window was kept." };
   }
+}
+
+/** A channel identity that survives source growth and panel remounting. */
+export const viewerChannelKey = (row) =>
+  `${row.acquisition}\u0000${row.within}\u0000${row.name}`;
+
+/**
+ * Smart Operator's requested panel state.
+ *
+ * The engine is deliberately absent. This object records what the operator
+ * asked for and can be handed to a replacement panel or Viewer without making
+ * either of them the owner of the controls.
+ */
+export function createViewerPanelState() {
+  return {
+    acquisitions: new Map(),
+    channels: new Map(),
+    collapsed: new Map(),
+    selectedKey: null,
+    lastMismatch: null,
+  };
+}
+
+function completePanelState(given) {
+  const state = given ?? createViewerPanelState();
+  state.acquisitions ??= new Map();
+  state.channels ??= new Map();
+  state.collapsed ??= new Map();
+  state.selectedKey ??= null;
+  state.lastMismatch ??= null;
+  return state;
+}
+
+function rememberedChannel(state, row) {
+  const saved = state.channels.get(viewerChannelKey(row));
+  /* Visibility-only maps were used by the cleanup before the rest of the
+     panel became persistent. Accept them so a running session upgrades rather
+     than forgetting the eyes the operator already set. */
+  const remembered = typeof saved === "boolean" ? { visible: saved } : (saved ?? {});
+  return {
+    visible: remembered.visible ?? row.visible,
+    color: remembered.color ?? row.color,
+    colour: remembered.colour ?? row.colour,
+    window: remembered.window ?? row.window,
+    weight: remembered.weight ?? row.weight ?? 1,
+    log: remembered.log ?? false,
+    axis: remembered.axis ?? null,
+    histogram: remembered.histogram ?? row.histogram,
+  };
 }
 
 const el = (tag, style, text) => {
@@ -156,8 +270,26 @@ function anEye(open) {
  * `near` is any element inside the canvas's own box; the panel stands as a
  * column of the same grid row, directly to the canvas's right.
  */
-export async function mountViewerPanel(near, { viewer, acquisitions }) {
-  const rows = await theRows(acquisitions);
+export async function mountViewerPanel(near, {
+  viewer,
+  acquisitions,
+  requestedState = null,
+  /* Kept for callers from the first cleanup checkpoint. */
+  requestedVisibility = null,
+}) {
+  const rows = await viewerRowsFor(acquisitions);
+  /* Source/config growth may replace this DOM, never the operator's choices.
+     Acquisition and channel visibility are deliberately separate: hiding a
+     group must not erase which channels return when the group is shown again. */
+  const panelState = completePanelState(requestedState ?? requestedVisibility);
+  const rememberedGroups = panelState.acquisitions;
+  const rememberedChannels = panelState.channels;
+  let visibilityReady = false;
+  let observationTimer = null;
+  rows.forEach((row) => {
+    Object.assign(row, rememberedChannel(panelState, row));
+    rememberedChannels.set(viewerChannelKey(row), rememberedChannel(panelState, row));
+  });
 
   if (!document.getElementById("zv-slider-skin")) {
     const skin = document.createElement("style");
@@ -203,12 +335,16 @@ export async function mountViewerPanel(near, { viewer, acquisitions }) {
   const settings = el("div", CARD);
   settings.append(el("div", HEADING, "channel settings"));
   const chosenHead = el("div", "display:flex;flex-direction:column;gap:3px;padding:5px 12px 6px;");
+  const chosenGroup = el("div", [
+    `font:${font(600, 12)}`, `color:${INK.textPrimary}`, "letter-spacing:.02em",
+    "overflow:hidden", "text-overflow:ellipsis", "white-space:nowrap",
+  ].join(";"));
   const chosenLine = el("div", [
     "display:flex", "align-items:center", "gap:8px", "min-width:0",
     `background:${INK.chosenGround}`, "border-radius:3px", "padding:4px 6px",
     `font:${font(600, 12)}`, `color:${INK.textBright}`,
-  ].join(";"), "pick a channel below");
-  chosenHead.append(chosenLine);
+  ].join(";"));
+  chosenHead.append(chosenGroup, chosenLine);
 
   const plotWrap = el("div", "padding:1px 12px 4px;");
   const plot = document.createElementNS("http://www.w3.org/2000/svg", "svg");
@@ -220,16 +356,52 @@ export async function mountViewerPanel(near, { viewer, acquisitions }) {
   ].join(";");
   plotWrap.append(plot);
 
-  const buttonRow = el("div", "display:flex;gap:6px;justify-content:center;padding:2px 12px;");
+  const measurementNotice = el("div", [
+    "display:none", "margin:0 12px 5px", "padding:4px 6px",
+    `border:1px solid ${INK.controlBorder}`, "border-radius:3px",
+    `background:${INK.inputBg}`, `color:${INK.textMuted}`,
+    `font:${font(400, 10)}`, "line-height:1.35",
+  ].join(";"));
+  measurementNotice.setAttribute("role", "status");
+  measurementNotice.dataset.measurementState = "idle";
+
+  const histogramValue = el("output", [
+    "display:block", "min-height:13px", "padding:0 12px 2px",
+    `color:${INK.textMuted}`, `font:${font(400, 10)}`,
+    "font-variant-numeric:tabular-nums", "text-align:right",
+  ].join(";"), "point at the histogram");
+  histogramValue.setAttribute("aria-label", "histogram value");
+
+  const valueInput = (label) => {
+    const input = el("input", [
+      "width:54px", "height:24px", "box-sizing:border-box",
+      `background:${INK.inputBg}`, `border:1px solid ${INK.subtleBorder}`,
+      "border-radius:3px", `color:${INK.textPrimary}`, `font:${font(400, 10)}`,
+      "font-variant-numeric:tabular-nums", "text-align:right", "padding:1px 3px",
+    ].join(";"));
+    input.type = "text";
+    input.inputMode = "numeric";
+    input.setAttribute("aria-label", label);
+    return input;
+  };
+
+  const axisRow = el("div", "display:flex;align-items:center;justify-content:space-between;gap:6px;padding:0 12px 14px;");
+  const axisLow = valueInput("axis from");
   const autoButton = el("button", [
-    "height:24px", "padding:0 10px", `border:1px solid ${INK.controlBorder}`,
-    "border-radius:4px", `background:${INK.ghost}`, `color:${INK.textPrimary}`,
+    "width:54px", "height:24px", "padding:0", `border:1px solid ${INK.controlBorder}`,
+    "border-radius:3px", `background:${INK.ghost}`, `color:${INK.textPrimary}`,
     `font:${font(600, 11)}`, "cursor:pointer",
   ].join(";"), "Auto");
   const logButton = autoButton.cloneNode(false);
   logButton.textContent = "Log";
   for (const button of [autoButton, logButton]) button.type = "button";
-  buttonRow.append(autoButton, logButton);
+  autoButton.setAttribute("aria-label", "auto contrast");
+  logButton.setAttribute("aria-label", "logarithmic counts");
+  logButton.setAttribute("aria-pressed", "false");
+  const axisButtons = el("span", "display:flex;align-items:center;gap:4px;");
+  axisButtons.append(autoButton, logButton);
+  const axisHigh = valueInput("axis to");
+  axisRow.append(axisLow, axisButtons, axisHigh);
 
   const controlRow = (label) => {
     const line = el("label",
@@ -238,8 +410,8 @@ export async function mountViewerPanel(near, { viewer, acquisitions }) {
     const slider = dressed(el("input"));
     slider.type = "range";
     slider.disabled = true;
-    const box = el("span",
-      `text-align:right;font-variant-numeric:tabular-nums;color:${INK.textPrimary};font-size:11px;`);
+    const box = valueInput(`${label} value`);
+    box.disabled = true;
     line.append(slider, box);
     return { line, slider, box };
   };
@@ -248,29 +420,102 @@ export async function mountViewerPanel(near, { viewer, acquisitions }) {
   const opacityRow = controlRow("opacity");
   opacityRow.slider.min = "0"; opacityRow.slider.max = "1"; opacityRow.slider.step = "0.01";
   opacityRow.slider.value = "1";
-  settings.append(chosenHead, plotWrap, buttonRow, minRow.line, maxRow.line, opacityRow.line);
+  settings.append(
+    chosenHead, measurementNotice, plotWrap, histogramValue, axisRow,
+    minRow.line, maxRow.line, opacityRow.line,
+  );
 
   /* ---- the state the settings act on ---- */
   let chosen = null;   // the flat row index picked out
   let shape = null;    // its measured histogram {low, high, counts, autoWindow}
   let logScale = false;
+  let measurementGeneration = 0;
+  let measurementController = null;
+  let measurementTimer = null;
+  const actionRevision = new Map();
+
+  const remember = (row) => {
+    rememberedChannels.set(viewerChannelKey(row), {
+      visible: row.visible,
+      color: row.color,
+      colour: row.colour,
+      window: row.window,
+      weight: row.weight,
+      log: row.log ?? false,
+      axis: row.axis ?? null,
+      histogram: row.histogram ?? null,
+    });
+  };
 
   const windowOf = (row) => row.window
     ?? (shape?.autoWindow && chosen !== null && rows[chosen] === row ? shape.autoWindow : null)
     ?? { low: 0, high: 65535 };
 
-  function theAxis(row) {
-    /* The window sits at 15%..85% of the drawn axis, clamped to what was
-       measured — the viewer's own framing. */
+  const imageRange = (row) => {
+    const declared = row.range;
+    if (Number.isFinite(declared?.high) && declared.high > (declared.low ?? 0)) {
+      return { low: declared.low ?? 0, high: declared.high };
+    }
+    const window_ = windowOf(row);
+    return {
+      low: Math.min(0, shape?.low ?? window_.low),
+      high: Math.max(65535, shape?.high ?? window_.high),
+    };
+  };
+
+  function restingAxis(row) {
+    /* The window aims to sit at 15%..85% of the drawn axis. The image range
+       is the wall; an axis must not describe brightness the source cannot hold. */
     const window_ = windowOf(row);
     const across = (window_.high - window_.low) / (1 - 2 * WINDOW_SITS_FROM) || 1;
     const beyond = across * WINDOW_SITS_FROM;
-    const bounds = shape ? { low: shape.low, high: shape.high } : null;
+    const bounds = imageRange(row);
     return {
-      low: bounds ? Math.max(Math.min(bounds.low, window_.low), window_.low - beyond) : window_.low - beyond,
-      high: bounds ? Math.min(Math.max(bounds.high, window_.high), window_.high + beyond) : window_.high + beyond,
+      low: Math.floor(Math.max(bounds.low, window_.low - beyond)),
+      high: Math.ceil(Math.min(bounds.high, window_.high + beyond)),
     };
   }
+
+  function theAxis(row) {
+    return row.axis ?? restingAxis(row);
+  }
+
+  function heldAxis(row, next) {
+    const bounds = imageRange(row);
+    const total = bounds.high - bounds.low;
+    const width = Math.min(Math.max(next.high - next.low, total / 256), total);
+    const low = Math.min(Math.max(next.low, bounds.low), bounds.high - width);
+    return { low, high: low + width };
+  }
+
+  function setTheAxis(row, next) {
+    markOperatorAction(row);
+    row.axis = next ? heldAxis(row, next) : null;
+    remember(row);
+    refreshControls();
+  }
+
+  const sayMeasurement = (state, message = "") => {
+    measurementNotice.dataset.measurementState = state;
+    measurementNotice.textContent = message;
+    measurementNotice.style.display = message ? "block" : "none";
+    measurementNotice.style.color = state === "failed" ? "#a51d2d" : INK.textMuted;
+  };
+
+  const cancelMeasurement = () => {
+    measurementGeneration += 1;
+    measurementController?.abort();
+    measurementController = null;
+    if (measurementTimer) clearTimeout(measurementTimer);
+    measurementTimer = null;
+  };
+
+  const markOperatorAction = (row) => {
+    const key = viewerChannelKey(row);
+    actionRevision.set(key, (actionRevision.get(key) ?? 0) + 1);
+    cancelMeasurement();
+    sayMeasurement("idle");
+  };
 
   function drawTheHistogram() {
     while (plot.firstChild) plot.firstChild.remove();
@@ -322,6 +567,18 @@ export async function mountViewerPanel(near, { viewer, acquisitions }) {
   function refreshControls() {
     if (chosen === null) return;
     const row = rows[chosen];
+    plot.setAttribute("role", "img");
+    plot.setAttribute("aria-label", `histogram ${row.name}`);
+    minRow.slider.setAttribute("aria-label", `min ${row.name}`);
+    maxRow.slider.setAttribute("aria-label", `max ${row.name}`);
+    opacityRow.slider.setAttribute("aria-label", `opacity ${row.name}`);
+    autoButton.setAttribute("aria-label", `auto contrast ${row.name}`);
+    logButton.setAttribute("aria-label", logScale ? "plain counts" : "logarithmic counts");
+    axisLow.setAttribute("aria-label", `axis from ${row.name}`);
+    axisHigh.setAttribute("aria-label", `axis to ${row.name}`);
+    minRow.box.setAttribute("aria-label", `min value ${row.name}`);
+    maxRow.box.setAttribute("aria-label", `max value ${row.name}`);
+    opacityRow.box.setAttribute("aria-label", `opacity value ${row.name}`);
     const window_ = windowOf(row);
     const axis = theAxis(row);
     for (const { slider } of [minRow, maxRow]) {
@@ -332,20 +589,40 @@ export async function mountViewerPanel(near, { viewer, acquisitions }) {
     }
     minRow.slider.value = String(Math.floor(window_.low));
     maxRow.slider.value = String(Math.ceil(window_.high));
-    minRow.box.textContent = String(Math.floor(window_.low));
-    maxRow.box.textContent = String(Math.ceil(window_.high));
+    for (const [input, value] of [
+      [axisLow, Math.round(axis.low)],
+      [axisHigh, Math.round(axis.high)],
+      [minRow.box, Math.floor(window_.low)],
+      [maxRow.box, Math.ceil(window_.high)],
+      [opacityRow.box, `${Math.round(row.weight * 100)}%`],
+    ]) {
+      input.disabled = false;
+      if (document.activeElement !== input) input.value = String(value);
+    }
     opacityRow.slider.disabled = false;
     opacityRow.slider.value = String(row.weight);
-    opacityRow.box.textContent = `${Math.round(row.weight * 100)}%`;
     for (const { slider } of [minRow, maxRow, opacityRow]) slider.refill();
     drawTheHistogram();
   }
 
-  function takeTheWindow(next) {
+  function takeTheWindow(next, { operator = true, reframe = false } = {}) {
     if (chosen === null) return;
     const row = rows[chosen];
-    const low = Math.min(next.low, next.high - 1);
-    row.window = { low, high: Math.max(next.high, low + 1) };
+    if (operator) {
+      if (!row.axis) row.axis = theAxis(row);
+      markOperatorAction(row);
+    }
+    const bounds = imageRange(row);
+    const low = Math.min(
+      Math.max(next.low, bounds.low),
+      Math.min(next.high, bounds.high) - 1,
+    );
+    row.window = {
+      low,
+      high: Math.max(Math.min(next.high, bounds.high), low + 1),
+    };
+    if (reframe) row.axis = null;
+    remember(row);
     viewer.setChannel(chosen, { window: row.window });
     refreshControls();
   }
@@ -359,26 +636,118 @@ export async function mountViewerPanel(near, { viewer, acquisitions }) {
   opacityRow.slider.addEventListener("input", () => {
     if (chosen === null) return;
     rows[chosen].weight = Number(opacityRow.slider.value);
+    remember(rows[chosen]);
     viewer.setChannel(chosen, { weight: rows[chosen].weight });
-    opacityRow.box.textContent = `${Math.round(rows[chosen].weight * 100)}%`;
-  });
-  logButton.addEventListener("click", () => {
-    logScale = !logScale;
-    logButton.style.background = logScale ? INK.accent : INK.ghost;
-    logButton.style.color = logScale ? "#fff" : INK.textPrimary;
-    drawTheHistogram();
-  });
-  autoButton.addEventListener("click", async () => {
-    if (chosen === null) return;
-    const row = rows[chosen];
-    const answer = await measured(row);
-    if (answer?.histogram) shape = answer.histogram;
-    const wanted = answer?.window ?? shape?.autoWindow;
-    if (wanted) takeTheWindow(wanted);
+    opacityRow.box.value = `${Math.round(rows[chosen].weight * 100)}%`;
   });
 
-  /* The window's edges can be taken hold of on the histogram itself, with
-     the viewer's six pixels of grace. */
+  const commitOnLeaving = (input, take) => {
+    const commit = () => {
+      const value = Number(input.value.replace("%", ""));
+      if (Number.isFinite(value)) take(value);
+      refreshControls();
+    };
+    input.addEventListener("focus", () => input.select());
+    input.addEventListener("blur", commit);
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") input.blur();
+      if (event.key === "Escape") {
+        refreshControls();
+        input.blur();
+      }
+    });
+  };
+  commitOnLeaving(axisLow, (value) => {
+    if (chosen === null) return;
+    const row = rows[chosen];
+    const axis = theAxis(row);
+    setTheAxis(row, { low: Math.min(value, axis.high - 1), high: axis.high });
+  });
+  commitOnLeaving(axisHigh, (value) => {
+    if (chosen === null) return;
+    const row = rows[chosen];
+    const axis = theAxis(row);
+    setTheAxis(row, { low: axis.low, high: Math.max(value, axis.low + 1) });
+  });
+  commitOnLeaving(minRow.box, (value) => {
+    if (chosen === null) return;
+    takeTheWindow({ low: value, high: windowOf(rows[chosen]).high });
+  });
+  commitOnLeaving(maxRow.box, (value) => {
+    if (chosen === null) return;
+    takeTheWindow({ low: windowOf(rows[chosen]).low, high: value });
+  });
+  commitOnLeaving(opacityRow.box, (value) => {
+    if (chosen === null) return;
+    const row = rows[chosen];
+    row.weight = Math.min(1, Math.max(0, value / 100));
+    remember(row);
+    viewer.setChannel(chosen, { weight: row.weight });
+  });
+
+  async function requestMeasurement(index, { auto = false, debounce = 0 } = {}) {
+    cancelMeasurement();
+    const generation = measurementGeneration;
+    const row = rows[index];
+    const key = viewerChannelKey(row);
+    const revision = actionRevision.get(key) ?? 0;
+    const controller = new AbortController();
+    measurementController = controller;
+    sayMeasurement("measuring", "Measuring with Smart Viewer…");
+    if (debounce) {
+      await new Promise((resolve) => {
+        measurementTimer = setTimeout(resolve, debounce);
+        controller.signal.addEventListener("abort", resolve, { once: true });
+      });
+      measurementTimer = null;
+    }
+    if (controller.signal.aborted || generation !== measurementGeneration) return null;
+    const result = await measureViewerRow(row, {
+      signal: controller.signal,
+      box: viewer.measurementBox?.(index) ?? [[0, 0], [1, 1]],
+    });
+    if (controller.signal.aborted
+        || generation !== measurementGeneration
+        || chosen !== index
+        || (actionRevision.get(key) ?? 0) !== revision) {
+      return null;
+    }
+    measurementController = null;
+    if (!result.ok) {
+      if (!result.aborted) sayMeasurement("failed", result.message);
+      return result;
+    }
+    shape = result.answer.histogram;
+    row.histogram = shape;
+    if (auto) {
+      takeTheWindow(result.answer.window, { operator: false, reframe: true });
+    } else if (!row.window && result.answer.window) {
+      takeTheWindow(result.answer.window, { operator: false, reframe: true });
+    } else {
+      remember(row);
+      refreshControls();
+    }
+    sayMeasurement("ready", "Smart Viewer measurement ready.");
+    return result;
+  }
+
+  logButton.addEventListener("click", () => {
+    logScale = !logScale;
+    if (chosen !== null) {
+      rows[chosen].log = logScale;
+      remember(rows[chosen]);
+    }
+    logButton.style.background = logScale ? INK.accent : INK.ghost;
+    logButton.style.color = logScale ? "#fff" : INK.textPrimary;
+    logButton.setAttribute("aria-pressed", logScale ? "true" : "false");
+    refreshControls();
+  });
+  autoButton.addEventListener("click", () => {
+    if (chosen !== null) requestMeasurement(chosen, { auto: true });
+  });
+
+  /* Window edges drag; the remaining histogram surface pans its brightness
+     axis. The two actions share the Viewer 0.2 six-pixel edge hit zone. */
   let held = null;
   const valueUnder = (event) => {
     const face = plot.getBoundingClientRect();
@@ -386,48 +755,156 @@ export async function mountViewerPanel(near, { viewer, acquisitions }) {
     const share = Math.min(1, Math.max(0, (event.clientX - face.left) / face.width));
     return axis.low + share * (axis.high - axis.low);
   };
-  plot.addEventListener("pointerdown", (event) => {
-    if (chosen === null || !shape) return;
+  const barUnder = (event) => {
+    if (!shape || chosen === null) return null;
     const window_ = windowOf(rows[chosen]);
     const face = plot.getBoundingClientRect();
     const axis = theAxis(rows[chosen]);
     const grace = (6 / face.width) * (axis.high - axis.low);
-    const pressed = valueUnder(event);
-    if (Math.abs(pressed - window_.low) <= grace) held = "low";
-    else if (Math.abs(pressed - window_.high) <= grace) held = "high";
-    else return;
-    plot.setPointerCapture(event.pointerId);
-  });
-  plot.addEventListener("pointermove", (event) => {
-    if (chosen === null) return;
-    const window_ = windowOf(rows[chosen]);
-    if (!held) {
-      if (!shape) return;
-      const face = plot.getBoundingClientRect();
-      const axis = theAxis(rows[chosen]);
-      const grace = (6 / face.width) * (axis.high - axis.low);
-      const over = valueUnder(event);
-      const overBar = Math.abs(over - window_.low) <= grace
-        || Math.abs(over - window_.high) <= grace;
-      plot.style.cursor = overBar ? "ew-resize" : "default";
+    const value = valueUnder(event);
+    if (Math.abs(value - window_.low) <= grace) return "low";
+    if (Math.abs(value - window_.high) <= grace) return "high";
+    return null;
+  };
+  const showValueUnder = (event) => {
+    if (!shape?.counts?.length) {
+      histogramValue.textContent = `value ${Math.round(valueUnder(event))}`;
       return;
     }
     const value = valueUnder(event);
-    takeTheWindow(held === "low"
-      ? { low: Math.min(value, window_.high - 1), high: window_.high }
-      : { low: window_.low, high: Math.max(value, window_.low + 1) });
+    const share = (value - shape.low) / ((shape.high - shape.low) || 1);
+    const at = Math.min(shape.counts.length - 1, Math.max(0, Math.floor(share * shape.counts.length)));
+    const count = value >= shape.low && value <= shape.high ? shape.counts[at] : 0;
+    histogramValue.textContent = `value ${Math.round(value)} · ${count} pixels`;
+  };
+  plot.addEventListener("pointerdown", (event) => {
+    if (chosen === null || !shape) return;
+    const axis = theAxis(rows[chosen]);
+    const bar = barUnder(event);
+    held = bar
+      ? { bar }
+      : { panFrom: event.clientX, axisWas: { low: axis.low, high: axis.high } };
+    plot.setPointerCapture(event.pointerId);
+    plot.style.cursor = bar ? "ew-resize" : "grabbing";
+  });
+  plot.addEventListener("pointermove", (event) => {
+    if (chosen === null) return;
+    showValueUnder(event);
+    const window_ = windowOf(rows[chosen]);
+    if (!held) {
+      plot.style.cursor = barUnder(event) ? "ew-resize" : "grab";
+      return;
+    }
+    if (held.bar) {
+      const value = valueUnder(event);
+      takeTheWindow(held.bar === "low"
+        ? { low: Math.min(value, window_.high - 1), high: window_.high }
+        : { low: window_.low, high: Math.max(value, window_.low + 1) });
+      return;
+    }
+    const face = plot.getBoundingClientRect();
+    const width = held.axisWas.high - held.axisWas.low;
+    const moved = ((held.panFrom - event.clientX) / face.width) * width;
+    setTheAxis(rows[chosen], {
+      low: held.axisWas.low + moved,
+      high: held.axisWas.high + moved,
+    });
   });
   for (const done of ["pointerup", "pointercancel"]) {
-    plot.addEventListener(done, () => { held = null; });
+    plot.addEventListener(done, () => {
+      held = null;
+      plot.style.cursor = "grab";
+    });
   }
+  plot.addEventListener("pointerleave", () => {
+    if (!held) histogramValue.textContent = "point at the histogram";
+  });
+  plot.addEventListener("dblclick", () => {
+    if (chosen !== null) setTheAxis(rows[chosen], null);
+  });
+  plot.addEventListener("wheel", (event) => {
+    if (chosen === null || !shape) return;
+    event.preventDefault();
+    const row = rows[chosen];
+    const axis = theAxis(row);
+    const face = plot.getBoundingClientRect();
+    const fraction = Math.min(1, Math.max(0, (event.clientX - face.left) / face.width));
+    const anchor = axis.low + fraction * (axis.high - axis.low);
+    const factor = Math.exp(event.deltaY * 0.002);
+    setTheAxis(row, {
+      low: anchor - (anchor - axis.low) * factor,
+      high: anchor + (axis.high - anchor) * factor,
+    });
+  }, { passive: false });
 
   /* ---- the data card: groups, eyes, swatches, names ---- */
   const data = el("div", CARD);
   data.append(el("div", HEADING, "data"));
+  const engineNotice = el("div", [
+    "display:none", "margin:0 12px 8px", "padding:5px 7px",
+    `border:1px solid ${INK.controlBorder}`, "border-radius:4px",
+    `background:${INK.inputBg}`, `color:${INK.textMuted}`,
+    `font:${font(400, 10)}`, "line-height:1.35",
+  ].join(";"));
+  engineNotice.setAttribute("role", "status");
+  engineNotice.dataset.engineState = "agrees";
+  data.append(engineNotice);
 
   let chooserOpen = null;
   const closeChooser = () => { chooserOpen?.remove(); chooserOpen = null; };
-  document.addEventListener("pointerdown", closeChooser, true);
+  const closeChooserOnOutsidePress = (event) => {
+    if (chooserOpen?.contains(event.target)) return;
+    closeChooser();
+  };
+  document.addEventListener("pointerdown", closeChooserOnOutsidePress, true);
+
+  const swatches = rows.map(() => new Set());
+  const channelEyes = rows.map(() => new Set());
+
+  const paintSwatches = (index) => {
+    for (const swatch of swatches[index] ?? []) {
+      swatch.style.background = rows[index].color ?? cssOf(null);
+    }
+  };
+
+  const paintChannelEyes = (index) => {
+    const row = rows[index];
+    for (const eye of channelEyes[index] ?? []) {
+      eye.replaceChildren(anEye(row.visible));
+      eye.style.opacity = row.visible ? "1" : "0.4";
+      eye.title = row.visible ? "Hide this channel" : "Show this channel";
+      eye.setAttribute("aria-pressed", row.visible ? "true" : "false");
+    }
+  };
+
+  const setChannelVisible = (index, visible) => {
+    const row = rows[index];
+    row.visible = visible;
+    remember(row);
+    paintChannelEyes(index);
+    if (visibilityReady) {
+      viewer.setChannel(index, {
+        visible: groupShown.get(row.acquisition) !== false && row.visible,
+      });
+    }
+  };
+
+  function aChannelEye(index, { chosenControl = false } = {}) {
+    const row = rows[index];
+    const eye = el("button",
+      `background:none;border:none;color:${INK.textPrimary};cursor:pointer;padding:0;`);
+    eye.type = "button";
+    eye.setAttribute("aria-label", chosenControl
+      ? "toggle the chosen channel"
+      : `toggle ${row.name}`);
+    eye.addEventListener("click", (press) => {
+      press.stopPropagation();
+      setChannelVisible(index, !row.visible);
+    });
+    channelEyes[index].add(eye);
+    paintChannelEyes(index);
+    return eye;
+  }
 
   function aSwatch(index, row) {
     const swatch = el("button", [
@@ -437,7 +914,9 @@ export async function mountViewerPanel(near, { viewer, acquisitions }) {
       `background:${row.color ?? cssOf(null)}`,
     ].join(";"));
     swatch.type = "button";
+    swatch.setAttribute("aria-label", `colour ${row.name}`);
     swatch.title = "Choose this channel's colour";
+    swatches[index].add(swatch);
     swatch.addEventListener("pointerdown", (press) => press.stopPropagation());
     swatch.addEventListener("click", (press) => {
       press.stopPropagation();
@@ -450,10 +929,34 @@ export async function mountViewerPanel(near, { viewer, acquisitions }) {
         "padding:4px", "box-shadow:0 2px 10px rgba(25,35,50,0.22)",
         "display:flex", "flex-direction:column", "gap:2px",
       ].join(";"));
+      const custom = el("label", [
+        "position:relative", "display:flex", "align-items:center", "gap:7px",
+        "cursor:pointer", "padding:3px 6px", "border-radius:3px",
+        `font:${font(400, 12)}`, `color:${INK.textPrimary}`,
+      ].join(";"));
+      custom.append(
+        el("span", `display:inline-block;width:22px;height:11px;border-radius:2px;border:1px solid ${INK.controlBorder};background:transparent;`),
+        el("span", "", "custom"),
+      );
+      const picker = el("input", "position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer;");
+      picker.type = "color";
+      picker.value = hexOf(row.colour);
+      picker.setAttribute("aria-label", `choose a colour for ${row.name}`);
+      picker.addEventListener("input", () => {
+        row.colour = rgbOf(picker.value);
+        row.color = cssOf(row.colour);
+        remember(row);
+        paintSwatches(index);
+        viewer.setChannel(index, { colour: row.colour });
+        closeChooser();
+      });
+      custom.append(picker);
+      list.append(custom);
       for (const choice of PALETTE) {
         const entry = el("button",
           `display:flex;align-items:center;gap:7px;border:none;background:none;cursor:pointer;padding:3px 6px;border-radius:3px;font:${font(400, 12)};color:${INK.textPrimary};text-align:left;`);
         entry.type = "button";
+        entry.setAttribute("aria-label", `${choice.name} for ${row.name}`);
         entry.append(
           el("span", `display:inline-block;width:22px;height:11px;border-radius:2px;border:1px solid ${INK.controlBorder};background:${cssOf(choice.rgb)};`),
           el("span", "", choice.name),
@@ -462,7 +965,9 @@ export async function mountViewerPanel(near, { viewer, acquisitions }) {
         entry.addEventListener("click", () => {
           const rgb = choice.rgb ?? [0.847, 0.871, 0.902];
           row.color = cssOf(choice.rgb);
-          swatch.style.background = row.color;
+          row.colour = rgb;
+          remember(row);
+          paintSwatches(index);
           viewer.setChannel(index, { colour: rgb });
           closeChooser();
         });
@@ -475,79 +980,241 @@ export async function mountViewerPanel(near, { viewer, acquisitions }) {
   }
 
   const rowLines = [];
+  const groupShown = new Map();
   let heading = null;
   let groupBox = null;
   rows.forEach((row, index) => {
     if (row.acquisition !== heading) {
       heading = row.acquisition;
+      const groupName = heading;
       const group = el("div", `border-bottom:1px solid ${INK.subtleBorder};`);
       const head = el("div", "display:flex;align-items:center;gap:6px;padding:5px 12px 3px;");
+      const disclosure = el("button", [
+        "background:none", "border:none", `color:${INK.textMuted}`,
+        "cursor:pointer", "font-size:10px", "padding:0", "width:10px",
+      ].join(";"));
+      disclosure.type = "button";
       const groupEye = el("button",
         `background:none;border:none;color:${INK.textPrimary};cursor:pointer;padding:0;`);
       groupEye.type = "button";
-      groupEye.dataset.on = "1";
-      groupEye.append(anEye(true));
-      groupEye.title = "Hide this acquisition";
+      const initiallyOn = rememberedGroups.has(groupName)
+        ? rememberedGroups.get(groupName)
+        : true;
+      groupShown.set(groupName, initiallyOn);
+      groupEye.dataset.on = initiallyOn ? "1" : "0";
+      groupEye.dataset.acquisition = groupName;
+      groupEye.setAttribute("aria-label", `toggle group ${groupName}`);
+      groupEye.setAttribute("aria-pressed", initiallyOn ? "true" : "false");
+      groupEye.append(anEye(initiallyOn));
+      groupEye.style.opacity = initiallyOn ? "1" : "0.4";
+      groupEye.title = initiallyOn ? "Hide this acquisition" : "Show this acquisition";
       const members = rows.map((one, at) => ({ one, at }))
-        .filter(({ one }) => one.acquisition === heading);
+        .filter(({ one }) => one.acquisition === groupName);
       groupEye.addEventListener("click", () => {
         const on = groupEye.dataset.on !== "1";
         groupEye.dataset.on = on ? "1" : "0";
+        groupShown.set(groupName, on);
+        rememberedGroups.set(groupName, on);
         groupEye.replaceChildren(anEye(on));
+        groupEye.setAttribute("aria-pressed", on ? "true" : "false");
         groupEye.style.opacity = on ? "1" : "0.4";
         groupEye.title = on ? "Hide this acquisition" : "Show this acquisition";
-        for (const { one, at } of members) {
-          viewer.setChannel(at, { visible: on && one.visible });
+        if (visibilityReady) {
+          for (const { one, at } of members) {
+            viewer.setChannel(at, { visible: on && one.visible });
+          }
         }
       });
-      head.append(groupEye, el("span",
+      head.append(disclosure, groupEye, el("span",
         `flex:1;font:${font(600, 12)};letter-spacing:.02em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;`,
-        heading));
-      groupBox = el("div", `padding-left:8px;border-left:2px solid ${INK.subtleBorder};margin-left:16px;`);
-      group.append(head, groupBox);
+        groupName), el("span", `font:${font(400, 11)};color:${INK.textMuted};`, String(members.length)));
+      const thisGroupBox = el("div", `padding-left:8px;border-left:2px solid ${INK.subtleBorder};margin-left:16px;`);
+      groupBox = thisGroupBox;
+      const showMembers = (show) => {
+        panelState.collapsed.set(groupName, !show);
+        thisGroupBox.style.display = show ? "block" : "none";
+        disclosure.textContent = show ? "▾" : "▸";
+        disclosure.setAttribute("aria-label", `${show ? "collapse" : "expand"} ${groupName}`);
+        disclosure.setAttribute("aria-expanded", show ? "true" : "false");
+      };
+      disclosure.addEventListener("click", () => {
+        showMembers(thisGroupBox.style.display === "none");
+      });
+      group.append(head, thisGroupBox);
       data.append(group);
+      showMembers(panelState.collapsed.get(groupName) !== true);
     }
     const line = el("div",
       "position:relative;padding:1px 0;cursor:pointer;margin-right:12px;border-radius:3px;");
+    line.dataset.channelRow = row.name;
     const inner = el("div", "display:flex;align-items:center;gap:8px;padding:5px 12px;");
-    const eye = el("button",
-      `background:none;border:none;color:${INK.textPrimary};cursor:pointer;padding:0;`);
-    eye.type = "button";
-    eye.append(anEye(true));
-    eye.title = "Hide this channel";
-    eye.addEventListener("click", (press) => {
-      press.stopPropagation();
-      row.visible = !row.visible;
-      eye.replaceChildren(anEye(row.visible));
-      eye.style.opacity = row.visible ? "1" : "0.4";
-      eye.title = row.visible ? "Hide this channel" : "Show this channel";
-      viewer.setChannel(index, { visible: row.visible });
-    });
-    inner.append(eye, aSwatch(index, row), el("span",
+    inner.append(aChannelEye(index), aSwatch(index, row), el("span",
       "overflow:hidden;text-overflow:ellipsis;white-space:nowrap;", row.name));
     line.append(inner);
     line.addEventListener("click", () => chooseRow(index));
     rowLines.push(line);
     groupBox.append(line);
   });
+  const observedRows = () => viewer.layersForMeasurement?.() ?? null;
+  const effectiveVisibility = (row) =>
+    groupShown.get(row.acquisition) !== false && row.visible;
+  const sameWindow = (a, b) => !a || (!!b
+    && Math.abs(a.low - b.low) < 0.01
+    && Math.abs(a.high - b.high) < 0.01);
 
-  async function chooseRow(index) {
+  const applyRequested = (index) => {
+    const row = rows[index];
+    viewer.setChannel(index, {
+      visible: effectiveVisibility(row),
+      colour: row.colour,
+      window: row.window,
+      weight: row.weight,
+    });
+  };
+
+  const readyEngineRows = () => {
+    const standing = observedRows();
+    if (standing === null) return [];
+    const ready = standing.length === rows.length
+      && standing.every((engineRow, index) =>
+        (engineRow.sources?.length ?? 0) === rows[index].sources.length
+        && (engineRow.sources ?? []).every((source) => source.error
+          || (Array.isArray(source.lower) && Array.isArray(source.upper))));
+    return ready ? standing : null;
+  };
+
+  /**
+   * Read the engine without adopting its values. A mismatch is named, then
+   * Smart Operator's requested state is reapplied through the adapter.
+   */
+  const refreshObserved = () => {
+    const standing = readyEngineRows();
+    if (standing === null) return false;
+    if (!visibilityReady) {
+      visibilityReady = true;
+      rows.forEach((_row, index) => applyRequested(index));
+      return true;
+    }
+    if (!standing.length && !viewer.layersForMeasurement) return true;
+    const mismatches = [];
+    standing.forEach((seen, index) => {
+      const row = rows[index];
+      const wanted = {
+        visible: effectiveVisibility(row),
+        window: row.window,
+        weight: row.weight,
+      };
+      if (seen.visible !== wanted.visible
+          || (Number.isFinite(seen.weight) && Math.abs(seen.weight - wanted.weight) > 0.001)
+          || !sameWindow(wanted.window, seen.window)) {
+        mismatches.push({
+          key: viewerChannelKey(row),
+          requested: wanted,
+          observed: { visible: seen.visible, window: seen.window, weight: seen.weight },
+        });
+        applyRequested(index);
+      }
+    });
+    if (mismatches.length) {
+      panelState.lastMismatch = { at: new Date().toISOString(), rows: mismatches };
+      engineNotice.dataset.engineState = "reconciling";
+      engineNotice.style.display = "block";
+      engineNotice.textContent = `Viewer state differed for ${mismatches.length} channel${mismatches.length === 1 ? "" : "s"}; restoring the Operator settings.`;
+    } else {
+      engineNotice.dataset.engineState = "agrees";
+      engineNotice.style.display = "none";
+      engineNotice.textContent = "";
+    }
+    return true;
+  };
+
+  refreshObserved();
+  observationTimer = setInterval(refreshObserved, 100);
+
+  const panelSnapshot = () => {
+    const standing = observedRows() ?? [];
+    return {
+      selectedKey: panelState.selectedKey,
+      lastMismatch: panelState.lastMismatch,
+      measurement: {
+        state: measurementNotice.dataset.measurementState,
+        message: measurementNotice.textContent,
+      },
+      acquisitions: Object.fromEntries(
+        [...groupShown].map(([name, visible]) => [name, {
+          visible,
+          collapsed: panelState.collapsed.get(name) === true,
+        }]),
+      ),
+      channels: rows.map((row, index) => ({
+        key: viewerChannelKey(row),
+        acquisition: row.acquisition,
+        name: row.name,
+        requested: {
+          visible: row.visible,
+          effectiveVisible: effectiveVisibility(row),
+          color: row.color,
+          colour: row.colour,
+          opacity: row.weight,
+          window: row.window,
+          log: row.log ?? false,
+          axis: row.axis ?? null,
+        },
+        observed: standing[index] ? {
+          visible: standing[index].visible,
+          opacity: standing[index].weight,
+          window: standing[index].window,
+          sources: standing[index].sources,
+        } : null,
+      })),
+    };
+  };
+
+  const sourcesChanged = async (nextAcquisitions) => {
+    const next = await viewerRowsFor(nextAcquisitions);
+    if (next.length !== rows.length
+        || next.some((row, index) => viewerChannelKey(row) !== viewerChannelKey(rows[index]))) {
+      return false;
+    }
+    next.forEach((fresh, index) => {
+      rows[index].source = fresh.source;
+      rows[index].sources = fresh.sources;
+      rows[index].range = fresh.range ?? rows[index].range;
+      rows[index].histogram = fresh.histogram ?? rows[index].histogram;
+      remember(rows[index]);
+    });
+    if (chosen !== null) {
+      shape = rows[chosen].histogram ?? shape;
+      refreshControls();
+    }
+    refreshObserved();
+    return true;
+  };
+
+  function chooseRow(index) {
+    cancelMeasurement();
     chosen = index;
     const row = rows[index];
+    panelState.selectedKey = viewerChannelKey(row);
+    logScale = row.log ?? false;
+    logButton.style.background = logScale ? INK.accent : INK.ghost;
+    logButton.style.color = logScale ? "#fff" : INK.textPrimary;
+    logButton.setAttribute("aria-pressed", logScale ? "true" : "false");
     rowLines.forEach((line, at) => {
       line.style.background = at === index ? INK.chosenGround : "";
+      if (at === index) line.setAttribute("aria-current", "true");
+      else line.removeAttribute("aria-current");
     });
+    chosenGroup.textContent = row.acquisition;
     chosenLine.replaceChildren(
-      el("span", `font:${font(600, 12)};color:${INK.textPrimary};`, row.acquisition),
+      aChannelEye(index, { chosenControl: true }),
+      aSwatch(index, row),
       el("span", "overflow:hidden;text-overflow:ellipsis;white-space:nowrap;", row.name),
     );
-    shape = null;
+    shape = row.histogram ?? null;
+    sayMeasurement("idle");
     refreshControls();
-    const answer = await measured(row);
-    if (chosen !== index || !answer) return;
-    shape = answer.histogram;
-    if (!row.window && answer.window) row.window = answer.window;
-    refreshControls();
+    requestMeasurement(index, { debounce: 120 });
   }
 
   /* ---- the picture as a whole: master switch, depth, volume ---- */
@@ -598,13 +1265,27 @@ export async function mountViewerPanel(near, { viewer, acquisitions }) {
   bar.append(data, settings, whole);
   if (plotHost) plotHost.after(panel);
   else (body ?? near)?.append(panel);
-  /* Left where a test can reach it, the way the picture itself is. */
+  /* Left where a test can reach both requested and observed state, the way
+     the picture itself is. These methods do not expose Neuroglancer. */
+  panel.snapshot = panelSnapshot;
+  panel.sourcesChanged = sourcesChanged;
+  panel.requestedState = panelState;
   window.__viewerPanel = panel;
-  if (rows.length) chooseRow(0);
+  if (rows.length) {
+    const remembered = rows.findIndex(
+      (row) => viewerChannelKey(row) === panelState.selectedKey,
+    );
+    chooseRow(remembered >= 0 ? remembered : 0);
+  }
   return {
+    element: panel,
+    snapshot: panelSnapshot,
+    sourcesChanged,
     destroy() {
+      cancelMeasurement();
+      if (observationTimer) clearInterval(observationTimer);
       closeChooser();
-      document.removeEventListener("pointerdown", closeChooser, true);
+      document.removeEventListener("pointerdown", closeChooserOnOutsidePress, true);
       panel.remove();
       if (window.__viewerPanel === panel) window.__viewerPanel = null;
     },

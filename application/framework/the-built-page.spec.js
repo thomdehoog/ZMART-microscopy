@@ -14,6 +14,8 @@
  * Nothing here is about the design; it is about the two agreeing.
  */
 
+import path from "node:path";
+
 import { expect, test } from "@playwright/test";
 import { rest, startTheBridge }
   from "../workflows/target_acquisition/steps/scan_the_overview/live-bridge.js";
@@ -56,6 +58,12 @@ test("the built page and the one being worked on look the same", async ({ page }
   const at = `http://127.0.0.1:${PORT}`;
 
   const built = await howItLooks(page, `${at}/`);
+  if (process.env.PANEL_UX_EVIDENCE_DIR) {
+    await page.screenshot({
+      path: path.join(process.env.PANEL_UX_EVIDENCE_DIR, "smart-operator-production-build.png"),
+      fullPage: true,
+    });
+  }
   const dev = await howItLooks(page, `/?bridge=${encodeURIComponent(at)}`);
 
   expect(built.ink, "the page's own text colour").toBe(dev.ink);

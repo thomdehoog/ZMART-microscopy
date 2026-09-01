@@ -1,0 +1,169 @@
+{
+  "captured_at_utc": "2026-09-01T14:00:19.584Z",
+  "provenance": {
+    "microscopy": {
+      "branch": "codex/smart-viewer-integration-cleanup",
+      "commit": "0389df1e75e31f0bb687ccacf4960eac06459b1f"
+    },
+    "smart_viewer": {
+      "import_path": "/Users/thomdehoog/ZMART-viewer/zmart_viewer/__init__.py",
+      "version": "0.2.0",
+      "commit": "9ff10b04e803fbe2a71a1735a8065a845ea803dd",
+      "measure_route_present": true
+    }
+  },
+  "workflow": {
+    "step": 5,
+    "source": "actual Run button",
+    "sample": "mock kidney",
+    "planned_positions": 9,
+    "landed_positions": 9,
+    "examined_rois": 9,
+    "textured_rois": 0,
+    "evidence_result": "failed"
+  },
+  "smart_viewer_config": {
+    "acquisitions": [
+      {
+        "name": "focussing",
+        "dataset_number": 0,
+        "logical_channels": 1,
+        "position_sources_per_channel": [1]
+      },
+      {
+        "name": "overview",
+        "dataset_number": 1,
+        "logical_channels": 3,
+        "position_sources_per_channel": [9, 9, 9]
+      }
+    ]
+  },
+  "coordinate_trace": [
+    {
+      "position": 0,
+      "workflow_plan": {
+        "frame": "carrier-local",
+        "unit": "um",
+        "centre_xy": [35476, 10476],
+        "frame_um": 1024
+      },
+      "carrier_placement": {
+        "frame": "absolute-stage",
+        "unit": "um",
+        "origin_xy": [23500, 28500]
+      },
+      "acquisition_request": {
+        "frame": "absolute-stage",
+        "unit": "um",
+        "centre_xy": [58976, 38976]
+      },
+      "position_store": {
+        "name": "overview_K00_M000001_G000001_P000000_V00.ome.zarr",
+        "axes": ["t", "c", "z", "y", "x"],
+        "level_0_scale": [1, 1, 1, 4, 4],
+        "level_0_scale_units": ["s", "", "um", "um", "um"],
+        "level_0_translation": [0, 0, 15.935788988738974, 38464, 58464],
+        "level_0_translation_units": ["s", "", "um", "um", "um"],
+        "level_0_shape": [1, 3, 61, 256, 256],
+        "derived_centre_xy_um": [58976, 38976]
+      },
+      "engine": {
+        "source_count_in_each_overview_channel": 9,
+        "source_scale_tczyx": [1, 1, 0.0000011333333333333328, 0.000004, 0.000004],
+        "source_units": ["s", "", "m", "m", "m"],
+        "source_lower_tczyx": [-0.5, -0.5, 13.619813813593218, 9616, 14616],
+        "source_upper_tczyx": [0.5, 2.5, 14.50216675476969, 9872, 14872],
+        "derived_bounds_xy_um": [58464, 38464, 59488, 39488],
+        "derived_centre_xy_um": [58976, 38976],
+        "layer_error": null
+      },
+      "screen_projection": {
+        "unit": "css-px",
+        "stage_xy": [183.84586666666667, 222.1792],
+        "engine_xy": [183.84586666666667, 222.24951875],
+        "error_px": 0.07031874999998422
+      }
+    },
+    {
+      "position": 8,
+      "workflow_plan": {
+        "frame": "carrier-local",
+        "unit": "um",
+        "centre_xy": [37524, 12524],
+        "frame_um": 1024
+      },
+      "carrier_placement": {
+        "frame": "absolute-stage",
+        "unit": "um",
+        "origin_xy": [23500, 28500]
+      },
+      "acquisition_request": {
+        "frame": "absolute-stage",
+        "unit": "um",
+        "centre_xy": [61024, 41024]
+      },
+      "position_store": {
+        "name": "overview_K00_M000001_G000001_P000008_V00.ome.zarr",
+        "axes": ["t", "c", "z", "y", "x"],
+        "level_0_scale": [1, 1, 1, 4, 4],
+        "level_0_scale_units": ["s", "", "um", "um", "um"],
+        "level_0_translation": [0, 0, 15.935788988738974, 40512, 60512],
+        "level_0_translation_units": ["s", "", "um", "um", "um"],
+        "level_0_shape": [1, 3, 61, 256, 256],
+        "derived_centre_xy_um": [61024, 41024]
+      },
+      "engine": {
+        "source_count_in_each_overview_channel": 9,
+        "source_scale_tczyx": [1, 1, 0.0000011333333333333328, 0.000004, 0.000004],
+        "source_units": ["s", "", "m", "m", "m"],
+        "source_lower_tczyx": [-0.5, -0.5, 13.619813813593218, 10127.5, 15127.5],
+        "source_upper_tczyx": [0.5, 2.5, 14.50216675476969, 10383.5, 15383.5],
+        "derived_bounds_xy_um": [60510, 40510, 61534, 41534],
+        "derived_centre_xy_um": [61022, 41022],
+        "sampling_note": "Half-voxel engine bounds differ by 2 um from the metadata centre; both projections use the requested physical centre.",
+        "layer_error": null
+      },
+      "screen_projection": {
+        "unit": "css-px",
+        "stage_xy": [194.15413333333333, 232.48746666666668],
+        "engine_xy": [194.15413333333333, 232.55778541666666],
+        "error_px": 0.07031874999998422
+      }
+    }
+  ],
+  "aggregate": {
+    "plan_centre_bounds_carrier_local_xy_um": [35476, 10476, 37524, 12524],
+    "plan_frame_bounds_absolute_stage_xy_um": [58464, 38464, 61536, 41536],
+    "engine_overview_bounds_xy_um": [58462, 38462, 61534, 41534],
+    "maximum_registration_error_px": 0.07031874999998422,
+    "declared_tolerance_px": 1
+  },
+  "separate_failures": {
+    "roi_pixels": "All nine ROIs were examined; zero passed the texture requirement in this failing run.",
+    "view_ownership": {
+      "stage_view_carrier_local": {
+        "centre_xy_um": [36500, 39731.06374172185],
+        "zoom_um_per_px": 198.67549668874173
+      },
+      "engine_view_absolute_stage": {
+        "centre_xy_um": [60000, 68231.0625],
+        "zoom_um_per_px": 198.67549668874173
+      },
+      "result": "Image arrival replaced the earlier whole-plate Fit; this is a camera-ownership failure, not coordinate registration."
+    },
+    "browser_errors": [
+      "Cannot read properties of undefined (reading 'chunkManager')"
+    ],
+    "expected_format_probes": [
+      "GET focussing store /.zattrs -> net::ERR_ABORTED",
+      "GET focussing store /.zgroup -> net::ERR_ABORTED"
+    ]
+  },
+  "conclusion": {
+    "first_divergent_xy_boundary": null,
+    "xy_registration_fix_required": false,
+    "first_visibility_boundary": "The position writer used measured focus height as the z translation of a flat overview. The store placed position 0 at z 15.9358 um and the engine reported it around z 13.6198-14.5022 while the shared map plane was z 0.5.",
+    "visibility_fix_required": true,
+    "reason": "Carrier-local x/y plan + carrier origin equals the acquisition request and OME-Zarr x/y centre. Engine x/y bounds contain the same physical points, and stage/engine screen projections differ by less than one pixel. The flat overview nevertheless diverges first at the writer's z translation."
+  }
+}

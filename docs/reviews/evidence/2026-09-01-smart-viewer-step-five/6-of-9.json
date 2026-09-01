@@ -1,0 +1,1187 @@
+{
+  "schemaVersion": 1,
+  "provenance": {
+    "microscopy": {
+      "branch": "codex/smart-viewer-integration-cleanup",
+      "commit": "77cb291e1efc9a164de604bc92a7e381ea315019"
+    },
+    "smartViewer": {
+      "importPath": "/Users/thomdehoog/ZMART-viewer/zmart_viewer/__init__.py",
+      "version": "0.2.0",
+      "commit": "9ff10b04e803fbe2a71a1735a8065a845ea803dd",
+      "measureRoutePresent": true
+    }
+  },
+  "sample": "mock kidney",
+  "workflowStep": 5,
+  "captureMethod": "deterministic live bridge; cumulative first two rows",
+  "name": "6-of-9",
+  "timestampUtc": "2026-09-01T16:25:13.616Z",
+  "bridge": {
+    "origin": "http://127.0.0.1:8812"
+  },
+  "counts": {
+    "planned": 9,
+    "landed": 6,
+    "examined": 9,
+    "textured": 6
+  },
+  "pixelCheck": {
+    "canvas": {
+      "examined": 69930,
+      "differentFromCorner": 16120,
+      "shadeBins": 30,
+      "backgroundRgb": [
+        255,
+        255,
+        255
+      ]
+    },
+    "plannedRois": {
+      "required": 9,
+      "examined": 9,
+      "textured": 6
+    }
+  },
+  "roiResults": [
+    {
+      "field": {
+        "index": 0,
+        "centreUm": {
+          "x": 35476,
+          "y": 10476
+        },
+        "frameUm": 1024,
+        "left": 317.7146969394522,
+        "right": 421.23823231315123,
+        "top": 324.14437217371756,
+        "bottom": 427.6679075474166
+      },
+      "result": {
+        "covered": 1,
+        "shades": 13
+      }
+    },
+    {
+      "field": {
+        "index": 1,
+        "centreUm": {
+          "x": 36500,
+          "y": 10476
+        },
+        "frameUm": 1024,
+        "left": 421.23823231315123,
+        "right": 524.7617676868502,
+        "top": 324.14437217371756,
+        "bottom": 427.6679075474166
+      },
+      "result": {
+        "covered": 1,
+        "shades": 13
+      }
+    },
+    {
+      "field": {
+        "index": 2,
+        "centreUm": {
+          "x": 37524,
+          "y": 10476
+        },
+        "frameUm": 1024,
+        "left": 524.7617676868501,
+        "right": 628.2853030605493,
+        "top": 324.14437217371756,
+        "bottom": 427.6679075474166
+      },
+      "result": {
+        "covered": 1,
+        "shades": 13
+      }
+    },
+    {
+      "field": {
+        "index": 3,
+        "centreUm": {
+          "x": 35476,
+          "y": 11500
+        },
+        "frameUm": 1024,
+        "left": 317.7146969394522,
+        "right": 421.23823231315123,
+        "top": 427.6679075474166,
+        "bottom": 531.1914429211156
+      },
+      "result": {
+        "covered": 1,
+        "shades": 13
+      }
+    },
+    {
+      "field": {
+        "index": 4,
+        "centreUm": {
+          "x": 36500,
+          "y": 11500
+        },
+        "frameUm": 1024,
+        "left": 421.23823231315123,
+        "right": 524.7617676868502,
+        "top": 427.6679075474166,
+        "bottom": 531.1914429211156
+      },
+      "result": {
+        "covered": 1,
+        "shades": 13
+      }
+    },
+    {
+      "field": {
+        "index": 5,
+        "centreUm": {
+          "x": 37524,
+          "y": 11500
+        },
+        "frameUm": 1024,
+        "left": 524.7617676868501,
+        "right": 628.2853030605493,
+        "top": 427.6679075474166,
+        "bottom": 531.1914429211156
+      },
+      "result": {
+        "covered": 1,
+        "shades": 13
+      }
+    },
+    {
+      "field": {
+        "index": 6,
+        "centreUm": {
+          "x": 35476,
+          "y": 12524
+        },
+        "frameUm": 1024,
+        "left": 317.7146969394522,
+        "right": 421.23823231315123,
+        "top": 531.1914429211156,
+        "bottom": 634.7149782948145
+      },
+      "result": {
+        "covered": 0,
+        "shades": 1
+      }
+    },
+    {
+      "field": {
+        "index": 7,
+        "centreUm": {
+          "x": 36500,
+          "y": 12524
+        },
+        "frameUm": 1024,
+        "left": 421.23823231315123,
+        "right": 524.7617676868502,
+        "top": 531.1914429211156,
+        "bottom": 634.7149782948145
+      },
+      "result": {
+        "covered": 0,
+        "shades": 1
+      }
+    },
+    {
+      "field": {
+        "index": 8,
+        "centreUm": {
+          "x": 37524,
+          "y": 12524
+        },
+        "frameUm": 1024,
+        "left": 524.7617676868501,
+        "right": 628.2853030605493,
+        "top": 531.1914429211156,
+        "bottom": 634.7149782948145
+      },
+      "result": {
+        "covered": 0,
+        "shades": 1
+      }
+    }
+  ],
+  "sourceCount": 19,
+  "acquisitions": [
+    {
+      "name": "focussing",
+      "datasetNumber": null,
+      "url": "http://127.0.0.1:52380/data/0/focussing_K00_M000000_G000000_P000000_V00.ome.zarr/|zarr3:",
+      "logicalChannelCount": 1,
+      "channels": [
+        {
+          "name": "channel 0",
+          "visible": true,
+          "sourceCount": 1,
+          "sources": [
+            "http://127.0.0.1:52380/data/0/focussing_K00_M000000_G000000_P000000_V00.ome.zarr/|zarr3:"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "overview",
+      "datasetNumber": null,
+      "url": "http://127.0.0.1:52380/data/1/overview_K00_M000000_G000000_P000000_V00.ome.zarr/|zarr3:",
+      "logicalChannelCount": 3,
+      "channels": [
+        {
+          "name": "channel 0",
+          "visible": true,
+          "sourceCount": 6,
+          "sources": [
+            "http://127.0.0.1:52380/data/1/overview_K00_M000000_G000000_P000000_V00.ome.zarr/|zarr3:",
+            "http://127.0.0.1:52380/data/1/overview_K00_M000000_G000000_P000001_V00.ome.zarr/|zarr3:",
+            "http://127.0.0.1:52380/data/1/overview_K00_M000000_G000000_P000002_V00.ome.zarr/|zarr3:",
+            "http://127.0.0.1:52380/data/1/overview_K00_M000000_G000000_P000003_V00.ome.zarr/|zarr3:",
+            "http://127.0.0.1:52380/data/1/overview_K00_M000000_G000000_P000004_V00.ome.zarr/|zarr3:",
+            "http://127.0.0.1:52380/data/1/overview_K00_M000000_G000000_P000005_V00.ome.zarr/|zarr3:"
+          ]
+        },
+        {
+          "name": "channel 1",
+          "visible": true,
+          "sourceCount": 6,
+          "sources": [
+            "http://127.0.0.1:52380/data/1/overview_K00_M000000_G000000_P000000_V00.ome.zarr/|zarr3:",
+            "http://127.0.0.1:52380/data/1/overview_K00_M000000_G000000_P000001_V00.ome.zarr/|zarr3:",
+            "http://127.0.0.1:52380/data/1/overview_K00_M000000_G000000_P000002_V00.ome.zarr/|zarr3:",
+            "http://127.0.0.1:52380/data/1/overview_K00_M000000_G000000_P000003_V00.ome.zarr/|zarr3:",
+            "http://127.0.0.1:52380/data/1/overview_K00_M000000_G000000_P000004_V00.ome.zarr/|zarr3:",
+            "http://127.0.0.1:52380/data/1/overview_K00_M000000_G000000_P000005_V00.ome.zarr/|zarr3:"
+          ]
+        },
+        {
+          "name": "channel 2",
+          "visible": true,
+          "sourceCount": 6,
+          "sources": [
+            "http://127.0.0.1:52380/data/1/overview_K00_M000000_G000000_P000000_V00.ome.zarr/|zarr3:",
+            "http://127.0.0.1:52380/data/1/overview_K00_M000000_G000000_P000001_V00.ome.zarr/|zarr3:",
+            "http://127.0.0.1:52380/data/1/overview_K00_M000000_G000000_P000002_V00.ome.zarr/|zarr3:",
+            "http://127.0.0.1:52380/data/1/overview_K00_M000000_G000000_P000003_V00.ome.zarr/|zarr3:",
+            "http://127.0.0.1:52380/data/1/overview_K00_M000000_G000000_P000004_V00.ome.zarr/|zarr3:",
+            "http://127.0.0.1:52380/data/1/overview_K00_M000000_G000000_P000005_V00.ome.zarr/|zarr3:"
+          ]
+        }
+      ]
+    }
+  ],
+  "logicalChannelRows": [
+    {
+      "name": "overview/channel 0",
+      "visible": true,
+      "sourceCount": 6,
+      "layerError": null
+    },
+    {
+      "name": "overview/channel 1",
+      "visible": true,
+      "sourceCount": 6,
+      "layerError": null
+    },
+    {
+      "name": "overview/channel 2",
+      "visible": true,
+      "sourceCount": 6,
+      "layerError": null
+    },
+    {
+      "name": "focussing/channel 0",
+      "visible": false,
+      "sourceCount": 1,
+      "layerError": null
+    }
+  ],
+  "overviewSources": [
+    {
+      "url": "http://127.0.0.1:52380/data/1/overview_K00_M000000_G000000_P000000_V00.ome.zarr/|zarr3:",
+      "position": 0,
+      "boundsUm": {
+        "xMin": 58463.99999999999,
+        "yMin": 38464,
+        "xMax": 59488,
+        "yMax": 39487.99999999999
+      },
+      "error": null
+    },
+    {
+      "url": "http://127.0.0.1:52380/data/1/overview_K00_M000000_G000000_P000001_V00.ome.zarr/|zarr3:",
+      "position": 1,
+      "boundsUm": {
+        "xMin": 59486,
+        "yMin": 38461.99999999999,
+        "xMax": 60509.99999999999,
+        "yMax": 39486
+      },
+      "error": null
+    },
+    {
+      "url": "http://127.0.0.1:52380/data/1/overview_K00_M000000_G000000_P000002_V00.ome.zarr/|zarr3:",
+      "position": 2,
+      "boundsUm": {
+        "xMin": 60509.99999999999,
+        "yMin": 38461.99999999999,
+        "xMax": 61534,
+        "yMax": 39486
+      },
+      "error": null
+    },
+    {
+      "url": "http://127.0.0.1:52380/data/1/overview_K00_M000000_G000000_P000003_V00.ome.zarr/|zarr3:",
+      "position": 3,
+      "boundsUm": {
+        "xMin": 58462,
+        "yMin": 39486,
+        "xMax": 59486,
+        "yMax": 40510
+      },
+      "error": null
+    },
+    {
+      "url": "http://127.0.0.1:52380/data/1/overview_K00_M000000_G000000_P000004_V00.ome.zarr/|zarr3:",
+      "position": 4,
+      "boundsUm": {
+        "xMin": 59486,
+        "yMin": 39486,
+        "xMax": 60509.99999999999,
+        "yMax": 40510
+      },
+      "error": null
+    },
+    {
+      "url": "http://127.0.0.1:52380/data/1/overview_K00_M000000_G000000_P000005_V00.ome.zarr/|zarr3:",
+      "position": 5,
+      "boundsUm": {
+        "xMin": 60509.99999999999,
+        "yMin": 39486,
+        "xMax": 61534,
+        "yMax": 40510
+      },
+      "error": null
+    },
+    {
+      "url": "http://127.0.0.1:52380/data/1/overview_K00_M000000_G000000_P000000_V00.ome.zarr/|zarr3:",
+      "position": 0,
+      "boundsUm": {
+        "xMin": 58463.99999999999,
+        "yMin": 38464,
+        "xMax": 59488,
+        "yMax": 39487.99999999999
+      },
+      "error": null
+    },
+    {
+      "url": "http://127.0.0.1:52380/data/1/overview_K00_M000000_G000000_P000001_V00.ome.zarr/|zarr3:",
+      "position": 1,
+      "boundsUm": {
+        "xMin": 59486,
+        "yMin": 38461.99999999999,
+        "xMax": 60509.99999999999,
+        "yMax": 39486
+      },
+      "error": null
+    },
+    {
+      "url": "http://127.0.0.1:52380/data/1/overview_K00_M000000_G000000_P000002_V00.ome.zarr/|zarr3:",
+      "position": 2,
+      "boundsUm": {
+        "xMin": 60509.99999999999,
+        "yMin": 38461.99999999999,
+        "xMax": 61534,
+        "yMax": 39486
+      },
+      "error": null
+    },
+    {
+      "url": "http://127.0.0.1:52380/data/1/overview_K00_M000000_G000000_P000003_V00.ome.zarr/|zarr3:",
+      "position": 3,
+      "boundsUm": {
+        "xMin": 58462,
+        "yMin": 39486,
+        "xMax": 59486,
+        "yMax": 40510
+      },
+      "error": null
+    },
+    {
+      "url": "http://127.0.0.1:52380/data/1/overview_K00_M000000_G000000_P000004_V00.ome.zarr/|zarr3:",
+      "position": 4,
+      "boundsUm": {
+        "xMin": 59486,
+        "yMin": 39486,
+        "xMax": 60509.99999999999,
+        "yMax": 40510
+      },
+      "error": null
+    },
+    {
+      "url": "http://127.0.0.1:52380/data/1/overview_K00_M000000_G000000_P000005_V00.ome.zarr/|zarr3:",
+      "position": 5,
+      "boundsUm": {
+        "xMin": 60509.99999999999,
+        "yMin": 39486,
+        "xMax": 61534,
+        "yMax": 40510
+      },
+      "error": null
+    },
+    {
+      "url": "http://127.0.0.1:52380/data/1/overview_K00_M000000_G000000_P000000_V00.ome.zarr/|zarr3:",
+      "position": 0,
+      "boundsUm": {
+        "xMin": 58463.99999999999,
+        "yMin": 38464,
+        "xMax": 59488,
+        "yMax": 39487.99999999999
+      },
+      "error": null
+    },
+    {
+      "url": "http://127.0.0.1:52380/data/1/overview_K00_M000000_G000000_P000001_V00.ome.zarr/|zarr3:",
+      "position": 1,
+      "boundsUm": {
+        "xMin": 59486,
+        "yMin": 38461.99999999999,
+        "xMax": 60509.99999999999,
+        "yMax": 39486
+      },
+      "error": null
+    },
+    {
+      "url": "http://127.0.0.1:52380/data/1/overview_K00_M000000_G000000_P000002_V00.ome.zarr/|zarr3:",
+      "position": 2,
+      "boundsUm": {
+        "xMin": 60509.99999999999,
+        "yMin": 38461.99999999999,
+        "xMax": 61534,
+        "yMax": 39486
+      },
+      "error": null
+    },
+    {
+      "url": "http://127.0.0.1:52380/data/1/overview_K00_M000000_G000000_P000003_V00.ome.zarr/|zarr3:",
+      "position": 3,
+      "boundsUm": {
+        "xMin": 58462,
+        "yMin": 39486,
+        "xMax": 59486,
+        "yMax": 40510
+      },
+      "error": null
+    },
+    {
+      "url": "http://127.0.0.1:52380/data/1/overview_K00_M000000_G000000_P000004_V00.ome.zarr/|zarr3:",
+      "position": 4,
+      "boundsUm": {
+        "xMin": 59486,
+        "yMin": 39486,
+        "xMax": 60509.99999999999,
+        "yMax": 40510
+      },
+      "error": null
+    },
+    {
+      "url": "http://127.0.0.1:52380/data/1/overview_K00_M000000_G000000_P000005_V00.ome.zarr/|zarr3:",
+      "position": 5,
+      "boundsUm": {
+        "xMin": 60509.99999999999,
+        "yMin": 39486,
+        "xMax": 61534,
+        "yMax": 40510
+      },
+      "error": null
+    }
+  ],
+  "planBoundsUm": {
+    "carrierLocal": {
+      "frame": "carrier-local",
+      "unit": "um",
+      "xMin": 34964,
+      "yMin": 9964,
+      "xMax": 38036,
+      "yMax": 13036
+    },
+    "absoluteStage": {
+      "frame": "absolute-stage",
+      "unit": "um",
+      "xMin": 58464,
+      "yMin": 38464,
+      "xMax": 61536,
+      "yMax": 41536
+    }
+  },
+  "imageAggregateBoundsUm": {
+    "frame": "absolute-stage",
+    "unit": "um",
+    "xMin": 58462,
+    "yMin": 38461.99999999999,
+    "xMax": 61534,
+    "yMax": 40510
+  },
+  "registration": {
+    "positions": [
+      {
+        "index": 0,
+        "expectedAbsoluteStageUm": {
+          "x": 58976,
+          "y": 38976
+        },
+        "engineCentreUm": {
+          "x": 58976,
+          "y": 38976
+        },
+        "errorUm": 0
+      },
+      {
+        "index": 1,
+        "expectedAbsoluteStageUm": {
+          "x": 60000,
+          "y": 38976
+        },
+        "engineCentreUm": {
+          "x": 59998,
+          "y": 38974
+        },
+        "errorUm": 2.8284271247461903
+      },
+      {
+        "index": 2,
+        "expectedAbsoluteStageUm": {
+          "x": 61024,
+          "y": 38976
+        },
+        "engineCentreUm": {
+          "x": 61022,
+          "y": 38974
+        },
+        "errorUm": 2.8284271247461903
+      },
+      {
+        "index": 3,
+        "expectedAbsoluteStageUm": {
+          "x": 58976,
+          "y": 40000
+        },
+        "engineCentreUm": {
+          "x": 58974,
+          "y": 39998
+        },
+        "errorUm": 2.8284271247461903
+      },
+      {
+        "index": 4,
+        "expectedAbsoluteStageUm": {
+          "x": 60000,
+          "y": 40000
+        },
+        "engineCentreUm": {
+          "x": 59998,
+          "y": 39998
+        },
+        "errorUm": 2.8284271247461903
+      },
+      {
+        "index": 5,
+        "expectedAbsoluteStageUm": {
+          "x": 61024,
+          "y": 40000
+        },
+        "engineCentreUm": {
+          "x": 61022,
+          "y": 39998
+        },
+        "errorUm": 2.8284271247461903
+      }
+    ],
+    "maximumErrorUm": 2.8284271247461903,
+    "maximumErrorPx": 0.07032476573397162,
+    "declaredTolerancePx": 1,
+    "screenProjections": [
+      {
+        "index": 0,
+        "carrierLocalUm": {
+          "x": 35476,
+          "y": 10476
+        },
+        "carrierOriginUm": {
+          "x": 23500,
+          "y": 28500
+        },
+        "absoluteStageUm": {
+          "x": 58976,
+          "y": 38976
+        },
+        "stageScreenPx": {
+          "x": 85.47646462630173,
+          "y": 265.90613986056707
+        },
+        "engineScreenPx": {
+          "x": 85.47646462630101,
+          "y": 265.976464626301
+        },
+        "errorPx": 0.07032476573391477
+      },
+      {
+        "index": 1,
+        "carrierLocalUm": {
+          "x": 36500,
+          "y": 10476
+        },
+        "carrierOriginUm": {
+          "x": 23500,
+          "y": 28500
+        },
+        "absoluteStageUm": {
+          "x": 60000,
+          "y": 38976
+        },
+        "stageScreenPx": {
+          "x": 189.00000000000074,
+          "y": 265.90613986056707
+        },
+        "engineScreenPx": {
+          "x": 189,
+          "y": 265.976464626301
+        },
+        "errorPx": 0.07032476573391477
+      },
+      {
+        "index": 2,
+        "carrierLocalUm": {
+          "x": 37524,
+          "y": 10476
+        },
+        "carrierOriginUm": {
+          "x": 23500,
+          "y": 28500
+        },
+        "absoluteStageUm": {
+          "x": 61024,
+          "y": 38976
+        },
+        "stageScreenPx": {
+          "x": 292.5235353736997,
+          "y": 265.90613986056707
+        },
+        "engineScreenPx": {
+          "x": 292.523535373699,
+          "y": 265.976464626301
+        },
+        "errorPx": 0.07032476573391477
+      },
+      {
+        "index": 3,
+        "carrierLocalUm": {
+          "x": 35476,
+          "y": 11500
+        },
+        "carrierOriginUm": {
+          "x": 23500,
+          "y": 28500
+        },
+        "absoluteStageUm": {
+          "x": 58976,
+          "y": 40000
+        },
+        "stageScreenPx": {
+          "x": 85.47646462630173,
+          "y": 369.4296752342661
+        },
+        "engineScreenPx": {
+          "x": 85.47646462630101,
+          "y": 369.5
+        },
+        "errorPx": 0.07032476573391477
+      },
+      {
+        "index": 4,
+        "carrierLocalUm": {
+          "x": 36500,
+          "y": 11500
+        },
+        "carrierOriginUm": {
+          "x": 23500,
+          "y": 28500
+        },
+        "absoluteStageUm": {
+          "x": 60000,
+          "y": 40000
+        },
+        "stageScreenPx": {
+          "x": 189.00000000000074,
+          "y": 369.4296752342661
+        },
+        "engineScreenPx": {
+          "x": 189,
+          "y": 369.5
+        },
+        "errorPx": 0.07032476573391477
+      },
+      {
+        "index": 5,
+        "carrierLocalUm": {
+          "x": 37524,
+          "y": 11500
+        },
+        "carrierOriginUm": {
+          "x": 23500,
+          "y": 28500
+        },
+        "absoluteStageUm": {
+          "x": 61024,
+          "y": 40000
+        },
+        "stageScreenPx": {
+          "x": 292.5235353736997,
+          "y": 369.4296752342661
+        },
+        "engineScreenPx": {
+          "x": 292.523535373699,
+          "y": 369.5
+        },
+        "errorPx": 0.07032476573391477
+      },
+      {
+        "index": 6,
+        "carrierLocalUm": {
+          "x": 35476,
+          "y": 12524
+        },
+        "carrierOriginUm": {
+          "x": 23500,
+          "y": 28500
+        },
+        "absoluteStageUm": {
+          "x": 58976,
+          "y": 41024
+        },
+        "stageScreenPx": {
+          "x": 85.47646462630173,
+          "y": 472.95321060796505
+        },
+        "engineScreenPx": {
+          "x": 85.47646462630101,
+          "y": 473.023535373699
+        },
+        "errorPx": 0.07032476573397162
+      },
+      {
+        "index": 7,
+        "carrierLocalUm": {
+          "x": 36500,
+          "y": 12524
+        },
+        "carrierOriginUm": {
+          "x": 23500,
+          "y": 28500
+        },
+        "absoluteStageUm": {
+          "x": 60000,
+          "y": 41024
+        },
+        "stageScreenPx": {
+          "x": 189.00000000000074,
+          "y": 472.95321060796505
+        },
+        "engineScreenPx": {
+          "x": 189,
+          "y": 473.023535373699
+        },
+        "errorPx": 0.07032476573397162
+      },
+      {
+        "index": 8,
+        "carrierLocalUm": {
+          "x": 37524,
+          "y": 12524
+        },
+        "carrierOriginUm": {
+          "x": 23500,
+          "y": 28500
+        },
+        "absoluteStageUm": {
+          "x": 61024,
+          "y": 41024
+        },
+        "stageScreenPx": {
+          "x": 292.5235353736997,
+          "y": 472.95321060796505
+        },
+        "engineScreenPx": {
+          "x": 292.523535373699,
+          "y": 473.023535373699
+        },
+        "errorPx": 0.07032476573397162
+      }
+    ]
+  },
+  "visibility": {
+    "requested": {
+      "focussing": false,
+      "overview": true
+    },
+    "engineObserved": {
+      "focussing": [
+        {
+          "row": "focussing/channel 0",
+          "visible": false
+        }
+      ],
+      "overview": [
+        {
+          "row": "overview/channel 0",
+          "visible": true
+        },
+        {
+          "row": "overview/channel 1",
+          "visible": true
+        },
+        {
+          "row": "overview/channel 2",
+          "visible": true
+        }
+      ]
+    }
+  },
+  "stage": {
+    "view": {
+      "centre": {
+        "x": 36499.99999999999,
+        "y": 11500.000121326146
+      },
+      "zoom": 9.89147053666171
+    },
+    "canvas": {
+      "left": 284,
+      "top": 110,
+      "right": 662,
+      "bottom": 848.859375,
+      "width": 378,
+      "height": 738.859375
+    },
+    "projections": [
+      {
+        "index": 0,
+        "carrierLocalUm": {
+          "x": 35476,
+          "y": 10476
+        },
+        "carrierOriginUm": {
+          "x": 23500,
+          "y": 28500
+        },
+        "absoluteStageUm": {
+          "x": 58976,
+          "y": 38976
+        },
+        "stageScreenPx": {
+          "x": 85.47646462630173,
+          "y": 265.90613986056707
+        },
+        "engineScreenPx": {
+          "x": 85.47646462630101,
+          "y": 265.976464626301
+        },
+        "errorPx": 0.07032476573391477
+      },
+      {
+        "index": 1,
+        "carrierLocalUm": {
+          "x": 36500,
+          "y": 10476
+        },
+        "carrierOriginUm": {
+          "x": 23500,
+          "y": 28500
+        },
+        "absoluteStageUm": {
+          "x": 60000,
+          "y": 38976
+        },
+        "stageScreenPx": {
+          "x": 189.00000000000074,
+          "y": 265.90613986056707
+        },
+        "engineScreenPx": {
+          "x": 189,
+          "y": 265.976464626301
+        },
+        "errorPx": 0.07032476573391477
+      },
+      {
+        "index": 2,
+        "carrierLocalUm": {
+          "x": 37524,
+          "y": 10476
+        },
+        "carrierOriginUm": {
+          "x": 23500,
+          "y": 28500
+        },
+        "absoluteStageUm": {
+          "x": 61024,
+          "y": 38976
+        },
+        "stageScreenPx": {
+          "x": 292.5235353736997,
+          "y": 265.90613986056707
+        },
+        "engineScreenPx": {
+          "x": 292.523535373699,
+          "y": 265.976464626301
+        },
+        "errorPx": 0.07032476573391477
+      },
+      {
+        "index": 3,
+        "carrierLocalUm": {
+          "x": 35476,
+          "y": 11500
+        },
+        "carrierOriginUm": {
+          "x": 23500,
+          "y": 28500
+        },
+        "absoluteStageUm": {
+          "x": 58976,
+          "y": 40000
+        },
+        "stageScreenPx": {
+          "x": 85.47646462630173,
+          "y": 369.4296752342661
+        },
+        "engineScreenPx": {
+          "x": 85.47646462630101,
+          "y": 369.5
+        },
+        "errorPx": 0.07032476573391477
+      },
+      {
+        "index": 4,
+        "carrierLocalUm": {
+          "x": 36500,
+          "y": 11500
+        },
+        "carrierOriginUm": {
+          "x": 23500,
+          "y": 28500
+        },
+        "absoluteStageUm": {
+          "x": 60000,
+          "y": 40000
+        },
+        "stageScreenPx": {
+          "x": 189.00000000000074,
+          "y": 369.4296752342661
+        },
+        "engineScreenPx": {
+          "x": 189,
+          "y": 369.5
+        },
+        "errorPx": 0.07032476573391477
+      },
+      {
+        "index": 5,
+        "carrierLocalUm": {
+          "x": 37524,
+          "y": 11500
+        },
+        "carrierOriginUm": {
+          "x": 23500,
+          "y": 28500
+        },
+        "absoluteStageUm": {
+          "x": 61024,
+          "y": 40000
+        },
+        "stageScreenPx": {
+          "x": 292.5235353736997,
+          "y": 369.4296752342661
+        },
+        "engineScreenPx": {
+          "x": 292.523535373699,
+          "y": 369.5
+        },
+        "errorPx": 0.07032476573391477
+      },
+      {
+        "index": 6,
+        "carrierLocalUm": {
+          "x": 35476,
+          "y": 12524
+        },
+        "carrierOriginUm": {
+          "x": 23500,
+          "y": 28500
+        },
+        "absoluteStageUm": {
+          "x": 58976,
+          "y": 41024
+        },
+        "stageScreenPx": {
+          "x": 85.47646462630173,
+          "y": 472.95321060796505
+        },
+        "engineScreenPx": {
+          "x": 85.47646462630101,
+          "y": 473.023535373699
+        },
+        "errorPx": 0.07032476573397162
+      },
+      {
+        "index": 7,
+        "carrierLocalUm": {
+          "x": 36500,
+          "y": 12524
+        },
+        "carrierOriginUm": {
+          "x": 23500,
+          "y": 28500
+        },
+        "absoluteStageUm": {
+          "x": 60000,
+          "y": 41024
+        },
+        "stageScreenPx": {
+          "x": 189.00000000000074,
+          "y": 472.95321060796505
+        },
+        "engineScreenPx": {
+          "x": 189,
+          "y": 473.023535373699
+        },
+        "errorPx": 0.07032476573397162
+      },
+      {
+        "index": 8,
+        "carrierLocalUm": {
+          "x": 37524,
+          "y": 12524
+        },
+        "carrierOriginUm": {
+          "x": 23500,
+          "y": 28500
+        },
+        "absoluteStageUm": {
+          "x": 61024,
+          "y": 41024
+        },
+        "stageScreenPx": {
+          "x": 292.5235353736997,
+          "y": 472.95321060796505
+        },
+        "engineScreenPx": {
+          "x": 292.523535373699,
+          "y": 473.023535373699
+        },
+        "errorPx": 0.07032476573397162
+      }
+    ]
+  },
+  "engineView": {
+    "centre": {
+      "x": 60000,
+      "y": 40000
+    },
+    "zoom": 9.89147053666171,
+    "width": 378,
+    "height": 739
+  },
+  "bridgeErrors": [],
+  "viewTransition": {
+    "action": "published cumulative positions 0 through 5",
+    "before": {
+      "stage": {
+        "centre": {
+          "x": 36499.99999999999,
+          "y": 11500.000121326146
+        },
+        "zoom": 9.89147053666171
+      },
+      "engine": {
+        "centre": {
+          "x": 60000,
+          "y": 40000
+        },
+        "zoom": 9.89147053666171,
+        "width": 378,
+        "height": 739
+      }
+    },
+    "after": {
+      "stage": {
+        "centre": {
+          "x": 36499.99999999999,
+          "y": 11500.000121326146
+        },
+        "zoom": 9.89147053666171
+      },
+      "engine": {
+        "centre": {
+          "x": 60000,
+          "y": 40000
+        },
+        "zoom": 9.89147053666171,
+        "width": 378,
+        "height": 739
+      }
+    }
+  },
+  "requests": {
+    "required": {
+      "metadata": {
+        "successful": 24
+      },
+      "chunks": {
+        "successful": 58
+      },
+      "measurement": {
+        "successful": 2
+      },
+      "api": {
+        "successful": 45
+      }
+    },
+    "expectedFormatProbes": [],
+    "expectedOptionalProbes": [
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8812/view/overview/tiles.json",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8812/view/overview/tiles.json",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8812/view/overview/tiles.json",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8812/view/overview/tiles.json",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8812/view/overview/tiles.json",
+        "status": 404
+      }
+    ],
+    "expectedNavigationCancellations": [],
+    "unexpectedFailures": [],
+    "browserErrors": [],
+    "workerErrors": []
+  },
+  "browserErrors": [],
+  "workerErrors": []
+}

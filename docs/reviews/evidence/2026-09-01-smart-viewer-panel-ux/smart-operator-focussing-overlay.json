@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-09-01T17:22:27Z",
+  "scope": "Smart Operator requested/observed focussing-overlay panel state",
+  "provenance": {
+    "repository": "thomdehoog/ZMART-microscopy",
+    "branch": "codex/smart-viewer-integration-cleanup",
+    "behaviorCommit": "cd88f5b79bbf1711ec5af03dc27f5d00c378306b",
+    "viewerAuthorityCommit": "9ff10b04e803fbe2a71a1735a8065a845ea803dd"
+  },
+  "sourceSummary": {
+    "acquisitions": ["overview", "focussing", "target"],
+    "channelCounts": {"overview": 3, "focussing": 1, "target": 1},
+    "boundsPerFixtureSource": {"lower": [0, 0, 0], "upper": [1, 64, 64]},
+    "landedPositions": null,
+    "landedPositionsReason": "This isolated UI gate uses engine-adapter rows; real source placement remains covered by canonical Step 5 evidence."
+  },
+  "visibleState": {
+    "groups": {"overview": true, "focussing": true, "target": false},
+    "selected": "focussing/marker-a",
+    "requestedAndObservedFocussingVisible": true,
+    "logarithmicCounts": true,
+    "window": {"low": 780, "high": 20800},
+    "axis": {"low": 0, "high": 25090},
+    "opacity": 1,
+    "drawingOrder": "overview base, focussing diagnostic overlay"
+  },
+  "measurement": {
+    "authority": "real Smart Viewer 0.2 /api/measure response proxied without rewriting values",
+    "state": "ready",
+    "histogramBins": 64
+  },
+  "coordinateSafety": {
+    "sourceMatrices": "all five immutable identity matrices before and after visibility changes",
+    "zPlacementChanged": false,
+    "physical3dRegistrationClaimed": false
+  },
+  "pixelCheck": {
+    "applicableToThisUiFixture": false,
+    "canonicalEvidence": "../2026-09-01-smart-viewer-step-five/9-of-9-harness.json"
+  },
+  "network": {"unexpectedErrors": [], "allowedFormatProbes": []},
+  "artifact": {
+    "file": "smart-operator-focussing-overlay.png",
+    "width": 1440,
+    "height": 900,
+    "sha256": "3e88e96b54111076add10c5ea844d4fd43dd25cd88f3561f44d925f82ca8a24c"
+  }
+}

@@ -90,7 +90,9 @@ dependencies:
       - pywebview>=5
       # The ZMART viewer's server, run beside the bridge to serve the run's
       # OME-Zarr positions as linked live pictures (application/parts/storage/
-      # viewer_service.py). Not on PyPI: install from a local checkout of
-      # github.com/thomdehoog/ZMART-viewer with `pip install -e <checkout>`.
-      # Optional -- without it the operator page draws the JPEG copies.
+      # viewer_service.py). Not on PyPI: check out the sibling repository at
+      # 9ff10b04e803fbe2a71a1735a8065a845ea803dd and install it with
+      # `pip install --no-deps -e ../ZMART-viewer`. The service validates release
+      # 0.2.0 and refuses this repository's historical copied backend. Optional --
+      # without it the operator page draws the JPEG copies.
       # - zmart-viewer
