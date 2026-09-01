@@ -33,23 +33,24 @@ License: MIT
 from __future__ import annotations
 
 import json
+import re
 import threading
 import urllib.request
 from pathlib import Path
 
 #: The service's whole state: one viewer per bridge process, like the run.
 _viewer: dict = {
-    "server": None, "thread": None, "port": None, "error": None,
+    "server": None,
+    "thread": None,
+    "port": None,
+    "error": None,
     # viewer heading (the acquisition type, read off the store names) -> the
     # engine-ready sources: [{"url": ..., "name": ...}], each a whole address.
     "sources": {},
-    # positions folder -> how many stores it held when it was opened. The
-    # count matters, not just membership: a folder opened at ONE store was
-    # opened as that store, and the viewer's watching grows scenes, not
-    # single stores — so the moment a second store lands, the dataset has to
-    # be closed and the folder opened again, which now links it into one
-    # picture. From then on the watching carries it.
-    "opened": {},
+    # Positions folders already handed to Smart Viewer. Viewer 0.2 watches an
+    # opened folder itself and adds later stores to the same dataset number,
+    # so each folder is opened exactly once for the life of this service.
+    "opened": set(),
 }
 _the_turn = threading.Lock()
 
@@ -87,7 +88,7 @@ def stop() -> None:
     """The session is over, and the viewer with it."""
     with _the_turn:
         server = _viewer["server"]
-        _viewer.update(server=None, thread=None, port=None, sources={}, opened={})
+        _viewer.update(server=None, thread=None, port=None, sources={}, opened=set())
         if server is not None:
             try:
                 server.shutdown()
@@ -96,7 +97,31 @@ def stop() -> None:
 
 
 def status() -> dict:
-    """What the operator page asks: is the viewer up, and what does it hold."""
+    """What the operator page asks: is the viewer up, and what does it hold.
+
+    Smart Viewer watches folders that were opened while a run is growing. Its
+    config therefore changes from one source to two, three, and so on without
+    the folder being reopened. Read that config on every operator poll instead
+    of freezing the answer returned by the first ``/api/stores/open`` call.
+    """
+    with _the_turn:
+        port = _viewer["port"]
+
+    if port is not None:
+        try:
+            current = _read(port, "/api/config")
+        except Exception as why:  # noqa: BLE001 -- the scan must carry on
+            with _the_turn:
+                _viewer["error"] = f"the viewer's current picture could not be read: {why}"
+        else:
+            with _the_turn:
+                # A stop/start may have replaced the server while the request
+                # was in flight. Never publish one server's addresses as
+                # another server's state.
+                if _viewer["port"] == port:
+                    _viewer["sources"] = _the_sources_in(current, port)
+                    _viewer["error"] = None
+
     with _the_turn:
         port = _viewer["port"]
         return {
@@ -116,27 +141,16 @@ def a_position_landed(acquisition_type: str, positions_folder: Path | str) -> No
     picture, not the scan.
     """
     folder = str(positions_folder)
-    stores_now = len(list(Path(folder).glob("*.ome.zarr")))
     with _the_turn:
         port = _viewer["port"]
         if port is None:
             return
-        opened_at = _viewer["opened"].get(folder)
+        first_time = folder not in _viewer["opened"]
     try:
-        if opened_at is None:
+        if first_time:
             answered = _ask(port, "/api/stores/open", {"path": folder})
             with _the_turn:
-                _viewer["opened"][folder] = stores_now
-                _viewer["sources"] = _the_sources_in(answered, port)
-        elif opened_at == 1 and stores_now >= 2:
-            # Opened at one store, the folder was opened AS that store, and
-            # watching cannot grow a single store into a run. Closed and
-            # opened again, the folder now links into one picture — and the
-            # watching carries every position after this.
-            _ask(port, "/api/stores/close", {"group": acquisition_type})
-            answered = _ask(port, "/api/stores/open", {"path": folder})
-            with _the_turn:
-                _viewer["opened"][folder] = stores_now
+                _viewer["opened"].add(folder)
                 _viewer["sources"] = _the_sources_in(answered, port)
         _ask(port, "/api/announce", {})
     except Exception as why:  # noqa: BLE001 -- the picture lags, the scan goes on
@@ -160,15 +174,41 @@ def _the_sources_in(config: dict, port: int) -> dict[str, list[dict]]:
         if row.get("kind") != "image":
             continue
         group = str(row.get("group") or "picture")
+        # Session and copy decorations belong to the Viewer's library, not to
+        # the acquisition heading the operator should see.
+        group = group.rsplit(" · ", 1)[-1]
+        group = re.sub(r" \(\d+\)$", "", group)
         for suffix in (".zmartview.zarr", ".ome.zarr", ".zarr"):
             group = group.removesuffix(suffix)
         for address in row.get("sources") or []:
             whole = (
                 f"http://127.0.0.1:{port}{address}"
-                if str(address).startswith("/") else str(address)
+                if str(address).startswith("/")
+                else str(address)
             )
             grouped.setdefault(group, {}).setdefault(whole, {"url": whole, "name": group})
-    return {group: list(held.values()) for group, held in grouped.items()}
+    return {group: _only_the_newest_generation_of(held.values()) for group, held in grouped.items()}
+
+
+def _only_the_newest_generation_of(held) -> list[dict]:
+    """Keep every store in the newest Viewer dataset under a heading.
+
+    Viewer 0.2 gives every store in one watched acquisition the same
+    ``/data/N/`` dataset number. All of those stores are tiles of the picture
+    and must reach the canvas. If an older integration has nevertheless left
+    more than one generation open under the same heading, only the highest
+    dataset number is still current.
+    """
+
+    def numbered(source: dict) -> int:
+        found = re.search(r"/data/(\d+)/", source["url"])
+        return int(found.group(1)) if found else -1
+
+    sources = list(held)
+    if len(sources) <= 1:
+        return sources
+    newest = max(numbered(source) for source in sources)
+    return [source for source in sources if numbered(source) == newest]
 
 
 def _ask(port: int, route: str, payload: dict) -> dict:
@@ -178,6 +218,11 @@ def _ask(port: int, route: str, payload: dict) -> dict:
         headers={"Content-Type": "application/json"},
     )
     with urllib.request.urlopen(request, timeout=30) as answer:
+        return json.loads(answer.read() or b"{}")
+
+
+def _read(port: int, route: str) -> dict:
+    with urllib.request.urlopen(f"http://127.0.0.1:{port}{route}", timeout=30) as answer:
         return json.loads(answer.read() or b"{}")
 
 
