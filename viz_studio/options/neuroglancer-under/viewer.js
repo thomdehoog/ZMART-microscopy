@@ -1237,6 +1237,14 @@ function emptyTheEnginesOwnBindings(viewer) {
  */
 function whenTheAxesAreKnown(viewer, rows = []) {
   const { position } = viewer.navigationState;
+  /* No acquisitions at all is a real thing to ask for, not a mistake: an
+     operator stands in front of this canvas laying positions out on an empty
+     plate before the run has taken a single field. There are no axes to wait
+     for then, and waiting produced the one failure this file is most careful
+     about — a promise that never settles, which looks exactly like loading.
+     The viewer opens with its surfaces, its gestures and its view, and no
+     layers; the run's pictures are handed to it later. */
+  if (!rows.length) return Promise.resolve();
   return new Promise((done, refuse) => {
     let clock = null;
     const stopBoth = () => {

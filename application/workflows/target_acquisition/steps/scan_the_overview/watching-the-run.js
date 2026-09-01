@@ -91,185 +91,136 @@ export function watchTheRun(ctx) {
    */
   const thePicture = (() => {
     const search = new URLSearchParams(location.search);
-    const host = ctx.pictureHost;
-    let viewer = null;
-    let opening = false;
-    /* What the open viewer was opened on, so a change — the run growing a
-       second kind of scan — is noticed and the viewer reopened over it. */
-    let openedOn = null;
-    let inStageFrame = true;
+    /* What the canvas was last told to draw, so a run that has grown a second
+       kind of acquisition is noticed and the canvas told again. */
+    let showing = null;
+    let telling = false;
     let panel = null;
 
     /**
      * What there is to draw, asked fresh each time.
      *
-     * Three answers, in order of preference: a store the address named
-     * (`?picture=`, taken as it is); the run's own OME-Zarr sources, served
-     * by the viewer beside the bridge — the real picture, every acquisition
-     * type a source of its own; and the backend's JPEG copies, which is what
-     * a machine without the viewer draws. `?engine=` still overrides the
-     * engine either way, so the comparisons stay askable.
+     * Two answers: a store the address named (`?picture=`, for looking at a
+     * run from somewhere else), and the run's own OME-Zarr sources, served by
+     * the viewer beside the bridge — the real picture, every acquisition type
+     * a source of its own.
+     *
+     * **A third answer used to be the backend's small JPEG copies**, drawn by
+     * an engine of their own, and it is gone. It existed because the run's own
+     * images could not be opened at the scale a plate reaches; they can now,
+     * and a whole plate of eight hundred and sixty-four fields has been drawn
+     * from them. Keeping it cost more than it gave: the bridge built a small
+     * JPEG for every field as the scan went and rewrote its note under a lock
+     * each time, which is real work on the acquisition's own thread for a
+     * picture nobody was looking at; and — the reason it is worth a paragraph
+     * — it left the page always able to draw *something*, so when the real
+     * path was broken the window still showed a scan and "the overview is not
+     * showing up" looked like a quirk rather than a pipeline that had never
+     * worked.
      */
-    async function whatToOpen() {
+    async function whatToDraw() {
       const picture = search.get("picture");
       if (picture) {
         return {
-          engine: search.get("engine") ?? "jpeg-under",
-          acquisitions: [{ url: picture, name: picture.split("/").filter(Boolean).pop() ?? "scan" }],
+          acquisitions: [{
+            url: picture,
+            name: picture.split("/").filter(Boolean).pop() ?? "scan",
+          }],
           signature: `picture:${picture}`,
-          inStageFrame: false,
         };
       }
       const sources = await ctx.viewerSources?.();
       if (sources?.length) {
         return {
-          engine: search.get("engine") ?? "neuroglancer-under",
           acquisitions: sources,
-          signature: `sources:${sources.map((s) => s.url).join("|")}`,
-          inStageFrame: true,
-        };
-      }
-      const jpegs = ctx.pictures?.("overview");
-      if (jpegs) {
-        return {
-          engine: search.get("engine") ?? "jpeg-under",
-          acquisitions: [{ url: jpegs, name: "scan" }],
-          signature: `jpegs:${jpegs}`,
-          inStageFrame: true,
+          signature: `sources:${sources.map((one) => one.url).join("|")}`,
         };
       }
       return null;
     }
 
-    /* How long an open may take before the page stops waiting for it. Long,
-       because a linked scene of a large run honestly takes a while to open —
-       this is not a performance budget but a wedge guard. An open that never
-       settles held `opening` for ever, and with it the whole retry clock: the
-       canvas stayed empty for the rest of the session with nothing on screen
-       or in the console to say why. */
-    const AN_OPEN_MAY_TAKE_MS = 90_000;
-
-    async function open() {
-      if (viewer || opening) return;
-      opening = true;
+    /**
+     * Tell the canvas what the run has to show, if it has anything new.
+     *
+     * There is no viewer of its own here any more. The canvas draws the
+     * acquisition itself — it is the only thing on this page that draws image
+     * data — and this only hands it the addresses. What that removed, besides
+     * a whole viewer, is the forwarding: the picture no longer has to be told
+     * where the plan is looking, because they are the same picture.
+     */
+    async function draw() {
+      if (telling) return;
+      telling = true;
       try {
-        const wanted = await whatToOpen();
-        if (!wanted) return;
-        const openViewer = await openerFor(wanted.engine);
-        const being = openViewer(host, {
-          acquisitions: wanted.acquisitions,
-          /* The same colour the page paints, so the seam between the scan's own
-             background and the ground above it never shows. */
-          background: ctx.css("--screen"),
-        });
-        const wedged = Symbol("the open never settled");
-        const settled = await Promise.race([
-          being,
-          new Promise((tell) => { setTimeout(() => tell(wedged), AN_OPEN_MAY_TAKE_MS); }),
-        ]);
-        if (settled === wedged) {
-          /* Whatever the stuck open eventually builds belongs to nobody now;
-             it is closed the moment it turns up so it cannot sit over a later,
-             successful open. */
-          being.then((late) => late?.destroy?.()).catch(() => {});
-          throw new Error(
-            `the viewer did not open within ${AN_OPEN_MAY_TAKE_MS / 1000} seconds; ` +
-              "it will be asked again",
-          );
-        }
-        viewer = settled;
-        openedOn = wanted.signature;
-        inStageFrame = wanted.inStageFrame;
+        const wanted = await whatToDraw();
+        if (!wanted || wanted.signature === showing) return;
+        await ctx.drawTheseAcquisitions(wanted.acquisitions);
+        showing = wanted.signature;
         /* Left where a test can reach it. What matters about a picture is what
-           reached the screen, and a viewer that reports itself perfectly opened
-           while drawing nothing is the failure this project keeps meeting — so
-           the tests photograph the box, and this is only the way to ask it
-           where it is looking. */
-        window.__thePicture = viewer;
-        followTheStage();
-        /* The viewer's own controls — the acquisitions and their channels —
-           on the left, the workflow's step panels keeping the right. Only for
-           the run's own sources: a JPEG copy has no channels to offer. */
-        panel?.destroy?.();
-        panel = null;
-        if (wanted.signature.startsWith("sources:")) {
-          const { mountViewerPanel } = await import("../../../../parts/canvas/viewer-panel.js");
-          panel = await mountViewerPanel(host.parentElement ?? host, {
-            viewer, acquisitions: wanted.acquisitions, css: ctx.css,
-          });
-          /* Left where a test can reach it, beside the picture itself: what
-             the panel says about the picture is as much a part of what an
-             operator sees as the picture is, and a photograph cannot tell a
-             truthful eye from a stale one. */
-          window.__viewerPanelHandle = panel;
-        }
-      } catch (e) {
-        console.error(`the scan could not be opened — ${e.message}`);
+           reached the screen, and a viewer that reports itself perfectly
+           opened while drawing nothing is the failure this project keeps
+           meeting — so the tests photograph the box, and this is only the way
+           to ask it where it is looking. */
+        window.__thePicture = ctx.picture();
+        await putThePanelUp(wanted);
+      } catch (why) {
+        console.error(`the run's picture could not be drawn — ${why.message}`);
       } finally {
-        opening = false;
+        telling = false;
       }
     }
 
-    /** Put the scan where the plan is looking, exactly. */
-    function followTheStage() {
-      if (!viewer) return;
-      /* The same two numbers the picture above is drawn with, handed over as
-         they are. This used to be worked out from a pan offset and a scale, in
-         a second piece of arithmetic that had to agree with the first; when the
-         picture above moved to the shared canvas those numbers stopped existing
-         and the scan quietly drew nowhere. Asking for the view is one answer
-         instead of two. */
-      const v = ctx.view();
-      if (inStageFrame && v?.centre) {
-        const [ox, oy] = ctx.carrierOriginUm();
-        viewer.setView({ ...v, centre: { x: v.centre.x + ox, y: v.centre.y + oy } });
-        return;
-      }
-      viewer.setView(v);
-    }
-
-    /** A run that grew — a new acquisition type, a store that moved — wants
-        the viewer opened over the new whole, not nudged. Asked cheaply on the
-        clock below; nothing happens while the answer is the one already open. */
-    async function reopenIfTheRunGrew() {
-      if (!viewer || opening) return;
-      const wanted = await whatToOpen();
-      if (!wanted || wanted.signature === openedOn) return;
-      reset();
-      await open();
+    /* The viewer's own controls — the acquisitions and their channels — on the
+       left, the workflow's step panels keeping the right. Built again whenever
+       what is drawn changes, because the rows it lists are the picture's. */
+    async function putThePanelUp(wanted) {
+      panel?.destroy?.();
+      panel = null;
+      window.__viewerPanelHandle = null;
+      const picture = ctx.picture();
+      if (!picture || !wanted.acquisitions.length) return;
+      const { mountViewerPanel } = await import("../../../../parts/canvas/viewer-panel.js");
+      panel = await mountViewerPanel(ctx.panelHost ?? ctx.pictureHost, {
+        viewer: picture, acquisitions: wanted.acquisitions, css: ctx.css,
+      });
+      /* Left where a test can reach it, beside the picture itself: what the
+         panel says about the picture is as much a part of what an operator
+         sees as the picture is, and a photograph cannot tell a truthful eye
+         from a stale one. */
+      window.__viewerPanelHandle = panel;
     }
 
     function reset() {
       panel?.destroy?.();
       panel = null;
       window.__viewerPanelHandle = null;
-      viewer?.destroy?.();
-      viewer = null;
-      openedOn = null;
+      showing = null;
       window.__thePicture = null;
+      ctx.drawTheseAcquisitions([]);
     }
 
     /* Left where a test can reach it: when the picture is missing, the one
-       question that matters is whether the page believes it is open, is
+       question that matters is whether the page believes it is drawing, is
        still opening, or has given up — and only the page can answer. */
     window.__thePictureState = () => ({
-      opened: !!viewer, opening, openedOn,
+      opened: !!ctx.picture(), opening: telling, openedOn: showing,
     });
 
     return {
       /** Whether this page was pointed at a scan by its own address. The run's
           sources are asked for asynchronously, so they do not answer here. */
-      get asked() { return !!(search.get("picture") ?? ctx.pictures?.("overview")); },
-      /** Whether there was a scan there to open, and it opened. */
-      get opened() { return !!viewer; },
-      open,
-      followTheStage,
-      reopenIfTheRunGrew,
+      get asked() { return !!search.get("picture"); },
+      /** Whether there is a picture being drawn. */
+      get opened() { return !!showing; },
+      open: draw,
+      /** Nothing to follow any more: the plan and the picture are one canvas. */
+      followTheStage() {},
+      reopenIfTheRunGrew: draw,
       /** A field has landed, so there may be more of the scan to read. */
-      mayHaveLanded() { viewer?.tilesMayHaveLanded?.(); },
-      /** The session is over, and what was opened belongs to it. A reconnect
-          is a fresh session: its run starts with nothing scanned, and the
-          picture of the last one must not stand in for it. */
+      mayHaveLanded() { ctx.picture()?.tilesMayHaveLanded?.(); },
+      /** The session is over, and what was drawn belongs to it. A reconnect is
+          a fresh session: its run starts with nothing scanned, and the picture
+          of the last one must not stand in for it. */
       reset,
     };
   })();

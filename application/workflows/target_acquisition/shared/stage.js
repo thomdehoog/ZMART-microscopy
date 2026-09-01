@@ -64,20 +64,62 @@ const stageTip = ctx.tip;
 /* The canvas itself — the part, not this file. What this file supplies is the
    layers; the view, the buttons, the fade, the lock and the routing of a press
    are the canvas's, and are the same for any workflow that picks it up. */
+/**
+ * Which engine draws the run's own images on this canvas.
+ *
+ * One name, in one place, and everything else in this file is written against
+ * the interface in `viz_studio/options/contract.md` rather than against
+ * whatever is behind it. That is the whole reason the interface exists: a
+ * better viewer than this one will come along, or OME-Zarr will be succeeded
+ * by something else, and when it does the change should be this line and a
+ * folder beside the others — not a search through the workflow for everywhere
+ * an engine's habits were assumed.
+ *
+ * `?engine=` still overrides it, so the three can be compared on a real run
+ * without editing anything.
+ *
+ * What is *not* a free choice is that there is only one of them drawing image
+ * data here. The canvas used to be able to fall back to small copies when the
+ * run's own images would not open, and that fallback is what let a pipeline
+ * that had never worked look like a quirk of the viewer for weeks. One engine
+ * draws the acquisition; when it cannot, the page says so.
+ */
+const THE_ENGINE_THAT_DRAWS_THE_RUN =
+  new URLSearchParams(location.search).get("engine") ?? "neuroglancer-under";
+
 const theCanvas = putTheCanvasIn({
   box: stageBox,
   layers: ctx.layerBar,
   readout: ctx.readout,
-  /* Nothing to draw beneath the layers here, and no engine to choose between:
-     the scan that appears under the plan during a run is drawn by the scan
-     step, in a surface of its own below this one. */
+  /* The run's own pictures are drawn here, by this canvas, and there is only
+     one canvas.
+
+     It used to be otherwise, and the reason it changed is worth keeping. The
+     acquisition was drawn by a second viewer in a box beneath this one, and
+     this canvas opened a third engine that drew no picture at all — it was
+     here only to hold the layers and own the view, which it then forwarded to
+     the viewer below. Two viewers meant two opinions about where the picture
+     was: when the panel opened and made the canvas narrower, one refitted and
+     the other did not, so the wells went oval and a column of the plate hid
+     behind the panel. One viewer cannot disagree with itself.
+
+     It opens with nothing to draw, because an operator stands in front of
+     this canvas before the run has taken a single field, and is handed the
+     run's pictures as they appear — see `drawTheseAcquisitions`. */
   acquisitions: [],
-  engine: "jpeg-under",
-  /* Nothing of its own behind the layers, because the scan the run is writing
-     is drawn beneath this canvas by the scan step. A ground of its own would
-     cover that scan — and cover it precisely where the plan has been opened up
-     to let it show, which is the only place anybody was looking. */
-  background: "transparent",
+  engine: THE_ENGINE_THAT_DRAWS_THE_RUN,
+  /* The page's own colour, so that ground the microscope has never visited
+     looks like the page rather than like a hole. This engine forces its
+     canvas opaque at the end of every frame, so a transparent background
+     would not be honoured anyway — it is told the colour instead, and the
+     seam between its canvas and the page cannot be seen. */
+  background: ctx.css("--screen"),
+  /* The layers here are drawn in the carrier's micrometres, whose zero is a
+     corner of the plate; the run's images say where they are on the stage.
+     The two differ by wherever the carrier was put down, and the canvas
+     applies it so that both land in the same place. Read afresh each time,
+     because aligning the carrier measures it again. */
+  pictureOffsetUm: () => carrierOriginUm(),
   layersAbove: [],
   /* A press that claimed nothing and went nowhere is the run's own picking, so
      it is answered here. A drag is not: the layers answer for those
@@ -91,7 +133,9 @@ const theCanvas = putTheCanvasIn({
      every move of it. The wheel and the drag belong to the canvas now, and a
      page that only followed its own redraws would let the two come apart the
      first time somebody zoomed. */
-  onViewMoved: (where) => { keepItOnScreen(where); thePicture.followTheStage(); },
+  /* Nothing to forward any more: the picture is this canvas's own, so a pan
+     or a zoom moves it by moving the canvas. */
+  onViewMoved: (where) => { keepItOnScreen(where); },
   readoutSays: ({ at, zoom }) => {
     const [ox, oy] = carrierOriginUm();
     return `x ${(at.x + ox).toFixed(0)} µm · y ${(at.y + oy).toFixed(0)} µm`
@@ -1128,5 +1172,9 @@ ctx.fitButton.addEventListener("click", () => {
     /* The Fit button's move, offered by hand: centre on a place in the
        carrier's micrometres and choose how much sample one pixel covers. */
     lookAt({ x, y, zoom }) { theCanvas.lookAt({ centre: { x, y }, zoom }); },
+    /* The run's own pictures, handed to the one canvas that draws them. */
+    drawTheseAcquisitions(list) { return theCanvas.drawTheseAcquisitions(list); },
+    get drawing() { return theCanvas.drawing; },
+    get picture() { return theCanvas.picture; },
   };
 }

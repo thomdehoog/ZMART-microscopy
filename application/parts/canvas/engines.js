@@ -103,6 +103,31 @@ const HOW_TO_OPEN = {
   "jpeg-under": () => import("../../../viz_studio/options/jpeg-under/viewer.js"),
 };
 
+/* All three are still here, and `jpeg-under` is still one of them — but the
+ * operator's workflow no longer asks for it, and that is deliberate.
+ *
+ * It is not that it drew badly. It is that it drew *as well*: the page could
+ * always fall back to small copies, so when the run's own images were not
+ * reaching the screen the window still showed a scan, and a pipeline that had
+ * never worked looked like a quirk of the viewer. Weeks went into that. So
+ * `workflows/target_acquisition/shared/stage.js` names one engine for acquired
+ * image data and there is no second one behind it; when it cannot draw, the
+ * page says so instead of drawing something else.
+ *
+ * It stays in this list because the canvas is a part in its own right, and its
+ * own tests exercise the layer machinery through the cheapest engine there is
+ * rather than through the one that fetches over a network and draws on the
+ * graphics card. The comparison in `viz_studio/options/` needs it too, along
+ * with its own measurement — a scan of ten thousand fields opens as small
+ * pictures and does not open as TIFFs.
+ *
+ * Small pictures have not gone from the application either: the focus stack,
+ * its side view and the slice under the black line are all JPEGs, made by
+ * `viz_studio/backend/jpeg_tiles.py`. Nothing in the panel beside the canvas
+ * has to resolve at a dozen magnifications, so nothing there needs an engine
+ * that can.
+ */
+
 /**
  * A sentence about each engine, shown beside the buttons that choose between
  * them, so that somebody looking at the picture knows what they are looking at.
