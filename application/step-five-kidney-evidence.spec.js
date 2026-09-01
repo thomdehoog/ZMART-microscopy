@@ -326,6 +326,7 @@ function dataRequestKind(url, port) {
     if (parsed.hostname !== "127.0.0.1") return null;
     if (expectedFormatProbe(url)) return "format-probe";
     if (expectedOptionalProbe(url, port)) return "optional-probe";
+    if (parsed.pathname === "/api/measure") return "measurement";
     /* Smart Viewer serves the stores from a data server whose port is chosen
        at run time. The URL path, not the bridge port, identifies these. */
     if (/\/data\/\d+\/.+\/zarr\.json$/.test(parsed.pathname)) return "metadata";
@@ -409,6 +410,7 @@ function trackBrowser(page, port) {
         required: {
           metadata: { successful: successful("metadata") },
           chunks: { successful: successful("chunk") },
+          measurement: { successful: successful("measurement") },
           api: { successful: successful("api") },
         },
         expectedFormatProbes,
@@ -781,10 +783,41 @@ function assertCompleteEvidence(record) {
     "required OME-Zarr metadata was fetched").toBeGreaterThan(0);
   expect(record.requests.required.chunks.successful,
     "required OME-Zarr chunks were fetched").toBeGreaterThan(0);
+  expect(record.requests.required.measurement.successful,
+    "the real Viewer answered /api/measure").toBeGreaterThan(0);
+  expect(record.autoMeasurement.successfulAfterAuto,
+    "Auto makes a new real Viewer measurement")
+    .toBeGreaterThan(record.autoMeasurement.successfulBeforeAuto);
+  expect(record.autoMeasurement.histogramBars,
+    "the real measurement draws the panel histogram").toBeGreaterThan(0);
   expect(record.requests.unexpectedFailures, "no unexpected request failed").toEqual([]);
   expect(record.browserErrors, "no browser error occurred").toEqual([]);
   expect(record.workerErrors, "no worker error occurred").toEqual([]);
   expect(record.bridgeErrors, "the bridge completed without error").toEqual([]);
+}
+
+async function proveAutoUsesViewerMeasurement(page, audit) {
+  const successful = () => audit.snapshot().required.measurement.successful;
+  const beforeSelection = successful();
+  await page.locator('.viewer-panel [data-channel-row="channel 0"]').first().click();
+  await expect.poll(successful, {
+    message: "selecting overview channel 0 never reached the real Viewer measurement route",
+  }).toBeGreaterThan(beforeSelection);
+  await expect.poll(() => page.locator(".viewer-panel svg rect").count(), {
+    message: "the real Viewer measurement never drew a histogram",
+  }).toBeGreaterThan(0);
+
+  const successfulBeforeAuto = successful();
+  await page.getByRole("button", { name: "Auto", exact: true }).click();
+  await expect.poll(successful, {
+    message: "Auto never requested a fresh real Viewer measurement",
+  }).toBeGreaterThan(successfulBeforeAuto);
+  return {
+    endpoint: "/api/measure",
+    successfulBeforeAuto,
+    successfulAfterAuto: successful(),
+    histogramBars: await page.locator(".viewer-panel svg rect").count(),
+  };
 }
 
 async function absolutePlan(page) {
@@ -849,12 +882,16 @@ test("deterministic kidney evidence records 0, 3, 6, and 9 landed positions", as
     await bridge.image(positions);
     await waitForOverview(page, 9);
     await waitForTexture(page, 9);
+    const autoMeasurement = await proveAutoUsesViewerMeasurement(page, audit);
     const all = await takeEvidence({
       page, bridge, port: PORT, audit, name: "9-of-9-harness",
       captureMethod: "deterministic live bridge; all positions",
       landed: 9, inspect: true, expectedTextured: 9, requestedVisibility: allVisible,
       viewBefore: before, action: "published cumulative positions 0 through 8",
-      extra: { positionStores: [zarrTrace(bridge, 0), zarrTrace(bridge, 8)] },
+      extra: {
+        autoMeasurement,
+        positionStores: [zarrTrace(bridge, 0), zarrTrace(bridge, 8)],
+      },
     });
     assertCompleteEvidence(all.record);
     expect(all.record.positionStores.map(({ level0 }) => level0.translation[2]),
@@ -869,6 +906,7 @@ test("deterministic kidney evidence records 0, 3, 6, and 9 landed positions", as
       landed: 9, inspect: true, expectedTextured: 9,
       requestedVisibility: { focussing: false, overview: true },
       viewBefore: beforeVisibility, action: "clicked the focussing acquisition eye off",
+      extra: { autoMeasurement },
     });
     expect(overviewOnly.record.visibility.engineObserved.focussing
       .every(({ visible }) => !visible), "focussing is hidden in the engine").toBe(true);
@@ -943,13 +981,17 @@ test("the actual Step 5 Run button lands and renders all nine kidney fields", as
     await framePlannedGrid(page);
     await waitForTexture(page, 9);
     await rest(1500);
+    const autoMeasurement = await proveAutoUsesViewerMeasurement(page, audit);
     const run = await takeEvidence({
       page, bridge, port: RUN_PORT, audit, name: "9-of-9-run",
       captureMethod: "actual Step 5 Run button end to end",
       landed: 9, inspect: true, expectedTextured: 9,
       requestedVisibility: { focussing: true, overview: true },
       viewBefore: beforeRun, action: "operator clicked the Step 5 Run button",
-      extra: { positionStores: [zarrTrace(bridge, 0), zarrTrace(bridge, 8)] },
+      extra: {
+        autoMeasurement,
+        positionStores: [zarrTrace(bridge, 0), zarrTrace(bridge, 8)],
+      },
     });
     assertCompleteEvidence(run.record);
   } finally {
