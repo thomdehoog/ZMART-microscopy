@@ -18,6 +18,10 @@ Three documents live at the top level:
   proposal to build a display-only JPEG pyramid for the browser viewer. The
   design itself lives on another branch; this note names the commit it read,
   and the reasoning applies more widely than that one proposal.
+- `2026-09-01-review-of-the-revised-viewer-delivery-plan.md` — the follow-up
+  review, after that proposal was withdrawn and replaced by a plan built on
+  ZMART Viewer 0.2. It is the one to read for the display-window contract and
+  for why an encoded response cannot share a piece address.
 
 Everything in `archive/` is history: earlier review rounds, the prompts
 that were used to run them, and progress snapshots from along the way.
