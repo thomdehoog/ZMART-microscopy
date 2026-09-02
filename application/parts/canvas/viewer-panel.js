@@ -332,6 +332,34 @@ export async function mountViewerPanel(near, {
   bar.style.lineHeight = "1.4";
   panel.append(fold, bar);
 
+  /* Standing in the page's own column, the panel wears the page's boxes:
+     a heading over a white card, like every step's controls. On its own
+     beside the picture it keeps the viewer's grey cards. */
+  const inPage = !!into;
+  if (inPage) {
+    fold.hidden = true;
+    bar.style.background = "transparent";
+    /* The channel's own margin around its boxes, as `.side-pad-around` gives
+       every other step's. */
+    bar.style.padding = "var(--box-gap) 14px 0";
+    bar.style.gap = "var(--box-gap)";
+  }
+  function aCard(title) {
+    if (!inPage) {
+      const card = el("div", CARD);
+      card.append(el("div", HEADING, title));
+      return { card, body: card };
+    }
+    const card = el("div", "");
+    card.className = "side-group";
+    const head = el("div", "", title);
+    head.className = "side-group-title";
+    const body = el("div", "");
+    body.className = "side-group-body";
+    card.append(head, body);
+    return { card, body };
+  }
+
   let folded = false;
   fold.addEventListener("click", () => {
     folded = !folded;
@@ -341,8 +369,7 @@ export async function mountViewerPanel(near, {
   });
 
   /* ---- channel settings (built first, filled by the selection) ---- */
-  const settings = el("div", CARD);
-  settings.append(el("div", HEADING, "channel settings"));
+  const { card: settingsCard, body: settings } = aCard("channel settings");
   const chosenHead = el("div", "display:flex;flex-direction:column;gap:3px;padding:5px 12px 6px;");
   const chosenGroup = el("div", [
     `font:${font(600, 12)}`, `color:${INK.textPrimary}`, "letter-spacing:.02em",
@@ -847,8 +874,7 @@ export async function mountViewerPanel(near, {
   }, { passive: false });
 
   /* ---- the data card: groups, eyes, swatches, names ---- */
-  const data = el("div", CARD);
-  data.append(el("div", HEADING, "data"));
+  const { card: dataCard, body: data } = aCard("data");
   const engineNotice = el("div", [
     "display:none", "margin:0 12px 8px", "padding:5px 7px",
     `border:1px solid ${INK.controlBorder}`, "border-radius:4px",
@@ -1227,8 +1253,7 @@ export async function mountViewerPanel(near, {
   }
 
   /* ---- the picture as a whole: master switch, depth, volume ---- */
-  const whole = el("div", CARD);
-  whole.append(el("div", HEADING, "picture"));
+  const { card: wholeCard, body: whole } = aCard("picture");
   const pictureLine = el("label",
     "display:flex;align-items:center;gap:8px;cursor:pointer;padding:5px 12px;");
   const pictureEye = el("input");
@@ -1272,7 +1297,7 @@ export async function mountViewerPanel(near, {
     }
   }
 
-  bar.append(data, settings, whole);
+  bar.append(dataCard, settingsCard, wholeCard);
   if (into) {
     fold.hidden = true;
     bar.style.width = "100%";
