@@ -23,10 +23,10 @@ import { sideGroup } from "../../../../framework/window/panels.js";
 /* The plot takes the card: room at the left for the tick labels and the
    axis title, a little at the top so the top tick is not clipped, and a
    line for the ticks and one for the title under it. */
-/* The frame stands at the card's edges; the tick labels and the y title
-   stand inside it, so nothing is left of the frame to misalign with the
-   rows above. Below, a line for the x ticks and one for the x title. */
-const PAD = { l: 1, r: 1, t: 1, b: 38 };
+/* The frame starts at the card's left edge, in line with the rows above;
+   the y tick labels and the y title stand outside it at the right, each in
+   its own column. Below, a line for the x ticks and one for the x title. */
+const PAD = { l: 1, r: 62, t: 1, b: 38 };
 
 /** How near a press must land to take a vertex or an edge, in pixels. */
 const REACH = 9;
@@ -331,9 +331,7 @@ export default {
       for (let v = Math.ceil(yLo / yStep) * yStep; v <= yHi + yStep * 0.001; v += yStep) {
         const y = sy(v, h);
         paint.beginPath(); paint.moveTo(PAD.l, y); paint.lineTo(w - PAD.r, y); paint.stroke();
-        // inside the frame, just above its own line; the top one would
-        // collide with the frame's edge and is left unsaid
-        if (y > PAD.t + 14) paint.fillText(sayTick(v), PAD.l + 6, y - 4);
+        paint.fillText(sayTick(v), w - PAD.r + 8, y + 4);
       }
       paint.textAlign = "center";
       const xStep = tickStep(xHi - xLo);
@@ -357,14 +355,16 @@ export default {
       }
 
       // axis titles are the chosen features, because that is what this plot IS
-      // -- in the ticks' own ink and size, only bolder: y at the top left
-      // inside the frame, x under the ticks
+      // -- in the ticks' own ink and size, only bolder, each beyond its ticks
       paint.fillStyle = ctx.css("--ink-3");
       paint.font = "600 11.5px system-ui, sans-serif";
       paint.textAlign = "center";
       paint.fillText(fx, (PAD.l + w - PAD.r) / 2, h - 6);
-      paint.textAlign = "left";
-      paint.fillText(fy, PAD.l + 6, PAD.t + 14);
+      paint.save();
+      paint.translate(w - 12, (PAD.t + h - PAD.b) / 2);
+      paint.rotate(Math.PI / 2);
+      paint.fillText(fy, 0, 0);
+      paint.restore();
 
       const gated = ctx.gated();
 
