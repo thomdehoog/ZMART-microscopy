@@ -303,8 +303,30 @@ inventing its own.
   screen, and back, is asked of the canvas, never worked out beside it, so a
   mark is clickable exactly where it is drawn. The new engine answers the
   same `project` and `unproject`.
+- **Zoom holds the point under the mouse.** A wheel notch zooms about the
+  pointer, so what is under the cursor stays under it. This exists in the
+  shared module and is kept as it is, because the same notch has to mean the
+  same thing to the picture and to the outlines drawn over it, or the two
+  creep apart.
+- **A readout of where the view is**, in micrometres, already stands beside
+  the canvas and stays.
 - **The hand comes first** (see the engine): fetching pauses while a drag or
   a scrub is under way, so panning stays smooth on a slow share.
+- **Worth adding, small and cheap** (none exists yet):
+  - a readout under the pointer: stage x, y, z in micrometres, and the pixel
+    value of each visible channel at that place, read from the resident
+    tile;
+  - a scale bar that follows the zoom;
+  - keyboard nudges: arrows pan, plus and minus zoom, page up and down step
+    the depth, comma and full stop step time, and one key fits the whole;
+  - double-click to centre on a place;
+  - a pinch to zoom on a touch screen, through the same module;
+  - zoom limits: never further in than a few screen pixels per voxel, never
+    further out than the whole plate with a margin;
+  - the view in the page address, so a place can be sent to a colleague and
+    opens where it was, and the last view per run remembered locally;
+  - a picture of the view as it is on screen, with its scale bar, saved as a
+    file.
 - **New with the top and side views:** switching direction keeps the centre
   in stage micrometres, and in the side view the drag pans in x or y and z
   while the remaining axis is on a slider.
