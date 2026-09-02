@@ -140,6 +140,19 @@ what is precomputed rather than assembled on the fly.
 - Nothing in the engine, the register or the data layer may be shaped in a
   way that would have to be undone for it. That is the whole of the promise
   made to three dimensions now.
+- **Prior art to read when the time comes.** napari's "Progressive loading
+  for 2D and 3D" (napari/napari pull request 9067, June 2026, experimental
+  and opt-in): viewport-bounded three-dimensional sub-volume tiles fetched
+  front to back, the coarsest level kept resident as a backdrop while finer
+  tiles stream in, streaming paused while the camera moves, chunk-sized
+  partial texture updates into double-buffered volume textures, and uploads
+  metered to the frame rate. It is Python, vispy and desktop OpenGL, so
+  nothing of it is reusable code for a browser engine, but its shape is the
+  shape we would want, and its backdrop idea is our kept coarse level under
+  another name. Two smaller merged pieces are worth knowing: a manual lock on
+  the multiscale level for 2D and 3D (pull request 8917) and a half-voxel
+  offset fix (pull request 9065), the same disagreement we settled with the
+  voxel-edge rule.
 
 ## The register: one file, four readers
 
