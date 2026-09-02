@@ -1,0 +1,219 @@
+{
+  "schemaVersion": 1,
+  "name": "step1-connected",
+  "capturedAtUtc": "2026-09-02T11:22:15.361Z",
+  "provenance": {
+    "microscopy": {
+      "repository": "thomdehoog/ZMART-microscopy",
+      "branch": "claude/smart-operator-workflow-review-ehw3c5",
+      "commit": "bb439d135e3f5f833004a1ba06613add56c17b76",
+      "worktreeClean": false
+    },
+    "smartViewer": {
+      "repository": "thomdehoog/ZMART-viewer",
+      "importPath": "C:\\ProgramData\\MinicondaZMB\\home\\t.de\\ZMART-viewer-main\\zmart_viewer\\__init__.py",
+      "version": "0.2.0",
+      "commit": "9ff10b04e803fbe2a71a1735a8065a845ea803dd",
+      "measureRoutePresent": true
+    },
+    "backend": "real bridge (application/framework/bridge.py) driving the controller's mock kidney driver",
+    "page": "production build served by the bridge (framework/window/static)",
+    "python": "3.11.15"
+  },
+  "sample": "mock kidney (scikit-image kidney, plane 8)",
+  "server": {
+    "bridge": "http://127.0.0.1:8821",
+    "viewer": "http://127.0.0.1:61466",
+    "run": "C:\\Users\\local_t.de5\\Temp\\zmart-bridge-xIZ2FR\\target-acquisition_10064a"
+  },
+  "workflow": {
+    "step": 1,
+    "state": "connected; every driver check answered",
+    "run": {
+      "running": null,
+      "notes": {},
+      "activeIdx": 0,
+      "done": [
+        "connect"
+      ],
+      "ran": [
+        "connect"
+      ],
+      "focus": {
+        "strategy": "plane",
+        "applied": false,
+        "points": 0,
+        "selected": 0
+      },
+      "targetFrameUm": null
+    }
+  },
+  "counts": {
+    "planned": 0,
+    "scan": {
+      "acquisitionType": null,
+      "done": 0,
+      "of": 0,
+      "running": false,
+      "error": null
+    },
+    "targetsOnCanvas": 0,
+    "targetsSelected": 0,
+    "targetsAcquired": 0,
+    "engineSourcesPerGroup": {}
+  },
+  "viewerAcquisitions": [],
+  "engineRows": [],
+  "visibility": {
+    "requested": null,
+    "requestedChannels": null,
+    "engineObserved": {}
+  },
+  "selected": null,
+  "engineMismatch": null,
+  "measurement": null,
+  "coordinates": {
+    "carrierOriginUm": {
+      "x": 23500,
+      "y": 28500
+    },
+    "plan": [],
+    "targets": [],
+    "targetsOnCanvas": 0,
+    "stageView": {
+      "centre": {
+        "x": 36500,
+        "y": 39731.06374172185
+      },
+      "zoom": 198.67549668874173
+    },
+    "engineView": {
+      "centre": {
+        "x": 60000,
+        "y": 68231.06374172185
+      },
+      "zoom": 198.67549668874173,
+      "width": 656,
+      "height": 738.859375
+    },
+    "canvas": {
+      "left": 284,
+      "top": 110,
+      "width": 656,
+      "height": 738.859375
+    }
+  },
+  "projectionError": {
+    "planMaxPx": null,
+    "targetsMaxPx": null,
+    "tolerancePx": 1
+  },
+  "pictureTag": null,
+  "pixelCheck": {
+    "canvasShadeBins": 19
+  },
+  "requests": {
+    "required": {
+      "metadata": 0,
+      "chunks": 0,
+      "measurement": 0,
+      "api": 14,
+      "pictures": 0
+    },
+    "expectedFormatProbes": [],
+    "expectedOptionalProbes": [
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/tiles.json",
+        "status": 404
+      }
+    ],
+    "expectedNavigationCancellations": [],
+    "expectedChunkCancellations": {
+      "count": 0,
+      "sample": []
+    },
+    "expectedRetiredStoreMisses": {
+      "stores": [],
+      "count": 0,
+      "sample": []
+    },
+    "unexpectedFailures": [],
+    "browserErrors": [],
+    "workerErrors": []
+  },
+  "browserErrors": [],
+  "workerErrors": [],
+  "bridgeErrors": [],
+  "viewerError": null,
+  "artifact": {
+    "file": "step1-connected.png",
+    "width": 1440,
+    "height": 900,
+    "sha256": "a971c90c723d6d6926583cc4f7d5fd4010be89fd3fddcb944c2227bc08b51e37"
+  },
+  "connection": {
+    "checks": [
+      {
+        "name": "driver",
+        "value": "mock · mock-scope · mock-api"
+      },
+      {
+        "name": "client",
+        "value": "mock-client"
+      },
+      {
+        "name": "serial",
+        "value": "MOCK-0001"
+      },
+      {
+        "name": "stage",
+        "value": "x 0.0 · y 0.0 · z 0.0 um"
+      },
+      {
+        "name": "output root",
+        "value": "C:\\Users\\local_t.de5\\Temp\\zmart-bridge-xIZ2FR"
+      }
+    ],
+    "driverCanvas": {
+      "x_um": [
+        0,
+        120000
+      ],
+      "y_um": [
+        0,
+        80000
+      ],
+      "z_um": [
+        0,
+        10000
+      ]
+    },
+    "stagePosition": {
+      "x": {
+        "value": 0,
+        "actuator": "motoric",
+        "unit": "um"
+      },
+      "y": {
+        "value": 0,
+        "actuator": "motoric",
+        "unit": "um"
+      },
+      "z": {
+        "value": 0,
+        "actuator": "motoric",
+        "unit": "um"
+      }
+    },
+    "instrumentsListed": 2,
+    "openingView": {
+      "centre": {
+        "x": 36500,
+        "y": 39731.06374172185
+      },
+      "zoom": 198.67549668874173
+    },
+    "passwordPrefilledByThePage": false
+  }
+}

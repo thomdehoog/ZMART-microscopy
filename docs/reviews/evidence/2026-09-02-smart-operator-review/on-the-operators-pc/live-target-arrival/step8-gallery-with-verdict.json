@@ -1,0 +1,3173 @@
+{
+  "schemaVersion": 1,
+  "name": "step8-gallery-with-verdict",
+  "capturedAtUtc": "2026-09-02T11:30:16.932Z",
+  "provenance": {
+    "microscopy": {
+      "repository": "thomdehoog/ZMART-microscopy",
+      "branch": "claude/smart-operator-workflow-review-ehw3c5",
+      "commit": "bb439d135e3f5f833004a1ba06613add56c17b76",
+      "worktreeClean": false
+    },
+    "smartViewer": {
+      "repository": "thomdehoog/ZMART-viewer",
+      "importPath": "C:\\ProgramData\\MinicondaZMB\\home\\t.de\\ZMART-viewer-main\\zmart_viewer\\__init__.py",
+      "version": "0.2.0",
+      "commit": "9ff10b04e803fbe2a71a1735a8065a845ea803dd",
+      "measureRoutePresent": true
+    },
+    "backend": "real bridge (application/framework/bridge.py) driving the controller's mock kidney driver",
+    "page": "production build served by the bridge (framework/window/static)",
+    "python": "3.11.15"
+  },
+  "sample": "mock kidney (scikit-image kidney, plane 8)",
+  "server": {
+    "bridge": "http://127.0.0.1:8821",
+    "viewer": "http://127.0.0.1:61466",
+    "run": "C:\\Users\\local_t.de5\\Temp\\zmart-bridge-xIZ2FR\\target-acquisition_10064a"
+  },
+  "workflow": {
+    "step": 8,
+    "state": "3 gallery pairs; first marked good",
+    "run": {
+      "running": null,
+      "notes": {
+        "carrier": "75 × 25 mm slide · 73.0 × 23.0 mm",
+        "scanfields": "9 positions",
+        "focus": "constant from 1 points · rms 0.0 µm",
+        "scan": "9 / 9 tiles",
+        "detect": "4010 targets · Cellpose",
+        "select": "3 targets selected",
+        "acquire": "3 pairs acquired"
+      },
+      "activeIdx": 7,
+      "done": [
+        "connect",
+        "carrier",
+        "scanfields",
+        "focus",
+        "scan",
+        "detect",
+        "select",
+        "acquire"
+      ],
+      "ran": [
+        "connect",
+        "focus",
+        "scan",
+        "detect",
+        "select",
+        "acquire"
+      ],
+      "focus": {
+        "strategy": "plane",
+        "applied": true,
+        "points": 1,
+        "selected": 0
+      },
+      "targetFrameUm": 1024
+    }
+  },
+  "counts": {
+    "planned": 9,
+    "scan": {
+      "acquisitionType": "target",
+      "done": 3,
+      "of": 3,
+      "running": false,
+      "error": null
+    },
+    "targetsOnCanvas": 4010,
+    "targetsSelected": 3,
+    "targetsAcquired": 3,
+    "engineSourcesPerGroup": {
+      "overview": [
+        9,
+        9,
+        9
+      ],
+      "target": [
+        3,
+        3,
+        3
+      ],
+      "focussing": [
+        1
+      ]
+    }
+  },
+  "viewerAcquisitions": [
+    {
+      "name": "focussing",
+      "logicalChannelCount": 1,
+      "sourceCountPerChannel": [
+        1
+      ]
+    },
+    {
+      "name": "overview",
+      "logicalChannelCount": 3,
+      "sourceCountPerChannel": [
+        9,
+        9,
+        9
+      ]
+    },
+    {
+      "name": "target",
+      "logicalChannelCount": 3,
+      "sourceCountPerChannel": [
+        3,
+        3,
+        3
+      ]
+    }
+  ],
+  "engineRows": [
+    {
+      "name": "overview/channel 0",
+      "group": "overview",
+      "visible": true,
+      "window": {
+        "low": 196,
+        "high": 4084
+      },
+      "weight": 1,
+      "layerError": null,
+      "sourceCount": 9,
+      "sources": [
+        {
+          "url": "http://127.0.0.1:61466/data/1/overview_K00_M000001_G000001_P000000_V00.ome.zarr/|zarr3:",
+          "error": null,
+          "boundsUm": {
+            "xMin": 58463.99999999999,
+            "yMin": 38464,
+            "xMax": 59488,
+            "yMax": 39487.99999999999,
+            "zMin": -0.5,
+            "zMax": 0.5
+          },
+          "matrixSha256": "aa9327931dedd92808e48006eec9b83dc2cecf5e3ad051749067761cce07f077",
+          "voxelCenterAtIntegerCoordinates": [
+            true,
+            true,
+            true,
+            false,
+            false
+          ]
+        },
+        {
+          "url": "http://127.0.0.1:61466/data/1/overview_K00_M000001_G000001_P000001_V00.ome.zarr/|zarr3:",
+          "error": null,
+          "boundsUm": {
+            "xMin": 59488,
+            "yMin": 38464,
+            "xMax": 60511.99999999999,
+            "yMax": 39487.99999999999,
+            "zMin": -0.5,
+            "zMax": 0.5
+          },
+          "matrixSha256": "aa9327931dedd92808e48006eec9b83dc2cecf5e3ad051749067761cce07f077",
+          "voxelCenterAtIntegerCoordinates": [
+            true,
+            true,
+            true,
+            false,
+            false
+          ]
+        },
+        {
+          "url": "http://127.0.0.1:61466/data/1/overview_K00_M000001_G000001_P000002_V00.ome.zarr/|zarr3:",
+          "error": null,
+          "boundsUm": {
+            "xMin": 60511.99999999999,
+            "yMin": 38464,
+            "xMax": 61536,
+            "yMax": 39487.99999999999,
+            "zMin": -0.5,
+            "zMax": 0.5
+          },
+          "matrixSha256": "aa9327931dedd92808e48006eec9b83dc2cecf5e3ad051749067761cce07f077",
+          "voxelCenterAtIntegerCoordinates": [
+            true,
+            true,
+            true,
+            false,
+            false
+          ]
+        },
+        {
+          "url": "http://127.0.0.1:61466/data/1/overview_K00_M000001_G000001_P000003_V00.ome.zarr/|zarr3:",
+          "error": null,
+          "boundsUm": {
+            "xMin": 58463.99999999999,
+            "yMin": 39487.99999999999,
+            "xMax": 59488,
+            "yMax": 40512,
+            "zMin": -0.5,
+            "zMax": 0.5
+          },
+          "matrixSha256": "aa9327931dedd92808e48006eec9b83dc2cecf5e3ad051749067761cce07f077",
+          "voxelCenterAtIntegerCoordinates": [
+            true,
+            true,
+            true,
+            false,
+            false
+          ]
+        },
+        {
+          "url": "http://127.0.0.1:61466/data/1/overview_K00_M000001_G000001_P000004_V00.ome.zarr/|zarr3:",
+          "error": null,
+          "boundsUm": {
+            "xMin": 59488,
+            "yMin": 39487.99999999999,
+            "xMax": 60511.99999999999,
+            "yMax": 40512,
+            "zMin": -0.5,
+            "zMax": 0.5
+          },
+          "matrixSha256": "aa9327931dedd92808e48006eec9b83dc2cecf5e3ad051749067761cce07f077",
+          "voxelCenterAtIntegerCoordinates": [
+            true,
+            true,
+            true,
+            false,
+            false
+          ]
+        },
+        {
+          "url": "http://127.0.0.1:61466/data/1/overview_K00_M000001_G000001_P000005_V00.ome.zarr/|zarr3:",
+          "error": null,
+          "boundsUm": {
+            "xMin": 60511.99999999999,
+            "yMin": 39487.99999999999,
+            "xMax": 61536,
+            "yMax": 40512,
+            "zMin": -0.5,
+            "zMax": 0.5
+          },
+          "matrixSha256": "aa9327931dedd92808e48006eec9b83dc2cecf5e3ad051749067761cce07f077",
+          "voxelCenterAtIntegerCoordinates": [
+            true,
+            true,
+            true,
+            false,
+            false
+          ]
+        },
+        {
+          "url": "http://127.0.0.1:61466/data/1/overview_K00_M000001_G000001_P000006_V00.ome.zarr/|zarr3:",
+          "error": null,
+          "boundsUm": {
+            "xMin": 58463.99999999999,
+            "yMin": 40512,
+            "xMax": 59488,
+            "yMax": 41536,
+            "zMin": -0.5,
+            "zMax": 0.5
+          },
+          "matrixSha256": "aa9327931dedd92808e48006eec9b83dc2cecf5e3ad051749067761cce07f077",
+          "voxelCenterAtIntegerCoordinates": [
+            true,
+            true,
+            true,
+            false,
+            false
+          ]
+        },
+        {
+          "url": "http://127.0.0.1:61466/data/1/overview_K00_M000001_G000001_P000007_V00.ome.zarr/|zarr3:",
+          "error": null,
+          "boundsUm": {
+            "xMin": 59488,
+            "yMin": 40512,
+            "xMax": 60511.99999999999,
+            "yMax": 41536,
+            "zMin": -0.5,
+            "zMax": 0.5
+          },
+          "matrixSha256": "aa9327931dedd92808e48006eec9b83dc2cecf5e3ad051749067761cce07f077",
+          "voxelCenterAtIntegerCoordinates": [
+            true,
+            true,
+            true,
+            false,
+            false
+          ]
+        },
+        {
+          "url": "http://127.0.0.1:61466/data/1/overview_K00_M000001_G000001_P000008_V00.ome.zarr/|zarr3:",
+          "error": null,
+          "boundsUm": {
+            "xMin": 60511.99999999999,
+            "yMin": 40512,
+            "xMax": 61536,
+            "yMax": 41536,
+            "zMin": -0.5,
+            "zMax": 0.5
+          },
+          "matrixSha256": "aa9327931dedd92808e48006eec9b83dc2cecf5e3ad051749067761cce07f077",
+          "voxelCenterAtIntegerCoordinates": [
+            true,
+            true,
+            true,
+            false,
+            false
+          ]
+        }
+      ]
+    },
+    {
+      "name": "overview/channel 1",
+      "group": "overview",
+      "visible": true,
+      "window": {
+        "low": 103,
+        "high": 4093
+      },
+      "weight": 1,
+      "layerError": null,
+      "sourceCount": 9,
+      "sources": [
+        {
+          "url": "http://127.0.0.1:61466/data/1/overview_K00_M000001_G000001_P000000_V00.ome.zarr/|zarr3:",
+          "error": null,
+          "boundsUm": {
+            "xMin": 58463.99999999999,
+            "yMin": 38464,
+            "xMax": 59488,
+            "yMax": 39487.99999999999,
+            "zMin": -0.5,
+            "zMax": 0.5
+          },
+          "matrixSha256": "aa9327931dedd92808e48006eec9b83dc2cecf5e3ad051749067761cce07f077",
+          "voxelCenterAtIntegerCoordinates": [
+            true,
+            true,
+            true,
+            false,
+            false
+          ]
+        },
+        {
+          "url": "http://127.0.0.1:61466/data/1/overview_K00_M000001_G000001_P000001_V00.ome.zarr/|zarr3:",
+          "error": null,
+          "boundsUm": {
+            "xMin": 59488,
+            "yMin": 38464,
+            "xMax": 60511.99999999999,
+            "yMax": 39487.99999999999,
+            "zMin": -0.5,
+            "zMax": 0.5
+          },
+          "matrixSha256": "aa9327931dedd92808e48006eec9b83dc2cecf5e3ad051749067761cce07f077",
+          "voxelCenterAtIntegerCoordinates": [
+            true,
+            true,
+            true,
+            false,
+            false
+          ]
+        },
+        {
+          "url": "http://127.0.0.1:61466/data/1/overview_K00_M000001_G000001_P000002_V00.ome.zarr/|zarr3:",
+          "error": null,
+          "boundsUm": {
+            "xMin": 60511.99999999999,
+            "yMin": 38464,
+            "xMax": 61536,
+            "yMax": 39487.99999999999,
+            "zMin": -0.5,
+            "zMax": 0.5
+          },
+          "matrixSha256": "aa9327931dedd92808e48006eec9b83dc2cecf5e3ad051749067761cce07f077",
+          "voxelCenterAtIntegerCoordinates": [
+            true,
+            true,
+            true,
+            false,
+            false
+          ]
+        },
+        {
+          "url": "http://127.0.0.1:61466/data/1/overview_K00_M000001_G000001_P000003_V00.ome.zarr/|zarr3:",
+          "error": null,
+          "boundsUm": {
+            "xMin": 58463.99999999999,
+            "yMin": 39487.99999999999,
+            "xMax": 59488,
+            "yMax": 40512,
+            "zMin": -0.5,
+            "zMax": 0.5
+          },
+          "matrixSha256": "aa9327931dedd92808e48006eec9b83dc2cecf5e3ad051749067761cce07f077",
+          "voxelCenterAtIntegerCoordinates": [
+            true,
+            true,
+            true,
+            false,
+            false
+          ]
+        },
+        {
+          "url": "http://127.0.0.1:61466/data/1/overview_K00_M000001_G000001_P000004_V00.ome.zarr/|zarr3:",
+          "error": null,
+          "boundsUm": {
+            "xMin": 59488,
+            "yMin": 39487.99999999999,
+            "xMax": 60511.99999999999,
+            "yMax": 40512,
+            "zMin": -0.5,
+            "zMax": 0.5
+          },
+          "matrixSha256": "aa9327931dedd92808e48006eec9b83dc2cecf5e3ad051749067761cce07f077",
+          "voxelCenterAtIntegerCoordinates": [
+            true,
+            true,
+            true,
+            false,
+            false
+          ]
+        },
+        {
+          "url": "http://127.0.0.1:61466/data/1/overview_K00_M000001_G000001_P000005_V00.ome.zarr/|zarr3:",
+          "error": null,
+          "boundsUm": {
+            "xMin": 60511.99999999999,
+            "yMin": 39487.99999999999,
+            "xMax": 61536,
+            "yMax": 40512,
+            "zMin": -0.5,
+            "zMax": 0.5
+          },
+          "matrixSha256": "aa9327931dedd92808e48006eec9b83dc2cecf5e3ad051749067761cce07f077",
+          "voxelCenterAtIntegerCoordinates": [
+            true,
+            true,
+            true,
+            false,
+            false
+          ]
+        },
+        {
+          "url": "http://127.0.0.1:61466/data/1/overview_K00_M000001_G000001_P000006_V00.ome.zarr/|zarr3:",
+          "error": null,
+          "boundsUm": {
+            "xMin": 58463.99999999999,
+            "yMin": 40512,
+            "xMax": 59488,
+            "yMax": 41536,
+            "zMin": -0.5,
+            "zMax": 0.5
+          },
+          "matrixSha256": "aa9327931dedd92808e48006eec9b83dc2cecf5e3ad051749067761cce07f077",
+          "voxelCenterAtIntegerCoordinates": [
+            true,
+            true,
+            true,
+            false,
+            false
+          ]
+        },
+        {
+          "url": "http://127.0.0.1:61466/data/1/overview_K00_M000001_G000001_P000007_V00.ome.zarr/|zarr3:",
+          "error": null,
+          "boundsUm": {
+            "xMin": 59488,
+            "yMin": 40512,
+            "xMax": 60511.99999999999,
+            "yMax": 41536,
+            "zMin": -0.5,
+            "zMax": 0.5
+          },
+          "matrixSha256": "aa9327931dedd92808e48006eec9b83dc2cecf5e3ad051749067761cce07f077",
+          "voxelCenterAtIntegerCoordinates": [
+            true,
+            true,
+            true,
+            false,
+            false
+          ]
+        },
+        {
+          "url": "http://127.0.0.1:61466/data/1/overview_K00_M000001_G000001_P000008_V00.ome.zarr/|zarr3:",
+          "error": null,
+          "boundsUm": {
+            "xMin": 60511.99999999999,
+            "yMin": 40512,
+            "xMax": 61536,
+            "yMax": 41536,
+            "zMin": -0.5,
+            "zMax": 0.5
+          },
+          "matrixSha256": "aa9327931dedd92808e48006eec9b83dc2cecf5e3ad051749067761cce07f077",
+          "voxelCenterAtIntegerCoordinates": [
+            true,
+            true,
+            true,
+            false,
+            false
+          ]
+        }
+      ]
+    },
+    {
+      "name": "overview/channel 2",
+      "group": "overview",
+      "visible": true,
+      "window": {
+        "low": 89,
+        "high": 4087
+      },
+      "weight": 1,
+      "layerError": null,
+      "sourceCount": 9,
+      "sources": [
+        {
+          "url": "http://127.0.0.1:61466/data/1/overview_K00_M000001_G000001_P000000_V00.ome.zarr/|zarr3:",
+          "error": null,
+          "boundsUm": {
+            "xMin": 58463.99999999999,
+            "yMin": 38464,
+            "xMax": 59488,
+            "yMax": 39487.99999999999,
+            "zMin": -0.5,
+            "zMax": 0.5
+          },
+          "matrixSha256": "aa9327931dedd92808e48006eec9b83dc2cecf5e3ad051749067761cce07f077",
+          "voxelCenterAtIntegerCoordinates": [
+            true,
+            true,
+            true,
+            false,
+            false
+          ]
+        },
+        {
+          "url": "http://127.0.0.1:61466/data/1/overview_K00_M000001_G000001_P000001_V00.ome.zarr/|zarr3:",
+          "error": null,
+          "boundsUm": {
+            "xMin": 59488,
+            "yMin": 38464,
+            "xMax": 60511.99999999999,
+            "yMax": 39487.99999999999,
+            "zMin": -0.5,
+            "zMax": 0.5
+          },
+          "matrixSha256": "aa9327931dedd92808e48006eec9b83dc2cecf5e3ad051749067761cce07f077",
+          "voxelCenterAtIntegerCoordinates": [
+            true,
+            true,
+            true,
+            false,
+            false
+          ]
+        },
+        {
+          "url": "http://127.0.0.1:61466/data/1/overview_K00_M000001_G000001_P000002_V00.ome.zarr/|zarr3:",
+          "error": null,
+          "boundsUm": {
+            "xMin": 60511.99999999999,
+            "yMin": 38464,
+            "xMax": 61536,
+            "yMax": 39487.99999999999,
+            "zMin": -0.5,
+            "zMax": 0.5
+          },
+          "matrixSha256": "aa9327931dedd92808e48006eec9b83dc2cecf5e3ad051749067761cce07f077",
+          "voxelCenterAtIntegerCoordinates": [
+            true,
+            true,
+            true,
+            false,
+            false
+          ]
+        },
+        {
+          "url": "http://127.0.0.1:61466/data/1/overview_K00_M000001_G000001_P000003_V00.ome.zarr/|zarr3:",
+          "error": null,
+          "boundsUm": {
+            "xMin": 58463.99999999999,
+            "yMin": 39487.99999999999,
+            "xMax": 59488,
+            "yMax": 40512,
+            "zMin": -0.5,
+            "zMax": 0.5
+          },
+          "matrixSha256": "aa9327931dedd92808e48006eec9b83dc2cecf5e3ad051749067761cce07f077",
+          "voxelCenterAtIntegerCoordinates": [
+            true,
+            true,
+            true,
+            false,
+            false
+          ]
+        },
+        {
+          "url": "http://127.0.0.1:61466/data/1/overview_K00_M000001_G000001_P000004_V00.ome.zarr/|zarr3:",
+          "error": null,
+          "boundsUm": {
+            "xMin": 59488,
+            "yMin": 39487.99999999999,
+            "xMax": 60511.99999999999,
+            "yMax": 40512,
+            "zMin": -0.5,
+            "zMax": 0.5
+          },
+          "matrixSha256": "aa9327931dedd92808e48006eec9b83dc2cecf5e3ad051749067761cce07f077",
+          "voxelCenterAtIntegerCoordinates": [
+            true,
+            true,
+            true,
+            false,
+            false
+          ]
+        },
+        {
+          "url": "http://127.0.0.1:61466/data/1/overview_K00_M000001_G000001_P000005_V00.ome.zarr/|zarr3:",
+          "error": null,
+          "boundsUm": {
+            "xMin": 60511.99999999999,
+            "yMin": 39487.99999999999,
+            "xMax": 61536,
+            "yMax": 40512,
+            "zMin": -0.5,
+            "zMax": 0.5
+          },
+          "matrixSha256": "aa9327931dedd92808e48006eec9b83dc2cecf5e3ad051749067761cce07f077",
+          "voxelCenterAtIntegerCoordinates": [
+            true,
+            true,
+            true,
+            false,
+            false
+          ]
+        },
+        {
+          "url": "http://127.0.0.1:61466/data/1/overview_K00_M000001_G000001_P000006_V00.ome.zarr/|zarr3:",
+          "error": null,
+          "boundsUm": {
+            "xMin": 58463.99999999999,
+            "yMin": 40512,
+            "xMax": 59488,
+            "yMax": 41536,
+            "zMin": -0.5,
+            "zMax": 0.5
+          },
+          "matrixSha256": "aa9327931dedd92808e48006eec9b83dc2cecf5e3ad051749067761cce07f077",
+          "voxelCenterAtIntegerCoordinates": [
+            true,
+            true,
+            true,
+            false,
+            false
+          ]
+        },
+        {
+          "url": "http://127.0.0.1:61466/data/1/overview_K00_M000001_G000001_P000007_V00.ome.zarr/|zarr3:",
+          "error": null,
+          "boundsUm": {
+            "xMin": 59488,
+            "yMin": 40512,
+            "xMax": 60511.99999999999,
+            "yMax": 41536,
+            "zMin": -0.5,
+            "zMax": 0.5
+          },
+          "matrixSha256": "aa9327931dedd92808e48006eec9b83dc2cecf5e3ad051749067761cce07f077",
+          "voxelCenterAtIntegerCoordinates": [
+            true,
+            true,
+            true,
+            false,
+            false
+          ]
+        },
+        {
+          "url": "http://127.0.0.1:61466/data/1/overview_K00_M000001_G000001_P000008_V00.ome.zarr/|zarr3:",
+          "error": null,
+          "boundsUm": {
+            "xMin": 60511.99999999999,
+            "yMin": 40512,
+            "xMax": 61536,
+            "yMax": 41536,
+            "zMin": -0.5,
+            "zMax": 0.5
+          },
+          "matrixSha256": "aa9327931dedd92808e48006eec9b83dc2cecf5e3ad051749067761cce07f077",
+          "voxelCenterAtIntegerCoordinates": [
+            true,
+            true,
+            true,
+            false,
+            false
+          ]
+        }
+      ]
+    },
+    {
+      "name": "target/channel 0",
+      "group": "target",
+      "visible": true,
+      "window": {
+        "low": 199,
+        "high": 4089
+      },
+      "weight": 1,
+      "layerError": null,
+      "sourceCount": 3,
+      "sources": [
+        {
+          "url": "http://127.0.0.1:61466/data/2/target_K00_M000000_G000000_P000000_V00.ome.zarr/|zarr3:",
+          "error": null,
+          "boundsUm": {
+            "xMin": 59440,
+            "yMin": 39422.88888888889,
+            "xMax": 60464,
+            "yMax": 40446.88888888888,
+            "zMin": -0.5,
+            "zMax": 0.5
+          },
+          "matrixSha256": "aa9327931dedd92808e48006eec9b83dc2cecf5e3ad051749067761cce07f077",
+          "voxelCenterAtIntegerCoordinates": [
+            true,
+            true,
+            true,
+            false,
+            false
+          ]
+        },
+        {
+          "url": "http://127.0.0.1:61466/data/2/target_K00_M000000_G000000_P000001_V00.ome.zarr/|zarr3:",
+          "error": null,
+          "boundsUm": {
+            "xMin": 59368.66086956522,
+            "yMin": 40818.782608695656,
+            "xMax": 60392.66086956521,
+            "yMax": 41842.78260869565,
+            "zMin": -0.5,
+            "zMax": 0.5
+          },
+          "matrixSha256": "aa9327931dedd92808e48006eec9b83dc2cecf5e3ad051749067761cce07f077",
+          "voxelCenterAtIntegerCoordinates": [
+            true,
+            true,
+            true,
+            false,
+            false
+          ]
+        },
+        {
+          "url": "http://127.0.0.1:61466/data/2/target_K00_M000000_G000000_P000002_V00.ome.zarr/|zarr3:",
+          "error": null,
+          "boundsUm": {
+            "xMin": 60868.275862068964,
+            "yMin": 39301.58620689655,
+            "xMax": 61892.275862068964,
+            "yMax": 40325.58620689655,
+            "zMin": -0.5,
+            "zMax": 0.5
+          },
+          "matrixSha256": "aa9327931dedd92808e48006eec9b83dc2cecf5e3ad051749067761cce07f077",
+          "voxelCenterAtIntegerCoordinates": [
+            true,
+            true,
+            true,
+            false,
+            false
+          ]
+        }
+      ]
+    },
+    {
+      "name": "target/channel 1",
+      "group": "target",
+      "visible": true,
+      "window": {
+        "low": 105,
+        "high": 4094
+      },
+      "weight": 1,
+      "layerError": null,
+      "sourceCount": 3,
+      "sources": [
+        {
+          "url": "http://127.0.0.1:61466/data/2/target_K00_M000000_G000000_P000000_V00.ome.zarr/|zarr3:",
+          "error": null,
+          "boundsUm": {
+            "xMin": 59440,
+            "yMin": 39422.88888888889,
+            "xMax": 60464,
+            "yMax": 40446.88888888888,
+            "zMin": -0.5,
+            "zMax": 0.5
+          },
+          "matrixSha256": "aa9327931dedd92808e48006eec9b83dc2cecf5e3ad051749067761cce07f077",
+          "voxelCenterAtIntegerCoordinates": [
+            true,
+            true,
+            true,
+            false,
+            false
+          ]
+        },
+        {
+          "url": "http://127.0.0.1:61466/data/2/target_K00_M000000_G000000_P000001_V00.ome.zarr/|zarr3:",
+          "error": null,
+          "boundsUm": {
+            "xMin": 59368.66086956522,
+            "yMin": 40818.782608695656,
+            "xMax": 60392.66086956521,
+            "yMax": 41842.78260869565,
+            "zMin": -0.5,
+            "zMax": 0.5
+          },
+          "matrixSha256": "aa9327931dedd92808e48006eec9b83dc2cecf5e3ad051749067761cce07f077",
+          "voxelCenterAtIntegerCoordinates": [
+            true,
+            true,
+            true,
+            false,
+            false
+          ]
+        },
+        {
+          "url": "http://127.0.0.1:61466/data/2/target_K00_M000000_G000000_P000002_V00.ome.zarr/|zarr3:",
+          "error": null,
+          "boundsUm": {
+            "xMin": 60868.275862068964,
+            "yMin": 39301.58620689655,
+            "xMax": 61892.275862068964,
+            "yMax": 40325.58620689655,
+            "zMin": -0.5,
+            "zMax": 0.5
+          },
+          "matrixSha256": "aa9327931dedd92808e48006eec9b83dc2cecf5e3ad051749067761cce07f077",
+          "voxelCenterAtIntegerCoordinates": [
+            true,
+            true,
+            true,
+            false,
+            false
+          ]
+        }
+      ]
+    },
+    {
+      "name": "target/channel 2",
+      "group": "target",
+      "visible": true,
+      "window": {
+        "low": 103,
+        "high": 4095
+      },
+      "weight": 1,
+      "layerError": null,
+      "sourceCount": 3,
+      "sources": [
+        {
+          "url": "http://127.0.0.1:61466/data/2/target_K00_M000000_G000000_P000000_V00.ome.zarr/|zarr3:",
+          "error": null,
+          "boundsUm": {
+            "xMin": 59440,
+            "yMin": 39422.88888888889,
+            "xMax": 60464,
+            "yMax": 40446.88888888888,
+            "zMin": -0.5,
+            "zMax": 0.5
+          },
+          "matrixSha256": "aa9327931dedd92808e48006eec9b83dc2cecf5e3ad051749067761cce07f077",
+          "voxelCenterAtIntegerCoordinates": [
+            true,
+            true,
+            true,
+            false,
+            false
+          ]
+        },
+        {
+          "url": "http://127.0.0.1:61466/data/2/target_K00_M000000_G000000_P000001_V00.ome.zarr/|zarr3:",
+          "error": null,
+          "boundsUm": {
+            "xMin": 59368.66086956522,
+            "yMin": 40818.782608695656,
+            "xMax": 60392.66086956521,
+            "yMax": 41842.78260869565,
+            "zMin": -0.5,
+            "zMax": 0.5
+          },
+          "matrixSha256": "aa9327931dedd92808e48006eec9b83dc2cecf5e3ad051749067761cce07f077",
+          "voxelCenterAtIntegerCoordinates": [
+            true,
+            true,
+            true,
+            false,
+            false
+          ]
+        },
+        {
+          "url": "http://127.0.0.1:61466/data/2/target_K00_M000000_G000000_P000002_V00.ome.zarr/|zarr3:",
+          "error": null,
+          "boundsUm": {
+            "xMin": 60868.275862068964,
+            "yMin": 39301.58620689655,
+            "xMax": 61892.275862068964,
+            "yMax": 40325.58620689655,
+            "zMin": -0.5,
+            "zMax": 0.5
+          },
+          "matrixSha256": "aa9327931dedd92808e48006eec9b83dc2cecf5e3ad051749067761cce07f077",
+          "voxelCenterAtIntegerCoordinates": [
+            true,
+            true,
+            true,
+            false,
+            false
+          ]
+        }
+      ]
+    },
+    {
+      "name": "focussing/channel 0",
+      "group": "focussing",
+      "visible": false,
+      "window": {
+        "low": 225,
+        "high": 3863
+      },
+      "weight": 1,
+      "layerError": null,
+      "sourceCount": 1,
+      "sources": [
+        {
+          "url": "http://127.0.0.1:61466/data/0/focussing_K00_M000000_G000000_P000000_V00.ome.zarr/|zarr3:",
+          "error": null,
+          "boundsUm": {
+            "xMin": 59488,
+            "yMin": 39487.99999999999,
+            "xMax": 60511.99999999999,
+            "yMax": 40512,
+            "zMin": -34.56666666666665,
+            "zMax": 34.566666666666656
+          },
+          "matrixSha256": "aa9327931dedd92808e48006eec9b83dc2cecf5e3ad051749067761cce07f077",
+          "voxelCenterAtIntegerCoordinates": [
+            true,
+            true,
+            false,
+            false,
+            false
+          ]
+        }
+      ]
+    }
+  ],
+  "visibility": {
+    "requested": {
+      "overview": true,
+      "target": true,
+      "focussing": false
+    },
+    "requestedChannels": [
+      {
+        "key": "overview\u00000\u0000channel 0",
+        "acquisition": "overview",
+        "name": "channel 0",
+        "requestedVisible": true,
+        "effectiveVisible": true,
+        "observedVisible": true,
+        "window": {
+          "low": 196,
+          "high": 4084
+        },
+        "observedWindow": {
+          "low": 196,
+          "high": 4084
+        },
+        "opacity": 1,
+        "log": false
+      },
+      {
+        "key": "overview\u00001\u0000channel 1",
+        "acquisition": "overview",
+        "name": "channel 1",
+        "requestedVisible": true,
+        "effectiveVisible": true,
+        "observedVisible": true,
+        "window": {
+          "low": 103,
+          "high": 4093
+        },
+        "observedWindow": {
+          "low": 103,
+          "high": 4093
+        },
+        "opacity": 1,
+        "log": false
+      },
+      {
+        "key": "overview\u00002\u0000channel 2",
+        "acquisition": "overview",
+        "name": "channel 2",
+        "requestedVisible": true,
+        "effectiveVisible": true,
+        "observedVisible": true,
+        "window": {
+          "low": 89,
+          "high": 4087
+        },
+        "observedWindow": {
+          "low": 89,
+          "high": 4087
+        },
+        "opacity": 1,
+        "log": false
+      },
+      {
+        "key": "target\u00000\u0000channel 0",
+        "acquisition": "target",
+        "name": "channel 0",
+        "requestedVisible": true,
+        "effectiveVisible": true,
+        "observedVisible": true,
+        "window": {
+          "low": 199,
+          "high": 4089
+        },
+        "observedWindow": {
+          "low": 199,
+          "high": 4089
+        },
+        "opacity": 1,
+        "log": false
+      },
+      {
+        "key": "target\u00001\u0000channel 1",
+        "acquisition": "target",
+        "name": "channel 1",
+        "requestedVisible": true,
+        "effectiveVisible": true,
+        "observedVisible": true,
+        "window": {
+          "low": 105,
+          "high": 4094
+        },
+        "observedWindow": {
+          "low": 105,
+          "high": 4094
+        },
+        "opacity": 1,
+        "log": false
+      },
+      {
+        "key": "target\u00002\u0000channel 2",
+        "acquisition": "target",
+        "name": "channel 2",
+        "requestedVisible": true,
+        "effectiveVisible": true,
+        "observedVisible": true,
+        "window": {
+          "low": 103,
+          "high": 4095
+        },
+        "observedWindow": {
+          "low": 103,
+          "high": 4095
+        },
+        "opacity": 1,
+        "log": false
+      },
+      {
+        "key": "focussing\u00000\u0000channel 0",
+        "acquisition": "focussing",
+        "name": "channel 0",
+        "requestedVisible": true,
+        "effectiveVisible": false,
+        "observedVisible": false,
+        "window": {
+          "low": 225,
+          "high": 3863
+        },
+        "observedWindow": {
+          "low": 225,
+          "high": 3863
+        },
+        "opacity": 1,
+        "log": false
+      }
+    ],
+    "engineObserved": {
+      "overview": [
+        {
+          "row": "overview/channel 0",
+          "visible": true
+        },
+        {
+          "row": "overview/channel 1",
+          "visible": true
+        },
+        {
+          "row": "overview/channel 2",
+          "visible": true
+        }
+      ],
+      "target": [
+        {
+          "row": "target/channel 0",
+          "visible": true
+        },
+        {
+          "row": "target/channel 1",
+          "visible": true
+        },
+        {
+          "row": "target/channel 2",
+          "visible": true
+        }
+      ],
+      "focussing": [
+        {
+          "row": "focussing/channel 0",
+          "visible": false
+        }
+      ]
+    }
+  },
+  "selected": "focussing\u00000\u0000channel 0",
+  "engineMismatch": null,
+  "measurement": {
+    "state": "ready",
+    "message": "Smart Viewer measurement ready."
+  },
+  "coordinates": {
+    "carrierOriginUm": {
+      "x": 23500,
+      "y": 28500
+    },
+    "plan": [
+      {
+        "index": 0,
+        "carrierLocalUm": {
+          "x": 35476,
+          "y": 10476
+        },
+        "absoluteStageUm": {
+          "x": 58976,
+          "y": 38976
+        },
+        "frameUm": 1024,
+        "stageScreenPx": {
+          "x": -299,
+          "y": -110.01475694444525
+        },
+        "engineScreenPx": {
+          "x": -299,
+          "y": -109.9453125
+        },
+        "errorPx": 0.06944444444525288
+      },
+      {
+        "index": 1,
+        "carrierLocalUm": {
+          "x": 36500,
+          "y": 10476
+        },
+        "absoluteStageUm": {
+          "x": 60000,
+          "y": 38976
+        },
+        "frameUm": 1024,
+        "stageScreenPx": {
+          "x": 213,
+          "y": -110.01475694444525
+        },
+        "engineScreenPx": {
+          "x": 213,
+          "y": -109.9453125
+        },
+        "errorPx": 0.06944444444525288
+      },
+      {
+        "index": 2,
+        "carrierLocalUm": {
+          "x": 37524,
+          "y": 10476
+        },
+        "absoluteStageUm": {
+          "x": 61024,
+          "y": 38976
+        },
+        "frameUm": 1024,
+        "stageScreenPx": {
+          "x": 725,
+          "y": -110.01475694444525
+        },
+        "engineScreenPx": {
+          "x": 725,
+          "y": -109.9453125
+        },
+        "errorPx": 0.06944444444525288
+      },
+      {
+        "index": 3,
+        "carrierLocalUm": {
+          "x": 35476,
+          "y": 11500
+        },
+        "absoluteStageUm": {
+          "x": 58976,
+          "y": 40000
+        },
+        "frameUm": 1024,
+        "stageScreenPx": {
+          "x": -299,
+          "y": 401.98524305555475
+        },
+        "engineScreenPx": {
+          "x": -299,
+          "y": 402.0546875
+        },
+        "errorPx": 0.06944444444525288
+      },
+      {
+        "index": 4,
+        "carrierLocalUm": {
+          "x": 36500,
+          "y": 11500
+        },
+        "absoluteStageUm": {
+          "x": 60000,
+          "y": 40000
+        },
+        "frameUm": 1024,
+        "stageScreenPx": {
+          "x": 213,
+          "y": 401.98524305555475
+        },
+        "engineScreenPx": {
+          "x": 213,
+          "y": 402.0546875
+        },
+        "errorPx": 0.06944444444525288
+      },
+      {
+        "index": 5,
+        "carrierLocalUm": {
+          "x": 37524,
+          "y": 11500
+        },
+        "absoluteStageUm": {
+          "x": 61024,
+          "y": 40000
+        },
+        "frameUm": 1024,
+        "stageScreenPx": {
+          "x": 725,
+          "y": 401.98524305555475
+        },
+        "engineScreenPx": {
+          "x": 725,
+          "y": 402.0546875
+        },
+        "errorPx": 0.06944444444525288
+      },
+      {
+        "index": 6,
+        "carrierLocalUm": {
+          "x": 35476,
+          "y": 12524
+        },
+        "absoluteStageUm": {
+          "x": 58976,
+          "y": 41024
+        },
+        "frameUm": 1024,
+        "stageScreenPx": {
+          "x": -299,
+          "y": 913.9852430555547
+        },
+        "engineScreenPx": {
+          "x": -299,
+          "y": 914.0546875
+        },
+        "errorPx": 0.06944444444525288
+      },
+      {
+        "index": 7,
+        "carrierLocalUm": {
+          "x": 36500,
+          "y": 12524
+        },
+        "absoluteStageUm": {
+          "x": 60000,
+          "y": 41024
+        },
+        "frameUm": 1024,
+        "stageScreenPx": {
+          "x": 213,
+          "y": 913.9852430555547
+        },
+        "engineScreenPx": {
+          "x": 213,
+          "y": 914.0546875
+        },
+        "errorPx": 0.06944444444525288
+      },
+      {
+        "index": 8,
+        "carrierLocalUm": {
+          "x": 37524,
+          "y": 12524
+        },
+        "absoluteStageUm": {
+          "x": 61024,
+          "y": 41024
+        },
+        "frameUm": 1024,
+        "stageScreenPx": {
+          "x": 725,
+          "y": 913.9852430555547
+        },
+        "engineScreenPx": {
+          "x": 725,
+          "y": 914.0546875
+        },
+        "errorPx": 0.06944444444525288
+      }
+    ],
+    "targets": [
+      {
+        "id": "overview_r004_c000_obj00215",
+        "field": 4,
+        "selected": true,
+        "acquired": true,
+        "carrierLocalUm": {
+          "x": 36452,
+          "y": 11434.88888888889
+        },
+        "absoluteStageUm": {
+          "x": 59952,
+          "y": 39934.88888888889
+        },
+        "stageScreenPx": {
+          "x": 189,
+          "y": 369.4296875
+        },
+        "engineScreenPx": {
+          "x": 189,
+          "y": 369.49913194444525
+        },
+        "errorPx": 0.06944444444525288
+      },
+      {
+        "id": "overview_r005_c000_obj00126",
+        "field": 5,
+        "selected": true,
+        "acquired": true,
+        "carrierLocalUm": {
+          "x": 37880.275862068964,
+          "y": 11313.58620689655
+        },
+        "absoluteStageUm": {
+          "x": 61380.275862068964,
+          "y": 39813.58620689655
+        },
+        "stageScreenPx": {
+          "x": 903.1379310344819,
+          "y": 308.7783465038301
+        },
+        "engineScreenPx": {
+          "x": 903.1379310344819,
+          "y": 308.84779094827536
+        },
+        "errorPx": 0.06944444444525288
+      },
+      {
+        "id": "overview_r007_c000_obj00346",
+        "field": 7,
+        "selected": true,
+        "acquired": true,
+        "carrierLocalUm": {
+          "x": 36380.66086956522,
+          "y": 12830.782608695656
+        },
+        "absoluteStageUm": {
+          "x": 59880.66086956522,
+          "y": 41330.782608695656
+        },
+        "stageScreenPx": {
+          "x": 153.3304347826088,
+          "y": 1067.3765474033826
+        },
+        "engineScreenPx": {
+          "x": 153.3304347826088,
+          "y": 1067.4459918478278
+        },
+        "errorPx": 0.06944444444525288
+      }
+    ],
+    "targetsOnCanvas": 4010,
+    "stageView": {
+      "centre": {
+        "x": 36452,
+        "y": 11434.88888888889
+      },
+      "zoom": 2
+    },
+    "engineView": {
+      "centre": {
+        "x": 59952,
+        "y": 39934.890625
+      },
+      "zoom": 2,
+      "width": 378,
+      "height": 739
+    },
+    "canvas": {
+      "left": 284,
+      "top": 110,
+      "width": 378,
+      "height": 738.859375
+    }
+  },
+  "projectionError": {
+    "planMaxPx": 0.06944444444525288,
+    "targetsMaxPx": 0.06944444444525288,
+    "tolerancePx": 1
+  },
+  "pictureTag": "picture-iie3pd84ux",
+  "pixelCheck": {
+    "canvasShadeBins": 1959
+  },
+  "requests": {
+    "required": {
+      "metadata": 72,
+      "chunks": 8723,
+      "measurement": 3,
+      "api": 1596,
+      "pictures": 65
+    },
+    "expectedFormatProbes": [],
+    "expectedOptionalProbes": [
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/tiles.json",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/tiles.json",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/tiles.json",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/tiles.json",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/tiles.json",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000000_V00.mask.png?t=1788348151216",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000000_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000002_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000001_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000003_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000004_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000005_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000000_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000001_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000002_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000003_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000004_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000005_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000000_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000001_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000002_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000003_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000004_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000005_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000000_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000001_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000002_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000003_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000005_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000004_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000000_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000001_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000002_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000003_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000004_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000005_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000000_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000001_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000002_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000003_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000005_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000004_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000003_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000002_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000001_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000005_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000004_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000001_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000005_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000004_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000002_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000003_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000001_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000004_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000002_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000003_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000005_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000002_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000001_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000005_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000004_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000003_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000001_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000003_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000002_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000004_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000005_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000001_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000003_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000002_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000004_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000005_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000001_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000003_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000004_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000002_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000005_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000001_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000002_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000003_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000004_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000005_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000001_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000002_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000003_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000004_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000005_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000001_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000003_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000005_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000002_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000004_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000001_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000003_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000005_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000002_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000004_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000001_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000003_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000002_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000005_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000004_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000002_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000003_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000005_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000004_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000002_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000004_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000003_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000005_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000002_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000003_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000005_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000004_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000002_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000003_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000004_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000005_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000002_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000004_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000003_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000005_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000002_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000005_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000004_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000003_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000002_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000003_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000004_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000005_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000003_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000004_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000005_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000003_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000004_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000005_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000003_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000004_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000005_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000003_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000004_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000005_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000004_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000005_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000003_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000003_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000004_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000005_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000005_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000004_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000005_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000004_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000004_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000005_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000004_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000005_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000004_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000005_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000004_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000005_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000005_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000005_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000005_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000005_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000005_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000005_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
+        "status": 404
+      }
+    ],
+    "expectedNavigationCancellations": [],
+    "expectedChunkCancellations": {
+      "count": 0,
+      "sample": []
+    },
+    "expectedRetiredStoreMisses": {
+      "stores": [],
+      "count": 0,
+      "sample": []
+    },
+    "unexpectedFailures": [],
+    "browserErrors": [],
+    "workerErrors": []
+  },
+  "browserErrors": [],
+  "workerErrors": [],
+  "bridgeErrors": [],
+  "viewerError": null,
+  "artifact": {
+    "file": "step8-gallery-with-verdict.png",
+    "width": 1440,
+    "height": 900,
+    "sha256": "7718f487a37a627a3141cbc262873e6097b49cfc21143e27d16d9abf90c84507"
+  },
+  "gallery": [
+    {
+      "id": "overview_r004_c000_obj00215",
+      "field": 4,
+      "targetPicture": {
+        "label": "K00_M000000_G000000_P000000_V00",
+        "status": 200,
+        "bytes": 14945
+      },
+      "overviewPicture": {
+        "label": "K00_M000001_G000001_P000004_V00",
+        "status": 200,
+        "bytes": 14769
+      }
+    },
+    {
+      "id": "overview_r005_c000_obj00126",
+      "field": 5,
+      "targetPicture": {
+        "label": "K00_M000000_G000000_P000001_V00",
+        "status": 200,
+        "bytes": 14338
+      },
+      "overviewPicture": {
+        "label": "K00_M000001_G000001_P000005_V00",
+        "status": 200,
+        "bytes": 13757
+      }
+    },
+    {
+      "id": "overview_r007_c000_obj00346",
+      "field": 7,
+      "targetPicture": {
+        "label": "K00_M000000_G000000_P000002_V00",
+        "status": 200,
+        "bytes": 13656
+      },
+      "overviewPicture": {
+        "label": "K00_M000001_G000001_P000007_V00",
+        "status": 200,
+        "bytes": 13362
+      }
+    }
+  ],
+  "readout": "3 pairs · 1 marked · 1 good"
+}

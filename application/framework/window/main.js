@@ -246,6 +246,7 @@ let stageWatch = null;
     targetPictures: backendFor().viewOf("target"),
     cellsShown: false,
     gates: [],           // [{fx, fy, vertices: [[x, y], ...]}] — see gating.js
+    gateCap: 50,         // the per-tileset ceiling the gated selection was drawn under
     gated: new Set(),
     acquired: [],
     acquiredLabels: {},
@@ -366,7 +367,7 @@ let stageWatch = null;
       detect: newDetect(), cells: new Map(), fieldLabels: {},
       overviewPictures: backendFor().viewOf("overview"),
     targetPictures: backendFor().viewOf("target"),
-      cellsShown: false, gate: null, gated: new Set(), acquired: [], acquiredLabels: {},
+      cellsShown: false, gates: [], gateCap: 50, gated: new Set(), acquired: [], acquiredLabels: {},
       verdicts: {},
       locked: false,
     });
@@ -1164,12 +1165,14 @@ let stageWatch = null;
       cells: () => state.cells.values(),
       gated: () => state.gated,
       gates: () => state.gates,
+      cap: () => state.gateCap,
       acquired: () => state.acquired,
 
       showing: () => state.cellsShown,
-      setGates: (gates, ids) => {
+      setGates: (gates, ids, cap) => {
         state.gates = gates;
         state.gated = ids;
+        state.gateCap = cap;
         drawStage(); renderTabs(); renderActionBar();
       },
       /* Which compartment a field belongs to, for the per-tileset ceiling. */

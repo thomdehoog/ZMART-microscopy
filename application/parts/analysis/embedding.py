@@ -138,3 +138,30 @@ def umap_embedding(cells: list[dict], *, random_state: int = 0) -> dict[str, lis
         an_id: [float(point[0]), float(point[1])]
         for an_id, point in zip(ids, laid_out)
     }
+
+
+def in_another_process(cells: list[dict]) -> dict[str, list[float]]:
+    """The map, drawn where it cannot slow the bridge down.
+
+    The bridge is one process with the picture server inside it, and the map
+    is the one long computation the bridge itself would run: on the
+    operator's PC it took 25 s on first use and 12 s warm for 4010 cells, and
+    while it ran the picture server's answers went from 3 ms to 365 ms, past
+    their one-second budget under the load of a real run. So the map is drawn
+    in a process of its own and only the points come back. Each map pays
+    umap's import and compile again; that is what "lands quietly" costs.
+    """
+    return apart(umap_embedding, cells)
+
+
+def apart(work, *arguments):
+    """Run *work* in a fresh process and hand back what it returned.
+
+    A failure comes back as the same exception, so a caller reads the same
+    sentence whether the work ran here or apart. The process is started
+    afresh, never forked, because the bridge runs on Windows.
+    """
+    import multiprocessing
+
+    with multiprocessing.get_context("spawn").Pool(1) as workers:
+        return workers.apply(work, arguments)

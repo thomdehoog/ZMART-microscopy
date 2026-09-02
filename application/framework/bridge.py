@@ -1044,7 +1044,9 @@ def _embedding_worker(cells: list) -> None:
         # import and the bridge must load on machines that only scan.
         from application.parts.analysis import embedding
 
-        points = embedding.umap_embedding(cells)
+        # Drawn in another process: in this one it starves the picture
+        # server, which shares it (see embedding.in_another_process).
+        points = embedding.in_another_process(cells)
         _keep_embedding(points)
         _embedding["points"] = points
     except Exception as why:  # noqa: BLE001 -- the window shows the sentence
