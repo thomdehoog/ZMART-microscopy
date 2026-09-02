@@ -22,9 +22,14 @@ what is precomputed rather than assembled on the fly.
 - **Neuroglancer stays as the reference.** It remains the engine the harness
   compares against. The new engine replaces it on the operator page only once
   it beats it on the harness's own numbers.
-- **Two dimensions first.** The engine draws one plane at a time: one moment
-  in time, one depth, every visible channel. Three dimensions come later, and
-  the cache and data path are built so a volume renderer can reuse them.
+- **Two dimensions first, with depth and time on sliders.** The engine draws
+  one plane at a time: one moment in time, one depth, every visible channel.
+  The operator moves through depth and time with the two sliders the panel
+  already has, with play buttons that step and wrap, and each move is a new
+  plane to draw, prefetched from the neighbouring planes while scrubbing. A
+  run with one depth or one moment shows no slider for it. Three dimensions
+  come later, and the cache and data path are built so a volume renderer can
+  reuse them.
 - **The data is five-dimensional.** Time, channel, depth, height, width, any of
   which may be one long. Any number of channels.
 - **Labels are a first-class layer.** Segmentation and label images draw with
