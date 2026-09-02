@@ -844,12 +844,11 @@ def _replace_the_acquisition(acquisition_type: str, keeping: set[str] = frozense
     display copies stayed on disk, and the viewer kept listing every store it
     had once seen. A shorter rerun therefore showed the fields the new run
     never captured. ``keeping`` names the stores the new run will write
-    again; those stay open in the viewer and are replaced in place as each
-    lands, which is what lets the picture grow without being reopened. Any
-    other store of this kind is stale: the viewer closes the acquisition, the
-    stale stores are removed, and the run's next position opens the folder
-    afresh with exactly what is on disk. The display copies are always made
-    again, from the new run's own records.
+    again; those stay and are replaced in place as each lands, which is what
+    lets the picture grow without being reopened. Any other store of this
+    kind is stale and is removed; the viewer service then leaves it out of
+    what the page is handed. The display copies are always made again, from
+    the new run's own records.
     """
     run = _the_run()
     positions = run / "positions" / acquisition_type
@@ -858,9 +857,9 @@ def _replace_the_acquisition(acquisition_type: str, keeping: set[str] = frozense
         if child.name not in keeping
     ]
     if stale:
-        viewer_service.an_acquisition_is_being_replaced(acquisition_type, positions)
         for child in stale:
             shutil.rmtree(child, ignore_errors=True)
+        viewer_service.stores_were_retired(acquisition_type, positions)
     for leftover in (positions.parent / f".writing-{acquisition_type}", view_of(acquisition_type)):
         shutil.rmtree(leftover, ignore_errors=True)
     with _view_lock:

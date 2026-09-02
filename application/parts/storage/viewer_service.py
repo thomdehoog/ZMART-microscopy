@@ -229,44 +229,43 @@ def a_position_landed(acquisition_type: str, positions_folder: Path | str) -> No
             _viewer["error"] = f"the viewer was not told about {acquisition_type}: {why}"
 
 
-def an_acquisition_is_being_replaced(acquisition_type: str, positions_folder: Path | str) -> None:
-    """A scan of this kind is starting again: take its old picture down first.
+def stores_were_retired(acquisition_type: str, positions_folder: Path | str) -> None:
+    """Stores of this kind were removed from disk: let the page find out now.
 
-    The viewer only ever adds to a folder it watches; a store that vanishes
-    from disk stays in its list, and the page keeps asking for pixels that
-    are no longer there. So before the old stores are removed, the viewer is
-    asked to close that acquisition and the folder is forgotten here, which
-    makes the next position that lands open it afresh with exactly the
-    stores the new run has written. Never raises — a viewer that cannot hear
-    costs the live picture, not the scan.
+    The viewer keeps a store it once listed in its rows even after the store
+    is gone, and it is not asked to close the acquisition: a folder it has
+    closed is not the same folder to it when opened again, so closing would
+    cost the live picture. Instead the stores are simply gone from disk, the
+    viewer is told something changed, and this service leaves any source
+    whose store is no longer there out of what it hands the page. Never
+    raises — a viewer that cannot hear costs the live picture, not the scan.
     """
-    folder = str(positions_folder)
     with _the_turn:
         port = _viewer["port"]
-        _viewer["opened"].discard(folder)
         if port is None:
             return
     try:
-        # The viewer decorates its headings (a session name, a copy number);
-        # the raw heading is what its close route answers to, so the rows are
-        # read back and matched on the cleaned name the operator sees.
-        current = _read(port, "/api/config")
-        headings = {
-            str(row.get("group"))
-            for row in current.get("layers") or []
-            if row.get("kind") == "image" and _the_heading_of(row) == acquisition_type
-        }
-        answered = None
-        for heading in headings or {acquisition_type}:
-            answered = _ask(port, "/api/stores/close", {"group": heading})
-        if answered is not None:
-            with _the_turn:
-                if _viewer["port"] == port:
-                    _viewer["sources"] = _the_sources_in(answered, port)
-                    _viewer["acquisitions"] = _the_acquisitions_in(answered, port)
+        _ask(port, "/api/announce", {})
     except Exception as why:  # noqa: BLE001 -- the picture lags, the scan goes on
         with _the_turn:
-            _viewer["error"] = f"the viewer could not close {acquisition_type}: {why}"
+            _viewer["error"] = f"the viewer was not told that {acquisition_type} shrank: {why}"
+
+
+def _still_on_disk(address: str) -> bool:
+    """Whether the store an address points at is still in an opened folder.
+
+    A store removed by a shorter rerun stays in the viewer's rows; leaving it
+    in the page's list would have the engine ask for pixels that no longer
+    exist. Addresses that do not name a store in a folder this service opened
+    are left alone. Called with or without the turn held, so it takes no lock
+    of its own.
+    """
+    found = re.search(r"/data/\d+/([^/|]+)", str(address))
+    folders = [Path(folder) for folder in _viewer["opened"]]
+    if not found or not folders:
+        return True
+    name = found.group(1)
+    return any((folder / name).is_dir() for folder in folders)
 
 
 def _the_heading_of(row: dict) -> str:
@@ -306,6 +305,8 @@ def _the_sources_in(config: dict, port: int) -> dict[str, list[dict]]:
         for suffix in (".zmartview.zarr", ".ome.zarr", ".zarr"):
             group = group.removesuffix(suffix)
         for address in row.get("sources") or []:
+            if not _still_on_disk(address):
+                continue
             whole = (
                 f"http://127.0.0.1:{port}{address}"
                 if str(address).startswith("/")
@@ -385,7 +386,9 @@ def _the_scene_in(config: dict, port: int) -> dict:
             continue
         row = dict(original)
         row["group"] = group_of(row)
-        row["sources"] = [whole(source) for source in row.get("sources") or []]
+        row["sources"] = [
+            whole(source) for source in row.get("sources") or [] if _still_on_disk(source)
+        ]
         candidates.append(row)
         for source in row["sources"]:
             found = re.search(r"/data/(\d+)/", source)

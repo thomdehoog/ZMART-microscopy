@@ -1054,11 +1054,11 @@ def test_a_scan_started_again_removes_the_stores_it_will_not_rewrite(monkeypatch
     disk, so a shorter rerun showed fields it never captured, and the viewer
     kept listing every store it had once seen. A store the new plan writes
     again stays, and is replaced in place as it lands; a store beyond the new
-    plan is stale, and the viewer is asked to close the acquisition so that
-    its next position reopens the folder with only what is there."""
+    plan is stale: it is removed, and the viewer service is told so that
+    the page finds out at once."""
     told = []
     monkeypatch.setattr(
-        bridge.viewer_service, "an_acquisition_is_being_replaced",
+        bridge.viewer_service, "stores_were_retired",
         lambda kind, folder: told.append((kind, Path(folder))),
     )
     positions = bridge._run / "positions" / "overview"
@@ -1086,11 +1086,11 @@ def test_a_scan_started_again_removes_the_stores_it_will_not_rewrite(monkeypatch
 
 def test_a_scan_that_only_grows_keeps_the_viewer_open(monkeypatch):
     """Declaring the same positions again, plus more, is growth, not a rerun
-    that shrinks: nothing is stale, so the viewer is not asked to close
-    anything and the picture is not reopened."""
+    that shrinks: nothing is stale, so nothing is removed or announced and
+    the picture is not reopened."""
     told = []
     monkeypatch.setattr(
-        bridge.viewer_service, "an_acquisition_is_being_replaced",
+        bridge.viewer_service, "stores_were_retired",
         lambda kind, folder: told.append(kind),
     )
     positions = bridge._run / "positions" / "overview"
