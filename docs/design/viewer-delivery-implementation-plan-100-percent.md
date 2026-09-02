@@ -76,9 +76,10 @@ plain numbers a test can make tiny. `room_for` answers a refusal sentence
 before a byte is written. A replay is checked against the root limit before
 it starts, since it copies the whole dataset, and is refused with HTTP 507
 and the sentence. A bake of a governed run's coarse ground is given a budget
-of ten per cent of the run; past it the bake is refused, every piece it wrote
-is removed, the run opens unbaked, and the refusal is listed on
-`GET /api/scratch` under `refused_bakes`. Folders a Windows sweep renamed to
+of ten per cent of the run, never less than 64 MiB (a tenth of a few-megabyte
+test run is nothing, and refusing it would save nothing); past it the bake is
+refused, every piece it wrote is removed, the run opens unbaked, and the
+refusal is listed on `GET /api/scratch` under `refused_bakes`. Folders a Windows sweep renamed to
 `retired-` and could not remove are now counted in the tally and removed
 again on the next sweep, or reported as stuck.
 
