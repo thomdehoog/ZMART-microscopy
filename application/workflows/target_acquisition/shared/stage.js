@@ -44,7 +44,7 @@ export function openTheStage(ctx) {
   const {
     css, sizeCanvas, el, run, carrierWidget, scanfieldsWidget,
     activePreset, indexOfStep, sideWidget, step,
-    anchorPressed, detectPressed,
+    anchorPressed, detectPressed, targetPressed,
     renderActionBar, renderRail, liveOverview, thePicture,
   } = ctx;
   const {
@@ -663,6 +663,7 @@ function theStageLayers({ shown, editing }) {
        knowing anything about the page it is drawn on. */
     asAPress, renderRail, renderActionBar, editorTook,
     redraw: drawStage, anchorsChanged: ctx.anchorsChanged,
+    pictureShows: ctx.pictureShows,
     focusGrabbed, marqueeing, focusMarqueeTo, focusMarqueeTook,
     focusDragging, focusDraggedTo, endFocusDrag, focusPressed,
     toStage, toCarrier,
@@ -962,7 +963,8 @@ function theRunWasPressed({ screen }) {
   if (layersLocked()) return;
   anchorPressed(screen.x, screen.y)
     || focusPressed(screen.x, screen.y)
-    || detectPressed(screen.x, screen.y);
+    || detectPressed(screen.x, screen.y)
+    || targetPressed?.(screen.x, screen.y);
 }
 
 /* Hovering claims nothing, so it is watched here rather than routed: what is

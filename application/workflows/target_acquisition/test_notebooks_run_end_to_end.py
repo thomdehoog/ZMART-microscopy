@@ -111,7 +111,7 @@ def _assert_full_run(ns: dict, session: _SimSession, engine: _SimEngine, output_
     assert (root / "summary.json").exists() and (root / "run_layout.png").exists()
     for acquisition_type, records in (
         ("overview", ns["overview_records"]),
-        ("target", ns["gallery"].records),
+        ("targets", ns["gallery"].records),
     ):
         data = root / acquisition_type / "data"
         assert data.is_dir()

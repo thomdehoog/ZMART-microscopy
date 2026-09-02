@@ -210,6 +210,9 @@ as specimen Z, or navigation state leaking into a transform.
   pick one name (`target` is the conceptual one) and use it in `main.js`, the bridge folder and the
   tests together.
 
+
+**2026-09-02, on the operator's PC:** the operator chose `targets` -- the group holds many. The acquisition type is `targets` again everywhere (the run, the page, the panel tests, the evidence); the store is `positions/targets`.
+
 ### MEDIUM-6 — The bridge still imports the reference-only copied backend at runtime
 
 **Status: fixed on the review branch.** `viz_studio/backend/jpeg_tiles.py` moved to `application/parts/storage/jpeg_tiles.py`; the bridge, `mock_picture.py` and the bridge tests import it there; a shim under `viz_studio/backend/` keeps the 22 historical JPEG tests running (all pass). Nothing in the runtime imports `viz_studio` any more.

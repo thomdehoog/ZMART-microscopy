@@ -202,7 +202,7 @@ def test_full_controller_only_flow(tmp_path):
         #    shows placeholder rows — the acquisition itself is real.
         gallery = workflow.acquire_gallery(zmart_controller, explorer, overviews, focus=focus)
         target_records = gallery.acquire(2)
-        assert [r["acquisition_type"] for r in target_records] == ["target", "target"]
+        assert [r["acquisition_type"] for r in target_records] == ["targets", "targets"]
         assert len(gallery.picked) == 2
 
         # 9. summary + plots

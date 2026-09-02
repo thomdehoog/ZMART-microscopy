@@ -428,9 +428,9 @@ def _write_a_frame(
         f"T000000_C{channel:02d}_Z{z_index:05d}.ome.tiff"
     )
     path.parent.mkdir(parents=True, exist_ok=True)
-    px = _PIXEL_UM
+    frame_px, px = _frame_of(acquisition_type)
     where = _user_position(handle)
-    frame = _the_sample_from(np, where["x"], where["y"], height_um, channel, _frame_px_of(acquisition_type))
+    frame = _the_sample_from(np, where["x"], where["y"], height_um, channel, frame_px, px)
     size = frame.shape[0]
     tifffile.imwrite(
         path,
@@ -452,11 +452,23 @@ _FRAME_PX = 256
 #: the predicted-height map -- one as wide as a field hid the map it was
 #: measured for. A real autofocus window is smaller than the camera's frame.
 _FOCUS_FRAME_PX = _FRAME_PX // 2
+#: A target's frame: the high-resolution job's. Far fewer micrometres across
+#: than an overview field and finer pixels over them, so that on the page a
+#: target reads as the close look it is and not as a second overview field
+#: laid over the first. The tissue under it is the same micrograph, sampled
+#: finer than it was recorded -- what a mock can offer for magnification.
+_TARGET_FRAME_PX = 128
+_TARGET_PIXEL_UM = 1.0
 
 
-def _frame_px_of(acquisition_type: str) -> int:
-    """How wide this kind of capture is, in pixels."""
-    return _FOCUS_FRAME_PX if acquisition_type == "focussing" else _FRAME_PX
+def _frame_of(acquisition_type: str) -> tuple[int, float]:
+    """How wide this kind of capture is in pixels, and how much sample one
+    pixel covers, in micrometres."""
+    if acquisition_type == "focussing":
+        return _FOCUS_FRAME_PX, _PIXEL_UM
+    if acquisition_type == "targets":
+        return _TARGET_FRAME_PX, _TARGET_PIXEL_UM
+    return _FRAME_PX, _PIXEL_UM
 
 #: The speck's size in pixels, and how much of the full range its edges span.
 #: Its squares are two pixels wide: a sharpness metric reads the difference two
@@ -508,7 +520,10 @@ def _mirrored(np, index, length: int):
     return np.where(index >= length, period - index, index)
 
 
-def _the_sample_from(np, x_um: float, y_um: float, height_um: float, channel: int, frame_px: int = _FRAME_PX):
+def _the_sample_from(
+    np, x_um: float, y_um: float, height_um: float, channel: int,
+    frame_px: int = _FRAME_PX, pixel_um: float = _PIXEL_UM,
+):
     """The sample as it looks from *height_um*: the tissue, and any dust with it.
 
     The tissue is the micrograph, one pixel of it per pixel of the frame, laid
@@ -526,9 +541,12 @@ def _the_sample_from(np, x_um: float, y_um: float, height_um: float, channel: in
     and far narrower, at a height the tissue is not at.
     """
     micrograph = _the_micrograph(np)[channel]
-    half = frame_px // 2
-    rows = _mirrored(np, int(round(y_um / _PIXEL_UM)) - half + np.arange(frame_px), micrograph.shape[0])
-    cols = _mirrored(np, int(round(x_um / _PIXEL_UM)) - half + np.arange(frame_px), micrograph.shape[1])
+    # The frame's pixels laid over the micrograph's: a finer pixel than the
+    # micrograph's reads the same recorded pixel more than once, the nearest.
+    step = pixel_um / _PIXEL_UM
+    across = (np.arange(frame_px) - frame_px // 2) * step
+    rows = _mirrored(np, np.rint(y_um / _PIXEL_UM + across).astype(int), micrograph.shape[0])
+    cols = _mirrored(np, np.rint(x_um / _PIXEL_UM + across).astype(int), micrograph.shape[1])
     tissue = micrograph[np.ix_(rows, cols)]
     focus_um = sharp_height_um(x_um, y_um)
     frame = _blurred(np, tissue, _BLUR_PER_UM * abs(height_um - focus_um))

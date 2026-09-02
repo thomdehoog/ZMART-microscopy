@@ -207,7 +207,7 @@ def test_overview_inputs_refuse_z_stacks():
 
 def test_acquire_targets_uses_the_target_type(mic):
     records = acquire_targets(mic, [{"x": 0.0, "y": 0.0}, {"x": 1.0, "y": 1.0}])
-    assert [r["acquisition_type"] for r in records] == ["target", "target"]
+    assert [r["acquisition_type"] for r in records] == ["targets", "targets"]
     assert [r["position_label"] for r in records] == ["1", "2"]
 
 

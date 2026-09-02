@@ -1222,9 +1222,33 @@ test("Steps 1 to 8 through the operator page on the real bridge, Viewer 0.2 and 
         fs.writeFileSync(path.join(OUT, `${record.name}.json`), JSON.stringify(record, null, 2));
       },
     });
-    await expect(page.locator(".pair")).toHaveCount(selectedAfter.length);
-    const captions = await page.locator(".pair .meta").allTextContents();
-    for (const id of acquiredIds) expect(captions.some((text) => text.includes(id)), `gallery card for ${id}`).toBe(true);
+    /* The channel lists the acquired targets, one row each, and shows one
+       pair: the chosen target's. Choosing is done in the list or on the
+       canvas, and either way the other follows. */
+    const rows = page.locator("#target-list .point-row");
+    await expect(rows).toHaveCount(selectedAfter.length);
+    const captions = await rows.allTextContents();
+    for (const id of acquiredIds) expect(captions.some((text) => text.includes(id)), `gallery row for ${id}`).toBe(true);
+    await expect(page.locator(".pair"), "one pair on show").toHaveCount(1);
+    await rows.first().locator("button").click();
+    await expect(rows.first()).toHaveAttribute("aria-current", "true");
+    await expect(page.locator(".pair .meta")).toContainText(acquiredIds[0]);
+    if (selectedAfter.length > 1) {
+      const other = acquired.find((one) => one.id === selectedAfter[1]);
+      const at = await page.evaluate(({ x, y }) => window.__theStageCanvas.project(x, y), { x: other.x, y: other.y });
+      const [px, py] = Array.isArray(at) ? at : [at.x, at.y];
+      const box = await page.locator("#stage-canvas").boundingBox();
+      await page.mouse.click(box.x + px, box.y + py);
+      await expect(rows.nth(1), "a press on a ringed target on the canvas chooses its row").toHaveAttribute("aria-current", "true");
+      await expect(page.locator(".pair .meta")).toContainText(acquiredIds[1]);
+      await rows.first().locator("button").click();
+    }
+    /* The eye on the targets acquisition hides the acquired frames: the
+       picture draws them itself, and the canvas prints no copies over them. */
+    expect((await rowsOfGroup(page, "targets")).length, "the picture draws the targets acquisition").toBeGreaterThan(0);
+    await setGroupVisible(page, "targets", false);
+    await setGroupVisible(page, "targets", true);
+    await showTheChannel(page);
     const gallery = [];
     const finalScan = await bridgeJson(page, PORT, "/api/scan");
     for (const [index, record] of arrival.records.entries()) {
@@ -1236,13 +1260,15 @@ test("Steps 1 to 8 through the operator page on the real bridge, Viewer 0.2 and 
     }
     expect(gallery.every((one) => one.targetPicture.status === 200 && one.targetPicture.bytes > 1000), `every target frame picture is served: ${JSON.stringify(gallery)}`).toBe(true);
     expect(gallery.every((one) => one.overviewPicture.status === 200 && one.overviewPicture.bytes > 1000), "every overview field picture is served").toBe(true);
-    await page.locator(".pair").first().locator("button.pick-good").click();
+    await page.locator(".pair button.pick-good").click();
     await expect(page.locator("#gallery-readout")).toContainText("1 marked");
     await expect(page.locator("#gallery-readout")).toContainText("1 good");
+    await expect(rows.first().locator(".z"), "the verdict is listed on the row").toHaveText("✓");
     if (selectedAfter.length > 1) {
-      await page.locator(".pair").nth(1).locator("button.pick-bad").click();
+      await rows.nth(1).locator("button").click();
+      await page.locator(".pair button.pick-bad").click();
       await expect(page.locator("#gallery-readout")).toContainText("2 marked");
-      await page.locator(".pair").nth(1).locator("button.pick-bad").click();
+      await page.locator(".pair button.pick-bad").click();
       await expect(page.locator("#gallery-readout")).toContainText("1 marked");
     }
     await expect(page.locator(".side-tab")).toContainText("Acquire Targets");
@@ -1251,7 +1277,7 @@ test("Steps 1 to 8 through the operator page on the real bridge, Viewer 0.2 and 
       extra: { gallery, readout: await page.locator("#gallery-readout").textContent() },
     });
     await disconnectAndReconnect({ page, take, port: PORT });
-    recorder.writeManifest({ outcome, canonicalName: "target" });
+    recorder.writeManifest({ outcome, canonicalName: "targets" });
   } finally {
     recorder.writeManifest({ outcome, finished: true });
     await bridge.stop();
@@ -1291,7 +1317,7 @@ test("Step 8 source model: real target positions published through the bridge ar
       trigger: async () => {
         const answer = await fetch(`http://127.0.0.1:${port}/api/scan`, {
           method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ positions, acquisition_type: "target", state: null }),
+          body: JSON.stringify({ positions, acquisition_type: "targets", state: null }),
         });
         expect(answer.ok, "the bridge accepted the target scan").toBe(true);
       },
@@ -1305,7 +1331,7 @@ test("Step 8 source model: real target positions published through the bridge ar
     audit.retire(`${outcome.observedTargetGroupName}_${proven.records[2].position_label}.ome.zarr`);
     const answer = await fetch(`http://127.0.0.1:${port}/api/scan`, {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ positions: rerun, acquisition_type: "target", state: null }),
+      body: JSON.stringify({ positions: rerun, acquisition_type: "targets", state: null }),
     });
     expect(answer.ok).toBe(true);
     await expect.poll(async () => (await bridgeJson(page, port, "/api/scan")).done, { timeout: 120_000 }).toBe(2);
@@ -1325,7 +1351,7 @@ test("Step 8 source model: real target positions published through the bridge ar
     expect(rerunRows, "the engine's rows hold exactly the rerun's sources").toEqual(rerunRows.map(() => 2));
     expect(storesOnDisk, "the stores of the first run are gone from disk").toBe(2);
     await disconnectAndReconnect({ page, take, port });
-    recorder.writeManifest({ outcome, canonicalName: "target" });
+    recorder.writeManifest({ outcome, canonicalName: "targets" });
   } finally {
     recorder.writeManifest({ outcome, finished: true });
     await bridge.stop();
@@ -1357,8 +1383,8 @@ async function targetAccounting({ page, port, bridge, group }) {
     engineSourcesPerRow: rows.map((row) => row.sources.length),
     storesOnDisk: fs.existsSync(folder) ? fs.readdirSync(folder).filter((name) => name.endsWith(".ome.zarr")).length : 0,
     acquiredOnCanvas: targets.filter((one) => one.acquired).map((one) => one.id),
-    galleryPairs: await page.locator(".pair").count(),
-    galleryCaptions: await page.locator(".pair .meta").allTextContents(),
+    galleryPairs: await page.locator("#target-list .point-row").count(),
+    galleryCaptions: await page.locator("#target-list .point-row").allTextContents(),
     button: (await page.locator(".panel.on button.step-run").textContent())?.trim(),
     hint: (await page.locator(".action-hint").first().textContent().catch(() => ""))?.trim(),
     stepDone: run.done.includes("acquire"),
@@ -1381,7 +1407,7 @@ test("Step 8 interruption: an acquisition stopped by hand accounts for exactly w
   const recorder = makeRecorder({ page, port, bridge, audit, provenance });
   const take = recorder.take.bind(recorder);
   const outcome = { mode: "operator page, interrupted acquisition", interrupted: null, runAgain: null };
-  const group = "target";
+  const group = "targets";
   const all = INTERRUPTED_RUN_TARGETS;
   try {
     await throughStepFive({ page, take, port, bridge });
@@ -1439,7 +1465,7 @@ test("Step 8 interruption: an acquisition stopped by hand accounts for exactly w
     const atRecords = targetsAtRecords(stopped.records, gated, ox, oy);
     expect(atRecords.every((ids) => ids.length === 1), `every record was taken at one gated target: ${JSON.stringify(atRecords)}`).toBe(true);
     expect(atRecords.flat().sort(), "the acquired cells are the ones the records were taken at").toEqual([...stopped.acquiredOnCanvas].sort());
-    expect(stopped.galleryPairs, "the gallery shows one pair per captured position").toBe(taken);
+    expect(stopped.galleryPairs, "the gallery lists one target per captured position").toBe(taken);
     for (const id of stopped.acquiredOnCanvas) expect(stopped.galleryCaptions.some((text) => text.includes(id)), `gallery card for ${id}`).toBe(true);
     expect(stopped.button).toBe("Run again");
     expect(stopped.note, "the step says it was stopped by hand and how far it got").toBe(`stopped by hand — ${taken} of ${all} pairs acquired`);
@@ -1476,7 +1502,7 @@ test("Step 8 interruption: an acquisition stopped by hand accounts for exactly w
       extra: { runAgain: outcome.runAgain },
     });
     await disconnectAndReconnect({ page, take, port });
-    recorder.writeManifest({ outcome, canonicalName: "target" });
+    recorder.writeManifest({ outcome, canonicalName: "targets" });
   } finally {
     recorder.writeManifest({ outcome, finished: true });
     await bridge.stop();

@@ -256,7 +256,7 @@ let stageWatch = null;
     cells: new Map(),
     fieldLabels: {},
     overviewPictures: backendFor().viewOf("overview"),
-    targetPictures: backendFor().viewOf("target"),
+    targetPictures: backendFor().viewOf("targets"),
     cellsShown: false,
     /* Which of the two the column beside the canvas shows: the step's own
        channel, or the picture's display settings. A page preference, kept
@@ -270,6 +270,9 @@ let stageWatch = null;
     gateCap: 50,         // the per-tileset ceiling the gated selection was drawn under
     gated: new Set(),
     acquired: [],
+    /* The acquired target whose pair the gallery shows, chosen there or on
+       the canvas; null until one is acquired. */
+    selectedTarget: null,
     acquiredLabels: {},
     verdicts: {},
     locked: false,
@@ -387,8 +390,9 @@ let stageWatch = null;
       focus: newFocus(), focusMaps: {}, focusFor: null,
       detect: newDetect(), cells: new Map(), fieldLabels: {},
       overviewPictures: backendFor().viewOf("overview"),
-    targetPictures: backendFor().viewOf("target"),
+    targetPictures: backendFor().viewOf("targets"),
       cellsShown: false, cellDevices: new Set(), gates: [], gateCap: 50, gated: new Set(), acquired: [], acquiredLabels: {},
+      selectedTarget: null,
       verdicts: {},
       locked: false,
     });
@@ -769,7 +773,7 @@ let stageWatch = null;
           const z = surfaceZAt(x, y);
           return stage.toStage(z === null ? { x, y } : { x, y, z });
         }),
-        acquisition_type: "target",
+        acquisition_type: "targets",
         state: activeRecording(state.targetType)?.changeable ?? null,
         /* Each capture prints itself onto the canvas as it lands, the way the
            overview's tiles do: the records so far name the pictures, and only
@@ -786,6 +790,8 @@ let stageWatch = null;
              each overview field, so a target imaged at the edge of the plan
              shows through where it was taken rather than under the ground. */
           stage.groundFollowsTheScan();
+          /* The list beside the canvas grows with the rings on it. */
+          galleryPanel?.rebuild();
           redrawSoon(); renderAll();
         },
       }).then(({ records, stopped }) => {
@@ -1243,11 +1249,42 @@ let stageWatch = null;
         ...state.plan[cell.field],
         picture: pictureOf("overview", state.fieldLabels[cell.field]),
       }),
-      pictureOf: (id) => pictureOf("target", state.acquiredLabels[id]),
+      pictureOf: (id) => pictureOf("targets", state.acquiredLabels[id]),
+      selected: () => state.selectedTarget,
+      select: (id, opts) => selectTarget(id, opts),
       recordingSlot: (into, opts) => renderRecordingSlot(into, recordingOptions(opts)),
       changed: () => renderActionBar(),
     });
   };
+
+  /** Choose an acquired target: the gallery shows its pair, the canvas lights
+      its ring. `quietly` is the gallery choosing for itself while it rebuilds,
+      so it is not told what it just did. */
+  function selectTarget(id, { quietly = false } = {}) {
+    if (state.selectedTarget === id) return;
+    state.selectedTarget = id;
+    if (!quietly) galleryPanel?.chosen();
+    stage.draw();
+  }
+
+  /** A press on the canvas in the acquisition step: the ringed target under
+      it, if one is, becomes the chosen one. */
+  function targetPressed(px, py) {
+    if (step(state.activeIdx).mode !== "targets") return false;
+    let hit = null;
+    let nearest = 14;
+    for (const id of state.acquired) {
+      const cell = state.cells.get(id);
+      if (!cell) continue;
+      const at = stage.project(cell.x, cell.y);
+      const [x, y] = Array.isArray(at) ? at : [at.x, at.y];
+      const away = Math.hypot(x - px, y - py);
+      if (away < nearest) { nearest = away; hit = id; }
+    }
+    if (hit === null) return false;
+    selectTarget(hit);
+    return true;
+  }
 
   const SIDE_WIDGETS = {
     connect: connectWidget,
@@ -1860,8 +1897,13 @@ let stageWatch = null;
     /* A tile chosen on the canvas appears in the test box at once. */
     tileChosen: () => detectionShown?.redraw(),
     detectPressed: (...a) => detectPressed(...a),
+    targetPressed: (...a) => targetPressed(...a),
     renderActionBar: () => renderActionBar(),
     renderRail: () => renderRail(),
+    /* Whether the picture draws an acquisition of this name itself, so a
+       layer that would print copies of it can leave the engine's own pixels
+       to the display settings. */
+    pictureShows: (name) => thePicture.shows(name),
     /**
      * Drive the stage to a place on the travel, and answer with where it
      * ended up — in micrometres per axis, the shape every reading takes.

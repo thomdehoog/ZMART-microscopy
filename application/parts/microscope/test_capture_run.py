@@ -40,7 +40,7 @@ def test_applies_state_once_before_capturing(mic):
     capture_positions(
         mic,
         [{"x": 0.0, "y": 0.0, "z": 0.0}],
-        "target",
+        "targets",
         state={"changeable": {"laser_power": 9.0}},
     )
 
@@ -50,7 +50,7 @@ def test_applies_state_once_before_capturing(mic):
 def test_label_callable_overrides_the_index(mic):
     positions = [{"x": 1.0, "y": 2.0, "z": 3.0}, {"x": 4.0, "y": 5.0, "z": 6.0}]
 
-    records = capture_positions(mic, positions, "target", label=lambda i, p: f"t{i:03d}")
+    records = capture_positions(mic, positions, "targets", label=lambda i, p: f"t{i:03d}")
 
     assert [r["position_label"] for r in records] == ["t001", "t002"]
 

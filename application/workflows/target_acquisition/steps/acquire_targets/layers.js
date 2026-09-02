@@ -21,7 +21,7 @@ function targetPicture(base, label, redraw) {
 }
 
 export function acquiredLayers(theRun) {
-  const { run, drawnIn, activeMode, redraw } = theRun;
+  const { run, drawnIn, activeMode, redraw, pictureShows } = theRun;
   return {
     targets: {
     key: "targets",
@@ -36,7 +36,11 @@ export function acquiredLayers(theRun) {
     paint: (frame) => {
       const ctx = frame.context;
       const { place, scale, w, h } = drawnIn(frame);
-      const base = run.targetPictures;
+      /* The copies stand in only while the picture does not draw the
+         targets itself. Once it does, its pixels are the ones the display
+         settings govern -- the eye on the targets acquisition hides them,
+         and a copy printed over them would stay. */
+      const base = pictureShows?.("targets") ? null : run.targetPictures;
       const frameUm = run.targetFrameUm;
       for (const id of run.acquired) {
         const c = run.cells.get(id);
@@ -61,6 +65,12 @@ export function acquiredLayers(theRun) {
         }
         const [x, y] = place(c.x, c.y);
         const rr = Math.max(7, 9 * Math.sqrt(scale / 0.03));
+        /* The chosen one -- whose pair the gallery shows -- rings twice, a
+           white halo under the green, so it is found among the others. */
+        if (run.selectedTarget === id) {
+          ctx.beginPath(); ctx.arc(x, y, rr + 2, 0, Math.PI * 2);
+          ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 5; ctx.stroke();
+        }
         ctx.beginPath(); ctx.arc(x, y, rr, 0, Math.PI * 2);
         ctx.strokeStyle = "#16a34a"; ctx.lineWidth = 2.2; ctx.stroke();
         ctx.beginPath(); ctx.arc(x, y, 2.2, 0, Math.PI * 2);

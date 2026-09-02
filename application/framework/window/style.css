@@ -1175,6 +1175,12 @@ canvas.livecv[hidden] { display: none; }
   font-family: var(--mono); font-size: 11.5px; color: var(--ink-3); font-variant-numeric: tabular-nums;
 }
 .pair .verdict { margin-left: auto; display: flex; gap: 4px; }
+/* The target list: its name in the page's ink, its verdict at the end in
+   the verdict's own colour, none yet in the muted one. */
+.point-row .name { color: var(--ink-1); }
+.point-row .z.verdict-good { color: var(--accent-deep); }
+.point-row .z.verdict-bad { color: var(--warn-ink); }
+.point-row .z.verdict-none { color: var(--ink-3); }
 .verdict button {
   font: inherit; font-size: 12px; line-height: 1; padding: 4px 7px;
   border: 1px solid var(--line-strong); border-radius: 6px;

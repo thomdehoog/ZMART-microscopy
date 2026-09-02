@@ -111,7 +111,7 @@ test("record the corresponding Smart Operator panel state", async ({ page, reque
     const groupSpecs = [
       ["overview", imageRows],
       ["focussing", [imageRows[1]]],
-      ["target", [imageRows[2]]],
+      ["targets", [imageRows[2]]],
     ];
     const acquisitions = groupSpecs.map(([group, specs]) => ({
       name: group,

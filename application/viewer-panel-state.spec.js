@@ -11,7 +11,7 @@ async function mountPanel(page) {
     const module = await import("/parts/canvas/viewer-panel.js");
     const source = (group, channel, position = 0) =>
       `${location.origin}/data/${group}-${channel}-${position}.ome.zarr/|zarr3:`;
-    const acquisitions = ["overview", "focussing", "target"].map((group, groupAt) => ({
+    const acquisitions = ["overview", "focussing", "targets"].map((group, groupAt) => ({
       name: group,
       url: source(group, 0),
       channels: [0, 1].map((channel) => ({
@@ -74,8 +74,8 @@ const snapshot = (page) => page.evaluate(() => window.__viewerPanel.snapshot());
 test("acquisition eyes preserve channel requests for overview, focussing, and target", async ({ page }) => {
   await mountPanel(page);
 
-  await page.getByLabel("toggle target 1").first().click();
-  for (const group of ["overview", "focussing", "target"]) {
+  await page.getByLabel("toggle targets 1").first().click();
+  for (const group of ["overview", "focussing", "targets"]) {
     const before = await snapshot(page);
     const matrices = before.channels.flatMap((row) =>
       (row.observed?.sources ?? []).map((source) => source.matrix));
@@ -87,13 +87,13 @@ test("acquisition eyes preserve channel requests for overview, focussing, and ta
     await expect.poll(async () => {
       const rows = (await snapshot(page)).channels.filter((row) => row.acquisition === group);
       return rows.map((row) => row.observed?.visible);
-    }).toEqual(group === "target" ? [true, false] : [true, true]);
+    }).toEqual(group === "targets" ? [true, false] : [true, true]);
     const after = await snapshot(page);
     expect(after.channels.flatMap((row) =>
       (row.observed?.sources ?? []).map((source) => source.matrix))).toEqual(matrices);
   }
 
-  const target = (await snapshot(page)).channels.filter((row) => row.acquisition === "target");
+  const target = (await snapshot(page)).channels.filter((row) => row.acquisition === "targets");
   expect(target.map((row) => row.requested.visible)).toEqual([true, false]);
   expect(target.map((row) => row.requested.effectiveVisible)).toEqual([true, false]);
 });

@@ -414,12 +414,12 @@ def test_the_options_a_capture_is_given_reach_the_driver(monkeypatch):
     driver = _Capturing()
     monkeypatch.setattr(bridge, "_session", driver)
     bridge._capture({
-        "acquisition_type": "target",
+        "acquisition_type": "targets",
         "position_label": "K00_M000002_G000001_P000003_V00",
         "options": {"format": "ome-zarr"},
     })
     assert driver.asked[-1] == (
-        "target", "K00_M000002_G000001_P000003_V00", {"format": "ome-zarr"},
+        "targets", "K00_M000002_G000001_P000003_V00", {"format": "ome-zarr"},
     )
 
 
@@ -479,8 +479,8 @@ def test_a_scan_keeps_the_record_of_every_capture(monkeypatch):
 def test_a_scan_captures_under_the_kind_of_scan_it_is(monkeypatch):
     """The first slot of every filename, so it is the caller's to say."""
     driver = _Capturing()
-    _scanned(driver, [{"x": 0, "y": 0}], monkeypatch, acquisition_type="target")
-    assert driver.asked[-1][0] == "target"
+    _scanned(driver, [{"x": 0, "y": 0}], monkeypatch, acquisition_type="targets")
+    assert driver.asked[-1][0] == "targets"
 
 
 
