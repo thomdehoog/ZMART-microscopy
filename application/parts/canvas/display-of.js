@@ -10,6 +10,24 @@
  * drawn by the bridge exactly as the canvas draws it.
  */
 
+/**
+ * A colour as `#rrggbb`, from the panel's own forms: the viewer's triple of
+ * 0..1, or a CSS `rgb(r,g,b)` / `#rrggbb` string. Null when there is none.
+ * The bridge reads six hex digits and draws white for anything else, which
+ * is how every copy came back grey.
+ */
+export function hexColour(colour, color) {
+  const hex = (parts) => `#${parts.map((v) => Math.round(Math.min(255, Math.max(0, v)))
+    .toString(16).padStart(2, "0")).join("")}`;
+  if (Array.isArray(colour) && colour.length === 3 && colour.every(Number.isFinite)) {
+    return hex(colour.map((v) => v * 255));
+  }
+  if (typeof color !== "string") return null;
+  const rgb = /^rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)/i.exec(color);
+  if (rgb) return hex([Number(rgb[1]), Number(rgb[2]), Number(rgb[3])]);
+  return /^#[0-9a-f]{6}$/i.test(color) ? color.toLowerCase() : null;
+}
+
 /** The channel index a row's name carries: "channel 2" -> 2, else null. */
 const channelIndexOf = (name) => {
   const found = /channel\s+(\d+)/i.exec(String(name ?? ""));
@@ -34,7 +52,7 @@ export function displayFor(snapshot, acquisition) {
         c: channelIndexOf(row.name),
         visible: asked.effectiveVisible ?? asked.visible ?? true,
         window,
-        color: typeof asked.color === "string" ? asked.color : null,
+        color: hexColour(asked.colour, asked.color),
       };
     })
     .filter((one) => one.window !== null);

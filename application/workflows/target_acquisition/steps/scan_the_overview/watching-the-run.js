@@ -125,12 +125,14 @@ export function watchTheRun(ctx) {
     /**
      * What there is to draw, asked fresh each time.
      *
-     * Three answers, in order of preference: a store the address named
-     * (`?picture=`, taken as it is); the run's own OME-Zarr sources, served
-     * by the viewer beside the bridge — the real picture, every acquisition
-     * type a source of its own; and the backend's JPEG copies, which is what
-     * a machine without the viewer draws. `?engine=` still overrides the
-     * engine either way, so the comparisons stay askable.
+     * Two answers, in order of preference: a store the address named
+     * (`?picture=`, taken as it is); and the run's own OME-Zarr sources,
+     * served by the viewer beside the bridge — the real picture, every
+     * acquisition type a source of its own. The backend's JPEG copies are
+     * not a third: the canvas opened on them first and reopened on the
+     * sources a moment later, a picture changing under the operator for
+     * nothing. `?engine=` still overrides the engine, so the comparisons
+     * stay askable.
      */
     async function whatToOpen() {
       const picture = search.get("picture");
@@ -157,15 +159,6 @@ export function watchTheRun(ctx) {
           engine: search.get("engine") ?? "neuroglancer-under",
           acquisitions: drawOrder,
           signature: `sources:${addressesIn(drawOrder).join("|")}`,
-          inStageFrame: true,
-        };
-      }
-      const jpegs = ctx.pictures?.("overview");
-      if (jpegs) {
-        return {
-          engine: search.get("engine") ?? "jpeg-under",
-          acquisitions: [{ url: jpegs, name: "scan" }],
-          signature: `jpegs:${jpegs}`,
           inStageFrame: true,
         };
       }
@@ -209,7 +202,6 @@ export function watchTheRun(ctx) {
             viewer, acquisitions: wanted.acquisitions, css: ctx.css,
             requestedState: requestedPanelState,
             into: ctx.displayHost?.() ?? null,
-            showPicture: ctx.showPicture ?? null,
           });
         }
         ctx.displayChanged?.();
@@ -286,7 +278,7 @@ export function watchTheRun(ctx) {
     return {
       /** Whether this page was pointed at a scan by its own address. The run's
           sources are asked for asynchronously, so they do not answer here. */
-      get asked() { return !!(search.get("picture") ?? ctx.pictures?.("overview")); },
+      get asked() { return !!search.get("picture"); },
       /** Whether there was a scan there to open, and it opened. */
       get opened() { return !!viewer; },
       /** Whether the picture draws the acquisition of this name itself. A

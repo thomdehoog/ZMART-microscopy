@@ -89,6 +89,13 @@ function shapeOverlay(base, fieldLabel, wanted, redraw) {
   return cv;
 }
 
+/** The masks are forgotten when a discovery begins: a field's mask from a
+    tile test would otherwise stand in for the run's own until the page was
+    reopened. */
+export function forgetTheMasks() {
+  maskImages.clear();
+}
+
 export function targetLayers(theRun) {
   const { run, css, drawnIn, activeMode, redraw } = theRun;
   /* How far a press reaches, in world units. Taken from the last paint --
@@ -102,7 +109,11 @@ export function targetLayers(theRun) {
     label: "Cells",
     explains: "What detection found. The ones that passed the gate are ringed, so which "
       + "is which does not rest on colour alone.",
-    shown: run.cellsShown && ["detect", "select", "targets"].includes(activeMode),
+    /* The chosen cells' shapes belong to the step that chooses them. On the
+       discovery step the masks themselves are on the picture; on the
+       acquisition step the frames are, and a lit shape over a frame hid the
+       very pixels it was imaged for. */
+    shown: run.cellsShown && activeMode === "select",
     /* Readable over the very fields they were found in: the see-through
        windows that reveal the picture cut every layer beneath them, and the
        objects were cut away exactly where the tissue is. The layer's own
@@ -113,27 +124,9 @@ export function targetLayers(theRun) {
       const { place, scale, w, h } = drawnIn(frame);
       reach = 12 / scale;
       const ctxRad = Math.max(1.1, 1.4 * Math.sqrt(scale / 0.03));
-      /* Keep the population spatially present through discovery, refinement,
-         and acquisition. Refinement used to draw only the gated cells, which
-         made the canvas empty before the first gate existed and removed the
-         context needed to understand what that gate excluded. Acquisition did
-         the same. The quiet dots are the candidates; the shaped blue/green
-         marks below remain the selected/acquired answer. */
-      if (["detect", "select", "targets"].includes(activeMode)) {
-        const gated = run.gated;
-        ctx.fillStyle = css("--mark-context");
-        ctx.globalAlpha = activeMode === "detect" ? 0.55 : 0.28;
-        ctx.beginPath();
-        for (const c of run.cells.values()) {
-          if (activeMode !== "detect" && gated.has(c.id)) continue;
-          const [x, y] = place(c.x, c.y);
-          if (x < -8 || y < -8 || x > w + 8 || y > h + 8) continue;
-          ctx.moveTo(x + ctxRad, y);
-          ctx.arc(x, y, ctxRad, 0, Math.PI * 2);
-        }
-        ctx.fill();
-        ctx.globalAlpha = 1;
-      }
+      /* Only the chosen cells are drawn: a grey dot on every candidate
+         read as an artefact on the picture, and the masks on the discovery
+         step already showed the whole population. */
 
       /* The chosen, in their own segmented shapes: each selected cell's
          mask pixels lit in accent, acquired ones in green -- a blob where a
@@ -199,8 +192,11 @@ export function targetLayers(theRun) {
       + "where it put a point.",
     /* The masks belong to the step that tunes them: from the refine step
        on, the picture is about the selection, and later the acquisition.
-       The layer's own button still brings them back wherever wanted. */
-    shown: activeMode === "detect",
+       The layer's own button still brings them back wherever wanted. And
+       they are the run's, not a tile test's: a test is judged in the
+       panel's own picture, and the canvas shows the masks as the run lays
+       them down, field by field. */
+    shown: activeMode === "detect" && run.cellsShown,
     staysSolid: true,
     paint: (frame) => {
       const ctx = frame.context;
@@ -217,7 +213,7 @@ export function targetLayers(theRun) {
         if (x > w || y > h || x + size < 0 || y + size < 0) continue;
         const img = maskImage(base, label, redraw);
         if (!img) continue;
-        ctx.globalAlpha = 0.45;
+        ctx.globalAlpha = 0.8;
         ctx.drawImage(img, x, y, size, size);
         ctx.globalAlpha = 1;
       }

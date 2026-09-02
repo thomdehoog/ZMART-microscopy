@@ -59,15 +59,20 @@ def test_the_focus_stack_is_still_centred_where_the_stage_stands(session):
     assert (plane["x_um"], plane["y_um"]) == (20_000.0, 30_000.0)
 
 
-def test_a_target_frame_is_small_and_fine(session):
+def test_the_hires_job_images_small_and_fine(session):
+    """The job owns the geometry: on HiRes a capture is 128 px of 1 um, an
+    eighth of the overview field across, and the readout says so before
+    anything is captured."""
+    session.set_state({"changeable": {"job": "HiRes"}})
+    observed = session.get_state()["observed"]
+    assert observed["frame_size"]["x"] == 128.0 and observed["pixel_size"]["x"] == 1.0
     record = session.acquire(acquisition_type="targets", position_label="T0")
-    assert _frame_px(record) == mock_driver._TARGET_FRAME_PX == 128
+    assert _frame_px(record) == 128
     with tifffile.TiffFile(record["planes"][0]["path"]) as held:
         physical = held.ome_metadata
-    assert f'PhysicalSizeX="{mock_driver._TARGET_PIXEL_UM}"' in physical
-    # 128 px of 1 um: an eighth of the overview field's 1024 um across.
-    assert mock_driver._TARGET_FRAME_PX * mock_driver._TARGET_PIXEL_UM == 128.0
-    assert mock_driver._FRAME_PX * mock_driver._PIXEL_UM == 1024.0
+    assert 'PhysicalSizeX="1.0"' in physical
+    session.set_state({"changeable": {"job": "Overview"}})
+    assert session.get_state()["observed"]["frame_size"]["x"] == 1024.0
 
 
 def test_a_target_frame_is_the_same_tissue_looked_at_closer(session):
@@ -79,6 +84,7 @@ def test_a_target_frame_is_the_same_tissue_looked_at_closer(session):
     # the two frames' pixels are not the same size.
     session.set_xyz(20_000.0, 30_000.0, mock_driver.sharp_height_um(20_000.0, 30_000.0))
     overview = tifffile.imread(session.acquire(acquisition_type="overview", position_label="P0")["planes"][0]["path"])
+    session.set_state({"changeable": {"job": "HiRes"}})
     target = tifffile.imread(session.acquire(acquisition_type="targets", position_label="T0")["planes"][0]["path"])
     assert target[64, 64] == overview[128, 128]
     # Four target pixels to one overview pixel in each direction: every

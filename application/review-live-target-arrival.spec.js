@@ -983,6 +983,8 @@ test("Steps 1 to 8 through the operator page on the real bridge, Viewer 0.2 and 
 
     /* ---------------------------------------------------------- Step 6 */
     await gotoStep(page, "Discover Targets");
+    /* The review runs Cellpose, the accurate way; the page opens on the fast one. */
+    await page.selectOption("#detect-method", "accurate");
     await expect(page.locator("#tile-label")).toHaveText("1 / 9");
     /* A tile test stopped by hand first: the press that started it reads
        Interrupt, the bridge puts the field's worker down, the readout says
@@ -1415,6 +1417,8 @@ test("Step 8 interruption: an acquisition stopped by hand accounts for exactly w
     /* Steps 6 and 7 the short way: the whole population discovered, one
        gate, a ceiling high enough that the run outlasts the operator's hand. */
     await gotoStep(page, "Discover Targets");
+    /* The review runs Cellpose, the accurate way; the page opens on the fast one. */
+    await page.selectOption("#detect-method", "accurate");
     await page.locator(".panel.on button.step-run").click();
     await expect(page.locator(".panel.on button.step-run")).toHaveText("Run again", { timeout: 1_500_000 });
     const discovery = await bridgeJson(page, port, "/api/targets/discover");
@@ -1566,17 +1570,16 @@ test("Steps 4 to 6: the picture's own box is the switch the focus map reads, and
     const shown = () => page.evaluate(() => window.__theStageCanvas.layerShown("picture"));
 
     await showDisplaySettings(page);
-    const box = page.locator("#draw-the-picture");
-    await expect(box).toBeChecked();
+    const showThePicture = (on) => page.evaluate((flag) => window.__theStageCanvas.showLayer("picture", flag), on);
     expect(await shown()).toBe(true);
     const seeThrough = await coloursOverTheMap();
     expect(seeThrough.filter(Boolean).length, "the map is drawn over the plan").toBeGreaterThan(0);
 
-    await box.click();
+    await showThePicture(false);
     await expect.poll(shown, "the layers read the picture as off").toBe(false);
     await expect.poll(coloursOverTheMap, "without the picture the surface is laid solid: the map changes colour").not.toEqual(seeThrough);
 
-    await box.click();
+    await showThePicture(true);
     await expect.poll(shown).toBe(true);
     await expect.poll(coloursOverTheMap, "and is see-through again with it").toEqual(seeThrough);
 
