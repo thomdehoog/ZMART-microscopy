@@ -216,6 +216,9 @@ export default {
          field, or the canvas's display settings changed -- is fetched. */
       if (where === pictureFrom && picture) return;
       pictureFrom = where;
+      /* The address on the canvas that shows it: the picture says which
+         picture it is, display settings and all. */
+      cv.dataset.picture = where ?? "";
       picture = null;
       mask = null;
       if (!where) return;

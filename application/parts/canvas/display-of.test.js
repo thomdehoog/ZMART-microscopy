@@ -4,13 +4,13 @@ import { displayFor, displayQueryFor } from "./display-of.js";
 const snapshot = {
   channels: [
     { acquisition: "overview", name: "channel 0",
-      requested: { visible: true, effectiveVisible: true, color: "#22c55e", window: { start: 225, end: 3863 } } },
+      requested: { visible: true, effectiveVisible: true, color: "#22c55e", window: { low: 225, high: 3863 } } },
     { acquisition: "overview", name: "channel 1",
-      requested: { visible: false, effectiveVisible: false, color: "#d946ef", window: { start: 0, end: 4000 } } },
+      requested: { visible: false, effectiveVisible: false, color: "#d946ef", window: { low: 0, high: 4000 } } },
     { acquisition: "target", name: "channel 0",
-      requested: { visible: true, effectiveVisible: true, color: "#22c55e", window: { start: 100, end: 900 } } },
+      requested: { visible: true, effectiveVisible: true, color: "#22c55e", window: { low: 100, high: 900 } } },
     { acquisition: "overview", name: "something else",
-      requested: { visible: true, effectiveVisible: true, color: "#ffffff", window: { start: 0, end: 1 } } },
+      requested: { visible: true, effectiveVisible: true, color: "#ffffff", window: { low: 0, high: 1 } } },
   ],
 };
 
@@ -27,7 +27,7 @@ describe("the display the copies are asked with", () => {
 
   it("is what the whole group shows, not only what the row asked: a hidden group hides its rows", () => {
     const hidden = { channels: [{ acquisition: "overview", name: "channel 0",
-      requested: { visible: true, effectiveVisible: false, color: "#22c55e", window: { start: 0, end: 10 } } }] };
+      requested: { visible: true, effectiveVisible: false, color: "#22c55e", window: { low: 0, high: 10 } } }] };
     expect(displayFor(hidden, "overview")[0].visible).toBe(false);
   });
 
