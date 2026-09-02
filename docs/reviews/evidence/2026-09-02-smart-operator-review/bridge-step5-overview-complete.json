@@ -1,0 +1,1169 @@
+{
+  "schemaVersion": 1,
+  "name": "bridge-step5-overview-complete",
+  "capturedAtUtc": "2026-09-02T00:26:49.027Z",
+  "provenance": {
+    "microscopy": {
+      "repository": "thomdehoog/ZMART-microscopy",
+      "branch": "claude/smart-operator-workflow-review-ehw3c5",
+      "commit": "6e360a490c09db77426949e182949af7e7e8617c",
+      "worktreeClean": false
+    },
+    "smartViewer": {
+      "repository": "thomdehoog/ZMART-viewer",
+      "importPath": "/home/user/thomdehoog/zmart-viewer/zmart_viewer/__init__.py",
+      "version": "0.2.0",
+      "commit": "9ff10b04e803fbe2a71a1735a8065a845ea803dd",
+      "measureRoutePresent": true
+    },
+    "backend": "real bridge (application/framework/bridge.py) driving the controller's mock kidney driver",
+    "page": "production build served by the bridge (framework/window/static)",
+    "python": "3.11.15"
+  },
+  "sample": "mock kidney (scikit-image kidney, plane 8)",
+  "server": {
+    "bridge": "http://127.0.0.1:8823",
+    "viewer": "http://127.0.0.1:34315",
+    "run": "/tmp/zmart-bridge-iSa0cL/target-acquisition_938317"
+  },
+  "workflow": {
+    "step": 5,
+    "state": "actual Run button; 9 of 9 overview positions landed; focussing hidden by the panel; planned grid framed at 12 um per pixel",
+    "run": {
+      "running": null,
+      "notes": {
+        "carrier": "75 × 25 mm slide · 73.0 × 23.0 mm",
+        "scanfields": "9 positions",
+        "focus": "constant from 1 points · rms 0.0 µm",
+        "scan": "9 / 9 tiles"
+      },
+      "activeIdx": 4,
+      "done": [
+        "connect",
+        "carrier",
+        "scanfields",
+        "focus",
+        "scan"
+      ],
+      "ran": [
+        "connect",
+        "focus",
+        "scan"
+      ],
+      "focus": {
+        "strategy": "plane",
+        "applied": true,
+        "points": 1,
+        "selected": 0
+      }
+    }
+  },
+  "counts": {
+    "planned": 9,
+    "scan": {
+      "acquisitionType": "overview",
+      "done": 9,
+      "of": 9,
+      "running": false,
+      "error": null
+    },
+    "targetsOnCanvas": 0,
+    "targetsSelected": 0,
+    "targetsAcquired": 0,
+    "engineSourcesPerGroup": {
+      "overview": [
+        9,
+        9,
+        9
+      ],
+      "focussing": [
+        1
+      ]
+    }
+  },
+  "viewerAcquisitions": [
+    {
+      "name": "focussing",
+      "logicalChannelCount": 1,
+      "sourceCountPerChannel": [
+        1
+      ]
+    },
+    {
+      "name": "overview",
+      "logicalChannelCount": 3,
+      "sourceCountPerChannel": [
+        9,
+        9,
+        9
+      ]
+    }
+  ],
+  "engineRows": [
+    {
+      "name": "overview/channel 0",
+      "group": "overview",
+      "visible": true,
+      "window": {
+        "low": 196,
+        "high": 4084
+      },
+      "weight": 1,
+      "layerError": null,
+      "sourceCount": 9,
+      "sources": [
+        {
+          "url": "http://127.0.0.1:34315/data/1/overview_K00_M000001_G000001_P000000_V00.ome.zarr/|zarr3:",
+          "error": null,
+          "boundsUm": {
+            "xMin": 58463.99999999999,
+            "yMin": 38464,
+            "xMax": 59488,
+            "yMax": 39487.99999999999,
+            "zMin": -0.5,
+            "zMax": 0.5
+          },
+          "matrixSha256": "aa9327931dedd92808e48006eec9b83dc2cecf5e3ad051749067761cce07f077",
+          "voxelCenterAtIntegerCoordinates": [
+            true,
+            true,
+            true,
+            false,
+            false
+          ]
+        },
+        {
+          "url": "http://127.0.0.1:34315/data/1/overview_K00_M000001_G000001_P000001_V00.ome.zarr/|zarr3:",
+          "error": null,
+          "boundsUm": {
+            "xMin": 59488,
+            "yMin": 38464,
+            "xMax": 60511.99999999999,
+            "yMax": 39487.99999999999,
+            "zMin": -0.5,
+            "zMax": 0.5
+          },
+          "matrixSha256": "aa9327931dedd92808e48006eec9b83dc2cecf5e3ad051749067761cce07f077",
+          "voxelCenterAtIntegerCoordinates": [
+            true,
+            true,
+            true,
+            false,
+            false
+          ]
+        },
+        {
+          "url": "http://127.0.0.1:34315/data/1/overview_K00_M000001_G000001_P000002_V00.ome.zarr/|zarr3:",
+          "error": null,
+          "boundsUm": {
+            "xMin": 60511.99999999999,
+            "yMin": 38464,
+            "xMax": 61536,
+            "yMax": 39487.99999999999,
+            "zMin": -0.5,
+            "zMax": 0.5
+          },
+          "matrixSha256": "aa9327931dedd92808e48006eec9b83dc2cecf5e3ad051749067761cce07f077",
+          "voxelCenterAtIntegerCoordinates": [
+            true,
+            true,
+            true,
+            false,
+            false
+          ]
+        },
+        {
+          "url": "http://127.0.0.1:34315/data/1/overview_K00_M000001_G000001_P000003_V00.ome.zarr/|zarr3:",
+          "error": null,
+          "boundsUm": {
+            "xMin": 58463.99999999999,
+            "yMin": 39487.99999999999,
+            "xMax": 59488,
+            "yMax": 40512,
+            "zMin": -0.5,
+            "zMax": 0.5
+          },
+          "matrixSha256": "aa9327931dedd92808e48006eec9b83dc2cecf5e3ad051749067761cce07f077",
+          "voxelCenterAtIntegerCoordinates": [
+            true,
+            true,
+            true,
+            false,
+            false
+          ]
+        },
+        {
+          "url": "http://127.0.0.1:34315/data/1/overview_K00_M000001_G000001_P000004_V00.ome.zarr/|zarr3:",
+          "error": null,
+          "boundsUm": {
+            "xMin": 59488,
+            "yMin": 39487.99999999999,
+            "xMax": 60511.99999999999,
+            "yMax": 40512,
+            "zMin": -0.5,
+            "zMax": 0.5
+          },
+          "matrixSha256": "aa9327931dedd92808e48006eec9b83dc2cecf5e3ad051749067761cce07f077",
+          "voxelCenterAtIntegerCoordinates": [
+            true,
+            true,
+            true,
+            false,
+            false
+          ]
+        },
+        {
+          "url": "http://127.0.0.1:34315/data/1/overview_K00_M000001_G000001_P000005_V00.ome.zarr/|zarr3:",
+          "error": null,
+          "boundsUm": {
+            "xMin": 60511.99999999999,
+            "yMin": 39487.99999999999,
+            "xMax": 61536,
+            "yMax": 40512,
+            "zMin": -0.5,
+            "zMax": 0.5
+          },
+          "matrixSha256": "aa9327931dedd92808e48006eec9b83dc2cecf5e3ad051749067761cce07f077",
+          "voxelCenterAtIntegerCoordinates": [
+            true,
+            true,
+            true,
+            false,
+            false
+          ]
+        },
+        {
+          "url": "http://127.0.0.1:34315/data/1/overview_K00_M000001_G000001_P000006_V00.ome.zarr/|zarr3:",
+          "error": null,
+          "boundsUm": {
+            "xMin": 58463.99999999999,
+            "yMin": 40512,
+            "xMax": 59488,
+            "yMax": 41536,
+            "zMin": -0.5,
+            "zMax": 0.5
+          },
+          "matrixSha256": "aa9327931dedd92808e48006eec9b83dc2cecf5e3ad051749067761cce07f077",
+          "voxelCenterAtIntegerCoordinates": [
+            true,
+            true,
+            true,
+            false,
+            false
+          ]
+        },
+        {
+          "url": "http://127.0.0.1:34315/data/1/overview_K00_M000001_G000001_P000007_V00.ome.zarr/|zarr3:",
+          "error": null,
+          "boundsUm": {
+            "xMin": 59488,
+            "yMin": 40512,
+            "xMax": 60511.99999999999,
+            "yMax": 41536,
+            "zMin": -0.5,
+            "zMax": 0.5
+          },
+          "matrixSha256": "aa9327931dedd92808e48006eec9b83dc2cecf5e3ad051749067761cce07f077",
+          "voxelCenterAtIntegerCoordinates": [
+            true,
+            true,
+            true,
+            false,
+            false
+          ]
+        },
+        {
+          "url": "http://127.0.0.1:34315/data/1/overview_K00_M000001_G000001_P000008_V00.ome.zarr/|zarr3:",
+          "error": null,
+          "boundsUm": {
+            "xMin": 60511.99999999999,
+            "yMin": 40512,
+            "xMax": 61536,
+            "yMax": 41536,
+            "zMin": -0.5,
+            "zMax": 0.5
+          },
+          "matrixSha256": "aa9327931dedd92808e48006eec9b83dc2cecf5e3ad051749067761cce07f077",
+          "voxelCenterAtIntegerCoordinates": [
+            true,
+            true,
+            true,
+            false,
+            false
+          ]
+        }
+      ]
+    },
+    {
+      "name": "overview/channel 1",
+      "group": "overview",
+      "visible": true,
+      "window": {
+        "low": 103,
+        "high": 4093
+      },
+      "weight": 1,
+      "layerError": null,
+      "sourceCount": 9,
+      "sources": [
+        {
+          "url": "http://127.0.0.1:34315/data/1/overview_K00_M000001_G000001_P000000_V00.ome.zarr/|zarr3:",
+          "error": null,
+          "boundsUm": {
+            "xMin": 58463.99999999999,
+            "yMin": 38464,
+            "xMax": 59488,
+            "yMax": 39487.99999999999,
+            "zMin": -0.5,
+            "zMax": 0.5
+          },
+          "matrixSha256": "aa9327931dedd92808e48006eec9b83dc2cecf5e3ad051749067761cce07f077",
+          "voxelCenterAtIntegerCoordinates": [
+            true,
+            true,
+            true,
+            false,
+            false
+          ]
+        },
+        {
+          "url": "http://127.0.0.1:34315/data/1/overview_K00_M000001_G000001_P000001_V00.ome.zarr/|zarr3:",
+          "error": null,
+          "boundsUm": {
+            "xMin": 59488,
+            "yMin": 38464,
+            "xMax": 60511.99999999999,
+            "yMax": 39487.99999999999,
+            "zMin": -0.5,
+            "zMax": 0.5
+          },
+          "matrixSha256": "aa9327931dedd92808e48006eec9b83dc2cecf5e3ad051749067761cce07f077",
+          "voxelCenterAtIntegerCoordinates": [
+            true,
+            true,
+            true,
+            false,
+            false
+          ]
+        },
+        {
+          "url": "http://127.0.0.1:34315/data/1/overview_K00_M000001_G000001_P000002_V00.ome.zarr/|zarr3:",
+          "error": null,
+          "boundsUm": {
+            "xMin": 60511.99999999999,
+            "yMin": 38464,
+            "xMax": 61536,
+            "yMax": 39487.99999999999,
+            "zMin": -0.5,
+            "zMax": 0.5
+          },
+          "matrixSha256": "aa9327931dedd92808e48006eec9b83dc2cecf5e3ad051749067761cce07f077",
+          "voxelCenterAtIntegerCoordinates": [
+            true,
+            true,
+            true,
+            false,
+            false
+          ]
+        },
+        {
+          "url": "http://127.0.0.1:34315/data/1/overview_K00_M000001_G000001_P000003_V00.ome.zarr/|zarr3:",
+          "error": null,
+          "boundsUm": {
+            "xMin": 58463.99999999999,
+            "yMin": 39487.99999999999,
+            "xMax": 59488,
+            "yMax": 40512,
+            "zMin": -0.5,
+            "zMax": 0.5
+          },
+          "matrixSha256": "aa9327931dedd92808e48006eec9b83dc2cecf5e3ad051749067761cce07f077",
+          "voxelCenterAtIntegerCoordinates": [
+            true,
+            true,
+            true,
+            false,
+            false
+          ]
+        },
+        {
+          "url": "http://127.0.0.1:34315/data/1/overview_K00_M000001_G000001_P000004_V00.ome.zarr/|zarr3:",
+          "error": null,
+          "boundsUm": {
+            "xMin": 59488,
+            "yMin": 39487.99999999999,
+            "xMax": 60511.99999999999,
+            "yMax": 40512,
+            "zMin": -0.5,
+            "zMax": 0.5
+          },
+          "matrixSha256": "aa9327931dedd92808e48006eec9b83dc2cecf5e3ad051749067761cce07f077",
+          "voxelCenterAtIntegerCoordinates": [
+            true,
+            true,
+            true,
+            false,
+            false
+          ]
+        },
+        {
+          "url": "http://127.0.0.1:34315/data/1/overview_K00_M000001_G000001_P000005_V00.ome.zarr/|zarr3:",
+          "error": null,
+          "boundsUm": {
+            "xMin": 60511.99999999999,
+            "yMin": 39487.99999999999,
+            "xMax": 61536,
+            "yMax": 40512,
+            "zMin": -0.5,
+            "zMax": 0.5
+          },
+          "matrixSha256": "aa9327931dedd92808e48006eec9b83dc2cecf5e3ad051749067761cce07f077",
+          "voxelCenterAtIntegerCoordinates": [
+            true,
+            true,
+            true,
+            false,
+            false
+          ]
+        },
+        {
+          "url": "http://127.0.0.1:34315/data/1/overview_K00_M000001_G000001_P000006_V00.ome.zarr/|zarr3:",
+          "error": null,
+          "boundsUm": {
+            "xMin": 58463.99999999999,
+            "yMin": 40512,
+            "xMax": 59488,
+            "yMax": 41536,
+            "zMin": -0.5,
+            "zMax": 0.5
+          },
+          "matrixSha256": "aa9327931dedd92808e48006eec9b83dc2cecf5e3ad051749067761cce07f077",
+          "voxelCenterAtIntegerCoordinates": [
+            true,
+            true,
+            true,
+            false,
+            false
+          ]
+        },
+        {
+          "url": "http://127.0.0.1:34315/data/1/overview_K00_M000001_G000001_P000007_V00.ome.zarr/|zarr3:",
+          "error": null,
+          "boundsUm": {
+            "xMin": 59488,
+            "yMin": 40512,
+            "xMax": 60511.99999999999,
+            "yMax": 41536,
+            "zMin": -0.5,
+            "zMax": 0.5
+          },
+          "matrixSha256": "aa9327931dedd92808e48006eec9b83dc2cecf5e3ad051749067761cce07f077",
+          "voxelCenterAtIntegerCoordinates": [
+            true,
+            true,
+            true,
+            false,
+            false
+          ]
+        },
+        {
+          "url": "http://127.0.0.1:34315/data/1/overview_K00_M000001_G000001_P000008_V00.ome.zarr/|zarr3:",
+          "error": null,
+          "boundsUm": {
+            "xMin": 60511.99999999999,
+            "yMin": 40512,
+            "xMax": 61536,
+            "yMax": 41536,
+            "zMin": -0.5,
+            "zMax": 0.5
+          },
+          "matrixSha256": "aa9327931dedd92808e48006eec9b83dc2cecf5e3ad051749067761cce07f077",
+          "voxelCenterAtIntegerCoordinates": [
+            true,
+            true,
+            true,
+            false,
+            false
+          ]
+        }
+      ]
+    },
+    {
+      "name": "overview/channel 2",
+      "group": "overview",
+      "visible": true,
+      "window": {
+        "low": 89,
+        "high": 4087
+      },
+      "weight": 1,
+      "layerError": null,
+      "sourceCount": 9,
+      "sources": [
+        {
+          "url": "http://127.0.0.1:34315/data/1/overview_K00_M000001_G000001_P000000_V00.ome.zarr/|zarr3:",
+          "error": null,
+          "boundsUm": {
+            "xMin": 58463.99999999999,
+            "yMin": 38464,
+            "xMax": 59488,
+            "yMax": 39487.99999999999,
+            "zMin": -0.5,
+            "zMax": 0.5
+          },
+          "matrixSha256": "aa9327931dedd92808e48006eec9b83dc2cecf5e3ad051749067761cce07f077",
+          "voxelCenterAtIntegerCoordinates": [
+            true,
+            true,
+            true,
+            false,
+            false
+          ]
+        },
+        {
+          "url": "http://127.0.0.1:34315/data/1/overview_K00_M000001_G000001_P000001_V00.ome.zarr/|zarr3:",
+          "error": null,
+          "boundsUm": {
+            "xMin": 59488,
+            "yMin": 38464,
+            "xMax": 60511.99999999999,
+            "yMax": 39487.99999999999,
+            "zMin": -0.5,
+            "zMax": 0.5
+          },
+          "matrixSha256": "aa9327931dedd92808e48006eec9b83dc2cecf5e3ad051749067761cce07f077",
+          "voxelCenterAtIntegerCoordinates": [
+            true,
+            true,
+            true,
+            false,
+            false
+          ]
+        },
+        {
+          "url": "http://127.0.0.1:34315/data/1/overview_K00_M000001_G000001_P000002_V00.ome.zarr/|zarr3:",
+          "error": null,
+          "boundsUm": {
+            "xMin": 60511.99999999999,
+            "yMin": 38464,
+            "xMax": 61536,
+            "yMax": 39487.99999999999,
+            "zMin": -0.5,
+            "zMax": 0.5
+          },
+          "matrixSha256": "aa9327931dedd92808e48006eec9b83dc2cecf5e3ad051749067761cce07f077",
+          "voxelCenterAtIntegerCoordinates": [
+            true,
+            true,
+            true,
+            false,
+            false
+          ]
+        },
+        {
+          "url": "http://127.0.0.1:34315/data/1/overview_K00_M000001_G000001_P000003_V00.ome.zarr/|zarr3:",
+          "error": null,
+          "boundsUm": {
+            "xMin": 58463.99999999999,
+            "yMin": 39487.99999999999,
+            "xMax": 59488,
+            "yMax": 40512,
+            "zMin": -0.5,
+            "zMax": 0.5
+          },
+          "matrixSha256": "aa9327931dedd92808e48006eec9b83dc2cecf5e3ad051749067761cce07f077",
+          "voxelCenterAtIntegerCoordinates": [
+            true,
+            true,
+            true,
+            false,
+            false
+          ]
+        },
+        {
+          "url": "http://127.0.0.1:34315/data/1/overview_K00_M000001_G000001_P000004_V00.ome.zarr/|zarr3:",
+          "error": null,
+          "boundsUm": {
+            "xMin": 59488,
+            "yMin": 39487.99999999999,
+            "xMax": 60511.99999999999,
+            "yMax": 40512,
+            "zMin": -0.5,
+            "zMax": 0.5
+          },
+          "matrixSha256": "aa9327931dedd92808e48006eec9b83dc2cecf5e3ad051749067761cce07f077",
+          "voxelCenterAtIntegerCoordinates": [
+            true,
+            true,
+            true,
+            false,
+            false
+          ]
+        },
+        {
+          "url": "http://127.0.0.1:34315/data/1/overview_K00_M000001_G000001_P000005_V00.ome.zarr/|zarr3:",
+          "error": null,
+          "boundsUm": {
+            "xMin": 60511.99999999999,
+            "yMin": 39487.99999999999,
+            "xMax": 61536,
+            "yMax": 40512,
+            "zMin": -0.5,
+            "zMax": 0.5
+          },
+          "matrixSha256": "aa9327931dedd92808e48006eec9b83dc2cecf5e3ad051749067761cce07f077",
+          "voxelCenterAtIntegerCoordinates": [
+            true,
+            true,
+            true,
+            false,
+            false
+          ]
+        },
+        {
+          "url": "http://127.0.0.1:34315/data/1/overview_K00_M000001_G000001_P000006_V00.ome.zarr/|zarr3:",
+          "error": null,
+          "boundsUm": {
+            "xMin": 58463.99999999999,
+            "yMin": 40512,
+            "xMax": 59488,
+            "yMax": 41536,
+            "zMin": -0.5,
+            "zMax": 0.5
+          },
+          "matrixSha256": "aa9327931dedd92808e48006eec9b83dc2cecf5e3ad051749067761cce07f077",
+          "voxelCenterAtIntegerCoordinates": [
+            true,
+            true,
+            true,
+            false,
+            false
+          ]
+        },
+        {
+          "url": "http://127.0.0.1:34315/data/1/overview_K00_M000001_G000001_P000007_V00.ome.zarr/|zarr3:",
+          "error": null,
+          "boundsUm": {
+            "xMin": 59488,
+            "yMin": 40512,
+            "xMax": 60511.99999999999,
+            "yMax": 41536,
+            "zMin": -0.5,
+            "zMax": 0.5
+          },
+          "matrixSha256": "aa9327931dedd92808e48006eec9b83dc2cecf5e3ad051749067761cce07f077",
+          "voxelCenterAtIntegerCoordinates": [
+            true,
+            true,
+            true,
+            false,
+            false
+          ]
+        },
+        {
+          "url": "http://127.0.0.1:34315/data/1/overview_K00_M000001_G000001_P000008_V00.ome.zarr/|zarr3:",
+          "error": null,
+          "boundsUm": {
+            "xMin": 60511.99999999999,
+            "yMin": 40512,
+            "xMax": 61536,
+            "yMax": 41536,
+            "zMin": -0.5,
+            "zMax": 0.5
+          },
+          "matrixSha256": "aa9327931dedd92808e48006eec9b83dc2cecf5e3ad051749067761cce07f077",
+          "voxelCenterAtIntegerCoordinates": [
+            true,
+            true,
+            true,
+            false,
+            false
+          ]
+        }
+      ]
+    },
+    {
+      "name": "focussing/channel 0",
+      "group": "focussing",
+      "visible": false,
+      "window": {
+        "low": 225,
+        "high": 3863
+      },
+      "weight": 1,
+      "layerError": null,
+      "sourceCount": 1,
+      "sources": [
+        {
+          "url": "http://127.0.0.1:34315/data/0/focussing_K00_M000000_G000000_P000000_V00.ome.zarr/|zarr3:",
+          "error": null,
+          "boundsUm": {
+            "xMin": 59488,
+            "yMin": 39487.99999999999,
+            "xMax": 60511.99999999999,
+            "yMax": 40512,
+            "zMin": -34.56666666666665,
+            "zMax": 34.566666666666656
+          },
+          "matrixSha256": "aa9327931dedd92808e48006eec9b83dc2cecf5e3ad051749067761cce07f077",
+          "voxelCenterAtIntegerCoordinates": [
+            true,
+            true,
+            false,
+            false,
+            false
+          ]
+        }
+      ]
+    }
+  ],
+  "visibility": {
+    "requested": {
+      "overview": true,
+      "focussing": false
+    },
+    "requestedChannels": [
+      {
+        "key": "overview\u00000\u0000channel 0",
+        "acquisition": "overview",
+        "name": "channel 0",
+        "requestedVisible": true,
+        "effectiveVisible": true,
+        "observedVisible": true,
+        "window": {
+          "low": 196,
+          "high": 4084
+        },
+        "observedWindow": {
+          "low": 196,
+          "high": 4084
+        },
+        "opacity": 1,
+        "log": false
+      },
+      {
+        "key": "overview\u00001\u0000channel 1",
+        "acquisition": "overview",
+        "name": "channel 1",
+        "requestedVisible": true,
+        "effectiveVisible": true,
+        "observedVisible": true,
+        "window": {
+          "low": 103,
+          "high": 4093
+        },
+        "observedWindow": {
+          "low": 103,
+          "high": 4093
+        },
+        "opacity": 1,
+        "log": false
+      },
+      {
+        "key": "overview\u00002\u0000channel 2",
+        "acquisition": "overview",
+        "name": "channel 2",
+        "requestedVisible": true,
+        "effectiveVisible": true,
+        "observedVisible": true,
+        "window": {
+          "low": 89,
+          "high": 4087
+        },
+        "observedWindow": {
+          "low": 89,
+          "high": 4087
+        },
+        "opacity": 1,
+        "log": false
+      },
+      {
+        "key": "focussing\u00000\u0000channel 0",
+        "acquisition": "focussing",
+        "name": "channel 0",
+        "requestedVisible": true,
+        "effectiveVisible": false,
+        "observedVisible": false,
+        "window": {
+          "low": 225,
+          "high": 3863
+        },
+        "observedWindow": {
+          "low": 225,
+          "high": 3863
+        },
+        "opacity": 1,
+        "log": false
+      }
+    ],
+    "engineObserved": {
+      "overview": [
+        {
+          "row": "overview/channel 0",
+          "visible": true
+        },
+        {
+          "row": "overview/channel 1",
+          "visible": true
+        },
+        {
+          "row": "overview/channel 2",
+          "visible": true
+        }
+      ],
+      "focussing": [
+        {
+          "row": "focussing/channel 0",
+          "visible": false
+        }
+      ]
+    }
+  },
+  "selected": "focussing\u00000\u0000channel 0",
+  "engineMismatch": null,
+  "measurement": {
+    "state": "ready",
+    "message": "Smart Viewer measurement ready."
+  },
+  "coordinates": {
+    "carrierOriginUm": {
+      "x": 23500,
+      "y": 28500
+    },
+    "plan": [
+      {
+        "index": 0,
+        "carrierLocalUm": {
+          "x": 35476,
+          "y": 10476
+        },
+        "absoluteStageUm": {
+          "x": 58976,
+          "y": 38976
+        },
+        "frameUm": 1024,
+        "stageScreenPx": {
+          "x": 103.66666666666667,
+          "y": 284.0963541666667
+        },
+        "engineScreenPx": {
+          "x": 103.66666666666667,
+          "y": 284.1666666666667
+        },
+        "errorPx": 0.0703125
+      },
+      {
+        "index": 1,
+        "carrierLocalUm": {
+          "x": 36500,
+          "y": 10476
+        },
+        "absoluteStageUm": {
+          "x": 60000,
+          "y": 38976
+        },
+        "frameUm": 1024,
+        "stageScreenPx": {
+          "x": 189,
+          "y": 284.0963541666667
+        },
+        "engineScreenPx": {
+          "x": 189,
+          "y": 284.1666666666667
+        },
+        "errorPx": 0.0703125
+      },
+      {
+        "index": 2,
+        "carrierLocalUm": {
+          "x": 37524,
+          "y": 10476
+        },
+        "absoluteStageUm": {
+          "x": 61024,
+          "y": 38976
+        },
+        "frameUm": 1024,
+        "stageScreenPx": {
+          "x": 274.3333333333333,
+          "y": 284.0963541666667
+        },
+        "engineScreenPx": {
+          "x": 274.3333333333333,
+          "y": 284.1666666666667
+        },
+        "errorPx": 0.0703125
+      },
+      {
+        "index": 3,
+        "carrierLocalUm": {
+          "x": 35476,
+          "y": 11500
+        },
+        "absoluteStageUm": {
+          "x": 58976,
+          "y": 40000
+        },
+        "frameUm": 1024,
+        "stageScreenPx": {
+          "x": 103.66666666666667,
+          "y": 369.4296875
+        },
+        "engineScreenPx": {
+          "x": 103.66666666666667,
+          "y": 369.5
+        },
+        "errorPx": 0.0703125
+      },
+      {
+        "index": 4,
+        "carrierLocalUm": {
+          "x": 36500,
+          "y": 11500
+        },
+        "absoluteStageUm": {
+          "x": 60000,
+          "y": 40000
+        },
+        "frameUm": 1024,
+        "stageScreenPx": {
+          "x": 189,
+          "y": 369.4296875
+        },
+        "engineScreenPx": {
+          "x": 189,
+          "y": 369.5
+        },
+        "errorPx": 0.0703125
+      },
+      {
+        "index": 5,
+        "carrierLocalUm": {
+          "x": 37524,
+          "y": 11500
+        },
+        "absoluteStageUm": {
+          "x": 61024,
+          "y": 40000
+        },
+        "frameUm": 1024,
+        "stageScreenPx": {
+          "x": 274.3333333333333,
+          "y": 369.4296875
+        },
+        "engineScreenPx": {
+          "x": 274.3333333333333,
+          "y": 369.5
+        },
+        "errorPx": 0.0703125
+      },
+      {
+        "index": 6,
+        "carrierLocalUm": {
+          "x": 35476,
+          "y": 12524
+        },
+        "absoluteStageUm": {
+          "x": 58976,
+          "y": 41024
+        },
+        "frameUm": 1024,
+        "stageScreenPx": {
+          "x": 103.66666666666667,
+          "y": 454.7630208333333
+        },
+        "engineScreenPx": {
+          "x": 103.66666666666667,
+          "y": 454.8333333333333
+        },
+        "errorPx": 0.0703125
+      },
+      {
+        "index": 7,
+        "carrierLocalUm": {
+          "x": 36500,
+          "y": 12524
+        },
+        "absoluteStageUm": {
+          "x": 60000,
+          "y": 41024
+        },
+        "frameUm": 1024,
+        "stageScreenPx": {
+          "x": 189,
+          "y": 454.7630208333333
+        },
+        "engineScreenPx": {
+          "x": 189,
+          "y": 454.8333333333333
+        },
+        "errorPx": 0.0703125
+      },
+      {
+        "index": 8,
+        "carrierLocalUm": {
+          "x": 37524,
+          "y": 12524
+        },
+        "absoluteStageUm": {
+          "x": 61024,
+          "y": 41024
+        },
+        "frameUm": 1024,
+        "stageScreenPx": {
+          "x": 274.3333333333333,
+          "y": 454.7630208333333
+        },
+        "engineScreenPx": {
+          "x": 274.3333333333333,
+          "y": 454.8333333333333
+        },
+        "errorPx": 0.0703125
+      }
+    ],
+    "targets": [],
+    "stageView": {
+      "centre": {
+        "x": 36500,
+        "y": 11500
+      },
+      "zoom": 12
+    },
+    "engineView": {
+      "centre": {
+        "x": 60000,
+        "y": 40000
+      },
+      "zoom": 12,
+      "width": 378,
+      "height": 739
+    },
+    "canvas": {
+      "left": 284,
+      "top": 110,
+      "width": 378,
+      "height": 738.859375
+    }
+  },
+  "projectionError": {
+    "planMaxPx": 0.0703125,
+    "targetsMaxPx": null,
+    "tolerancePx": 1
+  },
+  "pictureTag": null,
+  "pixelCheck": {
+    "canvasShadeBins": 61,
+    "plannedRois": [
+      {
+        "covered": 1,
+        "shades": 13,
+        "examined": 1892
+      },
+      {
+        "covered": 1,
+        "shades": 13,
+        "examined": 1849
+      },
+      {
+        "covered": 1,
+        "shades": 13,
+        "examined": 1892
+      },
+      {
+        "covered": 1,
+        "shades": 13,
+        "examined": 1936
+      },
+      {
+        "covered": 1,
+        "shades": 13,
+        "examined": 1892
+      },
+      {
+        "covered": 1,
+        "shades": 13,
+        "examined": 1936
+      },
+      {
+        "covered": 1,
+        "shades": 12,
+        "examined": 1936
+      },
+      {
+        "covered": 1,
+        "shades": 13,
+        "examined": 1892
+      },
+      {
+        "covered": 1,
+        "shades": 13,
+        "examined": 1936
+      }
+    ]
+  },
+  "requests": {
+    "required": {
+      "metadata": 33,
+      "chunks": 59,
+      "measurement": 2,
+      "api": 62,
+      "pictures": 61
+    },
+    "expectedFormatProbes": [],
+    "expectedOptionalProbes": [
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8823/view/overview/tiles.json",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8823/view/overview/tiles.json",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8823/view/overview/tiles.json",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8823/view/overview/tiles.json",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8823/view/overview/tiles.json",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8823/view/overview/tiles.json",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8823/view/overview/tiles.json",
+        "status": 404
+      }
+    ],
+    "expectedNavigationCancellations": [],
+    "expectedChunkCancellations": {
+      "count": 0,
+      "sample": []
+    },
+    "unexpectedFailures": [],
+    "browserErrors": [],
+    "workerErrors": []
+  },
+  "browserErrors": [],
+  "workerErrors": [],
+  "bridgeErrors": [],
+  "viewerError": null,
+  "artifact": {
+    "file": "bridge-step5-overview-complete.png",
+    "width": 1440,
+    "height": 900,
+    "sha256": "af5278c6c561066459b942cd044f7175d41bfca5b6eb07fa564579e4425989bb"
+  }
+}

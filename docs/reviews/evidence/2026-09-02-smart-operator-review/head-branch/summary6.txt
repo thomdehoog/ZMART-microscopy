@@ -1,0 +1,6 @@
+rebuild ok
+review-live-target-arrival-fixed2 | exit=1 | 78s |   1 failed   1 skipped 
+step-five-view-preservation-fixed2 | exit=1 | 35s |   1 failed 
+step-five-kidney-fixed2 | exit=1 | 67s |   1 failed   1 passed (1.1m) 
+every-tile-is-filled-fixed2 | exit=0 | 188s |   1 passed (3.1m) 
+BATCH6 DONE

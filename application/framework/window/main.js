@@ -1122,7 +1122,16 @@ let stageWatch = null;
       settings: () => state.detect,
       plan: () => state.plan,
       tryOn: (field, settings) => backend.discoverTargets({ fields: [field], settings })
-        .then(({ fields }) => ({ ...fields[0], cells: fields[0].cells.map(stage.toCarrier) })),
+        .then(({ fields, failed }) => {
+          const found = fields?.[0];
+          /* A field the bridge could not examine arrives under `failed` with
+             the analysis's own sentence. Reading `fields[0]` regardless threw
+             a TypeError, and the panel showed that instead of the reason. */
+          if (!found) {
+            throw new Error(failed?.[0]?.why ?? `position ${field + 1} was not examined`);
+          }
+          return { ...found, cells: found.cells.map(stage.toCarrier) };
+        }),
       pictureOf: (label) => pictureOf("overview", label),
       /* Which capture stands at a plan position: the scan filed each field's
          label as it landed, so the panel can show a field's picture without

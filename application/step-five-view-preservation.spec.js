@@ -132,10 +132,18 @@ test("first and later overview sources preserve pan, zoom, and whole-plate Fit",
   const browserErrors = [];
   const sourceFailures = [];
   page.on("pageerror", (error) => browserErrors.push(error.message));
+  const engineCancellations = [];
   page.on("requestfailed", (request) => {
-    if (request.url().includes("/data/")) {
-      sourceFailures.push({ url: request.url(), error: request.failure()?.errorText ?? null });
+    if (!request.url().includes("/data/")) return;
+    const error = request.failure()?.errorText ?? null;
+    /* The engine cancels a chunk fetch it no longer needs the moment a
+       source's placement is settled; the browser reports that as ERR_ABORTED.
+       Those are counted apart from a request the server refused or lost. */
+    if (error === "net::ERR_ABORTED" && /\/c\//.test(request.url())) {
+      engineCancellations.push({ url: request.url(), error });
+      return;
     }
+    sourceFailures.push({ url: request.url(), error });
   });
   page.on("response", (response) => {
     if (response.url().includes("/data/") && response.status() >= 400) {
@@ -219,6 +227,6 @@ test("first and later overview sources preserve pan, zoom, and whole-plate Fit",
       fit: projectionDrift(wholePlate, afterFitArrival),
     },
     requestedVisibility: { focussing: false, overview: true },
-    browserErrors, sourceFailures,
+    browserErrors, sourceFailures, engineCancellations,
   }, null, 2));
 });

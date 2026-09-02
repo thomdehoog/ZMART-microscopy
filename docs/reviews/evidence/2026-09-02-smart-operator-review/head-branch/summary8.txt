@@ -1,0 +1,11 @@
+vitest ok:       Tests  365 passed | 15 skipped (380)
+rebuild ok
+review-live-target-arrival-fixed4 | exit=1 | 79s |   1 failed   1 skipped 
+step-five-view-preservation-fixed4 | exit=0 | 36s |   1 passed (34.7s) 
+step-five-kidney-fixed4 | exit=1 | 69s |   1 failed   1 passed (1.1m) 
+every-tile-is-filled-fixed4 | exit=0 | 194s |   1 passed (3.2m) 
+the-built-page-fixed4 | exit=0 | 11s |   1 passed (9.8s) 
+canvas-layers-fixed4 | exit=0 | 13s |   14 passed (11.9s) 
+viewer-panel-state-fixed4 | exit=0 | 8s |   3 passed (6.7s) 
+the-operator-walk-fixed4 | exit=1 | 23s |   1 failed 
+BATCH8 DONE

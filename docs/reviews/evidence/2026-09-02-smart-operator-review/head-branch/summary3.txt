@@ -1,0 +1,5 @@
+viewer-panel-ux-evidence-2 | exit=0 | 14s |   2 passed (12.2s) 
+viewer-panel-real-measure-2 | exit=0 | 6s |   1 passed (4.6s) 
+review-live-target-arrival-2 | exit=1 | 49s |   2 failed 
+kidney-run-debug | exit=143 | 620s | 
+BATCH3 DONE
