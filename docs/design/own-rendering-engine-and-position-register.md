@@ -266,6 +266,49 @@ Ten thousand positions is won or lost here, not in the renderer.
   pixel-exact placement, so the new engine is measured the same way as the
   old.
 
+## Navigation
+
+Most of this exists and is kept; the engine inherits it rather than
+inventing its own.
+
+- **Dragging pans, the plain wheel zooms.** That is the whole of the gesture
+  table for the flat view, settled in `viz_studio/CONTROLS.md` and carried by
+  one shared module (`viz_studio/options/gestures.js`) that every engine
+  uses unchanged, so how a drag follows the hand and how far a wheel notch
+  zooms cannot differ between engines. Every other gesture that could move
+  the operator (rotating, tilting, stepping the stack on the wheel, zooming
+  with control and the wheel, recentring with the right button) is refused
+  on purpose and counted, so a refused gesture and an untried one can be
+  told apart. The new engine plugs into the same module through `getView`
+  and `setView` in micrometres, and adds no gestures of its own.
+- **Depth and time on sliders, not gestures.** Moving through the stack and
+  through time stays on the two labelled sliders with play buttons, where it
+  is visible, rather than on a wheel combination an operator has to be told
+  about.
+- **The view is in stage micrometres, and it survives.** The centre and the
+  zoom are held by the page in micrometres, carried across a change of
+  engine, kept while the run has captured nothing yet, and handed to a
+  fresh engine on open, so switching engines or relinking a grown run never
+  moves the operator.
+- **Look at this.** `lookAt(centre, zoom)` is how the page and the workflow
+  steer the canvas: fit the plate, fit a selection, jump to a target. With
+  the register, jumping to a position or a well by name becomes a lookup
+  rather than a search, and "fit what has arrived" becomes possible before a
+  scan is complete.
+- **A drag can be lent out.** The application chooses the tool and the canvas
+  obeys: hand over a function and each drag goes to it in stage micrometres
+  instead of panning; hand over nothing and dragging pans again. Drawing
+  targets and marks works this way today and keeps working.
+- **Placing marks needs one projection.** Where a place on the sample is on
+  screen, and back, is asked of the canvas, never worked out beside it, so a
+  mark is clickable exactly where it is drawn. The new engine answers the
+  same `project` and `unproject`.
+- **The hand comes first** (see the engine): fetching pauses while a drag or
+  a scrub is under way, so panning stays smooth on a slow share.
+- **New with the top and side views:** switching direction keeps the centre
+  in stage micrometres, and in the side view the drag pans in x or y and z
+  while the remaining axis is on a slider.
+
 ## Facts checked against the code, and what is new
 
 - Exists: the Viewer's change event stream and revisioned live-state document;
