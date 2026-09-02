@@ -62,6 +62,21 @@ what is precomputed rather than assembled on the fly.
      screen: a cross-section along x and z, or along y and z, at the row the
      other slider chooses. Still a slice, drawn the same way; no volume
      rendering.
+- **Two directions, two placements, and projections.** The direction of the
+  view is from the top or from the side. In either direction the placement is
+  absolute or aligned. And in either direction the picture is a single slice
+  at the slider's depth, or a projection through a chosen range of depth:
+  the sum, the mean, or the maximum of every plane in that range. A maximum
+  projection from the top is the ordinary way to see a whole stack at once;
+  the same from the side is a stack's profile.
+- **What a projection means for brightness.** A sum can exceed what the
+  camera's numbers can hold, and a mean flattens them, so a projection is
+  never drawn through a slice's declared window. Its window is measured, per
+  channel, per kind of projection, and is said to be measured. Projections
+  of a whole stack are precomputed and kept per position, per channel and
+  per level alongside the kept coarse levels, because they are asked for
+  again and again and change only when that position lands; a projection of
+  a custom range is assembled on demand.
 - **What the side view costs, said plainly.** Every position store keeps its
   pyramid decimated in height and width only, one plane per chunk. A slice
   from the side reads one row out of every plane's chunk, which is many small
@@ -74,6 +89,14 @@ what is precomputed rather than assembled on the fly.
 - **Transparency at any layer.** Every source and every channel has an alpha,
   so a sparse acquisition lets whatever lies beneath it show through, at any
   depth of the stack of layers.
+- **Collections are the unit of loading.** Focussing, overview and target are
+  different acquisition types, and each is its own collection: its own
+  register, its own positions folder, its own heading in the panel with an
+  eye and an opacity for the whole, and its own choice of placement, absolute
+  or aligned. Collections are loaded together or one at a time, and one run
+  may hold any number of them. This is the grouping the Viewer and the panel
+  already use; the new engine keeps it rather than flattening everything into
+  one list.
 - **The display contract stands.** Channel names and colours come from the
   acquisition record, there is one authority for the display window (the
   panel and the Viewer's measurement), a window is either declared, measured
