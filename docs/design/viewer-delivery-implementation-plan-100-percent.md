@@ -359,6 +359,28 @@ listed under the open hardware checks.
 
 ### Test runs after the fixes
 
-Filled in from the final runs in the commit that carries this section; see
-the commit message and `docs/reviews/` for the numbers.
+All on this machine (Linux, Python 3.11, Chromium under software rendering),
+at the commits these branches end on.
+
+| Suite | Result |
+| --- | --- |
+| ZMART-microscopy Python: `application/parts`, `application/framework`, `zmart_storage`, `zmart_live`, `viz_studio/tests` | 1462 passed, 234 skipped, 2 xfailed; 20 failures in two old comparison-studio files (`test_a_governed_picture_is_baked_per_commit.py`, `test_manifest_driven_refresh.py`) that fail identically at the commit before these changes, for a module absent here |
+| ZMART-microscopy Vitest (`application`) | 30 files, 405 passed, 15 skipped |
+| ZMART-microscopy Leica adapter unit tests | 77 passed; 5 capture-placement failures that also fail at the previous commit |
+| ZMART Viewer, whole suite with a real browser, the commit-storm file deselected as before | 919 passed, 3 skipped, 2 xfailed, and one older test corrected afterwards to the liveness rule (a fully written store on a live server is provisional until the writer says the acquisition is over); `tests/test_server.py` then passes whole |
+
+The new tests: `test_three_undecided_channels_reach_the_embedded_page_by_name`
+(two shapes), `test_an_unresolved_acquisition_keeps_its_three_channels_by_name`,
+`test_the_sources_keep_every_channel_of_a_store_with_only_declared_windows`,
+`test_a_finished_scan_is_announced_to_the_viewer`, `viewer-panel-authority.test.js`
+(seven), `windows.test.js` (five), the Viewer's
+`test_an_unresolved_acquisition_keeps_its_channels.py` (three),
+`test_a_measurement_is_provisional_until_the_writer_says_the_acquisition_is_over`,
+`test_a_bake_past_its_share_of_the_run_is_refused_and_leaves_the_scene_lazy`,
+and four scratch-limit tests including a replay refused with 507.
+
+What still needs the microscope PC or a Windows machine is unchanged from the
+list above: the live first-thirty-seconds walk with a connected browser, the
+Leica same-detector sequential case, PyWebView, GPU rendering, and the
+Windows half of the scratch lock.
 
