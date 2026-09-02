@@ -290,7 +290,12 @@ The engine is done when, on the harness, on a sparse plate of many positions:
 - memory stays within the budget the cache was given;
 - a landing during viewing dirties exactly its footprint and nothing else;
 - every panel state (declared, provisional, settled, waiting, unreadable,
-  absent) reaches the screen the same way it does with neuroglancer.
+  absent) reaches the screen the same way it does with neuroglancer;
+- it opens our own data as it is written today, unchanged: a bridge run
+  whose fields arrived as our flat OME-TIFFs and were converted at the door,
+  and an OME-Zarr transfer of ours in 0.4 or 0.5 with the five axes. No
+  other format is a gate, and no conversion tool outside the writer is
+  needed.
 
 ## Order of work
 
