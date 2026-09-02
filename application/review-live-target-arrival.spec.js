@@ -1286,3 +1286,154 @@ test("Step 8 source model: real target positions published through the bridge ar
     await bridge.stop();
   }
 });
+
+/* ------------------------------------------------------- interruption accounting */
+
+/* How many cells the ceiling keeps for the interrupted run: enough that the
+   mock, which takes a target every 130 ms or so, is still running when the
+   operator's Interrupt lands after the first pair. */
+const INTERRUPTED_RUN_TARGETS = Number(process.env.LIVE_INTERRUPT_TARGETS ?? 12);
+
+/** Everything the run and its surroundings say about acquired targets, read at once. */
+async function targetAccounting({ page, port, bridge, group }) {
+  const scan = await bridgeJson(page, port, "/api/scan");
+  const viewer = await bridgeJson(page, port, "/api/viewer");
+  const acquisition = (viewer.acquisitions ?? []).find((one) => one.name === group);
+  const rows = (await engineRows(page)).filter((row) => groupOf(row) === group);
+  const targets = await page.evaluate(() => window.__theStageCanvas.targets());
+  const run = await page.evaluate(() => window.__theRunState());
+  const folder = path.join(bridge.currentRun(), "positions", group);
+  return {
+    scan: {
+      running: scan.running, stopped: Boolean(scan.stopped), done: scan.done, of: scan.of,
+      error: scan.error, records: (scan.records ?? []).length,
+    },
+    viewerSourcesPerChannel: acquisition ? acquisition.channels.map((channel) => channel.sources.length) : [],
+    engineSourcesPerRow: rows.map((row) => row.sources.length),
+    storesOnDisk: fs.existsSync(folder) ? fs.readdirSync(folder).filter((name) => name.endsWith(".ome.zarr")).length : 0,
+    acquiredOnCanvas: targets.filter((one) => one.acquired).map((one) => one.id),
+    galleryPairs: await page.locator(".pair").count(),
+    galleryCaptions: await page.locator(".pair .meta").allTextContents(),
+    button: (await page.locator(".panel.on button.step-run").textContent())?.trim(),
+    hint: (await page.locator(".action-hint").first().textContent().catch(() => ""))?.trim(),
+    stepDone: run.done.includes("acquire"),
+    stepRan: run.ran.includes("acquire"),
+    note: run.notes.acquire ?? null,
+    records: (scan.records ?? []).map((record) => ({ label: record.position_label, at: record.requested_position_um })),
+  };
+}
+
+/** For each record, the ids of the gated targets standing at its requested position. */
+const targetsAtRecords = (records, targets, ox, oy) => records.map((record) => targets.filter((one) =>
+  Math.abs(record.at.x - (one.x + ox)) < 1e-6 && Math.abs(record.at.y - (one.y + oy)) < 1e-6).map((one) => one.id));
+
+test("Step 8 interruption: an acquisition stopped by hand accounts for exactly what it took, and Run again completes it", async ({ page }) => {
+  test.setTimeout(A_WHOLE_RUN);
+  const port = PORT + 4;
+  const provenance = provenanceOfTheRun();
+  const bridge = await startTheBridge({ port });
+  const audit = trackBrowser(page, port);
+  const recorder = makeRecorder({ page, port, bridge, audit, provenance });
+  const take = recorder.take.bind(recorder);
+  const outcome = { mode: "operator page, interrupted acquisition", interrupted: null, runAgain: null };
+  const group = "target";
+  const all = INTERRUPTED_RUN_TARGETS;
+  try {
+    await throughStepFive({ page, take, port, bridge });
+
+    /* Steps 6 and 7 the short way: the whole population discovered, one
+       gate, a ceiling high enough that the run outlasts the operator's hand. */
+    await gotoStep(page, "Discover Targets");
+    await page.locator(".panel.on button.step-run").click();
+    await expect(page.locator(".panel.on button.step-run")).toHaveText("Run again", { timeout: 1_500_000 });
+    const discovery = await bridgeJson(page, port, "/api/targets/discover");
+    expect(discovery.error, "discovery finished without a bridge error").toBeNull();
+    expect(discovery.fields.length, "every field was examined").toBe(9);
+    await gotoStep(page, "Refine Targets");
+    await page.locator("#gate-max").fill(String(all));
+    await page.locator("#gate-max").dispatchEvent("input");
+    const sc = await page.locator("#scatter-canvas").boundingBox();
+    const polygon = [[0.2, 0.08], [0.98, 0.08], [0.98, 0.85], [0.2, 0.85]];
+    for (const [gx, gy] of polygon) {
+      await page.mouse.click(sc.x + sc.width * gx, sc.y + sc.height * gy);
+      await page.waitForTimeout(150);
+    }
+    await page.mouse.click(sc.x + sc.width * polygon[0][0], sc.y + sc.height * polygon[0][1]);
+    await page.waitForTimeout(400);
+    await expect(page.locator("#gate-list .gate-row")).toHaveCount(1);
+    const gated = (await page.evaluate(() => window.__theStageCanvas.targets())).filter((one) => one.selected);
+    expect(gated.length, "the ceiling kept a run's worth of targets").toBe(all);
+    await page.locator(".panel.on button.step-run").click();
+    await expect(page.locator(".panel.on button.step-run")).toHaveText("Run again", { timeout: 30_000 });
+    const [ox, oy] = await page.evaluate(() => window.__theStageCanvas.carrierOriginUm());
+
+    /* Step 8: started with the real button, stopped with the same button
+       once the first pair has landed. */
+    await gotoStep(page, "Acquire Targets");
+    await page.locator("#target-type .setting-box.open button.run").click();
+    await page.waitForTimeout(700);
+    await expect(page.locator(".panel.on button.step-run")).toBeEnabled();
+    await page.locator(".panel.on button.step-run").click();
+    await expect(page.locator(".panel.on button.step-run"), "the press that started the run becomes Interrupt").toHaveText("Interrupt", { timeout: 10_000 });
+    await expect.poll(async () => (await bridgeJson(page, port, "/api/scan")).done, { timeout: 60_000, message: "the first pair never landed" }).toBeGreaterThanOrEqual(1);
+    const pressedAt = (await bridgeJson(page, port, "/api/scan")).done;
+    await page.locator(".panel.on button.step-run").click();
+    await expect.poll(async () => (await bridgeJson(page, port, "/api/scan")).running, { timeout: 60_000, message: "the scan never stopped" }).toBe(false);
+    await expect(page.locator(".panel.on button.step-run")).toHaveText("Run again", { timeout: 30_000 });
+    const taken = (await bridgeJson(page, port, "/api/scan")).done;
+    expect(taken, "the run was stopped before it finished, or the interruption proves nothing").toBeLessThan(all);
+    expect(taken, "what was captured before the hand stands").toBeGreaterThanOrEqual(1);
+    /* The Viewer and the engine follow the page's polls; give them theirs. */
+    await expect.poll(async () => (await targetAccounting({ page, port, bridge, group })).engineSourcesPerRow, { timeout: 30_000 }).toEqual([taken, taken, taken]);
+    const stopped = await targetAccounting({ page, port, bridge, group });
+    outcome.interrupted = { pressedAt, ...stopped };
+    expect(stopped.scan, "the bridge says stopped, not failed, with exactly the captured records").toMatchObject({ running: false, stopped: true, error: null, done: taken, records: taken, of: all });
+    expect(stopped.viewerSourcesPerChannel, "the Viewer group holds one source per captured position").toEqual([taken, taken, taken]);
+    expect(stopped.storesOnDisk, "one store on disk per captured position").toBe(taken);
+    expect(stopped.acquiredOnCanvas.length, "the canvas marks exactly the captured cells as acquired").toBe(taken);
+    const atRecords = targetsAtRecords(stopped.records, gated, ox, oy);
+    expect(atRecords.every((ids) => ids.length === 1), `every record was taken at one gated target: ${JSON.stringify(atRecords)}`).toBe(true);
+    expect(atRecords.flat().sort(), "the acquired cells are the ones the records were taken at").toEqual([...stopped.acquiredOnCanvas].sort());
+    expect(stopped.galleryPairs, "the gallery shows one pair per captured position").toBe(taken);
+    for (const id of stopped.acquiredOnCanvas) expect(stopped.galleryCaptions.some((text) => text.includes(id)), `gallery card for ${id}`).toBe(true);
+    expect(stopped.button).toBe("Run again");
+    expect(stopped.note, "the step says it was stopped by hand and how far it got").toBe(`stopped by hand — ${taken} of ${all} pairs acquired`);
+    expect(stopped.hint, "the sentence stands beside the button").toBe(stopped.note);
+    expect(stopped.stepDone, "an interrupted step is not done").toBe(false);
+    expect(stopped.stepRan, "but it ran, so it can be run again").toBe(true);
+    await page.evaluate(() => { window.__theStageCanvas.showLayer("targets", true); window.__theStageCanvas.fadeTo(0.15); });
+    await take(`step8-interrupted-after-${taken}-of-${all}`, {
+      step: 8, state: `acquisition interrupted by hand after ${taken} of ${all} pairs; page, bridge, Viewer and disk agree on ${taken}`,
+      extra: { interrupted: outcome.interrupted },
+    });
+
+    /* Run again: the whole gated set, the interrupted run's stores replaced
+       under their own names, nothing of it left over anywhere. */
+    await page.locator(".panel.on button.step-run").click();
+    await expect.poll(async () => (await bridgeJson(page, port, "/api/scan")).done, { timeout: 120_000 }).toBe(all);
+    await expect.poll(async () => (await bridgeJson(page, port, "/api/scan")).running, { timeout: 60_000 }).toBe(false);
+    await expect(page.locator(".panel.on button.step-run")).toHaveText("Run again", { timeout: 30_000 });
+    await expect.poll(async () => (await targetAccounting({ page, port, bridge, group })).engineSourcesPerRow, { timeout: 30_000 }).toEqual([all, all, all]);
+    const again = await targetAccounting({ page, port, bridge, group });
+    outcome.runAgain = again;
+    expect(again.scan, "the bridge says finished, with every record").toMatchObject({ running: false, stopped: false, error: null, done: all, records: all, of: all });
+    expect(again.viewerSourcesPerChannel, "the Viewer group holds every position and nothing else").toEqual([all, all, all]);
+    expect(again.storesOnDisk, "one store on disk per position, the interrupted run's replaced").toBe(all);
+    expect(again.acquiredOnCanvas.length).toBe(all);
+    const atAll = targetsAtRecords(again.records, gated, ox, oy);
+    expect(atAll.every((ids) => ids.length === 1)).toBe(true);
+    expect(atAll.flat().sort(), "every gated target was taken once").toEqual(gated.map((one) => one.id).sort());
+    expect(again.galleryPairs).toBe(all);
+    expect(again.note, "the step says how many pairs it took").toContain(`${all} pairs`);
+    expect(again.stepDone, "a completed run is done").toBe(true);
+    await take("step8-run-again-after-interruption", {
+      step: 8, state: `Run again after the interruption: ${all} of ${all} pairs; page, bridge, Viewer and disk agree on ${all}`,
+      extra: { runAgain: outcome.runAgain },
+    });
+    await disconnectAndReconnect({ page, take, port });
+    recorder.writeManifest({ outcome, canonicalName: "target" });
+  } finally {
+    recorder.writeManifest({ outcome, finished: true });
+    await bridge.stop();
+  }
+});

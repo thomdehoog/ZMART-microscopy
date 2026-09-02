@@ -1,0 +1,364 @@
+{
+  "schemaVersion": 1,
+  "name": "step3-plan",
+  "capturedAtUtc": "2026-09-02T12:11:44.499Z",
+  "provenance": {
+    "microscopy": {
+      "repository": "thomdehoog/ZMART-microscopy",
+      "branch": "claude/smart-operator-workflow-review-ehw3c5",
+      "commit": "1c0484880f013bde1267750549c5ec6b1d47ec6e",
+      "worktreeClean": false
+    },
+    "smartViewer": {
+      "repository": "thomdehoog/ZMART-viewer",
+      "importPath": "C:\\ProgramData\\MinicondaZMB\\home\\t.de\\ZMART-viewer-main\\zmart_viewer\\__init__.py",
+      "version": "0.2.0",
+      "commit": "9ff10b04e803fbe2a71a1735a8065a845ea803dd",
+      "measureRoutePresent": true
+    },
+    "backend": "real bridge (application/framework/bridge.py) driving the controller's mock kidney driver",
+    "page": "production build served by the bridge (framework/window/static)",
+    "python": "3.11.15"
+  },
+  "sample": "mock kidney (scikit-image kidney, plane 8)",
+  "server": {
+    "bridge": "http://127.0.0.1:8825",
+    "viewer": "http://127.0.0.1:60261",
+    "run": "C:\\Users\\local_t.de5\\Temp\\zmart-bridge-wMmE9z\\target-acquisition_878b55"
+  },
+  "workflow": {
+    "step": 3,
+    "state": "optical configuration recorded from the microscope; 3 x 3 grid applied",
+    "run": {
+      "running": null,
+      "notes": {
+        "carrier": "75 × 25 mm slide · 73.0 × 23.0 mm",
+        "scanfields": "9 positions"
+      },
+      "activeIdx": 2,
+      "done": [
+        "connect",
+        "carrier",
+        "scanfields"
+      ],
+      "ran": [
+        "connect"
+      ],
+      "focus": {
+        "strategy": "plane",
+        "applied": false,
+        "points": 0,
+        "selected": 0
+      },
+      "targetFrameUm": null
+    }
+  },
+  "counts": {
+    "planned": 9,
+    "scan": {
+      "acquisitionType": null,
+      "done": 0,
+      "of": 0,
+      "running": false,
+      "error": null
+    },
+    "targetsOnCanvas": 0,
+    "targetsSelected": 0,
+    "targetsAcquired": 0,
+    "engineSourcesPerGroup": {}
+  },
+  "viewerAcquisitions": [],
+  "engineRows": [],
+  "visibility": {
+    "requested": null,
+    "requestedChannels": null,
+    "engineObserved": {}
+  },
+  "selected": null,
+  "engineMismatch": null,
+  "measurement": null,
+  "coordinates": {
+    "carrierOriginUm": {
+      "x": 23500,
+      "y": 28500
+    },
+    "plan": [
+      {
+        "index": 0,
+        "carrierLocalUm": {
+          "x": 35476,
+          "y": 10476
+        },
+        "absoluteStageUm": {
+          "x": 58976,
+          "y": 38976
+        },
+        "frameUm": 1024,
+        "stageScreenPx": {
+          "x": 322.84586666666667,
+          "y": 222.1792
+        },
+        "engineScreenPx": {
+          "x": 322.84586666666667,
+          "y": 222.1792
+        },
+        "errorPx": 0
+      },
+      {
+        "index": 1,
+        "carrierLocalUm": {
+          "x": 36500,
+          "y": 10476
+        },
+        "absoluteStageUm": {
+          "x": 60000,
+          "y": 38976
+        },
+        "frameUm": 1024,
+        "stageScreenPx": {
+          "x": 328,
+          "y": 222.1792
+        },
+        "engineScreenPx": {
+          "x": 328,
+          "y": 222.1792
+        },
+        "errorPx": 0
+      },
+      {
+        "index": 2,
+        "carrierLocalUm": {
+          "x": 37524,
+          "y": 10476
+        },
+        "absoluteStageUm": {
+          "x": 61024,
+          "y": 38976
+        },
+        "frameUm": 1024,
+        "stageScreenPx": {
+          "x": 333.15413333333333,
+          "y": 222.1792
+        },
+        "engineScreenPx": {
+          "x": 333.15413333333333,
+          "y": 222.1792
+        },
+        "errorPx": 0
+      },
+      {
+        "index": 3,
+        "carrierLocalUm": {
+          "x": 35476,
+          "y": 11500
+        },
+        "absoluteStageUm": {
+          "x": 58976,
+          "y": 40000
+        },
+        "frameUm": 1024,
+        "stageScreenPx": {
+          "x": 322.84586666666667,
+          "y": 227.33333333333334
+        },
+        "engineScreenPx": {
+          "x": 322.84586666666667,
+          "y": 227.33333333333334
+        },
+        "errorPx": 0
+      },
+      {
+        "index": 4,
+        "carrierLocalUm": {
+          "x": 36500,
+          "y": 11500
+        },
+        "absoluteStageUm": {
+          "x": 60000,
+          "y": 40000
+        },
+        "frameUm": 1024,
+        "stageScreenPx": {
+          "x": 328,
+          "y": 227.33333333333334
+        },
+        "engineScreenPx": {
+          "x": 328,
+          "y": 227.33333333333334
+        },
+        "errorPx": 0
+      },
+      {
+        "index": 5,
+        "carrierLocalUm": {
+          "x": 37524,
+          "y": 11500
+        },
+        "absoluteStageUm": {
+          "x": 61024,
+          "y": 40000
+        },
+        "frameUm": 1024,
+        "stageScreenPx": {
+          "x": 333.15413333333333,
+          "y": 227.33333333333334
+        },
+        "engineScreenPx": {
+          "x": 333.15413333333333,
+          "y": 227.33333333333334
+        },
+        "errorPx": 0
+      },
+      {
+        "index": 6,
+        "carrierLocalUm": {
+          "x": 35476,
+          "y": 12524
+        },
+        "absoluteStageUm": {
+          "x": 58976,
+          "y": 41024
+        },
+        "frameUm": 1024,
+        "stageScreenPx": {
+          "x": 322.84586666666667,
+          "y": 232.48746666666668
+        },
+        "engineScreenPx": {
+          "x": 322.84586666666667,
+          "y": 232.48746666666668
+        },
+        "errorPx": 0
+      },
+      {
+        "index": 7,
+        "carrierLocalUm": {
+          "x": 36500,
+          "y": 12524
+        },
+        "absoluteStageUm": {
+          "x": 60000,
+          "y": 41024
+        },
+        "frameUm": 1024,
+        "stageScreenPx": {
+          "x": 328,
+          "y": 232.48746666666668
+        },
+        "engineScreenPx": {
+          "x": 328,
+          "y": 232.48746666666668
+        },
+        "errorPx": 0
+      },
+      {
+        "index": 8,
+        "carrierLocalUm": {
+          "x": 37524,
+          "y": 12524
+        },
+        "absoluteStageUm": {
+          "x": 61024,
+          "y": 41024
+        },
+        "frameUm": 1024,
+        "stageScreenPx": {
+          "x": 333.15413333333333,
+          "y": 232.48746666666668
+        },
+        "engineScreenPx": {
+          "x": 333.15413333333333,
+          "y": 232.48746666666668
+        },
+        "errorPx": 0
+      }
+    ],
+    "targets": [],
+    "targetsOnCanvas": 0,
+    "stageView": {
+      "centre": {
+        "x": 36500,
+        "y": 39731.06374172185
+      },
+      "zoom": 198.67549668874173
+    },
+    "engineView": {
+      "centre": {
+        "x": 60000,
+        "y": 68231.06374172185
+      },
+      "zoom": 198.67549668874173,
+      "width": 656,
+      "height": 738.859375
+    },
+    "canvas": {
+      "left": 284,
+      "top": 110,
+      "width": 656,
+      "height": 738.859375
+    }
+  },
+  "projectionError": {
+    "planMaxPx": 0,
+    "targetsMaxPx": null,
+    "tolerancePx": 1
+  },
+  "pictureTag": null,
+  "pixelCheck": {
+    "canvasShadeBins": 31
+  },
+  "requests": {
+    "required": {
+      "metadata": 0,
+      "chunks": 0,
+      "measurement": 0,
+      "api": 22,
+      "pictures": 0
+    },
+    "expectedFormatProbes": [],
+    "expectedOptionalProbes": [
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8825/view/overview/tiles.json",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8825/view/overview/tiles.json",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8825/view/overview/tiles.json",
+        "status": 404
+      }
+    ],
+    "expectedNavigationCancellations": [],
+    "expectedChunkCancellations": {
+      "count": 0,
+      "sample": []
+    },
+    "expectedRetiredStoreMisses": {
+      "stores": [],
+      "count": 0,
+      "sample": []
+    },
+    "unexpectedFailures": [],
+    "browserErrors": [],
+    "workerErrors": []
+  },
+  "browserErrors": [],
+  "workerErrors": [],
+  "bridgeErrors": [],
+  "viewerError": null,
+  "artifact": {
+    "file": "step3-plan.png",
+    "width": 1440,
+    "height": 900,
+    "sha256": "c514262a9b4c3df70cd3a1d8de3e18996ed5539c5c9342975a47b07d9cb37092"
+  },
+  "optics": {
+    "frameUm": 1024,
+    "summary": "20x · 0.75 NA dry · 1024 × 1024 µm"
+  }
+}

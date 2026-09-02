@@ -775,6 +775,10 @@ let stageWatch = null;
           got.map((id, i) => [id, records[i]?.position_label]));
         stage.groundFollowsTheScan();
         redrawSoon();
+        /* The gallery shows what was acquired, stopped or not: a run put
+           down by hand after two pairs showed its two rings on the canvas
+           and an empty gallery beside them. */
+        galleryPanel?.rebuild();
         return stopped
           ? stoppedShort(`stopped by hand — ${records.length} of ${picked.length} pairs acquired`)
           : finish();
@@ -822,7 +826,6 @@ let stageWatch = null;
       if (s.mode === "select") { state.notes[s.id] = `${state.gated.size} targets selected`; }
       if (s.mode === "targets") {
         state.notes[s.id] = `${state.acquired.length} pairs acquired`;
-        galleryPanel?.rebuild();
       }
 
       /* Finishing a run never moves the operator. The gallery is still being

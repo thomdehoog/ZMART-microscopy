@@ -1,0 +1,281 @@
+{
+  "schemaVersion": 1,
+  "name": "step2-carrier",
+  "capturedAtUtc": "2026-09-02T12:11:42.569Z",
+  "provenance": {
+    "microscopy": {
+      "repository": "thomdehoog/ZMART-microscopy",
+      "branch": "claude/smart-operator-workflow-review-ehw3c5",
+      "commit": "1c0484880f013bde1267750549c5ec6b1d47ec6e",
+      "worktreeClean": false
+    },
+    "smartViewer": {
+      "repository": "thomdehoog/ZMART-viewer",
+      "importPath": "C:\\ProgramData\\MinicondaZMB\\home\\t.de\\ZMART-viewer-main\\zmart_viewer\\__init__.py",
+      "version": "0.2.0",
+      "commit": "9ff10b04e803fbe2a71a1735a8065a845ea803dd",
+      "measureRoutePresent": true
+    },
+    "backend": "real bridge (application/framework/bridge.py) driving the controller's mock kidney driver",
+    "page": "production build served by the bridge (framework/window/static)",
+    "python": "3.11.15"
+  },
+  "sample": "mock kidney (scikit-image kidney, plane 8)",
+  "server": {
+    "bridge": "http://127.0.0.1:8825",
+    "viewer": "http://127.0.0.1:60261",
+    "run": "C:\\Users\\local_t.de5\\Temp\\zmart-bridge-wMmE9z\\target-acquisition_878b55"
+  },
+  "workflow": {
+    "step": 2,
+    "state": "75 x 25 mm slide chosen; carrier centred in the driver's travel",
+    "run": {
+      "running": null,
+      "notes": {
+        "carrier": "75 × 25 mm slide · 73.0 × 23.0 mm"
+      },
+      "activeIdx": 1,
+      "done": [
+        "connect",
+        "carrier"
+      ],
+      "ran": [
+        "connect"
+      ],
+      "focus": {
+        "strategy": "plane",
+        "applied": false,
+        "points": 0,
+        "selected": 0
+      },
+      "targetFrameUm": null
+    }
+  },
+  "counts": {
+    "planned": 0,
+    "scan": {
+      "acquisitionType": null,
+      "done": 0,
+      "of": 0,
+      "running": false,
+      "error": null
+    },
+    "targetsOnCanvas": 0,
+    "targetsSelected": 0,
+    "targetsAcquired": 0,
+    "engineSourcesPerGroup": {}
+  },
+  "viewerAcquisitions": [],
+  "engineRows": [],
+  "visibility": {
+    "requested": null,
+    "requestedChannels": null,
+    "engineObserved": {}
+  },
+  "selected": null,
+  "engineMismatch": null,
+  "measurement": null,
+  "coordinates": {
+    "carrierOriginUm": {
+      "x": 23500,
+      "y": 28500
+    },
+    "plan": [],
+    "targets": [],
+    "targetsOnCanvas": 0,
+    "stageView": {
+      "centre": {
+        "x": 36500,
+        "y": 39731.06374172185
+      },
+      "zoom": 198.67549668874173
+    },
+    "engineView": {
+      "centre": {
+        "x": 60000,
+        "y": 68231.06374172185
+      },
+      "zoom": 198.67549668874173,
+      "width": 656,
+      "height": 738.859375
+    },
+    "canvas": {
+      "left": 284,
+      "top": 110,
+      "width": 656,
+      "height": 738.859375
+    }
+  },
+  "projectionError": {
+    "planMaxPx": null,
+    "targetsMaxPx": null,
+    "tolerancePx": 1
+  },
+  "pictureTag": null,
+  "pixelCheck": {
+    "canvasShadeBins": 21
+  },
+  "requests": {
+    "required": {
+      "metadata": 0,
+      "chunks": 0,
+      "measurement": 0,
+      "api": 17,
+      "pictures": 0
+    },
+    "expectedFormatProbes": [],
+    "expectedOptionalProbes": [
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8825/view/overview/tiles.json",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8825/view/overview/tiles.json",
+        "status": 404
+      }
+    ],
+    "expectedNavigationCancellations": [],
+    "expectedChunkCancellations": {
+      "count": 0,
+      "sample": []
+    },
+    "expectedRetiredStoreMisses": {
+      "stores": [],
+      "count": 0,
+      "sample": []
+    },
+    "unexpectedFailures": [],
+    "browserErrors": [],
+    "workerErrors": []
+  },
+  "browserErrors": [],
+  "workerErrors": [],
+  "bridgeErrors": [],
+  "viewerError": null,
+  "artifact": {
+    "file": "step2-carrier.png",
+    "width": 1440,
+    "height": 900,
+    "sha256": "87b589d5f64099a33130fda288a673690db2b1deb81a9ba9be98d54743cc006f"
+  },
+  "carrier": {
+    "origin": [
+      23500,
+      28500
+    ],
+    "view": {
+      "centre": {
+        "x": 36500,
+        "y": 39731.06374172185
+      },
+      "zoom": 198.67549668874173
+    },
+    "layers": [
+      {
+        "key": "ground",
+        "label": "Background",
+        "shown": true,
+        "staysSolid": false
+      },
+      {
+        "key": "limits",
+        "label": "Stage",
+        "shown": true,
+        "staysSolid": false
+      },
+      {
+        "key": "carrier",
+        "label": "Carrier",
+        "shown": true,
+        "staysSolid": false
+      },
+      {
+        "key": "tiles",
+        "label": "Tiles",
+        "shown": false,
+        "staysSolid": false
+      },
+      {
+        "key": "segmentation",
+        "label": "Segmentation",
+        "shown": false,
+        "staysSolid": true
+      },
+      {
+        "key": "cells",
+        "label": "Cells",
+        "shown": false,
+        "staysSolid": true
+      },
+      {
+        "key": "targets",
+        "label": "Targets",
+        "shown": false,
+        "staysSolid": true
+      },
+      {
+        "key": "focus",
+        "label": "Focus",
+        "shown": false,
+        "staysSolid": false
+      },
+      {
+        "key": "plan",
+        "label": "Plan",
+        "shown": false,
+        "staysSolid": false
+      },
+      {
+        "key": "focusPoints",
+        "shown": false,
+        "staysSolid": true
+      },
+      {
+        "key": "detect",
+        "label": "Test field",
+        "shown": false,
+        "staysSolid": true
+      },
+      {
+        "key": "editing",
+        "label": "Editing",
+        "shown": false,
+        "staysSolid": true
+      },
+      {
+        "key": "anchors",
+        "label": "Anchors",
+        "shown": false,
+        "staysSolid": true
+      },
+      {
+        "key": "stage",
+        "label": "Where the stage is",
+        "shown": true,
+        "staysSolid": true
+      },
+      {
+        "key": "scale",
+        "label": "Scale bar",
+        "shown": true,
+        "staysSolid": true
+      }
+    ],
+    "driverCanvas": {
+      "x_um": [
+        0,
+        120000
+      ],
+      "y_um": [
+        0,
+        80000
+      ],
+      "z_um": [
+        0,
+        10000
+      ]
+    }
+  }
+}

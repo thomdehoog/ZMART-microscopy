@@ -15,7 +15,9 @@ per-finding status lines below say what was done for each.
 **Third pass (2026-09-02, on the operator's PC):** with Cellpose available, Steps 6 to 8 were run on
 real pixels through the operator page. That reached two defects no earlier pass could (HIGH-3, the
 detection lost after Cellpose finished; MEDIUM-9, the cell map starving the picture server) and one
-more on the page (MEDIUM-10); all three are fixed and re-proven. Section 11 has the pass.
+more on the page (MEDIUM-10); all three are fixed and re-proven. Interruption and partial
+acquisition accounting were then proven the same way and exposed a fourth (MEDIUM-11, the gallery
+empty after a stopped run), fixed likewise. Section 11 has the pass.
 
 The document `docs/reviews/2026-09-01-why-the-acquired-overview-never-appeared.md` named in the
 review brief does not exist on this branch or on any fetched branch; the plan cites it as the
@@ -281,7 +283,7 @@ acquisition source survives (checked), so no stale pixels; but the picture objec
 | 5 Overview | 0/3/6/9; Run button; nine ROIs examined and textured; three rows × nine sources; growth without remount; Fit preserved; overview-only; close-up; projection < 1 px; real `/api/measure`; no unexpected failures | **failed on head** (HIGH-1 misplacement, HIGH-2 broken spec) → **passed on the fixed review branch** | real bridge + Viewer 0.2 + mock kidney (`step-five-fixed/*`, `view-preservation.json`, `step5-overview-complete`) |
 | 6 Discover | preview is the selected field; settings; test vs all; ids and positions; candidates on canvas; layer changes canvas; hoverable; failures honest | **blocked live** in the container (MEDIUM-1) → **failed on real pixels** on the operator's PC (HIGH-3) → **passed on real pixels** on the review branch (section 11); failure reporting fixed (MEDIUM-2) | operator-page pretend walk; `step6-discovery-blocked`; `on-the-operators-pc/step6-discovered-over-overview` |
 | 7 Refine | candidates before gate; no implicit gate; polygon gate; intersection; feedback; counts agree; gate survives navigation; coordinates unchanged | **passed on real pixels** (section 11) after MEDIUM-10 (the ceiling now survives navigation with the gate); **passed with pretend backend** | operator-page pretend walk; `on-the-operators-pc/step7-*` |
-| 8 Acquire | configuration before acquisition; button gating; one conversion; focus Z provenance; positions equal; rings/frames; gallery; verdicts; partial runs | button path with real discovered targets **passed live** (section 11; three gated cells acquired at their positions, registration 0 µm, rings, gallery, verdicts, one-at-a-time growth); source model **passed live**; interruption **unproven** | `bridge-step8-*` records; `on-the-operators-pc/step8-*` |
+| 8 Acquire | configuration before acquisition; button gating; one conversion; focus Z provenance; positions equal; rings/frames; gallery; verdicts; partial runs | button path with real discovered targets **passed live** (section 11; three gated cells acquired at their positions, registration 0 µm, rings, gallery, verdicts, one-at-a-time growth); source model **passed live**; interruption **failed** (the gallery stayed empty after a stopped run, MEDIUM-11) → **passed live** on the review branch: stopped by hand after 5 of 12, every account says 5, Run again says 12 | `bridge-step8-*` records; `on-the-operators-pc/step8-*`; `on-the-operators-pc/interruption/` |
 
 ## 4. Test ledger
 
@@ -420,7 +422,10 @@ Viewer order, focussing last) is chosen in `watching-the-run.js:544` and does no
   fields, a polygon gate, the ceiling), the Step 8 button path with real discovered targets
   (three gated cells acquired, rings, gallery, verdicts), and target source growth one position
   at a time (the Viewer reported 1, 2, 3 sources per row at 180, 325 and 422 ms).
-- **Unproven:** interruption and partial acquisition accounting.
+- **Proven in the third pass as well:** interruption and partial acquisition accounting -- an
+  acquisition stopped by the page's own Interrupt after 5 of 12 pairs is accounted as 5 by the
+  bridge, the Viewer, the disk, the canvas, the gallery (after MEDIUM-11) and the sentence beside
+  the button, and Run again completes and re-accounts all 12.
 
 ## 9. Changes made on the review branch and their verification
 
@@ -624,6 +629,10 @@ branch unless marked as a first run.
 | `npm run build` | ok; `the-built-page.spec.js` passed (built and development ink equal) | 0.7 s, 9.6 s | the committed bundle is this build |
 | `pytest` on `test_zarr_positions`, `test_viewer_service`, `test_operator_bridge`, `test_detection`, `test_webapp`, `test_embedding` and `object_analysis/tests` (repo root) | 238 passed, 3 skipped | 56 s | |
 | `playwright test review-live-target-arrival.spec.js` (final, both paths) | 2 passed | 8.8 min | the evidence below; two earlier full runs failed only on spec assumptions (record pairing by index, the 24 px ring window) |
+| `playwright test review-live-target-arrival.spec.js -g interruption` (first run) | failed: stopped after 2 of 12, every account 2, gallery 0 | 10 min | MEDIUM-11 |
+| `playwright test framework/operator-page.spec.js -g "one walk of the whole run"` (dev server on 5175) | interruption check red on the unfixed page (9 acquired, 0 pairs), green fixed | 1.4 min each | |
+| `npx vitest run`, `npm run build` | 365 passed, 15 skipped; ok | 5.6 s, 0.8 s | the committed bundle is this build |
+| `playwright test review-live-target-arrival.spec.js -g interruption` (final) | 1 passed: stopped after 5 of 12, every account 5; Run again, every account 12 | 25 min | discovery took about 22 of them, see below |
 
 ### What the final run holds
 
@@ -662,5 +671,53 @@ per-candidate projection check still runs on every one (`projectionError.targets
 defects: `step6-permission-denied-on-the-store`, `step8-viewer-timed-out-during-the-map` and
 `step7-ceiling-box-reads-50-over-3-kept` (their candidate lists cut the same way when filed).
 
-**Still unproven after the third pass:** interruption and partial acquisition accounting; and
-everything above stands on the mock kidney, not on a real sample.
+
+### Interruption and partial acquisition accounting
+
+**How it was proven:** a third test in `review-live-target-arrival.spec.js`, on the same
+production build, real bridge, real Smart Viewer 0.2, mock kidney and real Cellpose: Steps 1 to 5,
+then discovery of the whole population, one gate under a ceiling of 12, the target configuration,
+and the Acquire press. Once the bridge reported the first pair, the same button -- now reading
+Interrupt -- was pressed. The test then reads every account at once (`targetAccounting`): the
+bridge's scan (`running`, `stopped`, `done`, `of`, `error`, records), the Viewer group's sources
+per channel row, the engine's sources per row, the stores under `positions/target`, the canvas's
+acquired marks, the gallery's pairs and captions, the button, the sentence beside it, and the run
+state (`done`, `ran`, the note). Then Run again, and the same reading.
+
+**What it found -- MEDIUM-11, the gallery empty after a stopped run. Status: fixed and re-proven.**
+
+- **File:** `application/framework/window/main.js`, the target scan's completion: the gallery
+  was rebuilt in `finish()` only, and a run stopped by hand ends in `stoppedShort()` instead.
+- **Observed** (first live run, `interruption-run1`): stopped after 2 of 12; the bridge said
+  stopped with 2 records, the Viewer 2 sources per row, 2 stores on disk, the canvas 2 acquired
+  cells with rings, the sentence "stopped by hand -- 2 of 12 pairs acquired" -- and the gallery
+  showed 0 pairs. An operator who stops a run to look at what it took has nothing to look at.
+- **Fix:** the gallery is rebuilt where the acquired set is settled, stopped or not; the rebuild
+  in `finish()` went, since that was its only caller. The pretend whole-run walk now interrupts
+  its own acquisition after the first pair and expects one gallery pair per acquired target: red
+  on the unfixed page (9 acquired, 0 pairs), green on the fixed one.
+
+**What the final run holds** (`on-the-operators-pc/interruption/`, 25 min, of which discovery
+took about 22): the Interrupt was pressed while the bridge reported 4 done; the field in hand
+completed and the run stopped at 5 of 12 -- between two fields, as the rule says. Every account
+then read 5: `scan = {running: false, stopped: true, done: 5, of: 12, error: null, records: 5}`,
+Viewer `[5, 5, 5]`, engine `[5, 5, 5]`, 5 stores on disk, 5 acquired cells on the canvas (each
+record taken at exactly one gated target, and those five are the acquired ones), 5 gallery pairs
+with their ids in the captions, the button "Run again", the note and the hint both
+"stopped by hand -- 5 of 12 pairs acquired", the step in `ran` and not in `done`. Run again then
+read 12 everywhere: `scan = {running: false, stopped: false, done: 12, of: 12, error: null,
+records: 12}`, Viewer `[12, 12, 12]`, engine `[12, 12, 12]`, 12 stores on disk (the five of the
+interrupted run replaced under their own names), 12 acquired cells -- every gated target taken
+once -- 12 gallery pairs, "12 pairs acquired", the step done. No unexpected request failure, no
+browser error and no viewer error on either record; Disconnect and reconnect as before.
+
+Two things about the pretend walk's version of the same press: the pretend run redraws the action
+bar every animation frame, so a Playwright click that waits for the button to hold still waits
+until the run is over and then presses Run again -- the walk dispatches the press on the button
+as it stands. With the real bridge the page redraws once per 300 ms poll and the ordinary click
+landed. And the discovery in this run took three times longer than the earlier three (about
+22 min against 7); the card reported no thermal or power slowdown, P0 at 1830 MHz and 58 C, and
+the cause was not established.
+
+**Still unproven after the third pass:** everything above stands on the mock kidney, not on a
+real sample.
