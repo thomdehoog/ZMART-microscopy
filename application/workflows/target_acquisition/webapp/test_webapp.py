@@ -263,7 +263,7 @@ def test_sync_during_an_executing_replay_queues_one_followup(tmp_path):
 
 
 def test_stale_hardware_message_is_dropped_with_feedback(tmp_path, monkeypatch):
-    from workflow.webapp import _host
+    from application.workflows.target_acquisition.webapp import _host
 
     hub = WidgetHub()
     flow = RunFlow(hub, demo=True, demo_root=tmp_path / "run")
@@ -291,7 +291,7 @@ def test_stale_hardware_message_is_dropped_with_feedback(tmp_path, monkeypatch):
 
 
 def test_worker_queue_is_bounded_and_recovers_after_pressure():
-    from workflow.webapp import _host
+    from application.workflows.target_acquisition.webapp import _host
 
     hub = WidgetHub()
     release = threading.Event()
@@ -707,7 +707,7 @@ def test_failed_engine_shutdown_is_not_retried_and_session_is_released(tmp_path)
 def test_live_cli_registers_instrument_before_starting_server(monkeypatch):
     import sys
 
-    from workflow.webapp import __main__ as cli
+    from application.workflows.target_acquisition.webapp import __main__ as cli
 
     calls = []
     monkeypatch.setattr(sys, "argv", ["workflow.webapp"])
@@ -722,7 +722,7 @@ def test_live_cli_registers_instrument_before_starting_server(monkeypatch):
 def test_demo_cli_stays_driver_free(monkeypatch):
     import sys
 
-    from workflow.webapp import __main__ as cli
+    from application.workflows.target_acquisition.webapp import __main__ as cli
 
     calls = []
     monkeypatch.setattr(sys, "argv", ["workflow.webapp", "--demo"])
@@ -740,7 +740,6 @@ def test_demo_cli_stays_driver_free(monkeypatch):
             "demo": True,
             "vendor": "leica",
             "demo_root": None,
-            "score": False,
             "experiment": "target-acquisition",
             "open_window": False,
         }
@@ -790,7 +789,7 @@ class _StubWebview:
 def test_window_flag_asks_serve_for_a_native_window(monkeypatch):
     import sys
 
-    from workflow.webapp import __main__ as cli
+    from application.workflows.target_acquisition.webapp import __main__ as cli
 
     calls = []
     monkeypatch.setattr(sys, "argv", ["workflow.webapp", "--demo", "--window"])
@@ -800,7 +799,7 @@ def test_window_flag_asks_serve_for_a_native_window(monkeypatch):
 
 
 def test_a_native_window_shows_the_page_and_closes_the_server_on_exit(monkeypatch):
-    from workflow import webapp
+    from application.workflows.target_acquisition import webapp
 
     server, webview = _StubServer(), _StubWebview()
     monkeypatch.setattr(webapp, "make_server", lambda **kwargs: (server, None, None))
@@ -815,7 +814,7 @@ def test_a_native_window_shows_the_page_and_closes_the_server_on_exit(monkeypatc
 
 
 def test_a_window_bound_to_all_interfaces_dials_loopback(monkeypatch):
-    from workflow import webapp
+    from application.workflows.target_acquisition import webapp
 
     server, webview = _StubServer(address=("0.0.0.0", 9100)), _StubWebview()
     monkeypatch.setattr(webapp, "make_server", lambda **kwargs: (server, None, None))
@@ -825,7 +824,7 @@ def test_a_window_bound_to_all_interfaces_dials_loopback(monkeypatch):
 
 
 def test_a_missing_pywebview_still_serves_the_page(monkeypatch, capsys):
-    from workflow import webapp
+    from application.workflows.target_acquisition import webapp
 
     server = _StubServer()
     monkeypatch.setattr(webapp, "make_server", lambda **kwargs: (server, None, None))
@@ -836,7 +835,7 @@ def test_a_missing_pywebview_still_serves_the_page(monkeypatch, capsys):
 
 
 def test_a_window_engine_failure_keeps_serving_and_closes_the_server(monkeypatch, capsys):
-    from workflow import webapp
+    from application.workflows.target_acquisition import webapp
 
     server = _StubServer()
     webview = _StubWebview(fail_with=RuntimeError("WebView2 runtime is missing"))
@@ -855,7 +854,7 @@ def _raise_import_error(name):
 
 def test_buffer_store_stays_bounded_under_a_flood(demo_server):
     base, hub, flow = demo_server
-    from workflow.webapp import _host
+    from application.workflows.target_acquisition.webapp import _host
 
     for _ in range(80):
         hub._store_buffer(b"x" * (1024 * 1024))  # 80 MiB offered

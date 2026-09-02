@@ -1,5 +1,6 @@
 /** Real Smart Viewer 0.2 / mock-kidney evidence for operator Step 5. */
 import { execFileSync } from "node:child_process";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -749,6 +750,14 @@ async function takeEvidence({
     requests,
     browserErrors: requests.browserErrors,
     workerErrors: requests.workerErrors,
+    /* The screenshot's own size and fingerprint, so a record can be matched
+       to the picture it describes and a swapped picture is noticed. */
+    artifact: {
+      png: `${name}.png`,
+      width: pixels.width,
+      height: pixels.height,
+      sha256: crypto.createHash("sha256").update(png).digest("hex"),
+    },
     ...extra,
   };
   fs.writeFileSync(path.join(SHOTS, `${name}.png`), png);

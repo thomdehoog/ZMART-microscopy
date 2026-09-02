@@ -243,7 +243,7 @@ let stageWatch = null;
     cells: new Map(),
     fieldLabels: {},
     overviewPictures: backendFor().viewOf("overview"),
-    targetPictures: backendFor().viewOf("targets"),
+    targetPictures: backendFor().viewOf("target"),
     cellsShown: false,
     gates: [],           // [{fx, fy, vertices: [[x, y], ...]}] — see gating.js
     gated: new Set(),
@@ -365,7 +365,7 @@ let stageWatch = null;
       focus: newFocus(), focusMaps: {}, focusFor: null,
       detect: newDetect(), cells: new Map(), fieldLabels: {},
       overviewPictures: backendFor().viewOf("overview"),
-    targetPictures: backendFor().viewOf("targets"),
+    targetPictures: backendFor().viewOf("target"),
       cellsShown: false, gate: null, gated: new Set(), acquired: [], acquiredLabels: {},
       verdicts: {},
       locked: false,
@@ -746,7 +746,7 @@ let stageWatch = null;
           const z = surfaceZAt(x, y);
           return stage.toStage(z === null ? { x, y } : { x, y, z });
         }),
-        acquisition_type: "targets",
+        acquisition_type: "target",
         state: activeRecording(state.targetType)?.changeable ?? null,
         /* Each capture prints itself onto the canvas as it lands, the way the
            overview's tiles do: the records so far name the pictures, and only
@@ -759,6 +759,10 @@ let stageWatch = null;
           state.acquiredLabels = Object.fromEntries(
             state.acquired.map((id, i) => [id, records[i]?.position_label]));
           state.notes[s.id] = `${done} / ${picked.length} pairs`;
+          /* The ground opens over each acquired frame the way it opens over
+             each overview field, so a target imaged at the edge of the plan
+             shows through where it was taken rather than under the ground. */
+          stage.groundFollowsTheScan();
           redrawSoon(); renderAll();
         },
       }).then(({ records, stopped }) => {
@@ -768,6 +772,7 @@ let stageWatch = null;
         state.acquired = got;
         state.acquiredLabels = Object.fromEntries(
           got.map((id, i) => [id, records[i]?.position_label]));
+        stage.groundFollowsTheScan();
         redrawSoon();
         return stopped
           ? stoppedShort(`stopped by hand — ${records.length} of ${picked.length} pairs acquired`)
@@ -1197,7 +1202,7 @@ let stageWatch = null;
         ...state.plan[cell.field],
         picture: pictureOf("overview", state.fieldLabels[cell.field]),
       }),
-      pictureOf: (id) => pictureOf("targets", state.acquiredLabels[id]),
+      pictureOf: (id) => pictureOf("target", state.acquiredLabels[id]),
       recordingSlot: (into, opts) => renderRecordingSlot(into, recordingOptions(opts)),
       changed: () => renderActionBar(),
     });
@@ -1709,11 +1714,16 @@ let stageWatch = null;
     pictureHost: theCanvas.parts.pictureHost,
     /* Where this backend's scans can be fetched from, if anywhere. The live
        one serves what the microscope wrote; the pretend one has nothing. */
-    pictures: (kind) => backend?.viewOf(kind) ?? null,
+    pictures: (kind) => (state.done.has("connect") ? backend?.viewOf(kind) : null) ?? null,
     /* The run's OME-Zarr sources, as the viewer server beside the bridge
        serves them — the real picture, linked position by position. `null`
-       while there is none, and the JPEG copies stand in. */
-    viewerSources: () => backend?.viewerSources?.() ?? null,
+       while there is none, and the JPEG copies stand in.
+
+       Both answer nothing once the session is closed. The backend object
+       outlives the session, and its addresses used to be handed out after
+       Disconnect, so the page reopened an empty JPEG picture on a bridge
+       that had no run to serve. */
+    viewerSources: () => (state.done.has("connect") ? backend?.viewerSources?.() : null) ?? null,
     overviewCanvas: theCanvas.parts.overviewCanvas,
     overviewNote: theCanvas.parts.overviewNote,
     view: () => stage.pictureView(),

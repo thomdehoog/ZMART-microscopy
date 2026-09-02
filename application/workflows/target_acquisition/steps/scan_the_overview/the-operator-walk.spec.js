@@ -161,6 +161,15 @@ test("an operator walks from Connect to a scanned overview", async ({ page }) =>
     return kept.some((m) => Math.abs(m.x_um - (asked.x + ox)) < 1 && Math.abs(m.y_um - (asked.y + oy)) < 1);
   }, { message: "no capture was taken where the stage should have gone", timeout: 60_000 }).toBe(true);
 
+  /* The run finishes when its promise does, and the rail refuses to move
+     while a step is working. The done badge is no signal -- recording a
+     focus preset settles the step before anything has driven -- so what the
+     walk waits for is what the operator watches: the button coming back.
+     Waited for here, before the preview is read: while the map is being
+     measured the selected point is the one under measurement, which has no
+     slices yet, so a preview asked for mid-run was hidden by design. */
+  await expect(page.locator(".panel.on button.step-run")).toHaveText("Run again", { timeout: 180_000 });
+
   /* The slice at the black line. The box beside the plot shows the real
      captured plane nearest the chosen height, and dragging the height walks
      the stack -- so the two ends of the plot must show two different
@@ -222,12 +231,6 @@ test("an operator walks from Connect to a scanned overview", async ({ page }) =>
   });
   await page.waitForTimeout(300);
   expect(await orthoInk(), "dragging the cut re-cuts the side view").not.toBe(cutBefore);
-
-  /* The run finishes when its promise does, and the rail refuses to move
-     while a step is working. The done badge is no signal -- recording a
-     focus preset settles the step before anything has driven -- so what the
-     walk waits for is what the operator watches: the button coming back. */
-  await expect(page.locator(".panel.on button.step-run")).toHaveText("Run again", { timeout: 180_000 });
 
   // 5. Scan. Nothing tells the page where the pictures will be: it asks its
   //    own backend, which is the join this walk exists to prove.

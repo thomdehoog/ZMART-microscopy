@@ -57,10 +57,11 @@ export const DEFAULT_SESSION = {
      which is the mock, so a page opened by accident drives nothing. */
   microscope: null,
   api: null,
-  /* Prefilled so the mock can be clicked through without typing. A real build
-     must ship this empty — a default credential is not a convenience, it is a
-     credential everybody has. */
-  password: "demo",
+  /* Empty on purpose. It used to be prefilled so the mock could be clicked
+     through without typing, but the same page is the one a real instrument
+     is driven from, and a default credential is not a convenience: it is a
+     credential everybody has. Connect stays disabled until one is typed. */
+  password: "",
 };
 
 export const describeSession = ({ connection }) => {

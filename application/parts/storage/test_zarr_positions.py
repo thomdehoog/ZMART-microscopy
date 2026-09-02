@@ -249,3 +249,65 @@ class TestTheStore:
         ])
         with pytest.raises(RuntimeError, match="axis the record says nothing about"):
             position_store_from_record(record, tmp_path / "positions")
+
+
+class TestAStoreIsPublishedWhole:
+    """The viewer watches ``positions/<type>`` and shows a store as soon as
+    its description exists. Filling the levels in place therefore showed a
+    store whose zoomed-out copies were still empty. The store is built beside
+    the watched folder and renamed into it once every level is filled."""
+
+    def test_the_store_lands_under_its_own_name_and_nothing_is_left_beside_it(self, tmp_path):
+        record = one_file_per_plane(tmp_path / "capture", channels=1, size=64)
+        positions = tmp_path / "positions" / "overview"
+        store = position_store_from_record(record, positions)
+        assert store == positions / "overview_K00_M000000_G000000_P000007_V00.ome.zarr"
+        assert store.is_dir()
+        assert sorted(child.name for child in positions.iterdir()) == [store.name]
+        assert not (tmp_path / "positions" / ".writing-overview").exists(), (
+            "the staging folder is removed once the store has moved"
+        )
+
+    def test_every_level_is_filled_before_the_store_appears(self, tmp_path, monkeypatch):
+        """Watched the way the viewer watches: the moment the published name
+        exists, all of its copies must already hold pixels."""
+        from application.parts.storage import zarr_positions
+
+        record = one_file_per_plane(tmp_path / "capture", channels=1, size=256)
+        positions = tmp_path / "positions" / "overview"
+        published = positions / "overview_K00_M000000_G000000_P000007_V00.ome.zarr"
+        seen_before_publication = []
+        original = zarr_positions._publish
+
+        def watched(built, into):
+            # the last moment before publication: the watched folder is empty,
+            # and the built store already holds every level
+            seen_before_publication.append(published.exists())
+            for level in ("0", "1"):
+                assert (built / level).is_dir(), f"level {level} is written before publication"
+                assert any(child.name != "zarr.json" for child in (built / level).rglob("*")), (
+                    f"level {level} holds chunks before publication"
+                )
+            return original(built, into)
+
+        monkeypatch.setattr(zarr_positions, "_publish", watched)
+        position_store_from_record(record, positions)
+        assert seen_before_publication == [False]
+
+    def test_a_rerun_replaces_the_store_under_the_same_name(self, tmp_path):
+        record = one_file_per_plane(tmp_path / "capture", channels=1, size=64)
+        positions = tmp_path / "positions" / "overview"
+        first = position_store_from_record(record, positions)
+        record["planes"][0]["x_um"] = 4321.0
+        second = position_store_from_record(record, positions)
+        assert first == second
+        described = json.loads((second / "zarr.json").read_text(encoding="utf-8"))
+        translation = described["attributes"]["ome"]["multiscales"][0]["datasets"][0][
+            "coordinateTransformations"
+        ]
+        assert any(
+            abs(one.get("translation", [0] * 5)[-1] - (4321.0 - 64 * 2.5 / 2)) < 1e-6
+            for one in translation
+        ), "the replaced store carries the new capture's corner"
+        assert sorted(child.name for child in positions.iterdir()) == [second.name]
+        assert not (tmp_path / "positions" / ".writing-overview").exists()

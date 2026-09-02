@@ -131,7 +131,7 @@ function expectedProbe(url, port) {
     if (parsed.port !== String(port)) return null;
     if (parsed.pathname === "/view/overview/tiles.json") return "optional-probe";
     if (/^\/view\/[^/]+\/.+\.(?:mask|labels)\.png$/.test(parsed.pathname)) return "optional-probe";
-    if (/^\/view\/targets\/.+\.jpg$/.test(parsed.pathname)) return "optional-probe";
+    if (/^\/view\/target\/.+\.jpg$/.test(parsed.pathname)) return "optional-probe";
     return null;
   } catch {
     return null;
@@ -917,8 +917,9 @@ async function disconnectAndReconnect({ page, take, port }) {
   await page.waitForTimeout(1500);
   const afterDisconnect = await page.evaluate(async (bridgePort) => ({
     run: window.__theRunState(), targets: window.__theStageCanvas.targets().length,
-    /* The page may reopen a picture on the JPEG fallback address straight
-       after a disconnect; what must not survive is any acquisition source. */
+    /* Nothing is open after a disconnect: the closed session has no run to
+       draw, so the page must not reopen an empty picture on the JPEG
+       fallback address, as it once did. */
     pictureOpen: Boolean(window.__thePicture),
     acquisitionRows: window.__thePicture?.layersForMeasurement?.()?.length ?? 0,
     viewer: await fetch(`http://127.0.0.1:${bridgePort}/api/viewer`).then((a) => a.json()).catch(() => null),
@@ -927,6 +928,7 @@ async function disconnectAndReconnect({ page, take, port }) {
   expect(afterDisconnect.run.done, "disconnect clears every finished step").toEqual([]);
   expect(afterDisconnect.targets, "disconnect forgets the targets").toBe(0);
   expect(afterDisconnect.acquisitionRows, "disconnect leaves no acquisition source on the picture").toBe(0);
+  expect(afterDisconnect.pictureOpen, "disconnect leaves no picture open at all").toBe(false);
   expect(afterDisconnect.viewer?.running, "disconnect stops the viewer service").toBe(false);
   expect(afterDisconnect.plan, "disconnect forgets the plan").toBe(0);
   await expect(page.locator(".session-foot button.run")).toBeEnabled();
@@ -1205,7 +1207,7 @@ test("Step 8 source model: real target positions published through the bridge ar
       trigger: async () => {
         const answer = await fetch(`http://127.0.0.1:${port}/api/scan`, {
           method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ positions, acquisition_type: "targets", state: null }),
+          body: JSON.stringify({ positions, acquisition_type: "target", state: null }),
         });
         expect(answer.ok, "the bridge accepted the target scan").toBe(true);
       },
@@ -1215,7 +1217,7 @@ test("Step 8 source model: real target positions published through the bridge ar
     const rerun = positions.slice(0, 2);
     const answer = await fetch(`http://127.0.0.1:${port}/api/scan`, {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ positions: rerun, acquisition_type: "targets", state: null }),
+      body: JSON.stringify({ positions: rerun, acquisition_type: "target", state: null }),
     });
     expect(answer.ok).toBe(true);
     await expect.poll(async () => (await bridgeJson(page, port, "/api/scan")).done, { timeout: 120_000 }).toBe(2);
@@ -1231,7 +1233,9 @@ test("Step 8 source model: real target positions published through the bridge ar
       step: 8, state: `bridge path: target scan run again with 2 positions; Viewer shows ${JSON.stringify(rerunSources)} sources per channel, ${storesOnDisk} stores on disk`,
       extra: { rerun: outcome.rerun },
     });
-    expect.soft(rerunSources, "a rerun with fewer targets leaves no stale target source in the Viewer group").toEqual(group.channels.map(() => 2));
+    expect(rerunSources, "a rerun with fewer targets leaves no stale target source in the Viewer group").toEqual(group.channels.map(() => 2));
+    expect(rerunRows, "the engine's rows hold exactly the rerun's sources").toEqual(rerunRows.map(() => 2));
+    expect(storesOnDisk, "the stores of the first run are gone from disk").toBe(2);
     await disconnectAndReconnect({ page, take, port });
     recorder.writeManifest({ outcome, canonicalName: "target" });
   } finally {

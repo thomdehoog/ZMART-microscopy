@@ -126,13 +126,26 @@ test("record the corresponding Smart Operator panel state", async ({ page, reque
         sources: [source(group, spec)],
       })),
     }));
-    const rows = acquisitions.flatMap((acquisition) => acquisition.channels.map((channel) => ({
-      visible: true, window: { ...channel.window }, weight: 1,
-      sources: [{
-        lower: [0, 0, 0], upper: [1, 64, 64],
-        matrix: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1],
-      }],
-    })));
+    /* Each source placed the way a real position store is: the engine's
+       matrix carries the voxel size on its diagonal and, in its last row,
+       where the store's corner stands on the stage (the carrier origin of
+       a slide centred in the travel, plus the field's own offset). An
+       identity matrix here would let a panel that rewrote every transform
+       pass the check below. */
+    const placed = (groupAt, channelAt) => [
+      1, 0, 0, 0,
+      0, 1.3, 0, 0,
+      0, 0, 1.3, 0,
+      0, 28500 + groupAt * 676.5, 23500 + channelAt * 676.5, 1,
+    ];
+    const rows = acquisitions.flatMap((acquisition, groupAt) =>
+      acquisition.channels.map((channel, channelAt) => ({
+        visible: true, window: { ...channel.window }, weight: 1,
+        sources: [{
+          lower: [0, 0, 0], upper: [1, 64, 64],
+          matrix: placed(groupAt, channelAt),
+        }],
+      })));
     const viewer = {
       measurementBox: () => [[0, 0], [1, 1]],
       setChannel(index, change) {
@@ -207,9 +220,13 @@ test("record the corresponding Smart Operator panel state", async ({ page, reque
       .filter((row) => row.acquisition === "overview")
       .map((row) => row.observed.visible);
   })).toEqual([true, true, false]);
+  const matricesBefore = await page.evaluate(() => window.__panelEvidenceMatrices);
+  const identity = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+  expect(matricesBefore.every((matrix) => matrix.some((value, at) => value !== identity[at])),
+    "the fixture places every source off the origin, like a real run").toBe(true);
   expect(await page.evaluate(() => window.__viewerPanel.snapshot().channels.flatMap((row) =>
     row.observed.sources.map((one) => one.matrix))))
-    .toEqual(await page.evaluate(() => window.__panelEvidenceMatrices));
+    .toEqual(matricesBefore);
   await page.screenshot({
     path: path.join(evidenceDir, "smart-operator-overview-only.png"),
     fullPage: true,

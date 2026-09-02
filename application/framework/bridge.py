@@ -92,6 +92,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -551,6 +552,9 @@ def _measure_focus(asked: dict) -> dict:
         raise RuntimeError("a focus map is already being measured")
     asked_points = asked.get("points", [])
     _stop_asked["focus"] = False
+    # Measuring the map again replaces the map: the stacks of the last run
+    # would otherwise stand beside the new ones under the same heading.
+    _replace_the_acquisition(FOCUSSING)
     _focus.update(
         running=True, done=0, of=len(asked_points), error=None, stopped=False,
         points=[], doing=None,
@@ -769,7 +773,7 @@ def _the_slice_copies_of(planes: list) -> list:
     stays ``viewOf``'s answer. A stack that cannot be copied (a driver whose
     files are not canonical planes) costs the preview and never the run.
     """
-    from viz_studio.backend.jpeg_tiles import make_slice_copies  # noqa: PLC0415
+    from application.parts.storage.jpeg_tiles import make_slice_copies  # noqa: PLC0415
 
     try:
         return make_slice_copies(view_of(FOCUSSING) , planes)
@@ -792,7 +796,7 @@ def _the_view_of(acquisition_type: str) -> Path | None:
     is not in the snapshot and must not be signed for -- counting the live
     list once marked a run's last stride built without building it.
     """
-    from viz_studio.backend.jpeg_tiles import make_what_is_missing  # noqa: PLC0415
+    from application.parts.storage.jpeg_tiles import make_what_is_missing  # noqa: PLC0415
 
     with _view_lock:
         records = list(_records.get(acquisition_type, []))
@@ -833,12 +837,34 @@ def _label_for(index: int, position: dict) -> str:
     )
 
 
+def _replace_the_acquisition(acquisition_type: str) -> None:
+    """A scan of this kind is starting again: what the last one left is taken down.
+
+    The records were already forgotten, but the position stores and the
+    display copies stayed on disk, and the viewer kept listing every store it
+    had once seen. A shorter rerun therefore showed the fields the new run
+    never captured, and a rerun of the same plan showed the old copy of each
+    field until it happened to be overwritten. A run accounts for exactly
+    what it captured: the viewer closes the acquisition, its folders go, and
+    the new run's first position opens it afresh.
+    """
+    run = _the_run()
+    positions = run / "positions" / acquisition_type
+    viewer_service.an_acquisition_is_being_replaced(acquisition_type, positions)
+    for stale in (positions, positions.parent / f".writing-{acquisition_type}",
+                  view_of(acquisition_type)):
+        shutil.rmtree(stale, ignore_errors=True)
+    with _view_lock:
+        _view_built.pop(acquisition_type, None)
+
+
 def _start_scan(asked: dict) -> dict:
     if _scan["running"]:
         raise RuntimeError("a scan is already running")
     positions = asked.get("positions", [])
     acquisition_type = str(asked.get("acquisition_type", "overview"))
     _records[acquisition_type] = []
+    _replace_the_acquisition(acquisition_type)
     _stop_asked["scan"] = False
     _scan.update(
         running=True, done=0, of=len(positions), error=None, stopped=False,

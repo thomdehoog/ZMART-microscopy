@@ -304,3 +304,73 @@ def test_live_config_read_finishes_before_the_next_operator_poll(monkeypatch):
     assert service._read(8848, "/api/config") == {"layers": []}
     assert seen == [("http://127.0.0.1:8848/api/config", service.VIEWER_POLL_TIMEOUT_S)]
     assert service.VIEWER_POLL_TIMEOUT_S < 1.5
+
+
+def test_replacing_an_acquisition_closes_it_in_the_viewer_and_forgets_its_folder(
+    monkeypatch, tmp_path
+):
+    """A rerun takes the old picture down first.
+
+    The viewer only ever adds to a folder it watches, so a store removed from
+    disk would stay in its rows. The acquisition is closed by the heading the
+    viewer really uses (decorated with a session name here), and the folder
+    is forgotten so the next position opens it afresh."""
+    before = dict(service._viewer)
+    service._viewer.clear()
+    service._viewer.update(_empty_service(port=8848))
+    service._viewer["opened"].add(str(tmp_path))
+    calls: list[tuple[str, dict]] = []
+
+    def read(port: int, route: str) -> dict:
+        assert (port, route) == (8848, "/api/config")
+        return _config(
+            {"group": "run 3 · target", "sources": ["/data/2/target_P000000.ome.zarr/|zarr3:"]},
+            {"group": "overview", "sources": ["/data/0/overview_P000000.ome.zarr/|zarr3:"]},
+        )
+
+    def ask(port: int, route: str, payload: dict) -> dict:
+        calls.append((route, payload))
+        return _config(
+            {"group": "overview", "sources": ["/data/0/overview_P000000.ome.zarr/|zarr3:"]}
+        )
+
+    monkeypatch.setattr(service, "_read", read)
+    monkeypatch.setattr(service, "_ask", ask)
+    try:
+        service.an_acquisition_is_being_replaced("target", tmp_path)
+        assert str(tmp_path) not in service._viewer["opened"]
+        assert list(service._viewer["sources"]) == ["overview"]
+        assert service._viewer["error"] is None
+    finally:
+        service._viewer.clear()
+        service._viewer.update(before)
+
+    assert calls == [("/api/stores/close", {"group": "run 3 · target"})]
+
+
+def test_replacing_an_acquisition_nobody_has_opened_still_asks_by_its_name(monkeypatch, tmp_path):
+    before = dict(service._viewer)
+    service._viewer.clear()
+    service._viewer.update(_empty_service(port=8848))
+    calls: list[tuple[str, dict]] = []
+    monkeypatch.setattr(service, "_read", lambda port, route: _config())
+    monkeypatch.setattr(service, "_ask", lambda port, route, payload: calls.append((route, payload)) or _config())
+    try:
+        service.an_acquisition_is_being_replaced("overview", tmp_path)
+    finally:
+        service._viewer.clear()
+        service._viewer.update(before)
+    assert calls == [("/api/stores/close", {"group": "overview"})]
+
+
+def test_replacing_an_acquisition_without_a_viewer_only_forgets_the_folder(tmp_path):
+    before = dict(service._viewer)
+    service._viewer.clear()
+    service._viewer.update(_empty_service(port=None))
+    service._viewer["opened"].add(str(tmp_path))
+    try:
+        service.an_acquisition_is_being_replaced("overview", tmp_path)
+        assert service._viewer["opened"] == set()
+    finally:
+        service._viewer.clear()
+        service._viewer.update(before)

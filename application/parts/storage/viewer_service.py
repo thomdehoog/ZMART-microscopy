@@ -229,6 +229,60 @@ def a_position_landed(acquisition_type: str, positions_folder: Path | str) -> No
             _viewer["error"] = f"the viewer was not told about {acquisition_type}: {why}"
 
 
+def an_acquisition_is_being_replaced(acquisition_type: str, positions_folder: Path | str) -> None:
+    """A scan of this kind is starting again: take its old picture down first.
+
+    The viewer only ever adds to a folder it watches; a store that vanishes
+    from disk stays in its list, and the page keeps asking for pixels that
+    are no longer there. So before the old stores are removed, the viewer is
+    asked to close that acquisition and the folder is forgotten here, which
+    makes the next position that lands open it afresh with exactly the
+    stores the new run has written. Never raises — a viewer that cannot hear
+    costs the live picture, not the scan.
+    """
+    folder = str(positions_folder)
+    with _the_turn:
+        port = _viewer["port"]
+        _viewer["opened"].discard(folder)
+        if port is None:
+            return
+    try:
+        # The viewer decorates its headings (a session name, a copy number);
+        # the raw heading is what its close route answers to, so the rows are
+        # read back and matched on the cleaned name the operator sees.
+        current = _read(port, "/api/config")
+        headings = {
+            str(row.get("group"))
+            for row in current.get("layers") or []
+            if row.get("kind") == "image" and _the_heading_of(row) == acquisition_type
+        }
+        answered = None
+        for heading in headings or {acquisition_type}:
+            answered = _ask(port, "/api/stores/close", {"group": heading})
+        if answered is not None:
+            with _the_turn:
+                if _viewer["port"] == port:
+                    _viewer["sources"] = _the_sources_in(answered, port)
+                    _viewer["acquisitions"] = _the_acquisitions_in(answered, port)
+    except Exception as why:  # noqa: BLE001 -- the picture lags, the scan goes on
+        with _the_turn:
+            _viewer["error"] = f"the viewer could not close {acquisition_type}: {why}"
+
+
+def _the_heading_of(row: dict) -> str:
+    """The acquisition an image row belongs to, as the operator sees it named.
+
+    Session and copy decorations belong to the Viewer's library, not to the
+    acquisition heading the operator should see.
+    """
+    group = str(row.get("group") or "picture")
+    group = group.rsplit(" · ", 1)[-1]
+    group = re.sub(r" \(\d+\)$", "", group)
+    for suffix in (".zmartview.zarr", ".ome.zarr", ".zarr"):
+        group = group.removesuffix(suffix)
+    return group
+
+
 def _the_sources_in(config: dict, port: int) -> dict[str, list[dict]]:
     """Every drawable source the viewer's config names, grouped by heading.
 

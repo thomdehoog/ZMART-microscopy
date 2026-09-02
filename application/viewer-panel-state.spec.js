@@ -33,7 +33,9 @@ async function mountPanel(page) {
         url,
         lower: [0, 0, 0],
         upper: [1, 100, 100],
-        matrix: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, at, 0, 0, 1],
+        /* Placed like a real position store: voxel size on the diagonal,
+           the stage corner in the last row. */
+        matrix: [1, 0, 0, 0, 0, 1.3, 0, 0, 0, 0, 1.3, 0, at, 28500, 23500 + at * 676.5, 1],
       })),
     })));
     const calls = [];

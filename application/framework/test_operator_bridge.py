@@ -966,9 +966,9 @@ def test_the_view_is_built_once_per_scan_state(monkeypatch, tmp_path):
     import types
 
     built = []
-    stub = types.ModuleType("viz_studio.backend.jpeg_tiles")
+    stub = types.ModuleType("application.parts.storage.jpeg_tiles")
     stub.make_what_is_missing = lambda into, fields: built.append(len(fields)) or Path(into)
-    monkeypatch.setitem(sys.modules, "viz_studio.backend.jpeg_tiles", stub)
+    monkeypatch.setitem(sys.modules, "application.parts.storage.jpeg_tiles", stub)
     record = _Driver().acquire(acquisition_type="overview", position_label="P0")
     monkeypatch.setattr(bridge, "_records", {"overview": [record]})
     monkeypatch.setattr(bridge, "_view_built", {})
@@ -996,7 +996,7 @@ def test_a_field_that_lands_during_a_build_is_not_signed_off_as_built(monkeypatc
     import types
 
     built = []
-    stub = types.ModuleType("viz_studio.backend.jpeg_tiles")
+    stub = types.ModuleType("application.parts.storage.jpeg_tiles")
 
     def build(into, fields):
         built.append(len(fields))
@@ -1006,7 +1006,7 @@ def test_a_field_that_lands_during_a_build_is_not_signed_off_as_built(monkeypatc
         return Path(into)
 
     stub.make_what_is_missing = build
-    monkeypatch.setitem(sys.modules, "viz_studio.backend.jpeg_tiles", stub)
+    monkeypatch.setitem(sys.modules, "application.parts.storage.jpeg_tiles", stub)
     record = _Driver().acquire(acquisition_type="overview", position_label="P0")
     monkeypatch.setattr(bridge, "_records", {"overview": [record]})
     monkeypatch.setattr(bridge, "_view_built", {})
@@ -1030,10 +1030,10 @@ def test_a_measured_point_names_the_slices_of_the_stack_it_kept(monkeypatch):
     import types
 
     handed = []
-    stub = types.ModuleType("viz_studio.backend.jpeg_tiles")
+    stub = types.ModuleType("application.parts.storage.jpeg_tiles")
     stub.make_slice_copies = lambda into, planes: (
         handed.append(planes) or [{"z_um": 1.0, "name": "s_Z00000.jpg"}])
-    monkeypatch.setitem(sys.modules, "viz_studio.backend.jpeg_tiles", stub)
+    monkeypatch.setitem(sys.modules, "application.parts.storage.jpeg_tiles", stub)
     monkeypatch.setattr(bridge, "_session", _Driver())
     monkeypatch.setattr(
         bridge, "_focus",
@@ -1045,3 +1045,37 @@ def test_a_measured_point_names_the_slices_of_the_stack_it_kept(monkeypatch):
     assert point["slices"] == [{"z_um": 1.0, "name": "s_Z00000.jpg"}]
     assert handed and len(handed[0]) > 0, "the record's planes reached the copier"
     assert all("path" in plane and "z_um" in plane for plane in handed[0])
+
+
+def test_a_scan_started_again_takes_the_last_ones_stores_down_first(monkeypatch):
+    """A rerun accounts for exactly what it captured.
+
+    The position stores and the display copies of the last run stayed on
+    disk, so a shorter rerun showed fields it never captured, and the viewer
+    kept listing every store it had once seen. Starting a scan of a kind
+    closes that kind in the viewer and removes its folders; the new run's
+    first position opens it afresh."""
+    told = []
+    monkeypatch.setattr(
+        bridge.viewer_service, "an_acquisition_is_being_replaced",
+        lambda kind, folder: told.append((kind, Path(folder))),
+    )
+    positions = bridge._run / "positions" / "overview"
+    stale = positions / "overview_K00_M000000_G000000_P000002_V00.ome.zarr"
+    stale.mkdir(parents=True)
+    (stale / "zarr.json").write_text("{}", encoding="utf-8")
+    half_written = bridge._run / "positions" / ".writing-overview" / "x"
+    half_written.mkdir(parents=True)
+    copies = bridge.view_of("overview")
+    copies.mkdir(parents=True)
+    (copies / "tiles.json").write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(bridge, "_view_built", {"overview": 3})
+    monkeypatch.setattr(bridge, "_records", {"overview": [{"stale": True}]})
+
+    bridge._replace_the_acquisition("overview")
+
+    assert told == [("overview", positions)]
+    assert not positions.exists()
+    assert not half_written.parent.exists()
+    assert not copies.exists()
+    assert "overview" not in bridge._view_built
