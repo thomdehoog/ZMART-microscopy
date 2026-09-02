@@ -1515,7 +1515,8 @@ test("one walk of the whole run", async ({ page }) => {
   await expect(page.locator(".panel.on button.step-run")).toHaveText("Run again", { timeout: 10_000 });
   const taken = (await targetsOnCanvas(page)).filter((target) => target.acquired).length;
   expect(taken, "the run was stopped before it finished, or the interruption proves nothing").toBeLessThan(gatedCount);
-  await expect(page.locator(".pair"), "the gallery shows one pair per acquired target, stopped or not").toHaveCount(taken);
+  await expect(page.locator("#target-list .point-row"), "the gallery lists one target per acquired target, stopped or not").toHaveCount(taken);
+  await expect(page.locator(".pair"), "and shows one pair, the chosen target's").toHaveCount(1);
   await expect(page.locator(".action-hint").first()).toHaveText(`stopped by hand — ${taken} of ${gatedCount} pairs acquired`);
   const afterTheHand = await page.evaluate(() => window.__theRunState());
   expect(afterTheHand.done, "an interrupted step is not done").not.toContain("acquire");
@@ -1543,8 +1544,10 @@ test("one walk of the whole run", async ({ page }) => {
     expect(window.w).toBeCloseTo(frameUm, 6);
     expect(window.h).toBeCloseTo(frameUm, 6);
   }
-  await page.locator(".pair").first().locator("button.pick-good").click();
+  await page.locator("#target-list .point-row").first().locator("button").click();
+  await page.locator(".pair button.pick-good").click();
   await expect(page.locator("#gallery-readout")).toContainText("1 marked");
+  await expect(page.locator("#target-list .point-row").first().locator(".z")).toHaveText("✓");
   await expect(page.locator(".side-tab"),
     "curation continues after the run finishes").toContainText("Acquire Targets");
 });

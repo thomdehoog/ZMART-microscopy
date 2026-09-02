@@ -98,6 +98,8 @@ export function watchTheRun(ctx) {
     /* What the open viewer was opened on, so a change — the run growing a
        second kind of scan — is noticed and the viewer reopened over it. */
     let openedOn = null;
+    /* The names of the acquisitions the open picture draws. */
+    let openedNames = [];
     let inStageFrame = true;
     let panel = null;
     const requestedPanelState = {
@@ -185,6 +187,7 @@ export function watchTheRun(ctx) {
           background: ctx.css("--screen"),
         });
         openedOn = wanted.signature;
+        openedNames = wanted.acquisitions.map(({ name }) => name);
         inStageFrame = wanted.inStageFrame;
         /* Left where a test can reach it. What matters about a picture is what
            reached the screen, and a viewer that reports itself perfectly opened
@@ -251,6 +254,7 @@ export function watchTheRun(ctx) {
             && openedOn?.startsWith("sources:")
             && await viewer.addSources?.(wanted.acquisitions)) {
           openedOn = wanted.signature;
+          openedNames = wanted.acquisitions.map(({ name }) => name);
           await panel?.sourcesChanged?.(wanted.acquisitions);
           return;
         }
@@ -268,6 +272,7 @@ export function watchTheRun(ctx) {
       viewer?.destroy?.();
       viewer = null;
       openedOn = null;
+      openedNames = [];
       window.__thePicture = null;
       if (forgetVisibility) {
         requestedPanelState.acquisitions.clear();
@@ -284,6 +289,11 @@ export function watchTheRun(ctx) {
       get asked() { return !!(search.get("picture") ?? ctx.pictures?.("overview")); },
       /** Whether there was a scan there to open, and it opened. */
       get opened() { return !!viewer; },
+      /** Whether the picture draws the acquisition of this name itself. A
+          layer that would print copies of it asks first: the engine's own
+          pixels answer to the display settings, copies laid over them would
+          not. */
+      shows(name) { return openedNames.includes(name); },
       open,
       followTheStage,
       reopenIfTheRunGrew,

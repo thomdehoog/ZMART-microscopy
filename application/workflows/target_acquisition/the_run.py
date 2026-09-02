@@ -234,7 +234,7 @@ def acquire_targets(
     return capture_positions(
         session,
         placed,
-        "target",
+        "targets",
         state=state,
         options=options,
         on_record=on_record,

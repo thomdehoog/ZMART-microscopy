@@ -1,10 +1,13 @@
 /**
- * Step 8's channel — the acquired pairs, and the verdict on each.
+ * Step 8's channel — the acquired targets, and the verdict on each.
  *
  * Acquisition happens on the canvas, where the targets ring; this is what
- * stands beside it. One card per acquired target: the two pictures, what and
- * where it is, and the two buttons that mark it kept or discarded. Above
- * them, the recording the targets are imaged with.
+ * stands beside it. A list of the targets imaged so far, the way the focus
+ * step lists its points, and under it one pair -- the field the chosen
+ * target was found in and its own frame -- with the two marks that call it
+ * kept or discarded. Choosing a row chooses the target on the canvas, and a
+ * press on a ringed target on the canvas chooses its row. Above them, the
+ * recording the targets are imaged with.
  *
  * The widget owns its own markup and rebuilds from the run whenever it is
  * mounted, so nothing stale survives a walk away and back. It never reaches
@@ -68,14 +71,17 @@ function targetFrame(src) {
   });
 }
 
-/** How the pairs are counted, in the words the readout uses. */
+/** How the targets are counted, in the words the readout uses. */
 export function galleryTally(acquired, verdicts) {
   const marked = acquired.filter((id) => verdicts[id]).length;
   const good = acquired.filter((id) => verdicts[id] === "good").length;
   return acquired.length
-    ? `${acquired.length} pairs · ${marked} marked · ${good} good`
+    ? `${acquired.length} targets · ${marked} marked · ${good} good`
     : "—";
 }
+
+/** The glyph a verdict is listed under. */
+const VERDICT_GLYPH = { good: "✓", bad: "✗" };
 
 import { sideGroup } from "../../../../framework/window/panels.js";
 
@@ -89,6 +95,8 @@ export default {
    * `ctx` carries what this step works with and nothing else:
    *   `acquired`   the target ids, in the order they were imaged
    *   `verdicts`   id -> "good" | "bad" | null, changed here
+   *   `selected`   the id of the target whose pair is shown, or null
+   *   `select(id)` choose that target, on the canvas as well as here
    *   `cellById`   a target's own details, for the crops and the caption
    *   `fieldOf(cell)`  the field it was found in: the plan's position, and
    *                `picture`, where the field's small copy is (or null)
@@ -96,8 +104,9 @@ export default {
    *   `recordingSlot(host, opts)`  the shared recorder, for the acquisition type
    *   `changed()`  say that something the rest of the page shows has changed
    *
-   * Returns a handle whose `rebuild()` fills the cards in again — what the
-   * step's own run calls once the targets have been acquired.
+   * Returns a handle whose `rebuild()` fills the list in again — what the
+   * step's own run calls as the targets are acquired — and whose `chosen()`
+   * answers a choice made on the canvas.
    */
   mount(host, ctx) {
     const side = document.createElement("div");
@@ -113,29 +122,35 @@ export default {
     const recording = document.createElement("div");
     recording.id = "target-type";
 
-    const pairsBox = sideGroup("Acquired pairs");
+    const listBox = sideGroup("Acquired targets");
     const about = document.createElement("div");
     about.className = "gallery-about";
     const note = document.createElement("div");
     note.className = "side-note";
-    note.textContent = "overview crop · target frame — mark each ✓ or ✗";
+    note.textContent = "choose a target here or on the canvas — mark it ✓ or ✗";
     const readout = document.createElement("span");
     readout.className = "readout";
     readout.id = "gallery-readout";
     readout.textContent = "—";
     about.append(note, readout);
 
-    const wrap = document.createElement("div");
-    wrap.className = "gallery-wrap";
-    const pairs = document.createElement("div");
-    pairs.className = "pairs";
-    pairs.id = "pairs";
-    wrap.append(pairs);
+    /* The list, in the focus step's own clothes: a row a target, the chosen
+       one lit, the box capped and scrolling past its few rows. */
+    const list = document.createElement("div");
+    list.className = "point-list";
+    list.id = "target-list";
+    listBox.body.append(about, list);
 
-    pairsBox.body.append(about, wrap);
+    /* The one pair on show: the chosen target's. */
+    const pairBox = sideGroup("Overview crop · target frame");
+    const pair = document.createElement("div");
+    pair.className = "pairs";
+    pair.id = "pairs";
+    pairBox.body.append(pair);
+
     /* Settle what to image first, then press: the run stands under the
        settings it will image with, the way Segment all stands under its. */
-    side.append(recording, act, pairsBox.group);
+    side.append(recording, act, listBox.group, pairBox.group);
     host.append(side);
 
     ctx.recordingSlot(recording, {
@@ -153,11 +168,37 @@ export default {
       readout.textContent = galleryTally(ctx.acquired(), ctx.verdicts());
     };
 
-    /** One card: the pictures, the caption, and the two marks. */
-    const cardFor = (id) => {
+    /* Only ids the run still knows: a re-discovery invalidates the old
+       ones, and a card for a cell nobody can look up crashed the panel. */
+    const known = () => ctx.acquired().filter((id) => ctx.cellById(id));
+
+    /** One row of the list: its place, its name, where it is, its verdict. */
+    const rowFor = (id, index) => {
+      const cell = ctx.cellById(id);
+      const verdict = ctx.verdicts()[id] ?? null;
+      const row = document.createElement("div");
+      row.className = "point-row";
+      row.dataset.target = id;
+      row.setAttribute("aria-current", String(id === ctx.selected()));
+      const pick = document.createElement("button");
+      pick.className = "point-pick"; pick.type = "button";
+      pick.setAttribute("aria-label", `choose target ${cell.id}`);
+      pick.innerHTML =
+        `<span class="idx">${index + 1}</span>` +
+        `<span class="name">${cell.id}</span>` +
+        `<span>${(cell.x / 1000).toFixed(2)}, ${(cell.y / 1000).toFixed(2)} mm</span>` +
+        `<span class="z verdict-${verdict ?? "none"}">${VERDICT_GLYPH[verdict] ?? "—"}</span>`;
+      pick.addEventListener("click", () => ctx.select(id));
+      row.append(pick);
+      return row;
+    };
+
+    /** The pair on show: the chosen target's pictures, caption and marks. */
+    const pairFor = (id) => {
       const cell = ctx.cellById(id);
       const card = document.createElement("div");
       card.className = "pair";
+      card.dataset.target = id;
 
       const imgs = document.createElement("div");
       imgs.className = "imgs";
@@ -176,7 +217,7 @@ export default {
         mark.type = "button";
         mark.className = `pick-${kind}`;
         mark.textContent = glyph;
-        mark.setAttribute("aria-pressed", "false");
+        mark.setAttribute("aria-pressed", String(ctx.verdicts()[id] === kind));
         mark.setAttribute("aria-label", `mark cell ${cell.id} ${kind}`);
         /* Pressing the mark it already carries takes it back off: a verdict
            given by mistake is undone the same way it was given. */
@@ -187,7 +228,7 @@ export default {
             one.setAttribute("aria-pressed",
               String(one.classList.contains(`pick-${verdicts[cell.id]}`)));
           }
-          sayTheTally();
+          showTheList();
         });
         marks.push(mark);
         verdict.append(mark);
@@ -197,15 +238,48 @@ export default {
       return card;
     };
 
-    const rebuild = () => {
-      pairs.textContent = "";
-      /* Only ids the run still knows: a re-discovery invalidates the old
-         ones, and a card for a cell nobody can look up crashed the panel. */
-      ctx.acquired().filter((id) => ctx.cellById(id)).forEach((id) => pairs.append(cardFor(id)));
+    /* The list and the tally follow the run; the pair follows the choice.
+       Redrawn apart, so marking a target does not fetch its pictures again. */
+    const showTheList = () => {
+      list.textContent = "";
+      const ids = known();
+      if (!ids.length) {
+        const none = document.createElement("div");
+        none.className = "none";
+        none.textContent = "Nothing acquired yet.";
+        list.append(none);
+      }
+      ids.forEach((id, index) => list.append(rowFor(id, index)));
       sayTheTally();
+    };
+    let pairShown = null;
+    const showThePair = () => {
+      const id = ctx.selected();
+      if (id === pairShown && pair.childElementCount) return;
+      pairShown = id;
+      pair.textContent = "";
+      if (id !== null && ctx.cellById(id)) pair.append(pairFor(id));
+    };
+
+    const rebuild = () => {
+      /* A choice outlives a rebuild while its target is still acquired; a
+         run that has just begun, or lost the chosen one, shows the newest. */
+      const ids = known();
+      if (!ids.includes(ctx.selected())) ctx.select(ids.at(-1) ?? null, { quietly: true });
+      showTheList();
+      showThePair();
     };
 
     rebuild();
-    return { rebuild };
+    return {
+      rebuild,
+      /** The choice changed -- here, or on the canvas. */
+      chosen() {
+        for (const row of list.querySelectorAll(".point-row")) {
+          row.setAttribute("aria-current", String(row.dataset.target === ctx.selected()));
+        }
+        showThePair();
+      },
+    };
   },
 };
