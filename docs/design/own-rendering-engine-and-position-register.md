@@ -50,6 +50,24 @@ what is precomputed rather than assembled on the fly.
   the gallery under their own measured preview contract, and never reach the
   canvas.
 
+## Inputs: two ways in, one form inside
+
+- **Two accepted inputs.** The flat OME-TIFF convention the microscope
+  writes today (one file per plane, or one file holding channels, listed
+  plane by plane in the capture record), and OME-Zarr 0.4 or 0.5 with axes
+  in the OME order: time, channel, depth, height, width (t, c, z, y, x).
+- **One form inside.** Everything is served to the engine as OME-Zarr 0.5
+  positions with those five axes. That is what the bridge's position writer
+  already makes from the vendor's TIFFs the moment a field lands, so a TIFF
+  input means conversion at the door, not a second reader in the engine.
+- **0.4 is read, not written.** The Viewer opens 0.4 stores today, so older
+  transfers work as sources; new positions are written as 0.5.
+- **What this rules out, on purpose.** Serving tiles straight out of TIFF
+  files. It would need a second tile server and a second cache path, and the
+  conversion is already paid at landing.
+- **The register records the origin.** Which TIFFs a position came from, so
+  provenance survives the conversion.
+
 ## The register: one file, four readers
 
 The link that makes ten thousand positions possible is a register of the
