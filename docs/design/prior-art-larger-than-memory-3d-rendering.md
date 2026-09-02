@@ -22,27 +22,24 @@ adding a coordinate: bricks change filtering, borders, transfer size and
 sampling, and WebGPU has a different resource model from WebGL2. Read the
 section below with that in mind.
 
-## The one idea every one of them shares
+## What they share, said no more strongly than the evidence allows
 
-Every serious system below does the same four things, whatever it calls
-them. Our later design should do them too, and the two-dimensional engine
-should already be shaped so that it can.
+The systems below differ in a great deal, and this note could read several
+of them only as abstracts. What can be said of all of them is narrow:
 
-1. **Bricks, not arrays.** The volume is cut into small cubes of a fixed
-   size at every pyramid level (32 or 64 voxels a side is usual), and a brick
-   is the unit of loading, caching and eviction.
-2. **A fixed GPU budget.** A single large texture, the atlas or cache
-   texture, holds however many bricks fit, and bricks are evicted least
-   recently used. The picture never asks for more graphics memory than it
-   was given.
-3. **Indirection.** A small lookup structure (a page table, a lookup
-   texture, or an octree) tells the shader where each brick of each level
-   lives in the atlas, or that it is missing.
-4. **Coarse stands in for fine.** When the brick the ray wants is not
-   resident, the shader samples the coarsest resident brick that covers the
-   place, so the picture is complete at once and sharpens as bricks arrive.
-   How elegantly the substitution is done is most of the difference between
-   the systems.
+1. **Bricks, not arrays.** The volume is cut into small blocks of a fixed
+   size at every pyramid level, and a block is the unit of loading, caching
+   and eviction.
+2. **A bounded budget of graphics memory**, with some eviction rule when it
+   is full. How the resident blocks are laid out differs: some use one large
+   atlas texture, neuroglancer in the version this project pins keeps a
+   texture per chunk.
+3. **An explicit lookup** that tells the renderer where a block is resident,
+   or that it is missing. Whether that lookup is a texture, a page table, a
+   tree, or plain code on the CPU side differs.
+4. **Coarse stands in for fine.** When the block a ray wants is not resident,
+   a coarser resident block that covers the place is sampled instead, so the
+   picture is complete at once and sharpens as blocks arrive.
 
 ## Web, browser-native
 
@@ -119,19 +116,24 @@ should already be shaped so that it can.
 
 ## What of it applies to us, and what does not
 
-- Bricks, a fixed atlas, indirection and coarse-for-fine substitution are
-  the design. Our two-dimensional tiles are bricks with a depth of one, and
-  the tile cache should be written so that a brick with depth is the same
-  object with one more coordinate.
+- The four shared ideas apply: bounded residency, multiscale blocks, an
+  explicit lookup, and a coarse fallback while fine data arrives. The
+  particular layouts do not transfer: a two-dimensional tile cache does not
+  become a three-dimensional one by adding a coordinate, because bricks
+  change filtering, borders, transfer size and sampling, and WebGPU has a
+  different resource model from WebGL2. The engine design therefore commits
+  to a clean separation of tile source, cache policy and drawing, and to
+  nothing more.
 - Several volumes at once is our ordinary case (channels, and collections at
-  their own placements), so the residency-octree line of work fits us better
-  than single-volume ray casters.
-- WebGPU is where the browser-native work has gone. Our two-dimensional
-  engine can be WebGL2; the three-dimensional phase should assume WebGPU and
-  the compute-shader ray marching Kiln uses.
+  their own placements), so the residency-octree line of work is the one to
+  read most closely when the three-dimensional phase comes.
+- The browser-native out-of-core renderers found here use WebGPU; that is a
+  fact about these projects, not a survey of the field. The two-dimensional
+  engine is WebGL2, and the three-dimensional phase will choose from
+  measurements.
 - What none of them do is our sparse, many-position layout with a register:
-  they assume one dense volume, or a few. The register and the fan-in rule
-  are ours to design; the brick machinery beneath them is not new.
+  they assume one dense volume, or a few. The register and the cost model are
+  ours to design; the block machinery beneath them is not new.
 
 ## Links
 
