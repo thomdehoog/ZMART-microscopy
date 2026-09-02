@@ -17,13 +17,13 @@
    Fast is what QuPath's cell detection does -- background off, a blob
    response, a watershed -- a second or two a field with no model to load. */
 export const ALGOS = {
-  accurate: {
-    label: "Accurate",
-    blurb: "Cellpose. Diameter is the size it looks for; cell probability is how sure it has to be.",
-  },
   fast: {
     label: "Fast",
     blurb: "Watershed, as QuPath does it. Diameter sets its scale; threshold is how bright a nucleus must be above the background, in counts.",
+  },
+  accurate: {
+    label: "Accurate",
+    blurb: "Cellpose. Diameter is the size it looks for; cell probability is how sure it has to be.",
   },
 };
 
@@ -92,9 +92,13 @@ export default {
     /* One box carries the whole act of looking: the image being judged,
        the settings that produced it, and the presses that try them -- the
        operator tunes and looks in one place instead of two cards apart. */
-    /* Which way the objects are found, above the card that tries it: a
-       choice of two, and a line saying what each asks of the settings. */
+    /* Which way the objects are found, above the card that tries it: one
+       labelled row, in the settings' own clothes. */
     const method = sideGroup("Detection method");
+    const methodRow = document.createElement("div");
+    methodRow.className = "detect-params";
+    const methodParam = document.createElement("div");
+    methodParam.className = "param method";
     const methodPick = document.createElement("select");
     methodPick.id = "detect-method";
     methodPick.setAttribute("aria-label", "how the objects are found");
@@ -110,9 +114,9 @@ export default {
       settings.tested = false;
       refresh();
     });
-    const methodNote = document.createElement("div");
-    methodNote.className = "side-note";
-    method.body.append(methodPick, methodNote);
+    methodParam.append(methodPick);
+    methodRow.append(methodParam);
+    method.body.append(methodRow);
 
     const test = sideGroup("Test object detection");
     const params = document.createElement("div");
@@ -188,27 +192,37 @@ export default {
        way absolutely-centred pieces could. */
     const line = document.createElement("div");
     line.className = "tile-line";
-    line.append(maskToggle, picker, greyToggle);
-    canvasHost.append(cv, line);
+    /* What the last test found stands on the line, beside the picker. */
+    const count = document.createElement("span");
+    count.className = "tile-count";
+    count.id = "detect-found";
+    line.append(maskToggle, picker, count, greyToggle);
+    /* The picture in a square box of its own, so the canvas is sized by
+       the box and not by the host that also holds the control line. */
+    const pictureBox = document.createElement("div");
+    pictureBox.className = "tile-picture";
+    pictureBox.append(cv);
+    canvasHost.append(pictureBox, line);
 
     const readout = document.createElement("div");
     readout.className = "side-note";
     readout.id = "detect-readout";
 
     /* Inside the card, the segmentation is a grey header over its rows --
-       a section of the box, not a box of its own -- and the two presses
-       share one row: try it here, or run it everywhere. */
+       a section of the box, not a box of its own -- and the card ends on
+       its own press, the trial. The run over the whole sample is the
+       step's press, and stands under the card the way every step's does. */
     const cellposeHead = document.createElement("div");
     cellposeHead.className = "side-subhead";
     cellposeHead.textContent = "Cellpose segmentation";
     const tryBtn = document.createElement("button");
-    tryBtn.className = "ghost";
+    tryBtn.className = "run";
     tryBtn.type = "button";
     tryBtn.id = "detect-try";
     tryBtn.textContent = "Test this tile";
     const presses = document.createElement("div");
     presses.className = "detect-presses";
-    presses.append(tryBtn, act);
+    presses.append(tryBtn);
     test.body.append(canvasHost, readout, cellposeHead, params, presses);
 
     /* Where the run says how it is going: hidden until a run begins, then
@@ -218,15 +232,24 @@ export default {
        workers' spawn corrects itself instead of colouring the estimate. */
     const progress = sideGroup("Progress");
     progress.group.style.display = "none";
-    const doingLine = document.createElement("div");
-    doingLine.className = "side-note";
+    /* A bar that fills as the fields land, sweeping while the workers are
+       still starting; under it what is being segmented and, at the other
+       end, the arithmetic. */
+    const bar = document.createElement("div");
+    bar.className = "progress-bar";
+    const fill = document.createElement("div");
+    fill.className = "progress-fill";
+    bar.append(fill);
+    const progressLine = document.createElement("div");
+    progressLine.className = "progress-line";
+    const doingLine = document.createElement("span");
     doingLine.id = "detect-doing";
-    const countLine = document.createElement("div");
-    countLine.className = "side-note";
+    const countLine = document.createElement("span");
     countLine.id = "detect-count";
-    progress.body.append(doingLine, countLine);
+    progressLine.append(doingLine, countLine);
+    progress.body.append(bar, progressLine);
 
-    side.append(method.group, test.group, progress.group);
+    side.append(method.group, test.group, progress.group, act);
     host.append(side);
 
     /* The picture of the field being looked at, drawn when it arrives. The
@@ -309,7 +332,9 @@ export default {
          the same rule the simulator's target mock lives by. */
       paint.imageSmoothingEnabled = false;
       if (picture) {
-        if (settings.imageGrey) paint.filter = "grayscale(1)";
+        /* Set either way: a filter left on the context outlives the
+           press that turned it off. */
+        paint.filter = settings.imageGrey ? "grayscale(1)" : "none";
         paint.drawImage(picture, ox, oy, frame * scale, frame * scale);
         paint.filter = "none";
       }
@@ -353,10 +378,12 @@ export default {
       (masksWanted && !mask ? settings.tried : []).forEach((cell, n) => {
         const r = Math.max(3, cell.r * scale);
         paint.beginPath(); paint.arc(X(cell.x), Y(cell.y), r, 0, Math.PI * 2);
-        paint.fillStyle = labelColour(n, 0.35);
+        /* One colour, edge and inside alike: a darker rim read as a ring
+           drawn around something rather than the object itself. */
+        paint.fillStyle = labelColour(n, 0.55);
         paint.fill();
-        paint.lineWidth = 1.4;
-        paint.strokeStyle = labelColour(n, 1);
+        paint.lineWidth = 1.2;
+        paint.strokeStyle = labelColour(n, 0.55);
         paint.stroke();
       });
       paint.restore();
@@ -384,7 +411,6 @@ export default {
       alpha.value = String(Math.round((settings.maskAlpha ?? 1) * 100));
       const fast = settings.algo === "fast";
       methodPick.value = settings.algo;
-      methodNote.textContent = ALGOS[settings.algo]?.blurb ?? "";
       cellposeHead.textContent = fast ? "Watershed segmentation" : "Cellpose segmentation";
 
       params.textContent = "";
@@ -408,7 +434,7 @@ export default {
       number("Diameter", "diameter", 4, 200, 1, "µm");
       /* What each method is sure by: Cellpose its probability, the
          watershed a brightness above the background. */
-      if (fast) number("Threshold", "threshold", 0, 65535, 10, "");
+      if (fast) number("Threshold", "threshold", 0, 65535, 10, "counts");
       else number("Cell prob.", "cellprob", -6, 6, 0.5, "");
       /* A cell nearer the field's edge than this is dropped: a clipped cell
          measures as a smaller, dimmer thing that it is not. Zero keeps
@@ -419,14 +445,14 @@ export default {
          to the full frame, and the features are still measured there. */
       number("Binning", "binning", 1, 8, 1, "×");
 
-      if (settings.tested) {
-        readout.textContent =
-          `${settings.tried.length} objects at position ${settings.tile + 1}${onThe(settings.triedOn)}`;
-      } else {
-        /* Nothing to say until something was measured: the card carries no
-           standing caption, only results and errors. */
-        readout.textContent = "";
-      }
+      /* The result stands on the control line; the line under the picture
+         carries only what went wrong. */
+      const device = settings.triedOn === "cpu" ? "CPU"
+        : settings.triedOn === "cuda" || settings.triedOn === "mps" ? "GPU" : null;
+      count.textContent = settings.tested
+        ? `${settings.tried.length} objects${device ? ` · ${device}` : ""}`
+        : "";
+      if (settings.tested) readout.textContent = "";
     }
 
     function refresh() {
@@ -452,6 +478,7 @@ export default {
     let testing = null;
     const sayThePress = () => {
       tryBtn.textContent = testing ? (testing.stopping ? "stopping…" : "Interrupt") : "Test this tile";
+      tryBtn.classList.toggle("running", !!testing);
       tryBtn.disabled = Boolean(testing?.stopping);
     };
     tryBtn.addEventListener("click", () => {
@@ -463,7 +490,7 @@ export default {
       }
       const settings = ctx.settings();
       settings.tested = false;
-      readout.textContent = `looking at position ${settings.tile + 1}…`;
+      readout.textContent = "";
       /* The first test on a cold machine pays the worker's whole spawn --
          a silent minute that read as a dead button. The bar says so, and
          counts, so the wait has a size instead of a mood. */
@@ -507,6 +534,8 @@ export default {
       progress.group.style.display = "";
       if (snap.start) {
         ranSince = performance.now();
+        bar.classList.add("busy");
+        fill.style.width = "0%";
         doingLine.textContent = "starting the workers…";
         countLine.textContent = "";
         return;
@@ -517,12 +546,14 @@ export default {
         const gone = (performance.now() - ranSince) / 1000;
         const per = snap.done ? gone / snap.done : null;
         const still = snap.of - snap.done;
+        bar.classList.toggle("busy", still > 0);
+        fill.style.width = `${(100 * snap.done) / snap.of}%`;
         countLine.textContent = per === null
-          ? `0 of ${snap.of} segmented`
-          : `${snap.done} of ${snap.of} segmented · ${still} still to go`
-            + (still ? ` · ≈ ${saySpan(per * still)} left (${saySpan(per)} each)` : "");
+          ? `0 of ${snap.of}`
+          : `${snap.done} of ${snap.of}` + (still ? ` · ≈ ${saySpan(per * still)} left` : "");
       }
       if (snap.ended) {
+        bar.classList.remove("busy");
         doingLine.textContent = snap.note;
         ranSince = null;
       }

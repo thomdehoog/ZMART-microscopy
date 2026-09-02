@@ -427,15 +427,17 @@ button.run:disabled { opacity: 0.4; cursor: default; }
    collides however narrow the channel gets. */
 .tile-host { position: relative; }
 .tile-line {
-  position: absolute; left: 0; right: 0; bottom: 0; height: 24px;
+  height: 24px; margin-top: 8px;
   display: flex; align-items: center; gap: 8px;
 }
 .tile-line .tile-pick { margin: 0 auto; }
+/* What the last test found, on the control line beside the picker. */
+.tile-line .tile-count { font-family: var(--mono); font-size: 11.5px; color: var(--ink-2); margin-right: 8px; white-space: nowrap; }
 /* One chip family on the image's control line: every press the same
    height and corner, however it is built. */
 .tile-host .tile-pick .ghost.tiny,
 .mask-toggle .ghost.tiny,
-.image-toggle .ghost.tiny { border-radius: 6px; height: 22px; }
+.image-toggle .ghost.tiny { border-radius: 6px; height: 28px; font-size: 12px; padding: 0 10px; }
 .mask-toggle { display: flex; gap: 2px; align-items: center; }
 /* The slider in the house dress too: a slim line and a small round
    thumb, not the browser's chunky default -- the last raw widget on an
@@ -945,17 +947,22 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
    box it usually crowns. */
 .side-subhead {
   font-size: 11px; font-weight: 700; letter-spacing: 0.08em;
-  text-transform: uppercase; color: var(--ink-3); padding: 10px 0 0 6px;
+  text-transform: uppercase; color: var(--ink-3); padding: 10px 0 0;
 }
 /* The try and the run share one row, fill it half-and-half, and stand
    the same height: two presses of different builds must not read as
    different weights of control. */
+/* A press whose run is under way turns: a ring at its right, so a button
+   reading Interrupt is seen to be waiting on something. */
+button.run.running::after {
+  content: ""; display: inline-block; width: 12px; height: 12px; margin-left: 8px;
+  vertical-align: -2px; border-radius: 50%;
+  border: 2px solid currentColor; border-right-color: transparent;
+  animation: press-turning 0.9s linear infinite;
+}
+@keyframes press-turning { to { transform: rotate(360deg); } }
 .detect-presses { display: flex; align-items: center; gap: 8px; }
-.detect-presses > .ghost { flex: 1; }
-.detect-presses .side-act { flex: 1; }
-.detect-presses .side-act .step-run { width: 100%; }
-.detect-presses > .ghost,
-.detect-presses .side-act .step-run { height: 34px; }
+.detect-presses > .run { flex: 1; height: 34px; align-self: stretch; }
 
 /* Two rows, read downward then across: Diameter and Cell prob. on the
    left, Border and Binning beside them -- the card stays two rows tall
@@ -967,15 +974,50 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
 /* Label, input, unit: three settled columns, so every input starts on one
    line whether or not a unit follows it -- flexed labels left the rows
    ragged wherever the unit was missing. */
-.detect-params .param { display: grid; grid-template-columns: 1fr 88px 26px; }
+.detect-params .param { display: grid; grid-template-columns: 1fr 88px 48px; }
+/* A choice takes the room a number and its unit share; the method, the
+   whole row. */
+.detect-params .param select { grid-column: 2 / -1; }
+.detect-params .param.method { grid-template-columns: 1fr; }
+.detect-params .param.method select { grid-column: 1; width: 100%; }
 .detect-params .param label { flex: none; }
 .detect-params button.ghost { margin-top: 2px; }
 /* No side padding: the image starts and ends where the card's rows do,
-   and the bottom room is the control line's, under the picture. */
-.tile-host { padding: 0 0 30px; }
-.tile-host canvas { display: block; width: 100%; aspect-ratio: 1 / 1; border-radius: 6px; }
+   and the control line follows the picture at once. */
+.tile-host { padding: 0; }
+.tile-picture { width: 100%; aspect-ratio: 1 / 1; }
+.tile-host canvas { display: block; width: 100%; height: 100%; border-radius: 6px; }
 /* the channel's closing line: what was found, or what the controls listen to */
 .side-note { padding: 8px 14px 12px; font-size: 12px; color: var(--ink-3); line-height: 1.4; }
+/* Inside a card the box already keeps the margin: a note starts where the
+   rows do, not a second inset in. */
+.side-group-body > .side-note { padding-left: 0; padding-right: 0; }
+/* A run's progress: a bar filling as the fields land, a sweep along it
+   while the run is still going, and one line under it -- what is being done
+   at the left, how far along at the right. */
+.progress-bar {
+  position: relative; height: 6px; border-radius: 3px; overflow: hidden;
+  background: var(--line);
+}
+.progress-fill {
+  height: 100%; width: 0; background: var(--accent); border-radius: 3px;
+  transition: width 0.5s ease;
+}
+.progress-bar.busy::after {
+  content: ""; position: absolute; inset: 0; width: 30%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.55), transparent);
+  animation: progress-sweep 1.4s linear infinite;
+}
+@keyframes progress-sweep {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(400%); }
+}
+.progress-line {
+  display: flex; justify-content: space-between; align-items: baseline; gap: 12px;
+  font-family: var(--mono); font-size: 11.5px; color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+.progress-line #detect-count { color: var(--ink-1); flex: none; }
 
 /* ---- the selection channel ----------------------------------------------
    The gated cells light up on the canvas; the channel holds the scatter they
@@ -988,16 +1030,16 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
 .analysis-legend {
   font-size: 12px; color: var(--ink-2);
 }
-.scatter-wrap { padding: 12px 14px 0; }
+.scatter-wrap { padding: 4px 0 0; }
 /* the tip positions against the plot exactly, so the box it lives in is the
    canvas's own and nothing wider */
 .scatter-host { position: relative; }
 /* A long cell id wraps inside the tip instead of widening it offscreen. */
 #scatter-tip { max-width: 200px; overflow-wrap: anywhere; }
 .scatter-host canvas {
-  /* Slightly wider than tall: a square plot as wide as the channel
-     pushed the gate list and the step's own Confirm below the fold. */
-  display: block; width: 100%; aspect-ratio: 5 / 4;
+  /* Square, and as wide as the card: the plot is the step's whole work,
+     and the column scrolls for what stands under it. */
+  display: block; width: 100%; aspect-ratio: 1 / 1;
   touch-action: none; cursor: crosshair;
 }
 /* a button in a heading keeps its own case */
@@ -1535,14 +1577,19 @@ canvas.livecv[hidden] { display: none; }
    given more children than columns quietly wraps them onto a second row,
    which scrambled the whole page the first time the panel appeared. */
 .canvas-body { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto auto; min-height: 0; }
-/* The column's fold: a 14px strip on its edge, the same strip the viewer's
-   own panel folds with. Pressed, the column goes and the strip stays as the
+/* The column's fold: a small handle halfway down its edge, not a strip the
+   height of the page. Pressed, the column goes and the handle stays as the
    way back, so the canvas takes the room and nothing is lost. */
 .side-fold {
-  width: 14px; padding: 0; border: none; cursor: pointer;
-  border-left: 1px solid var(--line); border-right: 1px solid var(--line);
+  width: 16px; height: 48px; padding: 0; cursor: pointer; align-self: center;
+  /* A tab on the column's edge: rounded on the side that faces the
+     canvas, flat and open where it meets the column, so it reads as part
+     of it rather than a button laid beside it. */
+  border: 1px solid var(--line); border-right: none; border-radius: 8px 0 0 8px;
   background: var(--surface-2); color: var(--ink-3); font: inherit; font-size: 12px;
-  align-self: stretch;
+  /* Over the canvas's edge rather than in a column of its own: the grid
+     gives it no room, so folded, only the tab shows at the right. */
+  margin-left: -16px; position: relative; z-index: 3;
 }
 .side-fold:hover { color: var(--ink); background: var(--accent-line); }
 .side-fold[hidden] { display: none; }
@@ -1559,7 +1606,7 @@ canvas.livecv[hidden] { display: none; }
 .display-side > .viewer-panel > div { width: 100% !important; }
 /* In the column the panel wears the page's boxes: its rows keep their own
    inset, so the box holds them without a second one. */
-.display-side .viewer-panel .side-group-body { padding: 6px 2px; gap: 0; }
+.display-side .viewer-panel .side-group-body { padding: 10px 2px; gap: 0; }
 /* Two tabs at the end of the row, over the one column they switch. */
 .side-tab { gap: 2px; }
 /* The channel's edge, made draggable. It sits over the channel's own border
@@ -1969,7 +2016,7 @@ canvas.livecv[hidden] { display: none; }
 /* The two pickers split the row evenly, so its geometry does not
    change with whichever feature happens to be chosen. */
 .gate-axes { display: flex; gap: 14px; padding: 2px 0 6px; }
-.gate-axes label { flex: 1; }
+.gate-axes label { flex: 1; font-weight: 700; color: var(--ink-2); }
 .gate-axes select { flex: 1; max-width: none; min-width: 0; }
 .gate-axes label {
   display: flex; align-items: center; gap: 6px;
@@ -2033,3 +2080,14 @@ canvas.livecv[hidden] { display: none; }
 .scan-summary .v { color: var(--ink-1); }
 .side-act:empty { display: none; }
 .side-act .action-hint { font-size: 12px; }
+
+/* The job to record with: its own row above the press, the word at the
+   left and the choice taking the rest, like a settings row elsewhere. */
+.rec-offered { grid-column: 1 / -1; padding: 0 0 8px; }
+.rec-offered[hidden] { display: none; }
+.rec-offered label { display: grid; grid-template-columns: 88px minmax(0, 1fr); align-items: center; gap: 10px; font-size: 12.5px; color: var(--ink-2); }
+.rec-offered select {
+  font: inherit; font-size: 12.5px; height: var(--control); padding: 0 8px;
+  border: 1px solid var(--line-strong); border-radius: 6px; background: var(--screen); color: var(--ink);
+  min-width: 0; width: 100%;
+}

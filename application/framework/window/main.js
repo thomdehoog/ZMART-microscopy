@@ -34,8 +34,9 @@ import {
 } from "../../parts/microscope/recordings.js";
 import carrierWidget from "../../workflows/target_acquisition/steps/define_carrier/carrier-panel.js";
 import scanfieldsWidget, { presetInk } from "../../workflows/target_acquisition/steps/define_scan_area/scanfield-editor.js";
-import detectionPanel, { ALGOS, settingsFor }
+import detectionPanel, { settingsFor }
   from "../../workflows/target_acquisition/steps/discover_targets/detection.js";
+import { forgetTheMasks } from "../../workflows/target_acquisition/steps/discover_targets/layers.js";
 import gatingPanel from "../../workflows/target_acquisition/steps/refine_targets/gate.js";
 import galleryWidget from "../../workflows/target_acquisition/steps/acquire_targets/gallery.js";
 /* The rehearsal's own maths — the deterministic random stream, the autofocus
@@ -94,18 +95,17 @@ let stageWatch = null;
   /** What discovery came to, said beside the button: how many, by what, and
       on the CPU when any field had to be -- ten minutes a field, and a run
       that fell back looked exactly like one on the card. */
-  const discoveryNote = () =>
-    `${state.cells.size} targets · ${ALGOS[state.detect.algo].label}`
-    + (state.cellDevices.has("cpu") ? " · on the CPU" : "");
+  const discoveryNote = () => `${state.cells.size} targets`;
 
   /** Where a capture's picture is: the viewer's small copy, by the capture's
       label -- drawn with the canvas's own display settings for that
       acquisition when there are any, so the preview and the gallery show the
       sample the way the picture shows it. */
-  const pictureOf = (kind, label) => {
+  const pictureOf = (kind, label, { displayAs = kind } = {}) => {
     const where = backend.viewOf(kind);
     if (!where || !label) return null;
-    return `${where}/${label}.jpg${displayQueryFor(window.__viewerPanel?.snapshot?.() ?? null, kind)}`;
+    const snapshot = window.__viewerPanel?.snapshot?.() ?? null;
+    return `${where}/${label}.jpg${displayQueryFor(snapshot, displayAs) || displayQueryFor(snapshot, kind)}`;
   };
 
   /* Targets arrive far faster than a picture can be drawn. One redraw per
@@ -158,7 +158,7 @@ let stageWatch = null;
   // tile, then applied to the rest
   function newDetect() {
     return {
-      algo: "accurate",  // how objects are found: accurate (Cellpose) | fast (watershed)
+      algo: "fast",  // how objects are found: fast (watershed) | accurate (Cellpose)
       diameter: 30,
       cellprob: 0,
       threshold: 100,  // fast only: a nucleus's mean above background, in counts
@@ -702,6 +702,11 @@ let stageWatch = null;
       state.acquiredLabels = {};
       state.verdicts = {};
       state.cellsShown = true;
+      forgetTheMasks();
+      /* The picture goes grey the moment the run starts: the objects are
+         what is being looked at now, and the colours would fight their
+         labels as they land. */
+      window.__viewerPanel?.drawInGrey?.("overview", true);
       detectionShown?.progress?.({ start: true });
       backend.discoverTargets({
         settings: settingsFor(state.detect),
@@ -709,7 +714,11 @@ let stageWatch = null;
           status.say(sentence);
           detectionShown?.progress?.({ doing: sentence });
         },
-        onProgress: (done, of) => detectionShown?.progress?.({ done, of }),
+        onProgress: (done, of) => {
+          detectionShown?.progress?.({ done, of });
+          /* A field's masks land on the canvas as its detection does. */
+          redrawSoon();
+        },
         onField: (field) => {
           if (state.running !== s.id) return;
           fieldFound(field);
@@ -927,6 +936,10 @@ let stageWatch = null;
     /* Walking to a step is asking for its channel: the display settings a
        step was left on do not follow the operator to the next one. */
     state.sideView = "channel";
+    /* The focus stack was there to judge the focus; over the overview it
+       is a square of other pixels on the picture the operator came to
+       look at. Its eye is pressed for them on the way to the scan. */
+    if (steps()[i]?.id === "scan") window.__viewerPanel?.showAcquisition?.("focussing", false);
     /* The gallery's pictures wear the canvas's display settings, which may
        have changed since they were drawn: coming back to the step draws
        them again with the settings of now. */
@@ -963,6 +976,10 @@ let stageWatch = null;
     setSlot: (next) => { state[opts.key] = next; },
     running: () => state.running,
     readSetting: (type, how) => backend.readSetting(type, how),
+    /* What the instrument offers to choose before the reading, and the
+       choosing itself -- both the driver's, in its own words. */
+    offered: () => backend.acquisitionOptions?.() ?? Promise.resolve({}),
+    apply: (settings) => backend.set_state(settings),
   });
 
   function carrierSettled() {
@@ -1256,9 +1273,11 @@ let stageWatch = null;
       acquired: () => state.acquired,
       verdicts: () => state.verdicts,
       cellById: (id) => state.cells.get(id),
+      /* The field's crop wears the target's own display, so the two halves
+         of a pair are one comparison and not two pictures. */
       fieldOf: (cell) => ({
         ...state.plan[cell.field],
-        picture: pictureOf("overview", state.fieldLabels[cell.field]),
+        picture: pictureOf("overview", state.fieldLabels[cell.field], { displayAs: "targets" }),
       }),
       pictureOf: (id) => pictureOf("targets", state.acquiredLabels[id]),
       selected: () => state.selectedTarget,
@@ -1618,7 +1637,10 @@ let stageWatch = null;
     divider.addEventListener("pointermove", (e) => {
       if (!resizing) return;
       const box = body.getBoundingClientRect();
-      const width = Math.max(240, Math.min(box.width - 360, Math.round(box.right - e.clientX)));
+      /* No narrower than the widest card's row: the focus step's two hand
+         tools and two counts side by side, which a 240 px column cut in
+         half. */
+      const width = Math.max(440, Math.min(box.width - 360, Math.round(box.right - e.clientX)));
       document.documentElement.style.setProperty("--side-w", `${width}px`);
       /* The channel's own observers redraw what lives in it; the stage is
          resized here, since its panel — the thing observed — has not moved. */
@@ -1876,9 +1898,6 @@ let stageWatch = null;
        the tab row can offer the tab exactly while there is something to
        show under it. */
     displayHost: () => theCanvas.display,
-    /* The picture's own switch, through the canvas's layer flag: every layer
-       that asks whether the picture is showing reads that flag. */
-    showPicture: (on) => stage.showLayer("picture", on),
     /* Only the tab row and the column: rendering every panel from here
        reaches the picture, which mounts the settings again, which says so
        again -- a loop that never let the page settle. */

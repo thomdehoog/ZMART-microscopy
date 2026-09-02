@@ -428,7 +428,7 @@ def _write_a_frame(
         f"T000000_C{channel:02d}_Z{z_index:05d}.ome.tiff"
     )
     path.parent.mkdir(parents=True, exist_ok=True)
-    frame_px, px = _frame_of(acquisition_type)
+    frame_px, px = _frame_of(handle.job, acquisition_type)
     where = _user_position(handle)
     frame = _the_sample_from(np, where["x"], where["y"], height_um, channel, frame_px, px)
     size = frame.shape[0]
@@ -452,23 +452,27 @@ _FRAME_PX = 256
 #: the predicted-height map -- one as wide as a field hid the map it was
 #: measured for. A real autofocus window is smaller than the camera's frame.
 _FOCUS_FRAME_PX = _FRAME_PX // 2
-#: A target's frame: the high-resolution job's. Far fewer micrometres across
-#: than an overview field and finer pixels over them, so that on the page a
-#: target reads as the close look it is and not as a second overview field
-#: laid over the first. The tissue under it is the same micrograph, sampled
-#: finer than it was recorded -- what a mock can offer for magnification.
-_TARGET_FRAME_PX = 128
-_TARGET_PIXEL_UM = 1.0
+#: What each job images: how many pixels across and how much sample one
+#: pixel covers. The job owns the geometry, as on a real instrument, where
+#: the objective and the format come with the job the operator selected.
+#: ``HiRes`` is the close look for targets: far fewer micrometres across
+#: than an overview field and finer pixels over them -- the same micrograph
+#: sampled finer than it was recorded, what a mock can offer for
+#: magnification.
+_JOB_FRAMES: dict[str, tuple[int, float]] = {
+    "Overview": (_FRAME_PX, _PIXEL_UM),
+    "HiRes": (128, 1.0),
+    "Survey": (_FRAME_PX, _PIXEL_UM),
+}
 
 
-def _frame_of(acquisition_type: str) -> tuple[int, float]:
-    """How wide this kind of capture is in pixels, and how much sample one
-    pixel covers, in micrometres."""
+def _frame_of(job: str, acquisition_type: str) -> tuple[int, float]:
+    """How wide a capture under this job is in pixels, and how much sample
+    one pixel covers, in micrometres. A focus stack takes half the side."""
+    frame_px, pixel_um = _JOB_FRAMES.get(job, (_FRAME_PX, _PIXEL_UM))
     if acquisition_type == "focussing":
-        return _FOCUS_FRAME_PX, _PIXEL_UM
-    if acquisition_type == "targets":
-        return _TARGET_FRAME_PX, _TARGET_PIXEL_UM
-    return _FRAME_PX, _PIXEL_UM
+        return frame_px // 2, pixel_um
+    return frame_px, pixel_um
 
 #: The speck's size in pixels, and how much of the full range its edges span.
 #: Its squares are two pixels wide: a sharpness metric reads the difference two
@@ -610,10 +614,11 @@ def get_state(handle: MockHandle) -> dict:
                 "immersion": handle.immersion,
             },
             "zoom": handle.zoom,
-            "pixel_size": {"x": _PIXEL_UM, "y": _PIXEL_UM, "unit": "um"},
+            # The job's own geometry: what a capture under it will be.
+            "pixel_size": {"x": _frame_of(handle.job, "")[1], "y": _frame_of(handle.job, "")[1], "unit": "um"},
             "frame_size": {
-                "x": _FRAME_PX * _PIXEL_UM,
-                "y": _FRAME_PX * _PIXEL_UM,
+                "x": _frame_of(handle.job, "")[0] * _frame_of(handle.job, "")[1],
+                "y": _frame_of(handle.job, "")[0] * _frame_of(handle.job, "")[1],
                 "unit": "um",
             },
         },

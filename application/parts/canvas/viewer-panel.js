@@ -277,11 +277,6 @@ export async function mountViewerPanel(near, {
   viewer,
   acquisitions,
   into = null,
-  /* How to switch the picture on and off. The page's canvas keeps the flag
-     every layer reads -- the focus map goes solid when the picture is off --
-     so the page hands the switch that keeps that flag; the engine's own
-     switch is the fallback for a panel mounted without a page. */
-  showPicture = null,
   requestedState = null,
   /* Kept for callers from the first cleanup checkpoint. */
   requestedVisibility = null,
@@ -386,7 +381,7 @@ export async function mountViewerPanel(near, {
   const plot = document.createElementNS("http://www.w3.org/2000/svg", "svg");
   plot.setAttribute("preserveAspectRatio", "none");
   plot.style.cssText = [
-    "display:block", "width:100%", "height:60px", `color:${INK.textBright}`,
+    "display:block", "width:100%", "height:84px", `color:${INK.textBright}`,
     `background:${INK.inputBg}`, `border:1px solid ${INK.subtleBorder}`,
     "border-radius:3px", "touch-action:none",
   ].join(";");
@@ -457,7 +452,7 @@ export async function mountViewerPanel(near, {
   opacityRow.slider.min = "0"; opacityRow.slider.max = "1"; opacityRow.slider.step = "0.01";
   opacityRow.slider.value = "1";
   settings.append(
-    chosenHead, measurementNotice, plotWrap, histogramValue, axisRow,
+    chosenHead, plotWrap, histogramValue, axisRow,
     minRow.line, maxRow.line, opacityRow.line,
   );
 
@@ -721,6 +716,41 @@ export async function mountViewerPanel(near, {
     viewer.setChannel(chosen, { weight: row.weight });
   });
 
+  /**
+   * A window for every channel that has none yet, measured off the picture
+   * the way Auto measures the chosen one. Without it a channel opened on
+   * its full data range drew next to black, and a three-colour acquisition
+   * showed on the canvas as whichever one channel had been measured.
+   * Sequential, so the viewer's server answers one at a time; a row the
+   * operator has since windowed by hand is left alone.
+   */
+  let windowingEveryChannel = false;
+  async function windowEveryChannel() {
+    if (windowingEveryChannel) return;
+    windowingEveryChannel = true;
+    try {
+      for (const [index, row] of rows.entries()) {
+        if (row.window || !row.source) continue;
+        const result = await measureViewerRow(row, {
+          box: viewer.measurementBox?.(index) ?? [[0, 0], [1, 1]],
+        });
+        if (!result?.ok || !result.answer?.window || row.window) continue;
+        const { low, high } = result.answer.window;
+        if (!Number.isFinite(low) || !Number.isFinite(high)) continue;
+        row.histogram = result.answer.histogram ?? row.histogram;
+        row.window = { low, high: Math.max(high, low + 1) };
+        remember(row);
+        viewer.setChannel(index, { window: row.window });
+        if (chosen === index) {
+          shape = row.histogram;
+          refreshControls();
+        }
+      }
+    } finally {
+      windowingEveryChannel = false;
+    }
+  }
+
   async function requestMeasurement(index, { auto = false, debounce = 0 } = {}) {
     cancelMeasurement();
     const generation = measurementGeneration;
@@ -874,7 +904,7 @@ export async function mountViewerPanel(near, {
   }, { passive: false });
 
   /* ---- the data card: groups, eyes, swatches, names ---- */
-  const { card: dataCard, body: data } = aCard("data");
+  const { card: dataCard, body: data } = aCard("acquired images");
   const engineNotice = el("div", [
     "display:none", "margin:0 12px 8px", "padding:5px 7px",
     `border:1px solid ${INK.controlBorder}`, "border-radius:4px",
@@ -1001,6 +1031,8 @@ export async function mountViewerPanel(near, {
           const rgb = choice.rgb ?? [0.847, 0.871, 0.902];
           row.color = cssOf(choice.rgb);
           row.colour = rgb;
+          /* A colour chosen by hand is a colour: the row leaves grey. */
+          row.grey = false;
           remember(row);
           paintSwatches(index);
           viewer.setChannel(index, { colour: rgb });
@@ -1016,13 +1048,17 @@ export async function mountViewerPanel(near, {
 
   const rowLines = [];
   const groupShown = new Map();
+  /* Each acquisition's eye, by name, for the page to press: walking to the
+     overview scan puts the focus stack away. */
+  const groupSwitches = new Map();
+  const greySwitches = new Map();
   let heading = null;
   let groupBox = null;
   rows.forEach((row, index) => {
     if (row.acquisition !== heading) {
       heading = row.acquisition;
       const groupName = heading;
-      const group = el("div", `border-bottom:1px solid ${INK.subtleBorder};`);
+      const group = el("div", "");
       const head = el("div", "display:flex;align-items:center;gap:6px;padding:5px 12px 3px;");
       const disclosure = el("button", [
         "background:none", "border:none", `color:${INK.textMuted}`,
@@ -1045,8 +1081,7 @@ export async function mountViewerPanel(near, {
       groupEye.title = initiallyOn ? "Hide this acquisition" : "Show this acquisition";
       const members = rows.map((one, at) => ({ one, at }))
         .filter(({ one }) => one.acquisition === groupName);
-      groupEye.addEventListener("click", () => {
-        const on = groupEye.dataset.on !== "1";
+      const showTheGroup = (on) => {
         groupEye.dataset.on = on ? "1" : "0";
         groupShown.set(groupName, on);
         rememberedGroups.set(groupName, on);
@@ -1059,10 +1094,51 @@ export async function mountViewerPanel(near, {
             viewer.setChannel(at, { visible: on && one.visible });
           }
         }
-      });
+      };
+      groupEye.addEventListener("click", () => showTheGroup(groupEye.dataset.on !== "1"));
+      groupSwitches.set(groupName, showTheGroup);
+      /* Colour or grey for the whole acquisition: grey draws every channel
+         white, so the sample reads as one picture; colour gives each channel
+         its own back. The rows' colours change for real -- the copies drawn
+         from them and the reconciliation with the engine follow -- and the
+         colours they had wait on the rows for the way back. */
+      const greyPick = el("button", [
+        "background:none", `border:1px solid ${INK.controlBorder}`, "border-radius:3px",
+        `color:${INK.textMuted}`, "cursor:pointer", `font:${font(500, 10)}`,
+        "padding:1px 5px", "letter-spacing:.02em",
+      ].join(";"));
+      greyPick.type = "button";
+      greyPick.dataset.acquisitionGrey = groupName;
+      const sayTheColours = () => {
+        const grey = members.every(({ one }) => one.grey);
+        greyPick.textContent = grey ? "grey" : "colour";
+        greyPick.setAttribute("aria-pressed", grey ? "true" : "false");
+        greyPick.title = grey ? "Give the channels their colours back" : "Draw this acquisition in grey";
+      };
+      const drawInGrey = (grey) => {
+        for (const { one, at } of members) {
+          if (grey && !one.grey) {
+            one.colourInColour = one.colour;
+            one.colorInColour = one.color;
+            one.colour = [1, 1, 1];
+            one.color = cssOf(one.colour);
+          } else if (!grey && one.grey) {
+            one.colour = one.colourInColour ?? one.colour;
+            one.color = one.colorInColour ?? one.color;
+          }
+          one.grey = grey;
+          remember(one);
+          paintSwatches(at);
+          viewer.setChannel(at, { colour: one.colour });
+        }
+        sayTheColours();
+      };
+      greyPick.addEventListener("click", () => drawInGrey(!members.every(({ one }) => one.grey)));
+      greySwitches.set(groupName, drawInGrey);
+      sayTheColours();
       head.append(disclosure, groupEye, el("span",
         `flex:1;font:${font(600, 12)};letter-spacing:.02em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;`,
-        groupName), el("span", `font:${font(400, 11)};color:${INK.textMuted};`, String(members.length)));
+        groupName), greyPick);
       const thisGroupBox = el("div", `padding-left:8px;border-left:2px solid ${INK.subtleBorder};margin-left:16px;`);
       groupBox = thisGroupBox;
       const showMembers = (show) => {
@@ -1076,7 +1152,9 @@ export async function mountViewerPanel(near, {
         showMembers(thisGroupBox.style.display === "none");
       });
       group.append(head, thisGroupBox);
-      data.append(group);
+      /* Listed top-down as they are drawn: the acquisition over the others
+         stands first, the overview under them all stands last. */
+      data.prepend(group);
       showMembers(panelState.collapsed.get(groupName) !== true);
     }
     const line = el("div",
@@ -1128,6 +1206,7 @@ export async function mountViewerPanel(near, {
     if (!visibilityReady) {
       visibilityReady = true;
       rows.forEach((_row, index) => applyRequested(index));
+      windowEveryChannel();
       return true;
     }
     if (!standing.length && !viewer.layersForMeasurement) return true;
@@ -1252,18 +1331,10 @@ export async function mountViewerPanel(near, {
     requestMeasurement(index, { debounce: 120 });
   }
 
-  /* ---- the picture as a whole: master switch, depth, volume ---- */
+  /* ---- the picture as a whole: the depth a stack is looked at ----
+     The eyes on the acquisitions switch the picture on and off; this card
+     is there only while a stack is open and has a depth to choose. */
   const { card: wholeCard, body: whole } = aCard("picture");
-  const pictureLine = el("label",
-    "display:flex;align-items:center;gap:8px;cursor:pointer;padding:5px 12px;");
-  const pictureEye = el("input");
-  pictureEye.type = "checkbox";
-  pictureEye.id = "draw-the-picture";
-  pictureEye.checked = true;
-  pictureEye.style.cssText = "margin:0;";
-  pictureEye.addEventListener("change", () => (showPicture ?? viewer.showPicture)?.(pictureEye.checked));
-  pictureLine.append(pictureEye, el("span", "", "draw the picture"));
-  whole.append(pictureLine);
 
   const depth = viewer.theDepthItCanShow?.();
   if (depth && depth.highUm > depth.lowUm) {
@@ -1285,17 +1356,8 @@ export async function mountViewerPanel(near, {
     });
     depthLine.append(depthSlider, depthBox);
     whole.append(depthLine);
-    if (viewer.canShowVolume) {
-      const volumeLine = el("label",
-        "display:flex;align-items:center;gap:8px;cursor:pointer;padding:5px 12px;");
-      const wants = el("input");
-      wants.type = "checkbox";
-      wants.style.cssText = "margin:0;";
-      wants.addEventListener("change", () => viewer.showVolume?.(wants.checked));
-      volumeLine.append(wants, el("span", "", "draw the stack as a volume"));
-      whole.append(volumeLine);
-    }
   }
+  wholeCard.hidden = !whole.childElementCount;
 
   bar.append(dataCard, settingsCard, wholeCard);
   if (into) {
@@ -1308,6 +1370,8 @@ export async function mountViewerPanel(near, {
      the picture itself is. These methods do not expose Neuroglancer. */
   panel.snapshot = panelSnapshot;
   panel.sourcesChanged = sourcesChanged;
+  panel.showAcquisition = (name, on) => groupSwitches.get(name)?.(on);
+  panel.drawInGrey = (name, grey) => greySwitches.get(name)?.(grey);
   panel.requestedState = panelState;
   window.__viewerPanel = panel;
   if (rows.length) {
@@ -1320,6 +1384,10 @@ export async function mountViewerPanel(near, {
     element: panel,
     snapshot: panelSnapshot,
     sourcesChanged,
+    /** Show or hide one acquisition, as its eye would. */
+    showAcquisition(name, on) { groupSwitches.get(name)?.(on); },
+    /** Draw one acquisition in grey, or in its colours, as its switch would. */
+    drawInGrey(name, grey) { greySwitches.get(name)?.(grey); },
     destroy() {
       cancelMeasurement();
       if (observationTimer) clearInterval(observationTimer);

@@ -216,6 +216,12 @@ export const backend = {
    * reading the window records. `nth` is the pretend operator's knob and the
    * live instrument has no use for it.
    */
+  /** What the instrument offers for a capture and what is chosen now, in
+      the driver's own words: `{ name: { options, active } }`. */
+  async acquisitionOptions() {
+    return ask("/api/acquisition_options");
+  },
+
   async readSetting(type) {
     return ask(`/api/setting?type=${encodeURIComponent(type)}`);
   },

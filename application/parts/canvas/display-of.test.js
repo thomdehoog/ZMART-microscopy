@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { displayFor, displayQueryFor } from "./display-of.js";
+import { displayFor, displayQueryFor, hexColour } from "./display-of.js";
 
 const snapshot = {
   channels: [
@@ -45,3 +45,22 @@ describe("the display the copies are asked with", () => {
       .toEqual([{ c: 0, visible: true, window: [100, 900], color: "#22c55e" }]);
   });
 });
+
+describe("the colour a copy is asked for", () => {
+  it("is six hex digits whatever form the panel keeps it in", () => {
+    expect(hexColour([0.2, 0.8, 1.0], null)).toBe("#33ccff");
+    expect(hexColour(null, "rgb(51,204,255)")).toBe("#33ccff");
+    expect(hexColour(null, "#22C55E")).toBe("#22c55e");
+    expect(hexColour(null, "#d8dee6")).toBe("#d8dee6");
+  });
+  it("is nothing when the panel has no colour to give", () => {
+    expect(hexColour(null, null)).toBeNull();
+    expect(hexColour(null, "grey")).toBeNull();
+  });
+  it("a row that keeps the viewer's triple asks with it", () => {
+    const snapshot = { channels: [{ acquisition: "overview", name: "channel 0",
+      requested: { visible: true, effectiveVisible: true, color: "rgb(0,255,102)", colour: [0, 1, 0.4], window: { low: 1, high: 9 } } }] };
+    expect(displayFor(snapshot, "overview")).toEqual([{ c: 0, visible: true, window: [1, 9], color: "#00ff66" }]);
+  });
+});
+

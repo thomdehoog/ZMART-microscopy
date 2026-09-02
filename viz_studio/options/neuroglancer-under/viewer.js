@@ -659,7 +659,15 @@ async function start(own, acquisitions) {
   // -- the acquisitions ---------------------------------------------------
 
   own.rows = await rowsFor(acquisitions);
+  /* Which acquisition a row belongs to, and whether it opens one: the
+     channels of one acquisition add together, and an acquisition drawn over
+     another covers it rather than mixing with it -- a target frame over the
+     overview is a picture of its own, not the sum of two. */
+  const acquisitionOf = (row) => row.acquisition ?? row.name?.split("/")[0] ?? "";
+  const baseAcquisition = acquisitionOf(own.rows[0] ?? {});
   for (const [at, row] of own.rows.entries()) {
+    const opensAnAcquisition = own.rows.findIndex((one) => acquisitionOf(one) === acquisitionOf(row)) === at;
+    const coversWhatIsBelow = opensAnAcquisition && acquisitionOf(row) !== baseAcquisition;
     const description = {
       type: "image",
       // Smart Viewer 0.2's central rule: every position store of one channel
@@ -696,11 +704,17 @@ async function start(own, acquisitions) {
        * window showed green against Viv's 0.029% on the same view, and Viv is
        * doing the arithmetic this asks the engine for.
        */
-      // Follow Smart Viewer 0.2's seam rule.  Additive blending is safe for a
-      // row fed by one store; with several spatial stores it can brighten the
-      // overlap at every tile join, so the multi-source row keeps the engine's
-      // covering rule.
-      ...(row.sources.length === 1 ? { blend: "additive" } : {}),
+      // Additive, however many positions feed the row: Smart Viewer 0.2's
+      // seam rule kept the engine's covering blend for a row of several
+      // stores, so that overlapping edge voxels could not brighten into
+      // seams; but under the covering rule the channel drawn last hid every
+      // other one wherever it had any signal, and a nine-tile overview
+      // showed as its last channel alone. The one exception is the first
+      // channel of an acquisition drawn over another: it keeps the covering
+      // blend, and the program above is opaque wherever it has data, so the
+      // acquisition covers what is below it and its other channels add onto
+      // it alone.
+      ...(coversWhatIsBelow ? {} : { blend: "additive" }),
       // Where a store keeps its channels inside one array, this is what picks
       // the channel out: the engine offers it as a dimension belonging to the
       // layer, and each row pins it to its own index. Nothing splits the data —
@@ -1102,10 +1116,7 @@ async function addSourcesToTheOpenRows(own, acquisitions) {
       }
       held.sources.push(address);
     }
-    // A row built from its first position uses additive blending. Once it has
-    // spatially placed neighbours, restore ordinary covering so overlapping
-    // edge voxels cannot brighten into seams.
-    if (held.sources.length > 1) layer.blendMode?.reset?.();
+    // The row stays additive as it grows: see the layer description above.
   }
   return true;
 }

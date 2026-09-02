@@ -779,7 +779,9 @@ def _a_picture_as_displayed(acquisition_type: str, label: str, display: list) ->
     key = (acquisition_type, label, json.dumps(display, sort_keys=True))
     if key not in _displayed_pictures:
         planes = [(int(p.get("c", 0)), p["path"]) for p in record.get("planes") or [] if p.get("path")]
-        _displayed_pictures[key] = picture_as_displayed(planes, display)
+        # The whole frame: the operator judges a diameter against this
+        # picture, and a thumbnail blown up to the panel's width is blocks.
+        _displayed_pictures[key] = picture_as_displayed(planes, display, budget_px=1024 * 1024)
     return _displayed_pictures[key]
 
 

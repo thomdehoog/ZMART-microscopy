@@ -111,6 +111,47 @@ function renderRecordedBar(record, {
    goes to `recorded` rather than into a record of its own — the slot below
    owns what has been recorded — and the name it is carrying goes to `onName`
    as it is typed, so a redraw finds it again. */
+/**
+ * The job to record with, chosen before the reading is taken: the one
+ * setting that owns the objective and the frame, which the Leica and the
+ * mock both call `job` and offer with its options. Choosing applies it to
+ * the instrument at once, and the next press of the bar reads the
+ * instrument as it then stands. An instrument that offers no jobs shows no
+ * row; whatever else it offers stays its own business.
+ */
+function renderOffered(offered, apply) {
+  const row = document.createElement("div");
+  row.className = "rec-offered";
+  row.hidden = true;
+  Promise.resolve(offered?.()).then((options) => {
+    const said = options?.job;
+    const choices = Array.isArray(said?.options) ? said.options : [];
+    if (choices.length < 2) return;
+    const label = document.createElement("label");
+    label.append("Job");
+    const pick = document.createElement("select");
+    pick.id = "rec-job";
+    pick.setAttribute("aria-label", "job to record with");
+    for (const choice of choices) {
+      const option = document.createElement("option");
+      option.value = String(choice);
+      option.textContent = String(choice);
+      pick.append(option);
+    }
+    pick.value = String(said.active ?? choices[0]);
+    pick.addEventListener("change", () => {
+      pick.disabled = true;
+      Promise.resolve(apply?.({ job: pick.value }))
+        .catch((why) => console.error(`the job was refused: ${why.message}`))
+        .then(() => { pick.disabled = false; });
+    });
+    label.append(pick);
+    row.append(label);
+    row.hidden = false;
+  }, () => {});
+  return row;
+}
+
 function renderOpenBar({
   type, nth, name, onName, recorded, running, readSetting, unnamed, says, again,
 }) {
@@ -189,6 +230,7 @@ function renderOpenBar({
 export function renderRecordingSlot(host, opts) {
   const {
     label, slot: theSlot, setSlot, running, readSetting,
+    offered = null, apply = null,
     changed, activated = changed, locked = false, ink = null,
     /* A slot whose readings need no name of the operator's: the button is the
        whole bar, and says the act rather than the word "Record". `takes` is
@@ -231,6 +273,8 @@ export function renderRecordingSlot(host, opts) {
      accumulate is a control the hand has to go looking for. */
   const box = document.createElement("div");
   box.className = "setting-box open";
+  /* The job stands in a row of its own above the press that reads it. */
+  box.append(renderOffered(offered, apply));
   box.append(renderOpenBar({
     type: slot.type,
     nth: nextReadingIndex(slot),

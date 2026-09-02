@@ -129,6 +129,10 @@ export const backend = {
    * meets the same shape here as it does through the bridge, and cannot come
    * to rely on a setting only one of them has.
    */
+  async acquisitionOptions() {
+    return this.get_acquisition_options();
+  },
+
   async get_acquisition_options() {
     await wait(120);
     return {
