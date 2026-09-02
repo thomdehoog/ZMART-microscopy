@@ -268,11 +268,15 @@ function anEye(open) {
 /**
  * Mount the panel and wire it to the engine handle. Returns `{ destroy }`.
  * `near` is any element inside the canvas's own box; the panel stands as a
- * column of the same grid row, directly to the canvas's right.
+ * column of the same grid row, directly to the canvas's right -- or, given
+ * `into`, fills that element instead: the page's own column for the display
+ * settings, a tab away from the step's channel, where the tab is the fold
+ * and the column is the width.
  */
 export async function mountViewerPanel(near, {
   viewer,
   acquisitions,
+  into = null,
   requestedState = null,
   /* Kept for callers from the first cleanup checkpoint. */
   requestedVisibility = null,
@@ -1263,7 +1267,11 @@ export async function mountViewerPanel(near, {
   }
 
   bar.append(data, settings, whole);
-  if (plotHost) plotHost.after(panel);
+  if (into) {
+    fold.hidden = true;
+    bar.style.width = "100%";
+    into.append(panel);
+  } else if (plotHost) plotHost.after(panel);
   else (body ?? near)?.append(panel);
   /* Left where a test can reach both requested and observed state, the way
      the picture itself is. These methods do not expose Neuroglancer. */

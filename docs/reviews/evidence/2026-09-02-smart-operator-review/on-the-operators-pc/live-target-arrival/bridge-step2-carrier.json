@@ -1,12 +1,12 @@
 {
   "schemaVersion": 1,
   "name": "bridge-step2-carrier",
-  "capturedAtUtc": "2026-09-02T14:35:56.230Z",
+  "capturedAtUtc": "2026-09-02T17:44:13.390Z",
   "provenance": {
     "microscopy": {
       "repository": "thomdehoog/ZMART-microscopy",
       "branch": "claude/smart-operator-workflow-review-ehw3c5",
-      "commit": "d6b1fde99a0f2b1e7431eb7899ed07c2a29b9000",
+      "commit": "44bb925d69590d028b25988f646a6924b8cc7953",
       "worktreeClean": false
     },
     "smartViewer": {
@@ -23,8 +23,8 @@
   "sample": "mock kidney (scikit-image kidney, plane 8)",
   "server": {
     "bridge": "http://127.0.0.1:8823",
-    "viewer": "http://127.0.0.1:53611",
-    "run": "C:\\Users\\local_t.de5\\Temp\\zmart-bridge-rr7j9s\\target-acquisition_ec026a"
+    "viewer": "http://127.0.0.1:56205",
+    "run": "C:\\Users\\local_t.de5\\Temp\\zmart-bridge-d9aN1K\\target-acquisition_fe7391"
   },
   "workflow": {
     "step": 2,
@@ -86,23 +86,23 @@
     "stageView": {
       "centre": {
         "x": 36500,
-        "y": 39731.06374172185
+        "y": 41350.10593220338
       },
-      "zoom": 198.67549668874173
+      "zoom": 203.38983050847457
     },
     "engineView": {
       "centre": {
         "x": 60000,
-        "y": 68231.06374172185
+        "y": 69850.10593220338
       },
-      "zoom": 198.67549668874173,
-      "width": 656,
+      "zoom": 203.38983050847457,
+      "width": 642,
       "height": 738.859375
     },
     "canvas": {
       "left": 284,
       "top": 110,
-      "width": 656,
+      "width": 642,
       "height": 738.859375
     }
   },
@@ -113,7 +113,7 @@
   },
   "pictureTag": null,
   "pixelCheck": {
-    "canvasShadeBins": 21
+    "canvasShadeBins": 24
   },
   "requests": {
     "required": {
@@ -153,7 +153,7 @@
     "file": "bridge-step2-carrier.png",
     "width": 1440,
     "height": 900,
-    "sha256": "87b589d5f64099a33130fda288a673690db2b1deb81a9ba9be98d54743cc006f"
+    "sha256": "ad7fbd9fec7cb73e3852e25212a9cb8201a744bb47621b88b510890a2bd69ca1"
   },
   "carrier": {
     "origin": [
@@ -163,9 +163,9 @@
     "view": {
       "centre": {
         "x": 36500,
-        "y": 39731.06374172185
+        "y": 41350.10593220338
       },
-      "zoom": 198.67549668874173
+      "zoom": 203.38983050847457
     },
     "layers": [
       {

@@ -5,7 +5,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "@playwright/test";
-import { rest, startTheBridge } from
+import { rest, showDisplaySettings, showTheChannel, startTheBridge } from
   "./workflows/target_acquisition/steps/scan_the_overview/live-bridge.js";
 import { readPng } from
   "./workflows/target_acquisition/steps/scan_the_overview/pixels.js";
@@ -41,10 +41,11 @@ const provenance = {
 provenance.smartViewer.commit = command(
   "git", ["rev-parse", "HEAD"], path.dirname(path.dirname(provenance.smartViewer.importPath)),
 );
-provenance.smartViewer.measureRoutePresent = command(
-  "rg", ["-q", '"/api/measure"',
-    path.join(path.dirname(provenance.smartViewer.importPath), "server.py")],
-) === "";
+/* Read, not grepped: the machine this runs on need not carry ripgrep, and a
+   spec that could not load for want of it proved nothing. */
+provenance.smartViewer.measureRoutePresent = fs.readFileSync(
+  path.join(path.dirname(provenance.smartViewer.importPath), "server.py"), "utf8",
+).includes("/api/measure");
 
 test.beforeAll(() => { fs.mkdirSync(SHOTS, { recursive: true }); });
 
@@ -816,6 +817,7 @@ function assertCompleteEvidence(record) {
 async function proveAutoUsesViewerMeasurement(page, audit) {
   const successful = () => audit.snapshot().required.measurement.successful;
   const beforeSelection = successful();
+  await showDisplaySettings(page);
   await page.locator('.viewer-panel [data-channel-row="channel 0"]').first().click();
   await expect.poll(successful, {
     message: "selecting overview channel 0 never reached the real Viewer measurement route",
@@ -831,6 +833,8 @@ async function proveAutoUsesViewerMeasurement(page, audit) {
   await expect.poll(successful, {
     message: "Auto never requested a fresh real Viewer measurement",
   }).toBeGreaterThan(successfulBeforeAuto);
+  /* Back to the step's channel, where the next press stands. */
+  await showTheChannel(page);
   return {
     endpoint: "/api/measure",
     successfulBeforeAuto,

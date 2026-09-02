@@ -17,7 +17,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "@playwright/test";
 import {
-  rest, startTheBridge,
+  rest, showDisplaySettings, startTheBridge,
 } from "./workflows/target_acquisition/steps/scan_the_overview/live-bridge.js";
 import { readPng } from "./workflows/target_acquisition/steps/scan_the_overview/pixels.js";
 
@@ -175,6 +175,7 @@ test("every field the scan took is drawn where the plan put it", async ({ page }
   /* Only the overview, using the same control an operator sees, and nothing
      of the plan over it. Layer order is presentation state; hiding focussing
      must not alter any source's Z anchor or the overview underneath. */
+  await showDisplaySettings(page);
   const focussingEye = page.locator(
     '.viewer-panel button[data-acquisition="focussing"]',
   );

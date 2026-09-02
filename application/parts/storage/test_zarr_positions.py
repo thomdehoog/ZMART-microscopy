@@ -311,3 +311,47 @@ class TestAStoreIsPublishedWhole:
         ), "the replaced store carries the new capture's corner"
         assert sorted(child.name for child in positions.iterdir()) == [second.name]
         assert not (tmp_path / "positions" / ".writing-overview").exists()
+
+
+
+class TestADeniedRename:
+    """Windows denies a rename while another process holds the file.
+
+    Seen on the operator's PC with the interface's own bridge writing beside
+    the page: the development server's watcher opened each store's files as
+    they appeared, and the writer's rename of ``zarr.json`` into place was
+    refused -- one position in three lost, filed as ``zarr_error``, and the
+    Viewer never saw the run. A scanner on a microscope PC does the same.
+    The write is tried again, in a fresh place, before it is given up on.
+    """
+
+    def test_a_rename_denied_once_is_tried_again_and_the_store_is_published(self, tmp_path, monkeypatch):
+        import os
+
+        real = os.replace
+        denied = {"n": 0}
+
+        def denied_once(src, dst, *args, **kwargs):
+            if denied["n"] == 0 and str(dst).endswith("zarr.json"):
+                denied["n"] += 1
+                raise PermissionError(5, "Access is denied", str(src))
+            return real(src, dst, *args, **kwargs)
+
+        monkeypatch.setattr(os, "replace", denied_once)
+        store = position_store_from_record(one_file_per_plane(tmp_path), tmp_path / "positions")
+        assert denied["n"] == 1
+        assert (store / "zarr.json").is_file()
+        assert zarr.open_group(str(store), mode="r")["0"].shape[-1] == 256
+        assert [p.name for p in (tmp_path / "positions").iterdir()] == [store.name]
+
+    def test_a_rename_denied_every_time_is_the_error_it_was(self, tmp_path, monkeypatch):
+        import os
+
+        def always_denied(src, dst, *args, **kwargs):
+            if str(dst).endswith("zarr.json"):
+                raise PermissionError(5, "Access is denied", str(src))
+            return os.rename(src, dst)
+
+        monkeypatch.setattr(os, "replace", always_denied)
+        with pytest.raises(PermissionError, match="denied"):
+            position_store_from_record(one_file_per_plane(tmp_path), tmp_path / "positions")

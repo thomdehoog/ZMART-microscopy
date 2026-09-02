@@ -145,3 +145,41 @@ def test_the_process_shares_one_analysis():
 def test_a_pipeline_is_found_by_the_name_of_its_workflow():
     assert warm.pipeline_yaml("focus").is_file()
     assert warm.pipeline_yaml("object_analysis").is_file()
+
+
+def test_a_new_analysis_is_handed_out_while_the_old_one_is_still_being_put_down():
+    """The next run must never get the analysis on its way out.
+
+    The operator's Interrupt puts the analysis down, and the page starts the
+    next test the moment the stopped one reports itself done -- while the
+    shutdown is still under way. Handed the old analysis, that test died
+    with "Engine has been shut down". The door swaps first, shuts down after.
+    """
+    import threading
+
+    class _SlowEngine(_Engine):
+        def __init__(self):
+            super().__init__()
+            self.shutting_down = threading.Event()
+            self.may_finish = threading.Event()
+
+        def shutdown(self, wait=True):
+            self.shutting_down.set()
+            self.may_finish.wait(timeout=5)
+            super().shutdown(wait=wait)
+
+    warm._analysis = None
+    old = warm.the_analysis()
+    slow = _SlowEngine()
+    old._engine = slow
+    closer = threading.Thread(target=warm.close, daemon=True)
+    closer.start()
+    assert slow.shutting_down.wait(timeout=5)
+    # The shutdown is under way; whoever asks now gets a fresh analysis.
+    fresh = warm.the_analysis()
+    assert fresh is not old
+    assert fresh._engine is not slow
+    slow.may_finish.set()
+    closer.join(timeout=5)
+    assert warm.the_analysis() is fresh
+    warm._analysis = None

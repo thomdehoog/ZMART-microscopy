@@ -253,6 +253,13 @@ let stageWatch = null;
     overviewPictures: backendFor().viewOf("overview"),
     targetPictures: backendFor().viewOf("target"),
     cellsShown: false,
+    /* Which of the two the column beside the canvas shows: the step's own
+       channel, or the picture's display settings. A page preference, kept
+       across steps and sessions alike. */
+    sideView: "channel",
+    /* Whether the column is folded away to the right, the canvas taking its
+       room. A page preference too. */
+    sideFolded: false,
     cellDevices: new Set(), // the devices discovery's fields were segmented on
     gates: [],           // [{fx, fy, vertices: [[x, y], ...]}] — see gating.js
     gateCap: 50,         // the per-tileset ceiling the gated selection was drawn under
@@ -905,6 +912,9 @@ let stageWatch = null;
     state.tabs = tabsForStep(i);
     // a step that brings a panel of its own opens on it; otherwise the base
     state.tab = state.tabs.length > 1 ? state.tabs[1] : state.tabs[0];
+    /* Walking to a step is asking for its channel: the display settings a
+       step was left on do not follow the operator to the next one. */
+    state.sideView = "channel";
   }
 
   /* ============================================================
@@ -1298,9 +1308,28 @@ let stageWatch = null;
     const host = thePanels[show]?.channel;
     if (!host) return;
     const widget = sideWidget();
-    host.hidden = !widget;
-    // the divider is the channel's edge, so it is only there when the channel is
-    thePanels[show].divider.hidden = !widget;
+    /* One column, two things that can stand in it. The display settings
+       show only while there are some and they were asked for; the channel
+       the rest of the time. */
+    const display = thePanels[show].display ?? null;
+    const showingDisplay = state.sideView === "display" && Boolean(display) && displaySettingsAvailable();
+    if (state.sideView === "display" && !showingDisplay) state.sideView = "channel";
+    /* Folded, the column is away to the right and only its fold strip stays,
+       the press that brings it back. */
+    const somethingToShow = Boolean(widget) || showingDisplay;
+    const folded = state.sideFolded && somethingToShow;
+    host.hidden = !widget || showingDisplay || folded;
+    if (display) display.hidden = !showingDisplay || folded;
+    // the divider is the column's edge, so it is only there when the column is
+    thePanels[show].divider.hidden = !somethingToShow || folded;
+    const fold = thePanels[show].fold;
+    if (fold) {
+      fold.hidden = !somethingToShow;
+      fold.textContent = folded ? "‹" : "›";
+      fold.title = folded ? "Bring the channel back" : "Fold the channel away";
+      fold.setAttribute("aria-label", fold.title);
+      fold.setAttribute("aria-expanded", String(!folded));
+    }
     const locked = widget?.id === "carrier" ? carrierLocked() : scanfieldsLocked();
     const key = widget && `${widget.id}:${locked}`;
     // the setup cards rebuild on every render, the way their panel used to;
@@ -1546,6 +1575,15 @@ let stageWatch = null;
     };
     divider.addEventListener("pointerup", settle);
     divider.addEventListener("pointercancel", settle);
+    /* The fold on the same edge: the column goes away to the right and the
+       canvas takes the room, or comes back the same width it had. The stage
+       is resized here for the same reason as above. */
+    withAnEdge.fold?.addEventListener("click", () => {
+      state.sideFolded = !state.sideFolded;
+      renderSide(shownPanel());
+      renderTabs();
+      stage.resize();
+    });
   }
 
   /* Every preset recorded beside the fields, in the order taken — which is
@@ -1656,17 +1694,43 @@ let stageWatch = null;
        showing — so it says whose controls those are rather than offering a
        switch. */
     const owner = thePanels[shownPanel()]?.channel ? sideWidget() : null;
-    if (owner) {
+    /* A folded column has no heading: the strip on its edge is all that is
+       left of it, and the name would stand over the canvas. */
+    if (owner && !state.sideFolded) {
       const side = document.createElement("span");
       side.className = "side-tab";
-      /* The name is its own element: it carries the rule under it, so that
-         rule is as wide as the word the way a tab's is, rather than as wide
-         as the channel this stands over. */
-      const label = document.createElement("span");
-      label.textContent = owner.label;
-      side.append(label);
+      if (displaySettingsAvailable()) {
+        /* Two things can stand in the column, and these say which: the
+           step's channel, or the picture's display settings. Real tabs,
+           because there is a choice -- and one column, so the canvas does
+           not move when the choice changes. The settings become a thing
+           with the first picture, the focus stack of Step 4, and go with
+           the picture at Disconnect; the tab is offered exactly then. */
+        for (const [view, label] of [["channel", owner.label], ["display", "Display settings"]]) {
+          const b = document.createElement("button");
+          b.className = "tab"; b.type = "button"; b.role = "tab";
+          b.setAttribute("aria-selected", String(state.sideView === view));
+          b.textContent = label;
+          b.addEventListener("click", () => { state.sideView = view; renderSide(shownPanel()); renderTabs(); });
+          side.append(b);
+        }
+      } else {
+        /* The name is its own element: it carries the rule under it, so that
+           rule is as wide as the word the way a tab's is, rather than as wide
+           as the channel this stands over. */
+        const label = document.createElement("span");
+        label.textContent = owner.label;
+        side.append(label);
+      }
       host.append(side);
     }
+  }
+
+  /** Whether there are display settings to show: the picture's panel stands
+      in the column kept for it. It arrives with the first picture that has
+      channels to offer -- the focus stack -- and a JPEG copy never brings one. */
+  function displaySettingsAvailable() {
+    return Boolean(theCanvas?.display?.querySelector(".viewer-panel"));
   }
 
   const shownPanel = () => (state.tabs.includes(state.tab) ? state.tab : state.tabs[0]);
@@ -1750,6 +1814,15 @@ let stageWatch = null;
     overviewNote: theCanvas.parts.overviewNote,
     view: () => stage.pictureView(),
     carrierOriginUm: () => carrierOriginUm(),
+    /* The column the picture's display settings stand in, a tab away from
+       the step's channel; and the word that the settings came or went, so
+       the tab row can offer the tab exactly while there is something to
+       show under it. */
+    displayHost: () => theCanvas.display,
+    /* Only the tab row and the column: rendering every panel from here
+       reaches the picture, which mounts the settings again, which says so
+       again -- a loop that never let the page settle. */
+    displayChanged: () => { renderTabs(); renderSide(shownPanel()); },
     css,
   });
 
