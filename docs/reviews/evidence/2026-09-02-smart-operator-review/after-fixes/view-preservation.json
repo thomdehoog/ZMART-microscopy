@@ -1,0 +1,320 @@
+{
+  "fittedBeforeHand": {
+    "name": "fit before the operator moves",
+    "view": {
+      "centre": {
+        "x": 36500,
+        "y": 97915.83588957055
+      },
+      "zoom": 368.09815950920245
+    },
+    "canvas": {
+      "left": 284,
+      "top": 110,
+      "width": 378,
+      "height": 738.859375
+    },
+    "points": [
+      {
+        "index": 0,
+        "carrierLocalUm": {
+          "x": 35476,
+          "y": 10476
+        },
+        "screenPx": {
+          "x": 470.2181333333333,
+          "y": 241.8848
+        }
+      },
+      {
+        "index": 4,
+        "carrierLocalUm": {
+          "x": 36500,
+          "y": 11500
+        },
+        "screenPx": {
+          "x": 473,
+          "y": 244.66666666666669
+        }
+      },
+      {
+        "index": 8,
+        "carrierLocalUm": {
+          "x": 37524,
+          "y": 12524
+        },
+        "screenPx": {
+          "x": 475.7818666666667,
+          "y": 247.44853333333336
+        }
+      }
+    ]
+  },
+  "chosen": {
+    "name": "operator pan and zoom before acquisition",
+    "view": {
+      "centre": {
+        "x": 36952.77221484462,
+        "y": 19183.08666684092
+      },
+      "zoom": 138.84381112754244
+    },
+    "canvas": {
+      "left": 284,
+      "top": 110,
+      "width": 378,
+      "height": 738.859375
+    },
+    "points": [
+      {
+        "index": 0,
+        "carrierLocalUm": {
+          "x": 35476,
+          "y": 10476
+        },
+        "screenPx": {
+          "x": 462.3637879653991,
+          "y": 416.7183099014511
+        }
+      },
+      {
+        "index": 4,
+        "carrierLocalUm": {
+          "x": 36500,
+          "y": 11500
+        },
+        "screenPx": {
+          "x": 469.73898165739126,
+          "y": 424.09350359344324
+        }
+      },
+      {
+        "index": 8,
+        "carrierLocalUm": {
+          "x": 37524,
+          "y": 12524
+        },
+        "screenPx": {
+          "x": 477.1141753493834,
+          "y": 431.4686972854354
+        }
+      }
+    ]
+  },
+  "afterFirst": {
+    "name": "after source 1 of 9",
+    "view": {
+      "centre": {
+        "x": 36952.77221484462,
+        "y": 19183.08666684092
+      },
+      "zoom": 138.84381112754244
+    },
+    "canvas": {
+      "left": 284,
+      "top": 110,
+      "width": 378,
+      "height": 738.859375
+    },
+    "points": [
+      {
+        "index": 0,
+        "carrierLocalUm": {
+          "x": 35476,
+          "y": 10476
+        },
+        "screenPx": {
+          "x": 462.3637879653991,
+          "y": 416.7183099014511
+        }
+      },
+      {
+        "index": 4,
+        "carrierLocalUm": {
+          "x": 36500,
+          "y": 11500
+        },
+        "screenPx": {
+          "x": 469.73898165739126,
+          "y": 424.09350359344324
+        }
+      },
+      {
+        "index": 8,
+        "carrierLocalUm": {
+          "x": 37524,
+          "y": 12524
+        },
+        "screenPx": {
+          "x": 477.1141753493834,
+          "y": 431.4686972854354
+        }
+      }
+    ]
+  },
+  "afterLater": {
+    "name": "after source 8 of 9",
+    "view": {
+      "centre": {
+        "x": 36952.77221484462,
+        "y": 19183.08666684092
+      },
+      "zoom": 138.84381112754244
+    },
+    "canvas": {
+      "left": 284,
+      "top": 110,
+      "width": 378,
+      "height": 738.859375
+    },
+    "points": [
+      {
+        "index": 0,
+        "carrierLocalUm": {
+          "x": 35476,
+          "y": 10476
+        },
+        "screenPx": {
+          "x": 462.3637879653991,
+          "y": 416.7183099014511
+        }
+      },
+      {
+        "index": 4,
+        "carrierLocalUm": {
+          "x": 36500,
+          "y": 11500
+        },
+        "screenPx": {
+          "x": 469.73898165739126,
+          "y": 424.09350359344324
+        }
+      },
+      {
+        "index": 8,
+        "carrierLocalUm": {
+          "x": 37524,
+          "y": 12524
+        },
+        "screenPx": {
+          "x": 477.1141753493834,
+          "y": 431.4686972854354
+        }
+      }
+    ]
+  },
+  "wholePlate": {
+    "name": "whole-plate Fit before source 9",
+    "view": {
+      "centre": {
+        "x": 36500,
+        "y": 97915.83588957055
+      },
+      "zoom": 368.09815950920245
+    },
+    "canvas": {
+      "left": 284,
+      "top": 110,
+      "width": 378,
+      "height": 738.859375
+    },
+    "points": [
+      {
+        "index": 0,
+        "carrierLocalUm": {
+          "x": 35476,
+          "y": 10476
+        },
+        "screenPx": {
+          "x": 470.2181333333333,
+          "y": 241.8848
+        }
+      },
+      {
+        "index": 4,
+        "carrierLocalUm": {
+          "x": 36500,
+          "y": 11500
+        },
+        "screenPx": {
+          "x": 473,
+          "y": 244.66666666666669
+        }
+      },
+      {
+        "index": 8,
+        "carrierLocalUm": {
+          "x": 37524,
+          "y": 12524
+        },
+        "screenPx": {
+          "x": 475.7818666666667,
+          "y": 247.44853333333336
+        }
+      }
+    ]
+  },
+  "afterFitArrival": {
+    "name": "whole-plate Fit after source 9",
+    "view": {
+      "centre": {
+        "x": 36500,
+        "y": 97915.83588957055
+      },
+      "zoom": 368.09815950920245
+    },
+    "canvas": {
+      "left": 284,
+      "top": 110,
+      "width": 378,
+      "height": 738.859375
+    },
+    "points": [
+      {
+        "index": 0,
+        "carrierLocalUm": {
+          "x": 35476,
+          "y": 10476
+        },
+        "screenPx": {
+          "x": 470.2181333333333,
+          "y": 241.8848
+        }
+      },
+      {
+        "index": 4,
+        "carrierLocalUm": {
+          "x": 36500,
+          "y": 11500
+        },
+        "screenPx": {
+          "x": 473,
+          "y": 244.66666666666669
+        }
+      },
+      {
+        "index": 8,
+        "carrierLocalUm": {
+          "x": 37524,
+          "y": 12524
+        },
+        "screenPx": {
+          "x": 475.7818666666667,
+          "y": 247.44853333333336
+        }
+      }
+    ]
+  },
+  "driftPx": {
+    "first": 0,
+    "later": 0,
+    "fit": 0
+  },
+  "requestedVisibility": {
+    "focussing": false,
+    "overview": true
+  },
+  "browserErrors": [],
+  "sourceFailures": [],
+  "engineCancellations": []
+}

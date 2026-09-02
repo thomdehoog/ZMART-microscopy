@@ -1,0 +1,203 @@
+{
+  "schemaVersion": 1,
+  "name": "step1-connected",
+  "capturedAtUtc": "2026-09-02T09:36:20.601Z",
+  "provenance": {
+    "microscopy": {
+      "repository": "thomdehoog/ZMART-microscopy",
+      "branch": "claude/smart-operator-workflow-review-ehw3c5",
+      "commit": "15c99530468f53740a1df7bad716579d93456bc8",
+      "worktreeClean": true
+    },
+    "smartViewer": {
+      "repository": "thomdehoog/ZMART-viewer",
+      "importPath": "/home/user/thomdehoog/zmart-viewer/zmart_viewer/__init__.py",
+      "version": "0.2.0",
+      "commit": "9ff10b04e803fbe2a71a1735a8065a845ea803dd",
+      "measureRoutePresent": true
+    },
+    "backend": "real bridge (application/framework/bridge.py) driving the controller's mock kidney driver",
+    "page": "production build served by the bridge (framework/window/static)",
+    "python": "3.11.15"
+  },
+  "sample": "mock kidney (scikit-image kidney, plane 8)",
+  "server": {
+    "bridge": "http://127.0.0.1:8821",
+    "viewer": "http://127.0.0.1:42293",
+    "run": "/tmp/zmart-bridge-lXdDIN/target-acquisition_78cee7"
+  },
+  "workflow": {
+    "step": 1,
+    "state": "connected; every driver check answered",
+    "run": {
+      "running": null,
+      "notes": {},
+      "activeIdx": 0,
+      "done": [
+        "connect"
+      ],
+      "ran": [
+        "connect"
+      ],
+      "focus": {
+        "strategy": "plane",
+        "applied": false,
+        "points": 0,
+        "selected": 0
+      }
+    }
+  },
+  "counts": {
+    "planned": 0,
+    "scan": {
+      "acquisitionType": null,
+      "done": 0,
+      "of": 0,
+      "running": false,
+      "error": null
+    },
+    "targetsOnCanvas": 0,
+    "targetsSelected": 0,
+    "targetsAcquired": 0,
+    "engineSourcesPerGroup": {}
+  },
+  "viewerAcquisitions": [],
+  "engineRows": [],
+  "visibility": {
+    "requested": null,
+    "requestedChannels": null,
+    "engineObserved": {}
+  },
+  "selected": null,
+  "engineMismatch": null,
+  "measurement": null,
+  "coordinates": {
+    "carrierOriginUm": {
+      "x": 23500,
+      "y": 28500
+    },
+    "plan": [],
+    "targets": [],
+    "stageView": {
+      "centre": {
+        "x": 36500,
+        "y": 39731.06374172185
+      },
+      "zoom": 198.67549668874173
+    },
+    "engineView": null,
+    "canvas": {
+      "left": 284,
+      "top": 110,
+      "width": 656,
+      "height": 738.859375
+    }
+  },
+  "projectionError": {
+    "planMaxPx": null,
+    "targetsMaxPx": null,
+    "tolerancePx": 1
+  },
+  "pictureTag": null,
+  "pixelCheck": {
+    "canvasShadeBins": 21
+  },
+  "requests": {
+    "required": {
+      "metadata": 0,
+      "chunks": 0,
+      "measurement": 0,
+      "api": 12,
+      "pictures": 0
+    },
+    "expectedFormatProbes": [],
+    "expectedOptionalProbes": [],
+    "expectedNavigationCancellations": [],
+    "expectedChunkCancellations": {
+      "count": 0,
+      "sample": []
+    },
+    "expectedRetiredStoreMisses": {
+      "stores": [],
+      "count": 0,
+      "sample": []
+    },
+    "unexpectedFailures": [],
+    "browserErrors": [],
+    "workerErrors": []
+  },
+  "browserErrors": [],
+  "workerErrors": [],
+  "bridgeErrors": [],
+  "viewerError": null,
+  "artifact": {
+    "file": "step1-connected.png",
+    "width": 1440,
+    "height": 900,
+    "sha256": "6d324afdeeb6cc9d90d4ad9faed3dd65796153a8de8791f68c6cd857072b343b"
+  },
+  "connection": {
+    "checks": [
+      {
+        "name": "driver",
+        "value": "mock · mock-scope · mock-api"
+      },
+      {
+        "name": "client",
+        "value": "mock-client"
+      },
+      {
+        "name": "serial",
+        "value": "MOCK-0001"
+      },
+      {
+        "name": "stage",
+        "value": "x 0.0 · y 0.0 · z 0.0 um"
+      },
+      {
+        "name": "output root",
+        "value": "/tmp/zmart-bridge-lXdDIN"
+      }
+    ],
+    "driverCanvas": {
+      "x_um": [
+        0,
+        120000
+      ],
+      "y_um": [
+        0,
+        80000
+      ],
+      "z_um": [
+        0,
+        10000
+      ]
+    },
+    "stagePosition": {
+      "x": {
+        "value": 0,
+        "actuator": "motoric",
+        "unit": "um"
+      },
+      "y": {
+        "value": 0,
+        "actuator": "motoric",
+        "unit": "um"
+      },
+      "z": {
+        "value": 0,
+        "actuator": "motoric",
+        "unit": "um"
+      }
+    },
+    "instrumentsListed": 2,
+    "openingView": {
+      "centre": {
+        "x": 36500,
+        "y": 39731.06374172185
+      },
+      "zoom": 198.67549668874173
+    },
+    "passwordPrefilledByThePage": false
+  }
+}

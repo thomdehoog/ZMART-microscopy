@@ -1,0 +1,38 @@
+# Browser suites after the fixes (Playwright, one worker, real bridge where the spec starts one)
+
+## Batch 1 (all suites in sequence; three failures were caused by page reloads from editing page modules during the run, and by the first, close-based rerun rule; see the report)
+canvas-layers | exit=0 | 19s |   14 passed (17.7s) 
+viewer-panel-look | exit=0 | 12s |   1 passed (10.2s) 
+viewer-panel-histogram | exit=0 | 11s |   4 passed (9.8s) 
+viewer-panel-state | exit=0 | 8s |   3 passed (6.7s) 
+operator-page | exit=1 | 347s |   2 failed   31 passed (5.8m) 
+focus-map-fills-in | exit=0 | 27s |   1 passed (25.7s) 
+focus-moved-point | exit=1 | 133s |   1 failed 
+drive-to | exit=0 | 10s |   1 passed (8.3s) 
+scan-the-page-takes | exit=0 | 38s |   2 passed (36.0s) 
+scan-under-the-plan | exit=0 | 53s |   3 passed (51.7s) 
+live-overview | exit=0 | 40s |   1 passed (38.3s) 
+live-overview-layers | exit=0 | 30s |   1 passed (28.5s) 
+live-overview-sparse | exit=0 | 94s |   2 passed (1.5m) 
+the-built-page | exit=0 | 13s |   1 passed (11.0s) 
+the-operator-walk | exit=0 | 61s |   1 passed (59.4s) 
+step-five-view-preservation | exit=1 | 34s |   1 failed 
+step-five-kidney-evidence | exit=1 | 147s |   1 failed   1 passed (2.4m) 
+every-tile-is-filled | exit=0 | 198s |   1 passed (3.3m) 
+PRETEND+BRIDGE DONE
+viewer-panel-real-measure | exit=0 | 7s |   1 passed (4.8s) 
+viewer-panel-ux-evidence | exit=0 | 14s |   2 passed (12.7s) 
+review-live-target-arrival | exit=1 | 180s |   1 failed   1 skipped 
+ALL DONE
+
+## Batch 2 (the disturbed suites, alone, on the final code)
+step-five-view-preservation-2 | exit=0 | 36s |   1 passed (34.6s) 
+step-five-kidney-evidence-2 | exit=0 | 72s |   2 passed (1.2m) 
+focus-moved-point-2 | exit=0 | 27s |   1 passed (25.7s) 
+operator-page-2 | exit=1 | 337s |   1 failed   32 passed (5.6m) 
+review-live-target-arrival-2 | exit=0 | 86s |   1 skipped   1 passed (1.4m) 
+ALL DONE 2
+
+## Alone afterwards
+operator-page 'the plan stays editable until the overview has been scanned' | exit=0 | 1 passed (30.4s, slow budget)
+operator-page 'a session needs a password before it will open' + 'one walk of the whole run' | 2 passed (first rerun after the groundWindows reader was added)
