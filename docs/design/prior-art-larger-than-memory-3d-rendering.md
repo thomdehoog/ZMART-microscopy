@@ -6,6 +6,22 @@ three-dimensional phase of the rendering-engine design. Looked up on
 forum or documentation sites; where only an abstract or a search summary
 could be read, that is said. Nothing here is ours.
 
+## A correction, added after review
+
+Codex's review of the engine design (`docs/reviews/2026-09-02-review-of-the-rendering-engine-design-by-codex.md`,
+finding 8) is right that this note overreached in two places. "Every one of
+them" and "all browser-native work has moved to WebGPU" are not supported by
+a survey that could read several entries only as abstracts; and neuroglancer
+itself, in the version this project pins, keeps a texture per chunk rather
+than one atlas. What the systems below do share is narrower and still
+useful: bounded residency, multiscale chunks, an explicit lookup, and a
+coarse fallback while fine data arrives. The atlas-plus-lookup layout is one
+way to get there, not the way. The engine design no longer commits to it,
+and a two-dimensional tile cache does not become a three-dimensional one by
+adding a coordinate: bricks change filtering, borders, transfer size and
+sampling, and WebGPU has a different resource model from WebGL2. Read the
+section below with that in mind.
+
 ## The one idea every one of them shares
 
 Every serious system below does the same four things, whatever it calls
