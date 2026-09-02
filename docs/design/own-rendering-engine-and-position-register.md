@@ -133,9 +133,13 @@ Ten thousand positions is won or lost here, not in the renderer.
 - **Placement.** Each tile is a textured quad at its true micrometre position,
   following the voxel-edge rule already settled for the composite, so the
   half-voxel disagreements do not return.
-- **Channels.** One texture per tile per channel; window, colour, colour map
-  and alpha as shader inputs; channels add together. Packing several channels
-  into one texture is a later saving, not a starting point.
+- **Channels as a colour overlay, the way it is now.** Every channel is drawn
+  in its own colour or colour map and the channels add together on the
+  screen, so a place that recorded green and red is yellow; each has its own
+  window, colour, colour map, eye and opacity, exactly the controls the panel
+  offers today. One texture per tile per channel; window, colour, colour map
+  and alpha as shader inputs. Packing several channels into one texture is a
+  later saving, not a starting point.
 - **Cache.** Two tiers with byte budgets: decoded pixels on the CPU side and
   uploaded textures on the GPU side, least recently used, with the current
   plane pinned.
