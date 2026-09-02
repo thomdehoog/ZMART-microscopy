@@ -47,6 +47,27 @@ what is precomputed rather than assembled on the fly.
   every position covers. Neuroglancer forced every store's height to nought to
   get them on screen together; owning the space removes that trick, and it is
   the same space a volume renderer draws later.
+- **Three ways of slicing that space, all two-dimensional.**
+  1. *Absolute.* Positions sit at their true x, y, z. The slider moves a
+     horizontal plane down through the whole space from the top, and each
+     position is drawn only where that plane passes through its own depth.
+     This is how the picture is really laid out on the stage.
+  2. *Aligned.* The z-stacks are lined up so one move of the slider cuts
+     through all of them at the same relative depth: dropped to the table
+     (bottoms aligned), raised to the ceiling (tops aligned), or a custom
+     offset per stack. The slider then moves in relative depth, and every
+     stack is on screen at once, however differently they were focused.
+  3. *From the side.* The view turns ninety degrees into the screen, so the
+     screen's vertical axis is z and "up" on the stage runs down into the
+     screen: a cross-section along x and z, or along y and z, at the row the
+     other slider chooses. Still a slice, drawn the same way; no volume
+     rendering.
+- **What the side view costs, said plainly.** Every position store keeps its
+  pyramid decimated in height and width only, one plane per chunk. A slice
+  from the side reads one row out of every plane's chunk, which is many small
+  reads for one screen. Either the kept levels carry a copy chunked along z
+  for the side view, or the side view is accepted as slower on fine levels;
+  which one is a measurement, and it goes in the data-layer record.
 - **Objects may be placed anywhere.** A position is drawn at its true
   micrometre placement in that space, on or off any chunk grid. Rotation is
   left open for later but nothing in the design forbids it.
