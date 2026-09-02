@@ -1411,12 +1411,27 @@ test("one walk of the whole run", async ({ page }) => {
   await expectTargetLayerOnCanvas(
     page, "cells", "Step 7 selected and context targets materially change the canvas");
 
-  // the gate belongs to the run, not to the panel that drew it
+  // the gate and its ceiling belong to the run, not to the panel that drew
+  // them: coming back, the box shows the ceiling the shown selection was
+  // drawn under, not a default over a selection drawn under another
+  await page.locator("#gate-max").fill("1");
+  await page.locator("#gate-max").dispatchEvent("input");
+  await page.waitForTimeout(200);
+  const readoutUnderTheCeiling = await page.locator("#gate-readout").textContent();
+  const keptUnderTheCeiling = (await targetsOnCanvas(page)).filter((target) => target.selected).length;
   await page.locator('.tab:has-text("Canvas")').click();
   await page.waitForTimeout(250);
   await gotoStep(page, "Refine Targets");
-  await expect(page.locator("#gate-readout")).toContainText("selected");
+  await expect(page.locator("#gate-max")).toHaveValue("1");
+  // standing on another step and coming back builds the panel afresh
+  await gotoStep(page, "Scan the overview");
+  await page.waitForTimeout(250);
+  await gotoStep(page, "Refine Targets");
+  await expect(page.locator("#gate-readout")).toHaveText(readoutUnderTheCeiling);
   await expect(page.locator("#gate-list .gate-row")).toHaveCount(1);
+  await expect(page.locator("#gate-max")).toHaveValue("1");
+  expect((await targetsOnCanvas(page)).filter((target) => target.selected).length,
+    "the selection is the one drawn under the ceiling the box shows").toBe(keptUnderTheCeiling);
 
   await runStep(page, 1000);
   await gotoStep(page, "Acquire Targets");

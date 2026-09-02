@@ -574,7 +574,12 @@ function makeRecorder({ page, port, bridge, audit, provenance }) {
         coordinates: {
           carrierOriginUm: raw.carrierOriginUm,
           plan: raw.planProjections,
-          targets: raw.targetProjections,
+          /* Every candidate's projection is checked (projectionError.targetsMaxPx);
+             listed are the ones the run acts on. Real discovery finds
+             thousands, and 4010 projections made each record 2.4 MB of
+             numbers nobody reads. */
+          targets: raw.targetProjections.filter((one) => one.selected || one.acquired),
+          targetsOnCanvas: raw.targetProjections.length,
           stageView: raw.stage.view,
           engineView: raw.engineView,
           canvas: raw.stage.canvas,
@@ -930,7 +935,13 @@ async function proveTargetArrival({
 async function disconnectAndReconnect({ page, take, port }) {
   await gotoStep(page, "Connect");
   await page.locator(".session-foot button.danger").click();
-  await page.waitForTimeout(1500);
+  /* The page fires the disconnect and does not wait for the bridge to finish
+     it, so the readings below wait for the bridge rather than for a fixed
+     moment: closing the analysis workers and the viewer took longer than
+     that moment on one machine, and the viewer was still up when asked. */
+  await expect.poll(async () => (await bridgeJson(page, port, "/api/viewer")).running, {
+    timeout: 30_000, message: "the bridge never finished the disconnect",
+  }).toBe(false);
   const afterDisconnect = await page.evaluate(async (bridgePort) => ({
     run: window.__theRunState(), targets: window.__theStageCanvas.targets().length,
     /* Nothing is open after a disconnect: the closed session has no run to
@@ -1121,12 +1132,15 @@ test("Steps 1 to 8 through the operator page on the real bridge, Viewer 0.2 and 
     const acquiredIds = acquired.filter((one) => one.acquired).map((one) => one.id).sort();
     expect(acquiredIds, "exactly the gated targets are acquired").toEqual([...selectedAfter].sort());
     expect(identityOf(acquired), "acquisition never moved a target").toEqual(identityOf(discovered));
-    arrival.records.forEach((record, index) => {
-      const target = acquired.find((one) => one.id === selectedAfter[index]);
-      expect(target, `record ${index} matches a gated target`).toBeTruthy();
-      expect(record.requested_position_um.x).toBeCloseTo(target.x + ox, 6);
-      expect(record.requested_position_um.y).toBeCloseTo(target.y + oy, 6);
-    });
+    /* The page acquires the gated cells in its own order (the order the
+       ceiling drew them), so a record is matched to its target by where it
+       was taken, not by its place in the list. */
+    const recordedAt = arrival.records.map((record) => acquired.filter((one) =>
+      one.acquired
+      && Math.abs(record.requested_position_um.x - (one.x + ox)) < 1e-6
+      && Math.abs(record.requested_position_um.y - (one.y + oy)) < 1e-6).map((one) => one.id));
+    expect(recordedAt.every((ids) => ids.length === 1), `every record was taken at exactly one gated target: ${JSON.stringify(recordedAt)}`).toBe(true);
+    expect(recordedAt.flat().sort(), "every gated target was taken once").toEqual([...selectedAfter].sort());
     await page.evaluate(() => { window.__theStageCanvas.showLayer("cells", true); window.__theStageCanvas.showLayer("targets", true); window.__theStageCanvas.fadeTo(1); });
     const first = acquired.find((one) => one.acquired);
     await page.evaluate(({ x, y }) => {
@@ -1138,8 +1152,17 @@ test("Steps 1 to 8 through the operator page on the real bridge, Viewer 0.2 and 
       step: 8, state: `close-up of acquired target ${first.id}: green ring and high-resolution frame over the overview`,
       expect: async ({ record, pixels }) => {
         const [box] = await boxesOnScreen(page, [first], arrival.targetFrameUm);
-        const green = greenNear(pixels, box.centre, 24);
-        expect(green, "the acquired target wears a green ring at its projection").toBeGreaterThan(20);
+        /* The ring is drawn at a radius the acquired layer sizes by zoom
+           (`layers.js`: 9 px scaled by the square root of the pixels per
+           micrometre over 0.03, at least 7 px), so the search reaches out
+           to where the ring is: at this close-up it stood 36 px out, beyond
+           a fixed 24 px window that saw only the sample's green. */
+        const [oneHundredUm] = await boxesOnScreen(page, [first], 200);
+        const pxPerUm = (oneHundredUm.right - oneHundredUm.left) / 200;
+        const ringPx = Math.max(7, 9 * Math.sqrt(pxPerUm / 0.03));
+        const green = greenNear(pixels, box.centre, ringPx + 8);
+        expect(green, `the acquired target wears a green ring at its projection (ring ${ringPx.toFixed(1)} px out)`).toBeGreaterThan(20);
+        record.pixelCheck.ringRadiusPx = ringPx;
         const withRing = await page.screenshot();
         await page.evaluate(() => window.__theStageCanvas.showLayer("targets", false));
         await page.waitForTimeout(300);

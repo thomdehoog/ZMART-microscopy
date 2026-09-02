@@ -1,0 +1,521 @@
+{
+  "schemaVersion": 1,
+  "name": "step4-focus-map",
+  "capturedAtUtc": "2026-09-02T11:22:24.968Z",
+  "provenance": {
+    "microscopy": {
+      "repository": "thomdehoog/ZMART-microscopy",
+      "branch": "claude/smart-operator-workflow-review-ehw3c5",
+      "commit": "bb439d135e3f5f833004a1ba06613add56c17b76",
+      "worktreeClean": false
+    },
+    "smartViewer": {
+      "repository": "thomdehoog/ZMART-viewer",
+      "importPath": "C:\\ProgramData\\MinicondaZMB\\home\\t.de\\ZMART-viewer-main\\zmart_viewer\\__init__.py",
+      "version": "0.2.0",
+      "commit": "9ff10b04e803fbe2a71a1735a8065a845ea803dd",
+      "measureRoutePresent": true
+    },
+    "backend": "real bridge (application/framework/bridge.py) driving the controller's mock kidney driver",
+    "page": "production build served by the bridge (framework/window/static)",
+    "python": "3.11.15"
+  },
+  "sample": "mock kidney (scikit-image kidney, plane 8)",
+  "server": {
+    "bridge": "http://127.0.0.1:8821",
+    "viewer": "http://127.0.0.1:61466",
+    "run": "C:\\Users\\local_t.de5\\Temp\\zmart-bridge-xIZ2FR\\target-acquisition_10064a"
+  },
+  "workflow": {
+    "step": 4,
+    "state": "focus map measured on the mock through the analysis; traces shown",
+    "run": {
+      "running": null,
+      "notes": {
+        "carrier": "75 × 25 mm slide · 73.0 × 23.0 mm",
+        "scanfields": "9 positions",
+        "focus": "constant from 1 points · rms 0.0 µm"
+      },
+      "activeIdx": 3,
+      "done": [
+        "connect",
+        "carrier",
+        "scanfields",
+        "focus"
+      ],
+      "ran": [
+        "connect",
+        "focus"
+      ],
+      "focus": {
+        "strategy": "plane",
+        "applied": true,
+        "points": 1,
+        "selected": 0
+      },
+      "targetFrameUm": null
+    }
+  },
+  "counts": {
+    "planned": 9,
+    "scan": {
+      "acquisitionType": null,
+      "done": 0,
+      "of": 0,
+      "running": false,
+      "error": null
+    },
+    "targetsOnCanvas": 0,
+    "targetsSelected": 0,
+    "targetsAcquired": 0,
+    "engineSourcesPerGroup": {
+      "focussing": [
+        1
+      ]
+    }
+  },
+  "viewerAcquisitions": [
+    {
+      "name": "focussing",
+      "logicalChannelCount": 1,
+      "sourceCountPerChannel": [
+        1
+      ]
+    }
+  ],
+  "engineRows": [
+    {
+      "name": "focussing/channel 0",
+      "group": "focussing",
+      "visible": true,
+      "window": {
+        "low": 225,
+        "high": 3863
+      },
+      "weight": 1,
+      "layerError": null,
+      "sourceCount": 1,
+      "sources": [
+        {
+          "url": "http://127.0.0.1:61466/data/0/focussing_K00_M000000_G000000_P000000_V00.ome.zarr/|zarr3:",
+          "error": null,
+          "boundsUm": {
+            "xMin": 59488,
+            "yMin": 39487.99999999999,
+            "xMax": 60511.99999999999,
+            "yMax": 40512,
+            "zMin": -34.56666666666665,
+            "zMax": 34.56666666666665
+          },
+          "matrixSha256": "aa9327931dedd92808e48006eec9b83dc2cecf5e3ad051749067761cce07f077",
+          "voxelCenterAtIntegerCoordinates": [
+            true,
+            true,
+            true,
+            false,
+            false
+          ]
+        }
+      ]
+    }
+  ],
+  "visibility": {
+    "requested": {
+      "focussing": true
+    },
+    "requestedChannels": [
+      {
+        "key": "focussing\u00000\u0000channel 0",
+        "acquisition": "focussing",
+        "name": "channel 0",
+        "requestedVisible": true,
+        "effectiveVisible": true,
+        "observedVisible": true,
+        "window": {
+          "low": 225,
+          "high": 3863
+        },
+        "observedWindow": {
+          "low": 225,
+          "high": 3863
+        },
+        "opacity": 1,
+        "log": false
+      }
+    ],
+    "engineObserved": {
+      "focussing": [
+        {
+          "row": "focussing/channel 0",
+          "visible": true
+        }
+      ]
+    }
+  },
+  "selected": "focussing\u00000\u0000channel 0",
+  "engineMismatch": null,
+  "measurement": {
+    "state": "ready",
+    "message": "Smart Viewer measurement ready."
+  },
+  "coordinates": {
+    "carrierOriginUm": {
+      "x": 23500,
+      "y": 28500
+    },
+    "plan": [
+      {
+        "index": 0,
+        "carrierLocalUm": {
+          "x": 35476,
+          "y": 10476
+        },
+        "absoluteStageUm": {
+          "x": 58976,
+          "y": 38976
+        },
+        "frameUm": 1024,
+        "stageScreenPx": {
+          "x": 322.84586666666667,
+          "y": 222.1792
+        },
+        "engineScreenPx": {
+          "x": 322.845869140625,
+          "y": 222.24951875
+        },
+        "errorPx": 0.07031875004350369
+      },
+      {
+        "index": 1,
+        "carrierLocalUm": {
+          "x": 36500,
+          "y": 10476
+        },
+        "absoluteStageUm": {
+          "x": 60000,
+          "y": 38976
+        },
+        "frameUm": 1024,
+        "stageScreenPx": {
+          "x": 328,
+          "y": 222.1792
+        },
+        "engineScreenPx": {
+          "x": 328.0000024739583,
+          "y": 222.24951875
+        },
+        "errorPx": 0.07031875004350369
+      },
+      {
+        "index": 2,
+        "carrierLocalUm": {
+          "x": 37524,
+          "y": 10476
+        },
+        "absoluteStageUm": {
+          "x": 61024,
+          "y": 38976
+        },
+        "frameUm": 1024,
+        "stageScreenPx": {
+          "x": 333.15413333333333,
+          "y": 222.1792
+        },
+        "engineScreenPx": {
+          "x": 333.15413580729165,
+          "y": 222.24951875
+        },
+        "errorPx": 0.07031875004350369
+      },
+      {
+        "index": 3,
+        "carrierLocalUm": {
+          "x": 35476,
+          "y": 11500
+        },
+        "absoluteStageUm": {
+          "x": 58976,
+          "y": 40000
+        },
+        "frameUm": 1024,
+        "stageScreenPx": {
+          "x": 322.84586666666667,
+          "y": 227.33333333333334
+        },
+        "engineScreenPx": {
+          "x": 322.845869140625,
+          "y": 227.40365208333333
+        },
+        "errorPx": 0.07031875004350369
+      },
+      {
+        "index": 4,
+        "carrierLocalUm": {
+          "x": 36500,
+          "y": 11500
+        },
+        "absoluteStageUm": {
+          "x": 60000,
+          "y": 40000
+        },
+        "frameUm": 1024,
+        "stageScreenPx": {
+          "x": 328,
+          "y": 227.33333333333334
+        },
+        "engineScreenPx": {
+          "x": 328.0000024739583,
+          "y": 227.40365208333333
+        },
+        "errorPx": 0.07031875004350369
+      },
+      {
+        "index": 5,
+        "carrierLocalUm": {
+          "x": 37524,
+          "y": 11500
+        },
+        "absoluteStageUm": {
+          "x": 61024,
+          "y": 40000
+        },
+        "frameUm": 1024,
+        "stageScreenPx": {
+          "x": 333.15413333333333,
+          "y": 227.33333333333334
+        },
+        "engineScreenPx": {
+          "x": 333.15413580729165,
+          "y": 227.40365208333333
+        },
+        "errorPx": 0.07031875004350369
+      },
+      {
+        "index": 6,
+        "carrierLocalUm": {
+          "x": 35476,
+          "y": 12524
+        },
+        "absoluteStageUm": {
+          "x": 58976,
+          "y": 41024
+        },
+        "frameUm": 1024,
+        "stageScreenPx": {
+          "x": 322.84586666666667,
+          "y": 232.48746666666668
+        },
+        "engineScreenPx": {
+          "x": 322.845869140625,
+          "y": 232.55778541666666
+        },
+        "errorPx": 0.07031875004350369
+      },
+      {
+        "index": 7,
+        "carrierLocalUm": {
+          "x": 36500,
+          "y": 12524
+        },
+        "absoluteStageUm": {
+          "x": 60000,
+          "y": 41024
+        },
+        "frameUm": 1024,
+        "stageScreenPx": {
+          "x": 328,
+          "y": 232.48746666666668
+        },
+        "engineScreenPx": {
+          "x": 328.0000024739583,
+          "y": 232.55778541666666
+        },
+        "errorPx": 0.07031875004350369
+      },
+      {
+        "index": 8,
+        "carrierLocalUm": {
+          "x": 37524,
+          "y": 12524
+        },
+        "absoluteStageUm": {
+          "x": 61024,
+          "y": 41024
+        },
+        "frameUm": 1024,
+        "stageScreenPx": {
+          "x": 333.15413333333333,
+          "y": 232.48746666666668
+        },
+        "engineScreenPx": {
+          "x": 333.15413580729165,
+          "y": 232.55778541666666
+        },
+        "errorPx": 0.07031875004350369
+      }
+    ],
+    "targets": [],
+    "targetsOnCanvas": 0,
+    "stageView": {
+      "centre": {
+        "x": 8884.105960264904,
+        "y": 39731.06374172185
+      },
+      "zoom": 198.67549668874173
+    },
+    "engineView": {
+      "centre": {
+        "x": 32384.10546875,
+        "y": 68231.0625
+      },
+      "zoom": 198.67549668874173,
+      "width": 378,
+      "height": 739
+    },
+    "canvas": {
+      "left": 284,
+      "top": 110,
+      "width": 378,
+      "height": 738.859375
+    }
+  },
+  "projectionError": {
+    "planMaxPx": 0.07031875004350369,
+    "targetsMaxPx": null,
+    "tolerancePx": 1
+  },
+  "pictureTag": null,
+  "pixelCheck": {
+    "canvasShadeBins": 84
+  },
+  "requests": {
+    "required": {
+      "metadata": 3,
+      "chunks": 3,
+      "measurement": 1,
+      "api": 50,
+      "pictures": 61
+    },
+    "expectedFormatProbes": [],
+    "expectedOptionalProbes": [
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/tiles.json",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/tiles.json",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/tiles.json",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/tiles.json",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/tiles.json",
+        "status": 404
+      }
+    ],
+    "expectedNavigationCancellations": [],
+    "expectedChunkCancellations": {
+      "count": 0,
+      "sample": []
+    },
+    "expectedRetiredStoreMisses": {
+      "stores": [],
+      "count": 0,
+      "sample": []
+    },
+    "unexpectedFailures": [],
+    "browserErrors": [],
+    "workerErrors": []
+  },
+  "browserErrors": [],
+  "workerErrors": [],
+  "bridgeErrors": [],
+  "viewerError": null,
+  "artifact": {
+    "file": "step4-focus-map.png",
+    "width": 1440,
+    "height": 900,
+    "sha256": "d6b05bbb1e5945c9685ffbd1986128e16daaadf2efcf5af60e3c99e3fa479b74"
+  },
+  "focus": {
+    "points": [
+      {
+        "x": 60000,
+        "y": 40000,
+        "z": 0.4658815290859543,
+        "tileset": 0,
+        "zAuto": 0.4658815290859543,
+        "lost": false,
+        "cost_s": {
+          "drive": 0,
+          "capture": 1.067,
+          "score": 3.437
+        }
+      }
+    ],
+    "predictedZAtPlan": [
+      {
+        "x": 35476,
+        "y": 10476,
+        "z": 15.935788988738974
+      },
+      {
+        "x": 36500,
+        "y": 10476,
+        "z": 15.935788988738974
+      },
+      {
+        "x": 37524,
+        "y": 10476,
+        "z": 15.935788988738974
+      },
+      {
+        "x": 35476,
+        "y": 11500,
+        "z": 15.935788988738974
+      },
+      {
+        "x": 36500,
+        "y": 11500,
+        "z": 15.935788988738974
+      },
+      {
+        "x": 37524,
+        "y": 11500,
+        "z": 15.935788988738974
+      },
+      {
+        "x": 35476,
+        "y": 12524,
+        "z": 15.935788988738974
+      },
+      {
+        "x": 36500,
+        "y": 12524,
+        "z": 15.935788988738974
+      },
+      {
+        "x": 37524,
+        "y": 12524,
+        "z": 15.935788988738974
+      }
+    ],
+    "runState": {
+      "strategy": "plane",
+      "applied": true,
+      "points": 1,
+      "selected": 0
+    }
+  }
+}

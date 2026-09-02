@@ -12,6 +12,10 @@ pushed to the codex branch and PR #24 stays in draft.
 **Second pass (2026-09-02, later):** every finding that needed no product decision was fixed on the
 review branch and re-verified; section 10 lists the changes and the runs that hold them. The
 per-finding status lines below say what was done for each.
+**Third pass (2026-09-02, on the operator's PC):** with Cellpose available, Steps 6 to 8 were run on
+real pixels through the operator page. That reached two defects no earlier pass could (HIGH-3, the
+detection lost after Cellpose finished; MEDIUM-9, the cell map starving the picture server) and one
+more on the page (MEDIUM-10); all three are fixed and re-proven. Section 11 has the pass.
 
 The document `docs/reviews/2026-09-01-why-the-acquired-overview-never-appeared.md` named in the
 review brief does not exist on this branch or on any fetched branch; the plan cites it as the
@@ -20,10 +24,10 @@ directories were read in full.
 
 ## 1. Executive verdict
 
-**PR head: conditional pass. Review branch: pass, with one environment limit (Steps 6–7 unproven
-live).** The verdict below describes the PR head as reviewed; section 10 records that conditions 1,
-2 and 4 are fixed and re-proven on the review branch, and that only condition 3 (Cellpose weights
-unreachable from this container) remains.
+**PR head: conditional pass. Review branch: pass.** The verdict below describes the PR head as
+reviewed; section 10 records that conditions 1, 2 and 4 are fixed and re-proven on the review
+branch, and section 11 that condition 3 fell on the operator's PC -- where the first real
+detection exposed HIGH-3 and MEDIUM-9, which the PR head also carries and the review branch fixes.
 
 Steps 1 to 5 work end to end on the production build served by the real
 bridge, with the mock kidney and the separate Smart Viewer 0.2, and the live Step 8 source model
@@ -121,7 +125,7 @@ as specimen Z, or navigation state leaking into a transform.
 
 ### MEDIUM-1 — Cellpose discovery unavailable here; Steps 6–7 live remain unproven
 
-**Status: not fixable here — an egress-policy limit of this container, not a code defect. Still open.**
+**Status: was this container's egress policy, not a code defect. Closed in the third pass (section 11): on the operator's PC, with the weights on disk, Cellpose ran through the real bridge -- and exposed HIGH-3 and MEDIUM-9 behind it, both fixed there.**
 
 - The tile test through the real bridge failed with
   `Could not initialize CellposeModel on any device: cpu: <urlopen error Tunnel connection failed:
@@ -275,9 +279,9 @@ acquisition source survives (checked), so no stale pixels; but the picture objec
 | 3 Scan area | optics recorded from the microscope; grid; counts match carrier and frame; every position on screen; plan locked after scan | **passed** (grid/fields/regions/polygon/clear behaviours proven with pretend backend) | `step3-plan`, operator-page pretend suite |
 | 4 Focus | focussing configuration recorded; points measured through the analysis; traces and stack; fixed/mapped behaviour; focus Z provenance only | **passed** (slice-preview timing test LOW-3, fixed) | `step4-focus-map`, `the-map-fills-in`, `a-moved-point-has-no-curve`, bridge probe |
 | 5 Overview | 0/3/6/9; Run button; nine ROIs examined and textured; three rows × nine sources; growth without remount; Fit preserved; overview-only; close-up; projection < 1 px; real `/api/measure`; no unexpected failures | **failed on head** (HIGH-1 misplacement, HIGH-2 broken spec) → **passed on the fixed review branch** | real bridge + Viewer 0.2 + mock kidney (`step-five-fixed/*`, `view-preservation.json`, `step5-overview-complete`) |
-| 6 Discover | preview is the selected field; settings; test vs all; ids and positions; candidates on canvas; layer changes canvas; hoverable; failures honest | **blocked live** (MEDIUM-1); canvas behaviour **passed with pretend backend**; failure reporting **failed** then fixed (MEDIUM-2) | operator-page pretend walk; `step6-discovery-blocked` |
-| 7 Refine | candidates before gate; no implicit gate; polygon gate; intersection; feedback; counts agree; gate survives navigation; coordinates unchanged | **unproven live**; **passed with pretend backend** | operator-page pretend walk; source review of `gating.js` (no gates → empty set) |
-| 8 Acquire | configuration before acquisition; button gating; one conversion; focus Z provenance; positions equal; rings/frames; gallery; verdicts; partial runs | canvas/gallery **passed with pretend backend** (incl. ground windows over acquired frames after MEDIUM-4); interruption **unproven**; source model **passed live** (remount at first arrival is by design; shorter rerun accounted exactly after MEDIUM-3) | `bridge-step8-*` records |
+| 6 Discover | preview is the selected field; settings; test vs all; ids and positions; candidates on canvas; layer changes canvas; hoverable; failures honest | **blocked live** in the container (MEDIUM-1) → **failed on real pixels** on the operator's PC (HIGH-3) → **passed on real pixels** on the review branch (section 11); failure reporting fixed (MEDIUM-2) | operator-page pretend walk; `step6-discovery-blocked`; `on-the-operators-pc/step6-discovered-over-overview` |
+| 7 Refine | candidates before gate; no implicit gate; polygon gate; intersection; feedback; counts agree; gate survives navigation; coordinates unchanged | **passed on real pixels** (section 11) after MEDIUM-10 (the ceiling now survives navigation with the gate); **passed with pretend backend** | operator-page pretend walk; `on-the-operators-pc/step7-*` |
+| 8 Acquire | configuration before acquisition; button gating; one conversion; focus Z provenance; positions equal; rings/frames; gallery; verdicts; partial runs | button path with real discovered targets **passed live** (section 11; three gated cells acquired at their positions, registration 0 µm, rings, gallery, verdicts, one-at-a-time growth); source model **passed live**; interruption **unproven** | `bridge-step8-*` records; `on-the-operators-pc/step8-*` |
 
 ## 4. Test ledger
 
@@ -346,6 +350,15 @@ Accepted (fixed review branch, production build served by the bridge, real bridg
 | `step-five-fixed/0-of-9 … kidney-close-up` | 5 | the branch's own deterministic and Run-button records on the fixed adapter |
 | `panel-ux/smart-viewer-0.2-reference`, `smart-operator-comparable-panel`, `…-focussing-overlay`, `…-overview-only` | 5–8 | Viewer 0.2 reference and the Operator panel states (fixture engine, real measurements) |
 
+Third pass (operator's PC, real Cellpose; section 11) — `on-the-operators-pc/live-target-arrival/`:
+
+| File | Step | What it shows |
+| --- | --- | --- |
+| `step6-discovered-over-overview` | 6 | 4010 real Cellpose candidates over the nine fields; the field preview with its masks |
+| `step7-candidates-before-gate`, `step7-gated-selection` | 7 | every candidate as context; a polygon gate on area x intensity keeping 3 under a ceiling of 3 |
+| `step8-ready-to-acquire` … `step8-gallery-with-verdict` | 8 | the button path: three gated cells acquired, frames and rings on the overview, close-up ring, gallery with a verdict |
+| `bridge-step8-*`, `step1-reconnected` | 8, 1 | the source model and the disconnect, re-proven on this machine |
+
 Kept separate as failed or partial runs (not accepted): `head-branch/` holds the head-branch
 Step 5 and Step 8 records showing the 2.83 µm registration and the run summaries of every batch
 (including the batch-5 runs contaminated by orphaned bridge processes).
@@ -402,9 +415,12 @@ Viewer order, focussing last) is chosen in `watching-the-run.js:544` and does no
   model with bridge-published target positions (separate `target` group, per-position sources,
   visibility survival, Fit preservation, independent group eyes, matrices unchanged, Z anchors);
   on the review branch also the shorter rerun accounted exactly and no picture after Disconnect.
-- **Unproven:** Steps 6–7 on real pixels; the Step 8 button path with real discovered targets;
-  target source growth one position at a time (all three landed within one page poll);
-  interruption and partial acquisition accounting.
+- **Proven in the third pass (section 11), real bridge + real Smart Viewer 0.2 + mock kidney +
+  real Cellpose on the operator's PC:** Steps 6 and 7 on real pixels (4010 candidates from nine
+  fields, a polygon gate, the ceiling), the Step 8 button path with real discovered targets
+  (three gated cells acquired, rings, gallery, verdicts), and target source growth one position
+  at a time (the Viewer reported 1, 2, 3 sources per row at 180, 325 and 422 ms).
+- **Unproven:** interruption and partial acquisition accounting.
 
 ## 9. Changes made on the review branch and their verification
 
@@ -474,3 +490,177 @@ records that show the 2.83 µm defect stay under `head-branch/`.
 
 What the second pass does not change: Steps 6–7 on real pixels, the Step 8 button path with real
 discovered targets, one-at-a-time target growth and interruption accounting remain unproven here.
+
+## 11. Third pass, on the operator's PC: Steps 6 to 8 on real pixels
+
+**Where:** the review branch cloned on the development PC that runs the real instruments
+(Windows 11, an AppLocker-whitelisted checkout), env `zmart-microscopy` (Python 3.11.15, node 26.5,
+Playwright 1.62 with its Chromium 1234 and SwiftShader), the analysis step envs this machine
+already had (`ZMART--object_analysis--vision`: cellpose 4.1.1, torch 2.11 with CUDA, the 1.2 GB
+`cpsam` weights on disk), Smart Viewer 0.2.0 at `9ff10b04` installed from the sibling checkout with
+`pip install --no-deps -e`. The page under test is the committed production build served by the
+bridge, as in the second pass. Nothing was pushed to the codex branch and PR #24 stays in draft.
+
+**What it settles:** MEDIUM-1 was that container's egress policy and nothing else -- with the
+weights on disk, Cellpose runs through the real bridge. But the first real run past the weights
+failed anyway, on a code defect no pass could have reached before (HIGH-3 below), and the first run
+past *that* failed on a second one (MEDIUM-9). Both are fixed and re-proven; Steps 6, 7 and 8 are
+now proven on real pixels through the operator page, the Step 8 button path with real discovered
+targets included, and the Viewer was seen growing the target group one position at a time.
+
+### HIGH-3 -- Detection lost after Cellpose finished: the position store hashed as one file
+
+**Status: fixed and re-proven on the review branch.**
+
+- **File:** `zmart_analysis/workflows/object_analysis/steps/detect_objects.py`, `file_sha256`
+  (`Path(path).open("rb")`), called from `_write_detection_checkpoint` on `inp["image_path"]`.
+- **Observed:** the tile test ran 56 s (model load and segmentation), then every field failed with
+  `PermissionError: [Errno 13] Permission denied: '...\positions\overview\overview_K00_..._P000000_V00.ome.zarr'`.
+  The bridge hands the step the capture's OME-Zarr position (`detection.py`, `record["zarr"]`),
+  which is a directory; opening a directory as a file is "permission denied" on Windows and
+  "is a directory" on Linux, so the defect is on every platform, and the container never reached it
+  only because the weights download failed first.
+- **Effect:** no field of a real run could ever be detected on; Step 6 was unreachable live.
+- **Fix:** `file_sha256` digests a directory as every file in it in path order, each relative
+  name then its bytes, so a changed chunk and a moved chunk are both a different position; a
+  single file digests as before. Five tests in `test_output.py` (a store digests, repeats, changes
+  with one chunk, changes with a moved chunk, and files its checkpoint under the store's name with
+  that digest), all red before the fix with the same permission error. The test module also gained
+  its own path setup: alone, it could not import the step before.
+
+### MEDIUM-9 -- The cell map, drawn in the bridge's process, starved the picture server
+
+**Status: fixed and re-proven on the review branch.**
+
+- **File:** `application/framework/bridge.py`, `_embedding_worker` (a thread of the bridge process
+  calling `embedding.umap_embedding`); the Viewer serves from a thread of the same process
+  (`viewer_service.start`).
+- **Observed:** with detection working, the operator path failed at `step8-ready-to-acquire`
+  because `/api/viewer` reported `the viewer's current picture could not be read: timed out` --
+  the service's one-second read of the Viewer's config, 13 s after Refine opened, which is when the
+  page asks for the UMAP map of all 4010 cells.
+- **Measured** (nine real overview stores, 4010 synthetic cells, one process): the Viewer's config
+  answered in 3 ms at rest, a median of 365 ms and up to 699 ms while the warm map ran (12.2 s),
+  up to 639 ms during the first map (24.9 s with umap's compile); under a real run's extra load
+  the answer crossed the budget. A page that polls the Viewer during the map sees the picture
+  as failing.
+- **Fix:** the map is drawn in a process of its own (`embedding.in_another_process`, a spawned
+  worker; `embedding.apart` is the seam) and only the points come back; a failure comes back as the
+  same sentence. Each map pays umap's import and compile again, which is what "lands quietly"
+  costs. Tests: four in `test_embedding.py` (another pid, the result returned, the same sentence on
+  failure, the map drawn apart equals the map drawn here) and one in `test_operator_bridge.py`
+  (the bridge draws through the seam and never in its own process). Re-proven: the operator path's
+  Step 6, 7 and 8 records all carry `viewerError: null` after discovery.
+
+### MEDIUM-10 -- The per-tileset ceiling belonged to the panel, not to the run
+
+**Status: fixed and re-proven on the review branch.**
+
+- **File:** `application/workflows/target_acquisition/steps/refine_targets/gate.js`
+  (`maxN.value = "50"` on every mount); `application/framework/window/main.js` (the run state
+  held the gates and the gated ids, never the ceiling they were drawn under).
+- **Observed** in `step7-gated-selection.png`: after the spec stood on another step and came back,
+  the box read 50 while the readout said "3 kept of 699 in gates" -- the selection on the canvas
+  was drawn under a ceiling of 3, and the page showed a different rule over it. The next edit of
+  any gate would have silently redrawn the selection under 50.
+- **Fix:** the ceiling is run state (`gateCap`), handed to the panel with the gates
+  (`ctx.cap()`, `setGates(gates, ids, cap)`), and the box shows it. The disconnect reset, which
+  carried a dead `gate: null` key and left the gates standing, now clears the gates and the ceiling.
+  The pretend whole-run walk lays a gate, types a ceiling of 1, leaves for the overview step and
+  returns: the box must still say 1 and the selection must be the one drawn under it. Red on the
+  unfixed page (`Expected "1", Received "50"`), green on the fixed one.
+
+### Spec corrections (test code only)
+
+- The disconnect check waited a fixed 1.5 s and read `/api/viewer`; the page fires the disconnect
+  without awaiting it, and once here the viewer was still up when asked (bridge path, first run).
+  It now polls the bridge until the viewer is down.
+- Acquisition records were paired with gated targets by list position; the page acquires in the
+  order the ceiling drew them. A record is now matched to the one gated target at its requested
+  stage position, and every gated target must be taken exactly once.
+- The green-ring check searched a fixed 24 px around the target; the acquired layer draws the ring
+  at a radius it sizes by zoom (9 px scaled by the square root of the pixels per micrometre over
+  0.03, at least 7 px), which at the close-up zoom is 36 px out (measured on the screenshot: 457
+  ring pixels in the 32-40 px band, 11 sample-green pixels inside 24 px). The window now follows
+  the layer's own rule plus 8 px, and the record carries the ring radius it searched.
+
+### Environment trap, recorded so nobody pays for it twice
+
+The analysis engine spawns each step as `conda run -n ZMART--<workflow>--<step> python ...`. Started
+from a shell that merely prepends the operator env's folder to PATH, `conda run` activates the step
+env by name but `python` still resolves to the operator env's interpreter (the worker reported
+`CONDA_DEFAULT_ENV=ZMART--object_analysis--vision` and `sys.executable=...\zmart-microscopy\python.exe`),
+and every detection fails with `No module named 'cellpose'`. conda only strips PATH entries it made
+itself: a real activation (`CONDA_PREFIX`, `CONDA_DEFAULT_ENV`, `CONDA_SHLVL` set) makes the worker
+run its own interpreter. This is how the first run here failed; it is not a code defect.
+
+### Observed, not changed
+
+- Step 6's panel at 1440 x 900: the "Run again" button wraps onto two lines and the note
+  "4010 targets · Cellpose ..." runs past the panel's edge (`step6-discovered-over-overview.png`).
+- Discovery of nine 1024 x 1024 fields took 7 min 14 s with Cellpose on the GPU (about 48 s per
+  field including the checkpoint), the same across three runs: 449, 525, 402, 480, 512, 391,
+  366, 463, 422 cells, 4010 in all, none failed.
+
+### Test ledger, third pass
+
+Environment: Windows 11 Pro, development PC with a CUDA GPU, the `zmart-microscopy` env
+(Python 3.11.15, node 26.5.0, npm 11.17), Playwright 1.62.0 with Chromium 1234 under SwiftShader,
+the step envs `ZMART--focus--main` and `ZMART--object_analysis--vision` (cellpose 4.1.1, torch
+2.11.0+cu128), Smart Viewer 0.2.0 at `9ff10b04`. The bridge was started under a real conda
+activation (see the environment trap above). Every run below is on the final code of the review
+branch unless marked as a first run.
+
+| Command (cwd `application` unless noted) | Result | Time | Notes |
+| --- | --- | --- | --- |
+| `playwright test review-live-target-arrival.spec.js` (first run, env folder on PATH only) | operator path skipped at Step 6 (`No module named 'cellpose'`); bridge path failed on the disconnect check | 3.5 min | the environment trap; the disconnect check's fixed wait |
+| same, under a real activation (first run past the weights) | operator path skipped at Step 6: `PermissionError ... .ome.zarr` after 56 s in the worker; bridge path passed | 1.9 min | HIGH-3 |
+| `pytest zmart_analysis/workflows/object_analysis/tests` (repo root) | 93 passed, 3 skipped; the five new tests red before the fix, green after | 3 s | |
+| operator path with HIGH-3 fixed | Steps 6 and 7 passed on real pixels; failed at `step8-ready-to-acquire` on `viewerError: the viewer's current picture could not be read: timed out` | 7.9 min | MEDIUM-9 |
+| starvation probe (nine real overview stores, 4010 synthetic cells, one process) | config answers: 3 ms at rest; median 365 ms, max 699 ms during the warm map (12.2 s); max 639 ms during the first map (24.9 s) | 60 s | measured, not inferred |
+| `pytest application/parts/analysis/test_embedding.py application/framework/test_operator_bridge.py -k "Apart or cell_map"` (repo root) | 4 + 1 new tests red before the fix (no `apart`, map drawn in-process), green after | 30 s | |
+| `playwright test framework/operator-page.spec.js -g "one walk of the whole run"` (dev server on 5175) | passed with the ceiling check; on the unfixed page: `Expected "1", Received "50"` | 1.2 min each | MEDIUM-10 |
+| `npx vitest run` | 365 passed, 15 skipped | 5.6 s | |
+| `npm run build` | ok; `the-built-page.spec.js` passed (built and development ink equal) | 0.7 s, 9.6 s | the committed bundle is this build |
+| `pytest` on `test_zarr_positions`, `test_viewer_service`, `test_operator_bridge`, `test_detection`, `test_webapp`, `test_embedding` and `object_analysis/tests` (repo root) | 238 passed, 3 skipped | 56 s | |
+| `playwright test review-live-target-arrival.spec.js` (final, both paths) | 2 passed | 8.8 min | the evidence below; two earlier full runs failed only on spec assumptions (record pairing by index, the 24 px ring window) |
+
+### What the final run holds
+
+Operator path, production build served by the bridge, real bridge, real Smart Viewer 0.2, mock
+kidney, real Cellpose on the GPU:
+
+- Step 6: the tile test examined one field; Run discovered 449, 525, 402, 480, 512, 391, 366, 463
+  and 422 cells over the nine fields (4010), none failed; every candidate inside the field that
+  produced it; every id unique; canvas positions equal the bridge's stage positions minus the
+  carrier origin to 1e-6; the candidate layer changes 48 584 canvas pixels; the first candidate is
+  hoverable at its projection. Discovery ran from 11:22:31 to 11:29:44 UTC (7 min 13 s).
+- Step 7: all 4010 drawn, none selected before a gate; a polygon gate on area x intensity keeps
+  3 of 699 in gates under a ceiling of 3; a second gate on another feature cannot widen it; the
+  gate and the ceiling survive a visit to the overview step; coordinates untouched.
+- Step 8: the Acquire button stays disabled until the target configuration is recorded; the run
+  acquires exactly the three gated cells at their stage positions (each record matched to one
+  gated target, every gated target taken once); the Viewer group `target` grows one source per
+  row at 139, 276 and 387 ms; the page remounts once at the first arrival and holds the instance;
+  registration on the three target stores 0, 1e-11 and 0 µm; projection 0.070 px; the acquired
+  ring 36.7 px out at the close-up zoom with 469 ring pixels; the acquired layer changes 193 914
+  pixels; three gallery pairs served (target frames 13.7-14.9 kB, overview crops 13.4-14.8 kB),
+  captions carry the ids, verdicts mark and unmark; no unexpected request failure, no browser
+  error, no viewer error on any record after discovery.
+- Disconnect: no targets, no plan, no picture, no acquisition row, viewer down; reconnect works.
+
+Bridge path, same run: registration 7e-12, 7e-12 and 1e-11 µm on the three target sources;
+sources per row 1, 2, 3 at 119, 253 and 340 ms; the shorter rerun leaves 2 sources per row and 2
+stores on disk.
+
+**Evidence:** `evidence/2026-09-02-smart-operator-review/on-the-operators-pc/live-target-arrival/`
+holds the final run's 28 records with their screenshots and the manifest (all 28 SHA-256 values
+verify). Each record lists the projections of the targets the run acts on and the count of all
+candidates, since 4010 projections per record was 2.4 MB of numbers nobody reads; the
+per-candidate projection check still runs on every one (`projectionError.targetsMaxPx`).
+`on-the-operators-pc/first-runs/` keeps the three failing records and pictures that named the
+defects: `step6-permission-denied-on-the-store`, `step8-viewer-timed-out-during-the-map` and
+`step7-ceiling-box-reads-50-over-3-kept` (their candidate lists cut the same way when filed).
+
+**Still unproven after the third pass:** interruption and partial acquisition accounting; and
+everything above stands on the mock kidney, not on a real sample.

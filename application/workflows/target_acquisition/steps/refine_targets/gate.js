@@ -34,7 +34,8 @@ export default {
    *   `cells()` `gated()` `acquired()`  what to draw; `gated()` is the
    *                     intersection the run holds
    *   `gates()`         every gate laid, `[{fx, fy, vertices}]`
-   *   `setGates(gates, ids)`  the gates changed; the run takes both
+   *   `cap()`           the per-tileset ceiling the run holds
+   *   `setGates(gates, ids, cap)`  the gates changed; the run takes all three
    *   `showing()`       whether discovery has run, so there is anything to gate
    *   `sizeCanvas(cv)` `css(name)`  the page's canvas plumbing
    */
@@ -129,7 +130,10 @@ export default {
     const maxN = document.createElement("input");
     maxN.type = "number"; maxN.min = "1"; maxN.step = "1";
     maxN.id = "gate-max";
-    maxN.value = "50";
+    /* The ceiling in force, not a default: the selection the run holds was
+       drawn under it, and a box showing another number over that selection
+       would be showing a different rule from the one on the canvas. */
+    maxN.value = String(ctx.cap());
     refine.append(maxLabel, maxN);
     curate.body.append(refine, act);
 
@@ -144,11 +148,14 @@ export default {
     const theCells = () => [...ctx.cells()];
     const shownGate = () => gateForPair(ctx.gates(), fx, fy);
 
+    /** The per-tileset ceiling as typed: at least one, a whole number. */
+    const ceiling = () => Math.max(1, Math.round(Number(maxN.value) || 0));
+
     /** What the gates let through, held under the per-tileset ceiling. */
     const capped = (gates) => {
       const cells = theCells();
       const inGates = cellsInAllGates(cells, gates);
-      const max = Math.max(1, Math.round(Number(maxN.value) || 0));
+      const max = ceiling();
       const byTileset = new Map();
       for (const c of cells) {
         if (!inGates.has(c.id)) continue;
@@ -166,7 +173,7 @@ export default {
     /* Gates changed: the run takes the list and the capped selection
        together -- there is no separate draw press to remember. */
     const commit = (gates) => {
-      ctx.setGates(gates, capped(gates));
+      ctx.setGates(gates, capped(gates), ceiling());
       sayIt();
       renderList();
       draw();

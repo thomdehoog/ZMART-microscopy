@@ -354,12 +354,33 @@ def segmentation_params_hash(params: dict) -> str:
 
 
 def file_sha256(path: str | Path) -> str:
-    """Return a SHA256 digest for a persisted artifact."""
+    """Return a SHA256 digest for a persisted artifact.
+
+    A single file digests as its bytes. An OME-Zarr position is a directory --
+    a description and its chunks -- and digests as every file in it, in path
+    order, each one's relative name and then its bytes, so that a changed
+    chunk and a moved chunk are both a different position. Opening the
+    directory as if it were one file is "permission denied" on Windows and
+    "is a directory" on Linux, and it lost the whole detection at the moment
+    its record was being written, after Cellpose had already finished.
+    """
+    root = Path(path)
     digest = hashlib.sha256()
-    with Path(path).open("rb") as handle:
+    if root.is_dir():
+        files = sorted(one for one in root.rglob("*") if one.is_file())
+        for file in files:
+            digest.update(file.relative_to(root).as_posix().encode("utf-8"))
+            digest.update(b"\0")
+            _digest_the_bytes_of(file, digest)
+    else:
+        _digest_the_bytes_of(root, digest)
+    return digest.hexdigest()
+
+
+def _digest_the_bytes_of(file: Path, digest) -> None:
+    with file.open("rb") as handle:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
-    return digest.hexdigest()
 
 
 def segment_position(

@@ -110,3 +110,36 @@ class TestUmapEmbedding:
         # The seed is pinned: the same population gets the same map.
         again = embedding.umap_embedding(cells)
         assert first == again
+
+
+class TestApart:
+    """The map is drawn in another process, so the bridge stays answerable.
+
+    Measured on the operator's PC with 4010 cells: the map takes 25 s on
+    first use and 12 s warm, and while it runs in the bridge's own process
+    the picture server sharing that process answers in 365 ms instead of
+    3 ms, up to 700 ms -- and past its one-second budget under the real
+    run's load, which the operator saw as a viewer error at Step 8.
+    """
+
+    def test_work_sent_apart_runs_in_another_process(self):
+        import os
+
+        assert embedding.apart(os.getpid) != os.getpid()
+
+    def test_what_comes_back_is_what_the_work_returned(self):
+        assert embedding.apart(sorted, [3, 1, 2]) == [1, 2, 3]
+
+    def test_a_failure_apart_is_the_same_sentence_here(self):
+        with pytest.raises(RuntimeError, match="only 2 cells"):
+            embedding.in_another_process([a_cell("a", area=1.0), a_cell("b", area=2.0)])
+
+    def test_the_map_drawn_apart_is_the_map(self):
+        pytest.importorskip("umap")
+        rng = np.random.default_rng(7)
+        cells = [
+            a_cell(f"c{i}", area=float(rng.normal(100 if i % 2 else 400, 10)),
+                   glow=float(rng.normal(0.2 if i % 2 else 0.8, 0.05)))
+            for i in range(40)
+        ]
+        assert embedding.in_another_process(cells) == embedding.umap_embedding(cells)

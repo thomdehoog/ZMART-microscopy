@@ -781,6 +781,36 @@ def test_what_was_found_is_kept_beside_the_overview(monkeypatch):
     assert json.loads(kept[1].read_text(encoding="utf-8"))[0]["id"] == "P1_obj1"
 
 
+def test_the_cell_map_is_drawn_apart_from_the_bridge(monkeypatch):
+    """The map is the one long computation the bridge itself would run.
+
+    Drawn in the bridge's process it starves the picture server that shares
+    it (measured: 3 ms answers became 365 ms, past the 1 s budget under
+    load), so the bridge sends the work to another process and takes back
+    the points.
+    """
+    from application.parts.analysis import embedding
+
+    _an_overview_of_two_fields(monkeypatch)
+    _discovered({"settings": {}})
+    drawn = {}
+
+    def apart(cells):
+        drawn["ids"] = [cell["id"] for cell in cells]
+        return {cell["id"]: [1.0, 2.0] for cell in cells}
+
+    monkeypatch.setattr(embedding, "in_another_process", apart)
+    monkeypatch.setattr(embedding, "umap_embedding", lambda cells: pytest.fail("drawn here, in the bridge"))
+    bridge._embed_targets()
+    for _ in range(200):
+        if not bridge._embedding["running"]:
+            break
+        time.sleep(0.01)
+    assert bridge._embedding["error"] is None
+    assert drawn["ids"] == ["P0_obj1", "P1_obj1"]
+    assert bridge._embedding["points"] == {"P0_obj1": [1.0, 2.0], "P1_obj1": [1.0, 2.0]}
+
+
 def test_nothing_to_discover_on_before_an_overview(monkeypatch):
     monkeypatch.setattr(bridge, "_records", {})
     with pytest.raises(RuntimeError, match="overview"):
