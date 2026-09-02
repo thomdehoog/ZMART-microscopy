@@ -170,3 +170,58 @@ def test_a_viewer_that_does_not_answer_is_not_called_too_old(monkeypatch, tmp_pa
     assert told["running"] is False
     assert "did not answer" in told["error"]
     assert "too old" not in told["error"]
+
+
+def test_the_sources_keep_every_channel_of_a_store_with_only_declared_windows():
+    """Three rows of one store are one address with three named channels.
+
+    The rows used to collapse to one `{url, name}` per store, and with them
+    went the names, colours and places of the channels: an acquisition that
+    had not decided its window — and so wrote no `omero` block for the panel
+    to read instead — came to the canvas as a single nameless channel. A
+    window the viewer merely *measured* is deliberately not carried: the
+    panel measures for itself and applies that, so there is one authority.
+    """
+    from application.parts.storage.viewer_service import _the_sources_in
+
+    config = {"layers": [
+        {"kind": "image", "group": "overview", "channelIndex": 1, "name": "GFP",
+         "color": [0.0, 1.0, 0.0], "window": {"low": 120.0, "high": 900.0},
+         "measurementState": "provisional", "sources": ["/data/0/overview/|zarr3:"]},
+        {"kind": "image", "group": "overview", "channelIndex": 0, "name": "DAPI",
+         "color": [0.0, 0.0, 1.0], "window": {"low": 50.0, "high": 700.0},
+         "measurementState": "declared", "sources": ["/data/0/overview/|zarr3:"]},
+        {"kind": "image", "group": "overview", "channelIndex": 2, "name": "mCherry",
+         "color": [1.0, 0.0, 0.0], "window": None, "active": False,
+         "measurementState": "waiting", "sources": ["/data/0/overview/|zarr3:"]},
+        {"kind": "segmentation", "group": "overview", "name": "cells",
+         "sources": ["/data/0/overview/labels/cells/|zarr3:"]},
+    ]}
+
+    found = _the_sources_in(config, 8848)
+
+    assert list(found) == ["overview"]
+    [source] = found["overview"]
+    assert source["url"] == "http://127.0.0.1:8848/data/0/overview/|zarr3:"
+    assert [c["name"] for c in source["channels"]] == ["DAPI", "GFP", "mCherry"]
+    assert [c["index"] for c in source["channels"]] == [0, 1, 2]
+    assert source["channels"][0]["colour"] == [0.0, 0.0, 1.0]
+    assert source["channels"][0]["window"] == {"low": 50.0, "high": 700.0}, "declared: carried"
+    assert source["channels"][1]["window"] is None, "measured: the panel measures for itself"
+    assert source["channels"][2]["window"] is None
+    assert source["channels"][2]["visible"] is False
+
+
+def test_a_finished_scan_is_announced_to_the_viewer(monkeypatch, fresh):
+    from application.parts.storage import viewer_service
+
+    told = []
+    monkeypatch.setattr(viewer_service, "_ask", lambda port, route, payload: told.append((route, payload)))
+    viewer_service._viewer["port"] = 1234
+    viewer_service.a_scan_finished("overview")
+    assert told == [("/api/announce", {"finished": "overview"})]
+
+    # And without a viewer there is nobody to tell, and nothing goes wrong.
+    viewer_service._viewer["port"] = None
+    viewer_service.a_scan_finished("overview")
+    assert told == [("/api/announce", {"finished": "overview"})]

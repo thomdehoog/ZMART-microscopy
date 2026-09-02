@@ -85,6 +85,7 @@ import { theMiddleOfEveryOtherAxis } from "../planes.js";
 // from one place: a window measured on a plane the operator is not being shown
 // describes a picture that is not on the screen. See `../brightness.js`.
 import { theRangeTheseSourcesHold } from "../brightness.js";
+import { isAWindow } from "../windows.js";
 // And where to open looking, which the engines disagree about by a factor of
 // twenty if left to themselves. See `../opening-view.js`.
 import { theViewThatShowsAllOf } from "../opening-view.js";
@@ -670,12 +671,10 @@ async function start(own, acquisitions) {
 /** The colour a channel is drawn in when nobody has named one. */
 const WHITE = [1, 1, 1];
 
-/**
- * The brightness range to open a channel at when neither the page nor the run
- * asked for one. It is the same range this viewer has always used in that case,
- * and it suits the twelve-bit cameras these runs are acquired on.
- */
-const AN_ORDINARY_WINDOW = { low: 0, high: 4095 };
+/* There used to be a fixed nought-to-4095 here for a channel nobody had given
+   a window. It is gone, and `../windows.js` says why: a channel with no window
+   is not drawn through a made-up one. It waits, unseen, until the page hands
+   it a window through `setChannel`. */
 
 /**
  * Six hex digits, the way a run writes a colour, as the three numbers from 0 to
@@ -742,6 +741,48 @@ function windowFromTheStore(described) {
  * for one of the three options and none for the other two, which is exactly the
  * kind of difference between them this comparison is trying not to introduce.
  */
+/**
+ * `theWindowToOpenWith`, for a caller that already holds the pixels' answer.
+ *
+ * This option reads every channel's range as the store opens (`heldRanges`),
+ * so there is nothing to wait for by the time rows are built; the shared rule
+ * is applied here in the same order, with the reading handed in as a value.
+ */
+function theWindowToOpenWithSync({ page = null, store = null, pixels = null } = {}) {
+  if (isAWindow(page)) return { window: { low: page.low, high: page.high }, from: "page" };
+  if (isAWindow(store)) return { window: { low: store.low, high: store.high }, from: "store" };
+  if (isAWindow(pixels)) return { window: { low: pixels.low, high: pixels.high }, from: "pixels" };
+  return { window: null, from: null };
+}
+
+/**
+ * The channels the page named for an acquisition, in this option's own shape.
+ *
+ * The operator's page hands over what the run's viewer knows about each
+ * channel: its name, its place along the channel axis, its colour as three
+ * numbers from 0 to 1 (or six hex digits, as a store writes it), and a window
+ * only where the run *declared* one. A window given here is the page's word
+ * and is marked as such, so that nothing read out of the store or the pixels
+ * is allowed to overrule it. Nothing at all comes back when the page named no
+ * channels, so the caller reads the store instead.
+ */
+function channelsThePageNamed(acquisition) {
+  const named = acquisition.channels;
+  if (!Array.isArray(named) || !named.length) return null;
+  return named.map((channel, at) => ({
+    name: channel.name || `channel ${at + 1}`,
+    colour: Array.isArray(channel.colour) && channel.colour.length === 3
+      ? channel.colour.map(Number)
+      : typeof channel.colour === "string" ? colourFromTheStore(channel.colour) : [...WHITE],
+    window: channel.window && Number.isFinite(channel.window.low) && Number.isFinite(channel.window.high)
+      ? { low: channel.window.low, high: channel.window.high }
+      : null,
+    from: channel.window ? "page" : null,
+    channelIndex: Number.isInteger(channel.index) ? channel.index : at,
+    visible: channel.visible !== false,
+  }));
+}
+
 function channelsTheStoreDescribes(attributes) {
   const described = attributes?.omero?.channels;
   if (!Array.isArray(described) || !described.length) return null;
@@ -771,29 +812,33 @@ function rowsFor(opened) {
     // Viv hands back the store's whole description alongside the picture, so
     // reading it here costs no extra request at all.
     const channels =
-      asked.channels && asked.channels.length
-        ? asked.channels
-        : channelsTheStoreDescribes(store.metadata)
-          || [{
-            name: asked.name,
-            colour: [...WHITE],
-            window: store.heldRanges?.[0] || { ...AN_ORDINARY_WINDOW },
-          }];
+      channelsThePageNamed(asked)
+        || channelsTheStoreDescribes(store.metadata)
+        || [{
+          name: asked.name,
+          colour: [...WHITE],
+          window: null,
+        }];
     channels.forEach((channel, within) => {
+      const channelIndex = Number.isInteger(channel.channelIndex) ? channel.channelIndex : within;
+      /* What the page said; failing that what the run asked for; failing that
+         what this channel's own pixels ask for (`heldRanges`, read as the store
+         opened); and failing all three, nothing — the row is kept but not drawn
+         until the page hands it a window. `../windows.js` has the reasoning. */
+      const decided = theWindowToOpenWithSync({
+        page: channel.from === "page" ? channel.window : null,
+        store: channel.from === "page" ? null : channel.window,
+        pixels: store.heldRanges?.[channelIndex] ?? null,
+      });
       rows.push({
         atStore,
         name: channel.name,
         colour: channel.colour || [...WHITE],
-        /* What the run asked for; failing that what this channel's own pixels
-           ask for; and only failing both, a guess about a camera. The middle one
-           is what a run that names its colours without saying how to display
-           them needs, which is commoner than it sounds. */
-        window: channel.window
-          || store.heldRanges?.[within]
-          || { ...AN_ORDINARY_WINDOW },
+        window: decided.window,
+        windowFrom: decided.from,
         // Which position along the store's channel axis this row reads from.
         // Nothing splits the data — one store feeds every row that reads from it.
-        channelIndex: within,
+        channelIndex,
         visible: channel.visible !== false,
       });
     });
@@ -1026,7 +1071,9 @@ function imageLayersFor(own) {
   const regions = own.boundToCoverage ? imagedVoxelRanges(own.coverage) : [];
   return own.opened.map((store, atStore) => {
     const rows = own.rows.filter((row) => row.atStore === atStore);
-    const visible = rows.filter((row) => row.visible);
+    /* Only rows with a window are drawn: one with none is not drawn through a
+       made-up one (`../windows.js`). */
+    const visible = rows.filter((row) => row.visible && row.window);
     if (!visible.length) return null;
     const pyramid = own.boundToCoverage && regions.length
       ? store.pyramid.map((source, level) =>
@@ -1574,7 +1621,10 @@ function handleFor(own) {
       if (!row) return;
       if (visible !== undefined) row.visible = visible;
       if (colour) row.colour = colour;
-      if (brightness) row.window = brightness;
+      if (brightness) {
+        row.window = { low: brightness.low, high: brightness.high };
+        row.windowFrom = "page";
+      }
       showTheView(own);
     },
 

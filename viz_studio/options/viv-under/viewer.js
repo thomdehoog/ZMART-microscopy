@@ -103,6 +103,7 @@ import { theMiddleOfEveryOtherAxis } from "../planes.js";
 // from one place: a window measured on a plane the operator is not being shown
 // describes a picture that is not on the screen. See `../brightness.js`.
 import { theRangeTheseSourcesHold } from "../brightness.js";
+import { theWindowToOpenWith } from "../windows.js";
 // And where to open looking, which the engines disagree about by a factor of
 // twenty if left to themselves. See `../opening-view.js`.
 import { theViewThatShowsAllOf } from "../opening-view.js";
@@ -706,12 +707,10 @@ function originUm(metadata) {
 /** The colour a channel is drawn in when nobody has named one. */
 const WHITE = [1, 1, 1];
 
-/**
- * The brightness range to open a channel at when neither the page nor the run
- * asked for one. It is the same range this viewer has always used in that case,
- * and it suits the twelve-bit cameras these runs are acquired on.
- */
-const AN_ORDINARY_WINDOW = { low: 0, high: 4095 };
+/* There used to be a fixed nought-to-4095 here for a channel nobody had given
+   a window. It is gone, and `../windows.js` says why: a channel with no window
+   is not drawn through a made-up one. It waits, unseen, until the page hands
+   it a window through `setChannel`. */
 
 /**
  * Six hex digits, the way a run writes a colour, as the three numbers from 0 to
@@ -826,28 +825,33 @@ async function openOneAcquisition(acquisition) {
   // about itself; and only if the run says nothing either, one white channel.
   // Viv hands back the store's whole description alongside the picture, so
   // reading it here costs no extra request at all.
-  const channels = acquisition.channels && acquisition.channels.length
-    ? acquisition.channels
-    : channelsTheStoreDescribes(opened.metadata)
-      || [{
-        name: acquisition.name,
-        colour: [...WHITE],
-        window: null,
-      }];
+  const channels = channelsThePageNamed(acquisition)
+    || channelsTheStoreDescribes(opened.metadata)
+    || [{
+      name: acquisition.name,
+      colour: [...WHITE],
+      window: null,
+    }];
   /* Whatever the run did not say how to display is read out of the picture, one
-     channel at a time. Not only the run that describes nothing: a run may name
-     its colours and still give no window — a skin biopsy met here has `omero`
-     present with `"window": null` on both channels — and a guess about a camera
-     puts a specimen whose background sits at 1990 counts on a milky grey field.
-     Per channel, because on that biopsy one channel reaches 4573 counts and the
-     other 8859, and one window across the pair flattens whichever is fainter. */
+     channel at a time, and a channel that gives none up is left without one.
+     Not only the run that describes nothing: a run may name its colours and
+     still give no window — a skin biopsy met here has `omero` present with
+     `"window": null` on both channels — and a guess about a camera puts a
+     specimen whose background sits at 1990 counts on a milky grey field. Per
+     channel, because on that biopsy one channel reaches 4573 counts and the
+     other 8859, and one window across the pair flattens whichever is fainter.
+     The order of preference, and why there is no guess at the end of it, is
+     `../windows.js`. */
   const withWindows = [];
   for (const [within, channel] of channels.entries()) {
-    withWindows.push(channel.window ? channel : {
-      ...channel,
-      window: (await theRangeTheseSourcesHold(opened.data, { channel: within }))
-        || { ...AN_ORDINARY_WINDOW },
+    const decided = await theWindowToOpenWith({
+      page: channel.from === "page" ? channel.window : null,
+      store: channel.from === "page" ? null : channel.window,
+      pixels: () => theRangeTheseSourcesHold(opened.data, {
+        channel: Number.isInteger(channel.channelIndex) ? channel.channelIndex : within,
+      }),
     });
+    withWindows.push({ ...channel, window: decided.window, windowFrom: decided.from });
   }
   return {
     name: acquisition.name,
@@ -873,12 +877,44 @@ async function openOneAcquisition(acquisition) {
     moment: looking.t ?? 0,
     channels: withWindows.map((channel, within) => ({
       name: channel.name,
-      within,
+      within: Number.isInteger(channel.channelIndex) ? channel.channelIndex : within,
       colour: channel.colour || [...WHITE],
-      window: channel.window || { ...AN_ORDINARY_WINDOW },
+      // `null` until somebody says: see `../windows.js`. A channel with no
+      // window is kept in the list — so it has a number the page can address —
+      // but left out of the drawing until the page hands it one.
+      window: channel.window,
+      windowFrom: channel.windowFrom,
       visible: channel.visible !== false,
     })),
   };
+}
+
+/**
+ * The channels the page named for an acquisition, in this option's own shape.
+ *
+ * The operator's page hands over what the run's viewer knows about each
+ * channel: its name, its place along the channel axis, its colour as three
+ * numbers from 0 to 1 (or six hex digits, as a store writes it), and a window
+ * only where the run *declared* one. A window given here is the page's word
+ * and is marked as such, so that nothing read out of the store or the pixels
+ * is allowed to overrule it. Nothing at all comes back when the page named no
+ * channels, so the caller reads the store instead.
+ */
+function channelsThePageNamed(acquisition) {
+  const named = acquisition.channels;
+  if (!Array.isArray(named) || !named.length) return null;
+  return named.map((channel, at) => ({
+    name: channel.name || `channel ${at + 1}`,
+    colour: Array.isArray(channel.colour) && channel.colour.length === 3
+      ? channel.colour.map(Number)
+      : typeof channel.colour === "string" ? colourFromTheStore(channel.colour) : [...WHITE],
+    window: channel.window && Number.isFinite(channel.window.low) && Number.isFinite(channel.window.high)
+      ? { low: channel.window.low, high: channel.window.high }
+      : null,
+    from: channel.window ? "page" : null,
+    channelIndex: Number.isInteger(channel.index) ? channel.index : at,
+    visible: channel.visible !== false,
+  }));
 }
 
 /**
@@ -1046,7 +1082,9 @@ function layersFor(own) {
      live in its background programs, so both directions cost nothing at all. */
   if (own.showingPicture === false) return [];
   return own.images.map((image, at) => {
-    const shown = image.channels;
+    /* Only the channels that have a window are handed to the engine: one with
+       none is not drawn through a made-up one (`../windows.js`). */
+    const shown = image.channels.filter((channel) => channel.window);
     // Viv gives every resolution of an image the same list of axis names, so
     // the first is as good as any and is the one already read elsewhere here.
     const labels = image.sources?.[0]?.labels || [];
@@ -1625,7 +1663,10 @@ function handleFor(own) {
       if (!row) return;
       if (visible !== undefined) row.channel.visible = visible;
       if (colour) row.channel.colour = colour;
-      if (brightness) row.channel.window = brightness;
+      if (brightness) {
+        row.channel.window = { low: brightness.low, high: brightness.high };
+        row.channel.windowFrom = "page";
+      }
       own.deck?.setProps({ layers: layersFor(own) });
     },
 

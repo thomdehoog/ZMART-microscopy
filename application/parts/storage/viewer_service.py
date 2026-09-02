@@ -8,10 +8,13 @@ server in-process, on a port of the machine's choosing, and keeps the small
 amount of state the operator page asks about: whether it is up, where it is,
 and which acquisition folders it has open.
 
-The viewer is an optional guest. A machine without the ``zmart_viewer``
-package installed simply has no picture server — the JPEG engine still draws —
-and every question here answers with the sentence saying so rather than a
-stack trace.
+The viewer is an optional guest, but not an optional picture. A machine
+without the ``zmart_viewer`` package installed has no picture server, and the
+operator page then draws no overview at all: the small JPEG copies that used to
+stand in are gone from the canvas, on purpose, because a page that could
+always draw *something* hid a broken picture pipeline for weeks. Every question
+here answers with the sentence saying why there is no picture rather than a
+stack trace, and the page puts that sentence beside the empty canvas.
 
 Two small liberties are taken with the guest, both worth naming:
 
@@ -42,7 +45,10 @@ from pathlib import Path
 _viewer: dict = {
     "server": None, "thread": None, "port": None, "error": None,
     # viewer heading (the acquisition type, read off the store names) -> the
-    # engine-ready sources: [{"url": ..., "name": ...}], each a whole address.
+    # engine-ready sources: [{"url": ..., "name": ..., "channels": [...]}],
+    # each a whole address, each carrying one entry per channel — its name,
+    # its place along the channel axis, its colour, and the window the run
+    # declared for it, or ``None`` where the run has not decided one yet.
     "sources": {},
     # positions folder -> how many stores it held when it was linked. The
     # count matters, not just membership: a folder opened at ONE store was
@@ -266,6 +272,25 @@ def a_position_landed(acquisition_type: str, positions_folder: Path | str) -> No
             _viewer["error"] = f"the viewer was not told about {acquisition_type}: {why}"
 
 
+def a_scan_finished(acquisition_type: str) -> None:
+    """The scan of this acquisition type is over: tell the viewer so.
+
+    From this moment a window the viewer measures for the acquisition is its
+    last word rather than a reading of what has landed so far, and the panel
+    stops saying "measured from pixels acquired so far". Never raises — a
+    viewer that cannot hear costs a word on the panel, not the run.
+    """
+    with _the_turn:
+        port = _viewer["port"]
+    if port is None:
+        return
+    try:
+        _ask(port, "/api/announce", {"finished": acquisition_type})
+    except Exception as why:  # noqa: BLE001 -- a word on the panel, not the run
+        with _the_turn:
+            _viewer["error"] = f"the viewer was not told that {acquisition_type} finished: {why}"
+
+
 def _link_again_what_has_grown() -> None:
     """Open afresh every acquisition whose folder holds more than it links.
 
@@ -325,15 +350,26 @@ def _link(port: int, folder: str, acquisition_type: str, *, closing: bool) -> No
 
 
 def _the_sources_in(config: dict, port: int) -> dict[str, list[dict]]:
-    """Every drawable source the viewer's config names, grouped by heading.
+    """Every drawable source the viewer's config names, grouped by heading,
+    with the channels of each.
 
     The config describes one row per channel, rows of one acquisition sharing
     a ``group`` (the acquisition type, read off the store names) and their
-    store addresses in ``sources``; an engine wants each *store* once and
-    reads the channels out of the store's own description. The viewer speaks
-    page-relative addresses because its own page lives on its own origin; the
-    operator page does not, so the host goes back on here — an engine handed
-    an address with no host builds a layer that waits for ever (contract §3).
+    store addresses in ``sources``; an engine wants each *store* once, with
+    its channels beside it. The channels used to be dropped here — every row
+    of a store collapsed into one address — and the panel then read them back
+    out of the store's ``omero`` block. An acquisition that has not decided
+    its window writes no such block, so a three-colour run came to the canvas
+    as one nameless channel. Now what the viewer knows about each channel
+    travels with the address: its name, its place along the channel axis,
+    its colour, and a window only where the run *declared* one. A window the
+    viewer merely measured is not carried, because the panel asks for its
+    own measurement and applies that — one authority, not two.
+
+    The viewer speaks page-relative addresses because its own page lives on
+    its own origin; the operator page does not, so the host goes back on here
+    — an engine handed an address with no host builds a layer that waits for
+    ever (contract §3).
     """
     grouped: dict[str, dict[str, dict]] = {}
     for row in config.get("layers") or []:
@@ -355,9 +391,45 @@ def _the_sources_in(config: dict, port: int) -> dict[str, list[dict]]:
                 f"http://127.0.0.1:{port}{address}"
                 if str(address).startswith("/") else str(address)
             )
-            grouped.setdefault(group, {}).setdefault(whole, {"url": whole, "name": group})
+            source = grouped.setdefault(group, {}).setdefault(
+                whole, {"url": whole, "name": group, "channels": []},
+            )
+            source["channels"].append(_the_channel_in(row))
+    for held in grouped.values():
+        for source in held.values():
+            # In the order they sit along the channel axis, which is the
+            # order the engine numbers its rows in. A store with no channel
+            # axis has one channel and no index; it stays where it is.
+            source["channels"].sort(key=lambda one: (one["index"] is None, one["index"] or 0))
     return {
         group: _only_the_newest_of(held.values()) for group, held in grouped.items()
+    }
+
+
+def _the_channel_in(row: dict) -> dict:
+    """One channel, as the engine and the panel want to hear about it."""
+    index = row.get("channelIndex")
+    colour = row.get("color")
+    colour = (
+        [float(part) for part in colour]
+        if isinstance(colour, (list, tuple)) and len(colour) == 3
+        else None
+    )
+    window = row.get("window")
+    declared = (
+        {"low": float(window["low"]), "high": float(window["high"])}
+        if row.get("measurementState") == "declared"
+        and isinstance(window, dict)
+        and window.get("low") is not None
+        and window.get("high") is not None
+        else None
+    )
+    return {
+        "name": str(row.get("name") or f"channel {(index or 0) + 1}"),
+        "index": int(index) if isinstance(index, int) and not isinstance(index, bool) else None,
+        "colour": colour,
+        "window": declared,
+        "visible": row.get("active") is not False,
     }
 
 

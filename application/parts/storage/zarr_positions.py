@@ -35,11 +35,13 @@ License: MIT
 from __future__ import annotations
 
 import re
+from copy import deepcopy
 from pathlib import Path
 
 import numpy as np
 
 from application.parts.storage.acquisition_description import (
+    DESCRIPTION_NAME,
     AcquisitionDescriptionError,
     ome_channel_blocks,
     read_acquisition_description,
@@ -174,6 +176,9 @@ def position_store_from_record(
         ome_zarr_version="0.5",
     )
 
+    if description is not None:
+        _keep_the_acquisitions_channels_on(store, description)
+
     # Fill the levels from the finest down, keeping every second voxel along
     # y and x — the run stores' own convention, declared in their description.
     shrinking = volume
@@ -182,6 +187,31 @@ def position_store_from_record(
             shrinking = shrinking[..., ::2, ::2]
         array[:] = shrinking
     return store
+
+
+def _keep_the_acquisitions_channels_on(store: Path, description: dict) -> None:
+    """Write the acquisition's channel list under the store's own ``zmart`` attributes.
+
+    This is what keeps a three-colour acquisition three colours before its
+    window is decided. A strict OME reader refuses a channel entry without a
+    complete window, so an unresolved acquisition writes no ``omero`` block at
+    all — and with it, without this, would go the channel names and colours.
+    They are kept here instead, copied whole from ``zmart-acquisition.json``,
+    where the Viewer reads them back for its rows and the operator's panel.
+    Nothing here is a display window: no reader may mistake a name for a
+    decision about brightness.
+    """
+    import zarr
+
+    group = zarr.open_group(str(store), mode="r+")
+    group.attrs.update({
+        "zmart": {
+            "acquisitionDisplaySchema": description.get("schema"),
+            "acquisitionType": description.get("acquisitionType"),
+            "displayWindowSource": DESCRIPTION_NAME,
+            "channels": deepcopy(description["channels"]),
+        }
+    })
 
 
 # -- reading what the vendor wrote ------------------------------------------

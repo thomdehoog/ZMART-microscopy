@@ -122,6 +122,7 @@ import "./engine-chrome.css";
 // for why there is only one copy and what it costs to have three.
 import { onlyPanAndZoom } from "../gestures.js";
 import { theRangeAStoreHolds } from "../brightness.js";
+import { theWindowToOpenWith } from "../windows.js";
 // And where to open looking, which the engines disagree about by a factor of
 // twenty if left to themselves. See `../opening-view.js`.
 import { theViewThatShowsAllOf } from "../opening-view.js";
@@ -701,6 +702,11 @@ async function start(own, acquisitions) {
     });
     own.viewer.layerSpecification.add(managed, at);
     row.managed = managed;
+    /* A channel with no window is built — so it has a place in the list and
+       a number the page can address — but not shown until the page hands it
+       a window. Drawing it through a made-up window is the fault this
+       replaces; drawing nothing, and saying so, is honest. */
+    if (!row.window && managed.visible !== false) managed.setVisible(false);
   }
 
   await whenTheAxesAreKnown(own.viewer, own.rows);
@@ -837,12 +843,10 @@ async function start(own, acquisitions) {
 /** The colour a channel is drawn in when nobody has named one. */
 const WHITE = [1, 1, 1];
 
-/**
- * The brightness range to open a channel at when neither the page nor the run
- * asked for one. It is the same range this viewer has always used in that case,
- * and it suits the twelve-bit cameras these runs are acquired on.
- */
-const AN_ORDINARY_WINDOW = { low: 0, high: 4095 };
+/* There used to be a fixed nought-to-4095 here for a channel nobody had given
+   a window. It is gone, and `../windows.js` says why: a channel with no window
+   is not drawn through a made-up one. It waits, unseen and reported as such,
+   until the page hands it a window through `setChannel`. */
 
 /**
  * Six hex digits, the way a run writes a colour, as the three numbers from 0 to
@@ -884,11 +888,11 @@ function windowFromTheStore(described) {
   if (Number.isFinite(range.start) && Number.isFinite(range.end)) {
     return { low: range.start, high: range.end };
   }
-  /* Nothing, rather than the ordinary window. A run that names a colour and says
-     nothing about how to display it is not the same as a run that asked for the
+  /* Nothing, rather than a guess. A run that names a colour and says nothing
+     about how to display it is not the same as a run that asked for some
      ordinary window, and answering as though it were is what put a real skin
-     biopsy on a milky grey field. The caller reads the picture instead; only if
-     that cannot be read does the guess come back. */
+     biopsy on a milky grey field. The caller reads the picture instead, and if
+     that cannot be read either, the channel waits for the page to say. */
   return null;
 }
 
@@ -994,12 +998,11 @@ async function rowsFor(acquisitions) {
     const itsOwnDescription = await theRunsOwnDescription(acquisition.url);
     // What the page said, where it said anything; otherwise what the run says
     // about itself; and only if the run says nothing either, one white channel.
-    const described = acquisition.channels && acquisition.channels.length
-      ? acquisition.channels
-      : channelsTheStoreDescribes(itsOwnDescription)
-        || [{ name: acquisition.name, colour: [...WHITE], window: null }];
+    const described = channelsThePageNamed(acquisition)
+      || channelsTheStoreDescribes(itsOwnDescription)
+      || [{ name: acquisition.name, colour: [...WHITE], window: null }];
     /* Whatever is still without a window is read out of the picture, one channel
-       at a time.
+       at a time, and a channel that gives none up is left without one.
 
        Not only the run that describes nothing. A run may name its colours and
        still say nothing about how to display them — a skin biopsy met here does
@@ -1009,14 +1012,18 @@ async function rowsFor(acquisitions) {
        two channels of one acquisition are routinely far apart: on that biopsy one
        reaches 4573 counts and the other 8859, and one window across the pair
        flattens whichever is fainter. That fault is already fixed once, in the
-       viewer's own backend; this is the same fault in the canvas. */
+       viewer's own backend; this is the same fault in the canvas. The order of
+       preference, and why there is no guess at the end of it, is `../windows.js`. */
     const channels = [];
     for (const [within, channel] of described.entries()) {
-      channels.push(channel.window ? channel : {
-        ...channel,
-        window: (await theRangeAStoreHolds(acquisition.url, { channel: within }))
-          || { ...AN_ORDINARY_WINDOW },
+      const decided = await theWindowToOpenWith({
+        page: channel.from === "page" ? channel.window : null,
+        store: channel.from === "page" ? null : channel.window,
+        pixels: () => theRangeAStoreHolds(acquisition.url, {
+          channel: Number.isInteger(channel.channelIndex) ? channel.channelIndex : within,
+        }),
       });
+      channels.push({ ...channel, window: decided.window, windowFrom: decided.from });
     }
     channels.forEach((channel, within) => {
       rows.push({
@@ -1029,7 +1036,10 @@ async function rowsFor(acquisitions) {
         // recording green. So the name carries both halves.
         layerName: `${acquisition.name}/${channel.name}`,
         colour: channel.colour || [...WHITE],
-        window: channel.window || { ...AN_ORDINARY_WINDOW },
+        // `null` until somebody says: see `../windows.js`. A row with no
+        // window is built but not shown, and `layersForMeasurement` says so.
+        window: channel.window,
+        windowFrom: channel.windowFrom,
         // Which position along the store's channel axis this row reads from.
         // Said for every row, including a lone one, and that is worth a sentence
         // because it used not to be. Left unsaid, the engine picks a channel for
@@ -1038,13 +1048,41 @@ async function rowsFor(acquisitions) {
         // drawn in the colour it had asked for the first. Nothing on screen
         // could have told an operator that. The other two options have always
         // said which channel they mean, and now all three do.
-        channelIndex: within,
+        channelIndex: Number.isInteger(channel.channelIndex) ? channel.channelIndex : within,
         visible: channel.visible !== false,
         managed: null,
       });
     });
   }
   return rows;
+}
+
+/**
+ * The channels the page named for an acquisition, in this viewer's own shape.
+ *
+ * The operator's page hands over what the run's viewer knows about each
+ * channel: its name, its place along the channel axis, its colour as three
+ * numbers from 0 to 1 (or six hex digits, as a store writes it), and a window
+ * only where the run *declared* one. A window given here is the page's word
+ * and is marked as such, so that nothing read out of the store or the pixels
+ * is allowed to overrule it. Nothing at all comes back when the page named no
+ * channels, so the caller reads the store instead.
+ */
+function channelsThePageNamed(acquisition) {
+  const named = acquisition.channels;
+  if (!Array.isArray(named) || !named.length) return null;
+  return named.map((channel, at) => ({
+    name: channel.name || `channel ${at + 1}`,
+    colour: Array.isArray(channel.colour) && channel.colour.length === 3
+      ? channel.colour.map(Number)
+      : typeof channel.colour === "string" ? colourFromTheStore(channel.colour) : [...WHITE],
+    window: channel.window && Number.isFinite(channel.window.low) && Number.isFinite(channel.window.high)
+      ? { low: channel.window.low, high: channel.window.high }
+      : null,
+    from: channel.window ? "page" : null,
+    channelIndex: Number.isInteger(channel.index) ? channel.index : at,
+    visible: channel.visible !== false,
+  }));
 }
 
 /**
@@ -1621,7 +1659,10 @@ function hexColourFor(colour) {
  */
 function controlsFor(row, { asAVolume = false } = {}) {
   const controls = {
-    normalized: { range: [row.window.low, row.window.high] },
+    /* A row with no window is never shown (see `setChannel` and `rowsFor`), so
+       the range handed to a program that will not run is only a placeholder
+       that keeps the program compiling; it draws nothing. */
+    normalized: { range: row.window ? [row.window.low, row.window.high] : [0, 1] },
     weight: row.weight ?? 1,
     color: hexColourFor(row.colour),
   };
@@ -2289,7 +2330,9 @@ function handleFor(own) {
       own.showingPicture = on !== false;
       for (const row of own.rows) {
         if (!row.managed) continue;
-        row.managed.setVisible(own.showingPicture && row.visible !== false);
+        row.managed.setVisible(
+          own.showingPicture && row.visible !== false && row.window !== null,
+        );
       }
       sayTheChannelsChanged(own);
     },
@@ -2373,15 +2416,22 @@ function handleFor(own) {
          screen, and comes on with the picture. Without this the page could
          contradict itself: one channel drawn over a picture that is meant not to
          be there. */
-      const shouldShow = own.showingPicture !== false && row.visible !== false;
+      if (brightness) {
+        row.window = { low: brightness.low, high: brightness.high };
+        row.windowFrom = "page";
+      }
+      /* And never shown without a window: a row the page has not yet given
+         one stays off the screen however its eye is set, and comes on with
+         its first window. See `../windows.js`. */
+      const shouldShow = own.showingPicture !== false && row.visible !== false
+        && row.window !== null;
       if (row.managed.visible !== shouldShow) {
         row.managed.setVisible(shouldShow);
       }
-      if (visible !== undefined) sayTheChannelsChanged(own);
+      if (visible !== undefined || brightness) sayTheChannelsChanged(own);
       const layer = row.managed.layer;
       if (!layer) return;
       if (colour) row.colour = colour;
-      if (brightness) row.window = brightness;
       /* `weight` is the channel's own opacity, an extension the viewer's
          panel uses; an option without it simply ignores the key. */
       if (weight !== undefined) row.weight = weight;
@@ -2453,6 +2503,11 @@ function handleFor(own) {
           name: row.layerName,
           visible: row.managed?.visible,
           window: row.window,
+          // Where the window came from: the page, the store's own
+          // description, the pixels, or nowhere yet (`null`, and the row is
+          // not drawn). A test that wants to know who decided the brightness
+          // reads this rather than guessing from the numbers.
+          windowFrom: row.windowFrom ?? null,
           weight: row.weight ?? 1,
           matrix: source?.loadState?.transform?.value?.transform
             ? Array.from(source.loadState.transform.value.transform)

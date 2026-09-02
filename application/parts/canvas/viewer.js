@@ -957,11 +957,17 @@ export function putTheCanvasIn({
            panel, so they are kept where they are given. A bare address falls
            back to its last part, which is what the run is called on disk and
            the only name this page could invent for it. */
+        /* And the channels the run's viewer named, where it named any: one
+           entry per channel, in the order they sit along the channel axis.
+           Without them an engine reads the store's own description, which an
+           acquisition with no decided window does not write, and a run in
+           three colours would open as one white channel. */
         acquisitions: acquisitions.map((one) => {
           const url = typeof one === "string" ? one : one.url;
           const name = (typeof one === "string" ? null : one.name)
             ?? url.split("/").filter(Boolean).pop() ?? url;
-          return { url, name };
+          const channels = typeof one === "string" ? [] : (one.channels ?? []);
+          return { url, name, channels };
         }),
         // The run's record of where it has imaged, which this page does not have.
         // Given nothing, an engine draws the whole of the room the run declared

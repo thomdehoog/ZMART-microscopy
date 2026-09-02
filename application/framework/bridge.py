@@ -716,6 +716,9 @@ def _scan_worker(
         _scan["error"] = str(why)
     finally:
         _scan["running"] = False
+        # Whether it finished or was stopped, nothing more lands under this
+        # acquisition type: the viewer may now call its measurement settled.
+        viewer_service.a_scan_finished(acquisition_type)
 
 
 def _keep_position_as_zarr(record: dict, acquisition_type: str) -> None:

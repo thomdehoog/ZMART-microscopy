@@ -1432,8 +1432,14 @@ def make_server(
             # engine takes a list and places them itself, so a row that happens to
             # come from one store is simply a list of one.
             "sources": [f"/data/{root_number}/{name}/|{zarr_scheme(root / name)}:"],
-            "window": {"low": flat[0], "high": flat[1]},
-            "volumeWindow": {"low": volume[0], "high": volume[1]},
+            # ``None`` where there is nothing to measure yet: the page then
+            # shows the channel as waiting rather than drawing it through a
+            # camera's whole range as though somebody had chosen it.
+            "window": {"low": flat[0], "high": flat[1]} if flat is not None else None,
+            "volumeWindow": (
+                {"low": volume[0], "high": volume[1]} if volume is not None else None
+            ),
+            "measurementState": found.get("measurementState"),
             "color": list(color) if color else None,
             "histogram": found["histogram"],
         }

@@ -61,6 +61,14 @@ const PALETTE = [
 const cssOf = (rgb) =>
   rgb ? `rgb(${rgb.map((v) => Math.round(v * 255)).join(",")})` : "#d8dee6";
 
+/** A colour as the viewer hands it over — three numbers from 0 to 1, or six
+    hex digits the way a store writes it — as CSS, or nothing for neither. */
+const cssOfAnyColour = (colour) => {
+  if (Array.isArray(colour) && colour.length === 3) return cssOf(colour.map(Number));
+  if (typeof colour === "string" && /^[0-9a-f]{6}$/i.test(colour)) return `#${colour}`;
+  return null;
+};
+
 /* A word or two saying what each colour map looks like, and a strip of the map
    itself for the swatch.
 
@@ -125,7 +133,13 @@ async function theStoresDescription(url) {
   const address = (bar < 0 ? url : url.slice(0, bar)).replace(/\/+$/, "");
   for (const [file, unwrap] of [
     [".zattrs", (doc) => doc],
-    ["zarr.json", (doc) => doc?.attributes?.ome ?? doc?.attributes ?? doc],
+    /* Version 3 keeps the OME half under `attributes.ome` and this project's
+       own notes — the acquisition's channel list among them — beside it under
+       `attributes.zmart`. Both are wanted, so the two are folded together. */
+    ["zarr.json", (doc) => ({
+      ...(doc?.attributes?.ome ?? doc?.attributes ?? doc ?? {}),
+      ...(doc?.attributes?.zmart ? { zmart: doc.attributes.zmart } : {}),
+    })],
   ]) {
     try {
       const answer = await fetch(`${address}/${file}`, { cache: "no-store" });
@@ -137,21 +151,53 @@ async function theStoresDescription(url) {
   return null;
 }
 
-/** One flat row list, matching the engine's own numbering. */
+/**
+ * One flat row list, matching the engine's own numbering.
+ *
+ * Where the channels come from, in order: what the run's viewer told the page
+ * (`acquisition.channels` — name, place along the channel axis, colour, and a
+ * window only where the run declared one); failing that, the store's own
+ * `omero` block; failing that, the channel list an undecided acquisition keeps
+ * under its `zmart` attributes, which names its colours without pretending to
+ * a window; and only failing all three, one row named after the acquisition.
+ * The third step is what keeps a three-colour run three rows before its
+ * window is decided: no `omero` block is written until then, because a strict
+ * reader refuses a channel entry without a complete window.
+ */
 async function theRows(acquisitions) {
   const rows = [];
   for (const acquisition of acquisitions) {
-    const described = (await theStoresDescription(acquisition.url))?.omero?.channels;
-    const channels = Array.isArray(described) && described.length
-      ? described.map((channel, at) => ({
-        name: channel?.label || `channel ${at + 1}`,
-        color: typeof channel?.color === "string" ? `#${channel.color}` : null,
-        window: channel?.window && Number.isFinite(channel.window.start)
-          ? { low: channel.window.start, high: channel.window.end }
+    const told = Array.isArray(acquisition.channels) && acquisition.channels.length
+      ? acquisition.channels.map((channel, at) => ({
+        name: channel.name || `channel ${at + 1}`,
+        color: cssOfAnyColour(channel.colour),
+        window: channel.window && Number.isFinite(channel.window.low)
+          ? { low: channel.window.low, high: channel.window.high }
           : null,
-        within: at,
+        within: Number.isInteger(channel.index) ? channel.index : at,
       }))
-      : [{ name: acquisition.name, color: null, window: null, within: 0 }];
+      : null;
+    const description = told ? null : await theStoresDescription(acquisition.url);
+    const described = description?.omero?.channels;
+    const named = description?.zmart?.channels;
+    const channels = told
+      ?? (Array.isArray(described) && described.length
+        ? described.map((channel, at) => ({
+          name: channel?.label || `channel ${at + 1}`,
+          color: typeof channel?.color === "string" ? `#${channel.color}` : null,
+          window: channel?.window && Number.isFinite(channel.window.start)
+            ? { low: channel.window.start, high: channel.window.end }
+            : null,
+          within: at,
+        }))
+        : Array.isArray(named) && named.length
+          ? named.map((channel, at) => ({
+            name: channel?.label || `channel ${at + 1}`,
+            color: typeof channel?.color === "string" ? `#${channel.color}` : null,
+            window: null,
+            within: Number.isInteger(channel?.index) ? channel.index : at,
+          }))
+          : [{ name: acquisition.name, color: null, window: null, within: 0 }]);
     for (const channel of channels) {
       rows.push({
         ...channel,
@@ -1299,8 +1345,53 @@ export async function mountViewerPanel(
     brightnessState = answer.state;
     brightnessError = null;
     shape = answer.histogram;
-    if (!row.window && answer.window) row.window = answer.window;
+    if (!row.window && answer.window) giveTheEngine(index, answer.window);
     refreshControls();
+  }
+
+  /**
+   * A window for a row, applied to the picture as well as to the panel.
+   *
+   * This is the one place a measured window becomes the picture's window, and
+   * it is worth a paragraph because for a while it was nowhere. The panel used
+   * to record what the server measured and draw its sliders at those numbers,
+   * while the engine underneath went on drawing through a fixed guess of its
+   * own — nought to 4095 — that it had used since before there was a panel.
+   * Two authorities, and the picture followed the wrong one: the sliders said
+   * "1000 to 1001" over a picture drawn at something else entirely, and
+   * nothing on screen could show the difference. Now the panel is the only
+   * authority. Whatever it measures, declared or provisional or settled, goes
+   * to the engine through the same call the sliders use.
+   */
+  function giveTheEngine(index, window_) {
+    const row = rows[index];
+    if (!row) return;
+    row.window = { low: window_.low, high: window_.high };
+    viewer.setChannel(index, { window: row.window });
+  }
+
+  /**
+   * Measure every row that has no window yet, and hand each its answer.
+   *
+   * The engine draws nothing through a window nobody has given it, so a
+   * three-colour run whose window is not yet decided would show only the one
+   * channel the operator happened to pick, and that only after the pick. Every
+   * row is therefore measured as the panel goes up, in parallel — one small
+   * request each — and each row's window reaches the engine as it arrives.
+   * The chosen row's own measurement, with its histogram, still comes through
+   * `chooseRow`; this only makes sure no other row waits for a click.
+   */
+  async function measureEveryRow() {
+    await Promise.all(rows.map(async (row, index) => {
+      if (row.window) {
+        /* Declared by the run: the engine is told so, in case it read the
+           store before the page could say. */
+        viewer.setChannel(index, { window: { ...row.window } });
+        return;
+      }
+      const answer = await measured(row);
+      if (answer.window && !rows[index].window) giveTheEngine(index, answer.window);
+    }));
   }
 
   /* ---- the picture as a whole: master switch, depth, volume ---- */
@@ -1422,6 +1513,9 @@ export async function mountViewerPanel(
      is still here, and at the first row otherwise. */
   const asked = theRowNamed(startOn);
   if (rows.length) chooseRow(asked >= 0 ? asked : 0);
+  /* And the rest, without waiting to be clicked on. Kept on the handle so a
+     check can wait for every window to have reached the engine. */
+  const everyRowMeasured = rows.length ? measureEveryRow() : Promise.resolve();
 
   /* Everything the panel has asked to be told about, and how to stop being
      told. Kept as one list because there is more than one now, and a panel
@@ -1481,6 +1575,9 @@ export async function mountViewerPanel(
     theChannelInHand() {
       return chosen === null || !rows[chosen] ? null : theNameOf(rows[chosen]);
     },
+
+    /** Settles once every row's first measurement has been asked for and answered. */
+    everyRowMeasured,
 
     destroy() {
       /* Anything still playing is stopped first. A timer stepping a viewer

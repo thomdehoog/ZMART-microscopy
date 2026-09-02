@@ -1036,8 +1036,18 @@ def _acquisition_channels(settings: dict) -> list[dict] | None:
     the master and sequential parts of the job, excluding the autofocus-only
     branch.  Silence stays ``None``: a guessed count is precisely what the
     run-start display contract must not trust.
+
+    The identity of a channel is the detector slot (``Channel``), which is what
+    stays put from one preset to the next.  The *label* is for the biologist:
+    where the preset names the dye a detector is looking at (``DyeName``, for
+    example ``Leica/ALEXA 488``), the label carries it, so the panel reads
+    "Channel 3 · ALEXA 488" rather than a bare slot number.  The same detector
+    can appear in both the master and the sequential part of a job, and it is
+    counted once; whether LAS X then writes one C plane or two for it is a
+    question for the instrument, and is noted as open in the design record.
     """
     armed: dict[str, str] = {}
+    dyes: dict[str, str] = {}
 
     def visit(value, path: tuple[str, ...] = ()) -> None:
         if isinstance(value, dict):
@@ -1059,6 +1069,12 @@ def _acquisition_channels(settings: dict) -> list[dict] | None:
                         identity = str(identity if identity is not None else (*path, at))
                         label = str(detector.get("ChannelName") or f"Channel {identity}")
                         armed.setdefault(identity, label)
+                        dye = str(detector.get("DyeName") or "").strip()
+                        if dye:
+                            # The first dye named for this detector wins; the
+                            # master part of a job sometimes leaves it blank
+                            # where the sequential part fills it in.
+                            dyes.setdefault(identity, dye)
                 else:
                     visit(child, (*path, str(key)))
         elif isinstance(value, list):
@@ -1076,11 +1092,19 @@ def _acquisition_channels(settings: dict) -> list[dict] | None:
         except ValueError:
             return (1, identity)
 
+    def labelled(identity: str, label: str) -> str:
+        dye = dyes.get(identity)
+        if not dye:
+            return label
+        # "Leica/ALEXA 488" is how LAS X files a dye; the maker's prefix says
+        # nothing to a biologist, so only the dye's own name is shown.
+        return f"{label} · {dye.rsplit('/', 1)[-1]}"
+
     return [
         {
             "key": f"leica-channel-{identity}",
             "index": index,
-            "label": label,
+            "label": labelled(identity, label),
         }
         for index, (identity, label) in enumerate(sorted(armed.items(), key=order))
     ]
