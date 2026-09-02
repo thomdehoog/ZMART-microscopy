@@ -1152,6 +1152,7 @@ ctx.fitButton.addEventListener("click", () => {
     openScannedGround: openTheGroundThatHasBeenScanned,
     closeTheGround() { theCanvas.seeThrough([]); },
     openThisGround(windows) { theCanvas.seeThrough(windows ?? []); },
+    groundWindows: () => theCanvas.windows(),
     layers: () => theCanvas.layersAbove.map(({ key, label, shown, staysSolid }) =>
       ({ key, label, shown, staysSolid: !!staysSolid })),
     showLayer(key, on) { theCanvas.showLayer(key, on); },

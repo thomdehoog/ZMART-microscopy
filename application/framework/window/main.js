@@ -1816,6 +1816,7 @@ let stageWatch = null;
     openScannedGround: (howMuch) => stage.openScannedGround(howMuch),
     closeTheGround: () => stage.closeTheGround(),
     openThisGround: (windows) => stage.openThisGround(windows),
+    groundWindows: () => stage.groundWindows(),
     layers: () => stage.layers(),
     showLayer: (key, on) => stage.showLayer(key, on),
     fadeTo: (value) => stage.fadeTo(value),
@@ -1838,6 +1839,9 @@ let stageWatch = null;
     activeIdx: state.activeIdx, done: [...state.done], ran: [...state.ran],
     focus: { strategy: state.focus.strategy, applied: state.focus.applied,
              points: state.focus.points.length, selected: state.focus.selected },
+    /* How wide each acquired frame is, so a test can check the ground is
+       opened over exactly the frame the recording describes. */
+    targetFrameUm: state.targetFrameUm ?? null,
   }));
 
   /* The focus map — the points, their sweeps, the surface through them, and
