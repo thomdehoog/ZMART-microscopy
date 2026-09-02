@@ -1,0 +1,9 @@
+viewer browser tests: 58 passed, 2 skipped in 56.66s
+vitest ok:       Tests  365 passed | 15 skipped (380)
+rebuild ok
+step-five-kidney-final | exit=1 | 64s |   1 failed   1 passed (1.0m) 
+step-five-view-preservation-final | exit=0 | 36s |   1 passed (34.1s) 
+review-live-target-arrival-final | exit=1 | 79s |   1 failed   1 skipped 
+every-tile-is-filled-final | exit=0 | 192s |   1 passed (3.2m) 
+the-built-page-final | exit=0 | 12s |   1 passed (10.7s) 
+BATCH9 DONE

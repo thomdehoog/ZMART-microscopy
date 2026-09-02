@@ -1,0 +1,9 @@
+step-five-kidney-head | exit=1 | 60s |   2 failed 
+applied
+rebuild ok
+step-five-kidney-fixed | exit=1 | 61s |   2 failed 
+step-five-view-preservation-fixed | exit=1 | 32s |   1 failed 
+review-live-target-arrival-fixed | exit=1 | 73s |   1 failed   1 skipped 
+every-tile-is-filled-fixed | exit=1 | 59s |   1 failed 
+the-built-page-fixed | exit=0 | 12s |   1 passed (10.6s) 
+BATCH5 DONE

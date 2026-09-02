@@ -288,6 +288,9 @@ export async function openViewer(element, options = {}) {
     // `countFromTheCornerOfTheVoxelRatherThanItsMiddle` for what the listening
     // is for.
     stopWatchingTheSources: null,
+    // The load states already moved back to the corner of their first voxel,
+    // so a source is corrected once however many times the sources change.
+    correctedLoadStates: new WeakSet(),
     // The pieces of picture that have been superseded but are still on screen,
     // one set of piece names per source the engine reads from. See
     // `keepShowingThePictureWhileTheNewOneArrives` for what they are for; the
@@ -1277,22 +1280,58 @@ function countFromTheCornerOfTheVoxelRatherThanItsMiddle(own) {
   );
   if (!drawnAcrossTheWindow.size) return;
   for (const row of own.rows) {
-    const placing = row.managed?.layer?.dataSources?.[0]?.loadState?.transform;
-    if (!placing) continue;
-    const placed = placing.value;
-    const { rank, outputSpace } = placed;
-    const moved = Float64Array.from(placed.transform);
-    let anythingMoved = false;
-    for (let axis = 0; axis < rank; axis += 1) {
-      if (!drawnAcrossTheWindow.has(outputSpace?.names?.[axis])) continue;
-      if (!outputSpace.bounds?.voxelCenterAtIntegerCoordinates?.[axis]) continue;
-      // Where the image sits is the last column of the matrix, and one unit
-      // along an axis is one voxel of the finest stored resolution — so half a
-      // voxel is simply a half.
-      moved[rank * (rank + 1) + axis] += 0.5;
-      anythingMoved = true;
+    /* Every position store of the row, not only the first. A row that draws a
+       whole acquisition holds one source per landed position, and each source
+       carries its own placement read from its own OME-Zarr description — so
+       each one has to be moved back by its own half voxel. Correcting only the
+       first source left every later field standing half a voxel (2 µm on the
+       mock's 4 µm pixels) away from the first, which the accepted Step 5
+       records showed as a 2.83 µm error on eight of nine fields. */
+    for (const source of row.managed?.layer?.dataSources ?? []) {
+      const loadState = source?.loadState;
+      const placing = loadState?.transform;
+      if (!placing?.value || !placing.defaultTransform) continue;
+      /* Each loaded source is moved exactly once. Reading the engine's own
+         flag afterwards is not enough: the layer's output space carries one
+         flag for every source it holds, and the first correction flips it, so
+         every later source of the same row read "already counted from the
+         corner" while still standing where its description put it. A source
+         that is loaded again gets a new load state and a fresh default
+         transform, so it is moved again, which is right. */
+      if (own.correctedLoadStates.has(loadState)) continue;
+      const placed = placing.value;
+      const { rank, outputSpace } = placed;
+      const asRead = placing.defaultTransform;
+      const stillAsRead = Array.from(asRead.transform ?? [])
+        .every((value, at) => value === placed.transform[at]);
+      if (!stillAsRead) {
+        own.correctedLoadStates.add(loadState);
+        continue;
+      }
+      /* The engine's `voxelCenterAtIntegerCoordinates` flag is not read any
+         more. Measured on 2026-09-02 with the review's target stores: a store
+         whose translation is not a whole number of voxels is read with that
+         flag false for y and x, and is still placed with its first voxel
+         centre on the translation — its lower bound stood exactly half a
+         voxel before the corner the writer meant, the same as a store read
+         with the flag true. The flag says how the engine labels its axes; it
+         does not say where the picture landed. Every store this project writes
+         puts the corner of the first voxel in the translation
+         (`zmart_storage/canvas.py`, `application/parts/storage/zarr_positions.py`),
+         so every source drawn here is moved back by the same half voxel. */
+      const moved = Float64Array.from(placed.transform);
+      let anythingMoved = false;
+      for (let axis = 0; axis < rank; axis += 1) {
+        if (!drawnAcrossTheWindow.has(outputSpace?.names?.[axis])) continue;
+        // Where the image sits is the last column of the matrix, and one unit
+        // along an axis is one voxel of the finest stored resolution — so half
+        // a voxel is simply a half.
+        moved[rank * (rank + 1) + axis] += 0.5;
+        anythingMoved = true;
+      }
+      own.correctedLoadStates.add(loadState);
+      if (anythingMoved) placing.value = { ...placed, transform: moved };
     }
-    if (anythingMoved) placing.value = { ...placed, transform: moved };
   }
 }
 
@@ -2174,6 +2213,13 @@ function handleFor(own) {
             units: landed ? Array.from(landed.units) : null,
             lower: landed?.bounds ? Array.from(landed.bounds.lowerBounds) : null,
             upper: landed?.bounds ? Array.from(landed.bounds.upperBounds) : null,
+            // Which convention the engine says this source counts in, per
+            // axis: true means integer coordinates fall on voxel centres. Kept
+            // for measurements only; the half-voxel correction no longer
+            // trusts it, and this is how a record can show why.
+            voxelCenterAtIntegerCoordinates: landed?.bounds?.voxelCenterAtIntegerCoordinates
+              ? Array.from(landed.bounds.voxelCenterAtIntegerCoordinates)
+              : null,
           };
         });
         const first = sources[0] ?? {};

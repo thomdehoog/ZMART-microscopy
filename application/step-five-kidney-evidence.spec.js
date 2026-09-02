@@ -396,8 +396,15 @@ function trackBrowser(page, port) {
         ...failures.filter(({ kind }) => kind === "optional-probe"),
         ...responses.filter(({ kind, status }) => kind === "optional-probe" && status >= 400),
       ];
+      /* The engine cancels a chunk fetch it no longer needs whenever a
+         source's placement settles or the view moves; the browser reports
+         that as ERR_ABORTED. They are counted here, apart from a request the
+         server refused or lost, which stays unexpected. */
+      const expectedEngineCancellations = failures.filter(({ kind, error }, at) =>
+        !navigationCancellations.has(at) && kind === "chunk" && error === "net::ERR_ABORTED");
       const unexpectedFailures = [
-        ...failures.filter(({ kind }, at) => !navigationCancellations.has(at)
+        ...failures.filter(({ kind, error }, at) => !navigationCancellations.has(at)
+          && !(kind === "chunk" && error === "net::ERR_ABORTED")
           && !["format-probe", "optional-probe"].includes(kind)),
         ...responses.filter(({ kind, status }) =>
           !["format-probe", "optional-probe"].includes(kind) && status >= 400),
@@ -418,6 +425,7 @@ function trackBrowser(page, port) {
         expectedNavigationCancellations: failures
           .filter((_, at) => navigationCancellations.has(at))
           .map((failure) => ({ ...failure, reason: "operator view transition" })),
+        expectedEngineCancellations,
         unexpectedFailures,
         browserErrors,
         workerErrors: browserErrors.filter((error) => /worker|chunk/i.test(error)),
@@ -808,7 +816,9 @@ async function proveAutoUsesViewerMeasurement(page, audit) {
   }).toBeGreaterThan(0);
 
   const successfulBeforeAuto = successful();
-  await page.getByRole("button", { name: "Auto", exact: true }).click();
+  /* The panel names this button by its accessible label, "auto contrast
+     <channel>", so the visible word "Auto" alone never matches it. */
+  await page.locator('.viewer-panel button[aria-label^="auto contrast"]').click();
   await expect.poll(successful, {
     message: "Auto never requested a fresh real Viewer measurement",
   }).toBeGreaterThan(successfulBeforeAuto);
@@ -851,9 +861,11 @@ test("deterministic kidney evidence records 0, 3, 6, and 9 landed positions", as
        partial overview ledger is measured so 3 and 6 mean overview positions,
        not overview positions plus one unrelated focusing image. */
     await setAcquisitionVisible(page, "focussing", false);
-    await page.evaluate(() => window.__theStageCanvas.fadeTo(0));
-    await framePlannedGrid(page);
-    await rest(1000);
+    await audit.duringNavigation(async () => {
+      await page.evaluate(() => window.__theStageCanvas.fadeTo(0));
+      await framePlannedGrid(page);
+      await rest(1000);
+    });
 
     let before = viewRecord(await liveState(page, PORT));
     await bridge.image(positions.slice(0, 3));
@@ -977,10 +989,15 @@ test("the actual Step 5 Run button lands and renders all nine kidney fields", as
       message: "the actual Step 5 scan never finished",
     }).toBe(true);
     await waitForOverview(page, 9);
-    await page.evaluate(() => window.__theStageCanvas.fadeTo(0));
-    await framePlannedGrid(page);
-    await waitForTexture(page, 9);
-    await rest(1500);
+    /* Framing the grid is an operator view transition like Fit and the
+       close-up: chunk fetches the engine cancels while zooming are recorded
+       as navigation cancellations, not as failures. */
+    await audit.duringNavigation(async () => {
+      await page.evaluate(() => window.__theStageCanvas.fadeTo(0));
+      await framePlannedGrid(page);
+      await waitForTexture(page, 9);
+      await rest(1500);
+    });
     const autoMeasurement = await proveAutoUsesViewerMeasurement(page, audit);
     const run = await takeEvidence({
       page, bridge, port: RUN_PORT, audit, name: "9-of-9-run",

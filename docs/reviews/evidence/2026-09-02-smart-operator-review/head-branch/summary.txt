@@ -1,0 +1,19 @@
+canvas-layers | exit=0 | 17s |   14 passed (15.3s) 
+viewer-panel-look | exit=0 | 11s |   1 passed (9.9s) 
+viewer-panel-histogram | exit=0 | 10s |   4 passed (8.1s) 
+viewer-panel-state | exit=0 | 8s |   3 passed (6.7s) 
+operator-page | exit=1 | 354s |   1 failed   32 passed (5.9m) 
+focus-map-fills-in | exit=0 | 24s |   1 passed (23.1s) 
+focus-moved-point | exit=0 | 25s |   1 passed (23.1s) 
+drive-to | exit=0 | 7s |   1 passed (6.6s) 
+scan-the-page-takes | exit=0 | 36s |   2 passed (34.6s) 
+scan-under-the-plan | exit=0 | 52s |   3 passed (49.8s) 
+live-overview | exit=0 | 39s |   1 passed (38.2s) 
+live-overview-layers | exit=0 | 30s |   1 passed (28.0s) 
+live-overview-sparse | exit=0 | 93s |   2 passed (1.5m) 
+the-built-page | exit=0 | 12s |   1 passed (10.6s) 
+the-operator-walk | exit=1 | 23s |   1 failed 
+step-five-view-preservation | exit=0 | 36s |   1 passed (34.8s) 
+step-five-kidney-evidence | exit=1 | 1807s |   2 failed 
+every-tile-is-filled | exit=0 | 193s |   1 passed (3.2m) 
+BATCH1 DONE
