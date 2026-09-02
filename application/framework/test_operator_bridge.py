@@ -1047,35 +1047,66 @@ def test_a_measured_point_names_the_slices_of_the_stack_it_kept(monkeypatch):
     assert all("path" in plane and "z_um" in plane for plane in handed[0])
 
 
-def test_a_scan_started_again_takes_the_last_ones_stores_down_first(monkeypatch):
+def test_a_scan_started_again_removes_the_stores_it_will_not_rewrite(monkeypatch):
     """A rerun accounts for exactly what it captured.
 
     The position stores and the display copies of the last run stayed on
     disk, so a shorter rerun showed fields it never captured, and the viewer
-    kept listing every store it had once seen. Starting a scan of a kind
-    closes that kind in the viewer and removes its folders; the new run's
-    first position opens it afresh."""
+    kept listing every store it had once seen. A store the new plan writes
+    again stays, and is replaced in place as it lands; a store beyond the new
+    plan is stale, and the viewer is asked to close the acquisition so that
+    its next position reopens the folder with only what is there."""
     told = []
     monkeypatch.setattr(
         bridge.viewer_service, "an_acquisition_is_being_replaced",
         lambda kind, folder: told.append((kind, Path(folder))),
     )
     positions = bridge._run / "positions" / "overview"
+    kept = positions / "overview_K00_M000000_G000000_P000000_V00.ome.zarr"
     stale = positions / "overview_K00_M000000_G000000_P000002_V00.ome.zarr"
-    stale.mkdir(parents=True)
-    (stale / "zarr.json").write_text("{}", encoding="utf-8")
+    for store in (kept, stale):
+        store.mkdir(parents=True)
+        (store / "zarr.json").write_text("{}", encoding="utf-8")
     half_written = bridge._run / "positions" / ".writing-overview" / "x"
     half_written.mkdir(parents=True)
     copies = bridge.view_of("overview")
     copies.mkdir(parents=True)
     (copies / "tiles.json").write_text("{}", encoding="utf-8")
     monkeypatch.setattr(bridge, "_view_built", {"overview": 3})
-    monkeypatch.setattr(bridge, "_records", {"overview": [{"stale": True}]})
 
-    bridge._replace_the_acquisition("overview")
+    bridge._replace_the_acquisition("overview", keeping={kept.name})
 
     assert told == [("overview", positions)]
-    assert not positions.exists()
+    assert kept.is_dir(), "a store the new plan writes again stays for in-place replacement"
+    assert not stale.exists()
     assert not half_written.parent.exists()
     assert not copies.exists()
     assert "overview" not in bridge._view_built
+
+
+def test_a_scan_that_only_grows_keeps_the_viewer_open(monkeypatch):
+    """Declaring the same positions again, plus more, is growth, not a rerun
+    that shrinks: nothing is stale, so the viewer is not asked to close
+    anything and the picture is not reopened."""
+    told = []
+    monkeypatch.setattr(
+        bridge.viewer_service, "an_acquisition_is_being_replaced",
+        lambda kind, folder: told.append(kind),
+    )
+    positions = bridge._run / "positions" / "overview"
+    kept = positions / "overview_K00_M000000_G000000_P000000_V00.ome.zarr"
+    kept.mkdir(parents=True)
+    bridge._replace_the_acquisition("overview", keeping={kept.name, "overview_next.ome.zarr"})
+    assert told == []
+    assert kept.is_dir()
+
+
+def test_starting_a_scan_names_the_stores_it_keeps_by_the_new_plan(monkeypatch):
+    asked = []
+    monkeypatch.setattr(bridge, "_replace_the_acquisition", lambda kind, keeping: asked.append((kind, keeping)))
+    monkeypatch.setattr(bridge.threading, "Thread", lambda **kw: type("T", (), {"start": lambda self: None})())
+    bridge._start_scan({"positions": [{"x": 0, "y": 0}, {"x": 1, "y": 0}], "acquisition_type": "overview"})
+    assert asked == [("overview", {
+        "overview_K00_M000000_G000000_P000000_V00.ome.zarr",
+        "overview_K00_M000000_G000000_P000001_V00.ome.zarr",
+    })]

@@ -837,23 +837,32 @@ def _label_for(index: int, position: dict) -> str:
     )
 
 
-def _replace_the_acquisition(acquisition_type: str) -> None:
-    """A scan of this kind is starting again: what the last one left is taken down.
+def _replace_the_acquisition(acquisition_type: str, keeping: set[str] = frozenset()) -> None:
+    """A scan of this kind is starting again: what the new run will not rewrite goes.
 
     The records were already forgotten, but the position stores and the
     display copies stayed on disk, and the viewer kept listing every store it
     had once seen. A shorter rerun therefore showed the fields the new run
-    never captured, and a rerun of the same plan showed the old copy of each
-    field until it happened to be overwritten. A run accounts for exactly
-    what it captured: the viewer closes the acquisition, its folders go, and
-    the new run's first position opens it afresh.
+    never captured. ``keeping`` names the stores the new run will write
+    again; those stay open in the viewer and are replaced in place as each
+    lands, which is what lets the picture grow without being reopened. Any
+    other store of this kind is stale: the viewer closes the acquisition, the
+    stale stores are removed, and the run's next position opens the folder
+    afresh with exactly what is on disk. The display copies are always made
+    again, from the new run's own records.
     """
     run = _the_run()
     positions = run / "positions" / acquisition_type
-    viewer_service.an_acquisition_is_being_replaced(acquisition_type, positions)
-    for stale in (positions, positions.parent / f".writing-{acquisition_type}",
-                  view_of(acquisition_type)):
-        shutil.rmtree(stale, ignore_errors=True)
+    stale = [
+        child for child in (positions.iterdir() if positions.is_dir() else [])
+        if child.name not in keeping
+    ]
+    if stale:
+        viewer_service.an_acquisition_is_being_replaced(acquisition_type, positions)
+        for child in stale:
+            shutil.rmtree(child, ignore_errors=True)
+    for leftover in (positions.parent / f".writing-{acquisition_type}", view_of(acquisition_type)):
+        shutil.rmtree(leftover, ignore_errors=True)
     with _view_lock:
         _view_built.pop(acquisition_type, None)
 
@@ -864,7 +873,10 @@ def _start_scan(asked: dict) -> dict:
     positions = asked.get("positions", [])
     acquisition_type = str(asked.get("acquisition_type", "overview"))
     _records[acquisition_type] = []
-    _replace_the_acquisition(acquisition_type)
+    _replace_the_acquisition(
+        acquisition_type,
+        keeping={f"{acquisition_type}_{_label_for(i, p)}.ome.zarr" for i, p in enumerate(positions)},
+    )
     _stop_asked["scan"] = False
     _scan.update(
         running=True, done=0, of=len(positions), error=None, stopped=False,
