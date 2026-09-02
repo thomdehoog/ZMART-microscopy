@@ -140,6 +140,14 @@ what is precomputed rather than assembled on the fly.
 - Nothing in the engine, the register or the data layer may be shaped in a
   way that would have to be undone for it. That is the whole of the promise
   made to three dimensions now.
+- **When it comes, it is WebGPU.** The browser-native out-of-core volume
+  renderers have all moved to WebGPU and compute-shader ray marching; the
+  two-dimensional engine may be WebGL2, and the three-dimensional phase
+  should assume WebGPU. The four ideas they share are already in the cache
+  above: bricks, a fixed atlas, indirection, and coarse standing in for
+  fine. The survey is `prior-art-larger-than-memory-3d-rendering.md`; Kiln
+  and the Residency Octree are the two to read first, because the second is
+  built for several volumes at once, which is our channels and collections.
 - **Prior art to read when the time comes.** napari's "Progressive loading
   for 2D and 3D" (napari/napari pull request 9067, June 2026, experimental
   and opt-in): viewport-bounded three-dimensional sub-volume tiles fetched
@@ -221,9 +229,24 @@ Ten thousand positions is won or lost here, not in the renderer.
   offers today. One texture per tile per channel; window, colour, colour map
   and alpha as shader inputs. Packing several channels into one texture is a
   later saving, not a starting point.
-- **Cache.** Two tiers with byte budgets: decoded pixels on the CPU side and
-  uploaded textures on the GPU side, least recently used, with the current
-  plane pinned.
+- **Cache, shaped like the ones that scale.** Two tiers with byte budgets:
+  decoded pixels on the CPU side and uploaded textures on the GPU side, least
+  recently used, with the current plane pinned. The GPU tier is one large
+  atlas texture cut into fixed-size slots, with a small lookup that says
+  where each tile lives or that it is missing. That is the pattern every
+  larger-than-memory volume renderer we looked at uses (see the prior-art
+  notes), and a two-dimensional tile is a brick with a depth of one, so the
+  same cache carries the later three-dimensional phase with one more
+  coordinate.
+- **Coarse stands in for fine.** When the tile the view wants is not resident,
+  the coarsest resident tile that covers the place is drawn instead, so the
+  picture is whole at once and sharpens as tiles arrive. The kept coarse
+  levels of the data layer exist so that this stand-in is always there.
+- **The hand comes first.** While the operator is dragging or scrubbing, new
+  fetches are held and the frame budget goes to drawing what is resident;
+  fetching resumes the moment the hand rests. Uploads to the GPU are metered
+  per frame so no single upload stalls a frame. Both are taken from napari's
+  progressive-loading work and cost nothing to adopt in two dimensions.
 - **Prefetch.** The ring around the view at the current level, and the
   neighbouring depth and time planes while the operator is scrubbing, since
   that is the motion a stack viewer lives on.
@@ -279,3 +302,5 @@ The engine is done when, on the harness, on a sparse plate of many positions:
 4. The engine design record, then the engine in stages: data source and cache
    headless and testable without a browser; the renderer; the fourth option
    beside neuroglancer; the numbers.
+5. Only after the gates are met: the three-dimensional phase, starting from
+   the two prior-art notes and the same cache.
