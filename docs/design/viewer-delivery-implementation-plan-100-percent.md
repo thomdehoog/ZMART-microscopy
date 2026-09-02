@@ -47,7 +47,7 @@ at start with an upgrade sentence, and the page shows that sentence beside the
 empty picture. The two repositories are released as a pair; rolling one back
 means rolling both back.
 
-### S1 — the folders a Viewer makes for itself go when it goes
+### S1 — the folders a Viewer makes for itself go when it goes, and stay within bounds
 
 `zmart_viewer/scratch.py`. Each session folder under `~/.zmart-viewer` is
 locked by the process that made it, for as long as it runs; the operating
@@ -68,6 +68,19 @@ root on every call, so it is for looking, not for polling. On a drive or
 share without file locks the Viewer cannot make a scratch folder and says so.
 `fcntl.flock` on POSIX, `msvcrt.locking` on Windows; the Windows half has not
 been run on Windows.
+
+The two planned limits are enforced, not only measured. `ScratchSession`
+carries a root limit of 5 GiB across scenes and replays together and a share
+limit of ten per cent of the source bytes for a derived picture; both are
+plain numbers a test can make tiny. `room_for` answers a refusal sentence
+before a byte is written. A replay is checked against the root limit before
+it starts, since it copies the whole dataset, and is refused with HTTP 507
+and the sentence. A bake of a governed run's coarse ground is given a budget
+of ten per cent of the run; past it the bake is refused, every piece it wrote
+is removed, the run opens unbaked, and the refusal is listed on
+`GET /api/scratch` under `refused_bakes`. Folders a Windows sweep renamed to
+`retired-` and could not remove are now counted in the tally and removed
+again on the next sweep, or reported as stuck.
 
 ### Z1 — the half-voxel fact is a test
 
@@ -255,3 +268,96 @@ is unknown from here.
 Not run: the microscopy Playwright walks (they need a dev server and a
 bridge), the driver hardware suites, anything on Windows, and anything on
 the microscope PC.
+
+## After the independent review
+
+Codex reviewed the finished migration (`docs/reviews/2026-09-02-review-of-the-viewer-delivery-migration-by-codex.md`)
+and asked for four things to be fixed before phase 0, and two to be decided.
+Each is answered below, with the code and the test that proves it.
+
+### 1. An unresolved multi-channel acquisition keeps its channels
+
+The route the review found missing is now one route, followed end to end.
+The position writer keeps the acquisition's channel list — key, index, label,
+colour, range, and nothing about a window — under each position store's own
+`zmart` attributes (`zarr_positions.py::_keep_the_acquisitions_channels_on`);
+the composed source already carried the same list in its provenance. The
+Viewer's library reads that list when no `omero` block exists
+(`library.py::_channels_the_acquisition_named`), so its config has one row
+per channel with the biologist's names and colours. The bridge's reading of
+that config no longer collapses rows to one address: each source carries its
+channels — name, place along the channel axis, colour, and a window only where
+the run *declared* one (`viewer_service.py::_the_channel_in`). The page hands
+the channels to the engine and the panel, and both build one row per channel.
+`test_three_undecided_channels_reach_the_embedded_page_by_name` runs the real
+Viewer server over three undecided channels, for the first direct position and
+for two positions composed, and reads DAPI, GFP and mCherry back at every
+step with no window on any of them.
+
+### 2. One authority for the display window
+
+The engines' fixed `0…4095` is gone from all three options; the rule they now
+share is `viz_studio/options/windows.js`: the page's word, then the run's
+declared window, then a measurement of the pixels labelled as such, and then
+nothing — a channel nobody has given a window is built but not drawn, and
+`layersForMeasurement` reports `window: null` and where the window came from.
+The panel applies what it measures: `giveTheEngine` sends every measured
+window through `viewer.setChannel`, `measureEveryRow` measures every row as
+the panel goes up rather than only the clicked one, and a declared window is
+sent too. `viewer-panel-authority.test.js` is the reviewer's spy kept as a
+test: declared, provisional, settled, waiting, flat and unreadable, with the
+engine's calls asserted for each. The old comparison backend
+(`viz_studio/backend/contrast.py`) no longer answers `0…65535` for nothing
+measurable; it answers `None` and a measurement state.
+
+### 3. Provisional and settled follow the acquisition, not the store
+
+The Viewer decides `settled` from liveness: a server over finished data says
+settled for everything, and a server over a live run says settled only for
+acquisitions the writer has announced as finished
+(`POST /api/announce {"finished": "<type>"}`, sent by the bridge when a scan's
+worker ends, whether it finished or was stopped). A first position no longer
+reads as settled while the scan grows around it, and a composed picture no
+longer reads as provisional for ever. The config rows use the same rule. The
+panel's sentence "brightness measured from pixels acquired so far" is
+therefore true exactly while it is shown. One honest limit stays: in the
+bridge-driven route no panel exists before the first position lands, so the
+"waiting for measurable pixels" state is reachable only through the panel's
+own API and the `?picture=` route, which is where it is tested.
+
+### 4. Scratch limits enforced
+
+See S1 above: the 5 GiB root limit and the ten-per-cent share are enforced
+with refusals, the replay is checked before it writes, a governed bake is
+budgeted and rolled back, and `retired-` folders are counted and swept.
+
+### 5. The retained detection and gallery JPEGs: a separate, named contract
+
+The small per-field JPEGs (`/view/<type>/…`) stay. They are previews for
+target detection and the acquisition gallery, not the overview picture; the
+canvas draws only the run's OME-Zarr through the Viewer. Their brightness is
+a *measured preview contract*: the first field's percentiles and gamma are
+kept for the rest of the run so that fields are comparable with one another
+in the gallery, and that decision is theirs alone — it is never written into
+any OME store and never reaches the canvas. The claim in this plan is
+narrowed accordingly: no *stored* display window and no *canvas* window is
+decided by a position; a preview strip is. Bringing the previews under the
+acquisition-wide window would make an operator's detection previews change
+brightness mid-run whenever the window resolves, which is worse for the job
+they do. The stale comments that still promised a JPEG fallback for the
+canvas (`live.js`, `viewer_service.py`) are reconciled.
+
+### 6. Leica channel labels carry the dye
+
+The Leica adapter keeps the detector slot as the channel's identity and adds
+the preset's dye name to the label (`Channel 3 · ALEXA 488`), taking the first
+dye named for a slot across the master and sequential parts of a job. Whether
+LAS X writes one C plane or two for the same detector armed in both parts is
+not established by the committed exports and needs the microscope PC; it is
+listed under the open hardware checks.
+
+### Test runs after the fixes
+
+Filled in from the final runs in the commit that carries this section; see
+the commit message and `docs/reviews/` for the numbers.
+

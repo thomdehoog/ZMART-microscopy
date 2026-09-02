@@ -1154,6 +1154,43 @@ class TestStateAndProcedures(unittest.TestCase):
             ],
         )
 
+    def test_state_labels_a_channel_with_the_dye_its_preset_names(self):
+        """The slot is the identity; the dye is what a biologist reads."""
+        h = _handle()
+        p = self._state_patches()
+        settings = {
+            "Master": {
+                "_Detectors": [
+                    {"Channel": "2", "DyeName": "", "_ImageChannels": [{"IsEnabled": "1"}]},
+                    {"Channel": "4", "DyeName": "Leica/ALEXA 594",
+                     "_ImageChannels": [{"IsEnabled": "1"}]},
+                ]
+            },
+            "Sequential": {
+                "_Detectors": [
+                    # The same slot again, now with its dye filled in: still one
+                    # channel, and the dye is kept.
+                    {"Channel": "2", "DyeName": "Leica/ALEXA 405",
+                     "_ImageChannels": [{"IsEnabled": "1"}]},
+                ]
+            },
+        }
+        with (
+            p[0],
+            p[1],
+            p[2],
+            patch.object(adapter._readers, "get_job_settings", return_value=settings),
+        ):
+            observed = adapter.get_state(h)["observed"]
+
+        self.assertEqual(
+            observed["channels"],
+            [
+                {"key": "leica-channel-2", "index": 0, "label": "Channel 2 · ALEXA 405"},
+                {"key": "leica-channel-4", "index": 1, "label": "Channel 4 · ALEXA 594"},
+            ],
+        )
+
     def test_set_state_refuses_an_autofocus_job(self):
         h = _handle()
         p = self._state_patches()

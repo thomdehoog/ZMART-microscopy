@@ -71,8 +71,13 @@ def test_uniform_data_still_yields_a_usable_window(tmp_path):
     assert high > low
 
 
-def test_an_unreadable_store_falls_back_to_the_full_range(tmp_path):
-    assert display_window(tmp_path / "missing.zarr") == (0.0, 65535.0)
+def test_an_unreadable_store_has_no_window_rather_than_the_full_range(tmp_path):
+    """Nothing to measure is not a window. It used to be the camera's whole
+    range, which drew an empty run as though somebody had chosen it."""
+    assert display_window(tmp_path / "missing.zarr") is None
+    told = measure(tmp_path / "missing.zarr")
+    assert told["window"] is None and told["volumeWindow"] is None
+    assert told["measurementState"] == "unreadable"
 
 
 def test_histogram_covers_every_sample_in_compact_bins(tmp_path):
@@ -146,12 +151,14 @@ def test_one_measurement_answers_all_three_questions(tmp_path):
     assert together["histogram"] == intensity_histogram(store)
 
 
-def test_measuring_an_unreadable_store_still_gives_a_usable_window(tmp_path):
+def test_measuring_an_unreadable_store_says_so_instead_of_inventing_a_window(tmp_path):
     """A store that cannot be read must not stop the viewer from opening.
 
     A broken or half-written acquisition sitting in the folder should cost that
-    one row its histogram, not bring down the whole panel — so the fallback is a
-    window covering the full range of the data type, which shows *something*.
+    one row its histogram, not bring down the whole panel. It used to be given
+    a window covering the full range of the data type "so that something
+    shows", and that something was a black picture that looked chosen. Now the
+    row has no window and the answer says what is wrong with the store.
     """
     broken = tmp_path / "not-really.zarr"
     broken.mkdir()
@@ -159,6 +166,8 @@ def test_measuring_an_unreadable_store_still_gives_a_usable_window(tmp_path):
 
     together = measure(broken)
 
-    assert together["window"] == (0.0, 65535.0)
-    assert together["volumeWindow"] == (0.0, 65535.0)
+    assert together["window"] is None
+    assert together["volumeWindow"] is None
     assert together["histogram"] is None
+    assert together["measurementState"] == "unreadable"
+    assert "cannot be read" in together["measurementError"]

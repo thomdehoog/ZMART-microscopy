@@ -125,6 +125,42 @@ def _level_paths(attrs: dict) -> list[str]:
     return [str(entry["path"]) for entry in datasets if entry.get("path") is not None]
 
 
+def _readability_problem(store: Path) -> str | None:
+    """Why this is not a readable image, or ``None`` for a valid but empty one.
+
+    Nothing written yet is ordinary at the start of a live run. A description
+    that cannot be read, or one that names no pixel levels, is not — and
+    reporting both as "waiting" would leave a corrupt store waiting for ever.
+    The same check the ZMART Viewer makes, kept here so the two backends
+    answer the same sentence.
+    """
+    import json
+
+    store = Path(store)
+    for name in (".zattrs", "zarr.json"):
+        described = store / name
+        if described.is_file():
+            try:
+                json.loads(described.read_text(encoding="utf-8"))
+            except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+                return f"the image description {name} cannot be read ({exc})"
+            break
+    else:
+        return "the image has no description file"
+    try:
+        attrs = _read_attrs_at(store)
+        levels = [
+            str(one.get("path"))
+            for one in (attrs.get("multiscales") or [{}])[0].get("datasets") or []
+            if isinstance(one, dict) and one.get("path") is not None
+        ]
+    except (OSError, KeyError, UnicodeDecodeError, ValueError) as exc:
+        return f"the image description cannot be read ({exc})"
+    if not levels:
+        return "the image description names no pixel levels"
+    return None
+
+
 def _coarsest_level_path(attrs: dict) -> str | None:
     levels = _level_paths(attrs)
     return levels[-1] if levels else None
@@ -415,19 +451,29 @@ def measure(
     Returns a dictionary holding the two windows, the histogram, and ``settled``.
     ``settled`` is ``False`` when the numbers were taken while the run was still
     filling in — either because nothing had been written at all, in which case
-    the window is a fallback covering a 16-bit camera's whole range, or because
-    the smallest copy of the image was not yet there and a larger one was read
-    instead. Either way the answer is worth using now and worth asking again
-    later, and the caller should not remember it for the rest of the session.
+    both windows are ``None`` and ``measurementState`` says whether that is
+    ``waiting`` (nothing landed yet) or ``unreadable`` (a store that cannot be
+    read), or because the smallest copy of the image was not yet there and a
+    larger one was read instead. Either way the answer is worth using now and
+    worth asking again later, and the caller should not remember it for the
+    rest of the session.
+
+    No window is ever invented here. This used to answer a 16-bit camera's
+    whole range when there was nothing to measure, and that answer could not
+    be told apart from a decision: the page drew an empty run at nought to
+    65535 as though somebody had chosen it. ``None`` says what is true.
     """
     store = Path(store)
     read = _samples(store, channel=channel)
     if read is None:
+        problem = _readability_problem(store)
         return {
-            "window": (0.0, 65535.0),
-            "volumeWindow": (0.0, 65535.0),
+            "window": None,
+            "volumeWindow": None,
             "histogram": None,
             "settled": False,
+            "measurementState": "unreadable" if problem is not None else "waiting",
+            "measurementError": problem,
         }
     attrs, values, settled = read
     declared = _omero_window(attrs, channel)
@@ -524,7 +570,8 @@ def display_window(
 
     read = _samples(store, channel=channel)
     if read is None:
-        return 0.0, 65535.0
+        # Nothing to measure is not a window; see ``measure``.
+        return None
     return _window(read[1], volumetric=volumetric)
 
 

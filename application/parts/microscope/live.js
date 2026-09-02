@@ -69,12 +69,17 @@ export const POLL_MS = 250;
 
 export const backend = {
   /**
-   * Where a scan's pictures can be fetched, or `null` for a backend with none.
+   * Where a scan's small preview pictures can be fetched.
    *
    * A microscope writes OME-TIFFs, which a browser cannot open and which are
    * far too heavy to send; the bridge makes one small JPEG per field as it
    * lands and serves them here, with a `tiles.json` beside them saying where
-   * each belongs. The backend answers this rather than the page working it
+   * each belongs. These are *previews*: what target detection looks at and
+   * what the acquisition gallery shows. They are not the overview picture —
+   * that is drawn from the run's own OME-Zarr through the viewer beside the
+   * bridge (`viewerSources` below) and nothing else — and their brightness
+   * is a measured preview contract of their own, not the acquisition's
+   * display window. The backend answers this rather than the page working it
    * out, because where a run's output is reachable is a fact about the
    * instrument's end and nothing the page could know.
    */
@@ -87,13 +92,6 @@ export const backend = {
     return (await ask("/api/instruments")).instruments;
   },
 
-  /**
-   * The OME-Zarr pictures of this run, as the viewer server beside the bridge
-   * serves them: one entry per acquisition source, each a whole address an
-   * engine can open. `null` while the viewer is not up or holds nothing yet —
-   * the page then falls back to the JPEG copies, so a machine without the
-   * viewer installed draws exactly as it always has.
-   */
   /**
    * Why the run's viewer is not up, in a sentence, or `null` while it is.
    *
@@ -113,12 +111,26 @@ export const backend = {
     }
   },
 
+  /**
+   * The OME-Zarr pictures of this run, as the viewer server beside the bridge
+   * serves them: one entry per acquisition source, each a whole address an
+   * engine can open, each carrying its channels — name, place along the
+   * channel axis, colour, and the window the run declared or `null` where it
+   * has not decided one. `null` while the viewer is not up or holds nothing
+   * yet; the page then draws no picture and says why (`viewerTrouble`).
+   */
   async viewerSources() {
     try {
       const state = await ask("/api/viewer");
       const all = [];
       for (const sources of Object.values(state?.sources ?? {})) {
-        for (const source of sources) all.push({ url: source.url, name: source.name });
+        for (const source of sources) {
+          all.push({
+            url: source.url,
+            name: source.name,
+            channels: Array.isArray(source.channels) ? source.channels : [],
+          });
+        }
       }
       return all.length ? all : null;
     } catch {

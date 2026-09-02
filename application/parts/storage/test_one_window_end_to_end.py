@@ -133,3 +133,115 @@ def test_two_positions_that_disagree_give_nobody_the_last_word(tmp_path):
     measured = (row["window"]["low"], row["window"]["high"])
     for window in windows:
         assert measured != (float(window["start"]), float(window["end"]))
+
+
+# -- three channels, no window yet ----------------------------------------------
+
+
+THREE_UNRESOLVED = {
+    "schema": "zmart-acquisition-display/1",
+    "acquisitionType": "overview",
+    "channels": [
+        {"key": "405", "index": 0, "label": "DAPI", "color": "0000FF",
+         "range": {"min": 0, "max": 65535}},
+        {"key": "488", "index": 1, "label": "GFP", "color": "00FF00",
+         "range": {"min": 0, "max": 65535}},
+        {"key": "594", "index": 2, "label": "mCherry", "color": "FF0000",
+         "range": {"min": 0, "max": 65535}},
+    ],
+}
+
+
+def _three_channel_positions(tmp_path, *, how_many: int) -> Path:
+    positions = tmp_path / "positions" / "overview"
+    write_acquisition_description(positions, THREE_UNRESOLVED, channel_count=3)
+    for at in range(how_many):
+        record = one_file_per_plane(tmp_path / f"capture{at}", channels=3, offset=at * 5000)
+        record["position_label"] = f"K00_M000000_G000000_P{at:06d}_V00"
+        position_store_from_record(record, positions)
+    return positions
+
+
+def _served_over(tmp_path, positions: Path):
+    """The real Viewer server, opened on the positions folder the way the bridge does."""
+    import http.client
+    import threading
+
+    from zmart_viewer.server import make_server
+
+    site = tmp_path / "site"
+    site.mkdir(exist_ok=True)
+    (site / "index.html").write_text("<!doctype html><title>page</title>", encoding="utf-8")
+    server = make_server(port=0, data_dir=tmp_path, site_dir=site, live=True,
+                         scratch_root=tmp_path / "scratch")
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    port = server.server_address[1]
+
+    def ask(route, payload):
+        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=30)
+        conn.request("POST", route, body=json.dumps(payload),
+                     headers={"Content-Type": "application/json"})
+        answer = conn.getresponse()
+        body = json.loads(answer.read() or b"{}")
+        conn.close()
+        assert answer.status == 200, body
+        return body
+
+    def stop():
+        server.shutdown()
+        thread.join(timeout=5)
+
+    return port, ask, stop
+
+
+@pytest.mark.parametrize("how_many", [1, 2], ids=["first-direct-position", "composed"])
+def test_three_undecided_channels_reach_the_embedded_page_by_name(tmp_path, how_many):
+    """The channel route the review found missing, followed end to end.
+
+    An acquisition of three colours that has not decided its window writes no
+    ``omero`` block (a strict reader refuses a channel entry without a complete
+    window). The names and colours travel under ``zmart`` instead, the real
+    Viewer server reads them into one config row per channel, and the bridge's
+    own reading of that config hands the page one source with three named
+    channels — for the first position, opened on its own, and for two positions
+    composed into one picture alike. No window is invented anywhere on the way.
+    """
+    positions = _three_channel_positions(tmp_path, how_many=how_many)
+    port, ask, stop = _served_over(tmp_path, positions)
+    try:
+        config = ask("/api/stores/open", {"path": str(positions)})
+        _the_three_are_named_all_the_way(tmp_path, positions, port, config)
+    finally:
+        # The scene the Viewer composed lives in its own scratch, which goes
+        # when the server stops -- so everything is looked at before then.
+        stop()
+
+
+def _the_three_are_named_all_the_way(tmp_path, positions, port, config):
+    from application.parts.storage.viewer_service import _the_sources_in
+    from zmart_viewer.library import channels
+
+    rows = [row for row in config["layers"] if row["kind"] == "image"]
+    assert [row["name"] for row in rows] == ["DAPI", "GFP", "mCherry"]
+    assert [row["channelIndex"] for row in rows] == [0, 1, 2]
+    assert all(row["measurementState"] != "declared" for row in rows)
+
+    found = _the_sources_in(config, port)
+    [source] = next(iter(found.values()))
+    assert [c["name"] for c in source["channels"]] == ["DAPI", "GFP", "mCherry"]
+    assert [c["index"] for c in source["channels"]] == [0, 1, 2]
+    assert [c["colour"] for c in source["channels"]] == [
+        [0.0, 0.0, 1.0], [0.0, 1.0, 0.0], [1.0, 0.0, 0.0],
+    ]
+    assert all(c["window"] is None for c in source["channels"]), "nothing decided, nothing carried"
+
+    # And the store the Viewer serves — the position itself, or the scene it
+    # composed — names the same three channels, with no window on any of them.
+    served = Path(rows[0]["sources"][0].split("/data/", 1)[1].split("|", 1)[0].split("/", 1)[1].rstrip("/"))
+    where = positions / served.name if (positions / served.name).is_dir() else next(
+        (tmp_path / "scratch").rglob(served.name)
+    )
+    described = channels(where)
+    assert [c["name"] for c in described] == ["DAPI", "GFP", "mCherry"]
+    assert [c["window"] for c in described] == [None, None, None]

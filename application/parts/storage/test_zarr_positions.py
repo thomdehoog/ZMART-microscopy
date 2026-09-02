@@ -223,3 +223,39 @@ class TestTheStore:
         ])
         with pytest.raises(RuntimeError, match="axis the record says nothing about"):
             position_store_from_record(record, tmp_path / "positions")
+
+
+def test_an_unresolved_acquisition_keeps_its_three_channels_by_name(tmp_path):
+    """No window yet, no ``omero`` block — but never a nameless channel.
+
+    A strict reader refuses a channel entry without a complete window, so an
+    acquisition that has not decided one writes no ``omero`` block at all.
+    Its three names and colours travel under the store's own ``zmart``
+    attributes instead, where the Viewer reads them back for its rows.
+    """
+    positions = tmp_path / "positions" / "overview"
+    three = {
+        "schema": "zmart-acquisition-display/1",
+        "acquisitionType": "overview",
+        "channels": [
+            {"key": "405", "index": 0, "label": "DAPI", "color": "0000FF",
+             "range": {"min": 0, "max": 65535}},
+            {"key": "488", "index": 1, "label": "GFP", "color": "00FF00",
+             "range": {"min": 0, "max": 65535}},
+            {"key": "594", "index": 2, "label": "mCherry", "color": "FF0000",
+             "range": {"min": 0, "max": 65535}},
+        ],
+    }
+    write_acquisition_description(positions, three, channel_count=3)
+    record = one_file_per_plane(tmp_path / "capture", channels=3)
+
+    store = position_store_from_record(record, positions)
+
+    held = json.loads((store / "zarr.json").read_text())["attributes"]
+    assert "omero" not in held["ome"], "an undecided window writes no channel block"
+    assert [c["label"] for c in held["zmart"]["channels"]] == ["DAPI", "GFP", "mCherry"]
+    assert [c["color"] for c in held["zmart"]["channels"]] == ["0000FF", "00FF00", "FF0000"]
+    assert all("displayWindow" not in c for c in held["zmart"]["channels"])
+    assert held["zmart"]["displayWindowSource"] == "zmart-acquisition.json"
+    # And the description zarr itself needs is untouched beside it.
+    assert held["ome"]["multiscales"][0]["axes"][1]["name"] == "c"
