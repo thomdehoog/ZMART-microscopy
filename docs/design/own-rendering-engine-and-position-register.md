@@ -35,9 +35,21 @@ what is precomputed rather than assembled on the fly.
 - **Labels are a first-class layer.** Segmentation and label images draw with
   their own shader: integer values, a colour per object, one object
   highlighted, no brightness window.
+- **One three-dimensional stage space.** The engine's world is the stage in
+  micrometres, with x, y and z. Every position sits at its own x, y, z corner
+  from the acquisition record, and every plane of it at its own height. The
+  two-dimensional view is a plane through that space at the depth the slider
+  chooses, measured in stage micrometres rather than in plane numbers, so an
+  overview taken at one height and a focus stack spanning another share one
+  z axis and one slider. A position is drawn on the view plane when the plane
+  falls inside the depth its voxels cover, by the voxel-edge rule; a position
+  the plane misses is not drawn, and the slider's travel is the union of what
+  every position covers. Neuroglancer forced every store's height to nought to
+  get them on screen together; owning the space removes that trick, and it is
+  the same space a volume renderer draws later.
 - **Objects may be placed anywhere.** A position is drawn at its true
-  micrometre placement, on or off any chunk grid. Rotation is left open for
-  later but nothing in the design forbids it.
+  micrometre placement in that space, on or off any chunk grid. Rotation is
+  left open for later but nothing in the design forbids it.
 - **Transparency at any layer.** Every source and every channel has an alpha,
   so a sparse acquisition lets whatever lies beneath it show through, at any
   depth of the stack of layers.
