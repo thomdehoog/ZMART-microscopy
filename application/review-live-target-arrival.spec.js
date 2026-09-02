@@ -162,6 +162,13 @@ function trackBrowser(page, port) {
   const failures = [];
   const responses = [];
   const cancelled = new Set();
+  /* Stores a shorter rerun has removed on purpose. The engine may still ask
+     for their pixels in the moment between the removal and the page reading
+     the shrunken source list; those misses are what removing a store means,
+     and they are recorded apart from real failures once the test has named
+     the store as retired. */
+  const retired = new Set();
+  const isRetired = (url) => [...retired].some((name) => url.includes(`/${name}/`));
   page.on("pageerror", (error) => pageErrors.push(error.message));
   page.on("console", (message) => {
     if (message.type() !== "error") return;
@@ -181,6 +188,8 @@ function trackBrowser(page, port) {
     responses.push({ kind, url: response.url(), status: response.status() });
   });
   return {
+    /** Name a store the rerun removed, so misses on it are expected from now on. */
+    retire(storeName) { retired.add(storeName); },
     async duringNavigation(action) {
       const first = failures.length;
       await action();
@@ -202,12 +211,18 @@ function trackBrowser(page, port) {
          They are recorded, counted, and kept apart from real failures. */
       const chunkCancellations = failures.filter((one, at) => !cancelled.has(at)
         && one.kind === "chunk" && one.error === "net::ERR_ABORTED");
+      const retiredStoreMisses = [
+        ...failures.filter((one) => isRetired(one.url)),
+        ...responses.filter((one) => one.status === 404 && isRetired(one.url)),
+      ];
       const unexpectedFailures = [
         ...failures.filter((one, at) => !cancelled.has(at)
           && !chunkCancellations.includes(one)
+          && !isRetired(one.url)
           && !["format-probe", "optional-probe"].includes(one.kind)),
         ...responses.filter((one) =>
-          !["format-probe", "optional-probe"].includes(one.kind) && one.status >= 400),
+          !["format-probe", "optional-probe"].includes(one.kind) && one.status >= 400
+          && !(one.status === 404 && isRetired(one.url))),
       ];
       const browserErrors = [
         ...pageErrors,
@@ -222,6 +237,7 @@ function trackBrowser(page, port) {
         expectedOptionalProbes: expected("optional-probe"),
         expectedNavigationCancellations: failures.filter((_, at) => cancelled.has(at)),
         expectedChunkCancellations: { count: chunkCancellations.length, sample: chunkCancellations.slice(0, 3) },
+        expectedRetiredStoreMisses: { stores: [...retired], count: retiredStoreMisses.length, sample: retiredStoreMisses.slice(0, 3) },
         unexpectedFailures,
         browserErrors,
         workerErrors: browserErrors.filter((error) => /worker|chunk/i.test(error)),
@@ -1202,7 +1218,7 @@ test("Step 8 source model: real target positions published through the bridge ar
       step: 8, state: `bridge path: ${positions.length} target positions chosen inside fields ${chosenFields.join(", ")}; no operator gate (discovery unavailable here)`,
       extra: { targetPositionsAbsoluteStageUm: positions, chosenFields },
     });
-    await proveTargetArrival({
+    const proven = await proveTargetArrival({
       page, take, port, bridge, plan, planBoxes, expectedTargets: positions.length, mode: "bridge-published targets", outcome,
       trigger: async () => {
         const answer = await fetch(`http://127.0.0.1:${port}/api/scan`, {
@@ -1215,6 +1231,10 @@ test("Step 8 source model: real target positions published through the bridge ar
     /* A rerun with fewer targets: the records say two, and the Viewer group
        must account for exactly the positions the rerun captured. */
     const rerun = positions.slice(0, 2);
+    /* The third store is retired by the rerun: the engine may still ask for
+       its pixels until the page reads the shrunken list, and those misses
+       are recorded as expected. Any other failed request still fails. */
+    audit.retire(`${outcome.observedTargetGroupName}_${proven.records[2].position_label}.ome.zarr`);
     const answer = await fetch(`http://127.0.0.1:${port}/api/scan`, {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ positions: rerun, acquisition_type: "target", state: null }),
