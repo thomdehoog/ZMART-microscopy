@@ -936,7 +936,7 @@ colour, added together, no gamma; the copies now do the same.
 | `playwright test review-live-target-arrival.spec.js -g "operator page|source model"` (alone) | 2 passed | 9.2 min | `step6-display-settings-tab`: the canvas box equal before and after both presses; discovery 7 min 29 s on the card |
 | `playwright test step-five-kidney-evidence.spec.js` (5175) | could not load (`spawnSync rg ENOENT`); after reading the file instead, 2 passed | 59 s | |
 | `playwright test every-tile-is-filled.spec.js` (5175) | 1 passed, 54 of 54 fields | 3.0 min | |
-| `playwright test review-live-target-arrival.spec.js -g interruption` (alone) | running alone in the background at the time of this commit; its result and evidence follow in the next | | |
+| `playwright test review-live-target-arrival.spec.js -g interruption` (alone) | 1 passed, 7.0 min (`final-10-interruption`; evidence `interruption/`, 4 of 12 targets acquired). A rerun on the final code failed before its first field: the vision worker crashed at Phase 0 with an empty stderr while the operator was using the mock window through the same bridge process — the conda activation-file race documented in §11, not a code fault. Rerun alone when the bench is free. | | |
 
 #### Ledger and evidence for MEDIUM-12 to MEDIUM-14 and the password
 
@@ -1016,6 +1016,13 @@ it is built yet, and the order below is the order it was said in.
 9. **The scan summary looks unprofessional and unclean** -- to be redrawn. In the shot: two
    lines ("1 positions to image", "focus follows the measured map · rms 0.0 µm") floating with
    large gaps in a near-empty card, and the Run again button touching its "1 / 1 tiles" hint.
+
+**The display settings column**
+
+10. **The display settings should look like the rest:** white boxes with the page's own
+    headings ("Data", "Channel settings", "Picture"), aligned like every other step's cards.
+    Today the picture's panel keeps the strip styling it had beside the canvas -- grey cards
+    edge to edge, its own heading style, sliders stretched to the column.
 
 **Step 6, Discover Targets**
 

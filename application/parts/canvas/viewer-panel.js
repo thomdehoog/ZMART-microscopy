@@ -277,6 +277,11 @@ export async function mountViewerPanel(near, {
   viewer,
   acquisitions,
   into = null,
+  /* How to switch the picture on and off. The page's canvas keeps the flag
+     every layer reads -- the focus map goes solid when the picture is off --
+     so the page hands the switch that keeps that flag; the engine's own
+     switch is the fallback for a panel mounted without a page. */
+  showPicture = null,
   requestedState = null,
   /* Kept for callers from the first cleanup checkpoint. */
   requestedVisibility = null,
@@ -1228,9 +1233,10 @@ export async function mountViewerPanel(near, {
     "display:flex;align-items:center;gap:8px;cursor:pointer;padding:5px 12px;");
   const pictureEye = el("input");
   pictureEye.type = "checkbox";
+  pictureEye.id = "draw-the-picture";
   pictureEye.checked = true;
   pictureEye.style.cssText = "margin:0;";
-  pictureEye.addEventListener("change", () => viewer.showPicture?.(pictureEye.checked));
+  pictureEye.addEventListener("change", () => (showPicture ?? viewer.showPicture)?.(pictureEye.checked));
   pictureLine.append(pictureEye, el("span", "", "draw the picture"));
   whole.append(pictureLine);
 

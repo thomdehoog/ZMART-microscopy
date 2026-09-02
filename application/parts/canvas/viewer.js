@@ -1194,6 +1194,8 @@ export function putTheCanvasIn({
      * The operator's choice is remembered either way.
      */
     showLayer(key, on) { showTheLayer(key, on); },
+    /** Whether the named layer is being drawn, the picture included. */
+    layerShown(key) { return isShowing(key); },
 
     /**
      * Whether the layers may be touched, and a way to lock or unlock them.
