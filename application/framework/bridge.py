@@ -227,6 +227,7 @@ def _connect(asked: dict) -> dict:
     # had taken.
     _records.clear()
     _view_built.clear()
+    _displayed_pictures.clear()
     _scan.update(running=False, done=0, of=0, error=None, acquisition_type=None)
     _focus.update(running=False, done=0, of=0, error=None, points=[])
     _targets.update(running=False, done=0, of=0, error=None, fields=[])
@@ -745,6 +746,43 @@ def _keep_position_as_zarr(record: dict, acquisition_type: str) -> None:
 VIEW = "view"
 
 
+def _the_display_asked_for(query: str) -> list | None:
+    """The ``display=`` of a picture request, or None when none was asked."""
+    import urllib.parse
+
+    asked = urllib.parse.parse_qs(query or "").get("display")
+    if not asked:
+        return None
+    try:
+        display = json.loads(asked[0])
+    except ValueError:
+        return None
+    return display if isinstance(display, list) else None
+
+
+#: Copies drawn with a display, by (kind, label, the display as asked); a
+#: scan start empties it, since the pixels behind a label may change.
+_displayed_pictures: dict[tuple, bytes] = {}
+
+
+def _a_picture_as_displayed(acquisition_type: str, label: str, display: list) -> bytes | None:
+    """One field's copy drawn with the canvas's own settings, or None when the
+    field was never captured. See :func:`jpeg_tiles.picture_as_displayed`."""
+    from application.parts.storage.jpeg_tiles import picture_as_displayed
+
+    record = next(
+        (one for one in _records.get(acquisition_type, []) if one.get("position_label") == label),
+        None,
+    )
+    if record is None:
+        return None
+    key = (acquisition_type, label, json.dumps(display, sort_keys=True))
+    if key not in _displayed_pictures:
+        planes = [(int(p.get("c", 0)), p["path"]) for p in record.get("planes") or [] if p.get("path")]
+        _displayed_pictures[key] = picture_as_displayed(planes, display)
+    return _displayed_pictures[key]
+
+
 def view_of(acquisition_type: str) -> Path:
     """Where this kind of scan's pictures are, in this run's own folder."""
     return _the_run() / acquisition_type / VIEW
@@ -1168,7 +1206,7 @@ class _Bridge(BaseHTTPRequestHandler):
     #: the page chose: anything not on it is not a picture and is not sent.
     PICTURES = {".jpg": "image/jpeg", ".png": "image/png", "tiles.json": "application/json"}
 
-    def _send_a_picture(self, path: str) -> None:
+    def _send_a_picture(self, path: str, query: str = "") -> None:
         """Hand out one file from a scan's view folder.
 
         ``/view/<acquisition type>/<name>``. Browsers will not let a page read
@@ -1184,6 +1222,17 @@ class _Bridge(BaseHTTPRequestHandler):
         wanted = self.PICTURES.get(name if name in self.PICTURES else Path(name).suffix)
         if not kind or not name or name != Path(name).name or wanted is None:
             self._answer({"error": f"no picture {rest!r}"}, status=404)
+            return
+        display = _the_display_asked_for(query)
+        if display is not None and name.endswith(".jpg") and kind != FOCUSSING:
+            # The copy drawn with the picture's own display settings: what
+            # the page's canvas shows, not the scan-wide stretch the small
+            # copies wear. Rendered on request and remembered by its asking.
+            body = _a_picture_as_displayed(kind, name[: -len(".jpg")], display)
+            if body is None:
+                self._answer({"error": f"nothing has been imaged at {rest}"}, status=404)
+                return
+            self._send_bytes(body, wanted)
             return
         if name.endswith(".mask.png"):
             # A field's detection mask, colorized on first request: the page
@@ -1204,9 +1253,11 @@ class _Bridge(BaseHTTPRequestHandler):
         if where is None or not where.is_file():
             self._answer({"error": f"nothing has been imaged at {rest}"}, status=404)
             return
-        body = where.read_bytes()
+        self._send_bytes(where.read_bytes(), wanted)
+
+    def _send_bytes(self, body: bytes, content_type: str) -> None:
         self.send_response(200)
-        self.send_header("Content-Type", wanted)
+        self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
         # A scan's note and its pictures change as it runs, so nothing here is
         # worth keeping: a cached note is a canvas that stops growing.
@@ -1259,7 +1310,7 @@ class _Bridge(BaseHTTPRequestHandler):
             elif path == "/api/viewer":
                 self._answer(viewer_service.status())
             elif path.startswith("/view/"):
-                self._send_a_picture(path)
+                self._send_a_picture(path, query)
             elif not path.startswith("/api/"):
                 self._send_the_page(path)
             else:

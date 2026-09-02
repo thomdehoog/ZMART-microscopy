@@ -209,8 +209,13 @@ export default {
     let picture = null;
     let mask = null;
     let pictureFor = null;
+    let pictureFrom = null;
     function showThePictureOf(label) {
       const where = ctx.pictureOf(label);
+      /* The same address is the same picture; a changed one -- another
+         field, or the canvas's display settings changed -- is fetched. */
+      if (where === pictureFrom && picture) return;
+      pictureFrom = where;
       picture = null;
       mask = null;
       if (!where) return;
@@ -237,7 +242,7 @@ export default {
       /* The picture follows the field, whoever chose it: the arrows, a press
          on the canvas, the step coming up. Drawn-for is tracked so a redraw
          is never a refetch, and a changed tile always is. */
-      if (pictureFor !== settings.tile) {
+      if (pictureFor !== settings.tile || ctx.pictureOf(ctx.labelOf?.(settings.tile)) !== pictureFrom) {
         pictureFor = settings.tile;
         showThePictureOf(ctx.labelOf?.(settings.tile));
       }

@@ -351,6 +351,66 @@ def _how_bright(stretched: Any) -> int:
     return int(round(float(np.asarray(stretched, dtype=np.float32).mean())))
 
 
+def picture_as_displayed(
+    planes: list[tuple[int, Path | str]],
+    display: list[dict],
+    *,
+    budget_px: int = SMALL_ENOUGH,
+    quality: int = GOOD_ENOUGH,
+) -> bytes:
+    """One field's copy, drawn exactly as the picture on the canvas draws it.
+
+    ``planes`` are ``(channel, path)`` pairs, several per channel when a stack
+    was taken (depth folds brightest-wins, as every copy's does). ``display``
+    is the picture's own state, one entry per channel: ``c``, ``visible``,
+    ``window`` as ``[low, high]`` in the camera's counts, ``color`` as
+    ``#rrggbb``. Each visible channel is windowed linearly -- a clip, no
+    gamma -- tinted with its colour and added; a channel the display does
+    not name is left out. That is the Neuroglancer shader's rule, so the
+    preview in the Discover panel and the gallery's pairs show the same
+    sample the canvas shows, not a brighter cousin made with the scan-wide
+    stretch the small copies wear.
+    """
+    import numpy as np
+    import tifffile
+
+    channels: dict[int, Any] = {}
+    for c, path in planes:
+        frame = np.asarray(tifffile.imread(str(path)))
+        while frame.ndim > 2:
+            frame = frame.max(axis=0)
+        held = channels.get(int(c))
+        channels[int(c)] = frame if held is None else np.maximum(held, frame)
+    if not channels:
+        raise ValueError("a field with no planes cannot be pictured")
+
+    shape = _shrink_to(next(iter(channels.values())), budget_px).shape
+    out = np.zeros((*shape, 3), dtype=np.float32)
+    for one in display:
+        c = int(one.get("c", -1))
+        if c not in channels or not one.get("visible", True):
+            continue
+        low, high = (float(v) for v in (one.get("window") or [0.0, 1.0]))
+        span = high - low if high > low else 1.0
+        values = np.asarray(_shrink_to(channels[c], budget_px), dtype=np.float32)
+        spread = np.clip((values - low) / span, 0.0, 1.0)
+        for band, tint in enumerate(_rgb_of(one.get("color"))):
+            if tint:
+                out[..., band] += spread * tint
+    return _as_jpeg(np.clip(out, 0.0, 1.0) * 255.0, quality)
+
+
+def _rgb_of(color: Any) -> tuple[float, float, float]:
+    """``#rrggbb`` as three floats 0..1; anything else is white."""
+    text = str(color or "").lstrip("#")
+    if len(text) != 6:
+        return (1.0, 1.0, 1.0)
+    try:
+        return tuple(int(text[i:i + 2], 16) / 255.0 for i in (0, 2, 4))  # type: ignore[return-value]
+    except ValueError:
+        return (1.0, 1.0, 1.0)
+
+
 def _as_jpeg(stretched: Any, quality: int) -> bytes:
     """Encode one field's already-brightened picture."""
     import io
