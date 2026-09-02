@@ -129,6 +129,18 @@ what is precomputed rather than assembled on the fly.
 - **The register records the origin.** Which TIFFs a position came from, so
   provenance survives the conversion.
 
+## Not now: three-dimensional rendering
+
+- No volume rendering in this design. Every view is a slice or a projection,
+  drawn flat.
+- The door is left open on purpose: the stage space is three-dimensional,
+  every position carries its x, y, z, and the tile cache and data source do
+  not know how they will be drawn. A volume renderer later reads the same
+  cache and the same register and adds a draw path; it changes nothing above.
+- Nothing in the engine, the register or the data layer may be shaped in a
+  way that would have to be undone for it. That is the whole of the promise
+  made to three dimensions now.
+
 ## The register: one file, four readers
 
 The link that makes ten thousand positions possible is a register of the
