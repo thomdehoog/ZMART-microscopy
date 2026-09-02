@@ -322,7 +322,13 @@ class Engine:
         ----------
         wait : bool, optional
             If True, wait for queued engine tasks to finish before the
-            thread pool returns. Worker shutdown is always requested.
+            thread pool returns. If False, put the workers down first,
+            busy ones included, so that a step in flight dies now and the
+            engine thread waiting on it is released; nothing queued runs.
+            This is the operator's Interrupt: measured before it, a stop
+            pressed one second into a tile test waited 19 s for the field
+            and then handed its objects back, because the threads were
+            joined before the workers were touched.
 
         Returns
         -------
@@ -331,12 +337,15 @@ class Engine:
         logger.info("Engine shutting down (wait=%s)", wait)
         with self._lock:
             self._accepting = False
+        if not wait:
+            self._pool.shutdown_all(now=True)
         self._executor.shutdown(wait=wait)
         self._scope_executor.shutdown(
             wait=wait,
             cancel_futures=not wait,
         )
-        self._pool.shutdown_all()
+        if wait:
+            self._pool.shutdown_all()
         logger.debug("Engine shutdown complete")
 
     def __enter__(self):

@@ -1,12 +1,12 @@
 {
   "schemaVersion": 1,
   "name": "step4-focus-map",
-  "capturedAtUtc": "2026-09-02T12:11:51.547Z",
+  "capturedAtUtc": "2026-09-02T14:36:46.490Z",
   "provenance": {
     "microscopy": {
       "repository": "thomdehoog/ZMART-microscopy",
       "branch": "claude/smart-operator-workflow-review-ehw3c5",
-      "commit": "1c0484880f013bde1267750549c5ec6b1d47ec6e",
+      "commit": "d6b1fde99a0f2b1e7431eb7899ed07c2a29b9000",
       "worktreeClean": false
     },
     "smartViewer": {
@@ -23,8 +23,8 @@
   "sample": "mock kidney (scikit-image kidney, plane 8)",
   "server": {
     "bridge": "http://127.0.0.1:8825",
-    "viewer": "http://127.0.0.1:60261",
-    "run": "C:\\Users\\local_t.de5\\Temp\\zmart-bridge-wMmE9z\\target-acquisition_878b55"
+    "viewer": "http://127.0.0.1:58575",
+    "run": "C:\\Users\\local_t.de5\\Temp\\zmart-bridge-TPAYSr\\target-acquisition_cf0573"
   },
   "workflow": {
     "step": 4,
@@ -97,7 +97,7 @@
       "sourceCount": 1,
       "sources": [
         {
-          "url": "http://127.0.0.1:60261/data/0/focussing_K00_M000000_G000000_P000000_V00.ome.zarr/|zarr3:",
+          "url": "http://127.0.0.1:58575/data/0/focussing_K00_M000000_G000000_P000000_V00.ome.zarr/|zarr3:",
           "error": null,
           "boundsUm": {
             "xMin": 59488,
@@ -391,9 +391,9 @@
   "requests": {
     "required": {
       "metadata": 3,
-      "chunks": 4,
+      "chunks": 3,
       "measurement": 1,
-      "api": 52,
+      "api": 51,
       "pictures": 61
     },
     "expectedFormatProbes": [],
@@ -459,8 +459,8 @@
         "lost": false,
         "cost_s": {
           "drive": 0,
-          "capture": 1.179,
-          "score": 3.5
+          "capture": 1.183,
+          "score": 3.392
         }
       }
     ],

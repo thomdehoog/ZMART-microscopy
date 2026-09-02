@@ -33,8 +33,9 @@ class _Engine:
         out, self._waiting = self._waiting, []
         return out
 
-    def shutdown(self):
+    def shutdown(self, wait=True):
         self.stopped += 1
+        self.waited = wait
 
 
 def test_the_input_reaches_the_step_as_the_step_expects_it():
@@ -126,6 +127,9 @@ def test_the_workers_are_let_go_and_can_start_again():
     analysis.shutdown()
 
     assert engine.stopped == 1
+    # Put down now, not waited for: this is the hand that stops a field in
+    # flight, and an engine that waited for its threads waited for the field.
+    assert engine.waited is False
     # And a later run registers afresh, because the workers it registered with
     # are gone -- not silently reusing a name the new engine never heard.
     analysis._engine = engine

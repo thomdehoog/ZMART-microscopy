@@ -128,16 +128,27 @@ def as_targets(table: dict, *, field: int, pixel_um: float) -> list[dict]:
     return targets
 
 
-def through(analysis: Any, *, pixel_um: float) -> Callable[[dict, int, dict], list[dict]]:
+def through(analysis: Any, *, pixel_um: float) -> Callable[[dict, int, dict], dict]:
     """Find the targets in each field through *analysis*, whose workers are running.
 
     The analysis is passed in and never built here, so its lifetime is the
     caller's -- held for as long as the page is connected, not one per field.
+    Each field answers ``{"cells": [...], "device": ...}``: the device the
+    segmentation ran on travels with the field, because a run that fell back
+    to the CPU took ten times longer and nothing on the page said why.
     """
 
-    def find(record: dict, field: int, settings: dict) -> list[dict]:
+    def find(record: dict, field: int, settings: dict) -> dict:
         given = what_was_captured(record, field=field, pixel_um=pixel_um, settings=settings)
         result = analysis.run(PIPELINE, given)
-        return as_targets(result["object_analysis"], field=field, pixel_um=pixel_um)
+        # The table stands under the pipeline's name; the detection step's
+        # own record stands beside it, stripped of its arrays, and that is
+        # where the device it ran on is written.
+        detection = result.get("detect_objects") or {}
+        device = (detection.get("cellpose_params") or {}).get("device")
+        return {
+            "cells": as_targets(result["object_analysis"], field=field, pixel_um=pixel_um),
+            "device": device,
+        }
 
     return find

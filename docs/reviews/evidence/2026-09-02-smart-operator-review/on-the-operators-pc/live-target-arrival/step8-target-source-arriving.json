@@ -1,12 +1,12 @@
 {
   "schemaVersion": 1,
   "name": "step8-target-source-arriving",
-  "capturedAtUtc": "2026-09-02T11:30:00.520Z",
+  "capturedAtUtc": "2026-09-02T14:35:30.392Z",
   "provenance": {
     "microscopy": {
       "repository": "thomdehoog/ZMART-microscopy",
       "branch": "claude/smart-operator-workflow-review-ehw3c5",
-      "commit": "bb439d135e3f5f833004a1ba06613add56c17b76",
+      "commit": "d6b1fde99a0f2b1e7431eb7899ed07c2a29b9000",
       "worktreeClean": false
     },
     "smartViewer": {
@@ -23,8 +23,8 @@
   "sample": "mock kidney (scikit-image kidney, plane 8)",
   "server": {
     "bridge": "http://127.0.0.1:8821",
-    "viewer": "http://127.0.0.1:61466",
-    "run": "C:\\Users\\local_t.de5\\Temp\\zmart-bridge-xIZ2FR\\target-acquisition_10064a"
+    "viewer": "http://127.0.0.1:55707",
+    "run": "C:\\Users\\local_t.de5\\Temp\\zmart-bridge-UKAH1i\\target-acquisition_ebf0d4"
   },
   "workflow": {
     "step": 8,
@@ -137,7 +137,7 @@
       "sourceCount": 9,
       "sources": [
         {
-          "url": "http://127.0.0.1:61466/data/1/overview_K00_M000001_G000001_P000000_V00.ome.zarr/|zarr3:",
+          "url": "http://127.0.0.1:55707/data/1/overview_K00_M000001_G000001_P000000_V00.ome.zarr/|zarr3:",
           "error": null,
           "boundsUm": {
             "xMin": 58463.99999999999,
@@ -157,7 +157,7 @@
           ]
         },
         {
-          "url": "http://127.0.0.1:61466/data/1/overview_K00_M000001_G000001_P000001_V00.ome.zarr/|zarr3:",
+          "url": "http://127.0.0.1:55707/data/1/overview_K00_M000001_G000001_P000001_V00.ome.zarr/|zarr3:",
           "error": null,
           "boundsUm": {
             "xMin": 59488,
@@ -177,7 +177,7 @@
           ]
         },
         {
-          "url": "http://127.0.0.1:61466/data/1/overview_K00_M000001_G000001_P000002_V00.ome.zarr/|zarr3:",
+          "url": "http://127.0.0.1:55707/data/1/overview_K00_M000001_G000001_P000002_V00.ome.zarr/|zarr3:",
           "error": null,
           "boundsUm": {
             "xMin": 60511.99999999999,
@@ -197,7 +197,7 @@
           ]
         },
         {
-          "url": "http://127.0.0.1:61466/data/1/overview_K00_M000001_G000001_P000003_V00.ome.zarr/|zarr3:",
+          "url": "http://127.0.0.1:55707/data/1/overview_K00_M000001_G000001_P000003_V00.ome.zarr/|zarr3:",
           "error": null,
           "boundsUm": {
             "xMin": 58463.99999999999,
@@ -217,7 +217,7 @@
           ]
         },
         {
-          "url": "http://127.0.0.1:61466/data/1/overview_K00_M000001_G000001_P000004_V00.ome.zarr/|zarr3:",
+          "url": "http://127.0.0.1:55707/data/1/overview_K00_M000001_G000001_P000004_V00.ome.zarr/|zarr3:",
           "error": null,
           "boundsUm": {
             "xMin": 59488,
@@ -237,7 +237,7 @@
           ]
         },
         {
-          "url": "http://127.0.0.1:61466/data/1/overview_K00_M000001_G000001_P000005_V00.ome.zarr/|zarr3:",
+          "url": "http://127.0.0.1:55707/data/1/overview_K00_M000001_G000001_P000005_V00.ome.zarr/|zarr3:",
           "error": null,
           "boundsUm": {
             "xMin": 60511.99999999999,
@@ -257,7 +257,7 @@
           ]
         },
         {
-          "url": "http://127.0.0.1:61466/data/1/overview_K00_M000001_G000001_P000006_V00.ome.zarr/|zarr3:",
+          "url": "http://127.0.0.1:55707/data/1/overview_K00_M000001_G000001_P000006_V00.ome.zarr/|zarr3:",
           "error": null,
           "boundsUm": {
             "xMin": 58463.99999999999,
@@ -277,7 +277,7 @@
           ]
         },
         {
-          "url": "http://127.0.0.1:61466/data/1/overview_K00_M000001_G000001_P000007_V00.ome.zarr/|zarr3:",
+          "url": "http://127.0.0.1:55707/data/1/overview_K00_M000001_G000001_P000007_V00.ome.zarr/|zarr3:",
           "error": null,
           "boundsUm": {
             "xMin": 59488,
@@ -297,7 +297,7 @@
           ]
         },
         {
-          "url": "http://127.0.0.1:61466/data/1/overview_K00_M000001_G000001_P000008_V00.ome.zarr/|zarr3:",
+          "url": "http://127.0.0.1:55707/data/1/overview_K00_M000001_G000001_P000008_V00.ome.zarr/|zarr3:",
           "error": null,
           "boundsUm": {
             "xMin": 60511.99999999999,
@@ -331,7 +331,7 @@
       "sourceCount": 9,
       "sources": [
         {
-          "url": "http://127.0.0.1:61466/data/1/overview_K00_M000001_G000001_P000000_V00.ome.zarr/|zarr3:",
+          "url": "http://127.0.0.1:55707/data/1/overview_K00_M000001_G000001_P000000_V00.ome.zarr/|zarr3:",
           "error": null,
           "boundsUm": {
             "xMin": 58463.99999999999,
@@ -351,7 +351,7 @@
           ]
         },
         {
-          "url": "http://127.0.0.1:61466/data/1/overview_K00_M000001_G000001_P000001_V00.ome.zarr/|zarr3:",
+          "url": "http://127.0.0.1:55707/data/1/overview_K00_M000001_G000001_P000001_V00.ome.zarr/|zarr3:",
           "error": null,
           "boundsUm": {
             "xMin": 59488,
@@ -371,7 +371,7 @@
           ]
         },
         {
-          "url": "http://127.0.0.1:61466/data/1/overview_K00_M000001_G000001_P000002_V00.ome.zarr/|zarr3:",
+          "url": "http://127.0.0.1:55707/data/1/overview_K00_M000001_G000001_P000002_V00.ome.zarr/|zarr3:",
           "error": null,
           "boundsUm": {
             "xMin": 60511.99999999999,
@@ -391,7 +391,7 @@
           ]
         },
         {
-          "url": "http://127.0.0.1:61466/data/1/overview_K00_M000001_G000001_P000003_V00.ome.zarr/|zarr3:",
+          "url": "http://127.0.0.1:55707/data/1/overview_K00_M000001_G000001_P000003_V00.ome.zarr/|zarr3:",
           "error": null,
           "boundsUm": {
             "xMin": 58463.99999999999,
@@ -411,7 +411,7 @@
           ]
         },
         {
-          "url": "http://127.0.0.1:61466/data/1/overview_K00_M000001_G000001_P000004_V00.ome.zarr/|zarr3:",
+          "url": "http://127.0.0.1:55707/data/1/overview_K00_M000001_G000001_P000004_V00.ome.zarr/|zarr3:",
           "error": null,
           "boundsUm": {
             "xMin": 59488,
@@ -431,7 +431,7 @@
           ]
         },
         {
-          "url": "http://127.0.0.1:61466/data/1/overview_K00_M000001_G000001_P000005_V00.ome.zarr/|zarr3:",
+          "url": "http://127.0.0.1:55707/data/1/overview_K00_M000001_G000001_P000005_V00.ome.zarr/|zarr3:",
           "error": null,
           "boundsUm": {
             "xMin": 60511.99999999999,
@@ -451,7 +451,7 @@
           ]
         },
         {
-          "url": "http://127.0.0.1:61466/data/1/overview_K00_M000001_G000001_P000006_V00.ome.zarr/|zarr3:",
+          "url": "http://127.0.0.1:55707/data/1/overview_K00_M000001_G000001_P000006_V00.ome.zarr/|zarr3:",
           "error": null,
           "boundsUm": {
             "xMin": 58463.99999999999,
@@ -471,7 +471,7 @@
           ]
         },
         {
-          "url": "http://127.0.0.1:61466/data/1/overview_K00_M000001_G000001_P000007_V00.ome.zarr/|zarr3:",
+          "url": "http://127.0.0.1:55707/data/1/overview_K00_M000001_G000001_P000007_V00.ome.zarr/|zarr3:",
           "error": null,
           "boundsUm": {
             "xMin": 59488,
@@ -491,7 +491,7 @@
           ]
         },
         {
-          "url": "http://127.0.0.1:61466/data/1/overview_K00_M000001_G000001_P000008_V00.ome.zarr/|zarr3:",
+          "url": "http://127.0.0.1:55707/data/1/overview_K00_M000001_G000001_P000008_V00.ome.zarr/|zarr3:",
           "error": null,
           "boundsUm": {
             "xMin": 60511.99999999999,
@@ -525,7 +525,7 @@
       "sourceCount": 9,
       "sources": [
         {
-          "url": "http://127.0.0.1:61466/data/1/overview_K00_M000001_G000001_P000000_V00.ome.zarr/|zarr3:",
+          "url": "http://127.0.0.1:55707/data/1/overview_K00_M000001_G000001_P000000_V00.ome.zarr/|zarr3:",
           "error": null,
           "boundsUm": {
             "xMin": 58463.99999999999,
@@ -545,7 +545,7 @@
           ]
         },
         {
-          "url": "http://127.0.0.1:61466/data/1/overview_K00_M000001_G000001_P000001_V00.ome.zarr/|zarr3:",
+          "url": "http://127.0.0.1:55707/data/1/overview_K00_M000001_G000001_P000001_V00.ome.zarr/|zarr3:",
           "error": null,
           "boundsUm": {
             "xMin": 59488,
@@ -565,7 +565,7 @@
           ]
         },
         {
-          "url": "http://127.0.0.1:61466/data/1/overview_K00_M000001_G000001_P000002_V00.ome.zarr/|zarr3:",
+          "url": "http://127.0.0.1:55707/data/1/overview_K00_M000001_G000001_P000002_V00.ome.zarr/|zarr3:",
           "error": null,
           "boundsUm": {
             "xMin": 60511.99999999999,
@@ -585,7 +585,7 @@
           ]
         },
         {
-          "url": "http://127.0.0.1:61466/data/1/overview_K00_M000001_G000001_P000003_V00.ome.zarr/|zarr3:",
+          "url": "http://127.0.0.1:55707/data/1/overview_K00_M000001_G000001_P000003_V00.ome.zarr/|zarr3:",
           "error": null,
           "boundsUm": {
             "xMin": 58463.99999999999,
@@ -605,7 +605,7 @@
           ]
         },
         {
-          "url": "http://127.0.0.1:61466/data/1/overview_K00_M000001_G000001_P000004_V00.ome.zarr/|zarr3:",
+          "url": "http://127.0.0.1:55707/data/1/overview_K00_M000001_G000001_P000004_V00.ome.zarr/|zarr3:",
           "error": null,
           "boundsUm": {
             "xMin": 59488,
@@ -625,7 +625,7 @@
           ]
         },
         {
-          "url": "http://127.0.0.1:61466/data/1/overview_K00_M000001_G000001_P000005_V00.ome.zarr/|zarr3:",
+          "url": "http://127.0.0.1:55707/data/1/overview_K00_M000001_G000001_P000005_V00.ome.zarr/|zarr3:",
           "error": null,
           "boundsUm": {
             "xMin": 60511.99999999999,
@@ -645,7 +645,7 @@
           ]
         },
         {
-          "url": "http://127.0.0.1:61466/data/1/overview_K00_M000001_G000001_P000006_V00.ome.zarr/|zarr3:",
+          "url": "http://127.0.0.1:55707/data/1/overview_K00_M000001_G000001_P000006_V00.ome.zarr/|zarr3:",
           "error": null,
           "boundsUm": {
             "xMin": 58463.99999999999,
@@ -665,7 +665,7 @@
           ]
         },
         {
-          "url": "http://127.0.0.1:61466/data/1/overview_K00_M000001_G000001_P000007_V00.ome.zarr/|zarr3:",
+          "url": "http://127.0.0.1:55707/data/1/overview_K00_M000001_G000001_P000007_V00.ome.zarr/|zarr3:",
           "error": null,
           "boundsUm": {
             "xMin": 59488,
@@ -685,7 +685,7 @@
           ]
         },
         {
-          "url": "http://127.0.0.1:61466/data/1/overview_K00_M000001_G000001_P000008_V00.ome.zarr/|zarr3:",
+          "url": "http://127.0.0.1:55707/data/1/overview_K00_M000001_G000001_P000008_V00.ome.zarr/|zarr3:",
           "error": null,
           "boundsUm": {
             "xMin": 60511.99999999999,
@@ -711,21 +711,21 @@
       "group": "target",
       "visible": true,
       "window": {
-        "low": 199,
-        "high": 4089
+        "low": 194,
+        "high": 3836
       },
       "weight": 1,
       "layerError": null,
       "sourceCount": 3,
       "sources": [
         {
-          "url": "http://127.0.0.1:61466/data/2/target_K00_M000000_G000000_P000000_V00.ome.zarr/|zarr3:",
+          "url": "http://127.0.0.1:55707/data/2/target_K00_M000000_G000000_P000000_V00.ome.zarr/|zarr3:",
           "error": null,
           "boundsUm": {
-            "xMin": 59440,
-            "yMin": 39422.88888888889,
-            "xMax": 60464,
-            "yMax": 40446.88888888888,
+            "xMin": 59629.81818181818,
+            "yMin": 38203.99999999999,
+            "xMax": 60653.818181818184,
+            "yMax": 39228,
             "zMin": -0.5,
             "zMax": 0.5
           },
@@ -739,13 +739,13 @@
           ]
         },
         {
-          "url": "http://127.0.0.1:61466/data/2/target_K00_M000000_G000000_P000001_V00.ome.zarr/|zarr3:",
+          "url": "http://127.0.0.1:55707/data/2/target_K00_M000000_G000000_P000001_V00.ome.zarr/|zarr3:",
           "error": null,
           "boundsUm": {
-            "xMin": 59368.66086956522,
-            "yMin": 40818.782608695656,
-            "xMax": 60392.66086956521,
-            "yMax": 41842.78260869565,
+            "xMin": 59466.769230769234,
+            "yMin": 39715.53846153846,
+            "xMax": 60490.76923076923,
+            "yMax": 40739.53846153846,
             "zMin": -0.5,
             "zMax": 0.5
           },
@@ -759,13 +759,13 @@
           ]
         },
         {
-          "url": "http://127.0.0.1:61466/data/2/target_K00_M000000_G000000_P000002_V00.ome.zarr/|zarr3:",
+          "url": "http://127.0.0.1:55707/data/2/target_K00_M000000_G000000_P000002_V00.ome.zarr/|zarr3:",
           "error": null,
           "boundsUm": {
-            "xMin": 60868.275862068964,
-            "yMin": 39301.58620689655,
-            "xMax": 61892.275862068964,
-            "yMax": 40325.58620689655,
+            "xMin": 60918.07692307692,
+            "yMin": 38107.30769230769,
+            "xMax": 61942.07692307692,
+            "yMax": 39131.307692307695,
             "zMin": -0.5,
             "zMax": 0.5
           },
@@ -786,20 +786,20 @@
       "visible": true,
       "window": {
         "low": 105,
-        "high": 4094
+        "high": 4079
       },
       "weight": 1,
       "layerError": null,
       "sourceCount": 3,
       "sources": [
         {
-          "url": "http://127.0.0.1:61466/data/2/target_K00_M000000_G000000_P000000_V00.ome.zarr/|zarr3:",
+          "url": "http://127.0.0.1:55707/data/2/target_K00_M000000_G000000_P000000_V00.ome.zarr/|zarr3:",
           "error": null,
           "boundsUm": {
-            "xMin": 59440,
-            "yMin": 39422.88888888889,
-            "xMax": 60464,
-            "yMax": 40446.88888888888,
+            "xMin": 59629.81818181818,
+            "yMin": 38203.99999999999,
+            "xMax": 60653.818181818184,
+            "yMax": 39228,
             "zMin": -0.5,
             "zMax": 0.5
           },
@@ -813,13 +813,13 @@
           ]
         },
         {
-          "url": "http://127.0.0.1:61466/data/2/target_K00_M000000_G000000_P000001_V00.ome.zarr/|zarr3:",
+          "url": "http://127.0.0.1:55707/data/2/target_K00_M000000_G000000_P000001_V00.ome.zarr/|zarr3:",
           "error": null,
           "boundsUm": {
-            "xMin": 59368.66086956522,
-            "yMin": 40818.782608695656,
-            "xMax": 60392.66086956521,
-            "yMax": 41842.78260869565,
+            "xMin": 59466.769230769234,
+            "yMin": 39715.53846153846,
+            "xMax": 60490.76923076923,
+            "yMax": 40739.53846153846,
             "zMin": -0.5,
             "zMax": 0.5
           },
@@ -833,13 +833,13 @@
           ]
         },
         {
-          "url": "http://127.0.0.1:61466/data/2/target_K00_M000000_G000000_P000002_V00.ome.zarr/|zarr3:",
+          "url": "http://127.0.0.1:55707/data/2/target_K00_M000000_G000000_P000002_V00.ome.zarr/|zarr3:",
           "error": null,
           "boundsUm": {
-            "xMin": 60868.275862068964,
-            "yMin": 39301.58620689655,
-            "xMax": 61892.275862068964,
-            "yMax": 40325.58620689655,
+            "xMin": 60918.07692307692,
+            "yMin": 38107.30769230769,
+            "xMax": 61942.07692307692,
+            "yMax": 39131.307692307695,
             "zMin": -0.5,
             "zMax": 0.5
           },
@@ -859,21 +859,21 @@
       "group": "target",
       "visible": true,
       "window": {
-        "low": 103,
-        "high": 4095
+        "low": 95,
+        "high": 4057
       },
       "weight": 1,
       "layerError": null,
       "sourceCount": 3,
       "sources": [
         {
-          "url": "http://127.0.0.1:61466/data/2/target_K00_M000000_G000000_P000000_V00.ome.zarr/|zarr3:",
+          "url": "http://127.0.0.1:55707/data/2/target_K00_M000000_G000000_P000000_V00.ome.zarr/|zarr3:",
           "error": null,
           "boundsUm": {
-            "xMin": 59440,
-            "yMin": 39422.88888888889,
-            "xMax": 60464,
-            "yMax": 40446.88888888888,
+            "xMin": 59629.81818181818,
+            "yMin": 38203.99999999999,
+            "xMax": 60653.818181818184,
+            "yMax": 39228,
             "zMin": -0.5,
             "zMax": 0.5
           },
@@ -887,13 +887,13 @@
           ]
         },
         {
-          "url": "http://127.0.0.1:61466/data/2/target_K00_M000000_G000000_P000001_V00.ome.zarr/|zarr3:",
+          "url": "http://127.0.0.1:55707/data/2/target_K00_M000000_G000000_P000001_V00.ome.zarr/|zarr3:",
           "error": null,
           "boundsUm": {
-            "xMin": 59368.66086956522,
-            "yMin": 40818.782608695656,
-            "xMax": 60392.66086956521,
-            "yMax": 41842.78260869565,
+            "xMin": 59466.769230769234,
+            "yMin": 39715.53846153846,
+            "xMax": 60490.76923076923,
+            "yMax": 40739.53846153846,
             "zMin": -0.5,
             "zMax": 0.5
           },
@@ -907,13 +907,13 @@
           ]
         },
         {
-          "url": "http://127.0.0.1:61466/data/2/target_K00_M000000_G000000_P000002_V00.ome.zarr/|zarr3:",
+          "url": "http://127.0.0.1:55707/data/2/target_K00_M000000_G000000_P000002_V00.ome.zarr/|zarr3:",
           "error": null,
           "boundsUm": {
-            "xMin": 60868.275862068964,
-            "yMin": 39301.58620689655,
-            "xMax": 61892.275862068964,
-            "yMax": 40325.58620689655,
+            "xMin": 60918.07692307692,
+            "yMin": 38107.30769230769,
+            "xMax": 61942.07692307692,
+            "yMax": 39131.307692307695,
             "zMin": -0.5,
             "zMax": 0.5
           },
@@ -941,7 +941,7 @@
       "sourceCount": 1,
       "sources": [
         {
-          "url": "http://127.0.0.1:61466/data/0/focussing_K00_M000000_G000000_P000000_V00.ome.zarr/|zarr3:",
+          "url": "http://127.0.0.1:55707/data/0/focussing_K00_M000000_G000000_P000000_V00.ome.zarr/|zarr3:",
           "error": null,
           "boundsUm": {
             "xMin": 59488,
@@ -1032,12 +1032,12 @@
         "effectiveVisible": true,
         "observedVisible": true,
         "window": {
-          "low": 199,
-          "high": 4089
+          "low": 194,
+          "high": 3836
         },
         "observedWindow": {
-          "low": 199,
-          "high": 4089
+          "low": 194,
+          "high": 3836
         },
         "opacity": 1,
         "log": false
@@ -1051,11 +1051,11 @@
         "observedVisible": true,
         "window": {
           "low": 105,
-          "high": 4094
+          "high": 4079
         },
         "observedWindow": {
           "low": 105,
-          "high": 4094
+          "high": 4079
         },
         "opacity": 1,
         "log": false
@@ -1068,12 +1068,12 @@
         "effectiveVisible": true,
         "observedVisible": true,
         "window": {
-          "low": 103,
-          "high": 4095
+          "low": 95,
+          "high": 4057
         },
         "observedWindow": {
-          "low": 103,
-          "high": 4095
+          "low": 95,
+          "high": 4057
         },
         "opacity": 1,
         "log": false
@@ -1338,73 +1338,73 @@
     ],
     "targets": [
       {
-        "id": "overview_r004_c000_obj00215",
+        "id": "overview_r001_c000_obj00118",
+        "field": 1,
+        "selected": true,
+        "acquired": true,
+        "carrierLocalUm": {
+          "x": 36641.818181818184,
+          "y": 10216
+        },
+        "absoluteStageUm": {
+          "x": 60141.818181818184,
+          "y": 38716
+        },
+        "stageScreenPx": {
+          "x": 189.38527272727273,
+          "y": 131.17846666666668
+        },
+        "engineScreenPx": {
+          "x": 189.38527272727273,
+          "y": 131.24877903645833
+        },
+        "errorPx": 0.07031236979165101
+      },
+      {
+        "id": "overview_r002_c000_obj00070",
+        "field": 2,
+        "selected": true,
+        "acquired": true,
+        "carrierLocalUm": {
+          "x": 37930.07692307692,
+          "y": 10119.307692307695
+        },
+        "absoluteStageUm": {
+          "x": 61430.07692307692,
+          "y": 38619.307692307695
+        },
+        "stageScreenPx": {
+          "x": 192.88504230769232,
+          "y": 130.91578589743594
+        },
+        "engineScreenPx": {
+          "x": 192.88504230769232,
+          "y": 130.98609826722756
+        },
+        "errorPx": 0.07031236979162259
+      },
+      {
+        "id": "overview_r004_c000_obj00357",
         "field": 4,
         "selected": true,
         "acquired": true,
         "carrierLocalUm": {
-          "x": 36452,
-          "y": 11434.88888888889
+          "x": 36478.769230769234,
+          "y": 11727.538461538461
         },
         "absoluteStageUm": {
-          "x": 59952,
-          "y": 39934.88888888889
+          "x": 59978.769230769234,
+          "y": 40227.53846153846
         },
         "stageScreenPx": {
-          "x": 188.8696,
-          "y": 134.4897814814815
+          "x": 188.9423230769231,
+          "y": 135.2848128205128
         },
         "engineScreenPx": {
-          "x": 188.8696,
-          "y": 134.56009385127314
+          "x": 188.9423230769231,
+          "y": 135.3551251903045
         },
-        "errorPx": 0.07031236979165101
-      },
-      {
-        "id": "overview_r005_c000_obj00126",
-        "field": 5,
-        "selected": true,
-        "acquired": true,
-        "carrierLocalUm": {
-          "x": 37880.275862068964,
-          "y": 11313.58620689655
-        },
-        "absoluteStageUm": {
-          "x": 61380.275862068964,
-          "y": 39813.58620689655
-        },
-        "stageScreenPx": {
-          "x": 192.74974942528735,
-          "y": 134.16024252873564
-        },
-        "engineScreenPx": {
-          "x": 192.74974942528735,
-          "y": 134.2305548985273
-        },
-        "errorPx": 0.07031236979165101
-      },
-      {
-        "id": "overview_r007_c000_obj00346",
-        "field": 7,
-        "selected": true,
-        "acquired": true,
-        "carrierLocalUm": {
-          "x": 36380.66086956522,
-          "y": 12830.782608695656
-        },
-        "absoluteStageUm": {
-          "x": 59880.66086956522,
-          "y": 41330.782608695656
-        },
-        "stageScreenPx": {
-          "x": 188.67579536231884,
-          "y": 138.2819594202899
-        },
-        "engineScreenPx": {
-          "x": 188.67579536231884,
-          "y": 138.35227179008152
-        },
-        "errorPx": 0.07031236979162259
+        "errorPx": 0.07031236979170785
       }
     ],
     "targetsOnCanvas": 4010,
@@ -1436,16 +1436,16 @@
     "targetsMaxPx": 0.07031236979170785,
     "tolerancePx": 1
   },
-  "pictureTag": "picture-iie3pd84ux",
+  "pictureTag": "picture-ck7c0fb8ps6",
   "pixelCheck": {
-    "canvasShadeBins": 36
+    "canvasShadeBins": 35
   },
   "requests": {
     "required": {
       "metadata": 72,
-      "chunks": 8241,
+      "chunks": 8178,
       "measurement": 3,
-      "api": 1548,
+      "api": 1515,
       "pictures": 65
     },
     "expectedFormatProbes": [],
@@ -1477,7 +1477,322 @@
       },
       {
         "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000000_V00.mask.png?t=1788348151216",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000000_V00.mask.png?t=1788359279867",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000000_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000002_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000003_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000004_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000001_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000005_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000000_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000001_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000002_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000003_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000004_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000005_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000000_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000002_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000001_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000003_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000004_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000005_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000000_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000001_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000002_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000003_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000004_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000005_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000000_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000001_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000002_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000003_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000004_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000005_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000000_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000001_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000002_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000003_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000004_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000005_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000000_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000001_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000002_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000003_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000004_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000005_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
         "status": 404
       },
       {
@@ -1572,11 +1887,6 @@
       },
       {
         "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000000_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
         "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000001_V00.mask.png",
         "status": 404
       },
@@ -1587,227 +1897,12 @@
       },
       {
         "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000003_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000004_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000005_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000000_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000001_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000002_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000003_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
         "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000005_V00.mask.png",
         "status": 404
       },
       {
         "kind": "optional-probe",
         "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000004_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000000_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000001_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000002_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000003_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000004_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000005_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000000_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000001_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000002_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000003_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000005_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000004_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000003_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000002_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000001_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000005_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000004_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000001_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000005_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000004_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000002_V00.mask.png",
         "status": 404
       },
       {
@@ -1837,12 +1932,17 @@
       },
       {
         "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000004_V00.mask.png",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000002_V00.mask.png",
         "status": 404
       },
       {
         "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000002_V00.mask.png",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000004_V00.mask.png",
         "status": 404
       },
       {
@@ -1857,7 +1957,82 @@
       },
       {
         "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000003_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000004_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000001_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000002_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
         "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000005_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000001_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000004_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000002_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000005_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000003_V00.mask.png",
         "status": 404
       },
       {
@@ -1882,7 +2057,17 @@
       },
       {
         "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000003_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
         "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000005_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
         "status": 404
       },
       {
@@ -1892,17 +2077,47 @@
       },
       {
         "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000003_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
         "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
         "status": 404
       },
       {
         "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000001_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000002_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000005_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000003_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000004_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
         "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
         "status": 404
       },
       {
@@ -1957,42 +2172,7 @@
       },
       {
         "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000003_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
         "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000002_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000004_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000005_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000001_V00.mask.png",
         "status": 404
       },
       {
@@ -2002,17 +2182,12 @@
       },
       {
         "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
         "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000004_V00.mask.png",
         "status": 404
       },
       {
         "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000002_V00.mask.png",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
         "status": 404
       },
       {
@@ -2042,77 +2217,7 @@
       },
       {
         "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000003_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
         "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000004_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000005_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000001_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000002_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000003_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000004_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000005_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000001_V00.mask.png",
         "status": 404
       },
       {
@@ -2127,22 +2232,7 @@
       },
       {
         "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000002_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000004_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
         "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
         "status": 404
       },
       {
@@ -2152,42 +2242,7 @@
       },
       {
         "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000001_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000003_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000005_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000002_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000004_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
         "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
         "status": 404
       },
       {
@@ -2232,22 +2287,7 @@
       },
       {
         "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000002_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
         "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000003_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000005_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
         "status": 404
       },
       {
@@ -2257,12 +2297,7 @@
       },
       {
         "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000005_V00.mask.png",
         "status": 404
       },
       {
@@ -2272,62 +2307,12 @@
       },
       {
         "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000004_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
         "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
         "status": 404
       },
       {
         "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000003_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000005_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
         "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000002_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000003_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000005_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000004_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
         "status": 404
       },
       {
@@ -2357,7 +2342,77 @@
       },
       {
         "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
         "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000002_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000005_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000004_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000003_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000002_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000003_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000004_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000005_V00.mask.png",
         "status": 404
       },
       {
@@ -2382,11 +2437,6 @@
       },
       {
         "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
         "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000003_V00.mask.png",
         "status": 404
       },
@@ -2397,12 +2447,37 @@
       },
       {
         "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
         "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
         "status": 404
       },
       {
         "kind": "optional-probe",
         "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000005_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000003_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000004_V00.mask.png",
         "status": 404
       },
       {
@@ -2412,62 +2487,7 @@
       },
       {
         "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000005_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000004_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000003_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
         "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000002_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000003_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000004_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000005_V00.mask.png",
         "status": 404
       },
       {
@@ -2482,12 +2502,12 @@
       },
       {
         "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000004_V00.mask.png",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000005_V00.mask.png",
         "status": 404
       },
       {
         "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000005_V00.mask.png",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000004_V00.mask.png",
         "status": 404
       },
       {
@@ -2512,32 +2532,7 @@
       },
       {
         "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000004_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
         "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000005_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000003_V00.mask.png",
         "status": 404
       },
       {
@@ -2558,11 +2553,6 @@
       {
         "kind": "optional-probe",
         "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
         "status": 404
       },
       {
@@ -2597,32 +2587,132 @@
       },
       {
         "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000004_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000005_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
         "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000003_V00.mask.png",
         "status": 404
       },
       {
         "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000005_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
         "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
         "status": 404
       },
       {
         "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000003_V00.mask.png",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000004_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000005_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000004_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000004_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000005_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000004_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000005_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000004_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000005_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
         "status": 404
       },
       {
@@ -2652,16 +2742,6 @@
       },
       {
         "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000005_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
         "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000004_V00.mask.png",
         "status": 404
       },
@@ -2672,87 +2752,12 @@
       },
       {
         "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
         "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000005_V00.mask.png",
         "status": 404
       },
       {
         "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000004_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000004_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
         "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000005_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000004_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000005_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000004_V00.mask.png",
         "status": 404
       },
       {
@@ -2777,7 +2782,42 @@
       },
       {
         "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000004_V00.mask.png",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000005_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000005_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
         "status": 404
       },
       {
@@ -2788,6 +2828,21 @@
       {
         "kind": "optional-probe",
         "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000005_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
         "status": 404
       },
       {
@@ -2822,72 +2877,7 @@
       },
       {
         "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
         "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000005_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000005_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000005_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
         "status": 404
       },
       {
@@ -2902,12 +2892,12 @@
       },
       {
         "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000005_V00.mask.png",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
         "status": 404
       },
       {
         "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
         "status": 404
       },
       {
@@ -2918,6 +2908,36 @@
       {
         "kind": "optional-probe",
         "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
         "status": 404
       },
       {
@@ -2957,26 +2977,6 @@
       },
       {
         "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
         "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
         "status": 404
       },
@@ -2988,26 +2988,6 @@
       {
         "kind": "optional-probe",
         "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000006_V00.mask.png",
         "status": 404
       },
       {
@@ -3037,11 +3017,6 @@
       },
       {
         "kind": "optional-probe",
-        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
-        "status": 404
-      },
-      {
-        "kind": "optional-probe",
         "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
         "status": 404
       },
@@ -3053,6 +3028,21 @@
       {
         "kind": "optional-probe",
         "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000008_V00.mask.png",
+        "status": 404
+      },
+      {
+        "kind": "optional-probe",
+        "url": "http://127.0.0.1:8821/view/overview/K00_M000001_G000001_P000007_V00.mask.png",
         "status": 404
       },
       {
@@ -3123,10 +3113,10 @@
     "file": "step8-target-source-arriving.png",
     "width": 1440,
     "height": 900,
-    "sha256": "f4060ab71e7488189c058c8805563a16edf5aeaa568fd674d9e5f63410b3fe7c"
+    "sha256": "823ece194bd085fec7b5de7691d22bf4fc3a02a09089dedc64e7715136a7ea2e"
   },
   "arrival": {
-    "at": 1411,
+    "at": 1575,
     "scanDone": 3,
     "scanRunning": false,
     "viewerGroups": [
@@ -3145,6 +3135,6 @@
       3,
       3
     ],
-    "pictureTag": "picture-iie3pd84ux"
+    "pictureTag": "picture-ck7c0fb8ps6"
   }
 }

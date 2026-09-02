@@ -593,3 +593,73 @@ def test_segment_position_drops_border_objects_and_records_the_margin(tmp_path):
     assert out["n_objects"] == 1
     assert out["dropped_labels"] == [1]
     assert out["border_filter"] == {"border_margin_px": 4}
+
+
+def test_a_model_that_fell_back_to_the_cpu_is_offered_the_gpu_again(tmp_path, monkeypatch):
+    """The card was full for a moment; the session must not stay on the CPU.
+
+    Measured on the operator's PC: a tile test stopped by hand and another
+    started a second later loaded its model while the card still held the
+    dead worker's memory, fell back to the CPU without a word, and the
+    cached CPU model then segmented nine fields at ten minutes each.
+    """
+    import tifffile
+    from detect_objects import segment_position
+
+    path = tmp_path / "gray.tif"
+    tifffile.imwrite(path, np.zeros((8, 8), dtype=np.uint8))
+    calls = []
+    cuda_attempts = {"n": 0}
+
+    class _FakeDevice:
+        def __init__(self, name):
+            self.type = name
+
+    class _FakeCuda:
+        @staticmethod
+        def is_available():
+            return True
+
+    class _FakeMps:
+        @staticmethod
+        def is_available():
+            return False
+
+    class _FakeTorch:
+        cuda = _FakeCuda()
+        backends = types.SimpleNamespace(mps=_FakeMps())
+
+        @staticmethod
+        def device(name):
+            return _FakeDevice(name)
+
+    class _FakeCellposeModel:
+        def __init__(self, gpu=False, device=None):
+            device_name = getattr(device, "type", "cpu")
+            calls.append((bool(gpu), device_name))
+            if device_name == "cuda":
+                cuda_attempts["n"] += 1
+                if cuda_attempts["n"] == 1:
+                    raise RuntimeError("CUDA out of memory (the card was full for a moment)")
+            self.device_name = device_name
+
+        def eval(self, x, channel_axis=None, **kwargs):
+            masks = np.zeros(x.shape[:2], dtype=np.int32)
+            masks[1:4, 1:4] = 1
+            return masks, None, None
+
+    fake_models = types.SimpleNamespace(CellposeModel=_FakeCellposeModel)
+    monkeypatch.setitem(sys.modules, "torch", _FakeTorch)
+    monkeypatch.setitem(sys.modules, "cellpose", types.SimpleNamespace(models=fake_models))
+
+    state = {}
+    first = segment_position(path, state, gpu=True)
+    assert first["cellpose_params"]["device"] == "cpu"
+    second = segment_position(path, state, gpu=True)
+    assert second["cellpose_params"]["device"] == "cuda"
+    assert second["cellpose_params"]["used_gpu"] is True
+    assert calls == [(True, "cuda"), (False, "cpu"), (True, "cuda")]
+    # And once on the card it stays there: no reload per field.
+    third = segment_position(path, state, gpu=True)
+    assert third["cellpose_params"]["device"] == "cuda"
+    assert len(calls) == 3

@@ -13,8 +13,9 @@ Lifecycle
 1. ensure_running(): Allocate random port, spawn subprocess, wait for
    it to connect back. Uses authkey for secure handshake.
 2. execute(step_path, data, params): Send work, wait for response.
-3. shutdown(): Send None sentinel, wait for graceful exit. Escalates:
-   wait 5s -> SIGTERM -> wait 2s -> SIGKILL.
+3. shutdown(): Send None sentinel, wait 5s for a graceful exit, then kill
+   the process tree. shutdown(now=True) kills the tree at once: the
+   operator's Interrupt reaching a step in flight.
 
 Connection protocol
 -------------------
@@ -64,6 +65,16 @@ _STDERR_BUFFER = 8192
 #: ``conda run -n <env> python -c ...`` from one parent, three failed on the
 #: same ``__conda_tmp_<n>.txt``.
 _spawn_turn = threading.Lock()
+
+
+def _the_python_of(environment):
+    """How the interpreter of a step's conda environment is reached.
+
+    `conda run` activates the environment and starts the interpreter as its
+    own child, so the worker is a grandchild of the engine. A test stands a
+    wrapper of its own here to prove the whole tree is put down.
+    """
+    return [CONDA_CMD, "run", "-n", environment, "python"]
 
 
 class _StderrDrainer:
@@ -130,11 +141,16 @@ class Worker:
         self._stderr_drainer = None
         self._last_active = time.monotonic()
         self._current_step = None
+        #: Set by :meth:`shutdown` with ``now``. A worker put down stays
+        #: down: a press that landed before the spawn was forgotten, and the
+        #: whole tree came up afterwards and stayed.
+        self._closed = False
 
     def ensure_running(self):
         """Spawn the subprocess if not already running."""
         if self._process is not None and self._process.poll() is None:
             return
+        self._refuse_if_put_down()
 
         self._cleanup()
 
@@ -143,11 +159,9 @@ class Worker:
         port = self._listener.address[1]
         self._listener._listener._socket.settimeout(self.connect_timeout)
 
-        if self.environment is None:
-            cmd = [sys.executable, str(WORKER_SCRIPT)]
-        else:
-            cmd = [CONDA_CMD, "run", "-n", self.environment,
-                   "python", str(WORKER_SCRIPT)]
+        python = ([sys.executable] if self.environment is None
+                  else _the_python_of(self.environment))
+        cmd = python + [str(WORKER_SCRIPT)]
 
         # Pass the engine's own PID for orphan detection. The worker cannot
         # rely on os.getppid(): under `conda run` its direct parent is the
@@ -158,9 +172,15 @@ class Worker:
         env = os.environ.copy()
         env["PYTHONIOENCODING"] = "utf-8"
 
+        # The worker is put down as a tree (see _kill_tree): under `conda run`
+        # the process started here is a wrapper, and the interpreter doing
+        # the work is its child. Windows kills by tree from the wrapper's
+        # pid; POSIX needs the wrapper to lead a session of its own.
         kwargs = {}
         if sys.platform == "win32":
             kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+        else:
+            kwargs["start_new_session"] = True
 
         env_label = self.environment or "orchestrator"
         logger.debug("Worker spawning: env=%s, port=%d", env_label, port)
@@ -183,6 +203,7 @@ class Worker:
 
             logger.debug("Worker process started: pid=%d, env=%s",
                          self._process.pid, env_label)
+            self._refuse_if_put_down()
 
             # Drain stderr in background so the pipe buffer never fills.
             # Without this, a worker logging errors to stderr can block
@@ -192,6 +213,10 @@ class Worker:
             try:
                 self._conn = self._listener.accept()
             except Exception as e:
+                # A press that landed while the worker was on its way closes
+                # the door it was to come through; that is the press, not a
+                # worker that could not connect.
+                self._refuse_if_put_down()
                 stderr = self._stderr_drainer.get_output() if self._stderr_drainer else ""
                 logger.error("Worker connect failed: pid=%d, env=%s, stderr=%s",
                              self._process.pid, env_label, stderr[:500])
@@ -201,9 +226,24 @@ class Worker:
                     f"within {self.connect_timeout}s. stderr: {stderr}"
                 ) from e
 
+        self._refuse_if_put_down()
         self._last_active = time.monotonic()
         logger.info("Worker ready: pid=%d, env=%s",
                      self._process.pid, env_label)
+
+    def _refuse_if_put_down(self):
+        """A shutdown that landed at any point of the spawn wins.
+
+        Checked before the spawn, right after it, and once the worker is on
+        the line: whatever came up in between is put down again, and the
+        caller is told the worker is gone rather than handed a job on a
+        worker nobody wanted.
+        """
+        if not self._closed:
+            return
+        self._cleanup()
+        env_label = self.environment or "orchestrator"
+        raise WorkerCrashedError(f"Worker for '{env_label}' was put down")
 
     def execute(self, step_path, pipeline_data, params, timeout=300.0):
         """
@@ -326,14 +366,27 @@ class Worker:
             "pid": self._process.pid if self._process else None,
         }
 
-    def shutdown(self):
-        """Gracefully shut down the worker subprocess."""
+    def shutdown(self, now=False):
+        """Shut the worker subprocess down.
+
+        Politely by default: the sentinel is sent, and an idle worker exits
+        on it within a moment. With ``now`` the worker is put down at once,
+        tree and all, without the sentinel or the wait -- this is the
+        operator's Interrupt reaching a step in flight, and a step in flight
+        never reads the sentinel, so waiting for it only delayed the kill by
+        five seconds. A caller blocked in :meth:`execute` on that worker is
+        released with :class:`WorkerCrashedError`, because the pipe breaks
+        when the process does.
+        """
+        # Put down now means put down for good; a polite shutdown leaves the
+        # object able to spawn again, as the protocol tests hold it to.
+        self._closed = self._closed or now
         pid = self._process.pid if self._process else None
         if pid:
             env_label = self.environment or "orchestrator"
-            logger.debug("Worker shutdown: pid=%d, env=%s", pid, env_label)
+            logger.debug("Worker shutdown: pid=%d, env=%s, now=%s", pid, env_label, now)
 
-        if self._conn is not None:
+        if self._conn is not None and not now:
             try:
                 self._conn.send_bytes(pickle.dumps(None, protocol=2))
             except (BrokenPipeError, ConnectionResetError, OSError):
@@ -341,18 +394,43 @@ class Worker:
 
         if self._process is not None:
             try:
-                self._process.wait(timeout=5.0)
+                self._process.wait(timeout=0.0 if now else 5.0)
             except subprocess.TimeoutExpired:
-                logger.warning("Worker terminating: pid=%d", pid)
-                self._process.terminate()
-                try:
-                    self._process.wait(timeout=2.0)
-                except subprocess.TimeoutExpired:
-                    logger.warning("Worker killing: pid=%d", pid)
-                    self._process.kill()
-                    self._process.wait(timeout=1.0)
+                logger.warning("Worker put down: pid=%d", pid)
+                self._kill_tree()
 
         self._cleanup()
+
+    def _kill_tree(self):
+        """Kill the worker process and everything under it.
+
+        Under `conda run` the process this object holds is the wrapper, and
+        the interpreter doing the work is its child: terminating the wrapper
+        alone left that child segmenting on, and the operator's Interrupt
+        stopped nothing (ten such orphans were found on one machine).
+        """
+        process = self._process
+        if process is None or process.poll() is not None:
+            return
+        if sys.platform == "win32":
+            subprocess.run(
+                ["taskkill", "/T", "/F", "/PID", str(process.pid)],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )
+        else:
+            import signal
+            try:
+                os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                pass
+        try:
+            process.kill()
+        except OSError:
+            pass
+        try:
+            process.wait(timeout=2.0)
+        except subprocess.TimeoutExpired:
+            logger.error("Worker would not die: pid=%d", process.pid)
 
     def _cleanup(self):
         """Close connection, listener, drainer, and process handles."""
@@ -377,11 +455,7 @@ class Worker:
             self._stderr_drainer = None
 
         if self._process is not None:
-            if self._process.poll() is None:
-                try:
-                    self._process.kill()
-                except Exception:
-                    pass
+            self._kill_tree()
             self._process = None
 
     def __repr__(self):
