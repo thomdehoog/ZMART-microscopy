@@ -1,0 +1,186 @@
+{
+  "schemaVersion": 1,
+  "capturedAtUtc": "2026-09-02T09:37:36.558Z",
+  "provenance": {
+    "microscopy": {
+      "repository": "thomdehoog/ZMART-microscopy",
+      "branch": "claude/smart-operator-workflow-review-ehw3c5",
+      "commit": "15c99530468f53740a1df7bad716579d93456bc8",
+      "worktreeClean": false
+    },
+    "smartViewer": {
+      "repository": "thomdehoog/ZMART-viewer",
+      "importPath": "/home/user/thomdehoog/zmart-viewer/zmart_viewer/__init__.py",
+      "version": "0.2.0",
+      "commit": "9ff10b04e803fbe2a71a1735a8065a845ea803dd",
+      "measureRoutePresent": true
+    },
+    "backend": "real bridge (application/framework/bridge.py) driving the controller's mock kidney driver",
+    "page": "production build served by the bridge (framework/window/static)",
+    "python": "3.11.15"
+  },
+  "records": [
+    {
+      "name": "bridge-step1-connected",
+      "step": 1,
+      "state": "connected; every driver check answered",
+      "file": {
+        "file": "bridge-step1-connected.png",
+        "width": 1440,
+        "height": 900,
+        "sha256": "c26eec4edc28642ce7cae5af06c8fe5ce1ef618ebd27f6cee39e5041e92c5d61"
+      }
+    },
+    {
+      "name": "bridge-step2-carrier",
+      "step": 2,
+      "state": "75 x 25 mm slide chosen; carrier centred in the driver's travel",
+      "file": {
+        "file": "bridge-step2-carrier.png",
+        "width": 1440,
+        "height": 900,
+        "sha256": "55b832639962957cf86477f41d5dca25ca6b9af763f15edc16c7d824528e0961"
+      }
+    },
+    {
+      "name": "bridge-step3-plan",
+      "step": 3,
+      "state": "optical configuration recorded from the microscope; 3 x 3 grid applied",
+      "file": {
+        "file": "bridge-step3-plan.png",
+        "width": 1440,
+        "height": 900,
+        "sha256": "41258ec32c96b6b3301c25320fddf173b35a748a460b0cecc9e911ab9df0b67b"
+      }
+    },
+    {
+      "name": "bridge-step4-focus-map",
+      "step": 4,
+      "state": "focus map measured on the mock through the analysis; traces shown",
+      "file": {
+        "file": "bridge-step4-focus-map.png",
+        "width": 1440,
+        "height": 900,
+        "sha256": "e22a58cd112f8bdc157afb3b10a611e3014f59048129ebc3230f086baab87ee8"
+      }
+    },
+    {
+      "name": "bridge-step5-overview-complete",
+      "step": 5,
+      "state": "actual Run button; 9 of 9 overview positions landed; focussing hidden by the panel; planned grid framed at 12 um per pixel",
+      "file": {
+        "file": "bridge-step5-overview-complete.png",
+        "width": 1440,
+        "height": 900,
+        "sha256": "af5278c6c561066459b942cd044f7175d41bfca5b6eb07fa564579e4425989bb"
+      }
+    },
+    {
+      "name": "bridge-step8-ready-to-acquire",
+      "step": 8,
+      "state": "bridge path: 3 target positions chosen inside fields 0, 4, 8; no operator gate (discovery unavailable here)",
+      "file": {
+        "file": "bridge-step8-ready-to-acquire.png",
+        "width": 1440,
+        "height": 900,
+        "sha256": "af5278c6c561066459b942cd044f7175d41bfca5b6eb07fa564579e4425989bb"
+      }
+    },
+    {
+      "name": "bridge-step8-target-source-arriving",
+      "step": 8,
+      "state": "bridge-published targets: first target source observed in the engine (scan 3/3); Viewer group \"target\"",
+      "file": {
+        "file": "bridge-step8-target-source-arriving.png",
+        "width": 1440,
+        "height": 900,
+        "sha256": "3f71f81fb461a4f1b02a042bce4c8bf509700140e01fd4582107a73c9c3e9738"
+      }
+    },
+    {
+      "name": "bridge-step8-complete-overview-and-targets",
+      "step": 8,
+      "state": "bridge-published targets: 3 targets acquired; overview base, \"target\" above, focussing hidden",
+      "file": {
+        "file": "bridge-step8-complete-overview-and-targets.png",
+        "width": 1440,
+        "height": 900,
+        "sha256": "7dd8ddfdef097fe13471d9bc9eb06e1f36e7f4822b7ea3eb30e7b76d9c812a19"
+      }
+    },
+    {
+      "name": "bridge-step8-target-only",
+      "step": 8,
+      "state": "bridge-published targets: only \"target\" visible; plan and marks faded away",
+      "file": {
+        "file": "bridge-step8-target-only.png",
+        "width": 1440,
+        "height": 900,
+        "sha256": "765fc06184a4a4d7df2307a6aa36113179db44aeeb90fabc706512895c71e41a"
+      }
+    },
+    {
+      "name": "bridge-step8-overview-only",
+      "step": 8,
+      "state": "bridge-published targets: only overview visible; \"target\" and focussing hidden",
+      "file": {
+        "file": "bridge-step8-overview-only.png",
+        "width": 1440,
+        "height": 900,
+        "sha256": "21acba0053aaabf8ee3d7b75c9f7f5a62577cd2e79ff799f187a6e650d0c163d"
+      }
+    },
+    {
+      "name": "bridge-step8-rerun-with-fewer-targets",
+      "step": 8,
+      "state": "bridge path: target scan run again with 2 positions; Viewer shows [2,2,2] sources per channel, 2 stores on disk",
+      "file": {
+        "file": "bridge-step8-rerun-with-fewer-targets.png",
+        "width": 1440,
+        "height": 900,
+        "sha256": "1f306986b6f303c9a167583a7e3bd02dba020ba2996e6f42840dc6ab4f42fc2b"
+      }
+    },
+    {
+      "name": "bridge-step1-reconnected",
+      "step": 1,
+      "state": "disconnected then reconnected; run-owned state reset",
+      "file": {
+        "file": "bridge-step1-reconnected.png",
+        "width": 1440,
+        "height": 900,
+        "sha256": "fd8adce28baa8ea39d4226b7db700013577f2c7914439c91fa01251185df2a30"
+      }
+    }
+  ],
+  "outcome": {
+    "mode": "bridge-published targets",
+    "observedTargetGroupName": "target",
+    "remounts": {
+      "pictureTagBefore": "picture-363vm9h2e03",
+      "tagAtFirstTargetSource": "picture-lzbhumbjh8o",
+      "tagAtEnd": "picture-lzbhumbjh8o",
+      "remountedAtFirstTargetArrival": true,
+      "tagsSeenDuringArrival": [
+        "picture-363vm9h2e03",
+        null,
+        "picture-lzbhumbjh8o"
+      ]
+    },
+    "rerun": {
+      "recordsCaptured": 2,
+      "viewerSourcesPerChannel": [
+        2,
+        2,
+        2
+      ],
+      "engineSourcesPerRow": [
+        2,
+        2,
+        2
+      ],
+      "storesOnDisk": 2
+    }
+  },
+  "finished": true
+}

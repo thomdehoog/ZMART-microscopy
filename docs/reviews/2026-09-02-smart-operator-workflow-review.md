@@ -9,6 +9,9 @@ expected head, worktree clean before the review began).
 import path `/home/user/thomdehoog/zmart-viewer/zmart_viewer/__init__.py`; `/api/measure` present.
 **Review branch (fixes and evidence):** `claude/smart-operator-workflow-review-ehw3c5`. Nothing was
 pushed to the codex branch and PR #24 stays in draft.
+**Second pass (2026-09-02, later):** every finding that needed no product decision was fixed on the
+review branch and re-verified; section 10 lists the changes and the runs that hold them. The
+per-finding status lines below say what was done for each.
 
 The document `docs/reviews/2026-09-01-why-the-acquired-overview-never-appeared.md` named in the
 review brief does not exist on this branch or on any fetched branch; the plan cites it as the
@@ -17,7 +20,12 @@ directories were read in full.
 
 ## 1. Executive verdict
 
-**Conditional pass.** Steps 1 to 5 work end to end on the production build served by the real
+**PR head: conditional pass. Review branch: pass, with one environment limit (Steps 6–7 unproven
+live).** The verdict below describes the PR head as reviewed; section 10 records that conditions 1,
+2 and 4 are fixed and re-proven on the review branch, and that only condition 3 (Cellpose weights
+unreachable from this container) remains.
+
+Steps 1 to 5 work end to end on the production build served by the real
 bridge, with the mock kidney and the separate Smart Viewer 0.2, and the live Step 8 source model
 holds: a target scan arrives as its own Viewer acquisition (observed name `targets`), every
 acquired position is one spatial source behind each of its three channel rows, requested
@@ -49,6 +57,8 @@ as specimen Z, or navigation state leaking into a transform.
 ## 2. Findings, by severity
 
 ### HIGH-1 — Half-voxel correction reached one source per row; every later tile misplaced by 2 µm
+
+**Status: fixed on the review branch and re-proven (0 µm on nine overview and three target sources, both passes).**
 
 - **File:** `viz_studio/options/neuroglancer-under/viewer.js`, function
   `countFromTheCornerOfTheVoxelRatherThanItsMiddle` (head: line 1280 reads
@@ -94,6 +104,8 @@ as specimen Z, or navigation state leaking into a transform.
 
 ### HIGH-2 — The accepted Step 5 evidence spec is broken on the PR head
 
+**Status: fixed; the spec passed both tests in the second pass (72 s) and its records replace the accepted Step 5 evidence.**
+
 - **File:** `application/step-five-kidney-evidence.spec.js:811` (head) uses
   `getByRole("button", { name: "Auto", exact: true })`; `application/parts/canvas/viewer-panel.js:575`
   (commit `cd88f5b`) sets the button's accessible name to `auto contrast <channel>`.
@@ -109,6 +121,8 @@ as specimen Z, or navigation state leaking into a transform.
 
 ### MEDIUM-1 — Cellpose discovery unavailable here; Steps 6–7 live remain unproven
 
+**Status: not fixable here — an egress-policy limit of this container, not a code defect. Still open.**
+
 - The tile test through the real bridge failed with
   `Could not initialize CellposeModel on any device: cpu: <urlopen error Tunnel connection failed:
   403 Forbidden>` (weights from `huggingface.co`, blocked by egress policy). Evidence:
@@ -118,6 +132,8 @@ as specimen Z, or navigation state leaking into a transform.
 
 ### MEDIUM-2 — A tile test that fails shows a page TypeError instead of the analysis's reason
 
+**Status: fixed; the operator-path test skips at Step 6 with the analysis's own sentence in the readout (both passes).**
+
 - **File:** `application/framework/window/main.js:1124` (head).
 - **Observed:** the panel readout said `Cannot read properties of undefined (reading 'cells')`;
   the bridge had reported the field under `failed` with the pipeline's sentence.
@@ -125,6 +141,8 @@ as specimen Z, or navigation state leaking into a transform.
   the readout contains it.
 
 ### MEDIUM-2b — A position store is published before its coarser pyramid levels are written
+
+**Status: fixed on the review branch.** `zarr_positions.py` now builds each store under `positions/.writing-<type>/` and renames it into `positions/<type>/` after the last level is filled; a rerun of the same position moves the old store aside and the new one in (two renames). Held by three new tests in `test_zarr_positions.py` (levels filled before publication, nothing left beside the store, replacement under the same name) and by the deterministic 0/3/6/9 run, which no longer sees any level-1 404 (`after-fixes` Step 5 records: 0 unexpected failures at every checkpoint).
 
 - **Files:** `application/parts/storage/zarr_positions.py:93` (levels are filled "from the finest
   down" after `zarr.json` is declared), `application/parts/storage/viewer_service.py:200`
@@ -142,6 +160,8 @@ as specimen Z, or navigation state leaking into a transform.
 
 ### MEDIUM-3 — A shorter rerun of a target scan leaves stale target sources in the Viewer group
 
+**Status: fixed on the review branch.** `_start_scan` now names the stores the new plan will write again and removes every other store of that kind before the first drive; the viewer service is told and leaves any source whose store is gone off disk out of what the page is handed (`_still_on_disk`); the display copies are rebuilt from the new records. A first attempt asked the Viewer to close the acquisition and reopen the folder: that is not a usable route with Viewer 0.2, which treats a reopened folder as a new linked picture and remembers closed store names, so it was replaced by the retire-and-filter rule. Held by three bridge tests and four service tests, by a live probe (3 → 2 → 2 replaced in place → 3 → 4 sources through a shrink and regrowth) and by the review spec's rerun check, now hard: `viewerSourcesPerChannel [2, 2, 2]`, `engineSourcesPerRow [2, 2, 2]`, 2 stores on disk, 6 misses on the retired store recorded apart from failures, 0 unexpected failures (`after-fixes/live-target-arrival/bridge-step8-rerun-with-fewer-targets.json`). Growth by cumulative reruns (the Step 5 harness) still keeps one Viewer instance (view-preservation: 3 → 24 → 27).
+
 - **Files:** `application/framework/bridge.py:836` (`_start_scan` resets `_records` only),
   `application/parts/storage/output.py:75` (`prepare_acquisition` never clears
   `positions/<type>`), `application/parts/storage/viewer_service.py:200` (folder opened once,
@@ -158,6 +178,8 @@ as specimen Z, or navigation state leaking into a transform.
 
 ### MEDIUM-4 — Acquired target frames outside overview fields are hidden under the plan's ground
 
+**Status: fixed on the review branch.** `openTheGroundThatHasBeenScanned` opens a window over each acquired target frame (centred on its cell, as wide as the recording's frame) and is called as each target lands; the canvas exposes its windows (`groundWindows`). Held by the pretend whole-run walk in `operator-page.spec.js`, which checks one window per acquired target at the frame size (passed, 1.2 m).
+
 - **File:** `application/workflows/target_acquisition/shared/stage.js:734`
   (`openTheGroundThatHasBeenScanned` opens see-through windows for `run.plan` fields only).
 - **Observed:** in `bridge-step8-complete-overview-and-targets.png` the part of a target frame
@@ -168,6 +190,8 @@ as specimen Z, or navigation state leaking into a transform.
   knows `targetFrameUm` and the acquired positions).
 
 ### MEDIUM-5 — The live target group is `targets`; every panel test and the panel-UX evidence use `target`
+
+**Status: fixed on the review branch.** The page now names the acquisition `target` (backend calls, picture addresses), which is the name the notebook flow, the storage tests, the panel tests and the panel-UX evidence already used; the canvas layer and step mode keep their own key `targets`. Observed live in the second pass: Viewer group `target`, folder `positions/target`. `zmart_live/profiles.py` (a separate package the operator page does not use) still calls its profile `targets` and was left alone.
 
 - `application/framework/window/main.js:749` sends `acquisition_type: "targets"`; the bridge writes
   `positions/targets`; Smart Viewer reports the group `targets`; the canvas mode and layer key are
@@ -182,12 +206,16 @@ as specimen Z, or navigation state leaking into a transform.
 
 ### MEDIUM-6 — The bridge still imports the reference-only copied backend at runtime
 
+**Status: fixed on the review branch.** `viz_studio/backend/jpeg_tiles.py` moved to `application/parts/storage/jpeg_tiles.py`; the bridge, `mock_picture.py` and the bridge tests import it there; a shim under `viz_studio/backend/` keeps the 22 historical JPEG tests running (all pass). Nothing in the runtime imports `viz_studio` any more.
+
 - `application/framework/bridge.py:772` and `:795` import `viz_studio.backend.jpeg_tiles` for the
   focus slice previews and the JPEG view tiles; `viz_studio/backend/REFERENCE_ONLY.md` says the tree
   must not be imported. The Viewer-provenance guard covers only `viewer_service.py`. Package G's
   "reference-only" claim is overstated for the JPEG fallback and the Step 4 preview.
 
 ### MEDIUM-7 — Panel-UX "coordinate safety" evidence is an identity-matrix fixture
+
+**Status: fixed on the review branch.** Both panel fixtures place every source with a voxel size on the diagonal and a stage corner in the last row; the UX spec asserts no matrix is the identity and that all stay byte-equal through the visibility actions. Passed against the live Viewer 0.2 reference (2 of 2); new captures under `after-fixes/panel-ux/` with `record.json`.
 
 - `application/viewer-panel-ux-evidence.spec.js:135` mounts the panel on a fake viewer whose five
   sources carry identity matrices; the JSON claim "all five immutable identity matrices" cannot
@@ -196,21 +224,29 @@ as specimen Z, or navigation state leaking into a transform.
 
 ### MEDIUM-8 — The production build ships a default password
 
+**Status: fixed on the review branch.** `DEFAULT_SESSION.password` is empty; Connect stays disabled until one is typed. The password test now expects the empty field (passed); every browser spec types its own.
+
 - `application/parts/microscope/instruments.js:63` sets `password: "demo"` with a comment that a
   real build must ship it empty. Connect is enabled without typing anything; the gate is only
   proved once the field is emptied (this review's Step 1 record notes
   `passwordPrefilledByThePage: true`).
 
 ### LOW-1 — Step 5 evidence records carry no PNG dimensions or SHA-256
+
+**Status: fixed.** Every Step 5 record carries `artifact.{png,width,height,sha256}`; the replaced accepted records all verify (0 mismatches over 48 records).
 The eight `2026-09-01-smart-viewer-step-five/*.json` records omit the artifact block the panel-UX
 records carry; the review brief requires it.
 
 ### LOW-2 — Failing Python tests on the branch
+
+**Status: fixed.** The webapp tests import their own package and match the demo CLI's arguments (35 pass); the detection test builds its paths for the running machine (all pass).
 `application/workflows/target_acquisition/webapp/test_webapp.py` (10 tests) import the stale path
 `workflow.webapp`; `application/parts/microscope/test_detection.py::test_a_capture_with_a_position_store_is_read_from_it`
 builds Windows paths and fails on Linux. 301 of 312 focused tests pass. Not production defects.
 
 ### LOW-3 — Timing-fragile browser tests
+
+**Status: fixed.** The canvas walk and the two-run plan test are marked slow; the operator walk reads the slice preview once the map has finished (the preview follows the point under measurement by design). The operator walk passed in 59 s and both slow tests passed alone.
 `framework/operator-page.spec.js:447` ("the canvas is always on the stage") keeps the 30 s default
 test timeout around a 60 s wait and timed out twice here; `the-operator-walk.spec.js:179` expects
 the focus slice preview while the run is still measuring, but the preview follows the selected
@@ -218,10 +254,14 @@ point, which the run advances, so it fails deterministically here (three runs). 
 appear once the run ends (diagnostic walk recorded 61 slices per point).
 
 ### LOW-4 — Committed bundle differs from a fresh build
+
+**Status: resolved in the first pass.** The review commit rebuilt the page; a fresh `npm run build` now reproduces the committed bundle exactly (no diff).
 `framework/window/static/chunk_worker.bundle-CycDtxtB.js` is committed; a fresh `npm run build`
 produces `…-VL1EZiOw.js`. `the-built-page.spec.js` passed against the rebuilt bundle.
 
 ### LOW-5 — After Disconnect the page reopens a picture on the JPEG fallback address
+
+**Status: fixed.** The page hands out no picture address and no Viewer sources once the session is closed; the review spec now requires no open picture after Disconnect (`bridge-step1-reconnected.json`: `pictureOpen: false`).
 `watching-the-run.js:706` keeps polling; with the bridge session closed `viewerSources` is null
 and `pictures("overview")` is still an address, so a JPEG engine opens on an empty view. No
 acquisition source survives (checked), so no stale pixels; but the picture object is not null.
@@ -230,14 +270,14 @@ acquisition source survives (checked), so no stale pixels; but the picture objec
 
 | Step | Gate | Result | Proven with |
 | --- | --- | --- | --- |
-| 1 Connect | instruments and APIs from backend; password gate; checks settle; failures visible; travel and position from driver; disconnect resets; reconnect | **passed** (password gate only after emptying the prefilled field: MEDIUM-8) | production build + real bridge (`step1-connected`, `step1-reconnected`) |
+| 1 Connect | instruments and APIs from backend; password gate; checks settle; failures visible; travel and position from driver; disconnect resets; reconnect | **passed** (head: password gate only after emptying the prefilled field, MEDIUM-8; review branch: field ships empty) | production build + real bridge (`step1-connected`, `step1-reconnected`) |
 | 2 Carrier | slide and plate presets; carrier-local geometry; origin centred in travel; no origin compensation on sources; edits invalidate plan | **passed** | production build (`step2-carrier`), operator-page pretend suite (carrier tests), source review of `stage.js` |
 | 3 Scan area | optics recorded from the microscope; grid; counts match carrier and frame; every position on screen; plan locked after scan | **passed** (grid/fields/regions/polygon/clear behaviours proven with pretend backend) | `step3-plan`, operator-page pretend suite |
-| 4 Focus | focussing configuration recorded; points measured through the analysis; traces and stack; fixed/mapped behaviour; focus Z provenance only | **passed** (slice-preview timing test LOW-3) | `step4-focus-map`, `the-map-fills-in`, `a-moved-point-has-no-curve`, bridge probe |
+| 4 Focus | focussing configuration recorded; points measured through the analysis; traces and stack; fixed/mapped behaviour; focus Z provenance only | **passed** (slice-preview timing test LOW-3, fixed) | `step4-focus-map`, `the-map-fills-in`, `a-moved-point-has-no-curve`, bridge probe |
 | 5 Overview | 0/3/6/9; Run button; nine ROIs examined and textured; three rows × nine sources; growth without remount; Fit preserved; overview-only; close-up; projection < 1 px; real `/api/measure`; no unexpected failures | **failed on head** (HIGH-1 misplacement, HIGH-2 broken spec) → **passed on the fixed review branch** | real bridge + Viewer 0.2 + mock kidney (`step-five-fixed/*`, `view-preservation.json`, `step5-overview-complete`) |
 | 6 Discover | preview is the selected field; settings; test vs all; ids and positions; candidates on canvas; layer changes canvas; hoverable; failures honest | **blocked live** (MEDIUM-1); canvas behaviour **passed with pretend backend**; failure reporting **failed** then fixed (MEDIUM-2) | operator-page pretend walk; `step6-discovery-blocked` |
 | 7 Refine | candidates before gate; no implicit gate; polygon gate; intersection; feedback; counts agree; gate survives navigation; coordinates unchanged | **unproven live**; **passed with pretend backend** | operator-page pretend walk; source review of `gating.js` (no gates → empty set) |
-| 8 Acquire | configuration before acquisition; button gating; one conversion; focus Z provenance; positions equal; rings/frames; gallery; verdicts; partial runs | canvas/gallery **passed with pretend backend**; interruption **unproven**; source model **passed live** (remount at first arrival is by design; stale rerun sources MEDIUM-3) | `bridge-step8-*` records |
+| 8 Acquire | configuration before acquisition; button gating; one conversion; focus Z provenance; positions equal; rings/frames; gallery; verdicts; partial runs | canvas/gallery **passed with pretend backend** (incl. ground windows over acquired frames after MEDIUM-4); interruption **unproven**; source model **passed live** (remount at first arrival is by design; shorter rerun accounted exactly after MEDIUM-3) | `bridge-step8-*` records |
 
 ## 4. Test ledger
 
@@ -324,7 +364,7 @@ overview-only picture shows the nine-field mosaic with the target frames gone.
 | Bridge | `requested_position_um` per record | plan + origin exactly; focus z from the fitted map |
 | Position store | level-0 `translation` (y, x) | absolute-stage top-left corner = centre − 512; z = 0 for flat stores; stacks anchored on the requested plane (index 30 of 61 for the focussing stack, spacing +1.133 µm) |
 | Store Z record | `zmart_microscopy.z_coordinate` | `only-voxel-center` / `requested-stage-focus-z`, `registered_specimen_z: false`, raw plane centres and requested focus z kept |
-| Engine | per-source bounds from `layersForMeasurement` | head: first source exact, others −2 µm (HIGH-1); fixed: all overview sources exact |
+| Engine | per-source bounds from `layersForMeasurement` | head: first source exact, others −2 µm (HIGH-1); fixed: all overview sources exact (0 µm) and all target sources exact (≤ 1e-11 µm, second pass) |
 | Navigation | `2d-overlay` sets nav z = 0 (`openOnThePlaneWhereTheSpecimenIs`) | never rewrites a transform |
 | Stage canvas ↔ engine projection | plan centres through both | 0.070 px at every zoom used |
 | Visibility, order, panel actions | per-source matrices before/after | byte-equal in every record |
@@ -340,13 +380,14 @@ Viewer order, focussing last) is chosen in `watching-the-run.js:544` and does no
 - **Overview:** the first field opens `positions/overview`; a new acquisition beside focussing is a
   new scene, so the page reopens once. Fields 2–9 grow the three rows through `addSources` on the
   same Viewer instance (view-preservation: 3 → 24 → 27 sources, one instance, drift < 0.25 px).
-- **Targets:** the first target position opens `positions/targets`; Smart Viewer lists a third
-  acquisition `targets` with three channel rows; the page reopens once (a genuinely new
+- **Targets:** the first target position opens `positions/target` (`positions/targets` on the PR head, MEDIUM-5); Smart Viewer lists a third
+  acquisition `target` with three channel rows; the page reopens once (a genuinely new
   acquisition shape) and then holds the instance. All three target sources landed within one page
   poll of each other, so growth 1 → 2 → 3 on the target group was not observed separately;
-  the arrival log records the sequence. A shorter rerun leaves stale sources (MEDIUM-3).
+  the arrival log records the sequence. A shorter rerun left stale sources on the head (MEDIUM-3); on the
+  review branch it is accounted exactly (2 sources per row, 2 stores on disk) after one reopen.
 - **Disconnect:** the viewer service stops, `/api/viewer` reports not running, no acquisition
-  source survives on the page (LOW-5 for the JPEG fallback picture).
+  source survives on the page; on the review branch no picture is open at all (LOW-5 fixed).
 
 ## 8. What was proven with what
 
@@ -358,8 +399,9 @@ Viewer order, focussing last) is chosen in `watching-the-run.js:544` and does no
 - **Real bridge + real Smart Viewer 0.2 + mock kidney:** Steps 1–5 end to end on the production
   build; 0/3/6/9 deterministic and Run-button evidence (on the fixed adapter); Fit preservation;
   overview-only; kidney close-up; histogram and Auto through `/api/measure`; the Step 8 source
-  model with bridge-published target positions (separate `targets` group, per-position sources,
-  visibility survival, Fit preservation, independent group eyes, matrices unchanged, Z anchors).
+  model with bridge-published target positions (separate `target` group, per-position sources,
+  visibility survival, Fit preservation, independent group eyes, matrices unchanged, Z anchors);
+  on the review branch also the shorter rerun accounted exactly and no picture after Disconnect.
 - **Unproven:** Steps 6–7 on real pixels; the Step 8 button path with real discovered targets;
   target source growth one position at a time (all three landed within one page poll);
   interruption and partial acquisition accounting.
@@ -385,3 +427,50 @@ section.
 | `every-tile-is-filled.spec.js` | 54 of 54 six-well fields drawn |
 | `canvas-layers.spec.js`, `viewer-panel-state.spec.js` | 14 + 3 passed |
 | Viewer 0.2 browser tests | 58 passed, 2 opt-in skips |
+
+## 10. Second pass: every remaining finding fixed and re-verified
+
+All changes are on `claude/smart-operator-workflow-review-ehw3c5` (commits after `7919ea0`); PR #24
+and the codex branch are untouched. MEDIUM-1 is the one finding left open, because it is this
+container's egress policy and not the code.
+
+**Production code changed:** `application/parts/storage/zarr_positions.py` (whole-store
+publication), `application/framework/bridge.py` (stale stores retired on a rerun; JPEG helpers
+imported from the application), `application/parts/storage/viewer_service.py` (retired stores
+announced and filtered out), `application/parts/storage/jpeg_tiles.py` (moved from
+`viz_studio/backend/`, shim left behind), `application/framework/window/main.js` (acquisition named
+`target`; ground opened over acquired frames; no picture address after Disconnect; run state
+exposes the target frame size), `application/workflows/target_acquisition/shared/stage.js` and
+`application/parts/canvas/viewer.js` (windows over acquired targets, `groundWindows` reader),
+`application/parts/microscope/instruments.js` (empty password), and the rebuilt
+`framework/window/static/index.html`.
+
+**Tests changed or added:** `test_zarr_positions.py` (+3), `test_viewer_service.py` (+4),
+`test_operator_bridge.py` (+3, stubs repointed), `test_detection.py`, `test_webapp.py`,
+`operator-page.spec.js` (password test, Step 8 windows, two slow budgets),
+`the-operator-walk.spec.js` (preview after the map), `viewer-panel-state.spec.js` and
+`viewer-panel-ux-evidence.spec.js` (real matrices), `step-five-kidney-evidence.spec.js` (artifact
+block), `review-live-target-arrival.spec.js` (`target` name, hard rerun check, no picture after
+Disconnect, retired-store misses recorded apart from failures).
+
+**Evidence added:** `evidence/2026-09-02-smart-operator-review/after-fixes/` — the second-pass
+review-spec records (`live-target-arrival/`, 18 screenshots with paired records and the manifest),
+`view-preservation.json`, the panel-UX captures with `record.json`, and `browser-batches.txt` with
+every suite's exit code and duration. The accepted Step 5 directory
+`evidence/2026-09-01-smart-viewer-step-five/` is **replaced** by the second-pass run because the
+full replacement run passed (both tests, 0 µm at 0/3/6/9, 0 unexpected failures); the head-branch
+records that show the 2.83 µm defect stay under `head-branch/`.
+
+| Verification (final code) | Result |
+| --- | --- |
+| Python: `test_zarr_positions`, `test_viewer_service`, `test_operator_bridge`, `test_detection`, `test_webapp` | 126 passed; the earlier LOW-2 failures are gone |
+| Python: `viz_studio/tests/test_small_pictures_from_exported_tiffs.py` through the shim | 22 passed |
+| `npx vitest run` / `npm run build` | 365 passed, 15 skipped / bundle identical to the committed one |
+| Live probe of the viewer service against Smart Viewer 0.2 | 3 → 2 → 2 (in place) → 3 → 4 sources through shrink and regrowth, no viewer error |
+| Browser batch 1 (18 pretend/bridge suites, then panel suites with the live reference, then the review spec) | 14 suites passed; `operator-page` 31/33, `focus-moved-point` 0/1 and `step-five-view-preservation` 0/1 failed while page modules were being edited (the dev server reloads every open page) and under the first, close-based rerun rule; `step-five-kidney-evidence` 1/2 under that same rule; the review spec failed only on chunk 404s of the deliberately retired store |
+| Browser batch 2 (the disturbed suites alone, final code) | `step-five-view-preservation` passed (34.6 s); `step-five-kidney-evidence` 2/2 (72 s); `focus-moved-point` passed (25.7 s); `operator-page` 32/33 with the plan-editability test 0.3 s over its 30 s budget, then passed alone with the slow budget (30.4 s); `review-live-target-arrival` bridge path passed (86 s), operator path skipped at Step 6 with the Cellpose reason |
+| Review spec, bridge path, second pass | group `target`; 3 rows × 3 sources; registration ≤ 1e-11 µm; projections 0.070 px; remount once at the first target arrival; Fit and visibility preserved; matrices unchanged; rerun with 2 positions → `[2, 2, 2]` in the Viewer and in the engine, 2 stores on disk; Disconnect leaves no picture open |
+| Evidence hashes | 51 records carry `artifact.sha256`; 50 verify against their PNG; the one head-branch record kept without its picture (`step5-overview-complete.head.json`, numbers only) has none to verify |
+
+What the second pass does not change: Steps 6–7 on real pixels, the Step 8 button path with real
+discovered targets, one-at-a-time target growth and interruption accounting remain unproven here.
