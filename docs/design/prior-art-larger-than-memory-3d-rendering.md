@@ -68,9 +68,10 @@ of them only as abstracts. What can be said of all of them is narrow:
   chunk manager already prioritises, with a resolution indicator that sets
   the number of depth samples from the voxel spacing and view, opacity
   corrected for the sampling ratio, and modes for direct, maximum and minimum
-  projection. It reuses the same chunk cache as the slice views, which is
-  the same reuse our design promises. Its documentation says nothing about
-  memory limits.
+  projection. It reuses the same chunk cache as the slice views. Our own
+  design keeps a stored projection as its own tile identity, so a later 3D
+  mode would have to decide its own reuse. Its documentation says nothing
+  about memory limits.
 - **webKnossos** (scalableminds/webknossos, Nature Methods 2017). Data in
   cubes of 1024 voxels a side, streamed to the browser in buckets of 32
   voxels a side, which is the unit of request, cache and GPU upload; several
