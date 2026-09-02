@@ -37,6 +37,8 @@ from __future__ import annotations
 import json
 import math
 import re
+import shutil
+import uuid
 from pathlib import Path
 
 import numpy as np
@@ -83,7 +85,16 @@ def position_store_from_record(record: dict, into: Path | str) -> Path:
     # which stores belong together off the names, and a store named only by
     # its position would stand under a heading of its own.
     kind = record.get("acquisition_type") or "capture"
-    store = into / f"{kind}_{record['position_label']}.ome.zarr"
+    published = into / f"{kind}_{record['position_label']}.ome.zarr"
+    # Written somewhere the viewer is not looking, and moved into place only
+    # once every level is filled. The viewer watches ``positions/<type>`` and
+    # shows a store the moment its description exists, so a store filled in
+    # place was visible while its coarser copies were still empty: the
+    # picture asked for a zoomed-out copy, was told there was none, and
+    # showed a hole until it happened to ask again. Renaming a finished
+    # folder is one step the file system does whole, so the viewer now sees
+    # either nothing or the complete store, never something in between.
+    store = _a_place_to_write(into, published.name)
 
     depth_max = _the_depth_of(volume.dtype)
     tile_shape = (nz, ny, nx)
@@ -125,7 +136,41 @@ def position_store_from_record(record: dict, into: Path | str) -> Path:
         if level:
             shrinking = shrinking[..., ::2, ::2]
         array[:] = shrinking
-    return store
+    return _publish(store, published)
+
+
+def _a_place_to_write(into: Path, name: str) -> Path:
+    """A folder beside the acquisition's positions where a store can be built.
+
+    It sits next to the watched folder rather than inside it, so nothing the
+    viewer lists can ever be half-written. Its name says what it is, so a
+    folder left behind by a crash is recognisable and safe to delete.
+    """
+    staging = into.parent / f".writing-{into.name}"
+    staging.mkdir(parents=True, exist_ok=True)
+    return staging / f"{name}.{uuid.uuid4().hex[:8]}"
+
+
+def _publish(built: Path, published: Path) -> Path:
+    """Move a finished store into the watched folder, replacing an older one.
+
+    A rerun writes the same position again. The old store is moved aside
+    first and the new one moved in, two renames rather than a slow delete
+    with the name missing in between; the old pixels are removed last.
+    """
+    retired = None
+    if published.exists():
+        retired = built.parent / f"{published.name}.retired-{uuid.uuid4().hex[:8]}"
+        published.rename(retired)
+    built.rename(published)
+    if retired is not None:
+        shutil.rmtree(retired, ignore_errors=True)
+    staging = built.parent
+    try:
+        staging.rmdir()  # only succeeds once nothing else is being written
+    except OSError:
+        pass
+    return published
 
 
 # -- reading what the vendor wrote ------------------------------------------

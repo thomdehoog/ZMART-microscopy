@@ -126,7 +126,7 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=0)
     asked = parser.parse_args()
 
-    from viz_studio.backend.jpeg_tiles import make_small_pictures
+    from application.parts.storage.jpeg_tiles import make_small_pictures
 
     plan = json.loads(asked.plan.read_text(encoding="utf-8"))
     if asked.how_many:

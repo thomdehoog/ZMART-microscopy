@@ -446,6 +446,9 @@ test("nothing advances by itself, and the next step stays locked until it can ru
 
 test("the canvas is always on the stage, and the channel follows the step",
   async ({ page }) => {
+    /* Three rehearsed runs and a dozen waits in one walk: the whole thing
+       takes longer than the ordinary budget on a loaded machine. */
+    test.slow();
     /* One layout for every step: the picture on the left, the standing step's
        controls in the channel on the right. From the very first step — the
        session card is the channel of Connect. */
@@ -1444,6 +1447,19 @@ test("one walk of the whole run", async ({ page }) => {
     .toBe(acquired.filter((target) => target.selected).length);
   await expectTargetLayerOnCanvas(
     page, "targets", "Step 8 acquired-target rings materially change the canvas");
+  /* The ground opens over each acquired frame as it does over each overview
+     field: one window per acquired target, centred on its cell and as wide as
+     the recording's frame, so a target at the edge of a field shows through. */
+  const windows = await page.evaluate(() => window.__theStageCanvas.groundWindows());
+  const frameUm = await page.evaluate(() => window.__theRunState().targetFrameUm);
+  expect(frameUm, "the recording says how wide an acquired frame is").toBeGreaterThan(0);
+  for (const target of acquired.filter((one) => one.acquired)) {
+    const window = windows.find((one) =>
+      Math.abs(one.x + one.w / 2 - target.x) < 1e-6 && Math.abs(one.y + one.h / 2 - target.y) < 1e-6);
+    expect(window, `the ground is open over acquired target ${target.id}`).toBeTruthy();
+    expect(window.w).toBeCloseTo(frameUm, 6);
+    expect(window.h).toBeCloseTo(frameUm, 6);
+  }
   await page.locator(".pair").first().locator("button.pick-good").click();
   await expect(page.locator("#gallery-readout")).toContainText("1 marked");
   await expect(page.locator(".side-tab"),

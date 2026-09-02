@@ -733,13 +733,25 @@ function drawStage() {
  */
 function openTheGroundThatHasBeenScanned(howMuch = 1) {
   const shown = Math.max(run.tilesShown, 0);
-  theCanvas.seeThrough(run.plan.slice(0, shown).map((t) => ({
+  const fields = run.plan.slice(0, shown).map((t) => ({
     x: t.x - t.frameUm / 2,
     y: t.y - t.frameUm / 2,
     w: t.frameUm,
     h: t.frameUm,
     letThrough: howMuch,
-  })));
+  }));
+  /* The acquired target frames too. A target is imaged where its cell is,
+     which can be at the edge of an overview field, so part of its frame lies
+     outside every field window; without a window of its own that part of
+     the picture stayed hidden under the ground until the operator faded
+     the layers by hand. The frame is as wide as the recording says. */
+  const half = (run.targetFrameUm ?? 0) / 2;
+  const targets = half > 0
+    ? (run.acquired ?? []).map((id) => run.cells?.get(id)).filter(Boolean).map((cell) => ({
+      x: cell.x - half, y: cell.y - half, w: half * 2, h: half * 2, letThrough: howMuch,
+    }))
+    : [];
+  theCanvas.seeThrough([...fields, ...targets]);
 }
 
 /**
@@ -782,6 +794,8 @@ window.__theStageCanvas = {
   closeTheGround() { theCanvas.seeThrough([]); },
   /** Open one named piece of the sample, in micrometres in the carrier's frame. */
   openThisGround(windows) { theCanvas.seeThrough(windows ?? []); },
+  /** Where the ground is open right now, in the carrier's micrometres. */
+  groundWindows: () => theCanvas.windows(),
   /** Which layers there are, and which are being drawn. */
   layers: () => theCanvas.layersAbove.map(({ key, label, shown, staysSolid }) =>
     ({ key, label, shown, staysSolid: !!staysSolid })),

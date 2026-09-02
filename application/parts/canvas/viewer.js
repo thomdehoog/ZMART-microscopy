@@ -1274,6 +1274,8 @@ export function putTheCanvasIn({
       seeThrough = windows;
       handTheSlotsTheirDrawings();
     },
+    /** The windows as they stand, so a test can ask where the ground is open. */
+    windows() { return seeThrough.map((one) => ({ ...one })); },
 
     /**
      * The pictures inside the viewer itself, which is the bottom layer.

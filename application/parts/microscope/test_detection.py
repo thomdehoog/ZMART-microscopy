@@ -10,6 +10,7 @@ from __future__ import annotations
 import math
 
 import pytest
+from pathlib import Path
 
 from application.parts.microscope import detection
 
@@ -171,14 +172,18 @@ def test_a_capture_with_a_position_store_is_read_from_it():
     analysis reads: segmentation on packed channel 0 (the first channel,
     whatever the instrument numbered it), the rest riding along by index, and
     the results still filed beside the vendor's data."""
+    # Spelled with the running machine's own separators: a backslash is a
+    # separator on Windows and an ordinary character on Linux, so a path
+    # written the Windows way never found its ``data`` folder here.
+    run = Path("run")
     record = {
         "acquisition_type": "overview",
-        "zarr": r"run\positions\overview\overview_P000001.ome.zarr",
+        "zarr": str(run / "positions" / "overview" / "overview_P000001.ome.zarr"),
         "planes": [
             {"t": 0, "z": 0, "c": 1, "z_um": 8.5, "x_um": 3000.0, "y_um": 2000.0,
-             "path": r"run\overview\data\f_C01_Z00000.ome.tiff"},
+             "path": str(run / "overview" / "data" / "f_C01_Z00000.ome.tiff")},
             {"t": 0, "z": 0, "c": 2, "z_um": 8.5, "x_um": 3000.0, "y_um": 2000.0,
-             "path": r"run\overview\data\f_C02_Z00000.ome.tiff"},
+             "path": str(run / "overview" / "data" / "f_C02_Z00000.ome.tiff")},
         ],
     }
     given = detection.what_was_captured(record, field=0, pixel_um=4.0, settings={})
