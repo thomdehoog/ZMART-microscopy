@@ -594,6 +594,343 @@ the ninety-fifth percentile the record asks for can be computed at all. On
 decisions 2, 4, 5, 6 and 9 I agree, with the consequences named above
 written into the plan.
 
+## Question 9: every efficiency neuroglancer uses, and where we do better
+
+Added after the brief gained its ninth question (commit `9fed45db`). Source
+read: neuroglancer 2.41.2 under
+`viz_studio/frontend/node_modules/neuroglancer/lib/`; every path below is
+relative to that folder. The two copies of the package in the repository
+(`viz_studio/frontend` and `viz_studio/options`) report the same version.
+"The record" means the "The engine itself" section of the design record;
+"the plan" means step 4 of the detailed plan. For each mechanism I say what
+the source does, then whether the record and the plan **carry** it, **drop**
+it with a stated reason, or **miss** it (neither carry nor explain).
+
+### How neuroglancer is fast, mechanism by mechanism
+
+**1. Three priority tiers, and eviction that respects them.** Fact: chunks
+are `VISIBLE`, `PREFETCH` or `RECENT` (`chunk_manager/base.js` lines 29 to
+39). The two ordered tiers are kept in pairing heaps and the recent tier in a
+linked list used as least-recently-used (`chunk_manager/backend.js` lines 366
+to 450). Room is freed only from a chunk of a lower tier, or of the same tier
+with lower priority (`tryToFreeCapacity`, lines 474 to 487), so a visible
+chunk is never evicted for a prefetch. Verdict: **carried**, in the record's
+"three tiers, and admission by tier then priority" and in the plan's 4.1
+("the tiers").
+
+**2. A composite priority, and "the maximum wins".** Fact: a layer's
+visibility decides the tier and a base priority
+(`visibility_priority/backend.js` lines 37 to 41, with
+`PREFETCH_PRIORITY_MULTIPLIER = 1e13` at `base.js` line 60); within a view,
+priority is `BASE_PRIORITY = -1e12` plus `SCALE_PRIORITY_MULTIPLIER = 1e9`
+times the source's index (coarser sources sit later in the list, so they come
+first) minus the distance from the view centre to the chunk
+(`sliceview/backend.js` lines 56 to 57 and 139 to 158). When two layers ask
+for one chunk, the lower tier wins, then the higher priority
+(`chunk_manager/backend.js` lines 1013 to 1027). Verdict: **carried**; the
+record names "visible first, nearest the view centre first, coarser first"
+and "the maximum winning where two rows want one tile", and leaves the
+arithmetic to the engine record, which the plan's step 4 record item repeats.
+
+**3. Prefetch from the view's velocity.** Fact: a `VelocityEstimator` keeps an
+exponentially weighted mean and variance of the view's motion
+(`util/velocity_estimation.js` lines 3 to 44). Per chunk axis, the estimator
+is projected into chunk units, and the probability that the view reaches
+chunk *i* within `PREFETCH_MS = 2000` ms is read off a normal distribution;
+chunks are queued in the prefetch tier with that probability as priority
+until it drops under `PREFETCH_PROBABILITY_CUTOFF = 0.05` or
+`MAX_SINGLE_DIRECTION_PREFETCH_CHUNKS = 32` is reached, and a velocity above
+`MAX_PREFETCH_VELOCITY` disables it on that axis (`sliceview/backend.js` lines
+353 to 408). Prefetch also runs along the non-display axes (the sliders)
+through `fixedPositionWithinChunk` (line 379). A global switch turns it off
+(`chunk_manager/backend.js` line 590). Verdict: **carried** ("prefetch driven
+by the view's velocity ... in the pan direction and along the sliders"), with
+the budget left to the engine record. Inference: the record does not say
+that prefetch is probabilistic rather than a fixed ring; the engine record
+should choose one and say why, because a fixed ring on a sparse plate
+prefetches empty ground.
+
+**4. Budgets with item and byte counts.** Fact: every capacity is a pair of
+limits (`chunk_manager/frontend.js` lines 74 to 90; `AvailableCapacity`,
+`chunk_manager/backend.js` lines 488 to 514). The defaults are: graphics
+memory 1,000,000 items and 1 GB; system memory 10,000,000 items and 2 GB;
+downloads 100 items with no byte limit; computed chunks 128 items and 500 MB
+(`data_management_context.js` lines 44 to 59). Verdict: **carried** ("item
+counts beside byte counts on every budget"). Qualification: the record says
+neuroglancer's decode pool "is bounded only by its worker count and queues
+without limit"; that is true of the helper pool for blosc, zstd, JPEG and PNG
+(`async_computation/request.js` lines 19 to 21 and 82 to 84: up to twelve
+workers, an unbounded pending map), but neuroglancer does bound *computed
+chunk sources* by the 128-item compute capacity. The record's "a bound on
+decoding is ours" stands for the helper pool.
+
+**5. A concurrent download limit and abort under pressure.** Fact: at most
+100 downloads are in flight (the download capacity's item limit); a queued
+chunk of higher tier or priority evicts a downloading chunk, whose
+`AbortController` is aborted (`chunk_manager/backend.js` lines 339 to 365 and
+809 to 868); a chunk no longer requested falls to the recent tier, and a
+queued chunk in the recent tier is removed outright (lines 665 to 673 and
+1035 to 1063). Two download queues exist so a source that depends on another
+source's chunks cannot deadlock it (lines 236 to 246, 591 to 594). Verdict:
+**carried** ("a fixed number of requests in flight", "abort on pressure",
+with the in-flight download running to completion unless a higher-priority
+tile needs its slot). The record's "counted in reads behind them" is an
+addition of ours.
+
+**6. Priorities recomputed in one batch, throttled.** Fact: a change in view
+schedules one recomputation on a zero-delay timer (`chunk_manager/backend.js`
+lines 977 to 983 and 999 to 1008); graphics-memory changes are throttled to
+`LAYER_CHUNK_STATISTICS_INTERVAL = 200` ms (lines 920 and 960 to 968); the
+visible set is recomputed only when the pixel size or the view changes
+(`sliceview/base.js` lines 133 to 170) and the frontend debounces its own
+visible-chunk refresh (`sliceview/frontend.js` line 267). Verdict:
+**carried** for the batch ("priorities recomputed in one batch per view
+change, throttled"); **missed** for draw-on-demand: neuroglancer redraws only
+when something changed (`display_context.js` lines 89 to 91 and 370, on
+`animationFrameDebounce`, `util/animation_frame_debounce.js` lines 17 to 34),
+and neither the record nor the plan says the engine will do the same rather
+than run a continuous loop. Small, but it decides idle power and the
+"idle frame" row the harness already measures.
+
+**7. "How far" a chunk is wanted, and reading its bytes back.** Fact: a
+request names the state it needs, and the least demanding wins
+(`chunk_manager/backend.js` line 1020); `SYSTEM_MEMORY_WORKER` keeps decoded
+bytes in the worker without sending them (`base.js` line 20); a page can ask
+for one chunk's bytes on demand through an RPC that raises the chunk's
+priority to infinity (`sliceview/backend.js` lines 409 to 431). Verdict:
+**carried** ("a 'how far' on every request"; "the page can ask for a tile's
+bytes back").
+
+**8. Chunk objects pooled, and statistics kept per state and tier.** Fact:
+freed chunk objects are reused (`chunk_manager/backend.js` lines 237 to 285);
+counts and bytes are kept per state, tier and memory kind in one array
+(`base.js` lines 40 to 58; `backend.js` line 326) and per layer as
+needed-versus-available for visible and prefetch chunks
+(`sliceview/backend.js` lines 155 to 158 and 194 to 196; `frontend.js` lines
+330 to 341). Verdict: **carried** ("tile objects pooled";
+"needed-versus-available counters per row").
+
+**9. Time-sliced application of deliveries on the drawing thread.** Fact:
+pending chunk updates are applied until a 30 ms deadline, then the rest wait
+`chunkUpdateDelay = 30` ms (`chunk_manager/frontend.js` lines 125 to 170).
+Verdict: **carried** ("a time-sliced upload budget on the drawing thread, in
+milliseconds per frame"). Qualification: neuroglancer's slice is by wall
+clock per batch, not per drawn frame; the engine record should say which.
+
+**10. Buffers transferred, not copied.** Fact: a chunk's `serialize` pushes
+its `ArrayBuffer` onto the transfer list (`sliceview/volume/backend.js` lines
+31 to 39), and every RPC posts with that list (`worker_rpc.js` lines 174 to
+185; promise replies carry `transfers`, lines 54 to 70). Verdict: **carried**
+("deliveries carry ownership of their buffers"; plan 4.2 "buffers handed over
+with ownership").
+
+**11. Fetch and decode off the drawing thread, in two layers of workers.**
+Fact: the whole chunk manager runs in one worker (`chunk_worker.bundle.js`);
+zarr chunks are downloaded and decoded there (`datasource/zarr/backend.js`
+lines 54 to 96), and the heavy codecs are handed to a second pool of up to
+`min(12, hardwareConcurrency)` helper workers with transfer
+(`datasource/zarr/codec/blosc/decode.js` line 26, `zstd/decode.js` line 26;
+`async_computation/request.js` lines 21 and 58 to 84). Verdict: **carried**
+with a smaller starting point: the record begins with one fetch-and-decode
+worker and grows to a pool if measured necessary; the plan's 4.2 says "the
+worker". Inference: the Viewer's pieces are compressed, so the measurement
+the record promises is the right way to settle it, but the protocol should
+name the codec so the number means something.
+
+**12. Chunks shared between layers over one source.** Fact: chunk sources
+are memoised by constructor and options, so two layers over one store share
+one source and its chunks (`chunk_manager/frontend.js` lines 357 to 377);
+texture layouts and shaders are memoised on the graphics context
+(`webgl/context.js` line 32). Verdict: **carried** ("sources memoised by a
+stable key so two rows over one source share tiles").
+
+**13. A chunk layout per slice orientation.** Fact: when a source offers
+several chunk layouts, the one whose chunks have the largest slice area for
+the current view matrix is chosen (`sliceview/base.js` lines 39 to 52, 92 to
+116, 181 to 186); layouts are built near-isotropic or flat under a cap of
+2^18 voxels per chunk (lines 199 to 290). Only sources that declare
+alternatives benefit: the precomputed format does (`datasource/precomputed/frontend.js`
+line 359), a zarr store gets one layout from its chunk shape
+(`datasource/zarr/frontend.js` line 170). Verdict: **dropped with a reason**
+for the first brief, which is a flat top view only; **missed** for step 5's
+side view, where neither the record nor the plan says which layout the side
+view reads. Inference: our chunks are one plane thick (`zarr_positions.py`
+line 169 and the Viewer's pieces), so a side view over them is one read per
+plane per column of pixels; the data-layer record should say whether a
+second layout is written for the side view or the view accepts that cost.
+
+**14. The level chosen from the screen's pixel size.** Fact: the finest
+level whose voxel is no smaller than 1.1 times the screen pixel times a
+per-layer render-scale target is chosen, and every coarser level is kept in
+the visible list as a fallback, coarsest first (`sliceview/base.js` lines 344
+to 410, `renderScaleTarget` at `sliceview/renderlayer.js` lines 32 to 33).
+Verdict: **carried** in outline ("level of detail from the zoom against each
+level's voxel size in micrometres"). Two things neither the record nor the
+plan states: the 1.1 margin, and that the whole coarser chain is requested
+for every view. Inference: on a composed picture the chain is cheap; on ten
+thousand position stores opened as separate sources it is not, which is one
+more reason the engine must read composed pieces, and a reason our lookup
+can bound the chain (see below).
+
+**15. Coarse standing in for fine, by draw order and the depth test.** Fact:
+the visible sources are reversed to finest-first (`sliceview/base.js` line
+191) and drawn in that order (`sliceview/volume/renderlayer.js` line 406)
+with the depth test on and `LESS` (`sliceview/frontend.js` lines 433 to 436),
+so a coarser chunk drawn later cannot overwrite a finer one already drawn.
+Verdict: **carried** ("coarse standing in for fine done by drawing coarse
+rectangles first and finer ones over them, within one channel"); the order is
+reversed but the effect is the same. The engine record should pick one,
+because the depth-test way costs nothing per pixel and the paint-over way
+costs overdraw.
+
+**16. Adaptive downsampling from the measured frame rate.** Fact: a
+`FramerateMonitor` times frames with `EXT_disjoint_timer_query_webgl2`
+(`util/framerate.js` lines 8 to 44) and a downsampling calculator lowers the
+render resolution during continuous camera motion, but only in the
+perspective (three-dimensional) panel and only for volume rendering
+(`perspective_view/panel.js` lines 215 to 227 and 890 to 899). The slice view
+has no such mechanism; its only knob is the render-scale target. Verdict:
+**missed**, and rightly not needed before step 6; the record's step 6 should
+list it.
+
+**17. A texture per chunk, and a shared fill-value texture.** Fact: each
+chunk gets its own texture on upload and frees it on eviction
+(`sliceview/single_texture_chunk_format.js` lines 78 to 90); texture layouts
+are memoised per chunk shape (`sliceview/uncompressed_chunk_format.js` lines
+70, 99, 206); an absent chunk draws from one shared fill-value texture (lines
+253 to 275). Verdict: **carried** ("a texture per tile as neuroglancer does
+or slots in a texture array, decided by measurement"; the fill value is our
+"asked and empty"). The plan's 4.3 "texture pools by format" is the record's
+"pools by tile dimensions and internal format".
+
+**18. The shader cache, with window and colour as uniforms.** Fact: shaders
+are compiled once per (chunk format, channel count, histogram setting) and
+cached on the graphics context (`webgl/dynamic_shader.js` lines 31 to 57;
+`sliceview/compressed_segmentation/chunk_format.js` lines 77 to 83;
+`sliceview/volume/renderlayer.js` lines 312 and 419 to 428); brightness and
+colour are uniforms, never a recompile. Verdict: **carried implicitly** ("the
+window and its state, colour and opacity are drawing inputs, not identity, so
+changing brightness never fetches"; plan 4.3 "the window and colour as
+drawing inputs"); neither says "compiled once per format", which is the part
+that keeps a channel toggle under a frame.
+
+**19. Compressed segmentation for labels.** Fact: label chunks can be stored
+block-wise compressed and decoded in the shader from an unsigned integer
+texture (`sliceview/compressed_segmentation/chunk_format.js` lines 66 to 110;
+`decode_common.js` lines 17 to 134), encoded in a helper worker
+(`async_computation/encode_compressed_segmentation.js`). Verdict: **missed**
+for step 5: the record's label milestone names "a 32-bit integer texture
+format" and says nothing about compression; the plan's step 5 repeats it.
+Inference: our label maps are per-position and small, so plain 32-bit
+textures are probably enough, but the step-5 record should say so with a
+number.
+
+**20. Range requests and a cached shard index.** Fact: a sharded zarr array
+reads its index once per shard as a byte range at the start or end of the
+file, caches it as a chunk in the system-memory budget
+(`datasource/zarr/codec/sharding_indexed/decode.js` lines 28 to 63;
+`chunk_manager/generic_file_source.js` lines 15 to 64), then reads each
+sub-chunk by its own range (lines 65 to 118); HTTP ranges are `Range:
+bytes=a-b` with Chrome's cache turned off for ranged reads
+(`kvstore/http/read.js` lines 20 to 24). Verdict: **dropped with a reason**:
+the engine fetches composed pieces from the Viewer's routes and never opens a
+shard itself; the Viewer reads shards on the server side and keeps its own
+remembered shard tables (`zmart_viewer/record/shardlink.py` lines 413 to
+431). Carried, then, on the other side of the wire.
+
+**21. Whole-source invalidation, and the patch this repository carries.**
+Fact: stock invalidation re-queues every chunk of a source and tells the
+page to drop its whole copy (`chunk_manager/frontend.js` lines 214 to 217);
+the repository's patch adds named-chunk refresh with grouped delivery and a
+2,000 ms flush, and named-chunk invalidation (`chunk_manager/backend.js`
+lines 1128 to 1215). Verdict: **carried** ("replace, never drop"; the group
+timeout; the dirty-box protocol). This is the mechanism our engine improves
+on most directly.
+
+**22. Failed stays failed.** Fact: a failed chunk keeps `FAILED` until the
+source is invalidated, and a request for it throws the stored error
+(`sliceview/backend.js` lines 419 to 421). Verdict: **carried and improved**
+(the record's retry with back-off, a limit and a visible permanent state).
+
+**23. Histograms on the graphics card.** Fact: the slice view renders into an
+offscreen framebuffer with extra colour attachments and computes data
+histograms there per frame (`sliceview/frontend.js` lines 164 to 169 and 383
+to 396). Verdict: **dropped with a reason** that the record gives elsewhere:
+the window authority measures once, server-side, through the Viewer's
+measure route, so the engine has no per-frame histogram. Not an efficiency
+we need.
+
+### Where our own lookup does better than neuroglancer on our data
+
+All of the following are inferences from the source above and the record.
+
+- **The register instead of listing.** Neuroglancer has no notion of a run;
+  it opens each store by reading its description, and the Viewer today lists
+  the positions folder on every relink (`viewer_service.py` lines 294 to
+  350; the record's "where it breaks first"). With the register, opening is
+  one profile, one layout and one marker; there is nothing in neuroglancer to
+  match because it never had the problem.
+- **Coverage from the register instead of empty requests.** Neuroglancer asks
+  for every chunk that intersects the view (`sliceview/backend.js` lines 143
+  to 158) and learns emptiness one 404 at a time, after which the fill-value
+  texture stands in (`uncompressed_chunk_format.js` lines 253 to 275). Our
+  engine knows from coverage which tiles exist at each level before asking,
+  which is the "never asked" kind of nothing and the sparse-plate request
+  gate. The adapter today already bounds the view to coverage
+  (`viz_studio/options/neuroglancer-under/viewer.js` lines 2649 to 2654) but
+  cannot stop neuroglancer asking inside the bound.
+- **The fan-in rule and precomputed coarse levels.** Neuroglancer's coarse
+  fallback chain (mechanism 14) requests every coarser level of every source
+  for every view; over a composed picture that is a few pieces, over many
+  position stores it is thousands. Our lookup knows, per tile, how many
+  positions it touches, so the data layer keeps a level when its fan-in makes
+  lazy assembly too slow and the engine bounds the fallback chain to the next
+  kept level rather than walking to the coarsest. Neuroglancer has no cost
+  model; the level is chosen by pixel size alone.
+- **Dirty boxes instead of source-wide invalidation.** Mechanism 21: stock
+  neuroglancer drops the whole source; the patch names chunks but the page
+  still has to be told "something changed" and re-read the live state. The
+  dirty-box protocol makes the invalidation exact per revision and lets a
+  page that missed revisions catch up by range.
+- **Identity that includes generation and revision.** Neuroglancer's chunk
+  key is a grid position within a source; nothing in the key says which
+  generation of a position or which run revision produced it, which is why a
+  stale delivery cannot be told from a fresh one (the record's "ordering
+  between a revision bump and deliveries already in flight"). Our three
+  identities carry that, so a late delivery is discarded by comparison, not
+  by luck.
+- **A bounded decode queue.** Mechanism 4: the helper pool's pending map is
+  unbounded; the record's bound on decoding with back-pressure is a genuine
+  improvement on a fast pan.
+- **Retry with back-off.** Mechanism 22: a transient share failure is
+  permanent to neuroglancer until a source-wide invalidation, which on a
+  network share is the common failure. Ours retries with a limit.
+- **Coverage-aware prefetch.** Mechanism 3: neuroglancer's prefetch is
+  probabilistic in chunk space and does not know which chunks exist; ours
+  can skip uncovered ground and spend the budget on chunks that will draw.
+- **Per-source alpha and a coverage mask** are things neuroglancer can do
+  per layer and the record wants per source and channel; they are features,
+  not efficiencies, and cost a little per pixel; the engine gate on four
+  channels covers that.
+- **What neuroglancer does that the literature adds and we do not need
+  yet.** Tile-based progressive loading with a fixed ring and a two-level
+  cache (the napari prior-art note in `docs/design/prior-art-napari-progressive-loading.md`)
+  is what neuroglancer already does better with its velocity model; the
+  three-dimensional prior art (`prior-art-larger-than-memory-3d-rendering.md`)
+  belongs to step 6, where mechanism 16 belongs too.
+
+### What this adds to the earlier answers
+
+Nothing in step 4 of the plan builds a mechanism neuroglancer lacks in a way
+that would slow the first brief; the first brief is a strict subset of what
+neuroglancer does for a flat view, plus the register-driven lookup. The gaps
+worth writing into the plan are small and specific: draw-on-demand
+(mechanism 6), the 1.1 level margin and the bounded fallback chain
+(mechanism 14), which of the two coarse-under-fine methods (mechanism 15),
+"compiled once per format" (mechanism 18), and, for step 5 and step 6, the
+side-view layout (mechanism 13), compressed labels (mechanism 19) and
+frame-rate adaptive downsampling (mechanism 16).
+
 ## Paste-back
 
 - Add a decision: the bridge imports `zmart_viewer.record` (the installed
@@ -625,3 +962,17 @@ written into the plan.
 - Correct: "three photographs, two equal comparisons"; `coarse.py` and the
   publisher's callers are described per copy; the mesoSPIM adapter does
   stamp `captured_at`.
+- From question 9: state that the engine draws on demand and recomputes
+  the visible set once per frame; state the level-choice margin (neuroglancer
+  uses 1.1) and bound the coarse fallback chain to the next kept level;
+  choose between depth-test and paint-over for coarse-under-fine; say
+  shaders are compiled once per format with window and colour as uniforms;
+  say prefetch is coverage-aware and whether it is probabilistic or a fixed
+  ring.
+- From question 9, for steps 5 and 6: name the chunk layout the side view
+  reads; say whether labels use neuroglancer's compressed segmentation or
+  plain 32-bit textures, with a size; list frame-rate adaptive downsampling
+  under step 6.
+- Correct the record's note on neuroglancer's decode bound: the helper pool
+  for blosc, zstd, JPEG and PNG is unbounded, but computed chunk sources are
+  bounded by a 128-item compute capacity.
