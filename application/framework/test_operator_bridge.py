@@ -1143,3 +1143,69 @@ def test_starting_a_scan_names_the_stores_it_keeps_by_the_new_plan(monkeypatch):
         "overview_K00_M000000_G000000_P000000_V00.ome.zarr",
         "overview_K00_M000000_G000000_P000001_V00.ome.zarr",
     })]
+
+
+
+def test_a_copy_is_drawn_with_the_display_the_page_asks_with(monkeypatch, tmp_path):
+    """The preview and the gallery must show what the canvas shows.
+
+    Asked with the picture's own windows and colours, the bridge draws the
+    field that way, on request; hidden channels add nothing, so a display
+    that hides every channel is a black picture -- the one answer that can
+    be known without knowing the mock's pixels.
+    """
+    import io
+    import urllib.parse
+
+    import zmart_controller
+    from PIL import Image
+    from zmart_drivers.mock import mock_driver
+
+    mock_driver.register_mock()
+    instrument = next(i for i in zmart_controller.get_instruments() if i["vendor"] == "mock")
+    instrument["output_root"] = str(tmp_path)
+    session = zmart_controller.set_instrument(instrument)
+    monkeypatch.setattr(bridge, "_session", session)
+    try:
+        bridge._scan.update(running=True, done=0, of=1, error=None, acquisition_type="overview")
+        bridge._scan_worker([{"x": 0.0, "y": 0.0, "z": 5_000.0}])
+        assert bridge._scan["error"] is None, bridge._scan["error"]
+        label = bridge._records["overview"][0]["position_label"]
+
+        class _Probe(bridge._Bridge):
+            def __init__(self):
+                self.sent = []
+                self.out = io.BytesIO()
+
+            def send_response(self, status):
+                self.sent.append(status)
+
+            def send_header(self, name, value):
+                self.sent.append((name, value))
+
+            def end_headers(self):
+                pass
+
+            @property
+            def wfile(self):
+                return self.out
+
+        def ask(display):
+            probe = _Probe()
+            query = "" if display is None else "display=" + urllib.parse.quote(json.dumps(display))
+            probe._send_a_picture(f"/view/overview/{label}.jpg", query)
+            assert probe.sent[0] == 200, probe.out.getvalue()[:200]
+            assert ("Content-Type", "image/jpeg") in probe.sent
+            return Image.open(io.BytesIO(probe.out.getvalue())).convert("RGB")
+
+        plain = ask(None)
+        dark = ask([{"c": c, "visible": False, "window": [0, 4000], "color": "#ffffff"} for c in range(3)])
+        lit = ask([{"c": 0, "visible": True, "window": [0, 1], "color": "#ff0000"}])
+    finally:
+        session.disconnect()
+
+    assert max(dark.getextrema()[band][1] for band in range(3)) <= 3, "every channel hidden is a black copy"
+    # Channel 0 windowed to nothing is fully red wherever it has any signal at all.
+    red, green, blue = lit.getextrema()
+    assert red[1] >= 250 and green[1] <= 3 and blue[1] <= 3
+    assert plain.size == dark.size == lit.size

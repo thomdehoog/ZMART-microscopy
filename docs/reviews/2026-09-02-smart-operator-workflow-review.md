@@ -897,6 +897,47 @@ is not a thing to do on this machine: two processes spawning `conda run` at once
 activation-file race the engine documents, and the interruption test lost its whole discovery
 to a probe of mine running alongside. Verification runs alone.
 
+#### The preview and the gallery wear the canvas's display settings (items 2 and 5 of the list)
+
+The Discover panel's field preview and the gallery's crops and frames were the bridge's small
+copies: every channel tinted by its index and stretched between the scan's own 0.5th and 99.9th
+percentiles with a gamma, so they showed a brighter, differently coloured sample from the one on
+the canvas. The Neuroglancer picture draws each channel through a linear window and its own
+colour, added together, no gamma; the copies now do the same.
+
+- `parts/storage/jpeg_tiles.py`: `picture_as_displayed(planes, display)` draws one field with a
+  display -- one entry per channel: `c`, `visible`, `window [low, high]`, `color #rrggbb` -- as a
+  clip, a tint and a sum; a channel the display does not name is left out. Five tests on
+  synthetic planes whose every pixel is known (half-window is half-bright, hidden adds nothing,
+  a clip is not a gamma, the budget holds).
+- `framework/bridge.py`: `/view/<kind>/<label>.jpg?display=<json>` answers that copy for a
+  captured position, remembered by its asking and forgotten at the next scan start. One bridge
+  test: every channel hidden is a black copy, one channel windowed to nothing is fully red.
+- `parts/canvas/display-of.js`: the panel's snapshot for one acquisition becomes that query
+  (four unit tests); `pictureOf(kind, label)` on the page appends it, so the preview and the
+  gallery ask with the settings of the moment; the preview refetches when the address changes
+  and the gallery redraws when the operator comes back to Step 8.
+- Not verified on screen by a spec: the pretend backend has no picture with channels, so the
+  comparison is the operator's eye in the window.
+
+#### Ledger for the display-settings tab, the fold, MEDIUM-15 and MEDIUM-16
+
+| Command (cwd `application` unless noted) | Result | Time | Notes |
+| --- | --- | --- | --- |
+| `playwright test framework/operator-page.spec.js -g "display settings|folds away|password|session|check|connecting|one walk"` (dev server on 5175) | 8 passed | 1.6 min | the tab not offered before a picture; the fold; the whole walk |
+| `playwright test .../the-operator-walk.spec.js` | timed out on a hidden Start (the panel press had switched the column); then 58.5 s passed | 10 min, 1 min | `showTheChannel` |
+| `playwright test step-five-view-preservation.spec.js` | 1 passed | 29 s | |
+| bridge probe writing under `application/mock-output` with the dev server up (repo root) | 1 store in 3 lost, focus store lost; after the fix 0 lost, both acquisitions listed | 2 min each | MEDIUM-15 |
+| `pytest application/parts/storage/test_zarr_positions.py -k DeniedRename` (repo root) | red (the same `zarr.<uuid>.partial -> zarr.json` denial), then green | 0.4 s | |
+| stop-then-test probe against a bridge (repo root) | stop 1.1 s; the next test examined its field on the card | 4 min | the race the page hits needs no wait between the two |
+| `pytest application/parts/analysis/test_warm.py -k still_being_put_down` (repo root) | red (the same analysis handed out), then green | 0.1 s | MEDIUM-16 |
+| `pytest test_warm.py test_operator_bridge.py test_zarr_positions.py` (repo root) | 77 passed | 20 s | |
+| `npx vitest run`, `npm run build` | 365 passed, 15 skipped; ok | 6 s, 0.8 s | |
+| `playwright test review-live-target-arrival.spec.js -g "operator page|source model"` (alone) | 2 passed | 9.2 min | `step6-display-settings-tab`: the canvas box equal before and after both presses; discovery 7 min 29 s on the card |
+| `playwright test step-five-kidney-evidence.spec.js` (5175) | could not load (`spawnSync rg ENOENT`); after reading the file instead, 2 passed | 59 s | |
+| `playwright test every-tile-is-filled.spec.js` (5175) | 1 passed, 54 of 54 fields | 3.0 min | |
+| `playwright test review-live-target-arrival.spec.js -g interruption` (alone) | running alone in the background at the time of this commit; its result and evidence follow in the next | | |
+
 #### Ledger and evidence for MEDIUM-12 to MEDIUM-14 and the password
 
 | Command (cwd `application` unless noted) | Result | Time | Notes |
@@ -957,6 +998,24 @@ it is built yet, and the order below is the order it was said in.
    focus points on Step 4: pressing a target on the canvas highlights and selects it in the list,
    and only that one's low-resolution crop and high-resolution frame appear below -- one pair on
    show, never all of them.
+
+**Step 3, Define scan area** (added later the same day)
+
+6. **Section headings back in the tile-set card.** "Manual" above the first row and above the
+   rows and columns; below those a "Tile placement" heading holding the tile overlap; and the
+   separate white block under it merged into the card above.
+
+**Step 4, Focus strategy**
+
+7. **Headings here too:** "Manual" above the pointer and the focus point; "Automatic" below,
+   with the per-tileset and per-carrier placements under it. The alignment stays as it is.
+8. **The focus-point list shows three points and scrolls** for the rest, in the inspect box.
+
+**Step 5, Scan the overview**
+
+9. **The scan summary looks unprofessional and unclean** -- to be redrawn. In the shot: two
+   lines ("1 positions to image", "focus follows the measured map · rms 0.0 µm") floating with
+   large gaps in a near-empty card, and the Run again button touching its "1 / 1 tiles" hint.
 
 **Step 6, Discover Targets**
 

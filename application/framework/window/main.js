@@ -17,6 +17,7 @@ import {
   DEFAULT_SESSION, choicesFrom, describeSession,
 } from "../../parts/microscope/instruments.js";
 import { isFailed } from "../../parts/microscope/connection-status.js";
+import { displayQueryFor } from "../../parts/canvas/display-of.js";
 /* The seam. Connecting, reading a preset off the instrument, measuring the
    focus map and driving the overview scan all go through the backend and are
    awaited; this window never knows whether a real stage moved. Which side of
@@ -97,10 +98,14 @@ let stageWatch = null;
     `${state.cells.size} targets · ${ALGOS[state.detect.algo].label}`
     + (state.cellDevices.has("cpu") ? " · on the CPU" : "");
 
-  /** Where a capture's picture is: the viewer's small copy, by the capture's label. */
+  /** Where a capture's picture is: the viewer's small copy, by the capture's
+      label -- drawn with the canvas's own display settings for that
+      acquisition when there are any, so the preview and the gallery show the
+      sample the way the picture shows it. */
   const pictureOf = (kind, label) => {
     const where = backend.viewOf(kind);
-    return where && label ? `${where}/${label}.jpg` : null;
+    if (!where || !label) return null;
+    return `${where}/${label}.jpg${displayQueryFor(window.__viewerPanel?.snapshot?.() ?? null, kind)}`;
   };
 
   /* Targets arrive far faster than a picture can be drawn. One redraw per
@@ -915,6 +920,10 @@ let stageWatch = null;
     /* Walking to a step is asking for its channel: the display settings a
        step was left on do not follow the operator to the next one. */
     state.sideView = "channel";
+    /* The gallery's pictures wear the canvas's display settings, which may
+       have changed since they were drawn: coming back to the step draws
+       them again with the settings of now. */
+    if (steps()[i]?.id === "acquire") galleryPanel?.rebuild();
   }
 
   /* ============================================================
