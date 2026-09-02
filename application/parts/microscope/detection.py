@@ -81,6 +81,13 @@ def what_was_captured(record: dict, *, field: int, pixel_um: float, settings: di
             analysis = analysis.parent
         if analysis.name == "data":
             given["output_dir"] = str(analysis.parent / "analysis")
+    # How the objects are found: the page's word for it is the step's.
+    method = settings.get("method") or "accurate"
+    if method not in ("accurate", "fast"):
+        raise ValueError(f"unknown detection method {method!r}")
+    given["method"] = method
+    if method == "fast" and settings.get("threshold") is not None:
+        given["threshold"] = float(settings["threshold"])
     if settings.get("diameter") is not None:
         given["diameter"] = float(settings["diameter"]) / float(pixel_um)
     if settings.get("cellprob") is not None:
@@ -145,7 +152,7 @@ def through(analysis: Any, *, pixel_um: float) -> Callable[[dict, int, dict], di
         # own record stands beside it, stripped of its arrays, and that is
         # where the device it ran on is written.
         detection = result.get("detect_objects") or {}
-        device = (detection.get("cellpose_params") or {}).get("device")
+        device = (detection.get("detector_params") or {}).get("device")
         return {
             "cells": as_targets(result["object_analysis"], field=field, pixel_um=pixel_um),
             "device": device,

@@ -384,7 +384,7 @@ def test_segment_position_passes_cellpose_tuning_params(tmp_path):
         "niter": 2000,
         "diameter": 90.0,
     }
-    assert out["cellpose_params"] == {
+    assert out["detector_params"] == {
         "requested_gpu": False,
         "used_gpu": False,
         "device": "cpu",
@@ -446,9 +446,9 @@ def test_segment_position_prefers_gpu_and_falls_back_to_cpu(tmp_path, monkeypatc
     out = segment_position(path, {}, gpu=True)
 
     assert calls == [(True, "cuda"), (False, "cpu")]
-    assert out["cellpose_params"]["requested_gpu"] is True
-    assert out["cellpose_params"]["used_gpu"] is False
-    assert out["cellpose_params"]["device"] == "cpu"
+    assert out["detector_params"]["requested_gpu"] is True
+    assert out["detector_params"]["used_gpu"] is False
+    assert out["detector_params"]["device"] == "cpu"
 
 
 def test_segment_position_uses_mps_when_cuda_is_unavailable(tmp_path, monkeypatch):
@@ -499,9 +499,9 @@ def test_segment_position_uses_mps_when_cuda_is_unavailable(tmp_path, monkeypatc
     out = segment_position(path, {}, gpu=True)
 
     assert calls == [(True, "mps")]
-    assert out["cellpose_params"]["requested_gpu"] is True
-    assert out["cellpose_params"]["used_gpu"] is True
-    assert out["cellpose_params"]["device"] == "mps"
+    assert out["detector_params"]["requested_gpu"] is True
+    assert out["detector_params"]["used_gpu"] is True
+    assert out["detector_params"]["device"] == "mps"
 
 
 def test_segment_position_rejects_invalid_area_filter(tmp_path):
@@ -654,12 +654,12 @@ def test_a_model_that_fell_back_to_the_cpu_is_offered_the_gpu_again(tmp_path, mo
 
     state = {}
     first = segment_position(path, state, gpu=True)
-    assert first["cellpose_params"]["device"] == "cpu"
+    assert first["detector_params"]["device"] == "cpu"
     second = segment_position(path, state, gpu=True)
-    assert second["cellpose_params"]["device"] == "cuda"
-    assert second["cellpose_params"]["used_gpu"] is True
+    assert second["detector_params"]["device"] == "cuda"
+    assert second["detector_params"]["used_gpu"] is True
     assert calls == [(True, "cuda"), (False, "cpu"), (True, "cuda")]
     # And once on the card it stays there: no reload per field.
     third = segment_position(path, state, gpu=True)
-    assert third["cellpose_params"]["device"] == "cuda"
+    assert third["detector_params"]["device"] == "cuda"
     assert len(calls) == 3

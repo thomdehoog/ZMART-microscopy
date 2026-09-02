@@ -35,6 +35,8 @@ def run(pipeline_data: dict, state: dict, **params) -> dict:
     detection = segment_position(
         inp["image_path"],
         state,
+        method=seg_params["method"],
+        threshold=seg_params["threshold"],
         channels=seg_params["channels"],
         channel_axis=seg_params["channel_axis"],
         border_margin_px=border_params["border_margin_px"],
@@ -134,7 +136,7 @@ def _write_detection_checkpoint(detection: dict, raw_masks, inp: dict, params: d
         "dropped_labels": detection["dropped_labels"],
         "area_filter": detection["area_filter"],
         "border_filter": detection["border_filter"],
-        "cellpose_params": detection["cellpose_params"],
+        "detector_params": detection["detector_params"],
         "segmentation_resize": detection["segmentation_resize"],
         "image_size_px": detection["image_size_px"],
         "raw_masks_path": str(raw_masks_path),
@@ -189,6 +191,8 @@ def analysis_dir(image_path: Path | str) -> Path | None:
 
 
 SEGMENTATION_IDENTITY_KEYS = (
+    "method",
+    "threshold",
     "channels",
     "channel_axis",
     "cellprob_threshold",
@@ -209,6 +213,8 @@ def segmentation_params(inp: dict, params: dict) -> dict:
         # From the submission when it names one, else the pipeline's default.
         # That is what lets an operator tune detection on a single position
         # and see the answer without re-registering a pipeline.
+        "method": _setting(inp, params, "method") or "accurate",
+        "threshold": _none_or_float(_setting(inp, params, "threshold")),
         "cellprob_threshold": _setting(inp, params, "cellprob_threshold"),
         "flow_threshold": _setting(inp, params, "flow_threshold"),
         "niter": _setting(inp, params, "niter"),
@@ -387,6 +393,8 @@ def segment_position(
     image_path,
     state: dict,
     *,
+    method: str = "accurate",
+    threshold=None,
     channels=None,
     channel_axis=None,
     border_margin_px=None,
@@ -401,12 +409,17 @@ def segment_position(
     verbose: int = 0,
     log_prefix: str = "segment",
 ) -> dict:
-    """Load a position, select up to three channels, and run a warm Cellpose model.
+    """Load a position, select up to three channels, and find the objects in it.
 
     ``image_path`` is an OME-Zarr position or an OME-TIFF; both are read
     through the same contract, so nothing below this line knows which it was.
-    Cellpose runs on the selected channels (2D or up to 3-channel). ``image``
-    preserves those selected channels for downstream feature extraction, while
+    ``method`` is how the objects are found: ``"accurate"`` runs a warm
+    Cellpose model on the selected channels (2D or up to 3-channel);
+    ``"fast"`` runs the classical watershed of :func:`watershed_masks` on the
+    first of them, a second or two a field on the CPU and no model to load.
+    Everything around the detector -- the binning, the border and area
+    filters, what is returned -- is the same either way. ``image`` preserves
+    the selected channels for downstream feature extraction, while
     ``image_2d`` is the primary channel for code paths that require a plane.
 
     ``channel_axis`` applies only to an array already in memory and is kept
@@ -419,44 +432,68 @@ def segment_position(
         binning=segmentation_binning,
     )
 
-    cellpose_channel_axis = -1 if seg_eval.ndim == 3 else None
-    eval_kwargs = _cellpose_eval_kwargs(
-        cellprob_threshold=cellprob_threshold,
-        flow_threshold=flow_threshold,
-        niter=niter,
-        diameter=diameter,
-    )
-    model, used_gpu, used_device = _get_cellpose_model(
-        state,
-        requested_gpu=bool(gpu),
-        verbose=verbose,
-        log_prefix=log_prefix,
-    )
-    try:
-        masks, flows, styles = model.eval(
-            seg_eval,
-            channel_axis=cellpose_channel_axis,
-            **eval_kwargs,
+    if method == "fast":
+        # The watershed's sizes are geometric, so they follow the binning
+        # the way the picture did; Cellpose is handed the diameter as given.
+        plane = seg_eval if seg_eval.ndim == 2 else seg_eval[..., 0]
+        masks, fast_params = watershed_masks(
+            plane,
+            diameter_px=(float(diameter) if diameter is not None else 30.0) * scale,
+            threshold=float(threshold) if threshold is not None else 100.0,
         )
-    except Exception:
-        if not gpu:
-            raise
-        if verbose >= 1:
-            print(f"  [{log_prefix}] GPU Cellpose failed; retrying on CPU")
-        state.pop("model", None)
-        state.pop("_cellpose_model_gpu", None)
-        state.pop("_cellpose_model_device", None)
+        used_gpu, used_device = False, "cpu"
+        detector_params = {"method": "fast", "device": used_device, **fast_params}
+    elif method == "accurate":
+        cellpose_channel_axis = -1 if seg_eval.ndim == 3 else None
+        eval_kwargs = _cellpose_eval_kwargs(
+            cellprob_threshold=cellprob_threshold,
+            flow_threshold=flow_threshold,
+            niter=niter,
+            diameter=diameter,
+        )
         model, used_gpu, used_device = _get_cellpose_model(
             state,
-            requested_gpu=False,
+            requested_gpu=bool(gpu),
             verbose=verbose,
             log_prefix=log_prefix,
         )
-        masks, flows, styles = model.eval(
-            seg_eval,
-            channel_axis=cellpose_channel_axis,
-            **eval_kwargs,
-        )
+        try:
+            masks, flows, styles = model.eval(
+                seg_eval,
+                channel_axis=cellpose_channel_axis,
+                **eval_kwargs,
+            )
+        except Exception:
+            if not gpu:
+                raise
+            if verbose >= 1:
+                print(f"  [{log_prefix}] GPU Cellpose failed; retrying on CPU")
+            state.pop("model", None)
+            state.pop("_cellpose_model_gpu", None)
+            state.pop("_cellpose_model_device", None)
+            model, used_gpu, used_device = _get_cellpose_model(
+                state,
+                requested_gpu=False,
+                verbose=verbose,
+                log_prefix=log_prefix,
+            )
+            masks, flows, styles = model.eval(
+                seg_eval,
+                channel_axis=cellpose_channel_axis,
+                **eval_kwargs,
+            )
+        detector_params = {
+            "method": "accurate",
+            "requested_gpu": bool(gpu),
+            "used_gpu": bool(used_gpu),
+            "device": used_device,
+            "cellprob_threshold": _none_or_float(cellprob_threshold),
+            "flow_threshold": _none_or_float(flow_threshold),
+            "niter": _none_or_int(niter),
+            "diameter": _none_or_float(diameter),
+        }
+    else:
+        raise ValueError(f"unknown detection method {method!r}; have 'accurate' and 'fast'")
     if scale != 1.0:
         masks = _resize_nearest(masks, (ny, nx))
     raw_masks = np.asarray(masks, dtype=np.int32)
@@ -497,15 +534,7 @@ def segment_position(
             "max_area_px": _none_or_int(max_area_px),
         },
         "border_filter": {"border_margin_px": _none_or_int(border_margin_px)},
-        "cellpose_params": {
-            "requested_gpu": bool(gpu),
-            "used_gpu": bool(used_gpu),
-            "device": used_device,
-            "cellprob_threshold": _none_or_float(cellprob_threshold),
-            "flow_threshold": _none_or_float(flow_threshold),
-            "niter": _none_or_int(niter),
-            "diameter": _none_or_float(diameter),
-        },
+        "detector_params": detector_params,
         "segmentation_resize": {
             "binning": _none_or_int(segmentation_binning),
             "scale": float(scale),
@@ -513,6 +542,75 @@ def segment_position(
         },
         "image_size_px": [int(nx), int(ny)],
     }
+
+
+def watershed_masks(plane, *, diameter_px: float, threshold: float):
+    """Nuclei in one plane the way QuPath's cell detection finds them.
+
+    A port of ``WatershedCellDetection`` (Bankhead et al. 2017), label image
+    out: the background is estimated by opening by reconstruction and taken
+    off; a Gaussian blur and a 3 x 3 Laplacian make the blob response; the
+    response's zero crossing is the foreground and its regional maxima seed a
+    watershed on it; regions whose mean on the background-subtracted plane
+    is under ``threshold`` (counts) are dropped; what is left is filled and
+    split again on its distance transform, so touching nuclei part; and
+    objects outside the area range go. QuPath's micrometre defaults (8 um
+    background radius, 1.5 um sigma, 10 and 400 um^2 areas, for nuclei of
+    about 8-10 um) are taken as ratios of the one size the operator gives:
+    background radius D, sigma D / 8, areas A / 8 and 5 A with A the disc of
+    diameter D. Only scipy and scikit-image, imported here so a Cellpose run
+    never pays for them.
+
+    Returns the int32 label image and the parameters as used, in pixels.
+    """
+    import numpy as np
+    from scipy import ndimage
+    from skimage import filters, measure, morphology, segmentation
+
+    f = np.asarray(plane, dtype=np.float32)
+    d = max(float(diameter_px), 2.0)
+    radius = max(int(round(d)), 1)
+    sigma = max(d / 8.0, 0.5)
+    disc = np.pi * (d / 2.0) ** 2
+    min_area = max(int(round(disc / 8.0)), 1)
+    max_area = max(int(round(disc * 5.0)), min_area + 1)
+    used = {
+        "threshold": float(threshold),
+        "sigma_px": float(sigma),
+        "background_radius_px": int(radius),
+        "min_area_px": int(min_area),
+        "max_area_px": int(max_area),
+        "split_by_shape": True,
+    }
+
+    eroded = morphology.erosion(f, morphology.disk(radius, decomposition="sequence"))
+    background = morphology.reconstruction(eroded, f, method="dilation")
+    subtracted = f - background
+    blurred = filters.gaussian(subtracted, sigma=sigma, preserve_range=True)
+    response = ndimage.convolve(
+        blurred, np.array([[0, -1, 0], [-1, 4, -1], [0, -1, 0]], dtype=np.float32)
+    )
+    above = response > 0
+    seeds = measure.label(morphology.local_maxima(response) & above, connectivity=1)
+    regions = segmentation.watershed(-response, seeds, mask=above, connectivity=1)
+    labels = np.arange(1, int(regions.max()) + 1)
+    if labels.size == 0:
+        return np.zeros(f.shape, dtype=np.int32), used
+    means = np.asarray(ndimage.mean(subtracted, regions, labels))
+    kept = np.isin(regions, labels[means > threshold])
+    kept = ndimage.binary_dilation(kept, structure=np.ones((3, 3), dtype=bool)) & above
+    kept = ndimage.binary_fill_holes(kept)
+    distance = ndimage.distance_transform_edt(kept)
+    peaks = measure.label(morphology.h_maxima(distance, 0.5) & kept, connectivity=1)
+    split = segmentation.watershed(-distance, peaks, mask=kept, watershed_line=True)
+    objects = np.arange(1, int(split.max()) + 1)
+    if objects.size:
+        means = np.asarray(ndimage.mean(subtracted, split, objects))
+        split = np.where(np.isin(split, objects[means >= threshold]), split, 0)
+    masks, _ = filter_masks_by_area(
+        np.asarray(split, dtype=np.int32), min_area_px=min_area, max_area_px=max_area
+    )
+    return np.asarray(masks, dtype=np.int32), used
 
 
 def _get_cellpose_model(state, *, requested_gpu: bool, verbose: int, log_prefix: str):

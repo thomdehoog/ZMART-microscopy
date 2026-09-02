@@ -8,6 +8,8 @@ metadata:
 
 object_detection:
   - detect_objects:
+      method: accurate   # accurate = Cellpose; fast = QuPath-style watershed
+      threshold: 100     # fast only: a nucleus's mean above background, in counts
       channels: null
       channel_axis: null
       cellprob_threshold: 0.0

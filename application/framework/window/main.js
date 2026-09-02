@@ -158,9 +158,10 @@ let stageWatch = null;
   // tile, then applied to the rest
   function newDetect() {
     return {
-      algo: "cellpose",
+      algo: "accurate",  // how objects are found: accurate (Cellpose) | fast (watershed)
       diameter: 30,
       cellprob: 0,
+      threshold: 100,  // fast only: a nucleus's mean above background, in counts
       border: 0,       // µm from the field's edge inside which a cell is dropped
       binning: 1,      // segment on a copy this many times smaller each side
       maskShow: "fill", // how the test view wears the masks: fill | line | off
@@ -1135,23 +1136,33 @@ let stageWatch = null;
       pad.className = "side-pad-around";
       host.append(pad);
 
+      /* What the scan will do, as labelled rows: how many positions, how
+         wide each frame, and how the focus is found at each. */
       const { group, body } = sideGroup("Scan summary");
-      const line = (text) => {
-        const row = document.createElement("div");
-        row.className = "side-note";
-        row.textContent = text;
-        body.append(row);
+      const summary = document.createElement("div");
+      summary.className = "scan-summary";
+      const row = (label, value) => {
+        const key = document.createElement("div");
+        key.className = "k";
+        key.textContent = label;
+        const val = document.createElement("div");
+        val.className = "v";
+        val.textContent = value;
+        summary.append(key, val);
       };
-      line(`${state.plan.length} positions to image`);
+      row("Positions", String(state.plan.length));
+      const frameUm = state.plan[0]?.frameUm;
+      if (frameUm) row("Frame", `${Math.round(frameUm)} µm`);
       const measured = state.focus.applied && state.focus.strategy === "plane";
-      line(measured
-        ? `focus follows the measured map · rms ${state.focus.residual.toFixed(1)} µm`
-        : "focus found at every position — no map measured");
+      row("Focus", measured
+        ? `measured map · rms ${state.focus.residual.toFixed(1)} µm`
+        : "found at every position");
+      body.append(summary);
       pad.append(group);
 
       // and the press that starts it, at the end of what it acts on
       const action = document.createElement("div");
-      action.className = "scan-action";
+      action.className = "scan-action side-act";
       pad.append(action);
       renderActionBar();
     },

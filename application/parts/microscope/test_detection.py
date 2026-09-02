@@ -47,6 +47,16 @@ def test_the_settings_reach_the_detector_in_its_own_units():
     )
     assert given["diameter"] == 7.5
     assert given["cellprob_threshold"] == -1.0
+    # How the objects are found rides along in the step's own word, and the
+    # fast way's threshold only with it.
+    assert given["method"] == "accurate"
+    assert "threshold" not in given
+    fast = detection.what_was_captured(
+        _record(), field=0, pixel_um=4.0,
+        settings={"method": "fast", "diameter": 30.0, "threshold": 250},
+    )
+    assert fast["method"] == "fast"
+    assert fast["threshold"] == 250.0
 
 
 def test_detection_reads_the_first_channel_the_capture_has():
@@ -108,7 +118,7 @@ def test_through_runs_the_object_pipeline_once_per_field():
             # table under the pipeline's name and the detection step's own
             # record beside it (its arrays stripped, its device kept).
             return {
-                "detect_objects": {"cellpose_params": {"device": "cuda", "used_gpu": True}},
+                "detect_objects": {"detector_params": {"device": "cuda", "used_gpu": True}},
                 "object_analysis": {"objects": {"n_objects": 1, "properties": {
                     "object_id": ["overview_r000_c000_obj0001"], "label": [7],
                     "stage_x_um": [1.0], "stage_y_um": [2.0], "area": [4], "intensity_mean": [9.0],
