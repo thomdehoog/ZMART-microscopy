@@ -295,7 +295,11 @@ function drawFocusLayer(ctx, toScreen, scale, w, h) {
       ctx.rect(tx, ty, sz, sz);
     });
     ctx.clip();
-    ctx.globalAlpha = 0.82;
+    /* Translucent so the focus stacks under it show through -- and solid
+       again the moment the picture is switched off, since then there is
+       nothing under it to show and a see-through map reads as a faded one. */
+    const pictureShown = stage.layerShown?.("picture") ?? true;
+    ctx.globalAlpha = pictureShown ? 0.82 : 1;
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = "high";
     ctx.drawImage(fieldCv, sx0, sy0, sw, sh);

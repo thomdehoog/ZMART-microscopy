@@ -1828,6 +1828,9 @@ let stageWatch = null;
        the tab row can offer the tab exactly while there is something to
        show under it. */
     displayHost: () => theCanvas.display,
+    /* The picture's own switch, through the canvas's layer flag: every layer
+       that asks whether the picture is showing reads that flag. */
+    showPicture: (on) => stage.showLayer("picture", on),
     /* Only the tab row and the column: rendering every panel from here
        reaches the picture, which mounts the settings again, which says so
        again -- a loop that never let the page settle. */
@@ -1923,6 +1926,7 @@ let stageWatch = null;
     groundWindows: () => stage.groundWindows(),
     layers: () => stage.layers(),
     showLayer: (key, on) => stage.showLayer(key, on),
+    layerShown: (key) => stage.layerShown(key),
     fadeTo: (value) => stage.fadeTo(value),
     plan: () => stage.plan(),
     targets: () => stage.targets(),

@@ -1482,3 +1482,78 @@ test("Step 8 interruption: an acquisition stopped by hand accounts for exactly w
     await bridge.stop();
   }
 });
+
+test("Step 4: the picture's own box is the switch the focus map reads", async ({ page }) => {
+  /* The box in the display settings used to reach the engine directly, past
+     the flag the layers above the picture read: the focus map kept drawing
+     itself translucent over a picture that was no longer there. One switch,
+     whichever way it is thrown -- and the map goes solid when it is off. */
+  test.setTimeout(A_WHOLE_RUN);
+  const port = PORT + 6;
+  const bridge = await startTheBridge({ port });
+  try {
+    await page.goto(PAGE === "built"
+      ? `http://127.0.0.1:${port}/`
+      : `/?bridge=${encodeURIComponent(`http://127.0.0.1:${port}`)}`);
+    await page.locator(".session-foot button.run").click();
+    await expect(page.locator('.step.done:has-text("Connect")')).toBeVisible({ timeout: 60_000 });
+    await expect(page.locator(".check-row.pending")).toHaveCount(0);
+    await gotoStep(page, "Define Carrier");
+    await page.locator(".carrier-type[data-type='slide']").click();
+    await page.waitForTimeout(600);
+    await gotoStep(page, "Define scan area");
+    await recordSlot(page, "sf-preset", "overview");
+    await page.locator(".sf-apply-grid").click();
+    await page.waitForTimeout(800);
+    await gotoStep(page, "Focus strategy");
+    await recordSlot(page, "focus-preset", "af");
+    await page.locator("#fp-place").click();
+    await page.waitForTimeout(400);
+    await page.locator(".panel.on button.step-run").click();
+    await expect(page.locator(".panel.on button.step-run")).toHaveText("Run again", { timeout: 600_000 });
+    await expect.poll(() => rowsOfGroup(page, "focussing").then((rows) => rows.length), { timeout: 60_000 }).toBe(1);
+    await rest(1500);
+
+    /* The map as drawn, read off the drawn layers at every field of the plan
+       and a third of a pitch past each: the whole slide is on screen, so the
+       map is a few pixels across and its marks fall where they fall. The
+       layers are drawn over the carrier's own outline, so it is the colours
+       that say how solid the surface was laid, not the alpha. */
+    const coloursOverTheMap = () => page.evaluate(() => {
+      const plan = window.__theStageCanvas.plan();
+      const pitch = Math.abs(plan[1].x - plan[0].x) || 1;
+      const drawnAt = (wx, wy) => {
+        const at = window.__theStageCanvas.project(wx, wy);
+        const [x, y] = Array.isArray(at) ? at : [at.x, at.y];
+        return [...document.querySelectorAll("#stage-canvas canvas")]
+          .map((canvas) => {
+            const ctx = canvas.getContext("2d");
+            if (!ctx) return null;
+            const px = (canvas.width / canvas.clientWidth) || 1;
+            return [...ctx.getImageData(Math.round(x * px), Math.round(y * px), 1, 1).data];
+          })
+          .filter((rgba) => rgba && rgba[3] > 0)
+          .at(-1) ?? null;
+      };
+      return plan.flatMap((field) => [drawnAt(field.x, field.y), drawnAt(field.x + pitch / 3, field.y + pitch / 3)]);
+    });
+    const shown = () => page.evaluate(() => window.__theStageCanvas.layerShown("picture"));
+
+    await showDisplaySettings(page);
+    const box = page.locator("#draw-the-picture");
+    await expect(box).toBeChecked();
+    expect(await shown()).toBe(true);
+    const seeThrough = await coloursOverTheMap();
+    expect(seeThrough.filter(Boolean).length, "the map is drawn over the plan").toBeGreaterThan(0);
+
+    await box.click();
+    await expect.poll(shown, "the layers read the picture as off").toBe(false);
+    await expect.poll(coloursOverTheMap, "without the picture the surface is laid solid: the map changes colour").not.toEqual(seeThrough);
+
+    await box.click();
+    await expect.poll(shown).toBe(true);
+    await expect.poll(coloursOverTheMap, "and is see-through again with it").toEqual(seeThrough);
+  } finally {
+    await bridge.stop();
+  }
+});

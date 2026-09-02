@@ -810,6 +810,11 @@ window.__theStageCanvas = {
    */
   showLayer(key, on) {
     theCanvas.showLayer(key, on);
+    drawStage();
+  },
+  /** Whether the named layer is being drawn, the picture included. */
+  layerShown(key) {
+    return theCanvas.layerShown?.(key) ?? true;
   },
   /** How solid the layers are drawn, 0 to 1. */
   fadeTo(howSolid) {
@@ -1155,7 +1160,8 @@ ctx.fitButton.addEventListener("click", () => {
     groundWindows: () => theCanvas.windows(),
     layers: () => theCanvas.layersAbove.map(({ key, label, shown, staysSolid }) =>
       ({ key, label, shown, staysSolid: !!staysSolid })),
-    showLayer(key, on) { theCanvas.showLayer(key, on); },
+    showLayer(key, on) { theCanvas.showLayer(key, on); drawStage(); },
+    layerShown: (key) => theCanvas.layerShown?.(key) ?? true,
     fadeTo(value) { theCanvas.fadeTo(value); },
   };
 }

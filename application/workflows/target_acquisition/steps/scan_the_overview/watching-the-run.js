@@ -206,6 +206,7 @@ export function watchTheRun(ctx) {
             viewer, acquisitions: wanted.acquisitions, css: ctx.css,
             requestedState: requestedPanelState,
             into: ctx.displayHost?.() ?? null,
+            showPicture: ctx.showPicture ?? null,
           });
         }
         ctx.displayChanged?.();
