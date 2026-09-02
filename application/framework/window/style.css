@@ -539,8 +539,8 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
    under the list — the plot and the three presses about one point — is what
    the list is for. */
 .side-group-body > .point-list {
-  /* four rows on screen; the pictures below gave back the height */
-  max-height: 124px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);
+  /* three rows on screen; the rest scroll under them */
+  max-height: 88px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);
 }
 
 /* A row of its own rather than the scan fields' row reused: the button is the
@@ -608,6 +608,10 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
    the template. */
 .fp-one { display: grid; grid-template-columns: 110px minmax(0, 1fr) minmax(0, 1fr); gap: 12px; align-items: stretch; }
 .fp-tools2 { display: flex; gap: 3px; }
+/* The two words over the row, on its own columns: "Manual" over the hand
+   tools, "Automatic" over both counts and their presses. */
+.fp-heads { align-items: end; margin-bottom: 4px; }
+.fp-heads .fp-head-auto { grid-column: 2 / -1; }
 .fp-tools2 .sf-tool { height: var(--control); width: var(--control); }
 /* Two presses each since Refine and Accept went; the rows stay even. */
 .ft-acts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -1553,6 +1557,9 @@ canvas.livecv[hidden] { display: none; }
    here the tab is the fold and the column is the width. */
 .display-side > .viewer-panel { width: 100%; height: 100%; }
 .display-side > .viewer-panel > div { width: 100% !important; }
+/* In the column the panel wears the page's boxes: its rows keep their own
+   inset, so the box holds them without a second one. */
+.display-side .viewer-panel .side-group-body { padding: 6px 2px; gap: 0; }
 /* Two tabs at the end of the row, over the one column they switch. */
 .side-tab { gap: 2px; }
 /* The channel's edge, made draggable. It sits over the channel's own border
@@ -1714,7 +1721,8 @@ canvas.livecv[hidden] { display: none; }
 .side-sub:not(:first-child) { margin-top: 12px; }
 /* The tileset box's two sections stand as close as the focus box's do: the
    body's own gap is most of the air, and the shared margin doubled it. */
-.side-sub.sf-sub:not(:first-child) { margin-top: 2px; }
+/* Each word stands clear of the part before it, and close to its own. */
+.side-sub.sf-sub:not(:first-child) { margin-top: 8px; }
 /* A heading that also carries a count puts it at the far end of its own line.
    In the amber the rest of the page warns in, and in the page's own type
    rather than the heading's small caps: it is a sentence about the list, not
@@ -1788,8 +1796,6 @@ canvas.livecv[hidden] { display: none; }
 .sf-auto {
   display: grid; grid-template-columns: minmax(0, 1fr) 74px; gap: 8px;
   align-items: stretch;
-  /* a breath between the hand's tools and the grid, now no heading holds it */
-  margin-top: 6px;
 }
 /* The button's lane: a blank label, then the button taking everything under
    it, so it starts level with the boxes and ends level with them. */
@@ -2018,5 +2024,12 @@ canvas.livecv[hidden] { display: none; }
 /* The step's own press at the top of its channel: the button and its
    sentence in one quiet row, gone entirely when the renderer left it empty. */
 .side-act { display: flex; align-items: center; gap: 10px; }
+/* The scan summary: a label and its value to a row, the labels one column. */
+.scan-summary {
+  display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; align-items: baseline;
+  font-family: var(--mono); font-size: 12px; font-variant-numeric: tabular-nums;
+}
+.scan-summary .k { color: var(--ink-3); }
+.scan-summary .v { color: var(--ink-1); }
 .side-act:empty { display: none; }
 .side-act .action-hint { font-size: 12px; }

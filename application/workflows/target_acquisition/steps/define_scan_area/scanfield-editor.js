@@ -575,12 +575,11 @@ export default {
     const { group: layoutBox, body: layout } = sideGroup("Create tilesets");
     controls.append(layoutBox);
 
-    /* How much of one frame the next covers. A box of its own, under the one
-       that lays tilesets down, because it is not part of laying any single
-       one: it is the figure every tileset already down is re-covered at, so
-       it belongs beside them rather than in the middle of the tools that make
-       them. Built here, next to the field it drives, and put in its box at
-       the end where that box is made. */
+    /* How much of one frame the next covers. The card's last part, under the
+       tools that lay tilesets down, because it is not part of laying any
+       single one: it is the figure every tileset already down is re-covered
+       at. Built here, next to the field it drives, and put in its place at
+       the end where the card is finished. */
     const overlapRow = el("div", "sf-overlap");
     const overlapNum = el("div", "sf-num");
     const overlapIn = document.createElement("input");
@@ -631,10 +630,15 @@ export default {
       redraw();
     });
 
-    /* One labelled number here; the press that empties the plan lives at
+    /* One labelled number, in the same clothes as the rows and columns above
+       it and in their left column; the press that empties the plan lives at
        the end of the tool row, beside the tools that fill it. */
-    overlapRow.append(el("div", "side-sub", "Tile overlap (%)"), overlapNum);
+    overlapNum.prepend(el("span", "sf-num-label", "TILE OVERLAP (%)"));
+    overlapRow.append(overlapNum);
 
+    /* The two ways of laying tilesets, each under its word: by hand with
+       the tools, or so many rows and columns to a compartment. */
+    layout.append(el("div", "side-sub sf-sub", "Manual"));
     const toolRow = el("div", "sf-tools");
     for (const t of TOOLS) {
       const b = el("button", "sf-tool");
@@ -673,6 +677,7 @@ export default {
     spacer.setAttribute("aria-hidden", "true");
     gridLane.append(spacer);
     gridRow.append(gridPair, gridLane);
+    layout.append(el("div", "side-sub sf-sub", "Automatic"));
     layout.append(gridRow);
     const num = (label, get, set, min) => {
       const wrap = el("div", "sf-num");
@@ -791,10 +796,8 @@ export default {
     keysBox.append(keysHead, keysBody);
     /* Below the tilesets, because it is read after the tiles are down rather
        than before: the overlap every tileset is re-covered at, and under it
-       the shortcuts, folded away. */
-    const { group: placementBox, body: placement } = sideGroup("Tileset placement");
-    placement.append(overlapRow, keysBox);
-    controls.append(placementBox);
+       the shortcuts, folded away -- in the same card, the last of its parts. */
+    layout.append(el("div", "side-sub sf-sub", "Tile placement"), overlapRow, keysBox);
 
     const readout = el("div", "sf-readout");
     card.append(readout);
@@ -860,7 +863,6 @@ export default {
          is a fraction of a frame, and there is no frame until an optical
          configuration says how wide one is. */
       layoutBox.hidden = !ed.preset;
-      placementBox.hidden = !ed.preset;
       /* Everything is dead while the step is locked, except the recording
          itself: it is what the lock is waiting for when there is no preset
          yet, and the framework decides on its own whether it may be touched once

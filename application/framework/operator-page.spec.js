@@ -547,8 +547,8 @@ test("the canvas is always on the stage, and the channel follows the step",
        starts it — no boxes to choose from. */
     await expect(page.locator("#canvas-side .side-group-title"))
       .toHaveText(["Scan summary"]);
-    await expect(page.locator("#canvas-side .side-note").first())
-      .toContainText("positions to image");
+    await expect(page.locator("#canvas-side .scan-summary .k").first()).toHaveText("Positions");
+    await expect(page.locator("#canvas-side .scan-summary .v").first()).toHaveText(/^\d+$/);
     await expect(page.locator(".panel.on button.step-run")).toHaveText("Start");
     // walking back to the carrier brings its controls back, and they still
     // work: saying the plate is a different plate is a thing operators do, and
@@ -746,10 +746,10 @@ test("the tools and the grid are on screen together, over what the grid laid",
     await expect(page.locator(".sf-apply-grid")).toBeVisible();
     await expect(page.locator(".side-group:has(.sf-tools) .sf-apply-grid"),
       "one box holding both ways of doing it").toHaveCount(1);
-    /* The two ways of laying a tileset, and nothing else: how they are placed
-       once they are down has a box of its own below this one. */
+    /* One card, its parts each under a word: the two ways of laying a
+       tileset, and how they are placed once they are down. */
     await expect(page.locator(".side-group:has(#sf-overlap) .side-sub"))
-      .toHaveText(["Tile overlap (%)"]);
+      .toHaveText(["Manual", "Automatic", "Tile placement", "Tile overlap (%)"]);
     await expect(page.locator(".sf-readout")).toContainText("864 positions");
 
     /* What the grid put down is still a set of fields, so it can be picked,
