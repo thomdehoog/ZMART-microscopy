@@ -21,7 +21,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from contrast import display_window
+from contrast import display_window, measure
 from server import make_server
 from stores import (
     channel_color,
@@ -229,9 +229,13 @@ def test_all_zero_volume_does_not_crash_and_stays_visible(tmp_path):
     of pixels.
     """
     store = write_store(tmp_path / "z.ome.zarr", np.zeros((4, 8, 8), dtype=np.uint16))
-    low, high = display_window(store)
-    assert high > low                                   # a usable ramp, not a blank one
-    assert (low, high) == (0.0, 65535.0)
+    # Nothing written is no window at all -- not the camera's whole range,
+    # which on screen could not be told from a window somebody chose. The
+    # page shows such a channel as waiting, and it is measured again on the
+    # next look, which is what the docstring above asks for.
+    assert display_window(store) is None
+    told = measure(store)
+    assert told["window"] is None and told["measurementState"] == "waiting"
 
 
 def test_uniform_volume_falls_back_to_a_one_count_window(tmp_path):
@@ -248,11 +252,12 @@ def test_omero_window_is_honoured_for_the_plane_and_ignored_for_the_volume(tmp_p
     assert vlow < vhigh
 
 
-def test_missing_or_broken_store_returns_the_full_range(tmp_path):
-    assert display_window(tmp_path / "does-not-exist.zarr") == (0.0, 65535.0)
+def test_missing_or_broken_store_has_no_window_and_says_why(tmp_path):
+    assert display_window(tmp_path / "does-not-exist.zarr") is None
     broken = tmp_path / "broken.zarr"; broken.mkdir()
     (broken / ".zattrs").write_text("{ not json", encoding="utf-8")
-    assert display_window(broken) == (0.0, 65535.0)
+    assert display_window(broken) is None
+    assert measure(broken)["measurementState"] == "unreadable"
 
 
 def test_one_hot_pixel_does_not_crush_the_window(tmp_path):
