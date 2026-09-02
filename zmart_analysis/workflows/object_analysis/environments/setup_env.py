@@ -44,6 +44,7 @@ STEP_PROFILES = {
             "ngio",          # OME-Zarr, NGFF 0.4 and 0.5
             "ome-types",     # OME-XML metadata
             "cellpose",
+            "scikit-image>=0.23",   # the fast detector's watershed
         ],
         "diagnostics": [
             (

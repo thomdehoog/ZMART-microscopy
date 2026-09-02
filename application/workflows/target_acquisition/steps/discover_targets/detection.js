@@ -12,14 +12,18 @@
  */
 
 /** The algorithms this page offers, and what their settings mean. */
-/* One, for now. A plain brightness threshold was offered beside it and is
-   parked rather than deleted — the row that chose between the two comes back
-   the day a second is wanted. A picker with one option in it is a control
-   that cannot be used. */
+/* The two ways of finding objects, in the operator's words. Accurate is
+   Cellpose: a model, about a minute a field on the card and ten on the CPU.
+   Fast is what QuPath's cell detection does -- background off, a blob
+   response, a watershed -- a second or two a field with no model to load. */
 export const ALGOS = {
-  cellpose: {
-    label: "Cellpose",
-    blurb: "Diameter is the size it looks for; cell probability is how sure it has to be.",
+  accurate: {
+    label: "Accurate",
+    blurb: "Cellpose. Diameter is the size it looks for; cell probability is how sure it has to be.",
+  },
+  fast: {
+    label: "Fast",
+    blurb: "Watershed, as QuPath does it. Diameter sets its scale; threshold is how bright a nucleus must be above the background, in counts.",
   },
 };
 
@@ -28,7 +32,8 @@ export const ALGOS = {
  * nothing the page keeps for its own bookkeeping.
  */
 export const settingsFor = (settings) => ({
-  diameter: settings.diameter, cellprob: settings.cellprob,
+  method: settings.algo, diameter: settings.diameter,
+  cellprob: settings.cellprob, threshold: settings.threshold,
   border: settings.border, binning: settings.binning,
 });
 
@@ -87,6 +92,28 @@ export default {
     /* One box carries the whole act of looking: the image being judged,
        the settings that produced it, and the presses that try them -- the
        operator tunes and looks in one place instead of two cards apart. */
+    /* Which way the objects are found, above the card that tries it: a
+       choice of two, and a line saying what each asks of the settings. */
+    const method = sideGroup("Detection method");
+    const methodPick = document.createElement("select");
+    methodPick.id = "detect-method";
+    methodPick.setAttribute("aria-label", "how the objects are found");
+    for (const [key, algo] of Object.entries(ALGOS)) {
+      const option = document.createElement("option");
+      option.value = key;
+      option.textContent = algo.label;
+      methodPick.append(option);
+    }
+    methodPick.addEventListener("change", () => {
+      const settings = ctx.settings();
+      settings.algo = methodPick.value;
+      settings.tested = false;
+      refresh();
+    });
+    const methodNote = document.createElement("div");
+    methodNote.className = "side-note";
+    method.body.append(methodPick, methodNote);
+
     const test = sideGroup("Test object detection");
     const params = document.createElement("div");
     params.className = "detect-params";
@@ -199,7 +226,7 @@ export default {
     countLine.id = "detect-count";
     progress.body.append(doingLine, countLine);
 
-    side.append(test.group, progress.group);
+    side.append(method.group, test.group, progress.group);
     host.append(side);
 
     /* The picture of the field being looked at, drawn when it arrives. The
@@ -355,6 +382,10 @@ export default {
       }
       greyBtn.setAttribute("aria-pressed", String(Boolean(settings.imageGrey)));
       alpha.value = String(Math.round((settings.maskAlpha ?? 1) * 100));
+      const fast = settings.algo === "fast";
+      methodPick.value = settings.algo;
+      methodNote.textContent = ALGOS[settings.algo]?.blurb ?? "";
+      cellposeHead.textContent = fast ? "Watershed segmentation" : "Cellpose segmentation";
 
       params.textContent = "";
       const number = (label, key, min, max, step, unit) => {
@@ -375,7 +406,10 @@ export default {
       };
 
       number("Diameter", "diameter", 4, 200, 1, "µm");
-      number("Cell prob.", "cellprob", -6, 6, 0.5, "");
+      /* What each method is sure by: Cellpose its probability, the
+         watershed a brightness above the background. */
+      if (fast) number("Threshold", "threshold", 0, 65535, 10, "");
+      else number("Cell prob.", "cellprob", -6, 6, 0.5, "");
       /* A cell nearer the field's edge than this is dropped: a clipped cell
          measures as a smaller, dimmer thing that it is not. Zero keeps
          everything, edges included. */

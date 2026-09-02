@@ -162,7 +162,7 @@ def _detection(masks):
         "dropped_labels": [],
         "area_filter": {},
         "border_filter": {"border_margin_px": None},
-        "cellpose_params": {},
+        "detector_params": {},
         "segmentation_params": {},
         "segmentation_params_hash": "0" * 8,
         "segmentation_resize": None,
