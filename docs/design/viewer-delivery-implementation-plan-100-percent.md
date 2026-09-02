@@ -231,3 +231,27 @@ They are the first things to do on the microscope PC.
 A Viewer that is not updated is refused at start with a sentence that says
 so, and the run proceeds without the live canvas rather than with a black
 one. The vendor files and the position stores are written either way.
+
+## Tests at the final commits
+
+Microscopy `4b0795b6`, Viewer `7a38079`. Linux container, software
+rendering, Chromium at `/opt/pw-browsers/chromium-1194`.
+
+| Suite | Result |
+|---|---|
+| microscopy `application/parts`, `application/framework`, `application/workflows`, `zmart_storage/tests`, `zmart_live/tests` | 1021 passed, 9 skipped, 0 failed |
+| microscopy `vitest` | 28 files, 393 passed, 15 skipped |
+| microscopy `viz_studio/tests/test_a_plane_is_sampled_at_its_centre.py`, `test_a_foreign_run_can_be_measured.py`, real browser | 7 passed, 2 xfailed (strict; both named above) |
+| microscopy `viz_studio/tests/test_the_options_hold_together.py`, real browser | 42 passed, 5 failed, 1 skipped — the five pre-existing failures named above, unchanged |
+| Viewer full `tests/`, page built, real browser, `ZMART_REQUIRE_BROWSER=1`, `--timeout=300`, `tests/test_a_commit_storm_under_zooming.py` deselected | 907 passed, 3 skipped, 3 deselected, 2 xfailed, 0 failed, in 39 minutes |
+
+The storm file is deselected because
+`test_a_slow_or_transient_refresh_reaches_confirmation_after_quiet` hung
+without output under software rendering with another browser suite on the
+same CPU, before any of this work, and pytest-timeout is the only thing that
+made a full run finish. Whether it passes on a machine with a graphics card
+is unknown from here.
+
+Not run: the microscopy Playwright walks (they need a dev server and a
+bridge), the driver hardware suites, anything on Windows, and anything on
+the microscope PC.
