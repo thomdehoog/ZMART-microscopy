@@ -993,6 +993,9 @@ test("walking back to the carrier takes the plan off the canvas, and keeps it",
 
 test("the plan stays editable until the overview has been scanned",
   async ({ page }) => {
+    /* Two rehearsed runs, a focus map and a scan, in one test: it runs right
+       at the ordinary budget on a loaded machine, so it is given more. */
+    test.slow();
     await throughFields(page);
     await placeFocusPoints(page);
     await runStep(page, 1600);
