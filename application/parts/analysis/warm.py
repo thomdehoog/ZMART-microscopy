@@ -102,9 +102,15 @@ class Analysis:
             time.sleep(_LOOK_EVERY_S)
 
     def shutdown(self) -> None:
-        """Stop the workers. The next :meth:`run` starts them again."""
+        """Put the workers down now. The next :meth:`run` starts them again.
+
+        Without waiting, on purpose: this is the hand that stops a field in
+        flight, and an engine that first waited for its threads waited for
+        the field. A :meth:`run` in progress raises, which is the answer the
+        hand wanted.
+        """
         if self._engine is not None:
-            self._engine.shutdown()
+            self._engine.shutdown(wait=False)
         self._engine = None
         self._registered.clear()
 

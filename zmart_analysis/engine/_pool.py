@@ -102,8 +102,8 @@ class _EnvPool:
             logger.info("EnvPool(%s): reaped %d idle worker(s)",
                         env_label, len(to_shutdown))
 
-    def shutdown_all(self):
-        """Shut down all workers in this pool."""
+    def shutdown_all(self, now=False):
+        """Shut down all workers in this pool; with ``now``, at once."""
         with self._lock:
             self._closed = True
             all_workers = self._idle + self._busy
@@ -111,7 +111,7 @@ class _EnvPool:
             self._busy.clear()
 
         for worker in all_workers:
-            worker.shutdown()
+            worker.shutdown(now=now)
 
     @property
     def status(self):
@@ -239,8 +239,12 @@ class WorkerPool:
                 workers.extend(pool.status)
         return {"workers": workers}
 
-    def shutdown_all(self):
-        """Shut down all workers and stop background threads."""
+    def shutdown_all(self, now=False):
+        """Shut down all workers and stop background threads.
+
+        With ``now`` every worker is put down at once, busy or not: the
+        operator's Interrupt, which must reach a step in flight.
+        """
         self._shutdown_event.set()
 
         with self._pool_lock:
@@ -249,9 +253,9 @@ class WorkerPool:
             n = len(pools)
 
         if n:
-            logger.info("Pool: shutting down %d env pool(s)", n)
+            logger.info("Pool: shutting down %d env pool(s) (now=%s)", n, now)
         for pool in pools:
-            pool.shutdown_all()
+            pool.shutdown_all(now=now)
 
         logger.debug("Pool: shutdown complete")
 

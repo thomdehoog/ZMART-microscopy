@@ -1,11 +1,11 @@
 {
   "schemaVersion": 1,
-  "capturedAtUtc": "2026-09-02T12:36:37.288Z",
+  "capturedAtUtc": "2026-09-02T14:43:34.570Z",
   "provenance": {
     "microscopy": {
       "repository": "thomdehoog/ZMART-microscopy",
       "branch": "claude/smart-operator-workflow-review-ehw3c5",
-      "commit": "1c0484880f013bde1267750549c5ec6b1d47ec6e",
+      "commit": "d6b1fde99a0f2b1e7431eb7899ed07c2a29b9000",
       "worktreeClean": false
     },
     "smartViewer": {
@@ -28,7 +28,7 @@
         "file": "step1-connected.png",
         "width": 1440,
         "height": 900,
-        "sha256": "a3958bc65d6a97b7bac054f2865557f20bd413ded7e44794732b073aeb8172f6"
+        "sha256": "5ff5dc167f56ef786acade658a23c12d9d1d8788ad17f2e74eba541465b3a39d"
       }
     },
     {
@@ -76,14 +76,14 @@
       }
     },
     {
-      "name": "step8-interrupted-after-5-of-12",
+      "name": "step8-interrupted-after-4-of-12",
       "step": 8,
-      "state": "acquisition interrupted by hand after 5 of 12 pairs; page, bridge, Viewer and disk agree on 5",
+      "state": "acquisition interrupted by hand after 4 of 12 pairs; page, bridge, Viewer and disk agree on 4",
       "file": {
-        "file": "step8-interrupted-after-5-of-12.png",
+        "file": "step8-interrupted-after-4-of-12.png",
         "width": 1440,
         "height": 900,
-        "sha256": "8d1a290e44fc617f8635414041fd9f77a55c166b15e59e16f89807af0656bfd8"
+        "sha256": "7eedca7fa90252554ff89a7451911be306d55c36389a719e8d9cd9214ea932c3"
       }
     },
     {
@@ -94,7 +94,7 @@
         "file": "step8-run-again-after-interruption.png",
         "width": 1440,
         "height": 900,
-        "sha256": "3ee05f9db35d8b77fa36df57d54623b7a7ec55ea63d36fdcdb02b6390971cbbd"
+        "sha256": "bf4a69412f191845be2e5045f7f2f08cc44cb0a182b8a21f6bffd8183ca4bef5"
       }
     },
     {
@@ -105,91 +105,81 @@
         "file": "step1-reconnected.png",
         "width": 1440,
         "height": 900,
-        "sha256": "a9fd73bd4045b39d3888253b894bb47ee252fd7e430cb15a6302ef25167c1ecc"
+        "sha256": "b52f666c85d8e9944d8a051103ef06018076b52a0e753d9c87a5a0334ecd65f7"
       }
     }
   ],
   "outcome": {
     "mode": "operator page, interrupted acquisition",
     "interrupted": {
-      "pressedAt": 4,
+      "pressedAt": 3,
       "scan": {
         "running": false,
         "stopped": true,
-        "done": 5,
+        "done": 4,
         "of": 12,
         "error": null,
-        "records": 5
+        "records": 4
       },
       "viewerSourcesPerChannel": [
-        5,
-        5,
-        5
+        4,
+        4,
+        4
       ],
       "engineSourcesPerRow": [
-        5,
-        5,
-        5
+        4,
+        4,
+        4
       ],
-      "storesOnDisk": 5,
+      "storesOnDisk": 4,
       "acquiredOnCanvas": [
-        "overview_r000_c000_obj00150",
-        "overview_r001_c000_obj00179",
-        "overview_r003_c000_obj00048",
-        "overview_r003_c000_obj00414",
-        "overview_r006_c000_obj00208"
+        "overview_r000_c000_obj00236",
+        "overview_r003_c000_obj00201",
+        "overview_r006_c000_obj00034",
+        "overview_r006_c000_obj00306"
       ],
-      "galleryPairs": 5,
+      "galleryPairs": 4,
       "galleryCaptions": [
-        "overview_r000_c000_obj00150 · 35.52, 10.34 mm✓✗",
-        "overview_r003_c000_obj00048 · 35.51, 11.09 mm✓✗",
-        "overview_r003_c000_obj00414 · 35.51, 11.84 mm✓✗",
-        "overview_r006_c000_obj00208 · 35.61, 12.58 mm✓✗",
-        "overview_r001_c000_obj00179 · 36.58, 10.34 mm✓✗"
+        "overview_r000_c000_obj00236 · 35.92, 10.51 mm✓✗",
+        "overview_r003_c000_obj00201 · 35.79, 11.41 mm✓✗",
+        "overview_r006_c000_obj00034 · 35.88, 12.14 mm✓✗",
+        "overview_r006_c000_obj00306 · 35.93, 12.88 mm✓✗"
       ],
       "button": "Run again",
-      "hint": "stopped by hand — 5 of 12 pairs acquired",
+      "hint": "stopped by hand — 4 of 12 pairs acquired",
       "stepDone": false,
       "stepRan": true,
-      "note": "stopped by hand — 5 of 12 pairs acquired",
+      "note": "stopped by hand — 4 of 12 pairs acquired",
       "records": [
         {
           "label": "K00_M000000_G000000_P000000_V00",
           "at": {
-            "x": 59022.779661016946,
-            "y": 38835.93220338983,
+            "x": 59422.943396226416,
+            "y": 39013.811320754714,
             "z": 15.935788988738974
           }
         },
         {
           "label": "K00_M000000_G000000_P000001_V00",
           "at": {
-            "x": 59012.63157894737,
-            "y": 39586.52631578947,
+            "x": 59290,
+            "y": 39910,
             "z": 15.935788988738974
           }
         },
         {
           "label": "K00_M000000_G000000_P000002_V00",
           "at": {
-            "x": 59013.692307692305,
-            "y": 40343.61538461538,
+            "x": 59375.74603174603,
+            "y": 40642.920634920636,
             "z": 15.935788988738974
           }
         },
         {
           "label": "K00_M000000_G000000_P000003_V00",
           "at": {
-            "x": 59108.039603960395,
-            "y": 41079.88118811881,
-            "z": 15.935788988738974
-          }
-        },
-        {
-          "label": "K00_M000000_G000000_P000004_V00",
-          "at": {
-            "x": 60080.4375,
-            "y": 38835.625,
+            "x": 59428.4126984127,
+            "y": 41381.619047619046,
             "z": 15.935788988738974
           }
         }
@@ -216,33 +206,33 @@
       ],
       "storesOnDisk": 12,
       "acquiredOnCanvas": [
-        "overview_r000_c000_obj00150",
-        "overview_r001_c000_obj00179",
-        "overview_r002_c000_obj00062",
-        "overview_r003_c000_obj00048",
-        "overview_r003_c000_obj00414",
-        "overview_r004_c000_obj00058",
-        "overview_r004_c000_obj00410",
-        "overview_r005_c000_obj00023",
-        "overview_r005_c000_obj00306",
-        "overview_r006_c000_obj00208",
-        "overview_r007_c000_obj00204",
-        "overview_r008_c000_obj00276"
+        "overview_r000_c000_obj00236",
+        "overview_r001_c000_obj00306",
+        "overview_r002_c000_obj00237",
+        "overview_r003_c000_obj00201",
+        "overview_r004_c000_obj00224",
+        "overview_r005_c000_obj00151",
+        "overview_r006_c000_obj00034",
+        "overview_r006_c000_obj00306",
+        "overview_r007_c000_obj00041",
+        "overview_r007_c000_obj00392",
+        "overview_r008_c000_obj00087",
+        "overview_r008_c000_obj00361"
       ],
       "galleryPairs": 12,
       "galleryCaptions": [
-        "overview_r000_c000_obj00150 · 35.52, 10.34 mm✓✗",
-        "overview_r003_c000_obj00048 · 35.51, 11.09 mm✓✗",
-        "overview_r003_c000_obj00414 · 35.51, 11.84 mm✓✗",
-        "overview_r006_c000_obj00208 · 35.61, 12.58 mm✓✗",
-        "overview_r001_c000_obj00179 · 36.58, 10.34 mm✓✗",
-        "overview_r004_c000_obj00058 · 36.53, 11.09 mm✓✗",
-        "overview_r004_c000_obj00410 · 36.47, 11.82 mm✓✗",
-        "overview_r007_c000_obj00204 · 36.64, 12.50 mm✓✗",
-        "overview_r002_c000_obj00062 · 37.59, 10.09 mm✓✗",
-        "overview_r005_c000_obj00023 · 37.58, 11.06 mm✓✗",
-        "overview_r005_c000_obj00306 · 37.58, 11.81 mm✓✗",
-        "overview_r008_c000_obj00276 · 37.56, 12.64 mm✓✗"
+        "overview_r000_c000_obj00236 · 35.92, 10.51 mm✓✗",
+        "overview_r003_c000_obj00201 · 35.79, 11.41 mm✓✗",
+        "overview_r006_c000_obj00034 · 35.88, 12.14 mm✓✗",
+        "overview_r006_c000_obj00306 · 35.93, 12.88 mm✓✗",
+        "overview_r001_c000_obj00306 · 36.99, 10.58 mm✓✗",
+        "overview_r004_c000_obj00224 · 36.76, 11.45 mm✓✗",
+        "overview_r007_c000_obj00041 · 36.91, 12.12 mm✓✗",
+        "overview_r007_c000_obj00392 · 36.89, 12.90 mm✓✗",
+        "overview_r002_c000_obj00237 · 37.84, 10.61 mm✓✗",
+        "overview_r005_c000_obj00151 · 37.91, 11.40 mm✓✗",
+        "overview_r008_c000_obj00087 · 37.82, 12.20 mm✓✗",
+        "overview_r008_c000_obj00361 · 37.87, 12.85 mm✓✗"
       ],
       "button": "Run again",
       "hint": "12 pairs acquired",
@@ -253,96 +243,96 @@
         {
           "label": "K00_M000000_G000000_P000000_V00",
           "at": {
-            "x": 59022.779661016946,
-            "y": 38835.93220338983,
+            "x": 59422.943396226416,
+            "y": 39013.811320754714,
             "z": 15.935788988738974
           }
         },
         {
           "label": "K00_M000000_G000000_P000001_V00",
           "at": {
-            "x": 59012.63157894737,
-            "y": 39586.52631578947,
+            "x": 59290,
+            "y": 39910,
             "z": 15.935788988738974
           }
         },
         {
           "label": "K00_M000000_G000000_P000002_V00",
           "at": {
-            "x": 59013.692307692305,
-            "y": 40343.61538461538,
+            "x": 59375.74603174603,
+            "y": 40642.920634920636,
             "z": 15.935788988738974
           }
         },
         {
           "label": "K00_M000000_G000000_P000003_V00",
           "at": {
-            "x": 59108.039603960395,
-            "y": 41079.88118811881,
+            "x": 59428.4126984127,
+            "y": 41381.619047619046,
             "z": 15.935788988738974
           }
         },
         {
           "label": "K00_M000000_G000000_P000004_V00",
           "at": {
-            "x": 60080.4375,
-            "y": 38835.625,
+            "x": 60489.12280701754,
+            "y": 39080.63157894737,
             "z": 15.935788988738974
           }
         },
         {
           "label": "K00_M000000_G000000_P000005_V00",
           "at": {
-            "x": 60030.805194805194,
-            "y": 39590.33766233766,
+            "x": 60262.71698113208,
+            "y": 39950.339622641506,
             "z": 15.935788988738974
           }
         },
         {
           "label": "K00_M000000_G000000_P000006_V00",
           "at": {
-            "x": 59969.77777777778,
-            "y": 40324.444444444445,
+            "x": 60407.04,
+            "y": 40620.90666666667,
             "z": 15.935788988738974
           }
         },
         {
           "label": "K00_M000000_G000000_P000007_V00",
           "at": {
-            "x": 60139.78571428572,
-            "y": 40995.78571428572,
+            "x": 60390.74698795181,
+            "y": 41403.90361445783,
             "z": 15.935788988738974
           }
         },
         {
           "label": "K00_M000000_G000000_P000008_V00",
           "at": {
-            "x": 61094,
-            "y": 38594,
+            "x": 61340.32258064516,
+            "y": 39105.54838709677,
             "z": 15.935788988738974
           }
         },
         {
           "label": "K00_M000000_G000000_P000009_V00",
           "at": {
-            "x": 61081.84347826087,
-            "y": 39561.80869565217,
+            "x": 61412.24778761062,
+            "y": 39899.36283185841,
             "z": 15.935788988738974
           }
         },
         {
           "label": "K00_M000000_G000000_P000010_V00",
           "at": {
-            "x": 61080.816326530614,
-            "y": 40311.142857142855,
+            "x": 61319.692307692305,
+            "y": 40702.692307692305,
             "z": 15.935788988738974
           }
         },
         {
           "label": "K00_M000000_G000000_P000011_V00",
           "at": {
-            "x": 61059.39240506329,
-            "y": 41136.962025316454,
+            "x": 61365.19298245614,
+            "y": 41354.94736842105,
             "z": 15.935788988738974
           }
         }

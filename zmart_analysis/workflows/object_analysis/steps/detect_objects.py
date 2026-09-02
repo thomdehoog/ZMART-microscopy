@@ -516,17 +516,50 @@ def segment_position(
 
 
 def _get_cellpose_model(state, *, requested_gpu: bool, verbose: int, log_prefix: str):
+    """The warm model, on the best device it can get today.
+
+    A model that fell back to the CPU is offered the accelerator again on
+    the next call: the card can be full for a moment (a worker just put
+    down still holds its memory), and a session that kept the CPU model
+    it got in that moment segmented every field ten times slower without
+    a word. Once on the card, it stays there.
+    """
     if "model" in state:
+        cached_gpu = bool(state.get("_cellpose_model_gpu", requested_gpu))
+        if requested_gpu and not cached_gpu:
+            accelerated = _load_cellpose_model(
+                state, requested_gpu=True, accelerated_only=True,
+                verbose=verbose, log_prefix=log_prefix,
+            )
+            if accelerated is not None:
+                return accelerated
         return (
             state["model"],
-            bool(state.get("_cellpose_model_gpu", requested_gpu)),
+            cached_gpu,
             state.get("_cellpose_model_device", "cuda" if requested_gpu else "cpu"),
         )
+    loaded = _load_cellpose_model(
+        state, requested_gpu=requested_gpu, accelerated_only=False,
+        verbose=verbose, log_prefix=log_prefix,
+    )
+    if loaded is None:
+        raise RuntimeError("Could not initialize CellposeModel on any device: " + state.pop("_cellpose_errors", ""))
+    return loaded
 
+
+def _load_cellpose_model(state, *, requested_gpu, accelerated_only, verbose, log_prefix):
+    """Try the devices in order; the first that loads is kept in *state*.
+
+    ``None`` when none of the tried devices would load; with
+    ``accelerated_only`` the CPU is not tried, because a CPU model is what
+    the caller already has.
+    """
     from cellpose import models
 
     errors = []
     for device_name, is_accelerated, kwargs in _cellpose_device_candidates(requested_gpu):
+        if accelerated_only and not is_accelerated:
+            continue
         try:
             if verbose >= 2:
                 print(f"  [{log_prefix}] cold start: loading CellposeModel({device_name})")
@@ -539,7 +572,8 @@ def _get_cellpose_model(state, *, requested_gpu: bool, verbose: int, log_prefix:
             if verbose >= 1 and device_name != "cpu":
                 print(f"  [{log_prefix}] Cellpose {device_name} unavailable; trying next device")
 
-    raise RuntimeError("Could not initialize CellposeModel on any device: " + "; ".join(errors))
+    state["_cellpose_errors"] = "; ".join(errors)
+    return None
 
 
 def _cellpose_device_candidates(prefer_accelerator: bool):

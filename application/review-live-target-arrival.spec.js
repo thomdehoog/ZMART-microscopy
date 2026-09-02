@@ -633,13 +633,14 @@ async function throughStepFive({ page, take, port, bridge }) {
   const scopeOptions = await page.locator(".session-form select").first().locator("option").allTextContents();
   expect(scopeOptions.some((text) => /mock/i.test(text)), "the microscope list comes from the backend").toBe(true);
   expect(instruments.instruments.some((one) => one.vendor === "mock"), "the backend lists the mock").toBe(true);
-  /* The page ships with a prefilled password (see DEFAULT_SESSION in
-     instruments.js); the gate is only proved once the field is emptied. */
+  /* The page ships no password and demands none (the operator's decision,
+     third pass): the field starts empty, Connect is ready with it empty, and
+     the session is opened that way -- the mock wants no password, and an
+     instrument that does says so when the session is opened. */
   const passwordPrefilled = await page.locator('.field input[type="password"]').inputValue();
-  await page.locator('.field input[type="password"]').fill("");
-  await expect(page.locator(".session-foot button.run"), "no password, no session").toBeDisabled();
-  await page.locator('.field input[type="password"]').fill("hunter2");
-  await expect(page.locator(".session-foot button.run")).toBeEnabled();
+  expect(passwordPrefilled, "the page ships no password").toBe("");
+  await expect(page.locator(".session-foot button.run"), "Connect is ready without a password").toBeEnabled();
+  await expect(page.locator(".session-foot"), "nothing on the page says a password is needed").not.toContainText("password");
   await page.locator(".session-foot button.run").click();
   await expect(page.locator('.step.done:has-text("Connect")')).toBeVisible({ timeout: 60_000 });
   await expect(page.locator(".check-row")).not.toHaveCount(0);
@@ -979,6 +980,20 @@ test("Steps 1 to 8 through the operator page on the real bridge, Viewer 0.2 and 
     /* ---------------------------------------------------------- Step 6 */
     await gotoStep(page, "Discover Targets");
     await expect(page.locator("#tile-label")).toHaveText("1 / 9");
+    /* A tile test stopped by hand first: the press that started it reads
+       Interrupt, the bridge puts the field's worker down, the readout says
+       the field was not examined and the press is ready again. The real
+       test that follows then pays the worker's spawn once more. */
+    await page.getByRole("button", { name: "Test this tile" }).click();
+    await expect(page.locator("#detect-try"), "the press that started the test becomes Interrupt").toHaveText("Interrupt");
+    await expect.poll(async () => (await bridgeJson(page, PORT, "/api/targets/discover")).running, { timeout: 30_000 }).toBe(true);
+    await page.locator("#detect-try").click();
+    await expect(page.locator("#detect-readout")).toContainText("stopped by hand", { timeout: 120_000 });
+    const afterTheHand = await bridgeJson(page, PORT, "/api/targets/discover");
+    expect(afterTheHand, "the bridge says the test was stopped, not failed, and examined nothing").toMatchObject({ running: false, stopped: true, error: null, fields: [], failed: [] });
+    await expect(page.locator("#detect-try")).toHaveText("Test this tile");
+    await expect(page.locator("#detect-try")).toBeEnabled();
+    outcome.discovery = { tileTestStoppedByHand: afterTheHand };
     await page.getByRole("button", { name: "Test this tile" }).click();
     await expect.poll(async () => {
       const state = await bridgeJson(page, PORT, "/api/targets/discover");
@@ -986,7 +1001,7 @@ test("Steps 1 to 8 through the operator page on the real bridge, Viewer 0.2 and 
     }, { timeout: 900_000, message: "the tile test never answered" }).toBeTruthy();
     const tried = await bridgeJson(page, PORT, "/api/targets/discover");
     const blocked = tried.error ?? tried.failed?.[0]?.why ?? null;
-    outcome.discovery = { tileTest: { error: tried.error, failed: tried.failed, fields: tried.fields?.length ?? 0 } };
+    outcome.discovery = { ...outcome.discovery, tileTest: { error: tried.error, failed: tried.failed, fields: tried.fields?.length ?? 0 } };
     if (blocked) {
       /* The panel must show the analysis's own sentence, not a page error. */
       await expect(page.locator("#detect-readout")).toContainText(/pipeline failed|Cellpose|not examined/);
@@ -1002,6 +1017,8 @@ test("Steps 1 to 8 through the operator page on the real bridge, Viewer 0.2 and 
     await expect(page.locator(".panel.on button.step-run")).toHaveText("Run again", { timeout: 1_500_000 });
     const discovery = await bridgeJson(page, PORT, "/api/targets/discover");
     expect(discovery.error, "discovery finished without a bridge error").toBeNull();
+    expect(discovery.failed, "every field was examined; a filed failure is not a pass").toEqual([]);
+    expect(discovery.fields.length, "every field answered").toBe(plan.length);
     const discovered = await page.evaluate(() => window.__theStageCanvas.targets());
     expect(discovered.length, "discovery placed targets on the canvas").toBeGreaterThan(0);
     expect(discovered.every((one) => !one.selected && !one.acquired), "candidates are not silently selected").toBe(true);

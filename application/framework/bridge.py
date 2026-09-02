@@ -962,7 +962,7 @@ def _targets_worker(fields: list, settings: dict) -> None:
                 f"segmenting position {field + 1} ({number + 1} of {len(fields)})"
             )
             try:
-                cells = find(record, field, settings)
+                found = find(record, field, settings)
             except Exception as why:  # noqa: BLE001 -- filed, not fatal
                 if _stop_asked["targets"]:
                     # The hand that stopped the run also put its worker
@@ -976,9 +976,13 @@ def _targets_worker(fields: list, settings: dict) -> None:
                 _targets["failed"].append({"field": field, "why": str(why)})
                 _targets["done"] += 1
                 continue
-            _keep_targets(cells, record)
+            _keep_targets(found["cells"], record)
             _targets["fields"].append({
-                "field": field, "position_label": record["position_label"], "cells": cells,
+                "field": field, "position_label": record["position_label"],
+                "cells": found["cells"],
+                # The device the field was segmented on, for the page to say:
+                # a run that fell back to the CPU took ten minutes a field.
+                "device": found.get("device"),
             })
             _targets["done"] += 1
     except Exception as why:  # noqa: BLE001 -- the window shows the sentence

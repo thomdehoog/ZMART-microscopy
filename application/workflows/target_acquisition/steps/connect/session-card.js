@@ -88,9 +88,6 @@ export function renderSessionCard(host, ctx) {
        Only what depends on the password is touched. */
     pwInput.addEventListener("input", () => {
       session.password = pwInput.value;
-      const ready = !!pwInput.value;
-      if (connectBtn) connectBtn.disabled = connecting || !ready;
-      if (connectHint) connectHint.hidden = ready;
     });
 
     form.append(scope, api, pw);
@@ -157,14 +154,12 @@ export function renderSessionCard(host, ctx) {
       btn.type = "button";
       btn.className = "run";
       btn.textContent = connecting ? "connecting…" : "Connect";
-      btn.disabled = connecting || !session.password || !ctx.chosenConnection();
+      /* The password is the instrument's business, not the page's: the
+         field starts empty and stays optional, and an instrument that wants
+         one says so when the session is opened. The page once refused to
+         connect without one, which only stood in the way of the mock. */
+      btn.disabled = connecting || !ctx.chosenConnection();
       btn.addEventListener("click", () => ctx.connect());
-      connectBtn = btn;
-
-      connectHint = document.createElement("div");
-      connectHint.className = "session-hint";
-      connectHint.textContent = "a password is needed to open the session";
-      connectHint.hidden = !!session.password || connecting;
       row.append(btn);
       /* The way out is there from the moment a connect begins, not once it
          has finished: a connect that hangs on a check is exactly when an
@@ -180,7 +175,6 @@ export function renderSessionCard(host, ctx) {
     }
 
     foot.append(row);
-    if (connectHint) foot.append(connectHint);
     card.append(foot);
   }
 

@@ -104,17 +104,27 @@ def test_through_runs_the_object_pipeline_once_per_field():
 
         def run(self, pipeline, given):
             self.asked.append((pipeline, given))
-            return {"object_analysis": {"objects": {"n_objects": 1, "properties": {
-                "object_id": ["overview_r000_c000_obj0001"], "label": [7],
-                "stage_x_um": [1.0], "stage_y_um": [2.0], "area": [4], "intensity_mean": [9.0],
-            }}}}
+            # The shape the engine hands back: the whole pipeline_data, the
+            # table under the pipeline's name and the detection step's own
+            # record beside it (its arrays stripped, its device kept).
+            return {
+                "detect_objects": {"cellpose_params": {"device": "cuda", "used_gpu": True}},
+                "object_analysis": {"objects": {"n_objects": 1, "properties": {
+                    "object_id": ["overview_r000_c000_obj0001"], "label": [7],
+                    "stage_x_um": [1.0], "stage_y_um": [2.0], "area": [4], "intensity_mean": [9.0],
+                }}},
+            }
 
     analysis = Analysis()
     find = detection.through(analysis, pixel_um=4.0)
-    targets = find(_record(), field=0, settings={"diameter": 20.0, "cellprob": 0.0})
+    found = find(_record(), field=0, settings={"diameter": 20.0, "cellprob": 0.0})
     assert analysis.asked[0][0] == "object_analysis"
     assert analysis.asked[0][1]["diameter"] == 5.0
+    targets = found["cells"]
     assert targets[0]["x"] == 1.0 and targets[0]["area"] == 64.0
+    # The device rides along with the field: a run that fell back to the
+    # CPU took ten minutes a field, and the page could not say so.
+    assert found["device"] == "cuda"
 
 
 def test_a_stack_is_one_channels_planes_in_depth_order():

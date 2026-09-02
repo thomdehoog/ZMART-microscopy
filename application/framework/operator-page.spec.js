@@ -196,12 +196,16 @@ test("the page offers exactly the workflows that are declared", async ({ page })
   }
 });
 
-test("a session needs a password before it will open", async ({ page }) => {
+test("a session opens with the password left empty", async ({ page }) => {
   // the page ships with no password at all: a prefilled one is a credential
-  // everybody has. Until one is typed, the session refuses to open.
+  // everybody has. And none is demanded either: the field is the instrument's
+  // to want, so Connect is ready as soon as an instrument is chosen, and the
+  // page says nothing about a password being needed.
   const pw = page.locator('.field input[type="password"]');
   await expect(pw).toHaveValue("");
-  await expect(page.locator(".session-foot button.run")).toBeDisabled();
+  await expect(page.locator(".session-foot button.run")).toBeEnabled();
+  await expect(page.locator(".session-hint")).toHaveCount(0);
+  await expect(page.locator(".session-foot")).not.toContainText("password");
   await pw.fill("hunter2");
   await expect(page.locator(".session-foot button.run")).toBeEnabled();
 });
@@ -1359,9 +1363,18 @@ test("one walk of the whole run", async ({ page }) => {
   await gotoStep(page, "Discover Targets");
   await expect(page.locator("#tile-label")).toHaveText("1 / 864");
   /* Discovery runs on the operator's say-so, tested or not -- the tile test
-     is an offer. This walk still takes it, the way an operator would. */
+     is an offer. This walk still takes it, the way an operator would -- and
+     first stops one by hand: the press that started the test becomes
+     Interrupt, the readout says the field was not examined, and the press
+     is ready again. */
   await page.getByRole("button", { name: "Test this tile" }).click();
-  await page.waitForTimeout(400);
+  await expect(page.locator("#detect-try"), "the press that started the test becomes Interrupt").toHaveText("Interrupt");
+  await page.locator("#detect-try").click();
+  await expect(page.locator("#detect-readout")).toContainText("stopped by hand");
+  await expect(page.locator("#detect-try")).toHaveText("Test this tile");
+  await expect(page.locator("#detect-try")).toBeEnabled();
+  await page.getByRole("button", { name: "Test this tile" }).click();
+  await expect(page.locator("#detect-readout")).toContainText(/object/);
   /* Every field's targets land as the backend reports them; the pretend one
      reports 864 fields in a few seconds. */
   await runStep(page, 6000);

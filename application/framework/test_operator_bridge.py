@@ -729,11 +729,11 @@ def _an_overview_of_two_fields(monkeypatch):
     monkeypatch.setattr(
         bridge,
         "_find_targets",
-        lambda: (lambda record, field, settings: [{
+        lambda: (lambda record, field, settings: {"cells": [{
             "id": f"{record['position_label']}_obj1", "field": field,
             "x": 100.0 * field, "y": 2.0, "area": 50.0, "intensity": 3.0, "r": 4.0,
             "diameter_asked": settings.get("diameter"),
-        }]),
+        }], "device": "pretend-gpu"}),
     )
     return records
 
@@ -759,6 +759,9 @@ def test_targets_are_found_field_by_field_over_the_overview(monkeypatch):
     assert [field["field"] for field in got["fields"]] == [0, 1]
     assert got["fields"][1]["cells"][0]["id"] == "P1_obj1"
     assert got["fields"][1]["cells"][0]["diameter_asked"] == 20.0
+    # Which device segmented the field travels with it: a run that fell
+    # back to the CPU took ten times longer without a word on the page.
+    assert [field["device"] for field in got["fields"]] == ["pretend-gpu", "pretend-gpu"]
 
 
 def test_one_field_can_be_tried_on_its_own(monkeypatch):

@@ -87,7 +87,15 @@ let stageWatch = null;
   function fieldFound(field) {
     state.fieldLabels[field.field] = field.position_label;
     for (const cell of field.cells) state.cells.set(cell.id, stage.toCarrier(cell));
+    if (field.device) state.cellDevices.add(field.device);
   }
+
+  /** What discovery came to, said beside the button: how many, by what, and
+      on the CPU when any field had to be -- ten minutes a field, and a run
+      that fell back looked exactly like one on the card. */
+  const discoveryNote = () =>
+    `${state.cells.size} targets · ${ALGOS[state.detect.algo].label}`
+    + (state.cellDevices.has("cpu") ? " · on the CPU" : "");
 
   /** Where a capture's picture is: the viewer's small copy, by the capture's label. */
   const pictureOf = (kind, label) => {
@@ -245,6 +253,7 @@ let stageWatch = null;
     overviewPictures: backendFor().viewOf("overview"),
     targetPictures: backendFor().viewOf("target"),
     cellsShown: false,
+    cellDevices: new Set(), // the devices discovery's fields were segmented on
     gates: [],           // [{fx, fy, vertices: [[x, y], ...]}] — see gating.js
     gateCap: 50,         // the per-tileset ceiling the gated selection was drawn under
     gated: new Set(),
@@ -367,7 +376,7 @@ let stageWatch = null;
       detect: newDetect(), cells: new Map(), fieldLabels: {},
       overviewPictures: backendFor().viewOf("overview"),
     targetPictures: backendFor().viewOf("target"),
-      cellsShown: false, gates: [], gateCap: 50, gated: new Set(), acquired: [], acquiredLabels: {},
+      cellsShown: false, cellDevices: new Set(), gates: [], gateCap: 50, gated: new Set(), acquired: [], acquiredLabels: {},
       verdicts: {},
       locked: false,
     });
@@ -666,6 +675,7 @@ let stageWatch = null;
 
     if (s.mode === "detect") {
       state.cells = new Map();
+      state.cellDevices = new Set();
       /* A fresh discovery invalidates everything named by the old ids: the
          gate, and the acquired pairs and their verdicts -- a stale id crashed
          the draw and the gallery alike. */
@@ -686,7 +696,7 @@ let stageWatch = null;
         onField: (field) => {
           if (state.running !== s.id) return;
           fieldFound(field);
-          state.notes[s.id] = `${state.cells.size} targets · ${ALGOS[state.detect.algo].label}`;
+          state.notes[s.id] = discoveryNote();
           redrawSoon();
         },
       }).then((out) => {
@@ -821,7 +831,7 @@ let stageWatch = null;
         stageWatch?.refresh();
       }
       if (s.mode === "detect") {
-        state.notes[s.id] = `${state.cells.size} targets · ${ALGOS[state.detect.algo].label}`;
+        state.notes[s.id] = discoveryNote();
       }
       if (s.mode === "select") { state.notes[s.id] = `${state.gated.size} targets selected`; }
       if (s.mode === "targets") {
@@ -902,8 +912,8 @@ let stageWatch = null;
      ============================================================ */
   /* Connecting is a card that reads downward — the form, the checks, what they
      came to, and the button that acts on all of it. Its button is its own
-     rather than the framework's, because it is disabled until there is a password
-     and it changes what it does once a session is open. */
+     rather than the framework's, because it waits for an instrument to be
+     chosen and it changes what it does once a session is open. */
   const indexOfStep = (id) => steps().findIndex((s) => s.id === id);
 
   /* The instruments, asked for once the backend is known; the card fills in
@@ -1131,8 +1141,11 @@ let stageWatch = null;
       settings: () => state.detect,
       plan: () => state.plan,
       tryOn: (field, settings) => backend.discoverTargets({ fields: [field], settings })
-        .then(({ fields, failed }) => {
+        .then(({ fields, failed, stopped }) => {
           const found = fields?.[0];
+          /* Stopped by the operator's hand before the field answered: the
+             backend says so, and that is neither a field nor a failure. */
+          if (!found && stopped) return { stopped: true };
           /* A field the bridge could not examine arrives under `failed` with
              the analysis's own sentence. Reading `fields[0]` regardless threw
              a TypeError, and the panel showed that instead of the reason. */
@@ -1141,6 +1154,9 @@ let stageWatch = null;
           }
           return { ...found, cells: found.cells.map(stage.toCarrier) };
         }),
+      /* The same brake the step's own Run has: the bridge stops the field
+         being segmented now, not at the next one. */
+      stopTargets: () => backend.stopTargets?.(),
       pictureOf: (label) => pictureOf("overview", label),
       /* Which capture stands at a plan position: the scan filed each field's
          label as it landed, so the panel can show a field's picture without

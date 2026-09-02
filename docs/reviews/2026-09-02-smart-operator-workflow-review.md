@@ -230,7 +230,7 @@ as specimen Z, or navigation state leaking into a transform.
 
 ### MEDIUM-8 — The production build ships a default password
 
-**Status: fixed on the review branch.** `DEFAULT_SESSION.password` is empty; Connect stays disabled until one is typed. The password test now expects the empty field (passed); every browser spec types its own.
+**Status: fixed on the review branch.** `DEFAULT_SESSION.password` is empty. Connect first stayed disabled until one was typed; in the third pass the operator decided otherwise (section 11): the field starts empty and stays optional, the page says nothing about a password being needed, and whether one is wanted is the instrument's business when the session is opened. The password test now expects an empty field and an enabled Connect; every browser spec still types its own.
 
 - `application/parts/microscope/instruments.js:63` sets `password: "demo"` with a comment that a
   real build must ship it empty. Connect is enabled without typing anything; the gate is only
@@ -281,7 +281,7 @@ acquisition source survives (checked), so no stale pixels; but the picture objec
 | 3 Scan area | optics recorded from the microscope; grid; counts match carrier and frame; every position on screen; plan locked after scan | **passed** (grid/fields/regions/polygon/clear behaviours proven with pretend backend) | `step3-plan`, operator-page pretend suite |
 | 4 Focus | focussing configuration recorded; points measured through the analysis; traces and stack; fixed/mapped behaviour; focus Z provenance only | **passed** (slice-preview timing test LOW-3, fixed) | `step4-focus-map`, `the-map-fills-in`, `a-moved-point-has-no-curve`, bridge probe |
 | 5 Overview | 0/3/6/9; Run button; nine ROIs examined and textured; three rows × nine sources; growth without remount; Fit preserved; overview-only; close-up; projection < 1 px; real `/api/measure`; no unexpected failures | **failed on head** (HIGH-1 misplacement, HIGH-2 broken spec) → **passed on the fixed review branch** | real bridge + Viewer 0.2 + mock kidney (`step-five-fixed/*`, `view-preservation.json`, `step5-overview-complete`) |
-| 6 Discover | preview is the selected field; settings; test vs all; ids and positions; candidates on canvas; layer changes canvas; hoverable; failures honest | **blocked live** in the container (MEDIUM-1) → **failed on real pixels** on the operator's PC (HIGH-3) → **passed on real pixels** on the review branch (section 11); failure reporting fixed (MEDIUM-2) | operator-page pretend walk; `step6-discovery-blocked`; `on-the-operators-pc/step6-discovered-over-overview` |
+| 6 Discover | preview is the selected field; settings; test vs all; ids and positions; candidates on canvas; layer changes canvas; hoverable; failures honest; a test and a run can be stopped by hand | **blocked live** in the container (MEDIUM-1) → **failed on real pixels** on the operator's PC (HIGH-3) → **passed on real pixels** on the review branch (section 11); failure reporting fixed (MEDIUM-2); the tile test had no brake (MEDIUM-12), the brake did not stop the field (MEDIUM-13) and detection fell back to the CPU without a word (MEDIUM-14), all fixed and re-proven live | operator-page pretend walk; `step6-discovery-blocked`; `on-the-operators-pc/step6-discovered-over-overview` |
 | 7 Refine | candidates before gate; no implicit gate; polygon gate; intersection; feedback; counts agree; gate survives navigation; coordinates unchanged | **passed on real pixels** (section 11) after MEDIUM-10 (the ceiling now survives navigation with the gate); **passed with pretend backend** | operator-page pretend walk; `on-the-operators-pc/step7-*` |
 | 8 Acquire | configuration before acquisition; button gating; one conversion; focus Z provenance; positions equal; rings/frames; gallery; verdicts; partial runs | button path with real discovered targets **passed live** (section 11; three gated cells acquired at their positions, registration 0 µm, rings, gallery, verdicts, one-at-a-time growth); source model **passed live**; interruption **failed** (the gallery stayed empty after a stopped run, MEDIUM-11) → **passed live** on the review branch: stopped by hand after 5 of 12, every account says 5, Run again says 12 | `bridge-step8-*` records; `on-the-operators-pc/step8-*`; `on-the-operators-pc/interruption/` |
 
@@ -423,7 +423,7 @@ Viewer order, focussing last) is chosen in `watching-the-run.js:544` and does no
   (three gated cells acquired, rings, gallery, verdicts), and target source growth one position
   at a time (the Viewer reported 1, 2, 3 sources per row at 180, 325 and 422 ms).
 - **Proven in the third pass as well:** interruption and partial acquisition accounting -- an
-  acquisition stopped by the page's own Interrupt after 5 of 12 pairs is accounted as 5 by the
+  acquisition stopped by the page's own Interrupt after 4 of 12 pairs is accounted as 4 by the
   bridge, the Viewer, the disk, the canvas, the gallery (after MEDIUM-11) and the sentence beside
   the button, and Run again completes and re-accounts all 12.
 
@@ -697,16 +697,17 @@ state (`done`, `ran`, the note). Then Run again, and the same reading.
   its own acquisition after the first pair and expects one gallery pair per acquired target: red
   on the unfixed page (9 acquired, 0 pairs), green on the fixed one.
 
-**What the final run holds** (`on-the-operators-pc/interruption/`, 25 min, of which discovery
-took about 22): the Interrupt was pressed while the bridge reported 4 done; the field in hand
-completed and the run stopped at 5 of 12 -- between two fields, as the rule says. Every account
-then read 5: `scan = {running: false, stopped: true, done: 5, of: 12, error: null, records: 5}`,
-Viewer `[5, 5, 5]`, engine `[5, 5, 5]`, 5 stores on disk, 5 acquired cells on the canvas (each
-record taken at exactly one gated target, and those five are the acquired ones), 5 gallery pairs
+**What the final run holds** (`on-the-operators-pc/interruption/`, 7.0 min on the final code; an
+earlier run of 25 min, with discovery on the CPU -- see MEDIUM-14 -- held the same accounts at
+5 of 12): the Interrupt was pressed while the bridge reported 3 done; the field in hand
+completed and the run stopped at 4 of 12 -- between two fields, as the rule says. Every account
+then read 4: `scan = {running: false, stopped: true, done: 4, of: 12, error: null, records: 4}`,
+Viewer `[4, 4, 4]`, engine `[4, 4, 4]`, 4 stores on disk, 4 acquired cells on the canvas (each
+record taken at exactly one gated target, and those four are the acquired ones), 4 gallery pairs
 with their ids in the captions, the button "Run again", the note and the hint both
-"stopped by hand -- 5 of 12 pairs acquired", the step in `ran` and not in `done`. Run again then
+"stopped by hand -- 4 of 12 pairs acquired", the step in `ran` and not in `done`. Run again then
 read 12 everywhere: `scan = {running: false, stopped: false, done: 12, of: 12, error: null,
-records: 12}`, Viewer `[12, 12, 12]`, engine `[12, 12, 12]`, 12 stores on disk (the five of the
+records: 12}`, Viewer `[12, 12, 12]`, engine `[12, 12, 12]`, 12 stores on disk (the four of the
 interrupted run replaced under their own names), 12 acquired cells -- every gated target taken
 once -- 12 gallery pairs, "12 pairs acquired", the step done. No unexpected request failure, no
 browser error and no viewer error on either record; Disconnect and reconnect as before.
@@ -721,3 +722,164 @@ the cause was not established.
 
 **Still unproven after the third pass:** everything above stands on the mock kidney, not on a
 real sample.
+
+### The operator's own test of the mock: three more findings
+
+The operator opened the page in its window on this PC (`zmart-interface.py --built`) and tested
+the mock by hand. Two asks came out of it -- a tile test and the whole-population run must both be
+interruptable, and no password should be needed -- and proving the first exposed that the brake
+the page already had did not stop anything.
+
+#### MEDIUM-12 -- The tile test had no brake
+
+**Status: fixed and re-proven on the review branch.**
+
+- **Files:** `application/workflows/target_acquisition/steps/discover_targets/detection.js` (the
+  press ran the test and waited); `application/framework/window/main.js` (the panel was handed
+  `tryOn` and no brake, and a test the backend reported stopped was read as "not examined", a
+  failure sentence).
+- **Observed:** the step's Run over all fields has had Interrupt since the review began, but
+  "Test this tile" went through the same bridge route with no press on the page to reach it: a
+  field takes about a minute on this machine, the first one more, and a test once pressed could
+  only be waited out.
+- **Fix:** while a field is being tested the same press reads Interrupt, then "stopping…" once
+  pressed, and calls the brake the Run uses (`stopTargets`); when the backend answers stopped, the
+  readout says "stopped by hand -- position N not examined" and the press is itself again. The
+  pretend backend's tile test now takes 1.2 s and honours the brake meanwhile, so the walk can
+  reach it: the whole-run walk stops one tile test by hand before taking one, red before the fix
+  (`Expected "Interrupt", Received "Test this tile"`), green after.
+
+#### MEDIUM-13 -- The brake waited for the field and left the worker running
+
+**Status: fixed and re-proven on the review branch, in the analysis engine.**
+
+- **Files:** `zmart_analysis/engine/_pipeline.py` (`Engine.shutdown` joined its threads before it
+  touched the workers), `zmart_analysis/engine/_worker.py` (`Worker.shutdown` sent a sentinel the
+  busy worker never reads, waited five seconds, then terminated the `conda run` wrapper -- whose
+  Python child kept segmenting -- and a worker put down before its spawn forgot it and spawned),
+  `application/parts/analysis/warm.py` (`Analysis.shutdown` asked for the waiting kind).
+- **Observed, on the real bridge:** the first interrupted tile test came back with the field's
+  449 objects. Measured outside the browser on a real overview store: a stop pressed one second
+  into a test blocked for 19 s and then handed back 447 objects; and the ten idle Python pairs
+  found on this machine were exactly such wrappers and workers, left by earlier sessions. A stop
+  that landed while `conda run` was still activating left the whole chain standing --
+  `conda.exe`, its interpreter, the activation shell and the worker -- under the bridge's pid.
+- **Fix:** `Engine.shutdown(wait=False)` puts the workers down first, busy ones included, and
+  cancels what was queued; `Worker.shutdown(now=True)` kills the process tree at once
+  (`taskkill /T` on Windows, the wrapper's own session on POSIX) without the sentinel or the
+  wait, and a worker put down stays down: a spawn under way is refused before, right after, and
+  once the worker is on the line. The warm door's shutdown asks for that kind. A `run` in flight
+  raises, which is what the hand wanted; nothing is left behind. Measured after the fix: a press
+  one second in stops in 2.2 s, a press nine seconds in stops in 1.8 s, the run raises, and the
+  Python process count is back where it was ten seconds later, both times.
+- **Tests:** five in `test_engine.py` (`TestTheBrake`): a busy worker put down at once and its
+  caller released with `WorkerCrashedError`; the whole tree under a wrapper; an engine shut down
+  without waiting stops its running step in under 3 s; a stop mid-activation leaves nothing; a
+  stop before the spawn leaves nothing (red without the put-down check: the job ran and the
+  caller was never released). The polite shutdown keeps its respawn contract. The warm door's
+  stub records that it was asked not to wait.
+- **A trap for the next reader:** an interrupted tile test on the real bridge is the same thing
+  as a stopped field: the worker dies, and the next test pays the worker's spawn and the model
+  load again -- about a minute.
+
+#### MEDIUM-14 -- Detection fell back to the CPU without a word, and stayed there
+
+**Status: fixed and re-proven on the review branch.** Found while proving MEDIUM-13 on the real
+bridge: the run after the fixed brake segmented at ten minutes a field instead of fifty seconds.
+
+- **Files:** `zmart_analysis/workflows/object_analysis/steps/detect_objects.py`
+  (`_get_cellpose_model` kept whatever model it got first, for the worker's whole life);
+  `application/parts/microscope/detection.py` and `application/framework/bridge.py` (the device the
+  step reported never left the pipeline result); the page (nothing to say it with).
+- **Measured:** the card reported 2.5 GB free and 2 % memory activity while the vision worker had
+  burnt 40 minutes of CPU on its third field; `torch.cuda.is_available()` was true from the same
+  environment. The step tries the devices in order and caches the first model that loads: a tile
+  test stopped by hand puts its worker down, the next test starts a second later while the card
+  still holds the dead worker's memory, the CUDA model fails to load, the CPU one loads and is
+  cached, and every field of the session after that runs on the CPU. Nothing on the page said so;
+  the run looked like a slow run. The 22-minute discovery in the interruption pass (section 11)
+  was most likely the same thing.
+- **Fix, in three places:** a cached CPU model is offered the accelerator again on the next call
+  and replaced when it loads, and once on the card it stays there (`test_segmentation.py`: cuda
+  refused once, then taken, then kept -- three model loads for three fields, not four); each
+  field's answer carries the device it was segmented on, from the step's own record through
+  `detection.through` and the bridge's field entries (`test_detection.py`,
+  `test_operator_bridge.py`); the tile readout says "N objects at position i · on the GPU" or
+  "· on the CPU", the discovery note says "· on the CPU" when any field had to be, and the pretend
+  backend's fields say "on pretend". The fallback itself stays: a machine without a card must
+  still discover, slowly and saying so.
+
+#### No password needed (operator's decision)
+
+MEDIUM-8 stands as recorded -- the page ships no password -- and the gate that came with it is
+gone: Connect is ready as soon as an instrument is chosen, the sentence "a password is needed to
+open the session" is removed, and the field stays empty and optional. Whether an instrument wants
+one is its own business when the session is opened. `session-card.js`; the pretend test now
+expects an enabled Connect and no such sentence (5 connect tests pass).
+
+#### Ledger and evidence for MEDIUM-12 to MEDIUM-14 and the password
+
+| Command (cwd `application` unless noted) | Result | Time | Notes |
+| --- | --- | --- | --- |
+| `playwright test framework/operator-page.spec.js -g "one walk of the whole run"` (dev server on 5175) | tile-test Interrupt check: `Expected "Interrupt", Received "Test this tile"` before the fix; passed after | 1.3 min each | MEDIUM-12 |
+| operator path, first live run with the brake | the interrupted tile test came back with 449 objects | 2.9 min (contaminated: a probe on the same card and a hand-killed tree) | MEDIUM-13 found |
+| brake probe on a real overview store (repo root, `probe_stop.py`) before the fix | stop at +1 s: `close()` 19.0 s, run returned 447 objects after 18.8 s | 60 s | measured |
+| `pytest zmart_analysis/engine/test_engine.py -k TheBrake` (repo root) | 3 red (5.0 s shutdown, wrapper alive, tree alive), then green; the two spawn-window tests red without the put-down check (the caller never released), green with it | 8 s | MEDIUM-13 |
+| brake probe after the fix | stop at +1 s: `close()` 2.2 s, run raised after 3.4 s; stop at +9 s: `close()` 1.8 s, raised after 10.8 s; Python process count unchanged ten seconds later, both times | 60 s | |
+| worker spawned right after a tree kill (repo root) | connects in 2.1 s and answers | 10 s | no conda temp-file trap |
+| `pytest zmart_analysis/engine application/parts/analysis/test_warm.py application/framework/test_operator_bridge.py` (repo root, real activation) | 169 passed | 83 s | the polite shutdown keeps its respawn contract |
+| operator path with the fixed brake, first clean attempt | Steps 1-5 passed, the interrupted tile test came back stopped with nothing examined, then discovery at ten minutes a field on the CPU -- killed after 3 of 9 | 35 min | MEDIUM-14 found: 2.5 GB free on the card, 2 % memory activity, 40 min of CPU in the worker |
+| `pytest zmart_analysis/workflows/object_analysis/tests/test_segmentation.py -k offered_the_gpu_again` (repo root) | red, then green | 0.3 s | MEDIUM-14 |
+| `pytest` on `test_detection`, `test_operator_bridge`, `object_analysis/tests`, `zmart_analysis/engine`, `parts/analysis` (repo root, real activation) | 291 passed, 3 skipped | 123 s | |
+| `playwright test framework/operator-page.spec.js -g "password|session|check|connecting"` (5175) | 5 passed | 22 s | no password needed |
+| `npx vitest run`, `npm run build` | 365 passed, 15 skipped; ok | 5.6 s, 0.8 s | |
+| `playwright test review-live-target-arrival.spec.js` (all three, final code before the device lookup fix) | 3 passed | 16.2 min | discovery on the card again: the operator path in 8.6 min |
+
+**What the final runs hold** (`on-the-operators-pc/live-target-arrival/`, the two paths, 8.8 min;
+`on-the-operators-pc/interruption/`, the interruption test, 7.0 min: stopped by hand after 4 of 12,
+every account 4, Run again every account 12; all records with verified hashes):
+
+- Connect opened with the password field empty and nothing on the page saying one was needed.
+- The tile test stopped by hand: the press read Interrupt, the bridge answered
+  `{running: false, stopped: true, error: null, fields: [], failed: []}` and logged
+  "was put down", the readout said the field was not examined, and the press was ready again.
+  The real tile test that followed examined its field (449 objects, on the GPU), and Run
+  discovered 449, 525, 402, 480, 512, 391, 366, 463 and 422 cells over the nine fields with
+  none failed, every field on the card (`device: cuda`), from 14:27:59 to 14:35:12 UTC --
+  7 min 13 s, the pace of the first passes, with the readout saying "· on the GPU".
+- Step 7 and Step 8 as before: 3 of 699 kept under a ceiling of 3; three targets acquired at
+  their positions with registration 7e-12, 0 and 7e-12 µm, the Viewer growing 1, 2, 3 sources
+  per row at 170, 306 and 464 ms, 556 ring pixels at 36.7 px, three gallery pairs, a verdict;
+  the bridge path with registration 7e-12, 7e-12 and 1e-11 µm and the shorter rerun at 2 sources
+  per row and 2 stores; Disconnect leaves nothing open. No unexpected request failure, browser
+  error or viewer error on any record.
+
+## 12. The operator's list after testing the mock -- queued, not done
+
+Raised by the operator on 2026-09-02 while testing the mock in the window on this PC, with two
+screenshots (Step 8 with 22 pairs acquired, Step 6 mid tile test). Recorded here as asked; none of
+it is built yet, and the order below is the order it was said in.
+
+**Step 8, Acquire Targets**
+
+1. **The mock's target frame is far too large.** An acquired target should be a smaller field of
+   view than the overview field, with a smaller pixel size in it, so that it reads as the
+   high-resolution frame it stands for. Today the mock cuts a frame as wide as the overview's.
+2. **The target pictures should wear the overview's image settings**: the same channel windows
+   and colours, so a target frame over the overview looks like the same sample seen closer,
+   not a differently coloured picture.
+3. **The eye on the target group did not work.** Hiding the overview group hid it; hiding the
+   target group did not. (The review's panel checks toggled groups through the panel's own
+   handle and passed; the press on the group row in the built page is what the operator used.)
+   Also: the operator wants the group named `targets`, not `target` -- MEDIUM-5 chose `target`
+   to match the notebook flow and the tests; to be decided with the operator.
+4. **Not every pair listed under Acquire Targets.** Instead, a list of targets like the list of
+   focus points on Step 4: pressing a target on the canvas highlights and selects it in the list,
+   and only that one's low-resolution crop and high-resolution frame appear below -- one pair on
+   show, never all of them.
+
+**Step 6, Discover Targets**
+
+5. **The example field in the panel should wear the canvas's image settings and colours** --
+   today the tile in the Discover panel is coloured and windowed on its own, unlike the same
+   field on the canvas beside it.

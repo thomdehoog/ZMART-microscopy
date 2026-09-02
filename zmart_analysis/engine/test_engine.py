@@ -35,6 +35,7 @@ Usage
 import atexit
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 import textwrap
@@ -1730,3 +1731,226 @@ class TestPackageAPI(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# ---- The brake: a shutdown that does not wait ---------------------------
+
+def _alive(pid):
+    """Whether a process is still running, on either platform."""
+    if sys.platform == "win32":
+        out = subprocess.run(
+            ["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV", "/NH"],
+            capture_output=True, text=True,
+        ).stdout
+        return f'"{pid}"' in out
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    return True
+
+
+def _a_step_that_sleeps(pid_file):
+    """A step that writes its own pid, then sleeps longer than any test waits."""
+    return _temp_step(f"""
+        import os, time
+        def run(pd, state, **p):
+            open({str(pid_file)!r}, "w").write(str(os.getpid()))
+            time.sleep(30)
+            return pd
+    """)
+
+
+def _wait_for_file(path, timeout=20):
+    t0 = time.monotonic()
+    while time.monotonic() - t0 < timeout:
+        if os.path.exists(path) and open(path).read().strip():
+            return int(open(path).read())
+        time.sleep(0.05)
+    raise AssertionError(f"{path} never appeared")
+
+
+class TestTheBrake(unittest.TestCase):
+    """The operator's Interrupt must stop a step now, not wait it out.
+
+    Measured on the operator's PC before this: a stop pressed one second
+    into a tile test blocked for 19 s and then handed back the field's 447
+    objects, because the engine's shutdown joined its threads before it put
+    the workers down, and a worker's shutdown terminated only the `conda run`
+    wrapper, whose Python grandchild segmented on.
+    """
+
+    def test_a_shutdown_now_puts_a_busy_worker_down_at_once(self):
+        from engine._worker import Worker
+        from engine._errors import WorkerCrashedError
+        pid_file = os.path.join(_TEMP_DIR, f"busy_{_next_id()}.pid")
+        path = _a_step_that_sleeps(pid_file)
+        w = Worker(environment=None, connect_timeout=10)
+        errors = []
+        t = threading.Thread(target=_capture_exception,
+                             args=(errors, lambda: w.execute(path, {}, {}, timeout=60)))
+        t.start()
+        pid = _wait_for_file(pid_file)
+        t0 = time.monotonic()
+        w.shutdown(now=True)
+        self.assertLess(time.monotonic() - t0, 3.0, "a shutdown asked for now must not wait")
+        t.join(timeout=5)
+        self.assertFalse(t.is_alive(), "the caller blocked in execute() must be released")
+        self.assertFalse(_alive(pid), "the worker process must be gone")
+        self.assertEqual(len(errors), 1)
+        self.assertIsInstance(errors[0], WorkerCrashedError)
+
+    def test_a_shutdown_now_puts_the_whole_tree_down(self):
+        """Under a wrapper, as `conda run` is, the grandchild dies too."""
+        import engine._worker as worker_module
+        from engine._worker import Worker
+        wrapper = _temp_step("""
+            import subprocess, sys
+            # What `conda run -n <env> python` does: start the interpreter as a
+            # child and wait for it -- the worker is this process's grandchild.
+            raise SystemExit(subprocess.run([sys.executable] + sys.argv[1:]).returncode)
+        """, name="fake_conda_run")
+        pid_file = os.path.join(_TEMP_DIR, f"tree_{_next_id()}.pid")
+        path = _a_step_that_sleeps(pid_file)
+        real = worker_module._the_python_of
+        worker_module._the_python_of = lambda environment: [sys.executable, wrapper]
+        try:
+            w = Worker(environment="fake-env", connect_timeout=20)
+            t = threading.Thread(target=_capture_exception,
+                                 args=([], lambda: w.execute(path, {}, {}, timeout=60)))
+            t.start()
+            grandchild = _wait_for_file(pid_file)
+            wrapper_pid = w._process.pid
+            self.assertNotEqual(grandchild, wrapper_pid)
+            w.shutdown(now=True)
+            t.join(timeout=5)
+            time.sleep(0.5)
+            self.assertFalse(_alive(wrapper_pid), "the wrapper must be gone")
+            self.assertFalse(_alive(grandchild), "the worker behind the wrapper must be gone")
+        finally:
+            worker_module._the_python_of = real
+
+    def test_an_engine_shut_down_without_waiting_stops_its_running_step(self):
+        from engine import Engine
+        pid_file = os.path.join(_TEMP_DIR, f"engine_{_next_id()}.pid")
+        _temp_step(f"""
+            import os, time
+            def run(pd, state, **p):
+                open({str(pid_file)!r}, "w").write(str(os.getpid()))
+                time.sleep(30)
+                return pd
+        """, name="brake_step")
+        yaml = _temp_yaml("wf:\n  - brake_step:")
+        e = Engine(execution_timeout=None)
+        e.register("brake", yaml)
+        e.submit("brake", {})
+        pid = _wait_for_file(pid_file)
+        t0 = time.monotonic()
+        e.shutdown(wait=False)
+        self.assertLess(time.monotonic() - t0, 3.0, "shutting down without waiting must not wait for the step")
+        time.sleep(0.5)
+        self.assertFalse(_alive(pid), "the step's worker must be gone")
+        s = e.status("brake")
+        self.assertEqual(s["completed"], 0, "a step put down by hand answers nothing")
+        self.assertEqual(list(e.results("brake")), [])
+
+    def test_a_shutdown_now_during_the_spawn_leaves_nothing_behind(self):
+        """A press that lands while the tree is still being built.
+
+        Measured before this: stopping one second into a tile test, while
+        `conda run` was still activating, killed the wrapper and left the
+        interpreter it started a moment later running -- two orphans after
+        every early press.
+        """
+        import engine._worker as worker_module
+        from engine._worker import Worker
+        from engine._errors import WorkerCrashedError, WorkerSpawnError
+        wrapper = _temp_step("""
+            import subprocess, sys, time
+            # An activation takes its time before the interpreter is started.
+            time.sleep(1.5)
+            raise SystemExit(subprocess.run([sys.executable] + sys.argv[1:]).returncode)
+        """, name="slow_conda_run")
+        pid_file = os.path.join(_TEMP_DIR, f"spawn_{_next_id()}.pid")
+        path = _a_step_that_sleeps(pid_file)
+        real = worker_module._the_python_of
+        worker_module._the_python_of = lambda environment: [sys.executable, wrapper]
+        try:
+            w = Worker(environment="slow-env", connect_timeout=20)
+            errors = []
+            t = threading.Thread(target=_capture_exception,
+                                 args=(errors, lambda: w.execute(path, {}, {}, timeout=60)))
+            t.start()
+            time.sleep(0.5)
+            wrapper_pid = w._process.pid
+            w.shutdown(now=True)
+            t.join(timeout=10)
+            self.assertFalse(t.is_alive(), "the caller must be released")
+            self.assertEqual(len(errors), 1)
+            self.assertIsInstance(errors[0], (WorkerCrashedError, WorkerSpawnError))
+            time.sleep(3.0)
+            self.assertFalse(_alive(wrapper_pid), "the wrapper must be gone")
+            self.assertFalse(os.path.exists(pid_file) and _alive(int(open(pid_file).read() or 0)),
+                             "an interpreter born after the press must be gone too")
+            self.assertFalse(w.is_alive())
+        finally:
+            worker_module._the_python_of = real
+
+    def test_a_worker_put_down_before_it_spawned_does_not_spawn(self):
+        """A press that lands before the process exists.
+
+        Measured on the operator's PC: a stop one second into a tile test
+        came before the worker's spawn, was forgotten, and the whole tree --
+        conda, its interpreter, the activation shell and the worker -- came
+        up afterwards and stayed, segmenting a field nobody wanted.
+        """
+        import engine._worker as worker_module
+        from engine._worker import Worker
+        from engine._errors import WorkerCrashedError, WorkerSpawnError
+        pid_file = os.path.join(_TEMP_DIR, f"late_{_next_id()}.pid")
+        path = _a_step_that_sleeps(pid_file)
+        w = Worker(environment=None, connect_timeout=20)
+        may_spawn = threading.Event()
+        real_listener = worker_module.Listener
+        real_popen = worker_module.subprocess.Popen
+        spawned = []
+
+        def listener_after_the_press(*args, **kwargs):
+            # The spawn has not begun at all when the press lands: no port,
+            # no process -- the worker has nothing yet that a shutdown could
+            # touch, and must remember the press instead.
+            may_spawn.wait(timeout=10)
+            return real_listener(*args, **kwargs)
+
+        def popen_that_remembers(*args, **kwargs):
+            process = real_popen(*args, **kwargs)
+            spawned.append(process.pid)
+            return process
+
+        worker_module.Listener = listener_after_the_press
+        worker_module.subprocess.Popen = popen_that_remembers
+        try:
+            errors = []
+            t = threading.Thread(target=_capture_exception,
+                                 args=(errors, lambda: w.execute(path, {}, {}, timeout=60)))
+            t.start()
+            time.sleep(0.3)
+            w.shutdown(now=True)
+            may_spawn.set()
+            t.join(timeout=15)
+            # The real Popen is back before anything else is spawned: the
+            # liveness checks below start processes of their own.
+            worker_module.subprocess.Popen = real_popen
+            worker_module.Listener = real_listener
+            self.assertFalse(t.is_alive(), "the caller must be released")
+            self.assertEqual(len(errors), 1)
+            self.assertIsInstance(errors[0], (WorkerCrashedError, WorkerSpawnError))
+            time.sleep(2.0)
+            for pid in spawned:
+                self.assertFalse(_alive(pid), "a process spawned after the press must be put down")
+            self.assertFalse(os.path.exists(pid_file) and _alive(int(open(pid_file).read() or 0)),
+                             "the step must not be running anywhere")
+            self.assertFalse(w.is_alive())
+        finally:
+            worker_module.subprocess.Popen = real_popen
+            worker_module.Listener = real_listener

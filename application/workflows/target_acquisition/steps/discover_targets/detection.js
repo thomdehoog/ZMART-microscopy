@@ -38,6 +38,19 @@ export const labelColour = (n, alpha = 1) =>
 
 import { sideGroup } from "../../../../framework/window/panels.js";
 
+/**
+ * Which device a field was segmented on, in the operator's words. Said on
+ * every result because the difference is ten minutes a field: a model that
+ * fell back to the CPU when the card was full for a moment looked, on the
+ * page, exactly like one on the card.
+ */
+export const onThe = (device) => {
+  if (!device) return "";
+  if (device === "cpu") return " · on the CPU";
+  if (device === "cuda" || device === "mps") return " · on the GPU";
+  return ` · on ${device}`;
+};
+
 export default {
   id: "detect",
   label: "Discover Targets",
@@ -51,7 +64,9 @@ export default {
    *                  what was found there
    *   `plan()`       the fields, one of which is being looked at
    *   `tryOn(field, settings)`  ask the backend for this one field's targets;
-   *                  resolves `{ cells, position_label }`
+   *                  resolves `{ cells, position_label }`, or `{ stopped: true }`
+   *                  when the test was stopped by hand before it answered
+   *   `stopTargets()`  the brake: stop the field being tested, now
    *   `pictureOf(label)`  where a field's picture is, or null when the backend
    *                  makes none
    *   `sizeCanvas(cv)` `css(name)` `drawScaleBar(ctx, w, h, scale)`  plumbing
@@ -364,7 +379,7 @@ export default {
 
       if (settings.tested) {
         readout.textContent =
-          `${settings.tried.length} objects at position ${settings.tile + 1}`;
+          `${settings.tried.length} objects at position ${settings.tile + 1}${onThe(settings.triedOn)}`;
       } else {
         /* Nothing to say until something was measured: the card carries no
            standing caption, only results and errors. */
@@ -388,7 +403,22 @@ export default {
       });
     }
 
+    /* The test in flight, or null. While one runs the same press is its
+       brake -- a field takes a minute on a real machine, and a hand must be
+       able to reach it -- so the press reads Interrupt, then "stopping…"
+       once it has been pressed, and is itself again when the test settles. */
+    let testing = null;
+    const sayThePress = () => {
+      tryBtn.textContent = testing ? (testing.stopping ? "stopping…" : "Interrupt") : "Test this tile";
+      tryBtn.disabled = Boolean(testing?.stopping);
+    };
     tryBtn.addEventListener("click", () => {
+      if (testing) {
+        testing.stopping = true;
+        sayThePress();
+        ctx.stopTargets?.();
+        return;
+      }
       const settings = ctx.settings();
       settings.tested = false;
       readout.textContent = `looking at position ${settings.tile + 1}…`;
@@ -401,10 +431,18 @@ export default {
         + `${Math.round((performance.now() - began) / 1000)} s`);
       saying();
       const ticking = setInterval(saying, 1000);
-      const settled = () => { clearInterval(ticking); ctx.status?.quiet(); };
+      testing = { stopping: false };
+      sayThePress();
+      const settled = () => { clearInterval(ticking); ctx.status?.quiet(); testing = null; sayThePress(); };
       ctx.tryOn(settings.tile, settingsFor(settings)).then((found) => {
         settled();
+        if (found.stopped) {
+          /* Stopped by hand: not a failure, and nothing measured either. */
+          readout.textContent = `stopped by hand — position ${settings.tile + 1} not examined`;
+          return;
+        }
         settings.tried = found.cells;
+        settings.triedOn = found.device ?? null;
         settings.tested = true;
         settings.imageGrey = true;
         showThePictureOf(found.position_label);

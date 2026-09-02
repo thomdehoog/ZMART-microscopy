@@ -36,6 +36,9 @@ import { METRICS, METRIC_KEYS, sweep } from "./pretend-sample/sweep.js";
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+/** How long a pretend tile test segments for: a moment a hand can reach. */
+const TILE_TEST_MS = 1200;
+
 /* The page's frames where there are frames, a timer where there are none:
    the contract suite runs this backend headless, and the pretend scan must
    tick there exactly as it ticks on screen. */
@@ -334,7 +337,11 @@ export const backend = {
   async discoverTargets({ fields = null, settings = {}, onField, onProgress } = {}) {
     void settings;
     stopAsked.targets = false;
-    await wait(150);
+    /* A tile test takes a moment, as the real one takes a minute: long
+       enough that a hand can reach it, and the brake is honoured while it
+       is being pretended. The whole-population run stays quick. */
+    await wait(fields ? TILE_TEST_MS : 150);
+    if (stopAsked.targets) return { fields: [], failed: [], stopped: true };
     const positions = scanned.overview ?? [];
     const found = (fields ?? positions.map((_, field) => field)).map((field) => {
       const at = positions[field];
@@ -352,7 +359,9 @@ export const backend = {
           r: Math.sqrt(area / Math.PI),
         };
       });
-      return { field, position_label: labelFor(field, at), cells };
+      /* The device the field was segmented on rides along, as the bridge's
+         answer carries it; the pretend one has no card and says so. */
+      return { field, position_label: labelFor(field, at), cells, device: "pretend" };
     });
     const gave = [];
     onProgress?.(0, found.length);
