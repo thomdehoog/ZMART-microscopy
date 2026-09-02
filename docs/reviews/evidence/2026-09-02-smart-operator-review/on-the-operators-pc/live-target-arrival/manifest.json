@@ -1,11 +1,11 @@
 {
   "schemaVersion": 1,
-  "capturedAtUtc": "2026-09-02T14:36:30.526Z",
+  "capturedAtUtc": "2026-09-02T17:44:47.655Z",
   "provenance": {
     "microscopy": {
       "repository": "thomdehoog/ZMART-microscopy",
       "branch": "claude/smart-operator-workflow-review-ehw3c5",
-      "commit": "d6b1fde99a0f2b1e7431eb7899ed07c2a29b9000",
+      "commit": "44bb925d69590d028b25988f646a6924b8cc7953",
       "worktreeClean": false
     },
     "smartViewer": {
@@ -28,7 +28,7 @@
         "file": "bridge-step1-connected.png",
         "width": 1440,
         "height": 900,
-        "sha256": "d948281a7c589d1460d31270662c5b1e36bd83ba7b52c469944f0101ea4ff053"
+        "sha256": "33a6951ba378e7b5a581649a1c3f5fc109f7351f5e93835a42e209308747b962"
       }
     },
     {
@@ -39,7 +39,7 @@
         "file": "bridge-step2-carrier.png",
         "width": 1440,
         "height": 900,
-        "sha256": "87b589d5f64099a33130fda288a673690db2b1deb81a9ba9be98d54743cc006f"
+        "sha256": "ad7fbd9fec7cb73e3852e25212a9cb8201a744bb47621b88b510890a2bd69ca1"
       }
     },
     {
@@ -50,7 +50,7 @@
         "file": "bridge-step3-plan.png",
         "width": 1440,
         "height": 900,
-        "sha256": "c514262a9b4c3df70cd3a1d8de3e18996ed5539c5c9342975a47b07d9cb37092"
+        "sha256": "167a160f1ee0a4808e9943d6bc4f78fa9a1067eb7dd3d463956b7065413a16b5"
       }
     },
     {
@@ -61,7 +61,7 @@
         "file": "bridge-step4-focus-map.png",
         "width": 1440,
         "height": 900,
-        "sha256": "d6b05bbb1e5945c9685ffbd1986128e16daaadf2efcf5af60e3c99e3fa479b74"
+        "sha256": "81877d21df37617f08c58ebbe1cb3387c3c3fc1baaa33763fd47bee5c093e833"
       }
     },
     {
@@ -72,7 +72,7 @@
         "file": "bridge-step5-overview-complete.png",
         "width": 1440,
         "height": 900,
-        "sha256": "5fd38a3915b1b2e8b0a537ffa353ca4edba1d4d65c3a30a607a8640081b6ba55"
+        "sha256": "f0e9596a59ea01227ad53d9dccd8b019623f264fe65cd36cb53df74d7cf7c47a"
       }
     },
     {
@@ -83,7 +83,7 @@
         "file": "bridge-step8-ready-to-acquire.png",
         "width": 1440,
         "height": 900,
-        "sha256": "5fd38a3915b1b2e8b0a537ffa353ca4edba1d4d65c3a30a607a8640081b6ba55"
+        "sha256": "f0e9596a59ea01227ad53d9dccd8b019623f264fe65cd36cb53df74d7cf7c47a"
       }
     },
     {
@@ -94,7 +94,7 @@
         "file": "bridge-step8-target-source-arriving.png",
         "width": 1440,
         "height": 900,
-        "sha256": "0c21f53c5fb5321971d5fb8b1012923d39235912b631afdf3b74dc97254a9006"
+        "sha256": "34b80b4ee251fb3e766c276ce907494f38983d834bb24d25e930520627f9c484"
       }
     },
     {
@@ -105,7 +105,7 @@
         "file": "bridge-step8-complete-overview-and-targets.png",
         "width": 1440,
         "height": 900,
-        "sha256": "9553b3a196cc0786e29551e186cf9d05238e3201922d6c1c4c07816a18b39d61"
+        "sha256": "59f91e7d29e9348271be9494bf6e004e65571ce1856103b3762e39b2ae887c00"
       }
     },
     {
@@ -116,7 +116,7 @@
         "file": "bridge-step8-target-only.png",
         "width": 1440,
         "height": 900,
-        "sha256": "ff553f34c89938376152b6e82218b505fc67e6a377d9c32f035fb395d8424b39"
+        "sha256": "f6234f227cc4c7dd0b8910b8092b5b47ac66ea06338dc4cdd1c25d84b6b42071"
       }
     },
     {
@@ -127,7 +127,7 @@
         "file": "bridge-step8-overview-only.png",
         "width": 1440,
         "height": 900,
-        "sha256": "7193b1a4788ac253a62ea5f601397da24d0b86785049d755354278aa6ac1cf26"
+        "sha256": "ec8ec6011c869a23aedeb4a7b52819ca69db03f17509ca5da6811effd63353e5"
       }
     },
     {
@@ -138,7 +138,7 @@
         "file": "bridge-step8-rerun-with-fewer-targets.png",
         "width": 1440,
         "height": 900,
-        "sha256": "d31579ef4d9e64871c4beb74f069c8a38047949dae7d914fd499f5230ce0c14f"
+        "sha256": "88d58d547dd4b08a83ec70a35b4c484cc7d203e081f217d97e79867d51354f91"
       }
     },
     {
@@ -149,7 +149,7 @@
         "file": "bridge-step1-reconnected.png",
         "width": 1440,
         "height": 900,
-        "sha256": "9ecff357b5d22e7d4ce17a6cdbbbe52d692ae06d9ed732109d0954f185014d93"
+        "sha256": "3c172f1d2b61ad897cde25b35d2b8cf2d7f96966d561f92f179083d548e9bee6"
       }
     }
   ],
@@ -157,14 +157,13 @@
     "mode": "bridge-published targets",
     "observedTargetGroupName": "target",
     "remounts": {
-      "pictureTagBefore": "picture-o58bdwrczub",
-      "tagAtFirstTargetSource": "picture-m72vai76a",
-      "tagAtEnd": "picture-m72vai76a",
+      "pictureTagBefore": "picture-lzhf0c61vg",
+      "tagAtFirstTargetSource": "picture-906bk0xc8fj",
+      "tagAtEnd": "picture-906bk0xc8fj",
       "remountedAtFirstTargetArrival": true,
       "tagsSeenDuringArrival": [
-        "picture-o58bdwrczub",
-        null,
-        "picture-m72vai76a"
+        "picture-lzhf0c61vg",
+        "picture-906bk0xc8fj"
       ]
     },
     "rerun": {

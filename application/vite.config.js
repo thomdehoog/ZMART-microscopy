@@ -208,7 +208,12 @@ export default defineConfig({
          editing and exactly what you do not want in the middle of a test: the
          page would jump back to its first step and the run being watched would
          be lost. */
-      ignored: ["**/test-results/**", "**/playwright-report/**"],
+      /* Nor a run written under the page's tree: the watcher opened each
+         store's files as they appeared, and on Windows the writer's rename
+         into place was then denied -- one position in three lost, on the
+         operator's PC, with the interface's own bridge writing beside the
+         page. */
+      ignored: ["**/test-results/**", "**/playwright-report/**", "**/mock-output/**"],
     },
   },
 });

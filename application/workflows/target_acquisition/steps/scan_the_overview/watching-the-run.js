@@ -194,8 +194,10 @@ export function watchTheRun(ctx) {
         window.__thePicture = viewer;
         followTheStage();
         /* The viewer's own controls — the acquisitions and their channels —
-           on the left, the workflow's step panels keeping the right. Only for
-           the run's own sources: a JPEG copy has no channels to offer. */
+           in the column the page keeps for them beside the step's channel
+           (the display settings, a tab away), or beside the picture when the
+           page keeps no such column. Only for the run's own sources: a JPEG
+           copy has no channels to offer. */
         panel?.destroy?.();
         panel = null;
         if (wanted.signature.startsWith("sources:")) {
@@ -203,8 +205,10 @@ export function watchTheRun(ctx) {
           panel = await mountViewerPanel(host.parentElement ?? host, {
             viewer, acquisitions: wanted.acquisitions, css: ctx.css,
             requestedState: requestedPanelState,
+            into: ctx.displayHost?.() ?? null,
           });
         }
+        ctx.displayChanged?.();
       } catch (e) {
         console.error(`the scan could not be opened — ${e.message}`);
       } finally {
@@ -259,6 +263,7 @@ export function watchTheRun(ctx) {
     function closePicture({ forgetVisibility = false } = {}) {
       panel?.destroy?.();
       panel = null;
+      ctx.displayChanged?.();
       viewer?.destroy?.();
       viewer = null;
       openedOn = null;

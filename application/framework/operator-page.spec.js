@@ -210,6 +210,39 @@ test("a session opens with the password left empty", async ({ page }) => {
   await expect(page.locator(".session-foot button.run")).toBeEnabled();
 });
 
+test("the display settings are not offered before there is a picture", async ({ page }) => {
+  // the settings become a thing with the first picture, the focus stack of
+  // Step 4, and a JPEG copy never brings one: until then the column is
+  // headed by the step's name alone, not by a choice
+  await expect(page.locator(".side-tab")).toContainText("Connect");
+  await expect(page.locator(".side-tab button.tab")).toHaveCount(0);
+  await expect(page.locator("#display-side")).toBeHidden();
+  await expect(page.locator("#canvas-side")).toBeVisible();
+});
+
+test("the channel folds away to the right and comes back", async ({ page }) => {
+  // one press on the strip at the column's edge puts the whole column away
+  // and gives the canvas the room; the strip stays as the way back, and the
+  // column returns the width it had -- the canvas with it
+  await expect(page.locator("#canvas-side")).toBeVisible();
+  await expect(page.locator(".side-tab")).toContainText("Connect");
+  const canvasBefore = await page.locator("#stage-canvas").boundingBox();
+  const fold = page.locator("#side-fold");
+  await expect(fold).toHaveAttribute("aria-expanded", "true");
+  await fold.click();
+  await expect(page.locator("#canvas-side")).toBeHidden();
+  await expect(page.locator("#side-divider")).toBeHidden();
+  await expect(page.locator(".side-tab")).toHaveCount(0);
+  await expect(fold).toHaveAttribute("aria-expanded", "false");
+  await expect.poll(async () => (await page.locator("#stage-canvas").boundingBox()).width,
+    "the canvas takes the room the column gave up").toBeGreaterThan(canvasBefore.width + 100);
+  await fold.click();
+  await expect(page.locator("#canvas-side")).toBeVisible();
+  await expect(page.locator(".side-tab")).toContainText("Connect");
+  await expect.poll(async () => (await page.locator("#stage-canvas").boundingBox()).width)
+    .toBe(canvasBefore.width);
+});
+
 test("typing the password does not throw the field away", async ({ page }) => {
   const pw = page.locator('.field input[type="password"]');
   await pw.fill("");

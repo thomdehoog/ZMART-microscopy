@@ -15,6 +15,7 @@
 
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
+import { expect } from "@playwright/test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -25,6 +26,26 @@ const REPO = path.resolve(HERE, "..", "..", "..", "..", "..");
 const BRIDGE = path.join(REPO, "application", "framework", "bridge.py");
 
 export const rest = (ms) => new Promise((done) => setTimeout(done, ms));
+
+/**
+ * Bring the picture's display settings on screen, the way an operator does:
+ * they stand in the column beside the canvas, a tab away from the step's
+ * channel, and until that tab is pressed the panel's eyes and windows are
+ * not there to be pressed. Waits for the tab, since the settings arrive with
+ * the picture; a page that never offers one (a JPEG copy) is left alone.
+ */
+export async function showTheChannel(page) {
+  const tab = page.locator(".side-tab button.tab").first();
+  if (await tab.count() && (await tab.getAttribute("aria-selected")) !== "true") await tab.click();
+  await expect(page.locator("#canvas-side")).toBeVisible();
+}
+
+export async function showDisplaySettings(page) {
+  const tab = page.locator(".side-tab button.tab", { hasText: "Display settings" });
+  await expect(tab, "the display settings are offered as a tab").toHaveCount(1, { timeout: 30_000 });
+  if ((await tab.getAttribute("aria-selected")) !== "true") await tab.click();
+  await expect(page.locator("#display-side .viewer-panel")).toBeVisible();
+}
 
 /**
  * The Python the operator's window runs the bridge with.

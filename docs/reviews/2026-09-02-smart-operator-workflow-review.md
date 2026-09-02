@@ -281,7 +281,7 @@ acquisition source survives (checked), so no stale pixels; but the picture objec
 | 3 Scan area | optics recorded from the microscope; grid; counts match carrier and frame; every position on screen; plan locked after scan | **passed** (grid/fields/regions/polygon/clear behaviours proven with pretend backend) | `step3-plan`, operator-page pretend suite |
 | 4 Focus | focussing configuration recorded; points measured through the analysis; traces and stack; fixed/mapped behaviour; focus Z provenance only | **passed** (slice-preview timing test LOW-3, fixed) | `step4-focus-map`, `the-map-fills-in`, `a-moved-point-has-no-curve`, bridge probe |
 | 5 Overview | 0/3/6/9; Run button; nine ROIs examined and textured; three rows × nine sources; growth without remount; Fit preserved; overview-only; close-up; projection < 1 px; real `/api/measure`; no unexpected failures | **failed on head** (HIGH-1 misplacement, HIGH-2 broken spec) → **passed on the fixed review branch** | real bridge + Viewer 0.2 + mock kidney (`step-five-fixed/*`, `view-preservation.json`, `step5-overview-complete`) |
-| 6 Discover | preview is the selected field; settings; test vs all; ids and positions; candidates on canvas; layer changes canvas; hoverable; failures honest; a test and a run can be stopped by hand | **blocked live** in the container (MEDIUM-1) → **failed on real pixels** on the operator's PC (HIGH-3) → **passed on real pixels** on the review branch (section 11); failure reporting fixed (MEDIUM-2); the tile test had no brake (MEDIUM-12), the brake did not stop the field (MEDIUM-13) and detection fell back to the CPU without a word (MEDIUM-14), all fixed and re-proven live | operator-page pretend walk; `step6-discovery-blocked`; `on-the-operators-pc/step6-discovered-over-overview` |
+| 6 Discover | preview is the selected field; settings; test vs all; ids and positions; candidates on canvas; layer changes canvas; hoverable; failures honest; a test and a run can be stopped by hand | **blocked live** in the container (MEDIUM-1) → **failed on real pixels** on the operator's PC (HIGH-3) → **passed on real pixels** on the review branch (section 11); failure reporting fixed (MEDIUM-2); the tile test had no brake (MEDIUM-12), the brake did not stop the field (MEDIUM-13) detection fell back to the CPU without a word (MEDIUM-14) and a run written beside the page lost its stores to a denied rename (MEDIUM-15), the test after a stopped one could get the analysis on its way out (MEDIUM-16), all fixed and re-proven live | operator-page pretend walk; `step6-discovery-blocked`; `on-the-operators-pc/step6-discovered-over-overview` |
 | 7 Refine | candidates before gate; no implicit gate; polygon gate; intersection; feedback; counts agree; gate survives navigation; coordinates unchanged | **passed on real pixels** (section 11) after MEDIUM-10 (the ceiling now survives navigation with the gate); **passed with pretend backend** | operator-page pretend walk; `on-the-operators-pc/step7-*` |
 | 8 Acquire | configuration before acquisition; button gating; one conversion; focus Z provenance; positions equal; rings/frames; gallery; verdicts; partial runs | button path with real discovered targets **passed live** (section 11; three gated cells acquired at their positions, registration 0 µm, rings, gallery, verdicts, one-at-a-time growth); source model **passed live**; interruption **failed** (the gallery stayed empty after a stopped run, MEDIUM-11) → **passed live** on the review branch: stopped by hand after 5 of 12, every account says 5, Run again says 12 | `bridge-step8-*` records; `on-the-operators-pc/step8-*`; `on-the-operators-pc/interruption/` |
 
@@ -816,6 +816,86 @@ gone: Connect is ready as soon as an instrument is chosen, the sentence "a passw
 open the session" is removed, and the field stays empty and optional. Whether an instrument wants
 one is its own business when the session is opened. `session-card.js`; the pretend test now
 expects an enabled Connect and no such sentence (5 connect tests pass).
+
+#### The display settings as a tab, and the column that folds away (operator's asks)
+
+Two more asks from the window, built the same afternoon.
+
+- **Display settings a tab away from the step.** The picture's own controls -- its acquisitions,
+  channel rows, windows and Auto -- used to stand as a strip between the canvas and the step's
+  channel. They now stand *in* the channel's column, and the row over that column carries two
+  real tabs: the step's name and "Display settings". Pressing one shows it there; the other is a
+  press away. One column, one width, so the canvas does not move by a pixel when the choice
+  changes -- the review spec measures the canvas's box before and after both presses at Step 6
+  and requires equality (`step6-display-settings-tab`). The tab is offered exactly while there is
+  something to show under it: the settings become a thing with the first picture, the focus stack
+  of Step 4, and go with the picture at Disconnect (the operator's decision, after seeing a tab
+  that stood empty over three steps); a JPEG copy has no display settings, and the pretend
+  backend therefore shows the step's name alone, as before. Walking to a step brings that step's
+  channel back, so display settings left showing on one step do not follow the operator to the
+  next; a spec that pressed the panel presses the step's tab again before the step's own button
+  (`showDisplaySettings` / `showTheChannel` in `live-bridge.js`). `parts/canvas/panel.js` (the second column),
+  `parts/canvas/viewer-panel.js` (`into`: fills the column, no fold of its own),
+  `watching-the-run.js` (mounts there and says when the settings came or went),
+  `main.js` (`sideView`, the two tabs, the switch).
+- **The column folds away to the right.** A 14px strip on the column's edge -- the same strip the
+  viewer's panel folded with -- puts the whole column away with one press and gives the canvas the
+  room; the strip stays as the way back, and the column returns the width it had, the canvas
+  with it. Folded, the column has no heading. The pretend suite presses it on the Connect step:
+  the column and its divider go, the canvas grows by more than 100 px, the heading goes; pressed
+  again, everything is back and the canvas is the width it was
+  (`the channel folds away to the right and comes back`). `main.js` (`sideFolded`, the fold on
+  the same edge as the divider), `panel.js`, `style.css`.
+
+#### MEDIUM-15 -- A run written beside the page lost its stores to a denied rename
+
+**Status: fixed and re-proven on the review branch.** Found by the operator in the window: the
+overview was on the canvas, the Display settings tab said no picture had come, and the Viewer
+behind the window held no acquisition at all.
+
+- **Files:** `application/parts/storage/zarr_positions.py` (one attempt at each store, and a
+  refused rename was the store's end); `application/vite.config.js` (the development server
+  watched everything under the page, run output included); the mock driver's default output
+  root, `mock-output` under the working directory, which the interface's own bridge (started in
+  `application/`) resolves to `application/mock-output`.
+- **Observed:** every record of the window's run carried
+  `zarr_error: [WinError 5] Access is denied: '...\.writing-overview\...\zarr.<uuid>.partial' ->
+  '...\zarr.json'` instead of a store; `/api/viewer` answered `acquisitions: []`; the page fell
+  back to the JPEG copies, which bring no display settings. Reproduced with a bridge run from a
+  script: written under `application/mock-output` with the development server up, one position
+  in three and the focus stack lost; written under the temp folder, nothing lost. Windows denies
+  a rename while another process holds the file, and the watcher opened each store's files as
+  they appeared. A scanner on a microscope PC does the same (Kaspersky has suspended a run on
+  this machine before).
+- **Fix:** the store is written up to three times, each in a fresh staging folder, with a short
+  wait between; a rename denied for good raises as itself. Two tests in `test_zarr_positions.py`
+  (denied once: the store is published and nothing else stands in the folder; denied every time:
+  the same error). And the development server no longer watches `mock-output`, so it never holds
+  a run's files at all. Re-proven with the same script: the run under `application/mock-output`
+  with the server up lost nothing, and the Viewer listed both acquisitions.
+
+#### MEDIUM-16 -- The test after a stopped one could be handed the analysis on its way out
+
+**Status: fixed and re-proven on the review branch.** Found by the review spec once the tile
+test could be stopped: the test pressed right after a stopped one answered
+"Engine has been shut down" instead of examining its field.
+
+- **File:** `application/parts/analysis/warm.py`, `close()`: it put the analysis down first and
+  emptied the door after. The brake puts the worker down at once, the stopped run reports
+  itself done at once, the page starts the next test at once -- and `the_analysis()` in that
+  test could still be handed the analysis whose engine was being shut down. A script that
+  waited a moment between the two never saw it; the page does not wait.
+- **Fix:** the door is emptied first, the old analysis put down after, so whoever asks during
+  the shutdown gets a fresh one. `test_warm.py` holds it with an engine whose shutdown blocks
+  until released: the analysis asked for meanwhile is a different object with a different
+  engine (red before: the same one).
+
+Two more spec matters from the same afternoon: `step-five-kidney-evidence.spec.js` looked for
+the Viewer's `/api/measure` route with `rg`, which this machine does not carry, and could not
+load at all -- it reads the file now. And running any bridge of one's own beside a spec's bridge
+is not a thing to do on this machine: two processes spawning `conda run` at once trip the
+activation-file race the engine documents, and the interruption test lost its whole discovery
+to a probe of mine running alongside. Verification runs alone.
 
 #### Ledger and evidence for MEDIUM-12 to MEDIUM-14 and the password
 

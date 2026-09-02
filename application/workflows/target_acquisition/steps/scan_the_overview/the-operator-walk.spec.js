@@ -21,7 +21,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "@playwright/test";
-import { rest, startTheBridge } from "./live-bridge.js";
+import { rest, showDisplaySettings, showTheChannel, startTheBridge } from "./live-bridge.js";
 import { fractionNear, photograph } from "./pixels.js";
 
 const SHOTS = path.resolve(
@@ -240,6 +240,7 @@ test("an operator walks from Connect to a scanned overview", async ({ page }) =>
      before the overview starts. Hide that acquisition through the operator's
      own control so the pixel rise below belongs specifically to overview;
      acquisition order and shared display Z must not be used as visibility. */
+  await showDisplaySettings(page);
   const focussingEye = page.locator(
     '.viewer-panel button[data-acquisition="focussing"]',
   );
@@ -258,6 +259,9 @@ test("an operator walks from Connect to a scanned overview", async ({ page }) =>
     .toBeLessThan(20);
 
   if (process.env.LIVE_WALK_SABOTAGE !== "unscanned") {
+    /* The eye above was pressed on the display settings; the step's own
+       press stands in its channel, a tab back. */
+    await showTheChannel(page);
     await page.locator(".panel.on button.step-run").click();
   }
   const scanned = await fullestOf(page, "2-after-the-scan", { seconds: 30 });

@@ -36,7 +36,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "@playwright/test";
-import { rest, startTheBridge } from
+import { rest, showDisplaySettings, showTheChannel, startTheBridge } from
   "./workflows/target_acquisition/steps/scan_the_overview/live-bridge.js";
 import { readPng } from
   "./workflows/target_acquisition/steps/scan_the_overview/pixels.js";
@@ -287,6 +287,7 @@ async function panelState(page) {
 }
 
 async function setGroupVisible(page, group, visible) {
+  await showDisplaySettings(page);
   const eye = page.locator(`.viewer-panel button[data-acquisition="${group}"]`);
   await expect(eye, `the ${group} acquisition eye exists`).toHaveCount(1);
   if ((await eye.getAttribute("data-on")) === (visible ? "1" : "0")) return;
@@ -710,6 +711,9 @@ async function throughStepFive({ page, take, port, bridge }) {
   await expect.poll(() => rowsOfGroup(page, "focussing").then((rows) => rows.length), { timeout: 60_000 }).toBe(1);
   await rest(1500);
   await setGroupVisible(page, "focussing", false);
+  /* The eye was pressed on the display settings; the step's own press
+     stands in its channel, a tab back. */
+  await showTheChannel(page);
   await page.locator(".panel.on button.step-run").click();
   await expect.poll(async () => (await bridgeJson(page, port, "/api/scan")).done, { timeout: 400_000 }).toBe(9);
   await expect.poll(async () => !(await bridgeJson(page, port, "/api/scan")).running, { timeout: 400_000 }).toBe(true);
@@ -1055,6 +1059,27 @@ test("Steps 1 to 8 through the operator page on the real bridge, Viewer 0.2 and 
       extra: { discovery: { fields: discovery.fields.map((field) => ({ field: field.field, label: field.position_label, cells: field.cells.length })), failed: discovery.failed ?? [], candidateLayerPixelChange: cellsChanged, hoverCheck: { id: hovered.id, screen: hovered.screen } } },
     });
 
+    /* The display settings are a tab away from the step's channel, in the
+       same column: pressing it shows the picture's panel there and hides the
+       channel, pressing the step's name brings the channel back, and the
+       canvas does not move by a pixel either way. */
+    await expect(page.locator(".side-tab button.tab")).toHaveCount(2);
+    await page.locator(".side-tab button.tab", { hasText: "Discover Targets" }).click();
+    await expect(page.locator("#canvas-side")).toBeVisible();
+    const canvasBefore = await page.locator("#stage-canvas").boundingBox();
+    await page.locator(".side-tab button.tab", { hasText: "Display settings" }).click();
+    await expect(page.locator("#display-side .viewer-panel")).toBeVisible();
+    await expect(page.locator("#canvas-side")).toBeHidden();
+    await expect(page.locator(".side-tab button.tab", { hasText: "Display settings" })).toHaveAttribute("aria-selected", "true");
+    expect(await page.locator("#stage-canvas").boundingBox(), "showing the display settings does not move the canvas").toEqual(canvasBefore);
+    await take("step6-display-settings-tab", {
+      step: 6, state: "the display settings shown in the channel's column, a tab away from the step; the canvas where it was",
+    });
+    await page.locator(".side-tab button.tab", { hasText: "Discover Targets" }).click();
+    await expect(page.locator("#canvas-side")).toBeVisible();
+    await expect(page.locator("#display-side")).toBeHidden();
+    expect(await page.locator("#stage-canvas").boundingBox(), "bringing the channel back does not move the canvas").toEqual(canvasBefore);
+
     /* ---------------------------------------------------------- Step 7 */
     await gotoStep(page, "Refine Targets");
     const beforeGate = await page.evaluate(() => window.__theStageCanvas.targets());
@@ -1144,6 +1169,9 @@ test("Steps 1 to 8 through the operator page on the real bridge, Viewer 0.2 and 
       page, take, port: PORT, bridge, plan, planBoxes, expectedTargets: selectedAfter.length, mode: "operator page", outcome,
       trigger: async () => { await page.locator(".panel.on button.step-run").click(); },
     });
+    /* The eyes were pressed on the display settings; the gallery and the
+       step's press stand in its channel, a tab back. */
+    await showTheChannel(page);
     await expect(page.locator(".panel.on button.step-run")).toHaveText("Run again", { timeout: 120_000 });
     const acquired = await page.evaluate(() => window.__theStageCanvas.targets());
     const acquiredIds = acquired.filter((one) => one.acquired).map((one) => one.id).sort();

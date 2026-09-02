@@ -1,12 +1,12 @@
 {
   "schemaVersion": 1,
   "name": "bridge-step8-overview-only",
-  "capturedAtUtc": "2026-09-02T14:36:21.340Z",
+  "capturedAtUtc": "2026-09-02T17:44:38.485Z",
   "provenance": {
     "microscopy": {
       "repository": "thomdehoog/ZMART-microscopy",
       "branch": "claude/smart-operator-workflow-review-ehw3c5",
-      "commit": "d6b1fde99a0f2b1e7431eb7899ed07c2a29b9000",
+      "commit": "44bb925d69590d028b25988f646a6924b8cc7953",
       "worktreeClean": false
     },
     "smartViewer": {
@@ -23,8 +23,8 @@
   "sample": "mock kidney (scikit-image kidney, plane 8)",
   "server": {
     "bridge": "http://127.0.0.1:8823",
-    "viewer": "http://127.0.0.1:53611",
-    "run": "C:\\Users\\local_t.de5\\Temp\\zmart-bridge-rr7j9s\\target-acquisition_ec026a"
+    "viewer": "http://127.0.0.1:56205",
+    "run": "C:\\Users\\local_t.de5\\Temp\\zmart-bridge-d9aN1K\\target-acquisition_fe7391"
   },
   "workflow": {
     "step": 8,
@@ -128,7 +128,7 @@
       "sourceCount": 9,
       "sources": [
         {
-          "url": "http://127.0.0.1:53611/data/1/overview_K00_M000001_G000001_P000000_V00.ome.zarr/|zarr3:",
+          "url": "http://127.0.0.1:56205/data/1/overview_K00_M000001_G000001_P000000_V00.ome.zarr/|zarr3:",
           "error": null,
           "boundsUm": {
             "xMin": 58463.99999999999,
@@ -148,7 +148,7 @@
           ]
         },
         {
-          "url": "http://127.0.0.1:53611/data/1/overview_K00_M000001_G000001_P000001_V00.ome.zarr/|zarr3:",
+          "url": "http://127.0.0.1:56205/data/1/overview_K00_M000001_G000001_P000001_V00.ome.zarr/|zarr3:",
           "error": null,
           "boundsUm": {
             "xMin": 59488,
@@ -168,7 +168,7 @@
           ]
         },
         {
-          "url": "http://127.0.0.1:53611/data/1/overview_K00_M000001_G000001_P000002_V00.ome.zarr/|zarr3:",
+          "url": "http://127.0.0.1:56205/data/1/overview_K00_M000001_G000001_P000002_V00.ome.zarr/|zarr3:",
           "error": null,
           "boundsUm": {
             "xMin": 60511.99999999999,
@@ -188,7 +188,7 @@
           ]
         },
         {
-          "url": "http://127.0.0.1:53611/data/1/overview_K00_M000001_G000001_P000003_V00.ome.zarr/|zarr3:",
+          "url": "http://127.0.0.1:56205/data/1/overview_K00_M000001_G000001_P000003_V00.ome.zarr/|zarr3:",
           "error": null,
           "boundsUm": {
             "xMin": 58463.99999999999,
@@ -208,7 +208,7 @@
           ]
         },
         {
-          "url": "http://127.0.0.1:53611/data/1/overview_K00_M000001_G000001_P000004_V00.ome.zarr/|zarr3:",
+          "url": "http://127.0.0.1:56205/data/1/overview_K00_M000001_G000001_P000004_V00.ome.zarr/|zarr3:",
           "error": null,
           "boundsUm": {
             "xMin": 59488,
@@ -228,7 +228,7 @@
           ]
         },
         {
-          "url": "http://127.0.0.1:53611/data/1/overview_K00_M000001_G000001_P000005_V00.ome.zarr/|zarr3:",
+          "url": "http://127.0.0.1:56205/data/1/overview_K00_M000001_G000001_P000005_V00.ome.zarr/|zarr3:",
           "error": null,
           "boundsUm": {
             "xMin": 60511.99999999999,
@@ -248,7 +248,7 @@
           ]
         },
         {
-          "url": "http://127.0.0.1:53611/data/1/overview_K00_M000001_G000001_P000006_V00.ome.zarr/|zarr3:",
+          "url": "http://127.0.0.1:56205/data/1/overview_K00_M000001_G000001_P000006_V00.ome.zarr/|zarr3:",
           "error": null,
           "boundsUm": {
             "xMin": 58463.99999999999,
@@ -268,7 +268,7 @@
           ]
         },
         {
-          "url": "http://127.0.0.1:53611/data/1/overview_K00_M000001_G000001_P000007_V00.ome.zarr/|zarr3:",
+          "url": "http://127.0.0.1:56205/data/1/overview_K00_M000001_G000001_P000007_V00.ome.zarr/|zarr3:",
           "error": null,
           "boundsUm": {
             "xMin": 59488,
@@ -288,7 +288,7 @@
           ]
         },
         {
-          "url": "http://127.0.0.1:53611/data/1/overview_K00_M000001_G000001_P000008_V00.ome.zarr/|zarr3:",
+          "url": "http://127.0.0.1:56205/data/1/overview_K00_M000001_G000001_P000008_V00.ome.zarr/|zarr3:",
           "error": null,
           "boundsUm": {
             "xMin": 60511.99999999999,
@@ -322,7 +322,7 @@
       "sourceCount": 9,
       "sources": [
         {
-          "url": "http://127.0.0.1:53611/data/1/overview_K00_M000001_G000001_P000000_V00.ome.zarr/|zarr3:",
+          "url": "http://127.0.0.1:56205/data/1/overview_K00_M000001_G000001_P000000_V00.ome.zarr/|zarr3:",
           "error": null,
           "boundsUm": {
             "xMin": 58463.99999999999,
@@ -342,7 +342,7 @@
           ]
         },
         {
-          "url": "http://127.0.0.1:53611/data/1/overview_K00_M000001_G000001_P000001_V00.ome.zarr/|zarr3:",
+          "url": "http://127.0.0.1:56205/data/1/overview_K00_M000001_G000001_P000001_V00.ome.zarr/|zarr3:",
           "error": null,
           "boundsUm": {
             "xMin": 59488,
@@ -362,7 +362,7 @@
           ]
         },
         {
-          "url": "http://127.0.0.1:53611/data/1/overview_K00_M000001_G000001_P000002_V00.ome.zarr/|zarr3:",
+          "url": "http://127.0.0.1:56205/data/1/overview_K00_M000001_G000001_P000002_V00.ome.zarr/|zarr3:",
           "error": null,
           "boundsUm": {
             "xMin": 60511.99999999999,
@@ -382,7 +382,7 @@
           ]
         },
         {
-          "url": "http://127.0.0.1:53611/data/1/overview_K00_M000001_G000001_P000003_V00.ome.zarr/|zarr3:",
+          "url": "http://127.0.0.1:56205/data/1/overview_K00_M000001_G000001_P000003_V00.ome.zarr/|zarr3:",
           "error": null,
           "boundsUm": {
             "xMin": 58463.99999999999,
@@ -402,7 +402,7 @@
           ]
         },
         {
-          "url": "http://127.0.0.1:53611/data/1/overview_K00_M000001_G000001_P000004_V00.ome.zarr/|zarr3:",
+          "url": "http://127.0.0.1:56205/data/1/overview_K00_M000001_G000001_P000004_V00.ome.zarr/|zarr3:",
           "error": null,
           "boundsUm": {
             "xMin": 59488,
@@ -422,7 +422,7 @@
           ]
         },
         {
-          "url": "http://127.0.0.1:53611/data/1/overview_K00_M000001_G000001_P000005_V00.ome.zarr/|zarr3:",
+          "url": "http://127.0.0.1:56205/data/1/overview_K00_M000001_G000001_P000005_V00.ome.zarr/|zarr3:",
           "error": null,
           "boundsUm": {
             "xMin": 60511.99999999999,
@@ -442,7 +442,7 @@
           ]
         },
         {
-          "url": "http://127.0.0.1:53611/data/1/overview_K00_M000001_G000001_P000006_V00.ome.zarr/|zarr3:",
+          "url": "http://127.0.0.1:56205/data/1/overview_K00_M000001_G000001_P000006_V00.ome.zarr/|zarr3:",
           "error": null,
           "boundsUm": {
             "xMin": 58463.99999999999,
@@ -462,7 +462,7 @@
           ]
         },
         {
-          "url": "http://127.0.0.1:53611/data/1/overview_K00_M000001_G000001_P000007_V00.ome.zarr/|zarr3:",
+          "url": "http://127.0.0.1:56205/data/1/overview_K00_M000001_G000001_P000007_V00.ome.zarr/|zarr3:",
           "error": null,
           "boundsUm": {
             "xMin": 59488,
@@ -482,7 +482,7 @@
           ]
         },
         {
-          "url": "http://127.0.0.1:53611/data/1/overview_K00_M000001_G000001_P000008_V00.ome.zarr/|zarr3:",
+          "url": "http://127.0.0.1:56205/data/1/overview_K00_M000001_G000001_P000008_V00.ome.zarr/|zarr3:",
           "error": null,
           "boundsUm": {
             "xMin": 60511.99999999999,
@@ -516,7 +516,7 @@
       "sourceCount": 9,
       "sources": [
         {
-          "url": "http://127.0.0.1:53611/data/1/overview_K00_M000001_G000001_P000000_V00.ome.zarr/|zarr3:",
+          "url": "http://127.0.0.1:56205/data/1/overview_K00_M000001_G000001_P000000_V00.ome.zarr/|zarr3:",
           "error": null,
           "boundsUm": {
             "xMin": 58463.99999999999,
@@ -536,7 +536,7 @@
           ]
         },
         {
-          "url": "http://127.0.0.1:53611/data/1/overview_K00_M000001_G000001_P000001_V00.ome.zarr/|zarr3:",
+          "url": "http://127.0.0.1:56205/data/1/overview_K00_M000001_G000001_P000001_V00.ome.zarr/|zarr3:",
           "error": null,
           "boundsUm": {
             "xMin": 59488,
@@ -556,7 +556,7 @@
           ]
         },
         {
-          "url": "http://127.0.0.1:53611/data/1/overview_K00_M000001_G000001_P000002_V00.ome.zarr/|zarr3:",
+          "url": "http://127.0.0.1:56205/data/1/overview_K00_M000001_G000001_P000002_V00.ome.zarr/|zarr3:",
           "error": null,
           "boundsUm": {
             "xMin": 60511.99999999999,
@@ -576,7 +576,7 @@
           ]
         },
         {
-          "url": "http://127.0.0.1:53611/data/1/overview_K00_M000001_G000001_P000003_V00.ome.zarr/|zarr3:",
+          "url": "http://127.0.0.1:56205/data/1/overview_K00_M000001_G000001_P000003_V00.ome.zarr/|zarr3:",
           "error": null,
           "boundsUm": {
             "xMin": 58463.99999999999,
@@ -596,7 +596,7 @@
           ]
         },
         {
-          "url": "http://127.0.0.1:53611/data/1/overview_K00_M000001_G000001_P000004_V00.ome.zarr/|zarr3:",
+          "url": "http://127.0.0.1:56205/data/1/overview_K00_M000001_G000001_P000004_V00.ome.zarr/|zarr3:",
           "error": null,
           "boundsUm": {
             "xMin": 59488,
@@ -616,7 +616,7 @@
           ]
         },
         {
-          "url": "http://127.0.0.1:53611/data/1/overview_K00_M000001_G000001_P000005_V00.ome.zarr/|zarr3:",
+          "url": "http://127.0.0.1:56205/data/1/overview_K00_M000001_G000001_P000005_V00.ome.zarr/|zarr3:",
           "error": null,
           "boundsUm": {
             "xMin": 60511.99999999999,
@@ -636,7 +636,7 @@
           ]
         },
         {
-          "url": "http://127.0.0.1:53611/data/1/overview_K00_M000001_G000001_P000006_V00.ome.zarr/|zarr3:",
+          "url": "http://127.0.0.1:56205/data/1/overview_K00_M000001_G000001_P000006_V00.ome.zarr/|zarr3:",
           "error": null,
           "boundsUm": {
             "xMin": 58463.99999999999,
@@ -656,7 +656,7 @@
           ]
         },
         {
-          "url": "http://127.0.0.1:53611/data/1/overview_K00_M000001_G000001_P000007_V00.ome.zarr/|zarr3:",
+          "url": "http://127.0.0.1:56205/data/1/overview_K00_M000001_G000001_P000007_V00.ome.zarr/|zarr3:",
           "error": null,
           "boundsUm": {
             "xMin": 59488,
@@ -676,7 +676,7 @@
           ]
         },
         {
-          "url": "http://127.0.0.1:53611/data/1/overview_K00_M000001_G000001_P000008_V00.ome.zarr/|zarr3:",
+          "url": "http://127.0.0.1:56205/data/1/overview_K00_M000001_G000001_P000008_V00.ome.zarr/|zarr3:",
           "error": null,
           "boundsUm": {
             "xMin": 60511.99999999999,
@@ -710,7 +710,7 @@
       "sourceCount": 3,
       "sources": [
         {
-          "url": "http://127.0.0.1:53611/data/2/target_K00_M000000_G000000_P000000_V00.ome.zarr/|zarr3:",
+          "url": "http://127.0.0.1:56205/data/2/target_K00_M000000_G000000_P000000_V00.ome.zarr/|zarr3:",
           "error": null,
           "boundsUm": {
             "xMin": 58648.32,
@@ -730,7 +730,7 @@
           ]
         },
         {
-          "url": "http://127.0.0.1:53611/data/2/target_K00_M000000_G000000_P000001_V00.ome.zarr/|zarr3:",
+          "url": "http://127.0.0.1:56205/data/2/target_K00_M000000_G000000_P000001_V00.ome.zarr/|zarr3:",
           "error": null,
           "boundsUm": {
             "xMin": 59672.31999999999,
@@ -750,7 +750,7 @@
           ]
         },
         {
-          "url": "http://127.0.0.1:53611/data/2/target_K00_M000000_G000000_P000002_V00.ome.zarr/|zarr3:",
+          "url": "http://127.0.0.1:56205/data/2/target_K00_M000000_G000000_P000002_V00.ome.zarr/|zarr3:",
           "error": null,
           "boundsUm": {
             "xMin": 60696.32,
@@ -784,7 +784,7 @@
       "sourceCount": 3,
       "sources": [
         {
-          "url": "http://127.0.0.1:53611/data/2/target_K00_M000000_G000000_P000000_V00.ome.zarr/|zarr3:",
+          "url": "http://127.0.0.1:56205/data/2/target_K00_M000000_G000000_P000000_V00.ome.zarr/|zarr3:",
           "error": null,
           "boundsUm": {
             "xMin": 58648.32,
@@ -804,7 +804,7 @@
           ]
         },
         {
-          "url": "http://127.0.0.1:53611/data/2/target_K00_M000000_G000000_P000001_V00.ome.zarr/|zarr3:",
+          "url": "http://127.0.0.1:56205/data/2/target_K00_M000000_G000000_P000001_V00.ome.zarr/|zarr3:",
           "error": null,
           "boundsUm": {
             "xMin": 59672.31999999999,
@@ -824,7 +824,7 @@
           ]
         },
         {
-          "url": "http://127.0.0.1:53611/data/2/target_K00_M000000_G000000_P000002_V00.ome.zarr/|zarr3:",
+          "url": "http://127.0.0.1:56205/data/2/target_K00_M000000_G000000_P000002_V00.ome.zarr/|zarr3:",
           "error": null,
           "boundsUm": {
             "xMin": 60696.32,
@@ -858,7 +858,7 @@
       "sourceCount": 3,
       "sources": [
         {
-          "url": "http://127.0.0.1:53611/data/2/target_K00_M000000_G000000_P000000_V00.ome.zarr/|zarr3:",
+          "url": "http://127.0.0.1:56205/data/2/target_K00_M000000_G000000_P000000_V00.ome.zarr/|zarr3:",
           "error": null,
           "boundsUm": {
             "xMin": 58648.32,
@@ -878,7 +878,7 @@
           ]
         },
         {
-          "url": "http://127.0.0.1:53611/data/2/target_K00_M000000_G000000_P000001_V00.ome.zarr/|zarr3:",
+          "url": "http://127.0.0.1:56205/data/2/target_K00_M000000_G000000_P000001_V00.ome.zarr/|zarr3:",
           "error": null,
           "boundsUm": {
             "xMin": 59672.31999999999,
@@ -898,7 +898,7 @@
           ]
         },
         {
-          "url": "http://127.0.0.1:53611/data/2/target_K00_M000000_G000000_P000002_V00.ome.zarr/|zarr3:",
+          "url": "http://127.0.0.1:56205/data/2/target_K00_M000000_G000000_P000002_V00.ome.zarr/|zarr3:",
           "error": null,
           "boundsUm": {
             "xMin": 60696.32,
@@ -932,7 +932,7 @@
       "sourceCount": 1,
       "sources": [
         {
-          "url": "http://127.0.0.1:53611/data/0/focussing_K00_M000000_G000000_P000000_V00.ome.zarr/|zarr3:",
+          "url": "http://127.0.0.1:56205/data/0/focussing_K00_M000000_G000000_P000000_V00.ome.zarr/|zarr3:",
           "error": null,
           "boundsUm": {
             "xMin": 59488,
@@ -1149,11 +1149,11 @@
         },
         "frameUm": 1024,
         "stageScreenPx": {
-          "x": 103.66666666666667,
+          "x": 235.66666666666669,
           "y": 284.0963541666667
         },
         "engineScreenPx": {
-          "x": 103.66666666666667,
+          "x": 235.66666666666669,
           "y": 284.1666666666667
         },
         "errorPx": 0.0703125
@@ -1170,11 +1170,11 @@
         },
         "frameUm": 1024,
         "stageScreenPx": {
-          "x": 189,
+          "x": 321,
           "y": 284.0963541666667
         },
         "engineScreenPx": {
-          "x": 189,
+          "x": 321,
           "y": 284.1666666666667
         },
         "errorPx": 0.0703125
@@ -1191,11 +1191,11 @@
         },
         "frameUm": 1024,
         "stageScreenPx": {
-          "x": 274.3333333333333,
+          "x": 406.3333333333333,
           "y": 284.0963541666667
         },
         "engineScreenPx": {
-          "x": 274.3333333333333,
+          "x": 406.3333333333333,
           "y": 284.1666666666667
         },
         "errorPx": 0.0703125
@@ -1212,11 +1212,11 @@
         },
         "frameUm": 1024,
         "stageScreenPx": {
-          "x": 103.66666666666667,
+          "x": 235.66666666666669,
           "y": 369.4296875
         },
         "engineScreenPx": {
-          "x": 103.66666666666667,
+          "x": 235.66666666666669,
           "y": 369.5
         },
         "errorPx": 0.0703125
@@ -1233,11 +1233,11 @@
         },
         "frameUm": 1024,
         "stageScreenPx": {
-          "x": 189,
+          "x": 321,
           "y": 369.4296875
         },
         "engineScreenPx": {
-          "x": 189,
+          "x": 321,
           "y": 369.5
         },
         "errorPx": 0.0703125
@@ -1254,11 +1254,11 @@
         },
         "frameUm": 1024,
         "stageScreenPx": {
-          "x": 274.3333333333333,
+          "x": 406.3333333333333,
           "y": 369.4296875
         },
         "engineScreenPx": {
-          "x": 274.3333333333333,
+          "x": 406.3333333333333,
           "y": 369.5
         },
         "errorPx": 0.0703125
@@ -1275,11 +1275,11 @@
         },
         "frameUm": 1024,
         "stageScreenPx": {
-          "x": 103.66666666666667,
+          "x": 235.66666666666669,
           "y": 454.7630208333333
         },
         "engineScreenPx": {
-          "x": 103.66666666666667,
+          "x": 235.66666666666669,
           "y": 454.8333333333333
         },
         "errorPx": 0.0703125
@@ -1296,11 +1296,11 @@
         },
         "frameUm": 1024,
         "stageScreenPx": {
-          "x": 189,
+          "x": 321,
           "y": 454.7630208333333
         },
         "engineScreenPx": {
-          "x": 189,
+          "x": 321,
           "y": 454.8333333333333
         },
         "errorPx": 0.0703125
@@ -1317,11 +1317,11 @@
         },
         "frameUm": 1024,
         "stageScreenPx": {
-          "x": 274.3333333333333,
+          "x": 406.3333333333333,
           "y": 454.7630208333333
         },
         "engineScreenPx": {
-          "x": 274.3333333333333,
+          "x": 406.3333333333333,
           "y": 454.8333333333333
         },
         "errorPx": 0.0703125
@@ -1342,13 +1342,13 @@
         "y": 40000
       },
       "zoom": 12,
-      "width": 378,
+      "width": 642,
       "height": 739
     },
     "canvas": {
       "left": 284,
       "top": 110,
-      "width": 378,
+      "width": 642,
       "height": 738.859375
     }
   },
@@ -1357,7 +1357,7 @@
     "targetsMaxPx": null,
     "tolerancePx": 1
   },
-  "pictureTag": "picture-m72vai76a",
+  "pictureTag": "picture-906bk0xc8fj",
   "pixelCheck": {
     "canvasShadeBins": 31,
     "plannedRois": [
@@ -1411,9 +1411,9 @@
   "requests": {
     "required": {
       "metadata": 72,
-      "chunks": 321,
+      "chunks": 312,
       "measurement": 3,
-      "api": 108,
+      "api": 130,
       "pictures": 61
     },
     "expectedFormatProbes": [],
@@ -1466,6 +1466,6 @@
     "file": "bridge-step8-overview-only.png",
     "width": 1440,
     "height": 900,
-    "sha256": "7193b1a4788ac253a62ea5f601397da24d0b86785049d755354278aa6ac1cf26"
+    "sha256": "ec8ec6011c869a23aedeb4a7b52819ca69db03f17509ca5da6811effd63353e5"
   }
 }

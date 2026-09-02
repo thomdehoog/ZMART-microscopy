@@ -127,8 +127,14 @@ def the_analysis() -> Analysis:
 
 
 def close() -> None:
-    """Let the workers go. Called when nothing is going to ask again soon."""
+    """Let the workers go. Called when nothing is going to ask again soon.
+
+    The door is emptied first and the old analysis put down after: the page
+    starts the next test the moment a stopped one reports itself done, while
+    this is still under way, and a caller handed the analysis on its way out
+    died with "Engine has been shut down".
+    """
     global _analysis
-    if _analysis is not None:
-        _analysis.shutdown()
-        _analysis = None
+    leaving, _analysis = _analysis, None
+    if leaving is not None:
+        leaving.shutdown()

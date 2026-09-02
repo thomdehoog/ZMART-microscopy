@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "name": "step7-candidates-before-gate",
-  "capturedAtUtc": "2026-09-02T17:43:31.909Z",
+  "name": "step6-display-settings-tab",
+  "capturedAtUtc": "2026-09-02T17:43:30.004Z",
   "provenance": {
     "microscopy": {
       "repository": "thomdehoog/ZMART-microscopy",
@@ -27,8 +27,8 @@
     "run": "C:\\Users\\local_t.de5\\Temp\\zmart-bridge-6KTp7x\\target-acquisition_f989e5"
   },
   "workflow": {
-    "step": 7,
-    "state": "refine step opened; all candidates drawn as context; no gate yet",
+    "step": 6,
+    "state": "the display settings shown in the channel's column, a tab away from the step; the canvas where it was",
     "run": {
       "running": null,
       "notes": {
@@ -38,7 +38,7 @@
         "scan": "9 / 9 tiles",
         "detect": "4010 targets · Cellpose"
       },
-      "activeIdx": 6,
+      "activeIdx": 5,
       "done": [
         "connect",
         "carrier",
@@ -1057,14 +1057,14 @@
   },
   "pictureTag": null,
   "pixelCheck": {
-    "canvasShadeBins": 110
+    "canvasShadeBins": 299
   },
   "requests": {
     "required": {
       "metadata": 33,
-      "chunks": 8187,
+      "chunks": 8160,
       "measurement": 2,
-      "api": 1454,
+      "api": 1446,
       "pictures": 62
     },
     "expectedFormatProbes": [],
@@ -2729,9 +2729,9 @@
   "bridgeErrors": [],
   "viewerError": null,
   "artifact": {
-    "file": "step7-candidates-before-gate.png",
+    "file": "step6-display-settings-tab.png",
     "width": 1440,
     "height": 900,
-    "sha256": "866919e7924c2051e22517f6ee9beba4a45df5b6d76e28c049beb4599bd11255"
+    "sha256": "2af7e04c859e6c66b81dd6c4b7bef2afb6a228e862e70a65f781a71cd5391a99"
   }
 }

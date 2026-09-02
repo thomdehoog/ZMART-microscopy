@@ -66,7 +66,17 @@ export const canvasPanel = {
              reshapes how much of the window the channel takes. -->
         <div class="side-divider" id="side-divider" role="separator"
              aria-orientation="vertical" aria-label="resize the channel" hidden></div>
+        <!-- The column's fold: one press puts the whole column away to the
+             right and gives the canvas the room; the strip that stays is the
+             press that brings it back. -->
+        <button class="side-fold" id="side-fold" type="button" hidden
+                aria-label="fold the channel away" title="Fold the channel away">›</button>
         <aside class="canvas-side" id="canvas-side" hidden></aside>
+        <!-- The picture's own controls -- its acquisitions, channels and
+             windows -- stand in the same column as the step's channel, and
+             the tab row over the column says which of the two is showing.
+             One column, one width: switching never moves the canvas. -->
+        <aside class="canvas-side display-side" id="display-side" hidden></aside>
       </div>
       <div class="canvas-foot">
         <div class="toolbar">
@@ -88,7 +98,9 @@ export const canvasPanel = {
       /* The channel, its edge, and the strip the framework puts a step's
          button in — the three things the framework does anything with. */
       channel: find("canvas-side"),
+      display: find("display-side"),
       divider: find("side-divider"),
+      fold: find("side-fold"),
       foot: find("foot-canvas"),
       /* Everything the picture is drawn on and into. Handed to `openTheStage`
          and to the pictures of a real run, so neither has to know an id. */

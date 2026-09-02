@@ -38,6 +38,7 @@ import json
 import math
 import re
 import shutil
+import time
 import uuid
 from pathlib import Path
 
@@ -54,6 +55,15 @@ PIECE = 128
 _TO_UM = {"m": 1e6, "mm": 1e3, "µm": 1.0, "um": 1.0, "nm": 1e-3, "": 1.0}
 
 
+#: How many times a position is written before a denied rename is given up
+#: on, and how long to wait between tries. Windows refuses to rename a file
+#: another process holds open -- a scanner, a folder watcher -- for a moment;
+#: the interface's own bridge lost one position in three that way, with the
+#: development server watching the folder it wrote to.
+WRITE_ATTEMPTS = 3
+WRITE_RETRY_S = 0.3
+
+
 def position_store_from_record(record: dict, into: Path | str) -> Path:
     """Write one OME-Zarr 0.5 position from a capture's record, and return it.
 
@@ -62,7 +72,23 @@ def position_store_from_record(record: dict, into: Path | str) -> Path:
     ``positions`` folder; the store lands there as
     ``<position_label>.ome.zarr``, an ordinary OME-Zarr image that opens on
     its own in napari, Fiji, or the ZMART viewer.
+
+    A rename the file system denies is tried again, in a fresh place, up to
+    :data:`WRITE_ATTEMPTS` times; one denied for good raises as itself.
     """
+    for attempt in range(WRITE_ATTEMPTS):
+        try:
+            return _write_a_position(record, into)
+        except PermissionError as denied:
+            if attempt == WRITE_ATTEMPTS - 1:
+                raise
+            time.sleep(WRITE_RETRY_S * (attempt + 1))
+            last = denied
+    raise last  # pragma: no cover -- the loop above always returns or raises
+
+
+def _write_a_position(record: dict, into: Path | str) -> Path:
+    """One attempt at :func:`position_store_from_record`."""
     planes = record.get("planes") or []
     if not planes:
         raise RuntimeError("the capture reported no planes, so there is nothing to keep")
