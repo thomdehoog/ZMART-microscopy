@@ -1454,6 +1454,26 @@ test("one walk of the whole run", async ({ page }) => {
   await tt.locator("button.run").click();
   await page.waitForTimeout(650);
   await expect(page.locator("#target-type .setting-box.done")).toHaveCount(1);
+  /* Stopped by hand after the first pair: what was taken stands everywhere
+     the page accounts for it -- the rings, the gallery, the sentence beside
+     the button -- and the step is not done, only run. */
+  const gatedCount = readyToAcquire.filter((target) => target.selected).length;
+  await page.locator(".panel.on button.step-run").click();
+  await expect(page.locator(".panel.on button.step-run")).toHaveText("Interrupt");
+  await expect.poll(async () => (await targetsOnCanvas(page)).filter((target) => target.acquired).length,
+    { timeout: 10_000, message: "the first pair never landed" }).toBeGreaterThanOrEqual(1);
+  /* Pressed on the button as it stands: the pretend run redraws the action
+     bar every animation frame, and a click that waits for the button to hold
+     still waits until the run is over -- and then presses Run again. */
+  await page.evaluate(() => document.querySelector(".panel.on button.step-run").click());
+  await expect(page.locator(".panel.on button.step-run")).toHaveText("Run again", { timeout: 10_000 });
+  const taken = (await targetsOnCanvas(page)).filter((target) => target.acquired).length;
+  expect(taken, "the run was stopped before it finished, or the interruption proves nothing").toBeLessThan(gatedCount);
+  await expect(page.locator(".pair"), "the gallery shows one pair per acquired target, stopped or not").toHaveCount(taken);
+  await expect(page.locator(".action-hint").first()).toHaveText(`stopped by hand — ${taken} of ${gatedCount} pairs acquired`);
+  const afterTheHand = await page.evaluate(() => window.__theRunState());
+  expect(afterTheHand.done, "an interrupted step is not done").not.toContain("acquire");
+  expect(afterTheHand.ran, "but it ran, so it can be run again").toContain("acquire");
   await runStep(page, 3000);
   const acquired = await targetsOnCanvas(page);
   expect(physicalTargetPositions(acquired),
