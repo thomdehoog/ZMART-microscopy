@@ -98,12 +98,34 @@ branch. The ZMART Viewer is on its own `claude/viewer-delivery-to-100` at
 8. **What is still wrong?** Anything false; any hypothesis stated as fact;
    anything a biologist would not follow; anything in the risks section
    that is not a risk, and any risk the plan does not name.
+9. **Does the engine we plan use every efficiency neuroglancer uses, and
+   where can it do better?** Read the pinned neuroglancer 2.41.2 source
+   (under `viz_studio/frontend/node_modules/neuroglancer/`, in particular
+   `chunk_manager/`, `sliceview/`, `worker_rpc`, `util/`), list the
+   mechanisms it uses to be fast, and for each say whether the design
+   record's engine section and the plan's step 4 carry it, drop it with a
+   reason, or miss it. Check at least: the three priority tiers and the
+   composite priority; prefetch from the view's velocity; the download,
+   system-memory and graphics-memory budgets with item and byte counts;
+   the concurrent download limit and abort on pressure; decoding in a
+   worker with buffers transferred rather than copied; the chunk layouts
+   chosen per slice orientation and the level chosen from the screen's
+   pixel size; adaptive downsampling from the measured frame rate; sharing
+   of chunks between layers over one source; texture handling per chunk
+   and the shader cache; the compressed segmentation encoding for labels;
+   range requests and index caching for sharded stores; and anything else
+   you find. Then say where our own lookup can do better than neuroglancer
+   on our data: the register instead of listing, coverage from the
+   register instead of empty requests, the fan-in rule, precomputed coarse
+   levels, and any mechanism neuroglancer lacks that the source or the
+   literature suggests. Name the file and line for every mechanism you
+   cite.
 
 ## Output
 
 A verdict on the plan as a basis for discussion (usable as is, usable with
 changes, or rework), then findings ordered by consequence, facts separated
-from inferences, then answers to the eight questions, then one paragraph
+from inferences, then answers to the nine questions, then one paragraph
 on which decisions you would take differently from the recommendations and
 why. Name the commit you read. Write in complete sentences for a reader who
 is a microscopist, as `CLAUDE.md` asks. Put the review at
