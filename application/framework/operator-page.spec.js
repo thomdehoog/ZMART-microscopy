@@ -197,11 +197,10 @@ test("the page offers exactly the workflows that are declared", async ({ page })
 });
 
 test("a session needs a password before it will open", async ({ page }) => {
-  // the mock prefills one so it can be clicked through; empty it and the
-  // session refuses to open
+  // the page ships with no password at all: a prefilled one is a credential
+  // everybody has. Until one is typed, the session refuses to open.
   const pw = page.locator('.field input[type="password"]');
-  await expect(pw).not.toHaveValue("");
-  await pw.fill("");
+  await expect(pw).toHaveValue("");
   await expect(page.locator(".session-foot button.run")).toBeDisabled();
   await pw.fill("hunter2");
   await expect(page.locator(".session-foot button.run")).toBeEnabled();
