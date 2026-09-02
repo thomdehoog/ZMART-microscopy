@@ -27,8 +27,9 @@ export function displayFor(snapshot, acquisition) {
     .filter((row) => row.acquisition === acquisition && channelIndexOf(row.name) !== null)
     .map((row) => {
       const asked = row.requested ?? {};
-      const window = asked.window && Number.isFinite(asked.window.start) && Number.isFinite(asked.window.end)
-        ? [asked.window.start, asked.window.end] : null;
+      /* The panel keeps a window as the engine does, `low` to `high`. */
+      const window = asked.window && Number.isFinite(asked.window.low) && Number.isFinite(asked.window.high)
+        ? [asked.window.low, asked.window.high] : null;
       return {
         c: channelIndexOf(row.name),
         visible: asked.effectiveVisible ?? asked.visible ?? true,

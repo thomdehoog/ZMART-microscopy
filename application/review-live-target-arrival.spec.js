@@ -1483,7 +1483,7 @@ test("Step 8 interruption: an acquisition stopped by hand accounts for exactly w
   }
 });
 
-test("Step 4: the picture's own box is the switch the focus map reads", async ({ page }) => {
+test("Steps 4 to 6: the picture's own box is the switch the focus map reads, and the field in Discover wears the picture's display", async ({ page }) => {
   /* The box in the display settings used to reach the engine directly, past
      the flag the layers above the picture read: the focus map kept drawing
      itself translucent over a picture that was no longer there. One switch,
@@ -1553,6 +1553,36 @@ test("Step 4: the picture's own box is the switch the focus map reads", async ({
     await box.click();
     await expect.poll(shown).toBe(true);
     await expect.poll(coloursOverTheMap, "and is see-through again with it").toEqual(seeThrough);
+
+    /* ------------------------------------------------------- Steps 5 and 6
+       The field in the Discover panel is the sample as the canvas shows it:
+       the copy is asked for with the picture's own display -- one entry per
+       channel of the overview, its window and colour as the panel keeps
+       them -- and comes back drawn differently from the plain copy. */
+    await gotoStep(page, "Scan the overview");
+    await showTheChannel(page);
+    await page.locator(".panel.on button.step-run").click();
+    await expect.poll(async () => (await bridgeJson(page, port, "/api/scan")).done, { timeout: 400_000 }).toBe(9);
+    await expect.poll(async () => !(await bridgeJson(page, port, "/api/scan")).running, { timeout: 400_000 }).toBe(true);
+    await expect.poll(() => rowsOfGroup(page, "overview").then((rows) => rows.length), { timeout: 60_000 }).toBeGreaterThan(0);
+    await expect(page.locator(".panel.on button.step-run")).toHaveText("Run again", { timeout: 60_000 });
+    await gotoStep(page, "Discover Targets");
+    await expect(page.locator("#tile-label")).toHaveText("1 / 9");
+    const field = page.locator(".panel.on canvas[data-picture]");
+    await expect.poll(() => field.getAttribute("data-picture"), "the field is asked for with a display").toContain("display=");
+    const address = await field.getAttribute("data-picture");
+    const asked = JSON.parse(decodeURIComponent(address.split("display=")[1]));
+    const kept = await page.evaluate(() => window.__viewerPanel.snapshot().channels
+      .filter((row) => row.acquisition === "overview")
+      .map((row) => ({ visible: row.requested.effectiveVisible, window: [row.requested.window.low, row.requested.window.high], color: row.requested.color })));
+    expect(kept.length, "the panel has channel rows for the overview").toBeGreaterThan(0);
+    expect(asked.map(({ visible, window, color }) => ({ visible, window, color })), "the copy is asked for with the panel's own windows and colours").toEqual(kept);
+    const [displayed, plain] = await page.evaluate(async (where) => {
+      const bytes = async (url) => Array.from(new Uint8Array(await (await fetch(url)).arrayBuffer()));
+      return [await bytes(where), await bytes(where.split("?")[0])];
+    }, address);
+    expect(displayed.length, "the displayed copy arrives").toBeGreaterThan(1000);
+    expect(displayed, "and is drawn differently from the plain copy").not.toEqual(plain);
   } finally {
     await bridge.stop();
   }
