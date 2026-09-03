@@ -282,8 +282,20 @@ export default {
       });
     }
 
+    /* The map is the default pair from the moment it exists, wherever the
+       operator stands when it lands; a pair chosen by hand is kept. */
+    function preferTheMap() {
+      if (chosenByHand) return;
+      const names = featureNames(theCells());
+      if (names.includes("umap_1") && names.includes("umap_2") && (fx !== "umap_1" || fy !== "umap_2")) {
+        fx = "umap_1"; fy = "umap_2";
+        if (pickX.options.length) { pickX.value = fx; pickY.value = fy; }
+      }
+    }
+
     function draw() {
       if (!ctx.sizeCanvas(cv)) return;
+      preferTheMap();
       const paint = cv.getContext("2d");
       const w = cv.cssW, h = cv.cssH;
       paint.clearRect(0, 0, w, h);
