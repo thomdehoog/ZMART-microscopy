@@ -38,13 +38,36 @@ export function normalise(field) {
   return { ...rest, type: "ellipse", rx: r, ry: r, rotation: field.rotation || 0 };
 }
 
+/**
+ * The middle of a field: what it turns about, and what its points are kept
+ * relative to.
+ *
+ * For a polygon this is the centre of its AREA, by the shoelace rule, and
+ * not the mean of its vertices. The two agree for a triangle or an evenly
+ * drawn outline and part company as soon as vertices crowd one side -- a
+ * vertex grown on an edge, a corner clicked around -- and then a shape
+ * turned about the mean swung around that crowded corner instead of its
+ * middle. A polygon with no area (two points, or all on a line) has no such
+ * centre, and the mean of its vertices stands in.
+ */
 export function centroid(f) {
   if (f.type === "rectangle") return { x: f.x + f.w / 2, y: f.y + f.h / 2 };
   if (f.type === "ellipse") return { x: f.cx, y: f.cy };
   if (f.points?.length) {
+    const pts = f.points;
+    let twiceArea = 0, cx = 0, cy = 0;
+    for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+      const cross = pts[j].x * pts[i].y - pts[i].x * pts[j].y;
+      twiceArea += cross;
+      cx += (pts[j].x + pts[i].x) * cross;
+      cy += (pts[j].y + pts[i].y) * cross;
+    }
+    if (Math.abs(twiceArea) > 1e-9) {
+      return { x: cx / (3 * twiceArea), y: cy / (3 * twiceArea) };
+    }
     return {
-      x: f.points.reduce((s, p) => s + p.x, 0) / f.points.length,
-      y: f.points.reduce((s, p) => s + p.y, 0) / f.points.length,
+      x: pts.reduce((s, p) => s + p.x, 0) / pts.length,
+      y: pts.reduce((s, p) => s + p.y, 0) / pts.length,
     };
   }
   return { x: f.x ?? 0, y: f.y ?? 0 };

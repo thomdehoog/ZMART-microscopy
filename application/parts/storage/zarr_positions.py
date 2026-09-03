@@ -423,3 +423,93 @@ def _the_depth_of(dtype: np.dtype) -> int:
         return int(np.iinfo(dtype).max)
     except ValueError:
         return 65535
+
+
+# -- the resolved store: one picture per acquisition ------------------------
+
+
+def place_into_resolved_store(record: dict, into: Path | str, planned_um: list[tuple[float, float]]) -> Path:
+    """Write a capture into the acquisition's ONE resolved store, and return it.
+
+    The canvas draws an acquisition's channels as engine layers, and every
+    store in the watched folder becomes a source of those layers. The
+    engine's blend rule then applies to sources and layers alike: the
+    additive rule that makes the channels add makes overlapping frames add
+    too. So an acquisition whose frames overlap -- the targets, imaged close
+    around cells that stand near each other -- is resolved here into one
+    store per acquisition, sized to the whole planned set, each frame
+    written at its place and a later frame overwriting an earlier one where
+    they overlap. The engine then has one source per channel and nothing
+    left to add within one. Writing a frame again puts it on top, which is
+    how the chosen target is raised above its neighbours.
+
+    ``planned_um`` are the centres of every frame the run will take, so the
+    store can be declared whole at the first capture; the frame's own size
+    and pixels come from that capture. Ground no frame has reached holds
+    zero, which the engine's program does not draw.
+    """
+    planes = record.get("planes") or []
+    if not planes:
+        raise RuntimeError("the capture reported no planes, so there is nothing to keep")
+    volume, pixel_size_um = _the_volume_of(planes)
+    frames, channels, nz, ny, nx = volume.shape
+    z_model = _the_z_model(record, planes)
+    dz = z_model["source_local"]["spacing_um"]
+    z_origin_um = -z_model["display_anchor"]["voxel_index"] * dz
+
+    into = Path(into)
+    kind = record.get("acquisition_type") or "capture"
+    store = into / f"{kind}_resolved.ome.zarr"
+    half_y, half_x = ny * pixel_size_um[0] / 2.0, nx * pixel_size_um[1] / 2.0
+    ys = [float(y) for _x, y in planned_um] + [float(planes[0].get("y_um") or 0.0)]
+    xs = [float(x) for x, _y in planned_um] + [float(planes[0].get("x_um") or 0.0)]
+    origin_um = (z_origin_um, min(ys) - half_y, min(xs) - half_x)
+    extent_yx = (
+        int(round((max(ys) + half_y - origin_um[1]) / pixel_size_um[0])),
+        int(round((max(xs) + half_x - origin_um[2]) / pixel_size_um[1])),
+    )
+
+    if not (store / "zarr.json").is_file():
+        into.mkdir(parents=True, exist_ok=True)
+        depth_max = _the_depth_of(volume.dtype)
+        canvas_shape = (nz, *extent_yx)
+        _declare_one(
+            store,
+            canvas_shape=canvas_shape,
+            frames=frames,
+            channels=channels,
+            dtype=str(volume.dtype),
+            chunk=PIECE,
+            levels=how_many_copies_a_position_can_keep(canvas_shape, PIECE),
+            voxel_size_um=(dz, pixel_size_um[0], pixel_size_um[1]),
+            origin_um=origin_um,
+            channel_blocks=[
+                Channel(f"channel {index}", window=_a_window_onto(volume[:, index], depth_max)).described(depth_max)
+                for index in range(channels)
+            ],
+            ome_zarr_version="0.5",
+        )
+
+    corner = _the_corner_of(planes, (ny, nx), pixel_size_um, z_origin_um=z_origin_um)
+    y0 = int(round((corner[1] - origin_um[1]) / pixel_size_um[0]))
+    x0 = int(round((corner[2] - origin_um[2]) / pixel_size_um[1]))
+    import zarr
+
+    shrinking = volume
+    for level in range(_levels_in(store)):
+        step = 2 ** level
+        if level:
+            shrinking = shrinking[..., ::2, ::2]
+        array = zarr.open(str(store / str(level)), mode="r+")
+        ly, lx = y0 // step, x0 // step
+        piece = shrinking[..., : array.shape[-2] - ly, : array.shape[-1] - lx]
+        if piece.shape[-2] <= 0 or piece.shape[-1] <= 0:
+            continue
+        array[:, :, :, ly:ly + piece.shape[-2], lx:lx + piece.shape[-1]] = piece
+    return store
+
+
+def _levels_in(store: Path) -> int:
+    """How many copies the store declares, from its own description."""
+    described = json.loads((store / "zarr.json").read_text(encoding="utf-8"))
+    return len(described["attributes"]["ome"]["multiscales"][0]["datasets"])

@@ -659,7 +659,8 @@ export function putTheCanvasIn({
     const bounds = box.getBoundingClientRect();
     const at = where.unproject(event.clientX - bounds.left, event.clientY - bounds.top);
     const found = whoIsAt(stackAbove, at);
-    if (found) onTouched?.({ ...found, at });
+    const screen = { x: event.clientX - bounds.left, y: event.clientY - bounds.top };
+    if (found) onTouched?.({ ...found, at, screen });
     /* Nothing of anyone's under it: the workflow's own picking, if it does
        any. In pixels inside the box as well as micrometres on the sample,
        because putting something down is usually said in the first and stored

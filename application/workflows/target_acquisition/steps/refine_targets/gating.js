@@ -111,3 +111,28 @@ export function sursDraw(cells, n, rand = Math.random) {
   }
   return chosen;
 }
+
+/**
+ * The gated cells held under a per-tileset ceiling: at most `max` in each
+ * tileset, drawn by {@link sursDraw} over that tileset's own extent so what
+ * survives is spread evenly across the compartment. This is what the
+ * Restrict press does, and only the press: the gates say what they let
+ * through, and the ceiling is applied when the operator asks for it.
+ *
+ * `tilesetOf` names the tileset a cell's field belongs to; `rand` is the
+ * draw's random start, injectable so a test can pin it.
+ */
+export function keptUnderCeiling(cells, gated, max, tilesetOf, rand = Math.random) {
+  const byTileset = new Map();
+  for (const c of cells) {
+    if (!gated.has(c.id)) continue;
+    const key = tilesetOf(c.field);
+    if (!byTileset.has(key)) byTileset.set(key, []);
+    byTileset.get(key).push(c);
+  }
+  const kept = new Set();
+  for (const pool of byTileset.values()) {
+    for (const id of sursDraw(pool, max, rand)) kept.add(id);
+  }
+  return kept;
+}

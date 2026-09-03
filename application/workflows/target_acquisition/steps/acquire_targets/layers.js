@@ -9,7 +9,7 @@ export function acquiredLayers(theRun) {
     key: "targets",
     label: "Targets",
     explains: "The cells that have been imaged at high resolution -- each "
-      + "acquired frame printed where it was taken, with a ring to find it by.",
+      + "acquired frame printed where it was taken; the chosen one's frame is outlined.",
     shown: activeMode === "targets" && run.acquired.length > 0,
     /* Readable over the very fields they were acquired in, like the cells
        and the masks: the see-through windows cut every non-solid layer, and
@@ -21,15 +21,22 @@ export function acquiredLayers(theRun) {
       for (const id of run.acquired) {
         const c = run.cells.get(id);
         if (!c) continue;
-        /* The frames speak for themselves; only the chosen one -- whose
-           pair the gallery shows -- is ringed, so it is found among them. */
-        if (run.selectedTarget === id) {
-          const [x, y] = place(c.x, c.y);
-          const rr = Math.max(7, 9 * Math.sqrt(scale / 0.03));
-          ctx.beginPath(); ctx.arc(x, y, rr + 2, 0, Math.PI * 2);
-          ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 5; ctx.stroke();
-          ctx.beginPath(); ctx.arc(x, y, rr, 0, Math.PI * 2);
-          ctx.strokeStyle = "#16a34a"; ctx.lineWidth = 2.2; ctx.stroke();
+        /* The frames speak for themselves. The chosen one -- whose pair
+           the gallery shows -- is outlined along its own frame's edge, so it
+           is found among them without a mark over its pixels; the one under
+           the pointer is outlined lightly, saying what a press would take. */
+        const chosen = run.selectedTarget === id;
+        const hovered = run.hoveredTarget === id && !chosen;
+        if ((chosen || hovered) && run.targetFrameUm) {
+          const half = run.targetFrameUm / 2;
+          const [x, y] = place(c.x - half, c.y - half);
+          const side = run.targetFrameUm * scale;
+          ctx.strokeStyle = "#ffffff"; ctx.lineWidth = chosen ? 4 : 3;
+          ctx.strokeRect(x, y, side, side);
+          ctx.strokeStyle = "#16a34a"; ctx.lineWidth = chosen ? 1.5 : 1;
+          if (hovered) ctx.setLineDash([4, 3]);
+          ctx.strokeRect(x, y, side, side);
+          ctx.setLineDash([]);
         }
       }
     },

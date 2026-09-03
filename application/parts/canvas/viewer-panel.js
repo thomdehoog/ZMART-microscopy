@@ -36,6 +36,14 @@ const PALETTE = [
 ];
 const cssOf = (rgb) =>
   rgb ? `rgb(${rgb.map((v) => Math.round(v * 255)).join(",")})` : "#d8dee6";
+/**
+ * A colour's share of the light: the luminance the eye reads it at, by the
+ * weights a desaturation uses (Rec. 709). Grey draws each channel at this
+ * level rather than white, so the channels added together read as the
+ * coloured picture desaturated would -- three whites added clipped a
+ * quarter of a three-channel field, and the operator saw it.
+ */
+export const luminanceOf = ([r, g, b]) => 0.2126 * r + 0.7152 * g + 0.0722 * b;
 const hexOf = (rgb) => rgb
   ? `#${rgb.map((value) => Math.round(Math.min(1, Math.max(0, value)) * 255)
     .toString(16).padStart(2, "0")).join("")}`
@@ -1098,7 +1106,8 @@ export async function mountViewerPanel(near, {
       groupEye.addEventListener("click", () => showTheGroup(groupEye.dataset.on !== "1"));
       groupSwitches.set(groupName, showTheGroup);
       /* Colour or grey for the whole acquisition: grey draws every channel
-         white, so the sample reads as one picture; colour gives each channel
+         in its own colour's luminance, so the sample reads as one picture
+         and as bright as its colours desaturated; colour gives each channel
          its own back. The rows' colours change for real -- the copies drawn
          from them and the reconciliation with the engine follow -- and the
          colours they had wait on the rows for the way back. */
@@ -1120,7 +1129,8 @@ export async function mountViewerPanel(near, {
           if (grey && !one.grey) {
             one.colourInColour = one.colour;
             one.colorInColour = one.color;
-            one.colour = [1, 1, 1];
+            const share = Array.isArray(one.colour) ? luminanceOf(one.colour) : 1;
+            one.colour = [share, share, share];
             one.color = cssOf(one.colour);
           } else if (!grey && one.grey) {
             one.colour = one.colourInColour ?? one.colour;

@@ -28,6 +28,8 @@ def session(tmp_path):
     mock_driver.register_mock()
     instrument = next(i for i in zmart_controller.get_instruments() if i["vendor"] == "mock")
     instrument["output_root"] = str(tmp_path)
+    # the instrument's own settings, kept out of the user's home while testing
+    instrument["state_file"] = str(tmp_path / "instrument.json")
     opened = zmart_controller.set_instrument(instrument)
     try:
         yield opened
@@ -60,10 +62,10 @@ def test_the_focus_stack_is_still_centred_where_the_stage_stands(session):
 
 
 def test_the_hires_job_images_small_and_fine(session):
-    """The job owns the geometry: on HiRes a capture is 128 px of 1 um, an
+    """The job owns the geometry: on Target a capture is 128 px of 1 um, an
     eighth of the overview field across, and the readout says so before
     anything is captured."""
-    session.set_state({"changeable": {"job": "HiRes"}})
+    session.set_state({"changeable": {"job": "Target"}})
     observed = session.get_state()["observed"]
     assert observed["frame_size"]["x"] == 128.0 and observed["pixel_size"]["x"] == 1.0
     record = session.acquire(acquisition_type="targets", position_label="T0")
@@ -84,10 +86,36 @@ def test_a_target_frame_is_the_same_tissue_looked_at_closer(session):
     # the two frames' pixels are not the same size.
     session.set_xyz(20_000.0, 30_000.0, mock_driver.sharp_height_um(20_000.0, 30_000.0))
     overview = tifffile.imread(session.acquire(acquisition_type="overview", position_label="P0")["planes"][0]["path"])
-    session.set_state({"changeable": {"job": "HiRes"}})
+    session.set_state({"changeable": {"job": "Target"}})
     target = tifffile.imread(session.acquire(acquisition_type="targets", position_label="T0")["planes"][0]["path"])
     assert target[64, 64] == overview[128, 128]
     # Four target pixels to one overview pixel in each direction: every
     # fourth target pixel is the overview's, over the 32 recorded pixels the
     # target's 128 fine ones cover.
     assert np.array_equal(target[::4, ::4], overview[112:144, 112:144])
+
+
+def test_the_settings_live_in_the_file_and_whoever_wrote_last_wins(session, tmp_path):
+    """The mock's LAS X is a file: the mock instrument window writes it and
+    the driver reads it back on every readout and capture, so a job chosen
+    there with no session open is the job the next session stands on. And
+    ``set_state`` writes the same file, so the two never disagree."""
+    where = tmp_path / "instrument.json"
+    session.set_state({"changeable": {"job": "Target"}})
+    assert mock_driver.read_instrument_settings(where)["job"] == "Target"
+    mock_driver.write_instrument_settings({"job": "Focussing"}, where)
+    assert session.get_state()["changeable"]["job"] == "Focussing"
+    assert session.get_acquisition_options()["job"]["active"] == "Focussing"
+    record = session.acquire(acquisition_type="overview", position_label="P0")
+    assert record["job"] == "Focussing"
+    with pytest.raises(ValueError):
+        mock_driver.write_instrument_settings({"job": "HiRes"}, where)
+
+
+def test_the_focussing_job_images_a_stacks_frame(session, tmp_path):
+    """Under the Focussing job a stack is 256 um of 1 um pixels, whole: the
+    job's frame is the stack's frame, not halved again."""
+    session.set_state({"changeable": {"job": "Focussing"}})
+    assert session.get_state()["observed"]["frame_size"]["x"] == 256.0
+    record = session.acquire(acquisition_type="focussing", position_label="F0")
+    assert _frame_px(record) == 256

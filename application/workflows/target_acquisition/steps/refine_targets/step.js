@@ -8,8 +8,8 @@
 export const selectCells = {
   id: "select",
   title: "Refine Targets",
-  why: "Gate the targets worth imaging — drag a box on the plot, or pick them on the canvas.",
-  btn: "Confirm selection",
+  why: "Gate the targets worth imaging — draw on the plot — then restrict them to so many per tileset.",
+  btn: "Restrict",
   panels: [],
   ms: 600,
   mode: "select",

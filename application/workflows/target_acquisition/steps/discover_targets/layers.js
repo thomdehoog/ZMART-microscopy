@@ -8,6 +8,8 @@
 /* One mask picture per field, fetched when first painted. A field whose
    detection has not run answers 404; that is remembered briefly and asked
    again, because a discovery marching across the sample fills them in. */
+import { cellsInAllGates } from "../refine_targets/gating.js";
+
 const maskImages = new Map();
 
 function maskImage(base, label, redraw) {
@@ -133,17 +135,23 @@ export function targetLayers(theRun) {
          cell stands says less than the cell itself. A field whose label map
          has not arrived yet falls back to the blob, honestly. */
       const gr = Math.max(3, 4.2 * Math.sqrt(scale / 0.03));
-      if (activeMode !== "detect" && run.gated.size) {
-        const acquired = new Set(run.acquired);
+      /* The plot's marks, on the picture: what the gates let through in
+         blue while they are drawn; once Restrict has drawn under the
+         ceiling, what it kept in green and nothing else -- the rest of the
+         gate's catch is not the selection any more. */
+      const restricted = run.done.has("select");
+      const lit = restricted ? run.gated : cellsInAllGates([...run.cells.values()], run.gates);
+      if (activeMode !== "detect" && lit.size) {
+        const inkOf = () => css(restricted ? "--mark-selected" : "--mark-gated");
         const byField = new Map();
         const strays = [];
-        for (const id of run.gated) {
+        for (const id of lit) {
           const c = run.cells.get(id);
           if (!c) continue;
           const fieldLabel = run.fieldLabels[c.field];
           if (Number.isFinite(c.label) && fieldLabel) {
             if (!byField.has(c.field)) byField.set(c.field, new Map());
-            byField.get(c.field).set(c.label, acquired.has(id) ? "#16a34a" : "#0284c7");
+            byField.get(c.field).set(c.label, inkOf(id));
           } else {
             strays.push(c);
           }
@@ -169,7 +177,7 @@ export function targetLayers(theRun) {
           const [x, y] = place(c.x, c.y);
           if (x < -10 || y < -10 || x > w + 10 || y > h + 10) continue;
           ctx.beginPath(); ctx.arc(x, y, gr, 0, Math.PI * 2);
-          ctx.fillStyle = acquired.has(c.id) ? "#16a34a" : "#0284c7";
+          ctx.fillStyle = inkOf(c.id);
           ctx.fill();
           ctx.lineWidth = 1.5; ctx.strokeStyle = css("--screen"); ctx.stroke();
         }
@@ -205,7 +213,10 @@ export function targetLayers(theRun) {
       if (!base) return;
       for (let i = 0; i < run.plan.length; i++) {
         const label = run.fieldLabels[i];
-        if (!label) continue;
+        /* Only fields the run has examined: a mask file a tile test left
+           beside a field's picture is the test's, and stood in for the
+           run's the moment Segment all was pressed. */
+        if (!label || !run.examined.has(i)) continue;
         const t = run.plan[i];
         const half = t.frameUm / 2;
         const [x, y] = place(t.x - half, t.y - half);

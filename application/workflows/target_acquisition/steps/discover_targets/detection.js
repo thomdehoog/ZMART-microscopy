@@ -43,19 +43,6 @@ export const labelColour = (n, alpha = 1) =>
 
 import { sideGroup } from "../../../../framework/window/panels.js";
 
-/**
- * Which device a field was segmented on, in the operator's words. Said on
- * every result because the difference is ten minutes a field: a model that
- * fell back to the CPU when the card was full for a moment looked, on the
- * page, exactly like one on the card.
- */
-export const onThe = (device) => {
-  if (!device) return "";
-  if (device === "cpu") return " · on the CPU";
-  if (device === "cuda" || device === "mps") return " · on the GPU";
-  return ` · on ${device}`;
-};
-
 export default {
   id: "detect",
   label: "Discover Targets",
@@ -192,11 +179,7 @@ export default {
        way absolutely-centred pieces could. */
     const line = document.createElement("div");
     line.className = "tile-line";
-    /* What the last test found stands on the line, beside the picker. */
-    const count = document.createElement("span");
-    count.className = "tile-count";
-    count.id = "detect-found";
-    line.append(maskToggle, picker, count, greyToggle);
+    line.append(maskToggle, picker, greyToggle);
     /* The picture in a square box of its own, so the canvas is sized by
        the box and not by the host that also holds the control line. */
     const pictureBox = document.createElement("div");
@@ -263,21 +246,26 @@ export default {
     function showThePictureOf(label) {
       const where = ctx.pictureOf(label);
       /* The same address is the same picture; a changed one -- another
-         field, or the canvas's display settings changed -- is fetched. */
-      if (where === pictureFrom && picture) return;
-      pictureFrom = where;
-      /* The address on the canvas that shows it: the picture says which
-         picture it is, display settings and all. */
-      cv.dataset.picture = where ?? "";
-      picture = null;
-      mask = null;
-      if (!where) return;
-      const img = new Image();
-      img.onload = () => { picture = img; drawTheTile(); };
-      img.src = where;
+         field, or the canvas's display settings changed -- is fetched. The
+         segmentation is fetched either way: a test on the field the panel
+         already shows leaves the picture as it was and makes the masks
+         anew, and skipping them here left the circles standing in for a
+         mask picture that was there. */
+      if (where !== pictureFrom || !picture) {
+        pictureFrom = where;
+        /* The address on the canvas that shows it: the picture says which
+           picture it is, display settings and all. */
+        cv.dataset.picture = where ?? "";
+        picture = null;
+        if (!where) { mask = null; return; }
+        const img = new Image();
+        img.onload = () => { picture = img; drawTheTile(); };
+        img.src = where;
+      }
       /* The field's segmentation, when one has been made: served beside the
          picture, transparent where nothing was found. Fetched fresh each
          time because a re-test redraws the same file's masks. */
+      mask = null;
       const maskWhere = ctx.maskOf?.(label);
       if (!maskWhere) return;
       const overlay = new Image();
@@ -445,13 +433,9 @@ export default {
          to the full frame, and the features are still measured there. */
       number("Binning", "binning", 1, 8, 1, "×");
 
-      /* The result stands on the control line; the line under the picture
-         carries only what went wrong. */
-      const device = settings.triedOn === "cpu" ? "CPU"
-        : settings.triedOn === "cuda" || settings.triedOn === "mps" ? "GPU" : null;
-      count.textContent = settings.tested
-        ? `${settings.tried.length} objects${device ? ` · ${device}` : ""}`
-        : "";
+      /* The result stands on the press that made it; the line under the
+         picture carries only what went wrong. */
+      sayThePress();
       if (settings.tested) readout.textContent = "";
     }
 
@@ -476,11 +460,16 @@ export default {
        able to reach it -- so the press reads Interrupt, then "stopping…"
        once it has been pressed, and is itself again when the test settles. */
     let testing = null;
-    const sayThePress = () => {
-      tryBtn.textContent = testing ? (testing.stopping ? "stopping…" : "Interrupt") : "Test this tile";
+    /* What the last test found rides on the press, in brackets. It stood on
+       the control line beside the Grey press, a number with no label
+       between two buttons. */
+    function sayThePress() {
+      const settings = ctx.settings();
+      const found = settings.tested ? ` (${settings.tried.length} objects)` : "";
+      tryBtn.textContent = testing ? (testing.stopping ? "stopping…" : "Interrupt") : `Test this tile${found}`;
       tryBtn.classList.toggle("running", !!testing);
       tryBtn.disabled = Boolean(testing?.stopping);
-    };
+    }
     tryBtn.addEventListener("click", () => {
       if (testing) {
         testing.stopping = true;
@@ -511,7 +500,6 @@ export default {
           return;
         }
         settings.tried = found.cells;
-        settings.triedOn = found.device ?? null;
         settings.tested = true;
         settings.imageGrey = true;
         showThePictureOf(found.position_label);

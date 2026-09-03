@@ -625,6 +625,16 @@ function makeRecorder({ page, port, bridge, audit, provenance }) {
 
 const identityOf = (targets) => targets.map(({ id, field, x, y }) => ({ id, field, x, y }));
 
+/* A place on the gate plot, as fractions of its frame: the frame keeps a
+   column at the right for the y labels and two lines below for the x axis,
+   so a fraction of the whole canvas landed in the margins. The frame's
+   inset is the plot's own `PAD`. */
+const PLOT_PAD = { l: 1, r: 62, t: 1, b: 38 };
+const plotPoint = (sc, gx, gy) => [
+  sc.x + PLOT_PAD.l + (sc.width - PLOT_PAD.l - PLOT_PAD.r) * gx,
+  sc.y + PLOT_PAD.t + (sc.height - PLOT_PAD.t - PLOT_PAD.b) * gy,
+];
+
 /** Steps 1 to 5 on the real bridge, with a record of each. */
 async function throughStepFive({ page, take, port, bridge }) {
   await page.goto(PAGE === "built"
@@ -1103,15 +1113,22 @@ test("Steps 1 to 8 through the operator page on the real bridge, Viewer 0.2 and 
     const polygon = [[0.2, 0.08], [0.98, 0.08], [0.98, 0.85], [0.2, 0.85]];
     const lay = async () => {
       for (const [gx, gy] of polygon) {
-        await page.mouse.click(sc.x + sc.width * gx, sc.y + sc.height * gy);
+        await page.mouse.click(...plotPoint(sc, gx, gy));
         await page.waitForTimeout(150);
       }
-      await page.mouse.click(sc.x + sc.width * polygon[0][0], sc.y + sc.height * polygon[0][1]);
+      await page.mouse.click(...plotPoint(sc, polygon[0][0], polygon[0][1]));
       await page.waitForTimeout(400);
+    };
+    /* The gate rings its catch as it is drawn; the ceiling is applied by
+       the Restrict press, and only then is the selection a run's worth. */
+    const restrict = async () => {
+      await page.locator(".panel.on button.step-run").click();
+      await expect(page.locator(".panel.on button.step-run")).toHaveText("Run again", { timeout: 30_000 });
     };
     await lay();
     await expect(page.locator("#gate-list .gate-row")).toHaveCount(1);
     await expect(page.locator("#gate-readout")).toContainText(/selected|kept of/);
+    await restrict();
     const gated = await page.evaluate(() => window.__theStageCanvas.targets());
     const selectedIds = gated.filter((one) => one.selected).map((one) => one.id);
     expect(selectedIds.length, "the gate kept a bounded selection").toBeGreaterThan(0);
@@ -1125,6 +1142,7 @@ test("Steps 1 to 8 through the operator page on the real bridge, Viewer 0.2 and 
       await page.waitForTimeout(200);
       await lay();
       await expect(page.locator("#gate-list .gate-row")).toHaveCount(2);
+      await restrict();
       const twice = await page.evaluate(() => window.__theStageCanvas.targets());
       intersection = twice.filter((one) => one.selected).map((one) => one.id);
       expect(intersection.length, "a second all-encompassing gate cannot widen the selection").toBeLessThanOrEqual(selectedIds.length);
@@ -1133,6 +1151,7 @@ test("Steps 1 to 8 through the operator page on the real bridge, Viewer 0.2 and 
       await expect(page.locator("#gate-list .gate-row")).toHaveCount(1);
       await page.locator("#gate-fy").selectOption(fy);
       await page.waitForTimeout(200);
+      await restrict();
     }
     const selectedAfter = (await page.evaluate(() => window.__theStageCanvas.targets())).filter((one) => one.selected).map((one) => one.id);
     await gotoStep(page, "Scan the overview");
@@ -1160,9 +1179,12 @@ test("Steps 1 to 8 through the operator page on the real bridge, Viewer 0.2 and 
     expect(ready.filter((one) => one.selected).map((one) => one.id).sort()).toEqual([...selectedAfter].sort());
     await expect(page.locator(".panel.on button.step-run"), "acquisition waits for the target configuration").toBeDisabled();
     await expect(page.locator(".action-hint")).toContainText(/record the acquisition type/);
+    /* The settings are recorded on the refine step, beside the selection. */
+    await gotoStep(page, "Refine Targets");
     await page.locator("#target-type .setting-box.open button.run").click();
     await page.waitForTimeout(700);
     await expect(page.locator("#target-type .setting-box.done")).toHaveCount(1);
+    await gotoStep(page, "Acquire Targets");
     await expect(page.locator(".panel.on button.step-run")).toBeEnabled();
     await take("step8-ready-to-acquire", {
       step: 8, state: `target configuration recorded; ${selectedAfter.length} targets gated; Acquire enabled`,
@@ -1430,23 +1452,23 @@ test("Step 8 interruption: an acquisition stopped by hand accounts for exactly w
     const sc = await page.locator("#scatter-canvas").boundingBox();
     const polygon = [[0.2, 0.08], [0.98, 0.08], [0.98, 0.85], [0.2, 0.85]];
     for (const [gx, gy] of polygon) {
-      await page.mouse.click(sc.x + sc.width * gx, sc.y + sc.height * gy);
+      await page.mouse.click(...plotPoint(sc, gx, gy));
       await page.waitForTimeout(150);
     }
-    await page.mouse.click(sc.x + sc.width * polygon[0][0], sc.y + sc.height * polygon[0][1]);
+    await page.mouse.click(...plotPoint(sc, polygon[0][0], polygon[0][1]));
     await page.waitForTimeout(400);
     await expect(page.locator("#gate-list .gate-row")).toHaveCount(1);
-    const gated = (await page.evaluate(() => window.__theStageCanvas.targets())).filter((one) => one.selected);
-    expect(gated.length, "the ceiling kept a run's worth of targets").toBe(all);
     await page.locator(".panel.on button.step-run").click();
     await expect(page.locator(".panel.on button.step-run")).toHaveText("Run again", { timeout: 30_000 });
+    const gated = (await page.evaluate(() => window.__theStageCanvas.targets())).filter((one) => one.selected);
+    expect(gated.length, "the ceiling kept a run's worth of targets").toBe(all);
     const [ox, oy] = await page.evaluate(() => window.__theStageCanvas.carrierOriginUm());
 
     /* Step 8: started with the real button, stopped with the same button
        once the first pair has landed. */
-    await gotoStep(page, "Acquire Targets");
     await page.locator("#target-type .setting-box.open button.run").click();
     await page.waitForTimeout(700);
+    await gotoStep(page, "Acquire Targets");
     await expect(page.locator(".panel.on button.step-run")).toBeEnabled();
     await page.locator(".panel.on button.step-run").click();
     await expect(page.locator(".panel.on button.step-run"), "the press that started the run becomes Interrupt").toHaveText("Interrupt", { timeout: 10_000 });

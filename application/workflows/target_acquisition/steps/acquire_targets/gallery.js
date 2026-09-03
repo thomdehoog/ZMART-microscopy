@@ -116,12 +116,6 @@ export default {
     const act = document.createElement("div");
     act.className = "acquire-action side-act";
 
-    /* What the targets are imaged with, read off the instrument here -- the
-       shared recording slot, which brings its own boxed group the way the
-       scan area's does on step 3. */
-    const recording = document.createElement("div");
-    recording.id = "target-type";
-
     const listBox = sideGroup("Acquired targets");
     const about = document.createElement("div");
     about.className = "gallery-about";
@@ -148,21 +142,11 @@ export default {
     pair.id = "pairs";
     pairBox.body.append(pair);
 
-    /* Settle what to image first, then press: the run stands under the
-       settings it will image with, the way Segment all stands under its. */
-    side.append(recording, act, listBox.group, pairBox.group);
+    /* The settings the targets are imaged with were recorded on the step
+       before, beside the selection; here the press stands over what it
+       will make. */
+    side.append(act, listBox.group, pairBox.group);
     host.append(side);
-
-    ctx.recordingSlot(recording, {
-      /* The same opening as the scan area's and the focus step's: the
-         configuration is read off the instrument and named after what it
-         is, imported with one press. */
-      label: "Target acquisition settings", key: "targetType",
-      unnamed: true,
-      takes: "Import target acquisition settings",
-      retakes: "Update",
-      changed: () => ctx.changed(),
-    });
 
     const sayTheTally = () => {
       readout.textContent = galleryTally(ctx.acquired(), ctx.verdicts());

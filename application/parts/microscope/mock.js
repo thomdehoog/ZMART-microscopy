@@ -129,10 +129,6 @@ export const backend = {
    * meets the same shape here as it does through the bridge, and cannot come
    * to rely on a setting only one of them has.
    */
-  async acquisitionOptions() {
-    return this.get_acquisition_options();
-  },
-
   async get_acquisition_options() {
     await wait(120);
     return {
@@ -474,7 +470,7 @@ let discovered = [];
 /* The jobs this pretend instrument has stored, and which is chosen. The same
    three the controller's mock driver keeps, so the page meets one instrument
    whichever backend it is talking to. */
-const JOBS = ["Overview", "HiRes", "Survey"];
+const JOBS = ["Overview", "Focussing", "Target"];
 let chosenJob = JOBS[0];
 
 /** Where its stage is parked before anything has driven it: the corner, off

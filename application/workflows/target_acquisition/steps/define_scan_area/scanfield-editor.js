@@ -1254,10 +1254,7 @@ export default {
       });
       if (!best) return false;
       world.splice(best.at, 0, best.p);
-      const nc = {
-        x: world.reduce((sum, p) => sum + p.x, 0) / world.length,
-        y: world.reduce((sum, p) => sum + p.y, 0) / world.length,
-      };
+      const nc = centroid({ points: world });
       const points = world.map((p) => rotatePoint(p.x, p.y, nc.x, nc.y, -rot));
       pushHistory();
       const updated = { ...f, points };
@@ -1560,10 +1557,7 @@ function resize(f, drag, x, y, shift, frameUm) {
     const c = centroid(f);
     const world = f.points.map((p) => rotatePoint(p.x, p.y, c.x, c.y, rot));
     world[drag.index] = { x, y };
-    const nc = {
-      x: world.reduce((s, p) => s + p.x, 0) / world.length,
-      y: world.reduce((s, p) => s + p.y, 0) / world.length,
-    };
+    const nc = centroid({ points: world });
     return { ...f, points: world.map((p) => rotatePoint(p.x, p.y, nc.x, nc.y, -rot)) };
   }
 
