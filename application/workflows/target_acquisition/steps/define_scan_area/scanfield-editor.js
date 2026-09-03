@@ -86,7 +86,6 @@ const MARKED_TILE_W = 1.6;
 
 /* A region is an area of a sample, not a pixel boundary. Micrometres, so the
    softening is a property of the shape rather than of how far it is zoomed. */
-const CORNER_UM = 50;
 
 /* A hand-placed position is drawn against the frame it will image — the same
    fraction of it at every zoom — so a crosshair says how much of the sample
@@ -1484,17 +1483,17 @@ function traceField(ctx, f, toScreen, scale) {
     return;
   }
   if (f.type === "rectangle") {
-    /* Built under a rotation rather than from rotated corners, because a
-       rounded corner is an arc and there is no rotated-arc primitive. The path
-       is baked in screen space as it is laid down, so the stroke that follows
-       is still measured in pixels. */
+    /* Built under a rotation in screen space, square-cornered: a region is
+       the frame it will be tiled with, and a frame has no rounding. The path
+       is baked as it is laid down, so the stroke that follows is still
+       measured in pixels. */
     const c = centroid(f);
     const [cx, cy] = toScreen(c.x, c.y);
     const w = f.w * scale, h = f.h * scale;
     ctx.save();
     ctx.translate(cx, cy);
     ctx.rotate(f.rotation || 0);
-    ctx.roundRect(-w / 2, -h / 2, w, h, Math.min(CORNER_UM * scale, w / 2, h / 2));
+    ctx.rect(-w / 2, -h / 2, w, h);
     ctx.restore();
     return;
   }
