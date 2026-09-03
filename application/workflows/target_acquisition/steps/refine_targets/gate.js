@@ -123,10 +123,7 @@ export default {
     canvasHost.className = "scatter-host";
     const cv = document.createElement("canvas");
     cv.id = "scatter-canvas";
-    const tip = document.createElement("div");
-    tip.className = "tip";
-    tip.id = "scatter-tip";
-    canvasHost.append(cv, tip);
+    canvasHost.append(cv);
     wrap.append(canvasHost);
 
     const readout = document.createElement("div");
@@ -575,23 +572,6 @@ export default {
       }
       cv.style.cursor = cursor;
       if (over !== hovered) { hovered = over; draw(); }
-      if (over !== -1) { tip.classList.remove("on"); return; }
-      let hit = null, best = 9;
-      for (const c of ctx.cells()) {
-        const d = Math.hypot(sx(cellFeature(c, fx), w) - e.offsetX,
-          sy(cellFeature(c, fy), h) - e.offsetY);
-        if (d < best) { best = d; hit = c; }
-      }
-      if (!hit) { tip.classList.remove("on"); return; }
-      tip.classList.add("on");
-      tip.innerHTML =
-        `<b>cell</b> ${hit.id}<br><b>${fx}</b> ${cellFeature(hit, fx).toFixed(2)}<br>`
-        + `<b>${fy}</b> ${cellFeature(hit, fy).toFixed(2)}<br>`
-        + `<b>at</b> ${(hit.x / 1000).toFixed(2)}, ${(hit.y / 1000).toFixed(2)} mm`;
-      /* Clamped by the tip's own width, not a guess at it: 160 was a
-         guess, and a long cell id spilled past the plot's edge. */
-      tip.style.left = `${Math.min(e.offsetX + 14, w - 214)}px`;
-      tip.style.top = `${Math.max(6, e.offsetY - 68)}px`;
     });
 
     cv.addEventListener("pointerup", (e) => {
@@ -604,7 +584,6 @@ export default {
     });
 
     cv.addEventListener("pointerleave", () => {
-      tip.classList.remove("on");
       if (hovered !== -1) { hovered = -1; draw(); }
     });
 
