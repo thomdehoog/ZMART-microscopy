@@ -1495,9 +1495,12 @@ test("one walk of the whole run", async ({ page }) => {
   await gotoStep(page, "Target scan area");
   await expect(page.locator("#gate-max")).toHaveValue("1");
 
-  /* Restrict is the press that applies the ceiling: one per tileset under
-     this one, on the canvas and in the readout alike. */
-  await expect(page.locator(".panel.on button.step-run")).toHaveText("Restrict");
+  /* The press samples, one per tileset under this ceiling, and places scan
+     areas over the sample -- which needs the settings, imported first. */
+  await expect(page.locator(".panel.on button.step-run")).toHaveText("Place scan areas");
+  await page.locator("#target-type .setting-box.open button.run").click();
+  await page.waitForTimeout(650);
+  await expect(page.locator("#target-type .setting-box.done")).toHaveCount(1);
   /* The ceiling is per tileset -- a well of the pretend plate -- so what
      survives is so many in each tileset the gate reaches into. */
   const tilesetOf = (target) => plan[target.field]?.tileset ?? target.field;
@@ -1521,20 +1524,19 @@ test("one walk of the whole run", async ({ page }) => {
   await gotoStep(page, "Discover Targets");
   await expect(page.locator("#gate-readout")).toContainText(`${underCeiling(gatedTargets, 1)} kept of ${inTheGate}`);
   await gotoStep(page, "Target scan area");
-  /* A ceiling touched after Restrict is a selection not yet restricted:
-     the gate's whole catch is back and the step asks for its press again. */
+  /* A lever moved after the press is a plan not yet placed: the sample
+     goes and the step asks for its press again. */
   await page.locator("#gate-max").fill("2");
   await page.locator("#gate-max").dispatchEvent("input");
   await page.waitForTimeout(200);
   expect((await targetsOnCanvas(page)).filter((target) => target.restricted).length,
-    "a new ceiling typed lifts the old one until Restrict is pressed").toBe(0);
-  await expect(page.locator(".panel.on button.step-run")).toHaveText("Restrict");
+    "a new ceiling typed lifts the old one until the press").toBe(0);
+  await expect(page.locator(".panel.on button.step-run")).toHaveText("Place scan areas");
   await runStep(page, 1000);
   expect((await targetsOnCanvas(page)).filter((target) => target.restricted).length)
     .toBe(underCeiling(gatedTargets, 2));
-  /* The tiles are the plan: one round every restricted target, laid by
-     hand once the settings say how wide, and what Acquire images. */
-  await expect(page.locator("#add-tiles")).toBeEnabled();
+  /* The scan areas are the plan: placed by the press over the sample, in
+     the settings' frame, and what Acquire images. */
   await gotoStep(page, "Acquire Targets");
   const readyToAcquire = await targetsOnCanvas(page);
   expect(physicalTargetPositions(readyToAcquire),
@@ -1545,28 +1547,15 @@ test("one walk of the whole run", async ({ page }) => {
   /* No lit shapes here: on the acquisition step the frames are the picture,
      and a shape over a frame hid the pixels it was imaged for. */
   await expectTargetAtItsProjection(page, readyToAcquire[0], "Step 8 before acquisition");
-  /* Nothing is imaged until the run knows what with: the acquisition type is
-     recorded off the instrument in this step's own channel, and the button
-     waits for it. */
-  await expect(page.locator(".panel.on button.step-run")).toBeDisabled();
-  /* The slot stands on the target scan area, the step before; it imports
-     the configuration off the instrument and names it itself, the way the
-     overview's and the focus step's slots do. */
-  await gotoStep(page, "Target scan area");
-  const tt = page.locator("#target-type .setting-box.open");
-  await tt.locator("button.run").click();
-  await page.waitForTimeout(650);
-  await expect(page.locator("#target-type .setting-box.done")).toHaveCount(1);
-  await page.locator("#add-tiles").click();
-  await page.waitForTimeout(200);
-  /* Scan areas are placed by the optimisation: neighbours that fit in one
-     frame share an area, so there are at most as many areas as sampled
-     targets, and every sampled target is covered. */
+  /* The scan areas were placed by the step before, over the sample and in
+     the settings' frame: neighbours that fit in one frame share an area, so
+     there are at most as many areas as sampled targets, and every sampled
+     target is covered. The press here is ready. */
   const laid = await page.evaluate(() => window.__theRunState().targetTiles);
   expect(laid).toBeGreaterThan(0);
   expect(laid).toBeLessThanOrEqual(underCeiling(gatedTargets, 2));
-  await expect(page.locator("#tiles-laid")).toContainText(`${underCeiling(gatedTargets, 2)} of ${underCeiling(gatedTargets, 2)} covered`);
-  await expect(page.locator("#tiles-laid")).toContainText("scan area");
+  await gotoStep(page, "Target scan area");
+  await expect(page.locator(".panel.on .action-hint").first()).toContainText(`${underCeiling(gatedTargets, 2)} of ${underCeiling(gatedTargets, 2)} sampled covered`);
   await gotoStep(page, "Acquire Targets");
   await expect(page.locator(".panel.on button.step-run")).toBeEnabled();
   /* Stopped by hand after the first pair: what was taken stands everywhere

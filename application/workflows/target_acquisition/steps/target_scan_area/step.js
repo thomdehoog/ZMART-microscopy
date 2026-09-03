@@ -2,12 +2,15 @@
  * Step 8 — Target scan area.
  *
  * The counterpart of the overview's scan area, for the targets, in two
- * boxes. Sample targets: what the gates let through is drawn under a
- * per-tileset ceiling by the step's press, Restrict -- a systematic
- * uniform random sample. Place scan areas: the settings the targets are
- * imaged with are imported, and scan areas are placed over the sampled
- * targets by the optimisation in `scan-areas.js`, under the levers set
- * here. The scan areas are the plan; acquiring them is the step after.
+ * boxes. The first holds what every run needs: the settings the targets
+ * are imaged with, how many targets to sample per tileset, and the step's
+ * press, which draws a systematic uniform random sample of what the gates
+ * let through and places scan areas over it by the optimisation in
+ * `scan-areas.js`. The second, Advanced, holds the levers the optimisation
+ * runs under, with their defaults: a margin of one object's size round
+ * each, and where two areas meet, an overlap of at least a fifth and at
+ * most three tenths. The scan areas are the plan; acquiring them is the
+ * step after.
  */
 
 import { sideGroup } from "../../../../framework/window/panels.js";
@@ -15,8 +18,8 @@ import { sideGroup } from "../../../../framework/window/panels.js";
 export const targetScanArea = {
   id: "select",
   title: "Target scan area",
-  why: "Sample the gated targets to so many per tileset, then import the settings and place scan areas over the sample.",
-  btn: "Restrict",
+  why: "Import the settings the targets are imaged with, then place scan areas over a sample of the gated targets.",
+  btn: "Place scan areas",
   panels: [],
   ms: 600,
   mode: "select",
@@ -27,12 +30,11 @@ export const targetScanArea = {
  * The step's channel.
  *
  * `ctx` carries `recordingSlot(host, opts)`, the page's slot plumbing;
- * `cap()` and `setCap(n)`, the per-tileset ceiling; `restricted()`, the
- * ids the ceiling kept, and `reset()`, forget them; `rules()` and
- * `setRule(key, value)`, the placing levers as `scan-areas.js` reads them
- * plus `objectsMin`; `tiles()`, the scan areas placed, `plan()`, what the
- * last placing came to, `placeTiles()`, `resetTiles()`, `showTiles(on)`,
- * `tilesShown()`, `alpha()`, `setAlpha(a)`; and `changed()`.
+ * `rules()` and `setRule(key, value)`, the levers as `scan-areas.js` reads
+ * them plus `objectsMin` and `objectsMax`; `restricted()`, the sample;
+ * `tiles()`, the scan areas placed; `plan()`, what the last placing came
+ * to; `reset()`, forget sample and areas; `showTiles(on)`, `tilesShown()`,
+ * `alpha()`, `setAlpha(a)`; and `changed()`.
  */
 export const selectionPanel = {
   id: "select",
@@ -79,69 +81,29 @@ export const selectionPanel = {
       pair.append(box, input);
       return row(text, pair, id);
     };
+    const lever = (key) => (v) => { ctx.setRule(key, v); ctx.changed?.(); };
 
-    /* The step's own press, beside the ceiling it applies. */
+    /* The step's own press, at the end of the simple box. */
     const act = document.createElement("div");
     act.className = "select-action side-act";
 
-    /* 1. Sample targets. */
-    const sample = sideGroup("Sample targets");
-    const maxN = number("gate-max", ctx.cap(), { min: 1 }, (v) => { ctx.setCap(Math.max(1, Math.round(v || 0))); ctx.changed?.(); });
-    const resetSample = document.createElement("button");
-    resetSample.type = "button";
-    resetSample.className = "ghost tiny";
-    resetSample.id = "reset-restriction";
-    resetSample.textContent = "Reset";
-    resetSample.addEventListener("click", () => { ctx.reset(); ctx.changed?.(); });
-    const sampleLine = document.createElement("div");
-    sampleLine.className = "side-act press-line";
-    const sampleSpace = document.createElement("span");
-    sampleSpace.className = "spacer";
-    sampleLine.append(act, sampleSpace, resetSample);
-    sample.body.append(
-      switched("Min objects per tileset", "objects-min", rules.objectsMin, { min: 1 }, (v) => ctx.setRule("objectsMin", v)),
-      row("Max objects per tileset", maxN, "gate-max"),
-      sampleLine,
-    );
-
-    /* 2. Place scan areas: the settings first -- the recording slot draws
-       this box, and the rows under them are seated into it, again after
-       every import, since the slot redraws itself. */
+    /* 1. The simple box: the settings, drawn by the recording slot, with
+       the targets per tileset and the press seated under them -- again
+       after every import, since the slot redraws itself. */
     const recording = document.createElement("div");
     recording.id = "target-type";
-    const controls = document.createElement("div");
-    controls.className = "tile-controls";
+    const simple = document.createElement("div");
+    simple.className = "tile-controls";
     const alpha = document.createElement("input");
     alpha.type = "range"; alpha.min = "10"; alpha.max = "100"; alpha.step = "5";
     alpha.id = "tiles-alpha";
     alpha.value = String(Math.round(ctx.alpha() * 100));
     alpha.addEventListener("input", () => { ctx.setAlpha(Number(alpha.value) / 100); ctx.changed?.(); });
-    const prefer = document.createElement("select");
-    prefer.id = "prefer";
-    for (const [value, text] of [["coverage", "Cover every sampled target"], ["areas", "Hold the maximum of areas"]]) {
-      const option = document.createElement("option");
-      option.value = value; option.textContent = text;
-      prefer.append(option);
-    }
-    prefer.value = rules.prefer;
-    prefer.addEventListener("change", () => ctx.setRule("prefer", prefer.value));
-    const join = document.createElement("input");
-    join.type = "checkbox"; join.id = "join-scan"; join.checked = !!rules.join;
-    join.addEventListener("change", () => ctx.setRule("join", join.checked));
-
-    const place = document.createElement("button");
-    place.type = "button";
-    place.className = "run";
-    place.id = "add-tiles";
-    place.textContent = "Place scan areas";
-    const laid = document.createElement("span");
-    laid.className = "action-hint";
-    laid.id = "tiles-laid";
-    const resetTiles = document.createElement("button");
-    resetTiles.type = "button";
-    resetTiles.className = "ghost tiny";
-    resetTiles.id = "reset-tiles";
-    resetTiles.textContent = "Reset";
+    const reset = document.createElement("button");
+    reset.type = "button";
+    reset.className = "ghost tiny";
+    reset.id = "reset-tiles";
+    reset.textContent = "Reset";
     const hide = document.createElement("button");
     hide.type = "button";
     hide.className = "ghost tiny";
@@ -150,50 +112,61 @@ export const selectionPanel = {
     placeLine.className = "side-act press-line";
     const placeSpace = document.createElement("span");
     placeSpace.className = "spacer";
-    placeLine.append(place, laid, placeSpace, resetTiles, hide);
+    placeLine.append(act, placeSpace, reset, hide);
     const notes = document.createElement("div");
     notes.className = "side-note";
     notes.id = "tiles-notes";
-
-    controls.append(
-      row("Margin round an object (% of its size)", number("tiles-margin", Math.round(rules.margin * 100), { min: 0, step: 10 },
-        (v) => ctx.setRule("margin", Math.max(0, v) / 100)), "tiles-margin"),
-      switched("Min scan areas", "areas-min", rules.areasMin, { min: 1 }, (v) => ctx.setRule("areasMin", v)),
-      switched("Max scan areas", "areas-max", rules.areasMax, { min: 1, resting: 50 }, (v) => ctx.setRule("areasMax", v)),
-      switched("Max overlap (%)", "tiles-overlap", rules.overlapMax, { min: 0, max: 100, step: 5, scale: 100, resting: 50 }, (v) => ctx.setRule("overlapMax", v)),
-      switched("Min overlap (%)", "overlap-min", rules.overlapMin, { min: 0, max: 90, step: 5, scale: 100, resting: 10 }, (v) => ctx.setRule("overlapMin", v)),
-      row("Join into one scan", join, "join-scan"),
-      row("When both cannot hold", prefer, "prefer"),
+    simple.append(
+      switched("Targets per tileset", "gate-max", rules.objectsMax, { min: 1, resting: 50 }, lever("objectsMax")),
       row("Opacity", alpha, "tiles-alpha"),
       placeLine,
       notes,
     );
 
+    /* 2. Advanced: the levers the optimisation runs under. */
+    const advanced = sideGroup("Advanced");
+    const prefer = document.createElement("select");
+    prefer.id = "prefer";
+    for (const [value, text] of [["coverage", "Cover every sampled target"], ["areas", "Hold the maximum of areas"]]) {
+      const option = document.createElement("option");
+      option.value = value; option.textContent = text;
+      prefer.append(option);
+    }
+    prefer.value = rules.prefer;
+    prefer.addEventListener("change", () => lever("prefer")(prefer.value));
+    const join = document.createElement("input");
+    join.type = "checkbox"; join.id = "join-scan"; join.checked = !!rules.join;
+    join.addEventListener("change", () => lever("join")(join.checked));
+    advanced.body.append(
+      row("Margin round an object (% of its size)", number("tiles-margin", Math.round(rules.margin * 100), { min: 0, step: 10 },
+        (v) => lever("margin")(Math.max(0, v) / 100)), "tiles-margin"),
+      switched("Min overlap where areas meet (%)", "overlap-min", rules.overlapMin, { min: 0, max: 90, step: 5, scale: 100, resting: 20 }, lever("overlapMin")),
+      switched("Max overlap (%)", "tiles-overlap", rules.overlapMax, { min: 0, max: 100, step: 5, scale: 100, resting: 30 }, lever("overlapMax")),
+      switched("Min targets per tileset", "objects-min", rules.objectsMin, { min: 1 }, lever("objectsMin")),
+      switched("Min scan areas", "areas-min", rules.areasMin, { min: 1 }, lever("areasMin")),
+      switched("Max scan areas", "areas-max", rules.areasMax, { min: 1, resting: 50 }, lever("areasMax")),
+      row("Join into one scan", join, "join-scan"),
+      row("When both cannot hold", prefer, "prefer"),
+    );
+
     const say = () => {
       const n = ctx.tiles().length;
-      const kept = ctx.restricted().size;
+      const sampled = ctx.restricted().size;
       const plan = ctx.plan();
-      place.disabled = kept === 0;
-      resetTiles.disabled = n === 0;
+      reset.disabled = sampled === 0 && n === 0;
       hide.disabled = n === 0;
       hide.textContent = ctx.tilesShown() ? "Hide" : "Show";
-      resetSample.disabled = kept === 0;
-      if (n) {
-        const covered = kept - (plan?.uncovered?.length ?? 0);
-        laid.textContent = `${n} scan area${n === 1 ? "" : "s"} · ${covered} of ${kept} covered`;
-      } else {
-        laid.textContent = kept ? `${kept} sampled` : "sample first";
-      }
+      /* What the press came to is the step's own word beside it; only what
+         could not be honoured is said here. */
       notes.textContent = (plan?.notes ?? []).join(" · ");
     };
-    place.addEventListener("click", () => { ctx.placeTiles(); say(); ctx.changed?.(); });
-    resetTiles.addEventListener("click", () => { ctx.resetTiles(); say(); ctx.changed?.(); });
+    reset.addEventListener("click", () => { ctx.reset(); say(); ctx.changed?.(); });
     hide.addEventListener("click", () => { ctx.showTiles(!ctx.tilesShown()); say(); });
 
-    side.append(sample.group, recording);
+    side.append(recording, advanced.group);
     host.append(side);
 
-    const seat = () => recording.querySelector(".side-group-body")?.append(controls);
+    const seat = () => recording.querySelector(".side-group-body")?.append(simple);
     ctx.recordingSlot(recording, {
       label: "Place scan areas", key: "targetType",
       unnamed: true,

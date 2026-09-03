@@ -13,9 +13,13 @@
  * The levers, each switchable:
  *   margin    the ring, as a fraction of the object's reach
  *   areas     { min, max } scan areas, either null
- *   overlap   { max, min } as shares of a frame, either null; `join` asks
- *             for one contiguous scan over the sampled targets, stepped by
- *             the minimum overlap, instead of scattered areas
+ *   overlap   { max, min } as shares of a frame, either null. Two areas
+ *             that meet must meet by at least the minimum -- an area that
+ *             would overlap a neighbour by less is slid to meet it by
+ *             exactly that, where sliding still holds its targets -- so
+ *             every seam is one that can be stitched. `join` asks for one
+ *             contiguous scan over the sampled targets, stepped by the
+ *             minimum overlap, instead of scattered areas
  *   prefer    when the maximum number of areas and covering every sampled
  *             target cannot both hold: "coverage" places on past the
  *             maximum and says so; "areas" stops and says which targets
@@ -93,6 +97,7 @@ export function planScanAreas(targets, frameUm, rules = {}) {
   const isCovered = (cell) => placed.some((area) => holds(cell, area));
   let stopped = false;
   let oversized = 0;
+  let thinSeams = 0;
   for (const target of targets) {
     if (isCovered(target)) continue;
     if (tooBig(target)) { oversized += 1; uncovered.push(target.id); continue; }
@@ -108,15 +113,60 @@ export function planScanAreas(targets, frameUm, rules = {}) {
       uncovered.push(target.id);
       continue;
     }
+    if (overlap.min != null && overlap.min > 0) {
+      const met = meetingByAtLeast(area, placed, frameUm, overlap.min, overlap.max, (at) => holds(target, at));
+      if (met) { area.x = met.x; area.y = met.y; } else thinSeams += 1;
+    }
     area.covers = targets.filter((one) => holds(one, area)).map((one) => one.id);
     placed.push(area);
   }
+  if (thinSeams) notes.push(`${thinSeams} areas meet a neighbour by less than the minimum overlap`);
   if (stopped) notes.push(`stopped at ${areas.max} scan areas: ${uncovered.length} sampled targets are not covered`);
   else if (areas.max != null && placed.length > areas.max) notes.push(`${placed.length} scan areas, past the maximum of ${areas.max}, to cover every sampled target`);
   if (areas.min != null && placed.length < areas.min) notes.push(`${placed.length} scan areas, under the minimum of ${areas.min}: every sampled target is covered already`);
   if (oversized) notes.push(`${oversized} sampled targets are larger than a frame with their margin`);
   if (leftOut.length) notes.push(`${leftOut.length} left out for overlap`);
   return { placed, uncovered, leftOut, notes };
+}
+
+/**
+ * Where two areas meet they meet by at least the minimum: an area that
+ * overlaps a placed one by more than nothing and less than the minimum
+ * is slid along one axis until the overlap is exactly the minimum --
+ * towards the neighbour, so nothing between them is left out -- provided
+ * the slid area still holds its anchor and overlaps no other placed area
+ * past the maximum. The first slide that holds wins; none holding, the
+ * area stays and the seam is counted as thin. Areas that do not meet at
+ * all are left alone: nothing joins them.
+ */
+function meetingByAtLeast(area, placed, frameUm, min, max, stillHolds) {
+  const thin = placed.filter((one) => {
+    const share = overlapShare(one, area, frameUm);
+    return share > 0 && share < min;
+  });
+  if (!thin.length) return area;
+  const fine = (at) => stillHolds(at)
+    && placed.every((one) => {
+      const share = overlapShare(one, at, frameUm);
+      return (share === 0 || share >= min - 1e-9) && (max == null || share <= max + 1e-9);
+    });
+  for (const one of thin) {
+    const dx = Math.abs(area.x - one.x), dy = Math.abs(area.y - one.y);
+    const ix = Math.max(0, frameUm - dx), iy = Math.max(0, frameUm - dy);
+    const tries = [];
+    if (iy > 0) {
+      const wantedIx = (min * frameUm * frameUm) / iy;
+      if (wantedIx <= frameUm) tries.push({ x: one.x + Math.sign(area.x - one.x || 1) * (frameUm - wantedIx), y: area.y });
+    }
+    if (ix > 0) {
+      const wantedIy = (min * frameUm * frameUm) / ix;
+      if (wantedIy <= frameUm) tries.push({ x: area.x, y: one.y + Math.sign(area.y - one.y || 1) * (frameUm - wantedIy) });
+    }
+    for (const at of tries) {
+      if (fine(at)) return { x: at.x, y: at.y };
+    }
+  }
+  return null;
 }
 
 /**

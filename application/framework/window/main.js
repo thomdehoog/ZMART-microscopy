@@ -274,7 +274,6 @@ let stageWatch = null;
        room. A page preference too. */
     sideFolded: false,
     gates: [],           // [{fx, fy, vertices: [[x, y], ...]}] — see gating.js
-    gateCap: 50,         // the per-tileset ceiling the gated selection was drawn under
     /* The selection as it stands: what the gates let through, and once
        Restrict has been pressed, that held under the ceiling. The canvas
        rings it and the targets scan images it. */
@@ -286,7 +285,7 @@ let stageWatch = null;
     targetTilesAlpha: 0.5,
     /* The placing levers, as scan-areas.js reads them, and what the last
        placing came to. */
-    placing: { margin: 1, objectsMin: null, areasMin: null, areasMax: null, overlapMax: 0.5, overlapMin: null, join: false, prefer: "coverage" },
+    placing: { margin: 1, objectsMin: null, objectsMax: 50, areasMin: null, areasMax: null, overlapMax: 0.3, overlapMin: 0.2, join: false, prefer: "coverage" },
     tilePlan: null,
     acquired: [],
     /* The acquired target whose pair the gallery shows, chosen there or on
@@ -413,9 +412,9 @@ let stageWatch = null;
       detect: newDetect(), cells: new Map(), fieldLabels: {}, examined: new Set(),
       overviewPictures: backendFor().viewOf("overview"),
     targetPictures: backendFor().viewOf("targets"),
-      cellsShown: false, gates: [], gateCap: 50, gated: new Set(), restricted: new Set(),
+      cellsShown: false, gates: [], gated: new Set(), restricted: new Set(),
       targetTiles: [], targetTilesAlpha: 0.5, tilePlan: null,
-      placing: { margin: 1, objectsMin: null, areasMin: null, areasMax: null, overlapMax: 0.5, overlapMin: null, join: false, prefer: "coverage" },
+      placing: { margin: 1, objectsMin: null, objectsMax: 50, areasMin: null, areasMax: null, overlapMax: 0.3, overlapMin: 0.2, join: false, prefer: "coverage" },
       acquired: [], acquiredLabels: {},
       selectedTarget: null, hoveredTarget: null,
       verdicts: {},
@@ -897,13 +896,15 @@ let stageWatch = null;
         state.notes[s.id] = discoveryNote();
       }
       if (s.mode === "select") {
-        /* Restrict is the one press that applies the ceiling: the gates
-           say what they let through as they are drawn, and only here is
-           that held to so many per tileset. */
-        state.restricted = keptUnderCeiling(state.cells.values(), state.gated, state.gateCap, tilesetOfField);
-        /* A new restriction is a new plan: the tiles are laid again by hand. */
-        state.targetTiles = [];
-        state.notes[s.id] = `${state.restricted.size} targets kept`;
+        /* The press samples, then places: a systematic uniform random
+           sample of what the gates let through, so many per tileset, and
+           scan areas over it by the optimisation under the box's levers. */
+        const p = state.placing;
+        state.restricted = keptUnderCeiling(
+          state.cells.values(), state.gated, p.objectsMax ?? state.gated.size, tilesetOfField);
+        placeTheScanAreas();
+        const covered = state.restricted.size - (state.tilePlan?.uncovered?.length ?? 0);
+        state.notes[s.id] = `${state.targetTiles.length} scan areas · ${covered} of ${state.restricted.size} sampled covered`;
         gatingShown?.redraw(); selectionShown?.redraw?.();
       }
       if (s.mode === "targets") {
@@ -1282,14 +1283,13 @@ let stageWatch = null;
       cells: () => state.cells.values(),
       gated: () => state.gated,
       gates: () => state.gates,
-      cap: () => state.gateCap,
+      cap: () => state.placing.objectsMax ?? Infinity,
       acquired: () => state.acquired,
 
       showing: () => state.cellsShown,
-      setGates: (gates, ids, cap) => {
+      setGates: (gates, ids) => {
         state.gates = gates;
         state.gated = ids;
-        state.gateCap = cap;
         /* Something gated is what makes the gating step done; and a gate
            touched after Restrict is a selection not yet restricted, so the
            step after asks for its press again. */
@@ -1392,53 +1392,52 @@ let stageWatch = null;
      are imaged with. A ceiling typed is not a ceiling applied -- the press
      is -- so typing one asks for the press again; the settings recorded
      say how wide each frame on the picture is. */
+  /* Scan areas over the sampled targets, by the optimisation in
+     scan-areas.js under the levers the box holds. The sampled targets go
+     in their systematic order, cells and all: the object's own size is what
+     the margin is measured in. */
+  function placeTheScanAreas() {
+    const p = state.placing;
+    const targets = [...state.restricted].flatMap((id) => (state.cells.has(id) ? [state.cells.get(id)] : []));
+    const plan = planScanAreas(targets, state.targetFrameUm, {
+      margin: p.margin,
+      areas: { min: p.areasMin, max: p.areasMax },
+      overlap: { max: p.overlapMax, min: p.overlapMin, join: p.join },
+      prefer: p.prefer,
+    });
+    if (p.objectsMin != null && state.restricted.size < p.objectsMin) {
+      plan.notes.push(`${state.restricted.size} sampled, under the minimum of ${p.objectsMin}`);
+    }
+    state.targetTiles = plan.placed;
+    state.tilePlan = plan;
+  }
+
   let selectionShown = null;
   const selectionMount = (host) => (selectionShown = selectionPanel.mount(host, {
     recordingSlot: (into, opts) => renderRecordingSlot(into, recordingOptions(opts)),
-    cap: () => state.gateCap,
-    setCap: (cap) => {
-      state.gateCap = cap;
-      /* A ceiling typed lifts the one applied, and the tiles laid under it,
-         until the press draws under the new one. */
-      state.restricted = new Set();
-      state.targetTiles = [];
-      state.done.delete("select");
-      state.ran.delete("select");
-    },
     restricted: () => state.restricted,
-    /* Forget the sample: the gated targets stand whole again, and the scan
-       areas placed round the sample go with it. */
+    /* Forget the sample and the scan areas: the gated targets stand whole
+       again and the press is asked for. */
     reset: () => {
       state.restricted = new Set();
       state.targetTiles = [];
+      state.tilePlan = null;
       state.done.delete("select");
       state.ran.delete("select");
     },
     tiles: () => state.targetTiles,
-    resetTiles: () => { state.targetTiles = []; state.tilePlan = null; },
     showTiles: (on) => stage.showLayer("frames", on),
     tilesShown: () => stage.layerShown("frames"),
-    /* Scan areas over the sampled targets, by the optimisation in
-       scan-areas.js under the levers the box holds. The sampled targets go
-       in their systematic order, cells and all: the object's own size is
-       what the margin is measured in. */
-    placeTiles: () => {
-      const p = state.placing;
-      const targets = [...state.restricted].flatMap((id) => (state.cells.has(id) ? [state.cells.get(id)] : []));
-      const plan = planScanAreas(targets, state.targetFrameUm, {
-        margin: p.margin,
-        areas: { min: p.areasMin, max: p.areasMax },
-        overlap: { max: p.overlapMax, min: p.overlapMin, join: p.join },
-        prefer: p.prefer,
-      });
-      if (p.objectsMin != null && state.restricted.size < p.objectsMin) {
-        plan.notes.push(`${state.restricted.size} sampled, under the minimum of ${p.objectsMin}`);
-      }
-      state.targetTiles = plan.placed;
-      state.tilePlan = plan;
-    },
     rules: () => state.placing,
-    setRule: (key, value) => { state.placing[key] = value; },
+    /* A lever moved is a plan not yet placed: the press is asked for again. */
+    setRule: (key, value) => {
+      state.placing[key] = value;
+      state.restricted = new Set();
+      state.targetTiles = [];
+      state.tilePlan = null;
+      state.done.delete("select");
+      state.ran.delete("select");
+    },
     plan: () => state.tilePlan,
     alpha: () => state.targetTilesAlpha,
     setAlpha: (alpha) => { state.targetTilesAlpha = alpha; },

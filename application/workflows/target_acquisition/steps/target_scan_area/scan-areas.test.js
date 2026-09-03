@@ -92,6 +92,32 @@ describe("placing scan areas", () => {
   });
 });
 
+describe("where two areas meet", () => {
+  it("an area meeting a neighbour by less than the minimum is slid to meet it by exactly that", () => {
+    // a at 0 and b at 95: their areas would overlap by 5 %; the minimum is 20 %
+    const targets = [object("a", 0, 0), object("b", 95, 0)];
+    const { placed, notes } = planScanAreas(targets, 100, { margin: 0, overlap: { min: 0.2 } });
+    expect(placed).toHaveLength(2);
+    expect(overlapShare(placed[0], placed[1], 100)).toBeCloseTo(0.2, 6);
+    expect(coveredBy(targets[1], placed[1], 100, 0), "b is still held after the slide").toBe(true);
+    expect(notes).toEqual([]);
+  });
+
+  it("areas that do not meet are left where they are", () => {
+    const targets = [object("a", 0, 0), object("b", 300, 0)];
+    const { placed } = planScanAreas(targets, 100, { margin: 0, overlap: { min: 0.2 } });
+    expect(placed.map((one) => one.x)).toEqual([0, 300]);
+  });
+
+  it("a seam that cannot be widened without losing the target is counted", () => {
+    // b reaches 40 either side with its margin: sliding it to meet a would drop it
+    const targets = [object("a", 0, 0), object("b", 99, 0, { major: 40 })];
+    const { placed, notes } = planScanAreas(targets, 100, { margin: 1, overlap: { min: 0.5 } });
+    expect(placed).toHaveLength(2);
+    expect(notes.join(" ")).toMatch(/less than the minimum overlap/);
+  });
+});
+
 describe("the edges of placing", () => {
   it("no targets is an empty plan with nothing to say", () => {
     expect(planScanAreas([], 100, { margin: 1 })).toEqual({ placed: [], uncovered: [], leftOut: [], notes: [] });
