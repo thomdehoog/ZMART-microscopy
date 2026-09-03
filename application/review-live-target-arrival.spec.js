@@ -1197,7 +1197,11 @@ test("Steps 1 to 8 through the operator page on the real bridge, Viewer 0.2 and 
       step: 8, state: `target configuration recorded; ${selectedAfter.length} targets gated; Acquire enabled`,
     });
     const arrival = await proveTargetArrival({
-      page, take, port: PORT, bridge, plan, planBoxes, expectedTargets: selectedAfter.length, mode: "operator page", outcome,
+      page, take, port: PORT, bridge, plan, planBoxes,
+      /* One capture per scan area placed: neighbours that fit in one frame
+         share an area, so this is at most the sampled count. */
+      expectedTargets: await page.evaluate(() => window.__theRunState().targetTiles),
+      mode: "operator page", outcome,
       trigger: async () => { await page.locator(".panel.on button.step-run").click(); },
     });
     /* The eyes were pressed on the display settings; the gallery and the
@@ -1206,7 +1210,10 @@ test("Steps 1 to 8 through the operator page on the real bridge, Viewer 0.2 and 
     await expect(page.locator(".panel.on button.step-run")).toHaveText("Run again", { timeout: 120_000 });
     const acquired = await page.evaluate(() => window.__theStageCanvas.targets());
     const acquiredIds = acquired.filter((one) => one.acquired).map((one) => one.id).sort();
-    expect(acquiredIds, "exactly the gated targets are acquired").toEqual([...selectedAfter].sort());
+    /* One capture per scan area, each at its anchor target: every acquired id
+       is a sampled one, and there are as many as areas placed. */
+    expect(acquiredIds.every((id) => selectedAfter.includes(id)), "every acquired target was sampled").toBe(true);
+    expect(acquiredIds.length, "one capture per scan area").toBe(await page.evaluate(() => window.__theRunState().targetTiles));
     expect(identityOf(acquired), "acquisition never moved a target").toEqual(identityOf(discovered));
     /* The page acquires the gated cells in its own order (the order the
        ceiling drew them), so a record is matched to its target by where it

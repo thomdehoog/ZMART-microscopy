@@ -1559,15 +1559,21 @@ test("one walk of the whole run", async ({ page }) => {
   await expect(page.locator("#target-type .setting-box.done")).toHaveCount(1);
   await page.locator("#add-tiles").click();
   await page.waitForTimeout(200);
-  expect(await page.evaluate(() => window.__theRunState().targetTiles), "one tile per restricted target")
-    .toBe(underCeiling(gatedTargets, 2));
+  /* Scan areas are placed by the optimisation: neighbours that fit in one
+     frame share an area, so there are at most as many areas as sampled
+     targets, and every sampled target is covered. */
+  const laid = await page.evaluate(() => window.__theRunState().targetTiles);
+  expect(laid).toBeGreaterThan(0);
+  expect(laid).toBeLessThanOrEqual(underCeiling(gatedTargets, 2));
+  await expect(page.locator("#tiles-laid")).toContainText(`${underCeiling(gatedTargets, 2)} of ${underCeiling(gatedTargets, 2)} covered`);
   await expect(page.locator("#tiles-laid")).toContainText("scan area");
   await gotoStep(page, "Acquire Targets");
   await expect(page.locator(".panel.on button.step-run")).toBeEnabled();
   /* Stopped by hand after the first pair: what was taken stands everywhere
      the page accounts for it -- the rings, the gallery, the sentence beside
      the button -- and the step is not done, only run. */
-  const gatedCount = readyToAcquire.filter((target) => target.restricted).length;
+  /* What the acquisition images is the scan areas placed, one capture each. */
+  const gatedCount = await page.evaluate(() => window.__theRunState().targetTiles);
   await page.locator(".panel.on button.step-run").click();
   await expect(page.locator(".panel.on button.step-run")).toHaveText("Interrupt");
   await expect.poll(async () => (await targetsOnCanvas(page)).filter((target) => target.acquired).length,
@@ -1591,8 +1597,8 @@ test("one walk of the whole run", async ({ page }) => {
     "acquisition changes target state, never target placement")
     .toEqual(physicalTargetPositions(discovered));
   expect(acquired.filter((target) => target.acquired).length,
-    "every restricted target -- every tile -- acquires a canvas state")
-    .toBe(acquired.filter((target) => target.restricted).length);
+    "every scan area placed acquires a canvas state, at its anchor target")
+    .toBe(await page.evaluate(() => window.__theRunState().targetTiles));
   await expectTargetLayerOnCanvas(
     page, "targets", "Step 8 acquired-target rings materially change the canvas");
   /* A press inside an acquired frame chooses that target: the list says so

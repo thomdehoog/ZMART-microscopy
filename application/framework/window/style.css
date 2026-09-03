@@ -2076,6 +2076,15 @@ canvas.livecv[hidden] { display: none; }
 .gate-draw input[type="checkbox"] { width: 72px; margin: 0; height: 16px; }
 .tile-controls { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
 .press-line .spacer { flex: 1; }
+.press-line .run { white-space: nowrap; }
+/* A switchable lever: its checkbox beside its number, the pair as wide as a
+   number alone, so switched and plain rows line up. */
+.gate-draw .switched { display: flex; align-items: center; gap: 6px; }
+.gate-draw .switched input[type="checkbox"] { width: auto; height: 14px; margin: 0; }
+.gate-draw .switched input[type="number"] { width: 72px; }
+.gate-draw select { width: 72px; min-width: 0; }
+#prefer { width: 200px; }
+#tiles-notes:empty { display: none; }
 .gate-draw input {
   font: inherit; font-family: var(--mono); font-size: 12px;
   background: var(--surface-2); color: var(--ink);
