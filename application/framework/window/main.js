@@ -1398,9 +1398,20 @@ let stageWatch = null;
       state.ran.delete("select");
     },
     restricted: () => state.restricted,
+    /* Forget the sample: the gated targets stand whole again, and the scan
+       areas placed round the sample go with it. */
+    reset: () => {
+      state.restricted = new Set();
+      state.targetTiles = [];
+      state.done.delete("select");
+      state.ran.delete("select");
+    },
     tiles: () => state.targetTiles,
-    /* One tile round every restricted target, in the settings' frame. */
-    addTiles: () => {
+    resetTiles: () => { state.targetTiles = []; },
+    showTiles: (on) => stage.showLayer("frames", on),
+    tilesShown: () => stage.layerShown("frames"),
+    /* One scan area round every sampled target, in the settings' frame. */
+    placeTiles: () => {
       const frameUm = state.targetFrameUm;
       state.targetTiles = frameUm
         ? [...state.restricted].flatMap((id) => {
