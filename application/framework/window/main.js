@@ -1235,7 +1235,7 @@ let stageWatch = null;
       },
       status,
       sizeCanvas, css, drawScaleBar,
-      changed: () => renderActionBar(),
+      changed: () => { renderActionBar(); drawStage(); },
     });
   };
 

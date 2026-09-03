@@ -252,9 +252,13 @@ export function targetLayers(theRun) {
       const t = run.plan[run.detect.tile];
       const half = t.frameUm / 2;
       const [x, y] = place(t.x - half, t.y - half);
-      ctx.strokeStyle = css("--accent");
-      ctx.lineWidth = 2;
-      ctx.strokeRect(x, y, t.frameUm * scale, t.frameUm * scale);
+      /* Black on a white halo: readable on the tissue and on the dark
+         ground alike, and not one more blue on a picture full of them. */
+      const side = t.frameUm * scale;
+      ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 5;
+      ctx.strokeRect(x, y, side, side);
+      ctx.strokeStyle = "#000000"; ctx.lineWidth = 2;
+      ctx.strokeRect(x, y, side, side);
 
       /* And the one under the pointer, lightly: the press it invites picks
          it as the test position. */

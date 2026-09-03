@@ -40,12 +40,13 @@ export const selectionPanel = {
     const act = document.createElement("div");
     act.className = "select-action side-act";
 
-    /* The ceiling: a spatial SURS draw over EACH tileset's own extent, so
-       what survives is spread evenly across the compartment. Typed here,
-       applied by the press. */
-    const curate = sideGroup("Selection");
+    /* The settings first, in the box the recording slot brings, then the
+       scan area: the ceiling -- a spatial SURS draw over EACH tileset's own
+       extent, so what survives is spread evenly across the compartment --
+       typed here and applied by the press under it. */
     const recording = document.createElement("div");
     recording.id = "target-type";
+    const curate = sideGroup("Scan area");
     const refine = document.createElement("div");
     refine.className = "gate-draw";
     const maxLabel = document.createElement("label");
@@ -60,8 +61,8 @@ export const selectionPanel = {
       ctx.changed?.();
     });
     refine.append(maxLabel, maxN);
-    curate.body.append(recording, refine, act);
-    side.append(curate.group);
+    curate.body.append(refine, act);
+    side.append(recording, curate.group);
     host.append(side);
 
     ctx.recordingSlot(recording, {
