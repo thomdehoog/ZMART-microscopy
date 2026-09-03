@@ -422,11 +422,19 @@ function drawWhereTheStageIs(ctx, onTheStage) {
   const at = whereTheStageIs();
   if (!at) return;
   const [x, y] = onTheStage(at.x, at.y);
+  /* Black on a white halo, and larger than it was: the mark has to be
+     found at a glance on tissue and on dark ground alike, and a thin blue
+     cross was lost on both. */
   ctx.save();
-  ctx.strokeStyle = css("--mark-stage");
-  ctx.fillStyle = css("--mark-stage");
-  ctx.lineWidth = stageMarkHot ? 3 : 2.2;
-  crosshair(ctx, x, y, 12, 4, stageMarkHot ? 2.6 : 2);
+  const arm = stageMarkHot ? 22 : 18;
+  ctx.strokeStyle = "#ffffff";
+  ctx.fillStyle = "#ffffff";
+  ctx.lineWidth = stageMarkHot ? 7 : 6;
+  crosshair(ctx, x, y, arm, 5, stageMarkHot ? 4.5 : 4);
+  ctx.strokeStyle = "#000000";
+  ctx.fillStyle = "#000000";
+  ctx.lineWidth = stageMarkHot ? 3 : 2.5;
+  crosshair(ctx, x, y, arm, 5, stageMarkHot ? 2.8 : 2.2);
   ctx.restore();
 }
 

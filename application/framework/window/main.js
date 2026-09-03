@@ -655,6 +655,9 @@ let stageWatch = null;
           if (state.running !== s.id) return;
           state.tilesShown = done;
           status.say(`scanning field ${done} of ${state.plan.length}`);
+          /* The mark keeps up with the stage field by field, not every few
+             seconds. */
+          stageWatch?.refresh();
           /* The mark moves with the scan: each answer says where the stage
              stood, and the watch's own poll is seconds behind it. */
           if (at) takeThePosition(at);
@@ -732,6 +735,9 @@ let stageWatch = null;
         onField: (field) => {
           if (state.running !== s.id) return;
           fieldFound(field);
+          /* The lit frame follows the run across the sample: the field just
+             segmented is the one the picture and the preview are about. */
+          state.detect.tile = field.field;
           state.notes[s.id] = discoveryNote();
           redrawSoon();
         },
