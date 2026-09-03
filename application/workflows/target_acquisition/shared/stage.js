@@ -571,7 +571,7 @@ function drawnIn(frame) {
  * `parts/canvas/layers-above.js`.
  */
 const THE_STACK = [
-  "ground", "limits", "carrier", "tiles", "segmentation", "cells", "frames", "targets",
+  "ground", "limits", "carrier", "tiles", "segmentation", "cells", "targets",
   "focus", "plan", "focusFrame", "focusPoints", "detect", "editing", "anchors", "stage", "scale",
 ];
 

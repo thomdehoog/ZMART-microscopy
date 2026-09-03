@@ -5,28 +5,6 @@
 export function acquiredLayers(theRun) {
   const { run, drawnIn, activeMode } = theRun;
   return {
-    frames: {
-    key: "frames",
-    label: "Target frames",
-    explains: "The frame each target will be taken with, laid where it will be taken "
-      + "-- the plan the acquisition step images.",
-    shown: activeMode === "select" && run.gated.size > 0 && !!run.targetFrameUm,
-    staysSolid: true,
-    paint: (frame) => {
-      const ctx = frame.context;
-      const { place, scale, w, h } = drawnIn(frame);
-      const half = run.targetFrameUm / 2;
-      const side = run.targetFrameUm * scale;
-      ctx.strokeStyle = "#16a34a"; ctx.lineWidth = 1;
-      for (const id of run.gated) {
-        const c = run.cells.get(id);
-        if (!c) continue;
-        const [x, y] = place(c.x - half, c.y - half);
-        if (x > w || y > h || x + side < 0 || y + side < 0) continue;
-        ctx.strokeRect(x, y, side, side);
-      }
-    },
-  },
     targets: {
     key: "targets",
     label: "Targets",
