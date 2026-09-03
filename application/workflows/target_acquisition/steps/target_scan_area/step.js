@@ -71,20 +71,54 @@ export const selectionPanel = {
     resetSample.textContent = "Reset";
     resetSample.title = "Forget the sample; the gated targets stand whole again";
     resetSample.addEventListener("click", () => { ctx.reset(); ctx.changed?.(); });
+    /* The press line: the step's press and its word, the small press at the
+       far end. */
     const sampleLine = document.createElement("div");
-    sampleLine.className = "side-act";
-    sampleLine.append(act, resetSample);
+    sampleLine.className = "side-act press-line";
+    const sampleSpace = document.createElement("span");
+    sampleSpace.className = "spacer";
+    sampleLine.append(act, sampleSpace, resetSample);
     sample.body.append(refine, sampleLine);
 
     /* 2. Place scan areas: the settings first -- the recording slot draws
-       this box, and the controls under them are seated into it, again after
-       every import, since the slot redraws itself. */
+       this box, and the rows under them are seated into it, again after
+       every import, since the slot redraws itself. One row per setting,
+       the word at the left and the control at the right, like the rows
+       above. */
     const recording = document.createElement("div");
     recording.id = "target-type";
     const controls = document.createElement("div");
     controls.className = "tile-controls";
-    const lay = document.createElement("div");
-    lay.className = "gate-draw";
+    const row = (text, control, id) => {
+      const line = document.createElement("div");
+      line.className = "gate-draw";
+      const label = document.createElement("label");
+      label.textContent = text;
+      if (id) label.htmlFor = id;
+      line.append(label, control);
+      return line;
+    };
+    const limit = document.createElement("input");
+    limit.type = "checkbox";
+    limit.id = "limit-overlap";
+    limit.checked = ctx.overlapLimited();
+    const overlap = document.createElement("input");
+    overlap.type = "number"; overlap.min = "0"; overlap.max = "100"; overlap.step = "5";
+    overlap.id = "tiles-overlap";
+    overlap.value = String(Math.round(ctx.maxOverlap() * 100));
+    overlap.disabled = !limit.checked;
+    limit.addEventListener("change", () => { ctx.setOverlapLimited(limit.checked); overlap.disabled = !limit.checked; });
+    overlap.addEventListener("input", () => {
+      ctx.setMaxOverlap(Math.min(100, Math.max(0, Number(overlap.value) || 0)) / 100);
+    });
+    const alpha = document.createElement("input");
+    alpha.type = "range"; alpha.min = "10"; alpha.max = "100"; alpha.step = "5";
+    alpha.id = "tiles-alpha";
+    alpha.value = String(Math.round(ctx.alpha() * 100));
+    alpha.addEventListener("input", () => {
+      ctx.setAlpha(Number(alpha.value) / 100);
+      ctx.changed?.();
+    });
     const place = document.createElement("button");
     place.type = "button";
     place.className = "run";
@@ -102,44 +136,17 @@ export const selectionPanel = {
     hide.type = "button";
     hide.className = "ghost tiny";
     hide.id = "hide-tiles";
-    lay.append(place, laid, resetTiles, hide);
-    const strength = document.createElement("div");
-    strength.className = "gate-draw";
-    const alphaLabel = document.createElement("label");
-    alphaLabel.textContent = "Opacity";
-    alphaLabel.htmlFor = "tiles-alpha";
-    const alpha = document.createElement("input");
-    alpha.type = "range"; alpha.min = "10"; alpha.max = "100"; alpha.step = "5";
-    alpha.id = "tiles-alpha";
-    alpha.value = String(Math.round(ctx.alpha() * 100));
-    alpha.addEventListener("input", () => {
-      ctx.setAlpha(Number(alpha.value) / 100);
-      ctx.changed?.();
-    });
-    strength.append(alphaLabel, alpha);
-    /* The overlap rule: a scan area that would cover more than this share
-       of one already placed is left out -- or every one is placed, when
-       the rule is switched off. */
-    const overlapRow = document.createElement("div");
-    overlapRow.className = "gate-draw";
-    const limit = document.createElement("input");
-    limit.type = "checkbox";
-    limit.id = "limit-overlap";
-    limit.checked = ctx.overlapLimited();
-    const limitLabel = document.createElement("label");
-    limitLabel.htmlFor = "limit-overlap";
-    limitLabel.append(limit, " Max overlap (%)");
-    const overlap = document.createElement("input");
-    overlap.type = "number"; overlap.min = "0"; overlap.max = "100"; overlap.step = "5";
-    overlap.id = "tiles-overlap";
-    overlap.value = String(Math.round(ctx.maxOverlap() * 100));
-    limit.addEventListener("change", () => { ctx.setOverlapLimited(limit.checked); overlap.disabled = !limit.checked; });
-    overlap.addEventListener("input", () => {
-      ctx.setMaxOverlap(Math.min(100, Math.max(0, Number(overlap.value) || 0)) / 100);
-    });
-    overlap.disabled = !limit.checked;
-    overlapRow.append(limitLabel, overlap);
-    controls.append(overlapRow, lay, strength);
+    const placeLine = document.createElement("div");
+    placeLine.className = "side-act press-line";
+    const placeSpace = document.createElement("span");
+    placeSpace.className = "spacer";
+    placeLine.append(place, laid, placeSpace, resetTiles, hide);
+    controls.append(
+      row("Limit overlap", limit, "limit-overlap"),
+      row("Max overlap (%)", overlap, "tiles-overlap"),
+      row("Opacity", alpha, "tiles-alpha"),
+      placeLine,
+    );
 
     const say = () => {
       const n = ctx.tiles().length;

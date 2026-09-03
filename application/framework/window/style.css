@@ -2070,6 +2070,12 @@ canvas.livecv[hidden] { display: none; }
    the way back to everything the gates let through. */
 .gate-draw { display: flex; align-items: center; gap: 8px; }
 .gate-draw label { flex: 1; font-size: 12.5px; color: var(--ink-2); }
+/* The rows of the target scan area: one control at the right of each word, the
+   same width whatever the control is, so the column reads as one. */
+.gate-draw input[type="range"] { width: 72px; margin: 0; }
+.gate-draw input[type="checkbox"] { width: 72px; margin: 0; height: 16px; }
+.tile-controls { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.press-line .spacer { flex: 1; }
 .gate-draw input {
   font: inherit; font-family: var(--mono); font-size: 12px;
   background: var(--surface-2); color: var(--ink);
