@@ -1034,8 +1034,6 @@ button.run.running::after {
 /* the tip positions against the plot exactly, so the box it lives in is the
    canvas's own and nothing wider */
 .scatter-host { position: relative; }
-/* A long cell id wraps inside the tip instead of widening it offscreen. */
-#scatter-tip { max-width: 200px; overflow-wrap: anywhere; }
 .scatter-host canvas {
   /* As wide as the card and a little shorter than square, so the selection
      box and its press under it have room without a scroll. */
