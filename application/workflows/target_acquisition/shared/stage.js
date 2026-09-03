@@ -372,13 +372,20 @@ function whereTheStageIs() {
 /* The mark: a crosshair with a hole in the middle. The gap is the point of
    it — the arms reach out of whatever is behind them and the centre stays
    clear, so the mark shows a position rather than covering it. */
-function crosshair(ctx, x, y, arm, gap, dot) {
+function crosshair(ctx, x, y, arm, gap, dot, ring = 0) {
   ctx.beginPath();
   for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
     ctx.moveTo(x + dx * gap, y + dy * gap);
     ctx.lineTo(x + dx * arm, y + dy * arm);
   }
   ctx.stroke();
+  /* A ring round the open centre, the arms crossing it: the reticle's own
+     shape, read as a position at a glance where four bare lines were not. */
+  if (ring) {
+    ctx.beginPath();
+    ctx.arc(x, y, ring, 0, Math.PI * 2);
+    ctx.stroke();
+  }
   ctx.beginPath();
   ctx.arc(x, y, dot, 0, Math.PI * 2);
   ctx.fill();
@@ -430,11 +437,11 @@ function drawWhereTheStageIs(ctx, onTheStage) {
   ctx.strokeStyle = "#ffffff";
   ctx.fillStyle = "#ffffff";
   ctx.lineWidth = stageMarkHot ? 7 : 6;
-  crosshair(ctx, x, y, arm, 5, stageMarkHot ? 4.5 : 4);
+  crosshair(ctx, x, y, arm, 5, stageMarkHot ? 4.5 : 4, 10);
   ctx.strokeStyle = "#000000";
   ctx.fillStyle = "#000000";
   ctx.lineWidth = stageMarkHot ? 3 : 2.5;
-  crosshair(ctx, x, y, arm, 5, stageMarkHot ? 2.8 : 2.2);
+  crosshair(ctx, x, y, arm, 5, stageMarkHot ? 2.8 : 2.2, 10);
   ctx.restore();
 }
 
