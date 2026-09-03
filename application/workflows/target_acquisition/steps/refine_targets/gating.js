@@ -67,16 +67,21 @@ export function cellsInAllGates(cells, gates) {
 
 
 /**
- * Systematic Uniform Random Sampling of n cells -- the stereology standard,
- * ported from the lab's MD-HCS curation core (`sample_cells`), which follows
- * stereology.info/sampling: lay a grid sized for n points over the pool's
- * own extent, give the WHOLE grid one uniform-random offset (the random
- * start), and take the nearest not-yet-chosen cell at each grid point. Even
- * spatial coverage over the area, yet unbiased, because where the grid falls
- * is random -- a plain shuffle draws clumps, and a clump is a density bias.
+ * Systematic Uniform Random Sampling of n cells -- the stereology standard:
+ * one random start, then every k-th member of the population in a fixed
+ * order. The order is spatial, along a Z-order curve through the cells'
+ * own extent, so that "every k-th" walks the sample region by region and
+ * each region contributes in proportion to how many cells it holds. That
+ * is the uniformity a systematic draw promises: a dense cluster gives more
+ * than a sparse one, and no side of any cluster is favoured.
  *
- * `rand` is the source of the two offset numbers, injectable so a test can
- * pin the draw. Fewer cells than asked for returns them all.
+ * The grid-point draw this replaces laid n points over the extent and took
+ * the nearest cell to each; with cells clustered, most points were empty
+ * and the fill walked the grid from one side, piling the draw up on the
+ * side of each cluster it reached first -- the operator saw it.
+ *
+ * `rand` is the source of the random start, injectable so a test can pin
+ * the draw. Fewer cells than asked for returns them all.
  */
 export function sursDraw(cells, n, rand = Math.random) {
   if (cells.length <= n) return cells.map((c) => c.id);
@@ -87,63 +92,32 @@ export function sursDraw(cells, n, rand = Math.random) {
   }
   const w = (x1 - x0) || 1;
   const h = (y1 - y0) || 1;
-  /* About as many grid cells as the ask, however the region is shaped: a
-     wide flat region once got far more columns than the ask, and the draw
-     ran out after the first few -- all at the left. */
-  const ncol = Math.min(n, Math.max(1, Math.round(Math.sqrt((n * w) / h))));
-  const nrow = Math.max(1, Math.round(n / ncol));
-  const tx = w / ncol;
-  const ty = h / nrow;
-  const offX = rand();
-  const offY = rand();
-  const taken = new Set();
-  const chosen = [];
-  /* Each grid cell takes the cell nearest its own point from INSIDE its own
-     bounds, or nothing. Taking the nearest cell from anywhere let a point
-     on sparse ground reach into the dense patch next door, so that patch
-     was taken twice and the sparse ground stayed untouched -- and the strip
-     past the last point, up to a whole step wide, was never reached at all.
-     Bounds are inclusive at the far edge, so the last row and column of the
-     region belong to a grid cell too. */
-  const nearestIn = (gx, gy, within) => {
-    let best = null;
-    let bestD = Infinity;
-    for (const c of cells) {
-      if (taken.has(c.id) || !within(c)) continue;
-      const d = (c.x - gx) ** 2 + (c.y - gy) ** 2;
-      if (d < bestD) { bestD = d; best = c; }
-    }
-    return best;
+  /* The curve: x and y quantised to 16 bits each and their bits interleaved,
+     so cells near each other on the sample are near each other in the order. */
+  const spread = (v) => {
+    let b = v & 0xffff;
+    b = (b | (b << 8)) & 0x00ff00ff;
+    b = (b | (b << 4)) & 0x0f0f0f0f;
+    b = (b | (b << 2)) & 0x33333333;
+    b = (b | (b << 1)) & 0x55555555;
+    return b;
   };
-  const points = [];
-  for (let i = 0; i < ncol; i++) {
-    for (let j = 0; j < nrow; j++) {
-      const left = x0 + i * tx, top = y0 + j * ty;
-      points.push({
-        gx: left + offX * tx, gy: top + offY * ty,
-        inside: (c) => c.x >= left && c.x <= left + tx && c.y >= top && c.y <= top + ty,
-      });
-    }
-  }
-  for (const point of points) {
-    if (chosen.length >= n) break;
-    const best = nearestIn(point.gx, point.gy, point.inside);
-    if (best) { taken.add(best.id); chosen.push(best.id); }
-  }
-  /* Grid cells that held nothing left the ceiling unmet: the ask is the
-     ceiling, so the rest is drawn from what remains, each empty point
-     taking its nearest cell from anywhere. Spread first, filled second. */
-  let filled = true;
-  while (chosen.length < n && filled) {
-    filled = false;
-    for (const point of points) {
-      if (chosen.length >= n) break;
-      const best = nearestIn(point.gx, point.gy, () => true);
-      if (best) { taken.add(best.id); chosen.push(best.id); filled = true; }
-    }
+  const keyed = cells.map((c) => {
+    const qx = Math.round(((c.x - x0) / w) * 0xffff);
+    const qy = Math.round(((c.y - y0) / h) * 0xffff);
+    return { id: c.id, key: spread(qx) * 2 + spread(qy) };
+  });
+  keyed.sort((a, b) => a.key - b.key || String(a.id).localeCompare(String(b.id)));
+  const k = keyed.length / n;
+  const start = rand() * k;
+  const chosen = [];
+  for (let i = 0; i < n; i++) {
+    const at = Math.min(keyed.length - 1, Math.floor(start + i * k));
+    chosen.push(keyed[at].id);
   }
   return chosen;
 }
+
 
 /**
  * The gated cells held under a per-tileset ceiling: at most `max` in each
