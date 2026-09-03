@@ -672,6 +672,9 @@ function thePicturesOwnLayers(theRun) {
 function theStageLayers({ shown, editing }) {
   const theRun = {
     run, css, drawnIn, carrierWidget, scanfieldsWidget,
+    /* Where the stage stands, for a layer that frames the field it would
+       take before a scan has taken any. */
+    whereTheStageIs,
     activePreset, indexOfStep, step,
     activeMode: step(run.activeIdx).mode,
     editing, shown,
