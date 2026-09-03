@@ -112,14 +112,22 @@ export function targetLayers(theRun) {
   /* Before a scan has taken anything, the current field is the one the
      stage stands over: its position, in the overview's frame. */
   const beforeTheScan = () => activeMode === "scan" && !(run.tilesShown > 0);
-  const theFieldUnderTheStage = () => {
+  const theFieldUnderTheStage = (frameUm) => {
     const here = whereTheStageIs?.();
-    const frameUm = run.plan[0]?.frameUm;
     if (!here || !frameUm) return null;
     const at = toCarrier(here);
     return { x: at.x, y: at.y, frameUm };
   };
-  const theCurrentField = () => (beforeTheScan() ? theFieldUnderTheStage() : run.plan[run.detect.tile]);
+  /* Which field the frame is about, in the frame of the recording active
+     on the step: before the scan, the field under the stage in the
+     overview's; on the target scan area, the field under the stage in the
+     target settings' -- so importing a closer job shrinks it there and
+     then; otherwise the field detection was last on. */
+  const theCurrentField = () => {
+    if (beforeTheScan()) return theFieldUnderTheStage(run.plan[0]?.frameUm);
+    if (activeMode === "select") return theFieldUnderTheStage(run.targetFrameUm);
+    return run.plan[run.detect.tile];
+  };
   /* How far a press reaches, in world units. Taken from the last paint --
      which always precedes a press -- because `reaches` is handed a place and
      no frame; reading `scale` here was a ReferenceError, and every click on
