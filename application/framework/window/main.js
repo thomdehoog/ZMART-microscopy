@@ -22,7 +22,7 @@ import { cellsInAllGates, keptUnderCeiling }
   from "../../workflows/target_acquisition/steps/refine_targets/gating.js";
 import { selectionPanel }
   from "../../workflows/target_acquisition/steps/target_scan_area/step.js";
-import { placeScanAreas }
+import { planScanAreas }
   from "../../workflows/target_acquisition/steps/target_scan_area/scan-areas.js";
 /* The seam. Connecting, reading a preset off the instrument, measuring the
    focus map and driving the overview scan all go through the backend and are
@@ -284,11 +284,10 @@ let stageWatch = null;
     restricted: new Set(),
     targetTiles: [],
     targetTilesAlpha: 0.5,
-    /* The overlap rule for placing: on, and the share above which a scan
-       area is left out; and which targets it left out last time. */
-    tileOverlapLimited: true,
-    tileMaxOverlap: 0.5,
-    tilesLeftOut: [],
+    /* The placing levers, as scan-areas.js reads them, and what the last
+       placing came to. */
+    placing: { margin: 1, objectsMin: null, areasMin: null, areasMax: null, overlapMax: 0.5, overlapMin: null, join: false, prefer: "coverage" },
+    tilePlan: null,
     acquired: [],
     /* The acquired target whose pair the gallery shows, chosen there or on
        the canvas; null until one is acquired. */
@@ -415,7 +414,8 @@ let stageWatch = null;
       overviewPictures: backendFor().viewOf("overview"),
     targetPictures: backendFor().viewOf("targets"),
       cellsShown: false, gates: [], gateCap: 50, gated: new Set(), restricted: new Set(),
-      targetTiles: [], targetTilesAlpha: 0.5, tileOverlapLimited: true, tileMaxOverlap: 0.5, tilesLeftOut: [],
+      targetTiles: [], targetTilesAlpha: 0.5, tilePlan: null,
+      placing: { margin: 1, objectsMin: null, areasMin: null, areasMax: null, overlapMax: 0.5, overlapMin: null, join: false, prefer: "coverage" },
       acquired: [], acquiredLabels: {},
       selectedTarget: null, hoveredTarget: null,
       verdicts: {},
@@ -1415,28 +1415,31 @@ let stageWatch = null;
       state.ran.delete("select");
     },
     tiles: () => state.targetTiles,
-    resetTiles: () => { state.targetTiles = []; },
+    resetTiles: () => { state.targetTiles = []; state.tilePlan = null; },
     showTiles: (on) => stage.showLayer("frames", on),
     tilesShown: () => stage.layerShown("frames"),
-    /* One scan area round every sampled target, in the settings' frame,
-       under the overlap rule when it is on. */
+    /* Scan areas over the sampled targets, by the optimisation in
+       scan-areas.js under the levers the box holds. The sampled targets go
+       in their systematic order, cells and all: the object's own size is
+       what the margin is measured in. */
     placeTiles: () => {
-      const frameUm = state.targetFrameUm;
-      if (!frameUm) { state.targetTiles = []; state.tilesLeftOut = []; return; }
-      const targets = [...state.restricted].flatMap((id) => {
-        const c = state.cells.get(id);
-        return c ? [{ id, x: c.x, y: c.y }] : [];
+      const p = state.placing;
+      const targets = [...state.restricted].flatMap((id) => (state.cells.has(id) ? [state.cells.get(id)] : []));
+      const plan = planScanAreas(targets, state.targetFrameUm, {
+        margin: p.margin,
+        areas: { min: p.areasMin, max: p.areasMax },
+        overlap: { max: p.overlapMax, min: p.overlapMin, join: p.join },
+        prefer: p.prefer,
       });
-      const { placed, skipped } = placeScanAreas(
-        targets, frameUm, state.tileOverlapLimited ? state.tileMaxOverlap : 1);
-      state.targetTiles = placed;
-      state.tilesLeftOut = skipped;
+      if (p.objectsMin != null && state.restricted.size < p.objectsMin) {
+        plan.notes.push(`${state.restricted.size} sampled, under the minimum of ${p.objectsMin}`);
+      }
+      state.targetTiles = plan.placed;
+      state.tilePlan = plan;
     },
-    overlapLimited: () => state.tileOverlapLimited,
-    setOverlapLimited: (on) => { state.tileOverlapLimited = on; },
-    maxOverlap: () => state.tileMaxOverlap,
-    setMaxOverlap: (share) => { state.tileMaxOverlap = share; },
-    leftOut: () => state.tilesLeftOut,
+    rules: () => state.placing,
+    setRule: (key, value) => { state.placing[key] = value; },
+    plan: () => state.tilePlan,
     alpha: () => state.targetTilesAlpha,
     setAlpha: (alpha) => { state.targetTilesAlpha = alpha; },
     changed: () => {
