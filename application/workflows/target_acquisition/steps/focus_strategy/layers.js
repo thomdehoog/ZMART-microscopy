@@ -5,6 +5,8 @@
  * through them, drawn in the stage's own projection because they are a
  * statement about the same glass the plan is drawn on.
  */
+import { activeRecording } from "../../../../parts/microscope/recordings.js";
+
 export function focusLayers(theRun) {
   const {
     run, drawnIn, activeMode, drawFocusLayer, drawFocusPoints, asAPress, renderActionBar,
@@ -35,6 +37,29 @@ export function focusLayers(theRun) {
   /* The reticles, split from the map: they stand above the plan, where
      nothing paints over the thing the operator is placing, and they follow
      the Focus button rather than carrying a second one. */
+  /* The frame the stack is being taken with, round the point the stage is
+     at while the map is measured: the focussing preset's own frame, the
+     way the scan's lit field is the overview's. Black on a white halo. */
+  focusFrame: {
+    key: "focusFrame",
+    follows: "focus",
+    shown: activeMode === "focus" && run.running === "focus"
+      && !!run.focus.points[run.focus.selected] && !!activeRecording(run.focusPreset)?.frameUm,
+    staysSolid: true,
+    paint: (frame) => {
+      const ctx = frame.context;
+      const { place, scale } = drawnIn(frame);
+      const at = run.focus.points[run.focus.selected];
+      const frameUm = activeRecording(run.focusPreset).frameUm;
+      const half = frameUm / 2;
+      const [x, y] = place(at.x - half, at.y - half);
+      const side = frameUm * scale;
+      ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 5;
+      ctx.strokeRect(x, y, side, side);
+      ctx.strokeStyle = "#000000"; ctx.lineWidth = 2;
+      ctx.strokeRect(x, y, side, side);
+    },
+  },
   focusPoints: {
     key: "focusPoints",
     follows: "focus",

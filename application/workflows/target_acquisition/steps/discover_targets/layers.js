@@ -241,12 +241,12 @@ export function targetLayers(theRun) {
   },
     detect: {
     key: "detect",
-    label: "Test field",
+    label: "Current field",
     explains: "The one position detection is being tuned on, so the canvas says which "
       + "tile the channel's preview is of.",
     /* Kept through the two steps after: the field detection was last on is
        the one the gating and the target scan area are read against. */
-    shown: ["detect", "gate", "select"].includes(activeMode) && !!run.plan[run.detect.tile],
+    shown: ["scan", "detect", "gate", "select"].includes(activeMode) && !!run.plan[run.detect.tile],
     staysSolid: true,
     paint: (frame) => {
       const ctx = frame.context;
