@@ -36,6 +36,14 @@ def _load_bridge():
 bridge = _load_bridge()
 
 
+@pytest.fixture(autouse=True)
+def _the_mocks_settings_stay_out_of_the_home(monkeypatch, tmp_path):
+    """The mock keeps its job in a file under the user's home, as an
+    instrument's own software would; a test must neither read what the
+    operator left there nor leave anything behind."""
+    monkeypatch.setenv("ZMART_MOCK_STATE", str(tmp_path / "instrument.json"))
+
+
 class _Driver:
     """A stage that stays where it is put, and an autofocus that answers.
 
@@ -1208,4 +1216,43 @@ def test_a_copy_is_drawn_with_the_display_the_page_asks_with(monkeypatch, tmp_pa
     # Channel 0 windowed to nothing is fully red wherever it has any signal at all.
     red, green, blue = lit.getextrema()
     assert red[1] >= 250 and green[1] <= 3 and blue[1] <= 3
-    assert plain.size == dark.size == lit.size
+    # A displayed copy is the whole frame -- the operator judges a diameter
+    # against it -- where the plain copy is the small one the scan view wears.
+    assert dark.size == lit.size
+    assert lit.size[0] >= plain.size[0]
+
+
+
+def test_a_targets_scan_is_served_as_one_resolved_store(monkeypatch, tmp_path):
+    """The targets overlap, and the engine would add overlapping frames of one
+    channel: the folder the viewer watches holds ONE resolved store, each
+    frame's own store stands in a folder of its own, and raising a target
+    writes its frame on top again."""
+    import zmart_controller
+    from zmart_drivers.mock import mock_driver
+
+    mock_driver.register_mock()
+    instrument = next(i for i in zmart_controller.get_instruments() if i["vendor"] == "mock")
+    instrument["output_root"] = str(tmp_path)
+    session = zmart_controller.set_instrument(instrument)
+    monkeypatch.setattr(bridge, "_session", session)
+    monkeypatch.setattr(bridge, "_run", bridge.prepare_experiment(str(tmp_path), bridge.EXPERIMENT))
+    try:
+        positions = [{"x": 1000.0, "y": 1000.0, "z": 0.0}, {"x": 1060.0, "y": 1000.0, "z": 0.0}]
+        bridge._start_scan({"positions": positions, "acquisition_type": "targets"})
+        for _ in range(200):
+            if not bridge._scan["running"]:
+                break
+            time.sleep(0.1)
+        assert bridge._scan["error"] is None, bridge._scan["error"]
+        assert bridge._scan["done"] == 2
+        watched = sorted(p.name for p in (bridge._the_run() / "positions" / "targets").iterdir())
+        assert watched == ["targets_resolved.ome.zarr"]
+        frames = sorted(p.name for p in (bridge._the_run() / "positions" / bridge.TARGET_FRAMES).iterdir())
+        assert len(frames) == 2 and all(name.startswith("targets_") for name in frames)
+        label = bridge._records["targets"][0]["position_label"]
+        assert bridge._raise_target({"position_label": label}) == {"raised": label}
+        with pytest.raises(ValueError):
+            bridge._raise_target({"position_label": "nobody"})
+    finally:
+        session.disconnect()

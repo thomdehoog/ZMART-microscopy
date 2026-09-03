@@ -18,6 +18,8 @@ import {
 } from "../../parts/microscope/instruments.js";
 import { isFailed } from "../../parts/microscope/connection-status.js";
 import { displayQueryFor } from "../../parts/canvas/display-of.js";
+import { keptUnderCeiling }
+  from "../../workflows/target_acquisition/steps/refine_targets/gating.js";
 /* The seam. Connecting, reading a preset off the instrument, measuring the
    focus map and driving the overview scan all go through the backend and are
    awaited; this window never knows whether a real stage moved. Which side of
@@ -88,13 +90,11 @@ let stageWatch = null;
      them, because it is where the field's picture is. */
   function fieldFound(field) {
     state.fieldLabels[field.field] = field.position_label;
+    state.examined.add(field.field);
     for (const cell of field.cells) state.cells.set(cell.id, stage.toCarrier(cell));
-    if (field.device) state.cellDevices.add(field.device);
   }
 
-  /** What discovery came to, said beside the button: how many, by what, and
-      on the CPU when any field had to be -- ten minutes a field, and a run
-      that fell back looked exactly like one on the card. */
+  /** What discovery came to, said beside the button. */
   const discoveryNote = () => `${state.cells.size} targets`;
 
   /** Where a capture's picture is: the viewer's small copy, by the capture's
@@ -256,6 +256,9 @@ let stageWatch = null;
        from, which is where its picture is. */
     cells: new Map(),
     fieldLabels: {},
+    /* The fields the run's own discovery has examined: the masks the canvas
+       shows are theirs alone, never a tile test's left on disk. */
+    examined: new Set(),
     overviewPictures: backendFor().viewOf("overview"),
     targetPictures: backendFor().viewOf("targets"),
     cellsShown: false,
@@ -266,14 +269,19 @@ let stageWatch = null;
     /* Whether the column is folded away to the right, the canvas taking its
        room. A page preference too. */
     sideFolded: false,
-    cellDevices: new Set(), // the devices discovery's fields were segmented on
     gates: [],           // [{fx, fy, vertices: [[x, y], ...]}] — see gating.js
     gateCap: 50,         // the per-tileset ceiling the gated selection was drawn under
+    /* The selection as it stands: what the gates let through, and once
+       Restrict has been pressed, that held under the ceiling. The canvas
+       rings it and the targets scan images it. */
     gated: new Set(),
     acquired: [],
     /* The acquired target whose pair the gallery shows, chosen there or on
        the canvas; null until one is acquired. */
     selectedTarget: null,
+    /* The acquired target under the pointer on the acquisition step: what a
+       press would choose, outlined so the hand knows before it presses. */
+    hoveredTarget: null,
     acquiredLabels: {},
     verdicts: {},
     locked: false,
@@ -389,11 +397,11 @@ let stageWatch = null;
       fields: [], plan: [], checks: [],
       tabs: [], tab: null, tilesShown: 0,
       focus: newFocus(), focusMaps: {}, focusFor: null,
-      detect: newDetect(), cells: new Map(), fieldLabels: {},
+      detect: newDetect(), cells: new Map(), fieldLabels: {}, examined: new Set(),
       overviewPictures: backendFor().viewOf("overview"),
     targetPictures: backendFor().viewOf("targets"),
-      cellsShown: false, cellDevices: new Set(), gates: [], gateCap: 50, gated: new Set(), acquired: [], acquiredLabels: {},
-      selectedTarget: null,
+      cellsShown: false, gates: [], gateCap: 50, gated: new Set(), acquired: [], acquiredLabels: {},
+      selectedTarget: null, hoveredTarget: null,
       verdicts: {},
       locked: false,
     });
@@ -692,7 +700,6 @@ let stageWatch = null;
 
     if (s.mode === "detect") {
       state.cells = new Map();
-      state.cellDevices = new Set();
       /* A fresh discovery invalidates everything named by the old ids: the
          gate, and the acquired pairs and their verdicts -- a stale id crashed
          the draw and the gallery alike. */
@@ -702,6 +709,7 @@ let stageWatch = null;
       state.acquiredLabels = {};
       state.verdicts = {};
       state.cellsShown = true;
+      state.examined = new Set();
       forgetTheMasks();
       /* The picture goes grey the moment the run starts: the objects are
          what is being looked at now, and the colours would fight their
@@ -861,7 +869,14 @@ let stageWatch = null;
       if (s.mode === "detect") {
         state.notes[s.id] = discoveryNote();
       }
-      if (s.mode === "select") { state.notes[s.id] = `${state.gated.size} targets selected`; }
+      if (s.mode === "select") {
+        /* Restrict is the one press that applies the ceiling: the gates
+           say what they let through as they are drawn, and only here is
+           that held to so many per tileset. */
+        state.gated = keptUnderCeiling(state.cells.values(), state.gated, state.gateCap, tilesetOfField);
+        state.notes[s.id] = `${state.gated.size} targets kept`;
+        gatingShown?.redraw();
+      }
       if (s.mode === "targets") {
         state.notes[s.id] = `${state.acquired.length} pairs acquired`;
       }
@@ -976,10 +991,6 @@ let stageWatch = null;
     setSlot: (next) => { state[opts.key] = next; },
     running: () => state.running,
     readSetting: (type, how) => backend.readSetting(type, how),
-    /* What the instrument offers to choose before the reading, and the
-       choosing itself -- both the driver's, in its own words. */
-    offered: () => backend.acquisitionOptions?.() ?? Promise.resolve({}),
-    apply: (settings) => backend.set_state(settings),
   });
 
   function carrierSettled() {
@@ -1232,6 +1243,11 @@ let stageWatch = null;
      handed what to draw and what a gate means for the run; the handle it
      gives back is how the page asks it to draw again. */
   let gatingShown = null;
+  /** Which compartment a field belongs to, for the per-tileset ceiling. */
+  const tilesetOfField = (field) => {
+    const t = state.plan[field];
+    return t ? (t.tileset ?? t.fieldId ?? field) : field;
+  };
   const gatingMount = (host) => {
     gatingShown = gatingPanel.mount(host, {
       cells: () => state.cells.values(),
@@ -1245,13 +1261,20 @@ let stageWatch = null;
         state.gates = gates;
         state.gated = ids;
         state.gateCap = cap;
+        /* A gate or a ceiling touched after Restrict is a selection not yet
+           restricted: the step asks for its press again. */
+        state.done.delete("select");
+        state.ran.delete("select");
         drawStage(); renderTabs(); renderActionBar();
       },
-      /* Which compartment a field belongs to, for the per-tileset ceiling. */
-      tilesetOf: (field) => {
-        const t = state.plan[field];
-        return t ? (t.tileset ?? t.fieldId ?? field) : field;
-      },
+      tilesetOf: tilesetOfField,
+      /* Whether Restrict has drawn under the ceiling: the plot then marks
+         what it kept over what the gates let through. */
+      restricted: () => state.done.has("select"),
+      /* The target acquisition settings are recorded here, beside the
+         selection they will image. */
+      recordingSlot: (into, opts) => renderRecordingSlot(into, recordingOptions(opts)),
+      changed: () => { renderActionBar(); renderRail(); },
       sizeCanvas, css,
     });
   };
@@ -1294,23 +1317,39 @@ let stageWatch = null;
     if (state.selectedTarget === id) return;
     state.selectedTarget = id;
     if (!quietly) galleryPanel?.chosen();
+    /* The chosen frame is raised above its neighbours in the picture, where
+       frames overlap: the backend writes it on top and the picture follows. */
+    const label = state.acquiredLabels[id];
+    if (label) {
+      backend.raiseTarget?.(label)?.catch?.((why) => console.warn("the target was not raised: " + why.message));
+    }
     stage.draw();
   }
 
-  /** A press on the canvas in the acquisition step: the ringed target under
-      it, if one is, becomes the chosen one. */
-  function targetPressed(px, py) {
-    if (step(state.activeIdx).mode !== "targets") return false;
+  /** The acquired target whose frame stands at a place on the sample, or
+      null: the frame is the thing on the picture, so a press or a hover
+      anywhere inside it means that target. `reachUm` is a hand's reach in
+      the sample's own units -- zoomed out to the plate a frame is smaller
+      than a pixel, and a press within reach of its middle still means it. */
+  function targetAt(world, reachUm = 0) {
+    if (!state.targetFrameUm) return null;
+    const half = Math.max(state.targetFrameUm / 2, reachUm);
     let hit = null;
-    let nearest = 14;
+    let nearest = Infinity;
     for (const id of state.acquired) {
       const cell = state.cells.get(id);
       if (!cell) continue;
-      const at = stage.project(cell.x, cell.y);
-      const [x, y] = Array.isArray(at) ? at : [at.x, at.y];
-      const away = Math.hypot(x - px, y - py);
-      if (away < nearest) { nearest = away; hit = id; }
+      const dx = Math.abs(world.x - cell.x), dy = Math.abs(world.y - cell.y);
+      if (dx <= half && dy <= half && Math.hypot(dx, dy) < nearest) { nearest = Math.hypot(dx, dy); hit = id; }
     }
+    return hit;
+  }
+
+  /** A press on the canvas in the acquisition step: the frame under it, if
+      one is, becomes the chosen one. */
+  function targetPressed(px, py) {
+    if (step(state.activeIdx).mode !== "targets") return false;
+    const hit = targetAt(stage.unproject(px, py), stage.umPerPixel() * 8);
     if (hit === null) return false;
     selectTarget(hit);
     return true;
@@ -1901,7 +1940,13 @@ let stageWatch = null;
     /* Only the tab row and the column: rendering every panel from here
        reaches the picture, which mounts the settings again, which says so
        again -- a loop that never let the page settle. */
-    displayChanged: () => { renderTabs(); renderSide(shownPanel()); },
+    displayChanged: () => {
+      renderTabs(); renderSide(shownPanel());
+      /* The gallery's pairs wear the picture's settings: rows that have just
+         come -- the targets' own, at the end of their run -- are what its
+         first pair should already be drawn with. */
+      galleryPanel?.rebuild();
+    },
     css,
   });
 
@@ -1928,6 +1973,7 @@ let stageWatch = null;
     tileChosen: () => detectionShown?.redraw(),
     detectPressed: (...a) => detectPressed(...a),
     targetPressed: (...a) => targetPressed(...a),
+    targetAt: (world, reachUm) => targetAt(world, reachUm),
     renderActionBar: () => renderActionBar(),
     renderRail: () => renderRail(),
     /* Whether the picture draws an acquisition of this name itself, so a
@@ -2022,6 +2068,9 @@ let stageWatch = null;
     /* How wide each acquired frame is, so a test can check the ground is
        opened over exactly the frame the recording describes. */
     targetFrameUm: state.targetFrameUm ?? null,
+    /* The chosen acquired target, so a test can press on the picture and
+       see the choice land. */
+    selectedTarget: state.selectedTarget ?? null,
   }));
 
   /* The focus map — the points, their sweeps, the surface through them, and

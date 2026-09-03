@@ -15,7 +15,7 @@
  */
 
 import {
-  cellFeature, cellsInAllGates, featureNames, gateForPair, insidePolygon, sursDraw,
+  cellFeature, cellsInAllGates, featureNames, gateForPair, insidePolygon,
 } from "./gating.js";
 import { sideGroup } from "../../../../framework/window/panels.js";
 
@@ -72,11 +72,33 @@ export default {
     const act = document.createElement("div");
     act.className = "select-action side-act";
 
+    /* Which way the targets are refined, above the box that does it -- the
+       same row as the discovery step's method. Gating is the one way there
+       is today; the menu stands so another can be chosen when there is one. */
+    const method = sideGroup("Refinement method");
+    const methodRow = document.createElement("div");
+    methodRow.className = "detect-params";
+    const methodParam = document.createElement("div");
+    methodParam.className = "param method";
+    const methodPick = document.createElement("select");
+    methodPick.id = "refine-method";
+    methodPick.setAttribute("aria-label", "how the targets are refined");
+    const gating = document.createElement("option");
+    gating.value = "gating";
+    gating.textContent = "Gating";
+    methodPick.append(gating);
+    methodParam.append(methodPick);
+    methodRow.append(methodParam);
+    method.body.append(methodRow);
+
     /* The same boxed group every earlier step's channel is made of. */
-    const boxed = sideGroup("Gates");
+    const boxed = sideGroup("Gating");
     /* One feature per axis: the gate drawn here is drawn across these. */
     const axes = document.createElement("div");
     axes.className = "gate-axes";
+    /* The pickers end where the plot's frame ends, not where the canvas
+       does: the y labels stand in a column of their own past the frame. */
+    axes.style.paddingRight = `${PAD.r}px`;
     const pick = (id, label) => {
       const wrap = document.createElement("label");
       wrap.append(label);
@@ -93,7 +115,7 @@ export default {
     const legend = document.createElement("div");
     legend.className = "legend analysis-legend";
     for (const [ink, what] of [["--mark-context", "all cells"],
-      ["--mark-gated", "selected"], ["--mark-acquired", "acquired"]]) {
+      ["--mark-gated", "gated"], ["--mark-selected", "selected"]]) {
       const one = document.createElement("span");
       one.innerHTML = `<i class="dot" style="background:var(${ink})"></i> `;
       one.append(what);
@@ -142,9 +164,22 @@ export default {
        would be showing a different rule from the one on the canvas. */
     maxN.value = String(ctx.cap());
     refine.append(maxLabel, maxN);
-    curate.body.append(refine, act);
+    /* What the targets are imaged with, read off the instrument here where
+       the selection is made -- the shared recording slot, the same opening
+       as the scan area's and the focus step's: set the instrument up in
+       its own software, then import with one press. */
+    const recording = document.createElement("div");
+    recording.id = "target-type";
+    curate.body.append(recording, refine, act);
+    ctx.recordingSlot(recording, {
+      label: "Target acquisition settings", key: "targetType",
+      unnamed: true,
+      takes: "Import target acquisition settings",
+      retakes: "Update",
+      changed: () => ctx.changed?.(),
+    });
 
-    side.append(boxed.group, curate.group);
+    side.append(method.group, boxed.group, curate.group);
     host.append(side);
 
     const sx = (v, w) => PAD.l + ((v - xLo) / (xHi - xLo)) * (w - PAD.l - PAD.r);
@@ -157,9 +192,23 @@ export default {
        and its inside to carry it. All in screen pixels, because the two axes
        are not the same scale and a turn should look like a turn. */
     const onScreen = (gate, w, h) => gate.vertices.map(([gx, gy]) => [sx(gx, w), sy(gy, h)]);
-    const centreOf = (pts) => pts.reduce(([cx, cy], [x, y]) => [cx + x / pts.length, cy + y / pts.length], [0, 0]);
+    /* The middle of the gate: the centre of its area, not the mean of its
+       corners -- a side with corners crowded along it pulled the mean
+       towards that side. A gate with no area falls back to the mean. */
+    const centreOf = (pts) => {
+      let twiceArea = 0, cx = 0, cy = 0;
+      for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+        const cross = pts[j][0] * pts[i][1] - pts[i][0] * pts[j][1];
+        twiceArea += cross;
+        cx += (pts[j][0] + pts[i][0]) * cross;
+        cy += (pts[j][1] + pts[i][1]) * cross;
+      }
+      if (Math.abs(twiceArea) > 1e-9) return [cx / (3 * twiceArea), cy / (3 * twiceArea)];
+      return pts.reduce(([mx, my], [x, y]) => [mx + x / pts.length, my + y / pts.length], [0, 0]);
+    };
     /* The grip to turn by hangs off the first corner, away from the
-       gate's middle, and the gate turns about that corner. */
+       gate's middle; the gate turns about its middle, and the corner the
+       grip hangs from swings round with it. */
     const turnGripOf = (pts) => {
       const [x, y] = pts[0];
       const [cx, cy] = centreOf(pts);
@@ -176,29 +225,12 @@ export default {
     /** The per-tileset ceiling as typed: at least one, a whole number. */
     const ceiling = () => Math.max(1, Math.round(Number(maxN.value) || 0));
 
-    /** What the gates let through, held under the per-tileset ceiling. */
-    const capped = (gates) => {
-      const cells = theCells();
-      const inGates = cellsInAllGates(cells, gates);
-      const max = ceiling();
-      const byTileset = new Map();
-      for (const c of cells) {
-        if (!inGates.has(c.id)) continue;
-        const key = ctx.tilesetOf?.(c.field) ?? c.field;
-        if (!byTileset.has(key)) byTileset.set(key, []);
-        byTileset.get(key).push(c);
-      }
-      const took = new Set();
-      for (const pool of byTileset.values()) {
-        for (const id of sursDraw(pool, max)) took.add(id);
-      }
-      return took;
-    };
-
-    /* Gates changed: the run takes the list and the capped selection
-       together -- there is no separate draw press to remember. */
+    /* Gates changed: the run takes the list, what they let through, and the
+       ceiling as typed. The ceiling is not applied here -- the step's own
+       press, Restrict, does that -- so what the plot rings is what the
+       gates say, until the operator asks for the draw. */
     const commit = (gates) => {
-      ctx.setGates(gates, capped(gates), ceiling());
+      ctx.setGates(gates, cellsInAllGates(theCells(), gates), ceiling());
       sayIt();
       renderList();
       draw();
@@ -377,21 +409,24 @@ export default {
       paint.fillStyle = ctx.css("--mark-context");
       paint.globalAlpha = crowd > 3000 ? 0.35 : 0.5;
       paint.beginPath();
+      const restricted = ctx.restricted?.() ?? false;
+      const marked = restricted ? gated : cellsInAllGates(cells, ctx.gates());
       for (const c of cells) {
-        if (gated.has(c.id)) continue;
+        if (marked.has(c.id)) continue;
         const x = sx(cellFeature(c, fx), w), y = sy(cellFeature(c, fy), h);
         paint.moveTo(x + dot, y); paint.arc(x, y, dot, 0, Math.PI * 2);
       }
       paint.fill();
       paint.globalAlpha = 1;
 
-      const acquired = new Set(ctx.acquired());
+      /* One mark at a time: what the gates let through, in blue, while they
+         are drawn; once Restrict has drawn under the ceiling, what it kept,
+         in green, and the rest of the catch goes quiet again. */
       for (const c of cells) {
-        if (!gated.has(c.id)) continue;
+        if (!marked.has(c.id)) continue;
         const x = sx(cellFeature(c, fx), w), y = sy(cellFeature(c, fy), h);
-        const taken = acquired.has(c.id);
-        paint.beginPath(); paint.arc(x, y, taken ? 4.6 : 3.4, 0, Math.PI * 2);
-        paint.fillStyle = taken ? "#16a34a" : "#0284c7";
+        paint.beginPath(); paint.arc(x, y, restricted ? 4.2 : 3.4, 0, Math.PI * 2);
+        paint.fillStyle = ctx.css(restricted ? "--mark-selected" : "--mark-gated");
         paint.fill();
         paint.lineWidth = 2; paint.strokeStyle = ctx.css("--screen"); paint.stroke();
       }
@@ -500,7 +535,7 @@ export default {
         const pts = onScreen(gate, w, h);
         const [gx, gy] = turnGripOf(pts);
         if (Math.hypot(gx - e.offsetX, gy - e.offsetY) < REACH) {
-          const centre = pts[0];
+          const centre = centreOf(pts);
           held = {
             gate, kind: "turn", centre, from: pts,
             start: Math.atan2(e.offsetY - centre[1], e.offsetX - centre[0]),

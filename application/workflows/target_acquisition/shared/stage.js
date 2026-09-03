@@ -44,7 +44,7 @@ export function openTheStage(ctx) {
   const {
     css, sizeCanvas, el, run, carrierWidget, scanfieldsWidget,
     activePreset, indexOfStep, sideWidget, step,
-    anchorPressed, detectPressed, targetPressed,
+    anchorPressed, detectPressed, targetPressed, targetAt,
     renderActionBar, renderRail, liveOverview, thePicture,
   } = ctx;
   const {
@@ -83,6 +83,10 @@ const theCanvas = putTheCanvasIn({
      it is answered here. A drag is not: the layers answer for those
      themselves, each in its place in the stack. */
   onPressed: (where) => theRunWasPressed(where),
+  /* A press a layer reaches is still the run's to answer: the overview's
+     fields say what is under a press and act on nothing, and a press on
+     an acquired frame over a field must still choose the target. */
+  onTouched: (found) => theRunWasPressed(found),
   /* The travel's micrometres, not the carrier's. The canvas draws in the
      carrier's frame because that is where the run puts things, but what an
      operator reads off the bottom of the picture is where the stage would have
@@ -832,7 +836,7 @@ window.__theStageCanvas = {
    * handing these positions in alongside the files, and this is where a
    * rehearsal gets them from — exactly as the real thing will.
    */
-  plan: () => run.plan.map(({ x, y, frameUm }) => ({ x, y, frameUm })),
+  plan: () => run.plan.map(({ x, y, frameUm, tileset, fieldId }) => ({ x, y, frameUm, tileset: tileset ?? fieldId ?? null })),
   /** Candidate, selected, and acquired target positions on this same canvas. */
   targets: targetSnapshot,
   /**
@@ -1013,6 +1017,20 @@ stageBox.addEventListener("pointermove", (e) => {
     drawStage();
   }
 
+  /* On the acquisition step the frame under the pointer is what a press
+     would choose: outlined, and the hand says so. */
+  if (step(run.activeIdx).mode === "targets" && !run.running) {
+    const over = targetAt?.(world, 8 / view.scale) ?? null;
+    if (run.hoveredTarget !== over) {
+      run.hoveredTarget = over;
+      drawStage();
+    }
+    stageBox.style.cursor = over !== null ? "pointer" : "";
+  } else if (run.hoveredTarget !== null) {
+    run.hoveredTarget = null;
+    drawStage();
+  }
+
   let hit = null;
   if (run.cellsShown) {
     let best = 12 / view.scale;
@@ -1037,6 +1055,7 @@ stageBox.addEventListener("pointerleave", (e) => {
   editorTook("leave", e);
   stageTip.classList.remove("on");
   if (run.detect.hovered !== -1) { run.detect.hovered = -1; drawStage(); }
+  if (run.hoveredTarget !== null) { run.hoveredTarget = null; drawStage(); }
   stageBox.style.cursor = "";
   // the pointer is off the canvas, so it is off the mark whatever it was on
   if (stageMarkHot) { stageMarkHot = false; drawStage(); }
@@ -1146,13 +1165,18 @@ ctx.fitButton.addEventListener("click", () => {
        question and compare the answers. That comparison is the one that
        matters: the two are drawn by different code on different surfaces,
        and the only thing making them one picture is that they agree. */
-    plan: () => run.plan.map(({ x, y, frameUm }) => ({ x, y, frameUm })),
+    plan: () => run.plan.map(({ x, y, frameUm, tileset, fieldId }) => ({ x, y, frameUm, tileset: tileset ?? fieldId ?? null })),
     targets: targetSnapshot,
     toStage, toCarrier,
     project: (x, y) => {
       const [ox, oy] = carrierOriginUm();
       return toScreen(x + ox, y + oy);
     },
+    /* The place on the sample under a screen point, in the frame the cells
+       and the plan are kept in -- the same answer the hover reads. */
+    unproject: (px, py) => theCanvas.unproject(px, py),
+    /** How much sample one screen pixel covers right now. */
+    umPerPixel: () => 1 / view.scale,
     takeTheCanvas,
     forgetTheCanvas,
     takeThePosition,

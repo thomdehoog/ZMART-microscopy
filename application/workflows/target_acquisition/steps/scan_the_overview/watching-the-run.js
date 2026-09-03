@@ -248,6 +248,10 @@ export function watchTheRun(ctx) {
           openedOn = wanted.signature;
           openedNames = wanted.acquisitions.map(({ name }) => name);
           await panel?.sourcesChanged?.(wanted.acquisitions);
+          /* New rows -- a fresh acquisition's channels -- are new display
+             settings for everything drawn with them: the page is told, the
+             way it is when the settings first come. */
+          ctx.displayChanged?.();
           return;
         }
         closePicture();

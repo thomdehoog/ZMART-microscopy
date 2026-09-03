@@ -144,6 +144,26 @@ describe("the grips a field offers", () => {
     expect(topCentre(poly)).toEqual({ x: 30, y: 0 });
     expect(centroid(poly).y).toBeCloseTo(80 / 3, 6);
   });
+
+  it("a polygon's centre is the middle of its area, however its vertices crowd", () => {
+    /* A square with four extra vertices along its top edge: the mean of
+       the vertices sits near that edge, and a shape turned about it swung
+       around the corner the grip hangs from -- the operator saw it. */
+    const crowded = { type: "polygon", points: [
+      { x: 0, y: 0 }, { x: 25, y: 0 }, { x: 50, y: 0 }, { x: 75, y: 0 }, { x: 100, y: 0 },
+      { x: 100, y: 100 }, { x: 0, y: 100 },
+    ] };
+    expect(centroid(crowded).x).toBeCloseTo(50, 6);
+    expect(centroid(crowded).y).toBeCloseTo(50, 6);
+    /* Turned a quarter, the square stays where it stood. */
+    const turned = bounds({ ...crowded, rotation: Math.PI / 2 });
+    expect(turned.xMin).toBeCloseTo(0, 6); expect(turned.xMax).toBeCloseTo(100, 6);
+    expect(turned.yMin).toBeCloseTo(0, 6); expect(turned.yMax).toBeCloseTo(100, 6);
+    /* Two vertices on top of each other, or a line: no area to speak of,
+       so the mean of the vertices stands in. */
+    const line = { type: "polygon", points: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 20, y: 0 }] };
+    expect(centroid(line)).toEqual({ x: 10, y: 0 });
+  });
 });
 
 describe("the pieces the editor leans on", () => {

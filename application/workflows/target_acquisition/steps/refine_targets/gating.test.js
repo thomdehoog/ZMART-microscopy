@@ -8,7 +8,7 @@
 import { describe, expect, it } from "vitest";
 import {
   cellFeature, cellsInAllGates, featureNames, gateForPair, insidePolygon,
-  sursDraw,
+  keptUnderCeiling, sursDraw,
 } from "./gating.js";
 
 const cell = (id, features, more = {}) => ({
@@ -102,5 +102,29 @@ describe("the gating rules", () => {
       id: `c${i}`, x: (i * 37) % 100, y: (i * 53) % 100,
     }));
     expect(sursDraw(cells, 10, () => 0.25)).toEqual(sursDraw(cells, 10, () => 0.25));
+  });
+});
+
+describe("the ceiling, applied by the Restrict press", () => {
+  const spread = (tileset, n) => Array.from({ length: n }, (_, i) => ({
+    id: `${tileset}-${i}`, x: (i * 37) % 100, y: (i * 53) % 100, field: tileset,
+  }));
+  const tilesetOf = (field) => field;
+
+  it("keeps at most the ceiling in every tileset, drawn from the gated cells alone", () => {
+    const cells = [...spread("A", 12), ...spread("B", 3), ...spread("C", 9)];
+    const gated = new Set(cells.filter((c) => c.field !== "C").map((c) => c.id));
+    const kept = keptUnderCeiling(cells, gated, 5, tilesetOf, () => 0.5);
+    const inA = [...kept].filter((id) => id.startsWith("A-"));
+    const inB = [...kept].filter((id) => id.startsWith("B-"));
+    expect(inA.length).toBe(5);
+    expect(inB.sort()).toEqual(["B-0", "B-1", "B-2"]);
+    expect([...kept].every((id) => gated.has(id)), "nothing outside the gates is drawn").toBe(true);
+  });
+
+  it("a ceiling nothing reaches keeps the gated cells whole", () => {
+    const cells = spread("A", 4);
+    const gated = new Set(cells.map((c) => c.id));
+    expect([...keptUnderCeiling(cells, gated, 50, tilesetOf, () => 0.5)].sort()).toEqual([...gated].sort());
   });
 });

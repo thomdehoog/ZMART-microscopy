@@ -111,7 +111,9 @@ from application.parts.storage.output import (  # noqa: E402
     prepare_acquisition,
     prepare_experiment,
 )
-from application.parts.storage.zarr_positions import position_store_from_record  # noqa: E402
+from application.parts.storage.zarr_positions import (  # noqa: E402
+    place_into_resolved_store, position_store_from_record,
+)
 from application.parts.storage import viewer_service  # noqa: E402
 from application.parts.analysis import warm  # noqa: E402
 from application.parts.microscope import detection, focus_score  # noqa: E402
@@ -242,11 +244,14 @@ def _connect(asked: dict) -> dict:
 
 
 def _disconnect() -> dict:
-    global _session, _run
+    global _session, _run, _context
     if _session is not None:
         _session.disconnect()
         _session = None
     _run = None
+    # The context is the session's: a vendor left over from the last one
+    # made the next session's readings pretend it was the mock.
+    _context = {}
     # The workers outlive a focus map on purpose, but not the session: a
     # disconnected page is not about to measure anything.
     warm.close()
@@ -370,7 +375,9 @@ def _reading(kind: str) -> dict:
     ``kind`` is which slot is asking — ``acquisition`` or ``autofocus`` — and
     changes only the labelling: the readout underneath is the same
     ``get_state`` either way, because a preset is a readout and never a
-    procedure.
+    procedure. The instrument is read as it stands: its operator set it up
+    in its own software before pressing Import -- LAS X on the Leica, the
+    mock instrument window (``mock-instrument.py``) on the mock.
     """
     session = _require_session()
     state = session.get_state()
@@ -424,15 +431,10 @@ def _apply_state(asked: dict) -> dict:
     that instrument lets a client change.
 
     Nothing on the operator page calls this, and that is a decision rather
-    than an omission. A control for choosing a job would be a control named
-    after one vendor's noun: ``job`` is what LAS X calls a stored recipe, and
-    another instrument has a protocol, an experiment, or nothing shaped like
-    one — so the page would have learned one microscope. It reads what it is
-    told and leaves the choosing to the software that authors the recipes,
-    where what each one carries can be seen.
-
-    The verb is here because the seam mirrors the controller's surface, not
-    this one page's needs. The next client may set what this one only reads.
+    than an omission: the page reads what it is told and leaves the
+    choosing to the software that authors the recipes, where what each
+    one carries can be seen. The verb is here because the seam mirrors
+    the controller's surface, not this one page's needs.
     """
     return _require_session().set_state({"changeable": dict(asked)})
 
@@ -646,7 +648,16 @@ def _focus_worker(asked: list, state: dict | None = None) -> None:
 _scan = {
     "running": False, "done": 0, "of": 0, "error": None, "stopped": False,
     "acquisition_type": None,
+    # every centre the scan will drive to, so a resolved store can be declared
+    # whole at the first capture
+    "planned": [],
 }
+
+#: Where a targets scan keeps each frame's own store. The folder the viewer
+#: watches for the targets holds ONE resolved store instead -- see
+#: :func:`place_into_resolved_store` -- so the frames' own stores stand in a
+#: folder of their own, kept as records and never opened as sources.
+TARGET_FRAMES = "target-frames"
 
 #: What every scan captured, by the kind of scan. The overview's records are
 #: what discovery reads and what its pictures are made from, and a targets
@@ -731,13 +742,37 @@ def _keep_position_as_zarr(record: dict, acquisition_type: str) -> None:
     """
     try:
         folder = _the_run() / "positions" / acquisition_type
-        record["zarr"] = str(position_store_from_record(record, folder))
+        if acquisition_type == "targets":
+            # The frames overlap, and the engine would add them: each frame's
+            # own store is kept beside, and the watched folder holds the one
+            # resolved store, a later frame overwriting an earlier one.
+            record["zarr"] = str(position_store_from_record(record, _the_run() / "positions" / TARGET_FRAMES))
+            record["resolved"] = str(place_into_resolved_store(record, folder, _scan["planned"]))
+        else:
+            record["zarr"] = str(position_store_from_record(record, folder))
     except Exception as why:  # noqa: BLE001 -- filed, not fatal
         record["zarr_error"] = str(why)
         return
     # The viewer beside this bridge links the folder into one live picture;
     # the first position of a kind opens it, the rest ring the doorbell.
     viewer_service.a_position_landed(acquisition_type, folder)
+
+
+def _raise_target(asked: dict) -> dict:
+    """Put one acquired target's frame on top of its neighbours.
+
+    The resolved store lets a later frame overwrite an earlier one, so the
+    chosen target -- whose pair the gallery shows -- is raised by writing its
+    frame once more. Cheap: one frame's pixels, and the viewer is told.
+    """
+    label = str(asked.get("position_label", ""))
+    record = next((one for one in _records.get("targets", []) if one.get("position_label") == label), None)
+    if record is None:
+        raise ValueError(f"no acquired target is labelled {label!r}")
+    folder = _the_run() / "positions" / "targets"
+    place_into_resolved_store(record, folder, _scan["planned"])
+    viewer_service.a_position_landed("targets", folder)
+    return {"raised": label}
 
 
 #: Where a scan's display copies go: beside ``data``, under the acquisition
@@ -916,10 +951,13 @@ def _start_scan(asked: dict) -> dict:
         acquisition_type,
         keeping={f"{acquisition_type}_{_label_for(i, p)}.ome.zarr" for i, p in enumerate(positions)},
     )
+    if acquisition_type == "targets":
+        _replace_the_acquisition(TARGET_FRAMES)
     _stop_asked["scan"] = False
     _scan.update(
         running=True, done=0, of=len(positions), error=None, stopped=False,
         acquisition_type=acquisition_type,
+        planned=[(float(p.get("x", 0.0)), float(p.get("y", 0.0))) for p in positions],
     )
     threading.Thread(
         target=_scan_worker, args=(positions, acquisition_type, asked.get("state")), daemon=True
@@ -1350,6 +1388,8 @@ class _Bridge(BaseHTTPRequestHandler):
                 self._answer(_stop_scan())
             elif self.path == "/api/targets/discover":
                 self._answer(_discover_targets(asked))
+            elif self.path == "/api/targets/raise":
+                self._answer(_raise_target(asked))
             elif self.path == "/api/targets/embedding":
                 self._answer(_embed_targets())
             else:

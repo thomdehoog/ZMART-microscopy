@@ -120,6 +120,16 @@ async function placeFocusPoints(page) {
 const targetsOnCanvas = (page) =>
   page.evaluate(() => window.__theStageCanvas.targets());
 
+/* A place on the gate plot, as fractions of its frame: the frame keeps a
+   column at the right for the y labels and two lines below for the x axis,
+   so a fraction of the whole canvas landed in the margins. The frame's
+   inset is the plot's own `PAD`. */
+const PLOT_PAD = { l: 1, r: 62, t: 1, b: 38 };
+const plotPoint = (sc, gx, gy) => [
+  sc.x + PLOT_PAD.l + (sc.width - PLOT_PAD.l - PLOT_PAD.r) * gx,
+  sc.y + PLOT_PAD.t + (sc.height - PLOT_PAD.t - PLOT_PAD.b) * gy,
+];
+
 const physicalTargetPositions = (targets) => targets.map(({ id, field, x, y }) =>
   ({ id, field, x, y }));
 
@@ -749,7 +759,7 @@ test("the tools and the grid are on screen together, over what the grid laid",
     /* One card, its parts each under a word: the two ways of laying a
        tileset, and how they are placed once they are down. */
     await expect(page.locator(".side-group:has(#sf-overlap) .side-sub"))
-      .toHaveText(["Manual", "Automatic", "Tile placement", "Tile overlap (%)"]);
+      .toHaveText(["Manual", "Automatic", "Tile placement"]);
     await expect(page.locator(".sf-readout")).toContainText("864 positions");
 
     /* What the grid put down is still a set of fields, so it can be picked,
@@ -1407,7 +1417,8 @@ test("one walk of the whole run", async ({ page }) => {
   await expect(page.locator("#detect-try")).toHaveText("Test this tile");
   await expect(page.locator("#detect-try")).toBeEnabled();
   await page.getByRole("button", { name: "Test this tile" }).click();
-  await expect(page.locator("#detect-readout")).toContainText(/object/);
+  /* What the test found rides on the press that made it. */
+  await expect(page.locator("#detect-try")).toContainText(/\(\d+ objects/);
   /* Every field's targets land as the backend reports them; the pretend one
      reports 864 fields in a few seconds. */
   await runStep(page, 6000);
@@ -1424,8 +1435,8 @@ test("one walk of the whole run", async ({ page }) => {
       && Math.abs(target.x - field.x) <= field.frameUm / 2
       && Math.abs(target.y - field.y) <= field.frameUm / 2;
   }), "every target is inside the overview field that discovered it").toBe(true);
-  await expectTargetLayerOnCanvas(
-    page, "cells", "Step 6 candidate markers materially change the canvas");
+  /* No marker per candidate: the masks show the population on the
+     discovery step, and the cells layer draws only what is chosen. */
   await expectTargetAtItsProjection(page, discovered[0], "Step 6");
 
   await gotoStep(page, "Refine Targets");
@@ -1435,36 +1446,46 @@ test("one walk of the whole run", async ({ page }) => {
     .toEqual(physicalTargetPositions(discovered));
   expect(beforeGate.every((target) => !target.selected),
     "Step 7 begins with candidates visible but no implicit gate").toBe(true);
-  await expectTargetLayerOnCanvas(
-    page, "cells", "Step 7 keeps candidate markers on the canvas before gating");
   await expectTargetAtItsProjection(page, beforeGate[0], "Step 7 before gating");
   const sc = await page.locator("#scatter-canvas").boundingBox();
   /* A polygon gate on the largest, brightest corner — laid point by point
-     and closed on its first vertex, the way the scan-area polygon is. */
+     and closed on its first vertex, the way the scan-area polygon is. The
+     fractions are of the plot's frame, which stops short of the canvas's
+     right edge where the y labels stand. */
   const corner = [[0.86, 0.08], [0.96, 0.08], [0.96, 0.22], [0.86, 0.22]];
+  /* The plot must not move under the hand while a gate is laid: the readout
+     under it wraps to a second line at the first point, and the column
+     used to let the browser's scroll anchoring push the plot up by that
+     line, so the closing press missed the first point by exactly it. The
+     canvas is measured once, before the first point, on purpose. */
   for (const [gx, gy] of corner) {
-    await page.mouse.click(sc.x + sc.width * gx, sc.y + sc.height * gy);
+    await page.mouse.click(...plotPoint(sc, gx, gy));
     await page.waitForTimeout(120);
   }
-  await page.mouse.click(sc.x + sc.width * 0.86, sc.y + sc.height * 0.08);
+  expect(await page.locator("#scatter-canvas").boundingBox(),
+    "the plot stands where it stood before the first point").toEqual(sc);
+  await page.mouse.click(...plotPoint(sc, 0.86, 0.08));
   await page.waitForTimeout(300);
   await expect(page.locator("#gate-readout")).toContainText("selected");
   await expect(page.locator("#gate-list .gate-row")).toHaveCount(1);
   const refined = await targetsOnCanvas(page);
-  expect(refined.some((target) => target.selected),
-    "the gate marks selected targets on the shared canvas").toBe(true);
+  /* The gate rings what it lets through as it is drawn: on the plot, in the
+     readout, and on the shared canvas. */
+  const inTheGate = refined.filter((target) => target.selected).length;
+  expect(inTheGate, "the gate marks selected targets on the shared canvas").toBeGreaterThan(0);
   expect(physicalTargetPositions(refined)).toEqual(physicalTargetPositions(discovered));
   await expectTargetLayerOnCanvas(
     page, "cells", "Step 7 selected and context targets materially change the canvas");
 
   // the gate and its ceiling belong to the run, not to the panel that drew
-  // them: coming back, the box shows the ceiling the shown selection was
-  // drawn under, not a default over a selection drawn under another
+  // them: coming back, the box shows the ceiling as typed, over the
+  // selection the gates let through
   await page.locator("#gate-max").fill("1");
   await page.locator("#gate-max").dispatchEvent("input");
   await page.waitForTimeout(200);
   const readoutUnderTheCeiling = await page.locator("#gate-readout").textContent();
-  const keptUnderTheCeiling = (await targetsOnCanvas(page)).filter((target) => target.selected).length;
+  expect((await targetsOnCanvas(page)).filter((target) => target.selected).length,
+    "a ceiling typed is not a ceiling applied: the gate's whole catch stays selected").toBe(inTheGate);
   await page.locator('.tab:has-text("Canvas")').click();
   await page.waitForTimeout(250);
   await gotoStep(page, "Refine Targets");
@@ -1477,9 +1498,41 @@ test("one walk of the whole run", async ({ page }) => {
   await expect(page.locator("#gate-list .gate-row")).toHaveCount(1);
   await expect(page.locator("#gate-max")).toHaveValue("1");
   expect((await targetsOnCanvas(page)).filter((target) => target.selected).length,
-    "the selection is the one drawn under the ceiling the box shows").toBe(keptUnderTheCeiling);
+    "walking away and back restricts nothing").toBe(inTheGate);
 
+  /* Restrict is the press that applies the ceiling: one per tileset under
+     this one, on the canvas and in the readout alike. */
+  await expect(page.locator(".panel.on button.step-run")).toHaveText("Restrict");
+  /* The ceiling is per tileset -- a well of the pretend plate -- so what
+     survives is so many in each tileset the gate reaches into. */
+  const tilesetOf = (target) => plan[target.field]?.tileset ?? target.field;
+  const underCeiling = (targets, max) => {
+    const perTileset = new Map();
+    for (const target of targets) {
+      const key = tilesetOf(target);
+      perTileset.set(key, (perTileset.get(key) ?? 0) + 1);
+    }
+    return [...perTileset.values()].reduce((sum, n) => sum + Math.min(max, n), 0);
+  };
+  const gatedTargets = refined.filter((target) => target.selected);
+  expect(underCeiling(gatedTargets, 1), "the gate reaches into fewer cells than it holds")
+    .toBeLessThan(inTheGate);
   await runStep(page, 1000);
+  expect((await targetsOnCanvas(page)).filter((target) => target.selected).length,
+    "Restrict holds the selection to the ceiling the box shows, per tileset")
+    .toBe(underCeiling(gatedTargets, 1));
+  await expect(page.locator("#gate-readout")).toContainText(`${underCeiling(gatedTargets, 1)} kept of ${inTheGate}`);
+  /* A ceiling touched after Restrict is a selection not yet restricted:
+     the gate's whole catch is back and the step asks for its press again. */
+  await page.locator("#gate-max").fill("2");
+  await page.locator("#gate-max").dispatchEvent("input");
+  await page.waitForTimeout(200);
+  expect((await targetsOnCanvas(page)).filter((target) => target.selected).length,
+    "a new ceiling typed lifts the old one until Restrict is pressed").toBe(inTheGate);
+  await expect(page.locator(".panel.on button.step-run")).toHaveText("Restrict");
+  await runStep(page, 1000);
+  expect((await targetsOnCanvas(page)).filter((target) => target.selected).length)
+    .toBe(underCeiling(gatedTargets, 2));
   await gotoStep(page, "Acquire Targets");
   const readyToAcquire = await targetsOnCanvas(page);
   expect(physicalTargetPositions(readyToAcquire),
@@ -1487,19 +1540,23 @@ test("one walk of the whole run", async ({ page }) => {
     .toEqual(physicalTargetPositions(discovered));
   expect(readyToAcquire.filter((target) => target.selected).length,
     "Step 8 receives the refined selection").toBeGreaterThan(0);
-  await expectTargetLayerOnCanvas(
-    page, "cells", "Step 8 keeps target candidates and the selection on the canvas");
+  /* No lit shapes here: on the acquisition step the frames are the picture,
+     and a shape over a frame hid the pixels it was imaged for. */
   await expectTargetAtItsProjection(page, readyToAcquire[0], "Step 8 before acquisition");
   /* Nothing is imaged until the run knows what with: the acquisition type is
      recorded off the instrument in this step's own channel, and the button
      waits for it. */
   await expect(page.locator(".panel.on button.step-run")).toBeDisabled();
-  /* The slot imports the configuration off the instrument and names it
-     itself, the way the scan area's and the focus step's slots do. */
+  /* The slot stands on the refine step, beside the selection it images; it
+     imports the configuration off the instrument and names it itself, the
+     way the scan area's and the focus step's slots do. */
+  await gotoStep(page, "Refine Targets");
   const tt = page.locator("#target-type .setting-box.open");
   await tt.locator("button.run").click();
   await page.waitForTimeout(650);
   await expect(page.locator("#target-type .setting-box.done")).toHaveCount(1);
+  await gotoStep(page, "Acquire Targets");
+  await expect(page.locator(".panel.on button.step-run")).toBeEnabled();
   /* Stopped by hand after the first pair: what was taken stands everywhere
      the page accounts for it -- the rings, the gallery, the sentence beside
      the button -- and the step is not done, only run. */
@@ -1531,6 +1588,19 @@ test("one walk of the whole run", async ({ page }) => {
     .toBe(acquired.filter((target) => target.selected).length);
   await expectTargetLayerOnCanvas(
     page, "targets", "Step 8 acquired-target rings materially change the canvas");
+  /* A press inside an acquired frame chooses that target: the list says so
+     and its pair comes up. Not the one already chosen, so the change shows. */
+  {
+    const chosenBefore = await page.evaluate(() => window.__theRunState().selectedTarget);
+    const other = acquired.find((target) => target.acquired && target.id !== chosenBefore);
+    expect(other, "more than one target was acquired").toBeTruthy();
+    const box = await page.locator("#stage-canvas").boundingBox();
+    await page.mouse.click(box.x + other.screen.x, box.y + other.screen.y);
+    await page.waitForTimeout(250);
+    expect(await page.evaluate(() => window.__theRunState().selectedTarget),
+      "a press inside the frame chooses the target").toBe(other.id);
+    await expect(page.locator(`#target-list .point-row[aria-current="true"]`)).toHaveCount(1);
+  }
   /* The ground opens over each acquired frame as it does over each overview
      field: one window per acquired target, centred on its cell and as wide as
      the recording's frame, so a target at the edge of a field shows through. */

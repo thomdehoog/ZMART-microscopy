@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { viewerRowsFor } from "./viewer-panel.js";
+import { luminanceOf, viewerRowsFor } from "./viewer-panel.js";
 
 
 describe("Smart Viewer rows at the operator boundary", () => {
@@ -31,5 +31,18 @@ describe("Smart Viewer rows at the operator boundary", () => {
     expect(rows.every((row) => row.source === sources[0])).toBe(true);
     expect(fetchSpy).not.toHaveBeenCalled();
     fetchSpy.mockRestore();
+  });
+});
+
+describe("grey is each colour's share of the light", () => {
+  it("weighs a colour as a desaturation does, so three greys add to what the colours read as", () => {
+    expect(luminanceOf([1, 1, 1])).toBeCloseTo(1, 6);
+    expect(luminanceOf([0, 1, 0.4])).toBeCloseTo(0.744, 3);   // the palette's green
+    expect(luminanceOf([1, 0.2, 1])).toBeCloseTo(0.428, 3);   // magenta
+    expect(luminanceOf([0.2, 0.8, 1])).toBeCloseTo(0.687, 3); // cyan
+    /* The three palette colours together stay under white: a pixel bright
+       in all three does not clip the way three whites did. */
+    expect(luminanceOf([0, 1, 0.4]) + luminanceOf([1, 0.2, 1]) + luminanceOf([0.2, 0.8, 1]))
+      .toBeLessThan(2);
   });
 });

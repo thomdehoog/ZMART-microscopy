@@ -27,6 +27,7 @@ import math
 import random
 import time
 import uuid
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -53,7 +54,7 @@ _DEFAULT_ACTUATORS: dict[str, str] = {"x": "motoric", "y": "motoric", "z": "moto
 _PIXEL_UM = 4.0
 
 #: The jobs this pretend instrument has stored, in the order it lists them.
-_JOBS: tuple[str, ...] = ("Overview", "HiRes", "Survey")
+_JOBS: tuple[str, ...] = ("Overview", "Focussing", "Target")
 
 #: What each kind of acquisition captures. On a real instrument this comes from
 #: the settings the operator imported for that kind of scan; here it is how the
@@ -164,6 +165,8 @@ class MockHandle:
     client: str | None = None
     connection: dict = field(default_factory=dict)
     tile_positions: list[dict] = field(default_factory=list)
+    # where the changeable settings live; see ``where_the_instrument_stands``
+    state_file: Path | None = None
     # when the session opened (time.monotonic); the connection checks answer
     # one after another from here, so a client polling get_info sees them
     # arrive the way it will on an instrument that takes time to answer
@@ -171,6 +174,58 @@ class MockHandle:
 
     # set by disconnect(); every other op refuses a closed handle
     closed: bool = False
+
+
+#: The settings an operator changes on the instrument's own software, and
+#: where the mock keeps them. LAS X is a program of its own holding the
+#: Leica's job; the mock has no such program, so its settings live in one
+#: small file that anything may write -- the mock instrument window, or
+#: ``set_state`` through the controller -- and that the driver reads back on
+#: every readout and every capture. The file is the one place the state
+#: lives, so whoever wrote it last is what the instrument stands on, and
+#: it outlives a session the way a real instrument's setup does.
+CHANGEABLE: tuple[str, ...] = ("job", "laser_power", "gain")
+STATE_FILE_ENV = "ZMART_MOCK_STATE"
+
+
+def where_the_instrument_stands(connection: dict | None = None) -> Path:
+    """The state file: named in the connection, else by the environment,
+    else under the user's home."""
+    named = (connection or {}).get("state_file") or os.environ.get(STATE_FILE_ENV)
+    if named:
+        return Path(named)
+    return Path.home() / ".zmart-mock" / "instrument.json"
+
+
+def read_instrument_settings(path: Path | None = None) -> dict:
+    """The settings in the file, or nothing when there is no file yet."""
+    where = path or where_the_instrument_stands()
+    try:
+        held = json.loads(where.read_text(encoding="utf-8"))
+    except (FileNotFoundError, ValueError):
+        return {}
+    return {key: held[key] for key in CHANGEABLE if key in held}
+
+
+def write_instrument_settings(settings: dict, path: Path | None = None) -> Path:
+    """Write the settings whole; a job the mock does not have is refused."""
+    if "job" in settings and settings["job"] not in _JOBS:
+        raise ValueError(f"unknown job {settings['job']!r}; have {list(_JOBS)}")
+    where = path or where_the_instrument_stands()
+    where.parent.mkdir(parents=True, exist_ok=True)
+    kept = {**read_instrument_settings(where), **{k: v for k, v in settings.items() if k in CHANGEABLE}}
+    where.write_text(json.dumps(kept, indent=2), encoding="utf-8")
+    return where
+
+
+def _read_the_settings(handle: MockHandle) -> None:
+    """The file wins: what it holds is what the instrument stands on."""
+    for key, value in read_instrument_settings(handle.state_file).items():
+        setattr(handle, key, value)
+
+
+def _write_the_settings(handle: MockHandle) -> None:
+    write_instrument_settings({key: getattr(handle, key) for key in CHANGEABLE}, handle.state_file)
 
 
 def connect(connection: dict):
@@ -184,6 +239,8 @@ def connect(connection: dict):
     handle.client = connection.get("client")
     handle.connection = dict(connection)
     handle.connected_at = time.monotonic()
+    handle.state_file = where_the_instrument_stands(connection)
+    _read_the_settings(handle)
     handle.tile_positions = [
         {"x": 0.0, "y": 0.0, "z": 0.0, "tile_size": {"x": 100.0, "y": 100.0}},
         {"x": 120.0, "y": 0.0, "z": 0.0, "tile_size": {"x": 100.0, "y": 100.0}},
@@ -227,6 +284,7 @@ def get_acquisition_options(handle: MockHandle) -> dict:
     Driver-owned and answered on demand; the controller caches nothing.
     """
     _require_open(handle)
+    _read_the_settings(handle)
     return {
         "job": {"options": list(_JOBS), "active": handle.job},
         "backlash_correction": {"options": [True, False], "active": True},
@@ -312,6 +370,7 @@ def acquire(
     defaults. Captures and saves in one step -- there is no separate export.
     """
     _require_open(handle)
+    _read_the_settings(handle)
     options = _with_defaults(handle, options)
     settle = "backlash-corrected" if options["backlash_correction"] else "direct"
     acquisition_hash = uuid.uuid4().hex[:6]
@@ -455,22 +514,25 @@ _FOCUS_FRAME_PX = _FRAME_PX // 2
 #: What each job images: how many pixels across and how much sample one
 #: pixel covers. The job owns the geometry, as on a real instrument, where
 #: the objective and the format come with the job the operator selected.
-#: ``HiRes`` is the close look for targets: far fewer micrometres across
+#: ``Target`` is the close look for targets: far fewer micrometres across
 #: than an overview field and finer pixels over them -- the same micrograph
 #: sampled finer than it was recorded, what a mock can offer for
 #: magnification.
 _JOB_FRAMES: dict[str, tuple[int, float]] = {
     "Overview": (_FRAME_PX, _PIXEL_UM),
-    "HiRes": (128, 1.0),
-    "Survey": (_FRAME_PX, _PIXEL_UM),
+    "Focussing": (256, 1.0),
+    "Target": (128, 1.0),
 }
 
 
 def _frame_of(job: str, acquisition_type: str) -> tuple[int, float]:
     """How wide a capture under this job is in pixels, and how much sample
-    one pixel covers, in micrometres. A focus stack takes half the side."""
+    one pixel covers, in micrometres. The Focussing job's frame is a stack's
+    frame already -- 256 um of fine pixels; a stack taken under any other
+    job takes half that job's side, as an autofocus window is smaller than
+    the camera's frame."""
     frame_px, pixel_um = _JOB_FRAMES.get(job, (_FRAME_PX, _PIXEL_UM))
-    if acquisition_type == "focussing":
+    if acquisition_type == "focussing" and job != "Focussing":
         return frame_px // 2, pixel_um
     return frame_px, pixel_um
 
@@ -600,6 +662,7 @@ def get_state(handle: MockHandle) -> dict:
     """Return the opaque state: the changeable settings first, then the
     observed report (identity and condition, read-only)."""
     _require_open(handle)
+    _read_the_settings(handle)
     return {
         "changeable": {
             "job": handle.job,
@@ -649,6 +712,8 @@ def set_state(handle: MockHandle, state: dict) -> dict:
     if "gain" in changeable:
         handle.gain = changeable["gain"]
         applied["gain"] = handle.gain
+    if applied:
+        _write_the_settings(handle)
     return {"applied": applied}
 
 

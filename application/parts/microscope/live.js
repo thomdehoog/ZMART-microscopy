@@ -82,6 +82,14 @@ export const backend = {
     return `${WHERE}/view/${acquisitionType}`;
   },
 
+  /**
+   * Put one acquired target's frame on top of its neighbours in the
+   * targets picture: the chosen one, whose pair the gallery shows.
+   */
+  async raiseTarget(position_label) {
+    return ask("/api/targets/raise", { position_label });
+  },
+
   /** What can be connected to: `get_instruments` through the bridge. */
   async instruments() {
     return (await ask("/api/instruments")).instruments;
@@ -200,11 +208,9 @@ export const backend = {
    * answering with what the driver says it applied — which is not always what
    * was asked, since a value it will not take is the driver's to refuse.
    *
-   * Nothing on the page calls this, by decision. A chooser would be named
-   * after one vendor's noun — `job` is LAS X's word, and another instrument
-   * has a protocol or an experiment or nothing like it — so the page would
-   * have learned one microscope. It is here because the seam mirrors the
-   * controller's surface, not this one page's needs.
+   * Nothing on the page calls this, by decision: the page reads what it is
+   * told and leaves the choosing to the software that authors the recipes.
+   * It is here because the seam mirrors the controller's surface.
    */
   async set_state(settings) {
     return ask("/api/state", settings);
@@ -214,14 +220,9 @@ export const backend = {
    * A readout, never a procedure: the instrument's state as it is set now.
    * One `get_state` through the controller, shaped by the bridge into the
    * reading the window records. `nth` is the pretend operator's knob and the
-   * live instrument has no use for it.
+   * live instrument has no use for it: the instrument is read as it stands,
+   * set up in its own software -- LAS X, or the mock instrument window.
    */
-  /** What the instrument offers for a capture and what is chosen now, in
-      the driver's own words: `{ name: { options, active } }`. */
-  async acquisitionOptions() {
-    return ask("/api/acquisition_options");
-  },
-
   async readSetting(type) {
     return ask(`/api/setting?type=${encodeURIComponent(type)}`);
   },

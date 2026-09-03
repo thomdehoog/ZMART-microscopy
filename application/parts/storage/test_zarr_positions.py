@@ -355,3 +355,54 @@ class TestADeniedRename:
         monkeypatch.setattr(os, "replace", always_denied)
         with pytest.raises(PermissionError, match="denied"):
             position_store_from_record(one_file_per_plane(tmp_path), tmp_path / "positions")
+
+
+def a_frame_at(folder, x_um, y_um, *, value, size=64, name):
+    """One single-channel frame of one value, centred at (x, y) on the sample."""
+    folder.mkdir(parents=True, exist_ok=True)
+    path = folder / f"{name}.ome.tif"
+    ome = (
+        '<OME><Image><Pixels PhysicalSizeX="1e-06" PhysicalSizeXUnit="m" '
+        'PhysicalSizeY="1e-06" PhysicalSizeYUnit="m" SizeC="1" /></Pixels>'
+        "</Image></OME>"
+    )
+    tifffile.imwrite(path, np.full((size, size), value, dtype=np.uint16), description=ome)
+    return {
+        "acquisition_type": "targets",
+        "position_label": name,
+        "planes": [{"t": 0, "c": 0, "z": 0, "path": str(path), "x_um": x_um, "y_um": y_um, "z_um": 0.0}],
+    }
+
+
+def test_the_resolved_store_lets_a_later_frame_overwrite_and_a_raised_one_come_back(tmp_path):
+    """The targets acquisition is served to the canvas as ONE store per
+    channel, sized to the whole planned set, into which every frame is
+    written at its place: where two frames overlap the later one wins, so
+    the engine has nothing left to add within a channel. Writing a frame
+    again puts it on top -- how the chosen target is raised."""
+    from application.parts.storage.zarr_positions import place_into_resolved_store
+
+    planned = [(100.0, 100.0), (140.0, 100.0)]
+    first = a_frame_at(tmp_path / "raw", 100.0, 100.0, value=1000, name="P0")
+    second = a_frame_at(tmp_path / "raw", 140.0, 100.0, value=2000, name="P1")
+    into = tmp_path / "positions" / "targets"
+
+    store = place_into_resolved_store(first, into, planned)
+    assert store == into / "targets_resolved.ome.zarr"
+    level0 = zarr.open(str(store / "0"), mode="r")
+    # the whole planned set: from x 68 to 172, y 68 to 132 -> 104 by 64 voxels
+    assert level0.shape[-2:] == (64, 104)
+    described = json.loads((store / "zarr.json").read_text(encoding="utf-8"))
+    translation = described["attributes"]["ome"]["multiscales"][0]["datasets"][0]["coordinateTransformations"][1]["translation"]
+    assert translation[-2:] == [68.0, 68.0]
+    assert level0[0, 0, 0, 10, 10] == 1000 and level0[0, 0, 0, 10, 90] == 0
+
+    place_into_resolved_store(second, into, planned)
+    level0 = zarr.open(str(store / "0"), mode="r")
+    assert level0[0, 0, 0, 10, 50] == 2000, "the overlap holds the later frame"
+    assert level0[0, 0, 0, 10, 10] == 1000 and level0[0, 0, 0, 10, 90] == 2000
+
+    place_into_resolved_store(first, into, planned)
+    level0 = zarr.open(str(store / "0"), mode="r")
+    assert level0[0, 0, 0, 10, 50] == 1000, "raised: the first frame is on top again"
+    assert level0[0, 0, 0, 10, 90] == 2000, "and the rest of the second still stands"
