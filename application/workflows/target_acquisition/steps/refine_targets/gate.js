@@ -47,8 +47,12 @@ export default {
    */
   mount(host, ctx) {
     /* Which features the plot spans right now. */
+    /* The map first, when there is one: the embedding is what the cells are
+       gated on by default, and the two detector features stand in until it
+       has been drawn. A pair the operator chose is kept. */
     let fx = "area";
     let fy = "intensity";
+    let chosenByHand = false;
     /* The polygon being laid, in feature units, until it closes. */
     let draft = null;
     /* The vertex the hand holds mid-drag, and the one last chosen. */
@@ -252,6 +256,9 @@ export default {
     /** The pickers offer every feature the cells carry; the pair in use wins. */
     function refreshPickers() {
       const names = featureNames(theCells());
+      if (!chosenByHand && names.includes("umap_1") && names.includes("umap_2")) {
+        fx = "umap_1"; fy = "umap_2";
+      }
       for (const [sel, current] of [[pickX, fx], [pickY, fy]]) {
         sel.textContent = "";
         for (const name of names) {
@@ -266,6 +273,7 @@ export default {
     for (const [sel, take] of [[pickX, (v) => { fx = v; }], [pickY, (v) => { fy = v; }]]) {
       sel.addEventListener("change", () => {
         take(sel.value);
+        chosenByHand = true;
         draft = null;
         chosen = -1;
         renderList();
