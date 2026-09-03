@@ -5,6 +5,30 @@
 export function acquiredLayers(theRun) {
   const { run, drawnIn, activeMode } = theRun;
   return {
+    frames: {
+    key: "frames",
+    label: "Target tiles",
+    explains: "The tiles laid round the restricted targets, in the target settings' "
+      + "frame -- the plan the acquisition step images.",
+    shown: activeMode === "select" && run.targetTiles.length > 0,
+    staysSolid: true,
+    paint: (frame) => {
+      const ctx = frame.context;
+      const { place, scale, w, h } = drawnIn(frame);
+      ctx.globalAlpha = run.targetTilesAlpha;
+      ctx.fillStyle = "#16a34a";
+      ctx.strokeStyle = "#15803d"; ctx.lineWidth = 1;
+      for (const tile of run.targetTiles) {
+        const half = tile.frameUm / 2;
+        const [x, y] = place(tile.x - half, tile.y - half);
+        const side = tile.frameUm * scale;
+        if (x > w || y > h || x + side < 0 || y + side < 0) continue;
+        ctx.fillRect(x, y, side, side);
+        ctx.strokeRect(x, y, side, side);
+      }
+      ctx.globalAlpha = 1;
+    },
+  },
     targets: {
     key: "targets",
     label: "Targets",

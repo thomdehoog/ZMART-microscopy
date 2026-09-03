@@ -42,6 +42,7 @@
   /* data marks — validated for BOTH surfaces, so they never change */
   --mark-gated: #0284c7;
   --mark-selected: #16a34a;
+  --mark-restricted: #dc2626;
   --mark-acquired: #16a34a;
   --mark-context: #94a3b8;
   /* where the microscope is standing. A deep blue, on Thom's word: the red

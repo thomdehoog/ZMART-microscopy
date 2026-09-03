@@ -1516,9 +1516,11 @@ test("one walk of the whole run", async ({ page }) => {
   expect(underCeiling(gatedTargets, 1), "the gate reaches into fewer cells than it holds")
     .toBeLessThan(inTheGate);
   await runStep(page, 1000);
-  expect((await targetsOnCanvas(page)).filter((target) => target.selected).length,
+  expect((await targetsOnCanvas(page)).filter((target) => target.restricted).length,
     "Restrict holds the selection to the ceiling the box shows, per tileset")
     .toBe(underCeiling(gatedTargets, 1));
+  expect((await targetsOnCanvas(page)).filter((target) => target.selected).length,
+    "and the gate's whole catch stays in view under it").toBe(inTheGate);
   await gotoStep(page, "Discover Targets");
   await expect(page.locator("#gate-readout")).toContainText(`${underCeiling(gatedTargets, 1)} kept of ${inTheGate}`);
   await gotoStep(page, "Target scan area");
@@ -1527,12 +1529,15 @@ test("one walk of the whole run", async ({ page }) => {
   await page.locator("#gate-max").fill("2");
   await page.locator("#gate-max").dispatchEvent("input");
   await page.waitForTimeout(200);
-  expect((await targetsOnCanvas(page)).filter((target) => target.selected).length,
-    "a new ceiling typed lifts the old one until Restrict is pressed").toBe(inTheGate);
+  expect((await targetsOnCanvas(page)).filter((target) => target.restricted).length,
+    "a new ceiling typed lifts the old one until Restrict is pressed").toBe(0);
   await expect(page.locator(".panel.on button.step-run")).toHaveText("Restrict");
   await runStep(page, 1000);
-  expect((await targetsOnCanvas(page)).filter((target) => target.selected).length)
+  expect((await targetsOnCanvas(page)).filter((target) => target.restricted).length)
     .toBe(underCeiling(gatedTargets, 2));
+  /* The tiles are the plan: one round every restricted target, laid by
+     hand once the settings say how wide, and what Acquire images. */
+  await expect(page.locator("#add-tiles")).toBeEnabled();
   await gotoStep(page, "Acquire Targets");
   const readyToAcquire = await targetsOnCanvas(page);
   expect(physicalTargetPositions(readyToAcquire),
@@ -1555,12 +1560,17 @@ test("one walk of the whole run", async ({ page }) => {
   await tt.locator("button.run").click();
   await page.waitForTimeout(650);
   await expect(page.locator("#target-type .setting-box.done")).toHaveCount(1);
+  await page.locator("#add-tiles").click();
+  await page.waitForTimeout(200);
+  expect(await page.evaluate(() => window.__theRunState().targetTiles), "one tile per restricted target")
+    .toBe(underCeiling(gatedTargets, 2));
+  await expect(page.locator("#tiles-laid")).toContainText("tile");
   await gotoStep(page, "Acquire Targets");
   await expect(page.locator(".panel.on button.step-run")).toBeEnabled();
   /* Stopped by hand after the first pair: what was taken stands everywhere
      the page accounts for it -- the rings, the gallery, the sentence beside
      the button -- and the step is not done, only run. */
-  const gatedCount = readyToAcquire.filter((target) => target.selected).length;
+  const gatedCount = readyToAcquire.filter((target) => target.restricted).length;
   await page.locator(".panel.on button.step-run").click();
   await expect(page.locator(".panel.on button.step-run")).toHaveText("Interrupt");
   await expect.poll(async () => (await targetsOnCanvas(page)).filter((target) => target.acquired).length,
@@ -1584,8 +1594,8 @@ test("one walk of the whole run", async ({ page }) => {
     "acquisition changes target state, never target placement")
     .toEqual(physicalTargetPositions(discovered));
   expect(acquired.filter((target) => target.acquired).length,
-    "every selected target acquires a canvas state")
-    .toBe(acquired.filter((target) => target.selected).length);
+    "every restricted target -- every tile -- acquires a canvas state")
+    .toBe(acquired.filter((target) => target.restricted).length);
   await expectTargetLayerOnCanvas(
     page, "targets", "Step 8 acquired-target rings materially change the canvas");
   /* A press inside an acquired frame chooses that target: the list says so
