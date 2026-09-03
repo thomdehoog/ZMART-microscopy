@@ -124,7 +124,7 @@ export function targetLayers(theRun) {
        discovery step the masks themselves are on the picture; on the
        acquisition step the frames are, and a lit shape over a frame hid the
        very pixels it was imaged for. */
-    shown: run.cellsShown && activeMode === "select",
+    shown: run.cellsShown && (activeMode === "gate" || activeMode === "select"),
     /* Readable over the very fields they were found in: the see-through
        windows that reveal the picture cut every layer beneath them, and the
        objects were cut away exactly where the tissue is. The layer's own

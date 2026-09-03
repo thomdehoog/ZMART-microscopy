@@ -37,7 +37,7 @@ async function walkToScan(page) {
   await gotoStep("Define Carrier");
   await page.locator(".carrier-type[data-type='slide']").click();
   await page.waitForTimeout(600);
-  await gotoStep("Define scan area");
+  await gotoStep("Overview scan area");
   await record("sf-preset", "overview");
   await page.locator(".sf-apply-grid").click();
   await page.waitForTimeout(800);

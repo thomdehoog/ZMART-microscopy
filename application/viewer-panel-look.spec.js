@@ -30,7 +30,7 @@ test("the panel stands between the picture and the channel", async ({ page }) =>
   await page.locator(".carrier-type[data-type='wellplate']").click();
   await page.locator(".carrier-preset").selectOption({ label: "6-well · Nunc Nunclon" });
   await page.waitForTimeout(300);
-  await gotoStep(page, "Define scan area");
+  await gotoStep(page, "Overview scan area");
   await recordSlot(page, "sf-preset", "overview");
   await page.locator(".sf-apply-grid").click();
   await page.waitForTimeout(400);

@@ -149,7 +149,7 @@ test("every field the scan took is drawn where the plan put it", async ({ page }
   await page.locator(".carrier-preset").selectOption({ label: "6-well · Nunc Nunclon" });
   await page.waitForTimeout(600);
 
-  await gotoStep("Define scan area");
+  await gotoStep("Overview scan area");
   await record("sf-preset", "overview");
   await page.locator(".sf-apply-grid").click();
   await page.waitForTimeout(600);

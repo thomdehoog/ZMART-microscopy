@@ -32,8 +32,8 @@ const PAD = { l: 1, r: 62, t: 1, b: 38 };
 const REACH = 9;
 
 export default {
-  id: "select",
-  label: "Refine Targets",
+  id: "gate",
+  label: "Discover Targets",
 
   /**
    * `ctx` carries:
@@ -66,11 +66,6 @@ export default {
 
     const side = document.createElement("div");
     side.className = "analysis-side";
-
-    /* The step's own press below the gates it confirms: gate, draw,
-       then commit -- the hand reads the channel in the order it works. */
-    const act = document.createElement("div");
-    act.className = "select-action side-act";
 
     /* Which way the targets are refined, above the box that does it -- the
        same row as the discovery step's method. Gating is the one way there
@@ -144,42 +139,7 @@ export default {
 
     boxed.body.append(axes, legend, wrap, readout, list);
 
-    /* The sub-curation in a box of its own: one ceiling, standing over the
-       Confirm that takes the result. The cap is a spatial SURS draw over
-       EACH tileset's own extent -- a grid over the stage coordinates of
-       the gated cells, never over the plot's axes -- so what survives is
-       spread evenly across the compartment. The plot above is untouched:
-       gates show what they let through; the ceiling decides what is kept. */
-    const curate = sideGroup("Selection");
-    const refine = document.createElement("div");
-    refine.className = "gate-draw";
-    const maxLabel = document.createElement("label");
-    maxLabel.textContent = "Max objects per tileset";
-    maxLabel.htmlFor = "gate-max";
-    const maxN = document.createElement("input");
-    maxN.type = "number"; maxN.min = "1"; maxN.step = "1";
-    maxN.id = "gate-max";
-    /* The ceiling in force, not a default: the selection the run holds was
-       drawn under it, and a box showing another number over that selection
-       would be showing a different rule from the one on the canvas. */
-    maxN.value = String(ctx.cap());
-    refine.append(maxLabel, maxN);
-    /* What the targets are imaged with, read off the instrument here where
-       the selection is made -- the shared recording slot, the same opening
-       as the scan area's and the focus step's: set the instrument up in
-       its own software, then import with one press. */
-    const recording = document.createElement("div");
-    recording.id = "target-type";
-    curate.body.append(recording, refine, act);
-    ctx.recordingSlot(recording, {
-      label: "Target acquisition settings", key: "targetType",
-      unnamed: true,
-      takes: "Import target acquisition settings",
-      retakes: "Update",
-      changed: () => ctx.changed?.(),
-    });
-
-    side.append(method.group, boxed.group, curate.group);
+    side.append(method.group, boxed.group);
     host.append(side);
 
     const sx = (v, w) => PAD.l + ((v - xLo) / (xHi - xLo)) * (w - PAD.l - PAD.r);
@@ -222,20 +182,16 @@ export default {
     const theCells = () => [...ctx.cells()];
     const shownGate = () => gateForPair(ctx.gates(), fx, fy);
 
-    /** The per-tileset ceiling as typed: at least one, a whole number. */
-    const ceiling = () => Math.max(1, Math.round(Number(maxN.value) || 0));
-
     /* Gates changed: the run takes the list, what they let through, and the
        ceiling as typed. The ceiling is not applied here -- the step's own
        press, Restrict, does that -- so what the plot rings is what the
        gates say, until the operator asks for the draw. */
     const commit = (gates) => {
-      ctx.setGates(gates, cellsInAllGates(theCells(), gates), ceiling());
+      ctx.setGates(gates, cellsInAllGates(theCells(), gates), ctx.cap());
       sayIt();
       renderList();
       draw();
     };
-    maxN.addEventListener("input", () => commit([...ctx.gates()]));
 
     const sayIt = () => {
       const cells = theCells();

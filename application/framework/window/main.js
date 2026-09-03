@@ -18,8 +18,10 @@ import {
 } from "../../parts/microscope/instruments.js";
 import { isFailed } from "../../parts/microscope/connection-status.js";
 import { displayQueryFor } from "../../parts/canvas/display-of.js";
-import { keptUnderCeiling }
+import { cellsInAllGates, keptUnderCeiling }
   from "../../workflows/target_acquisition/steps/refine_targets/gating.js";
+import { selectionPanel }
+  from "../../workflows/target_acquisition/steps/target_scan_area/step.js";
 /* The seam. Connecting, reading a preset off the instrument, measuring the
    focus map and driving the overview scan all go through the backend and are
    awaited; this window never knows whether a real stage moved. Which side of
@@ -1261,11 +1263,13 @@ let stageWatch = null;
         state.gates = gates;
         state.gated = ids;
         state.gateCap = cap;
-        /* A gate or a ceiling touched after Restrict is a selection not yet
-           restricted: the step asks for its press again. */
+        /* Something gated is what makes the gating step done; and a gate
+           touched after Restrict is a selection not yet restricted, so the
+           step after asks for its press again. */
+        if (ids.size) state.done.add("gate"); else state.done.delete("gate");
         state.done.delete("select");
         state.ran.delete("select");
-        drawStage(); renderTabs(); renderActionBar();
+        drawStage(); renderTabs(); renderActionBar(); renderRail();
       },
       tilesetOf: tilesetOfField,
       /* Whether Restrict has drawn under the ceiling: the plot then marks
@@ -1355,12 +1359,34 @@ let stageWatch = null;
     return true;
   }
 
+  /* The target scan area's channel: the ceiling and the settings the targets
+     are imaged with. A ceiling typed is not a ceiling applied -- the press
+     is -- so typing one asks for the press again; the settings recorded
+     say how wide each frame on the picture is. */
+  const selectionMount = (host) => selectionPanel.mount(host, {
+    recordingSlot: (into, opts) => renderRecordingSlot(into, recordingOptions(opts)),
+    cap: () => state.gateCap,
+    setCap: (cap) => {
+      state.gateCap = cap;
+      /* A ceiling typed lifts the one applied: the selection is the gates'
+         whole catch again until the press draws under the new one. */
+      state.gated = cellsInAllGates([...state.cells.values()], state.gates);
+      state.done.delete("select");
+      state.ran.delete("select");
+    },
+    changed: () => {
+      state.targetFrameUm = activeRecording(state.targetType)?.frameUm ?? null;
+      drawStage(); renderRail(); renderActionBar(); gatingShown?.redraw();
+    },
+  });
+
   const SIDE_WIDGETS = {
     connect: connectWidget,
     carrier: carrierWidget, scanfields: scanfieldsWidget,
     focus: focusWidget, scan: scanWidget,
     detect: { id: detectionPanel.id, label: detectionPanel.label, mount: detectionMount },
-    select: { id: gatingPanel.id, label: gatingPanel.label, mount: gatingMount },
+    gate: { id: gatingPanel.id, label: gatingPanel.label, mount: gatingMount },
+    select: { id: selectionPanel.id, label: selectionPanel.label, mount: selectionMount },
     acquire: { id: galleryWidget.id, label: galleryWidget.label, mount: galleryMount },
   };
 

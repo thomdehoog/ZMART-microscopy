@@ -15,6 +15,7 @@ import { focusStrategy } from "./steps/focus_strategy/step.js";
 import { scanOverview } from "./steps/scan_the_overview/step.js";
 import { detectCells } from "./steps/discover_targets/step.js";
 import { selectCells } from "./steps/refine_targets/step.js";
+import { targetScanArea } from "./steps/target_scan_area/step.js";
 import { acquireAndCurate } from "./steps/acquire_targets/step.js";
 
 /* Every run that drives the microscope starts the same way: open the session,
@@ -34,5 +35,6 @@ export const steps = [
   scanOverview,
   detectCells,
   selectCells,
+  targetScanArea,
   acquireAndCurate,
 ];
