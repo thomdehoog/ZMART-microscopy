@@ -43,7 +43,9 @@ export function focusLayers(theRun) {
   focusFrame: {
     key: "focusFrame",
     follows: "focus",
-    shown: activeMode === "focus" && run.running === "focus"
+    /* While the map is measured, and after: the frame stays round the point
+       the run ended on, as the lit field stays after a scan. */
+    shown: activeMode === "focus" && (run.running === "focus" || run.focus.applied)
       && !!run.focus.points[run.focus.selected] && !!activeRecording(run.focusPreset)?.frameUm,
     staysSolid: true,
     paint: (frame) => {
