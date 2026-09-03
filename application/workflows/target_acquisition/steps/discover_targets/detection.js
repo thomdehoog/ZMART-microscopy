@@ -45,7 +45,7 @@ import { sideGroup } from "../../../../framework/window/panels.js";
 
 export default {
   id: "detect",
-  label: "Discover Targets",
+  label: "Detect objects",
 
   /**
    * Build the channel and draw the field being tried on.

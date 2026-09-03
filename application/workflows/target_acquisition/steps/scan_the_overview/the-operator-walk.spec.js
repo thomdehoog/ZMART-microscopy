@@ -107,7 +107,7 @@ test("an operator walks from Connect to a scanned overview", async ({ page }) =>
 
   // 3. Where to scan it. The tileset needs the instrument's own optics first:
   //    how much sample a frame covers decides how many frames a well takes.
-  await gotoStep(page, "Define scan area");
+  await gotoStep(page, "Overview scan area");
   await record(page, "sf-preset", "overview");
   await page.locator(".sf-apply-grid").click();
   await page.waitForTimeout(600);

@@ -101,7 +101,7 @@ async function throughSetupRoomy(page) {
  * their frame from it are laid. */
 async function throughFields(page) {
   await throughSetup(page);
-  await gotoStep(page, "Define scan area");
+  await gotoStep(page, "Overview scan area");
   await recordSlot(page, "sf-preset", "overview");
   await page.locator(".sf-apply-grid").click();
   await page.waitForTimeout(300);
@@ -174,11 +174,11 @@ test.afterEach(async ({ page }) => {
 });
 
 test("the rail carries the workflow's declared steps", async ({ page }) => {
-  await expect(page.locator("#steps .step")).toHaveCount(8);
+  await expect(page.locator("#steps .step")).toHaveCount(9);
   await expect(page.locator(".step.active .step-name")).toHaveText("Connect");
   // the fields are said before the focus that keeps them sharp and the scan
   // that visits them, because both of those are about positions that exist
-  await expect(page.locator(".step-name").nth(2)).toHaveText("Define scan area");
+  await expect(page.locator(".step-name").nth(2)).toHaveText("Overview scan area");
   await expect(page.locator(".step-name").nth(3)).toHaveText("Focus strategy");
 });
 
@@ -305,7 +305,7 @@ test("an open session is not editable, and Disconnect is the way out", async ({ 
   // session — but keeps what it was opened with, since editing that is the
   // reason to close one
   await gotoStep(page, "Define Carrier");
-  await gotoStep(page, "Define scan area");
+  await gotoStep(page, "Overview scan area");
   await recordSlot(page, "sf-preset", "survey");
   await expect(page.locator("#sf-preset .rec-row")).toHaveCount(1);
 
@@ -326,7 +326,7 @@ test("an open session is not editable, and Disconnect is the way out", async ({ 
   await page.locator(".session-foot button.run").click();
   await page.waitForTimeout(2200);
   await gotoStep(page, "Define Carrier");
-  await gotoStep(page, "Define scan area");
+  await gotoStep(page, "Overview scan area");
   await expect(page.locator("#sf-preset .rec-row")).toHaveCount(0);
   /* And the bar is back to offering the first import rather than an update,
      which is the whole of what it carries — there is no name half-typed into
@@ -338,7 +338,7 @@ test("an open session is not editable, and Disconnect is the way out", async ({ 
 test("the fields wait for the preset they will be taken with",
   async ({ page }) => {
     await throughSetup(page);
-    await gotoStep(page, "Define scan area");
+    await gotoStep(page, "Overview scan area");
 
     /* A preset is a reading taken off this instrument today. Nothing is
        seeded, and until it exists there is nothing to lay: a field takes its
@@ -368,14 +368,14 @@ test("the fields wait for the preset they will be taken with",
     await page.locator(".sf-apply-grid").click();
     await page.waitForTimeout(300);
     await expect(page.locator(".sf-readout")).toContainText("864 positions");
-    await expect(page.locator('.step:has-text("Define scan area")').first())
+    await expect(page.locator('.step:has-text("Overview scan area")').first())
       .toHaveClass(/done/);
   });
 
 test("recording again replaces the reading, and re-takes the plan with it",
   async ({ page }) => {
     await throughSetup(page);
-    await gotoStep(page, "Define scan area");
+    await gotoStep(page, "Overview scan area");
     await recordSlot(page, "sf-preset", "overview");
 
     /* A region rather than the grid: what a region costs is what its preset
@@ -418,7 +418,7 @@ test("recording again replaces the reading, and re-takes the plan with it",
 test("the reading on screen is the current one, however many were taken",
   async ({ page }) => {
     await throughSetup(page);
-    await gotoStep(page, "Define scan area");
+    await gotoStep(page, "Overview scan area");
     /* Four readings in a row — an operator adjusting the instrument and
        re-reading it as they go. Each replaces the last: the slot answers
        "what will this run be taken with", and that has one answer. */
@@ -434,7 +434,7 @@ test("the reading on screen is the current one, however many were taken",
 
 test("a recorded preset unfolds to show everything that was read", async ({ page }) => {
   await throughSetup(page);
-  await gotoStep(page, "Define scan area");
+  await gotoStep(page, "Overview scan area");
   await recordSlot(page, "sf-preset", "survey");
   const fold = page.locator(".rec-fold").first();
 
@@ -474,15 +474,15 @@ test("nothing advances by itself, and the next step stays locked until it can ru
        on the carrier is what settles it — so it opens, and nothing after it
        does yet. */
     await expect(page.locator('.step:has-text("Define Carrier")').first()).toBeEnabled();
-    await expect(page.locator('.step:has-text("Define scan area")').first()).toBeDisabled();
+    await expect(page.locator('.step:has-text("Overview scan area")').first()).toBeDisabled();
 
     await gotoStep(page, "Define Carrier");
     await page.waitForTimeout(200);
-    await expect(page.locator('.step:has-text("Define scan area")').first()).toBeEnabled();
+    await expect(page.locator('.step:has-text("Overview scan area")').first()).toBeEnabled();
     await expect(page.locator('.step:has-text("Focus strategy")').first()).toBeDisabled();
 
     // positions are what that step needs, and the next one opens behind them
-    await gotoStep(page, "Define scan area");
+    await gotoStep(page, "Overview scan area");
     await recordSlot(page, "sf-preset", "survey");
     await page.locator(".sf-apply-grid").click();
     await page.waitForTimeout(300);
@@ -530,8 +530,8 @@ test("the canvas is always on the stage, and the channel follows the step",
        the canvas the way the carrier is, so they take the same column and the
        heading says whose it is — rather than a second column beside it holding
        controls for a step nobody is on. */
-    await gotoStep(page, "Define scan area");
-    await expect(page.locator(".side-tab")).toHaveText("Define scan area");
+    await gotoStep(page, "Overview scan area");
+    await expect(page.locator(".side-tab")).toHaveText("Overview scan area");
     await expect(page.locator(".carrier-card")).toHaveCount(0);
     // the editor is in the same channel, dead until the preset it needs exists
     await expect(page.locator(".sf-card")).toHaveCount(1);
@@ -579,9 +579,9 @@ test("the canvas is always on the stage, and the channel follows the step",
 test("the grid comes from the carrier, so changing the plate changes the plan",
   async ({ page }) => {
     await throughSetup(page);
-    await gotoStep(page, "Define scan area");
+    await gotoStep(page, "Overview scan area");
     // nothing to scan yet, so the step is not done and the next one is shut
-    await expect(page.locator('.step:has-text("Define scan area")').first())
+    await expect(page.locator('.step:has-text("Overview scan area")').first())
       .not.toHaveClass(/done/);
     await expect(page.locator('.step:has-text("Focus strategy")').first()).toBeDisabled();
 
@@ -592,7 +592,7 @@ test("the grid comes from the carrier, so changing the plate changes the plan",
        three, and a 20x frame is 676 µm across while a well is 6.58 mm, so all
        nine frames sit comfortably inside the well. */
     await expect(page.locator(".sf-readout")).toContainText("864 positions");
-    await expect(page.locator('.step:has-text("Define scan area")').first())
+    await expect(page.locator('.step:has-text("Overview scan area")').first())
       .toHaveClass(/done/);
 
     /* And the carrier is still editable. It used to lock here, on the argument
@@ -612,7 +612,7 @@ test("the grid comes from the carrier, so changing the plate changes the plan",
     await throughSetup(page);
     await page.locator(".carrier-preset").selectOption({ label: "6-well · Nunc Nunclon" });
     await page.waitForTimeout(200);
-    await gotoStep(page, "Define scan area");
+    await gotoStep(page, "Overview scan area");
     await recordSlot(page, "sf-preset", "overview");
     await page.locator(".sf-apply-grid").click();
     await page.waitForTimeout(300);
@@ -747,7 +747,7 @@ test("every carrier is designed in one panel, showing what that carrier has",
 test("the tools and the grid are on screen together, over what the grid laid",
   async ({ page }) => {
     await throughFields(page);
-    await gotoStep(page, "Define scan area");
+    await gotoStep(page, "Overview scan area");
     /* Both ways of laying tilesets are offered at once, in one box with a word
        apiece over them. A grid laid in every well is a perfectly good thing to
        then draw a tileset over, and there is no mode to leave before doing
@@ -788,7 +788,7 @@ test("the tools and the grid are on screen together, over what the grid laid",
 test("a grid position can be picked and dropped, but not dragged off its grid",
   async ({ page }) => {
     await throughFields(page);
-    await gotoStep(page, "Define scan area");
+    await gotoStep(page, "Overview scan area");
     const box = await page.locator("#stage-canvas").boundingBox();
     const shot = () => page.locator("#stage-canvas").screenshot();
 
@@ -850,7 +850,7 @@ test("a grid position can be picked and dropped, but not dragged off its grid",
 test("what the objective sees stays inside the well",
   async ({ page }) => {
     await throughSetup(page);
-    await gotoStep(page, "Define scan area");
+    await gotoStep(page, "Overview scan area");
     await recordSlot(page, "sf-preset", "overview");
     await page.locator(".sf-apply-grid").click();
     await page.waitForTimeout(300);
@@ -872,7 +872,7 @@ test("what the objective sees stays inside the well",
 test("a position put down on the plastic slides into the well it was nearest",
   async ({ page }) => {
     await throughSetup(page);
-    await gotoStep(page, "Define scan area");
+    await gotoStep(page, "Overview scan area");
     await recordSlot(page, "sf-preset", "overview");
     const box = await page.locator("#stage-canvas").boundingBox();
 
@@ -891,7 +891,7 @@ test("a position put down on the plastic slides into the well it was nearest",
 test("a position dragged across the plate steps from well to well",
   async ({ page }) => {
     await throughSetup(page);
-    await gotoStep(page, "Define scan area");
+    await gotoStep(page, "Overview scan area");
     await recordSlot(page, "sf-preset", "overview");
     const box = await page.locator("#stage-canvas").boundingBox();
     const at = (fx, fy) => ({ x: box.x + box.width * fx, y: box.y + box.height * fy });
@@ -944,7 +944,7 @@ test("a position dragged across the plate steps from well to well",
 test("a region is drawn on the canvas and covered by its preset's frame",
   async ({ page }) => {
     await throughSetupRoomy(page);
-    await gotoStep(page, "Define scan area");
+    await gotoStep(page, "Overview scan area");
     await recordSlot(page, "sf-preset", "overview");
     const box = await page.locator("#stage-canvas").boundingBox();
 
@@ -979,7 +979,7 @@ test("a region is drawn on the canvas and covered by its preset's frame",
 test("a polygon is closed by a double-click, and keeps the vertices it was given",
   async ({ page }) => {
     await throughSetup(page);
-    await gotoStep(page, "Define scan area");
+    await gotoStep(page, "Overview scan area");
     await recordSlot(page, "sf-preset", "overview");
     const box = await page.locator("#stage-canvas").boundingBox();
     const at = (fx, fy) => ({ x: box.x + box.width * fx, y: box.y + box.height * fy });
@@ -1017,7 +1017,7 @@ test("walking back to the carrier takes the plan off the canvas, and keeps it",
     // the carrier alone, before there is any plan to draw over it
     const bare = await shot();
 
-    await gotoStep(page, "Define scan area");
+    await gotoStep(page, "Overview scan area");
     await recordSlot(page, "sf-preset", "overview");
     await page.locator(".sf-apply-grid").click();
     await page.waitForTimeout(400);
@@ -1033,7 +1033,7 @@ test("walking back to the carrier takes the plan off the canvas, and keeps it",
       "the carrier is back to how it looked before any fields existed").toBe(true);
 
     // taken off the canvas, not thrown away
-    await gotoStep(page, "Define scan area");
+    await gotoStep(page, "Overview scan area");
     await page.waitForTimeout(300);
     await expect(page.locator(".sf-readout")).toContainText("864 positions");
   });
@@ -1050,7 +1050,7 @@ test("the plan stays editable until the overview has been scanned",
     /* Back past the focus map, the plan is still the operator's to change: a
        fitted surface is a statement about the plate, measured at points that
        stay where they were put whatever the scan fields do. */
-    await gotoStep(page, "Define scan area");
+    await gotoStep(page, "Overview scan area");
     await page.waitForTimeout(300);
     await expect(page.locator(".sf-apply-grid")).toBeEnabled();
     await expect(page.locator(".sf-tool[data-tool='rectangle']")).toBeEnabled();
@@ -1059,7 +1059,7 @@ test("the plan stays editable until the overview has been scanned",
     await runStep(page, 3000);
 
     // and now it is not: the tiles are pictures taken at those positions
-    await gotoStep(page, "Define scan area");
+    await gotoStep(page, "Overview scan area");
     await page.waitForTimeout(300);
     await expect(page.locator(".sf-apply-grid")).toBeDisabled();
     await expect(page.locator(".sf-tool[data-tool='rectangle']")).toBeDisabled();
@@ -1068,7 +1068,7 @@ test("the plan stays editable until the overview has been scanned",
 test("a press on empty canvas lets go of the selection, and the canvas shows it",
   async ({ page }) => {
     await throughSetup(page);
-    await gotoStep(page, "Define scan area");
+    await gotoStep(page, "Overview scan area");
     await recordSlot(page, "sf-preset", "overview");
     const box = await page.locator("#stage-canvas").boundingBox();
     const at = (fx, fy) => ({ x: box.x + box.width * fx, y: box.y + box.height * fy });
@@ -1099,7 +1099,7 @@ test("a press on empty canvas lets go of the selection, and the canvas shows it"
 test("a region can be copied, and a second paste lands clear of the first",
   async ({ page }) => {
     await throughSetupRoomy(page);
-    await gotoStep(page, "Define scan area");
+    await gotoStep(page, "Overview scan area");
     await recordSlot(page, "sf-preset", "overview");
     const box = await page.locator("#stage-canvas").boundingBox();
 
@@ -1136,7 +1136,7 @@ test("a region can be copied, and a second paste lands clear of the first",
 test("a pasted position is hand-made, so the next Apply leaves it alone",
   async ({ page }) => {
     await throughFields(page);
-    await gotoStep(page, "Define scan area");
+    await gotoStep(page, "Overview scan area");
     await expect(page.locator(".sf-readout")).toContainText("864 positions");
 
     /* Copying is how a grid position is kept: the copy sheds the grid tag, so
@@ -1176,7 +1176,7 @@ test("a grid is laid again under a preset whose frame is a different size",
     await gotoStep(page, "Define Carrier");
     await page.locator(".carrier-type[data-type='slide']").click();
     await page.waitForTimeout(200);
-    await gotoStep(page, "Define scan area");
+    await gotoStep(page, "Overview scan area");
     await recordSlot(page, "sf-preset", "wide");     // 20x, a 676 µm frame
 
     // laid under the 20x, at the pitch the boxes offer for that frame
@@ -1255,7 +1255,7 @@ test("focus points are laid so many to a tileset", async ({ page }) => {
   await page.locator(".carrier-type[data-type='wellplate']").click();
   await page.locator(".carrier-preset").selectOption({ label: "6-well · Nunc Nunclon" });
   await page.waitForTimeout(200);
-  await gotoStep(page, "Define scan area");
+  await gotoStep(page, "Overview scan area");
   await recordSlot(page, "sf-preset", "overview");
   const box = await page.locator("#stage-canvas").boundingBox();
   /* Fractions of the stage picture, not of the box: Fit puts the 120 x 80 mm
@@ -1403,7 +1403,7 @@ test("one walk of the whole run", async ({ page }) => {
   await gotoStep(page, "Scan the overview");
   await runStep(page, 3000);
 
-  await gotoStep(page, "Discover Targets");
+  await gotoStep(page, "Detect objects");
   await expect(page.locator("#tile-label")).toHaveText("1 / 864");
   /* Discovery runs on the operator's say-so, tested or not -- the tile test
      is an offer. This walk still takes it, the way an operator would -- and
@@ -1439,7 +1439,7 @@ test("one walk of the whole run", async ({ page }) => {
      discovery step, and the cells layer draws only what is chosen. */
   await expectTargetAtItsProjection(page, discovered[0], "Step 6");
 
-  await gotoStep(page, "Refine Targets");
+  await gotoStep(page, "Discover Targets");
   const beforeGate = await targetsOnCanvas(page);
   expect(physicalTargetPositions(beforeGate),
     "Step 7 keeps every discovered target at its carrier-local position")
@@ -1477,28 +1477,24 @@ test("one walk of the whole run", async ({ page }) => {
   await expectTargetLayerOnCanvas(
     page, "cells", "Step 7 selected and context targets materially change the canvas");
 
-  // the gate and its ceiling belong to the run, not to the panel that drew
-  // them: coming back, the box shows the ceiling as typed, over the
-  // selection the gates let through
+  // the gate and its ceiling belong to the run, not to the panels that
+  // drew them: the gates stand on Discover Targets, the ceiling on the
+  // target scan area, and coming back each shows what the run holds
+  await gotoStep(page, "Target scan area");
   await page.locator("#gate-max").fill("1");
   await page.locator("#gate-max").dispatchEvent("input");
   await page.waitForTimeout(200);
-  const readoutUnderTheCeiling = await page.locator("#gate-readout").textContent();
   expect((await targetsOnCanvas(page)).filter((target) => target.selected).length,
     "a ceiling typed is not a ceiling applied: the gate's whole catch stays selected").toBe(inTheGate);
-  await page.locator('.tab:has-text("Canvas")').click();
-  await page.waitForTimeout(250);
-  await gotoStep(page, "Refine Targets");
-  await expect(page.locator("#gate-max")).toHaveValue("1");
-  // standing on another step and coming back builds the panel afresh
+  // standing on another step and coming back builds the panels afresh
   await gotoStep(page, "Scan the overview");
   await page.waitForTimeout(250);
-  await gotoStep(page, "Refine Targets");
-  await expect(page.locator("#gate-readout")).toHaveText(readoutUnderTheCeiling);
+  await gotoStep(page, "Discover Targets");
   await expect(page.locator("#gate-list .gate-row")).toHaveCount(1);
-  await expect(page.locator("#gate-max")).toHaveValue("1");
   expect((await targetsOnCanvas(page)).filter((target) => target.selected).length,
     "walking away and back restricts nothing").toBe(inTheGate);
+  await gotoStep(page, "Target scan area");
+  await expect(page.locator("#gate-max")).toHaveValue("1");
 
   /* Restrict is the press that applies the ceiling: one per tileset under
      this one, on the canvas and in the readout alike. */
@@ -1521,7 +1517,9 @@ test("one walk of the whole run", async ({ page }) => {
   expect((await targetsOnCanvas(page)).filter((target) => target.selected).length,
     "Restrict holds the selection to the ceiling the box shows, per tileset")
     .toBe(underCeiling(gatedTargets, 1));
+  await gotoStep(page, "Discover Targets");
   await expect(page.locator("#gate-readout")).toContainText(`${underCeiling(gatedTargets, 1)} kept of ${inTheGate}`);
+  await gotoStep(page, "Target scan area");
   /* A ceiling touched after Restrict is a selection not yet restricted:
      the gate's whole catch is back and the step asks for its press again. */
   await page.locator("#gate-max").fill("2");
@@ -1547,10 +1545,10 @@ test("one walk of the whole run", async ({ page }) => {
      recorded off the instrument in this step's own channel, and the button
      waits for it. */
   await expect(page.locator(".panel.on button.step-run")).toBeDisabled();
-  /* The slot stands on the refine step, beside the selection it images; it
-     imports the configuration off the instrument and names it itself, the
-     way the scan area's and the focus step's slots do. */
-  await gotoStep(page, "Refine Targets");
+  /* The slot stands on the target scan area, the step before; it imports
+     the configuration off the instrument and names it itself, the way the
+     overview's and the focus step's slots do. */
+  await gotoStep(page, "Target scan area");
   const tt = page.locator("#target-type .setting-box.open");
   await tt.locator("button.run").click();
   await page.waitForTimeout(650);

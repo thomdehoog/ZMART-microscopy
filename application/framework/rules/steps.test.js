@@ -40,9 +40,9 @@ describe("numbering is derived, so reordering costs nothing", () => {
     expect(out.map((s) => s.n)).toEqual(["1", "2a", "2b", "3"]);
   });
 
-  it("numbers target acquisition straight through, one to eight", () => {
+  it("numbers target acquisition straight through, one to nine", () => {
     expect(WORKFLOWS.target_acquisition.steps.map((s) => s.n))
-      .toEqual(["1", "2", "3", "4", "5", "6", "7", "8"]);
+      .toEqual(["1", "2", "3", "4", "5", "6", "7", "8", "9"]);
   });
 });
 
@@ -163,6 +163,7 @@ describe("panels follow the step", () => {
       focus: ["canvas"],
       scan: ["canvas"],
       detect: ["canvas"],
+      gate: ["canvas"],
       select: ["canvas"],
       acquire: ["canvas"],
     });
@@ -210,7 +211,7 @@ describe("workflows compose the catalogue rather than restating it", () => {
   it("walks target acquisition in this order", () => {
     expect(ids("target_acquisition")).toEqual([
       "connect", "carrier", "scanfields", "focus",
-      "scan", "detect", "select", "acquire",
+      "scan", "detect", "gate", "select", "acquire",
     ]);
   });
 
@@ -246,7 +247,7 @@ describe("workflows compose the catalogue rather than restating it", () => {
      the step still completes, and nothing happens in between. */
   it("every step names work the page knows how to do, or none", () => {
     const known = new Set([
-      "carrier", "scanfields", "focus", "scan", "detect", "select", "targets"]);
+      "carrier", "scanfields", "focus", "scan", "detect", "gate", "select", "targets"]);
     for (const wf of Object.keys(WORKFLOWS)) {
       for (const s of WORKFLOWS[wf].steps) {
         if (s.mode) expect(known.has(s.mode), `${s.id} -> ${s.mode}`).toBe(true);

@@ -100,7 +100,7 @@ test("record the corresponding Smart Operator panel state", async ({ page, reque
   await gotoStep(page, "Define Carrier");
   await page.locator(".carrier-type[data-type='wellplate']").click();
   await page.locator(".carrier-preset").selectOption({ label: "6-well · Nunc Nunclon" });
-  await gotoStep(page, "Define scan area");
+  await gotoStep(page, "Overview scan area");
   await recordSlot(page, "sf-preset", "overview");
   await page.locator(".sf-apply-grid").click();
 

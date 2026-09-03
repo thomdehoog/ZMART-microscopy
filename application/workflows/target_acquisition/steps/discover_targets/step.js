@@ -1,5 +1,5 @@
 /**
- * Step 6 — Discover Targets.
+ * Step 6 — Detect objects.
  *
  * Discovery brings no panel of its own: the targets it finds land on the
  * canvas, and its controls sit in the channel beside it, the same shape as
@@ -8,7 +8,7 @@
 
 export const detectCells = {
   id: "detect",
-  title: "Discover Targets",
+  title: "Detect objects",
   why: "Segments every overview tile. Each cell found becomes one target candidate.",
   btn: "Segment all",
   panels: [],

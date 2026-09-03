@@ -1,5 +1,5 @@
 /**
- * Step 3 — Define scan area.
+ * Step 3 — Overview scan area.
  *
  * The preset the overview is taken with is recorded here, not in a step of
  * its own: the fields take their frame from it, so it is tested where it
@@ -13,7 +13,7 @@
 
 export const initialScanfields = {
   id: "scanfields",
-  title: "Define scan area",
+  title: "Overview scan area",
   why: "Record the preset the overview is taken with, then say where on the carrier it is taken.",
   panels: [],
   mode: "scanfields",

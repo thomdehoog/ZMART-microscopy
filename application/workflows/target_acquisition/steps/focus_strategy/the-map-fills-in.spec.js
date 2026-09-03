@@ -37,7 +37,7 @@ test("points appear in the list one at a time while the map is measured", async 
   await page.locator(".carrier-type[data-type='wellplate']").click();
   await page.locator(".carrier-preset").selectOption({ label: "6-well · Nunc Nunclon" });
   await page.waitForTimeout(600);
-  await gotoStep(page, "Define scan area");
+  await gotoStep(page, "Overview scan area");
   await record(page, "sf-preset", "overview");
   await page.locator(".sf-apply-grid").click();
   await page.waitForTimeout(600);

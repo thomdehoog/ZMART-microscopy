@@ -683,7 +683,7 @@ async function throughStepFive({ page, take, port, bridge }) {
     extra: { carrier: { ...carrier, driverCanvas: info.canvas ?? null } },
   });
 
-  await gotoStep(page, "Define scan area");
+  await gotoStep(page, "Overview scan area");
   await recordSlot(page, "sf-preset", "overview");
   await page.locator(".sf-apply-grid").click();
   await page.waitForTimeout(800);
@@ -992,7 +992,7 @@ test("Steps 1 to 8 through the operator page on the real bridge, Viewer 0.2 and 
     const { plan, planBoxes } = await throughStepFive({ page, take, port: PORT, bridge });
 
     /* ---------------------------------------------------------- Step 6 */
-    await gotoStep(page, "Discover Targets");
+    await gotoStep(page, "Detect objects");
     /* The review runs Cellpose, the accurate way; the page opens on the fast one. */
     await page.selectOption("#detect-method", "accurate");
     await expect(page.locator("#tile-label")).toHaveText("1 / 9");
@@ -1076,7 +1076,7 @@ test("Steps 1 to 8 through the operator page on the real bridge, Viewer 0.2 and 
        channel, pressing the step's name brings the channel back, and the
        canvas does not move by a pixel either way. */
     await expect(page.locator(".side-tab button.tab")).toHaveCount(2);
-    await page.locator(".side-tab button.tab", { hasText: "Discover Targets" }).click();
+    await page.locator(".side-tab button.tab", { hasText: "Detect objects" }).click();
     await expect(page.locator("#canvas-side")).toBeVisible();
     const canvasBefore = await page.locator("#stage-canvas").boundingBox();
     await page.locator(".side-tab button.tab", { hasText: "Display settings" }).click();
@@ -1087,13 +1087,13 @@ test("Steps 1 to 8 through the operator page on the real bridge, Viewer 0.2 and 
     await take("step6-display-settings-tab", {
       step: 6, state: "the display settings shown in the channel's column, a tab away from the step; the canvas where it was",
     });
-    await page.locator(".side-tab button.tab", { hasText: "Discover Targets" }).click();
+    await page.locator(".side-tab button.tab", { hasText: "Detect objects" }).click();
     await expect(page.locator("#canvas-side")).toBeVisible();
     await expect(page.locator("#display-side")).toBeHidden();
     expect(await page.locator("#stage-canvas").boundingBox(), "bringing the channel back does not move the canvas").toEqual(canvasBefore);
 
     /* ---------------------------------------------------------- Step 7 */
-    await gotoStep(page, "Refine Targets");
+    await gotoStep(page, "Discover Targets");
     const beforeGate = await page.evaluate(() => window.__theStageCanvas.targets());
     expect(identityOf(beforeGate)).toEqual(identityOf(discovered));
     expect(beforeGate.every((one) => !one.selected), "no gate selects nothing, not everything").toBe(true);
@@ -1105,8 +1105,6 @@ test("Steps 1 to 8 through the operator page on the real bridge, Viewer 0.2 and 
         expect(record.counts.targetsOnCanvas).toBe(discovered.length);
       },
     });
-    await page.locator("#gate-max").fill(String(MAX_TARGETS));
-    await page.locator("#gate-max").dispatchEvent("input");
     const fx = await page.locator("#gate-fx").inputValue();
     const fy = await page.locator("#gate-fy").inputValue();
     const sc = await page.locator("#scatter-canvas").boundingBox();
@@ -1122,8 +1120,12 @@ test("Steps 1 to 8 through the operator page on the real bridge, Viewer 0.2 and 
     /* The gate rings its catch as it is drawn; the ceiling is applied by
        the Restrict press, and only then is the selection a run's worth. */
     const restrict = async () => {
+      await gotoStep(page, "Target scan area");
+      await page.locator("#gate-max").fill(String(MAX_TARGETS));
+      await page.locator("#gate-max").dispatchEvent("input");
       await page.locator(".panel.on button.step-run").click();
       await expect(page.locator(".panel.on button.step-run")).toHaveText("Run again", { timeout: 30_000 });
+      await gotoStep(page, "Discover Targets");
     };
     await lay();
     await expect(page.locator("#gate-list .gate-row")).toHaveCount(1);
@@ -1156,7 +1158,7 @@ test("Steps 1 to 8 through the operator page on the real bridge, Viewer 0.2 and 
     const selectedAfter = (await page.evaluate(() => window.__theStageCanvas.targets())).filter((one) => one.selected).map((one) => one.id);
     await gotoStep(page, "Scan the overview");
     await page.waitForTimeout(300);
-    await gotoStep(page, "Refine Targets");
+    await gotoStep(page, "Discover Targets");
     await expect(page.locator("#gate-list .gate-row")).toHaveCount(1);
     const kept = await page.evaluate(() => window.__theStageCanvas.targets());
     expect(kept.filter((one) => one.selected).map((one) => one.id).sort()).toEqual([...selectedAfter].sort());
@@ -1179,8 +1181,8 @@ test("Steps 1 to 8 through the operator page on the real bridge, Viewer 0.2 and 
     expect(ready.filter((one) => one.selected).map((one) => one.id).sort()).toEqual([...selectedAfter].sort());
     await expect(page.locator(".panel.on button.step-run"), "acquisition waits for the target configuration").toBeDisabled();
     await expect(page.locator(".action-hint")).toContainText(/record the acquisition type/);
-    /* The settings are recorded on the refine step, beside the selection. */
-    await gotoStep(page, "Refine Targets");
+    /* The settings are recorded on the target scan area, the step before. */
+    await gotoStep(page, "Target scan area");
     await page.locator("#target-type .setting-box.open button.run").click();
     await page.waitForTimeout(700);
     await expect(page.locator("#target-type .setting-box.done")).toHaveCount(1);
@@ -1438,7 +1440,7 @@ test("Step 8 interruption: an acquisition stopped by hand accounts for exactly w
 
     /* Steps 6 and 7 the short way: the whole population discovered, one
        gate, a ceiling high enough that the run outlasts the operator's hand. */
-    await gotoStep(page, "Discover Targets");
+    await gotoStep(page, "Detect objects");
     /* The review runs Cellpose, the accurate way; the page opens on the fast one. */
     await page.selectOption("#detect-method", "accurate");
     await page.locator(".panel.on button.step-run").click();
@@ -1446,9 +1448,7 @@ test("Step 8 interruption: an acquisition stopped by hand accounts for exactly w
     const discovery = await bridgeJson(page, port, "/api/targets/discover");
     expect(discovery.error, "discovery finished without a bridge error").toBeNull();
     expect(discovery.fields.length, "every field was examined").toBe(9);
-    await gotoStep(page, "Refine Targets");
-    await page.locator("#gate-max").fill(String(all));
-    await page.locator("#gate-max").dispatchEvent("input");
+    await gotoStep(page, "Discover Targets");
     const sc = await page.locator("#scatter-canvas").boundingBox();
     const polygon = [[0.2, 0.08], [0.98, 0.08], [0.98, 0.85], [0.2, 0.85]];
     for (const [gx, gy] of polygon) {
@@ -1458,6 +1458,9 @@ test("Step 8 interruption: an acquisition stopped by hand accounts for exactly w
     await page.mouse.click(...plotPoint(sc, polygon[0][0], polygon[0][1]));
     await page.waitForTimeout(400);
     await expect(page.locator("#gate-list .gate-row")).toHaveCount(1);
+    await gotoStep(page, "Target scan area");
+    await page.locator("#gate-max").fill(String(all));
+    await page.locator("#gate-max").dispatchEvent("input");
     await page.locator(".panel.on button.step-run").click();
     await expect(page.locator(".panel.on button.step-run")).toHaveText("Run again", { timeout: 30_000 });
     const gated = (await page.evaluate(() => window.__theStageCanvas.targets())).filter((one) => one.selected);
@@ -1553,7 +1556,7 @@ test("Steps 4 to 6: the picture's own box is the switch the focus map reads, and
     await gotoStep(page, "Define Carrier");
     await page.locator(".carrier-type[data-type='slide']").click();
     await page.waitForTimeout(600);
-    await gotoStep(page, "Define scan area");
+    await gotoStep(page, "Overview scan area");
     await recordSlot(page, "sf-preset", "overview");
     await page.locator(".sf-apply-grid").click();
     await page.waitForTimeout(800);
@@ -1617,7 +1620,7 @@ test("Steps 4 to 6: the picture's own box is the switch the focus map reads, and
     await expect.poll(async () => !(await bridgeJson(page, port, "/api/scan")).running, { timeout: 400_000 }).toBe(true);
     await expect.poll(() => rowsOfGroup(page, "overview").then((rows) => rows.length), { timeout: 60_000 }).toBeGreaterThan(0);
     await expect(page.locator(".panel.on button.step-run")).toHaveText("Run again", { timeout: 60_000 });
-    await gotoStep(page, "Discover Targets");
+    await gotoStep(page, "Detect objects");
     await expect(page.locator("#tile-label")).toHaveText("1 / 9");
     const field = page.locator(".panel.on canvas[data-picture]");
     await expect.poll(() => field.getAttribute("data-picture"), "the field is asked for with a display").toContain("display=");
