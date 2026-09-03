@@ -1404,7 +1404,9 @@ test("one walk of the whole run", async ({ page }) => {
   await runStep(page, 3000);
 
   await gotoStep(page, "Detect objects");
-  await expect(page.locator("#tile-label")).toHaveText("1 / 864");
+  /* Detection opens on the field the scan ended on: the lit frame followed
+     the scan there. */
+  await expect(page.locator("#tile-label")).toHaveText("864 / 864");
   /* Discovery runs on the operator's say-so, tested or not -- the tile test
      is an offer. This walk still takes it, the way an operator would -- and
      first stops one by hand: the press that started the test becomes

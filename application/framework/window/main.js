@@ -655,6 +655,8 @@ let stageWatch = null;
           if (state.running !== s.id) return;
           state.tilesShown = done;
           status.say(`scanning field ${done} of ${state.plan.length}`);
+          /* The lit frame follows the scan, as it follows the segmentation. */
+          state.detect.tile = Math.max(0, done - 1);
           /* The mark keeps up with the stage field by field, not every few
              seconds. */
           stageWatch?.refresh();
