@@ -1121,6 +1121,10 @@ test("Steps 1 to 8 through the operator page on the real bridge, Viewer 0.2 and 
        the Restrict press, and only then is the selection a run's worth. */
     const restrict = async () => {
       await gotoStep(page, "Target scan area");
+      if (await page.locator("#target-type .setting-box.done").count() === 0) {
+        await page.locator("#target-type .setting-box.open button.run").click();
+        await page.waitForTimeout(700);
+      }
       await page.locator("#gate-max").fill(String(MAX_TARGETS));
       await page.locator("#gate-max").dispatchEvent("input");
       await page.locator(".panel.on button.step-run").click();
@@ -1182,16 +1186,8 @@ test("Steps 1 to 8 through the operator page on the real bridge, Viewer 0.2 and 
     const ready = await page.evaluate(() => window.__theStageCanvas.targets());
     expect(identityOf(ready)).toEqual(identityOf(discovered));
     expect(ready.filter((one) => one.restricted).map((one) => one.id).sort()).toEqual([...selectedAfter].sort());
-    await expect(page.locator(".panel.on button.step-run"), "acquisition waits for the target configuration").toBeDisabled();
-    await expect(page.locator(".action-hint")).toContainText(/add the tiles/);
-    /* The settings are recorded on the target scan area, the step before. */
-    await gotoStep(page, "Target scan area");
-    await page.locator("#target-type .setting-box.open button.run").click();
-    await page.waitForTimeout(700);
-    await expect(page.locator("#target-type .setting-box.done")).toHaveCount(1);
-    await page.locator("#add-tiles").click();
-    await page.waitForTimeout(300);
-    await gotoStep(page, "Acquire Targets");
+    /* The settings were imported and the scan areas placed on the step
+       before, by its press. */
     await expect(page.locator(".panel.on button.step-run")).toBeEnabled();
     await take("step8-ready-to-acquire", {
       step: 8, state: `target configuration recorded; ${selectedAfter.length} targets gated; Acquire enabled`,
@@ -1471,6 +1467,8 @@ test("Step 8 interruption: an acquisition stopped by hand accounts for exactly w
     await page.waitForTimeout(400);
     await expect(page.locator("#gate-list .gate-row")).toHaveCount(1);
     await gotoStep(page, "Target scan area");
+    await page.locator("#target-type .setting-box.open button.run").click();
+    await page.waitForTimeout(700);
     await page.locator("#gate-max").fill(String(all));
     await page.locator("#gate-max").dispatchEvent("input");
     await page.locator(".panel.on button.step-run").click();
@@ -1481,10 +1479,6 @@ test("Step 8 interruption: an acquisition stopped by hand accounts for exactly w
 
     /* Step 8: started with the real button, stopped with the same button
        once the first pair has landed. */
-    await page.locator("#target-type .setting-box.open button.run").click();
-    await page.waitForTimeout(700);
-    await page.locator("#add-tiles").click();
-    await page.waitForTimeout(300);
     await gotoStep(page, "Acquire Targets");
     await expect(page.locator(".panel.on button.step-run")).toBeEnabled();
     await page.locator(".panel.on button.step-run").click();
