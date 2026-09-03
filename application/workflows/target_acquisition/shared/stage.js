@@ -571,7 +571,7 @@ function drawnIn(frame) {
  * `parts/canvas/layers-above.js`.
  */
 const THE_STACK = [
-  "ground", "limits", "carrier", "tiles", "segmentation", "cells", "targets",
+  "ground", "limits", "carrier", "tiles", "segmentation", "cells", "frames", "targets",
   "focus", "plan", "focusFrame", "focusPoints", "detect", "editing", "anchors", "stage", "scale",
 ];
 
@@ -797,6 +797,7 @@ function targetSnapshot() {
       y: cell.y,
       screen: { x: at.x, y: at.y },
       selected: run.gated.has(cell.id),
+      restricted: run.restricted.has(cell.id),
       acquired: acquired.has(cell.id),
     };
   });

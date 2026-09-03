@@ -207,7 +207,7 @@ export default {
         return;
       }
       const inGates = cellsInAllGates(cells, gates).size;
-      const took = ctx.gated().size;
+      const took = (ctx.restricted?.() ?? new Set()).size || ctx.gated().size;
       readout.textContent =
         (took < inGates
           ? `${took} kept of ${inGates} in gates · `
@@ -370,8 +370,8 @@ export default {
       paint.fillStyle = ctx.css("--mark-context");
       paint.globalAlpha = crowd > 3000 ? 0.35 : 0.5;
       paint.beginPath();
-      const restricted = ctx.restricted?.() ?? false;
-      const marked = restricted ? gated : cellsInAllGates(cells, ctx.gates());
+      const kept = ctx.restricted?.() ?? new Set();
+      const marked = gated;
       for (const c of cells) {
         if (marked.has(c.id)) continue;
         const x = sx(cellFeature(c, fx), w), y = sy(cellFeature(c, fy), h);
@@ -380,14 +380,14 @@ export default {
       paint.fill();
       paint.globalAlpha = 1;
 
-      /* One mark at a time: what the gates let through, in blue, while they
-         are drawn; once Restrict has drawn under the ceiling, what it kept,
-         in green, and the rest of the catch goes quiet again. */
+      /* What the gates let through in blue, and what Restrict kept of it in
+         green over them: the whole catch stays in view under the restriction. */
       for (const c of cells) {
         if (!marked.has(c.id)) continue;
         const x = sx(cellFeature(c, fx), w), y = sy(cellFeature(c, fy), h);
-        paint.beginPath(); paint.arc(x, y, restricted ? 4.2 : 3.4, 0, Math.PI * 2);
-        paint.fillStyle = ctx.css(restricted ? "--mark-selected" : "--mark-gated");
+        const isKept = kept.has(c.id);
+        paint.beginPath(); paint.arc(x, y, isKept ? 4.2 : 3.4, 0, Math.PI * 2);
+        paint.fillStyle = ctx.css(isKept ? "--mark-selected" : "--mark-gated");
         paint.fill();
         paint.lineWidth = 2; paint.strokeStyle = ctx.css("--screen"); paint.stroke();
       }

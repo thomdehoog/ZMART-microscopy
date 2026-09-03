@@ -8,8 +8,6 @@
 /* One mask picture per field, fetched when first painted. A field whose
    detection has not run answers 404; that is remembered briefly and asked
    again, because a discovery marching across the sample fills them in. */
-import { cellsInAllGates } from "../refine_targets/gating.js";
-
 const maskImages = new Map();
 /* Which discovery the pictures belong to: a new one asks for every file
    afresh, past the browser's own cache of the same address. */
@@ -167,10 +165,11 @@ export function targetLayers(theRun) {
          blue while they are drawn; once Restrict has drawn under the
          ceiling, what it kept in green and nothing else -- the rest of the
          gate's catch is not the selection any more. */
-      const restricted = run.done.has("select");
-      const lit = restricted ? run.gated : cellsInAllGates([...run.cells.values()], run.gates);
+      const lit = run.gated;
       if (activeMode !== "detect" && lit.size) {
-        const inkOf = () => css(restricted ? "--mark-selected" : "--mark-gated");
+        /* Blue for what the gates let through; red over it for what Restrict
+           kept, so the whole catch stays in view under the restriction. */
+        const inkOf = (id) => css(run.restricted.has(id) ? "--mark-restricted" : "--mark-gated");
         const byField = new Map();
         const strays = [];
         for (const id of lit) {

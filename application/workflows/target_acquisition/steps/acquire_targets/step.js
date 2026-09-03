@@ -18,7 +18,7 @@ export const acquireAndCurate = {
   mode: "targets",
   /* Acquiring needs to know what with: the type is a reading taken off the
      instrument in this step's own channel, the way an optics preset is. */
-  ready: ({ gated, targetType }) =>
-    (gated.size === 0 ? "nothing gated yet"
+  ready: ({ targetTiles, targetType }) =>
+    (!targetTiles?.length ? "add the tiles first"
       : hasRecording(targetType) ? null : "record the acquisition type first"),
 };

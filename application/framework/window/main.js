@@ -277,6 +277,11 @@ let stageWatch = null;
        Restrict has been pressed, that held under the ceiling. The canvas
        rings it and the targets scan images it. */
     gated: new Set(),
+    /* What Restrict kept of it under the ceiling, and the tiles laid round
+       those -- the plan the acquisition images. */
+    restricted: new Set(),
+    targetTiles: [],
+    targetTilesAlpha: 0.5,
     acquired: [],
     /* The acquired target whose pair the gallery shows, chosen there or on
        the canvas; null until one is acquired. */
@@ -402,7 +407,8 @@ let stageWatch = null;
       detect: newDetect(), cells: new Map(), fieldLabels: {}, examined: new Set(),
       overviewPictures: backendFor().viewOf("overview"),
     targetPictures: backendFor().viewOf("targets"),
-      cellsShown: false, gates: [], gateCap: 50, gated: new Set(), acquired: [], acquiredLabels: {},
+      cellsShown: false, gates: [], gateCap: 50, gated: new Set(), restricted: new Set(),
+      targetTiles: [], targetTilesAlpha: 0.5, acquired: [], acquiredLabels: {},
       selectedTarget: null, hoveredTarget: null,
       verdicts: {},
       locked: false,
@@ -712,6 +718,8 @@ let stageWatch = null;
          the draw and the gallery alike. */
       state.gates = [];
       state.gated = new Set();
+      state.restricted = new Set();
+      state.targetTiles = [];
       state.acquired = [];
       state.acquiredLabels = {};
       state.verdicts = {};
@@ -790,7 +798,8 @@ let stageWatch = null;
     if (s.mode === "targets") {
       /* Imaging the targets is a scan whose positions are the gated cells,
          driven in the stage's frame like the overview was. */
-      const picked = [...state.gated];
+      /* The tiles are the plan: one per restricted target. */
+      const picked = state.targetTiles.map((tile) => tile.id);
       /* How wide each acquired frame is on the sample, for the canvas to
          print each picture at its true size and place -- known before the
          run starts, so the frames can be printed as they are captured. */
@@ -883,9 +892,11 @@ let stageWatch = null;
         /* Restrict is the one press that applies the ceiling: the gates
            say what they let through as they are drawn, and only here is
            that held to so many per tileset. */
-        state.gated = keptUnderCeiling(state.cells.values(), state.gated, state.gateCap, tilesetOfField);
-        state.notes[s.id] = `${state.gated.size} targets kept`;
-        gatingShown?.redraw();
+        state.restricted = keptUnderCeiling(state.cells.values(), state.gated, state.gateCap, tilesetOfField);
+        /* A new restriction is a new plan: the tiles are laid again by hand. */
+        state.targetTiles = [];
+        state.notes[s.id] = `${state.restricted.size} targets kept`;
+        gatingShown?.redraw(); selectionShown?.redraw?.();
       }
       if (s.mode === "targets") {
         state.notes[s.id] = `${state.acquired.length} pairs acquired`;
@@ -1275,6 +1286,8 @@ let stageWatch = null;
            touched after Restrict is a selection not yet restricted, so the
            step after asks for its press again. */
         if (ids.size) state.done.add("gate"); else state.done.delete("gate");
+        state.restricted = new Set();
+        state.targetTiles = [];
         state.done.delete("select");
         state.ran.delete("select");
         drawStage(); renderTabs(); renderActionBar(); renderRail();
@@ -1282,7 +1295,7 @@ let stageWatch = null;
       tilesetOf: tilesetOfField,
       /* Whether Restrict has drawn under the ceiling: the plot then marks
          what it kept over what the gates let through. */
-      restricted: () => state.done.has("select"),
+      restricted: () => state.restricted,
       /* The target acquisition settings are recorded here, beside the
          selection they will image. */
       recordingSlot: (into, opts) => renderRecordingSlot(into, recordingOptions(opts)),
@@ -1371,22 +1384,38 @@ let stageWatch = null;
      are imaged with. A ceiling typed is not a ceiling applied -- the press
      is -- so typing one asks for the press again; the settings recorded
      say how wide each frame on the picture is. */
-  const selectionMount = (host) => selectionPanel.mount(host, {
+  let selectionShown = null;
+  const selectionMount = (host) => (selectionShown = selectionPanel.mount(host, {
     recordingSlot: (into, opts) => renderRecordingSlot(into, recordingOptions(opts)),
     cap: () => state.gateCap,
     setCap: (cap) => {
       state.gateCap = cap;
-      /* A ceiling typed lifts the one applied: the selection is the gates'
-         whole catch again until the press draws under the new one. */
-      state.gated = cellsInAllGates([...state.cells.values()], state.gates);
+      /* A ceiling typed lifts the one applied, and the tiles laid under it,
+         until the press draws under the new one. */
+      state.restricted = new Set();
+      state.targetTiles = [];
       state.done.delete("select");
       state.ran.delete("select");
     },
+    restricted: () => state.restricted,
+    tiles: () => state.targetTiles,
+    /* One tile round every restricted target, in the settings' frame. */
+    addTiles: () => {
+      const frameUm = state.targetFrameUm;
+      state.targetTiles = frameUm
+        ? [...state.restricted].flatMap((id) => {
+          const c = state.cells.get(id);
+          return c ? [{ id, x: c.x, y: c.y, frameUm }] : [];
+        })
+        : [];
+    },
+    alpha: () => state.targetTilesAlpha,
+    setAlpha: (alpha) => { state.targetTilesAlpha = alpha; },
     changed: () => {
       state.targetFrameUm = activeRecording(state.targetType)?.frameUm ?? null;
-      drawStage(); renderRail(); renderActionBar(); gatingShown?.redraw();
+      drawStage(); renderRail(); renderActionBar(); gatingShown?.redraw(); selectionShown?.redraw?.();
     },
-  });
+  }));
 
   const SIDE_WIDGETS = {
     connect: connectWidget,
@@ -2105,6 +2134,8 @@ let stageWatch = null;
     /* The chosen acquired target, so a test can press on the picture and
        see the choice land. */
     selectedTarget: state.selectedTarget ?? null,
+    restricted: [...state.restricted],
+    targetTiles: state.targetTiles.length,
   }));
 
   /* The focus map — the points, their sweeps, the surface through them, and

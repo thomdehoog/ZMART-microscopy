@@ -1127,12 +1127,15 @@ test("Steps 1 to 8 through the operator page on the real bridge, Viewer 0.2 and 
       await expect(page.locator(".panel.on button.step-run")).toHaveText("Run again", { timeout: 30_000 });
       await gotoStep(page, "Discover Targets");
     };
+    /* What Restrict kept, as the canvas marks it. */
+    const restrictedIds = async () => (await page.evaluate(() => window.__theStageCanvas.targets()))
+      .filter((one) => one.restricted).map((one) => one.id);
     await lay();
     await expect(page.locator("#gate-list .gate-row")).toHaveCount(1);
     await expect(page.locator("#gate-readout")).toContainText(/selected|kept of/);
     await restrict();
     const gated = await page.evaluate(() => window.__theStageCanvas.targets());
-    const selectedIds = gated.filter((one) => one.selected).map((one) => one.id);
+    const selectedIds = await restrictedIds();
     expect(selectedIds.length, "the gate kept a bounded selection").toBeGreaterThan(0);
     expect(identityOf(gated), "gating leaves coordinates untouched").toEqual(identityOf(discovered));
     const readout = await page.locator("#gate-readout").textContent();
@@ -1146,7 +1149,7 @@ test("Steps 1 to 8 through the operator page on the real bridge, Viewer 0.2 and 
       await expect(page.locator("#gate-list .gate-row")).toHaveCount(2);
       await restrict();
       const twice = await page.evaluate(() => window.__theStageCanvas.targets());
-      intersection = twice.filter((one) => one.selected).map((one) => one.id);
+      intersection = twice.filter((one) => one.restricted).map((one) => one.id);
       expect(intersection.length, "a second all-encompassing gate cannot widen the selection").toBeLessThanOrEqual(selectedIds.length);
       await page.locator("#gate-list .gate-row").nth(1).locator("button.rec-drop").click();
       await page.waitForTimeout(300);
@@ -1155,13 +1158,13 @@ test("Steps 1 to 8 through the operator page on the real bridge, Viewer 0.2 and 
       await page.waitForTimeout(200);
       await restrict();
     }
-    const selectedAfter = (await page.evaluate(() => window.__theStageCanvas.targets())).filter((one) => one.selected).map((one) => one.id);
+    const selectedAfter = await restrictedIds();
     await gotoStep(page, "Scan the overview");
     await page.waitForTimeout(300);
     await gotoStep(page, "Discover Targets");
     await expect(page.locator("#gate-list .gate-row")).toHaveCount(1);
     const kept = await page.evaluate(() => window.__theStageCanvas.targets());
-    expect(kept.filter((one) => one.selected).map((one) => one.id).sort()).toEqual([...selectedAfter].sort());
+    expect(kept.filter((one) => one.restricted).map((one) => one.id).sort()).toEqual([...selectedAfter].sort());
     await page.evaluate(() => window.__theStageCanvas.fadeTo(0.15));
     await take("step7-gated-selection", {
       step: 7, state: `polygon gate on ${fx} x ${fy}; ${selectedAfter.length} selected of ${discovered.length}; cap ${MAX_TARGETS} per tileset`,
@@ -1178,14 +1181,16 @@ test("Steps 1 to 8 through the operator page on the real bridge, Viewer 0.2 and 
     await gotoStep(page, "Acquire Targets");
     const ready = await page.evaluate(() => window.__theStageCanvas.targets());
     expect(identityOf(ready)).toEqual(identityOf(discovered));
-    expect(ready.filter((one) => one.selected).map((one) => one.id).sort()).toEqual([...selectedAfter].sort());
+    expect(ready.filter((one) => one.restricted).map((one) => one.id).sort()).toEqual([...selectedAfter].sort());
     await expect(page.locator(".panel.on button.step-run"), "acquisition waits for the target configuration").toBeDisabled();
-    await expect(page.locator(".action-hint")).toContainText(/record the acquisition type/);
+    await expect(page.locator(".action-hint")).toContainText(/add the tiles/);
     /* The settings are recorded on the target scan area, the step before. */
     await gotoStep(page, "Target scan area");
     await page.locator("#target-type .setting-box.open button.run").click();
     await page.waitForTimeout(700);
     await expect(page.locator("#target-type .setting-box.done")).toHaveCount(1);
+    await page.locator("#add-tiles").click();
+    await page.waitForTimeout(300);
     await gotoStep(page, "Acquire Targets");
     await expect(page.locator(".panel.on button.step-run")).toBeEnabled();
     await take("step8-ready-to-acquire", {
@@ -1463,7 +1468,7 @@ test("Step 8 interruption: an acquisition stopped by hand accounts for exactly w
     await page.locator("#gate-max").dispatchEvent("input");
     await page.locator(".panel.on button.step-run").click();
     await expect(page.locator(".panel.on button.step-run")).toHaveText("Run again", { timeout: 30_000 });
-    const gated = (await page.evaluate(() => window.__theStageCanvas.targets())).filter((one) => one.selected);
+    const gated = (await page.evaluate(() => window.__theStageCanvas.targets())).filter((one) => one.restricted);
     expect(gated.length, "the ceiling kept a run's worth of targets").toBe(all);
     const [ox, oy] = await page.evaluate(() => window.__theStageCanvas.carrierOriginUm());
 
@@ -1471,6 +1476,8 @@ test("Step 8 interruption: an acquisition stopped by hand accounts for exactly w
        once the first pair has landed. */
     await page.locator("#target-type .setting-box.open button.run").click();
     await page.waitForTimeout(700);
+    await page.locator("#add-tiles").click();
+    await page.waitForTimeout(300);
     await gotoStep(page, "Acquire Targets");
     await expect(page.locator(".panel.on button.step-run")).toBeEnabled();
     await page.locator(".panel.on button.step-run").click();

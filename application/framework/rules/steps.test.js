@@ -102,6 +102,7 @@ describe("readiness belongs to the step, not the frame", () => {
     focusPreset: recorded("autofocus"),
     detect: { tested: false },
     gated: new Set(),
+    targetTiles: [],
     targetType: recorded("acquisition"),
     ...over,
   });
@@ -127,15 +128,16 @@ describe("readiness belongs to the step, not the frame", () => {
     expect(blockedBecause(byId("detect"), run({ detect: { tested: true } }))).toBeNull();
   });
 
-  it("refinement and acquisition want something gated", () => {
+  it("restriction wants something gated; acquisition wants the tiles laid", () => {
     expect(blockedBecause(byId("select"), run())).toMatch(/nothing gated/);
-    expect(blockedBecause(byId("acquire"), run())).toMatch(/nothing gated/);
-    expect(blockedBecause(byId("acquire"), run({ gated: new Set([1]) }))).toBeNull();
+    expect(blockedBecause(byId("acquire"), run())).toMatch(/add the tiles/);
+    expect(blockedBecause(byId("acquire"), run({ gated: new Set([1]) }))).toMatch(/add the tiles/);
+    expect(blockedBecause(byId("acquire"), run({ targetTiles: [{ id: 1 }] }))).toBeNull();
   });
 
   it("acquisition also wants the acquisition type recorded", () => {
     expect(blockedBecause(byId("acquire"),
-      run({ gated: new Set([1]), targetType: emptySlot("acquisition") })))
+      run({ targetTiles: [{ id: 1 }], targetType: emptySlot("acquisition") })))
       .toMatch(/acquisition type/);
   });
 
