@@ -60,7 +60,9 @@ export function focusLayers(theRun) {
       const side = frameUm * scale;
       ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 5;
       ctx.strokeRect(x, y, side, side);
-      ctx.strokeStyle = "#000000"; ctx.lineWidth = 2;
+      ctx.strokeStyle = "#000000"; ctx.lineWidth = 2.5;
+      ctx.strokeRect(x, y, side, side);
+      ctx.strokeStyle = "#dc2626"; ctx.lineWidth = 1;
       ctx.strokeRect(x, y, side, side);
     },
   },
