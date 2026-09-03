@@ -87,26 +87,59 @@ export function sursDraw(cells, n, rand = Math.random) {
   }
   const w = (x1 - x0) || 1;
   const h = (y1 - y0) || 1;
-  const ncol = Math.max(1, Math.round(Math.sqrt((n * w) / h)));
-  const nrow = Math.max(1, Math.ceil(n / ncol));
+  /* About as many grid cells as the ask, however the region is shaped: a
+     wide flat region once got far more columns than the ask, and the draw
+     ran out after the first few -- all at the left. */
+  const ncol = Math.min(n, Math.max(1, Math.round(Math.sqrt((n * w) / h))));
+  const nrow = Math.max(1, Math.round(n / ncol));
   const tx = w / ncol;
   const ty = h / nrow;
   const offX = rand();
   const offY = rand();
   const taken = new Set();
   const chosen = [];
-  for (let i = 0; i < ncol && chosen.length < n; i++) {
-    const gx = x0 + (i + offX) * tx;
-    for (let j = 0; j < nrow && chosen.length < n; j++) {
-      const gy = y0 + (j + offY) * ty;
-      let best = null;
-      let bestD = Infinity;
-      for (const c of cells) {
-        if (taken.has(c.id)) continue;
-        const d = (c.x - gx) ** 2 + (c.y - gy) ** 2;
-        if (d < bestD) { bestD = d; best = c; }
-      }
-      if (best) { taken.add(best.id); chosen.push(best.id); }
+  /* Each grid cell takes the cell nearest its own point from INSIDE its own
+     bounds, or nothing. Taking the nearest cell from anywhere let a point
+     on sparse ground reach into the dense patch next door, so that patch
+     was taken twice and the sparse ground stayed untouched -- and the strip
+     past the last point, up to a whole step wide, was never reached at all.
+     Bounds are inclusive at the far edge, so the last row and column of the
+     region belong to a grid cell too. */
+  const nearestIn = (gx, gy, within) => {
+    let best = null;
+    let bestD = Infinity;
+    for (const c of cells) {
+      if (taken.has(c.id) || !within(c)) continue;
+      const d = (c.x - gx) ** 2 + (c.y - gy) ** 2;
+      if (d < bestD) { bestD = d; best = c; }
+    }
+    return best;
+  };
+  const points = [];
+  for (let i = 0; i < ncol; i++) {
+    for (let j = 0; j < nrow; j++) {
+      const left = x0 + i * tx, top = y0 + j * ty;
+      points.push({
+        gx: left + offX * tx, gy: top + offY * ty,
+        inside: (c) => c.x >= left && c.x <= left + tx && c.y >= top && c.y <= top + ty,
+      });
+    }
+  }
+  for (const point of points) {
+    if (chosen.length >= n) break;
+    const best = nearestIn(point.gx, point.gy, point.inside);
+    if (best) { taken.add(best.id); chosen.push(best.id); }
+  }
+  /* Grid cells that held nothing left the ceiling unmet: the ask is the
+     ceiling, so the rest is drawn from what remains, each empty point
+     taking its nearest cell from anywhere. Spread first, filled second. */
+  let filled = true;
+  while (chosen.length < n && filled) {
+    filled = false;
+    for (const point of points) {
+      if (chosen.length >= n) break;
+      const best = nearestIn(point.gx, point.gy, () => true);
+      if (best) { taken.add(best.id); chosen.push(best.id); filled = true; }
     }
   }
   return chosen;
