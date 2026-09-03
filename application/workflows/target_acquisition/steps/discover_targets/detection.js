@@ -452,6 +452,8 @@ export default {
         settings.tile = (settings.tile + step + total) % total;
         settings.tested = false;
         refresh();
+        /* The picture's lit frame follows the picker, not only a press. */
+        ctx.changed?.();
       });
     }
 
