@@ -442,6 +442,12 @@ function drawWhereTheStageIs(ctx, onTheStage) {
   ctx.fillStyle = "#000000";
   ctx.lineWidth = stageMarkHot ? 3 : 2.5;
   crosshair(ctx, x, y, arm, 5, stageMarkHot ? 2.8 : 2.2, 10);
+  /* A red hairline down the middle of the black: the mark is found by its
+     halo and read by its colour. */
+  ctx.strokeStyle = "#dc2626";
+  ctx.fillStyle = "#dc2626";
+  ctx.lineWidth = 1;
+  crosshair(ctx, x, y, arm, 5, stageMarkHot ? 1.4 : 1.1, 10);
   ctx.restore();
 }
 
