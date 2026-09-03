@@ -22,6 +22,8 @@ import { cellsInAllGates, keptUnderCeiling }
   from "../../workflows/target_acquisition/steps/refine_targets/gating.js";
 import { selectionPanel }
   from "../../workflows/target_acquisition/steps/target_scan_area/step.js";
+import { placeScanAreas }
+  from "../../workflows/target_acquisition/steps/target_scan_area/scan-areas.js";
 /* The seam. Connecting, reading a preset off the instrument, measuring the
    focus map and driving the overview scan all go through the backend and are
    awaited; this window never knows whether a real stage moved. Which side of
@@ -282,6 +284,11 @@ let stageWatch = null;
     restricted: new Set(),
     targetTiles: [],
     targetTilesAlpha: 0.5,
+    /* The overlap rule for placing: on, and the share above which a scan
+       area is left out; and which targets it left out last time. */
+    tileOverlapLimited: true,
+    tileMaxOverlap: 0.5,
+    tilesLeftOut: [],
     acquired: [],
     /* The acquired target whose pair the gallery shows, chosen there or on
        the canvas; null until one is acquired. */
@@ -408,7 +415,8 @@ let stageWatch = null;
       overviewPictures: backendFor().viewOf("overview"),
     targetPictures: backendFor().viewOf("targets"),
       cellsShown: false, gates: [], gateCap: 50, gated: new Set(), restricted: new Set(),
-      targetTiles: [], targetTilesAlpha: 0.5, acquired: [], acquiredLabels: {},
+      targetTiles: [], targetTilesAlpha: 0.5, tileOverlapLimited: true, tileMaxOverlap: 0.5, tilesLeftOut: [],
+      acquired: [], acquiredLabels: {},
       selectedTarget: null, hoveredTarget: null,
       verdicts: {},
       locked: false,
@@ -1410,16 +1418,25 @@ let stageWatch = null;
     resetTiles: () => { state.targetTiles = []; },
     showTiles: (on) => stage.showLayer("frames", on),
     tilesShown: () => stage.layerShown("frames"),
-    /* One scan area round every sampled target, in the settings' frame. */
+    /* One scan area round every sampled target, in the settings' frame,
+       under the overlap rule when it is on. */
     placeTiles: () => {
       const frameUm = state.targetFrameUm;
-      state.targetTiles = frameUm
-        ? [...state.restricted].flatMap((id) => {
-          const c = state.cells.get(id);
-          return c ? [{ id, x: c.x, y: c.y, frameUm }] : [];
-        })
-        : [];
+      if (!frameUm) { state.targetTiles = []; state.tilesLeftOut = []; return; }
+      const targets = [...state.restricted].flatMap((id) => {
+        const c = state.cells.get(id);
+        return c ? [{ id, x: c.x, y: c.y }] : [];
+      });
+      const { placed, skipped } = placeScanAreas(
+        targets, frameUm, state.tileOverlapLimited ? state.tileMaxOverlap : 1);
+      state.targetTiles = placed;
+      state.tilesLeftOut = skipped;
     },
+    overlapLimited: () => state.tileOverlapLimited,
+    setOverlapLimited: (on) => { state.tileOverlapLimited = on; },
+    maxOverlap: () => state.tileMaxOverlap,
+    setMaxOverlap: (share) => { state.tileMaxOverlap = share; },
+    leftOut: () => state.tilesLeftOut,
     alpha: () => state.targetTilesAlpha,
     setAlpha: (alpha) => { state.targetTilesAlpha = alpha; },
     changed: () => {

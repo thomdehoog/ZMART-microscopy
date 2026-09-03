@@ -31,7 +31,9 @@ export const targetScanArea = {
  * `tiles()`, the scan areas placed, `placeTiles()`, place one round every
  * sampled target, `resetTiles()`, take them away, `showTiles(on)` and
  * `tilesShown()`, whether they are drawn; `alpha()` and `setAlpha(a)`,
- * how solid; and `changed()`.
+ * how solid; `overlapLimited()`, `setOverlapLimited(on)`, `maxOverlap()`,
+ * `setMaxOverlap(share)` and `leftOut()`, the overlap rule and what it
+ * left out; and `changed()`.
  */
 export const selectionPanel = {
   id: "select",
@@ -115,7 +117,29 @@ export const selectionPanel = {
       ctx.changed?.();
     });
     strength.append(alphaLabel, alpha);
-    controls.append(lay, strength);
+    /* The overlap rule: a scan area that would cover more than this share
+       of one already placed is left out -- or every one is placed, when
+       the rule is switched off. */
+    const overlapRow = document.createElement("div");
+    overlapRow.className = "gate-draw";
+    const limit = document.createElement("input");
+    limit.type = "checkbox";
+    limit.id = "limit-overlap";
+    limit.checked = ctx.overlapLimited();
+    const limitLabel = document.createElement("label");
+    limitLabel.htmlFor = "limit-overlap";
+    limitLabel.append(limit, " Max overlap (%)");
+    const overlap = document.createElement("input");
+    overlap.type = "number"; overlap.min = "0"; overlap.max = "100"; overlap.step = "5";
+    overlap.id = "tiles-overlap";
+    overlap.value = String(Math.round(ctx.maxOverlap() * 100));
+    limit.addEventListener("change", () => { ctx.setOverlapLimited(limit.checked); overlap.disabled = !limit.checked; });
+    overlap.addEventListener("input", () => {
+      ctx.setMaxOverlap(Math.min(100, Math.max(0, Number(overlap.value) || 0)) / 100);
+    });
+    overlap.disabled = !limit.checked;
+    overlapRow.append(limitLabel, overlap);
+    controls.append(overlapRow, lay, strength);
 
     const say = () => {
       const n = ctx.tiles().length;
@@ -124,7 +148,10 @@ export const selectionPanel = {
       resetTiles.disabled = n === 0;
       hide.disabled = n === 0;
       hide.textContent = ctx.tilesShown() ? "Hide" : "Show";
-      laid.textContent = n ? `${n} scan area${n === 1 ? "" : "s"}` : (kept ? `${kept} sampled` : "sample first");
+      const out = ctx.leftOut().length;
+      laid.textContent = n
+        ? `${n} scan area${n === 1 ? "" : "s"}${out ? ` · ${out} left out for overlap` : ""}`
+        : (kept ? `${kept} sampled` : "sample first");
       resetSample.disabled = kept === 0;
     };
     place.addEventListener("click", () => { ctx.placeTiles(); say(); ctx.changed?.(); });
