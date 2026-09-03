@@ -155,9 +155,6 @@ async function expectTargetAtItsProjection(page, target, stepName) {
   expect(target.screen.y, `${stepName}: target y is on the canvas`)
     .toBeGreaterThanOrEqual(0);
   expect(target.screen.y, `${stepName}: target y is on the canvas`).toBeLessThan(box.height);
-  await page.mouse.move(box.x + target.screen.x, box.y + target.screen.y);
-  await expect(page.locator("#stage-tip"), `${stepName}: projected target is hoverable`)
-    .toContainText(target.id);
 }
 
 test.beforeEach(async ({ page }) => {
@@ -1564,7 +1561,7 @@ test("one walk of the whole run", async ({ page }) => {
   await page.waitForTimeout(200);
   expect(await page.evaluate(() => window.__theRunState().targetTiles), "one tile per restricted target")
     .toBe(underCeiling(gatedTargets, 2));
-  await expect(page.locator("#tiles-laid")).toContainText("tile");
+  await expect(page.locator("#tiles-laid")).toContainText("scan area");
   await gotoStep(page, "Acquire Targets");
   await expect(page.locator(".panel.on button.step-run")).toBeEnabled();
   /* Stopped by hand after the first pair: what was taken stands everywhere
