@@ -1050,24 +1050,9 @@ stageBox.addEventListener("pointermove", (e) => {
     drawStage();
   }
 
-  let hit = null;
-  if (run.cellsShown) {
-    let best = 12 / view.scale;
-    for (const c of run.cells.values()) {
-      const d = Math.hypot(c.x - world.x, c.y - world.y);
-      if (d < best) { best = d; hit = c; }
-    }
-  }
-  if (hit) {
-    stageTip.classList.add("on");
-    stageTip.innerHTML =
-      `<b>cell</b> ${hit.id}<br><b>area</b> ${hit.area.toFixed(0)} µm²<br><b>int</b> ${hit.intensity.toFixed(2)}`;
-    const box = stageBox.getBoundingClientRect();
-    stageTip.style.left = `${Math.min(e.offsetX + 14, box.width - 130)}px`;
-    stageTip.style.top = `${Math.max(6, e.offsetY - 52)}px`;
-  } else {
-    stageTip.classList.remove("on");
-  }
+  /* No tip over a cell: the picture says what a cell is, and a box that
+     followed the pointer over every one of them was in the way. */
+  stageTip.classList.remove("on");
 });
 
 stageBox.addEventListener("pointerleave", (e) => {
