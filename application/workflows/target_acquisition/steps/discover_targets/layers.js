@@ -108,7 +108,18 @@ export function forgetTheMasks() {
 }
 
 export function targetLayers(theRun) {
-  const { run, css, drawnIn, activeMode, redraw } = theRun;
+  const { run, css, drawnIn, activeMode, redraw, whereTheStageIs, toCarrier } = theRun;
+  /* Before a scan has taken anything, the current field is the one the
+     stage stands over: its position, in the overview's frame. */
+  const beforeTheScan = () => activeMode === "scan" && !(run.tilesShown > 0);
+  const theFieldUnderTheStage = () => {
+    const here = whereTheStageIs?.();
+    const frameUm = run.plan[0]?.frameUm;
+    if (!here || !frameUm) return null;
+    const at = toCarrier(here);
+    return { x: at.x, y: at.y, frameUm };
+  };
+  const theCurrentField = () => (beforeTheScan() ? theFieldUnderTheStage() : run.plan[run.detect.tile]);
   /* How far a press reaches, in world units. Taken from the last paint --
      which always precedes a press -- because `reaches` is handed a place and
      no frame; reading `scale` here was a ReferenceError, and every click on
@@ -246,12 +257,13 @@ export function targetLayers(theRun) {
       + "tile the channel's preview is of.",
     /* Kept through the two steps after: the field detection was last on is
        the one the gating and the target scan area are read against. */
-    shown: ["scan", "detect", "gate", "select"].includes(activeMode) && !!run.plan[run.detect.tile],
+    shown: ["scan", "detect", "gate", "select"].includes(activeMode) && !!theCurrentField(),
     staysSolid: true,
     paint: (frame) => {
       const ctx = frame.context;
       const { place, scale } = drawnIn(frame);
-      const t = run.plan[run.detect.tile];
+      const t = theCurrentField();
+      if (!t) return;
       const half = t.frameUm / 2;
       const [x, y] = place(t.x - half, t.y - half);
       /* Black on a white halo: readable on the tissue and on the dark
