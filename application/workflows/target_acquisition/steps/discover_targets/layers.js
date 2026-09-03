@@ -11,6 +11,9 @@
 import { cellsInAllGates } from "../refine_targets/gating.js";
 
 const maskImages = new Map();
+/* Which discovery the pictures belong to: a new one asks for every file
+   afresh, past the browser's own cache of the same address. */
+let discovery = 0;
 
 function maskImage(base, label, redraw) {
   const held = maskImages.get(label);
@@ -23,7 +26,7 @@ function maskImage(base, label, redraw) {
   maskImages.set(label, keep);
   img.onload = () => { keep.ready = true; redraw(); };
   img.onerror = () => { keep.failed = performance.now(); };
-  img.src = `${base}/${label}.mask.png`;
+  img.src = `${base}/${label}.mask.png?d=${discovery}`;
   return null;
 }
 
@@ -55,7 +58,7 @@ function labelMap(base, label, redraw) {
     redraw();
   };
   img.onerror = () => { keep.failed = performance.now(); };
-  img.src = `${base}/${label}.labels.png`;
+  img.src = `${base}/${label}.labels.png?d=${discovery}`;
   return null;
 }
 
@@ -96,6 +99,12 @@ function shapeOverlay(base, fieldLabel, wanted, redraw) {
     reopened. */
 export function forgetTheMasks() {
   maskImages.clear();
+  /* And the label maps and the shapes lit from them: kept, a field's
+     old map was lit with the new run's label numbers, and the wrong
+     objects -- whole merged regions -- came up in blue. */
+  labelMaps.clear();
+  shapeOverlays.clear();
+  discovery += 1;
 }
 
 export function targetLayers(theRun) {
