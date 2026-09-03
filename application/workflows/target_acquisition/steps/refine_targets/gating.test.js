@@ -92,6 +92,36 @@ describe("the gating rules", () => {
     }
   });
 
+  it("the far edge of the region is drawn from too", () => {
+    /* Thirty cells in one row: with the old draw the last grid point stood
+       short of the right edge and the rightmost strip was never taken. Now
+       every grid cell draws from inside its own bounds, so the rightmost
+       cells are among the drawn whatever the random start. */
+    const row = Array.from({ length: 30 }, (_, i) => ({ id: `c${i}`, x: i * 10, y: 0 }));
+    for (const start of [0.05, 0.5, 0.95]) {
+      const drawn = sursDraw(row, 10, () => start);
+      expect(drawn).toHaveLength(10);
+      const xs = drawn.map((id) => row.find((c) => c.id === id).x);
+      expect(Math.max(...xs), `random start ${start}`).toBeGreaterThanOrEqual(270);
+      expect(Math.min(...xs), `random start ${start}`).toBeLessThanOrEqual(20);
+    }
+  });
+
+  it("sparse ground is not made up for by taking its neighbour twice", () => {
+    /* Two clusters and a gap: a grid point over the gap takes nothing in the
+       spread, and the dense clusters are not drained to fill it before the
+       ceiling is filled from what remains. */
+    const cells = [
+      ...Array.from({ length: 20 }, (_, i) => ({ id: `a${i}`, x: i, y: 0 })),
+      ...Array.from({ length: 20 }, (_, i) => ({ id: `b${i}`, x: 200 + i, y: 0 })),
+    ];
+    const drawn = sursDraw(cells, 4, () => 0.5);
+    const inA = drawn.filter((id) => id.startsWith("a")).length;
+    expect(drawn).toHaveLength(4);
+    expect(inA).toBeGreaterThanOrEqual(1);
+    expect(inA).toBeLessThanOrEqual(3);
+  });
+
   it("a pool smaller than the ask is returned whole", () => {
     const few = [{ id: "a", x: 0, y: 0 }, { id: "b", x: 5, y: 5 }];
     expect(sursDraw(few, 50, () => 0.5).sort()).toEqual(["a", "b"]);
