@@ -202,6 +202,9 @@ export function watchTheRun(ctx) {
             viewer, acquisitions: wanted.acquisitions, css: ctx.css,
             requestedState: requestedPanelState,
             into: ctx.displayHost?.() ?? null,
+            /* A small displayed copy (the discovery preview or Step 9 pair)
+               must follow colour, visibility and window changes too. */
+            changed: () => ctx.displaySettingsChanged?.(),
           });
         }
         ctx.displayChanged?.();
@@ -213,7 +216,7 @@ export function watchTheRun(ctx) {
     }
 
     /** Put the scan where the plan is looking, exactly. */
-    function followTheStage() {
+    function followTheStage(stageView = null) {
       if (!viewer) return;
       /* The same two numbers the picture above is drawn with, handed over as
          they are. This used to be worked out from a pan offset and a scale, in
@@ -221,7 +224,10 @@ export function watchTheRun(ctx) {
          picture above moved to the shared canvas those numbers stopped existing
          and the scan quietly drew nowhere. Asking for the view is one answer
          instead of two. */
-      const v = ctx.view();
+      /* A view-change callback carries the committed new view. Asking the
+         stage engine for it again from inside that callback can return the
+         previous frame and makes this picture visibly lag during zooming. */
+      const v = stageView ?? ctx.view();
       if (inStageFrame && v?.centre) {
         const [ox, oy] = ctx.carrierOriginUm();
         viewer.setView({ ...v, centre: { x: v.centre.x + ox, y: v.centre.y + oy } });

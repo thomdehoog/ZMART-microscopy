@@ -239,6 +239,19 @@ function rememberedChannel(state, row) {
      panel became persistent. Accept them so a running session upgrades rather
      than forgetting the eyes the operator already set. */
   const remembered = typeof saved === "boolean" ? { visible: saved } : (saved ?? {});
+  /* Older running panels remembered the temporary grey RGB triplet but not
+     that it was temporary. On remount that made the button say "colour"
+     while another press merely greyed an already-grey acquisition again.
+     A coloured fresh channel paired with an achromatic remembered one is the
+     recoverable signature of that state. */
+  const isGrey = (colour) => Array.isArray(colour) && colour.length >= 3
+    && Math.abs(colour[0] - colour[1]) < 1e-9
+    && Math.abs(colour[1] - colour[2]) < 1e-9;
+  const legacyGrey = remembered.grey === undefined
+    && isGrey(remembered.colour)
+    && Array.isArray(row.colour)
+    && !isGrey(row.colour);
+  const grey = remembered.grey ?? legacyGrey;
   return {
     visible: remembered.visible ?? row.visible,
     color: remembered.color ?? row.color,
@@ -248,6 +261,9 @@ function rememberedChannel(state, row) {
     log: remembered.log ?? false,
     axis: remembered.axis ?? null,
     histogram: remembered.histogram ?? row.histogram,
+    grey,
+    colorInColour: remembered.colorInColour ?? (grey ? row.color : null),
+    colourInColour: remembered.colourInColour ?? (grey ? row.colour : null),
   };
 }
 
@@ -286,6 +302,7 @@ export async function mountViewerPanel(near, {
   acquisitions,
   into = null,
   requestedState = null,
+  changed = null,
   /* Kept for callers from the first cleanup checkpoint. */
   requestedVisibility = null,
 }) {
@@ -298,6 +315,18 @@ export async function mountViewerPanel(near, {
   const rememberedChannels = panelState.channels;
   let visibilityReady = false;
   let observationTimer = null;
+  let changedTimer = null;
+  /* A slider can produce dozens of inputs in one gesture. The canvas should
+     follow all of them immediately, while consumers of rendered JPEG copies
+     need only the settled display request. */
+  const displayChangedSoon = () => {
+    if (typeof changed !== "function") return;
+    if (changedTimer !== null) clearTimeout(changedTimer);
+    changedTimer = setTimeout(() => {
+      changedTimer = null;
+      changed();
+    }, 80);
+  };
   rows.forEach((row) => {
     Object.assign(row, rememberedChannel(panelState, row));
     rememberedChannels.set(viewerChannelKey(row), rememberedChannel(panelState, row));
@@ -483,6 +512,9 @@ export async function mountViewerPanel(near, {
       log: row.log ?? false,
       axis: row.axis ?? null,
       histogram: row.histogram ?? null,
+      grey: row.grey ?? false,
+      colorInColour: row.colorInColour ?? null,
+      colourInColour: row.colourInColour ?? null,
     });
   };
 
@@ -664,6 +696,7 @@ export async function mountViewerPanel(near, {
     remember(row);
     viewer.setChannel(chosen, { window: row.window });
     refreshControls();
+    displayChangedSoon();
   }
 
   minRow.slider.addEventListener("input", () => takeTheWindow({
@@ -960,6 +993,7 @@ export async function mountViewerPanel(near, {
         visible: groupShown.get(row.acquisition) !== false && row.visible,
       });
     }
+    displayChangedSoon();
   };
 
   function aChannelEye(index, { chosenControl = false } = {}) {
@@ -1018,9 +1052,12 @@ export async function mountViewerPanel(near, {
       picker.addEventListener("input", () => {
         row.colour = rgbOf(picker.value);
         row.color = cssOf(row.colour);
+        /* A colour chosen by hand is a colour: the row leaves grey. */
+        row.grey = false;
         remember(row);
         paintSwatches(index);
         viewer.setChannel(index, { colour: row.colour });
+        displayChangedSoon();
         closeChooser();
       });
       custom.append(picker);
@@ -1044,6 +1081,7 @@ export async function mountViewerPanel(near, {
           remember(row);
           paintSwatches(index);
           viewer.setChannel(index, { colour: rgb });
+          displayChangedSoon();
           closeChooser();
         });
         list.append(entry);
@@ -1102,6 +1140,7 @@ export async function mountViewerPanel(near, {
             viewer.setChannel(at, { visible: on && one.visible });
           }
         }
+        displayChangedSoon();
       };
       groupEye.addEventListener("click", () => showTheGroup(groupEye.dataset.on !== "1"));
       groupSwitches.set(groupName, showTheGroup);
@@ -1142,6 +1181,7 @@ export async function mountViewerPanel(near, {
           viewer.setChannel(at, { colour: one.colour });
         }
         sayTheColours();
+        displayChangedSoon();
       };
       greyPick.addEventListener("click", () => drawInGrey(!members.every(({ one }) => one.grey)));
       greySwitches.set(groupName, drawInGrey);
@@ -1401,6 +1441,7 @@ export async function mountViewerPanel(near, {
     destroy() {
       cancelMeasurement();
       if (observationTimer) clearInterval(observationTimer);
+      if (changedTimer !== null) clearTimeout(changedTimer);
       closeChooser();
       document.removeEventListener("pointerdown", closeChooserOnOutsidePress, true);
       panel.remove();

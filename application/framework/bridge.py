@@ -95,6 +95,7 @@ import json
 import shutil
 import sys
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -230,9 +231,15 @@ def _connect(asked: dict) -> dict:
     _records.clear()
     _view_built.clear()
     _displayed_pictures.clear()
-    _scan.update(running=False, done=0, of=0, error=None, acquisition_type=None)
+    _scan.update(
+        running=False, done=0, of=0, error=None, stopped=False,
+        acquisition_type=None, records=[], planned=[],
+    )
     _focus.update(running=False, done=0, of=0, error=None, points=[])
-    _targets.update(running=False, done=0, of=0, error=None, fields=[])
+    _targets.update(
+        running=False, done=0, of=0, error=None, stopped=False, fields=[],
+        failed=[], doing=None, phase=None, objects=0, embedding_error=None,
+    )
     # The picture server, beside the run: the viewer links each acquisition's
     # positions into one live picture and serves it to the page's own engine.
     # An optional guest -- a machine without it still scans, and still draws
@@ -647,7 +654,7 @@ def _focus_worker(asked: list, state: dict | None = None) -> None:
 
 _scan = {
     "running": False, "done": 0, "of": 0, "error": None, "stopped": False,
-    "acquisition_type": None,
+    "acquisition_type": None, "records": [],
     # every centre the scan will drive to, so a resolved store can be declared
     # whole at the first capture
     "planned": [],
@@ -658,6 +665,26 @@ _scan = {
 #: :func:`place_into_resolved_store` -- so the frames' own stores stand in a
 #: folder of their own, kept as records and never opened as sources.
 TARGET_FRAMES = "target-frames"
+
+# A chosen target is written over the resolved mosaic while the Viewer may be
+# reading the same chunks. Writers must never overlap one another, and Windows
+# can briefly refuse an overwrite while its reader still owns the file. Keep
+# that transient contention bounded here; geometry/data errors still surface
+# immediately.
+_resolved_targets_turn = threading.RLock()
+
+
+def _place_target_frame(record: dict, folder: Path, planned: list) -> Path:
+    """Place one target frame, retrying only a transient Windows file lock."""
+    deadline = time.monotonic() + 2.0
+    with _resolved_targets_turn:
+        while True:
+            try:
+                return place_into_resolved_store(record, folder, planned)
+            except PermissionError:
+                if time.monotonic() >= deadline:
+                    raise
+                time.sleep(0.025)
 
 #: What every scan captured, by the kind of scan. The overview's records are
 #: what discovery reads and what its pictures are made from, and a targets
@@ -677,6 +704,9 @@ def _scan_worker(
     accounted for.
     """
     standing = None
+    # What polling this invocation reports. The durable acquisition records
+    # may also contain frames retained while one selected target is rerun.
+    _scan["records"] = []
     try:
         if state:
             # The recorded configuration for this kind of scan, applied once
@@ -721,7 +751,17 @@ def _scan_worker(
             # capture already wrote, and holding the lock for it would keep
             # the stage waiting on disk work.
             _keep_position_as_zarr(record, acquisition_type)
-            _records.setdefault(acquisition_type, []).append(record)
+            records = _records.setdefault(acquisition_type, [])
+            replaced = next(
+                (at for at, old in enumerate(records)
+                 if old.get("position_label") == record.get("position_label")),
+                None,
+            )
+            if replaced is None:
+                records.append(record)
+            else:
+                records[replaced] = record
+            _scan["records"].append(record)
             _scan["done"] = i + 1
     except Exception as why:  # noqa: BLE001 — the window shows the sentence
         _scan["error"] = str(why)
@@ -747,7 +787,7 @@ def _keep_position_as_zarr(record: dict, acquisition_type: str) -> None:
             # own store is kept beside, and the watched folder holds the one
             # resolved store, a later frame overwriting an earlier one.
             record["zarr"] = str(position_store_from_record(record, _the_run() / "positions" / TARGET_FRAMES))
-            record["resolved"] = str(place_into_resolved_store(record, folder, _scan["planned"]))
+            record["resolved"] = str(_place_target_frame(record, folder, _scan["planned"]))
         else:
             record["zarr"] = str(position_store_from_record(record, folder))
     except Exception as why:  # noqa: BLE001 -- filed, not fatal
@@ -770,7 +810,7 @@ def _raise_target(asked: dict) -> dict:
     if record is None:
         raise ValueError(f"no acquired target is labelled {label!r}")
     folder = _the_run() / "positions" / "targets"
-    place_into_resolved_store(record, folder, _scan["planned"])
+    _place_target_frame(record, folder, _scan["planned"])
     viewer_service.a_position_landed("targets", folder)
     return {"raised": label}
 
@@ -904,7 +944,7 @@ def _label_for(index: int, position: dict) -> str:
     out is zero, which is honest about not knowing rather than invented.
     """
     return position_label(
-        index,
+        int(position.get("position_index", index)),
         carrier=int(position.get("carrier", 0)),
         compartment=int(position.get("compartment", 0)),
         group=int(position.get("group", 0)),
@@ -946,18 +986,33 @@ def _start_scan(asked: dict) -> dict:
         raise RuntimeError("a scan is already running")
     positions = asked.get("positions", [])
     acquisition_type = str(asked.get("acquisition_type", "overview"))
-    _records[acquisition_type] = []
-    _replace_the_acquisition(
-        acquisition_type,
-        keeping={f"{acquisition_type}_{_label_for(i, p)}.ome.zarr" for i, p in enumerate(positions)},
-    )
-    if acquisition_type == "targets":
-        _replace_the_acquisition(TARGET_FRAMES)
+    append = bool(asked.get("append"))
+    if append and acquisition_type != "targets":
+        raise ValueError("only a selected target can be appended to an acquisition")
+    if not append:
+        _records[acquisition_type] = []
+        _replace_the_acquisition(
+            acquisition_type,
+            keeping={f"{acquisition_type}_{_label_for(i, p)}.ome.zarr" for i, p in enumerate(positions)},
+        )
+        if acquisition_type == "targets":
+            _replace_the_acquisition(TARGET_FRAMES)
+    else:
+        _records.setdefault(acquisition_type, [])
+        # The view's ordinary JPEG copies are derived from the records. One
+        # retained label has new pixels now, so rebuild the set rather than
+        # serving the old copy under its stable name.
+        shutil.rmtree(view_of(acquisition_type), ignore_errors=True)
+        with _view_lock:
+            _view_built.pop(acquisition_type, None)
+    for key in [key for key in _displayed_pictures if key[0] == acquisition_type]:
+        del _displayed_pictures[key]
     _stop_asked["scan"] = False
+    planned = asked.get("planned") or positions
     _scan.update(
         running=True, done=0, of=len(positions), error=None, stopped=False,
-        acquisition_type=acquisition_type,
-        planned=[(float(p.get("x", 0.0)), float(p.get("y", 0.0))) for p in positions],
+        acquisition_type=acquisition_type, records=[],
+        planned=[(float(p.get("x", 0.0)), float(p.get("y", 0.0))) for p in planned],
     )
     threading.Thread(
         target=_scan_worker, args=(positions, acquisition_type, asked.get("state")), daemon=True
@@ -978,7 +1033,7 @@ def _stop_scan() -> dict:
 
 def _the_scan() -> dict:
     """The scan under way or last finished, with what it has captured so far."""
-    return {**_scan, "records": _records.get(_scan["acquisition_type"], [])}
+    return dict(_scan)
 
 
 # ---------------------------------------------------------------------------
@@ -990,7 +1045,8 @@ def _the_scan() -> dict:
 #: rest of the overview is still being looked at.
 _targets = {
     "running": False, "done": 0, "of": 0, "error": None, "stopped": False,
-    "fields": [], "failed": [],
+    "fields": [], "failed": [], "phase": None, "objects": 0,
+    "embedding_error": None,
 }
 
 
@@ -1020,15 +1076,18 @@ def _discover_targets(asked: dict) -> dict:
     _stop_asked["targets"] = False
     _targets.update(
         running=True, done=0, of=len(fields), error=None, stopped=False,
-        fields=[], failed=[], doing=None,
+        fields=[], failed=[], doing=None, phase="objects", objects=0,
+        embedding_error=None,
     )
     threading.Thread(
-        target=_targets_worker, args=(fields, dict(asked.get("settings") or {})), daemon=True
+        target=_targets_worker,
+        args=(fields, dict(asked.get("settings") or {}), chosen is None),
+        daemon=True,
     ).start()
     return dict(_targets)
 
 
-def _targets_worker(fields: list, settings: dict) -> None:
+def _targets_worker(fields: list, settings: dict, map_population: bool) -> None:
     try:
         find = _find_targets()
         for number, field in enumerate(fields):
@@ -1037,7 +1096,8 @@ def _targets_worker(fields: list, settings: dict) -> None:
                 break
             record = _records["overview"][field]
             _targets["doing"] = (
-                f"segmenting position {field + 1} ({number + 1} of {len(fields)})"
+                f"detecting and measuring objects in position {field + 1} "
+                f"({number + 1} of {len(fields)})"
             )
             try:
                 found = find(record, field, settings)
@@ -1062,7 +1122,47 @@ def _targets_worker(fields: list, settings: dict) -> None:
                 # a run that fell back to the CPU took ten minutes a field.
                 "device": found.get("device"),
             })
+            _targets["objects"] += len(found["cells"])
             _targets["done"] += 1
+
+        # UMAP is one statement about the whole population. Classical
+        # features are already measured inside each field's object_analysis
+        # pipeline; only after every field has supplied those rows can this
+        # last phase of the same object-detection operation be calculated.
+        # A one-field settings test deliberately stops at the field result:
+        # an embedding of it would not be the population's coordinate space.
+        if map_population and not _targets["stopped"]:
+            cells = [cell for result in _targets["fields"] for cell in result["cells"]]
+            if cells:
+                _targets["phase"] = "umap"
+                _targets["doing"] = f"calculating UMAP for {len(cells)} objects"
+                try:
+                    from application.parts.analysis import embedding
+
+                    if len(cells) < embedding.ENOUGH_CELLS:
+                        raise RuntimeError(
+                            f"only {len(cells)} cells were discovered; a map needs at least "
+                            f"{embedding.ENOUGH_CELLS} to say anything about the population"
+                        )
+                    points = embedding.in_another_process(cells)
+                    for cell in cells:
+                        at = points.get(str(cell["id"]))
+                        if not isinstance(at, (list, tuple)) or len(at) < 2:
+                            continue
+                        cell["features"] = {
+                            **(cell.get("features") or {}),
+                            "umap_1": float(at[0]), "umap_2": float(at[1]),
+                        }
+                    _keep_embedding(points)
+                    # The field files are the durable object tables. Rewrite
+                    # them with the population coordinates so reopening a run
+                    # does not turn UMAP back into browser-only state.
+                    for result in _targets["fields"]:
+                        _keep_targets(
+                            result["cells"], _records["overview"][result["field"]]
+                        )
+                except Exception as why:  # noqa: BLE001 -- targets remain useful
+                    _targets["embedding_error"] = str(why)
     except Exception as why:  # noqa: BLE001 -- the window shows the sentence
         if _stop_asked["targets"]:
             # The hand that stopped the run also put its worker down, and a
@@ -1073,6 +1173,7 @@ def _targets_worker(fields: list, settings: dict) -> None:
     finally:
         _targets["running"] = False
         _targets["doing"] = None
+        _targets["phase"] = "complete"
 
 
 def _stop_targets() -> dict:
@@ -1088,53 +1189,6 @@ def _stop_targets() -> dict:
     if _targets["running"]:
         warm.close()
     return dict(_targets)
-
-
-# ---------------------------------------------------------------------------
-# The map: UMAP over every discovered cell, one space for the population
-# ---------------------------------------------------------------------------
-
-#: The map being drawn or last drawn, polled by the page the way discovery
-#: is. ``points`` is the answer: each cell's id to its ``[umap_1, umap_2]``.
-_embedding = {"running": False, "error": None, "of": 0, "points": None}
-
-
-def _embed_targets() -> dict:
-    """Start the map: UMAP over every discovered cell, in a worker.
-
-    An embedding is a statement about the whole population -- two fields
-    mapped apart would land in unrelated spaces -- so it runs here, once,
-    after discovery has answered, never inside the per-field pipeline.
-    """
-    if _embedding["running"]:
-        raise RuntimeError("the cell map is already being drawn")
-    if _targets["running"]:
-        raise RuntimeError(
-            "discovery is still running; the map waits for the whole population"
-        )
-    cells = [cell for field in _targets["fields"] for cell in field["cells"]]
-    if not cells:
-        raise RuntimeError("no targets have been discovered, so there is nothing to map")
-    _embedding.update(running=True, error=None, of=len(cells), points=None)
-    threading.Thread(target=_embedding_worker, args=(cells,), daemon=True).start()
-    return dict(_embedding)
-
-
-def _embedding_worker(cells: list) -> None:
-    try:
-        # Imported when first asked for, like the finder: umap is a heavy
-        # import and the bridge must load on machines that only scan.
-        from application.parts.analysis import embedding
-
-        # Drawn in another process: in this one it starves the picture
-        # server, which shares it (see embedding.in_another_process).
-        points = embedding.in_another_process(cells)
-        _keep_embedding(points)
-        _embedding["points"] = points
-    except Exception as why:  # noqa: BLE001 -- the window shows the sentence
-        _embedding["error"] = str(why)
-    finally:
-        _embedding["running"] = False
 
 
 def _keep_embedding(points: dict) -> None:
@@ -1345,8 +1399,6 @@ class _Bridge(BaseHTTPRequestHandler):
                 self._answer(dict(_focus))
             elif path == "/api/targets/discover":
                 self._answer(dict(_targets))
-            elif path == "/api/targets/embedding":
-                self._answer(dict(_embedding))
             elif path == "/api/viewer":
                 self._answer(viewer_service.status())
             elif path.startswith("/view/"):
@@ -1390,8 +1442,6 @@ class _Bridge(BaseHTTPRequestHandler):
                 self._answer(_discover_targets(asked))
             elif self.path == "/api/targets/raise":
                 self._answer(_raise_target(asked))
-            elif self.path == "/api/targets/embedding":
-                self._answer(_embed_targets())
             else:
                 self._answer({"error": f"no route {self.path}"}, status=404)
         except Exception as why:  # noqa: BLE001

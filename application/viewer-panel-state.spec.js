@@ -58,10 +58,12 @@ async function mountPanel(page) {
       },
     };
     const state = module.createViewerPanelState();
+    const changes = [];
     const handle = await module.mountViewerPanel(document.querySelector("#panel-host"), {
       viewer, acquisitions, requestedState: state,
+      changed: () => changes.push(performance.now()),
     });
-    window.__panelFixture = { module, viewer, acquisitions, rows, calls, state, handle };
+    window.__panelFixture = { module, viewer, acquisitions, rows, calls, changes, state, handle };
   });
   await expect(page.locator(".viewer-panel")).toBeVisible();
   await expect(page.locator("[data-channel-row]")).toHaveCount(6);
@@ -157,6 +159,43 @@ test("selection, colour, opacity, window, Log, and collapse persist through grow
   expect(after.channels.every((row) => row.observed.sources.length === 2)).toBe(true);
   expect(after.channels.flatMap((row) => row.observed.sources.slice(0, 1).map((source) => source.matrix)))
     .toEqual(matricesBefore);
+});
+
+
+test("acquisition grey mode survives a remount and restores the original colours", async ({ page }) => {
+  await mountPanel(page);
+  const original = (await snapshot(page)).channels
+    .filter((row) => row.acquisition === "overview")
+    .map((row) => row.requested.colour);
+  const toggle = page.locator('[data-acquisition-grey="overview"]');
+
+  await expect(toggle).toHaveText("colour");
+  await toggle.click();
+  await expect(toggle).toHaveText("grey");
+  await expect(toggle).toHaveAttribute("aria-pressed", "true");
+  await expect.poll(() => page.evaluate(() => window.__panelFixture.changes.length)).toBe(1);
+  expect((await snapshot(page)).channels
+    .filter((row) => row.acquisition === "overview")
+    .every((row) => row.requested.colour[0] === row.requested.colour[1]
+      && row.requested.colour[1] === row.requested.colour[2])).toBe(true);
+
+  await page.evaluate(async () => {
+    const fixture = window.__panelFixture;
+    fixture.handle.destroy();
+    fixture.handle = await fixture.module.mountViewerPanel(
+      document.querySelector("#panel-host"),
+      { viewer: fixture.viewer, acquisitions: fixture.acquisitions, requestedState: fixture.state },
+    );
+  });
+
+  const restoredToggle = page.locator('[data-acquisition-grey="overview"]');
+  await expect(restoredToggle).toHaveText("grey");
+  await expect(restoredToggle).toHaveAttribute("aria-pressed", "true");
+  await restoredToggle.click();
+  await expect(restoredToggle).toHaveText("colour");
+  expect((await snapshot(page)).channels
+    .filter((row) => row.acquisition === "overview")
+    .map((row) => row.requested.colour)).toEqual(original);
 });
 
 

@@ -1,13 +1,11 @@
 /**
- * Step 8's channel — the acquired targets, and the verdict on each.
+ * Step 9's channel — the acquired targets and their image pairs.
  *
- * Acquisition happens on the canvas, where the targets ring; this is what
- * stands beside it. A list of the targets imaged so far, the way the focus
- * step lists its points, and under it one pair -- the field the chosen
- * target was found in and its own frame -- with the two marks that call it
- * kept or discarded. Choosing a row chooses the target on the canvas, and a
- * press on a ringed target on the canvas chooses its row. Above them, the
- * recording the targets are imaged with.
+ * Acquisition happens on the canvas, where the physical target tiles stand;
+ * this is what stands beside it. A list of the tiles imaged so far, the way
+ * the focus step lists its points, and under it one pair -- the overview crop
+ * at the chosen tile and its acquired frame. Choosing a row chooses the tile
+ * on the canvas, and pressing an acquired frame chooses its row.
  *
  * The widget owns its own markup and rebuilds from the run whenever it is
  * mounted, so nothing stale survives a walk away and back. It never reaches
@@ -26,6 +24,7 @@ const CROP_PX = 132;
 function smallPicture(src, draw) {
   const cv = document.createElement("canvas");
   cv.width = CROP_PX; cv.height = CROP_PX;
+  if (src) cv.dataset.picture = src;
   const paint = cv.getContext("2d");
   paint.fillStyle = "#05090e";
   paint.fillRect(0, 0, CROP_PX, CROP_PX);
@@ -39,49 +38,45 @@ function smallPicture(src, draw) {
   return cv;
 }
 
-const ringed = (paint, r) => {
-  paint.strokeStyle = "rgba(22,163,74,0.85)";
-  paint.lineWidth = 1.5;
-  paint.beginPath(); paint.arc(CROP_PX / 2, CROP_PX / 2, r, 0, Math.PI * 2); paint.stroke();
-};
-
 /**
- * The field the target was found in, cropped around it at the overview's
- * magnification: a window a few cell widths wide, the target ringed at its
- * centre. `field` is the plan's position plus `picture`, the field's own
+ * The field the target was found in, cropped to the exact physical window
+ * acquired at target magnification. Its pixels are coarser, but its centre
+ * and extent are identical, so differences are resolution rather than zoom.
+ * `field` is the plan's position plus `picture`, the field's own
  * small copy, which covers exactly the frame.
  */
 function fieldCrop(cell, field) {
-  const half = Math.max(40, cell.r * 4);
-  return smallPicture(field.picture, (paint, img) => {
+  const frameUm = Number.isFinite(field.cropFrameUm) && field.cropFrameUm > 0
+    ? field.cropFrameUm : Math.max(80, cell.r * 8);
+  const half = frameUm / 2;
+  const centreX = Number.isFinite(field.cropX) ? field.cropX : cell.x;
+  const centreY = Number.isFinite(field.cropY) ? field.cropY : cell.y;
+  const cv = smallPicture(field.picture, (paint, img) => {
     if (img) {
       const perUm = img.naturalWidth / field.frameUm;
-      const sx = (cell.x - half - (field.x - field.frameUm / 2)) * perUm;
-      const sy = (cell.y - half - (field.y - field.frameUm / 2)) * perUm;
+      const sx = (centreX - half - (field.x - field.frameUm / 2)) * perUm;
+      const sy = (centreY - half - (field.y - field.frameUm / 2)) * perUm;
       paint.drawImage(img, sx, sy, 2 * half * perUm, 2 * half * perUm, 0, 0, CROP_PX, CROP_PX);
     }
-    ringed(paint, (cell.r / half) * (CROP_PX / 2));
   });
+  cv.dataset.comparison = "overview";
+  cv.dataset.frameUm = String(frameUm);
+  cv.dataset.centreX = String(centreX);
+  cv.dataset.centreY = String(centreY);
+  return cv;
 }
 
 /** The target's own frame, as it was imaged. */
-function targetFrame(src) {
-  return smallPicture(src, (paint, img) => {
+function targetFrame(src, field) {
+  const cv = smallPicture(src, (paint, img) => {
     if (img) paint.drawImage(img, 0, 0, CROP_PX, CROP_PX);
   });
+  cv.dataset.comparison = "target";
+  cv.dataset.frameUm = String(field.cropFrameUm ?? "");
+  cv.dataset.centreX = String(field.cropX ?? "");
+  cv.dataset.centreY = String(field.cropY ?? "");
+  return cv;
 }
-
-/** How the targets are counted, in the words the readout uses. */
-export function galleryTally(acquired, verdicts) {
-  const marked = acquired.filter((id) => verdicts[id]).length;
-  const good = acquired.filter((id) => verdicts[id] === "good").length;
-  return acquired.length
-    ? `${acquired.length} targets · ${marked} marked · ${good} good`
-    : "—";
-}
-
-/** The glyph a verdict is listed under. */
-const VERDICT_GLYPH = { good: "✓", bad: "✗" };
 
 import { sideGroup } from "../../../../framework/window/panels.js";
 
@@ -93,14 +88,14 @@ export default {
    * Build the channel and fill it from the run.
    *
    * `ctx` carries what this step works with and nothing else:
-   *   `acquired`   the target ids, in the order they were imaged
-   *   `verdicts`   id -> "good" | "bad" | null, changed here
-   *   `selected`   the id of the target whose pair is shown, or null
-   *   `select(id)` choose that target, on the canvas as well as here
+   *   `acquired`   the unique tile keys, in acquisition order
+   *   `tileByKey`  the physical tile for an acquisition key
+   *   `selected`   the key of the tile whose pair is shown, or null
+   *   `select(key)` choose that tile, on the canvas as well as here
    *   `cellById`   a target's own details, for the crops and the caption
-   *   `fieldOf(cell)`  the field it was found in: the plan's position, and
+   *   `fieldOf(tile, cell)` the field it was found in: the plan's position, and
    *                `picture`, where the field's small copy is (or null)
-   *   `pictureOf(id)`  where the target's own frame is (or null)
+   *   `pictureOf(key)` where that target tile's frame is (or null)
    *   `recordingSlot(host, opts)`  the shared recorder, for the acquisition type
    *   `changed()`  say that something the rest of the page shows has changed
    *
@@ -112,28 +107,20 @@ export default {
     const side = document.createElement("div");
     side.className = "gallery-side";
 
-    /* The step's own press at the top of its channel, like the others. */
+    /* Acquisition actions stand below the comparison: once there is a
+       current pair, the two rerun choices belong directly beneath it. */
     const act = document.createElement("div");
     act.className = "acquire-action side-act";
 
-    const listBox = sideGroup("Acquired targets");
-    const about = document.createElement("div");
-    about.className = "gallery-about";
-    const note = document.createElement("div");
-    note.className = "side-note";
-    note.textContent = "choose a target here or on the canvas — mark it ✓ or ✗";
-    const readout = document.createElement("span");
-    readout.className = "readout";
-    readout.id = "gallery-readout";
-    readout.textContent = "—";
-    about.append(note, readout);
-
+    const listBox = sideGroup("Acquired target tiles");
     /* The list, in the focus step's own clothes: a row a target, the chosen
        one lit, the box capped and scrolling past its few rows. */
     const list = document.createElement("div");
     list.className = "point-list";
     list.id = "target-list";
-    listBox.body.append(about, list);
+    /* The list needs no instruction/tally strip: choosing a row is evident
+       from the selected state and the comparison immediately below it. */
+    listBox.body.append(list);
 
     /* The one pair on show: the chosen target's. */
     const pairBox = sideGroup("Overview crop · target frame");
@@ -145,85 +132,59 @@ export default {
     /* The settings the targets are imaged with were recorded on the step
        before, beside the selection; here the press stands over what it
        will make. */
-    side.append(act, listBox.group, pairBox.group);
+    side.append(listBox.group, pairBox.group, act);
     host.append(side);
 
-    const sayTheTally = () => {
-      readout.textContent = galleryTally(ctx.acquired(), ctx.verdicts());
-    };
+    const targetIdOf = (tile) => tile?.targetId ?? tile?.covers?.[0] ?? null;
+    /* Only acquisition keys whose tile and anchor target the run still knows:
+       a re-discovery invalidates the old ones, and an orphan card cannot say
+       which overview field supplies its comparison. */
+    const known = () => ctx.acquired().filter((key) => {
+      const tile = ctx.tileByKey(key);
+      return tile && ctx.cellById(targetIdOf(tile));
+    });
 
-    /* Only ids the run still knows: a re-discovery invalidates the old
-       ones, and a card for a cell nobody can look up crashed the panel. */
-    const known = () => ctx.acquired().filter((id) => ctx.cellById(id));
-
-    /** One row of the list: its place, its name, where it is, its verdict. */
-    const rowFor = (id, index) => {
-      const cell = ctx.cellById(id);
-      const verdict = ctx.verdicts()[id] ?? null;
+    /** One row of the list: its place, its name, and where it is. */
+    const rowFor = (key, index) => {
+      const tile = ctx.tileByKey(key);
+      const cell = ctx.cellById(targetIdOf(tile));
       const row = document.createElement("div");
       row.className = "point-row";
-      row.dataset.target = id;
-      row.setAttribute("aria-current", String(id === ctx.selected()));
+      row.dataset.target = key;
+      row.setAttribute("aria-current", String(key === ctx.selected()));
       const pick = document.createElement("button");
       pick.className = "point-pick"; pick.type = "button";
-      pick.setAttribute("aria-label", `choose target ${cell.id}`);
+      pick.setAttribute("aria-label", `choose target tile ${index + 1} for ${cell.id}`);
+      const names = tile.covers?.length ? tile.covers.join(", ") : cell.id;
       pick.innerHTML =
         `<span class="idx">${index + 1}</span>` +
-        `<span class="name">${cell.id}</span>` +
-        `<span>${(cell.x / 1000).toFixed(2)}, ${(cell.y / 1000).toFixed(2)} mm</span>` +
-        `<span class="z verdict-${verdict ?? "none"}">${VERDICT_GLYPH[verdict] ?? "—"}</span>`;
-      pick.addEventListener("click", () => ctx.select(id));
+        `<span class="name">${names}</span>` +
+        `<span>${(tile.x / 1000).toFixed(2)}, ${(tile.y / 1000).toFixed(2)} mm</span>`;
+      pick.addEventListener("click", () => ctx.select(key));
       row.append(pick);
       return row;
     };
 
-    /** The pair on show: the chosen target's pictures, caption and marks. */
-    const pairFor = (id) => {
-      const cell = ctx.cellById(id);
+    /** The pair on show: the chosen target's pictures and caption. */
+    const pairFor = (key, tile, cell, field, picture) => {
       const card = document.createElement("div");
       card.className = "pair";
-      card.dataset.target = id;
+      card.dataset.target = key;
 
       const imgs = document.createElement("div");
       imgs.className = "imgs";
-      imgs.append(fieldCrop(cell, ctx.fieldOf(cell)), targetFrame(ctx.pictureOf(id)));
+      imgs.append(fieldCrop(cell, field), targetFrame(picture, field));
 
       const meta = document.createElement("div");
       meta.className = "meta";
       meta.append(document.createTextNode(
-        `${cell.id} · ${(cell.x / 1000).toFixed(2)}, ${(cell.y / 1000).toFixed(2)} mm`));
+        `${cell.id} · ${(tile.x / 1000).toFixed(2)}, ${(tile.y / 1000).toFixed(2)} mm`));
 
-      const verdict = document.createElement("div");
-      verdict.className = "verdict";
-      const marks = [];
-      for (const [kind, glyph] of [["good", "✓"], ["bad", "✗"]]) {
-        const mark = document.createElement("button");
-        mark.type = "button";
-        mark.className = `pick-${kind}`;
-        mark.textContent = glyph;
-        mark.setAttribute("aria-pressed", String(ctx.verdicts()[id] === kind));
-        mark.setAttribute("aria-label", `mark cell ${cell.id} ${kind}`);
-        /* Pressing the mark it already carries takes it back off: a verdict
-           given by mistake is undone the same way it was given. */
-        mark.addEventListener("click", () => {
-          const verdicts = ctx.verdicts();
-          verdicts[cell.id] = verdicts[cell.id] === kind ? null : kind;
-          for (const one of marks) {
-            one.setAttribute("aria-pressed",
-              String(one.classList.contains(`pick-${verdicts[cell.id]}`)));
-          }
-          showTheList();
-        });
-        marks.push(mark);
-        verdict.append(mark);
-      }
-      meta.append(verdict);
       card.append(imgs, meta);
       return card;
     };
 
-    /* The list and the tally follow the run; the pair follows the choice.
-       Redrawn apart, so marking a target does not fetch its pictures again. */
+    /* The list follows the run; the pair follows the choice. */
     const showTheList = () => {
       list.textContent = "";
       const ids = known();
@@ -234,15 +195,23 @@ export default {
         list.append(none);
       }
       ids.forEach((id, index) => list.append(rowFor(id, index)));
-      sayTheTally();
     };
     let pairShown = null;
     const showThePair = () => {
-      const id = ctx.selected();
-      if (id === pairShown && pair.childElementCount) return;
-      pairShown = id;
+      const key = ctx.selected();
+      const tile = key === null ? null : ctx.tileByKey(key);
+      const cell = tile ? ctx.cellById(targetIdOf(tile)) : null;
+      const field = cell ? ctx.fieldOf(tile, cell) : null;
+      const picture = key === null ? null : ctx.pictureOf(key);
+      /* Display controls change the query on these addresses without changing
+         the selected target. Key the cache by the actual pictures, so the
+         visible pair refreshes immediately instead of waiting for the user to
+         select another row and come back. */
+      const signature = key === null ? null : `${key}\u0000${field?.picture ?? ""}\u0000${picture ?? ""}`;
+      if (signature === pairShown && pair.childElementCount) return;
+      pairShown = signature;
       pair.textContent = "";
-      if (id !== null && ctx.cellById(id)) pair.append(pairFor(id));
+      if (key !== null && tile && cell) pair.append(pairFor(key, tile, cell, field, picture));
     };
 
     const rebuild = () => {

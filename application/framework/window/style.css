@@ -40,9 +40,7 @@
   --edit-ink: #eab308;
   --warn-line: #fde68a;
   /* data marks — validated for BOTH surfaces, so they never change */
-  --mark-gated: #0284c7;
   --mark-selected: #16a34a;
-  --mark-restricted: #dc2626;
   --mark-acquired: #16a34a;
   --mark-context: #94a3b8;
   /* where the microscope is standing. A deep blue, on Thom's word: the red
@@ -345,15 +343,9 @@ button.run:disabled { opacity: 0.4; cursor: default; }
 }
 .panel-foot:empty { display: none; }
 
-/* The canvas keeps its whole height; the controls that read it sit under it in
-   one bar — what is drawn, then what to draw and what to do next. */
-#panel-canvas.on { grid-template-rows: minmax(0, 1fr) auto; }
-.canvas-foot {
-  display: flex; align-items: stretch;
-  border-top: 1px solid var(--line); background: var(--screen);
-}
-.canvas-foot > .toolbar { flex: 1 1 auto; border-top: none; border-bottom: none; }
-.canvas-foot > .panel-foot { border-top: none; }
+/* Nothing sits below the canvas: its layer controls live under Display
+   settings and Fit is on the picture itself. */
+#panel-canvas.on { grid-template-rows: minmax(0, 1fr); }
 .action-hint { font-size: 12.5px; color: var(--ink-3); font-family: var(--mono); flex: none; }
 .action-hint.ok { color: var(--good); }
 .action-hint.bad { color: var(--bad); }
@@ -1045,8 +1037,7 @@ button.run.running::after {
 .side-head .ghost.tiny { margin-left: auto; letter-spacing: normal; text-transform: none; }
 
 /* ---- the gallery channel -------------------------------------------------
-   The acquired pairs and their verdicts. One column at the default width;
-   widening the channel is how the grid gets more. */
+   The acquired low- and high-resolution images, stacked for inspection. */
 .gallery-side {
   display: flex; flex-direction: column; flex: 1; min-height: 0;
   gap: var(--box-gap); padding: var(--box-gap) 14px 14px;
@@ -1206,38 +1197,28 @@ canvas.livecv[hidden] { display: none; }
 
 /* gallery */
 .gallery-wrap { overflow-y: auto; padding: 14px; }
-/* One pair per row, however wide the channel: each verdict gets the
-   full width and the eye moves straight down the list. */
+/* One pair per row, however wide the channel, so the eye moves straight
+   down from overview context to the high-resolution target frame. */
 .pairs { display: grid; grid-template-columns: 1fr; gap: 12px; }
 .pair {
   border: 1px solid var(--line); border-radius: 9px; overflow: hidden;
   background: var(--surface-2); display: flex; flex-direction: column;
 }
-.pair .imgs { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--line); }
+/* The overview crop is context above the high-resolution target frame; both
+   use the full channel width. */
+.pair .imgs { display: grid; grid-template-columns: 1fr; gap: 1px; background: var(--line); }
 .pair canvas { display: block; width: 100%; height: auto; background: #000; }
 .pair .meta {
   display: flex; align-items: center; gap: 6px; padding: 6px 8px;
   font-family: var(--mono); font-size: 11.5px; color: var(--ink-3); font-variant-numeric: tabular-nums;
 }
-.pair .verdict { margin-left: auto; display: flex; gap: 4px; }
-/* The target list: its name in the page's ink, its verdict at the end in
-   the verdict's own colour, none yet in the muted one. */
+/* The target list: its name in the page's ink. */
 .point-row .name { color: var(--ink-1); }
-.point-row .z.verdict-good { color: var(--accent-deep); }
-.point-row .z.verdict-bad { color: var(--warn-ink); }
-.point-row .z.verdict-none { color: var(--ink-3); }
-.verdict button {
-  font: inherit; font-size: 12px; line-height: 1; padding: 4px 7px;
-  border: 1px solid var(--line-strong); border-radius: 6px;
-  background: var(--screen); color: var(--ink-3); cursor: pointer;
-}
-.verdict button.pick-good[aria-pressed="true"] { background: var(--good); border-color: var(--good); color: var(--screen); }
-.verdict button.pick-bad[aria-pressed="true"] { background: var(--bad); border-color: var(--bad); color: var(--screen); }
 
 .legend { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
 .legend span { display: flex; align-items: center; gap: 6px; }
 .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
-.dot.ring { box-shadow: 0 0 0 2px var(--screen), 0 0 0 3.5px var(--mark-gated); }
+.dot.ring { box-shadow: 0 0 0 2px var(--screen), 0 0 0 3.5px var(--mark-selected); }
 
 :where(button, select, [tabindex]):focus-visible {
   outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px;
@@ -1355,13 +1336,13 @@ canvas.livecv[hidden] { display: none; }
    The workflow box on the left and the tab bar on the right both sit above a
    rule that runs the width of the app. One shared height keeps that rule
    continuous instead of stepping down where the columns meet. */
-:root { --head-h: 110px; }
+:root { --head-h: 86px; }
 .wf-box { height: var(--head-h); justify-content: center; padding-top: 0; padding-bottom: 0; }
 .tabs { height: var(--head-h); align-items: center; }
 .tabs .tab { height: 100%; }
 
 /* The first step should not crowd the rule under the workflow selector. */
-.steps { padding-top: 18px; }
+.steps { padding-top: 12px; }
 
 /* Both header bars sit their contents toward the bottom of the bar, so the
    selector and the tab labels line up with each other and with the rule. */
@@ -1374,7 +1355,7 @@ canvas.livecv[hidden] { display: none; }
    --brand is its own token — point it at the institute's blue when the real
    brand values are to hand and nothing else has to change. */
 :root { --brand: var(--accent-deep); }
-.wf-box { justify-content: space-between; padding-top: 12px; }
+.wf-box { justify-content: space-between; padding-top: 8px; padding-bottom: 10px; }
 .brand { display: flex; align-items: baseline; gap: 6px; user-select: none; }
 .brand-mark {
   font-size: 21px; font-weight: 750; letter-spacing: -0.02em;
@@ -1580,17 +1561,22 @@ canvas.livecv[hidden] { display: none; }
    height of the page. Pressed, the column goes and the handle stays as the
    way back, so the canvas takes the room and nothing is lost. */
 .side-fold {
-  width: 16px; height: 48px; padding: 0; cursor: pointer; align-self: center;
+  width: 30px; height: 64px; padding: 0; cursor: pointer; align-self: center;
   /* A tab on the column's edge: rounded on the side that faces the
      canvas, flat and open where it meets the column, so it reads as part
      of it rather than a button laid beside it. */
-  border: 1px solid var(--line); border-right: none; border-radius: 8px 0 0 8px;
-  background: var(--surface-2); color: var(--ink-3); font: inherit; font-size: 12px;
+  border: 1px solid var(--line-strong); border-right: none; border-radius: 9px 0 0 9px;
+  background: var(--screen); color: var(--accent-deep); font: inherit; font-size: 20px;
   /* Over the canvas's edge rather than in a column of its own: the grid
      gives it no room, so folded, only the tab shows at the right. */
-  margin-left: -16px; position: relative; z-index: 3;
+  margin-left: -15px; position: relative; z-index: 4;
+  box-shadow: -2px 0 7px rgba(15, 23, 42, 0.10);
 }
-.side-fold:hover { color: var(--ink); background: var(--accent-line); }
+.side-fold:hover, .side-fold:focus-visible {
+  color: var(--accent); background: var(--accent-tint); border-color: var(--accent);
+}
+.side-fold > span { display: block; transform: translateY(-1px); }
+.side-fold.collapsed { border-right: 1px solid var(--line-strong); }
 .side-fold[hidden] { display: none; }
 .canvas-body > .viewer-panel { overflow-y: auto; min-height: 0; }
 .canvas-side {
@@ -1609,6 +1595,21 @@ canvas.livecv[hidden] { display: none; }
    here the tab is the fold and the column is the width. */
 .display-side > .viewer-panel { width: 100%; height: 100%; }
 .display-side > .viewer-panel > div { width: 100% !important; }
+.display-side {
+  display: flex; flex-direction: column; gap: 0;
+  padding: 0;
+}
+.display-side[hidden] { display: none; }
+.display-side > .viewer-panel { flex: 1 1 auto; height: auto; min-height: 0; }
+.display-layer-settings {
+  flex: none; margin: var(--box-gap) 14px 0;
+}
+.display-layer-settings .side-group-body { gap: 10px; }
+.display-layer-settings #stage-layers { align-items: flex-start; }
+.display-layer-settings .layer-extra {
+  width: 100%; margin: 2px 0 0; padding-top: 9px; border-top: 1px solid var(--line);
+  justify-content: space-between; flex-wrap: wrap;
+}
 /* In the column the panel wears the page's boxes: its rows keep their own
    inset, so the box holds them without a second one. */
 .display-side .viewer-panel .side-group-body { padding: 10px 2px; gap: 0; }
@@ -1964,7 +1965,7 @@ canvas.livecv[hidden] { display: none; }
   background: var(--accent-tint); color: var(--accent-deep); border-color: var(--accent);
 }
 
-/* The layer chips in the canvas foot, and the dial beside them. They read as
+/* The layer chips in Display settings, and the dial beside them. They read as
    switches rather than as the checkboxes that were here before, because that
    is what they are: any number may be on at once, and the colour is the only
    thing an operator has to read off them. */
@@ -1980,14 +1981,6 @@ canvas.livecv[hidden] { display: none; }
 #stage-layers { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 
 
-/* The strip of controls under the canvas, taken off the screen while a better
-   home for what was in it is decided. `display` is set on it elsewhere, and a
-   rule that sets display always beats the `hidden` attribute — which is exactly
-   the kind of quiet nothing-happened that costs an afternoon.
-
-   The foot *around* it stays: each step's own Run button is in there too. */
-.canvas-foot > .toolbar[hidden] { display: none; }
-
 /* Fit, in the corner of the canvas. The strip under the canvas is gone and this
    is the one control from it that belongs with the picture rather than beside
    it: it is about where you are looking, not about what is drawn.
@@ -1995,7 +1988,7 @@ canvas.livecv[hidden] { display: none; }
    Top right: clear of the scale bar, which is drawn bottom right, and out of
    the way of the sample, which sits in the middle. */
 .fit-on-canvas {
-  position: absolute; right: 12px; top: 12px; z-index: 3;
+  position: absolute; left: 12px; top: 12px; z-index: 3;
   background: var(--surface-2); border: 1px solid var(--line-strong);
   border-radius: 8px; padding: 5px 12px; font-weight: 600; font-size: 12.5px;
   color: var(--ink-2); cursor: pointer;
@@ -2061,10 +2054,9 @@ canvas.livecv[hidden] { display: none; }
 
 /* Steps 6-8 in the same boxes as the steps before them. The picker sits as
    its own right-leaning row inside the test card; Clear gates rides the axis
-   row's far end; the pairs card says what it holds beside how it is marked. */
+   row's far end. */
 .side-group-body > .tile-pick { display: flex; align-items: center; gap: 8px; justify-content: flex-end; }
 .gate-axes .ghost.tiny { margin-left: auto; }
-.gallery-about { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
 
 /* The random draw: one row under the gate list -- how many, the draw, and
    the way back to everything the gates let through. */
@@ -2074,16 +2066,14 @@ canvas.livecv[hidden] { display: none; }
    same width whatever the control is, so the column reads as one. */
 .gate-draw input[type="range"] { width: 72px; margin: 0; }
 .gate-draw input[type="checkbox"] { width: 72px; margin: 0; height: 16px; }
-.tile-controls { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.tile-controls { display: flex; flex-direction: column; gap: 8px; }
 .press-line .spacer { flex: 1; }
 .press-line .run { white-space: nowrap; }
-/* A switchable lever: its checkbox beside its number, the pair as wide as a
-   number alone, so switched and plain rows line up. */
-.gate-draw .switched { display: flex; align-items: center; gap: 6px; }
-.gate-draw .switched input[type="checkbox"] { width: auto; height: 14px; margin: 0; }
-.gate-draw .switched input[type="number"] { width: 72px; }
+/* A checkbox leads the words it governs; where the lever also has a number,
+   that number stays in the right-hand controls column. */
+.gate-draw.check-first > input[type="checkbox"] { width: auto; height: 14px; margin: 0; }
+.gate-draw.check-first > input[type="number"] { width: 72px; }
 .gate-draw select { width: 72px; min-width: 0; }
-#prefer { width: 200px; }
 #tiles-notes:empty { display: none; }
 .gate-draw input {
   font: inherit; font-family: var(--mono); font-size: 12px;
@@ -2091,10 +2081,15 @@ canvas.livecv[hidden] { display: none; }
   border: 1px solid var(--line-strong); border-radius: 6px;
   padding: 4px 7px; width: 72px;
 }
+.target-main-settings-title {
+  font-size: 11px; font-weight: 700; letter-spacing: 0.06em;
+  text-transform: uppercase; color: var(--ink-3);
+}
 
 /* The step's own press at the top of its channel: the button and its
    sentence in one quiet row, gone entirely when the renderer left it empty. */
 .side-act { display: flex; align-items: center; gap: 10px; }
+.acquire-action.split-actions { justify-content: space-between; }
 /* The scan summary: a label and its value to a row, the labels one column. */
 .scan-summary {
   display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; align-items: baseline;

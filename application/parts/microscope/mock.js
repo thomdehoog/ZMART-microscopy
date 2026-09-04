@@ -278,8 +278,13 @@ export const backend = {
    * store and re-reads it as tiles are saved, which is the same arrangement
    * the real instrument has. This only says how far along the drive is.
    */
-  async scanOverview({ positions, acquisition_type = "overview", ms = 2600, onProgress, state }) {
+  async scanOverview({
+    positions, acquisition_type = "overview", ms = 2600, onProgress, state,
+    append = false, planned = null,
+  } = {}) {
     void state;
+    void append;
+    void planned;
     stopAsked.scan = false;
     scanned[acquisition_type] = positions;
     const total = positions.length;
@@ -295,11 +300,12 @@ export const backend = {
         while (records.length < done) {
           const at = records.length;
           const p = positions[at];
+          const stableAt = p.position_index ?? at;
           const path = `${acquisition_type}/${acquisition_type}_pretend_`
-            + `${labelFor(at, p)}_T000000_C00_Z00000.ome.tiff`;
+            + `${labelFor(stableAt, p)}_T000000_C00_Z00000.ome.tiff`;
           records.push({
             acquisition_type,
-            position_label: labelFor(at, p),
+            position_label: labelFor(stableAt, p),
             /* One plane per record, saying where it was driven: a record
                with empty planes read fine against the page and undefined
                against anything that looked inside. */
@@ -334,7 +340,9 @@ export const backend = {
    * was asked for. The settings are taken and ignored, because there are no
    * pixels here for a diameter to be right or wrong about.
    */
-  async discoverTargets({ fields = null, settings = {}, onField, onProgress } = {}) {
+  async discoverTargets({
+    fields = null, settings = {}, onField, onDoing, onProgress,
+  } = {}) {
     void settings;
     stopAsked.targets = false;
     /* A tile test takes a moment, as the real one takes a minute: long
@@ -359,20 +367,25 @@ export const backend = {
           r: Math.sqrt(area / Math.PI),
         };
       });
-      /* The device the field was segmented on rides along, as the bridge's
+      /* The device the field was detected on rides along, as the bridge's
          answer carries it; the pretend one has no card and says so. */
       return { field, position_label: labelFor(field, at), cells, device: "pretend" };
     });
     const gave = [];
-    onProgress?.(0, found.length);
+    onProgress?.(0, found.length, { phase: "objects", objects: 0, running: true });
     for (const one of found) {
       if (stopAsked.targets) break;
       await wait(0);
+      onDoing?.(`detecting and measuring objects in position ${one.field + 1}`);
       onField?.(one);
       gave.push(one);
-      onProgress?.(gave.length, found.length);
+      onProgress?.(gave.length, found.length, {
+        phase: "objects",
+        objects: gave.reduce((sum, field) => sum + field.cells.length, 0),
+        running: true,
+      });
     }
-    discovered = gave.flatMap((one) => one.cells);
+    onDoing?.(null);
     return { fields: gave, failed: [], stopped: stopAsked.targets };
   },
 
@@ -382,30 +395,6 @@ export const backend = {
     return {};
   },
 
-  /**
-   * A pretend map with real structure: size along one axis, glow along the
-   * other, jittered. Enough for the page to offer umap axes and gate on
-   * them with no instrument anywhere near it. Same shape as the bridge's:
-   * each cell's id to its [umap_1, umap_2], and the same refusal to map a
-   * population too small to say anything about.
-   */
-  async embedTargets() {
-    await wait(200);
-    if (discovered.length < 10) {
-      throw new Error(
-        `only ${discovered.length} cells were discovered; a map needs at `
-        + "least 10 to say anything about the population");
-    }
-    const r = makeRng(9100);
-    const points = {};
-    for (const cell of discovered) {
-      points[cell.id] = [
-        Math.sqrt(cell.area) / 4 + (r() - 0.5),
-        cell.intensity * 10 + (r() - 0.5),
-      ];
-    }
-    return { points };
-  },
 };
 
 /* What METRICS looks like is display metadata the window shares (labels,
@@ -462,10 +451,6 @@ const scanned = {};
 /* The operator's hand on the brake, as the bridge keeps it: set by the stop
    verbs, read by the pretend runs between two fields. */
 const stopAsked = { scan: false, focus: false, targets: false };
-
-/* What the last discovery found, all fields together — the population the
-   pretend map is drawn over, as the bridge draws its over its own fields. */
-let discovered = [];
 
 /* The jobs this pretend instrument has stored, and which is chosen. The same
    three the controller's mock driver keeps, so the page meets one instrument
