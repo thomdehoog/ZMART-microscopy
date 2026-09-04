@@ -67,3 +67,24 @@ export function displayQueryFor(snapshot, acquisition) {
   const display = displayFor(snapshot, acquisition);
   return display.length ? `?display=${encodeURIComponent(JSON.stringify(display))}` : "";
 }
+
+/**
+ * One small displayed copy, optionally refusing the legacy plain JPEG.
+ *
+ * A plain copy predates the live Viewer and assigns the first three channels
+ * to red, green and blue. That remains useful as a fallback for old standalone
+ * views, but a comparison beside the live Viewer must not briefly show a
+ * different, automatic RGB rendering while its real display rows are loading.
+ */
+export function displayedPictureAddress(
+  where,
+  label,
+  snapshot,
+  acquisition,
+  { requireDisplay = false } = {},
+) {
+  if (!where || !label) return null;
+  const query = displayQueryFor(snapshot, acquisition);
+  if (requireDisplay && !query) return null;
+  return `${where}/${label}.jpg${query}`;
+}

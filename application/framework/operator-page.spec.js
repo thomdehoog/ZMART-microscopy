@@ -28,6 +28,15 @@ const { WORKFLOWS } = assembleWorkflows(flowFiles);
 
 const gotoStep = (page, name) => page.locator(`.step:has-text("${name}")`).first().click();
 
+/** Optional review artifact: ordinary test runs stay read-only, while a
+ * reviewer can name a folder and reproduce the documented operator view. */
+async function captureOperatorEvidence(page, name) {
+  const folder = process.env.OPERATOR_EVIDENCE_DIR;
+  if (!folder) return;
+  fs.mkdirSync(folder, { recursive: true });
+  await page.screenshot({ path: path.join(folder, name), fullPage: true });
+}
+
 /* A step's button sits at the end of whichever panel is showing, so this does
    not need to know which step it is running. */
 async function runStep(page, ms = 1000) {
@@ -217,14 +226,19 @@ test("a session opens with the password left empty", async ({ page }) => {
   await expect(page.locator(".session-foot button.run")).toBeEnabled();
 });
 
-test("the display settings are not offered before there is a picture", async ({ page }) => {
-  // the settings become a thing with the first picture, the focus stack of
-  // Step 4, and a JPEG copy never brings one: until then the column is
-  // headed by the step's name alone, not by a choice
-  await expect(page.locator(".side-tab")).toContainText("Connect");
-  await expect(page.locator(".side-tab button.tab")).toHaveCount(0);
+test("canvas layer controls live under Display settings from the start", async ({ page }) => {
+  await expect(page.locator(".side-tab button.tab"))
+    .toHaveText(["Connect", "Display settings"]);
   await expect(page.locator("#display-side")).toBeHidden();
   await expect(page.locator("#canvas-side")).toBeVisible();
+  await page.getByRole("tab", { name: "Display settings", exact: true }).click();
+  await expect(page.locator("#display-side")).toBeVisible();
+  await expect(page.locator(".display-layer-settings .side-group-title"))
+    .toHaveText("Canvas layers");
+  await expect(page.locator("#stage-layers .layer-chip")).not.toHaveCount(0);
+  await expect(page.locator(".canvas-foot"), "the canvas has no bottom bar").toHaveCount(0);
+  await expect(page.locator("#stage-readout"), "there is no live x/y readout").toHaveCount(0);
+  await expect(page.locator("#fit-btn")).toBeVisible();
 });
 
 test("the channel folds away to the right and comes back", async ({ page }) => {
@@ -232,22 +246,41 @@ test("the channel folds away to the right and comes back", async ({ page }) => {
   // and gives the canvas the room; the strip stays as the way back, and the
   // column returns the width it had -- the canvas with it
   await expect(page.locator("#canvas-side")).toBeVisible();
-  await expect(page.locator(".side-tab")).toContainText("Connect");
+  await expect(page.locator(".side-tab .tab[aria-selected='true']")).toHaveText("Connect");
+  /* Stand well inside a zoomed sample view: preserving the initial fitted
+     stage alone would not catch a sidebar resize that pans a tileset. */
+  await page.evaluate(() => window.__theStageCanvas.lookAt({
+    centre: { x: 11000, y: 7000 }, zoom: 12,
+  }));
+  await page.waitForTimeout(100);
   const canvasBefore = await page.locator("#stage-canvas").boundingBox();
   const fold = page.locator("#side-fold");
   await expect(fold).toHaveAttribute("aria-expanded", "true");
+  await expect(fold).toHaveAttribute("aria-label", "Collapse right sidebar");
+  expect((await fold.boundingBox()).width, "the fold has an easy-to-find hit area")
+    .toBeGreaterThanOrEqual(28);
+  const viewBefore = await page.evaluate(() => window.__theStageCanvas.view());
   await fold.click();
   await expect(page.locator("#canvas-side")).toBeHidden();
   await expect(page.locator("#side-divider")).toBeHidden();
   await expect(page.locator(".side-tab")).toHaveCount(0);
   await expect(fold).toHaveAttribute("aria-expanded", "false");
+  await expect(fold).toHaveAttribute("aria-label", "Open right sidebar");
   await expect.poll(async () => (await page.locator("#stage-canvas").boundingBox()).width,
     "the canvas takes the room the column gave up").toBeGreaterThan(canvasBefore.width + 100);
+  const viewFolded = await page.evaluate(() => window.__theStageCanvas.view());
+  expect(viewFolded.centre.x).toBeCloseTo(viewBefore.centre.x, 6);
+  expect(viewFolded.centre.y).toBeCloseTo(viewBefore.centre.y, 6);
+  expect(viewFolded.zoom).toBeCloseTo(viewBefore.zoom, 9);
   await fold.click();
   await expect(page.locator("#canvas-side")).toBeVisible();
-  await expect(page.locator(".side-tab")).toContainText("Connect");
+  await expect(page.locator(".side-tab .tab[aria-selected='true']")).toHaveText("Connect");
   await expect.poll(async () => (await page.locator("#stage-canvas").boundingBox()).width)
     .toBe(canvasBefore.width);
+  const viewOpen = await page.evaluate(() => window.__theStageCanvas.view());
+  expect(viewOpen.centre.x).toBeCloseTo(viewBefore.centre.x, 6);
+  expect(viewOpen.centre.y).toBeCloseTo(viewBefore.centre.y, 6);
+  expect(viewOpen.zoom).toBeCloseTo(viewBefore.zoom, 9);
 });
 
 test("typing the password does not throw the field away", async ({ page }) => {
@@ -495,27 +528,27 @@ test("the canvas is always on the stage, and the channel follows the step",
     /* One layout for every step: the picture on the left, the standing step's
        controls in the channel on the right. From the very first step — the
        session card is the channel of Connect. */
-    await expect(page.locator(".tab")).toHaveText(["Canvas"]);
-    await expect(page.locator(".side-tab")).toHaveText("Connect");
+    await expect(page.locator("#tabs > .tab")).toHaveText(["Canvas"]);
+    await expect(page.locator(".side-tab .tab[aria-selected='true']")).toHaveText("Connect");
     // headed the way every other step is headed: the name above the box
     await expect(page.locator("#canvas-side .side-group-title").first())
       .toHaveText("Connect to the microscope");
 
     await throughSetup(page);
-    await expect(page.locator(".tab")).toHaveText(["Canvas"]);
+    await expect(page.locator("#tabs > .tab")).toHaveText(["Canvas"]);
     await expect(page.locator(".panel.on button.step-run"),
       "configuring it is the work, so there is nothing to press").toHaveCount(0);
     await expect(page.locator('.step:has-text("Define Carrier")').first(),
       "and standing on it settles it").toHaveClass(/done/);
     // the channel is named over the column it heads, not as a tab you switch to
-    await expect(page.locator(".side-tab")).toHaveText("Define Carrier");
+    await expect(page.locator(".side-tab .tab[aria-selected='true']")).toHaveText("Define Carrier");
     await expect(page.locator("#canvas-side")).toBeVisible();
     await expect(page.locator(".carrier-card")).toHaveCount(1);
 
     /* Walking back keeps the canvas: the channel changes hands instead. */
     await gotoStep(page, "Connect");
-    await expect(page.locator(".tab")).toHaveText(["Canvas"]);
-    await expect(page.locator(".side-tab")).toHaveText("Connect");
+    await expect(page.locator("#tabs > .tab")).toHaveText(["Canvas"]);
+    await expect(page.locator(".side-tab .tab[aria-selected='true']")).toHaveText("Connect");
     await expect(page.locator("#canvas-side .side-group-title").first(),
       "and the session comes back when you return")
       .toHaveText("Connect to the microscope");
@@ -528,7 +561,7 @@ test("the canvas is always on the stage, and the channel follows the step",
        heading says whose it is — rather than a second column beside it holding
        controls for a step nobody is on. */
     await gotoStep(page, "Overview scan area");
-    await expect(page.locator(".side-tab")).toHaveText("Overview scan area");
+    await expect(page.locator(".side-tab .tab[aria-selected='true']")).toHaveText("Overview scan area");
     await expect(page.locator(".carrier-card")).toHaveCount(0);
     // the editor is in the same channel, dead until the preset it needs exists
     await expect(page.locator(".sf-card")).toHaveCount(1);
@@ -541,14 +574,14 @@ test("the canvas is always on the stage, and the channel follows the step",
     /* Focus is the same shape: it happens on the canvas, so it is not a tab
        either — it takes the channel and names it. */
     await placeFocusPoints(page);
-    await expect(page.locator(".tab")).toHaveText(["Canvas"]);
-    await expect(page.locator(".side-tab")).toHaveText("Focus strategy");
+    await expect(page.locator("#tabs > .tab")).toHaveText(["Canvas"]);
+    await expect(page.locator(".side-tab .tab[aria-selected='true']")).toHaveText("Focus strategy");
     await expect(page.locator("#focus-controls")).toBeVisible();
     await expect(page.locator(".sf-card")).toHaveCount(0);
 
     await runStep(page, 1600);
     await gotoStep(page, "Scan the overview");
-    await expect(page.locator(".tab")).toHaveText(["Canvas"]);
+    await expect(page.locator("#tabs > .tab")).toHaveText(["Canvas"]);
     /* The scan consults nothing: the run holds one preset and the focus step's
        generated map, so the channel is a short summary and the press that
        starts it — no boxes to choose from. */
@@ -568,7 +601,7 @@ test("the canvas is always on the stage, and the channel follows the step",
     await runStep(page, 3000);
 
     await gotoStep(page, "Focus strategy");
-    await expect(page.locator(".side-tab"), "walking back brings its channel with it")
+    await expect(page.locator(".side-tab .tab[aria-selected='true']"), "walking back brings its channel with it")
       .toHaveText("Focus strategy");
     await expect(page.locator("#focus-controls")).toBeVisible();
   });
@@ -627,28 +660,19 @@ test("the stage mark is registered to the stage, and says where it is on hover",
     const tip = page.locator("#stage-tip");
     const answering = () => tip.evaluate((n) => n.classList.contains("on"));
 
-    /* Where the pointer is, in the stage's own units, read off the page rather
-       than worked out here: the canvas already says it, and a test that did
-       the projection itself would be checking its own arithmetic. */
-    const underThePointer = async () => {
-      const said = await page.locator("#stage-readout").textContent();
-      const m = /x (-?\d+) µm · y (-?\d+) µm · ([\d.]+) px\/mm/.exec(said);
-      return { x: Number(m[1]), y: Number(m[2]), pxPerMm: Number(m[3]) };
-    };
-
-    /** Put the pointer on a stage position, by correcting towards it. */
-    const pointAt = async (ux, uy, from) => {
-      let at = { ...from };
-      for (let i = 0; i < 5; i++) {
-        await page.mouse.move(at.x, at.y);
-        await page.waitForTimeout(60);
-        const now = await underThePointer();
-        const dx = ((ux - now.x) / 1000) * now.pxPerMm;
-        const dy = ((uy - now.y) / 1000) * now.pxPerMm;
-        if (Math.abs(dx) < 1 && Math.abs(dy) < 1) break;
-        at = { x: at.x + dx, y: at.y + dy };
-      }
-      return at;
+    /** Where a stage position is currently drawn in page pixels. The public
+        canvas projection is the same registration contract the layers use;
+        the removed coordinate readout is deliberately not recreated here. */
+    const pointAt = async (ux, uy) => {
+      const projected = await page.evaluate(({ x, y }) => {
+        const [ox, oy] = window.__theStageCanvas.carrierOriginUm();
+        return window.__theStageCanvas.project(x - ox, y - oy);
+      }, { x: ux, y: uy });
+      const at = Array.isArray(projected)
+        ? { x: projected[0], y: projected[1] }
+        : projected;
+      const canvas = await page.locator("#stage-canvas").boundingBox();
+      return { x: canvas.x + at.x, y: canvas.y + at.y };
     };
 
     /* Nothing is said until it is asked: a permanent readout would be three
@@ -662,7 +686,9 @@ test("the stage mark is registered to the stage, and says where it is on hover",
     expect(await answering()).toBe(false);
 
     // a twenty-fifth of a 120 x 80 mm travel, which is clear of the plate
-    const mark = await pointAt(4800, 3200, mid);
+    const mark = await pointAt(4800, 3200);
+    await page.mouse.move(mark.x, mark.y);
+    await page.waitForTimeout(200);
     expect(await answering()).toBe(true);
     await expect(tip).toContainText("4.80 mm");
     await expect(tip).toContainText("3.20 mm");
@@ -691,7 +717,7 @@ test("the stage mark is registered to the stage, and says where it is on hover",
     await page.waitForTimeout(200);
     expect(await answering()).toBe(false);
 
-    const moved = await pointAt(4800, 3200, mark);
+    const moved = await pointAt(4800, 3200);
     expect(Math.hypot(moved.x - mark.x, moved.y - mark.y)).toBeGreaterThan(20);
     await page.mouse.move(moved.x, moved.y);
     await page.waitForTimeout(200);
@@ -1401,9 +1427,9 @@ test("one walk of the whole run", async ({ page }) => {
   await runStep(page, 3000);
 
   await gotoStep(page, "Detect objects");
-  /* Detection opens on the field the scan ended on: the lit frame followed
-     the scan there. */
-  await expect(page.locator("#tile-label")).toHaveText("864 / 864");
+  /* Detection starts from the first field. The scan's moving highlight is
+     transient progress, not the operator's lasting field selection. */
+  await expect(page.locator("#tile-label")).toHaveText("1 / 864");
   /* Discovery runs on the operator's say-so, tested or not -- the tile test
      is an offer. This walk still takes it, the way an operator would -- and
      first stops one by hand: the press that started the test becomes
@@ -1420,6 +1446,7 @@ test("one walk of the whole run", async ({ page }) => {
   await expect(page.locator("#detect-try")).toContainText(/\(\d+ objects/);
   /* Every field's targets land as the backend reports them; the pretend one
      reports 864 fields in a few seconds. */
+  await expect(page.getByRole("button", { name: "Detect objects", exact: true })).toBeVisible();
   await runStep(page, 6000);
 
   const discovered = await targetsOnCanvas(page);
@@ -1439,6 +1466,12 @@ test("one walk of the whole run", async ({ page }) => {
   await expectTargetAtItsProjection(page, discovered[0], "Step 6");
 
   await gotoStep(page, "Discover Targets");
+  await expect(page.locator("#canvas-side .side-group-title").first())
+    .toHaveText("Discovery method");
+  await expect(page.locator("#refine-method")).toHaveValue("gating");
+  await expect(page.locator("#refine-method option")).toHaveText("Feature gating");
+  await expect(page.locator("#canvas-side .side-group-title").nth(1))
+    .toHaveText("Feature gating");
   const beforeGate = await targetsOnCanvas(page);
   expect(physicalTargetPositions(beforeGate),
     "Step 7 keeps every discovered target at its carrier-local position")
@@ -1480,6 +1513,79 @@ test("one walk of the whole run", async ({ page }) => {
   // drew them: the gates stand on Discover Targets, the ceiling on the
   // target scan area, and coming back each shows what the run holds
   await gotoStep(page, "Target scan area");
+  const adding = page.locator(".side-group", {
+    has: page.locator(".side-group-title", { hasText: "Add scan areas" }),
+  });
+  const scanAreaSummary = page.locator(".side-group", {
+    has: page.locator(".side-group-title", { hasText: "Target tile summary" }),
+  });
+  await expect(page.locator("#target-type .side-group-title"))
+    .toHaveText("Acquisition settings");
+  await expect(adding, "nothing can be added before acquisition settings exist")
+    .toBeHidden();
+  await expect(scanAreaSummary, "there is no result to summarise before areas are placed")
+    .toBeHidden();
+  await expect(page.locator("#tiles-alpha"), "scan-area opacity is not an operator setting")
+    .toHaveCount(0);
+  await page.locator("#target-type .setting-box.open button.run").click();
+  await page.waitForTimeout(650);
+  await expect(page.locator("#target-type .setting-box.done")).toHaveCount(1);
+  await expect(adding).toBeVisible();
+  await expect(scanAreaSummary).toBeHidden();
+  await expect(adding.locator(".side-group-body"))
+    .toContainText("Max targets per overview tileset");
+  await expect(adding.locator(".side-group-body"))
+    .toContainText("Max target tiles per overview tileset");
+  await expect(adding.locator(".target-main-settings-title"))
+    .toHaveText("Main settings");
+  await expect(page.locator("#tiles-margin"), "the coverage margin stays in the top box")
+    .toBeVisible();
+  await expect(page.locator("#overlap-min"), "big-target overlap is one of the four controls")
+    .toBeVisible();
+  await expect(adding.locator(".target-configuration"), "there is no secondary settings fold")
+    .toHaveCount(0);
+  await expect(adding.locator(".gate-draw"), "the placement contract is exactly four controls")
+    .toHaveCount(4);
+  expect(await adding.locator(".gate-draw").evaluateAll((rows) => rows.every(
+    (row) => row.firstElementChild?.matches('input[type="checkbox"]'),
+  )), "every setting has a switch before its words").toBe(true);
+  /* With the ceiling switched off there is no sample: every gated target
+     goes to placement. */
+  await page.locator("#gate-max-on").uncheck();
+  await expect(page.locator("#gate-max")).toBeDisabled();
+  await runStep(page, 1000);
+  expect((await targetsOnCanvas(page)).filter((target) => target.restricted).length,
+    "sampling off sends every gated target to placement").toBe(inTheGate);
+  await expect(scanAreaSummary).toBeVisible();
+  await expect(scanAreaSummary.locator(".scan-summary .k"))
+    .toContainText(["Target tiles", "Gated targets", "Covered targets"]);
+  await expect(scanAreaSummary.locator("#scan-area-sampled")).toHaveText(String(inTheGate));
+  await expect(scanAreaSummary.locator("#scan-area-coverage"))
+    .toHaveText(`${inTheGate} of ${inTheGate}`);
+  await expect(scanAreaSummary).not.toContainText("left out for overlap");
+  const unrestrictedPlan = await page.evaluate(() => window.__theRunState());
+  const heldByAreas = new Set(unrestrictedPlan.targetTilePositions
+    .flatMap((tile) => tile.covers));
+  expect(unrestrictedPlan.restricted.filter((id) => !heldByAreas.has(id)),
+    "every target reported as covered is held with its margin by the placed areas")
+    .toEqual([]);
+  /* The second ceiling is tile accounting, independently per overview
+     tileset. It may leave targets uncovered, but no tileset can spend a
+     neighbour's allowance. */
+  await page.locator("#tiles-max-on").check();
+  await page.locator("#tiles-max").fill("1");
+  await page.locator("#tiles-max").dispatchEvent("input");
+  await runStep(page, 1000);
+  const tileLimited = await page.evaluate(() => window.__theRunState());
+  const tilesPerOverview = new Map();
+  for (const tile of tileLimited.targetTilePositions) {
+    tilesPerOverview.set(tile.overviewTileset,
+      (tilesPerOverview.get(tile.overviewTileset) ?? 0) + 1);
+  }
+  expect([...tilesPerOverview.values()].every((count) => count <= 1),
+    "the target-tile ceiling is applied to each overview tileset").toBe(true);
+  await page.locator("#tiles-max-on").uncheck();
+  await page.locator("#gate-max-on").check();
   await page.locator("#gate-max").fill("1");
   await page.locator("#gate-max").dispatchEvent("input");
   await page.waitForTimeout(200);
@@ -1498,8 +1604,6 @@ test("one walk of the whole run", async ({ page }) => {
   /* The press samples, one per tileset under this ceiling, and places scan
      areas over the sample -- which needs the settings, imported first. */
   await expect(page.locator(".panel.on button.step-run")).toHaveText("Place scan areas");
-  await page.locator("#target-type .setting-box.open button.run").click();
-  await page.waitForTimeout(650);
   await expect(page.locator("#target-type .setting-box.done")).toHaveCount(1);
   /* The ceiling is per tileset -- a well of the pretend plate -- so what
      survives is so many in each tileset the gate reaches into. */
@@ -1516,11 +1620,20 @@ test("one walk of the whole run", async ({ page }) => {
   expect(underCeiling(gatedTargets, 1), "the gate reaches into fewer cells than it holds")
     .toBeLessThan(inTheGate);
   await runStep(page, 1000);
+  const firstLaid = await page.evaluate(() => window.__theRunState().targetTiles);
+  await expect(scanAreaSummary).toBeVisible();
+  await expect(scanAreaSummary.locator("#scan-area-count")).toHaveText(String(firstLaid));
+  await expect(scanAreaSummary.locator("#scan-area-sampled"))
+    .toHaveText(String(underCeiling(gatedTargets, 1)));
+  await expect(scanAreaSummary.locator("#scan-area-coverage"))
+    .toHaveText(`${underCeiling(gatedTargets, 1)} of ${underCeiling(gatedTargets, 1)}`);
   expect((await targetsOnCanvas(page)).filter((target) => target.restricted).length,
     "Restrict holds the selection to the ceiling the box shows, per tileset")
     .toBe(underCeiling(gatedTargets, 1));
   expect((await targetsOnCanvas(page)).filter((target) => target.selected).length,
-    "and the gate's whole catch stays in view under it").toBe(inTheGate);
+    "later steps show only the targets retained for this run")
+    .toBe(underCeiling(gatedTargets, 1));
+  await captureOperatorEvidence(page, "after-target-tiles.png");
   await gotoStep(page, "Discover Targets");
   await expect(page.locator("#gate-readout")).toContainText(`${underCeiling(gatedTargets, 1)} kept of ${inTheGate}`);
   await gotoStep(page, "Target scan area");
@@ -1529,6 +1642,8 @@ test("one walk of the whole run", async ({ page }) => {
   await page.locator("#gate-max").fill("2");
   await page.locator("#gate-max").dispatchEvent("input");
   await page.waitForTimeout(200);
+  await expect(scanAreaSummary, "changing a setting removes the old result")
+    .toBeHidden();
   expect((await targetsOnCanvas(page)).filter((target) => target.restricted).length,
     "a new ceiling typed lifts the old one until the press").toBe(0);
   await expect(page.locator(".panel.on button.step-run")).toHaveText("Place scan areas");
@@ -1555,7 +1670,10 @@ test("one walk of the whole run", async ({ page }) => {
   expect(laid).toBeGreaterThan(0);
   expect(laid).toBeLessThanOrEqual(underCeiling(gatedTargets, 2));
   await gotoStep(page, "Target scan area");
-  await expect(page.locator(".panel.on .action-hint").first()).toContainText(`${underCeiling(gatedTargets, 2)} of ${underCeiling(gatedTargets, 2)} sampled covered`);
+  await expect(scanAreaSummary).toBeVisible();
+  await expect(scanAreaSummary.locator("#scan-area-count")).toHaveText(String(laid));
+  await expect(scanAreaSummary.locator("#scan-area-coverage"))
+    .toHaveText(`${underCeiling(gatedTargets, 2)} of ${underCeiling(gatedTargets, 2)}`);
   await gotoStep(page, "Acquire Targets");
   await expect(page.locator(".panel.on button.step-run")).toBeEnabled();
   /* Stopped by hand after the first pair: what was taken stands everywhere
@@ -1569,14 +1687,44 @@ test("one walk of the whole run", async ({ page }) => {
     { timeout: 10_000, message: "the first pair never landed" }).toBeGreaterThanOrEqual(1);
   /* Pressed on the button as it stands: the pretend run redraws the action
      bar every animation frame, and a click that waits for the button to hold
-     still waits until the run is over -- and then presses Run again. */
+     still waits until the run is over -- and then presses Rerun all. */
   await page.evaluate(() => document.querySelector(".panel.on button.step-run").click());
-  await expect(page.locator(".panel.on button.step-run")).toHaveText("Run again", { timeout: 10_000 });
-  const taken = (await targetsOnCanvas(page)).filter((target) => target.acquired).length;
+  await expect(page.locator(".panel.on button.step-run")).toHaveText("Rerun all", { timeout: 10_000 });
+  await expect(page.getByRole("button", { name: "Rerun current", exact: true })).toBeVisible();
+  const taken = (await page.evaluate(() => window.__theRunState())).acquiredTileKeys.length;
   expect(taken, "the run was stopped before it finished, or the interruption proves nothing").toBeLessThan(gatedCount);
-  await expect(page.locator("#target-list .point-row"), "the gallery lists one target per acquired target, stopped or not").toHaveCount(taken);
+  await expect(page.locator("#target-list .point-row"), "the gallery lists every acquired tile, stopped or not").toHaveCount(taken);
   await expect(page.locator(".pair"), "and shows one pair, the chosen target's").toHaveCount(1);
-  await expect(page.locator(".action-hint").first()).toHaveText(`stopped by hand — ${taken} of ${gatedCount} pairs acquired`);
+  await expect(page.locator(".gallery-about"), "the target list needs no instruction strip").toHaveCount(0);
+  await expect(page.locator(".pair .verdict, #target-list .z"), "Step 9 has no approval or rejection controls").toHaveCount(0);
+  const comparison = await page.locator(".pair .imgs canvas").evaluateAll((canvases) =>
+    canvases.map((canvas) => {
+      const box = canvas.getBoundingClientRect();
+      return { y: box.y, width: box.width, height: box.height };
+    }));
+  expect(comparison).toHaveLength(2);
+  expect(comparison[1].y, "the high-resolution frame is below the overview crop")
+    .toBeGreaterThanOrEqual(comparison[0].y + comparison[0].height);
+  expect(comparison[1].width, "both images use the full comparison width")
+    .toBeCloseTo(comparison[0].width, 0);
+  const pairGeometry = await page.locator(".pair .imgs canvas").evaluateAll((canvases) =>
+    canvases.map((canvas) => ({
+      role: canvas.dataset.comparison,
+      frameUm: Number(canvas.dataset.frameUm),
+      x: Number(canvas.dataset.centreX),
+      y: Number(canvas.dataset.centreY),
+      display: new URL(canvas.dataset.picture, location.href).searchParams.get("display"),
+    })));
+  expect(pairGeometry.map(({ role }) => role)).toEqual(["overview", "target"]);
+  expect(pairGeometry[0].frameUm, "both halves cover the same physical width")
+    .toBeCloseTo(pairGeometry[1].frameUm, 8);
+  expect(pairGeometry[0].x, "both halves are centred on the acquired scan area")
+    .toBeCloseTo(pairGeometry[1].x, 8);
+  expect(pairGeometry[0].y).toBeCloseTo(pairGeometry[1].y, 8);
+  expect(pairGeometry[0].display, "both halves use the target frame's colour and count windows")
+    .toBe(pairGeometry[1].display);
+  await expect(page.locator(".action-hint"),
+    "the two rerun actions are not crowded by a duplicate result sentence").toHaveCount(0);
   const afterTheHand = await page.evaluate(() => window.__theRunState());
   expect(afterTheHand.done, "an interrupted step is not done").not.toContain("acquire");
   expect(afterTheHand.ran, "but it ran, so it can be run again").toContain("acquire");
@@ -1586,40 +1734,64 @@ test("one walk of the whole run", async ({ page }) => {
     "acquisition changes target state, never target placement")
     .toEqual(physicalTargetPositions(discovered));
   expect(acquired.filter((target) => target.acquired).length,
-    "every scan area placed acquires a canvas state, at its anchor target")
+    "the acquired tiles mark the targets their real geometry covers")
+    .toBeGreaterThan(0);
+  expect((await page.evaluate(() => window.__theRunState())).acquiredTileKeys.length,
+    "every planned target tile has one reachable acquisition")
     .toBe(await page.evaluate(() => window.__theRunState().targetTiles));
   await expectTargetLayerOnCanvas(
     page, "targets", "Step 8 acquired-target rings materially change the canvas");
-  /* A press inside an acquired frame chooses that target: the list says so
-     and its pair comes up. Not the one already chosen, so the change shows. */
+  /* A press inside an acquired frame chooses that physical tile: the list
+     says so and its pair comes up. Not the one already chosen, so the change
+     shows. */
   {
-    const chosenBefore = await page.evaluate(() => window.__theRunState().selectedTarget);
-    const other = acquired.find((target) => target.acquired && target.id !== chosenBefore);
-    expect(other, "more than one target was acquired").toBeTruthy();
+    const run = await page.evaluate(() => window.__theRunState());
+    const chosenBefore = run.selectedTarget;
+    const other = run.targetTilePositions.find((tile) => tile.key !== chosenBefore);
+    expect(other, "more than one target tile was acquired").toBeTruthy();
+    const [x, y] = await page.evaluate(({ x, y }) => window.__theStageCanvas.project(x, y), other);
     const box = await page.locator("#stage-canvas").boundingBox();
-    await page.mouse.click(box.x + other.screen.x, box.y + other.screen.y);
+    await page.mouse.click(box.x + x, box.y + y);
     await page.waitForTimeout(250);
     expect(await page.evaluate(() => window.__theRunState().selectedTarget),
-      "a press inside the frame chooses the target").toBe(other.id);
+      "a press inside the frame chooses the tile that was acquired there").toBe(other.key);
     await expect(page.locator(`#target-list .point-row[aria-current="true"]`)).toHaveCount(1);
   }
   /* The ground opens over each acquired frame as it does over each overview
-     field: one window per acquired target, centred on its cell and as wide as
-     the recording's frame, so a target at the edge of a field shows through. */
+     field: one window per planned scan area, centred on that area rather than
+     silently returning to the anchor target. */
   const windows = await page.evaluate(() => window.__theStageCanvas.groundWindows());
-  const frameUm = await page.evaluate(() => window.__theRunState().targetFrameUm);
+  const { targetFrameUm: frameUm, targetTilePositions } = await page.evaluate(
+    () => window.__theRunState());
   expect(frameUm, "the recording says how wide an acquired frame is").toBeGreaterThan(0);
-  for (const target of acquired.filter((one) => one.acquired)) {
+  for (const tile of targetTilePositions) {
     const window = windows.find((one) =>
-      Math.abs(one.x + one.w / 2 - target.x) < 1e-6 && Math.abs(one.y + one.h / 2 - target.y) < 1e-6);
-    expect(window, `the ground is open over acquired target ${target.id}`).toBeTruthy();
+      Math.abs(one.x + one.w / 2 - tile.x) < 1e-6
+      && Math.abs(one.y + one.h / 2 - tile.y) < 1e-6);
+    expect(window, `the ground is open over the planned area for ${tile.targetId}`).toBeTruthy();
     expect(window.w).toBeCloseTo(frameUm, 6);
     expect(window.h).toBeCloseTo(frameUm, 6);
   }
-  await page.locator("#target-list .point-row").first().locator("button").click();
-  await page.locator(".pair button.pick-good").click();
-  await expect(page.locator("#gallery-readout")).toContainText("1 marked");
-  await expect(page.locator("#target-list .point-row").first().locator(".z")).toHaveText("✓");
-  await expect(page.locator(".side-tab"),
-    "curation continues after the run finishes").toContainText("Acquire Targets");
+  /* The two repeat choices live under the current comparison. Current means
+     precisely the selected scan area; rerunning it preserves every other
+     acquired pair, while the full-run action remains on the right. */
+  const rerunCurrent = page.getByRole("button", { name: "Rerun current", exact: true });
+  const rerunAll = page.getByRole("button", { name: "Rerun all", exact: true });
+  const [pairBox, currentBox, allBox] = await Promise.all([
+    page.locator(".pair").boundingBox(), rerunCurrent.boundingBox(), rerunAll.boundingBox(),
+  ]);
+  expect(currentBox.y, "repeat controls are below the image comparison")
+    .toBeGreaterThanOrEqual(pairBox.y + pairBox.height);
+  expect(allBox.x, "Rerun all is the right-hand action").toBeGreaterThan(currentBox.x);
+  const acquiredBeforeCurrent = (await targetsOnCanvas(page)).filter((target) => target.acquired).length;
+  const rowsBeforeCurrent = await page.locator("#target-list .point-row").count();
+  await rerunCurrent.click();
+  await expect(page.locator(".panel.on button.step-run")).toHaveText("Interrupt");
+  await expect(page.locator(".panel.on button.step-run"))
+    .toHaveText("Rerun all", { timeout: 10_000 });
+  expect((await targetsOnCanvas(page)).filter((target) => target.acquired).length,
+    "rerunning current preserves the other acquired targets").toBe(acquiredBeforeCurrent);
+  await expect(page.locator("#target-list .point-row")).toHaveCount(rowsBeforeCurrent);
+  await expect(page.locator(".side-tab .tab[aria-selected='true']"),
+    "inspection continues after the run finishes").toContainText("Acquire Targets");
 });

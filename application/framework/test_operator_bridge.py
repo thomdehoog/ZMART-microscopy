@@ -484,6 +484,36 @@ def test_a_scan_keeps_the_record_of_every_capture(monkeypatch):
     assert all(r["images"] for r in scanned["records"])
 
 
+def test_rerunning_one_stable_position_replaces_only_its_record(monkeypatch):
+    """A selected target is reacquired without throwing the other pairs away."""
+    driver = _Capturing()
+    monkeypatch.setattr(bridge, "_session", driver)
+    monkeypatch.setattr(bridge, "move_record_images", lambda record, where: None)
+    monkeypatch.setattr(bridge, "_keep_position_as_zarr", lambda record, kind: None)
+    bridge._records["targets"] = []
+    bridge._scan.update(running=True, done=0, of=2, error=None, planned=[])
+    bridge._scan_worker(
+        [{"x": 10, "y": 20, "position_index": 0},
+         {"x": 30, "y": 40, "position_index": 1}],
+        acquisition_type="targets",
+    )
+    first = list(bridge._records["targets"])
+
+    bridge._scan.update(running=True, done=0, of=1, error=None, planned=[])
+    bridge._scan_worker(
+        [{"x": 31, "y": 41, "position_index": 1}],
+        acquisition_type="targets",
+    )
+
+    assert [record["position_label"] for record in bridge._records["targets"]] == [
+        "K00_M000000_G000000_P000000_V00",
+        "K00_M000000_G000000_P000001_V00",
+    ]
+    assert bridge._records["targets"][0] is first[0]
+    assert bridge._records["targets"][1]["requested_position_um"]["x"] == 31.0
+    assert len(bridge._scan["records"]) == 1
+
+
 def test_a_scan_captures_under_the_kind_of_scan_it_is(monkeypatch):
     """The first slot of every filename, so it is the caller's to say."""
     driver = _Capturing()
@@ -774,10 +804,56 @@ def test_targets_are_found_field_by_field_over_the_overview(monkeypatch):
 
 def test_one_field_can_be_tried_on_its_own(monkeypatch):
     """Settings are tried on one field before the whole overview is run."""
+    from application.parts.analysis import embedding
+
     _an_overview_of_two_fields(monkeypatch)
+    monkeypatch.setattr(
+        embedding, "in_another_process",
+        lambda cells: pytest.fail("a tile test is not the population's UMAP"),
+    )
     got = _discovered({"fields": [1], "settings": {}})
     assert [field["field"] for field in got["fields"]] == [1]
     assert got["of"] == 1
+
+
+def test_full_object_detection_finishes_with_the_population_umap(monkeypatch):
+    """Step 6 owns its UMAP; Step 7 never opens on temporary fallback axes."""
+    from application.parts.analysis import embedding
+
+    records = _an_overview_of_two_fields(monkeypatch)
+    observed = {}
+
+    def apart(cells):
+        # All per-position work is complete, but the overall operation is not:
+        # this is the population-wide final phase represented by the busy bar.
+        observed.update(
+            running=bridge._targets["running"], phase=bridge._targets["phase"],
+            done=bridge._targets["done"], of=bridge._targets["of"],
+        )
+        return {cell["id"]: [float(n), float(n + 10)] for n, cell in enumerate(cells)}
+
+    monkeypatch.setattr(embedding, "ENOUGH_CELLS", 2)
+    monkeypatch.setattr(embedding, "in_another_process", apart)
+    monkeypatch.setattr(
+        embedding, "umap_embedding",
+        lambda cells: pytest.fail("UMAP must run in the analysis child process"),
+    )
+    got = _discovered({"settings": {}})
+
+    assert observed == {"running": True, "phase": "umap", "done": 2, "of": 2}
+    assert got["embedding_error"] is None
+    assert got["phase"] == "complete"
+    assert got["fields"][0]["cells"][0]["features"] == {
+        "umap_1": 0.0, "umap_2": 10.0,
+    }
+    assert got["fields"][1]["cells"][0]["features"] == {
+        "umap_1": 1.0, "umap_2": 11.0,
+    }
+    for record in records:
+        kept = next((bridge._run / "overview" / "analysis").glob(
+            f"*_{record['position_label']}_T000000_targets.json"
+        ))
+        assert "umap_1" in json.loads(kept.read_text(encoding="utf-8"))[0]["features"]
 
 
 def test_what_was_found_is_kept_beside_the_overview(monkeypatch):
@@ -790,36 +866,6 @@ def test_what_was_found_is_kept_beside_the_overview(monkeypatch):
         "overview_aaaaaa_P1_T000000_targets.json",
     ]
     assert json.loads(kept[1].read_text(encoding="utf-8"))[0]["id"] == "P1_obj1"
-
-
-def test_the_cell_map_is_drawn_apart_from_the_bridge(monkeypatch):
-    """The map is the one long computation the bridge itself would run.
-
-    Drawn in the bridge's process it starves the picture server that shares
-    it (measured: 3 ms answers became 365 ms, past the 1 s budget under
-    load), so the bridge sends the work to another process and takes back
-    the points.
-    """
-    from application.parts.analysis import embedding
-
-    _an_overview_of_two_fields(monkeypatch)
-    _discovered({"settings": {}})
-    drawn = {}
-
-    def apart(cells):
-        drawn["ids"] = [cell["id"] for cell in cells]
-        return {cell["id"]: [1.0, 2.0] for cell in cells}
-
-    monkeypatch.setattr(embedding, "in_another_process", apart)
-    monkeypatch.setattr(embedding, "umap_embedding", lambda cells: pytest.fail("drawn here, in the bridge"))
-    bridge._embed_targets()
-    for _ in range(200):
-        if not bridge._embedding["running"]:
-            break
-        time.sleep(0.01)
-    assert bridge._embedding["error"] is None
-    assert drawn["ids"] == ["P0_obj1", "P1_obj1"]
-    assert bridge._embedding["points"] == {"P0_obj1": [1.0, 2.0], "P1_obj1": [1.0, 2.0]}
 
 
 def test_nothing_to_discover_on_before_an_overview(monkeypatch):
@@ -1256,3 +1302,33 @@ def test_a_targets_scan_is_served_as_one_resolved_store(monkeypatch, tmp_path):
             bridge._raise_target({"position_label": "nobody"})
     finally:
         session.disconnect()
+
+
+def test_placing_a_target_retries_only_a_transient_windows_file_lock(monkeypatch, tmp_path):
+    """The live Viewer can briefly hold a chunk while a selected frame is
+    raised over it. That sharing violation is retried; data failures are not
+    hidden behind the same retry."""
+    calls = []
+    expected = tmp_path / "targets_resolved.ome.zarr"
+
+    def briefly_locked(record, folder, planned):
+        calls.append((record, folder, planned))
+        if len(calls) < 3:
+            raise PermissionError("chunk is still being read")
+        return expected
+
+    monkeypatch.setattr(bridge, "place_into_resolved_store", briefly_locked)
+    monkeypatch.setattr(bridge.time, "sleep", lambda _seconds: None)
+    assert bridge._place_target_frame({"position_label": "one"}, tmp_path, [(1.0, 2.0)]) == expected
+    assert len(calls) == 3
+
+    calls.clear()
+
+    def broken(record, folder, planned):
+        calls.append((record, folder, planned))
+        raise ValueError("invalid target geometry")
+
+    monkeypatch.setattr(bridge, "place_into_resolved_store", broken)
+    with pytest.raises(ValueError, match="invalid target geometry"):
+        bridge._place_target_frame({"position_label": "one"}, tmp_path, [(1.0, 2.0)])
+    assert len(calls) == 1

@@ -9,8 +9,8 @@
 export const detectCells = {
   id: "detect",
   title: "Detect objects",
-  why: "Segments every overview tile. Each cell found becomes one target candidate.",
-  btn: "Segment all",
+  why: "Detects objects and measures their features in every overview position. Each object becomes one target candidate.",
+  btn: "Detect objects",
   panels: [],
   ms: 1600,
   mode: "detect",

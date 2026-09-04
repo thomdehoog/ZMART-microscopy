@@ -2,8 +2,7 @@
  * Step 8 — Acquire Targets.
  *
  * The gallery joins the channels: the acquired targets ring on the canvas,
- * and the channel holds the acquisition type being recorded, the pairs, and
- * the verdicts collected on them.
+ * and the channel holds their low- and high-resolution image pair.
  */
 
 import { hasRecording } from "../../../../parts/microscope/recordings.js";
@@ -11,7 +10,7 @@ import { hasRecording } from "../../../../parts/microscope/recordings.js";
 export const acquireAndCurate = {
   id: "acquire",
   title: "Acquire Targets",
-  why: "Record the acquisition type, then image every refined target with it and collect your verdicts.",
+  why: "Image every planned target tile, then inspect its low- and high-resolution image pair.",
   btn: "Acquire Targets",
   panels: [],
   ms: 2200,

@@ -191,13 +191,13 @@ export default {
     readout.className = "side-note";
     readout.id = "detect-readout";
 
-    /* Inside the card, the segmentation is a grey header over its rows --
+    /* Inside the card, object detection is a grey header over its rows --
        a section of the box, not a box of its own -- and the card ends on
        its own press, the trial. The run over the whole sample is the
        step's press, and stands under the card the way every step's does. */
     const cellposeHead = document.createElement("div");
     cellposeHead.className = "side-subhead";
-    cellposeHead.textContent = "Cellpose segmentation";
+    cellposeHead.textContent = "Cellpose object detection";
     const tryBtn = document.createElement("button");
     tryBtn.className = "run";
     tryBtn.type = "button";
@@ -209,11 +209,11 @@ export default {
     test.body.append(canvasHost, readout, cellposeHead, params, presses);
 
     /* Where the run says how it is going: hidden until a run begins, then
-       one line for what is being segmented and one for the arithmetic --
+       one line for what is being detected and one for the arithmetic --
        done, still to go, and the time that pace projects. The projection is
        re-figured every time a field lands, so the first field paying the
        workers' spawn corrects itself instead of colouring the estimate. */
-    const progress = sideGroup("Progress");
+    const progress = sideGroup("Object detection progress");
     progress.group.style.display = "none";
     /* A bar that fills as the fields land, sweeping while the workers are
        still starting; under it what is being segmented and, at the other
@@ -399,7 +399,8 @@ export default {
       alpha.value = String(Math.round((settings.maskAlpha ?? 1) * 100));
       const fast = settings.algo === "fast";
       methodPick.value = settings.algo;
-      cellposeHead.textContent = fast ? "Watershed segmentation" : "Cellpose segmentation";
+      cellposeHead.textContent = fast
+        ? "Watershed object detection" : "Cellpose object detection";
 
       params.textContent = "";
       const number = (label, key, min, max, step, unit) => {
@@ -487,7 +488,7 @@ export default {
          counts, so the wait has a size instead of a mood. */
       const began = performance.now();
       const saying = () => ctx.status?.say(
-        `testing on position ${settings.tile + 1} — segmenting… `
+        `testing on position ${settings.tile + 1} — detecting objects… `
         + `${Math.round((performance.now() - began) / 1000)} s`);
       saying();
       const ticking = setInterval(saying, 1000);
@@ -536,11 +537,18 @@ export default {
         const gone = (performance.now() - ranSince) / 1000;
         const per = snap.done ? gone / snap.done : null;
         const still = snap.of - snap.done;
-        bar.classList.toggle("busy", still > 0);
+        /* Position progress is exact: one lands only after detection and all
+           classical features for it have finished. UMAP has no honest
+           per-position percentage, so after all positions reach 100% the
+           bar keeps sweeping while that population-wide phase is running. */
+        const mapping = snap.phase === "umap" && snap.running !== false;
+        bar.classList.toggle("busy", still > 0 || mapping);
         fill.style.width = `${(100 * snap.done) / snap.of}%`;
         countLine.textContent = per === null
           ? `0 of ${snap.of}`
-          : `${snap.done} of ${snap.of}` + (still ? ` · ≈ ${saySpan(per * still)} left` : "");
+          : `${snap.done} of ${snap.of}`
+            + (still ? ` · ≈ ${saySpan(per * still)} left` : "")
+            + (mapping && snap.objects ? ` · ${snap.objects} objects` : "");
       }
       if (snap.ended) {
         bar.classList.remove("busy");

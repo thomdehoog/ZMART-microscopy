@@ -61,6 +61,8 @@ export const canvasPanel = {
           <div class="plot picturecv" id="picture-host"></div>
           <div class="live-note" id="overview-note" hidden></div>
           <div class="tip" id="stage-tip"></div>
+          <button class="fit-on-canvas" id="fit-btn" type="button"
+                  title="Fit the specimen in the canvas">Fit</button>
         </div>
         <!-- The divider is the channel's edge made draggable: the operator
              reshapes how much of the window the channel takes. -->
@@ -70,28 +72,23 @@ export const canvasPanel = {
              right and gives the canvas the room; the strip that stays is the
              press that brings it back. -->
         <button class="side-fold" id="side-fold" type="button" hidden
-                aria-label="fold the channel away" title="Fold the channel away">›</button>
+                aria-label="Collapse right sidebar" title="Collapse right sidebar"
+                aria-expanded="true"><span aria-hidden="true">›</span></button>
         <aside class="canvas-side" id="canvas-side" hidden></aside>
         <!-- The picture's own controls -- its acquisitions, channels and
              windows -- stand in the same column as the step's channel, and
              the tab row over the column says which of the two is showing.
              One column, one width: switching never moves the canvas. -->
-        <aside class="canvas-side display-side" id="display-side" hidden></aside>
+        <aside class="canvas-side display-side" id="display-side" hidden>
+          <div class="display-layer-settings side-group">
+            <div class="side-group-title">Canvas layers</div>
+            <div class="side-group-body">
+              <div class="layer-bar" id="stage-layers"></div>
+            </div>
+          </div>
+        </aside>
       </div>
-      <div class="canvas-foot">
-        <div class="toolbar">
-          <!-- What is drawn and how is the picture's own business, not this
-               bar's: which layers are on, how solid they are and which plane
-               of a stack is showing are all questions about a picture, and
-               the stack that draws it is where they will be asked. -->
-          <!-- Which layers are on, how solid they are: questions about the
-               picture, asked on the picture's own bar. -->
-          <div class="layer-bar" id="stage-layers"></div>
-          <button class="ghost" id="fit-btn">Fit</button>
-          <div class="readout" id="stage-readout">—</div>
-        </div>
-        <div class="panel-foot" id="foot-canvas"></div>
-      </div>`;
+      `;
 
     const find = (id) => host.querySelector(`#${id}`);
     return {
@@ -101,14 +98,14 @@ export const canvasPanel = {
       display: find("display-side"),
       divider: find("side-divider"),
       fold: find("side-fold"),
-      foot: find("foot-canvas"),
+      foot: null,
       /* Everything the picture is drawn on and into. Handed to `openTheStage`
          and to the pictures of a real run, so neither has to know an id. */
       parts: {
         box: find("stage-canvas"),
         layerBar: find("stage-layers"),
         tip: find("stage-tip"),
-        readout: find("stage-readout"),
+        readout: null,
         fit: find("fit-btn"),
         overviewCanvas: find("overview-canvas"),
         overviewNote: find("overview-note"),

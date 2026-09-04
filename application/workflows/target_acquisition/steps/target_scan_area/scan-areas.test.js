@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { coveredBy, objectReachUm, overlapShare, planScanAreas } from "./scan-areas.js";
+import {
+  coveredBy, coveredByTiles, objectReachUm, overlapShare, planScanAreas,
+  repeatedOverlap,
+} from "./scan-areas.js";
 
 /* An object as the detector reports it: area in µm² on the cell, area and
    the fitted ellipse's axes in pixels among its features. At 1 µm per pixel
@@ -8,6 +11,75 @@ const object = (id, x, y, { major = 20, areaPx = 100, pixelUm = 1 } = {}) => ({
   id, x, y, area: areaPx * pixelUm * pixelUm,
   features: { area: areaPx, axis_major_length: major },
 });
+
+/* An independent coverage oracle. It neither reads `tile.covers` nor calls a
+   planner coverage helper: target and tile edges partition the requested
+   footprint into cells, and every cell must lie in a real tile rectangle. */
+const oracleReach = (target, margin) => {
+  const px = Number(target.features?.area);
+  const um = Number(target.area);
+  const pixelUm = px > 0 && um > 0 ? Math.sqrt(um / px) : 1;
+  const major = Number(target.features?.axis_major_length);
+  const own = Number.isFinite(major) && major > 0
+    ? major * pixelUm / 2
+    : um > 0 ? Math.sqrt(um / Math.PI) : 0;
+  return own * (1 + Math.max(0, Number(margin) || 0));
+};
+
+const oracleCovered = (target, tiles, frameUm, margin) => {
+  const reach = oracleReach(target, margin);
+  const wanted = {
+    x0: target.x - reach, x1: target.x + reach,
+    y0: target.y - reach, y1: target.y + reach,
+  };
+  const rectangles = tiles.map((tile) => {
+    const half = (tile.frameUm ?? frameUm) / 2;
+    return { x0: tile.x - half, x1: tile.x + half, y0: tile.y - half, y1: tile.y + half };
+  }).filter((tile) => tile.x1 >= wanted.x0 && tile.x0 <= wanted.x1
+    && tile.y1 >= wanted.y0 && tile.y0 <= wanted.y1);
+  if (reach <= 1e-9) return rectangles.some((tile) =>
+    tile.x0 <= target.x && tile.x1 >= target.x
+    && tile.y0 <= target.y && tile.y1 >= target.y);
+  const edges = (lo, hi, starts, ends) => [...new Set([
+    lo, hi,
+    ...starts.map((value) => Math.max(lo, value)),
+    ...ends.map((value) => Math.min(hi, value)),
+  ])].filter((value) => value >= lo && value <= hi).sort((a, b) => a - b);
+  const xs = edges(wanted.x0, wanted.x1,
+    rectangles.map((tile) => tile.x0), rectangles.map((tile) => tile.x1));
+  const ys = edges(wanted.y0, wanted.y1,
+    rectangles.map((tile) => tile.y0), rectangles.map((tile) => tile.y1));
+  for (let ix = 1; ix < xs.length; ix++) for (let iy = 1; iy < ys.length; iy++) {
+    if (xs[ix] - xs[ix - 1] <= 1e-9 || ys[iy] - ys[iy - 1] <= 1e-9) continue;
+    const x = (xs[ix] + xs[ix - 1]) / 2;
+    const y = (ys[iy] + ys[iy - 1]) / 2;
+    if (!rectangles.some((tile) => tile.x0 <= x && tile.x1 >= x
+      && tile.y0 <= y && tile.y1 >= y)) return false;
+  }
+  return rectangles.length > 0;
+};
+
+/* Independent bounded minimum-set-cover oracle for ordinary targets. */
+const oracleMinimumCount = (targets, frameUm, margin) => {
+  const half = frameUm / 2;
+  const ranges = targets.map((target) => {
+    const slack = half - oracleReach(target, margin);
+    return { x0: target.x - slack, x1: target.x + slack,
+      y0: target.y - slack, y1: target.y + slack };
+  });
+  const xs = [...new Set(ranges.flatMap((range) => [range.x0, range.x1]))];
+  const ys = [...new Set(ranges.flatMap((range) => [range.y0, range.y1]))];
+  const masks = [...new Set(xs.flatMap((x) => ys.map((y) => ranges.reduce(
+    (mask, range, i) => mask | (x >= range.x0 && x <= range.x1
+      && y >= range.y0 && y <= range.y1 ? (1 << i) : 0), 0))))].filter(Boolean);
+  const full = (1 << targets.length) - 1;
+  let reached = new Set([0]);
+  for (let count = 1; count <= targets.length; count++) {
+    reached = new Set([...reached].flatMap((mask) => masks.map((candidate) => mask | candidate)));
+    if (reached.has(full)) return count;
+  }
+  return Infinity;
+};
 
 describe("what an object reaches", () => {
   it("is half its fitted major axis, in micrometres from its own pixel size", () => {
@@ -27,6 +99,14 @@ describe("what an object reaches", () => {
     expect(coveredBy(o, { x: 30, y: 0 }, 100, 1)).toBe(true);
     expect(coveredBy(o, { x: 31, y: 0 }, 100, 1)).toBe(false);
     expect(coveredBy(o, { x: 40, y: 0 }, 100, 0)).toBe(true);
+  });
+
+  it("requires the actual union of a stitched tileset to cover the footprint", () => {
+    const target = object("large", 0, 0, { major: 120 });
+    const covered = [-40, 40].flatMap((x) => [-40, 40].map((y) => ({ x, y, frameUm: 100 })));
+    const displaced = [10, 90].flatMap((x) => [10, 90].map((y) => ({ x, y, frameUm: 100 })));
+    expect(coveredByTiles(target, covered, 100, 0)).toBe(true);
+    expect(coveredByTiles(target, displaced, 100, 0)).toBe(false);
   });
 });
 
@@ -49,58 +129,223 @@ describe("placing scan areas", () => {
     expect(uncovered).toEqual([]);
   });
 
-  it("leaves an area out when it would overlap a placed one past the maximum", () => {
-    const targets = [object("a", 0, 0), object("b", 70, 0)];
-    const { placed, uncovered, leftOut } = planScanAreas(targets, 100, { margin: 1, overlap: { max: 0.2 } });
-    expect(placed.map((one) => one.id)).toEqual(["a"]);
-    expect(leftOut).toEqual(["b"]);
-    expect(uncovered).toEqual(["b"]);
+  it("minimises the tile count instead of accepting a suboptimal greedy cover", () => {
+    /* The most crowded first tile leaves three isolated choices. A different
+       three-tile cover exists, and is the minimum. This exact arrangement is
+       a regression for the former greedy-only planner, which used four. */
+    const points = [
+      [51, 210], [126, 82], [131, 89], [69, 128],
+      [95, 31], [103, 68], [79, 70], [166, 65],
+    ];
+    const targets = points.map(([x, y], i) => object(String(i), x, y));
+    const { placed, uncovered } = planScanAreas(targets, 100, { margin: 0 });
+    expect(placed).toHaveLength(3);
+    expect(new Set(placed.flatMap((area) => area.covers))).toEqual(
+      new Set(targets.map((target) => target.id)));
+    expect(uncovered).toEqual([]);
   });
 
-  it("stops at the maximum when the areas are preferred, and places on when coverage is", () => {
+  it("stops at the target-tile ceiling and reports what remains uncovered", () => {
     const targets = [object("a", 0, 0), object("b", 300, 0), object("c", 600, 0)];
-    const stopped = planScanAreas(targets, 100, { areas: { max: 2 }, prefer: "areas" });
+    const stopped = planScanAreas(targets, 100, { areas: { max: 2 } });
     expect(stopped.placed).toHaveLength(2);
     expect(stopped.uncovered).toEqual(["c"]);
-    expect(stopped.notes[0]).toMatch(/stopped at 2/);
-    const covered = planScanAreas(targets, 100, { areas: { max: 2 }, prefer: "coverage" });
-    expect(covered.placed).toHaveLength(3);
-    expect(covered.notes[0]).toMatch(/past the maximum of 2/);
+    expect(stopped.notes).toEqual(["stopped at 2 target tiles: 1 targets are not covered"]);
   });
 
-  it("says when the minimum cannot be reached, and when an object outgrows a frame", () => {
-    const targets = [object("a", 0, 0), object("big", 500, 0, { major: 200 })];
-    const { placed, uncovered, notes } = planScanAreas(targets, 100, { margin: 1, areas: { min: 3 } });
-    expect(placed).toHaveLength(1);
-    expect(uncovered).toEqual(["big"]);
-    expect(notes.join(" ")).toMatch(/under the minimum of 3/);
-    expect(notes.join(" ")).toMatch(/larger than a frame/);
-  });
-
-  it("joins into one scan stepped by the minimum overlap", () => {
-    const targets = [object("a", 0, 0), object("b", 150, 0), object("c", 300, 0)];
-    const { placed, uncovered } = planScanAreas(targets, 100, {
-      margin: 0, overlap: { min: 0.5, join: true },
+  it("covers a target larger than one frame with Step 3's fixed stitching overlap", () => {
+    const target = object("big", 0, 0, { major: 120 });
+    const { placed, uncovered } = planScanAreas([target], 100, {
+      margin: 0, overlap: { min: 0.2 },
     });
-    // 50 µm steps from x = -10 across to 310: six areas, adjacent ones
-    // overlapping by half, the whole extent one piece
-    expect(placed).toHaveLength(6);
-    for (let i = 1; i < placed.length; i++) {
-      expect(placed[i].x - placed[i - 1].x).toBeCloseTo(50, 6);
-    }
+    expect(placed).toHaveLength(4);
     expect(uncovered).toEqual([]);
+    expect(new Set(placed.map((tile) => tile.targetId))).toEqual(new Set(["big"]));
+    const xs = [...new Set(placed.map((tile) => tile.x))].sort((a, b) => a - b);
+    const ys = [...new Set(placed.map((tile) => tile.y))].sort((a, b) => a - b);
+    expect(xs).toEqual([-40, 40]);
+    expect(ys).toEqual([-40, 40]);
+    expect(xs[1] - xs[0]).toBeCloseTo(80, 6);
+    expect(ys[1] - ys[0]).toBeCloseTo(80, 6);
+    expect(coveredByTiles(target, placed, 100, 0)).toBe(true);
+    expect(placed.flatMap((tile) => tile.completes)).toEqual(["big"]);
+  });
+
+  it("gives every tile of a large target its own acquisition key", () => {
+    const target = object("big", 0, 0, { major: 140 });
+    const { placed } = planScanAreas([target], 128, {
+      margin: 1, overlap: { min: 0.2 },
+    });
+    expect(placed).toHaveLength(9);
+    expect(new Set(placed.map((tile) => tile.key)).size).toBe(placed.length);
+    expect(placed.map((tile) => tile.key)).toEqual(
+      placed.map((_, index) => `big#${index}`));
+  });
+
+  it("shares one stitching lattice between overlapping large targets", () => {
+    const targets = [
+      object("a", 0, 0, { major: 120 }),
+      object("b", 20, 0, { major: 120 }),
+    ];
+    const { placed, uncovered } = planScanAreas(targets, 100, {
+      margin: 0, overlap: { min: 0.2 },
+    });
+    expect(placed).toHaveLength(4);
+    expect(new Set(placed.flatMap((tile) => tile.covers))).toEqual(new Set(["a", "b"]));
+    expect(uncovered).toEqual([]);
+  });
+
+  it("does not add a separate tile for a small target inside a stitched block", () => {
+    const targets = [
+      object("large", 0, 0, { major: 120 }),
+      object("small", 45, 0),
+    ];
+    const { placed, uncovered } = planScanAreas(targets, 100, {
+      margin: 0, overlap: { min: 0.2 },
+    });
+    expect(placed).toHaveLength(4);
+    expect(new Set(placed.flatMap((tile) => tile.covers))).toContain("small");
+    expect(uncovered).toEqual([]);
+  });
+
+  it("does not let a chain of ordinary margins enlarge a stitched raster", () => {
+    const large = object("large", 0, 0, { major: 120 });
+    const ordinary = [65, 85, 105, 125, 145]
+      .map((x, i) => object(`small-${i}`, x, 0));
+    const { placed, uncovered } = planScanAreas([large, ...ordinary], 100, {
+      margin: 0, overlap: { min: 0.2 },
+    });
+    /* Four tiles are the large target's 2 x 2 stitched block. One ordinary
+       tile contains the remaining small targets; their touching footprints
+       do not extend the raster into a third stitched column. */
+    expect(placed).toHaveLength(5);
+    expect(uncovered).toEqual([]);
+    expect(coveredByTiles(large, placed, 100, 0)).toBe(true);
+    ordinary.forEach((target) => expect(coveredByTiles(target, placed, 100, 0)).toBe(true));
+  });
+
+  it("applies the target-tile ceiling to a whole stitched target block", () => {
+    const target = object("big", 0, 0, { major: 120 });
+    const rules = { margin: 0, overlap: { min: 0.2 }, areas: { max: 3 } };
+    const limited = planScanAreas([target], 100, rules);
+    expect(limited.placed).toEqual([]);
+    expect(limited.uncovered).toEqual(["big"]);
+    expect(limited.notes[0]).toMatch(/stopped at 3 target tiles/);
+  });
+
+  it("spends a tight budget on the choice that covers the most targets", () => {
+    const large = object("large", 0, 0, { major: 120 });
+    const ordinary = [300, 500, 700, 900].map((x, i) => object(`small-${i}`, x, 0));
+    const plan = planScanAreas([large, ...ordinary], 100, {
+      margin: 0, overlap: { min: 0.2 }, areas: { max: 4 },
+    });
+    expect(plan.placed).toHaveLength(4);
+    expect(plan.uncovered).toEqual(["large"]);
+    expect(new Set(plan.placed.flatMap((tile) => tile.covers)))
+      .toEqual(new Set(ordinary.map((target) => target.id)));
+  });
+
+  it("counts a target completed jointly by adjacent budgeted tiles", () => {
+    const targets = [56, 93, 143, 188, 217, 233, 378, 480]
+      .map((x, i) => object(String(i), x, 0));
+    const plan = planScanAreas(targets, 100, {
+      margin: 0, areas: { max: 2 },
+    });
+    expect(plan.placed).toHaveLength(2);
+    expect(targets.filter((target) =>
+      oracleCovered(target, plan.placed, 100, 0))).toHaveLength(6);
+    expect(plan.uncovered).toHaveLength(2);
+    expect(new Set(plan.placed.flatMap((tile) => tile.covers))).toContain("2");
+    const completed = plan.placed.flatMap((tile) => tile.completes);
+    expect(new Set(completed)).toEqual(new Set(["0", "1", "2", "3", "4", "5"]));
+  });
+
+  it("does not lose a local joint-cover solution when distant targets make the field dense", () => {
+    const cluster = [56, 93, 143, 188, 217, 233, 378, 480]
+      .map((x, i) => object(`cluster-${i}`, x, 0));
+    const distant = Array.from({ length: 9 }, (_, i) =>
+      object(`distant-${i}`, 1000 + i * 200, 500));
+    const plan = planScanAreas([...cluster, ...distant], 100, {
+      margin: 0, areas: { max: 2 },
+    });
+    expect(plan.placed).toHaveLength(2);
+    expect(cluster.filter((target) =>
+      oracleCovered(target, plan.placed, 100, 0))).toHaveLength(6);
+    expect(new Set(plan.placed.flatMap((tile) => tile.completes)))
+      .toEqual(new Set(cluster.slice(0, 6).map((target) => target.id)));
+  });
+
+  it("can take one complete large target when its connected shared raster does not fit", () => {
+    const targets = [
+      object("a", 0, 0, { major: 120 }),
+      object("b", 80, 0, { major: 120 }),
+    ];
+    const plan = planScanAreas(targets, 100, {
+      margin: 0, overlap: { min: 0.2 }, areas: { max: 4 },
+    });
+    expect(plan.placed).toHaveLength(4);
+    expect(plan.uncovered).toHaveLength(1);
+    expect(oracleCovered(targets.find((target) => target.id !== plan.uncovered[0]),
+      plan.placed, 100, 0)).toBe(true);
+  });
+
+  it("chooses the richer stitched block independently of input order", () => {
+    const targets = [
+      object("single", 0, 0, { major: 120 }),
+      object("pair-a", 500, 0, { major: 120 }),
+      object("pair-b", 520, 0, { major: 120 }),
+    ];
+    for (const ordered of [targets, [...targets].reverse()]) {
+      const plan = planScanAreas(ordered, 100, {
+        margin: 0, overlap: { min: 0.2 }, areas: { max: 4 },
+      });
+      expect(plan.placed).toHaveLength(4);
+      expect(plan.uncovered).toEqual(["single"]);
+    }
   });
 });
 
-describe("where two areas meet", () => {
-  it("an area meeting a neighbour by less than the minimum is slid to meet it by exactly that", () => {
-    // a at 0 and b at 95: their areas would overlap by 5 %; the minimum is 20 %
+describe("stitching belongs to one multi-tile target", () => {
+  it("does not force two independently placed areas to reacquire more ground", () => {
     const targets = [object("a", 0, 0), object("b", 95, 0)];
     const { placed, notes } = planScanAreas(targets, 100, { margin: 0, overlap: { min: 0.2 } });
     expect(placed).toHaveLength(2);
-    expect(overlapShare(placed[0], placed[1], 100)).toBeCloseTo(0.2, 6);
-    expect(coveredBy(targets[1], placed[1], 100, 0), "b is still held after the slide").toBe(true);
+    expect(overlapShare(placed[0], placed[1], 100)).toBe(0);
     expect(notes).toEqual([]);
+  });
+
+  it("minimises repeated ground after choosing a minimum-count cover", () => {
+    const targets = [0, 60, 120].map((x, i) => object(String(i), x, 0));
+    const { placed, uncovered } = planScanAreas(targets, 128, { margin: 0 });
+    expect(placed).toHaveLength(2);
+    expect(uncovered).toEqual([]);
+    expect(repeatedOverlap(placed, [], 128)).toBe(0);
+  });
+
+  it("tests joint diagonal seats when one-axis moves cannot reduce overlap", () => {
+    const targets = [[81, 57], [61, 142], [171, 44], [154, 126]]
+      .map(([x, y], i) => object(String(i), x, y));
+    const { placed, uncovered } = planScanAreas(targets, 100, { margin: 0 });
+    expect(placed).toHaveLength(3);
+    expect(uncovered).toEqual([]);
+    expect(repeatedOverlap(placed, [], 100)).toBeLessThanOrEqual(70 + 1e-9);
+  });
+
+  it("never trades union coverage for less repeated ground", () => {
+    const targets = [[119, 9], [63, 170], [26, 40], [109, 51], [191, 36], [94, 92]]
+      .map(([x, y], i) => object(String(i), x, y));
+    const plan = planScanAreas(targets, 100, { margin: 0, areas: { max: 3 } });
+    expect(plan.uncovered).toEqual([]);
+    targets.forEach((target) =>
+      expect(oracleCovered(target, plan.placed, 100, 0), target.id).toBe(true));
+  });
+
+  it("minimises true repeated area in a multi-tile cluster", () => {
+    const targets = [[78, 17], [46, 97], [176, 171], [148, 111], [90, 3], [104, 55], [152, 217]]
+      .map(([x, y], i) => object(String(i), x, y));
+    const plan = planScanAreas(targets, 100, { margin: 0 });
+    expect(plan.uncovered).toEqual([]);
+    expect(repeatedOverlap(plan.placed, [], 100)).toBeLessThanOrEqual(64 + 1e-9);
   });
 
   it("areas that do not meet are left where they are", () => {
@@ -109,19 +354,19 @@ describe("where two areas meet", () => {
     expect(placed.map((one) => one.x)).toEqual([0, 300]);
   });
 
-  it("a seam that cannot be widened without losing the target is counted", () => {
-    // b reaches 40 either side with its margin: sliding it to meet a would drop it
-    const targets = [object("a", 0, 0), object("b", 99, 0, { major: 40 })];
-    const { placed, notes } = planScanAreas(targets, 100, { margin: 1, overlap: { min: 0.5 } });
-    expect(placed).toHaveLength(2);
-    expect(notes.join(" ")).toMatch(/less than the minimum overlap/);
+  it("an internal stitching overlap is not refused by the external maximum", () => {
+    const target = object("big", 0, 0, { major: 120 });
+    const { placed, uncovered } = planScanAreas([target], 100, {
+      margin: 0, overlap: { min: 0.5, max: 0.2 },
+    });
+    expect(placed).toHaveLength(4);
+    expect(uncovered).toEqual([]);
   });
 });
 
 describe("the edges of placing", () => {
   it("no targets is an empty plan with nothing to say", () => {
     expect(planScanAreas([], 100, { margin: 1 })).toEqual({ placed: [], uncovered: [], leftOut: [], notes: [] });
-    expect(planScanAreas([], 100, { overlap: { min: 0.5, join: true } }).placed).toEqual([]);
   });
 
   it("no frame places nothing and says why", () => {
@@ -150,6 +395,14 @@ describe("the edges of placing", () => {
     expect(strict.placed).toEqual(plain.placed);
   });
 
+  it("an explicitly switched-off margin adds no ring", () => {
+    const target = object("a", 0, 0);
+    expect(planScanAreas([target], 20, { margin: null }).placed).toHaveLength(1);
+    const withDefaultMargin = planScanAreas([target], 20, {});
+    expect(withDefaultMargin.placed.length).toBeGreaterThan(1);
+    expect(withDefaultMargin.uncovered).toEqual([]);
+  });
+
   it("two objects on one spot share one area", () => {
     const { placed, uncovered } = planScanAreas([object("a", 5, 5), object("b", 5, 5)], 100, { margin: 1 });
     expect(placed).toHaveLength(1);
@@ -169,46 +422,28 @@ describe("the edges of placing", () => {
     expect(uncovered).toEqual([]);
   });
 
-  it("a maximum overlap of one refuses nothing, of nought refuses any overlap but allows touching", () => {
-    // a and b too far apart to share an area; c too far from b to share one,
-    // yet its own area would overlap b's by a tenth
-    const targets = [object("a", 0, 0), object("b", 100, 0), object("c", 190, 0)];
-    expect(planScanAreas(targets, 100, { margin: 0, overlap: { max: 1 } }).leftOut).toEqual([]);
-    const strict = planScanAreas(targets, 100, { margin: 0, overlap: { max: 0 } });
-    // a's area (-50..50) and b's (50..150) touch: share nought, allowed
-    expect(strict.placed.map((one) => one.id)).toEqual(["a", "b"]);
-    expect(strict.leftOut).toEqual(["c"]);
-    expect(strict.uncovered).toEqual(["c"]);
-  });
-
-  it("a maximum of nought areas stops at once when areas are preferred, and ignores itself for coverage", () => {
+  it("a target-tile ceiling of nought stops at once", () => {
     const targets = [object("a", 0, 0), object("b", 300, 0)];
-    const stopped = planScanAreas(targets, 100, { areas: { max: 0 }, prefer: "areas" });
+    const stopped = planScanAreas(targets, 100, { areas: { max: 0 } });
     expect(stopped.placed).toEqual([]);
     expect(stopped.uncovered).toEqual(["a", "b"]);
-    const covered = planScanAreas(targets, 100, { areas: { max: 0 }, prefer: "coverage" });
-    expect(covered.placed).toHaveLength(2);
+    expect(stopped.notes[0]).toMatch(/stopped at 0 target tiles/);
   });
 
-  it("the overlap maximum still holds when coverage is preferred past the area maximum", () => {
-    const targets = [object("a", 0, 0), object("b", 300, 0), object("c", 310, 0, { major: 2 })];
-    // c sits 10 from b: b's area (nudged over both) covers c already, so nothing overlaps
-    const plan = planScanAreas(targets, 100, { margin: 0, areas: { max: 1 }, prefer: "coverage", overlap: { max: 0 } });
-    expect(plan.placed).toHaveLength(2);
-    expect(plan.uncovered).toEqual([]);
-  });
-
-  it("a joined scan with a minimum overlap of one still ends", () => {
-    const { placed } = planScanAreas([object("a", 0, 0), object("b", 200, 0)], 100, { margin: 0, overlap: { min: 1, join: true } });
-    expect(placed.length).toBeGreaterThan(0);
-    expect(placed.length).toBeLessThan(100);
-  });
-
-  it("a joined scan says which objects its tiles cannot hold whole", () => {
-    const { placed, uncovered, notes } = planScanAreas([object("big", 0, 0, { major: 200 })], 100, { margin: 0, overlap: { min: 0, join: true } });
-    expect(placed.length).toBeGreaterThan(0);
-    expect(uncovered).toEqual(["big"]);
-    expect(notes.join(" ")).toMatch(/not held whole/);
+  it("spends a tight tile budget on the most targets rather than the largest bundle", () => {
+    const targets = [
+      object("large-a", 0, 0, { major: 120 }),
+      object("large-b", 20, 0, { major: 120 }),
+      ...[400, 700, 1000, 1300].map((x, i) => object(`ordinary-${i}`, x, 0)),
+    ];
+    const plan = planScanAreas(targets, 100, {
+      margin: 0, overlap: { min: 0.2 }, areas: { max: 4 },
+    });
+    expect(plan.placed).toHaveLength(4);
+    expect(plan.uncovered.sort()).toEqual(["large-a", "large-b"]);
+    for (const target of targets.slice(2)) {
+      expect(coveredByTiles(target, plan.placed, 100, 0), target.id).toBe(true);
+    }
   });
 
   it("objects of different pixel sizes reach in micrometres alike", () => {
@@ -216,5 +451,54 @@ describe("the edges of placing", () => {
     const coarse = object("coarse", 0, 0, { pixelUm: 2 }); // 20 px major at 2 -> 20 µm
     expect(objectReachUm(fine)).toBe(5);
     expect(objectReachUm(coarse)).toBe(20);
+  });
+});
+
+describe("independent geometry acceptance", () => {
+  const large = (id, x, y, major = 120) => object(id, x, y, { major });
+  const bare = (id, x, y) => ({ id, x, y, area: Math.PI * 25, features: {} });
+  const zero = { id: "zero", x: 17, y: -23, area: 0, features: {} };
+  const cases = [
+    ["margin switched off", [object("a", 0, 0), object("b", 60, 0)], 100, { margin: null }],
+    ["no margin", [object("a", 0, 0), object("b", 95, 0)], 100, { margin: 0 }],
+    ["one-target-size margin", [object("a", 0, 0), object("b", 70, 20)], 100, { margin: 1 }],
+    ["two-target-size margin", [object("a", 0, 0), object("b", 140, 30)], 128, { margin: 2 }],
+    ["negative coordinates", [object("a", -180, -40), object("b", -120, -40)], 100, { margin: 1 }],
+    ["duplicate positions", [object("a", 5, 5), object("b", 5, 5)], 100, { margin: 1 }],
+    ["missing ellipse", [bare("bare", 0, 0), object("b", 55, 0)], 100, { margin: 1 }],
+    ["zero-size target", [zero], 100, { margin: 2 }],
+    ["exact one-frame fit", [object("fit", 0, 0, { major: 50 })], 100, { margin: 1 }],
+    ["epsilon over one frame", [object("over", 0, 0, { major: 50.01 })], 100, { margin: 1, overlap: { min: 0.2 } }],
+    ["one large target at zero overlap", [large("big", 0, 0)], 100, { margin: 0, overlap: { min: 0 } }],
+    ["one large target at twenty-percent overlap", [large("big", 0, 0)], 100, { margin: 0, overlap: { min: 0.2 } }],
+    ["one large target at ninety-percent overlap", [large("big", 0, 0)], 100, { margin: 0, overlap: { min: 0.9 } }],
+    ["overlapping large targets", [large("a", 0, 0), large("b", 20, 0)], 100, { margin: 0, overlap: { min: 0.2 } }],
+    ["ordinary chain beside a large target", [large("big", 0, 0), ...[65, 85, 105, 125, 145].map((x, i) => object(`s${i}`, x, 0))], 100, { margin: 0, overlap: { min: 0.2 } }],
+    ["ordinary ceiling", [object("a", 0, 0), object("b", 300, 0), object("c", 600, 0)], 100, { margin: 0, areas: { max: 2 } }],
+    ["stitched ceiling", [large("big", 0, 0)], 100, { margin: 0, overlap: { min: 0.2 }, areas: { max: 3 } }],
+  ];
+
+  it.each(cases.flatMap(([name, targets, frameUm, rules]) => [
+    [name, targets, frameUm, rules],
+    [`${name}, reversed input`, [...targets].reverse(), frameUm, rules],
+  ]))("agrees with the tile rectangles for %s", (_name, targets, frameUm, rules) => {
+    const plan = planScanAreas(targets, frameUm, rules);
+    const margin = rules.margin === null ? 0 : rules.margin ?? 1;
+    const missing = targets.filter((target) =>
+      !oracleCovered(target, plan.placed, frameUm, margin)).map((target) => target.id).sort();
+    expect([...plan.uncovered].sort()).toEqual(missing);
+  });
+
+  it.each([
+    ["a line", [object("a", 0, 0), object("b", 60, 0), object("c", 120, 0)]],
+    ["two clusters", [object("a", 0, 0), object("b", 40, 0), object("c", 300, 0)]],
+    ["a square", [[0, 0], [60, 0], [0, 60], [60, 60]].map(([x, y], i) => object(String(i), x, y))],
+    ["the former greedy counterexample", [
+      [51, 210], [126, 82], [131, 89], [69, 128],
+      [95, 31], [103, 68], [79, 70], [166, 65],
+    ].map(([x, y], i) => object(String(i), x, y))],
+  ])("matches an exhaustive minimum set cover for %s", (_name, targets) => {
+    const plan = planScanAreas(targets, 100, { margin: 0 });
+    expect(plan.placed).toHaveLength(oracleMinimumCount(targets, 100, 0));
   });
 });

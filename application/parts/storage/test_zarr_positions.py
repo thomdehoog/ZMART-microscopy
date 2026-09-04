@@ -226,14 +226,27 @@ class TestTheStore:
         for c in range(3):
             assert np.array_equal(np.asarray(finest[0, c, 0]), original[c])
 
-    def test_the_smaller_copies_keep_every_second_voxel(self, tmp_path):
+    def test_the_smaller_copies_average_every_two_by_two_pixels(self, tmp_path):
         record = one_file_per_plane(tmp_path, channels=1, size=256)
+        source = np.arange(256 * 256, dtype=np.uint16).reshape(256, 256)
+        tifffile.imwrite(
+            record["planes"][0]["path"], source,
+            resolution=(4000, 4000), resolutionunit="CENTIMETER",
+            metadata={"axes": "YX"},
+        )
         store = position_store_from_record(record, tmp_path / "positions")
         finest = zarr.open_array(str(store / "0"), mode="r")
         coarser = zarr.open_array(str(store / "1"), mode="r")
+        expected = np.rint(
+            np.asarray(finest[0, 0, 0]).reshape(128, 2, 128, 2).mean(axis=(1, 3))
+        ).astype(np.uint16)
         assert np.array_equal(
-            np.asarray(coarser[0, 0, 0]), np.asarray(finest[0, 0, 0])[::2, ::2]
+            np.asarray(coarser[0, 0, 0]), expected
         )
+        description = json.loads((store / "zarr.json").read_text())
+        multiscale = description["attributes"]["ome"]["multiscales"][0]
+        assert multiscale["type"] == "mean"
+        assert multiscale["metadata"]["method"] == "2x2-mean"
 
     def test_no_planes_is_a_sentence(self, tmp_path):
         with pytest.raises(RuntimeError, match="no planes"):
@@ -406,3 +419,29 @@ def test_the_resolved_store_lets_a_later_frame_overwrite_and_a_raised_one_come_b
     level0 = zarr.open(str(store / "0"), mode="r")
     assert level0[0, 0, 0, 10, 50] == 1000, "raised: the first frame is on top again"
     assert level0[0, 0, 0, 10, 90] == 2000, "and the rest of the second still stands"
+
+
+def test_the_resolved_store_refreshes_coarse_levels_on_one_global_pixel_lattice(tmp_path):
+    """A frame beginning on an odd finest-level pixel still updates exactly
+    the coarse pixels implied by the resolved image, including its overlap."""
+    from application.parts.storage.zarr_positions import place_into_resolved_store
+
+    planned = [(200.0, 200.0), (241.0, 200.0)]
+    first = a_frame_at(
+        tmp_path / "raw", 200.0, 200.0, value=1000, size=256, name="P0"
+    )
+    second = a_frame_at(
+        tmp_path / "raw", 241.0, 200.0, value=2000, size=256, name="P1"
+    )
+    into = tmp_path / "positions" / "targets"
+
+    store = place_into_resolved_store(first, into, planned)
+    place_into_resolved_store(second, into, planned)
+    finest = np.asarray(zarr.open(str(store / "0"), mode="r"))
+    coarser = np.asarray(zarr.open(str(store / "1"), mode="r"))
+    even = finest[..., : finest.shape[-2] // 2 * 2, : finest.shape[-1] // 2 * 2]
+    expected = np.rint(
+        even.reshape(*even.shape[:-2], even.shape[-2] // 2, 2,
+                     even.shape[-1] // 2, 2).mean(axis=(-3, -1))
+    ).astype(finest.dtype)
+    assert np.array_equal(coarser, expected)

@@ -16,9 +16,10 @@ viewer links a folder's positions into one picture without copying a voxel.
 The declaration of the store is not done here: :func:`zmart_storage.canvas`
 already writes the five axes, the per-level scale and translation, and the
 channel description, and saying any of that twice is how the two copies drift.
-This module only reads the vendor's planes into the declared arrays and shrinks
-them level by level, keeping every second voxel the way the whole linked
-arrangement requires.
+This module reads the vendor's planes into the declared arrays and builds each
+smaller level by averaging 2 × 2 pixels. A position is complete before it is
+published, so unlike a live sparse canvas it can preserve all of its signal at
+every level of detail without baking the positions into a second mosaic.
 
 What the vendor's file does not say, the run's record does: a TIFF's OME block
 carries the pixel size, but where a capture was taken comes from the record's
@@ -153,6 +154,7 @@ def _write_a_position(record: dict, into: Path | str) -> Path:
     description.setdefault("attributes", {})["zmart_microscopy"] = {
         "z_coordinate": z_model,
     }
+    _describe_mean_pyramid(description)
     description_path.write_text(json.dumps(description, indent=2), encoding="utf-8")
 
     # Fill the levels from the finest down, keeping every second voxel along
@@ -160,7 +162,7 @@ def _write_a_position(record: dict, into: Path | str) -> Path:
     shrinking = volume
     for level, array in enumerate(arrays):
         if level:
-            shrinking = shrinking[..., ::2, ::2]
+            shrinking = _mean_downsample_yx(shrinking)
         array[:] = shrinking
     return _publish(store, published)
 
@@ -417,6 +419,30 @@ def _a_window_onto(channel: np.ndarray, depth_max: int) -> tuple[int, int]:
     return (low, min(high, depth_max))
 
 
+def _mean_downsample_yx(values: np.ndarray) -> np.ndarray:
+    """Average adjacent 2 × 2 pixels while preserving the camera dtype."""
+    height = (values.shape[-2] // 2) * 2
+    width = (values.shape[-1] // 2) * 2
+    blocks = values[..., :height, :width].reshape(
+        *values.shape[:-2], height // 2, 2, width // 2, 2
+    )
+    averaged = blocks.mean(axis=(-3, -1), dtype=np.float32)
+    if np.issubdtype(values.dtype, np.integer):
+        averaged = np.rint(averaged)
+    return averaged.astype(values.dtype, copy=False)
+
+
+def _describe_mean_pyramid(description: dict) -> None:
+    """Say truthfully how the position's reduced-resolution copies were made."""
+    multiscales = description.get("attributes", {}).get("ome", {}).get("multiscales", [])
+    for multiscale in multiscales:
+        multiscale["type"] = "mean"
+        multiscale["metadata"] = {
+            "description": "Each y/x level is the mean of adjacent 2 by 2 pixels.",
+            "method": "2x2-mean",
+        }
+
+
 def _the_depth_of(dtype: np.dtype) -> int:
     """The brightest value the dtype can hold, for the channel description."""
     try:
@@ -489,24 +515,47 @@ def place_into_resolved_store(record: dict, into: Path | str, planned_um: list[t
             ],
             ome_zarr_version="0.5",
         )
+        description_path = store / "zarr.json"
+        description = json.loads(description_path.read_text(encoding="utf-8"))
+        _describe_mean_pyramid(description)
+        description_path.write_text(json.dumps(description, indent=2), encoding="utf-8")
 
     corner = _the_corner_of(planes, (ny, nx), pixel_size_um, z_origin_um=z_origin_um)
     y0 = int(round((corner[1] - origin_um[1]) / pixel_size_um[0]))
     x0 = int(round((corner[2] - origin_um[2]) / pixel_size_um[1]))
     import zarr
 
-    shrinking = volume
-    for level in range(_levels_in(store)):
-        step = 2 ** level
-        if level:
-            shrinking = shrinking[..., ::2, ::2]
-        array = zarr.open(str(store / str(level)), mode="r+")
-        ly, lx = y0 // step, x0 // step
-        piece = shrinking[..., : array.shape[-2] - ly, : array.shape[-1] - lx]
-        if piece.shape[-2] <= 0 or piece.shape[-1] <= 0:
-            continue
-        array[:, :, :, ly:ly + piece.shape[-2], lx:lx + piece.shape[-1]] = piece
+    finest = zarr.open(str(store / "0"), mode="r+")
+    piece = volume[..., : finest.shape[-2] - y0, : finest.shape[-1] - x0]
+    if piece.shape[-2] > 0 and piece.shape[-1] > 0:
+        finest[..., y0:y0 + piece.shape[-2], x0:x0 + piece.shape[-1]] = piece
+        _refresh_mean_pyramid(
+            store, y0, y0 + piece.shape[-2], x0, x0 + piece.shape[-1]
+        )
     return store
+
+
+def _refresh_mean_pyramid(store: Path, y0: int, y1: int, x0: int, x1: int) -> None:
+    """Rebuild the resolved coarse pixels affected by a level-zero write.
+
+    Reading from the preceding resolved level keeps one global 2 × 2 lattice,
+    including where target frames overlap or begin on an odd pixel.
+    """
+    import zarr
+
+    previous = zarr.open(str(store / "0"), mode="r")
+    for level in range(1, _levels_in(store)):
+        current = zarr.open(str(store / str(level)), mode="r+")
+        cy0 = max(0, y0 // 2)
+        cx0 = max(0, x0 // 2)
+        cy1 = min(current.shape[-2], (y1 + 1) // 2)
+        cx1 = min(current.shape[-1], (x1 + 1) // 2)
+        if cy1 <= cy0 or cx1 <= cx0:
+            break
+        source = np.asarray(previous[..., cy0 * 2:cy1 * 2, cx0 * 2:cx1 * 2])
+        current[..., cy0:cy1, cx0:cx1] = _mean_downsample_yx(source)
+        previous = current
+        y0, y1, x0, x1 = cy0, cy1, cx0, cx1
 
 
 def _levels_in(store: Path) -> int:

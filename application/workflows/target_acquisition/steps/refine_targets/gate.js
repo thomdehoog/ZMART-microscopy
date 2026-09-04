@@ -71,27 +71,27 @@ export default {
     const side = document.createElement("div");
     side.className = "analysis-side";
 
-    /* Which way the targets are refined, above the box that does it -- the
-       same row as the discovery step's method. Gating is the one way there
+    /* Which way the targets are discovered, above the box that does it -- the
+       same row as the discovery step's method. Feature gating is the one way there
        is today; the menu stands so another can be chosen when there is one. */
-    const method = sideGroup("Refinement method");
+    const method = sideGroup("Discovery method");
     const methodRow = document.createElement("div");
     methodRow.className = "detect-params";
     const methodParam = document.createElement("div");
     methodParam.className = "param method";
     const methodPick = document.createElement("select");
     methodPick.id = "refine-method";
-    methodPick.setAttribute("aria-label", "how the targets are refined");
+    methodPick.setAttribute("aria-label", "Discovery method");
     const gating = document.createElement("option");
     gating.value = "gating";
-    gating.textContent = "Gating";
+    gating.textContent = "Feature gating";
     methodPick.append(gating);
     methodParam.append(methodPick);
     methodRow.append(methodParam);
     method.body.append(methodRow);
 
     /* The same boxed group every earlier step's channel is made of. */
-    const boxed = sideGroup("Gating");
+    const boxed = sideGroup("Feature gating");
     /* One feature per axis: the gate drawn here is drawn across these. */
     const axes = document.createElement("div");
     axes.className = "gate-axes";
@@ -113,8 +113,8 @@ export default {
 
     const legend = document.createElement("div");
     legend.className = "legend analysis-legend";
-    for (const [ink, what] of [["--mark-context", "all cells"],
-      ["--mark-gated", "gated"], ["--mark-selected", "selected"]]) {
+    for (const [ink, what] of [["--mark-context", "candidates before gating"],
+      ["--mark-selected", "workflow targets"]]) {
       const one = document.createElement("span");
       one.innerHTML = `<i class="dot" style="background:var(${ink})"></i> `;
       one.append(what);
@@ -373,33 +373,33 @@ export default {
 
       const gated = ctx.gated();
 
-      // every cell, quietly; the survivors of ALL gates, ringed.
-      // The quiet dots earn their size: thousands of them at radius 2
-      // fused into a slab that hid its own density, so a crowded plot
-      // draws smaller and fainter and the structure shows through.
+      // Before the first gate, every candidate provides the context needed to
+      // draw one. Once a gate exists, that context goes away: only workflow
+      // targets remain, so a grey population cannot be mistaken for selected
+      // data carried into later steps.
       const crowd = cells.length;
       const dot = crowd > 3000 ? 1.2 : crowd > 800 ? 1.7 : 2;
-      paint.fillStyle = ctx.css("--mark-context");
-      paint.globalAlpha = crowd > 3000 ? 0.35 : 0.5;
-      paint.beginPath();
-      const kept = ctx.restricted?.() ?? new Set();
       const marked = gated;
-      for (const c of cells) {
-        if (marked.has(c.id)) continue;
-        const x = sx(cellFeature(c, fx), w), y = sy(cellFeature(c, fy), h);
-        paint.moveTo(x + dot, y); paint.arc(x, y, dot, 0, Math.PI * 2);
+      if (!ctx.gates().length) {
+        paint.fillStyle = ctx.css("--mark-context");
+        paint.globalAlpha = crowd > 3000 ? 0.35 : 0.5;
+        paint.beginPath();
+        for (const c of cells) {
+          const x = sx(cellFeature(c, fx), w), y = sy(cellFeature(c, fy), h);
+          paint.moveTo(x + dot, y); paint.arc(x, y, dot, 0, Math.PI * 2);
+        }
+        paint.fill();
+        paint.globalAlpha = 1;
       }
-      paint.fill();
-      paint.globalAlpha = 1;
 
-      /* What the gates let through in blue, and what Restrict kept of it in
-         green over them: the whole catch stays in view under the restriction. */
+      /* Every target admitted by feature gating has one meaning and one
+         colour. Restriction belongs to tile placement in the next step; it
+         does not recolour this discovery result into another population. */
       for (const c of cells) {
         if (!marked.has(c.id)) continue;
         const x = sx(cellFeature(c, fx), w), y = sy(cellFeature(c, fy), h);
-        const isKept = kept.has(c.id);
-        paint.beginPath(); paint.arc(x, y, isKept ? 4.2 : 3.4, 0, Math.PI * 2);
-        paint.fillStyle = ctx.css(isKept ? "--mark-selected" : "--mark-gated");
+        paint.beginPath(); paint.arc(x, y, 3.8, 0, Math.PI * 2);
+        paint.fillStyle = ctx.css("--mark-selected");
         paint.fill();
         paint.lineWidth = 2; paint.strokeStyle = ctx.css("--screen"); paint.stroke();
       }

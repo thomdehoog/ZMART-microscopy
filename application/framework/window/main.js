@@ -17,7 +17,7 @@ import {
   DEFAULT_SESSION, choicesFrom, describeSession,
 } from "../../parts/microscope/instruments.js";
 import { isFailed } from "../../parts/microscope/connection-status.js";
-import { displayQueryFor } from "../../parts/canvas/display-of.js";
+import { displayedPictureAddress } from "../../parts/canvas/display-of.js";
 import { cellsInAllGates, keptUnderCeiling }
   from "../../workflows/target_acquisition/steps/refine_targets/gating.js";
 import { selectionPanel }
@@ -105,11 +105,12 @@ let stageWatch = null;
       label -- drawn with the canvas's own display settings for that
       acquisition when there are any, so the preview and the gallery show the
       sample the way the picture shows it. */
-  const pictureOf = (kind, label, { displayAs = kind } = {}) => {
+  const pictureOf = (
+    kind, label, { displayAs = kind, requireDisplay = false } = {},
+  ) => {
     const where = backend.viewOf(kind);
-    if (!where || !label) return null;
     const snapshot = window.__viewerPanel?.snapshot?.() ?? null;
-    return `${where}/${label}.jpg${displayQueryFor(snapshot, displayAs) || displayQueryFor(snapshot, kind)}`;
+    return displayedPictureAddress(where, label, snapshot, displayAs, { requireDisplay });
   };
 
   /* Targets arrive far faster than a picture can be drawn. One redraw per
@@ -285,7 +286,7 @@ let stageWatch = null;
     targetTilesAlpha: 0.5,
     /* The placing levers, as scan-areas.js reads them, and what the last
        placing came to. */
-    placing: { margin: 1, objectsMin: null, objectsMax: 50, areasMin: null, areasMax: null, overlapMax: 0.3, overlapMin: 0.2, join: false, prefer: "coverage" },
+    placing: { margin: 1, objectsMax: 50, tilesMax: null, overlapMin: 0.2 },
     tilePlan: null,
     acquired: [],
     /* The acquired target whose pair the gallery shows, chosen there or on
@@ -295,7 +296,7 @@ let stageWatch = null;
        press would choose, outlined so the hand knows before it presses. */
     hoveredTarget: null,
     acquiredLabels: {},
-    verdicts: {},
+    acquiredTiles: {},
     locked: false,
   };
 
@@ -414,10 +415,9 @@ let stageWatch = null;
     targetPictures: backendFor().viewOf("targets"),
       cellsShown: false, gates: [], gated: new Set(), restricted: new Set(),
       targetTiles: [], targetTilesAlpha: 0.5, tilePlan: null,
-      placing: { margin: 1, objectsMin: null, objectsMax: 50, areasMin: null, areasMax: null, overlapMax: 0.3, overlapMin: 0.2, join: false, prefer: "coverage" },
-      acquired: [], acquiredLabels: {},
+      placing: { margin: 1, objectsMax: 50, tilesMax: null, overlapMin: 0.2 },
+      acquired: [], acquiredLabels: {}, acquiredTiles: {},
       selectedTarget: null, hoveredTarget: null,
-      verdicts: {},
       locked: false,
     });
     view.fitted = false;
@@ -491,6 +491,7 @@ let stageWatch = null;
       + ".detect-action, .select-action, .acquire-action",
     )) {
       slot.textContent = "";
+      slot.classList.remove("split-actions");
     }
     if (!shown) return;
     const i = state.activeIdx, s = step(i);
@@ -526,6 +527,19 @@ let stageWatch = null;
       targets: () => backend.stopScan?.(),
       focus: () => backend.stopFocusMeasure?.(),
     }[s.mode];
+    const currentFrame = s.mode === "targets"
+      ? state.acquiredTiles[state.selectedTarget] : null;
+    if (!running && !blocked && state.ran.has(s.id) && currentFrame?.tile) {
+      const current = document.createElement("button");
+      current.className = "run rerun-current";
+      current.type = "button";
+      current.textContent = "Rerun current";
+      current.addEventListener("click", () => runStep(i, {
+        targetTiles: [currentFrame.tile], append: true,
+      }));
+      host.classList.add("split-actions");
+      host.append(current);
+    }
     if (running && brake) {
       run.textContent = state.interrupting === s.id ? "stopping…" : "Interrupt";
       run.disabled = state.interrupting === s.id;
@@ -535,7 +549,9 @@ let stageWatch = null;
         renderActionBar();
       });
     } else {
-      run.textContent = running ? "working…" : (state.ran.has(s.id) ? "Run again" : s.btn);
+      run.textContent = running
+        ? "working…"
+        : (state.ran.has(s.id) ? (s.mode === "targets" ? "Rerun all" : "Run again") : s.btn);
       run.disabled = !!state.running || !!blocked;
       run.addEventListener("click", () => runStep(i));
     }
@@ -553,12 +569,11 @@ let stageWatch = null;
     else if (running && brake) { hint.className = "action-hint"; hint.textContent = "working…"; }
     else if (s.mode === "select" && !done) { hint.className = "action-hint ok"; hint.textContent = `${state.gated.size} gated`; }
     /* What a step came to is said beside the button that produced it — except
-       on the focus step, which has a box of its own for the answer: the traces,
-       the heights and the residual, point by point. A sentence about focussing
-       standing beside the press that measures the map was the same answer in
-       worse words. What is missing is another matter: that is why the button
-       cannot be pressed, and it belongs beside it. */
-    else if (state.notes[s.id] && s.mode !== "focus") {
+       where the panel has a result box of its own: focus has its traces and
+       select has its Scan area summary. What is missing is another matter:
+       that is why the button cannot be pressed, and it belongs beside it. */
+    else if (state.notes[s.id] && s.mode !== "focus" && s.mode !== "select"
+      && !(s.mode === "targets" && currentFrame)) {
       hint.className = "action-hint ok";
       hint.textContent = state.notes[s.id];
     }
@@ -572,7 +587,7 @@ let stageWatch = null;
   /* ============================================================
      running a step — fake work with real state changes
      ============================================================ */
-  function runStep(i) {
+  function runStep(i, { targetTiles = null, append = false } = {}) {
     const s = step(i);
     if (state.running) return;
     /* A fresh run is a fresh run. The failure of the last one was cleared
@@ -694,6 +709,11 @@ let stageWatch = null;
         (outcome?.records ?? []).forEach((r, i) => {
           if (r?.position_label) state.fieldLabels[i] = r.position_label;
         });
+        /* Detection starts at the first field. During the scan the current
+           field follows the stage, but carrying the last scan position into
+           Step 6 opened its test picker at 9 / 9 and made the first field look
+           as though it had disappeared. */
+        state.detect.tile = 0;
         return outcome?.stopped
           ? stoppedShort(`stopped by hand — ${scanNote()}`)
           : finish();
@@ -721,7 +741,7 @@ let stageWatch = null;
     if (s.mode === "detect") {
       state.cells = new Map();
       /* A fresh discovery invalidates everything named by the old ids: the
-         gate, and the acquired pairs and their verdicts -- a stale id crashed
+         gate and the acquired pairs -- a stale id crashed
          the draw and the gallery alike. */
       state.gates = [];
       state.gated = new Set();
@@ -729,7 +749,9 @@ let stageWatch = null;
       state.targetTiles = [];
       state.acquired = [];
       state.acquiredLabels = {};
-      state.verdicts = {};
+      state.acquiredTiles = {};
+      state.selectedTarget = null;
+      state.hoveredTarget = null;
       state.cellsShown = true;
       state.examined = new Set();
       forgetTheMasks();
@@ -744,21 +766,25 @@ let stageWatch = null;
           status.say(sentence);
           detectionShown?.progress?.({ doing: sentence });
         },
-        onProgress: (done, of) => {
-          detectionShown?.progress?.({ done, of });
-          /* A field's masks land on the canvas as its detection does. */
+        onProgress: (done, of, detail = {}) => {
+          detectionShown?.progress?.({ done, of, ...detail });
+          /* A field's masks land on the canvas as its object detection does. */
           redrawSoon();
         },
         onField: (field) => {
           if (state.running !== s.id) return;
           fieldFound(field);
           /* The lit frame follows the run across the sample: the field just
-             segmented is the one the picture and the preview are about. */
+             detected is the one the picture and the preview are about. */
           state.detect.tile = field.field;
           state.notes[s.id] = discoveryNote();
           redrawSoon();
         },
       }).then((out) => {
+        /* Fields first arrive when their per-position analysis completes.
+           They arrive once more here with the population-wide UMAP axes;
+           replacing by id makes Step 7 complete on its first paint. */
+        for (const field of out?.fields ?? []) fieldFound(field);
         const failed = out?.failed ?? [];
         detectionShown?.progress?.({
           ended: true,
@@ -766,9 +792,10 @@ let stageWatch = null;
             ? "stopped by hand"
             : failed.length
               ? `finished — ${failed.length} field(s) failed; the first said: ${failed[0].why}`
-              : "segmentation finished",
+              : out?.embeddingError
+                ? `object detection finished; UMAP unavailable: ${out.embeddingError}`
+                : "object detection finished",
         });
-        mapTheCells();
         return out?.stopped
           ? stoppedShort(`stopped by hand — ${state.cells.size} targets found`)
           : finish();
@@ -776,47 +803,64 @@ let stageWatch = null;
         detectionShown?.progress?.({ ended: true, note: why.message });
         return itFailed(why);
       });
-      /* The map over the whole population: umap_1/umap_2 fold every measured
-         feature into two gate axes. It is about the population, not a field,
-         so it starts when discovery answers, and it lands quietly -- the
-         axes appear in the pickers when the map is done, and a map that
-         fails costs the two axes, never the step. */
-      function mapTheCells() {
-        const cells = state.cells;
-        if (!cells.size || !backend.embedTargets) return;
-        backend.embedTargets().then(({ points }) => {
-          if (state.cells !== cells) return; // a fresh discovery owns the page now
-          let landed = false;
-          for (const [id, at] of Object.entries(points ?? {})) {
-            const cell = cells.get(id);
-            if (!cell || !Array.isArray(at)) continue;
-            cell.features = { ...(cell.features ?? {}), umap_1: at[0], umap_2: at[1] };
-            landed = true;
-          }
-          /* The gate keeps its state and mounts once, so its axis pickers
-             only re-read the features when it is told to draw again --
-             renderAll alone leaves them as they were before the map landed. */
-          if (landed) { gatingShown?.redraw(); renderAll(); }
-        }).catch((why) => console.warn("the cell map was not drawn:", why.message));
-      }
       return;
     }
 
     if (s.mode === "targets") {
       /* Imaging the targets is a scan whose positions are the gated cells,
          driven in the stage's frame like the overview was. */
-      /* The tiles are the plan: one per restricted target. */
-      const picked = state.targetTiles.map((tile) => tile.id);
+      /* The tiles are the plan. Several may belong to one large target, and
+         a tile shared by nearby targets may sit between their centres, so the
+         stage is driven to the planned tile rather than back to a cell. */
+      const picked = targetTiles ?? state.targetTiles;
+      const positionFor = (tile) => {
+        const { x, y } = tile;
+        const z = surfaceZAt(x, y);
+        const positionIndex = tile.positionIndex ?? state.targetTiles.indexOf(tile);
+        return stage.toStage({
+          ...(z === null ? { x, y } : { x, y, z }),
+          position_index: Math.max(0, positionIndex),
+        });
+      };
+      const accountFor = (records, n = records.length) => {
+        const captures = picked.slice(0, n);
+        if (!append) {
+          state.acquired = [];
+          state.acquiredLabels = {};
+          state.acquiredTiles = {};
+        }
+        /* The comparison is with the frame that was actually acquired. A
+           shared or multi-tile area need not be centred on its anchor target,
+           so keeping only the target id made the overview crop show a nearby
+           but different physical window. */
+        captures.forEach((tile, i) => {
+          const id = tile.key;
+          if (!state.acquired.includes(id)) state.acquired.push(id);
+          state.acquiredLabels[id] = records[i]?.position_label;
+          const positionIndex = tile.positionIndex ?? state.targetTiles.indexOf(tile);
+          state.acquiredTiles[id] = {
+            x: tile.x, y: tile.y,
+            frameUm: tile.frameUm ?? state.targetFrameUm,
+            label: records[i]?.position_label,
+            positionIndex,
+            tile: { ...tile, positionIndex },
+          };
+        });
+      };
       /* How wide each acquired frame is on the sample, for the canvas to
          print each picture at its true size and place -- known before the
          run starts, so the frames can be printed as they are captured. */
       state.targetFrameUm = activeRecording(state.targetType)?.frameUm ?? null;
+      if (!append) {
+        state.acquired = [];
+        state.acquiredLabels = {};
+        state.acquiredTiles = {};
+        galleryPanel?.rebuild();
+      }
       backend.scanOverview({
-        positions: picked.map((id) => {
-          const { x, y } = state.cells.get(id);
-          const z = surfaceZAt(x, y);
-          return stage.toStage(z === null ? { x, y } : { x, y, z });
-        }),
+        positions: picked.map(positionFor),
+        planned: state.targetTiles.map(positionFor),
+        append,
         acquisition_type: "targets",
         state: activeRecording(state.targetType)?.changeable ?? null,
         /* Each capture prints itself onto the canvas as it lands, the way the
@@ -826,9 +870,7 @@ let stageWatch = null;
           if (state.running !== s.id) return;
           status.say(`acquiring pair ${done} of ${picked.length}`);
           if (at) takeThePosition(at);
-          state.acquired = picked.slice(0, records.length);
-          state.acquiredLabels = Object.fromEntries(
-            state.acquired.map((id, i) => [id, records[i]?.position_label]));
+          accountFor(records);
           state.notes[s.id] = `${done} / ${picked.length} pairs`;
           /* The ground opens over each acquired frame the way it opens over
              each overview field, so a target imaged at the edge of the plan
@@ -841,10 +883,7 @@ let stageWatch = null;
       }).then(({ records, stopped }) => {
         /* A stopped run accounts for what it took, and claims nothing more:
            only the cells with a record are acquired. */
-        const got = stopped ? picked.slice(0, records.length) : picked;
-        state.acquired = got;
-        state.acquiredLabels = Object.fromEntries(
-          got.map((id, i) => [id, records[i]?.position_label]));
+        accountFor(records, stopped ? records.length : picked.length);
         stage.groundFollowsTheScan();
         redrawSoon();
         /* The gallery shows what was acquired, stopped or not: a run put
@@ -904,7 +943,7 @@ let stageWatch = null;
           state.cells.values(), state.gated, p.objectsMax ?? state.gated.size, tilesetOfField);
         placeTheScanAreas();
         const covered = state.restricted.size - (state.tilePlan?.uncovered?.length ?? 0);
-        state.notes[s.id] = `${state.targetTiles.length} scan areas · ${covered} of ${state.restricted.size} sampled covered`;
+        state.notes[s.id] = `${state.targetTiles.length} target tiles · ${covered} of ${state.restricted.size} sampled targets covered`;
         gatingShown?.redraw(); selectionShown?.redraw?.();
       }
       if (s.mode === "targets") {
@@ -1327,15 +1366,27 @@ let stageWatch = null;
   const galleryMount = (host) => {
     galleryPanel = galleryWidget.mount(host, {
       acquired: () => state.acquired,
-      verdicts: () => state.verdicts,
+      tileByKey: (key) => state.acquiredTiles[key]?.tile,
       cellById: (id) => state.cells.get(id),
-      /* The field's crop wears the target's own display, so the two halves
-         of a pair are one comparison and not two pictures. */
-      fieldOf: (cell) => ({
-        ...state.plan[cell.field],
-        picture: pictureOf("overview", state.fieldLabels[cell.field], { displayAs: "targets" }),
-      }),
-      pictureOf: (id) => pictureOf("targets", state.acquiredLabels[id]),
+      /* Both halves wear the target display settings and cover the exact
+         acquired frame. That makes their colours, intensity windows and
+         physical scale directly comparable despite different resolutions. */
+      fieldOf: (tile, cell) => {
+        const frame = state.acquiredTiles[tile.key];
+        return {
+          ...state.plan[cell.field],
+          cropX: frame?.x ?? cell.x,
+          cropY: frame?.y ?? cell.y,
+          cropFrameUm: frame?.frameUm ?? state.targetFrameUm,
+          picture: pictureOf("overview", state.fieldLabels[cell.field], {
+            displayAs: "targets", requireDisplay: true,
+          }),
+        };
+      },
+      pictureOf: (id) => pictureOf(
+        "targets", state.acquiredTiles[id]?.label ?? state.acquiredLabels[id],
+        { requireDisplay: true },
+      ),
       selected: () => state.selectedTarget,
       select: (id, opts) => selectTarget(id, opts),
       recordingSlot: (into, opts) => renderRecordingSlot(into, recordingOptions(opts)),
@@ -1343,9 +1394,9 @@ let stageWatch = null;
     });
   };
 
-  /** Choose an acquired target: the gallery shows its pair, the canvas lights
-      its ring. `quietly` is the gallery choosing for itself while it rebuilds,
-      so it is not told what it just did. */
+  /** Choose an acquired tile: the gallery shows its pair and the canvas
+      outlines the physical frame. `quietly` is the gallery choosing for
+      itself while it rebuilds, so it is not told what it just did. */
   function selectTarget(id, { quietly = false } = {}) {
     if (state.selectedTarget === id) return;
     state.selectedTarget = id;
@@ -1353,26 +1404,29 @@ let stageWatch = null;
     /* The chosen frame is raised above its neighbours in the picture, where
        frames overlap: the backend writes it on top and the picture follows. */
     const label = state.acquiredLabels[id];
-    if (label) {
+    /* The gallery quietly follows the newest frame as a run grows. That
+       frame has just been written last already; raising it again adds disk
+       traffic and can contend with the live viewer for the same Zarr chunk.
+       Only an operator's explicit choice changes the stacking order. */
+    if (!quietly && label) {
       backend.raiseTarget?.(label)?.catch?.((why) => console.warn("the target was not raised: " + why.message));
     }
     stage.draw();
   }
 
-  /** The acquired target whose frame stands at a place on the sample, or
-      null: the frame is the thing on the picture, so a press or a hover
-      anywhere inside it means that target. `reachUm` is a hand's reach in
+  /** The acquired tile whose frame stands at a place on the sample, or null:
+      the frame is the thing on the picture, so a press or a hover anywhere
+      inside it means that acquisition. `reachUm` is a hand's reach in
       the sample's own units -- zoomed out to the plate a frame is smaller
       than a pixel, and a press within reach of its middle still means it. */
   function targetAt(world, reachUm = 0) {
-    if (!state.targetFrameUm) return null;
-    const half = Math.max(state.targetFrameUm / 2, reachUm);
     let hit = null;
     let nearest = Infinity;
     for (const id of state.acquired) {
-      const cell = state.cells.get(id);
-      if (!cell) continue;
-      const dx = Math.abs(world.x - cell.x), dy = Math.abs(world.y - cell.y);
+      const tile = state.acquiredTiles[id];
+      if (!tile) continue;
+      const half = Math.max(tile.frameUm / 2, reachUm);
+      const dx = Math.abs(world.x - tile.x), dy = Math.abs(world.y - tile.y);
       if (dx <= half && dy <= half && Math.hypot(dx, dy) < nearest) { nearest = Math.hypot(dx, dy); hit = id; }
     }
     return hit;
@@ -1399,16 +1453,38 @@ let stageWatch = null;
   function placeTheScanAreas() {
     const p = state.placing;
     const targets = [...state.restricted].flatMap((id) => (state.cells.has(id) ? [state.cells.get(id)] : []));
-    const plan = planScanAreas(targets, state.targetFrameUm, {
-      margin: p.margin,
-      areas: { min: p.areasMin, max: p.areasMax },
-      overlap: { max: p.overlapMax, min: p.overlapMin, join: p.join },
-      prefer: p.prefer,
-    });
-    if (p.objectsMin != null && state.restricted.size < p.objectsMin) {
-      plan.notes.push(`${state.restricted.size} sampled, under the minimum of ${p.objectsMin}`);
+    const byTileset = new Map();
+    for (const target of targets) {
+      const tileset = tilesetOfField(target.field);
+      if (!byTileset.has(tileset)) byTileset.set(tileset, []);
+      byTileset.get(tileset).push(target);
     }
-    state.targetTiles = plan.placed;
+    /* A target-tile ceiling belongs to one overview tileset. Planning the
+       groups independently makes that accounting real; a target in a
+       neighbouring tileset cannot consume this one's allowance or share one
+       of its target tiles. */
+    const plans = [...byTileset].map(([overviewTileset, group]) => ({
+      overviewTileset,
+      plan: planScanAreas(group, state.targetFrameUm, {
+        margin: p.margin,
+        areas: { max: p.tilesMax },
+        overlap: { min: p.overlapMin },
+      }),
+    }));
+    const noteCounts = new Map();
+    for (const { plan: one } of plans) for (const note of one.notes) {
+      noteCounts.set(note, (noteCounts.get(note) ?? 0) + 1);
+    }
+    const plan = {
+      placed: plans.flatMap(({ overviewTileset, plan: one }) =>
+        one.placed.map((tile) => ({ ...tile, overviewTileset }))),
+      uncovered: plans.flatMap(({ plan: one }) => one.uncovered),
+      leftOut: [],
+      notes: [...noteCounts].map(([note, count]) => count > 1
+        ? `${note} (${count} overview tilesets)` : note),
+    };
+    state.targetTiles = plan.placed.map((tile, positionIndex) => ({ ...tile, positionIndex }));
+    plan.placed = state.targetTiles;
     state.tilePlan = plan;
   }
 
@@ -1533,8 +1609,10 @@ let stageWatch = null;
     const fold = thePanels[show].fold;
     if (fold) {
       fold.hidden = !somethingToShow;
-      fold.textContent = folded ? "‹" : "›";
-      fold.title = folded ? "Bring the channel back" : "Fold the channel away";
+      fold.classList.toggle("collapsed", folded);
+      const icon = fold.querySelector("span") ?? fold;
+      icon.textContent = folded ? "‹" : "›";
+      fold.title = folded ? "Open right sidebar" : "Collapse right sidebar";
       fold.setAttribute("aria-label", fold.title);
       fold.setAttribute("aria-expanded", String(!folded));
     }
@@ -1937,11 +2015,11 @@ let stageWatch = null;
     }
   }
 
-  /** Whether there are display settings to show: the picture's panel stands
-      in the column kept for it. It arrives with the first picture that has
-      channels to offer -- the focus stack -- and a JPEG copy never brings one. */
+  /** Whether there are display settings to show. Canvas-layer visibility is
+      always useful once the canvas exists; acquisition/channel controls join
+      the same column when a picture arrives. */
   function displaySettingsAvailable() {
-    return Boolean(theCanvas?.display?.querySelector(".viewer-panel"));
+    return Boolean(theCanvas?.display?.querySelector(".display-layer-settings, .viewer-panel"));
   }
 
   const shownPanel = () => (state.tabs.includes(state.tab) ? state.tab : state.tabs[0]);
@@ -2040,6 +2118,9 @@ let stageWatch = null;
          first pair should already be drawn with. */
       galleryPanel?.rebuild();
     },
+    /* A display control changed after the panel was mounted. The available
+       tabs did not change, only displayed copies that use the snapshot did. */
+    displaySettingsChanged: () => galleryPanel?.rebuild(),
     css,
   });
 
@@ -2143,6 +2224,7 @@ let stageWatch = null;
     targets: () => stage.targets(),
     project: (x, y) => stage.project(x, y),
     view: () => stage.pictureView(),
+    lookAt: (where) => stage.lookAt(where),
     carrierOriginUm: () => stage.carrierOriginUm(),
     /* Acquisition Z is deliberately distinct from the flat picture's Z=0
        display plane. Evidence that publishes positions through the bridge
@@ -2161,11 +2243,19 @@ let stageWatch = null;
     /* How wide each acquired frame is, so a test can check the ground is
        opened over exactly the frame the recording describes. */
     targetFrameUm: state.targetFrameUm ?? null,
-    /* The chosen acquired target, so a test can press on the picture and
+    /* The chosen acquired tile key, so a test can press on the picture and
        see the choice land. */
     selectedTarget: state.selectedTarget ?? null,
+    acquiredTileKeys: [...state.acquired],
     restricted: [...state.restricted],
     targetTiles: state.targetTiles.length,
+    targetTilePositions: state.targetTiles.map((tile) => ({
+      x: tile.x, y: tile.y, frameUm: tile.frameUm,
+      key: tile.key,
+      overviewTileset: tile.overviewTileset,
+      targetId: tile.targetId ?? tile.id,
+      covers: tile.covers ?? [],
+    })),
   }));
 
   /* The focus map — the points, their sweeps, the surface through them, and

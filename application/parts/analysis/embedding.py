@@ -8,7 +8,7 @@ together, whatever combination of columns makes them alike.
 An embedding is a statement about the WHOLE population, so it cannot live in
 the per-field pipeline the way the features do: two fields embedded apart
 would land in two unrelated spaces. It runs once, here, over every discovered
-cell, after discovery has answered.
+cell as the final phase of object detection, before discovery answers.
 
 What goes in is chosen, not everything numeric:
 

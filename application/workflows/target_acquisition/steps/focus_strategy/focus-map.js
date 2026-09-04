@@ -29,6 +29,7 @@ import {
 } from "../../../../parts/microscope/pretend-sample/surface.js";
 import { sharePoints } from "../../shared/scanfields.js";
 import { visitOrder } from "./visit-order.js";
+import { zColourDomain } from "./z-domain.js";
 import { status } from "../../../../framework/window/status.js";
 import { activeRecording } from "../../../../parts/microscope/recordings.js";
 
@@ -265,7 +266,7 @@ function drawFocusLayer(ctx, toScreen, scale, w, h) {
         if (z > zHi) zHi = z;
       }
     }
-    if (zHi - zLo < 1) { zLo -= 0.5; zHi += 0.5; }
+    [zLo, zHi] = zColourDomain(zLo, zHi);
   }
 
   /* ---- the surface: fitted everywhere, shown only where it is used.
@@ -338,9 +339,10 @@ function drawFocusLayer(ctx, toScreen, scale, w, h) {
 
   // ---- ramp legend
   if (showSurface) {
-    // the legend sits ON the field, so it carries its own plate
-    const bw = 132, bh = 9, bx = 20, by = h - 26;
-    const padL = 8, top = by - 36;
+    // Top-right, where it can be found at every zoom and cannot be confused
+    // with the scale bar. Its plate keeps the values readable on every hue.
+    const bw = 150, bh = 11, bx = w - 20 - bw, by = 51;
+    const padL = 9, top = 14;
     ctx.fillStyle = css("--screen");
     ctx.globalAlpha = 0.88;
     ctx.fillRect(bx - padL, top, bw + padL * 2, (by + bh + 7) - top);
@@ -357,9 +359,9 @@ function drawFocusLayer(ctx, toScreen, scale, w, h) {
     ctx.strokeRect(bx - 0.5, by - 0.5, bw + 1, bh + 1);
 
     ctx.fillStyle = css("--ink-3");
-    ctx.font = '11.5px system-ui, sans-serif';
+    ctx.font = '600 13px system-ui, sans-serif';
     ctx.fillText("predicted focus height", bx, top + 14);
-    ctx.font = '11px ui-monospace, Consolas, monospace';
+    ctx.font = '12.5px ui-monospace, Consolas, monospace';
     ctx.fillStyle = css("--ink-2");
     ctx.fillText(`${zLo.toFixed(0)}`, bx, by - 5);
     ctx.textAlign = "right";

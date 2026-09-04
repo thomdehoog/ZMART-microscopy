@@ -135,8 +135,8 @@ export function targetLayers(theRun) {
     cells: {
     key: "cells",
     label: "Cells",
-    explains: "What detection found. The ones that passed the gate are ringed, so which "
-      + "is which does not rest on colour alone.",
+    explains: "Targets selected for the workflow. Before feature gating every candidate is "
+      + "shown; afterwards only targets inside the gate remain.",
     /* The chosen cells' shapes belong to the step that chooses them. On the
        discovery step the masks themselves are on the picture; on the
        acquisition step the frames are, and a lit shape over a frame hid the
@@ -156,20 +156,21 @@ export function targetLayers(theRun) {
          read as an artefact on the picture, and the masks on the discovery
          step already showed the whole population. */
 
-      /* The chosen, in their own segmented shapes: each selected cell's
-         mask pixels lit in accent, acquired ones in green -- a blob where a
-         cell stands says less than the cell itself. A field whose label map
-         has not arrived yet falls back to the blob, honestly. */
+      /* The chosen, in their own segmented shapes: each workflow target's
+         mask pixels are green. A blob says less than the shape itself, so it
+         is only the honest fallback while a field's label map is unavailable. */
       const gr = Math.max(3, 4.2 * Math.sqrt(scale / 0.03));
-      /* The plot's marks, on the picture: what the gates let through in
-         blue while they are drawn; once Restrict has drawn under the
-         ceiling, what it kept in green and nothing else -- the rest of the
-         gate's catch is not the selection any more. */
-      const lit = run.gated;
+      /* One population, one colour. Step 7 starts with all candidates so the
+         operator can see what there is to gate, then removes everything the
+         gate excluded. Step 8 narrows once more to the targets its ceiling
+         kept. Nothing irrelevant is carried forward under another colour. */
+      const lit = activeMode === "gate"
+        ? (run.done?.has("select") ? run.restricted
+          : run.gates.length ? run.gated : new Set(run.cells.keys()))
+        : (run.restricted.size ? run.restricted : run.gated);
       if (activeMode !== "detect" && lit.size) {
-        /* Blue for what the gates let through; red over it for what Restrict
-           kept, so the whole catch stays in view under the restriction. */
-        const inkOf = (id) => css(run.restricted.has(id) ? "--mark-restricted" : "--mark-gated");
+        const uncovered = new Set((run.tilePlan?.uncovered ?? []).map((one) => one.id ?? one));
+        const inkOf = (id) => css(uncovered.has(id) ? "--warn-ink" : "--mark-selected");
         const byField = new Map();
         const strays = [];
         for (const id of lit) {
@@ -212,7 +213,13 @@ export function targetLayers(theRun) {
     },
     reaches: (at) => {
       let best = reach, hit = null;
-      for (const c of run.cells.values()) {
+      const ids = activeMode === "gate"
+        ? (run.done?.has("select") ? run.restricted
+          : run.gates.length ? run.gated : new Set(run.cells.keys()))
+        : (run.restricted.size ? run.restricted : run.gated);
+      for (const id of ids) {
+        const c = run.cells.get(id);
+        if (!c) continue;
         const d = Math.hypot(c.x - at.x, c.y - at.y);
         if (d < best) { best = d; hit = c; }
       }
@@ -221,7 +228,7 @@ export function targetLayers(theRun) {
   },
     segmentation: {
     key: "segmentation",
-    label: "Segmentation",
+    label: "Object detection",
     explains: "Cellpose's masks laid over the fields they were found in, each "
       + "object in its own colour -- what detection actually saw, not just "
       + "where it put a point.",
@@ -242,7 +249,7 @@ export function targetLayers(theRun) {
         const label = run.fieldLabels[i];
         /* Only fields the run has examined: a mask file a tile test left
            beside a field's picture is the test's, and stood in for the
-           run's the moment Segment all was pressed. */
+           run's the moment Detect objects was pressed. */
         if (!label || !run.examined.has(i)) continue;
         const t = run.plan[i];
         const half = t.frameUm / 2;

@@ -1,9 +1,9 @@
 /**
- * What step 8 draws on the picture: the targets that have been imaged.
+ * What Step 9 draws on the picture: the target tiles that have been imaged.
  */
 
 export function acquiredLayers(theRun) {
-  const { run, drawnIn, activeMode } = theRun;
+  const { run, drawnIn, activeMode, css } = theRun;
   return {
     frames: {
     key: "frames",
@@ -16,8 +16,8 @@ export function acquiredLayers(theRun) {
       const ctx = frame.context;
       const { place, scale, w, h } = drawnIn(frame);
       ctx.globalAlpha = run.targetTilesAlpha;
-      ctx.fillStyle = "#16a34a";
-      ctx.strokeStyle = "#15803d"; ctx.lineWidth = 1;
+      ctx.fillStyle = css("--accent");
+      ctx.strokeStyle = css("--accent-deep"); ctx.lineWidth = 1;
       for (const tile of run.targetTiles) {
         const half = tile.frameUm / 2;
         const [x, y] = place(tile.x - half, tile.y - half);
@@ -37,27 +37,27 @@ export function acquiredLayers(theRun) {
     shown: activeMode === "targets" && run.acquired.length > 0,
     /* Readable over the very fields they were acquired in, like the cells
        and the masks: the see-through windows cut every non-solid layer, and
-       the green rings survived only off the picture. */
+       the selected outline survives only off the picture. */
     staysSolid: true,
     paint: (frame) => {
       const ctx = frame.context;
       const { place, scale, w, h } = drawnIn(frame);
-      for (const id of run.acquired) {
-        const c = run.cells.get(id);
-        if (!c) continue;
+      for (const key of run.acquired) {
+        const acquired = run.acquiredTiles[key];
+        if (!acquired) continue;
         /* The frames speak for themselves. The chosen one -- whose pair
            the gallery shows -- is outlined along its own frame's edge, so it
            is found among them without a mark over its pixels; the one under
            the pointer is outlined lightly, saying what a press would take. */
-        const chosen = run.selectedTarget === id;
-        const hovered = run.hoveredTarget === id && !chosen;
-        if ((chosen || hovered) && run.targetFrameUm) {
-          const half = run.targetFrameUm / 2;
-          const [x, y] = place(c.x - half, c.y - half);
-          const side = run.targetFrameUm * scale;
+        const chosen = run.selectedTarget === key;
+        const hovered = run.hoveredTarget === key && !chosen;
+        if (chosen || hovered) {
+          const half = acquired.frameUm / 2;
+          const [x, y] = place(acquired.x - half, acquired.y - half);
+          const side = acquired.frameUm * scale;
           ctx.strokeStyle = "#ffffff"; ctx.lineWidth = chosen ? 4 : 3;
           ctx.strokeRect(x, y, side, side);
-          ctx.strokeStyle = "#16a34a"; ctx.lineWidth = chosen ? 1.5 : 1;
+          ctx.strokeStyle = css("--accent"); ctx.lineWidth = chosen ? 1.5 : 1;
           if (hovered) ctx.setLineDash([4, 3]);
           ctx.strokeRect(x, y, side, side);
           ctx.setLineDash([]);

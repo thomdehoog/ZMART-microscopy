@@ -87,19 +87,21 @@ const theCanvas = putTheCanvasIn({
      fields say what is under a press and act on nothing, and a press on
      an acquired frame over a field must still choose the target. */
   onTouched: (found) => theRunWasPressed(found),
-  /* The travel's micrometres, not the carrier's. The canvas draws in the
-     carrier's frame because that is where the run puts things, but what an
-     operator reads off the bottom of the picture is where the stage would have
-     to go — and the two differ by where the carrier sits in the travel. */
   /* The scan drawn beneath is registered to this picture, so it has to follow
      every move of it. The wheel and the drag belong to the canvas now, and a
      page that only followed its own redraws would let the two come apart the
      first time somebody zoomed. */
-  onViewMoved: (where) => { keepItOnScreen(where); thePicture.followTheStage(); },
-  readoutSays: ({ at, zoom }) => {
-    const [ox, oy] = carrierOriginUm();
-    return `x ${(at.x + ox).toFixed(0)} µm · y ${(at.y + oy).toFixed(0)} µm`
-      + ` · ${(1000 / zoom).toFixed(1)} px/mm`;
+  onViewMoved: (where) => {
+    /* Use the view carried by the event. Reading it back from the engine in
+       the same callback can still return the preceding frame, leaving the
+       acquired picture one wheel tick behind the workflow layers. */
+    thePicture.followTheStage(keepItOnScreen(where));
+    /* Custom workflow layers are retained drawings, not engine imagery.
+       Moving only the engine left them painted with the previous projection
+       until an unrelated state change happened to redraw the run. */
+    /* The engine commits its projection after this callback. Draw on the next
+       frame so custom layers use that projection, not the preceding one. */
+    redrawViewSoon();
   },
 });
 const theCanvasIsUp = theCanvas.whenShown();
@@ -288,16 +290,10 @@ function furthestOut(w, h) {
  * The canvas has been given a different width — the operator dragged the
  * divider between the picture and the channel.
  *
- * The change is taken out of the right-hand side: whatever was against the
- * left edge of the picture stays there, and the picture is cut, or uncovered,
- * on the right. Sharing the change between both edges walked the carrier out
- * of the window on the left, behind the rail of steps, where there is nothing
- * to drag it back with — the divider only ever gives that width back to the
- * right. In micrometres at the zoom in force, so a narrowing costs the same
- * amount of picture whatever the picture is being viewed at.
- *
- * Then the limits, which is what pulls the picture back into the frame when
- * the new width leaves the stage floating in more space than it can fill.
+ * The sample position at the visual centre stays there. A sidebar is furniture
+ * around the picture, not a pan gesture: shifting the centre by half the width
+ * change pushed a zoomed tileset sideways whenever the column was folded.
+ * The zoom is preserved as well; only an explicit Fit may change it.
  */
 function theCanvasNarrowed() {
   const where = theCanvas.view;
@@ -307,18 +303,30 @@ function theCanvasNarrowed() {
     lastWidth = w;
     return;
   }
-  const shift = ((w - lastWidth) / 2) * where.zoom;
   lastWidth = w;
-  /* Put where it should be rather than asked whether it has strayed: the shift
-     is a move nobody has made yet, so there is nothing for the check in
-     `keepItOnScreen` to find. */
   straightening = true;
-  theCanvas.lookAt(insideTheLimits({
-    ...where, centre: { x: where.centre.x + shift, y: where.centre.y },
-  }));
+  theCanvas.lookAt(where);
   straightening = false;
+  thePicture.followTheStage(where);
 }
 let lastWidth = 0;
+
+/* View callbacks arrive before the drawing engine has committed the matching
+   projection. Coalesce wheel/drag bursts and repaint on the next browser
+   frame; an immediate repaint is visibly one zoom or pan behind. */
+let viewRedraw = 0;
+function redrawViewSoon() {
+  if (viewRedraw) return;
+  viewRedraw = requestAnimationFrame(() => {
+    /* One frame lets the viewer consume the state update; the next observes
+       its new projection. This is not a timed delay and coalesces a gesture
+       burst into one repaint. */
+    viewRedraw = requestAnimationFrame(() => {
+      viewRedraw = 0;
+      if (view.fitted) drawStage();
+    });
+  });
+}
 
 /* Every way the view can move ends here, whichever gesture moved it. Held off
    by a frame so the correction is one more view change and not a call made
@@ -326,15 +334,16 @@ let lastWidth = 0;
    it went. */
 let straightening = false;
 function keepItOnScreen(where) {
-  if (straightening || !where?.centre) return;
+  if (straightening || !where?.centre) return where;
   const should = insideTheLimits(where);
   const off = Math.abs(should.zoom - where.zoom) > 1e-9
     || Math.abs(should.centre.x - where.centre.x) > 1e-6
     || Math.abs(should.centre.y - where.centre.y) > 1e-6;
-  if (!off) return;
+  if (!off) return where;
   straightening = true;
   theCanvas.lookAt(should);
   straightening = false;
+  return should;
 }
 
 /* Where the microscope is, in stage micrometres.
@@ -769,17 +778,21 @@ function openTheGroundThatHasBeenScanned(howMuch = 1) {
     h: t.frameUm,
     letThrough: howMuch,
   }));
-  /* The acquired target frames too. A target is imaged where its cell is,
-     which can be at the edge of an overview field, so part of its frame lies
+  /* The acquired target frames too. A shared or stitched tile is not
+     necessarily centred on a cell, and can be at the edge of an overview
+     field, so part of its frame lies
      outside every field window; without a window of its own that part of
-     the picture stayed hidden under the ground until the operator faded
-     the layers by hand. The frame is as wide as the recording says. */
-  const half = (run.targetFrameUm ?? 0) / 2;
-  const targets = half > 0
-    ? (run.acquired ?? []).map((id) => run.cells?.get(id)).filter(Boolean).map((cell) => ({
-      x: cell.x - half, y: cell.y - half, w: half * 2, h: half * 2, letThrough: howMuch,
-    }))
-    : [];
+     picture stayed hidden under the ground until the operator faded the
+     layers by hand. Open the exact physical frame that was acquired. */
+  const targets = (run.acquired ?? []).flatMap((key) => {
+    const tile = run.acquiredTiles?.[key];
+    if (!tile?.frameUm) return [];
+    const half = tile.frameUm / 2;
+    return [{
+      x: tile.x - half, y: tile.y - half,
+      w: tile.frameUm, h: tile.frameUm, letThrough: howMuch,
+    }];
+  });
   theCanvas.seeThrough([...fields, ...targets]);
 }
 
@@ -793,7 +806,9 @@ function openTheGroundThatHasBeenScanned(howMuch = 1) {
  * every screen point is read from the canvas's existing projection.
  */
 function targetSnapshot() {
-  const acquired = new Set(run.acquired);
+  const acquired = new Set((run.acquired ?? []).flatMap((key) =>
+    run.acquiredTiles?.[key]?.tile?.completes
+      ?? run.acquiredTiles?.[key]?.tile?.covers ?? []));
   return [...run.cells.values()].map((cell) => {
     const at = theCanvas.project(cell.x, cell.y);
     return {
@@ -802,7 +817,7 @@ function targetSnapshot() {
       x: cell.x,
       y: cell.y,
       screen: { x: at.x, y: at.y },
-      selected: run.gated.has(cell.id),
+      selected: (run.done?.has("select") ? run.restricted : run.gated).has(cell.id),
       restricted: run.restricted.has(cell.id),
       acquired: acquired.has(cell.id),
     };
@@ -1149,6 +1164,17 @@ ctx.fitButton.addEventListener("click", () => {
        the same place, rather than working it out a second time from numbers
        that would then have to agree. */
     pictureView: () => theCanvas.view,
+    /* Restore an exact carrier-local view without depending on the global
+       debug handle: the live picture beneath has a second canvas and may be
+       the last one that registered itself there. */
+    lookAt(where) {
+      theCanvas.lookAt(where);
+      /* Programmatic view changes do not emit the pointer/wheel callback.
+         Keep the acquired picture beneath the workflow layers registered in
+         exactly the same way those gestures do. */
+      thePicture.followTheStage(where);
+      redrawViewSoon();
+    },
     /* The ground opens over what the scan has imaged, so the picture beneath
        shows through the drawing exactly where it was taken. Called as tiles
        land, and again when a run is reset and there is nothing to show. */
@@ -1158,7 +1184,7 @@ ctx.fitButton.addEventListener("click", () => {
        shape, and what the pointer should look like over it. */
     /* The canvas measures itself; this only asks for the layers again, since
        what they draw depends on how big the box is. */
-    resize() { theCanvasNarrowed(); drawStage(); },
+    resize() { theCanvasNarrowed(); redrawViewSoon(); },
     cursor(shape) { stageBox.style.cursor = shape; },
     view,
     travelUm: STAGE_UM,

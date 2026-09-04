@@ -281,7 +281,11 @@ export const backend = {
     for (;;) {
       const progress = await askedPatiently("/api/targets/discover");
       onDoing?.(progress.running ? progress.doing : null);
-      onProgress?.(progress.done, progress.of);
+      onProgress?.(progress.done, progress.of, {
+        phase: progress.phase,
+        objects: progress.objects ?? 0,
+        running: !!progress.running,
+      });
       for (; shown < progress.fields.length; shown++) onField?.(progress.fields[shown]);
       if (progress.error) throw new Error(progress.error);
       if (!progress.running) {
@@ -289,6 +293,7 @@ export const backend = {
           fields: progress.fields,
           failed: progress.failed ?? [],
           stopped: !!progress.stopped,
+          embeddingError: progress.embedding_error ?? null,
         };
       }
       await rest(300);
@@ -304,29 +309,16 @@ export const backend = {
   },
 
   /**
-   * The map over the whole population: the bridge folds every measured
-   * feature into two UMAP axes, one space for all discovered cells. Started
-   * here and followed by asking, like discovery -- the first map also pays
-   * umap's compile-on-first-use, which can be a long moment.
-   */
-  async embedTargets() {
-    await ask("/api/targets/embedding", {});
-    for (;;) {
-      const progress = await askedPatiently("/api/targets/embedding");
-      if (progress.error) throw new Error(progress.error);
-      if (!progress.running) return { points: progress.points ?? {} };
-      await rest(300);
-    }
-  },
-
-  /**
    * Start the overview scan and follow it by asking, not by being told: the
    * bridge drives the stage in a background thread, and this polls its
    * progress until the drive is over. The window's live picture watches the
    * run's own store, exactly as it does on the pretend side.
    */
-  async scanOverview({ positions, acquisition_type = "overview", state = null, onProgress } = {}) {
-    await ask("/api/scan", { positions, acquisition_type, state });
+  async scanOverview({
+    positions, acquisition_type = "overview", state = null, onProgress,
+    append = false, planned = null,
+  } = {}) {
+    await ask("/api/scan", { positions, acquisition_type, state, append, planned });
     for (;;) {
       const progress = await askedPatiently("/api/scan");
       /* Where the scan stood when it answered -- the last record's own plane,

@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { displayFor, displayQueryFor, hexColour } from "./display-of.js";
+import {
+  displayedPictureAddress,
+  displayFor,
+  displayQueryFor,
+  hexColour,
+} from "./display-of.js";
 
 const snapshot = {
   channels: [
@@ -44,6 +49,18 @@ describe("the display the copies are asked with", () => {
     expect(JSON.parse(decodeURIComponent(query.slice("?display=".length))))
       .toEqual([{ c: 0, visible: true, window: [100, 900], color: "#22c55e" }]);
   });
+
+  it("can wait for real display rows instead of falling back to the legacy RGB copy", () => {
+    const ready = displayedPictureAddress("/view/overview", "P0001", snapshot, "overview", {
+      requireDisplay: true,
+    });
+    expect(ready).toContain("/view/overview/P0001.jpg?display=");
+    expect(displayedPictureAddress("/view/targets", "P0002", null, "targets", {
+      requireDisplay: true,
+    })).toBeNull();
+    expect(displayedPictureAddress("/view/targets", "P0002", null, "targets"))
+      .toBe("/view/targets/P0002.jpg");
+  });
 });
 
 describe("the colour a copy is asked for", () => {
@@ -63,4 +80,3 @@ describe("the colour a copy is asked for", () => {
     expect(displayFor(snapshot, "overview")).toEqual([{ c: 0, visible: true, window: [1, 9], color: "#00ff66" }]);
   });
 });
-

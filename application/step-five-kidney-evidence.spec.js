@@ -978,6 +978,47 @@ test("deterministic kidney evidence records 0, 3, 6, and 9 landed positions", as
     expect(close.record.stage.view.zoom, "close-up reaches microscopy scale").toBeLessThanOrEqual(3);
     expect(close.record.pixelCheck.canvas.shadeBins,
       "close-up contains microscopy texture across the canvas").toBeGreaterThan(16);
+
+    /* The same view must be the same picture after crossing level-of-detail
+       boundaries repeatedly. This catches missing coarser chunks, stale
+       composites, and redraws that retain a level from the preceding zoom. */
+    /* The stage view takes carrier-local centres. The engine view beneath is
+       stage-absolute and follows this one; using it here would add the
+       carrier origin twice. */
+    const closeView = close.raw.stage.view;
+    const wideView = wholePlate.raw.stage.view;
+    const stableBefore = await page.locator("#stage-canvas").screenshot();
+    fs.writeFileSync(path.join(SHOTS, "zoom-return-before.png"), stableBefore);
+    for (let cycle = 0; cycle < 3; cycle += 1) {
+      await audit.duringNavigation(async () => {
+        await page.evaluate((view) => window.__theStageCanvas.lookAt(view), wideView);
+        await rest(700);
+        await page.evaluate((view) => window.__theStageCanvas.lookAt(view), closeView);
+        await rest(1000);
+      });
+      expect(await page.evaluate(() => window.__thePicture.layersForMeasurement()
+        .filter(({ name }) => name.startsWith("overview"))
+        .every(({ visible }) => visible)),
+      `overview visibility survives zoom cycle ${cycle + 1}`).toBe(true);
+    }
+    const stableAfter = await page.locator("#stage-canvas").screenshot();
+    fs.writeFileSync(path.join(SHOTS, "zoom-return-after.png"), stableAfter);
+    const returnedView = await liveState(page, PORT);
+    expect(returnedView.stage.view.zoom, "the stage returns to the exact close zoom")
+      .toBeCloseTo(closeView.zoom, 9);
+    expect(returnedView.stage.view.centre.x, "the stage returns to the exact close x")
+      .toBeCloseTo(closeView.centre.x, 6);
+    expect(returnedView.stage.view.centre.y, "the stage returns to the exact close y")
+      .toBeCloseTo(closeView.centre.y, 6);
+    expect(returnedView.engineView.zoom, "the acquired picture follows the close zoom")
+      .toBeCloseTo(closeView.zoom, 9);
+    const stablePixels = readPng(stableBefore);
+    const changedOnReturn = pixelChangesInside(stableBefore, stableAfter, {
+      left: 0, top: 0, right: stablePixels.width, bottom: stablePixels.height,
+    });
+    expect(changedOnReturn / (stablePixels.width * stablePixels.height),
+      "returning to the identical close view produces the identical composite")
+      .toBeLessThan(0.005);
     assertCompleteEvidence(overviewOnly.record);
   } finally {
     await bridge.stop();
