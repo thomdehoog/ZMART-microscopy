@@ -121,6 +121,13 @@ def _connect_session(args: argparse.Namespace, adapter: Any, output_root: str | 
         # (same pinning as validate_hardware --mock).
         profiles.STATE_READERS = replace(profiles.STATE_READERS, selected_job_confirm_source="api")
 
+    # A session stands on one of the machine's configurations. The validator
+    # takes the newest unless the connection already names one, which is
+    # what the operator page offers first.
+    if not inst.get("configuration"):
+        offered = zmart_controller.get_configurations(inst)
+        if offered:
+            inst["configuration"] = offered[0]["id"]
     return zmart_controller.set_instrument(inst)
 
 
