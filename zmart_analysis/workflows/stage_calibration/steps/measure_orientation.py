@@ -302,7 +302,8 @@ def _for_display(image: np.ndarray) -> np.ndarray:
 
 def candidate_overlay(home, plus_x, plus_y, *, stage_move_um, pixel_um, rotation_deg, reflection):
     """Home in magenta; both moved pictures, shifted back by the move this
-    candidate predicts, in green. The right candidate overlaps white."""
+    candidate predicts, in green. The right candidate overlaps white.
+    Returns the overlay and how well the two agree where they overlap."""
     from scipy.ndimage import shift as nd_shift
 
     image_to_stage = np.asarray(STAGE_FROM_ORIENTATION[(rotation_deg, reflection)], dtype=float)
@@ -316,86 +317,105 @@ def candidate_overlay(home, plus_x, plus_y, *, stage_move_um, pixel_um, rotation
                         order=1, mode="constant", cval=float(np.median(image)), prefilter=False)
 
     moved = (align(plus_x, expected_x) + align(plus_y, expected_y)) / 2.0
+    # Agreement, judged away from the edges the shift dragged filler into.
+    margin = int(np.ceil(stage_move_um / pixel_um)) + 1
+    h, w = np.asarray(home).shape
+    inner = (slice(margin, h - margin), slice(margin, w - margin))
+    a, b = np.asarray(home, dtype=np.float64)[inner].ravel(), moved[inner].ravel()
+    agreement = 0.0 if a.size < 16 or a.std() == 0 or b.std() == 0 else float(np.corrcoef(a, b)[0, 1])
     ref, tgt = _for_display(home), _for_display(moved)
     rgb = np.zeros((*ref.shape, 3))
     rgb[..., 0] = ref; rgb[..., 2] = ref; rgb[..., 1] = tgt
-    return reorient(np.clip(rgb, 0.0, 1.0), rotation_deg, reflection)
+    return reorient(np.clip(rgb, 0.0, 1.0), rotation_deg, reflection), max(agreement, 0.0)
 
 
 def write_diagnostic(home, plus_x, plus_y, answer: dict, path, *, channel: int = 0):
-    """The set_orientation notebook's figure: the detected correction, and the
-    eight-candidate gallery it was chosen from.
+    """The result as a sheet an operator can read at a glance.
 
-    Each candidate lays the moved pictures back over the home picture the way
-    that candidate predicts; the one that is right overlaps white. Written to
-    ``path`` as a PNG and the path returned; ``None`` without matplotlib.
+    A card with the answer, then the eight candidates the answer was chosen
+    from -- four turns, each without and with a mirror -- each laying the
+    moved pictures back over the home picture the way that candidate
+    predicts. The right one overlaps white; the others show magenta and
+    green doubling. Under every tile a bar says how well the pictures agree,
+    the winner is framed and tagged, and the rest are dimmed, so the choice
+    reads without having to judge the pictures by eye.
+
+    Written to ``path`` as a PNG and the path returned; ``None`` without
+    matplotlib.
     """
     try:
         from matplotlib.backends.backend_agg import FigureCanvasAgg
         from matplotlib.figure import Figure
-        from matplotlib.patches import FancyBboxPatch, Patch
+        from matplotlib.patches import FancyBboxPatch, Rectangle
     except ImportError:
         return None
     o = answer["orientation"]
     accepted = bool(answer.get("accepted"))
-    colour = "#087F5B" if accepted else "#C56A00"
+    good, ink, ink_2, ink_3, line = "#1f7a3a", "#0f172a", "#334155", "#6b7c93", "#e2e8f0"
+    verdict_colour = good if accepted else "#b45309"
     home_p, x_p, y_p = (_plane(a, channel) for a in (home, plus_x, plus_y))
     stride = max(1, int(np.ceil(max(home_p.shape) / 256)))
     home_g, x_g, y_g = (a[::stride, ::stride] for a in (home_p, x_p, y_p))
     pixel_um = float(answer["pixel_um"]["mean"]) * stride
     move_um = float(answer["stage_move_um"])
 
-    fig = Figure(figsize=(14, 9.4), facecolor="#F4F6F7")
+    tiles = {}
+    for reflection in (False, True):
+        for rotation_deg in (0, 90, 180, 270):
+            tiles[(rotation_deg, reflection)] = candidate_overlay(
+                home_g, x_g, y_g, stage_move_um=move_um, pixel_um=pixel_um,
+                rotation_deg=rotation_deg, reflection=reflection)
+    chosen = (o["rotation_deg"], o["reflection"])
+
+    fig = Figure(figsize=(14, 9.6), facecolor="white")
     FigureCanvasAgg(fig)
-    grid = fig.add_gridspec(3, 1, height_ratios=(0.58, 0.14, 2.0), left=0.035, right=0.985,
-                            bottom=0.07, top=0.97, hspace=0.12)
-    gallery = grid[2].subgridspec(2, 5, width_ratios=(0.18, 1, 1, 1, 1), hspace=0.16, wspace=0.10)
+    grid = fig.add_gridspec(2, 1, height_ratios=(0.55, 4.0), left=0.03, right=0.985, bottom=0.06, top=0.975, hspace=0.10)
 
+    # The answer, in a card.
     card = fig.add_subplot(grid[0]); card.set_axis_off()
-    card.add_patch(FancyBboxPatch((0, 0), 1, 1, boxstyle="round,pad=0.012,rounding_size=0.025",
-                                  transform=card.transAxes, facecolor="white", edgecolor="#DDE2E5",
-                                  linewidth=1.2, clip_on=False))
-    t = lambda x, y, text, **kw: card.text(x, y, text, transform=card.transAxes, ha="left", va="center", **kw)
-    t(0.025, 0.84, "DETECTED IMAGE CORRECTION" if accepted else "ORIENTATION NOT ACCEPTED",
-      fontsize=11.5, fontweight="bold", color=colour)
-    t(0.025, 0.57, "ROTATION", fontsize=9.5, fontweight="bold", color="#7A858C")
-    t(0.025, 0.28, f"{o['rotation_deg']}° clockwise", fontsize=20, fontweight="bold", color="#172126")
-    t(0.30, 0.57, "REFLECTION", fontsize=9.5, fontweight="bold", color="#7A858C")
-    t(0.30, 0.28, "Yes" if o["reflection"] else "No", fontsize=20, fontweight="bold", color="#172126")
-    t(0.52, 0.57, "SIGN CONVENTION", fontsize=9.5, fontweight="bold", color="#7A858C")
-    t(0.52, 0.28, f"Stage X  ←  image {o['sign_convention']['stage_x_from_image']}     "
-                  f"Stage Y  ←  image {o['sign_convention']['stage_y_from_image']}",
-      fontsize=16, fontweight="bold", color="#172126")
+    card.add_patch(FancyBboxPatch((0, 0), 1, 1, boxstyle="round,pad=0.012,rounding_size=0.03",
+                                  transform=card.transAxes, facecolor="#f8fafc", edgecolor=line, linewidth=1.2, clip_on=False))
+    t = lambda x, y, text, **kw: card.text(x, y, text, transform=card.transAxes, va="center", **kw)
+    t(0.025, 0.80, "DETECTED IMAGE CORRECTION" if accepted else "ORIENTATION NOT ACCEPTED", ha="left",
+      fontsize=10.5, fontweight="bold", color=verdict_colour)
+    for x, label, value in ((0.025, "ROTATION", f"{o['rotation_deg']}° clockwise"),
+                            (0.30, "REFLECTION", "Yes" if o["reflection"] else "No"),
+                            (0.50, "STAGE X", f"image {o['sign_convention']['stage_x_from_image']}"),
+                            (0.68, "STAGE Y", f"image {o['sign_convention']['stage_y_from_image']}"),
+                            (0.86, "PIXEL", f"{answer['pixel_um']['mean']:.3f} µm")):
+        t(x, 0.50, label, ha="left", fontsize=8.5, fontweight="bold", color=ink_3)
+        t(x, 0.20, value, ha="left", fontsize=17, fontweight="bold", color=ink)
 
-    legend = fig.add_subplot(grid[1]); legend.set_axis_off()
-    legend.legend(handles=(Patch(facecolor="#FF00FF", edgecolor="none", label="Home image"),
-                           Patch(facecolor="#00C853", edgecolor="none", label="Moved images corrected by each candidate"),
-                           Patch(facecolor="white", edgecolor="#9AA3A8", label="Agreement / overlap")),
-                  loc="center left", bbox_to_anchor=(0.005, 0.5), ncol=3, frameon=False, fontsize=10,
-                  handlelength=1.2, columnspacing=1.8)
-    legend.text(0.995, 0.5, "The selected candidate has the strongest white overlap.",
-                transform=legend.transAxes, ha="right", va="center", fontsize=9.5, color="#667179")
-
-    for row, label in enumerate(("NO\nREFLECTION", "REFLECTION")):
-        ax = fig.add_subplot(gallery[row, 0]); ax.set_axis_off()
-        ax.text(0.52, 0.5, label, transform=ax.transAxes, ha="center", va="center", fontsize=9.5,
-                linespacing=1.25, fontweight="bold", color="#667179")
-    for row, reflection in enumerate((False, True)):
+    # The eight candidates: tile above, agreement bar below, in one grid.
+    gallery = grid[1].subgridspec(4, 5, width_ratios=(0.16, 1, 1, 1, 1), height_ratios=(1, 0.16, 1, 0.16),
+                                  hspace=0.08, wspace=0.08)
+    for row, (reflection, label) in enumerate(((False, "no mirror"), (True, "mirrored"))):
+        lab = fig.add_subplot(gallery[2 * row, 0]); lab.set_axis_off()
+        lab.text(0.5, 0.5, label, transform=lab.transAxes, ha="center", va="center", rotation=90,
+                 fontsize=10, fontweight="bold", color=ink_3)
         for column, rotation_deg in enumerate((0, 90, 180, 270)):
-            ax = fig.add_subplot(gallery[row, column + 1])
-            if row == 0:
-                ax.set_title(f"{rotation_deg}°", fontsize=11, fontweight="bold", color="#354047", pad=7)
-            ax.imshow(candidate_overlay(home_g, x_g, y_g, stage_move_um=move_um, pixel_um=pixel_um,
-                                        rotation_deg=rotation_deg, reflection=reflection), interpolation="nearest")
+            overlay, agreement = tiles[(rotation_deg, reflection)]
+            selected = (rotation_deg, reflection) == chosen
+            ax = fig.add_subplot(gallery[2 * row, column + 1])
+            ax.imshow(overlay, interpolation="nearest", alpha=1.0 if selected else 0.55)
             ax.set_xticks([]); ax.set_yticks([])
-            selected = (rotation_deg, reflection) == (o["rotation_deg"], o["reflection"])
+            if row == 0:
+                ax.set_title(f"{rotation_deg}°", fontsize=12, fontweight="bold", color=ink_2 if selected else ink_3, pad=6)
             for spine in ax.spines.values():
-                spine.set_color(colour if selected else "#A8ADB3"); spine.set_linewidth(4.0 if selected else 0.9)
+                spine.set_color(verdict_colour if selected else line); spine.set_linewidth(3.5 if selected else 1.0)
             if selected:
-                ax.text(0.5, 0.965, "SELECTED" if accepted else "NEAREST - REJECTED", transform=ax.transAxes,
-                        ha="center", va="top", color="white", fontsize=8.5, fontweight="bold",
-                        bbox={"facecolor": colour, "edgecolor": "none", "pad": 3.5})
-    fig.text(0.5, 0.025, "Eight lossless possibilities: four rotations × reflection absent or present.",
-             ha="center", va="center", fontsize=9.5, color="#667179")
+                ax.text(0.5, 0.05, "✓  SELECTED" if accepted else "NEAREST · REJECTED", transform=ax.transAxes,
+                        ha="center", va="bottom", color="white", fontsize=9, fontweight="bold",
+                        bbox={"facecolor": verdict_colour, "edgecolor": "none", "boxstyle": "round,pad=0.35"})
+            bar = fig.add_subplot(gallery[2 * row + 1, column + 1]); bar.set_axis_off()
+            bar.set_xlim(0, 1); bar.set_ylim(0, 1)
+            bar.add_patch(Rectangle((0, 0.3), 1, 0.4, facecolor=line, edgecolor="none"))
+            bar.add_patch(Rectangle((0, 0.3), agreement, 0.4, facecolor=verdict_colour if selected else "#94a3b8", edgecolor="none"))
+            bar.text(1.0, 0.5, f"{agreement:.2f}", ha="right", va="center", fontsize=9,
+                     fontweight="bold" if selected else "normal", color=ink if selected else ink_3,
+                     bbox={"facecolor": "white", "edgecolor": "none", "pad": 1.5})
+    fig.text(0.03, 0.02, "Home image in magenta, the moved images laid back by each candidate in green: "
+             "the right candidate overlaps white. The bar is how well the two agree.",
+             ha="left", va="center", fontsize=9.5, color=ink_3)
     fig.savefig(str(path), dpi=105)
     return str(path)
