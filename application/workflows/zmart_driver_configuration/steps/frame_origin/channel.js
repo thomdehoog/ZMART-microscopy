@@ -24,10 +24,7 @@ export default {
     }
 
     /* ---- where the stage is, and driving it ----------------------------- */
-    const where = cell("Where the stage stands",
-      "Read from the instrument, in absolute stage micrometres. Type a position and press "
-      + "Drive to go there; the driver reads the position back after the move and refuses "
-      + "anything outside the stage's physical travel.");
+    const where = cell("Position", "Absolute stage micrometres. Type a position and press Drive; the move is verified by readback.");
     const here = ctx.here();
     if (here) {
       where.body.append(readout([
@@ -70,18 +67,14 @@ export default {
     host.append(where.box);
 
     /* ---- the origin ------------------------------------------------------- */
-    const origin = cell("Make this the origin",
-      "The current position becomes (0, 0, 0). Every position a run records from the next "
-      + "connect on is micrometres from here — so choose a place you can find again, and one "
-      + "you will not want to move later: changing the origin quietly changes what every "
-      + "recorded position means.");
+    const origin = cell("Set origin", "The current position becomes (0, 0, 0) from the next connect on.");
     const standing = ctx.standing();
     if (standing?.source === "published") {
       const d = standing.document?.origin ?? standing.document ?? {};
       origin.body.append(note(
         `What stands now: (${um(d.x_um, 0)}, ${um(d.y_um, 0)}, ${um(d.z_um ?? d.z_focus_um, 1)}) · published`));
     } else if (standing) {
-      origin.body.append(note("No origin has been published: the frame counts from the stage's absolute zero."));
+      origin.body.append(note("No origin published: the frame is the stage's absolute zero."));
     }
     origin.body.append(publishRow({
       label: "Set origin here",
@@ -91,8 +84,8 @@ export default {
           const document = await ctx.setup.measure("origin");
           const where = await ctx.setup.publish("origin", document);
           await ctx.restand?.();
-          ctx.settle(`(${um(document.x_um, 0)}, ${um(document.y_um, 0)}, ${um(document.z_um, 1)}) · published`,
-            `Published to ${where.path}`);
+          ctx.settle(`(${um(document.x_um, 0)}, ${um(document.y_um, 0)}, ${um(document.z_um, 1)}) · adopted`,
+            `Adopted: ${where.path}`);
         } catch (why) {
           ctx.settle(null, `Publishing failed — ${why.message}`);
         }
