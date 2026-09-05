@@ -30,7 +30,7 @@ export default {
       const d = standing.document?.origin ?? standing.document ?? {};
       origin.body.append(note(
         `What stands now: (${um(d.x_um, 0)}, ${um(d.y_um, 0)}, ${um(d.z_um ?? d.z_focus_um, 1)}) · published`));
-    } else if (standing) {
+    } else if (standing && !ctx.publishedNote()?.startsWith("Adopted")) {
       origin.body.append(note("No origin published: the frame is the stage's absolute zero."));
     }
     origin.body.append(press("Import", async () => {
