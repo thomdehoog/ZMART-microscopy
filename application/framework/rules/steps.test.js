@@ -211,7 +211,7 @@ describe("workflows compose the catalogue rather than restating it", () => {
      subsystems are published; connect is borrowed from target acquisition. */
   it("walks driver configuration in this order", () => {
     expect(ids("zmart_driver_configuration")).toEqual([
-      "connect", "limits", "orientation", "calibration", "origin",
+      "connect", "limits", "origin", "orientation", "calibration",
     ]);
   });
 

@@ -21,21 +21,22 @@ Five steps, in order:
 2. **Define limits** — how far the stage may travel, which objective slots
    automation may use, and a permitted value or range for each setting the
    driver can change.
-3. **Image-to-stage calibration** — how the picture is turned relative to the
+3. **Define coordinate system origin** — the point the run counts from. Once set, reported
+   positions are micrometres from there. A snapshot of the drives, needing no
+   picture, so it comes straight after the limits. Like the other three, this is
+   published by the driver rather than reached through the controller; see
+   the boundary section below.
+4. **Image-to-stage calibration** — how the picture is turned relative to the
    stage, so that moving right on the stage means moving right in the image.
    One of eight lossless ways of laying the image down: a quarter, half or
    three-quarter turn, each optionally mirrored.
-4. **Objective calibration** — the pixel size, and how every objective lines up
+5. **Objective calibration** — the pixel size, and how every objective lines up
    with one reference objective, so a target found on a low-power overview is
    still centred under the high-power lens. The ideal is a parcentric and
    parfocal microscope, where every offset is zero; choosing the reference gives
    every other lens a preset at that ideal, and measuring a preset replaces the
    ideal with what the microscope actually does. Changing the reference starts
    the presets over, because every offset was relative to it.
-5. **Define coordinate system origin** — the point the run counts from. Once set, reported
-   positions are micrometres from there. Like the three above it, this is
-   published by the driver rather than reached through the controller; see
-   the boundary section below.
 
 Steps 2 to 5 correspond exactly to the four subsystems the driver already keeps
 under `C:\ProgramData\zmart-microscopy\<vendor>\<microscope>\<api>\`: `limits`,

@@ -27,6 +27,8 @@ class Setup:
         self._handle = handle
         self._connection = dict(connection or {})
         self._closed = False
+        #: What the setup was opened with, so it can be opened again the same way.
+        self.connection = dict(connection or {})
         #: How the driver was chosen: vendor, microscope, api.
         self.context = context
 
@@ -72,7 +74,12 @@ class Setup:
         return self._ops["where"](self._handle)
 
     def move(self, x_um: float, y_um: float, z_um: float) -> dict:
-        """Move, and answer with where the stage was read back to be."""
+        """Move, and answer with where the stage was read back to be.
+
+        Nothing in the configuration workflow applies the limits: the driver
+        fences the move with its own physical backstop, and the limits being
+        defined here take effect when a session next connects with the
+        configuration."""
         self._require_open()
         return self._ops["move"](self._handle, float(x_um), float(y_um), float(z_um))
 

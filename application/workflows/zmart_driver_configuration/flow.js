@@ -37,7 +37,12 @@ export const blurb =
   + "turned, its optics, and the point it counts from. Through the driver's "
   + "setup, never through a session.";
 
-export const steps = [connect, stageLimits, stageToImage, opticsCalibration, frameOrigin];
+/* The origin comes straight after the limits: both are said in the stage's
+   own coordinates, and the origin is a snapshot of the drives that depends
+   on no picture. The two measuring steps follow in the order they depend on
+   each other -- the objective pair is matched on orientation-corrected
+   pictures, so image-to-stage comes first. */
+export const steps = [connect, stageLimits, frameOrigin, stageToImage, opticsCalibration];
 
 /** One panel, a notebook down the middle of the window. No canvas. */
 export const panels = [setupPanel];

@@ -1,5 +1,5 @@
 /**
- * Step 3's cells — measure which way the picture is turned, then publish it.
+ * Step 4's cells — measure which way the picture is turned, then publish it.
  *
  * The instrument's part is small and the driver supplies it: image the field
  * where the stage stands, move a known distance along +X, image again, come

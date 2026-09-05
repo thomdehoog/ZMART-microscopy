@@ -204,3 +204,17 @@ def test_evidence_is_kept_beside_the_document_and_read_back(setup, tmp_path):
     time.sleep(0.01)
     setup.new_configuration()
     assert sorted(e["name"] for e in setup.read("orientation")["evidence"]) == names
+
+
+
+def test_adopted_limits_fence_moves_once_the_setup_is_opened_again(setup):
+    """The driver applies a configuration's limits when it opens on it, so
+    limits adopted in a setup fence the moves of a setup opened again on the
+    same configuration -- which is what the bridge does behind the card."""
+    setup.publish("limits", {**setup.read("limits", fresh=True)["document"],
+                             "x_um": {"range": [10000, 50000]}})
+    setup.move(60000.0, 40000.0, 16.0)          # this open loaded no limits yet
+    again = open_setup(setup.connection)
+    with pytest.raises(RuntimeError, match="outside the limits \\[10000, 50000\\]"):
+        again.move(60000.0, 40000.0, 16.0)
+    assert again.move(20000.0, 40000.0, 16.0)["x_um"] == 20000.0
