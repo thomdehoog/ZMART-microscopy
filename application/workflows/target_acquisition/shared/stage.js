@@ -28,6 +28,7 @@ import { putTheCanvasIn } from "../../../parts/canvas/viewer.js";
 import { carrierLayers } from "../steps/define_carrier/layers.js";
 import { scanAreaLayers } from "../steps/define_scan_area/layers.js";
 import { focusLayers } from "../steps/focus_strategy/layers.js";
+import { MASK_COLOURS, MASK_RAINBOW } from "../steps/discover_targets/mask-dress.js";
 import { overviewLayers } from "../steps/scan_the_overview/layers.js";
 import { targetLayers } from "../steps/discover_targets/layers.js";
 import { acquiredLayers } from "../steps/acquire_targets/layers.js";
@@ -1228,6 +1229,45 @@ ctx.maskButton?.addEventListener("click", () => {
   drawStage();
 });
 
+/* The masks' dress: the swatch opens a small card under itself with the
+   colour, the look and the opacity; each choice is written to the same
+   settings the tile test reads, so the two always agree. */
+const maskDress = () => run.detect ?? {};
+function showMaskCard(open) {
+  if (!ctx.maskPop) return;
+  ctx.maskPop.hidden = !open;
+  ctx.maskSwatch?.setAttribute("aria-expanded", String(open));
+}
+if (ctx.maskColours) {
+  for (const colour of MASK_COLOURS) {
+    const dot = document.createElement("button");
+    dot.type = "button";
+    dot.className = "mask-colour";
+    dot.dataset.colour = colour ?? "";
+    dot.style.background = colour ?? MASK_RAINBOW;
+    dot.title = colour ? `every object in ${colour}` : "each object its own colour";
+    dot.addEventListener("click", () => { maskDress().maskColour = colour; drawStage(); });
+    ctx.maskColours.append(dot);
+  }
+}
+ctx.maskFill?.addEventListener("click", () => { maskDress().maskShow = "fill"; drawStage(); });
+ctx.maskLine?.addEventListener("click", () => { maskDress().maskShow = "line"; drawStage(); });
+ctx.maskOpacity?.addEventListener("input", () => {
+  maskDress().maskAlpha = Number(ctx.maskOpacity.value) / 100;
+  drawStage();
+});
+ctx.maskSwatch?.addEventListener("click", (e) => {
+  e.stopPropagation();
+  showMaskCard(ctx.maskPop.hidden);
+});
+/* The card closes the way a menu does: a press anywhere else, or Escape. */
+document.addEventListener("click", (e) => {
+  if (ctx.maskPop && !ctx.maskPop.hidden && !ctx.maskCluster?.contains(e.target)) showMaskCard(false);
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && ctx.maskPop && !ctx.maskPop.hidden) showMaskCard(false);
+});
+
 /* Grayscale, or Color: every acquisition on the picture drawn in grey, or
    each in its own colours again. The picture's own panel keeps the colours
    and does the drawing; this is the same switch for all of them at once. */
@@ -1245,8 +1285,20 @@ function sayWhatThePressesDo() {
   const mask = ctx.maskButton;
   if (mask) {
     const laid = theStack.some((layer) => layer.key === "segmentation" && layer.has);
-    mask.hidden = !laid;
+    if (ctx.maskCluster) ctx.maskCluster.hidden = !laid; else mask.hidden = !laid;
+    if (!laid) showMaskCard(false);
     mask.setAttribute("aria-pressed", String(theCanvas.layerShown?.("segmentation") !== false));
+    const dress = maskDress();
+    if (ctx.maskSwatch) ctx.maskSwatch.style.background = dress.maskColour ?? MASK_RAINBOW;
+    for (const dot of ctx.maskColours?.querySelectorAll(".mask-colour") ?? []) {
+      dot.setAttribute("aria-pressed", String((dress.maskColour ?? "") === dot.dataset.colour));
+    }
+    const line = dress.maskShow === "line";
+    ctx.maskFill?.setAttribute("aria-pressed", String(!line));
+    ctx.maskLine?.setAttribute("aria-pressed", String(line));
+    if (ctx.maskOpacity && document.activeElement !== ctx.maskOpacity) {
+      ctx.maskOpacity.value = String(Math.round((dress.maskAlpha ?? 0.8) * 100));
+    }
   }
   const grey = ctx.greyButton;
   if (grey) {

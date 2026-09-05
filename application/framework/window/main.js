@@ -175,6 +175,7 @@ let stageWatch = null;
       border: 0,       // µm from the field's edge inside which a cell is dropped
       binning: 1,      // segment on a copy this many times smaller each side
       maskShow: "fill", // how the test view wears the masks: fill | line | off
+      maskColour: null, // one colour for every object, or null for each its own
       maskAlpha: 0.65,  // how strongly the masks sit on the image (0..1)
       imageGrey: false, // the test image in grey (set by a landed test, hand-flipped)
       tile: 0,
@@ -2420,6 +2421,13 @@ let stageWatch = null;
     carrierButton: theCanvas.parts.carrier,
     tilesetButton: theCanvas.parts.tileset,
     maskButton: theCanvas.parts.mask,
+    maskCluster: theCanvas.parts.maskCluster,
+    maskSwatch: theCanvas.parts.maskSwatch,
+    maskPop: theCanvas.parts.maskPop,
+    maskColours: theCanvas.parts.maskColours,
+    maskFill: theCanvas.parts.maskFill,
+    maskLine: theCanvas.parts.maskLine,
+    maskOpacity: theCanvas.parts.maskOpacity,
     greyButton: theCanvas.parts.grey,
     legend: theCanvas.parts.legend,
     css, sizeCanvas, el,

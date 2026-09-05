@@ -24,6 +24,19 @@ import os from "node:os";
 import path from "node:path";
 import { operateTheInstrument, rest, showTheChannel, startTheBridge }
   from "./steps/scan_the_overview/live-bridge.js";
+import { photograph } from "./steps/scan_the_overview/pixels.js";
+
+/** How coloured a photograph is: the mean gap between a pixel's strongest
+ * and weakest channel. Zero for a grey picture. */
+function chromaOf({ data, channels }) {
+  let sum = 0, count = 0;
+  for (let at = 0; at < data.length; at += channels) {
+    const r = data[at], g = data[at + 1], b = data[at + 2];
+    sum += Math.max(r, g, b) - Math.min(r, g, b);
+    count += 1;
+  }
+  return count ? sum / count : 0;
+}
 
 const PORT = Number(process.env.ACQUISITION_BRIDGE_PORT ?? 8833);
 const A_WHOLE_WALK = 900_000;
@@ -162,9 +175,16 @@ test.describe("the target acquisition workflow, walked screen by screen", () => 
       await expect(page.locator("#grey-btn")).toHaveAttribute("aria-pressed", "true");
       await rest(1200);
       await shot(page, "scan-done-grayscale");
+      const greyPicture = await photograph(page, "#picture-host", 0.6);
       await page.locator("#grey-btn").click();
       await expect(page.locator("#grey-btn")).toHaveAttribute("aria-pressed", "false");
-      await rest(800);
+      await rest(1200);
+      await shot(page, "scan-done-color-again");
+      /* Proved on the pixels, not the button: in grey the three channels of
+         a pixel agree; in colour they do not. */
+      const colourPicture = await photograph(page, "#picture-host", 0.6);
+      expect(chromaOf(greyPicture), "grey means grey").toBeLessThan(4);
+      expect(chromaOf(colourPicture), "colour came back").toBeGreaterThan(20);
 
       /* Step 6: one tile through the real detection. */
       await walkTo(page, "Detect objects");
@@ -202,6 +222,20 @@ test.describe("the target acquisition workflow, walked screen by screen", () => 
         await page.locator("#mask-btn").click();
         await expect(page.locator("#mask-btn")).toHaveAttribute("aria-pressed", "true");
         await rest(500);
+        /* Their dress, from the swatch: one colour, outline only, fainter. */
+        await page.locator("#mask-swatch").click();
+        await expect(page.locator("#mask-pop")).toBeVisible();
+        await shot(page, "detect-mask-card");
+        await page.locator('.mask-colour[data-colour="#ffd400"]').click();
+        await page.locator("#mask-line").click();
+        await page.locator("#mask-opacity").evaluate((slider) => {
+          slider.value = "60";
+          slider.dispatchEvent(new Event("input", { bubbles: true }));
+        });
+        await rest(900);
+        await shot(page, "detect-mask-dressed");
+        await page.keyboard.press("Escape");
+        await expect(page.locator("#mask-pop")).toBeHidden();
 
         /* Step 7: a gate drawn on the feature plot, around most of the cloud. */
         await walkTo(page, "Discover Targets");

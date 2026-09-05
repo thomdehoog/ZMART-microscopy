@@ -57,8 +57,34 @@ export const canvasPanel = {
                tinted while it is on, the way the page shows every other
                on-or-off press, and a press flips it. -->
           <span class="canvas-toolbar-right">
-            <button class="run switch" id="mask-btn" type="button" hidden aria-pressed="true"
-                    title="Show or hide the detected masks">Mask</button>
+            <!-- The masks: a swatch that opens their dress -- colour, fill
+                 or line, opacity -- and the switch that shows or hides
+                 them. Here only while detection has laid masks. -->
+            <span class="mask-cluster" id="mask-cluster" hidden>
+              <button class="mask-swatch" id="mask-swatch" type="button"
+                      aria-haspopup="true" aria-expanded="false"
+                      title="The masks' colour, look and opacity"></button>
+              <button class="run switch" id="mask-btn" type="button" aria-pressed="true"
+                      title="Show or hide the detected masks">Mask</button>
+              <div class="mask-pop" id="mask-pop" hidden>
+                <div class="mask-pop-row">
+                  <span class="mask-pop-label">Colour</span>
+                  <span class="mask-colours" id="mask-colours"></span>
+                </div>
+                <div class="mask-pop-row">
+                  <span class="mask-pop-label">Look</span>
+                  <span class="seg mask-look">
+                    <button id="mask-fill" type="button" aria-pressed="true">Fill</button>
+                    <button id="mask-line" type="button" aria-pressed="false">Line</button>
+                  </span>
+                </div>
+                <div class="mask-pop-row">
+                  <span class="mask-pop-label">Opacity</span>
+                  <input id="mask-opacity" type="range" min="10" max="100" step="5"
+                         aria-label="mask opacity">
+                </div>
+              </div>
+            </span>
             <button class="run switch" id="grey-btn" type="button" disabled aria-pressed="false"
                     title="Draw every picture in grey, or in its colours again">Grayscale</button>
           </span>
@@ -140,6 +166,13 @@ export const canvasPanel = {
         carrier: find("carrier-btn"),
         tileset: find("tileset-btn"),
         mask: find("mask-btn"),
+        maskCluster: find("mask-cluster"),
+        maskSwatch: find("mask-swatch"),
+        maskPop: find("mask-pop"),
+        maskColours: find("mask-colours"),
+        maskFill: find("mask-fill"),
+        maskLine: find("mask-line"),
+        maskOpacity: find("mask-opacity"),
         grey: find("grey-btn"),
         legend: find("canvas-legend"),
         overviewCanvas: find("overview-canvas"),
