@@ -132,10 +132,10 @@ export const setupPanel = {
                              width: 20px; height: 20px; border-radius: 50%; font-size: 11px;
                              font-weight: 700; color: #fff; background: var(--accent); }
         .setup-part .setup-table td { border-top-color: var(--line-strong, var(--line)); }
-        /* The reference row: label and dropdown on the left, Reset on the right. */
+        /* The reference row: label, dropdown and Reset in a row on the left. */
         .setup-reference { justify-content: flex-start; }
         .setup-reference > label { flex: 0 0 auto; }
-        .setup-reference > button { margin-left: auto; }
+        .setup-reference > button { margin-left: 4px; }
         /* The chosen set's X, Y and Z: three plain tiles, read at one glance. */
         .setup-xyz { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
         .setup-xyz-tile { display: flex; flex-direction: column; gap: 2px; align-items: flex-start;
