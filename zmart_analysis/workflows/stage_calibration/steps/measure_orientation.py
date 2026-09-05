@@ -367,9 +367,11 @@ def write_diagnostic(home, plus_x, plus_y, answer: dict, path, *, channel: int =
                 rotation_deg=rotation_deg, reflection=reflection)
     chosen = (o["rotation_deg"], o["reflection"])
 
-    fig = Figure(figsize=(14, 9.6), facecolor="white")
+    # Drawn narrow and tall on purpose: the page shows the sheet at the
+    # column's width, and a wide sheet would shrink the tiles to thumbnails.
+    fig = Figure(figsize=(10, 11.2), facecolor="white")
     FigureCanvasAgg(fig)
-    grid = fig.add_gridspec(2, 1, height_ratios=(0.55, 4.0), left=0.03, right=0.985, bottom=0.06, top=0.975, hspace=0.10)
+    grid = fig.add_gridspec(2, 1, height_ratios=(0.42, 4.0), left=0.035, right=0.985, bottom=0.05, top=0.98, hspace=0.07)
 
     # The answer, in a card.
     card = fig.add_subplot(grid[0]); card.set_axis_off()
@@ -377,22 +379,22 @@ def write_diagnostic(home, plus_x, plus_y, answer: dict, path, *, channel: int =
                                   transform=card.transAxes, facecolor="#f8fafc", edgecolor=line, linewidth=1.2, clip_on=False))
     t = lambda x, y, text, **kw: card.text(x, y, text, transform=card.transAxes, va="center", **kw)
     t(0.025, 0.80, "DETECTED IMAGE CORRECTION" if accepted else "ORIENTATION NOT ACCEPTED", ha="left",
-      fontsize=10.5, fontweight="bold", color=verdict_colour)
+      fontsize=11, fontweight="bold", color=verdict_colour)
     for x, label, value in ((0.025, "ROTATION", f"{o['rotation_deg']}° clockwise"),
                             (0.30, "REFLECTION", "Yes" if o["reflection"] else "No"),
-                            (0.50, "STAGE X", f"image {o['sign_convention']['stage_x_from_image']}"),
-                            (0.68, "STAGE Y", f"image {o['sign_convention']['stage_y_from_image']}"),
-                            (0.86, "PIXEL", f"{answer['pixel_um']['mean']:.3f} µm")):
-        t(x, 0.50, label, ha="left", fontsize=8.5, fontweight="bold", color=ink_3)
-        t(x, 0.20, value, ha="left", fontsize=17, fontweight="bold", color=ink)
+                            (0.47, "STAGE X", f"image {o['sign_convention']['stage_x_from_image']}"),
+                            (0.66, "STAGE Y", f"image {o['sign_convention']['stage_y_from_image']}"),
+                            (0.85, "PIXEL", f"{answer['pixel_um']['mean']:.3f} µm")):
+        t(x, 0.50, label, ha="left", fontsize=9, fontweight="bold", color=ink_3)
+        t(x, 0.18, value, ha="left", fontsize=18, fontweight="bold", color=ink)
 
     # The eight candidates: tile above, agreement bar below, in one grid.
-    gallery = grid[1].subgridspec(4, 5, width_ratios=(0.16, 1, 1, 1, 1), height_ratios=(1, 0.16, 1, 0.16),
-                                  hspace=0.08, wspace=0.08)
+    gallery = grid[1].subgridspec(4, 5, width_ratios=(0.12, 1, 1, 1, 1), height_ratios=(1, 0.14, 1, 0.14),
+                                  hspace=0.06, wspace=0.05)
     for row, (reflection, label) in enumerate(((False, "no mirror"), (True, "mirrored"))):
         lab = fig.add_subplot(gallery[2 * row, 0]); lab.set_axis_off()
         lab.text(0.5, 0.5, label, transform=lab.transAxes, ha="center", va="center", rotation=90,
-                 fontsize=10, fontweight="bold", color=ink_3)
+                 fontsize=11, fontweight="bold", color=ink_3)
         for column, rotation_deg in enumerate((0, 90, 180, 270)):
             overlay, agreement = tiles[(rotation_deg, reflection)]
             selected = (rotation_deg, reflection) == chosen
@@ -400,7 +402,7 @@ def write_diagnostic(home, plus_x, plus_y, answer: dict, path, *, channel: int =
             ax.imshow(overlay, interpolation="nearest", alpha=1.0 if selected else 0.55)
             ax.set_xticks([]); ax.set_yticks([])
             if row == 0:
-                ax.set_title(f"{rotation_deg}°", fontsize=12, fontweight="bold", color=ink_2 if selected else ink_3, pad=6)
+                ax.set_title(f"{rotation_deg}°", fontsize=13, fontweight="bold", color=ink_2 if selected else ink_3, pad=6)
             for spine in ax.spines.values():
                 spine.set_color(verdict_colour if selected else line); spine.set_linewidth(3.5 if selected else 1.0)
             if selected:
@@ -411,11 +413,11 @@ def write_diagnostic(home, plus_x, plus_y, answer: dict, path, *, channel: int =
             bar.set_xlim(0, 1); bar.set_ylim(0, 1)
             bar.add_patch(Rectangle((0, 0.3), 1, 0.4, facecolor=line, edgecolor="none"))
             bar.add_patch(Rectangle((0, 0.3), agreement, 0.4, facecolor=verdict_colour if selected else "#94a3b8", edgecolor="none"))
-            bar.text(1.0, 0.5, f"{agreement:.2f}", ha="right", va="center", fontsize=9,
+            bar.text(1.0, 0.5, f"{agreement:.2f}", ha="right", va="center", fontsize=11,
                      fontweight="bold" if selected else "normal", color=ink if selected else ink_3,
                      bbox={"facecolor": "white", "edgecolor": "none", "pad": 1.5})
-    fig.text(0.03, 0.02, "Home image in magenta, the moved images laid back by each candidate in green: "
-             "the right candidate overlaps white. The bar is how well the two agree.",
-             ha="left", va="center", fontsize=9.5, color=ink_3)
+    fig.text(0.035, 0.018, "Home image in magenta, the moved images laid back by each candidate in green: "
+             "the right candidate overlaps white.\nThe bar is how well the two agree.",
+             ha="left", va="center", fontsize=10, color=ink_3)
     fig.savefig(str(path), dpi=105)
     return str(path)

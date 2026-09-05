@@ -8,7 +8,7 @@ Five steps, walked before any imaging workflow can stand on the machine:
    automation may use, and a permitted value or range for each setting the
    driver can change. Two boxes: one that reads the corners the operator
    marked, one that holds the document to publish.
-3. **Stage-to-image calibration** — which of the eight lossless ways of laying a
+3. **Image-to-stage calibration** — which of the eight lossless ways of laying a
    picture down lines it up with the stage. Three pictures and a known move;
    the analysis does the looking.
 4. **Optics calibration** — where and at what height a target lens looks
@@ -31,7 +31,7 @@ steps/
                      control, and what came back
   connect/           the borrowed Connect step, reworded
   stage_limits/      step 2 and its two boxes
-  stage_to_image/    step 3 and its cells
+  image_to_stage/    step 3 and its cells
   optics_calibration/  step 4 and its cells
   frame_origin/      step 5 and its cells
 drivers/             what a page-side driver module may declare (wording); the
