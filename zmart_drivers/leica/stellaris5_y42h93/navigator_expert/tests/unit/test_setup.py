@@ -198,3 +198,34 @@ class TestTheVocabulary(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestSetterLimitKinds(unittest.TestCase):
+    """A setter is fenced as a range -- open at either end -- or as allowed values."""
+
+    def test_a_range_may_leave_one_end_open(self):
+        from navigator_expert.limits import config as limits_config
+
+        document = json.loads(Path(limits_config.defaults_path()).read_text(encoding="utf-8"))
+        document["set_laser_intensity"] = {"range": [None, 10]}
+        normalized = limits_config.validate_payload(document)
+        self.assertEqual(normalized["set_laser_intensity"], {"range": [None, 10.0]})
+        with self.assertRaisesRegex(ValueError, "both ends open"):
+            limits_config.validate_payload({**document, "set_laser_intensity": {"range": [None, None]}})
+        # A stage axis stays strict: both ends, always.
+        with self.assertRaises(ValueError):
+            limits_config.validate_payload({**document, "x_um": {"range": [None, 1000]}})
+
+    def test_an_open_end_is_no_bound_on_that_side(self):
+        from navigator_expert.limits import checks
+
+        policy = checks.LeicaLimits(
+            {"set_laser_intensity": {"range": [None, 10]}, "set_zoom": {"allowed": [1, 2]}},
+            source="test", path="test", is_fallback=False,
+        )
+        policy.check("set_laser_intensity", {"value": -50})
+        with self.assertRaisesRegex(checks.LimitViolation, "outside range"):
+            policy.check("set_laser_intensity", {"value": 11})
+        policy.check("set_zoom", {"value": 2})
+        with self.assertRaisesRegex(checks.LimitViolation, "not allowed"):
+            policy.check("set_zoom", {"value": 3})

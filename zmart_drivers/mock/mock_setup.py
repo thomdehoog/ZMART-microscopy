@@ -211,6 +211,9 @@ def describe(handle: SetupHandle) -> dict:
                         {"key": "z_um", "label": "Z", "unit": "µm"},
                     ],
                     "measured": ["x_um", "y_um"],
+                    # The stage ranges cannot be left open: a move is checked
+                    # against them, and an unfenced axis would be no fence.
+                    "required": ["x_um", "y_um", "z_um"],
                     "slots": {"key": "objective_slot", "label": "Objective slots"},
                     "settings": list(SETTINGS),
                 },
