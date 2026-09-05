@@ -369,28 +369,28 @@ def write_diagnostic(home, plus_x, plus_y, answer: dict, path, *, channel: int =
 
     # Drawn narrow and tall on purpose: the page shows the sheet at the
     # column's width, and a wide sheet would shrink the tiles to thumbnails.
-    fig = Figure(figsize=(10, 11.2), facecolor="white")
+    fig = Figure(figsize=(10, 7.9), facecolor="white")
     FigureCanvasAgg(fig)
-    grid = fig.add_gridspec(2, 1, height_ratios=(0.42, 4.0), left=0.035, right=0.985, bottom=0.05, top=0.98, hspace=0.07)
+    grid = fig.add_gridspec(2, 1, height_ratios=(0.95, 5.4), left=0.035, right=0.985, bottom=0.09, top=0.98, hspace=0.09)
 
     # The answer, in a card.
     card = fig.add_subplot(grid[0]); card.set_axis_off()
     card.add_patch(FancyBboxPatch((0, 0), 1, 1, boxstyle="round,pad=0.012,rounding_size=0.03",
                                   transform=card.transAxes, facecolor="#f8fafc", edgecolor=line, linewidth=1.2, clip_on=False))
     t = lambda x, y, text, **kw: card.text(x, y, text, transform=card.transAxes, va="center", **kw)
-    t(0.025, 0.80, "DETECTED IMAGE CORRECTION" if accepted else "ORIENTATION NOT ACCEPTED", ha="left",
+    t(0.025, 0.82, "DETECTED IMAGE CORRECTION" if accepted else "ORIENTATION NOT ACCEPTED", ha="left",
       fontsize=11, fontweight="bold", color=verdict_colour)
     for x, label, value in ((0.025, "ROTATION", f"{o['rotation_deg']}° clockwise"),
                             (0.30, "REFLECTION", "Yes" if o["reflection"] else "No"),
                             (0.47, "STAGE X", f"image {o['sign_convention']['stage_x_from_image']}"),
                             (0.66, "STAGE Y", f"image {o['sign_convention']['stage_y_from_image']}"),
                             (0.85, "PIXEL", f"{answer['pixel_um']['mean']:.3f} µm")):
-        t(x, 0.50, label, ha="left", fontsize=9, fontweight="bold", color=ink_3)
-        t(x, 0.18, value, ha="left", fontsize=18, fontweight="bold", color=ink)
+        t(x, 0.52, label, ha="left", fontsize=9, fontweight="bold", color=ink_3)
+        t(x, 0.22, value, ha="left", fontsize=18, fontweight="bold", color=ink)
 
     # The eight candidates: tile above, agreement bar below, in one grid.
-    gallery = grid[1].subgridspec(4, 5, width_ratios=(0.12, 1, 1, 1, 1), height_ratios=(1, 0.14, 1, 0.14),
-                                  hspace=0.06, wspace=0.05)
+    gallery = grid[1].subgridspec(4, 5, width_ratios=(0.14, 1, 1, 1, 1), height_ratios=(1, 0.12, 1, 0.12),
+                                  hspace=0.05, wspace=0.05)
     for row, (reflection, label) in enumerate(((False, "no mirror"), (True, "mirrored"))):
         lab = fig.add_subplot(gallery[2 * row, 0]); lab.set_axis_off()
         lab.text(0.5, 0.5, label, transform=lab.transAxes, ha="center", va="center", rotation=90,
@@ -416,8 +416,8 @@ def write_diagnostic(home, plus_x, plus_y, answer: dict, path, *, channel: int =
             bar.text(1.0, 0.5, f"{agreement:.2f}", ha="right", va="center", fontsize=11,
                      fontweight="bold" if selected else "normal", color=ink if selected else ink_3,
                      bbox={"facecolor": "white", "edgecolor": "none", "pad": 1.5})
-    fig.text(0.035, 0.018, "Home image in magenta, the moved images laid back by each candidate in green: "
-             "the right candidate overlaps white.\nThe bar is how well the two agree.",
+    fig.text(0.035, 0.028, "Home image in magenta, the moved images laid back by each candidate in green: "
+             "the right candidate overlaps white.\nThe bar is the correlation of the two where they overlap (1 = identical).",
              ha="left", va="center", fontsize=10, color=ink_3)
     fig.savefig(str(path), dpi=105)
     return str(path)

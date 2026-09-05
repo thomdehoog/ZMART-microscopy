@@ -1,5 +1,5 @@
 /**
- * Step 2 — Set up limits.
+ * Step 2 — Define limits.
  *
  * The limits are the envelope the stage is allowed to move in: how far it may
  * travel in X and Y, the two Z ranges, which objective slots automation may
@@ -24,7 +24,7 @@ import channel from "./limits-boxes.js";
 
 export const stageLimits = {
   id: "limits",
-  title: "Set up limits",
+  title: "Define limits",
   why: "Say how far the stage may travel and what the driver is allowed to set, "
     + "then publish it — until this exists the driver refuses to move.",
   panels: ["setup"],
