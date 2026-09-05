@@ -83,3 +83,14 @@ def test_what_was_published_reads_back_in_one_line_apiece(api):
     assert said["orientation"] == "90° (measured)"
     assert said["origin"] == "(1, 2, 3) µm"
     assert "nothing published" in said["limits"]
+
+
+def test_driving_the_stage_is_what_the_setup_driver_then_reads(api):
+    window, mock_setup = api
+    window.drive_stage(5000, 6000, 16.0)
+    handle = mock_setup.open_setup({})
+    assert mock_setup.where(handle)["x_um"] == 5000.0
+    window.drop_marker()
+    assert mock_setup.read_rig(handle.root)["markers"] == [{"x_um": 5000.0, "y_um": 6000.0}]
+    with pytest.raises(ValueError, match="outside the stage's travel"):
+        window.drive_stage(-999999, 0, 0)

@@ -13,7 +13,7 @@
  * the whole question these tests exist to ask.
  */
 
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { expect } from "@playwright/test";
 import fs from "node:fs";
@@ -72,7 +72,35 @@ export const pythonForTheBridge = () =>
  *
  * @returns where its pictures are served, how to image more, and how to stop.
  */
-export async function startTheBridge({ port } = {}) {
+/**
+ * Ask the mock instrument window to do what an operator does in the vendor's
+ * own software: drive the stage, change the lens, drop a marker. The window
+ * cannot open on a test machine, but its `Api` can, and calling it is the
+ * same code path its buttons take -- so nothing here writes the rig file
+ * behind the driver's back.
+ */
+export function operateTheInstrument(method, ...args) {
+  const program = [
+    "import importlib.util, json, sys",
+    `spec = importlib.util.spec_from_file_location("mock_instrument_window", ${JSON.stringify(path.join(REPO, "application", "mock-instrument.py"))})`,
+    "module = importlib.util.module_from_spec(spec)",
+    "spec.loader.exec_module(module)",
+    `print(json.dumps(getattr(module.Api(), ${JSON.stringify(method)})(*json.loads(sys.argv[1]))))`,
+  ].join("\n");
+  const said = execFileSync(pythonForTheBridge(), ["-c", program, JSON.stringify(args)],
+    { cwd: REPO, encoding: "utf8" });
+  return JSON.parse(said);
+}
+
+/** A configuration with the mock's default limits, so a session can stand on
+ *  it: what the ZMART driver configuration workflow makes on a real machine. */
+export function aConfiguredMock() {
+  return execFileSync(pythonForTheBridge(), ["-c",
+    "from zmart_drivers.mock import mock_setup; print(mock_setup.configured())"],
+    { cwd: REPO, encoding: "utf8" }).trim();
+}
+
+export async function startTheBridge({ port, connect = true } = {}) {
   /* A folder of its own, well away from the page's own source: a run written
      inside the project looks to the development server like somebody editing
      the page, which reloads the browser mid-test. */
@@ -108,16 +136,23 @@ export async function startTheBridge({ port } = {}) {
   const { instruments } = await ask("/api/instruments");
   const scope = instruments.find((one) => one.vendor === "mock");
   if (!scope) throw new Error("the bridge has no mock microscope to connect to");
-  const opened = await ask("/api/connect", { connection: scope });
+  /* A session always stands on a configuration with limits, so the mock is
+     given one first -- the configuration workflow's job on a real machine.
+     A walk of that workflow starts from nothing and connects on its own. */
+  const opened = connect
+    ? await ask("/api/connect", { connection: { ...scope, configuration: aConfiguredMock() } })
+    : null;
 
   return {
     /* Where the pictures of the overview are served — the same address the
        page asks its backend for, spelt out here because a test points the page
        at it rather than walking the operator's Connect. */
     pictures: `${at}/view/overview`,
+    /* Where the bridge serves the built page, for a walk of the page itself. */
+    at,
     /* Where this session's run landed. The bridge makes it at connect and
        says so, because a run has to be told from the one before it. */
-    run: opened.run,
+    run: opened?.run,
     /* Where the newest run landed. Every connect makes a fresh run, so a test
        that walks the page's own Connect opens a second one -- and what it
        captures lands there, not in the run this harness's connect made. */
@@ -126,7 +161,7 @@ export async function startTheBridge({ port } = {}) {
         .filter((name) => name.startsWith("target-acquisition_"))
         .map((name) => path.join(folder, name))
         .sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs);
-      return runs[0] ?? opened.run;
+      return runs[0] ?? opened?.run;
     },
     folder,
     async image(positions) {
