@@ -338,37 +338,23 @@ function drawFocusLayer(ctx, toScreen, scale, w, h) {
   }
 
   // ---- ramp legend
-  if (showSurface) {
-    // Top-right, where it can be found at every zoom and cannot be confused
-    // with the scale bar. Its plate keeps the values readable on every hue.
-    const bw = 150, bh = 11, bx = w - 20 - bw, by = 51;
-    const padL = 9, top = 14;
-    ctx.fillStyle = css("--screen");
-    ctx.globalAlpha = 0.88;
-    ctx.fillRect(bx - padL, top, bw + padL * 2, (by + bh + 7) - top);
-    ctx.globalAlpha = 1;
-    ctx.strokeStyle = css("--line");
-    ctx.lineWidth = 1;
-    ctx.strokeRect(bx - padL + 0.5, top + 0.5, bw + padL * 2 - 1, (by + bh + 7) - top - 1);
+  /* Not painted here any more: the canvas keeps a row of its own for a
+     legend, at the top right, so the map hands over what its colours mean
+     and the row shows it in the page's own type. */
+  if (!showSurface) return null;
+  return {
+    title: "predicted focus height",
+    lo: `${zLo.toFixed(0)}`,
+    hi: `${zHi.toFixed(0)} µm`,
+    ramp: zRampCss(),
+  };
+}
 
-    for (let i = 0; i < bw; i++) {
-      ctx.fillStyle = zColor(i / bw);
-      ctx.fillRect(bx + i, by, 1.4, bh);
-    }
-    ctx.strokeStyle = css("--line-strong");
-    ctx.strokeRect(bx - 0.5, by - 0.5, bw + 1, bh + 1);
-
-    ctx.fillStyle = css("--ink-3");
-    ctx.font = '600 13px system-ui, sans-serif';
-    ctx.fillText("predicted focus height", bx, top + 14);
-    ctx.font = '12.5px ui-monospace, Consolas, monospace';
-    ctx.fillStyle = css("--ink-2");
-    ctx.fillText(`${zLo.toFixed(0)}`, bx, by - 5);
-    ctx.textAlign = "right";
-    ctx.fillText(`${zHi.toFixed(0)} µm`, bx + bw, by - 5);
-    ctx.textAlign = "left";
-  }
-
+/** The colour ramp as a CSS gradient, for a legend drawn by the page. */
+function zRampCss() {
+  const stops = [];
+  for (let i = 0; i <= 16; i++) stops.push(`${zColor(i / 16)} ${(i / 16 * 100).toFixed(1)}%`);
+  return `linear-gradient(to right, ${stops.join(", ")})`;
 }
 
 /**

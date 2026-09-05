@@ -237,17 +237,6 @@ button.ghost {
   padding: 6px 11px; cursor: pointer;
 }
 button.ghost:hover:enabled { background: var(--line); color: var(--ink); }
-/* Framing the picture is the one thing this bar does, so it is blue like every
-   other button that does something. */
-#fit-btn {
-  color: #fff; background: var(--accent); border-color: var(--accent);
-}
-#fit-btn:hover:enabled { background: var(--accent-deep); border-color: var(--accent-deep); }
-:root[data-theme="dark"] #fit-btn,
-:root:not([data-theme="light"]) #fit-btn { color: #04121d; }
-@media (prefers-color-scheme: light) {
-  :root:not([data-theme="dark"]) #fit-btn { color: #fff; }
-}
 button.ghost:disabled { opacity: 0.45; cursor: default; }
 
 /* A button that undoes something the rest of the run rests on. Built like
@@ -1336,7 +1325,9 @@ canvas.livecv[hidden] { display: none; }
    The workflow box on the left and the tab bar on the right both sit above a
    rule that runs the width of the app. One shared height keeps that rule
    continuous instead of stepping down where the columns meet. */
-:root { --head-h: 86px; }
+/* Tall enough for the wordmark, a clear line of its own height under it,
+   and the workflow chooser: the top of the page breathes on both sides. */
+:root { --head-h: 118px; }
 .wf-box { height: var(--head-h); justify-content: center; padding-top: 0; padding-bottom: 0; }
 .tabs { height: var(--head-h); align-items: center; }
 .tabs .tab { height: 100%; }
@@ -1357,7 +1348,11 @@ canvas.livecv[hidden] { display: none; }
 :root { --brand: var(--accent-deep); }
 /* Room between the name of the program and the workflow chooser under it:
    the top of the rail breathes rather than stacking the two. */
-.wf-box { justify-content: space-between; padding-top: 14px; padding-bottom: 14px; gap: 14px; }
+/* The gap over the chooser and the tab's padding under its label are set
+   together, so the middle of the chooser is level with the middle of the
+   tab label across the rule: 14 + 21 + 38 + 34 + 11 is the header's height. */
+.wf-box { justify-content: space-between; padding-top: 14px; padding-bottom: 11px; gap: 38px; }
+.tabs { --tab-pad-b: 14px; }
 .brand { display: flex; align-items: baseline; gap: 6px; user-select: none; }
 .brand-mark {
   font-size: 21px; font-weight: 750; letter-spacing: -0.02em;
@@ -1983,19 +1978,38 @@ canvas.livecv[hidden] { display: none; }
 #stage-layers { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 
 
-/* Fit, in the corner of the canvas. The strip under the canvas is gone and this
-   is the one control from it that belongs with the picture rather than beside
-   it: it is about where you are looking, not about what is drawn.
-   
-   Top right: clear of the scale bar, which is drawn bottom right, and out of
-   the way of the sample, which sits in the middle. */
-.fit-on-canvas {
-  position: absolute; left: 12px; top: 12px; z-index: 3;
-  background: var(--surface-2); border: 1px solid var(--line-strong);
-  border-radius: 8px; padding: 5px 12px; font-weight: 600; font-size: 12.5px;
-  color: var(--ink-2); cursor: pointer;
+/* The canvas's own row, under the tab and above the picture. The picture never
+   reaches the top edge, so nothing has to float over it: the presses that say
+   what to look at stand at the left, and a legend for the layer on show --
+   the focus map's colour ramp -- stands at the right, where the eye looks
+   for one. The scale bar stays at the foot of the picture, where a scale bar
+   is expected. */
+.plot-column { display: grid; grid-template-rows: auto minmax(0, 1fr); min-height: 0; min-width: 0; }
+.canvas-toolbar {
+  display: flex; align-items: center; gap: 8px; min-height: 52px;
+  padding: 4px 12px; background: transparent;
 }
-.fit-on-canvas:hover { color: var(--ink); background: var(--surface-3); }
+/* The same blue-on-white press as Rerun and Run new points: one look for
+   every press on the page. */
+.canvas-toolbar button.run { align-self: center; }
+/* The legend is two lines, level with the presses: the colours, and under
+   them the two values at the ends of the bar with what the colours mean
+   between them, so nothing stands apart from the bar it belongs to. */
+.canvas-legend {
+  margin-left: auto; display: flex; flex-direction: column; align-items: stretch;
+  gap: 4px; width: 300px; color: var(--ink-2);
+}
+.canvas-legend[hidden] { display: none; }
+.canvas-legend-ramp { display: block; height: 10px; border-radius: 2px; border: 1px solid var(--line-strong); }
+.canvas-legend-ends {
+  display: flex; justify-content: space-between; align-items: baseline; gap: 10px;
+  font-family: ui-monospace, Consolas, monospace; font-size: 11px; line-height: 1.2;
+}
+.canvas-legend-ends > span { white-space: nowrap; }
+.canvas-legend-title {
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-size: 11.5px; font-weight: 600; color: var(--ink-3);
+}
 
 /* The status bar: one quiet sentence at the foot of the rail, there only
    while something is running -- what is happening lives beside the steps it
