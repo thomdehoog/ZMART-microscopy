@@ -101,3 +101,20 @@ def test_each_cell_draws_its_own_picture(scene, tmp_path):
     out = run({"input": {"reference": reference, "target": target}, "metadata": {"verbose": 0}}, {})["measure_objective_pair"]
     write_overlay_diagnostic(reference, target, out, tmp_path / "overlay.png")
     assert (tmp_path / "overlay.png").stat().st_size > 10_000
+
+
+def test_a_peak_on_the_end_of_a_stack_is_not_a_peak(scene):
+    """The stack never reached the sharp plane: no height is reported, and
+    the answer says to refocus rather than pretending."""
+    image = _view(scene, REF_UM, (0.0, 0.0), 96)
+    stack, z = _stack(image, 60.0, np.arange(46.0, 55.0, 1.0))   # sharp above the top plane
+    f = sharp_height_um(stack, z)
+    assert f["bracketed"] is False and f["peak_index"] == len(z) - 1
+    ref = _view(scene, REF_UM, (0.0, 0.0), 128); tgt = _view(scene, TGT_UM, OFFSET_UM, 256)
+    out = run({"input": {
+        "reference": {"image": ref, "pixel_um": REF_UM, "stack": stack, "z_um": z},
+        "target": {"image": tgt, "pixel_um": TGT_UM, "stack": stack, "z_um": z},
+    }, "metadata": {"verbose": 0}}, {})["measure_objective_pair"]
+    assert out["translation_um"]["z"] is None
+    assert out["accepted"] is False
+    assert "refocus" in out["why"]
