@@ -23,24 +23,23 @@ export default {
   mount(host, ctx) {
     if (!ctx.supported()) {
       const { box, body } = cell("Not on this microscope");
-      body.append(note("This driver keeps no origin of its own. Walk on."));
+      body.append(note("Nothing to set on this microscope."));
       host.append(box);
       return { host };
     }
 
-    const origin = cell("Define origin",
-      "Move the stage to the origin in the microscope's own software, then Read. "
-      + "Save and adopt makes those readings (0, 0, 0) from the next connect on.");
+    const origin = cell("Origin",
+      "Drive to the origin in the microscope's software, then Read.");
     const adopted = ctx.publishedNote()?.startsWith("Adopted") ?? false;
     const standing = ctx.standing();
     if (!adopted) {
       if (standing?.source === "published" || standing?.source === "session") {
         const d = standing.document?.origin ?? standing.document ?? {};
-        origin.body.append(note(`${standing.source === "session" ? "This session's origin" : "Published origin"}: `
+        origin.body.append(note(`${standing.source === "session" ? "This session" : "Published"}: `
           + `(${Number(d.x_um).toFixed(0)}, ${Number(d.y_um).toFixed(0)}, `
-          + `${Number(d.z_um ?? d.z_focus_um).toFixed(1)}) µm. Adopting replaces it.`));
+          + `${Number(d.z_um ?? d.z_focus_um).toFixed(1)}) µm.`));
       } else if (standing) {
-        origin.body.append(note("No origin published: the frame is the stage's absolute zero."));
+        origin.body.append(note("No origin published."));
       }
     }
 
@@ -49,9 +48,8 @@ export default {
     const held = ctx.held();
     const here = held ?? ctx.here();
     if (here?.actuators) {
-      origin.body.append(note(adopted ? "These readings are now (0, 0, 0):"
-        : held ? "These readings will become (0, 0, 0):"
-        : "The drives as they stand; Read to take them:", adopted ? "ok" : ""));
+      origin.body.append(note(adopted ? "Now (0, 0, 0):" : held ? "Becomes (0, 0, 0):" : "Current position:",
+        adopted ? "ok" : ""));
       const rows = Object.entries(here.actuators).map(([name, a]) => [name, reading(a)]);
       if (here.objective?.name || here.objective?.slot !== undefined) {
         rows.push(["objective", `slot ${here.objective.slot ?? "?"} · ${here.objective.name ?? ""}`.trim()]);
@@ -69,11 +67,11 @@ export default {
       published: ctx.publishedNote(),
       disabled: !held,
       onPublish: async () => {
-        if (!held) { ctx.settle(null, "Read the drives first."); ctx.refresh(); return; }
+        if (!held) { ctx.settle(null, "Read first."); ctx.refresh(); return; }
         try {
           const where = await ctx.setup.publish("origin", held);
           ctx.settle(`(${Number(held.x_um).toFixed(0)}, ${Number(held.y_um).toFixed(0)}, ${Number(held.z_um).toFixed(1)}) · adopted`,
-            `Adopted: ${where.snapshot?.split("/").pop() ?? where.path}`);
+            "Adopted.");
         } catch (why) {
           ctx.settle(null, `Adopting failed — ${why.message}`);
         }

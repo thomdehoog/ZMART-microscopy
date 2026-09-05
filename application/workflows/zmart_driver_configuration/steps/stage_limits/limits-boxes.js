@@ -60,15 +60,15 @@ export default {
   mount(host, ctx) {
     if (!ctx.supported()) {
       const { box, body } = cell("Not on this microscope");
-      body.append(note("This driver publishes no limits. Walk on."));
+      body.append(note("Nothing to set on this microscope."));
       host.append(box);
       return { host };
     }
     const doc = ctx.document();
     const held = ctx.limits();
     if (!doc || !held) {
-      const { box, body } = cell("Configure", "Connect first: the driver says what its limits file holds.");
-      body.append(note("Waiting for the driver."));
+      const { box, body } = cell("Configure");
+      body.append(note("Connect first."));
       host.append(box);
       return { host };
     }
@@ -78,10 +78,10 @@ export default {
 
     /* ---- Configure: every field of the file ------------------------------ */
     const edit = cell("Configure",
-      "Review the limits. Ranges include both endpoints. Ticked, a limit is applied; unticked, it is reviewed and unrestricted.");
+      "Tick a limit to apply it. Ranges include both ends.");
     const standing = ctx.standing();
-    if (standing) edit.body.append(note(`Starting from ${standing.source === "session" ? "what this session holds"
-      : standing.source === "published" ? "the published limits" : "the default limits"}.`));
+    if (standing) edit.body.append(note(`From ${standing.source === "session" ? "this session"
+      : standing.source === "published" ? "the published limits" : "the defaults"}.`));
 
     const required = new Set(doc.required ?? []);
 
@@ -186,7 +186,7 @@ export default {
         const where = await ctx.setup.publish("limits", ctx.limits());
         const first = measured[0] ?? doc.axes[0]?.key;
         ctx.settle(`${axes.get(first)?.label ?? first} ${asRange(ctx.limits()[first])} · adopted`,
-          `Adopted: ${where.snapshot?.split("/").pop() ?? where.path}`);
+          "Adopted.");
       } catch (why) {
         ctx.settle(null, `Adopting failed — ${why.message}`);
       }
@@ -205,9 +205,7 @@ export default {
     const [xKey, yKey] = measured;
 
     const imp = cell("Import X/Y stage limits",
-      "Drive the stage to each corner of the safe area in the microscope's own software and capture it "
-      + "there. Only X and Y are imported, from the drives chosen below; the four captures become the "
-      + "X and Y ranges above.");
+      "Drive to each corner in the microscope's software, then import it. The four corners set X and Y above.");
     if (names.length) {
       for (const axis of ["x", "y"]) {
         const r = document.createElement("div");
@@ -229,7 +227,7 @@ export default {
         imp.body.append(r);
       }
     } else {
-      imp.body.append(note("The driver reports no drives to read; connect first.", "bad"));
+      imp.body.append(note("No drives to read.", "bad"));
     }
     const CORNERS = [["top_left", "Top left"], ["top_right", "Top right"],
                      ["bottom_left", "Bottom left"], ["bottom_right", "Bottom right"]];
@@ -241,7 +239,7 @@ export default {
       const said = document.createElement("span");
       said.className = "setup-note";
       const got = corners[key];
-      said.textContent = got ? `x ${Number(got.x).toFixed(1)} · y ${Number(got.y).toFixed(1)} µm` : "not captured";
+      said.textContent = got ? `x ${Number(got.x).toFixed(1)} · y ${Number(got.y).toFixed(1)} µm` : "not yet";
       r.append(name, said, press(got ? "Update" : "Import", async () => {
         try {
           const now = await ctx.setup.where();
@@ -265,8 +263,8 @@ export default {
     if (held2.failed) imp.body.append(note(`Could not read the drives — ${held2.failed}`, "bad"));
     if (CORNERS.every(([k]) => corners[k])) {
       imp.body.append(note(
-        `Imported: ${axes.get(xKey)?.label ?? xKey} ${asRange(held[xKey])} · `
-        + `${axes.get(yKey)?.label ?? yKey} ${asRange(held[yKey])} — replaced above.`, "ok"));
+        `${axes.get(xKey)?.label ?? xKey} ${asRange(held[xKey])} · `
+        + `${axes.get(yKey)?.label ?? yKey} ${asRange(held[yKey])} set above.`, "ok"));
     }
     imp.body.append(publishRow({ label: "Save and adopt", published: ctx.publishedNote(), onPublish: adopt,
       disabled: !CORNERS.every(([k]) => corners[k]) }));
