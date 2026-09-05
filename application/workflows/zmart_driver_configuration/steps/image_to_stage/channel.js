@@ -12,7 +12,7 @@
  * the objective with structure in it, in focus. So it says so in words.
  */
 
-import { cell, note, picture, press, publishRow } from "../cells.js";
+import { cell, note, part, picture, press, publishRow } from "../cells.js";
 
 export default {
   id: "orientation",
@@ -40,15 +40,18 @@ export default {
     const standing = ctx.standing();
     if (held?.failed) measure.body.append(note(`Failed — ${held.failed}`, "bad"));
     else if (held?.diagnostic_url) {
-      measure.body.append(picture(held.diagnostic_url,
+      /* The result in a sub-box of its own, so the sheet stands white on
+         a tinted ground the way step 5's figures do. */
+      const result = part(measure.body, "Result");
+      result.append(picture(held.diagnostic_url,
         "the detected correction and the eight candidates, each with the Pearson correlation of its overlay"));
     } else if (held?.why) measure.body.append(note(held.why, held.accepted ? "" : "bad"));
     else if (standing?.source === "published" && standing.evidence_urls?.["orientation.png"]) {
       /* Nothing measured in this run: what the configuration holds, and the
          sheet that was measured for it. */
       const d = standing.document ?? {};
-      measure.body.append(note(`In the configuration: ${d.rotation_deg}°${d.reflection ? ", mirrored" : ""}.`));
-      measure.body.append(picture(standing.evidence_urls["orientation.png"], "the sheet measured for the configuration"));
+      const result = part(measure.body, "Result", { prose: `In the configuration: ${d.rotation_deg}°${d.reflection ? ", mirrored" : ""}.` });
+      result.append(picture(standing.evidence_urls["orientation.png"], "the sheet measured for the configuration"));
     }
 
     /* At the bottom of the box: Start, which becomes Rerun once there is a
