@@ -52,6 +52,21 @@ export const canvasPanel = {
                   title="Frame the carrier on the stage">Carrier</button>
           <button class="run" id="tileset-btn" type="button" disabled
                   title="Frame the nearest tileset; press again for the next">Tile set</button>
+          <!-- At the right, two switches on the picture: the masks, while
+               detection has laid them, and every picture in grey. Each is
+               tinted while it is on, the way the page shows every other
+               on-or-off press, and a press flips it. -->
+          <span class="canvas-toolbar-right">
+            <button class="run switch" id="mask-btn" type="button" hidden aria-pressed="true"
+                    title="Show or hide the detected masks">Mask</button>
+            <button class="run switch" id="grey-btn" type="button" disabled aria-pressed="false"
+                    title="Draw every picture in grey, or in its colours again">Grayscale</button>
+          </span>
+        </div>
+        <div class="plot-host">
+          <!-- A legend for the layer on show -- the focus map's colour
+               ramp -- at the foot of the picture on the left, on a plate,
+               clear of the scale bar at the right. -->
           <div class="canvas-legend" id="canvas-legend" hidden>
             <span class="canvas-legend-ramp"></span>
             <span class="canvas-legend-ends">
@@ -60,8 +75,6 @@ export const canvasPanel = {
               <span class="canvas-legend-hi"></span>
             </span>
           </div>
-        </div>
-        <div class="plot-host">
           <!-- Where the picture is built. The drawing engine makes its own
                surfaces inside this, and the workflow's layers are drawn over
                them, so nothing here is a canvas of the page's own. It keeps
@@ -126,6 +139,8 @@ export const canvasPanel = {
         readout: null,
         carrier: find("carrier-btn"),
         tileset: find("tileset-btn"),
+        mask: find("mask-btn"),
+        grey: find("grey-btn"),
         legend: find("canvas-legend"),
         overviewCanvas: find("overview-canvas"),
         overviewNote: find("overview-note"),

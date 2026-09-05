@@ -1098,6 +1098,10 @@ export async function mountViewerPanel(near, {
      overview scan puts the focus stack away. */
   const groupSwitches = new Map();
   const greySwitches = new Map();
+  /* Whether each acquisition is drawn in grey now, beside the switch that
+     changes it, so the canvas's own Grayscale press can say which way it
+     will go. */
+  const greyStates = new Map();
   let heading = null;
   let groupBox = null;
   rows.forEach((row, index) => {
@@ -1185,6 +1189,12 @@ export async function mountViewerPanel(near, {
       };
       greyPick.addEventListener("click", () => drawInGrey(!members.every(({ one }) => one.grey)));
       greySwitches.set(groupName, drawInGrey);
+      /* Judged on what is on show: an acquisition hidden by its eye does
+         not decide whether the picture looks grey. */
+      greyStates.set(groupName, () => ({
+        grey: members.every(({ one }) => one.grey),
+        visible: members.some(({ one }) => one.visible !== false),
+      }));
       sayTheColours();
       head.append(disclosure, groupEye, el("span",
         `flex:1;font:${font(600, 12)};letter-spacing:.02em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;`,
@@ -1422,6 +1432,12 @@ export async function mountViewerPanel(near, {
   panel.sourcesChanged = sourcesChanged;
   panel.showAcquisition = (name, on) => groupSwitches.get(name)?.(on);
   panel.drawInGrey = (name, grey) => greySwitches.get(name)?.(grey);
+  /* Every acquisition at once, for the canvas's own switch. */
+  panel.drawAllInGrey = (grey) => { for (const draw of greySwitches.values()) draw(grey); };
+  panel.allGrey = () => {
+    const shown = [...greyStates.values()].map((ask) => ask()).filter((state) => state.visible);
+    return shown.length > 0 && shown.every((state) => state.grey);
+  };
   panel.requestedState = panelState;
   window.__viewerPanel = panel;
   if (rows.length) {

@@ -2419,6 +2419,8 @@ let stageWatch = null;
     readout: theCanvas.parts.readout,
     carrierButton: theCanvas.parts.carrier,
     tilesetButton: theCanvas.parts.tileset,
+    maskButton: theCanvas.parts.mask,
+    greyButton: theCanvas.parts.grey,
     legend: theCanvas.parts.legend,
     css, sizeCanvas, el,
     run: state,

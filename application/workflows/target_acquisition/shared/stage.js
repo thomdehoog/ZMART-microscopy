@@ -745,6 +745,7 @@ function drawStage() {
   }
   theStack = stack;
   theCanvas.setLayersAbove(stack);
+  sayWhatThePressesDo();
 
   /* Set here rather than on the pointer alone, so a tool armed from the panel
      or a key says so before the mouse is moved to find out. */
@@ -1219,7 +1220,43 @@ function frameTileset() {
 }
 ctx.tilesetButton.addEventListener("click", frameTileset);
 
-/* The legend in the canvas's own row, for whichever layer asks for one. A
+/* Mask: the detected masks off and on, while detection has laid them on
+   the picture. The press stands in the row only then, and says which way
+   it will go. */
+ctx.maskButton?.addEventListener("click", () => {
+  theCanvas.showLayer("segmentation", !theCanvas.layerShown?.("segmentation"));
+  drawStage();
+});
+
+/* Grayscale, or Color: every acquisition on the picture drawn in grey, or
+   each in its own colours again. The picture's own panel keeps the colours
+   and does the drawing; this is the same switch for all of them at once. */
+ctx.greyButton?.addEventListener("click", () => {
+  const panel = window.__viewerPanel;
+  if (!panel?.drawAllInGrey) return;
+  panel.drawAllInGrey(!panel.allGrey());
+  sayWhatThePressesDo();
+});
+
+/* The presses at the right show whether they are on, from what the picture
+   shows now: tinted while on, outlined while off. Asked on every draw, and
+   after a press. */
+function sayWhatThePressesDo() {
+  const mask = ctx.maskButton;
+  if (mask) {
+    const laid = theStack.some((layer) => layer.key === "segmentation" && layer.has);
+    mask.hidden = !laid;
+    mask.setAttribute("aria-pressed", String(theCanvas.layerShown?.("segmentation") !== false));
+  }
+  const grey = ctx.greyButton;
+  if (grey) {
+    const panel = window.__viewerPanel;
+    grey.disabled = !panel?.drawAllInGrey;
+    grey.setAttribute("aria-pressed", String(Boolean(panel?.allGrey?.())));
+  }
+}
+
+/* The legend at the foot of the picture, for whichever layer asks for one. A
    layer that paints hands over what its colours mean; when no layer has
    done so by the next frame, the row shows none. */
 let legendAsked = false;
