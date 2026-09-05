@@ -20,8 +20,11 @@ Every op takes the driver's own handle first. Required:
   ``subsystems``: for each of :data:`SUBSYSTEMS`, ``{"supported": bool, ...}``
   with whatever else the page needs to draw it -- the limits document's
   axes and settings, say. A subsystem left out is unsupported.
-- ``where(handle) -> {"x_um", "y_um", "z_um"}`` -- absolute stage coordinates.
-  No origin is applied here: setting one is this package's job.
+- ``where(handle) -> {"x_um", "y_um", "z_um", "actuators": {...}}`` -- absolute
+  stage coordinates, and under ``actuators`` every drive the instrument has,
+  each as ``{"value", "unit"}`` -- a Leica has a motoric X and Y, a Z-wide and
+  a Z-galvo. The origin is a reading of all of them, so all of them are shown
+  when it is set. No origin is applied here: setting one is this package's job.
 - ``move(handle, x_um, y_um, z_um) -> {"x_um", "y_um", "z_um"}`` -- move, then
   read back where the stage actually went, and answer with the readback.
 - ``acquire(handle, *, into, name, z_um=None) -> dict`` -- one raw picture, or a

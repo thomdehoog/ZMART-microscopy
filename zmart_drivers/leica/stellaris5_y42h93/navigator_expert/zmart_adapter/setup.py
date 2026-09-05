@@ -158,13 +158,31 @@ def _say_limits_source(machine) -> str:
 
 
 def where(handle: SetupHandle) -> dict:
-    """Absolute stage XY and the wide Z drive, in micrometres."""
+    """Absolute stage XY and the wide Z drive, in micrometres, plus every
+    drive's own reading -- motoric X and Y, Z-wide, Z-galvo -- and the
+    objective, which is what an origin record is made of."""
     _require_open(handle)
     xy = drv.get_xy(handle.client) or {}
     if "x_um" not in xy or "y_um" not in xy:
         raise RuntimeError(f"get_xy returned no readback: {xy}")
-    z = float(drv.read_zwide_um(handle.client, _job(handle)))
-    return {"x_um": float(xy["x_um"]), "y_um": float(xy["y_um"]), "z_um": z}
+    job = _job(handle)
+    z_wide = float(drv.read_zwide_um(handle.client, job))
+    settings = drv.get_job_settings(handle.client, job) or {}
+    z_galvo = _adapter._try(lambda: float(
+        _adapter._z_um_from_settings(settings, "z-galvo", client=handle.client, job_name=job)))
+    lens = settings.get("objective") or {}
+    actuators = {
+        "x motoric": {"value": float(xy["x_um"]), "unit": "um"},
+        "y motoric": {"value": float(xy["y_um"]), "unit": "um"},
+        "z-wide": {"value": z_wide, "unit": "um"},
+    }
+    if z_galvo is not None:
+        actuators["z-galvo"] = {"value": z_galvo, "unit": "um"}
+    return {
+        "x_um": float(xy["x_um"]), "y_um": float(xy["y_um"]), "z_um": z_wide,
+        "actuators": actuators,
+        "objective": {"slot": lens.get("slotIndex"), "name": lens.get("name")} if lens else None,
+    }
 
 
 def move(handle: SetupHandle, x_um: float, y_um: float, z_um: float) -> dict:
