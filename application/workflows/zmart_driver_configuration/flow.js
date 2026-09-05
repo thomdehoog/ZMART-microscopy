@@ -25,7 +25,7 @@ import { setupAsBackend } from "../../parts/microscope/setup.js";
 import { setupPanel } from "./panel/setup-panel.js";
 import { connect } from "./steps/connect/step.js";
 import { stageLimits } from "./steps/stage_limits/step.js";
-import { stageToImage } from "./steps/stage_to_image/step.js";
+import { stageToImage } from "./steps/image_to_stage/step.js";
 import { opticsCalibration } from "./steps/optics_calibration/step.js";
 import { frameOrigin } from "./steps/frame_origin/step.js";
 

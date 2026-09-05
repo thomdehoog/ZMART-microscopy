@@ -1,5 +1,5 @@
 /**
- * Step 3 — Stage-to-image calibration.
+ * Step 3 — Image-to-stage calibration.
  *
  * A camera or a scanner is often mounted a quarter or a half turn away from
  * the stage's own X and Y. When it is, telling the stage to move right shows
@@ -29,9 +29,9 @@ import channel from "./channel.js";
 
 export const stageToImage = {
   id: "orientation",
-  title: "Stage-to-image calibration",
-  why: "Measure how the picture is turned relative to the stage, so moving right "
-    + "on the stage means moving right in the image.",
+  title: "Image-to-stage calibration",
+  why: "Measure which way the stage has to move to move the image the way you "
+    + "mean — we think in pictures, and the stage has to follow.",
   panels: ["setup"],
   btn: "Measure orientation",
   ms: 0,

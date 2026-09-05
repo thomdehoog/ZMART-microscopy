@@ -16,7 +16,7 @@ import { cell, note, picture, press, publishRow } from "../cells.js";
 
 export default {
   id: "orientation",
-  label: "Stage-to-image calibration",
+  label: "Image-to-stage calibration",
 
   /**
    * `ctx` carries: `setup` (the seam), `supported()` (whether this driver
@@ -35,7 +35,7 @@ export default {
     const measure = cell("Set orientation",
       "Use a field with recognisable structure, in focus. This acquires images at home, +X and +Y "
       + "and compares four rotations with reflection absent or present.");
-    measure.body.append(press("Start", async () => {
+    measure.body.append(press(ctx.held() ? "Rerun" : "Start", async () => {
       try { ctx.hold(await ctx.setup.measure("orientation", { stage_move_um: ctx.moveUm() })); }
       catch (why) { ctx.hold({ failed: why.message }); }
       ctx.refresh();

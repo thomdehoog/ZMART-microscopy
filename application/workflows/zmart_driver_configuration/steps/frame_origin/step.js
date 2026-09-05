@@ -7,7 +7,7 @@
  * down today still mean the same place tomorrow.
  *
  * It is the fourth of the four things the driver keeps for a machine, beside
- * the limits, the stage-to-image turn and the optics. Its folder sits with
+ * the limits, the image-to-stage turn and the optics. Its folder sits with
  * theirs under ProgramData and every change to it keeps its own dated record.
  * What makes it unlike the other three is only when it is applied: the driver
  * does not restore it at the next connect, so a run that wants a frame of its

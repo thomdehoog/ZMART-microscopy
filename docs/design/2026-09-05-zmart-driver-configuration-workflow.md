@@ -21,7 +21,7 @@ Five steps, in order:
 2. **Set up limits** — how far the stage may travel, which objective slots
    automation may use, and a permitted value or range for each setting the
    driver can change.
-3. **Stage-to-image calibration** — how the picture is turned relative to the
+3. **Image-to-stage calibration** — how the picture is turned relative to the
    stage, so that moving right on the stage means moving right in the image.
    One of eight lossless ways of laying the image down: a quarter, half or
    three-quarter turn, each optionally mirrored.
@@ -140,7 +140,7 @@ says what such a module has to contain.
 
 ## Steps 3 and 4 are two parties, not one
 
-Measuring the stage-to-image turn and measuring the optics look like driver
+Measuring the image-to-stage turn and measuring the optics look like driver
 work, and half of each is. The other half is not, and separating them is what
 keeps the per-driver modules small.
 
@@ -152,7 +152,7 @@ keeps the per-driver modules small.
 
 Applied to these two steps:
 
-- **Step 3, stage-to-image.** The instrument's part is to image a field that
+- **Step 3, image-to-stage.** The instrument's part is to image a field that
   has structure in it and is in focus — nuclei, or anything else with edges to
   recognise — then move the stage a known distance and image it again. That is
   vendor work: only the driver can move this stage and expose this sensor. The
