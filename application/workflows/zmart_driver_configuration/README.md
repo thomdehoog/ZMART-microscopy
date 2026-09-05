@@ -1,4 +1,4 @@
-# ZMART driver configuration: setting a microscope up
+# ZMART driver setup: setting a microscope up
 
 Five steps, walked before any imaging workflow can stand on the machine:
 
@@ -59,7 +59,7 @@ a matter of asking nicely. The full reasoning is in
 
 ## Trying it without a microscope
 
-Run the bridge and open the page; choose **ZMART driver configuration** and
+Run the bridge and open the page; choose **ZMART driver setup** and
 connect to the mock. Open `python application/mock-instrument.py` beside it:
 that window is the pretend rig — turn its camera, change its lens, drop four
 markers at the corners — and the workflow has to measure what the window shows,

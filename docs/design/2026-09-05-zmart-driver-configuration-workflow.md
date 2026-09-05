@@ -1,4 +1,4 @@
-# ZMART driver configuration: a second workflow, and the boundary it must respect
+# ZMART driver setup: a second workflow, and the boundary it must respect
 
 Written 2026-09-05, while the workflow was being started. This is a design
 note rather than a description of finished code: the folder

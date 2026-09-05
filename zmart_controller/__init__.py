@@ -22,7 +22,7 @@ to use it, both giving ``zmart_controller.<call>()``:
 
 Where the frame comes from: positions are micrometres from the origin the
 driver stands on, and that origin is part of the machine's published
-configuration -- set through ``zmart_setup`` (the ZMART driver configuration
+configuration -- set through ``zmart_setup`` (the ZMART driver setup
 workflow), read by the driver at connect, and deliberately unreachable from
 here. A session cannot move the point it counts from, for the same reason it
 cannot widen the envelope it is fenced by.

@@ -216,7 +216,7 @@ describe("workflows compose the catalogue rather than restating it", () => {
   });
 
   it("a flow may say its own name, when the folder rule would get it wrong", () => {
-    expect(WORKFLOWS.zmart_driver_configuration.name).toBe("ZMART driver configuration");
+    expect(WORKFLOWS.zmart_driver_configuration.name).toBe("ZMART driver setup");
     expect(WORKFLOWS.target_acquisition.name).toBe("Target acquisition");
   });
 
@@ -251,7 +251,7 @@ describe("workflows compose the catalogue rather than restating it", () => {
 
   it("names every workflow in plain words for the chooser", () => {
     expect(Object.values(WORKFLOWS).map((w) => w.name))
-      .toEqual(["Target acquisition", "ZMART driver configuration"]);
+      .toEqual(["Target acquisition", "ZMART driver setup"]);
     for (const w of Object.values(WORKFLOWS)) expect(w.blurb).toBeTruthy();
   });
 
