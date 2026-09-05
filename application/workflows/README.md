@@ -109,3 +109,9 @@ export `name` (when the folder rule would misname it), `panels` (what it puts on
 screen — the canvas, or a panel of its own), `opensFirst` (the workflow a fresh
 page opens on), and `backend` (what it talks to, when that is not the page's
 usual session bridge — the driver-configuration workflow brings the setup seam).
+
+One exception to `opensFirst`: when the page first looks at the chosen
+microscope and finds no configuration with limits, it moves to the
+driver-configuration workflow on its own, since a driving workflow could not
+connect there anyway. It does this once, on the first look, and never when a
+workflow was asked for by name in the address (`?workflow=...`).

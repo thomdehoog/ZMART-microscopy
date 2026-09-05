@@ -73,12 +73,11 @@ test.describe("the driver configuration workflow, walked end to end", () => {
     page.on("pageerror", (why) => errors.push(why.message));
     try {
       await page.goto(`${bridge.at}/`);
-      await rest(1500);
-      await shot(page, "target-acquisition-as-opened");
-
-      await page.selectOption("#wf-select", { label: "ZMART driver configuration" });
-      await rest(800);
-      await shot(page, "driver-configuration-chosen");
+      await rest(2500);
+      /* A machine nobody has set up yet opens on the configuration workflow:
+         there is no configuration a session could stand on. */
+      await expect(page.locator("#wf-select")).toHaveValue("zmart_driver_configuration");
+      await shot(page, "opened-on-a-bare-machine");
 
       /* Step 1: the card, with New configuration chosen in its fourth field. */
       await page.locator('.panel.on .session-form input[type="password"]').fill("mock");
