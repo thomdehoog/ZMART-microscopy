@@ -209,45 +209,49 @@ def overlay_rgb(ref_norm: np.ndarray, tgt_norm: np.ndarray) -> np.ndarray:
     return np.clip(rgb, 0.0, 1.0)
 
 
-def write_diagnostic(reference: dict, target: dict, answer: dict, path, *, channel: int = 0):
-    """The calibration notebook's plots, on one sheet.
+def write_focus_diagnostic(stack, focus: dict, path, *, title: str = "Software Autofocus", channel: int = 0):
+    """One lens's focus result, as the notebook shows it under its measure
+    cell: the Brenner curve with its peak, and beside it the slice the
+    microscope considered sharpest -- which should look like the sample in
+    focus, not an empty field. ``None`` without matplotlib."""
+    try:
+        from matplotlib.backends.backend_agg import FigureCanvasAgg
+        from matplotlib.figure import Figure
+    except ImportError:
+        return None
+    # The curve and the picture stand the same height, side by side, with the
+    # picture square: placed by hand rather than by a layout that would size
+    # the image axis to the picture and leave it shorter than the plot.
+    fig = Figure(figsize=(12, 5), facecolor="white")
+    FigureCanvasAgg(fig)
+    top, bottom = 0.86, 0.15
+    height = top - bottom                        # of the figure's 5 in
+    square = height * 5 / 12                     # the same height, as a share of 12 in
+    ax = fig.add_axes([0.07, bottom, 0.94 - square - 0.07 - 0.04, height])
+    ax_img = fig.add_axes([0.94 - square, bottom, square, height])
+    ax.plot(focus["z_um"], focus["scores"], marker="o")
+    ax.axvline(focus["peak_z_um"], color="red", linestyle="--", label=f"peak z = {focus['peak_z_um']:.3f} um")
+    ax.set_xlabel("z (um, absolute)"); ax.set_ylabel("Brenner Gradient Score")
+    ax.set_title(title); ax.legend(loc="best")
+    stack = list(stack or [])
+    if stack:
+        ax_img.imshow(_plane(stack[min(focus["peak_index"], len(stack) - 1)], channel), cmap="gray", origin="upper")
+    ax_img.set_title(f"Focus position (Z = {focus['peak_z_um']:.2f} µm)")
+    ax_img.set_xticks([]); ax_img.set_yticks([])
+    fig.savefig(str(path), dpi=100)
+    return str(path)
 
-    Top: the Brenner curve of each focus stack with its peak, and beside each
-    the slice the microscope considered sharpest -- the picture should look
-    like the sample in focus, not an empty field. Bottom: the two lenses'
-    views laid over one another, reference in magenta and target in green,
-    as acquired and after the shift the measurement found.
 
-    Written to ``path`` as a PNG and the path returned; ``None`` without
-    matplotlib.
-    """
+def write_overlay_diagnostic(reference: dict, target: dict, answer: dict, path, *, channel: int = 0):
+    """The X/Y result, as the notebook shows it: the two lenses' views laid
+    over one another, reference in magenta and target in green, as acquired
+    and after the shift the measurement found. ``None`` without matplotlib."""
     try:
         from matplotlib.backends.backend_agg import FigureCanvasAgg
         from matplotlib.figure import Figure
         from scipy.ndimage import shift as nd_shift
     except ImportError:
         return None
-    focus = answer.get("focus") or {}
-    has_stacks = bool(focus.get("reference")) and bool(focus.get("target"))
-    fig = Figure(figsize=(14, 12 if has_stacks else 6), facecolor="white")
-    FigureCanvasAgg(fig)
-    grid = fig.add_gridspec(2 if has_stacks else 1, 4)
-
-    if has_stacks:
-        for row_at, (name, side) in enumerate((("reference", reference), ("target", target))):
-            f = focus[name]
-            ax = fig.add_subplot(grid[0, 2 * row_at])
-            ax.plot(f["z_um"], f["scores"], marker="o")
-            ax.axvline(f["peak_z_um"], color="red", linestyle="--", label=f"peak z = {f['peak_z_um']:.3f} um")
-            ax.set_xlabel("z (um, absolute)"); ax.set_ylabel("Brenner Gradient Score")
-            ax.set_title(f"Software Autofocus · {name}"); ax.legend(loc="best")
-            stack = side.get("stack") or []
-            if stack:
-                slice_ = _plane(stack[min(f["peak_index"], len(stack) - 1)], channel)
-                ax_img = fig.add_subplot(grid[0, 2 * row_at + 1])
-                ax_img.imshow(slice_, cmap="gray", origin="upper")
-                ax_img.set_title(f"Focus position (Z = {f['peak_z_um']:.2f} µm)"); ax_img.set_axis_off()
-
     ref_um, tgt_um = float(reference["pixel_um"]), float(target["pixel_um"])
     ref = _plane(reference["image"], channel); tgt = _plane(target["image"], channel)
     scale_um = max(ref_um, tgt_um)
@@ -257,14 +261,17 @@ def write_diagnostic(reference: dict, target: dict, answer: dict, path, *, chann
     reg = answer["registration"]
     tgt_back = nd_shift(tgt_c, (-reg["drow_px"], -reg["dcol_px"]), order=1)
     t = answer["translation_um"]
-    row = 1 if has_stacks else 0
-    ax = fig.add_subplot(grid[row, 0:2])
+    fig = Figure(figsize=(12, 6), facecolor="white")
+    FigureCanvasAgg(fig)
+    top, bottom = 0.84, 0.04
+    height = top - bottom
+    square = height * 6 / 12
+    ax = fig.add_axes([0.5 - square - 0.02, bottom, square, height])
+    ax2 = fig.add_axes([0.5 + 0.02, bottom, square, height])
     ax.imshow(overlay_rgb(_norm(ref_c), _norm(tgt_c)), origin="upper")
     ax.set_title(f"Reference (magenta) vs target (green), as acquired\nshift ({t['x']:+.2f}, {t['y']:+.2f}) um")
     ax.set_axis_off()
-    ax2 = fig.add_subplot(grid[row, 2:4])
     ax2.imshow(overlay_rgb(_norm(ref_c), _norm(tgt_back)), origin="upper")
     ax2.set_title("Target after the measured correction"); ax2.set_axis_off()
-    fig.tight_layout()
     fig.savefig(str(path), dpi=100)
     return str(path)

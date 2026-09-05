@@ -37,7 +37,10 @@ export default {
       }, { busy: "measuring…" }));
       const view = views[name];
       if (view?.failed) c.body.append(note(`Failed — ${view.failed}`, "bad"));
-      else if (view) c.body.append(note(`slot ${view.lens?.slot ?? "?"} · ${view.lens?.name ?? "?"} · ${view.pixel_um} µm/px · ${view.z_um?.length ?? 0} planes`, "ok"));
+      else if (view) {
+        c.body.append(note(`slot ${view.lens?.slot ?? "?"} · ${view.lens?.name ?? "?"} · ${view.pixel_um} µm/px · peak z = ${Number(view.peak_z_um).toFixed(3)} um`, "ok"));
+        if (view.diagnostic_url) c.body.append(picture(view.diagnostic_url, `${name} focus curve and the sharpest slice`));
+      }
       return c.box;
     };
     host.append(lensCell("reference", "Measure 1: reference",
@@ -45,7 +48,7 @@ export default {
     host.append(lensCell("target", "Measure 2: target",
       "Switch only to the target objective. Do not move X/Y."));
 
-    const measure = cell("Measure 3: the pair", "Focus and X/Y offsets between the two, from the images above.");
+    const measure = cell("Measure 3: X/Y", "The X/Y offset, from matching the two images pixel by pixel.");
     measure.body.append(press("Measure the pair", async () => {
       try { ctx.hold(await ctx.setup.measure("objective_pair", { reference: "reference", target: "target" })); }
       catch (why) { ctx.hold({ failed: why.message }); }
@@ -60,7 +63,7 @@ export default {
         `slot ${lenses.reference?.slot} → slot ${lenses.target?.slot} · translation XY (${t.x >= 0 ? "+" : ""}${t.x.toFixed(2)}, `
         + `${t.y >= 0 ? "+" : ""}${t.y.toFixed(2)}) um · Z ${z} um · ${held.accepted ? "trusted" : "WEAK VOTE"}`,
         held.accepted ? "ok" : "bad"));
-      if (held.diagnostic_url) measure.body.append(picture(held.diagnostic_url, "focus curves and the overlay of the two objectives"));
+      if (held.diagnostic_url) measure.body.append(picture(held.diagnostic_url, "the two objectives overlaid, as acquired and after the correction"));
       if (held.why) measure.body.append(note(held.why, "bad"));
     }
     host.append(measure.box);
