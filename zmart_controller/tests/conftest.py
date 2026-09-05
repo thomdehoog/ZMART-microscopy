@@ -23,6 +23,15 @@ mock_driver.register_mock()
 
 
 @pytest.fixture(autouse=True)
+def _the_mocks_machine_stays_out_of_the_home(monkeypatch, tmp_path):
+    """The mock reads its published configuration from a machine root under
+    the user's home, as a real driver reads ProgramData; a test must neither
+    stand on what an operator published there nor leave anything behind."""
+    monkeypatch.setenv("ZMART_MOCK_MACHINE", str(tmp_path / "machine"))
+    monkeypatch.setenv("ZMART_MOCK_STATE", str(tmp_path / "instrument.json"))
+
+
+@pytest.fixture(autouse=True)
 def _reset_active_session():
     """Clear the module-level active session after every test.
 

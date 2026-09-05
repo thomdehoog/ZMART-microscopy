@@ -30,17 +30,8 @@ _STEPS = [
         True,
     ),
     (
-        "set_origin",
-        "2 · Set origin",
-        "Marks the stage's current position as (0, 0). Every position in "
-        "this run counts from here, so do this with the sample framed the "
-        "way you want it.",
-        "Set origin",
-        True,
-    ),
-    (
         "capture_overview_job",
-        "3a · Capture the overview job",
+        "2a · Capture the overview job",
         "In LAS X, select the low-magnification overview job first — then "
         "press capture so the run remembers its settings. (The demo selects "
         "its simulated overview job for you.)",
@@ -49,7 +40,7 @@ _STEPS = [
     ),
     (
         "capture_target_job",
-        "3b · Capture the target job",
+        "2b · Capture the target job",
         "Now select the high-magnification target job in LAS X and capture "
         "it too. The run refuses to continue if both captures are the same "
         "job — that would image targets at overview quality.",
@@ -58,7 +49,7 @@ _STEPS = [
     ),
     (
         "load_positions",
-        "4 · Positions and focus",
+        "3 · Positions and focus",
         "Loads the overview positions from the microscope and opens the "
         "focus map. Click a few spread-out points on the map, then press "
         "Measure in the panel — the fitted focus surface keeps every later "
@@ -68,7 +59,7 @@ _STEPS = [
     ),
     (
         "run_overview",
-        "5 · Scan the overview",
+        "4 · Scan the overview",
         "Drives the stage through every overview position and stitches the "
         "live map below, tile by tile, as the images are saved.",
         "Scan overview",
@@ -76,7 +67,7 @@ _STEPS = [
     ),
     (
         "discover_targets",
-        "6 · Discover cells",
+        "5 · Discover cells",
         "The analysis engine segments every overview tile and each found "
         "cell becomes a dot in the explorer below. Gate with the threshold "
         "boxes or draw a lasso; hover any dot to see that cell's picture; "
@@ -86,7 +77,7 @@ _STEPS = [
     ),
     (
         "gallery",
-        "7 · Acquire and curate",
+        "6 · Acquire and curate",
         "Type how many cells to image (or use your hand-picked ones) and "
         "press Acquire in the panel — each overview/target pair appears the "
         "moment it is captured. Mark each pair good ✓ or bad ✗: that is "
@@ -96,7 +87,7 @@ _STEPS = [
     ),
     (
         "save_results",
-        "8 · Save the run",
+        "7 · Save the run",
         "Writes the run report, the layout picture, and your good/bad "
         "verdicts into the run folder, next to the images.",
         "Save results",
@@ -104,7 +95,7 @@ _STEPS = [
     ),
     (
         "disconnect",
-        "9 · Disconnect",
+        "8 · Disconnect",
         "Shuts the analysis engine down and releases the microscope. Always end a session here.",
         "Disconnect",
         True,
@@ -487,7 +478,6 @@ function markDone(step, keepInteractiveOpen = true) {
   section.classList.add("done");
   const completedLabels = {
     connect: "Reconnect",
-    set_origin: "Change Origin",
     capture_overview_job: "Recapture Overview Job",
   };
   if (completedLabels[step]) {

@@ -180,11 +180,39 @@ check for them: there has to be a specimen under the objective with structure in
 it, and it has to be in focus. The step says so in words rather than pretending
 to verify it.
 
-## What is not done
+## What was built, and where
 
-The step declarations, the panel, and the driver contract are written. Not yet
-built: the driver modules themselves, the controls each step shows, the
-framework's ability to give a workflow a display name that keeps an acronym
-(`zmart_driver_configuration` currently reads as "Zmart driver configuration"),
-the test updates that follow from a second workflow existing, and the two
-analysis pipelines steps 3 and 4 depend on.
+- **`zmart_setup/`** — the setup seam: a registry keyed the way the controller's
+  is but separate from it, a `Setup` that forwards to a driver's small
+  vocabulary (where, move, acquire, objective, markers, read, publish), and
+  the vendor-blind procedures that drive it: read the boundary, measure the
+  orientation, capture a lens view, measure the pair, origin here. The package
+  never imports the controller, and a test says so.
+- **`zmart_analysis/workflows/stage_calibration/`** — the two measurements as
+  pipeline steps, `measure_orientation` and `measure_objective_pair`, with
+  their recipes and tests against synthetic pictures. All eight orientations
+  are recovered, and the pixel size with them.
+- **`zmart_drivers/mock/mock_setup.py`** and the mock instrument window — a
+  pretend rig with a quarter-turned camera, two lenses and a marker tool, so
+  the whole workflow can be walked on a bench. The mock driver stands on what
+  was published: the origin, the envelope, and the orientation correction.
+- **`zmart_drivers/leica/.../zmart_adapter/setup.py`** — the Leica's side,
+  mapped onto the functions the three notebooks already use; the adapter now
+  reads the published origin at connect and has no `set_origin`.
+- **The bridge** — `/api/setup/*` routes that hold a setup, never a session.
+- **The page** — the workflow, its notebook-shaped panel, the cells of every
+  step, and three small framework changes: a flow may name itself, may bring
+  its own backend, and a step may carry its own channel.
+
+## Deliberately not done
+
+- **MesoSPIM is untouched** (the owner's decision: only the Leica and the mock
+  get a setup side for now). Its adapter still offers `set_origin` in its own
+  ops table and its own tests still call `session.set_origin()`; those will
+  fail against the controller until it is brought across, which is a small,
+  separate change.
+- **Gating the publish path** — an operator confirmation, or a check that this
+  is the instrument's own PC — belongs with the agent work and is not built.
+- The Leica setup's `move`, `acquire` and `markers` are written against the
+  same driver functions the notebooks use and are tested offline only where a
+  seam can be patched; the first run on the bench is where they are proven.

@@ -86,7 +86,6 @@ class RunFlow:
 
         self._steps: dict[str, Callable[[], str]] = {
             "connect": self._connect,
-            "set_origin": self._set_origin,
             "capture_overview_job": self._capture_overview_job,
             "capture_target_job": self._capture_target_job,
             "load_positions": self._load_positions,
@@ -96,8 +95,7 @@ class RunFlow:
             "disconnect": self._disconnect,
         }
         self._prerequisite = {
-            "set_origin": "connect",
-            "capture_overview_job": "set_origin",
+            "capture_overview_job": "connect",
             "capture_target_job": "capture_overview_job",
             "load_positions": "capture_target_job",
             "run_overview": "load_positions",
@@ -253,11 +251,6 @@ class RunFlow:
         self.ns.update(zmart_controller=session, engine=engine, ROOT=root)
         mode = "the simulated microscope" if self.demo else f"the {self.vendor} session"
         return f"connected to {mode} — this run saves under {root}"
-
-    def _set_origin(self) -> str:
-        self._require(self.session is not None, "connect first")
-        self.session.set_origin()
-        return "origin set — positions now count from where the stage is right now"
 
     def _capture_overview_job(self) -> str:
         self._require(self.session is not None, "connect first")

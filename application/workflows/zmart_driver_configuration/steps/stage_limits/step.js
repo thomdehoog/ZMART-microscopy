@@ -20,6 +20,8 @@
  * microscope up meets one window rather than a notebook and a window.
  */
 
+import channel from "./limits-boxes.js";
+
 export const stageLimits = {
   id: "limits",
   title: "Set up limits",
@@ -28,6 +30,10 @@ export const stageLimits = {
   panels: ["setup"],
   btn: "Publish limits",
   ms: 0,
+  /* The step's cells build the press that publishes, so the shell adds none. */
+  ownButton: true,
+  /* The cells themselves; the shell mounts them when the step is walked to. */
+  channel,
 
   ready: ({ done }) =>
     (done?.has("connect") ? null : "connect to the microscope first"),

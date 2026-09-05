@@ -36,7 +36,6 @@ from application.workflows.target_acquisition.webapp import RunFlow, WidgetHub, 
 
 _ORDERED_STEPS = [
     "connect",
-    "set_origin",
     "capture_overview_job",
     "capture_target_job",
     "load_positions",
@@ -134,27 +133,6 @@ def test_steps_refuse_out_of_order_with_plain_sentences(tmp_path):
     failed = [e for e in events if e.get("kind") == "flow" and e.get("state") == "failed"]
     assert failed and "finish load positions" in failed[0]["message"]
     assert "Traceback" not in failed[0]["message"]
-
-
-def test_origin_must_precede_every_coordinate_dependent_step(tmp_path):
-    hub = WidgetHub()
-    flow = RunFlow(hub, demo=True, demo_root=tmp_path / "run")
-    flow.run_step("connect")
-    flow.run_step("capture_overview_job")  # deliberately skip Set origin
-    hub.drain()
-    assert flow.completed == ["connect"]
-    assert flow.overview_state is None
-
-    # Once positions exist, Set origin cannot be repeated and silently change
-    # the frame underneath their cached coordinates.
-    for step in ("set_origin", "capture_overview_job", "capture_target_job", "load_positions"):
-        flow.run_step(step)
-    hub.drain()
-    positions = list(flow.positions)
-    flow.run_step("set_origin")
-    hub.drain()
-    assert flow.positions == positions
-    assert flow.completed.count("set_origin") == 1
 
 
 def test_positions_are_loaded_only_after_restoring_overview_controller_state(tmp_path):
@@ -398,7 +376,6 @@ def test_http_surface_serves_page_modules_state_and_actions(demo_server):
     assert ".step-btn.running { padding: 8px 2px 8px 34px; }" in page
     assert ".step.done .step-btn { background: #16a34a" in page
     assert 'connect: "Reconnect"' in page
-    assert 'set_origin: "Change Origin"' in page
     assert 'capture_overview_job: "Recapture Overview Job"' in page
     assert "label.textContent = completedLabels[step]" in page
     assert 'section.dataset.opened === "true"' in page

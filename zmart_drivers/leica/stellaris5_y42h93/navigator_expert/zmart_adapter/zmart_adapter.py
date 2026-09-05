@@ -15,8 +15,8 @@ instrument::
     zmart_controller.set_instrument(instrument)
 
 Frame math lives here: the driver speaks absolute stage micrometres, the
-controller speaks micrometres relative to the origin set by
-``set_origin``. The controller's single ``z`` axis is the *focus*
+controller speaks micrometres relative to the origin the machine's published
+configuration set. The controller's single ``z`` axis is the *focus*
 displacement — the sum of the two physical drives (z-wide + z-galvo)
 relative to the origin's focus sum — so it reads the same regardless of
 which drive realized a move. An objective change is compensated with the
@@ -29,12 +29,13 @@ unavailable; reads warn and return uncompensated. The driver package
 itself is untouched. Full design: ``docs/design/objective-aware-frame.md``.
 
 Scope of v1 (grow as needed):
-    - ``set_origin`` captures stage XY, both z drives, and the current
-      objective as the zero point. The origin is SESSION-scoped: it applies
-      until set again or the session ends, and it is written to the
-      machine-local ``origin/`` folder (next to the dated snapshots) only
-      as a record of the last origin captured. ``connect`` does NOT restore
-      it — a fresh connection is an absolute frame until ``set_origin`` runs.
+    - The frame origin -- stage XY, both z drives, and the objective it was
+      captured under -- is machine configuration. It is published to the
+      machine-local ``origin/`` folder (beside the other dated snapshots) by
+      the setup workflow through ``zmart_adapter/setup.py``, and ``connect``
+      stands on the newest record. No session can set it: a session has no
+      op for it, on purpose. With no record the frame is absolute stage
+      coordinates.
     - ``get_xyz`` returns both frames: controller-relative values plus
       the raw hardware readings under ``"hardware"``.
     - ``get_state``/``set_state`` round-trip the selected job (the job
@@ -148,10 +149,10 @@ class ZmartHandle:
         hash6: SESSION hash, minted at connect. Travels in lineage /
             ``session_hash6`` provenance only — each :func:`acquire` mints
             its own acquired-position hash for the output Naming.
-        origin: The frame zero point captured by :func:`set_origin` —
-            stage XY, both z drives, their focus sum, and the objective
-            it was captured under. Defaults to all-zero (frame ==
-            absolute stage coordinates) until ``set_origin`` runs.
+        origin: The frame zero point the machine's published origin record
+            set at connect — stage XY, both z drives, their focus sum, and
+            the objective it was captured under. All-zero (frame ==
+            absolute stage coordinates) on a machine with no record.
         position_counter: Next per-session position index handed to an
             unlabeled :func:`acquire` (formatted 6-digit zero-padded). An
             explicit ``position_label`` does not consume a counter value.
@@ -207,7 +208,7 @@ def connect(connection: dict) -> ZmartHandle:
         connection: The instrument dict from ``get_instruments()``.
             ``client`` and ``api_delay_ms`` feed the CAM connection;
             ``output_root`` (edited in by the caller) is where
-            :func:`acquire` saves and :func:`set_origin` persists.
+            :func:`acquire` saves.
 
     Delegates to the driver's own connection entry point
     (:func:`navigator_expert.connect_microscope`), which loads this microscope's
@@ -223,8 +224,9 @@ def connect(connection: dict) -> ZmartHandle:
     leaving the session unable to move; the hardcoded physical backstop bounds
     every move regardless.
 
-    The frame origin is NOT restored here — it is session-scoped. A fresh
-    connection is an absolute frame until :func:`set_origin` runs.
+    The frame origin is taken from the machine's newest published origin
+    record (see :func:`_stand_on_the_published_origin`); with none, the
+    frame is absolute stage coordinates.
 
     Raises whatever :func:`connect_microscope` raises when LAS X is
     unreachable — the controller surfaces that to the caller unchanged.
@@ -239,7 +241,37 @@ def connect(connection: dict) -> ZmartHandle:
     handle = ZmartHandle(client=client, connection=dict(connection), hash6=run_hash())
     loaded = _session_state.get(client)
     handle.translations = loaded.translations if loaded is not None else None
+    _stand_on_the_published_origin(handle)
     return handle
+
+
+def _stand_on_the_published_origin(handle: ZmartHandle) -> None:
+    """Take the frame origin from the machine's newest published record.
+
+    The origin is the fourth of the four things the driver keeps for a
+    machine, beside its limits, its orientation and its calibration, and like
+    them it is published through the setup workflow -- never through a
+    session, which has no op for it. A record carries the stage XY, both z
+    drives, their focus sum, and the objective it was captured under; with no
+    record the frame is absolute stage coordinates. A record that cannot be
+    read is refused loudly rather than half-applied: a frame standing on a
+    corrupt origin would put every position somewhere quietly wrong.
+    """
+    payload = _machine.MACHINE.read_origin()
+    if payload is None:
+        return
+    origin = payload.get("origin") if isinstance(payload, dict) else None
+    needed = ("x_um", "y_um", "z_wide_um", "z_galvo_um", "z_focus_um")
+    if not isinstance(origin, dict) or any(key not in origin for key in needed):
+        raise RuntimeError(
+            f"the published origin record at {_machine.MACHINE.origin_path()} is "
+            f"missing {[k for k in needed if not isinstance(origin, dict) or k not in origin]}; "
+            "publish the origin again through the setup workflow"
+        )
+    handle.origin = {
+        **{key: float(origin[key]) for key in needed},
+        "objective": origin.get("objective"),
+    }
 
 
 def _loaded_orientation(handle: ZmartHandle):
@@ -277,9 +309,9 @@ def _objective_delta_um(handle: ZmartHandle, current_objective: dict | None) -> 
         return (0.0, 0.0, 0.0)
     if current_slot is None:
         raise RuntimeError(
-            f"objective changed since set_origin (slot {origin_slot} -> "
-            f"unidentified) so the frame cannot be mapped; re-set the origin "
-            f"under the current objective"
+            f"objective changed since the origin was published (slot {origin_slot} -> "
+            f"unidentified) so the frame cannot be mapped; publish the origin "
+            f"again under the current objective"
         )
     # The delta math and the missing-pair policy live in ONE place —
     # calibration/core/model.py — shared with the driver's swap-time
@@ -291,8 +323,8 @@ def _objective_delta_um(handle: ZmartHandle, current_objective: dict | None) -> 
         return _cal_model.translation_delta_um(handle.translations, origin_slot, current_slot)
     except RuntimeError as exc:
         raise RuntimeError(
-            f"objective changed since set_origin but {exc} — or re-set the "
-            f"origin under the current objective"
+            f"objective changed since the origin was published but {exc} — or "
+            f"publish the origin again under the current objective"
         ) from exc
 
 
@@ -421,7 +453,7 @@ def _setup_readiness(
     if calibration.get("loaded"):
         if origin_slot is None:
             issues.append(
-                "the run origin has no recorded objective; run set_origin under "
+                "the run origin has no recorded objective; publish the origin againrigin under "
                 "the current objective"
             )
         elif origin_slot not in known_slots:
@@ -457,58 +489,30 @@ def _job_catalog(handle: ZmartHandle) -> tuple[list[dict], list[dict]]:
     return normal, autofocus
 
 
-def set_origin(handle: ZmartHandle) -> dict:
-    """The current position becomes (0, 0, 0) of the controller frame.
+def origin_record_here(handle: ZmartHandle) -> dict:
+    """The origin record for where the stage stands now, in the shape
+    :func:`connect` reads back: stage XY, both z drives, their focus sum, and
+    the objective it was captured under.
 
-    Captures stage XY, both z drives, their focus sum, and the current
-    objective as the zero point, and sets this session's frame to it. The
-    origin is **session-scoped**: it applies from now until it is set again or
-    the session ends. It is also written to the machine-local ``origin/``
-    folder (next to the snapshots) as a record of the last origin captured, but
-    the driver does NOT restore it at connect — a fresh connection starts as an
-    absolute frame until ``set_origin`` runs again.
-
-    If writing that on-disk record fails, this op raises — but the session's
-    frame HAS already been set to the captured zero (only the record is
-    missing). Re-run ``set_origin`` after fixing the cause to refresh it.
-
-    Not limits-gated: this op fires no native command — it reads the current
-    position and writes a small reference file. (The commands-layer gate
-    governs everything that commands hardware; ``set_origin`` stays in the
-    ``limits.json`` ``functions`` vocabulary so machine files remain explicit
-    about it.)
+    This does not set anything. Writing the record is the setup workflow's
+    (see ``zmart_adapter/setup.py``), and applying it is the next connect's.
+    It is kept here, beside :func:`_stand_on_the_published_origin`, so that
+    the record written and the record read cannot drift apart.
     """
     _require_open(handle)
     snap = _hardware_snapshot(handle)
-    handle.origin = {
-        "x_um": snap["x_um"],
-        "y_um": snap["y_um"],
-        "z_wide_um": snap["z_wide_um"],
-        "z_galvo_um": snap["z_galvo_um"],
-        "z_focus_um": snap["z_wide_um"] + snap["z_galvo_um"],
-        "objective": snap["objective"],
-    }
-    payload = {
-        "origin": handle.origin,
+    return {
+        "origin": {
+            "x_um": snap["x_um"],
+            "y_um": snap["y_um"],
+            "z_wide_um": snap["z_wide_um"],
+            "z_galvo_um": snap["z_galvo_um"],
+            "z_focus_um": snap["z_wide_um"] + snap["z_galvo_um"],
+            "objective": snap["objective"],
+        },
         "job": snap["job"],
         "session_hash6": handle.hash6,
         "captured_at": time.time(),
-    }
-    try:
-        path = _machine.MACHINE.write_origin(payload)
-    except OSError as exc:
-        # The in-memory origin is already set; failing to persist the
-        # record must be loud (re-running set_origin after fixing the
-        # cause is cheap), not a silent divergence discovered later.
-        raise RuntimeError(
-            f"could not persist the origin record: {exc} — the session frame WAS "
-            f"set to the captured zero; only the on-disk record failed. Re-run "
-            f"set_origin after fixing the cause to refresh it."
-        ) from exc
-    return {
-        "origin": {"x": 0.0, "y": 0.0, "z": 0.0},
-        "reference": dict(handle.origin),
-        "origin_file": str(path),
     }
 
 
@@ -1423,7 +1427,6 @@ def register() -> None:
             "connect": connect,
             "disconnect": disconnect,
             "get_acquisition_options": get_acquisition_options,
-            "set_origin": set_origin,
             "get_actuators": get_actuators,
             "get_xyz": get_xyz,
             "set_xyz": set_xyz,
