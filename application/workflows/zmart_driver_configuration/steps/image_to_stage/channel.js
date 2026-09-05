@@ -37,11 +37,19 @@ export default {
     /* What came back, above the buttons: the sheet with the detected
        correction and the eight candidates, or why there is none. */
     const held = ctx.held();
+    const standing = ctx.standing();
     if (held?.failed) measure.body.append(note(`Failed — ${held.failed}`, "bad"));
     else if (held?.diagnostic_url) {
       measure.body.append(picture(held.diagnostic_url,
         "the detected correction and the eight candidates, each with the Pearson correlation of its overlay"));
     } else if (held?.why) measure.body.append(note(held.why, held.accepted ? "" : "bad"));
+    else if (standing?.source === "published" && standing.evidence_urls?.["orientation.png"]) {
+      /* Nothing measured in this run: what the configuration holds, and the
+         sheet that was measured for it. */
+      const d = standing.document ?? {};
+      measure.body.append(note(`In the configuration: ${d.rotation_deg}°${d.reflection ? ", mirrored" : ""}.`));
+      measure.body.append(picture(standing.evidence_urls["orientation.png"], "the sheet measured for the configuration"));
+    }
 
     /* At the bottom of the box: Start, which becomes Rerun once there is a
        result, and beside it, only then, Save and adopt, which activates the
@@ -65,9 +73,13 @@ export default {
           const answer = ctx.held();
           if (!answer?.accepted) { ctx.settle(null, "Measure first."); ctx.refresh(); return; }
           try {
+            const { images, ...numbers } = answer;
             const where = await ctx.setup.publish("orientation", {
               rotation_deg: answer.orientation.rotation_deg, reflection: answer.orientation.reflection,
-            });
+            }, [
+              ...(answer.diagnostic_url ? [{ name: "orientation.png", picture: answer.diagnostic_url }] : []),
+              { name: "orientation_measurement.json", note: numbers },
+            ]);
             ctx.settle(`${answer.orientation.rotation_deg}°${answer.orientation.reflection ? " mirrored" : ""} · adopted`,
               "Adopted.");
           } catch (why) { ctx.settle(null, `Adopting failed — ${why.message}`); }

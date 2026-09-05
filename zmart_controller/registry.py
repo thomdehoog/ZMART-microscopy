@@ -79,7 +79,9 @@ def register(connection: dict[str, Any], *, ops: dict[str, Any]) -> None:
     ``connection`` is the variable dict forwarded to ``connect`` at session open.
     It must carry the ``vendor`` / ``microscope`` / ``api`` identity the registry
     keys on, and may carry any driver-specific extras. ``ops`` must cover every
-    name in :data:`OPS` (``disconnect`` is optional). Raises ``ValueError`` if an
+    name in :data:`OPS` (``disconnect`` is optional, and so is
+    ``configurations(connection)``, which lists the configurations a machine
+    keeps so a session can be opened on one of them). Raises ``ValueError`` if an
     op is missing or the connection identity is incomplete. Registering the same
     identity twice logs a warning and overwrites the earlier entry (last wins).
     """

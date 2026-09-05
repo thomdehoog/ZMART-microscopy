@@ -139,7 +139,11 @@ export default {
     const target = bySlot(current.target);
     const work = cell(`Calibration — ${reference?.name ?? "reference"} vs ${target?.name ?? "target"}`);
     {
-      const viewKey = (side) => `${cal.reference}-${cal.current}:${side}`;
+      /* A view's name doubles as a file name in the configuration, so it
+         carries no colon: Windows would refuse it. */
+      const viewKey = (side) => `${cal.reference}-${cal.current}-${side}`;
+      const kept = ctx.standing()?.evidence_urls ?? {};
+      const keptAs = (what) => kept[`${cal.reference}-${cal.current}-${what}.png`] ?? null;
 
       /* focus: the reference and the target, each its own curve */
       const focus = part(work.body, 1, "Focus (Z)",
@@ -171,6 +175,8 @@ export default {
             + (wrong ? ` — expected ${lensLabel(lens)}` : ""),
             bracketed && !wrong ? "ok" : "bad"));
           if (view.diagnostic_url) focus.append(picture(view.diagnostic_url, `${side} focus curve and sharpest slice`));
+        } else if (keptAs(`${side}_focus`)) {
+          focus.append(picture(keptAs(`${side}_focus`), `${side} focus curve, as measured for the configuration`));
         }
       }
 
@@ -196,6 +202,9 @@ export default {
           held.accepted ? "ok" : "bad"));
         if (held.why) xy.append(note(held.why, "bad"));
         if (held.diagnostic_url) xy.append(picture(held.diagnostic_url, "the two objectives overlaid, as acquired and after the correction"));
+      } else if (keptAs("objective_pair")) {
+        xy.append(note("As measured for the configuration:"));
+        xy.append(picture(keptAs("objective_pair"), "the two objectives overlaid, as measured for the configuration"));
       }
     }
 
@@ -235,8 +244,24 @@ export default {
           const schema = standing?.document?.schema_version;
           const document_ = schema !== undefined ? { schema_version: schema, objectives } : { objectives };
           const measured = slots.filter((slot) => cal.presets[slot].state === "measured").length;
+          /* What was measured travels with the document: each measured
+             preset's two focus sheets, its overlay, and its numbers. */
+          const evidence = [];
+          for (const slot of slots) {
+            const preset = cal.presets[slot];
+            const stem = `${reference.slot}-${slot}`;
+            for (const side of ["reference", "target"]) {
+              const url = preset.views?.[side]?.diagnostic_url;
+              if (url) evidence.push({ name: `${stem}-${side}_focus.png`, picture: url });
+            }
+            if (preset.answer?.diagnostic_url) evidence.push({ name: `${stem}-objective_pair.png`, picture: preset.answer.diagnostic_url });
+            if (preset.answer && !preset.answer.failed) {
+              const { images, ...numbers } = preset.answer;
+              evidence.push({ name: `${stem}-measurement.json`, note: numbers });
+            }
+          }
           try {
-            const where = await ctx.setup.publish("calibration", document_);
+            const where = await ctx.setup.publish("calibration", document_, evidence);
             ctx.settle(`${reference.name} · ${measured} of ${slots.length} measured · adopted`,
               "Adopted.");
           } catch (why) { ctx.settle(null, `Adopting failed — ${why.message}`); }

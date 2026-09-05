@@ -216,6 +216,7 @@ let stageWatch = null;
 
   const state = {
     session: { ...DEFAULT_SESSION },
+    configurations: [],
     /* What can be connected to, as the controller lists it (`get_instruments`),
        grouped for the card: microscopes, each with its APIs. Loaded once the
        backend is known; empty until then. */
@@ -369,10 +370,36 @@ let stageWatch = null;
       }
       if (!chosenApi()) state.session.api = chosenMicroscope()?.apis[0]?.key ?? null;
       renderSetup(); renderActionBar();
+      return listConfigurations();
     }).catch((why) => {
       state.instruments = [];
       state.session.microscope = null; state.session.api = null;
       console.warn(`could not list the instruments: ${why.message}`);
+      renderSetup(); renderActionBar();
+    });
+  }
+
+  /* The configurations the chosen machine keeps, newest first, so the card
+     can offer them before anything is connected. The newest is chosen when
+     none is, or when the one chosen belongs to another machine. A backend
+     with no configurations to offer -- the setup's, which chooses its own
+     -- lists none. */
+  function listConfigurations() {
+    const connection = chosenConnection();
+    if (!connection || !backend.configurations) {
+      state.configurations = []; state.session.configuration = null;
+      renderSetup(); renderActionBar();
+      return Promise.resolve();
+    }
+    return backend.configurations(connection).then((list) => {
+      state.configurations = list ?? [];
+      if (!state.configurations.some((c) => c.id === state.session.configuration)) {
+        state.session.configuration = state.configurations[0]?.id ?? null;
+      }
+      renderSetup(); renderActionBar();
+    }).catch((why) => {
+      state.configurations = []; state.session.configuration = null;
+      console.warn(`could not list the configurations: ${why.message}`);
       renderSetup(); renderActionBar();
     });
   }
@@ -1586,10 +1613,10 @@ let stageWatch = null;
   function newSetupRun() {
     return { held: {}, views: {}, here: null, hereProblem: null, moveUm: 40,
       limitsDoc: null, standing: {}, published: {}, describe: null,
-      /* The setup session this run works in -- one pass through the
-         workflow, kept so it can be reopened -- and the ones the machine
+      /* The configuration this run works in -- one pass through the
+         workflow, a folder the machine keeps -- and the ones the machine
          has. Chosen under Connect; the steps stay shut until it is. */
-      session: null, sessions: [],
+      configuration: null, configurations: [],
       /* The optics step's calibration: the lenses the driver lists, the one
          chosen as the reference, and one preset per other lens, each holding
          the offset it will be published with. See presetsAgainst(). */
@@ -1637,12 +1664,14 @@ let stageWatch = null;
   async function primeSetupRun(info) {
     const seam = backend.setup;
     setupRun.describe = info?.describe ?? (await seam.status())?.describe ?? null;
-    try { setupRun.sessions = (await seam.sessions()).sessions ?? []; } catch (why) { setupRun.sessions = []; }
-    /* What each step starts from: the session's document where it holds
-       one, else what the driver reads -- published, or its default. */
-    const held = setupRun.session?.documents ?? {};
+    try {
+      const listed = await seam.configurations();
+      setupRun.configurations = listed.configurations ?? [];
+      setupRun.configuration = listed.current ?? setupRun.configuration;
+    } catch (why) { setupRun.configurations = []; }
+    /* What each step starts from: what the driver reads inside the
+       configuration being stood on -- published there, or its default. */
     for (const name of ["limits", "orientation", "calibration", "origin"]) {
-      if (held[name]) { setupRun.standing[name] = { source: "session", document: held[name] }; continue; }
       try { setupRun.standing[name] = await seam.read(name); } catch (why) { setupRun.standing[name] = null; }
     }
     setupRun.limitsDoc = setupRun.standing.limits?.document
@@ -1673,34 +1702,34 @@ let stageWatch = null;
     return null;
   };
 
-  /* Entering a session: the run starts over from what the session holds,
-     with the connect step still done and everything after it fresh. */
-  async function enterSession(record) {
+  /* Entering a configuration: the run starts over from what it holds, with
+     the connect step still done and everything after it fresh. A step the
+     configuration already holds a document for counts as done, so a
+     reopened one can be walked to any step and edited there. */
+  async function enterConfiguration(record) {
     const describe = setupRun.describe;
     setupRun = newSetupRun();
     setupRun.describe = describe;
-    setupRun.session = record;
+    setupRun.configuration = record;
     for (const id of [...state.done]) if (id !== "connect") { state.done.delete(id); state.ran.delete(id); delete state.notes[id]; }
     await primeSetupRun(null);
-    /* A step the session already holds a document for counts as done, so a
-       reopened session can be walked to any step and edited there. */
-    for (const [id, document] of Object.entries(record.documents ?? {})) {
-      if (!document || !steps().some((st) => st.id === id)) continue;
+    for (const [id, held] of Object.entries(record.has ?? {})) {
+      if (!held || !steps().some((st) => st.id === id)) continue;
       state.done.add(id);
-      state.notes[id] = "held by the session";
+      state.notes[id] = "in the configuration";
     }
   }
 
-  /* A configuration step's channel, or -- before a session is chosen under
-     Connect -- the one sentence saying so, since every step starts from
-     what the session holds. */
+  /* A configuration step's channel, or -- before a configuration is chosen
+     under Connect -- the one sentence saying so, since every step starts
+     from what it holds. */
   function mountChannel(host, s) {
-    if (s.id !== "connect" && backend.kind === "setup" && !setupRun.session) {
-      const { group, body } = sideGroup("Setup session");
+    if (s.id !== "connect" && backend.kind === "setup" && !setupRun.configuration) {
+      const { group, body } = sideGroup("Configuration");
       group.classList.add("setup-cell");
       const p = document.createElement("p");
       p.className = "setup-note";
-      p.textContent = "Choose a session under Connect first, or start a new one.";
+      p.textContent = "Choose a configuration under Connect first, or start a new one.";
       body.append(p);
       host.append(group);
       return;
@@ -1754,18 +1783,18 @@ let stageWatch = null;
           preset.state = "measured";
         }
       },
-      /* The session this run works in, the ones the machine has, and the
-         two ways to get one. Choosing either re-reads what every step
+      /* The configuration this run works in, the ones the machine has, and
+         the two ways to get one. Choosing either re-reads what every step
          starts from, and forgets what this run measured so far. */
-      session: () => setupRun.session,
-      sessions: () => setupRun.sessions,
-      chooseSession: async (id) => {
-        const record = await backend.setup.openSession(id);
-        await enterSession(record);
+      configuration: () => setupRun.configuration,
+      configurations: () => setupRun.configurations,
+      chooseConfiguration: async (id) => {
+        const record = await backend.setup.openConfiguration(id);
+        await enterConfiguration(record);
       },
-      startSession: async (name) => {
-        const record = await backend.setup.newSession(name);
-        await enterSession(record);
+      startConfiguration: async () => {
+        const record = await backend.setup.newConfiguration();
+        await enterConfiguration(record);
       },
       connected: () => state.done.has("connect"),
       /* After a publish, what stands is what was just written; the cell
@@ -2174,6 +2203,7 @@ let stageWatch = null;
         instruments: () => state.instruments,
         checks: () => state.checks,
         chosenMicroscope, chosenConnection,
+        configurations: backend.configurations ? () => state.configurations : null,
         connect: () => runStep(indexOfStep("connect")),
         /* Closing takes the run with it, for the reason resetRun gives:
            everything after this was read off this session. It works while
@@ -2187,7 +2217,7 @@ let stageWatch = null;
           stage.forgetTheCanvas();
           renderAll();
         },
-        changed: () => { renderSetup(); renderActionBar(); },
+        changed: () => { renderSetup(); renderActionBar(); listConfigurations(); },
       });
     },
   };
@@ -2206,8 +2236,8 @@ let stageWatch = null;
     pad.className = "side-pad";
     card(pad);
     /* A workflow's own step may add to the card -- the driver-configuration
-       workflow asks, under Connect, which setup session to work in, because
-       every step after it starts from what that session holds. */
+       workflow asks, under Connect, which configuration to work in, because
+       every step after it starts from what that configuration holds. */
     const s = step(state.activeIdx);
     if (s.channel) mountChannel(pad, s);
     host.append(pad);

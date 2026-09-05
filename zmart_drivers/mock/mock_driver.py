@@ -286,12 +286,16 @@ def _stand_on_the_published_configuration(handle: MockHandle) -> None:
     # that registering the driver stays free of the setup side
 
     root = mock_setup.where_the_machine_is(handle.connection)
-    origin = mock_setup.newest(root, "origin")
+    # The configuration named at connect, else the newest -- fixed for the
+    # whole session, so nothing published later moves it.
+    handle.configuration = mock_setup.configuration_root(root, handle.connection.get("configuration")).name
+    tree = root / handle.configuration
+    origin = mock_setup.newest(tree, "origin")
     if origin:
         handle.origin_x = float(origin.get("x_um", 0.0))
         handle.origin_y = float(origin.get("y_um", 0.0))
         handle.origin_z = float(origin.get("z_um", 0.0))
-    limits = mock_setup.newest(root, "limits")
+    limits = mock_setup.newest(tree, "limits")
     handle.envelope = {
         axis: [float(v) for v in (limits or {}).get(axis, {}).get("range", mock_setup.PHYSICAL_UM[axis])]
         for axis in ("x_um", "y_um", "z_um")
@@ -572,7 +576,8 @@ def _as_this_rig_saves_it(np, handle: MockHandle, aligned):
         return aligned
     rig = mock_setup.read_rig(root)
     raw = mock_setup.as_the_camera_records(np, aligned, rig["camera"])
-    published = mock_setup.newest(root, "orientation") or {}
+    tree = root / handle.configuration if getattr(handle, "configuration", None) else mock_setup.configuration_root(root)
+    published = mock_setup.newest(tree, "orientation") or {}
     return mock_setup.as_the_stage_sees(np, raw, published)
 
 
@@ -881,6 +886,14 @@ def get_info(handle: MockHandle) -> dict:
     }
 
 
+def configurations(connection: dict | None = None) -> list:
+    """The configurations this rig has, newest first, so a session can be
+    opened on one of them. Reads the machine root; connects to nothing."""
+    from . import mock_setup  # noqa: PLC0415
+
+    return mock_setup.list_configurations(connection)
+
+
 def register_mock() -> None:
     """Register this mock driver into the controller's registry.
 
@@ -904,5 +917,6 @@ def register_mock() -> None:
             "get_procedures": get_procedures,
             "run_procedure": run_procedure,
             "get_info": get_info,
+            "configurations": configurations,
         },
     )

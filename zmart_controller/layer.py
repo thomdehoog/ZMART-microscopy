@@ -187,23 +187,56 @@ class Session:
             disconnect(self._handle)
 
 
+def get_configurations(instrument: dict[str, Any]) -> list[dict]:
+    """The configurations a machine has, newest first, without connecting.
+
+    Each is ``{"id", "created_at", "has": {"limits": bool, ...}}``: a folder
+    the machine keeps, holding its limits, orientation, calibration and
+    origin as one complete set. A driver that keeps none answers ``[]``.
+    """
+    ops, connection = resolve(instrument)
+    lister = ops.get("configurations")
+    return [] if lister is None else list(lister(connection))
+
+
 def set_instrument(instrument: dict[str, Any]) -> Session:
     """Select an instrument and open the session.
 
-    ``instrument`` is one of the connection dicts from :func:`get_instruments`.
-    This is the connector: it resolves the driver and forwards the connection
-    dict to the driver's ``connect`` untouched. There is no reference to declare
-    up front: positions are micrometers from the frame origin the driver stands
-    on, which is part of the machine's published configuration (set through
-    ``zmart_setup``, never through a session) and read by the driver at
-    connect. A machine with no published origin counts from its absolute
-    stage zero. Option menus are not cached here -- ``get_*`` calls forward
+    ``instrument`` is one of the connection dicts from :func:`get_instruments`,
+    with ``configuration`` set to the id of one of
+    :func:`get_configurations`'s entries. That configuration is what the
+    session stands on -- the machine's limits, its stage-to-image orientation,
+    its objective calibration and the origin its positions count from -- and
+    it cannot change while the session is open. A configuration without
+    limits is refused here, before anything is opened: a session is never
+    left without an envelope. The driver itself may connect without one
+    (its own setup does), which is why the refusal is the controller's.
+
+    A driver that keeps no configurations is connected as it always was.
+    The connection dict is otherwise forwarded to the driver's ``connect``
+    untouched. Option menus are not cached here -- ``get_*`` calls forward
     live.
 
-    Returns a connected :class:`Session`. Raises ``ValueError`` if the instrument
-    identity matches no registered driver.
+    Returns a connected :class:`Session`. Raises ``ValueError`` if the
+    instrument identity matches no registered driver, or names no known
+    configuration; ``RuntimeError`` if the configuration has no limits.
     """
     ops, connection = resolve(instrument)
+    if "configurations" in ops:
+        chosen = connection.get("configuration")
+        if not chosen:
+            raise ValueError(
+                "connect needs a configuration: set instrument['configuration'] to the id "
+                "of one of get_configurations(instrument)"
+            )
+        known = {c["id"]: c for c in ops["configurations"](connection)}
+        if chosen not in known:
+            raise ValueError(f"no configuration {chosen!r}; known: {sorted(known, reverse=True)}")
+        if not known[chosen].get("has", {}).get("limits"):
+            raise RuntimeError(
+                f"configuration {chosen} has no limits; a session is never opened without an "
+                "envelope. Define them in the ZMART driver configuration workflow first."
+            )
     handle = ops["connect"](connection)
     context = {key: connection[key] for key in IDENTITY}
     return Session(ops, handle, context)

@@ -121,6 +121,7 @@ def open_setup(connection: dict) -> SetupHandle:
         api_delay_ms=connection.get("api_delay_ms"),
         load_limits=True,
         load_calibration=False,
+        configuration=connection.get("configuration"),
     )
     return SetupHandle(client=client, connection=dict(connection), hash6=run_hash())
 
@@ -135,7 +136,7 @@ def describe(handle: SetupHandle) -> dict:
     checks = {
         "api": "answering" if _adapter._try(lambda: drv.ping(handle.client)) else "failed — no answer",
         "limits": _say_limits_source(machine),
-        "machine root": str(machine.snapshot_root()),
+        "configuration": machine.snapshot_root().name,
     }
     return {
         "label": "Leica Stellaris 5 · Navigator Expert",
@@ -318,6 +319,7 @@ def read(handle: SetupHandle, subsystem: str, *, fresh: bool = False) -> dict:
     # says whether it was measured, and a calibration with no objectives was
     # never adopted. Limits are the exception: the driver refuses to seed them,
     # because their mere presence under ProgramData means operator-published.
+    evidence: list = []
     if subsystem == "limits":
         try:
             path, _ = machine.resolve(_machine.LIMITS_FILENAME)
@@ -328,6 +330,7 @@ def read(handle: SetupHandle, subsystem: str, *, fresh: bool = False) -> dict:
     elif subsystem == "orientation":
         path, _ = machine.resolve(_machine.ORIENTATION_FILENAME)
         document = json.loads(Path(path).read_text(encoding="utf-8"))
+        evidence = _evidence(Path(path).parent, _machine.ORIENTATION_FILENAME)
         source = "published" if document.get("measured") else "default"
     elif subsystem == "calibration":
         path, _ = machine.resolve_calibration()
@@ -335,14 +338,24 @@ def read(handle: SetupHandle, subsystem: str, *, fresh: bool = False) -> dict:
         source = "published" if document.get("objectives") else "default"
     else:
         raise ValueError(f"unknown subsystem {subsystem!r}")
-    return {"document": document, "source": source, "path": str(path)}
+    if subsystem == "calibration":
+        evidence = _evidence(Path(path).parent, _machine.CALIBRATION_FILENAME)
+    return {"document": document, "source": source, "path": str(path),
+            "evidence": evidence if source == "published" else []}
 
 
-def publish(handle: SetupHandle, subsystem: str, document: dict) -> dict:
-    """Validate the way each subsystem validates, then append a dated snapshot."""
+def publish(handle: SetupHandle, subsystem: str, document: dict, evidence=()) -> dict:
+    """Validate the way each subsystem validates, then append a dated snapshot.
+
+    ``evidence`` -- the figures and numbers behind the document -- is archived
+    into the orientation and calibration snapshots, which the machine profile
+    already archives files into; limits and origin have their own archiving
+    (the LAS X template) or none, and keep no evidence.
+    """
     _require_open(handle)
     machine = _machine.MACHINE
     moment = datetime.now(timezone.utc)
+    archive = [str(p) for p in (evidence or ()) if Path(p).is_file()]
     if subsystem == "limits":
         template_paths = (handle.last_markers or {}).get("template_paths") or ()
         published = _limits_config.adopt_limits(
@@ -359,22 +372,37 @@ def publish(handle: SetupHandle, subsystem: str, document: dict) -> dict:
             rotate_deg=int(document["rotation_deg"]), mirrored=bool(document["reflection"]),
         )
         snapshot = machine.publish_snapshot(
-            moment, orientation=orientation_config(orientation, measured=True),
+            moment, orientation=orientation_config(orientation, measured=True), archive_paths=archive,
         )
-        return {"path": str(snapshot / _machine.ORIENTATION_FILENAME), "snapshot": str(snapshot)}
+        return {"path": str(snapshot / _machine.ORIENTATION_FILENAME), "snapshot": str(snapshot),
+                "evidence": _evidence(snapshot, _machine.ORIENTATION_FILENAME)}
     if subsystem == "calibration":
         from navigator_expert.calibration.core import model as _model
 
         config = _model.prepared_calibration(document)
         name = document.get("calibration_name")
-        snapshot = machine.publish_snapshot(moment, calibration=config, calibration_name=name)
+        snapshot = machine.publish_snapshot(
+            moment, calibration=config, calibration_name=name, archive_paths=archive,
+        )
         relpath = machine.calibration_relpath(name) if name else Path("calibration.json")
-        return {"path": str(snapshot / relpath), "snapshot": str(snapshot), "calibration_name": name}
+        return {"path": str(snapshot / relpath), "snapshot": str(snapshot), "calibration_name": name,
+                "evidence": _evidence(snapshot, _machine.CALIBRATION_FILENAME)}
     if subsystem == "origin":
         payload = _origin_payload(handle, document)
         path = machine.write_origin(payload, moment=moment)
         return {"path": str(path), "snapshot": str(path.parent)}
     raise ValueError(f"unknown subsystem {subsystem!r}")
+
+
+def _evidence(snapshot: Path, document_name: str) -> list[str]:
+    """The figures and numbers archived beside a snapshot's document: its
+    top-level PNG and JSON files, the document itself aside."""
+    if not snapshot.is_dir():
+        return []
+    return sorted(
+        str(p) for p in snapshot.iterdir()
+        if p.is_file() and p.suffix in (".png", ".json") and p.name != document_name
+    )
 
 
 def _origin_payload(handle: SetupHandle, document: dict) -> dict:
@@ -412,10 +440,34 @@ def _origin_payload(handle: SetupHandle, document: dict) -> dict:
 # ---------------------------------------------------------------------------
 
 
-def home(handle) -> str:
-    """This microscope's ProgramData root, where its published snapshots --
-    and so its setup sessions -- are kept."""
-    return str(_machine.MACHINE.snapshot_root())
+def configurations(connection: dict | None = None) -> list:
+    """Every configuration this microscope has, newest first, as a listing
+    shows them. Needs no connection: they are folders under ProgramData."""
+    machine = _machine.MACHINE
+    return [machine.describe_configuration(path) for path in reversed(machine.configurations())]
+
+
+def new_configuration(handle) -> dict:
+    """Start a configuration as a full copy of what stands now, and stand on it."""
+    _require_open(handle)
+    machine = _machine.MACHINE
+    path = machine.new_configuration()
+    _machine.use_configuration(path.name)
+    return machine.describe_configuration(path)
+
+
+def use_configuration(handle, configuration: str) -> dict:
+    """Stand on one of this microscope's configurations, by id."""
+    _require_open(handle)
+    _machine.use_configuration(str(configuration))
+    return _machine.MACHINE.describe_configuration(_machine.MACHINE.snapshot_root())
+
+
+def configuration(handle) -> dict | None:
+    """The configuration this setup stands on, if one has been chosen."""
+    _require_open(handle)
+    chosen = _machine.chosen_configuration()
+    return None if chosen is None else _machine.MACHINE.describe_configuration(_machine.MACHINE.api_root() / chosen)
 
 
 def register() -> None:
@@ -434,7 +486,10 @@ def register() -> None:
             "objective": objective,
             "objectives": objectives,
             "markers": markers,
-            "home": home,
+            "configurations": configurations,
+            "new_configuration": new_configuration,
+            "use_configuration": use_configuration,
+            "configuration": configuration,
             "read": read,
             "publish": publish,
         },

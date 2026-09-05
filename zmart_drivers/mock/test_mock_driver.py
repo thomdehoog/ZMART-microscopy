@@ -30,6 +30,9 @@ def session(tmp_path):
     instrument["output_root"] = str(tmp_path)
     # the instrument's own settings, kept out of the user's home while testing
     instrument["state_file"] = str(tmp_path / "instrument.json")
+    from zmart_drivers.mock import mock_setup
+
+    instrument["configuration"] = mock_setup.configured()
     opened = zmart_controller.set_instrument(instrument)
     try:
         yield opened

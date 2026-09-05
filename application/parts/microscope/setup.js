@@ -62,26 +62,28 @@ export const setupBackend = {
     return ask("/api/setup/measure", { what, ...extra });
   },
 
-  /** Write a dated snapshot of one subsystem. When a session is open, what
-      was published is kept as that session's document too. */
-  async publish(subsystem, document) {
-    return ask("/api/setup/publish", { subsystem, document });
+  /** Write a dated snapshot of one subsystem into the configuration being
+      stood on. `evidence` names what to keep beside it: pictures by the
+      route a measure answered with (`{name, picture}`), and numbers to keep
+      as JSON (`{name, note}`), so a reopened configuration can show them. */
+  async publish(subsystem, document, evidence = []) {
+    return ask("/api/setup/publish", { subsystem, document, evidence });
   },
 
-  /** The setup sessions kept for this machine, newest first, and which one
-      is open. */
-  async sessions() {
-    return ask("/api/setup/sessions");
+  /** The configurations this machine keeps, newest first, and the one the
+      setup stands on, if chosen. */
+  async configurations() {
+    return ask("/api/setup/configurations");
   },
 
-  /** Reopen a session by id. Answers with its record, documents included. */
-  async openSession(id) {
-    return ask("/api/setup/session", { open: id });
+  /** Stand on one of the machine's configurations, by id. */
+  async openConfiguration(id) {
+    return ask("/api/setup/configuration", { open: id });
   },
 
-  /** Start a session from what the machine has now; `name` may be empty. */
-  async newSession(name) {
-    return ask("/api/setup/session", { new: name ?? "" });
+  /** Start a configuration as a full copy of what stands now, and stand on it. */
+  async newConfiguration() {
+    return ask("/api/setup/configuration", { new: true });
   },
 };
 
@@ -104,6 +106,10 @@ export const setupAsBackend = {
   async instruments() {
     return setupBackend.instruments();
   },
+
+  /* No configuration dropdown on the card: the setup chooses its own, under
+     Connect, once the driver is open and can list them. */
+  configurations: null,
 
   async connect(session, { onChecks, onCheck } = {}) {
     const opened = await setupBackend.open({ ...session?.connection, password: session?.password });

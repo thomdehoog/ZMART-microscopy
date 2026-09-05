@@ -36,8 +36,14 @@ Every op takes the driver's own handle first. Required:
   currently stands, published or bundled default, with ``source`` saying
   which; with ``fresh`` the bundled default regardless, which is what a
   setup that starts over begins from.
-- ``publish(handle, subsystem, document) -> dict`` -- validate and write a dated
-  snapshot; answer with where it went.
+- ``publish(handle, subsystem, document, evidence=()) -> dict`` -- validate
+  and write a dated snapshot; answer with where it went. ``evidence`` names
+  files to keep beside the document in the snapshot -- the figures the
+  analysis drew and the measurement's numbers -- so what was measured can be
+  shown again when the configuration is reopened. A driver that has nowhere
+  to keep them for a subsystem may leave them out.
+- ``read(...)`` answers, when published, with ``evidence``: the paths of the
+  files kept beside the document, or ``[]``.
 
 Optional -- a driver that cannot do them leaves them out, and the page greys
 out what depends on them:
@@ -49,10 +55,13 @@ out what depends on them:
   instrument's own list rather than from typing.
 - ``markers(handle) -> {"points": [{"x_um", "y_um"}, ...]}`` -- points the
   operator placed in the vendor's software to say where the safe corners are.
-- ``home(handle) -> str`` -- a folder the driver keeps this machine's ZMART
-  configuration in. Setup sessions (see :mod:`zmart_setup.sessions`) are
-  kept under it, so the record of how a machine was set up lives with the
-  machine. A driver without one gets its sessions under the user's home.
+- ``configurations(connection) -> [{"id", "created_at", "has": {...}}, ...]``
+  -- every configuration the machine has, newest first, without opening the
+  instrument: the folders under the machine's configuration root.
+- ``new_configuration(handle) -> {...}`` -- start a configuration as a full
+  copy of what stands now, and stand on it.
+- ``use_configuration(handle, id) -> {...}`` -- stand on one by id.
+- ``configuration(handle) -> {...} | None`` -- the one being stood on.
 
 Error contract: report failure by raising (``ValueError`` for a caller's
 mistake, ``RuntimeError`` for an instrument's refusal or failure), never by
@@ -78,7 +87,10 @@ OPS: tuple[str, ...] = (
 )
 
 #: A driver may supply these; the page asks before relying on them.
-OPTIONAL_OPS: tuple[str, ...] = ("objective", "objectives", "markers", "home")
+OPTIONAL_OPS: tuple[str, ...] = (
+    "objective", "objectives", "markers",
+    "configurations", "new_configuration", "use_configuration", "configuration",
+)
 
 #: The keys the registry indexes on -- the same three the controller uses.
 IDENTITY: tuple[str, ...] = ("vendor", "microscope", "api")

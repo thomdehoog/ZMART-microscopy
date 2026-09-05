@@ -177,7 +177,7 @@ class Api:
         root = self._root()
         said = {}
         for subsystem in mock_setup.SUBSYSTEM_FILES:
-            document = mock_setup.newest(root, subsystem)
+            document = mock_setup.newest(mock_setup.configuration_root(root), subsystem)
             said[subsystem] = self._say(subsystem, document)
         return said
 

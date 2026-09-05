@@ -33,9 +33,9 @@ export default {
     const adopted = ctx.publishedNote()?.startsWith("Adopted") ?? false;
     const standing = ctx.standing();
     if (!adopted) {
-      if (standing?.source === "published" || standing?.source === "session") {
+      if (standing?.source === "published") {
         const d = standing.document?.origin ?? standing.document ?? {};
-        origin.body.append(note(`${standing.source === "session" ? "This session" : "Published"}: `
+        origin.body.append(note("Published: "
           + `(${Number(d.x_um).toFixed(0)}, ${Number(d.y_um).toFixed(0)}, `
           + `${Number(d.z_um ?? d.z_focus_um).toFixed(1)}) µm.`));
       } else if (standing) {

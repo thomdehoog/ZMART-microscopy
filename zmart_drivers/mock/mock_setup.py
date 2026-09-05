@@ -24,7 +24,7 @@ out turned too, as they would on a rig nobody has measured.
 
 ## The machine root
 
-Published documents go to ``<machine root>/<subsystem>/<datetime>/<file>``,
+Published documents go to ``<machine root>/configuration_<datetime>/<subsystem>/<datetime>/<file>``,
 the same shape the Leica driver uses under ProgramData, so a reader of one
 tree can read the other. The root is ``connection["machine_root"]``, else the
 ``ZMART_MOCK_MACHINE`` environment variable, else ``~/.zmart-mock/machine``.
@@ -39,6 +39,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -129,8 +130,82 @@ def _snapshot_name(moment: datetime) -> str:
     return moment.astimezone(timezone.utc).strftime(_SNAPSHOT_FORMAT)
 
 
+#: A configuration folder is ``configuration_<datetime>``, the same shape the
+#: Leica keeps under ProgramData: one folder per pass through the workflow,
+#: each holding the four subsystem trees in full.
+CONFIGURATION_PREFIX = "configuration_"
+_CONFIGURATION_RE = re.compile(r"^configuration_\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{6}Z$")
+
+
+def configurations(root: Path) -> list[Path]:
+    """Every configuration under the machine root, oldest first."""
+    if not root.is_dir():
+        return []
+    return sorted(p for p in root.iterdir() if p.is_dir() and _CONFIGURATION_RE.match(p.name))
+
+
+def configuration_root(root: Path, chosen: str | None = None) -> Path:
+    """The configuration folder to stand on: ``chosen`` by name, else the
+    newest, else one seeded now so the machine has somewhere to stand."""
+    if chosen:
+        path = root / chosen
+        if not (_CONFIGURATION_RE.match(chosen) and path.is_dir()):
+            raise FileNotFoundError(f"no configuration {chosen} under {root}")
+        return path
+    found = configurations(root)
+    if found:
+        return found[-1]
+    seeded = root / (CONFIGURATION_PREFIX + _snapshot_name(datetime.now(timezone.utc)))
+    for subsystem in SUBSYSTEM_FILES:
+        (seeded / subsystem).mkdir(parents=True, exist_ok=True)
+    return seeded
+
+
+def new_configuration(root: Path) -> Path:
+    """Start a configuration as a full copy of what stands now: the newest
+    snapshot of each subsystem of the newest configuration."""
+    found = configurations(root)
+    name = CONFIGURATION_PREFIX + _snapshot_name(datetime.now(timezone.utc))
+    while found and name <= found[-1].name:
+        time.sleep(0.001)
+        name = CONFIGURATION_PREFIX + _snapshot_name(datetime.now(timezone.utc))
+    target = root / name
+    for subsystem in SUBSYSTEM_FILES:
+        (target / subsystem).mkdir(parents=True)
+        if found:
+            latest = snapshots(found[-1], subsystem)
+            if latest:
+                shutil.copytree(latest[-1], target / subsystem / latest[-1].name)
+    return target
+
+
+def configured(connection: dict | None = None) -> str:
+    """The id of a configuration the controller will accept: the newest,
+    given the rig's default limits if it has none yet. What a test, or an
+    example, calls before connecting through the controller -- an operator
+    does the same in step 2 of the workflow."""
+    root = where_the_machine_is(connection)
+    root.mkdir(parents=True, exist_ok=True)
+    tree = configuration_root(root)
+    if not snapshots(tree, "limits"):
+        _publish(tree, "limits", {**_default("limits"), "published_at": datetime.now(timezone.utc).isoformat()})
+    return tree.name
+
+
+def describe_configuration(path: Path) -> dict:
+    """One configuration as a listing shows it: id, when it was started, and
+    which subsystems hold a published document."""
+    stamp = path.name[len(CONFIGURATION_PREFIX):]
+    moment = datetime.strptime(stamp, _SNAPSHOT_FORMAT).replace(tzinfo=timezone.utc)
+    return {
+        "id": path.name,
+        "created_at": moment.isoformat(),
+        "has": {subsystem: bool(snapshots(path, subsystem)) for subsystem in SUBSYSTEM_FILES},
+    }
+
+
 def snapshots(root: Path, subsystem: str) -> list[Path]:
-    """Every published snapshot of one subsystem, oldest first."""
+    """Every published snapshot of one subsystem under one configuration, oldest first."""
     tree = root / subsystem
     if not tree.is_dir():
         return []
@@ -172,6 +247,13 @@ class SetupHandle:
     connection: dict = field(default_factory=dict)
     opened_at: float = 0.0
     closed: bool = False
+    #: The configuration this setup stands on, by folder name, once chosen.
+    configuration: str | None = None
+
+    @property
+    def tree(self) -> Path:
+        """The configuration folder read from and published into."""
+        return configuration_root(self.root, self.configuration)
 
 
 def _require_open(handle: SetupHandle) -> None:
@@ -186,6 +268,9 @@ def open_setup(connection: dict) -> SetupHandle:
     root.mkdir(parents=True, exist_ok=True)
     if not (root / RIG_FILENAME).exists():
         write_rig(root, read_rig(root))
+    # A first configuration is seeded so the machine has one to stand on --
+    # the same thing the Leica does at connect.
+    configuration_root(root)
     return SetupHandle(root=root, connection=dict(connection), opened_at=time.monotonic())
 
 
@@ -204,6 +289,7 @@ def describe(handle: SetupHandle) -> dict:
             "stage": _say_position(rig["stage"]),
             "objective": f"slot {lens['slot']} · {lens['name']}",
             "machine root": str(handle.root),
+            "configuration": handle.tree.name,
         },
         "subsystems": {
             "limits": {
@@ -290,11 +376,32 @@ def objectives(handle: SetupHandle) -> list:
             for o in read_rig(handle.root)["objectives"]]
 
 
-def home(handle: SetupHandle) -> str:
-    """The machine root: where this rig's published snapshots, and so its
-    setup sessions, are kept."""
+def list_configurations(connection: dict | None = None) -> list:
+    """Every configuration this rig has, newest first. Needs no open handle."""
+    root = where_the_machine_is(connection)
+    return [describe_configuration(p) for p in reversed(configurations(root))]
+
+
+def start_configuration(handle: SetupHandle) -> dict:
+    """Start a configuration as a full copy of what stands now, and stand on it."""
     _require_open(handle)
-    return str(handle.root)
+    path = new_configuration(handle.root)
+    handle.configuration = path.name
+    return describe_configuration(path)
+
+
+def use_configuration(handle: SetupHandle, configuration: str) -> dict:
+    """Stand on one of the rig's configurations, by id."""
+    _require_open(handle)
+    path = configuration_root(handle.root, str(configuration))
+    handle.configuration = path.name
+    return describe_configuration(path)
+
+
+def current_configuration(handle: SetupHandle) -> dict | None:
+    """The configuration this setup stands on, or None before one is chosen."""
+    _require_open(handle)
+    return None if handle.configuration is None else describe_configuration(handle.tree)
 
 
 def markers(handle: SetupHandle) -> dict:
@@ -419,11 +526,12 @@ def read(handle: SetupHandle, subsystem: str, *, fresh: bool = False) -> dict:
     _require_open(handle)
     if subsystem not in SUBSYSTEM_FILES:
         raise ValueError(f"unknown subsystem {subsystem!r}")
-    found = [] if fresh else snapshots(handle.root, subsystem)
+    found = [] if fresh else snapshots(handle.tree, subsystem)
     if found:
         document = json.loads((found[-1] / SUBSYSTEM_FILES[subsystem]).read_text(encoding="utf-8"))
-        return {"document": document, "source": "published", "path": str(found[-1])}
-    return {"document": _default(subsystem), "source": "default", "path": None}
+        return {"document": document, "source": "published", "path": str(found[-1]),
+                "evidence": _evidence(found[-1])}
+    return {"document": _default(subsystem), "source": "default", "path": None, "evidence": []}
 
 
 def validate(subsystem: str, document: dict) -> dict:
@@ -463,12 +571,28 @@ def validate(subsystem: str, document: dict) -> dict:
     raise ValueError(f"unknown subsystem {subsystem!r}")
 
 
-def publish(handle: SetupHandle, subsystem: str, document: dict) -> dict:
+def publish(handle: SetupHandle, subsystem: str, document: dict, evidence=()) -> dict:
     _require_open(handle)
     checked = validate(subsystem, document)
     checked = {**checked, "published_at": datetime.now(timezone.utc).isoformat()}
-    path = _publish(handle.root, subsystem, checked)
-    return {"path": str(path), "snapshot": str(path.parent), "document": checked}
+    path = _publish(handle.tree, subsystem, checked)
+    # The figures and numbers behind the document, kept beside it so a
+    # reopened configuration can show what was measured.
+    kept = []
+    for source in evidence or ():
+        source = Path(source)
+        if not source.is_file():
+            continue
+        target = path.parent / "data" / source.name
+        target.parent.mkdir(exist_ok=True)
+        shutil.copy2(source, target)
+        kept.append(str(target))
+    return {"path": str(path), "snapshot": str(path.parent), "document": checked, "evidence": kept}
+
+
+def _evidence(snapshot: Path) -> list[str]:
+    data = snapshot / "data"
+    return sorted(str(p) for p in data.iterdir() if p.is_file()) if data.is_dir() else []
 
 
 # ---------------------------------------------------------------------------
@@ -494,7 +618,10 @@ def register_mock_setup() -> None:
             "objective": objective,
             "objectives": objectives,
             "markers": markers,
-            "home": home,
+            "configurations": list_configurations,
+            "new_configuration": start_configuration,
+            "use_configuration": use_configuration,
+            "configuration": current_configuration,
             "read": read,
             "publish": publish,
         },

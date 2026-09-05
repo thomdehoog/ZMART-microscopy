@@ -23,6 +23,7 @@ import time
 from pathlib import Path
 
 import pytest
+from zmart_drivers.mock import mock_setup
 
 def _load_bridge():
     spec = importlib.util.spec_from_file_location(
@@ -540,6 +541,7 @@ def test_a_scan_really_captures_at_every_position(monkeypatch, tmp_path):
     mock_driver.register_mock()
     instrument = next(i for i in zmart_controller.get_instruments() if i["vendor"] == "mock")
     instrument["output_root"] = str(tmp_path)
+    instrument["configuration"] = mock_setup.configured()
     session = zmart_controller.set_instrument(instrument)
     monkeypatch.setattr(bridge, "_session", session)
     try:
@@ -591,6 +593,7 @@ def test_a_scan_stops_and_says_so_when_a_capture_fails(monkeypatch, tmp_path):
     mock_driver.register_mock()
     instrument = next(i for i in zmart_controller.get_instruments() if i["vendor"] == "mock")
     instrument["output_root"] = str(tmp_path)
+    instrument["configuration"] = mock_setup.configured()
     session = zmart_controller.set_instrument(instrument)
 
     class _FailsOnTheSecond:
@@ -641,6 +644,7 @@ def test_the_viewer_makes_a_picture_of_every_field_that_was_imaged(monkeypatch, 
     mock_driver.register_mock()
     instrument = next(i for i in zmart_controller.get_instruments() if i["vendor"] == "mock")
     instrument["output_root"] = str(tmp_path)
+    instrument["configuration"] = mock_setup.configured()
     session = zmart_controller.set_instrument(instrument)
     monkeypatch.setattr(bridge, "_session", session)
     try:
@@ -683,6 +687,7 @@ def test_nothing_is_drawn_for_a_scan_that_has_imaged_nothing(monkeypatch, tmp_pa
     mock_driver.register_mock()
     instrument = next(i for i in zmart_controller.get_instruments() if i["vendor"] == "mock")
     instrument["output_root"] = str(tmp_path)
+    instrument["configuration"] = mock_setup.configured()
     session = zmart_controller.set_instrument(instrument)
     monkeypatch.setattr(bridge, "_session", session)
     try:
@@ -1003,6 +1008,7 @@ def test_a_fresh_connect_forgets_the_last_sessions_runs(monkeypatch, tmp_path):
     mock_driver.register_mock()
     instrument = next(i for i in zmart_controller.get_instruments() if i["vendor"] == "mock")
     instrument["output_root"] = str(tmp_path)
+    instrument["configuration"] = mock_setup.configured()
     bridge._records["overview"] = [{"stale": True}]
     bridge._scan.update(running=False, done=5, of=5, error=None, acquisition_type="overview")
     bridge._focus.update(running=False, done=3, of=3, error=None, points=[{"x": 1}])
@@ -1218,6 +1224,7 @@ def test_a_copy_is_drawn_with_the_display_the_page_asks_with(monkeypatch, tmp_pa
     mock_driver.register_mock()
     instrument = next(i for i in zmart_controller.get_instruments() if i["vendor"] == "mock")
     instrument["output_root"] = str(tmp_path)
+    instrument["configuration"] = mock_setup.configured()
     session = zmart_controller.set_instrument(instrument)
     monkeypatch.setattr(bridge, "_session", session)
     try:
@@ -1280,6 +1287,7 @@ def test_a_targets_scan_is_served_as_one_resolved_store(monkeypatch, tmp_path):
     mock_driver.register_mock()
     instrument = next(i for i in zmart_controller.get_instruments() if i["vendor"] == "mock")
     instrument["output_root"] = str(tmp_path)
+    instrument["configuration"] = mock_setup.configured()
     session = zmart_controller.set_instrument(instrument)
     monkeypatch.setattr(bridge, "_session", session)
     monkeypatch.setattr(bridge, "_run", bridge.prepare_experiment(str(tmp_path), bridge.EXPERIMENT))

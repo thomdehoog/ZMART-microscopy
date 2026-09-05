@@ -24,13 +24,13 @@ from typing import Any
 
 from .layer import Setup
 
-_ANALYSIS_STEPS = Path(__file__).resolve().parents[1] / "zmart_analysis" / "workflows" / "stage_calibration" / "steps"
+_ANALYSIS_STEPS = Path(__file__).resolve().parents[1] / "zmart_analysis" / "workflows" / "driver_configuration" / "steps"
 
 
 def _analysis_step(name: str):
-    """Load one step of the stage_calibration pipeline as the engine would."""
+    """Load one step of the driver_configuration pipeline as the engine would."""
     path = _ANALYSIS_STEPS / f"{name}.py"
-    spec = importlib.util.spec_from_file_location(f"stage_calibration_{name}", path)
+    spec = importlib.util.spec_from_file_location(f"driver_configuration_{name}", path)
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)

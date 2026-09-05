@@ -46,11 +46,11 @@ __author__ = "Thom de Hoog"
 __email__ = "thom.dehoog@zmb.uzh.ch, thomdehoog@gmail.com"
 __affiliation__ = "Center for Microscopy and Image Analysis (ZMB), University of Zurich"
 
-from .layer import Session
+from .layer import Session, get_configurations
 from .layer import set_instrument as _set_instrument
 from .registry import get_instruments
 
-__all__ = ["Session", "disconnect", "get_instruments", "set_instrument"]
+__all__ = ["Session", "disconnect", "get_configurations", "get_instruments", "set_instrument"]
 
 # The module-level active microscope, so ``import zmart_controller; zmart_controller.acquire()`` works.
 _active: Session | None = None

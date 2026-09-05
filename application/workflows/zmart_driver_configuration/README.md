@@ -2,13 +2,14 @@
 
 Five steps, walked before any imaging workflow can stand on the machine:
 
-1. **Connect** — open the driver's *setup*, then choose the **setup session**
+1. **Connect** — open the driver's *setup*, then choose the **configuration**
    to work in: reopen one to see and edit what it holds, or start a new one
-   from what the machine has now. A session is one pass through the steps,
-   kept by the moment it was started; every step after Connect starts from
-   what the session holds, and each Save and adopt is recorded into it. The
-   same step target acquisition
-   starts with, borrowed rather than retyped; only its wording differs.
+   as a full copy of the newest. A configuration is one folder the machine
+   keeps, named by the moment it was started, holding its limits, orientation,
+   objective calibration and origin together. Every step after Connect starts
+   from what the chosen configuration holds, and each Save and adopt writes
+   into it. The same step target acquisition
+   starts with, borrowed unchanged; only the backend behind it differs.
 2. **Define limits** — how far the stage may travel, which objective slots
    automation may use, and a permitted value or range for each setting the
    driver can change. Two boxes: one that reads the corners the operator
@@ -25,9 +26,14 @@ Five steps, walked before any imaging workflow can stand on the machine:
 5. **Define origin** — drive to the point the run should count from and make it
    (0, 0, 0).
 
-Sessions are kept beside the driver's snapshots, as `sessions/<datetime>/session.json`
-under the folder the driver names as its home (the machine root on the mock,
-the ProgramData API root on the Leica). The driver never reads them.
+A configuration lives under the machine's root as `configuration_<datetime>/`
+(the ProgramData API root on the Leica, the machine root on the mock), holding
+the four subsystem trees the driver has always kept, unchanged inside it. Each
+subsystem snapshot carries its document and, beside it, the evidence: the
+figures the analysis drew and the measurement's numbers, so a reopened
+configuration shows what was measured. The driver stands on exactly one
+configuration: the one named at connect, else the newest. The controller always
+names one, and refuses one without limits.
 
 Steps 2 to 5 publish the four documents the driver keeps for a machine — under
 `limits/`, `orientation/`, `calibration/` and `origin/` in dated snapshots, the
@@ -52,7 +58,7 @@ The page-side half of the seam is `../../parts/microscope/setup.js`; the
 Python half is `zmart_setup/` at the repository root, with each driver's setup
 beside its operating adapter (`zmart_drivers/mock/mock_setup.py`,
 `zmart_drivers/leica/.../zmart_adapter/setup.py`). The measurements themselves
-live in `zmart_analysis/workflows/stage_calibration/`, and never learn which
+live in `zmart_analysis/workflows/driver_configuration/`, and never learn which
 microscope took the pictures.
 
 ## The boundary, in one paragraph
