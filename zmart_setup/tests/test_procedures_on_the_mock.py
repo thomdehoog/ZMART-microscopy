@@ -44,7 +44,7 @@ def _change_lens(setup, slot):
 def test_the_mock_describes_all_four_and_both_optional_ops(setup):
     said = setup.describe()
     assert all(said["subsystems"][s]["supported"] for s in registry.SUBSYSTEMS)
-    assert said["can"] == {"objective": True, "objectives": True, "markers": True}
+    assert said["can"] == {"objective": True, "objectives": True, "markers": True, "home": True}
     assert said["subsystems"]["limits"]["document"]["measured"] == ["x_um", "y_um"]
 
 
@@ -147,3 +147,31 @@ def test_the_turret_is_listed_by_the_driver(setup):
     assert [l["slot"] for l in lenses] == [0, 1, 2, 3]
     assert lenses[2]["name"] == "40x dry"
     assert setup.describe()["can"]["objectives"] is True
+
+
+def test_a_session_keeps_what_each_step_adopts_and_reopens_to_it(setup):
+    assert setup.sessions() == []
+    started = setup.new_session("first pass")
+    assert started["name"] == "first pass"
+    # It starts from what stands: the mock's default limits, among others.
+    assert "limits" in started["documents"]
+    listed = setup.sessions()
+    assert [s["id"] for s in listed] == [started["id"]]
+    assert listed[0]["name"] == "first pass"
+    # Adopting an origin, recorded into the session, is there when it is reopened.
+    origin = procedures.origin_here(setup)
+    setup.publish("origin", origin)
+    setup.record(started["id"], "origin", origin)
+    reopened = setup.session(started["id"])
+    assert reopened["documents"]["origin"]["x_um"] == origin["x_um"]
+    assert reopened["updated_at"] >= reopened["created_at"]
+    # A second session lists first: newest to oldest.
+    import time
+    time.sleep(0.01)
+    second = setup.new_session(None)
+    assert [s["id"] for s in setup.sessions()] == [second["id"], started["id"]]
+    assert second["name"].startswith("Session ")
+    # The sessions live beside the machine's snapshots, under its root.
+    assert setup.sessions_root().name == "sessions"
+    with pytest.raises(ValueError, match="no session"):
+        setup.session("2000-01-01T00-00-00-000000Z")

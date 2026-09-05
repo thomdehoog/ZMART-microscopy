@@ -103,6 +103,7 @@ export const setupPanel = {
         .setup-field:focus, .setup-row select:focus, .setup-kind:focus { outline: none; }
         .setup-field:disabled, .setup-row select:disabled, .setup-kind:disabled { opacity: .45; }
         .setup-number { width: 120px; }
+        .setup-wide { width: 380px; }
         .setup-kind { width: 132px; }
         /* A limit's row: its tick first, then its name, then its fields. */
         .setup-limit > input[type="checkbox"] { flex: 0 0 auto; margin: 0 2px 0 0; }

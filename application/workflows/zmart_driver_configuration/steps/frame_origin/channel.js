@@ -34,9 +34,10 @@ export default {
     const adopted = ctx.publishedNote()?.startsWith("Adopted") ?? false;
     const standing = ctx.standing();
     if (!adopted) {
-      if (standing?.source === "published") {
+      if (standing?.source === "published" || standing?.source === "session") {
         const d = standing.document?.origin ?? standing.document ?? {};
-        origin.body.append(note(`Published origin: (${Number(d.x_um).toFixed(0)}, ${Number(d.y_um).toFixed(0)}, `
+        origin.body.append(note(`${standing.source === "session" ? "This session's origin" : "Published origin"}: `
+          + `(${Number(d.x_um).toFixed(0)}, ${Number(d.y_um).toFixed(0)}, `
           + `${Number(d.z_um ?? d.z_focus_um).toFixed(1)}) µm. Adopting replaces it.`));
       } else if (standing) {
         origin.body.append(note("No origin published: the frame is the stage's absolute zero."));

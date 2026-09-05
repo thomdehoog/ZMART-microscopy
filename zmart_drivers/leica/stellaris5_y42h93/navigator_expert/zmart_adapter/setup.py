@@ -412,6 +412,12 @@ def _origin_payload(handle: SetupHandle, document: dict) -> dict:
 # ---------------------------------------------------------------------------
 
 
+def home(handle) -> str:
+    """This microscope's ProgramData root, where its published snapshots --
+    and so its setup sessions -- are kept."""
+    return str(_machine.MACHINE.snapshot_root())
+
+
 def register() -> None:
     """Register this microscope's setup with ``zmart_setup`` -- and only there."""
     from zmart_setup.registry import register as _register
@@ -428,6 +434,7 @@ def register() -> None:
             "objective": objective,
             "objectives": objectives,
             "markers": markers,
+            "home": home,
             "read": read,
             "publish": publish,
         },

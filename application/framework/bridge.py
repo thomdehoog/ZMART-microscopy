@@ -222,14 +222,50 @@ _setups_turn = threading.Lock()
 _setup_pictures: Path | None = None
 
 
+#: The session the open setup is working in, by id, once the operator has
+#: chosen or started one. What each step adopts is recorded into it.
+_setup_session_id: str | None = None
+
+
 def _require_setup():
     if _setup is None:
         raise RuntimeError("no setup is open — open one first")
     return _setup
 
 
+def _setup_session(asked: dict) -> dict:
+    """Choose the session to work in: ``{"open": id}`` reopens one,
+    ``{"new": name}`` starts one from what stands. Answers with the record."""
+    global _setup_session_id
+    setup = _require_setup()
+    if "open" in asked:
+        record = setup.session(str(asked["open"]))
+    elif "new" in asked:
+        record = setup.new_session(asked.get("new") or None)
+    else:
+        raise ValueError("choose a session with {'open': id} or start one with {'new': name}")
+    _setup_session_id = record["id"]
+    return record
+
+
+def _setup_publish(asked: dict) -> dict:
+    """Publish through the driver and, when a session is open, keep what
+    was published as that session's document."""
+    setup = _require_setup()
+    answer = setup.publish(asked["subsystem"], asked["document"])
+    if _setup_session_id is not None:
+        held = answer.get("document") if isinstance(answer.get("document"), dict) else asked["document"]
+        try:
+            setup.record(_setup_session_id, asked["subsystem"], held)
+            answer["session"] = _setup_session_id
+        except Exception as why:  # noqa: BLE001 -- the publish stands; say the record did not
+            answer["session_problem"] = str(why)
+    return answer
+
+
 def _setup_open(asked: dict) -> dict:
-    global _setup, _setup_pictures
+    global _setup, _setup_pictures, _setup_session_id
+    _setup_session_id = None
     connection = asked.get("connection")
     if not isinstance(connection, dict):
         raise ValueError("opening a setup needs the instrument's connection entry")
@@ -244,10 +280,11 @@ def _setup_open(asked: dict) -> dict:
 
 
 def _setup_close() -> dict:
-    global _setup
+    global _setup, _setup_session_id
     if _setup is not None:
         _setup.close()
         _setup = None
+    _setup_session_id = None
     return {"closed": True}
 
 
@@ -1530,6 +1567,9 @@ class _Bridge(BaseHTTPRequestHandler):
             elif path == "/api/setup/objectives":
                 with _setups_turn:
                     self._answer({"objectives": _require_setup().objectives()})
+            elif path == "/api/setup/sessions":
+                with _setups_turn:
+                    self._answer({"sessions": _require_setup().sessions(), "current": _setup_session_id})
             elif path.startswith("/api/setup/picture/"):
                 _send_setup_picture(self, path)
             elif path.startswith("/api/setup/read/"):
@@ -1608,9 +1648,12 @@ class _Bridge(BaseHTTPRequestHandler):
             elif self.path == "/api/setup/measure":
                 with _setups_turn:
                     self._answer(_setup_measure(asked))
+            elif self.path == "/api/setup/session":
+                with _setups_turn:
+                    self._answer(_setup_session(asked))
             elif self.path == "/api/setup/publish":
                 with _setups_turn:
-                    self._answer(_require_setup().publish(asked["subsystem"], asked["document"]))
+                    self._answer(_setup_publish(asked))
             else:
                 self._answer({"error": f"no route {self.path}"}, status=404)
         except Exception as why:  # noqa: BLE001

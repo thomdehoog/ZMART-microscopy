@@ -80,7 +80,8 @@ export default {
     const edit = cell("Configure",
       "Review the limits. Ranges include both endpoints. Ticked, a limit is applied; unticked, it is reviewed and unrestricted.");
     const standing = ctx.standing();
-    if (standing) edit.body.append(note(`Starting from the ${standing.source === "published" ? "published" : "default"} limits.`));
+    if (standing) edit.body.append(note(`Starting from ${standing.source === "session" ? "what this session holds"
+      : standing.source === "published" ? "the published limits" : "the default limits"}.`));
 
     const required = new Set(doc.required ?? []);
 

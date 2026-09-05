@@ -220,3 +220,20 @@ to verify it.
 - The Leica setup's `move`, `acquire` and `markers` are written against the
   same driver functions the notebooks use and are tested offline only where a
   seam can be patched; the first run on the bench is where they are proven.
+
+## Setup sessions
+
+A setup is rarely finished in one sitting, and a machine is set up more than
+once. So the workflow keeps **sessions**: one pass through the steps, known
+by the moment it was started. After Connect the operator reopens a session,
+which brings every step back to what it holds, or starts a new one from what
+the machine has now. Each Save and adopt still writes the driver's own dated
+snapshot, exactly as before; it is also recorded into the open session, so the
+session is the one place that says what this pass came to across all four
+subsystems.
+
+Sessions live in `zmart_setup.sessions`, beside the driver's snapshots as
+`sessions/<datetime>/session.json` under the folder the driver names through
+its optional `home` op, in the same timestamp form as the snapshots. The
+driver never reads that tree: what stands for a machine is still the newest
+snapshot per subsystem, and a session is a record of how it got there.

@@ -32,7 +32,7 @@ const signed = (v, d = 2) => (v === null || v === undefined ? "—" : `${v >= 0 
 const offsetText = (t) => `(${signed(t?.x)}, ${signed(t?.y)}, ${signed(t?.z)}) µm`;
 const stateText = (preset) => ({
   default: "default (0, 0, 0)",
-  published: "published, not measured here",
+  published: "held, not measured here",
   measured: "measured",
 }[preset.state] ?? preset.state);
 
@@ -223,9 +223,10 @@ export default {
       confirm.append(note(current.state === "measured" ? "Measured in this session."
         : current.state === "published" ? "As published; not measured in this session."
         : "Still the ideal of zero; measure above to replace it with what the microscope does."));
-      if (standing?.source === "published") {
+      if (standing?.source === "published" || standing?.source === "session") {
         const n = Object.keys(standing.document?.objectives ?? {}).length;
-        confirm.append(note(`What stands now: ${n} objective(s) published.`));
+        confirm.append(note(standing.source === "session"
+          ? `This session holds ${n} objective(s).` : `What stands now: ${n} objective(s) published.`));
       }
       confirm.append(publishRow({
         label: "Save and adopt",
