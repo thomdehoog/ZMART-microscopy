@@ -105,7 +105,11 @@ export function renderSessionCard(host, ctx) {
       conf.innerHTML = "<span>Configuration</span><select></select>";
       const confSel = conf.querySelector("select");
       const when = (iso) => (iso ? new Date(iso).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }) : "");
-      if (!listed.length) {
+      if (ctx.offersNewConfiguration?.()) {
+        const o = document.createElement("option");
+        o.value = "new"; o.textContent = "New configuration";
+        confSel.append(o);
+      } else if (!listed.length) {
         const o = document.createElement("option");
         o.value = ""; o.textContent = "none — define limits in ZMART driver configuration first";
         confSel.append(o);
@@ -117,7 +121,7 @@ export function renderSessionCard(host, ctx) {
         confSel.append(o);
       }
       confSel.value = session.configuration ?? "";
-      confSel.disabled = locked || !listed.length;
+      confSel.disabled = locked || !(listed.length || ctx.offersNewConfiguration?.());
       confSel.addEventListener("change", () => {
         session.configuration = confSel.value || null;
         ctx.changed();
