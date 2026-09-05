@@ -1992,12 +1992,23 @@ canvas.livecv[hidden] { display: none; }
 /* The same blue-on-white press as Rerun and Run new points: one look for
    every press on the page. */
 .canvas-toolbar button.run { align-self: center; }
-/* The legend is two lines, level with the presses: the colours, and under
-   them the two values at the ends of the bar with what the colours mean
-   between them, so nothing stands apart from the bar it belongs to. */
+.canvas-toolbar-right { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+.canvas-toolbar-right button[hidden] { display: none; }
+/* On is tinted, off is outlined: the same look as every other on-or-off
+   press on the page, so the state can be read without reading the label. */
+.canvas-toolbar button.switch[aria-pressed="true"] {
+  background: var(--accent-tint); color: var(--accent-deep); border-color: var(--accent);
+}
+/* The legend stands at the foot of the picture on the left, on a plate so
+   its values read on every hue, clear of the scale bar at the right. Two
+   lines: the colours, and under them the two values at the ends of the bar
+   with what the colours mean between them. */
 .canvas-legend {
-  margin-left: auto; display: flex; flex-direction: column; align-items: stretch;
-  gap: 4px; width: 300px; color: var(--ink-2);
+  position: absolute; left: 12px; bottom: 30px; z-index: 3;
+  display: flex; flex-direction: column; align-items: stretch;
+  gap: 4px; width: 300px; padding: 6px 8px; color: var(--ink-2);
+  background: color-mix(in srgb, var(--screen) 88%, transparent);
+  border: 1px solid var(--line); border-radius: 6px;
 }
 .canvas-legend[hidden] { display: none; }
 .canvas-legend-ramp { display: block; height: 10px; border-radius: 2px; border: 1px solid var(--line-strong); }

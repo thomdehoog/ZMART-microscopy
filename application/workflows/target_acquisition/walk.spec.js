@@ -155,6 +155,16 @@ test.describe("the target acquisition workflow, walked screen by screen", () => 
       await page.evaluate(() => window.__theStageCanvas.fadeTo(0.15));
       await framePlan(page);
       await shot(page, "scan-done-picture");
+      /* Grayscale on, then off: the same picture in grey and back, by the
+         switch in the canvas's row, tinted while it is on. */
+      await expect(page.locator("#grey-btn")).toHaveAttribute("aria-pressed", "false");
+      await page.locator("#grey-btn").click();
+      await expect(page.locator("#grey-btn")).toHaveAttribute("aria-pressed", "true");
+      await rest(1200);
+      await shot(page, "scan-done-grayscale");
+      await page.locator("#grey-btn").click();
+      await expect(page.locator("#grey-btn")).toHaveAttribute("aria-pressed", "false");
+      await rest(800);
 
       /* Step 6: one tile through the real detection. */
       await walkTo(page, "Detect objects");
@@ -181,6 +191,17 @@ test.describe("the target acquisition workflow, walked screen by screen", () => 
         const found = await page.evaluate(() => window.__theStageCanvas.targets());
         expect(found.length, "detection placed candidates on the canvas").toBeGreaterThan(0);
         await shot(page, "detect-done");
+        /* The masks off and on again, by the press that stands in the row
+           only while detection has laid them. */
+        await expect(page.locator("#mask-btn")).toBeVisible();
+        await expect(page.locator("#mask-btn")).toHaveAttribute("aria-pressed", "true");
+        await page.locator("#mask-btn").click();
+        await expect(page.locator("#mask-btn")).toHaveAttribute("aria-pressed", "false");
+        await rest(800);
+        await shot(page, "detect-mask-hidden");
+        await page.locator("#mask-btn").click();
+        await expect(page.locator("#mask-btn")).toHaveAttribute("aria-pressed", "true");
+        await rest(500);
 
         /* Step 7: a gate drawn on the feature plot, around most of the cloud. */
         await walkTo(page, "Discover Targets");
