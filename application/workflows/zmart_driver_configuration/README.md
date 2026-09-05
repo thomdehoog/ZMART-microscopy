@@ -50,6 +50,12 @@ Steps 2 to 5 publish the four documents the driver keeps for a machine — under
 `limits/`, `orientation/`, `calibration/` and `origin/` in dated snapshots, the
 newest of which the driver stands on at its next connect.
 
+## The first time on a real Leica
+
+The first session on the LAS X simulator has a checklist of its own, step by
+step, with what should appear on disk after each Save and adopt:
+[`docs/first-simulator-session.md`](../../../docs/first-simulator-session.md).
+
 ## What is where
 
 ```
