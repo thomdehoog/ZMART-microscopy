@@ -4,7 +4,7 @@ Five steps, walked before any imaging workflow can stand on the machine:
 
 1. **Connect** — open the driver's *setup*. The same step target acquisition
    starts with, borrowed rather than retyped; only its wording differs.
-2. **Set up limits** — how far the stage may travel, which objective slots
+2. **Define limits** — how far the stage may travel, which objective slots
    automation may use, and a permitted value or range for each setting the
    driver can change. Two boxes: one that reads the corners the operator
    marked, one that holds the document to publish.
@@ -14,7 +14,7 @@ Five steps, walked before any imaging workflow can stand on the machine:
 4. **Optics calibration** — where and at what height a target lens looks
    relative to the reference lens. The same field through each, and a short
    focus stack under each; the operator changes lenses by hand between the two.
-5. **Set up origin** — drive to the point the run should count from and make it
+5. **Define origin** — drive to the point the run should count from and make it
    (0, 0, 0).
 
 Steps 2 to 5 publish the four documents the driver keeps for a machine — under

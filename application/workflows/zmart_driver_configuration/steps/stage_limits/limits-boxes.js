@@ -55,7 +55,7 @@ const allowedFrom = (text) => text.split(",").map((t) => t.trim()).filter(Boolea
 
 export default {
   id: "limits",
-  label: "Set up limits",
+  label: "Define limits",
 
   mount(host, ctx) {
     if (!ctx.supported()) {

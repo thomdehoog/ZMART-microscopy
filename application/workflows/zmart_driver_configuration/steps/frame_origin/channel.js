@@ -17,7 +17,7 @@ const reading = (a) => `${Number(a.value).toFixed(2)} ${a.unit ?? ""}`.trim();
 
 export default {
   id: "origin",
-  label: "Set up origin",
+  label: "Define origin",
 
   mount(host, ctx) {
     if (!ctx.supported()) {
@@ -27,7 +27,7 @@ export default {
       return { host };
     }
 
-    const origin = cell("Set origin",
+    const origin = cell("Define origin",
       "Move the stage to the origin in the microscope's own software, then read. "
       + "The readings become (0, 0, 0) from the next connect on.");
     const adopted = ctx.publishedNote()?.startsWith("Adopted") ?? false;

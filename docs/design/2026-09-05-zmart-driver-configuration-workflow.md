@@ -18,7 +18,7 @@ Five steps, in order:
 1. **Connect** — choose the microscope, its API and the password, and open the
    session. This is the same step target acquisition starts with, borrowed
    rather than retyped, so a fix to connecting reaches both workflows at once.
-2. **Set up limits** — how far the stage may travel, which objective slots
+2. **Define limits** — how far the stage may travel, which objective slots
    automation may use, and a permitted value or range for each setting the
    driver can change.
 3. **Image-to-stage calibration** — how the picture is turned relative to the
@@ -28,7 +28,7 @@ Five steps, in order:
 4. **Optics calibration** — the pixel size, and how a pair of objectives line
    up with each other, so a target found on a low-power overview is still
    centred under the high-power lens.
-5. **Set up origin** — the point the run counts from. Once set, reported
+5. **Define origin** — the point the run counts from. Once set, reported
    positions are micrometres from there. Like the three above it, this is
    published by the driver rather than reached through the controller; see
    the boundary section below.
