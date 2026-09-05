@@ -300,10 +300,11 @@ def _setup_measure(asked: dict) -> dict:
             orientation=asked.get("orientation"),
         )
         _lens_views[name] = view
-        return {
+        return _with_picture({
             "name": name, "lens": view["lens"], "pixel_um": view["pixel_um"],
             "position": view["position"], "z_um": view["z_um"],
-        }
+            "peak_z_um": view["focus"]["peak_z_um"], "diagnostic": view["diagnostic"],
+        })
     if what == "objective_pair":
         reference = _lens_views.get(asked.get("reference", "reference"))
         target = _lens_views.get(asked.get("target", "target"))

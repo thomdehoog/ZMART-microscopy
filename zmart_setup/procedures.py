@@ -125,7 +125,7 @@ def capture_lens_view(setup: Setup, *, into: str | Path, name: str, orientation:
     frame = setup.acquire(into=into, name="frame")
     heights = [here["z_um"] + d for d in _steps(-stack_half_um, stack_half_um, stack_step_um)]
     stack = setup.acquire(into=into, name="stack", z_um=heights)
-    return {
+    view = {
         "lens": lens,
         "pixel_um": frame.get("pixel_um"),
         "image": _corrected(_one_plane(frame), orientation),
@@ -134,6 +134,14 @@ def capture_lens_view(setup: Setup, *, into: str | Path, name: str, orientation:
         "position": here,
         "records": {"frame": frame, "stack": stack},
     }
+    # The notebook shows the focus result under the cell that measured it,
+    # so it is worked out here rather than only when the pair is measured.
+    step = _analysis_step("measure_objective_pair")
+    view["focus"] = step.sharp_height_um(view["stack"], view["z_um"])
+    view["diagnostic"] = step.write_focus_diagnostic(
+        view["stack"], view["focus"], into / "focus.png", title=f"Software Autofocus · {name}",
+    )
+    return view
 
 
 def measure_objective_pair(reference: dict, target: dict) -> dict:
@@ -154,9 +162,9 @@ def measure_objective_pair(reference: dict, target: dict) -> dict:
     )["measure_objective_pair"]
     answer["lenses"] = {"reference": reference["lens"], "target": target["lens"]}
     into = Path(reference["records"]["frame"]["images"][0]).parent.parent
-    answer["diagnostic"] = step.write_diagnostic(
-        {"image": reference["image"], "pixel_um": reference["pixel_um"], "stack": reference["stack"]},
-        {"image": target["image"], "pixel_um": target["pixel_um"], "stack": target["stack"]},
+    answer["diagnostic"] = step.write_overlay_diagnostic(
+        {"image": reference["image"], "pixel_um": reference["pixel_um"]},
+        {"image": target["image"], "pixel_um": target["pixel_um"]},
         answer, into / "objective_pair.png",
     )
     return answer
