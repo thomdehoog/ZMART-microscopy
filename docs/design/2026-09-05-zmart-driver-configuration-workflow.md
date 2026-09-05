@@ -25,9 +25,13 @@ Five steps, in order:
    stage, so that moving right on the stage means moving right in the image.
    One of eight lossless ways of laying the image down: a quarter, half or
    three-quarter turn, each optionally mirrored.
-4. **Optics calibration** — the pixel size, and how a pair of objectives line
-   up with each other, so a target found on a low-power overview is still
-   centred under the high-power lens.
+4. **Optics calibration** — the pixel size, and how every objective lines up
+   with one reference objective, so a target found on a low-power overview is
+   still centred under the high-power lens. The ideal is a parcentric and
+   parfocal microscope, where every offset is zero; choosing the reference gives
+   every other lens a preset at that ideal, and measuring a preset replaces the
+   ideal with what the microscope actually does. Changing the reference starts
+   the presets over, because every offset was relative to it.
 5. **Define origin** — the point the run counts from. Once set, reported
    positions are micrometres from there. Like the three above it, this is
    published by the driver rather than reached through the controller; see

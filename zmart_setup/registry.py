@@ -44,6 +44,9 @@ out what depends on them:
 
 - ``objective(handle) -> {"slot", "name"}`` -- which lens is in. Observed, never
   commanded: an operator changes lenses in the vendor's own software.
+- ``objectives(handle) -> [{"slot", "name"}, ...]`` -- every lens the turret
+  holds, so a calibration can name its reference and its targets from the
+  instrument's own list rather than from typing.
 - ``markers(handle) -> {"points": [{"x_um", "y_um"}, ...]}`` -- points the
   operator placed in the vendor's software to say where the safe corners are.
 
@@ -71,7 +74,7 @@ OPS: tuple[str, ...] = (
 )
 
 #: A driver may supply these; the page asks before relying on them.
-OPTIONAL_OPS: tuple[str, ...] = ("objective", "markers")
+OPTIONAL_OPS: tuple[str, ...] = ("objective", "objectives", "markers")
 
 #: The keys the registry indexes on -- the same three the controller uses.
 IDENTITY: tuple[str, ...] = ("vendor", "microscope", "api")

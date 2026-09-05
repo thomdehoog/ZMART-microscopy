@@ -255,6 +255,19 @@ def objective(handle: SetupHandle) -> dict:
     }
 
 
+def objectives(handle: SetupHandle) -> list:
+    """Every lens the turret holds, from the instrument's hardware report."""
+    _require_open(handle)
+    from navigator_expert.commands import objectives as _objectives
+
+    hw = drv.get_hardware_info(handle.client) or {}
+    found = []
+    for slot, entry in sorted(_objectives.objective_by_slot(hw).items()):
+        name = entry.get("name") if isinstance(entry, dict) else str(entry)
+        found.append({"slot": int(slot), "name": str(name or f"slot {slot}").strip()})
+    return found
+
+
 def markers(handle: SetupHandle) -> dict:
     """The four Point markers the operator placed at the safe corners in the
     active LAS X template, read without changing that template. The saved
@@ -413,6 +426,7 @@ def register() -> None:
             "move": move,
             "acquire": acquire,
             "objective": objective,
+            "objectives": objectives,
             "markers": markers,
             "read": read,
             "publish": publish,

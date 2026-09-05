@@ -40,6 +40,11 @@ export const setupBackend = {
     return ask("/api/setup/where");
   },
 
+  /** Every lens the turret holds, as the driver lists them. */
+  async objectives() {
+    return (await ask("/api/setup/objectives")).objectives;
+  },
+
   async move({ x_um, y_um, z_um }) {
     return ask("/api/setup/move", { x_um, y_um, z_um });
   },

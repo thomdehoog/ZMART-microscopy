@@ -107,6 +107,26 @@ export const setupPanel = {
         /* A limit's row: its tick first, then its name, then its fields. */
         .setup-limit > input[type="checkbox"] { flex: 0 0 auto; margin: 0 2px 0 0; }
         .setup-limit > label { flex: 1 1 auto; }
+        /* The presets, one per row: the lens, its offset, its state. The
+           chosen one is the row the cells below measure. */
+        .setup-sets { display: flex; flex-direction: column; gap: 4px; }
+        .setup-set { display: grid; grid-template-columns: 1fr auto auto; gap: 12px; align-items: baseline;
+                     font: inherit; font-size: 13px; color: var(--ink); text-align: left; cursor: pointer;
+                     background: var(--surface-2); border: 1px solid var(--line); border-radius: 7px;
+                     padding: 6px 10px; }
+        .setup-set:hover { border-color: var(--line-strong); }
+        .setup-set.chosen { border-color: var(--accent, #2f6fed); box-shadow: inset 0 0 0 1px var(--accent, #2f6fed); }
+        .setup-set b { font-weight: 600; }
+        .setup-set-pair { font-variant-numeric: tabular-nums; }
+        .setup-set-state { color: var(--ink-3); font-size: 12px; }
+        .setup-set.default .setup-set-state { color: var(--ink-3); }
+        /* The summary: one line per objective, numbers under numbers. */
+        .setup-table { border-collapse: collapse; width: 100%; font-size: 13px; }
+        .setup-table th { text-align: left; font-weight: 600; color: var(--ink-3); padding: 2px 10px 4px 0; }
+        .setup-table td { padding: 3px 10px 3px 0; border-top: 1px solid var(--line); font-variant-numeric: tabular-nums; }
+        .setup-table th:not(:first-child):not(:last-child),
+        .setup-table td:not(:first-child):not(:last-child) { text-align: right; }
+        .setup-table tr.default td { color: var(--ink-3); }
       </style>
       <div class="setup-notebook">
         <!-- The column of cells. The shell fills this; what goes in it is the

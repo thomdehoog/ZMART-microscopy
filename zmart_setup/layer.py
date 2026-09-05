@@ -86,6 +86,13 @@ class Setup:
             raise RuntimeError("this driver cannot report which objective is in")
         return self._ops["objective"](self._handle)
 
+    def objectives(self) -> list:
+        """Every lens the turret holds: ``[{"slot", "name"}, ...]``."""
+        self._require_open()
+        if "objectives" not in self._ops:
+            raise RuntimeError("this driver cannot list its objectives")
+        return list(self._ops["objectives"](self._handle))
+
     def markers(self) -> dict:
         """The corner markers the operator placed: ``{"points": [...]}``."""
         self._require_open()
