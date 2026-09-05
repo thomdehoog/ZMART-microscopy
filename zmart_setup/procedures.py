@@ -155,8 +155,8 @@ def measure_objective_pair(reference: dict, target: dict) -> dict:
     answer["lenses"] = {"reference": reference["lens"], "target": target["lens"]}
     into = Path(reference["records"]["frame"]["images"][0]).parent.parent
     answer["diagnostic"] = step.write_diagnostic(
-        {"image": reference["image"], "pixel_um": reference["pixel_um"]},
-        {"image": target["image"], "pixel_um": target["pixel_um"]},
+        {"image": reference["image"], "pixel_um": reference["pixel_um"], "stack": reference["stack"]},
+        {"image": target["image"], "pixel_um": target["pixel_um"], "stack": target["stack"]},
         answer, into / "objective_pair.png",
     )
     return answer

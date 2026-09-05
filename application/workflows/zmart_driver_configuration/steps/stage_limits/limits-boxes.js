@@ -67,11 +67,10 @@ export default {
     const measuredLabels = doc.measured.map((k) => doc.axes.find((a) => a.key === k)?.label ?? k);
 
     /* ---- Box one: what the instrument says ------------------------------ */
-    const read = cell("Read from the stage",
-      `Place four markers at the safe ${measuredLabels.join(" and ")} corners — in the microscope's `
-      + "own software on a real instrument, in the mock instrument's window on the mock — then "
-      + "read the rectangle back. The instrument is changed by nothing here.");
-    read.body.append(press("Read the boundary", async () => {
+    const read = cell("Measure",
+      `Place exactly four Point markers at the safe ${measuredLabels.join("/")} boundaries, then press. `
+      + `This reads the rectangle without changing the active template; it replaces ${measuredLabels.join(" and ")} below.`);
+    read.body.append(press("Measure", async () => {
       try {
         const answer = await ctx.setup.measure("boundary");
         ctx.hold(answer);
@@ -89,23 +88,16 @@ export default {
         const axis = doc.axes.find((a) => a.key === key);
         return [axis?.label ?? key, `${asRange(answer[key])} ${axis?.unit ?? ""}`.trim()];
       })));
-      read.body.append(note(
-        `This replaced ${measuredLabels.join(" and ")} in the box below. Everything else there is yours to decide.`, "ok"));
+
     }
     host.append(read.box);
 
     /* ---- Box two: what you are about to publish -------------------------- */
-    const edit = cell("The limits",
-      "The stage ranges, which objective slots automation may turn to, and one line per "
-      + "setting the driver can change. Both ends of a range count as inside it. An empty "
-      + "setting means \"reviewed, and no limit is enforced\" — which is a different statement "
-      + "from never having looked, and the file keeps every line visible so the difference stays legible.");
+    const edit = cell("Configure",
+      "Review the limits. Ranges include both endpoints; an empty setting means reviewed and unrestricted.");
     const held = ctx.limits();
     const standing = ctx.standing();
-    if (standing) {
-      edit.body.append(note(`Starting from the ${standing.source === "published" ? "published" : "driver's default"} limits`
-        + (standing.path ? ` (${standing.path})` : "") + "."));
-    }
+    if (standing) edit.body.append(note(`Starting from the ${standing.source === "published" ? "published" : "default"} limits.`));
 
     /* The stage ranges. */
     for (const axis of doc.axes) {
@@ -188,14 +180,14 @@ export default {
         [axis.label, `${asRange(standing.document?.[axis.key])} ${axis.unit}`])));
     }
     edit.body.append(publishRow({
-      label: "Publish limits",
+      label: "Save and adopt",
       published: ctx.publishedNote(),
       onPublish: async () => {
         try {
           const where = await ctx.setup.publish("limits", ctx.limits());
           const x = ctx.limits()?.[doc.measured[0]];
           await ctx.restand?.();
-          ctx.settle(`${measuredLabels[0]} ${asRange(x)} · published`, `Published to ${where.path}`);
+          ctx.settle(`${measuredLabels[0]} ${asRange(x)} · adopted`, `Adopted: ${where.path}`);
         } catch (why) {
           ctx.settle(null, `Publishing failed — ${why.message}`);
         }

@@ -12,7 +12,7 @@
  * the objective with structure in it, in focus. So it says so in words.
  */
 
-import { cell, note, picture, press, publishRow, readout, um } from "../cells.js";
+import { cell, note, picture, press, publishRow } from "../cells.js";
 
 export default {
   id: "orientation",
@@ -26,91 +26,41 @@ export default {
    */
   mount(host, ctx) {
     if (!ctx.supported()) {
-      const { box, body } = cell("Not on this microscope",
-        "This driver has no stage-to-image turn to measure. The step is here so the "
-        + "workflow reads the same on every instrument; there is nothing to do on this one.");
-      body.append(note("Walk on to the next step."));
+      const { box, body } = cell("Not on this microscope");
+      body.append(note("This driver has no stage-to-image turn to measure. Walk on."));
       host.append(box);
       return { host };
     }
 
-    /* ---- the measurement ---------------------------------------------- */
-    const measure = cell("Measure the turn",
-      "With a specimen that has structure in it — nuclei, or anything with edges — in "
-      + "focus under the objective, press Start. Nothing to set: the stage images the field, "
-      + "moves a short way along X and along Y, images each, and comes back on its own. The "
-      + "analysis works out which way the picture is turned from where the features went.");
+    const measure = cell("Set orientation",
+      "Use a field with recognisable structure, in focus. This acquires images at home, +X and +Y "
+      + "and compares four rotations with reflection absent or present.");
     measure.body.append(press("Start", async () => {
-      try {
-        const answer = await ctx.setup.measure("orientation", { stage_move_um: ctx.moveUm() });
-        ctx.hold(answer);
-      } catch (why) {
-        ctx.hold({ failed: why.message });
-      }
+      try { ctx.hold(await ctx.setup.measure("orientation", { stage_move_um: ctx.moveUm() })); }
+      catch (why) { ctx.hold({ failed: why.message }); }
       ctx.refresh();
     }, { busy: "measuring…" }));
-
     const held = ctx.held();
-    if (held?.failed) {
-      measure.body.append(note(`The measurement failed — ${held.failed}`, "bad"));
-    } else if (held) {
-      const o = held.orientation;
-      measure.body.append(readout([
-        ["Turn", `${o.rotation_deg}°${o.reflection ? ", mirrored" : ""}`],
-        ["Pixel size", `${um(held.pixel_um?.mean, 4)} (X ${um(held.pixel_um?.x, 4)}, Y ${um(held.pixel_um?.y, 4)})`],
-        ["Fit", `${held.residual.toFixed(3)} from a whole quarter-turn (limit ${held.residual_max})`],
-        ["Stage moved", um(held.stage_move_um, 0)],
-      ]));
-      if (held.why) measure.body.append(note(held.why, held.accepted ? "" : "bad"));
-      /* What the measurement saw, with the arrows on it: the same picture the
-         notebook shows. On the bottom row +X must point left and +Y up. */
-      if (held.diagnostic_url) {
-        measure.body.append(picture(held.diagnostic_url,
-          "the three pictures as recorded and as the stage sees them, with the feature shifts drawn on"));
-      }
-      if (held.accepted) {
-        measure.body.append(note(
-          `The picture is turned ${o.rotation_deg}°${o.reflection ? " and mirrored" : ""} relative to the stage: `
-          + `stage X comes from image ${o.sign_convention.stage_x_from_image}, `
-          + `stage Y from image ${o.sign_convention.stage_y_from_image}.`, "ok"));
-      }
-    }
+    if (held?.failed) measure.body.append(note(`Failed — ${held.failed}`, "bad"));
+    else if (held?.diagnostic_url) {
+      measure.body.append(picture(held.diagnostic_url, "the detected correction and the eight candidates"));
+    } else if (held?.why) measure.body.append(note(held.why, held.accepted ? "" : "bad"));
     host.append(measure.box);
 
-    /* ---- publishing ----------------------------------------------------- */
-    const publish = cell("Publish",
-      "Publishing writes the turn to a dated folder under this machine's orientation tree. "
-      + "From the next connect on, every saved picture is laid down the way the stage sees it, "
-      + "and no workflow above the driver has to think about it again.");
-    const standing = ctx.standing();
-    if (standing) {
-      publish.body.append(note(
-        `What stands now: ${standing.document?.rotation_deg ?? 0}°`
-        + `${standing.document?.reflection ? ", mirrored" : ""}`
-        + `${standing.document?.measured ? " (measured)" : " (unmeasured — the driver assumes no turn)"}`
-        + ` · ${standing.source}`));
-    }
+    const publish = cell("Save and adopt", "Activates the measured orientation for this machine.");
     publish.body.append(publishRow({
-      label: "Publish orientation",
+      label: "Adopt orientation",
       published: ctx.publishedNote(),
       onPublish: async () => {
         const answer = ctx.held();
-        if (!answer?.accepted) {
-          ctx.settle(null, "measure first — nothing accepted to publish");
-          ctx.refresh();
-          return;
-        }
+        if (!answer?.accepted) { ctx.settle(null, "Nothing accepted to adopt — measure first."); ctx.refresh(); return; }
         try {
           const where = await ctx.setup.publish("orientation", {
-            rotation_deg: answer.orientation.rotation_deg,
-            reflection: answer.orientation.reflection,
+            rotation_deg: answer.orientation.rotation_deg, reflection: answer.orientation.reflection,
           });
-          await ctx.restand?.();
-          ctx.settle(`${answer.orientation.rotation_deg}°${answer.orientation.reflection ? " mirrored" : ""} · published`,
-            `Published to ${where.path}`);
-        } catch (why) {
-          ctx.settle(null, `Publishing failed — ${why.message}`);
-        }
+          ctx.settle(`${answer.orientation.rotation_deg}°${answer.orientation.reflection ? " mirrored" : ""} · adopted`,
+            `Adopted: ${where.path}`);
+        } catch (why) { ctx.settle(null, `Adopting failed — ${why.message}`); }
         ctx.refresh();
       },
     }));

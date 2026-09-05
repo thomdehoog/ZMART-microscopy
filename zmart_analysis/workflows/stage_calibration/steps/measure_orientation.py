@@ -294,56 +294,108 @@ def run(pipeline_data: dict, state: dict, **params) -> dict:
 # ---------------------------------------------------------------------------
 
 
+def _for_display(image: np.ndarray) -> np.ndarray:
+    values = np.asarray(image, dtype=np.float64)
+    lo, hi = np.percentile(values, (1.0, 99.0))
+    return np.zeros_like(values) if hi <= lo else np.clip((values - lo) / (hi - lo), 0.0, 1.0)
+
+
+def candidate_overlay(home, plus_x, plus_y, *, stage_move_um, pixel_um, rotation_deg, reflection):
+    """Home in magenta; both moved pictures, shifted back by the move this
+    candidate predicts, in green. The right candidate overlaps white."""
+    from scipy.ndimage import shift as nd_shift
+
+    image_to_stage = np.asarray(STAGE_FROM_ORIENTATION[(rotation_deg, reflection)], dtype=float)
+    stage_to_image = -np.linalg.inv(image_to_stage)
+    expected_x = stage_to_image[:, 0] * stage_move_um
+    expected_y = stage_to_image[:, 1] * stage_move_um
+
+    def align(image, expected_um):
+        return nd_shift(np.asarray(image, dtype=np.float64),
+                        shift=(-expected_um[1] / pixel_um, -expected_um[0] / pixel_um),
+                        order=1, mode="constant", cval=float(np.median(image)), prefilter=False)
+
+    moved = (align(plus_x, expected_x) + align(plus_y, expected_y)) / 2.0
+    ref, tgt = _for_display(home), _for_display(moved)
+    rgb = np.zeros((*ref.shape, 3))
+    rgb[..., 0] = ref; rgb[..., 2] = ref; rgb[..., 1] = tgt
+    return reorient(np.clip(rgb, 0.0, 1.0), rotation_deg, reflection)
+
+
 def write_diagnostic(home, plus_x, plus_y, answer: dict, path, *, channel: int = 0):
-    """Draw what the measurement saw, so an operator can check it by eye.
+    """The set_orientation notebook's figure: the detected correction, and the
+    eight-candidate gallery it was chosen from.
 
-    Top row: the three pictures as the camera recorded them, with an arrow on
-    each moved picture showing where the features went. Bottom row: the same
-    three laid down the way the orientation found says the stage sees them --
-    on which the +X arrow must point left and the +Y arrow must point up,
-    because the features move against the stage. If they do not, the answer
-    is wrong and the picture says so before anything is published.
-
-    Written to ``path`` as a PNG and the path returned; ``None`` when
-    matplotlib is not installed, since the numbers stand on their own.
+    Each candidate lays the moved pictures back over the home picture the way
+    that candidate predicts; the one that is right overlaps white. Written to
+    ``path`` as a PNG and the path returned; ``None`` without matplotlib.
     """
     try:
         from matplotlib.backends.backend_agg import FigureCanvasAgg
         from matplotlib.figure import Figure
+        from matplotlib.patches import FancyBboxPatch, Patch
     except ImportError:
         return None
     o = answer["orientation"]
-    frames = {"home": _plane(home, channel), "+X": _plane(plus_x, channel), "+Y": _plane(plus_y, channel)}
-    shifts = {"+X": answer["registrations"]["stage_plus_x"], "+Y": answer["registrations"]["stage_plus_y"]}
-    accepted = answer.get("accepted")
-    fig = Figure(figsize=(12, 8.2), facecolor="#f7f7f5")
+    accepted = bool(answer.get("accepted"))
+    colour = "#087F5B" if accepted else "#C56A00"
+    home_p, x_p, y_p = (_plane(a, channel) for a in (home, plus_x, plus_y))
+    stride = max(1, int(np.ceil(max(home_p.shape) / 256)))
+    home_g, x_g, y_g = (a[::stride, ::stride] for a in (home_p, x_p, y_p))
+    pixel_um = float(answer["pixel_um"]["mean"]) * stride
+    move_um = float(answer["stage_move_um"])
+
+    fig = Figure(figsize=(14, 9.4), facecolor="#F4F6F7")
     FigureCanvasAgg(fig)
-    axes = fig.subplots(2, 3)
-    lo = min(float(np.percentile(f, 1)) for f in frames.values())
-    hi = max(float(np.percentile(f, 99.5)) for f in frames.values())
-    for col, (name, raw) in enumerate(frames.items()):
-        corrected = reorient(raw, o["rotation_deg"], o["reflection"])
-        for row, (image, label) in enumerate(((raw, "as recorded"), (corrected, "as the stage sees it"))):
-            ax = axes[row][col]
-            ax.imshow(image, cmap="gray", vmin=lo, vmax=hi, interpolation="nearest")
-            ax.set_title(f"{name} · {label}", fontsize=10)
+    grid = fig.add_gridspec(3, 1, height_ratios=(0.58, 0.14, 2.0), left=0.035, right=0.985,
+                            bottom=0.07, top=0.97, hspace=0.12)
+    gallery = grid[2].subgridspec(2, 5, width_ratios=(0.18, 1, 1, 1, 1), hspace=0.16, wspace=0.10)
+
+    card = fig.add_subplot(grid[0]); card.set_axis_off()
+    card.add_patch(FancyBboxPatch((0, 0), 1, 1, boxstyle="round,pad=0.012,rounding_size=0.025",
+                                  transform=card.transAxes, facecolor="white", edgecolor="#DDE2E5",
+                                  linewidth=1.2, clip_on=False))
+    t = lambda x, y, text, **kw: card.text(x, y, text, transform=card.transAxes, ha="left", va="center", **kw)
+    t(0.025, 0.84, "DETECTED IMAGE CORRECTION" if accepted else "ORIENTATION NOT ACCEPTED",
+      fontsize=11.5, fontweight="bold", color=colour)
+    t(0.025, 0.57, "ROTATION", fontsize=9.5, fontweight="bold", color="#7A858C")
+    t(0.025, 0.28, f"{o['rotation_deg']}° clockwise", fontsize=20, fontweight="bold", color="#172126")
+    t(0.30, 0.57, "REFLECTION", fontsize=9.5, fontweight="bold", color="#7A858C")
+    t(0.30, 0.28, "Yes" if o["reflection"] else "No", fontsize=20, fontweight="bold", color="#172126")
+    t(0.52, 0.57, "SIGN CONVENTION", fontsize=9.5, fontweight="bold", color="#7A858C")
+    t(0.52, 0.28, f"Stage X  ←  image {o['sign_convention']['stage_x_from_image']}     "
+                  f"Stage Y  ←  image {o['sign_convention']['stage_y_from_image']}",
+      fontsize=16, fontweight="bold", color="#172126")
+
+    legend = fig.add_subplot(grid[1]); legend.set_axis_off()
+    legend.legend(handles=(Patch(facecolor="#FF00FF", edgecolor="none", label="Home image"),
+                           Patch(facecolor="#00C853", edgecolor="none", label="Moved images corrected by each candidate"),
+                           Patch(facecolor="white", edgecolor="#9AA3A8", label="Agreement / overlap")),
+                  loc="center left", bbox_to_anchor=(0.005, 0.5), ncol=3, frameon=False, fontsize=10,
+                  handlelength=1.2, columnspacing=1.8)
+    legend.text(0.995, 0.5, "The selected candidate has the strongest white overlap.",
+                transform=legend.transAxes, ha="right", va="center", fontsize=9.5, color="#667179")
+
+    for row, label in enumerate(("NO\nREFLECTION", "REFLECTION")):
+        ax = fig.add_subplot(gallery[row, 0]); ax.set_axis_off()
+        ax.text(0.52, 0.5, label, transform=ax.transAxes, ha="center", va="center", fontsize=9.5,
+                linespacing=1.25, fontweight="bold", color="#667179")
+    for row, reflection in enumerate((False, True)):
+        for column, rotation_deg in enumerate((0, 90, 180, 270)):
+            ax = fig.add_subplot(gallery[row, column + 1])
+            if row == 0:
+                ax.set_title(f"{rotation_deg}°", fontsize=11, fontweight="bold", color="#354047", pad=7)
+            ax.imshow(candidate_overlay(home_g, x_g, y_g, stage_move_um=move_um, pixel_um=pixel_um,
+                                        rotation_deg=rotation_deg, reflection=reflection), interpolation="nearest")
             ax.set_xticks([]); ax.set_yticks([])
-            if name in shifts:
-                s = shifts[name]
-                dcol, drow = s["dcol_px"], s["drow_px"]
-                if row == 1:
-                    # The same arrow, turned the way the correction turns pixels.
-                    m = np.asarray(STAGE_FROM_ORIENTATION[(o["rotation_deg"], o["reflection"])], dtype=float)
-                    dcol, drow = (m @ np.array([dcol, drow])).tolist()
-                h, w = image.shape
-                ax.annotate("", xy=(w / 2 + dcol, h / 2 + drow), xytext=(w / 2, h / 2),
-                            arrowprops={"arrowstyle": "->", "color": "#e6a100", "lw": 2.5})
-    verdict = (f"turned {o['rotation_deg']}°{', mirrored' if o['reflection'] else ''} · "
-               f"pixel {answer['pixel_um']['mean']:.4f} µm · fit {answer['residual']:.3f}")
-    fig.suptitle(("Accepted: " if accepted else "Not accepted: ") + verdict
-                 + ("" if accepted else f"\n{answer.get('why') or ''}"),
-                 fontsize=12, color="#1f7a3a" if accepted else "#b3261e")
-    fig.text(0.5, 0.015, "Bottom row: the +X arrow must point left and the +Y arrow up — features move against the stage.",
-             ha="center", fontsize=9, color="#55554f")
-    fig.savefig(str(path), dpi=100)
+            selected = (rotation_deg, reflection) == (o["rotation_deg"], o["reflection"])
+            for spine in ax.spines.values():
+                spine.set_color(colour if selected else "#A8ADB3"); spine.set_linewidth(4.0 if selected else 0.9)
+            if selected:
+                ax.text(0.5, 0.965, "SELECTED" if accepted else "NEAREST - REJECTED", transform=ax.transAxes,
+                        ha="center", va="top", color="white", fontsize=8.5, fontweight="bold",
+                        bbox={"facecolor": colour, "edgecolor": "none", "pad": 3.5})
+    fig.text(0.5, 0.025, "Eight lossless possibilities: four rotations × reflection absent or present.",
+             ha="center", va="center", fontsize=9.5, color="#667179")
+    fig.savefig(str(path), dpi=105)
     return str(path)

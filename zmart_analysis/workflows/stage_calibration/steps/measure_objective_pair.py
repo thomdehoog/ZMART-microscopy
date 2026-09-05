@@ -192,14 +192,31 @@ def run(pipeline_data: dict, state: dict, **params) -> dict:
 # ---------------------------------------------------------------------------
 
 
-def write_diagnostic(reference: dict, target: dict, answer: dict, path, *, channel: int = 0):
-    """Draw the two views and their overlay, so the shift can be checked by eye.
+def _norm(a: np.ndarray) -> np.ndarray:
+    a = a.astype(np.float64)
+    lo, hi = float(a.min()), float(a.max())
+    return np.zeros_like(a) if hi - lo < 1e-12 else (a - lo) / (hi - lo)
 
-    Left and middle: what each lens saw, brought to one scale. Right: the two
-    laid over one another by the shift found -- the reference in green and
-    the target in magenta, so where they agree is white and any misfit shows
-    as coloured fringes. Under each stack, its sharpness curve with the peak
-    the height was read from.
+
+def overlay_rgb(ref_norm: np.ndarray, tgt_norm: np.ndarray) -> np.ndarray:
+    """Reference in magenta, target in green: where the two carry the same
+    structure the colours add up to white, so a misfit shows as fringes."""
+    h = max(ref_norm.shape[0], tgt_norm.shape[0]); w = max(ref_norm.shape[1], tgt_norm.shape[1])
+    rgb = np.zeros((h, w, 3))
+    rgb[: ref_norm.shape[0], : ref_norm.shape[1], 0] = ref_norm
+    rgb[: ref_norm.shape[0], : ref_norm.shape[1], 2] = ref_norm
+    rgb[: tgt_norm.shape[0], : tgt_norm.shape[1], 1] = tgt_norm
+    return np.clip(rgb, 0.0, 1.0)
+
+
+def write_diagnostic(reference: dict, target: dict, answer: dict, path, *, channel: int = 0):
+    """The calibration notebook's plots, on one sheet.
+
+    Top: the Brenner curve of each focus stack with its peak, and beside each
+    the slice the microscope considered sharpest -- the picture should look
+    like the sample in focus, not an empty field. Bottom: the two lenses'
+    views laid over one another, reference in magenta and target in green,
+    as acquired and after the shift the measurement found.
 
     Written to ``path`` as a PNG and the path returned; ``None`` without
     matplotlib.
@@ -210,45 +227,44 @@ def write_diagnostic(reference: dict, target: dict, answer: dict, path, *, chann
         from scipy.ndimage import shift as nd_shift
     except ImportError:
         return None
+    focus = answer.get("focus") or {}
+    has_stacks = bool(focus.get("reference")) and bool(focus.get("target"))
+    fig = Figure(figsize=(14, 12 if has_stacks else 6), facecolor="white")
+    FigureCanvasAgg(fig)
+    grid = fig.add_gridspec(2 if has_stacks else 1, 4)
+
+    if has_stacks:
+        for row_at, (name, side) in enumerate((("reference", reference), ("target", target))):
+            f = focus[name]
+            ax = fig.add_subplot(grid[0, 2 * row_at])
+            ax.plot(f["z_um"], f["scores"], marker="o")
+            ax.axvline(f["peak_z_um"], color="red", linestyle="--", label=f"peak z = {f['peak_z_um']:.3f} um")
+            ax.set_xlabel("z (um, absolute)"); ax.set_ylabel("Brenner Gradient Score")
+            ax.set_title(f"Software Autofocus · {name}"); ax.legend(loc="best")
+            stack = side.get("stack") or []
+            if stack:
+                slice_ = _plane(stack[min(f["peak_index"], len(stack) - 1)], channel)
+                ax_img = fig.add_subplot(grid[0, 2 * row_at + 1])
+                ax_img.imshow(slice_, cmap="gray", origin="upper")
+                ax_img.set_title(f"Focus position (Z = {f['peak_z_um']:.2f} µm)"); ax_img.set_axis_off()
+
     ref_um, tgt_um = float(reference["pixel_um"]), float(target["pixel_um"])
-    ref = _plane(reference["image"], channel)
-    tgt = _plane(target["image"], channel)
+    ref = _plane(reference["image"], channel); tgt = _plane(target["image"], channel)
     scale_um = max(ref_um, tgt_um)
-    ref_s = _to_scale(ref, ref_um, scale_um)
-    tgt_s = _to_scale(tgt, tgt_um, scale_um)
+    ref_s = _to_scale(ref, ref_um, scale_um); tgt_s = _to_scale(tgt, tgt_um, scale_um)
     rows = min(ref_s.shape[0], tgt_s.shape[0]); cols = min(ref_s.shape[1], tgt_s.shape[1])
     ref_c = _centre_crop(ref_s, rows, cols); tgt_c = _centre_crop(tgt_s, rows, cols)
     reg = answer["registration"]
-    # Move the target back by the shift found, so the two should coincide.
     tgt_back = nd_shift(tgt_c, (-reg["drow_px"], -reg["dcol_px"]), order=1)
-    norm = lambda a: np.clip((a - np.percentile(a, 1)) / max(np.percentile(a, 99.5) - np.percentile(a, 1), 1e-9), 0, 1)
-    overlay = np.dstack([norm(tgt_back), norm(ref_c), norm(tgt_back)])
-
-    has_stacks = bool(answer.get("focus", {}).get("reference")) and bool(answer.get("focus", {}).get("target"))
-    fig = Figure(figsize=(12, 7.5 if has_stacks else 4.4), facecolor="#f7f7f5")
-    FigureCanvasAgg(fig)
-    grid = fig.add_gridspec(2 if has_stacks else 1, 3, height_ratios=(2, 1) if has_stacks else (1,))
-    for col, (image, title, cmap) in enumerate((
-        (ref_c, f"reference · {ref_um:g} µm/px", "gray"),
-        (tgt_c, f"target · {tgt_um:g} µm/px, at {scale_um:g}", "gray"),
-        (overlay, "overlay after the shift · reference green, target magenta", None),
-    )):
-        ax = fig.add_subplot(grid[0, col])
-        ax.imshow(image, cmap=cmap, interpolation="nearest")
-        ax.set_title(title, fontsize=10); ax.set_xticks([]); ax.set_yticks([])
-    if has_stacks:
-        for col, name in enumerate(("reference", "target")):
-            f = answer["focus"][name]
-            ax = fig.add_subplot(grid[1, col])
-            ax.plot(f["z_um"], f["scores"], "o-", color="#2c5aa0", ms=3)
-            ax.axvline(f["peak_z_um"], color="#e6a100", lw=1.5)
-            ax.set_title(f"{name} sharpness · peak at {f['peak_z_um']:.2f} µm", fontsize=10)
-            ax.set_xlabel("height (µm)"); ax.set_yticks([])
     t = answer["translation_um"]
-    z = "—" if t.get("z") is None else f"{t['z']:+.2f}"
-    fig.suptitle((("Accepted: " if answer.get("accepted") else "Not accepted: ")
-                  + f"target looks ({t['x']:+.1f}, {t['y']:+.1f}) µm and focuses {z} µm from the reference · "
-                  f"agreement {reg.get('agreement', 0):.2f}"),
-                 fontsize=12, color="#1f7a3a" if answer.get("accepted") else "#b3261e")
+    row = 1 if has_stacks else 0
+    ax = fig.add_subplot(grid[row, 0:2])
+    ax.imshow(overlay_rgb(_norm(ref_c), _norm(tgt_c)), origin="upper")
+    ax.set_title(f"Reference (magenta) vs target (green), as acquired\nshift ({t['x']:+.2f}, {t['y']:+.2f}) um")
+    ax.set_axis_off()
+    ax2 = fig.add_subplot(grid[row, 2:4])
+    ax2.imshow(overlay_rgb(_norm(ref_c), _norm(tgt_back)), origin="upper")
+    ax2.set_title("Target after the measured correction"); ax2.set_axis_off()
+    fig.tight_layout()
     fig.savefig(str(path), dpi=100)
     return str(path)

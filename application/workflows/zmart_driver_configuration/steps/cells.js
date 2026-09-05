@@ -11,7 +11,7 @@
  */
 
 /** A cell: a title, a paragraph, and a body to put controls and answers in. */
-export function cell(title, prose) {
+export function cell(title, prose = null) {
   const box = document.createElement("section");
   box.className = "setup-cell";
   const head = document.createElement("div");
