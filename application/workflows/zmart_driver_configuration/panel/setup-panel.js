@@ -51,59 +51,43 @@ export const setupPanel = {
   build(host) {
     host.innerHTML = `
       <style>
-        /* The page the cells stand on. It scrolls as one, the way a notebook
-           does, rather than each cell scrolling inside itself. */
+        /* The column is the channel beside the canvas, given the whole
+           window: the same grey ground, the same white boxes on it, the
+           same padding round them -- read down from the top left rather
+           than centred, because it is a form and forms start at the left. */
+        /* The panel is a grid; the column takes its stretching row, the way
+           the canvas does, so the ground reaches the bottom of the window. */
+        #panel-setup.on { grid-template-rows: minmax(0, 1fr) auto; }
         .setup-notebook {
-          height: 100%;
+          min-height: 0;
           overflow-y: auto;
-          display: flex;
-          flex-direction: column;
-          align-items: center;
+          background: var(--surface-2);
+          padding: 12px 14px 40px;
+          box-sizing: border-box;
         }
-        /* The reading measure. Wide enough for a row of a label and two
-           numbers, narrow enough to read a paragraph across without losing
-           the line. */
-        .setup-notebook > * { width: min(46rem, calc(100% - 3rem)); }
-        /* A cell: something to read, something to do, and what came back.
-           The rule between cells is what makes them read as separate moves
-           rather than one long form. */
-        .setup-cell { padding: 1.25rem 0; }
-        .setup-cell + .setup-cell { border-top: 1px solid var(--rule, #e3e3e0); }
-        .setup-cell-title { font-weight: 600; margin-bottom: .35rem; }
-        /* Prose in a cell: the sentence that says what this is for. Held a
-           little narrower still, and quieter than the controls under it. */
-        .setup-cell p { margin: .35rem 0 .75rem; max-width: 40rem;
-                        color: var(--muted, #55554f); }
-        /* A row of the form: what it is on the left, the fields on the right,
-           so a column of labels reads down the page. */
-        .setup-row { display: flex; align-items: center; gap: .5rem;
-                     padding: .2rem 0; }
-        .setup-row > label { flex: 1 1 auto; }
+        /* Held to a reading measure: a label at one edge of a wide screen
+           and its field at the other is a form people mis-read. */
+        .setup-column, .setup-foot { max-width: 46rem; }
+        .setup-column { display: flex; flex-direction: column; gap: var(--box-gap, 14px); }
+        .setup-cell { margin: 0; }
+        .setup-cell .side-note { padding: 0; margin: 0; }
+        /* A row of the form: what it is on the left, the fields on the right. */
+        .setup-row { display: flex; align-items: center; gap: 8px; }
+        .setup-row > label { flex: 1 1 auto; font-size: 13px; }
         .setup-row input { flex: 0 0 auto; }
         /* What came back from the instrument, as pairs. */
         .setup-readout { display: grid; grid-template-columns: auto 1fr;
-                         gap: .2rem .75rem; margin: .6rem 0 0; }
-        .setup-readout dt { color: var(--muted, #55554f); }
+                         gap: 3px 12px; margin: 0; font-size: 13px; }
+        .setup-readout dt { color: var(--ink-3); }
         .setup-readout dd { margin: 0; font-variant-numeric: tabular-nums; }
-        /* A sentence in the quieter voice: a note, a warning, where a file
-           went. Coloured only when it is good or bad news. */
-        .setup-note { margin: .5rem 0 0; color: var(--muted, #55554f); font-size: .95em; }
-        .setup-note.ok { color: var(--ok, #1f7a3a); }
-        .setup-note.bad { color: var(--bad, #b3261e); }
-        /* The press that publishes, and the sentence beside it once done. */
-        .setup-publish { display: flex; align-items: center; gap: .75rem; margin-top: .75rem;
-                         flex-wrap: wrap; }
-        .setup-publish .setup-note { margin: 0; }
-        .setup-cell-body .run { margin-top: .35rem; }
-        /* The measurement's own picture, as wide as the column. */
-        .setup-picture { display: block; width: 100%; margin: .75rem 0 .25rem;
-                         border: 1px solid var(--rule, #e3e3e0); border-radius: 4px; }
-        .setup-row + .setup-row { margin-top: .25rem; }
-        /* The strip at the bottom, where a step's button lands when the step
-           does not build one of its own. It sits under the last cell rather
-           than being pinned to the window, because in a notebook the thing
-           you press is the end of what you were reading. */
-        .setup-foot { padding: 1rem 0 2.5rem; }
+        .setup-note.ok { color: #1f7a3a; }
+        .setup-note.bad { color: #b3261e; }
+        .setup-note { font-size: 12px; line-height: 1.4; margin: 0; }
+        .setup-publish { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+        /* The measurement's own picture, as wide as the card. */
+        .setup-picture { display: block; width: 100%; margin: 4px 0 0;
+                         border: 1px solid var(--line); border-radius: 6px; background: #fff; }
+        .setup-foot { padding: 4px 0 0; }
       </style>
       <div class="setup-notebook">
         <!-- The column of cells. The shell fills this; what goes in it is the
