@@ -318,7 +318,17 @@ class MachineProfile:
         connect; else the newest on disk; else one seeded now, so that a
         driver on a fresh machine has somewhere to keep its defaults.
         """
-        name = self.configuration or _CHOSEN_CONFIGURATION
+        name = self.configuration
+        if name is None and self.programdata_root is None:
+            # The choice made at connect belongs to this process's machine,
+            # the one the environment names -- not to a profile a caller
+            # rooted somewhere else by hand. A choice whose folder is gone
+            # (a test moved the root) is dropped with a word, not obeyed.
+            chosen = _CHOSEN_CONFIGURATION
+            if chosen is not None and not (self.api_root() / chosen).is_dir():
+                log.warning("chosen configuration %s is not under %s; standing on the newest", chosen, self.api_root())
+                chosen = None
+            name = chosen
         if name is not None:
             path = self.api_root() / name
             if not path.is_dir():
