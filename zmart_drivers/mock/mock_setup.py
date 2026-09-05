@@ -279,6 +279,13 @@ def objective(handle: SetupHandle) -> dict:
     return {"slot": lens["slot"], "name": lens["name"], "pixel_um": lens["pixel_um"]}
 
 
+def objectives(handle: SetupHandle) -> list:
+    """Every lens the pretend turret holds."""
+    _require_open(handle)
+    return [{"slot": o["slot"], "name": o["name"], "pixel_um": o["pixel_um"]}
+            for o in read_rig(handle.root)["objectives"]]
+
+
 def markers(handle: SetupHandle) -> dict:
     """The corner markers the operator dropped in the mock instrument window."""
     _require_open(handle)
@@ -474,6 +481,7 @@ def register_mock_setup() -> None:
             "move": move,
             "acquire": acquire,
             "objective": objective,
+            "objectives": objectives,
             "markers": markers,
             "read": read,
             "publish": publish,

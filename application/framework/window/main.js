@@ -1588,8 +1588,47 @@ let stageWatch = null;
       limitsDoc: null, standing: {}, published: {}, describe: null,
       /* Whether this setup edits what the machine has published ("edit") or
          starts over from the driver's defaults ("new"). Chosen at Connect. */
-      mode: "edit" };
+      mode: "edit",
+      /* The optics step's calibration: the lenses the driver lists, the one
+         chosen as the reference, and one preset per other lens, each holding
+         the offset it will be published with. See presetsAgainst(). */
+      calibration: { objectives: [], reference: null, presets: {}, current: null } };
   }
+
+  /* The presets one reference objective gives: one per other lens on the
+     turret, each starting at the ideal offset of zero. On a microscope that
+     is truly parcentric and parfocal, zero is also the truth; measuring a
+     preset corrects it where the microscope falls short of that ideal. A
+     published translation, when the reference matches, is carried over so
+     what stands is not silently reset to zero. */
+  function presetsAgainst(referenceSlot, published = null) {
+    const cal = setupRun.calibration;
+    const presets = {};
+    for (const lens of cal.objectives) {
+      if (String(lens.slot) === String(referenceSlot)) continue;
+      const known = published?.[String(lens.slot)]?.translation_um;
+      const t = Array.isArray(known) && known.length === 3 ? known : null;
+      presets[String(lens.slot)] = {
+        target: lens.slot,
+        translation_um: t ? { x: t[0], y: t[1], z: t[2] } : { x: 0, y: 0, z: 0 },
+        state: t ? "published" : "default",
+        views: {}, answer: null,
+      };
+    }
+    return presets;
+  }
+
+  /* The lens the published calibration hangs from: the one at zero offset.
+     Null when nothing is published or no lens sits at zero. */
+  const publishedReference = (document_) => {
+    const objectives = document_?.objectives;
+    if (!objectives || typeof objectives !== "object") return null;
+    for (const [slot, entry] of Object.entries(objectives)) {
+      const t = entry?.translation_um;
+      if (Array.isArray(t) && t.every((v) => Number(v) === 0)) return slot;
+    }
+    return null;
+  };
 
   /* After a setup opens: what the driver says about itself, what stands for
      each subsystem, and where the stage is -- read once so the cells have
@@ -1604,6 +1643,16 @@ let stageWatch = null;
     setupRun.limitsDoc = setupRun.standing.limits?.document
       ? JSON.parse(JSON.stringify(setupRun.standing.limits.document)) : null;
     try { setupRun.here = await seam.where(); } catch (why) { setupRun.hereProblem = why.message; }
+    /* The optics step starts from the lenses the driver lists and, when a
+       calibration is published, from the reference and offsets it holds. */
+    const cal = setupRun.calibration;
+    cal.objectives = setupRun.describe?.can?.objectives ? (await seam.objectives().catch(() => [])) : [];
+    const standingCal = setupRun.standing.calibration?.document ?? null;
+    const known = cal.objectives.some((l) => String(l.slot) === publishedReference(standingCal))
+      ? publishedReference(standingCal) : null;
+    cal.reference = known === null ? null : Number(known);
+    cal.presets = known === null ? {} : presetsAgainst(known, standingCal.objectives);
+    cal.current = null;
   }
 
   /* The orientation the optics step corrects its pictures with: what this
@@ -1638,6 +1687,33 @@ let stageWatch = null;
       limits: () => setupRun.limitsDoc,
       edit: (key, value) => { if (setupRun.limitsDoc) setupRun.limitsDoc[key] = value; },
       publishedNote: () => setupRun.published[s.id] ?? null,
+      /* The optics step's calibration, and the ways it changes: choosing a
+         reference makes the presets afresh (every offset relative to the
+         old reference is void, so nothing is carried over); choosing a
+         preset is what the focus and X/Y cells then measure. */
+      objectives: () => setupRun.calibration.objectives,
+      calibration: () => setupRun.calibration,
+      setReference: (slot) => {
+        const cal = setupRun.calibration;
+        cal.reference = slot;
+        cal.presets = slot === null ? {} : presetsAgainst(slot);
+        cal.current = null;
+      },
+      choosePreset: (slot) => { setupRun.calibration.current = slot === null ? null : String(slot); },
+      holdPresetView: (slot, side, view) => {
+        const preset = setupRun.calibration.presets[String(slot)];
+        if (preset) preset.views[side] = view;
+      },
+      holdPresetAnswer: (slot, answer) => {
+        const preset = setupRun.calibration.presets[String(slot)];
+        if (!preset) return;
+        preset.answer = answer;
+        if (answer?.accepted && answer.translation_um) {
+          const t = answer.translation_um;
+          preset.translation_um = { x: t.x, y: t.y, z: t.z ?? 0 };
+          preset.state = "measured";
+        }
+      },
       mode: () => setupRun.mode,
       /* Changing the choice after connecting re-reads what the steps start
          from; before connecting it is simply remembered for the connect. */

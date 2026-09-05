@@ -189,6 +189,17 @@ class TestTheVocabulary(unittest.TestCase):
         self.assertEqual(lens["pixel_um"], 0.5)
         self.assertNotIn("set_objective", dir(leica_setup))
 
+    def test_the_turret_is_listed_from_the_hardware_report(self):
+        from navigator_expert.commands import objectives as _objectives
+
+        with (
+            patch.object(leica_setup.drv, "get_hardware_info", return_value={"stub": True}),
+            patch.object(_objectives, "objective_by_slot",
+                         return_value={3: {"name": "HC PL APO 63x/1.40 OIL CS2"}, 1: {"name": "10x"}}),
+        ):
+            lenses = leica_setup.objectives(_handle())
+        self.assertEqual(lenses, [{"slot": 1, "name": "10x"}, {"slot": 3, "name": "HC PL APO 63x/1.40 OIL CS2"}])
+
     def test_a_closed_setup_refuses(self):
         h = _handle()
         leica_setup.close_setup(h)

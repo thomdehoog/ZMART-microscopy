@@ -311,11 +311,9 @@ def _setup_measure(asked: dict) -> dict:
         target = _lens_views.get(asked.get("target", "target"))
         if reference is None or target is None:
             raise ValueError("capture the reference lens and the target lens first")
-        answer = procedures.measure_objective_pair(reference, target)
-        answer["document"] = procedures.calibration_document(
-            setup.read("calibration")["document"], answer,
-        )
-        return _with_picture(answer)
+        # The pair's numbers only: which sets make up the calibration, and
+        # against which reference, is the page's to say when it adopts.
+        return _with_picture(procedures.measure_objective_pair(reference, target))
     if what == "origin":
         return procedures.origin_here(setup)
     raise ValueError(f"unknown measurement {what!r}")
@@ -1529,6 +1527,9 @@ class _Bridge(BaseHTTPRequestHandler):
             elif path == "/api/setup/where":
                 with _setups_turn:
                     self._answer(_require_setup().where())
+            elif path == "/api/setup/objectives":
+                with _setups_turn:
+                    self._answer({"objectives": _require_setup().objectives()})
             elif path.startswith("/api/setup/picture/"):
                 _send_setup_picture(self, path)
             elif path.startswith("/api/setup/read/"):

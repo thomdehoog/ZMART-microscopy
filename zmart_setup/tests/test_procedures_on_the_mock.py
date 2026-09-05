@@ -44,7 +44,7 @@ def _change_lens(setup, slot):
 def test_the_mock_describes_all_four_and_both_optional_ops(setup):
     said = setup.describe()
     assert all(said["subsystems"][s]["supported"] for s in registry.SUBSYSTEMS)
-    assert said["can"] == {"objective": True, "markers": True}
+    assert said["can"] == {"objective": True, "objectives": True, "markers": True}
     assert said["subsystems"]["limits"]["document"]["measured"] == ["x_um", "y_um"]
 
 
@@ -140,3 +140,10 @@ def test_a_setup_that_starts_over_reads_the_defaults_not_what_stands(setup):
     fresh = setup.read("orientation", fresh=True)
     assert fresh["source"] == "default"
     assert fresh["document"]["measured"] is False
+
+
+def test_the_turret_is_listed_by_the_driver(setup):
+    lenses = setup.objectives()
+    assert [l["slot"] for l in lenses] == [0, 1]
+    assert lenses[1]["name"] == "40x dry"
+    assert setup.describe()["can"]["objectives"] is True

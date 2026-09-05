@@ -11,9 +11,12 @@ Five steps, walked before any imaging workflow can stand on the machine:
 3. **Image-to-stage calibration** — which of the eight lossless ways of laying a
    picture down lines it up with the stage. Three pictures and a known move;
    the analysis does the looking.
-4. **Optics calibration** — where and at what height a target lens looks
-   relative to the reference lens. The same field through each, and a short
-   focus stack under each; the operator changes lenses by hand between the two.
+4. **Optics calibration** — where and at what height each lens looks relative
+   to one reference lens. Ideally a microscope is parcentric and parfocal and
+   every offset is zero, so choosing the reference gives every other lens a
+   preset at zero straight away; the reality is often otherwise, so a preset is
+   refined by measuring it: the same field through each lens, and a short focus
+   stack under each, the operator changing lenses by hand between the two.
 5. **Define origin** — drive to the point the run should count from and make it
    (0, 0, 0).
 
@@ -34,8 +37,6 @@ steps/
   image_to_stage/    step 3 and its cells
   optics_calibration/  step 4 and its cells
   frame_origin/      step 5 and its cells
-drivers/             what a page-side driver module may declare (wording); the
-                     driver's own account of itself comes from the seam
 ```
 
 The page-side half of the seam is `../../parts/microscope/setup.js`; the
