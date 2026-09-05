@@ -193,9 +193,16 @@ def calibration_document(existing: dict, answer: dict) -> dict:
 
 
 def origin_here(setup: Setup) -> dict:
-    """The document that makes the current position (0, 0, 0)."""
+    """The document that makes the current position (0, 0, 0): the position,
+    and every drive's reading and the objective as the instrument reports
+    them, so what became zero is on record drive by drive."""
     here = setup.where()
-    return {"x_um": float(here["x_um"]), "y_um": float(here["y_um"]), "z_um": float(here["z_um"])}
+    document = {"x_um": float(here["x_um"]), "y_um": float(here["y_um"]), "z_um": float(here["z_um"])}
+    if here.get("actuators"):
+        document["actuators"] = {k: dict(v) for k, v in here["actuators"].items()}
+    if here.get("objective"):
+        document["objective"] = dict(here["objective"])
+    return document
 
 
 # ---------------------------------------------------------------------------

@@ -118,7 +118,10 @@ def test_a_move_outside_the_physical_travel_is_refused_whatever_is_published(set
 def test_the_origin_is_where_the_stage_stands(setup):
     setup.move(1000.0, 2000.0, 3.0)
     document = procedures.origin_here(setup)
-    assert document == {"x_um": 1000.0, "y_um": 2000.0, "z_um": 3.0}
+    assert {k: document[k] for k in ("x_um", "y_um", "z_um")} == {"x_um": 1000.0, "y_um": 2000.0, "z_um": 3.0}
+    # Every drive's reading is on record, so what became zero is legible.
+    assert document["actuators"]["x motoric"] == {"value": 1000.0, "unit": "um"}
+    assert "z galvo" in document["actuators"]
     setup.publish("origin", document)
     assert setup.read("origin")["source"] == "published"
 

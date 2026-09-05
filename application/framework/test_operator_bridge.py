@@ -1370,7 +1370,7 @@ def test_the_setup_routes_measure_and_publish_through_the_seam(a_mock_rig):
     # The origin: where the stage stands, published as a dated snapshot.
     here = bridge._require_setup().where()
     document = bridge._setup_measure({"what": "origin"})
-    assert document == here
+    assert {k: document[k] for k in ("x_um", "y_um", "z_um")} == {k: here[k] for k in ("x_um", "y_um", "z_um")}
     published = bridge._require_setup().publish("origin", document)
     assert Path(published["path"]).name == "origin.json"
     assert bridge._require_setup().read("origin")["source"] == "published"

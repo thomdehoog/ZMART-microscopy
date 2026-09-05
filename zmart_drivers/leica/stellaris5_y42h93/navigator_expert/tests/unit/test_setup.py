@@ -162,13 +162,20 @@ class TestReadAndPublish(unittest.TestCase):
 
 
 class TestTheVocabulary(unittest.TestCase):
-    def test_where_reads_xy_and_the_wide_drive(self):
+    def test_where_reads_every_drive_and_the_objective(self):
         with (
             patch.object(leica_setup.drv, "get_xy", return_value={"x_um": 10.0, "y_um": 20.0}),
             patch.object(leica_setup.drv, "read_zwide_um", return_value=5.0),
             patch.object(leica_setup.drv, "get_selected_job", return_value={"Name": "Overview"}),
+            patch.object(leica_setup.drv, "get_job_settings", return_value=_settings(5.0, 2.0)),
+            patch.object(adapter, "_z_um_from_settings",
+                         side_effect=lambda settings, drive, **_k: settings["zPosition"][drive]["position"]),
         ):
-            self.assertEqual(leica_setup.where(_handle()), {"x_um": 10.0, "y_um": 20.0, "z_um": 5.0})
+            here = leica_setup.where(_handle())
+        self.assertEqual((here["x_um"], here["y_um"], here["z_um"]), (10.0, 20.0, 5.0))
+        self.assertEqual(here["actuators"]["z-galvo"], {"value": 2.0, "unit": "um"})
+        self.assertEqual(here["actuators"]["z-wide"]["value"], 5.0)
+        self.assertEqual(here["objective"]["slot"], 3)
 
     def test_objective_is_observed_never_commanded(self):
         with (

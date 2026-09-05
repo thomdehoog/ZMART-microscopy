@@ -237,8 +237,20 @@ def _current_objective(rig: dict) -> dict:
 
 
 def where(handle: SetupHandle) -> dict:
+    """Where the stage stands, and every drive's reading. The mock has one
+    motoric drive per axis and a galvo and a piezo on Z that rest at zero."""
     _require_open(handle)
-    return dict(read_rig(handle.root)["stage"])
+    stage = read_rig(handle.root)["stage"]
+    return {
+        **stage,
+        "actuators": {
+            "x motoric": {"value": stage["x_um"], "unit": "um"},
+            "y motoric": {"value": stage["y_um"], "unit": "um"},
+            "z motoric": {"value": stage["z_um"], "unit": "um"},
+            "z galvo": {"value": 0.0, "unit": "um"},
+            "z piezo": {"value": 0.0, "unit": "um"},
+        },
+    }
 
 
 def move(handle: SetupHandle, x_um: float, y_um: float, z_um: float) -> dict:
@@ -255,7 +267,7 @@ def move(handle: SetupHandle, x_um: float, y_um: float, z_um: float) -> dict:
     rig = read_rig(handle.root)
     rig["stage"] = asked
     write_rig(handle.root, rig)
-    return dict(asked)
+    return where(handle)
 
 
 def objective(handle: SetupHandle) -> dict:
