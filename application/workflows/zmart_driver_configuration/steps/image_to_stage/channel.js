@@ -35,36 +35,49 @@ export default {
     const measure = cell("Set orientation",
       "Use a field with recognisable structure, in focus. This acquires images at home, +X and +Y "
       + "and compares four rotations with reflection absent or present.");
-    measure.body.append(press(ctx.held() ? "Rerun" : "Start", async () => {
-      try { ctx.hold(await ctx.setup.measure("orientation", { stage_move_um: ctx.moveUm() })); }
-      catch (why) { ctx.hold({ failed: why.message }); }
-      ctx.refresh();
-    }, { busy: "measuring…" }));
+    /* What came back, above the buttons: the sheet with the detected
+       correction and the eight candidates, or why there is none. */
     const held = ctx.held();
     if (held?.failed) measure.body.append(note(`Failed — ${held.failed}`, "bad"));
     else if (held?.diagnostic_url) {
       measure.body.append(picture(held.diagnostic_url,
         "the detected correction and the eight candidates, each with the Pearson correlation of its overlay"));
     } else if (held?.why) measure.body.append(note(held.why, held.accepted ? "" : "bad"));
-    /* Save and adopt, at the bottom of the same box, activates the measured
-       orientation for this machine. */
-    measure.body.append(publishRow({
-      label: "Save and adopt",
-      published: ctx.publishedNote(),
-      disabled: !held?.accepted,
-      onPublish: async () => {
-        const answer = ctx.held();
-        if (!answer?.accepted) { ctx.settle(null, "Nothing accepted to adopt — measure first."); ctx.refresh(); return; }
-        try {
-          const where = await ctx.setup.publish("orientation", {
-            rotation_deg: answer.orientation.rotation_deg, reflection: answer.orientation.reflection,
-          });
-          ctx.settle(`${answer.orientation.rotation_deg}°${answer.orientation.reflection ? " mirrored" : ""} · adopted`,
-            `Adopted: ${where.snapshot?.split("/").pop() ?? where.path}`);
-        } catch (why) { ctx.settle(null, `Adopting failed — ${why.message}`); }
-        ctx.refresh();
-      },
-    }));
+
+    /* At the bottom of the box: Start, which becomes Rerun once there is a
+       result, and beside it, only then, Save and adopt, which activates the
+       measured orientation for this machine. */
+    const run = press(held ? "Rerun" : "Start", async () => {
+      try { ctx.hold(await ctx.setup.measure("orientation", { stage_move_um: ctx.moveUm() })); }
+      catch (why) { ctx.hold({ failed: why.message }); }
+      ctx.refresh();
+    }, { busy: "measuring…" });
+    if (!held) {
+      const row = document.createElement("div");
+      row.className = "setup-publish";
+      row.append(run);
+      measure.body.append(row);
+    } else {
+      const row = publishRow({
+        label: "Save and adopt",
+        published: ctx.publishedNote(),
+        disabled: !held?.accepted,
+        onPublish: async () => {
+          const answer = ctx.held();
+          if (!answer?.accepted) { ctx.settle(null, "Nothing accepted to adopt — measure first."); ctx.refresh(); return; }
+          try {
+            const where = await ctx.setup.publish("orientation", {
+              rotation_deg: answer.orientation.rotation_deg, reflection: answer.orientation.reflection,
+            });
+            ctx.settle(`${answer.orientation.rotation_deg}°${answer.orientation.reflection ? " mirrored" : ""} · adopted`,
+              `Adopted: ${where.snapshot?.split("/").pop() ?? where.path}`);
+          } catch (why) { ctx.settle(null, `Adopting failed — ${why.message}`); }
+          ctx.refresh();
+        },
+      });
+      row.prepend(run);
+      measure.body.append(row);
+    }
     host.append(measure.box);
     return { host };
   },
