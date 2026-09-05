@@ -1,15 +1,14 @@
 /**
- * Step 5's cells — drive to the point the run should count from, and say "here".
+ * Step 5's cell — import where the microscope stands, and that is the origin.
  *
- * The step is two cells. The first shows where the stage stands, as the
- * driver reads it, and lets the operator type a position to drive to — moves
- * are verified by readback and fenced by the physical backstop whatever has
- * been published. The second makes the current position the origin and
- * publishes that as a dated record, which the driver stands on at its next
- * connect.
+ * Nothing here drives the stage. The operator takes the microscope to the
+ * point the run should count from in the instrument's own software, the way
+ * a job is chosen there, and then presses Import: the page reads the
+ * position as it stands and publishes it as the origin, in one press. From
+ * the next connect on, that spot is (0, 0, 0).
  */
 
-import { cell, note, press, publishRow, readout, um } from "../cells.js";
+import { cell, note, press, readout, um } from "../cells.js";
 
 export default {
   id: "origin",
@@ -17,57 +16,15 @@ export default {
 
   mount(host, ctx) {
     if (!ctx.supported()) {
-      const { box, body } = cell("Not on this microscope", "This driver keeps no origin of its own.");
-      body.append(note("Nothing to do here on this instrument."));
+      const { box, body } = cell("Not on this microscope");
+      body.append(note("This driver keeps no origin of its own. Walk on."));
       host.append(box);
       return { host };
     }
 
-    /* ---- where the stage is, and driving it ----------------------------- */
-    const where = cell("Position", "Absolute stage micrometres. Type a position and press Drive; the move is verified by readback.");
-    const here = ctx.here();
-    if (here) {
-      where.body.append(readout([
-        ["X", um(here.x_um, 1)], ["Y", um(here.y_um, 1)], ["Z", um(here.z_um, 2)],
-      ]));
-    }
-    const row = document.createElement("div");
-    row.className = "setup-row";
-    const boxes = {};
-    for (const axis of ["x_um", "y_um", "z_um"]) {
-      const label = document.createElement("label");
-      label.textContent = axis[0].toUpperCase();
-      const input = document.createElement("input");
-      input.type = "number";
-      input.className = "side-number";
-      input.value = here?.[axis] ?? "";
-      input.setAttribute("aria-label", `${axis[0].toUpperCase()} to drive to, in micrometres`);
-      boxes[axis] = input;
-      row.append(label, input);
-    }
-    where.body.append(row);
-    const actions = document.createElement("div");
-    actions.className = "setup-row";
-    actions.append(press("Read position", async () => {
-      try { ctx.holdHere(await ctx.setup.where()); } catch (why) { ctx.holdHere(null, why.message); }
-      ctx.refresh();
-    }, { busy: "reading…" }));
-    actions.append(press("Drive", async () => {
-      try {
-        ctx.holdHere(await ctx.setup.move({
-          x_um: Number(boxes.x_um.value), y_um: Number(boxes.y_um.value), z_um: Number(boxes.z_um.value),
-        }));
-      } catch (why) {
-        ctx.holdHere(ctx.here(), why.message);
-      }
-      ctx.refresh();
-    }, { busy: "moving…" }));
-    where.body.append(actions);
-    if (ctx.hereProblem()) where.body.append(note(ctx.hereProblem(), "bad"));
-    host.append(where.box);
-
-    /* ---- the origin ------------------------------------------------------- */
-    const origin = cell("Set origin", "The current position becomes (0, 0, 0) from the next connect on.");
+    const origin = cell("Set origin",
+      "Move the stage to the origin in the microscope's own software, then import. "
+      + "The imported position becomes (0, 0, 0) from the next connect on.");
     const standing = ctx.standing();
     if (standing?.source === "published") {
       const d = standing.document?.origin ?? standing.document ?? {};
@@ -76,22 +33,25 @@ export default {
     } else if (standing) {
       origin.body.append(note("No origin published: the frame is the stage's absolute zero."));
     }
-    origin.body.append(publishRow({
-      label: "Set origin here",
-      published: ctx.publishedNote(),
-      onPublish: async () => {
-        try {
-          const document = await ctx.setup.measure("origin");
-          const where = await ctx.setup.publish("origin", document);
-          await ctx.restand?.();
-          ctx.settle(`(${um(document.x_um, 0)}, ${um(document.y_um, 0)}, ${um(document.z_um, 1)}) · adopted`,
-            `Adopted: ${where.path}`);
-        } catch (why) {
-          ctx.settle(null, `Publishing failed — ${why.message}`);
-        }
-        ctx.refresh();
-      },
-    }));
+    origin.body.append(press("Import", async () => {
+      try {
+        const document = await ctx.setup.measure("origin");
+        const where = await ctx.setup.publish("origin", document);
+        ctx.holdHere(document);
+        ctx.settle(`(${um(document.x_um, 0)}, ${um(document.y_um, 0)}, ${um(document.z_um, 1)}) · adopted`,
+          `Adopted: ${where.snapshot?.split("/").pop() ?? where.path}`);
+      } catch (why) {
+        ctx.settle(null, `Import failed — ${why.message}`);
+      }
+      ctx.refresh();
+    }, { busy: "importing…" }));
+    const here = ctx.here();
+    if (ctx.publishedNote() && here) {
+      origin.body.append(readout([["X", um(here.x_um, 1)], ["Y", um(here.y_um, 1)], ["Z", um(here.z_um, 2)]]));
+      origin.body.append(note(ctx.publishedNote(), ctx.publishedNote().startsWith("Adopted") ? "ok" : "bad"));
+    } else if (ctx.publishedNote()) {
+      origin.body.append(note(ctx.publishedNote(), "bad"));
+    }
     host.append(origin.box);
     return { host };
   },
