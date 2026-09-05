@@ -153,7 +153,13 @@ def capture_lens_view(setup: Setup, *, into: str | Path, name: str, orientation:
     into = Path(into) / name
     frame = setup.acquire(into=into, name="frame")
     heights = [here["z_um"] + d for d in _steps(-stack_half_um, stack_half_um, stack_step_um)]
-    stack = setup.acquire(into=into, name="stack", z_um=heights)
+    try:
+        stack = setup.acquire(into=into, name="stack", z_um=heights)
+    finally:
+        # The stack leaves the focus drive at its last height. Put it back
+        # where the operator had it, as the orientation measurement does, so
+        # the field is still in focus when they change the lens.
+        setup.move(here["x_um"], here["y_um"], here["z_um"])
     view = {
         "lens": lens,
         "pixel_um": frame.get("pixel_um"),
