@@ -43,7 +43,8 @@ export default {
     const held = ctx.held();
     if (held?.failed) measure.body.append(note(`Failed — ${held.failed}`, "bad"));
     else if (held?.diagnostic_url) {
-      measure.body.append(picture(held.diagnostic_url, "the detected correction and the eight candidates"));
+      measure.body.append(picture(held.diagnostic_url,
+        "the detected correction and the eight candidates, each with the Pearson correlation of its overlay"));
     } else if (held?.why) measure.body.append(note(held.why, held.accepted ? "" : "bad"));
     host.append(measure.box);
 

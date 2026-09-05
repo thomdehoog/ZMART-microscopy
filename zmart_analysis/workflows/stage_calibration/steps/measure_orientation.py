@@ -303,7 +303,9 @@ def _for_display(image: np.ndarray) -> np.ndarray:
 def candidate_overlay(home, plus_x, plus_y, *, stage_move_um, pixel_um, rotation_deg, reflection):
     """Home in magenta; both moved pictures, shifted back by the move this
     candidate predicts, in green. The right candidate overlaps white.
-    Returns the overlay and how well the two agree where they overlap."""
+    Returns the overlay and the Pearson correlation of the two where they
+    overlap -- 1 when the candidate put the moved features exactly on top
+    of the home features, near 0 when it put them somewhere else."""
     from scipy.ndimage import shift as nd_shift
 
     image_to_stage = np.asarray(STAGE_FROM_ORIENTATION[(rotation_deg, reflection)], dtype=float)
@@ -417,7 +419,7 @@ def write_diagnostic(home, plus_x, plus_y, answer: dict, path, *, channel: int =
                      fontweight="bold" if selected else "normal", color=ink if selected else ink_3,
                      bbox={"facecolor": "white", "edgecolor": "none", "pad": 1.5})
     fig.text(0.035, 0.028, "Home image in magenta, the moved images laid back by each candidate in green: "
-             "the right candidate overlaps white.\nThe bar is the correlation of the two where they overlap (1 = identical).",
+             "the right candidate overlaps white.\nThe bar is the Pearson correlation of the two where they overlap (1 = identical).",
              ha="left", va="center", fontsize=10, color=ink_3)
     fig.savefig(str(path), dpi=105)
     return str(path)
