@@ -37,7 +37,9 @@ Every op takes the driver's own handle first. Required:
   which; with ``fresh`` the bundled default regardless, which is what a
   setup that starts over begins from.
 - ``publish(handle, subsystem, document, evidence=()) -> dict`` -- validate
-  and write a dated snapshot; answer with where it went. ``evidence`` names
+  and write a dated snapshot; answer with where it went. The file's schema
+  version is the driver's to stamp: a publisher says what the document
+  means, never which version of the driver's file it is. ``evidence`` names
   files, or whole folders, to keep beside the document in the snapshot --
   the figures the analysis drew, the measurement's numbers, and the raw
   frames and stacks it was measured from -- so what was measured can be

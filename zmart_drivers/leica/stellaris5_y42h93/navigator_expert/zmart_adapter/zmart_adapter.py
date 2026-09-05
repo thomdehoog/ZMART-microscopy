@@ -1444,6 +1444,7 @@ def register() -> None:
             "get_procedures": get_procedures,
             "run_procedure": run_procedure,
             "get_info": get_info,
+            "configurations": configurations,
         },
     )
 

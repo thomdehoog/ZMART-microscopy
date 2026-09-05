@@ -1918,6 +1918,9 @@ class TestLifecycle(unittest.TestCase):
             instrument = next(
                 i for i in zmart_controller.get_instruments() if i["vendor"] == "leica"
             )
+            # A session stands on a configuration; the newest holds the
+            # limits provisioned above, and is what the page offers first.
+            instrument["configuration"] = zmart_controller.get_configurations(instrument)[0]["id"]
             session = zmart_controller.set_instrument(instrument)
             try:
                 record = session.set_xyz(10, 20, 5, with_actuators={"z": "z-galvo"})
