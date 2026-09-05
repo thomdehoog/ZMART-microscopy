@@ -111,6 +111,7 @@ export default {
             rotation_deg: answer.orientation.rotation_deg,
             reflection: answer.orientation.reflection,
           });
+          await ctx.restand?.();
           ctx.settle(`${answer.orientation.rotation_deg}°${answer.orientation.reflection ? " mirrored" : ""} · published`,
             `Published to ${where.path}`);
         } catch (why) {

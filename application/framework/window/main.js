@@ -415,6 +415,15 @@ let stageWatch = null;
     stageWatch?.stop();
     stageWatch = null;
     setupRun = newSetupRun();
+    /* Every panel's channel is emptied, not only the one about to be shown:
+       switching workflows leaves the other workflow's panel hidden with its
+       last step's controls still in it, and a hidden form is still a form
+       -- a second password field the page can find. */
+    for (const panel of Object.values(thePanels)) {
+      if (panel.channel) panel.channel.textContent = "";
+      if (panel.foot) panel.foot.textContent = "";
+    }
+    state.sideMounted = null;
     Object.assign(state, {
       activeIdx: 0, done: new Set(), ran: new Set(), running: null, notes: {},
       overviewPreset: emptySlot("acquisition"),
@@ -1625,6 +1634,12 @@ let stageWatch = null;
       limits: () => setupRun.limitsDoc,
       edit: (key, value) => { if (setupRun.limitsDoc) setupRun.limitsDoc[key] = value; },
       publishedNote: () => setupRun.published[s.id] ?? null,
+      /* After a publish, what stands is what was just written; the cell
+         reads it back rather than remembering, so the sentence about it is
+         the driver's word and not the page's. */
+      restand: async () => {
+        try { setupRun.standing[s.id] = await backend.setup.read(s.id); } catch (why) { /* left as it was */ }
+      },
       /* A step settles by publishing: it is done, and the rail says what it
          came to. A failed publish leaves it undone and says why instead. */
       settle: (note, said) => {
@@ -2082,7 +2097,11 @@ let stageWatch = null;
        alternative to the canvas, it is the controls for what the canvas is
        showing — so it says whose controls those are rather than offering a
        switch. */
-    const owner = thePanels[shownPanel()]?.channel ? sideWidget() : null;
+    /* A panel whose channel is the whole window -- the notebook of the
+       driver-configuration workflow -- has no side column to head, and no
+       picture whose display settings could be offered. */
+    const shownMeta = thePanels[shownPanel()];
+    const owner = shownMeta?.channel && !shownMeta.wholeWindow ? sideWidget() : null;
     /* A folded column has no heading: the strip on its edge is all that is
        left of it, and the name would stand over the canvas. */
     if (owner && !state.sideFolded) {

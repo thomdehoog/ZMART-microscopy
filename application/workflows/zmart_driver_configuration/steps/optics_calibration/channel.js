@@ -107,6 +107,7 @@ export default {
         try {
           const where = await ctx.setup.publish("calibration", answer.document);
           const lenses = answer.lenses ?? {};
+          await ctx.restand?.();
           ctx.settle(`slot ${lenses.target?.slot} against slot ${lenses.reference?.slot} · published`,
             `Published to ${where.path}`);
         } catch (why) {

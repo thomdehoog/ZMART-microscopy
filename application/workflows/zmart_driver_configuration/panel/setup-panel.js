@@ -43,6 +43,11 @@ export const setupPanel = {
      closing the window only to open the same one again. */
   stays: true,
 
+  /* The channel is the whole window, not a column beside a picture: the
+     shell puts no heading over a side column that is not there, and offers
+     no display settings for a picture that is not there either. */
+  wholeWindow: true,
+
   build(host) {
     host.innerHTML = `
       <style>
