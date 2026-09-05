@@ -7,7 +7,7 @@ stands and never chooses for it. The mock has no software of its own, so
 this window is it: the jobs the mock driver offers, one press apiece, and
 the frame each one images.
 
-It is also where the pretend rig lives, for the ZMART driver configuration
+It is also where the pretend rig lives, for the ZMART driver setup
 workflow. A real microscope simply *is* mounted a certain way and *has* the
 lenses it has; here those are chosen in this window -- turn the camera,
 change the lens, drop a marker where the stage stands -- and the setup
