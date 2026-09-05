@@ -89,8 +89,19 @@ a matter of asking nicely. The full reasoning is in
 ## Trying it without a microscope
 
 Run the bridge and open the page; choose **ZMART driver configuration** and
-connect to the mock. Open `python application/mock-instrument.py` beside it:
-that window is the pretend rig — turn its camera, change its lens, drop four
-markers at the corners — and the workflow has to measure what the window shows,
-the way it would on a rig it cannot change. What each step publishes appears at
-the bottom of that window, as the driver will read it at the next connect.
+walk the five steps against the mock. The mock instrument window is the
+microscope's own software: drive the stage, drop the corner markers, change
+the lens there, then press the page's buttons.
+
+The same walk runs unattended as `walk.spec.js` beside this file, with nothing
+stood in for: the built page served by the real bridge, the mock driven through
+the setup seam exactly as a Leica would be, and every operator action -- drive,
+drop a marker, change the lens -- through the instrument window's own methods.
+It ends by checking the configuration folder the walk left on disk, then
+reopens the configuration and connects target acquisition on it.
+
+```bash
+cd application
+npx playwright test workflows/zmart_driver_configuration/walk.spec.js
+# OPERATOR_EVIDENCE_DIR=<folder> keeps a screenshot of every screen
+```

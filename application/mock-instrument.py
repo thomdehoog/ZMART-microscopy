@@ -37,6 +37,8 @@ PAGE = """<!doctype html>
 <meta charset="utf-8">
 <title>Mock instrument</title>
 <style>
+  input.um { width: 78px; font: inherit; font-size: 12px; padding: 3px 6px; margin-left: 6px;
+             border: 1px solid #cbd5e1; border-radius: 6px; }
   body { margin: 0; padding: 18px 20px; font: 13px system-ui, sans-serif; color: #111827; background: #f8fafc; }
   h1 { font-size: 13px; letter-spacing: .08em; text-transform: uppercase; color: #6b7280; margin: 0 0 12px; }
   .job { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; margin: 4px 0;
@@ -56,7 +58,12 @@ PAGE = """<!doctype html>
 <h1 style="margin-top:22px">Mock instrument · the rig</h1>
 <div class="note" style="margin:0 0 10px">What a real microscope simply <em>is</em>, and what an operator does in the
 vendor's own software. The setup workflow measures these from the operator page; nothing there can change them.</div>
-<div class="row"><span>Stage</span><span class="frame" id="stage"></span></div>
+<div class="row"><span>Stage</span>
+  <span><span class="frame" id="stage"></span>
+  <input class="um" id="drive-x" type="number" step="1" placeholder="x µm" aria-label="x µm">
+  <input class="um" id="drive-y" type="number" step="1" placeholder="y µm" aria-label="y µm">
+  <input class="um" id="drive-z" type="number" step="0.1" placeholder="z µm" aria-label="z µm">
+  <button class="small" id="drive" type="button" title="Drive the stage there, as the vendor's software would">Drive</button></span></div>
 <div class="row"><span>Objective</span><span id="lenses"></span></div>
 <div class="row"><span>Camera mounted</span><span id="camera"></span></div>
 <div class="row"><span>Markers at the safe corners</span>
@@ -117,6 +124,11 @@ vendor's own software. The setup workflow measures these from the operator page;
     camera.append(pressable("mirrored", rig.camera.reflection,
       () => window.pywebview.api.turn_camera(rig.camera.rotation_deg, !rig.camera.reflection)));
     byId("markers").textContent = rig.markers.length ? rig.markers.join("  ") : "none placed";
+    byId("drive").onclick = async () => {
+      const num = (id) => Number(byId(id).value);
+      await window.pywebview.api.drive_stage(num("drive-x"), num("drive-y"), num("drive-z"));
+      show();
+    };
     byId("drop").onclick = async () => { await window.pywebview.api.drop_marker(); show(); };
     byId("clear").onclick = async () => { await window.pywebview.api.clear_markers(); show(); };
 
@@ -203,6 +215,22 @@ class Api:
         if subsystem == "origin":
             return f"({document.get('x_um', 0):g}, {document.get('y_um', 0):g}, {document.get('z_um', 0):g}) µm"
         return json.dumps(document)
+
+    def drive_stage(self, x_um: float, y_um: float, z_um: float) -> dict:
+        """Drive the stage, the way an operator does in the vendor's own
+        software: to the corners of the safe area, back to a field with
+        structure, to the point the run should count from. Fenced by the
+        stage's physical travel and nothing else -- the instrument's own
+        software knows no ZMART limits."""
+        asked = {"x_um": float(x_um), "y_um": float(y_um), "z_um": float(z_um)}
+        for axis, value in asked.items():
+            low, high = mock_setup.PHYSICAL_UM[axis]
+            if not (low <= value <= high):
+                raise ValueError(f"{axis} = {value:g} is outside the stage's travel [{low:g}, {high:g}]")
+        rig = mock_setup.read_rig(self._root())
+        rig["stage"] = asked
+        mock_setup.write_rig(self._root(), rig)
+        return dict(rig["stage"])
 
     def change_lens(self, slot: int) -> dict:
         """The operator turns the turret: what a lens change is on a real rig."""
