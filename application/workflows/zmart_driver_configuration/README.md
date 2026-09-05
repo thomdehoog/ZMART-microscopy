@@ -2,7 +2,12 @@
 
 Five steps, walked before any imaging workflow can stand on the machine:
 
-1. **Connect** — open the driver's *setup*. The same step target acquisition
+1. **Connect** — open the driver's *setup*, then choose the **setup session**
+   to work in: reopen one to see and edit what it holds, or start a new one
+   from what the machine has now. A session is one pass through the steps,
+   kept by the moment it was started; every step after Connect starts from
+   what the session holds, and each Save and adopt is recorded into it. The
+   same step target acquisition
    starts with, borrowed rather than retyped; only its wording differs.
 2. **Define limits** — how far the stage may travel, which objective slots
    automation may use, and a permitted value or range for each setting the
@@ -19,6 +24,10 @@ Five steps, walked before any imaging workflow can stand on the machine:
    stack under each, the operator changing lenses by hand between the two.
 5. **Define origin** — drive to the point the run should count from and make it
    (0, 0, 0).
+
+Sessions are kept beside the driver's snapshots, as `sessions/<datetime>/session.json`
+under the folder the driver names as its home (the machine root on the mock,
+the ProgramData API root on the Leica). The driver never reads them.
 
 Steps 2 to 5 publish the four documents the driver keeps for a machine — under
 `limits/`, `orientation/`, `calibration/` and `origin/` in dated snapshots, the

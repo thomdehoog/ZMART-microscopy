@@ -62,9 +62,26 @@ export const setupBackend = {
     return ask("/api/setup/measure", { what, ...extra });
   },
 
-  /** Write a dated snapshot of one subsystem. */
+  /** Write a dated snapshot of one subsystem. When a session is open, what
+      was published is kept as that session's document too. */
   async publish(subsystem, document) {
     return ask("/api/setup/publish", { subsystem, document });
+  },
+
+  /** The setup sessions kept for this machine, newest first, and which one
+      is open. */
+  async sessions() {
+    return ask("/api/setup/sessions");
+  },
+
+  /** Reopen a session by id. Answers with its record, documents included. */
+  async openSession(id) {
+    return ask("/api/setup/session", { open: id });
+  },
+
+  /** Start a session from what the machine has now; `name` may be empty. */
+  async newSession(name) {
+    return ask("/api/setup/session", { new: name ?? "" });
   },
 };
 

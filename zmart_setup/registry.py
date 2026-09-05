@@ -49,6 +49,10 @@ out what depends on them:
   instrument's own list rather than from typing.
 - ``markers(handle) -> {"points": [{"x_um", "y_um"}, ...]}`` -- points the
   operator placed in the vendor's software to say where the safe corners are.
+- ``home(handle) -> str`` -- a folder the driver keeps this machine's ZMART
+  configuration in. Setup sessions (see :mod:`zmart_setup.sessions`) are
+  kept under it, so the record of how a machine was set up lives with the
+  machine. A driver without one gets its sessions under the user's home.
 
 Error contract: report failure by raising (``ValueError`` for a caller's
 mistake, ``RuntimeError`` for an instrument's refusal or failure), never by
@@ -74,7 +78,7 @@ OPS: tuple[str, ...] = (
 )
 
 #: A driver may supply these; the page asks before relying on them.
-OPTIONAL_OPS: tuple[str, ...] = ("objective", "objectives", "markers")
+OPTIONAL_OPS: tuple[str, ...] = ("objective", "objectives", "markers", "home")
 
 #: The keys the registry indexes on -- the same three the controller uses.
 IDENTITY: tuple[str, ...] = ("vendor", "microscope", "api")

@@ -29,11 +29,19 @@ microscope API root::
                 configs/
         origin/<datetime>/
             origin.json
+        sessions/<datetime>/
+            session.json
 
 The newest timestamp in each subsystem wins independently. Publishing limits
 does not duplicate calibration or orientation, and every origin change keeps
 its own immutable record. The frame origin remains session-scoped: the driver
 does not restore it at connect.
+
+``sessions/`` is not a subsystem and this driver never reads it. It is where
+the ZMART driver configuration workflow keeps each operator's pass through
+its steps -- the four documents as last adopted, under a name -- so a setup
+can be reopened and edited. Adopting still writes the subsystem snapshot
+above; the session record is a copy beside it, updated as the session goes.
 
 Operator-published runtime values live in ProgramData. Bundled defaults stay
 inside the installed code and are used directly only when no machine limits

@@ -15,6 +15,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from . import sessions as _sessions
 from .registry import IDENTITY, OPTIONAL_OPS, SUBSYSTEMS, resolve
 
 
@@ -118,6 +119,44 @@ class Setup:
         if not isinstance(document, dict):
             raise ValueError(f"a {subsystem} document is a dict, got {type(document).__name__}")
         return self._ops["publish"](self._handle, subsystem, dict(document))
+
+    # --- sessions: a pass through the workflow, kept to reopen -----------
+
+    def sessions_root(self) -> Path:
+        """Where this machine's setup sessions are kept: under the folder the
+        driver names as its home, else under the user's home, by instrument."""
+        self._require_open()
+        if "home" in self._ops:
+            return Path(self._ops["home"](self._handle)) / "sessions"
+        key = "-".join(self.context[k] for k in IDENTITY)
+        return Path.home() / ".zmart" / "setup-sessions" / key
+
+    def sessions(self) -> list[dict]:
+        """Every session kept for this machine, newest first."""
+        return _sessions.list_sessions(self.sessions_root())
+
+    def new_session(self, name: str | None = None) -> dict:
+        """Start a session from what stands now: each supported subsystem's
+        document as the driver reads it, published or default."""
+        self._require_open()
+        documents = {}
+        for subsystem in SUBSYSTEMS:
+            if not self.supports(subsystem):
+                continue
+            try:
+                documents[subsystem] = self.read(subsystem)["document"]
+            except Exception:  # noqa: BLE001 -- a subsystem that cannot be read is simply not held
+                continue
+        return _sessions.create_session(self.sessions_root(), name, documents)
+
+    def session(self, session_id: str) -> dict:
+        """One session in full, its documents included."""
+        return _sessions.open_session(self.sessions_root(), session_id)
+
+    def record(self, session_id: str, subsystem: str, document: dict) -> dict:
+        """Keep ``document`` as what the session holds for ``subsystem``."""
+        _require_subsystem(subsystem)
+        return _sessions.record_document(self.sessions_root(), session_id, subsystem, document)
 
     def close(self) -> None:
         """Idempotent: a second close is a no-op."""

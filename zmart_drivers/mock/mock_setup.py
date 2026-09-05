@@ -290,6 +290,13 @@ def objectives(handle: SetupHandle) -> list:
             for o in read_rig(handle.root)["objectives"]]
 
 
+def home(handle: SetupHandle) -> str:
+    """The machine root: where this rig's published snapshots, and so its
+    setup sessions, are kept."""
+    _require_open(handle)
+    return str(handle.root)
+
+
 def markers(handle: SetupHandle) -> dict:
     """The corner markers the operator dropped in the mock instrument window."""
     _require_open(handle)
@@ -487,6 +494,7 @@ def register_mock_setup() -> None:
             "objective": objective,
             "objectives": objectives,
             "markers": markers,
+            "home": home,
             "read": read,
             "publish": publish,
         },

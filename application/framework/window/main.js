@@ -1575,7 +1575,7 @@ let stageWatch = null;
     if (SIDE_WIDGETS[s.id]) return SIDE_WIDGETS[s.id];
     if (!s.channel) return null;
     return { id: s.channel.id, label: s.channel.label, ownChannel: true,
-      mount: (host) => s.channel.mount(host, channelContextFor(s)) };
+      mount: (host) => mountChannel(host, s) };
   };
 
   /* What the driver-configuration steps hold between renders: the last
@@ -1586,9 +1586,10 @@ let stageWatch = null;
   function newSetupRun() {
     return { held: {}, views: {}, here: null, hereProblem: null, moveUm: 40,
       limitsDoc: null, standing: {}, published: {}, describe: null,
-      /* Whether this setup edits what the machine has published ("edit") or
-         starts over from the driver's defaults ("new"). Chosen at Connect. */
-      mode: "edit",
+      /* The setup session this run works in -- one pass through the
+         workflow, kept so it can be reopened -- and the ones the machine
+         has. Chosen under Connect; the steps stay shut until it is. */
+      session: null, sessions: [],
       /* The optics step's calibration: the lenses the driver lists, the one
          chosen as the reference, and one preset per other lens, each holding
          the offset it will be published with. See presetsAgainst(). */
@@ -1636,9 +1637,13 @@ let stageWatch = null;
   async function primeSetupRun(info) {
     const seam = backend.setup;
     setupRun.describe = info?.describe ?? (await seam.status())?.describe ?? null;
-    const fresh = setupRun.mode === "new";
+    try { setupRun.sessions = (await seam.sessions()).sessions ?? []; } catch (why) { setupRun.sessions = []; }
+    /* What each step starts from: the session's document where it holds
+       one, else what the driver reads -- published, or its default. */
+    const held = setupRun.session?.documents ?? {};
     for (const name of ["limits", "orientation", "calibration", "origin"]) {
-      try { setupRun.standing[name] = await seam.read(name, { fresh }); } catch (why) { setupRun.standing[name] = null; }
+      if (held[name]) { setupRun.standing[name] = { source: "session", document: held[name] }; continue; }
+      try { setupRun.standing[name] = await seam.read(name); } catch (why) { setupRun.standing[name] = null; }
     }
     setupRun.limitsDoc = setupRun.standing.limits?.document
       ? JSON.parse(JSON.stringify(setupRun.standing.limits.document)) : null;
@@ -1667,6 +1672,41 @@ let stageWatch = null;
     if (standing?.measured) return { rotation_deg: standing.rotation_deg, reflection: standing.reflection };
     return null;
   };
+
+  /* Entering a session: the run starts over from what the session holds,
+     with the connect step still done and everything after it fresh. */
+  async function enterSession(record) {
+    const describe = setupRun.describe;
+    setupRun = newSetupRun();
+    setupRun.describe = describe;
+    setupRun.session = record;
+    for (const id of [...state.done]) if (id !== "connect") { state.done.delete(id); state.ran.delete(id); delete state.notes[id]; }
+    await primeSetupRun(null);
+    /* A step the session already holds a document for counts as done, so a
+       reopened session can be walked to any step and edited there. */
+    for (const [id, document] of Object.entries(record.documents ?? {})) {
+      if (!document || !steps().some((st) => st.id === id)) continue;
+      state.done.add(id);
+      state.notes[id] = "held by the session";
+    }
+  }
+
+  /* A configuration step's channel, or -- before a session is chosen under
+     Connect -- the one sentence saying so, since every step starts from
+     what the session holds. */
+  function mountChannel(host, s) {
+    if (s.id !== "connect" && backend.kind === "setup" && !setupRun.session) {
+      const { group, body } = sideGroup("Setup session");
+      group.classList.add("setup-cell");
+      const p = document.createElement("p");
+      p.className = "setup-note";
+      p.textContent = "Choose a session under Connect first, or start a new one.";
+      body.append(p);
+      host.append(group);
+      return;
+    }
+    s.channel.mount(host, channelContextFor(s));
+  }
 
   function channelContextFor(s) {
     return {
@@ -1714,15 +1754,18 @@ let stageWatch = null;
           preset.state = "measured";
         }
       },
-      mode: () => setupRun.mode,
-      /* Changing the choice after connecting re-reads what the steps start
-         from; before connecting it is simply remembered for the connect. */
-      setMode: async (mode) => {
-        setupRun.mode = mode;
-        if (state.done.has("connect") && backend.kind === "setup") {
-          setupRun.limitsDoc = null;
-          await primeSetupRun(null);
-        }
+      /* The session this run works in, the ones the machine has, and the
+         two ways to get one. Choosing either re-reads what every step
+         starts from, and forgets what this run measured so far. */
+      session: () => setupRun.session,
+      sessions: () => setupRun.sessions,
+      chooseSession: async (id) => {
+        const record = await backend.setup.openSession(id);
+        await enterSession(record);
+      },
+      startSession: async (name) => {
+        const record = await backend.setup.newSession(name);
+        await enterSession(record);
       },
       connected: () => state.done.has("connect"),
       /* After a publish, what stands is what was just written; the cell
@@ -2162,12 +2205,11 @@ let stageWatch = null;
     const pad = document.createElement("div");
     pad.className = "side-pad";
     card(pad);
-    /* A workflow's own step may add to the card -- the driver-setup
-       workflow asks, under Connect, whether this setup starts over or edits
-       what the machine already has, because that is decided before anything
-       is read. */
+    /* A workflow's own step may add to the card -- the driver-configuration
+       workflow asks, under Connect, which setup session to work in, because
+       every step after it starts from what that session holds. */
     const s = step(state.activeIdx);
-    if (s.channel) s.channel.mount(pad, channelContextFor(s));
+    if (s.channel) mountChannel(pad, s);
     host.append(pad);
   }
 
