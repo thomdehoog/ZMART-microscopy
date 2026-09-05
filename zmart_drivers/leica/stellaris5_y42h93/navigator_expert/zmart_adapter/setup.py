@@ -379,7 +379,10 @@ def publish(handle: SetupHandle, subsystem: str, document: dict, evidence=()) ->
     if subsystem == "calibration":
         from navigator_expert.calibration.core import model as _model
 
-        config = _model.prepared_calibration(document)
+        # The schema is the driver's to say: a publisher supplies the
+        # objectives and their offsets, and the file carries this driver's
+        # own version, so a page that never heard of v13 cannot write v1.
+        config = _model.prepared_calibration({**document, "schema_version": _model.SCHEMA_VERSION})
         name = document.get("calibration_name")
         snapshot = machine.publish_snapshot(
             moment, calibration=config, calibration_name=name, archive_paths=archive,

@@ -579,7 +579,8 @@ def validate(subsystem: str, document: dict) -> dict:
     if subsystem == "calibration":
         if not isinstance(document.get("objectives"), dict):
             raise ValueError("calibration document needs an 'objectives' map")
-        return {"schema_version": 1, **document}
+        # The schema is the driver's to say, whatever a publisher sent.
+        return {**document, "schema_version": 1}
     if subsystem == "origin":
         for axis in ("x_um", "y_um", "z_um"):
             if not isinstance(document.get(axis), (int, float)):

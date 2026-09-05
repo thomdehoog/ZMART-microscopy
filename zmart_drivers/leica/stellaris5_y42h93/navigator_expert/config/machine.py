@@ -176,6 +176,24 @@ def configuration_moment(name: str) -> datetime:
     return datetime.strptime(match.group(1), _SNAPSHOT_FORMAT).replace(tzinfo=timezone.utc)
 
 
+def _operator_published(subsystem: str, file: Path) -> bool:
+    """Whether a snapshot's document is the operator's rather than the
+    bundled default the driver seeds at connect. Limits are never seeded, so
+    their presence is the proof; an orientation says ``measured``; a
+    calibration names objectives; an origin exists only when set."""
+    if subsystem in ("limits", "origin"):
+        return True
+    try:
+        document = json.loads(file.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    if subsystem == "orientation":
+        return bool(document.get("measured"))
+    if subsystem == "calibration":
+        return bool(document.get("objectives"))
+    return True
+
+
 def use_configuration(name: str | None) -> None:
     """Choose the configuration this process's driver stands on.
 
@@ -285,7 +303,8 @@ class MachineProfile:
         has = {}
         for subsystem in SUBSYSTEMS:
             latest = bound.latest_snapshot(subsystem)
-            has[subsystem] = bool(latest is not None and (latest / _SUBSYSTEM_FILENAME[subsystem]).is_file())
+            file = latest / _SUBSYSTEM_FILENAME[subsystem] if latest is not None else None
+            has[subsystem] = bool(file is not None and file.is_file() and _operator_published(subsystem, file))
         return {
             "id": path.name,
             "created_at": configuration_moment(path.name).isoformat(),

@@ -219,8 +219,9 @@ export default {
             const lens = bySlot(preset.target);
             objectives[slot] = { name: lens?.name ?? `slot ${slot}`, translation_um: [t.x, t.y, t.z ?? 0] };
           }
-          const schema = standing?.document?.schema_version;
-          const document_ = schema !== undefined ? { schema_version: schema, objectives } : { objectives };
+          /* The objectives and their offsets only: the schema of the file
+             is the driver's to stamp. */
+          const document_ = { objectives };
           const measured = slots.filter((slot) => cal.presets[slot].state === "measured").length;
           /* What was measured travels with the document: each measured
              preset's two focus sheets, its overlay, and its numbers. */

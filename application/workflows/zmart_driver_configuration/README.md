@@ -105,3 +105,9 @@ cd application
 npx playwright test workflows/zmart_driver_configuration/walk.spec.js
 # OPERATOR_EVIDENCE_DIR=<folder> keeps a screenshot of every screen
 ```
+
+The same walk runs against the actual Leica driver, below the page, in
+`zmart_drivers/leica/.../tests/unit/test_configuration_walk.py`: the seam's
+procedures in the same order, with only the CAM socket and the camera's pixels
+stood in for, and a controller session opened on the result. Together the two
+walks cover every join a real microscope will stand on.

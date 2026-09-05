@@ -177,6 +177,16 @@ keeps the workflow the same on every microscope.
 python -m pytest zmart_drivers/setup/tests
 ```
 
+The walk that matters most for a real machine is the Leica's own:
+`navigator_expert/tests/unit/test_configuration_walk.py` runs the whole
+workflow through this seam against the actual Leica driver -- its setup
+adapter, machine profile, limits, orientation, calibration and origin
+modules, acquisition path, gate and connect handshake -- with only two things
+stood in for, because a test machine has neither: the CAM socket, and the
+camera's pixels that LAS X native AutoSave would write. It ends by opening a
+controller session on the configuration the walk published and checking that
+the driver stood on exactly that.
+
 The tests run against the mock, which keeps its configurations under a
 machine root named by `ZMART_MOCK_MACHINE`; the test setup points that at a
 temporary folder, so nothing an operator published is read or touched.
