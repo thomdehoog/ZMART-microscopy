@@ -76,10 +76,10 @@ export const um = (v, digits = 1) =>
 
 /** The step's own footer: its Publish press, and the sentence beside it once
     the document is on disk. Every step ends the same way, so it looks the same. */
-export function publishRow({ label, onPublish, published }) {
+export function publishRow({ label, onPublish, published, disabled = false }) {
   const row = document.createElement("div");
   row.className = "setup-publish";
-  row.append(press(label, onPublish, { busy: "publishing…" }));
+  row.append(press(label, onPublish, { busy: "publishing…", disabled }));
   if (published) row.append(note(published, "ok"));
   return row;
 }

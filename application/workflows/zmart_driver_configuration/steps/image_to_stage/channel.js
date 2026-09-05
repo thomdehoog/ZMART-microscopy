@@ -46,12 +46,12 @@ export default {
       measure.body.append(picture(held.diagnostic_url,
         "the detected correction and the eight candidates, each with the Pearson correlation of its overlay"));
     } else if (held?.why) measure.body.append(note(held.why, held.accepted ? "" : "bad"));
-    host.append(measure.box);
-
-    const publish = cell("Save and adopt", "Activates the measured orientation for this machine.");
-    publish.body.append(publishRow({
-      label: "Adopt orientation",
+    /* Save and adopt, at the bottom of the same box, activates the measured
+       orientation for this machine. */
+    measure.body.append(publishRow({
+      label: "Save and adopt",
       published: ctx.publishedNote(),
+      disabled: !held?.accepted,
       onPublish: async () => {
         const answer = ctx.held();
         if (!answer?.accepted) { ctx.settle(null, "Nothing accepted to adopt — measure first."); ctx.refresh(); return; }
@@ -60,12 +60,12 @@ export default {
             rotation_deg: answer.orientation.rotation_deg, reflection: answer.orientation.reflection,
           });
           ctx.settle(`${answer.orientation.rotation_deg}°${answer.orientation.reflection ? " mirrored" : ""} · adopted`,
-            `Adopted: ${where.path}`);
+            `Adopted: ${where.snapshot?.split("/").pop() ?? where.path}`);
         } catch (why) { ctx.settle(null, `Adopting failed — ${why.message}`); }
         ctx.refresh();
       },
     }));
-    host.append(publish.box);
+    host.append(measure.box);
     return { host };
   },
 };
