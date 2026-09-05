@@ -136,7 +136,6 @@ def test_notebook_is_thin_orchestration_and_teaches_the_session_lifecycle():
     joined = "\n".join(_code_sources(_load()))
     for call in (
         'workflow.connect("leica")',
-        "zmart_controller.set_origin()",
         "zmart_controller.get_state()",
         "zmart_controller.set_state(overview_state)",
         "setup_info = zmart_controller.get_info()",

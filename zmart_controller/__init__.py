@@ -8,8 +8,7 @@ to use it, both giving ``zmart_controller.<call>()``:
 
     instruments = zmart_controller.get_instruments()
     zmart_controller.set_instrument(instruments[0])
-    zmart_controller.set_origin()                # (0, 0, 0) is here now
-    zmart_controller.set_xyz(10, 20, 5)
+    zmart_controller.set_xyz(10, 20, 5)          # micrometres from the published origin
     zmart_controller.acquire(acquisition_type="prescan", position_label="A1")
     zmart_controller.disconnect()
 
@@ -19,8 +18,14 @@ to use it, both giving ``zmart_controller.<call>()``:
     from zmart_controller.layer import set_instrument
     mic_a = set_instrument(instrument_a)
     mic_b = set_instrument(instrument_b)
-    mic_a.set_origin()
     mic_a.acquire(acquisition_type="prescan", position_label="A1")
+
+Where the frame comes from: positions are micrometres from the origin the
+driver stands on, and that origin is part of the machine's published
+configuration -- set through ``zmart_setup`` (the ZMART driver configuration
+workflow), read by the driver at connect, and deliberately unreachable from
+here. A session cannot move the point it counts from, for the same reason it
+cannot widen the envelope it is fenced by.
 
 Two caveats on the module-level surface:
 

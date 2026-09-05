@@ -13,7 +13,7 @@ The pieces mirror the real boundary exactly:
   shots, and calibration pairs all agree about where things are — like a
   real (if suspiciously tidy) piece of tissue.
 - :class:`SimulatedSession` answers the same calls a
-  ``zmart_controller.Session`` does (``set_origin``, ``get_state``,
+  ``zmart_controller.Session`` does (``get_state``,
   ``run_procedure``, ``acquire``, ...). Its two "jobs" stand in for the
   two objectives, and the target job is deliberately mis-aimed by
   :data:`INJECTED_ERROR_UM` — the small calibration error the notebooks'
@@ -127,9 +127,6 @@ class SimulatedSession:
         return self.disconnected
 
     # -- the Session ops the notebooks (and the web interface) call ---------
-    def set_origin(self) -> dict:
-        return {"origin": {"x": 0.0, "y": 0.0, "z": 0.0}}
-
     def get_state(self) -> dict:
         pixel_um = self._JOBS[self.job]["pixel_um"]
         return {

@@ -24,7 +24,7 @@ from .zmart_adapter import (  # noqa: F401 -- re-exported public surface
     get_xyz,
     register,
     run_procedure,
-    set_origin,
+    origin_record_here,
     set_state,
     set_xyz,
 )

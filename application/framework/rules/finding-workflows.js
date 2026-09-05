@@ -47,12 +47,21 @@ export function assembleWorkflows(flowFiles) {
   const WORKFLOWS = {};
   for (const { folder, flow } of found) {
     WORKFLOWS[folder] = {
-      name: workflowName(folder),
+      /* The folder's name, unless the flow says otherwise. A flow speaks up
+         only when the folder rule gets its name wrong -- an acronym, mostly:
+         `zmart_driver_configuration` would read "Zmart", and ZMART is a name,
+         not a word. */
+      name: flow.name ?? workflowName(folder),
       blurb: flow.blurb,
       steps: numbered(flow.steps),
       /* What the workflow offers to put on the right-hand side. A workflow
          that declares none runs on its steps' own panels alone. */
       panels: flow.panels ?? [],
+      /* What the workflow talks to, when it is not the page's usual backend.
+         The driving workflows go through the controller; a workflow that
+         configures a driver goes through the setup seam instead, and says so
+         here rather than the framework knowing which workflow is which. */
+      backend: flow.backend ?? null,
     };
   }
 

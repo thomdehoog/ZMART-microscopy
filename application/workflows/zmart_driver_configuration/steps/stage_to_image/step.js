@@ -25,6 +25,8 @@
  * `set_orientation` notebook.
  */
 
+import channel from "./channel.js";
+
 export const stageToImage = {
   id: "orientation",
   title: "Stage-to-image calibration",
@@ -33,6 +35,10 @@ export const stageToImage = {
   panels: ["setup"],
   btn: "Measure orientation",
   ms: 0,
+  /* The step's cells build the press that publishes, so the shell adds none. */
+  ownButton: true,
+  /* The cells themselves; the shell mounts them when the step is walked to. */
+  channel,
 
   ready: ({ done }) =>
     (done?.has("connect") ? null : "connect to the microscope first"),

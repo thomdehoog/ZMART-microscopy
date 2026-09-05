@@ -190,60 +190,37 @@ class TestFrame(unittest.TestCase):
     def tearDown(self):
         _clear_limits()
 
-    def test_set_origin_zeros_the_frame(self):
+    def test_a_session_has_no_way_to_set_the_origin(self):
+        """The origin is machine configuration, published through the setup
+        seam; the operating adapter registers no op for it."""
+        from zmart_controller import registry
+
+        entry = registry.REGISTRY[("leica", "stellaris5-y42h93", "navigator-expert")]
+        self.assertNotIn("set_origin", entry["ops"])
+        self.assertFalse(hasattr(adapter, "set_origin"))
+
+    def test_the_origin_record_is_what_the_frame_maths_needs(self):
         h = _handle()
-        patches = _patch_position(x_um=1000.0, y_um=2000.0, z_wide_um=30.0)
+        patches = _patch_position(x_um=1000.0, y_um=2000.0, z_wide_um=30.0, z_galvo_um=2.0)
         with patches[0], patches[1], patches[2], patches[3]:
-            record = adapter.set_origin(h)
-            self.assertEqual(record["origin"], {"x": 0.0, "y": 0.0, "z": 0.0})
-            self.assertTrue(record["origin_file"].endswith("origin.json"))
-            self.assertEqual(record["reference"]["z_focus_um"], 30.0)
-            pos = adapter.get_xyz(h)
-        self.assertEqual(pos["x"]["value"], 0.0)
-        self.assertEqual(pos["z"]["value"], 0.0)
-        self.assertEqual(pos["x"]["unit"], "um")
-        self.assertEqual(pos["x"]["actuator"], "motoric")
-        self.assertEqual(pos["z"]["actuator"], "z-wide")
+            record = adapter.origin_record_here(h)
+        self.assertEqual(record["origin"]["x_um"], 1000.0)
+        self.assertEqual(record["origin"]["z_wide_um"], 30.0)
+        self.assertEqual(record["origin"]["z_galvo_um"], 2.0)
+        self.assertEqual(record["origin"]["z_focus_um"], 32.0)
+        self.assertEqual(record["origin"]["objective"]["magnification"], 63)
+        self.assertEqual(record["job"], "Overview")
+        # Reading it does not set it: the handle's frame is untouched.
+        self.assertEqual(h.origin["x_um"], 0.0)
 
-    def test_set_origin_persists_into_its_own_origin_folder(self):
-        import json
-        import tempfile
-
-        from navigator_expert.config.machine import MachineProfile, is_snapshot_name
-
-        with tempfile.TemporaryDirectory() as tmp:
-            profile = MachineProfile(programdata_root=Path(tmp))
-            h = _handle()
-            patches = _patch_position(x_um=1000.0, y_um=2000.0, z_wide_um=30.0, z_galvo_um=2.0)
-            with (
-                patch.object(adapter._machine, "MACHINE", profile),
-                patches[0],
-                patches[1],
-                patches[2],
-                patches[3],
-            ):
-                record = adapter.set_origin(h)
-            # Persists to its own origin/<datetime>/ snapshot tree.
-            self.assertEqual(record["origin_file"], str(profile.origin_path()))
-            self.assertEqual(profile.origin_path().parent.parent.name, "origin")
-            self.assertTrue(is_snapshot_name(profile.origin_path().parent.name))
-            saved = json.loads(profile.origin_path().read_text(encoding="utf-8"))
-            self.assertEqual(saved["origin"]["x_um"], 1000.0)
-            self.assertEqual(saved["origin"]["z_wide_um"], 30.0)
-            self.assertEqual(saved["origin"]["z_galvo_um"], 2.0)
-            self.assertEqual(saved["origin"]["z_focus_um"], 32.0)
-            self.assertEqual(saved["origin"]["objective"]["magnification"], 63)
-            self.assertEqual(saved["job"], "Overview")
-
-    def test_connect_does_not_restore_origin(self):
-        """Origin is session-scoped: a fresh connection is an absolute frame."""
+    def test_connect_stands_on_the_published_origin(self):
+        """The newest published record is the frame from the first read."""
         import tempfile
 
         from navigator_expert.config.machine import MachineProfile
 
         with tempfile.TemporaryDirectory() as tmp:
             profile = MachineProfile(programdata_root=Path(tmp))
-            # An origin file exists on disk from a previous session...
             profile.write_origin(
                 {
                     "origin": _origin(x_um=1000.0, y_um=2000.0, z_wide_um=30.0, z_focus_um=30.0),
@@ -255,9 +232,38 @@ class TestFrame(unittest.TestCase):
                 patch.object(adapter._session, "connect_python_client", return_value=object()),
             ):
                 h = adapter.connect(dict(adapter.CONNECTION))
-            # ...but connect does NOT adopt it — the frame starts absolute.
+            self.assertEqual(h.origin["x_um"], 1000.0)
+            self.assertEqual(h.origin["z_focus_um"], 30.0)
+
+    def test_connect_without_a_published_origin_is_an_absolute_frame(self):
+        import tempfile
+
+        from navigator_expert.config.machine import MachineProfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            profile = MachineProfile(programdata_root=Path(tmp))
+            with (
+                patch.object(adapter._machine, "MACHINE", profile),
+                patch.object(adapter._session, "connect_python_client", return_value=object()),
+            ):
+                h = adapter.connect(dict(adapter.CONNECTION))
             self.assertEqual(h.origin["x_um"], 0.0)
             self.assertEqual(h.origin["z_focus_um"], 0.0)
+
+    def test_a_corrupt_origin_record_refuses_the_connection_loudly(self):
+        import tempfile
+
+        from navigator_expert.config.machine import MachineProfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            profile = MachineProfile(programdata_root=Path(tmp))
+            profile.write_origin({"origin": {"x_um": 1.0}, "captured_at": 1.0})
+            with (
+                patch.object(adapter._machine, "MACHINE", profile),
+                patch.object(adapter._session, "connect_python_client", return_value=object()),
+            ):
+                with self.assertRaisesRegex(RuntimeError, "missing"):
+                    adapter.connect(dict(adapter.CONNECTION))
 
     def test_get_xyz_is_origin_relative(self):
         h = _handle(origin=_origin(x_um=1000.0, y_um=2000.0, z_focus_um=30.0))
@@ -1914,10 +1920,11 @@ class TestLifecycle(unittest.TestCase):
             )
             session = zmart_controller.set_instrument(instrument)
             try:
-                session.set_origin()
                 record = session.set_xyz(10, 20, 5, with_actuators={"z": "z-galvo"})
                 self.assertEqual(record["position"], {"x": 10, "y": 20, "z": 5})
-                self.assertEqual(session.get_xyz()["x"]["value"], 0.0)  # mocked readback
+                # No origin is published on this machine, so the frame is the
+                # absolute stage: the mocked readback comes through unchanged.
+                self.assertEqual(session.get_xyz()["x"]["value"], 1000.0)
             finally:
                 session.disconnect()
 
@@ -1984,9 +1991,7 @@ class TestFunctionLimits(unittest.TestCase):
         """Fail-closed below the adapter: no gate state means no mutations.
 
         The refusal comes from the commands layer and surfaces as the ops
-        contract's RuntimeError; read-only ops still work. (set_origin fires
-        no native command — it captures a reference — so it is deliberately
-        not among the refusals.)
+        contract's RuntimeError; read-only ops still work.
         """
         _wide_limits()  # the stage envelope alone must NOT be enough
         self.addCleanup(_clear_limits)

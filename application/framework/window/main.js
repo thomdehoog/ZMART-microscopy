@@ -70,8 +70,13 @@ const { WORKFLOWS, DEFAULT_WORKFLOW } = assembleWorkflows(
    The in-browser rehearsal (timers and a synthetic sample) is reachable only
    by `?backend=pretend`, for this page's own browser tests, until they run
    through the bridge too and it goes. */
-const backendFor = () =>
-  (new URLSearchParams(location.search).get("backend") === "pretend" ? pretendBackend : liveBackend);
+/* The page's usual backend is the controller's bridge, or the pretend one in
+   development. A workflow that brings its own -- the driver-configuration
+   workflow speaks to the setup seam, not to a session -- gets that instead,
+   and the framework never has to know which workflow is which. */
+const backendFor = (wf) =>
+  WORKFLOWS[wf]?.backend
+  ?? (new URLSearchParams(location.search).get("backend") === "pretend" ? pretendBackend : liveBackend);
 let backend = null;
 /* The stage-position watch, running while a session is open. */
 let stageWatch = null;
@@ -264,8 +269,8 @@ let stageWatch = null;
     /* The fields the run's own discovery has examined: the masks the canvas
        shows are theirs alone, never a tile test's left on disk. */
     examined: new Set(),
-    overviewPictures: backendFor().viewOf("overview"),
-    targetPictures: backendFor().viewOf("targets"),
+    overviewPictures: backendFor(WORKFLOWS[WORKFLOW_ASKED_FOR] ? WORKFLOW_ASKED_FOR : DEFAULT_WORKFLOW).viewOf?.("overview") ?? null,
+    targetPictures: backendFor(WORKFLOWS[WORKFLOW_ASKED_FOR] ? WORKFLOW_ASKED_FOR : DEFAULT_WORKFLOW).viewOf?.("targets") ?? null,
     cellsShown: false,
     /* Which of the two the column beside the canvas shows: the step's own
        channel, or the picture's display settings. A page preference, kept
@@ -300,7 +305,7 @@ let stageWatch = null;
     locked: false,
   };
 
-  backend = backendFor();
+  backend = backendFor(state.wf);
 
   const steps = () => WORKFLOWS[state.wf].steps;
   const step = (i) => steps()[i];
@@ -318,7 +323,15 @@ let stageWatch = null;
      along with whatever draws in them — the same move as taking the drawing
      wired below out of this file. */
   const thePanels = {};
-  for (const declared of WORKFLOWS[state.wf].panels) {
+  /* Every workflow's panels, built once and kept: switching workflows shows
+     a different set of them rather than rebuilding, so the canvas and what
+     draws on it are wired once. Two workflows naming the same key share the
+     panel, which is what sharing a key means. */
+  const everyPanel = new Map();
+  for (const wf of Object.values(WORKFLOWS)) {
+    for (const declared of wf.panels) if (!everyPanel.has(declared.key)) everyPanel.set(declared.key, declared);
+  }
+  for (const declared of everyPanel.values()) {
     const host = document.createElement("div");
     host.className = "panel";
     host.id = `panel-${declared.key}`;
@@ -329,14 +342,14 @@ let stageWatch = null;
 
   /* The keys that stay for the rest of the run once a step has asked for one.
      `panelsFor` is handed these rather than knowing any of them. */
-  const panelsThatStay =
+  const panelsThatStay = () =>
     WORKFLOWS[state.wf].panels.filter((p) => p.stays).map((p) => p.key);
 
   /* The rule, with the workflow's own staying panels already in it. Bound once
      because it is asked in two places — when a step is walked to, and again on
      every render — and two callers passing the list separately is one caller
      forgetting to. */
-  const tabsForStep = (i) => panelsFor(steps(), i, panelsThatStay);
+  const tabsForStep = (i) => panelsFor(steps(), i, panelsThatStay());
 
   /* The instrument the card has chosen: a microscope from the list and one
      of its APIs. The entry under them is what Connect sends. */
@@ -388,7 +401,7 @@ let stageWatch = null;
      and picking a workflow starts one. */
   selectEl.addEventListener("change", () => {
     state.wf = selectEl.value;
-    backend = backendFor();
+    backend = backendFor(state.wf);
     resetRun();
     listInstruments();
   });
@@ -401,6 +414,7 @@ let stageWatch = null;
   function resetRun() {
     stageWatch?.stop();
     stageWatch = null;
+    setupRun = newSetupRun();
     Object.assign(state, {
       activeIdx: 0, done: new Set(), ran: new Set(), running: null, notes: {},
       overviewPreset: emptySlot("acquisition"),
@@ -411,8 +425,8 @@ let stageWatch = null;
       tabs: [], tab: null, tilesShown: 0,
       focus: newFocus(), focusMaps: {}, focusFor: null,
       detect: newDetect(), cells: new Map(), fieldLabels: {}, examined: new Set(),
-      overviewPictures: backendFor().viewOf("overview"),
-    targetPictures: backendFor().viewOf("targets"),
+      overviewPictures: backendFor(state.wf).viewOf?.("overview") ?? null,
+      targetPictures: backendFor(state.wf).viewOf?.("targets") ?? null,
       cellsShown: false, gates: [], gated: new Set(), restricted: new Set(),
       targetTiles: [], targetTilesAlpha: 0.5, tilePlan: null,
       placing: { margin: 1, objectsMax: 50, tilesMax: null, overlapMin: 0.2 },
@@ -631,6 +645,14 @@ let stageWatch = null;
           sessionShown?.answer(k, result);
         },
       }).then(async ({ info }) => {
+        /* A setup, not a session: there is no canvas to take and no stage
+           to watch. What the driver said about itself is what the steps
+           after this one draw from. */
+        if (backend.kind === "setup") {
+          await primeSetupRun(info);
+          finish();
+          return;
+        }
         /* The session is open and every check has answered. The canvas is
            the instrument's from here — its travel from get_info — and the
            stage mark stands where get_xyz says the stage is. */
@@ -1533,7 +1555,85 @@ let stageWatch = null;
     acquire: { id: galleryWidget.id, label: galleryWidget.label, mount: galleryMount },
   };
 
-  const sideWidget = () => SIDE_WIDGETS[step(state.activeIdx).id] ?? null;
+  /* A step's channel: one the page knows by the step's id, or one the step
+     brought with it. The second is how a workflow adds steps without adding
+     to this file -- the step says `channel: {id, label, mount(host, ctx)}`
+     and the page hands it the run. The channel is remounted on every render,
+     the way the setup cards are: its cells say what the last press came to,
+     and a press changes that. */
+  const sideWidget = () => {
+    const s = step(state.activeIdx);
+    if (SIDE_WIDGETS[s.id]) return SIDE_WIDGETS[s.id];
+    if (!s.channel) return null;
+    return { id: s.channel.id, label: s.channel.label, ownChannel: true,
+      mount: (host) => s.channel.mount(host, channelContextFor(s)) };
+  };
+
+  /* What the driver-configuration steps hold between renders: the last
+     measurement per step, the lens views captured for the optics pair, where
+     the stage was last read, the document the limits step is editing, and
+     what each step published. Cleared with the run. */
+  let setupRun = newSetupRun();
+  function newSetupRun() {
+    return { held: {}, views: {}, here: null, hereProblem: null, moveUm: 40,
+      limitsDoc: null, standing: {}, published: {}, describe: null };
+  }
+
+  /* After a setup opens: what the driver says about itself, what stands for
+     each subsystem, and where the stage is -- read once so the cells have
+     something to show before any press. */
+  async function primeSetupRun(info) {
+    const seam = backend.setup;
+    setupRun.describe = info?.describe ?? (await seam.status())?.describe ?? null;
+    for (const name of ["limits", "orientation", "calibration", "origin"]) {
+      try { setupRun.standing[name] = await seam.read(name); } catch (why) { setupRun.standing[name] = null; }
+    }
+    setupRun.limitsDoc = setupRun.standing.limits?.document
+      ? JSON.parse(JSON.stringify(setupRun.standing.limits.document)) : null;
+    try { setupRun.here = await seam.where(); } catch (why) { setupRun.hereProblem = why.message; }
+  }
+
+  /* The orientation the optics step corrects its pictures with: what this
+     run measured and accepted, else what the machine has published and
+     measured, else nothing -- the pictures stay raw. */
+  const orientationInHand = () => {
+    const measured = setupRun.held.orientation;
+    if (measured?.accepted) {
+      return { rotation_deg: measured.orientation.rotation_deg, reflection: measured.orientation.reflection };
+    }
+    const standing = setupRun.standing.orientation?.document;
+    if (standing?.measured) return { rotation_deg: standing.rotation_deg, reflection: standing.reflection };
+    return null;
+  };
+
+  function channelContextFor(s) {
+    return {
+      setup: backend.setup,
+      supported: () => Boolean(setupRun.describe?.subsystems?.[s.id]?.supported),
+      document: () => setupRun.describe?.subsystems?.limits?.document ?? null,
+      standing: () => setupRun.standing[s.id] ?? null,
+      held: () => setupRun.held[s.id] ?? null,
+      hold: (answer) => { setupRun.held[s.id] = answer; },
+      views: () => setupRun.views,
+      holdView: (name, view) => { setupRun.views[name] = view; },
+      orientation: orientationInHand,
+      here: () => setupRun.here,
+      holdHere: (here, problem = null) => { setupRun.here = here ?? setupRun.here; setupRun.hereProblem = problem; },
+      hereProblem: () => setupRun.hereProblem,
+      moveUm: () => setupRun.moveUm,
+      setMoveUm: (v) => { if (Number.isFinite(v) && v > 0) setupRun.moveUm = v; },
+      limits: () => setupRun.limitsDoc,
+      edit: (key, value) => { if (setupRun.limitsDoc) setupRun.limitsDoc[key] = value; },
+      publishedNote: () => setupRun.published[s.id] ?? null,
+      /* A step settles by publishing: it is done, and the rail says what it
+         came to. A failed publish leaves it undone and says why instead. */
+      settle: (note, said) => {
+        setupRun.published[s.id] = said;
+        if (note) { state.done.add(s.id); state.ran.add(s.id); state.notes[s.id] = note; }
+      },
+      refresh: () => { state.sideMounted = null; renderAll(); },
+    };
+  }
 
   /* The plan stops being editable when something has been imaged against it —
      not when a later step has merely been done.
@@ -1620,7 +1720,7 @@ let stageWatch = null;
     const key = widget && `${widget.id}:${locked}`;
     // the setup cards rebuild on every render, the way their panel used to;
     // the working widgets keep their state and mount once per key
-    if (state.sideMounted === key && !(widget && SETUP_CARDS[widget.id])) return;
+    if (state.sideMounted === key && !(widget && (SETUP_CARDS[widget.id] || widget.ownChannel))) return;
     state.sideMounted = key;
     state.editor?.destroy?.();
     state.editor = null;
@@ -2089,7 +2189,7 @@ let stageWatch = null;
     pictureHost: theCanvas.parts.pictureHost,
     /* Where this backend's scans can be fetched from, if anywhere. The live
        one serves what the microscope wrote; the pretend one has nothing. */
-    pictures: (kind) => (state.done.has("connect") ? backend?.viewOf(kind) : null) ?? null,
+    pictures: (kind) => (state.done.has("connect") ? backend?.viewOf?.(kind) : null) ?? null,
     /* The run's OME-Zarr sources, as the viewer server beside the bridge
        serves them — the real picture, linked position by position. `null`
        while there is none, and the JPEG copies stand in.

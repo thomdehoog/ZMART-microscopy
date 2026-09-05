@@ -67,7 +67,7 @@ commands a negative Z-wide target and restores it to 0 um.
   restored. (`validate_readers_side_by_side --allow-job-switch` is NOT part of
   the run_ci set — it pops the manual-turret dialog; run it manually if wanted.)
 - Stage: the adapter validator first enforces the fixed four-axis CI baseline,
-  then does `set_origin` + small frame moves and restores to that baseline. The
+  then does small frame moves from the frame as connected and restores to that baseline. The
   later XY pattern and z-galvo round-trips restore to the same captured start.
 - Acquisition: the adapter validator reads the notebook-critical live
   `get_info()` snapshot (output root, tile positions, focus positions) and one

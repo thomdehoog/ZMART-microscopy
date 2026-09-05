@@ -1,0 +1,23 @@
+# Where a target objective looks and focuses relative to a reference one,
+# from the same field imaged through each and a short focus stack under each.
+#
+# What to submit with each job:
+#
+#   reference, target   each: `image` (2-D, orientation-corrected), `pixel_um`,
+#                       and optionally `stack` (planes in height order) with
+#                       `z_um` (the height of each plane)
+#
+# What comes back, under `measure_objective_pair`: `translation_um` (x, y, z),
+# `pixel_um`, `focus`, and `accepted`.
+
+metadata:
+  purpose: "Objective-pair calibration of a microscope"
+  version: "1.0"
+  verbose: 1
+  functions_dir: "../steps"
+
+objective_pair:
+  - measure_objective_pair:
+      channel: 0
+      upsample: 20
+      agreement_min: 0.5

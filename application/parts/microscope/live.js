@@ -30,8 +30,10 @@ const WHERE =
 
 import { PENDING, isFailed } from "./connection-status.js";
 
-/** One call to the bridge: JSON in, JSON out, failure as a plain sentence. */
-async function ask(route, payload) {
+/** One call to the bridge: JSON in, JSON out, failure as a plain sentence.
+    Exported for the setup side (`setup.js`), which speaks to the same bridge
+    on routes of its own. */
+export async function ask(route, payload) {
   const answer = await fetch(`${WHERE}${route}`, payload === undefined
     ? undefined
     : {

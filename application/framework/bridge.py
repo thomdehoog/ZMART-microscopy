@@ -106,6 +106,7 @@ if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
 import zmart_controller  # noqa: E402
+import zmart_setup  # noqa: E402
 from application.parts.storage.output import (  # noqa: E402
     move_record_images,
     position_label,
@@ -187,6 +188,112 @@ def _register_known_drivers() -> None:
 
 def _instruments() -> list:
     return zmart_controller.get_instruments()
+
+
+def _register_known_setup_drivers() -> None:
+    """Put every driver's *setup* into the setup registry.
+
+    A separate registry, deliberately: what the controller can drive and what
+    the setup workflow can configure are two doors into the same instrument,
+    and nothing that holds a session may reach the second. The mock always;
+    the Leica when its driver imports.
+    """
+    from zmart_drivers.mock.mock_setup import register_mock_setup
+
+    register_mock_setup()
+    try:
+        if str(_LEICA_HOME) not in sys.path:
+            sys.path.insert(0, str(_LEICA_HOME))
+        import navigator_expert.zmart_adapter.setup  # noqa: F401 -- importing registers
+    except Exception as why:  # noqa: BLE001 -- not installed here is a normal state
+        print(f"bridge: the Leica setup driver is not available on this machine ({why})")
+
+
+# ---------------------------------------------------------------------------
+# The setup: a driver opened for configuration, held apart from the session
+# ---------------------------------------------------------------------------
+
+#: The open setup, or None. Like the session, one at a time; unlike the
+#: session, it is never handed to anything that drives a run.
+_setup = None
+_setups_turn = threading.Lock()
+#: Where this setup's pictures go: a folder of its own under the output
+#: root, so a measurement's frames never land in a run.
+_setup_pictures: Path | None = None
+
+
+def _require_setup():
+    if _setup is None:
+        raise RuntimeError("no setup is open — open one first")
+    return _setup
+
+
+def _setup_open(asked: dict) -> dict:
+    global _setup, _setup_pictures
+    connection = asked.get("connection")
+    if not isinstance(connection, dict):
+        raise ValueError("opening a setup needs the instrument's connection entry")
+    if _setup is not None:
+        _setup.close()
+        _setup = None
+    _setup = zmart_setup.open_setup(connection)
+    root = Path(_output_root or connection.get("output_root") or "setup-pictures")
+    _setup_pictures = root / "driver-setup" / time.strftime("%Y-%m-%dT%H-%M-%S")
+    _setup_pictures.mkdir(parents=True, exist_ok=True)
+    return {"context": _setup.context, "describe": _setup.describe(), "pictures": str(_setup_pictures)}
+
+
+def _setup_close() -> dict:
+    global _setup
+    if _setup is not None:
+        _setup.close()
+        _setup = None
+    return {"closed": True}
+
+
+def _setup_measure(asked: dict) -> dict:
+    """Run one of the vendor-blind procedures against the open setup."""
+    setup = _require_setup()
+    what = asked.get("what")
+    procedures = zmart_setup.procedures
+    if what == "boundary":
+        return procedures.read_boundary(setup)
+    if what == "orientation":
+        return procedures.measure_orientation(
+            setup, into=_setup_pictures / "orientation",
+            stage_move_um=float(asked.get("stage_move_um", 40.0)),
+        )
+    if what == "lens":
+        # One lens's view, captured and kept under a name; the pair is measured
+        # once both are in.
+        name = str(asked.get("name") or "reference")
+        view = procedures.capture_lens_view(
+            setup, into=_setup_pictures / "optics", name=name,
+            orientation=asked.get("orientation"),
+        )
+        _lens_views[name] = view
+        return {
+            "name": name, "lens": view["lens"], "pixel_um": view["pixel_um"],
+            "position": view["position"], "z_um": view["z_um"],
+        }
+    if what == "objective_pair":
+        reference = _lens_views.get(asked.get("reference", "reference"))
+        target = _lens_views.get(asked.get("target", "target"))
+        if reference is None or target is None:
+            raise ValueError("capture the reference lens and the target lens first")
+        answer = procedures.measure_objective_pair(reference, target)
+        answer["document"] = procedures.calibration_document(
+            setup.read("calibration")["document"], answer,
+        )
+        return answer
+    if what == "origin":
+        return procedures.origin_here(setup)
+    raise ValueError(f"unknown measurement {what!r}")
+
+
+#: The lens views captured for the optics step, by name, until the pair is
+#: measured. Pictures, so they stay out of the JSON the page sees.
+_lens_views: dict = {}
 
 
 #: Where ``npm run build`` leaves the page, beside the window that shows it.
@@ -1382,6 +1489,19 @@ class _Bridge(BaseHTTPRequestHandler):
                     self._answer(_reading(kind))
             elif path == "/api/instruments":
                 self._answer({"instruments": _instruments()})
+            elif path == "/api/setup/instruments":
+                self._answer({"instruments": zmart_setup.get_instruments()})
+            elif path == "/api/setup":
+                with _setups_turn:
+                    setup = _setup
+                    self._answer({"open": setup is not None,
+                                  "describe": setup.describe() if setup is not None else None})
+            elif path == "/api/setup/where":
+                with _setups_turn:
+                    self._answer(_require_setup().where())
+            elif path.startswith("/api/setup/read/"):
+                with _setups_turn:
+                    self._answer(_require_setup().read(path.rsplit("/", 1)[-1]))
             elif path == "/api/info":
                 # The driver's account of the session: its connection checks
                 # (polled while they answer), the canvas, the setup.
@@ -1442,6 +1562,21 @@ class _Bridge(BaseHTTPRequestHandler):
                 self._answer(_discover_targets(asked))
             elif self.path == "/api/targets/raise":
                 self._answer(_raise_target(asked))
+            elif self.path == "/api/setup/open":
+                with _setups_turn:
+                    self._answer(_setup_open(asked))
+            elif self.path == "/api/setup/close":
+                with _setups_turn:
+                    self._answer(_setup_close())
+            elif self.path == "/api/setup/move":
+                with _setups_turn:
+                    self._answer(_require_setup().move(asked["x_um"], asked["y_um"], asked["z_um"]))
+            elif self.path == "/api/setup/measure":
+                with _setups_turn:
+                    self._answer(_setup_measure(asked))
+            elif self.path == "/api/setup/publish":
+                with _setups_turn:
+                    self._answer(_require_setup().publish(asked["subsystem"], asked["document"]))
             else:
                 self._answer({"error": f"no route {self.path}"}, status=404)
         except Exception as why:  # noqa: BLE001
@@ -1461,6 +1596,7 @@ def _a_bridge_on(port: int, output_root: str | None = None) -> ThreadingHTTPServ
     global _output_root
     _output_root = output_root
     _register_known_drivers()
+    _register_known_setup_drivers()
     return ThreadingHTTPServer(("127.0.0.1", port), _Bridge)
 
 

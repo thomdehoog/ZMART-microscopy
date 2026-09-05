@@ -80,6 +80,17 @@ export const setupPanel = {
                          gap: .2rem .75rem; margin: .6rem 0 0; }
         .setup-readout dt { color: var(--muted, #55554f); }
         .setup-readout dd { margin: 0; font-variant-numeric: tabular-nums; }
+        /* A sentence in the quieter voice: a note, a warning, where a file
+           went. Coloured only when it is good or bad news. */
+        .setup-note { margin: .5rem 0 0; color: var(--muted, #55554f); font-size: .95em; }
+        .setup-note.ok { color: var(--ok, #1f7a3a); }
+        .setup-note.bad { color: var(--bad, #b3261e); }
+        /* The press that publishes, and the sentence beside it once done. */
+        .setup-publish { display: flex; align-items: center; gap: .75rem; margin-top: .75rem;
+                         flex-wrap: wrap; }
+        .setup-publish .setup-note { margin: 0; }
+        .setup-cell-body .run { margin-top: .35rem; }
+        .setup-row + .setup-row { margin-top: .25rem; }
         /* The strip at the bottom, where a step's button lands when the step
            does not build one of its own. It sits under the last cell rather
            than being pinned to the window, because in a notebook the thing

@@ -24,6 +24,8 @@
  * from and saying "here".
  */
 
+import channel from "./channel.js";
+
 export const frameOrigin = {
   id: "origin",
   title: "Set up origin",
@@ -32,6 +34,10 @@ export const frameOrigin = {
   panels: ["setup"],
   btn: "Set origin here",
   ms: 0,
+  /* The step's cells build the press that publishes, so the shell adds none. */
+  ownButton: true,
+  /* The cells themselves; the shell mounts them when the step is walked to. */
+  channel,
 
   ready: ({ done }) =>
     (done?.has("connect") ? null : "connect to the microscope first"),

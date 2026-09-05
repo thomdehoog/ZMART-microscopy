@@ -1,0 +1,24 @@
+# Which way the picture is turned relative to the stage, from three pictures
+# of one field: at home, after a known move along +X, and after the same
+# move along +Y.
+#
+# What to submit with each job -- the input is not here because it changes
+# with every microscope, while this file is the recipe:
+#
+#   home, plus_x, plus_y   the three raw 2-D images, as the driver wrote them
+#   stage_move_um          how far the stage moved for the second and third
+#
+# What comes back, under `measure_orientation`: `orientation` (the document a
+# driver adopts), `accepted`, `residual`, and `pixel_um`.
+
+metadata:
+  purpose: "Stage-to-image orientation of a microscope"
+  version: "1.0"
+  verbose: 1
+  functions_dir: "../steps"
+
+orientation:
+  - measure_orientation:
+      channel: 0
+      upsample: 20
+      residual_max: 0.25

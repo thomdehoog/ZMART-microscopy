@@ -62,7 +62,6 @@ def test_react_notebook_runs_the_same_hardware_flow():
     """The React edition must not drop any hardware step of the v4 run."""
     joined = "\n".join(_code_sources(_load()))
     for step in (
-        "set_origin",
         "get_state",
         "run_overview",
         "discover_targets",
@@ -88,7 +87,6 @@ def test_react_notebook_is_thin_controller_orchestration():
     joined = "\n".join(_code_sources(_load()))
     for call in (
         'workflow.connect("leica")',
-        "zmart_controller.set_origin()",
         "zmart_controller.get_state()",
         "zmart_controller.set_state(overview_state)",
         'setup_info = zmart_controller.get_info()',

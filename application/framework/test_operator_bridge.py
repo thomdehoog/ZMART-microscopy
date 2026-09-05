@@ -1332,3 +1332,60 @@ def test_placing_a_target_retries_only_a_transient_windows_file_lock(monkeypatch
     with pytest.raises(ValueError, match="invalid target geometry"):
         bridge._place_target_frame({"position_label": "one"}, tmp_path, [(1.0, 2.0)])
     assert len(calls) == 1
+
+
+# ---------------------------------------------------------------------------
+# The setup routes: a second door into the instrument, kept apart from the session
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture()
+def a_mock_rig(monkeypatch, tmp_path):
+    """The mock's setup, registered, with its machine root under this test."""
+    from zmart_drivers.mock import mock_setup
+    from zmart_setup import registry as setup_registry
+
+    monkeypatch.setattr(setup_registry, "REGISTRY", {})
+    monkeypatch.setenv(mock_setup.MACHINE_ROOT_ENV, str(tmp_path / "machine"))
+    monkeypatch.setattr(bridge, "_setup", None)
+    monkeypatch.setattr(bridge, "_lens_views", {})
+    monkeypatch.setattr(bridge, "_output_root", str(tmp_path / "out"))
+    mock_setup.register_mock_setup()
+    yield mock_setup
+    bridge._setup_close()
+
+
+def test_opening_a_setup_never_opens_a_session(a_mock_rig):
+    """The boundary, at the bridge: the setup routes hold no session."""
+    answer = bridge._setup_open({"connection": dict(a_mock_rig.CONNECTION)})
+    assert answer["context"] == {"vendor": "mock", "microscope": "mock-scope", "api": "mock-api"}
+    assert answer["describe"]["subsystems"]["limits"]["supported"] is True
+    assert bridge._session is None
+    with pytest.raises(RuntimeError, match="connect first"):
+        bridge._require_session()
+
+
+def test_the_setup_routes_measure_and_publish_through_the_seam(a_mock_rig):
+    bridge._setup_open({"connection": dict(a_mock_rig.CONNECTION)})
+    # The origin: where the stage stands, published as a dated snapshot.
+    here = bridge._require_setup().where()
+    document = bridge._setup_measure({"what": "origin"})
+    assert document == here
+    published = bridge._require_setup().publish("origin", document)
+    assert Path(published["path"]).name == "origin.json"
+    assert bridge._require_setup().read("origin")["source"] == "published"
+    # The orientation: three pictures and a known move, answered by the analysis.
+    answer = bridge._setup_measure({"what": "orientation", "stage_move_um": 120.0})
+    assert answer["accepted"], answer["why"]
+    assert answer["orientation"]["rotation_deg"] == 90  # the mock rig's camera
+    # The boundary needs the operator's markers, and says so.
+    with pytest.raises(RuntimeError, match="four markers"):
+        bridge._setup_measure({"what": "boundary"})
+
+
+def test_a_setup_that_is_not_open_is_a_plain_error(a_mock_rig):
+    with pytest.raises(RuntimeError, match="open one first"):
+        bridge._setup_measure({"what": "origin"})
+    with pytest.raises(ValueError, match="unknown measurement"):
+        bridge._setup_open({"connection": dict(a_mock_rig.CONNECTION)})
+        bridge._setup_measure({"what": "colour"})

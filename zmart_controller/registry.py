@@ -36,10 +36,13 @@ logger = logging.getLogger(__name__)
 
 # Every driver ops table must provide a callable for each of these operations.
 # disconnect is optional.
+# There is deliberately no configuration op here -- no ``set_origin``, no
+# publishing of limits, orientation or calibration. Those go through
+# ``zmart_setup``, which nothing holding a Session can reach; see that
+# package's docstring for why the two doors are kept apart.
 OPS: tuple[str, ...] = (
     "connect",
     "get_acquisition_options",
-    "set_origin",
     "get_actuators",
     "get_xyz",
     "set_xyz",
