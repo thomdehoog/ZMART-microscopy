@@ -219,8 +219,15 @@ def connect_microscope(
     load_limits: bool = True,
     load_calibration: bool = True,
     calibration_name: str | None = None,
+    configuration: str | None = None,
 ) -> Any:
     """Connect to the microscope and load its machine-local configuration.
+
+    ``configuration`` names the ProgramData configuration folder to stand on
+    (``configuration_<datetime>``, see :mod:`..config.machine`). ``None``
+    means the newest -- what the driver on its own gets. The controller
+    always passes one, so a session stands on exactly the configuration the
+    operator chose at connect, and nothing published later moves it.
 
     Every connect attempt first creates the microscope's ProgramData API root
     and four subsystem directories if they do not exist yet. This is independent
@@ -260,9 +267,11 @@ def connect_microscope(
     registry (:mod:`.session_state`), where the acquire/save path reads them.
     """
     from ..commands import gate as _gate
+    from ..config import machine as _machine
     from ..config.machine import MACHINE
     from . import session_state
 
+    _machine.use_configuration(configuration)
     MACHINE.ensure_layout()
     client = connect_python_client(client_name=client_name, api_delay_ms=api_delay_ms)
     _gate.connect_handshake(client, load=load_limits)

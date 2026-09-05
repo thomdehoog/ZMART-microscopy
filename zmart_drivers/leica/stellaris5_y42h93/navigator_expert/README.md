@@ -184,11 +184,12 @@ cross-objective moves rather than computing uncompensated ones. Normal image sav
 `IMAGE_SAVE.apply_orientation=True` profile default. Only orientation measurement passes an explicit
 identity orientation to obtain raw camera pixels.
 
-**The origin is session-scoped.** `set_origin` makes the current position the frame zero — from then
-until it is set again or the session ends. It appends `origin/<datetime>/origin.json` as a record,
-but the driver does **not** restore it at connect: a fresh connection is an absolute frame
-until `set_origin` runs. (An earlier version restored the last origin across sessions; it no longer
-does.)
+**The origin is machine configuration.** The frame zero -- stage XY, both z drives, and the
+objective it was captured under -- is published to `origin/<datetime>/origin.json` beside the
+other dated snapshots, through the ZMART setup seam (`zmart_adapter/setup.py`, reached by the
+driver configuration workflow), and `connect` stands on the newest record. No session can set it:
+the controller has no op for it, on purpose, so that a run cannot silently redefine the frame every
+position it recorded is expressed in. With no record the frame is absolute stage coordinates.
 
 **Live vs. file.** `set_zoom(...)` talks to the running scope and confirms by reading hardware back;
 `lrp_set_zoom(...)` edits a `.lrp` template *file* (nothing happens on the scope until LAS X reloads
@@ -537,9 +538,9 @@ These **silently misbehave** instead of failing loudly — respect them or resul
     fails to load/validate at connect, the session falls back to the bundled **default** envelope
     (loudly warned) rather than refusing everything; the connect-time warning names what happened
     (see §3). Out-of-envelope moves still refuse at the commands layer, below the adapter.
-12. **The origin is session-scoped, not restored at connect** — after connecting, the frame is
-    absolute stage coordinates until `set_origin` runs. It persists to the machine-local `origin/`
-    folder only as a record (see §5).
+12. **The origin is machine configuration, read at connect** — the frame stands on the newest
+    published `origin/<datetime>/origin.json`; with none it is absolute stage coordinates. It is
+    published through the setup seam, never by a session (see §5).
 
 ## 11. Extending the driver
 

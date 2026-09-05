@@ -34,10 +34,8 @@ import zmart_controller
 zmart_controller.get_instruments()
 zmart_controller.set_instrument(instrument=Dict)
 
-# 2) Set the origin point of the frame (current position becomes 0, 0, 0)
-zmart_controller.set_origin()
-
-# 3) Discover actuators, then read or move the position in the frame
+# 2) Discover actuators, then read or move the position in the frame
+#    (micrometres from the origin the machine's published configuration set)
 zmart_controller.get_actuators()
 zmart_controller.get_xyz()
 zmart_controller.set_xyz(x, y, z, with_actuators=Dict)
@@ -79,11 +77,21 @@ registry keys on, plus any driver-specific params (client name, api delay, host,
 controller forwards it to the driver's `connect` untouched. `set_instrument()`
 opens the session. After this, every `zmart` call goes to that microscope.
 
+A session stands on one of the machine's **configurations**: its limits, its
+stage-to-image orientation, its objective calibration and the origin its
+positions count from, kept together as one folder by the ZMART driver
+configuration workflow. `get_configurations(instrument)` lists them newest
+first without connecting; `set_instrument()` needs `instrument["configuration"]`
+set to one of their ids, and refuses a configuration without limits, so a
+session is never opened without an envelope. The configuration cannot change
+while the session is open.
+
 ```python
 instrument = zmart_controller.get_instruments()[0]
 # {"vendor": "leica", "microscope": "stellaris5-y42h93", "api": "navigator-expert",
 #  "client": "PythonClient", "api_delay_ms": None, "output_root": None}
 
+instrument["configuration"] = zmart_controller.get_configurations(instrument)[0]["id"]
 zmart_controller.set_instrument(instrument)
 ```
 
@@ -91,15 +99,18 @@ Do not normally set `output_root` by hand. `get_info()["output_root"]` reports
 the resolved root; Leica discovers its default from LAS X native AutoSave. The
 connection field is an explicit workflow override and remains authoritative.
 
-### 2. Set the origin of the frame
+### 2. The frame, and where it comes from
 
-A position only means something against a frame. `set_origin()` tells the driver
-the current position is, for our purposes: (0, 0, 0). From then on, every position
-is micrometers in that frame, and in reference to that (0, 0, 0) point:
-
-```python
-zmart_controller.set_origin()                    # (0, 0, 0) is here now
-```
+A position only means something against a frame. The origin of that frame --
+the stage position that reads as (0, 0, 0) -- is part of the machine's
+published configuration, alongside its limits, its stage-to-image orientation
+and its objective calibration. It is set through `zmart_drivers.setup` (the ZMART driver
+configuration workflow on the operator page) and read by the driver at connect.
+There is deliberately no way to set it from a session: a run that could move
+the point it counts from would silently redefine every position it had already
+recorded, and a run that could publish its own envelope could widen the fence
+it is held by. A machine with no published origin counts from its absolute
+stage zero.
 
 ### 3. Move to a position in the frame
 
@@ -213,7 +224,7 @@ from zmart_controller.registry import register
 register(
     {"vendor": "leica", "microscope": "stellaris5-y42h93", "api": "navigator-expert",
      "client": "PythonClient", "api_delay_ms": None, "output_root": None},
-    ops={"connect": ..., "get_acquisition_options": ..., "set_origin": ...,
+    ops={"connect": ..., "get_acquisition_options": ...,
          "get_actuators": ..., "get_xyz": ..., "set_xyz": ..., "acquire": ...,
          "get_state": ..., "set_state": ..., "get_procedures": ...,
          "run_procedure": ..., "get_info": ...},

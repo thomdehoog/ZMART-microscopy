@@ -308,14 +308,18 @@ class LeicaLimits:
         kind, configured = spec
         if kind == "range":
             low, high = configured
+            said = f"[{'open' if low is None else low}, {'open' if high is None else high}]"
             if isinstance(value, bool) or not isinstance(value, (int, float)):
                 raise LimitViolation(
-                    f"{name}={value!r} is not numeric (range [{low}, {high}]; {self._origin()})"
+                    f"{name}={value!r} is not numeric (range {said}; {self._origin()})"
                 )
             number = float(value)
-            if not math.isfinite(number) or number < low or number > high:
+            # An open end (None in the file) is no bound on that side.
+            if (not math.isfinite(number)
+                    or (low is not None and number < low)
+                    or (high is not None and number > high)):
                 raise LimitViolation(
-                    f"{name}={value!r} outside range [{low}, {high}] ({self._origin()})"
+                    f"{name}={value!r} outside range {said} ({self._origin()})"
                 )
             return
         allowed = configured

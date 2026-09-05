@@ -15,7 +15,12 @@ from zmart_controller import get_instruments, set_instrument
 
 
 def _mock_instrument():
-    return next(instrument for instrument in get_instruments() if instrument["vendor"] == "mock")
+    """The mock, with a configuration the controller accepts: one with limits."""
+    from zmart_drivers.mock import mock_setup
+
+    instrument = next(instrument for instrument in get_instruments() if instrument["vendor"] == "mock")
+    instrument["configuration"] = mock_setup.configured()
+    return instrument
 
 
 @pytest.fixture
@@ -62,11 +67,55 @@ class TestFrame:
         assert (pos["x"]["value"], pos["y"]["value"], pos["z"]["value"]) == (10, 20, 5)
         assert pos["x"]["unit"] == "um"
 
-    def test_set_origin_zeros_here(self, mic):
-        mic.set_xyz(10, 20, 5)
-        mic.set_origin()  # current position becomes (0, 0, 0)
-        pos = mic.get_xyz()
-        assert (pos["x"]["value"], pos["y"]["value"], pos["z"]["value"]) == (0, 0, 0)
+    def test_a_session_cannot_move_the_point_it_counts_from(self, mic):
+        """The origin is machine configuration, published through zmart_drivers.setup;
+        the operating surface has no way to change it."""
+        assert not hasattr(mic, "set_origin")
+
+    def test_the_frame_counts_from_the_published_origin(self, tmp_path):
+        from zmart_drivers.mock import mock_setup
+
+        # Published the way the setup workflow publishes it, then a fresh
+        # connect stands on it: the same physical spot now reads as zero.
+        mock_setup.publish(mock_setup.open_setup({}), "origin",
+                           {"x_um": 1000.0, "y_um": 2000.0, "z_um": 5.0})
+        instrument = _mock_instrument()
+        instrument["output_root"] = str(tmp_path)
+        session = set_instrument(instrument)
+        try:
+            pos = session.get_xyz()
+            assert (pos["x"]["value"], pos["y"]["value"], pos["z"]["value"]) == (-1000.0, -2000.0, -5.0)
+            session.set_xyz(0, 0, 0)
+            assert session.get_xyz()["x"]["value"] == 0.0
+        finally:
+            session.disconnect()
+
+    def test_a_session_always_stands_on_a_configuration_with_limits(self, tmp_path):
+        """The controller refuses to open without a configuration, or on one
+        without limits; the driver alone may, which is what its setup does."""
+        from zmart_controller import get_configurations
+        from zmart_drivers.mock import mock_setup
+
+        instrument = next(i for i in get_instruments() if i["vendor"] == "mock")
+        instrument["output_root"] = str(tmp_path)
+        # A fresh machine: its first configuration exists but holds no limits.
+        mock_setup.open_setup({})
+        listed = get_configurations(instrument)
+        assert len(listed) == 1 and listed[0]["has"]["limits"] is False
+        with pytest.raises(ValueError, match="needs a configuration"):
+            set_instrument(instrument)
+        with pytest.raises(ValueError, match="no configuration"):
+            set_instrument({**instrument, "configuration": "configuration_2000-01-01T00-00-00-000000Z"})
+        with pytest.raises(RuntimeError, match="has no limits"):
+            set_instrument({**instrument, "configuration": listed[0]["id"]})
+        # Once limits are published into it, the same configuration connects.
+        ready = mock_setup.configured()
+        assert ready == listed[0]["id"]
+        session = set_instrument({**instrument, "configuration": ready})
+        try:
+            assert session.context["vendor"] == "mock"
+        finally:
+            session.disconnect()
 
     def test_get_actuators_lists_options(self, mic):
         assert mic.get_actuators()["z"] == ["motoric", "galvo", "piezo"]
@@ -227,7 +276,7 @@ class TestInfo:
         # Just opened: the first check answers at once, the rest are pending.
         mic._handle.connected_at = time.monotonic()
         status = mic.get_info()["connection_status"]
-        assert list(status) == ["driver", "client", "serial", "stage", "output root"]
+        assert list(status) == ["driver", "client", "serial", "stage", "limits", "output root"]
         assert status["driver"] == "mock · mock-scope · mock-api"
         assert status["output root"] == mock_driver.PENDING
         # Long enough after: every check has its answer, none pending.

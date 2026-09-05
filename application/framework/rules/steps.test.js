@@ -203,8 +203,39 @@ describe("panels follow the step", () => {
 });
 
 describe("workflows compose the catalogue rather than restating it", () => {
-  it("offers target acquisition, and nothing else", () => {
-    expect(Object.keys(WORKFLOWS)).toEqual(["target_acquisition"]);
+  it("offers target acquisition first, then driver configuration", () => {
+    expect(Object.keys(WORKFLOWS)).toEqual(["target_acquisition", "zmart_driver_configuration"]);
+  });
+
+  /* The five steps of setting a microscope up, in the order the four
+     subsystems are published; connect is borrowed from target acquisition. */
+  it("walks driver configuration in this order", () => {
+    expect(ids("zmart_driver_configuration")).toEqual([
+      "connect", "limits", "origin", "orientation", "calibration",
+    ]);
+  });
+
+  it("a flow may say its own name, when the folder rule would get it wrong", () => {
+    expect(WORKFLOWS.zmart_driver_configuration.name).toBe("ZMART driver configuration");
+    expect(WORKFLOWS.target_acquisition.name).toBe("Target acquisition");
+  });
+
+  it("driver configuration brings its own backend and no canvas", () => {
+    const wf = WORKFLOWS.zmart_driver_configuration;
+    expect(wf.backend?.kind).toBe("setup");
+    expect(wf.panels.map((p) => p.key)).toEqual(["setup"]);
+    expect(WORKFLOWS.target_acquisition.backend).toBeNull();
+    for (const s of wf.steps) expect(s.panels).toEqual(["setup"]);
+  });
+
+  it("every configuring step carries its own channel and its own press", () => {
+    for (const s of WORKFLOWS.zmart_driver_configuration.steps.slice(1)) {
+      expect(typeof s.channel?.mount, `${s.id} has a channel`).toBe("function");
+      expect(s.channel.id).toBe(s.id);
+      expect(s.ownButton).toBe(true);
+      expect(s.ready({ done: new Set() })).toMatch(/connect/);
+      expect(s.ready({ done: new Set(["connect"]) })).toBeNull();
+    }
   });
 
   /* The order an operator walks, spelled out. If a step moves, is dropped, or
@@ -219,7 +250,8 @@ describe("workflows compose the catalogue rather than restating it", () => {
 
 
   it("names every workflow in plain words for the chooser", () => {
-    expect(Object.values(WORKFLOWS).map((w) => w.name)).toEqual(["Target acquisition"]);
+    expect(Object.values(WORKFLOWS).map((w) => w.name))
+      .toEqual(["Target acquisition", "ZMART driver configuration"]);
     for (const w of Object.values(WORKFLOWS)) expect(w.blurb).toBeTruthy();
   });
 
@@ -236,7 +268,7 @@ describe("workflows compose the catalogue rather than restating it", () => {
     /* Every working step is a channel beside the canvas now, not a panel —
        a step that named one of the old panels here would ask for a tab that
        is gone. */
-    const known = new Set(["canvas"]);
+    const known = new Set(["canvas", "setup"]);
     for (const wf of Object.keys(WORKFLOWS)) {
       for (const s of WORKFLOWS[wf].steps) {
         for (const p of s.panels ?? []) expect(known.has(p), `${s.id} -> ${p}`).toBe(true);

@@ -30,8 +30,10 @@ const WHERE =
 
 import { PENDING, isFailed } from "./connection-status.js";
 
-/** One call to the bridge: JSON in, JSON out, failure as a plain sentence. */
-async function ask(route, payload) {
+/** One call to the bridge: JSON in, JSON out, failure as a plain sentence.
+    Exported for the setup side (`setup.js`), which speaks to the same bridge
+    on routes of its own. */
+export async function ask(route, payload) {
   const answer = await fetch(`${WHERE}${route}`, payload === undefined
     ? undefined
     : {
@@ -95,6 +97,12 @@ export const backend = {
     return (await ask("/api/instruments")).instruments;
   },
 
+  /** The configurations a machine keeps, newest first, without connecting:
+      `get_configurations` through the bridge. A session stands on one. */
+  async configurations(connection) {
+    return (await ask("/api/configurations", { connection })).configurations;
+  },
+
   /**
    * The OME-Zarr pictures of this run, in Smart Viewer's own grouping: one
    * entry per acquisition, one channel entry per Viewer layer, and every
@@ -141,7 +149,7 @@ export const backend = {
        then discarded it authenticated nothing. What a driver does with it is
        the driver's business. */
     await ask("/api/connect", {
-      connection: { ...session?.connection, password: session?.password },
+      connection: { ...session?.connection, password: session?.password, configuration: session?.configuration },
     });
     let keys = null;
     const answered = new Set();

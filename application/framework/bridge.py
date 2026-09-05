@@ -106,6 +106,7 @@ if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
 import zmart_controller  # noqa: E402
+import zmart_drivers.setup  # noqa: E402
 from application.parts.storage.output import (  # noqa: E402
     move_record_images,
     position_label,
@@ -187,6 +188,274 @@ def _register_known_drivers() -> None:
 
 def _instruments() -> list:
     return zmart_controller.get_instruments()
+
+
+def _register_known_setup_drivers() -> None:
+    """Put every driver's *setup* into the setup registry.
+
+    A separate registry, deliberately: what the controller can drive and what
+    the setup workflow can configure are two doors into the same instrument,
+    and nothing that holds a session may reach the second. The mock always;
+    the Leica when its driver imports.
+    """
+    from zmart_drivers.mock.mock_setup import register_mock_setup
+
+    register_mock_setup()
+    try:
+        if str(_LEICA_HOME) not in sys.path:
+            sys.path.insert(0, str(_LEICA_HOME))
+        import navigator_expert.zmart_adapter.setup  # noqa: F401 -- importing registers
+    except Exception as why:  # noqa: BLE001 -- not installed here is a normal state
+        print(f"bridge: the Leica setup driver is not available on this machine ({why})")
+
+
+# ---------------------------------------------------------------------------
+# The setup: a driver opened for configuration, held apart from the session
+# ---------------------------------------------------------------------------
+
+#: The open setup, or None. Like the session, one at a time; unlike the
+#: session, it is never handed to anything that drives a run.
+_setup = None
+_setups_turn = threading.Lock()
+#: Where this setup's pictures go: a folder of its own under the output
+#: root, so a measurement's frames never land in a run.
+_setup_pictures: Path | None = None
+
+
+def _require_setup():
+    if _setup is None:
+        raise RuntimeError("no setup is open — open one first")
+    return _setup
+
+
+#: The evidence files of the last read of each subsystem, by file name, so a
+#: page can ask for one by name and nothing outside them is ever served.
+_setup_evidence: dict[str, dict[str, Path]] = {}
+
+
+def _with_evidence(subsystem: str, answer: dict) -> dict:
+    """Turn a read's evidence into routes the page can show, by name."""
+    files = {str(e["name"]): Path(e["path"]) for e in answer.get("evidence") or [] if isinstance(e, dict)}
+    _setup_evidence[subsystem] = files
+    answer["evidence_urls"] = {name: f"/api/setup/evidence/{subsystem}/{name}" for name in files}
+    return answer
+
+
+def _setup_publish(asked: dict) -> dict:
+    """Publish one subsystem's document, with the evidence the page names.
+
+    Evidence is a list of ``{"name": ..., "picture": url}`` -- one of this
+    setup's own pictures, by the route the measure answered with --
+    ``{"name": ..., "note": {...}}``, numbers to keep as JSON, or
+    ``{"name": ..., "raw": folder}``, the raw frames and stacks a measure
+    acquired into one of this setup's picture folders, or
+    ``{"name": ..., "pipeline": step}``, the analysis recipe the measure ran
+    by, so it can be repeated exactly. Each is staged under
+    this setup's picture folder and handed to the driver to keep beside the
+    document in the snapshot.
+    """
+    setup = _require_setup()
+    subsystem = asked["subsystem"]
+    kept: list[str] = []
+    named = asked.get("evidence") or []
+    if named and _setup_pictures:
+        staging = _setup_pictures / "evidence" / subsystem
+        staging.mkdir(parents=True, exist_ok=True)
+        for item in named:
+            name = Path(str(item.get("name") or "")).name
+            if not name or name.startswith("."):
+                continue
+            target = staging / name
+            if "picture" in item:
+                rel = str(item["picture"])[len("/api/setup/picture/"):]
+                source = (_setup_pictures / rel).resolve()
+                if _setup_pictures.resolve() not in source.parents or not source.is_file():
+                    continue
+                shutil.copy2(source, target)
+            elif "note" in item:
+                target.write_text(json.dumps(item["note"], indent=2, default=str), encoding="utf-8")
+            elif "pipeline" in item:
+                try:
+                    recipe = zmart_drivers.setup.procedures.pipeline_path(str(item["pipeline"]))
+                except KeyError:
+                    continue
+                shutil.copy2(recipe, target)
+            elif "raw" in item:
+                source = (_setup_pictures / str(item["raw"])).resolve()
+                if _setup_pictures.resolve() not in source.parents or not source.is_dir():
+                    continue
+                if target.exists():
+                    shutil.rmtree(target)
+                target.mkdir()
+                for frame in sorted(source.iterdir()):
+                    if frame.is_file() and frame.suffix.lower() in (".tif", ".tiff"):
+                        shutil.copy2(frame, target / frame.name)
+            else:
+                continue
+            kept.append(str(target))
+    answer = setup.publish(subsystem, asked["document"], evidence=kept)
+    if subsystem == "limits":
+        _setup_reopen()
+        answer["reopened"] = True
+    return answer
+
+
+def _send_setup_evidence(self, path: str) -> None:
+    """One evidence file of the last read, by subsystem and name."""
+    parts = path[len("/api/setup/evidence/"):].split("/", 1)
+    if len(parts) != 2:
+        self._answer({"error": f"no evidence at {path}"}, status=404)
+        return
+    where = _setup_evidence.get(parts[0], {}).get(parts[1])
+    if where is None or not where.is_file():
+        self._answer({"error": f"no evidence at {path}"}, status=404)
+        return
+    body = where.read_bytes()
+    self.send_response(200)
+    self.send_header("Content-Type", "image/png" if where.suffix == ".png" else "application/json")
+    self.send_header("Content-Length", str(len(body)))
+    self.send_header("Cache-Control", "no-store")
+    self.end_headers()
+    self.wfile.write(body)
+
+
+def _setup_configuration(asked: dict) -> dict:
+    """Choose the configuration the setup works in: ``{"open": id}`` stands on
+    one, ``{"new": true}`` starts one as a full copy of what stands now.
+    Answers with the configuration's record."""
+    setup = _require_setup()
+    if "open" in asked:
+        return setup.use_configuration(str(asked["open"]))
+    if asked.get("new"):
+        return setup.new_configuration()
+    raise ValueError("choose a configuration with {'open': id} or start one with {'new': true}")
+
+
+def _setup_open(asked: dict) -> dict:
+    global _setup, _setup_pictures
+    connection = asked.get("connection")
+    if not isinstance(connection, dict):
+        raise ValueError("opening a setup needs the instrument's connection entry")
+    if _setup is not None:
+        _setup.close()
+        _setup = None
+    # The configuration to work in comes with the connection, the way the
+    # controller's does: an id to reopen, or "new" to start one as a copy of
+    # the newest. Chosen on the connect card, so both workflows connect alike.
+    # The driver opens on the newest first when a new one is asked for, since
+    # "new" is not a folder it could stand on.
+    chosen = connection.get("configuration")
+    _setup = zmart_drivers.setup.open_setup({**connection, "configuration": None if chosen == "new" else chosen})
+    if chosen == "new":
+        _setup.new_configuration()
+    elif chosen:
+        _setup.use_configuration(str(chosen))
+    root = Path(_output_root or connection.get("output_root") or "setup-pictures")
+    _setup_pictures = root / "driver-setup" / time.strftime("%Y-%m-%dT%H-%M-%S")
+    _setup_pictures.mkdir(parents=True, exist_ok=True)
+    return {"context": _setup.context, "describe": _setup.describe(), "pictures": str(_setup_pictures)}
+
+
+def _setup_reopen() -> None:
+    """Open the driver's setup again on the configuration it stands on.
+
+    A driver applies a configuration's limits when it opens on it, and
+    nothing in the configuration workflow applies them otherwise. So once
+    limits are adopted, the setup is closed and opened again, behind the
+    card, which stays connected -- and from then on the driver's own gate
+    fences every move of the steps that follow with the limits just adopted.
+    """
+    global _setup
+    if _setup is None:
+        return
+    connection = dict(_setup.connection)
+    standing = _setup.configuration()
+    _setup.close()
+    _setup = None
+    _setup = zmart_drivers.setup.open_setup({**connection, "configuration": standing["id"] if standing else None})
+    if standing:
+        _setup.use_configuration(standing["id"])
+
+
+def _setup_close() -> dict:
+    global _setup
+    if _setup is not None:
+        _setup.close()
+        _setup = None
+    return {"closed": True}
+
+
+def _with_picture(answer: dict) -> dict:
+    """The diagnostic the analysis drew, as a route the page can show. The
+    file stays where it is; the page is told where to ask for it."""
+    where = answer.get("diagnostic")
+    if where and _setup_pictures and Path(where).is_relative_to(_setup_pictures):
+        answer["diagnostic_url"] = "/api/setup/picture/" + Path(where).relative_to(_setup_pictures).as_posix()
+    return answer
+
+
+def _send_setup_picture(self, path: str) -> None:
+    """One of the setup's own PNGs, by the name the measure answer gave."""
+    name = path[len("/api/setup/picture/"):]
+    if not _setup_pictures:
+        self._answer({"error": "no setup pictures yet"}, status=404)
+        return
+    where = (_setup_pictures / name).resolve()
+    if _setup_pictures.resolve() not in where.parents or where.suffix != ".png" or not where.is_file():
+        self._answer({"error": f"no picture at {path}"}, status=404)
+        return
+    body = where.read_bytes()
+    self.send_response(200)
+    self.send_header("Content-Type", "image/png")
+    self.send_header("Content-Length", str(len(body)))
+    self.send_header("Cache-Control", "no-store")
+    self.end_headers()
+    self.wfile.write(body)
+
+
+def _setup_measure(asked: dict) -> dict:
+    """Run one of the vendor-blind procedures against the open setup."""
+    setup = _require_setup()
+    what = asked.get("what")
+    procedures = zmart_drivers.setup.procedures
+    if what == "boundary":
+        return procedures.read_boundary(setup)
+    if what == "orientation":
+        return _with_picture(procedures.measure_orientation(
+            setup, into=_setup_pictures / "orientation",
+            stage_move_um=float(asked.get("stage_move_um", 40.0)),
+        ))
+    if what == "lens":
+        # One lens's view, captured and kept under a name; the pair is measured
+        # once both are in.
+        name = str(asked.get("name") or "reference")
+        view = procedures.capture_lens_view(
+            setup, into=_setup_pictures / "optics", name=name,
+            orientation=asked.get("orientation"),
+        )
+        _lens_views[name] = view
+        return _with_picture({
+            "name": name, "lens": view["lens"], "pixel_um": view["pixel_um"],
+            "position": view["position"], "z_um": view["z_um"],
+            "peak_z_um": view["focus"]["peak_z_um"], "bracketed": view["focus"].get("bracketed", True),
+            "diagnostic": view["diagnostic"],
+        })
+    if what == "objective_pair":
+        reference = _lens_views.get(asked.get("reference", "reference"))
+        target = _lens_views.get(asked.get("target", "target"))
+        if reference is None or target is None:
+            raise ValueError("capture the reference lens and the target lens first")
+        # The pair's numbers only: which sets make up the calibration, and
+        # against which reference, is the page's to say when it adopts.
+        return _with_picture(procedures.measure_objective_pair(reference, target))
+    if what == "origin":
+        return procedures.origin_here(setup)
+    raise ValueError(f"unknown measurement {what!r}")
+
+
+#: The lens views captured for the optics step, by name, until the pair is
+#: measured. Pictures, so they stay out of the JSON the page sees.
+_lens_views: dict = {}
 
 
 #: Where ``npm run build`` leaves the page, beside the window that shows it.
@@ -1382,6 +1651,32 @@ class _Bridge(BaseHTTPRequestHandler):
                     self._answer(_reading(kind))
             elif path == "/api/instruments":
                 self._answer({"instruments": _instruments()})
+            elif path == "/api/setup/instruments":
+                self._answer({"instruments": zmart_drivers.setup.get_instruments()})
+            elif path == "/api/setup":
+                with _setups_turn:
+                    setup = _setup
+                    self._answer({"open": setup is not None,
+                                  "describe": setup.describe() if setup is not None else None})
+            elif path == "/api/setup/where":
+                with _setups_turn:
+                    self._answer(_require_setup().where())
+            elif path == "/api/setup/objectives":
+                with _setups_turn:
+                    self._answer({"objectives": _require_setup().objectives()})
+            elif path == "/api/setup/configurations":
+                with _setups_turn:
+                    setup = _require_setup()
+                    self._answer({"configurations": setup.configurations(), "current": setup.configuration()})
+            elif path.startswith("/api/setup/picture/"):
+                _send_setup_picture(self, path)
+            elif path.startswith("/api/setup/evidence/"):
+                _send_setup_evidence(self, path)
+            elif path.startswith("/api/setup/read/"):
+                fresh = any(pair in ("fresh=1", "fresh=true") for pair in query.split("&"))
+                subsystem = path.rsplit("/", 1)[-1]
+                with _setups_turn:
+                    self._answer(_with_evidence(subsystem, _require_setup().read(subsystem, fresh=fresh)))
             elif path == "/api/info":
                 # The driver's account of the session: its connection checks
                 # (polled while they answer), the canvas, the setup.
@@ -1442,6 +1737,30 @@ class _Bridge(BaseHTTPRequestHandler):
                 self._answer(_discover_targets(asked))
             elif self.path == "/api/targets/raise":
                 self._answer(_raise_target(asked))
+            elif self.path == "/api/setup/open":
+                with _setups_turn:
+                    self._answer(_setup_open(asked))
+            elif self.path == "/api/setup/close":
+                with _setups_turn:
+                    self._answer(_setup_close())
+            elif self.path == "/api/setup/move":
+                with _setups_turn:
+                    self._answer(_require_setup().move(asked["x_um"], asked["y_um"], asked["z_um"]))
+            elif self.path == "/api/setup/measure":
+                with _setups_turn:
+                    self._answer(_setup_measure(asked))
+            elif self.path == "/api/setup/configurations":
+                self._answer({"configurations": zmart_drivers.setup.get_configurations(asked["connection"])})
+            elif self.path == "/api/setup/configuration":
+                with _setups_turn:
+                    self._answer(_setup_configuration(asked))
+            elif self.path == "/api/setup/publish":
+                with _setups_turn:
+                    self._answer(_setup_publish(asked))
+            elif self.path == "/api/configurations":
+                # What a machine can be connected with, before connecting: no
+                # instrument is opened to answer this.
+                self._answer({"configurations": zmart_controller.get_configurations(asked["connection"])})
             else:
                 self._answer({"error": f"no route {self.path}"}, status=404)
         except Exception as why:  # noqa: BLE001
@@ -1461,6 +1780,7 @@ def _a_bridge_on(port: int, output_root: str | None = None) -> ThreadingHTTPServ
     global _output_root
     _output_root = output_root
     _register_known_drivers()
+    _register_known_setup_drivers()
     return ThreadingHTTPServer(("127.0.0.1", port), _Bridge)
 
 

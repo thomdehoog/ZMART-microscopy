@@ -62,6 +62,9 @@ export const DEFAULT_SESSION = {
      is driven from, and a default credential is not a convenience: it is a
      credential everybody has. Connect stays disabled until one is typed. */
   password: "",
+  /* The configuration to stand on: one of the machine's, chosen on the card
+     once the microscope and API are, newest by default. */
+  configuration: null,
 };
 
 export const describeSession = ({ connection }) => {
