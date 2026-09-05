@@ -578,21 +578,25 @@ def publish(handle: SetupHandle, subsystem: str, document: dict, evidence=()) ->
     path = _publish(handle.tree, subsystem, checked)
     # The figures and numbers behind the document, kept beside it so a
     # reopened configuration can show what was measured.
-    kept = []
+    data = path.parent / "data"
     for source in evidence or ():
         source = Path(source)
-        if not source.is_file():
-            continue
-        target = path.parent / "data" / source.name
-        target.parent.mkdir(exist_ok=True)
-        shutil.copy2(source, target)
-        kept.append(str(target))
-    return {"path": str(path), "snapshot": str(path.parent), "document": checked, "evidence": kept}
+        if source.is_dir():
+            shutil.copytree(source, data / source.name, dirs_exist_ok=True)
+        elif source.is_file():
+            data.mkdir(exist_ok=True)
+            shutil.copy2(source, data / source.name)
+    return {"path": str(path), "snapshot": str(path.parent), "document": checked,
+            "evidence": _evidence(path.parent)}
 
 
-def _evidence(snapshot: Path) -> list[str]:
+def _evidence(snapshot: Path) -> list[dict]:
+    """Every file kept beside the document, named relative to ``data/``."""
     data = snapshot / "data"
-    return sorted(str(p) for p in data.iterdir() if p.is_file()) if data.is_dir() else []
+    if not data.is_dir():
+        return []
+    return [{"name": p.relative_to(data).as_posix(), "path": str(p)}
+            for p in sorted(data.rglob("*")) if p.is_file()]
 
 
 # ---------------------------------------------------------------------------

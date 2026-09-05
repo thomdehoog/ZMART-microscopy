@@ -246,13 +246,16 @@ export default {
           const measured = slots.filter((slot) => cal.presets[slot].state === "measured").length;
           /* What was measured travels with the document: each measured
              preset's two focus sheets, its overlay, and its numbers. */
-          const evidence = [];
+          const evidence = [{ name: "objective_pair.yaml", pipeline: "measure_objective_pair" }];
           for (const slot of slots) {
             const preset = cal.presets[slot];
             const stem = `${reference.slot}-${slot}`;
             for (const side of ["reference", "target"]) {
               const url = preset.views?.[side]?.diagnostic_url;
               if (url) evidence.push({ name: `${stem}-${side}_focus.png`, picture: url });
+              if (preset.views?.[side] && !preset.views[side].failed) {
+                evidence.push({ name: `${stem}-${side}_frames`, raw: `optics/${stem}-${side}` });
+              }
             }
             if (preset.answer?.diagnostic_url) evidence.push({ name: `${stem}-objective_pair.png`, picture: preset.answer.diagnostic_url });
             if (preset.answer && !preset.answer.failed) {

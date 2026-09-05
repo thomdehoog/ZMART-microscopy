@@ -240,8 +240,10 @@ subsystem, so it is complete before anything is adopted in it; then only what
 the operator adopts changes. The versions of a machine's setup are simply its
 configurations, newest first. Inside a configuration each subsystem keeps its
 dated snapshot tree exactly as the driver always did, and each snapshot carries
-the evidence beside the document -- the figures the analysis drew and the
-measurement's numbers -- so a reopened configuration shows what was measured.
+the evidence beside the document -- the figures the analysis drew, the
+measurement's numbers, the raw frames and stacks, and the pipeline YAML the
+analysis ran by -- so a reopened configuration shows what was measured, and
+the measurement can be repeated from what the folder holds.
 
 Connecting always names a configuration. The driver stands on exactly that one
 and never looks across them; on its own it takes the newest. The controller

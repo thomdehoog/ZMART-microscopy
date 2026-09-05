@@ -38,12 +38,14 @@ Every op takes the driver's own handle first. Required:
   setup that starts over begins from.
 - ``publish(handle, subsystem, document, evidence=()) -> dict`` -- validate
   and write a dated snapshot; answer with where it went. ``evidence`` names
-  files to keep beside the document in the snapshot -- the figures the
-  analysis drew and the measurement's numbers -- so what was measured can be
+  files, or whole folders, to keep beside the document in the snapshot --
+  the figures the analysis drew, the measurement's numbers, and the raw
+  frames and stacks it was measured from -- so what was measured can be
   shown again when the configuration is reopened. A driver that has nowhere
   to keep them for a subsystem may leave them out.
-- ``read(...)`` answers, when published, with ``evidence``: the paths of the
-  files kept beside the document, or ``[]``.
+- ``read(...)`` answers, when published, with ``evidence``: one
+  ``{"name", "path"}`` per file kept beside the document, ``name`` being the
+  file's path relative to where the evidence is kept, or ``[]``.
 
 Optional -- a driver that cannot do them leaves them out, and the page greys
 out what depends on them:

@@ -24,7 +24,14 @@ from typing import Any
 
 from .layer import Setup
 
-_ANALYSIS_STEPS = Path(__file__).resolve().parents[1] / "zmart_analysis" / "workflows" / "driver_configuration" / "steps"
+_ANALYSIS = Path(__file__).resolve().parents[1] / "zmart_analysis" / "workflows" / "driver_configuration"
+_ANALYSIS_STEPS = _ANALYSIS / "steps"
+_ANALYSIS_PIPELINES = _ANALYSIS / "pipelines"
+
+#: Which recipe each measurement runs by: the pipeline YAML, whose parameters
+#: are the ones the step is run with, and which is archived beside the
+#: result so the measurement can be repeated exactly.
+PIPELINES = {"measure_orientation": "orientation", "measure_objective_pair": "objective_pair"}
 
 
 def _analysis_step(name: str):
@@ -35,6 +42,26 @@ def _analysis_step(name: str):
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
+
+
+def pipeline_path(step: str) -> Path:
+    """The recipe a step runs by: its pipeline YAML."""
+    return _ANALYSIS_PIPELINES / f"{PIPELINES[step]}.yaml"
+
+
+def _pipeline_params(step: str) -> dict:
+    """The step's parameters as the recipe states them, so what runs here is
+    what the recipe says and what the archived recipe reproduces."""
+    import yaml  # noqa: PLC0415
+
+    recipe = yaml.safe_load(pipeline_path(step).read_text(encoding="utf-8")) or {}
+    for key, stages in recipe.items():
+        if key == "metadata" or not isinstance(stages, list):
+            continue
+        for stage in stages:
+            if isinstance(stage, dict) and step in stage:
+                return dict(stage[step] or {})
+    return {}
 
 
 def _one_plane(record: dict) -> str:
@@ -96,7 +123,9 @@ def measure_orientation(setup: Setup, *, into: str | Path, stage_move_um: float 
             "metadata": {"verbose": 0},
         },
         {},
+        **_pipeline_params("measure_orientation"),
     )["measure_orientation"]
+    answer["pipeline"] = str(pipeline_path("measure_orientation"))
     answer["images"] = {"home": at_home, "plus_x": plus_x, "plus_y": plus_y}
     answer["nominal_pixel_um"] = at_home.get("pixel_um")
     # The picture the notebook shows: what was seen, and the arrows on it.
@@ -159,8 +188,10 @@ def measure_objective_pair(reference: dict, target: dict) -> dict:
             "metadata": {"verbose": 0},
         },
         {},
+        **_pipeline_params("measure_objective_pair"),
     )["measure_objective_pair"]
     answer["lenses"] = {"reference": reference["lens"], "target": target["lens"]}
+    answer["pipeline"] = str(pipeline_path("measure_objective_pair"))
     into = Path(reference["records"]["frame"]["images"][0]).parent.parent
     answer["diagnostic"] = step.write_overlay_diagnostic(
         {"image": reference["image"], "pixel_um": reference["pixel_um"]},
