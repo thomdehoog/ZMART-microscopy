@@ -31,8 +31,8 @@ const lensLabel = (lens) => (lens ? `slot ${lens.slot} · ${lens.name}` : "—")
 const signed = (v, d = 2) => (v === null || v === undefined ? "—" : `${v >= 0 ? "+" : ""}${Number(v).toFixed(d)}`);
 const offsetText = (t) => `(${signed(t?.x)}, ${signed(t?.y)}, ${signed(t?.z)}) µm`;
 const stateText = (preset) => ({
-  default: "default (0, 0, 0)",
-  published: "held, not measured here",
+  default: "not measured",
+  published: "held",
   measured: "measured",
 }[preset.state] ?? preset.state);
 
@@ -65,7 +65,7 @@ export default {
   mount(host, ctx) {
     if (!ctx.supported()) {
       const { box, body } = cell("Not on this microscope");
-      body.append(note("This driver has no objective pair to calibrate. Walk on."));
+      body.append(note("Nothing to calibrate on this microscope."));
       host.append(box);
       return { host };
     }
@@ -77,11 +77,10 @@ export default {
     const current = cal.current !== null && cal.presets[cal.current] ? cal.presets[cal.current] : null;
 
     /* ---- 1. the reference, and the presets it gives ---------------------- */
-    const presets = cell("Reference and presets",
-      "Every offset is measured against one reference objective. Choosing it gives one preset per "
-      + "other lens, each at the ideal offset of zero; choosing another reference starts them over.");
+    const presets = cell("Presets",
+      "Each lens is measured against the reference. Until measured, its offset is taken as zero.");
     if (!lenses.length) {
-      presets.body.append(note("The driver lists no objectives; connect first.", "bad"));
+      presets.body.append(note("No objectives listed.", "bad"));
     } else {
       /* The dropdown sits on the left beside its label, and Reset, once
          there is something to reset, right beside the dropdown. */
@@ -131,9 +130,7 @@ export default {
       }
       presets.body.append(list);
     } else if (reference) {
-      presets.body.append(note("The turret has no other lens to measure against the reference.", "bad"));
-    } else if (lenses.length) {
-      presets.body.append(note("Choose the reference objective to see its presets."));
+      presets.body.append(note("No other lens on the turret.", "bad"));
     }
     host.append(presets.box);
 
@@ -146,8 +143,8 @@ export default {
 
       /* focus: the reference and the target, each its own curve */
       const focus = part(work.body, 1, "Focus (Z)",
-        `With the ${side_(reference)} in and the field in focus, measure; switch only to the `
-        + `${side_(target)}, refocus without moving X/Y, and measure again.`);
+        `Focus with the ${reference?.name ?? "reference"} and measure. Switch to the ${target?.name ?? "target"}, `
+        + "refocus without moving X/Y, and measure again.");
       for (const [side, lens] of [["reference", reference], ["target", target]]) {
         const view = current.views?.[side];
         const r = document.createElement("div");
@@ -170,15 +167,15 @@ export default {
           const wrong = seen && lens && String(seen.slot) !== String(lens.slot);
           focus.append(note(
             `${lensLabel(seen)} · ${view.pixel_um} µm/px · `
-            + (bracketed ? `peak z = ${Number(view.peak_z_um).toFixed(3)} um` : "no focus peak within the stack — refocus and measure again")
-            + (wrong ? ` — expected ${lensLabel(lens)}: change the lens and measure again` : ""),
+            + (bracketed ? `peak z ${Number(view.peak_z_um).toFixed(2)} µm` : "no peak in the stack — refocus and measure again")
+            + (wrong ? ` — expected ${lensLabel(lens)}` : ""),
             bracketed && !wrong ? "ok" : "bad"));
           if (view.diagnostic_url) focus.append(picture(view.diagnostic_url, `${side} focus curve and sharpest slice`));
         }
       }
 
       /* X/Y: the offset, from matching the two images pixel by pixel */
-      const xy = part(work.body, 2, "X/Y", "The X/Y offset, from matching the two images pixel by pixel.");
+      const xy = part(work.body, 2, "X/Y");
       const ready = current.views?.reference && current.views?.target
         && !current.views.reference.failed && !current.views.target.failed;
       xy.append(press("Measure X/Y", async () => {
@@ -195,8 +192,8 @@ export default {
       else if (held) {
         const t = held.translation_um ?? {};
         xy.append(note(
-          `${lensLabel(reference)} → ${lensLabel(target)} · translation XY (${signed(t.x)}, ${signed(t.y)}) um · `
-          + `Z ${signed(t.z)} um · ${held.accepted ? "trusted" : "WEAK VOTE"}`, held.accepted ? "ok" : "bad"));
+          `XY (${signed(t.x)}, ${signed(t.y)}) µm · Z ${signed(t.z)} µm · ${held.accepted ? "trusted" : "weak"}`,
+          held.accepted ? "ok" : "bad"));
         if (held.why) xy.append(note(held.why, "bad"));
         if (held.diagnostic_url) xy.append(picture(held.diagnostic_url, "the two objectives overlaid, as acquired and after the correction"));
       }
@@ -206,8 +203,7 @@ export default {
     const standing = ctx.standing();
     {
       const confirm = part(work.body, 3, "Confirmation",
-        `Where the ${target?.name ?? "target"} looks relative to the ${reference?.name ?? "reference"}. `
-        + "Save and adopt publishes the whole calibration, every preset at its current offset.");
+        `${target?.name ?? "target"} relative to ${reference?.name ?? "reference"}. Save and adopt publishes every preset.`);
       const tiles = document.createElement("div");
       tiles.className = "setup-xyz";
       const t = current.translation_um;
@@ -220,19 +216,13 @@ export default {
         tiles.append(tile);
       }
       confirm.append(tiles);
-      confirm.append(note(current.state === "measured" ? "Measured in this session."
-        : current.state === "published" ? "As published; not measured in this session."
-        : "Still the ideal of zero; measure above to replace it with what the microscope does."));
-      if (standing?.source === "published" || standing?.source === "session") {
-        const n = Object.keys(standing.document?.objectives ?? {}).length;
-        confirm.append(note(standing.source === "session"
-          ? `This session holds ${n} objective(s).` : `What stands now: ${n} objective(s) published.`));
-      }
+      confirm.append(note(current.state === "measured" ? "Measured."
+        : current.state === "published" ? "Held, not measured here." : "Not measured: zero assumed."));
       confirm.append(publishRow({
         label: "Save and adopt",
         published: ctx.publishedNote(),
         onPublish: async () => {
-          if (!reference) { ctx.settle(null, "Choose the reference objective first."); ctx.refresh(); return; }
+          if (!reference) { ctx.settle(null, "Choose the reference first."); ctx.refresh(); return; }
           const objectives = {
             [String(reference.slot)]: { name: reference.name, translation_um: [0, 0, 0] },
           };
@@ -247,8 +237,8 @@ export default {
           const measured = slots.filter((slot) => cal.presets[slot].state === "measured").length;
           try {
             const where = await ctx.setup.publish("calibration", document_);
-            ctx.settle(`${reference.name} reference · ${slots.length} preset(s), ${measured} measured · adopted`,
-              `Adopted: ${where.snapshot?.split("/").pop() ?? where.path}`);
+            ctx.settle(`${reference.name} · ${measured} of ${slots.length} measured · adopted`,
+              "Adopted.");
           } catch (why) { ctx.settle(null, `Adopting failed — ${why.message}`); }
           ctx.refresh();
         },
@@ -259,4 +249,3 @@ export default {
   },
 };
 
-const side_ = (lens) => (lens ? `${lens.name} (slot ${lens.slot})` : "lens");

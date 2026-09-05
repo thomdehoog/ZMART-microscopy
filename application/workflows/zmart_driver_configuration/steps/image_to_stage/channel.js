@@ -27,14 +27,13 @@ export default {
   mount(host, ctx) {
     if (!ctx.supported()) {
       const { box, body } = cell("Not on this microscope");
-      body.append(note("This driver has no stage-to-image turn to measure. Walk on."));
+      body.append(note("Nothing to measure on this microscope."));
       host.append(box);
       return { host };
     }
 
-    const measure = cell("Set orientation",
-      "Use a field with recognisable structure, in focus. This acquires images at home, +X and +Y "
-      + "and compares four rotations with reflection absent or present.");
+    const measure = cell("Orientation",
+      "Focus on a field with structure, then Start. Three images, eight candidates.");
     /* What came back, above the buttons: the sheet with the detected
        correction and the eight candidates, or why there is none. */
     const held = ctx.held();
@@ -64,13 +63,13 @@ export default {
         disabled: !held?.accepted,
         onPublish: async () => {
           const answer = ctx.held();
-          if (!answer?.accepted) { ctx.settle(null, "Nothing accepted to adopt — measure first."); ctx.refresh(); return; }
+          if (!answer?.accepted) { ctx.settle(null, "Measure first."); ctx.refresh(); return; }
           try {
             const where = await ctx.setup.publish("orientation", {
               rotation_deg: answer.orientation.rotation_deg, reflection: answer.orientation.reflection,
             });
             ctx.settle(`${answer.orientation.rotation_deg}°${answer.orientation.reflection ? " mirrored" : ""} · adopted`,
-              `Adopted: ${where.snapshot?.split("/").pop() ?? where.path}`);
+              "Adopted.");
           } catch (why) { ctx.settle(null, `Adopting failed — ${why.message}`); }
           ctx.refresh();
         },

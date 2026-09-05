@@ -32,7 +32,7 @@ const setupSession = {
   mount(host, ctx) {
     if (!ctx.connected()) return { host };
     const box = cell("Setup session",
-      "Reopen a session to see and edit what it holds, or start a new one from what this machine has now.");
+      "Reopen a session, or start a new one from what the machine has now.");
     const current = ctx.session();
     const sessions = ctx.sessions();
     const when = (iso) => (iso ? new Date(iso).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }) : "");
@@ -73,10 +73,8 @@ const setupSession = {
     box.body.append(row);
 
     if (current) {
-      box.body.append(note(`Working in the session started ${when(current.created_at)}`
-        + (current.updated_at && current.updated_at !== current.created_at ? `, last adopted ${when(current.updated_at)}` : "") + ".", "ok"));
-    } else {
-      box.body.append(note("The steps below open once a session is chosen."));
+      box.body.append(note(`Open · started ${when(current.created_at)}`
+        + (current.updated_at && current.updated_at !== current.created_at ? ` · last adopted ${when(current.updated_at)}` : ""), "ok"));
     }
     host.append(box.box);
     return { host };
