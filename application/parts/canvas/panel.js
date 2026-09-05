@@ -42,6 +42,25 @@ export const canvasPanel = {
   build(host) {
     host.innerHTML = `
       <div class="canvas-body">
+        <div class="plot-column">
+        <!-- A row the canvas keeps for its own controls, so the picture never
+             reaches the top edge and nothing floats over it. Left, the two
+             presses that say what to look at; right, whatever legend the
+             layer on show needs read, such as the focus map's colour ramp. -->
+        <div class="canvas-toolbar" id="canvas-toolbar">
+          <button class="run" id="carrier-btn" type="button"
+                  title="Frame the carrier on the stage">Carrier</button>
+          <button class="run" id="tileset-btn" type="button" disabled
+                  title="Frame the nearest tileset; press again for the next">Tile set</button>
+          <div class="canvas-legend" id="canvas-legend" hidden>
+            <span class="canvas-legend-ramp"></span>
+            <span class="canvas-legend-ends">
+              <span class="canvas-legend-lo"></span>
+              <span class="canvas-legend-title"></span>
+              <span class="canvas-legend-hi"></span>
+            </span>
+          </div>
+        </div>
         <div class="plot-host">
           <!-- Where the picture is built. The drawing engine makes its own
                surfaces inside this, and the workflow's layers are drawn over
@@ -61,8 +80,7 @@ export const canvasPanel = {
           <div class="plot picturecv" id="picture-host"></div>
           <div class="live-note" id="overview-note" hidden></div>
           <div class="tip" id="stage-tip"></div>
-          <button class="fit-on-canvas" id="fit-btn" type="button"
-                  title="Fit the specimen in the canvas">Fit</button>
+        </div>
         </div>
         <!-- The divider is the channel's edge made draggable: the operator
              reshapes how much of the window the channel takes. -->
@@ -106,7 +124,9 @@ export const canvasPanel = {
         layerBar: find("stage-layers"),
         tip: find("stage-tip"),
         readout: null,
-        fit: find("fit-btn"),
+        carrier: find("carrier-btn"),
+        tileset: find("tileset-btn"),
+        legend: find("canvas-legend"),
         overviewCanvas: find("overview-canvas"),
         overviewNote: find("overview-note"),
         pictureHost: find("picture-host"),

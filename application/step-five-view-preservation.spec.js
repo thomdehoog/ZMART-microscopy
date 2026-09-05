@@ -155,7 +155,7 @@ test("first and later overview sources preserve pan, zoom, and whole-plate Fit",
   await walkToScan(page);
   const positions = await absolutePlan(page);
 
-  await page.locator("#fit-btn").click();
+  await page.locator("#carrier-btn").click();
   const fittedBeforeHand = await stageSnapshot(page, "fit before the operator moves");
   const box = await page.locator("#stage-canvas").boundingBox();
   expect(box).not.toBeNull();
@@ -204,7 +204,7 @@ test("first and later overview sources preserve pan, zoom, and whole-plate Fit",
   expect(await page.evaluate(() => window.__thePicture === window.__pictureBeforeSourceGrowth),
     "later overview sources keep the same Viewer instance").toBe(true);
 
-  await page.locator("#fit-btn").click();
+  await page.locator("#carrier-btn").click();
   await rest(500);
   const wholePlate = await stageSnapshot(page, "whole-plate Fit before source 9");
   await bridge.image(positions);

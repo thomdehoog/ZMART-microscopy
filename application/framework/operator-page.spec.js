@@ -238,7 +238,7 @@ test("canvas layer controls live under Display settings from the start", async (
   await expect(page.locator("#stage-layers .layer-chip")).not.toHaveCount(0);
   await expect(page.locator(".canvas-foot"), "the canvas has no bottom bar").toHaveCount(0);
   await expect(page.locator("#stage-readout"), "there is no live x/y readout").toHaveCount(0);
-  await expect(page.locator("#fit-btn")).toBeVisible();
+  await expect(page.locator("#carrier-btn")).toBeVisible();
 });
 
 test("the channel folds away to the right and comes back", async ({ page }) => {
@@ -1031,7 +1031,7 @@ test("walking back to the carrier takes the plan off the canvas, and keeps it",
   async ({ page }) => {
     await throughSetup(page);
     const shot = async () => {
-      await page.locator("#fit-btn").click();
+      await page.locator("#carrier-btn").click();
       await page.mouse.move(10, 10);
       await page.waitForTimeout(250);
       return page.locator("#stage-canvas").screenshot();

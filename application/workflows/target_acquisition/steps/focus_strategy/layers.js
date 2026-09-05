@@ -10,6 +10,7 @@ import { activeRecording } from "../../../../parts/microscope/recordings.js";
 export function focusLayers(theRun) {
   const {
     run, drawnIn, activeMode, drawFocusLayer, drawFocusPoints, asAPress, renderActionBar,
+    showLegend,
     focusGrabbed, marqueeing, focusMarqueeTo, focusMarqueeTook,
     focusDragging, focusDraggedTo, endFocusDrag, focusPressed,
   } = theRun;
@@ -31,7 +32,10 @@ export function focusLayers(theRun) {
        the plan, which is the split this comment used to promise. */
     paint: (frame) => {
       const { place, scale, w, h } = drawnIn(frame);
-      drawFocusLayer(frame.context, place, scale, w, h);
+      /* The map says what its colours mean; the canvas's own row shows it,
+         so the picture carries no legend of its own. */
+      const legend = drawFocusLayer(frame.context, place, scale, w, h);
+      if (legend && showLegend) showLegend(legend);
     },
   },
   /* The reticles, split from the map: they stand above the plan, where

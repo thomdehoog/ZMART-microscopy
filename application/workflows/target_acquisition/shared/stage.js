@@ -695,6 +695,7 @@ function theStageLayers({ shown, editing }) {
     editing, shown,
     crosshair,
     drawFocusLayer, drawFocusPoints, drawStageLimits, drawWhereTheStageIs, drawScaleBar,
+    showLegend,
     /* What a layer needs to answer for a gesture of its own. Handed over rather
        than reached for, so a layer says what a press on it means without
        knowing anything about the page it is drawn on. */
@@ -721,6 +722,8 @@ function theStageLayers({ shown, editing }) {
 
 function drawStage() {
   if (!view.fitted) fitView();
+  if (ctx.tilesetButton) ctx.tilesetButton.disabled = !run.plan.length;
+  legendSettles();
 
   const editing = sideWidget()?.id === "scanfields" ? run.editor : null;
   const stack = theStageLayers({
@@ -1146,13 +1149,96 @@ async function driveTheStageTo(e) {
 stageBox.addEventListener("contextmenu", (e) => e.preventDefault());
 
 
-/* Fit frames whichever picture is on show. While the acquired overview is
-   covering the plan, it is the thing being looked at, so it is the thing that
-   gets framed. */
-ctx.fitButton.addEventListener("click", () => {
+/* Carrier frames whichever picture is on show. While the acquired overview
+   is covering the plan, it is the thing being looked at, so it is the thing
+   that gets framed. */
+ctx.carrierButton.addEventListener("click", () => {
   if (liveOverview.showing) { liveOverview.fit(); return; }
   fitView(); drawStage();
 });
+
+/**
+ * The tilesets the plan holds, each as the box its fields cover, in the
+ * carrier's micrometres. The plan lists fields; a tileset is the group of
+ * them one drawn area or one well gave, and it is what an operator wants
+ * to look at as one thing.
+ */
+function theTilesets() {
+  const boxes = new Map();
+  for (const t of run.plan) {
+    const key = t.tileset ?? t.fieldId ?? "plan";
+    const half = t.frameUm / 2;
+    const box = boxes.get(key) ?? { key, xMin: Infinity, yMin: Infinity, xMax: -Infinity, yMax: -Infinity };
+    box.xMin = Math.min(box.xMin, t.x - half); box.xMax = Math.max(box.xMax, t.x + half);
+    box.yMin = Math.min(box.yMin, t.y - half); box.yMax = Math.max(box.yMax, t.y + half);
+    boxes.set(key, box);
+  }
+  /* Reading order: top row first, left to right, so pressing again walks the
+     plate the way a person reads it. */
+  return [...boxes.values()].sort((a, b) => (a.yMin - b.yMin) || (a.xMin - b.xMin));
+}
+
+/* Which tileset the last press framed, so the next press can go on to the
+   next one; forgotten when the view has been moved off it by hand. */
+let framedTileset = null;
+
+/**
+ * Tile set: frame one tileset, filling the canvas with it. The first press
+ * takes the one nearest the middle of what is on screen; a press while that
+ * one is still in the middle goes on to the next in reading order, and round
+ * again, so the button is also a tour of the plate.
+ */
+function frameTileset() {
+  const sets = theTilesets();
+  if (!sets.length) return;
+  const here = theView().centre;
+  const middle = (b) => ({ x: (b.xMin + b.xMax) / 2, y: (b.yMin + b.yMax) / 2 });
+  const inside = (b) => here.x >= b.xMin && here.x <= b.xMax && here.y >= b.yMin && here.y <= b.yMax;
+  let index = sets.findIndex((b) => b.key === framedTileset);
+  if (index >= 0 && inside(sets[index])) {
+    index = (index + 1) % sets.length;
+  } else {
+    let best = Infinity;
+    sets.forEach((b, i) => {
+      const m = middle(b);
+      const d = Math.hypot(m.x - here.x, m.y - here.y);
+      if (d < best) { best = d; index = i; }
+    });
+  }
+  const box = sets[index];
+  framedTileset = box.key;
+  const rect = stageBox.getBoundingClientRect();
+  const w = rect.width || 800, h = rect.height || 600;
+  const zoom = Math.max(
+    (box.xMax - box.xMin) / Math.max(1, w - 2 * FIT_MARGIN),
+    (box.yMax - box.yMin) / Math.max(1, h - 2 * FIT_MARGIN),
+  );
+  theCanvas.lookAt({ zoom, centre: middle(box) });
+  thePicture.followTheStage({ zoom, centre: middle(box) });
+  drawStage();
+}
+ctx.tilesetButton.addEventListener("click", frameTileset);
+
+/* The legend in the canvas's own row, for whichever layer asks for one. A
+   layer that paints hands over what its colours mean; when no layer has
+   done so by the next frame, the row shows none. */
+let legendAsked = false;
+function showLegend(spec) {
+  legendAsked = true;
+  const el = ctx.legend;
+  if (!el) return;
+  el.hidden = false;
+  el.querySelector(".canvas-legend-title").textContent = spec.title;
+  el.querySelector(".canvas-legend-lo").textContent = spec.lo;
+  el.querySelector(".canvas-legend-hi").textContent = spec.hi;
+  el.querySelector(".canvas-legend-ramp").style.background = spec.ramp;
+}
+function legendSettles() {
+  legendAsked = false;
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    if (!legendAsked && ctx.legend) ctx.legend.hidden = true;
+  }));
+}
 
   /* What the page around it may do to the picture. Everything else — how a
      layer is drawn, where the mark goes, what a press means — is in here. */

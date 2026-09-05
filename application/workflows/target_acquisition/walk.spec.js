@@ -62,14 +62,11 @@ const ask = (page, port, route) => page.evaluate(async ({ port: p, route: r }) =
   fetch(`http://127.0.0.1:${p}${r}`).then((a) => a.json()).catch((e) => ({ error: e.message })),
 { port, route });
 
-/** Bring the canvas in on the planned fields: the slide is 75 mm wide and
- * the overview 3 mm, so at the whole-slide view the picture is a few pixels. */
-async function framePlan(page, plan, zoom = 8) {
-  const centre = {
-    x: (Math.min(...plan.map(({ x }) => x)) + Math.max(...plan.map(({ x }) => x))) / 2,
-    y: (Math.min(...plan.map(({ y }) => y)) + Math.max(...plan.map(({ y }) => y))) / 2,
-  };
-  await page.evaluate(({ z, at }) => window.__theStageCanvas.lookAt({ zoom: z, centre: at }), { z: zoom, at: centre });
+/** Bring the canvas in on the planned fields the way an operator does: the
+ * Tile set press in the canvas's own row. The slide is 75 mm wide and the
+ * overview 3 mm, so at the whole-slide view the picture is a few pixels. */
+async function framePlan(page) {
+  await page.locator("#tileset-btn").click();
   await rest(1500);
 }
 
@@ -156,7 +153,7 @@ test.describe("the target acquisition workflow, walked screen by screen", () => 
       await rest(3000);
       await shot(page, "scan-done");
       await page.evaluate(() => window.__theStageCanvas.fadeTo(0.15));
-      await framePlan(page, plan);
+      await framePlan(page);
       await shot(page, "scan-done-picture");
 
       /* Step 6: one tile through the real detection. */
@@ -214,7 +211,7 @@ test.describe("the target acquisition workflow, walked screen by screen", () => 
         await expect(page.locator(".panel.on button.step-run")).toHaveText("Run again", { timeout: 60_000 });
         await rest(800);
         await shot(page, "target-area-placed");
-        await framePlan(page, plan);
+        await framePlan(page);
         await shot(page, "target-area-placed-picture");
 
         /* Step 9: the targets acquired, one capture per scan area placed. */
@@ -226,7 +223,7 @@ test.describe("the target acquisition workflow, walked screen by screen", () => 
         const run = await page.evaluate(() => window.__theRunState());
         expect(run.acquiredTileKeys.length, "one capture per target tile").toBe(run.targetTiles);
         await shot(page, "acquire-done");
-        await framePlan(page, plan);
+        await framePlan(page);
         await shot(page, "acquire-done-picture");
       }
 
