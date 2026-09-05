@@ -99,6 +99,10 @@ def measure_orientation(setup: Setup, *, into: str | Path, stage_move_um: float 
     )["measure_orientation"]
     answer["images"] = {"home": at_home, "plus_x": plus_x, "plus_y": plus_y}
     answer["nominal_pixel_um"] = at_home.get("pixel_um")
+    # The picture the notebook shows: what was seen, and the arrows on it.
+    answer["diagnostic"] = step.write_diagnostic(
+        _one_plane(at_home), _one_plane(plus_x), _one_plane(plus_y), answer, into / "orientation.png",
+    )
     return answer
 
 
@@ -149,6 +153,12 @@ def measure_objective_pair(reference: dict, target: dict) -> dict:
         {},
     )["measure_objective_pair"]
     answer["lenses"] = {"reference": reference["lens"], "target": target["lens"]}
+    into = Path(reference["records"]["frame"]["images"][0]).parent.parent
+    answer["diagnostic"] = step.write_diagnostic(
+        {"image": reference["image"], "pixel_um": reference["pixel_um"]},
+        {"image": target["image"], "pixel_um": target["pixel_um"]},
+        answer, into / "objective_pair.png",
+    )
     return answer
 
 

@@ -14,7 +14,7 @@
  * it, and the answer records which two lenses were measured.
  */
 
-import { cell, note, press, publishRow, readout, um } from "../cells.js";
+import { cell, note, picture, press, publishRow, readout, um } from "../cells.js";
 
 export default {
   id: "calibration",
@@ -79,13 +79,22 @@ export default {
     if (held?.failed) measure.body.append(note(`The measurement failed — ${held.failed}`, "bad"));
     else if (held) {
       const t = held.translation_um ?? {};
+      const lenses = held.lenses ?? {};
+      /* The block the notebook prints at the end: the pair, the shift, and
+         the translation, in the same words. */
       measure.body.append(readout([
-        ["Target looks", `${um(t.x)} in X, ${um(t.y)} in Y from the reference`],
-        ["Target focuses", t.z === null || t.z === undefined ? "— (no stacks)" : `${um(t.z)} from the reference`],
+        ["Pair", `slot ${lenses.reference?.slot ?? "?"} (${lenses.reference?.name ?? "?"}) → slot ${lenses.target?.slot ?? "?"} (${lenses.target?.name ?? "?"})`],
+        ["Image shift", `(${(held.registration?.dcol_px ?? 0).toFixed(2)}, ${(held.registration?.drow_px ?? 0).toFixed(2)}) px at ${um(held.pixel_um?.overlay, 2)} per pixel`],
+        ["Translation XY", `(${um(t.x, 2)}, ${um(t.y, 2)})`],
+        ["Translation Z", t.z === null || t.z === undefined ? "— (no stacks)" : um(t.z, 2)],
         ["Pixel sizes", `reference ${um(held.pixel_um?.reference, 4)} · target ${um(held.pixel_um?.target, 4)}`],
         ["Agreement", `${(held.registration?.agreement ?? 0).toFixed(2)} where the views overlap`],
       ]));
       if (held.why) measure.body.append(note(held.why, held.accepted ? "" : "bad"));
+      if (held.diagnostic_url) {
+        measure.body.append(picture(held.diagnostic_url,
+          "the two lenses' views, their overlay after the shift, and each stack's sharpness curve"));
+      }
     }
     host.append(measure.box);
 

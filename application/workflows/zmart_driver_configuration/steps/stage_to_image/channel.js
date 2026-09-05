@@ -12,7 +12,7 @@
  * the objective with structure in it, in focus. So it says so in words.
  */
 
-import { cell, note, press, publishRow, readout, um } from "../cells.js";
+import { cell, note, picture, press, publishRow, readout, um } from "../cells.js";
 
 export default {
   id: "orientation",
@@ -36,23 +36,11 @@ export default {
 
     /* ---- the measurement ---------------------------------------------- */
     const measure = cell("Measure the turn",
-      "Put a specimen with structure in it under the objective — nuclei, or anything "
-      + "with edges — and bring it into focus. Then press: the stage images the field, "
-      + "moves a short way along X and along Y, images each, and comes back. The "
+      "With a specimen that has structure in it — nuclei, or anything with edges — in "
+      + "focus under the objective, press Start. Nothing to set: the stage images the field, "
+      + "moves a short way along X and along Y, images each, and comes back on its own. The "
       + "analysis works out which way the picture is turned from where the features went.");
-    const moveRow = document.createElement("div");
-    moveRow.className = "setup-row";
-    const moveLabel = document.createElement("label");
-    moveLabel.textContent = "How far to move (µm)";
-    const moveBox = document.createElement("input");
-    moveBox.type = "number";
-    moveBox.className = "side-number";
-    moveBox.value = ctx.moveUm();
-    moveBox.min = 1;
-    moveBox.addEventListener("change", () => ctx.setMoveUm(Number(moveBox.value)));
-    moveRow.append(moveLabel, moveBox);
-    measure.body.append(moveRow);
-    measure.body.append(press("Measure orientation", async () => {
+    measure.body.append(press("Start", async () => {
       try {
         const answer = await ctx.setup.measure("orientation", { stage_move_um: ctx.moveUm() });
         ctx.hold(answer);
@@ -74,6 +62,12 @@ export default {
         ["Stage moved", um(held.stage_move_um, 0)],
       ]));
       if (held.why) measure.body.append(note(held.why, held.accepted ? "" : "bad"));
+      /* What the measurement saw, with the arrows on it: the same picture the
+         notebook shows. On the bottom row +X must point left and +Y up. */
+      if (held.diagnostic_url) {
+        measure.body.append(picture(held.diagnostic_url,
+          "the three pictures as recorded and as the stage sees them, with the feature shifts drawn on"));
+      }
       if (held.accepted) {
         measure.body.append(note(
           `The picture is turned ${o.rotation_deg}°${o.reflection ? " and mirrored" : ""} relative to the stage: `

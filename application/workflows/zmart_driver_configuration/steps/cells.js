@@ -85,3 +85,14 @@ export function publishRow({ label, onPublish, published }) {
   if (published) row.append(note(published, "ok"));
   return row;
 }
+
+/** The picture a measurement drew of itself, as the notebook shows it. The
+    address carries the moment, so a fresh measurement is a fresh picture and
+    never the browser's memory of the last one. */
+export function picture(url, alt) {
+  const img = document.createElement("img");
+  img.className = "setup-picture";
+  img.src = `${url}?t=${Date.now()}`;
+  img.alt = alt;
+  return img;
+}
