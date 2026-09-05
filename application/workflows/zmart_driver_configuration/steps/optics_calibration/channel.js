@@ -83,8 +83,8 @@ export default {
     if (!lenses.length) {
       presets.body.append(note("The driver lists no objectives; connect first.", "bad"));
     } else {
-      /* The dropdown sits on the left beside its label; Reset, once there
-         is something to reset, on the far right. */
+      /* The dropdown sits on the left beside its label, and Reset, once
+         there is something to reset, right beside the dropdown. */
       const row = document.createElement("div");
       row.className = "setup-row setup-reference";
       const label = document.createElement("label");
