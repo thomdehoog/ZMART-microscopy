@@ -1378,6 +1378,10 @@ def test_the_setup_routes_measure_and_publish_through_the_seam(a_mock_rig):
     answer = bridge._setup_measure({"what": "orientation", "stage_move_um": 120.0})
     assert answer["accepted"], answer["why"]
     assert answer["orientation"]["rotation_deg"] == 90  # the mock rig's camera
+    # The picture the notebook would show, offered to the page by a route of
+    # its own that only ever hands out the setup's own PNGs.
+    assert answer["diagnostic_url"].startswith("/api/setup/picture/")
+    assert (bridge._setup_pictures / answer["diagnostic_url"][len("/api/setup/picture/"):]).is_file()
     # The boundary needs the operator's markers, and says so.
     with pytest.raises(RuntimeError, match="four markers"):
         bridge._setup_measure({"what": "boundary"})

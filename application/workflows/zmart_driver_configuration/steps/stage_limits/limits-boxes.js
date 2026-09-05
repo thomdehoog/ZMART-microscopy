@@ -180,6 +180,13 @@ export default {
       edit.body.append(row);
     }
 
+    /* What the notebook prints once the document is valid: the ranges, as
+       the driver read them back from what was published. */
+    if (ctx.publishedNote() && standing?.source === "published") {
+      edit.body.append(note("Limits are valid:", "ok"));
+      edit.body.append(readout(doc.axes.map((axis) =>
+        [axis.label, `${asRange(standing.document?.[axis.key])} ${axis.unit}`])));
+    }
     edit.body.append(publishRow({
       label: "Publish limits",
       published: ctx.publishedNote(),

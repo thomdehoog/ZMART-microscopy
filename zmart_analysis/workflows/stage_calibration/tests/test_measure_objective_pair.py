@@ -83,3 +83,19 @@ def test_the_sharp_height_is_refined_between_planes(scene):
     image = _view(scene, REF_UM, (0.0, 0.0), 96)
     stack, z = _stack(image, 50.4, np.arange(46.0, 55.0, 1.0))
     assert sharp_height_um(stack, z)["peak_z_um"] == pytest.approx(50.4, abs=0.25)
+
+
+def test_the_diagnostic_picture_is_written(scene, tmp_path):
+    from measure_objective_pair import write_diagnostic
+
+    ref = _view(scene, REF_UM, (0.0, 0.0), 128)
+    tgt = _view(scene, TGT_UM, OFFSET_UM, 256)
+    ref_stack, ref_z = _stack(ref, REF_FOCUS_UM, np.arange(96.0, 105.0, 1.0))
+    tgt_stack, tgt_z = _stack(tgt, TGT_FOCUS_UM, np.arange(99.0, 108.0, 1.0))
+    reference = {"image": ref, "pixel_um": REF_UM, "stack": ref_stack, "z_um": ref_z}
+    target = {"image": tgt, "pixel_um": TGT_UM, "stack": tgt_stack, "z_um": tgt_z}
+    out = run({"input": {"reference": reference, "target": target}, "metadata": {"verbose": 0}}, {})["measure_objective_pair"]
+    path = write_diagnostic(reference, target, out, tmp_path / "pair.png")
+    if path is None:
+        pytest.skip("matplotlib not installed")
+    assert (tmp_path / "pair.png").stat().st_size > 10_000

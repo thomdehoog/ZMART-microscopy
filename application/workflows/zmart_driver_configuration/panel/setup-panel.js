@@ -95,6 +95,9 @@ export const setupPanel = {
                          flex-wrap: wrap; }
         .setup-publish .setup-note { margin: 0; }
         .setup-cell-body .run { margin-top: .35rem; }
+        /* The measurement's own picture, as wide as the column. */
+        .setup-picture { display: block; width: 100%; margin: .75rem 0 .25rem;
+                         border: 1px solid var(--rule, #e3e3e0); border-radius: 4px; }
         .setup-row + .setup-row { margin-top: .25rem; }
         /* The strip at the bottom, where a step's button lands when the step
            does not build one of its own. It sits under the last cell rather

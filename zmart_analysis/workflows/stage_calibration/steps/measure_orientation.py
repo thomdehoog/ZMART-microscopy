@@ -287,3 +287,63 @@ def run(pipeline_data: dict, state: dict, **params) -> dict:
             "settings": {"channel": channel, "upsample": upsample},
         }
     }
+
+
+# ---------------------------------------------------------------------------
+# The picture of the result, as the notebook shows it
+# ---------------------------------------------------------------------------
+
+
+def write_diagnostic(home, plus_x, plus_y, answer: dict, path, *, channel: int = 0):
+    """Draw what the measurement saw, so an operator can check it by eye.
+
+    Top row: the three pictures as the camera recorded them, with an arrow on
+    each moved picture showing where the features went. Bottom row: the same
+    three laid down the way the orientation found says the stage sees them --
+    on which the +X arrow must point left and the +Y arrow must point up,
+    because the features move against the stage. If they do not, the answer
+    is wrong and the picture says so before anything is published.
+
+    Written to ``path`` as a PNG and the path returned; ``None`` when
+    matplotlib is not installed, since the numbers stand on their own.
+    """
+    try:
+        from matplotlib.backends.backend_agg import FigureCanvasAgg
+        from matplotlib.figure import Figure
+    except ImportError:
+        return None
+    o = answer["orientation"]
+    frames = {"home": _plane(home, channel), "+X": _plane(plus_x, channel), "+Y": _plane(plus_y, channel)}
+    shifts = {"+X": answer["registrations"]["stage_plus_x"], "+Y": answer["registrations"]["stage_plus_y"]}
+    accepted = answer.get("accepted")
+    fig = Figure(figsize=(12, 8.2), facecolor="#f7f7f5")
+    FigureCanvasAgg(fig)
+    axes = fig.subplots(2, 3)
+    lo = min(float(np.percentile(f, 1)) for f in frames.values())
+    hi = max(float(np.percentile(f, 99.5)) for f in frames.values())
+    for col, (name, raw) in enumerate(frames.items()):
+        corrected = reorient(raw, o["rotation_deg"], o["reflection"])
+        for row, (image, label) in enumerate(((raw, "as recorded"), (corrected, "as the stage sees it"))):
+            ax = axes[row][col]
+            ax.imshow(image, cmap="gray", vmin=lo, vmax=hi, interpolation="nearest")
+            ax.set_title(f"{name} · {label}", fontsize=10)
+            ax.set_xticks([]); ax.set_yticks([])
+            if name in shifts:
+                s = shifts[name]
+                dcol, drow = s["dcol_px"], s["drow_px"]
+                if row == 1:
+                    # The same arrow, turned the way the correction turns pixels.
+                    m = np.asarray(STAGE_FROM_ORIENTATION[(o["rotation_deg"], o["reflection"])], dtype=float)
+                    dcol, drow = (m @ np.array([dcol, drow])).tolist()
+                h, w = image.shape
+                ax.annotate("", xy=(w / 2 + dcol, h / 2 + drow), xytext=(w / 2, h / 2),
+                            arrowprops={"arrowstyle": "->", "color": "#e6a100", "lw": 2.5})
+    verdict = (f"turned {o['rotation_deg']}°{', mirrored' if o['reflection'] else ''} · "
+               f"pixel {answer['pixel_um']['mean']:.4f} µm · fit {answer['residual']:.3f}")
+    fig.suptitle(("Accepted: " if accepted else "Not accepted: ") + verdict
+                 + ("" if accepted else f"\n{answer.get('why') or ''}"),
+                 fontsize=12, color="#1f7a3a" if accepted else "#b3261e")
+    fig.text(0.5, 0.015, "Bottom row: the +X arrow must point left and the +Y arrow up — features move against the stage.",
+             ha="center", fontsize=9, color="#55554f")
+    fig.savefig(str(path), dpi=100)
+    return str(path)

@@ -251,6 +251,34 @@ def _setup_close() -> dict:
     return {"closed": True}
 
 
+def _with_picture(answer: dict) -> dict:
+    """The diagnostic the analysis drew, as a route the page can show. The
+    file stays where it is; the page is told where to ask for it."""
+    where = answer.get("diagnostic")
+    if where and _setup_pictures and Path(where).is_relative_to(_setup_pictures):
+        answer["diagnostic_url"] = "/api/setup/picture/" + Path(where).relative_to(_setup_pictures).as_posix()
+    return answer
+
+
+def _send_setup_picture(self, path: str) -> None:
+    """One of the setup's own PNGs, by the name the measure answer gave."""
+    name = path[len("/api/setup/picture/"):]
+    if not _setup_pictures:
+        self._answer({"error": "no setup pictures yet"}, status=404)
+        return
+    where = (_setup_pictures / name).resolve()
+    if _setup_pictures.resolve() not in where.parents or where.suffix != ".png" or not where.is_file():
+        self._answer({"error": f"no picture at {path}"}, status=404)
+        return
+    body = where.read_bytes()
+    self.send_response(200)
+    self.send_header("Content-Type", "image/png")
+    self.send_header("Content-Length", str(len(body)))
+    self.send_header("Cache-Control", "no-store")
+    self.end_headers()
+    self.wfile.write(body)
+
+
 def _setup_measure(asked: dict) -> dict:
     """Run one of the vendor-blind procedures against the open setup."""
     setup = _require_setup()
@@ -259,10 +287,10 @@ def _setup_measure(asked: dict) -> dict:
     if what == "boundary":
         return procedures.read_boundary(setup)
     if what == "orientation":
-        return procedures.measure_orientation(
+        return _with_picture(procedures.measure_orientation(
             setup, into=_setup_pictures / "orientation",
             stage_move_um=float(asked.get("stage_move_um", 40.0)),
-        )
+        ))
     if what == "lens":
         # One lens's view, captured and kept under a name; the pair is measured
         # once both are in.
@@ -285,7 +313,7 @@ def _setup_measure(asked: dict) -> dict:
         answer["document"] = procedures.calibration_document(
             setup.read("calibration")["document"], answer,
         )
-        return answer
+        return _with_picture(answer)
     if what == "origin":
         return procedures.origin_here(setup)
     raise ValueError(f"unknown measurement {what!r}")
@@ -1499,6 +1527,8 @@ class _Bridge(BaseHTTPRequestHandler):
             elif path == "/api/setup/where":
                 with _setups_turn:
                     self._answer(_require_setup().where())
+            elif path.startswith("/api/setup/picture/"):
+                _send_setup_picture(self, path)
             elif path.startswith("/api/setup/read/"):
                 with _setups_turn:
                     self._answer(_require_setup().read(path.rsplit("/", 1)[-1]))

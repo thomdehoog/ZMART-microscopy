@@ -120,3 +120,15 @@ def test_the_document_says_what_each_stage_axis_comes_from():
         "stage_x_from_image": "-Y", "stage_y_from_image": "+X"}
     assert orientation_document(0, True)["sign_convention"] == {
         "stage_x_from_image": "-X", "stage_y_from_image": "+Y"}
+
+
+def test_the_diagnostic_picture_is_written(scene, tmp_path):
+    import sys
+    from measure_orientation import write_diagnostic
+
+    raw = _three_raw(scene, 90, False)
+    out = _measured(raw)
+    path = write_diagnostic(raw[0], raw[1], raw[2], out, tmp_path / "orientation.png")
+    if path is None:
+        pytest.skip("matplotlib not installed")
+    assert (tmp_path / "orientation.png").stat().st_size > 10_000
