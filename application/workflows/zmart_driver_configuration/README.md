@@ -1,4 +1,4 @@
-# ZMART driver setup: setting a microscope up
+# ZMART driver configuration: setting a microscope up
 
 Five steps, walked before any imaging workflow can stand on the machine:
 
@@ -11,7 +11,7 @@ Five steps, walked before any imaging workflow can stand on the machine:
 3. **Image-to-stage calibration** — which of the eight lossless ways of laying a
    picture down lines it up with the stage. Three pictures and a known move;
    the analysis does the looking.
-4. **Optics calibration** — where and at what height each lens looks relative
+4. **Objective calibration** — where and at what height each lens looks relative
    to one reference lens. Ideally a microscope is parcentric and parfocal and
    every offset is zero, so choosing the reference gives every other lens a
    preset at zero straight away; the reality is often otherwise, so a preset is
@@ -60,7 +60,7 @@ a matter of asking nicely. The full reasoning is in
 
 ## Trying it without a microscope
 
-Run the bridge and open the page; choose **ZMART driver setup** and
+Run the bridge and open the page; choose **ZMART driver configuration** and
 connect to the mock. Open `python application/mock-instrument.py` beside it:
 that window is the pretend rig — turn its camera, change its lens, drop four
 markers at the corners — and the workflow has to measure what the window shows,

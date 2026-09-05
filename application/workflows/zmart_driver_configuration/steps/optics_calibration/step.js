@@ -1,5 +1,5 @@
 /**
- * Step 4 — Optics calibration.
+ * Step 4 — Objective calibration.
  *
  * This is the step that gives a picture its scale: how many micrometres of
  * specimen one pixel covers, and how the two objectives you work between line
@@ -26,7 +26,7 @@ import channel from "./channel.js";
 
 export const opticsCalibration = {
   id: "calibration",
-  title: "Optics calibration",
+  title: "Objective calibration",
   why: "Measure the pixel size and how a pair of objectives line up, so a target "
     + "found on the overview is still centred under the other lens.",
   panels: ["setup"],

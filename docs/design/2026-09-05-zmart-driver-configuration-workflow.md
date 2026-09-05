@@ -1,4 +1,4 @@
-# ZMART driver setup: a second workflow, and the boundary it must respect
+# ZMART driver configuration: a second workflow, and the boundary it must respect
 
 Written 2026-09-05, while the workflow was being started. This is a design
 note rather than a description of finished code: the folder
@@ -25,7 +25,7 @@ Five steps, in order:
    stage, so that moving right on the stage means moving right in the image.
    One of eight lossless ways of laying the image down: a quarter, half or
    three-quarter turn, each optionally mirrored.
-4. **Optics calibration** — the pixel size, and how every objective lines up
+4. **Objective calibration** — the pixel size, and how every objective lines up
    with one reference objective, so a target found on a low-power overview is
    still centred under the high-power lens. The ideal is a parcentric and
    parfocal microscope, where every offset is zero; choosing the reference gives

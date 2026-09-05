@@ -17,11 +17,12 @@
  * longer the reference, and they start again from zero.
  *
  * Two boxes. **Reference and presets**: the reference, and one preset per
- * other lens, to click on and refine. **Calibration of the chosen preset**:
- * one card in three sections -- focus (Z), X/Y, and the confirmation, where
- * every preset's numbers stand together above Save and adopt, which
- * publishes them in the driver's own calibration shape: the reference at
- * zero, each target relative to it.
+ * other lens, to click on and refine; each row shows the offset it stands
+ * at. **Calibration**, which appears once a preset is chosen: one card in
+ * three parts -- focus (Z), X/Y, and the confirmation, where the chosen
+ * set's X, Y and Z stand as three plain tiles above Save and adopt. Adopting
+ * publishes the whole calibration, every preset at its current offset, in
+ * the driver's own shape: the reference at zero, each target relative to it.
  */
 
 import { cell, note, picture, press, publishRow } from "../cells.js";
@@ -35,23 +36,31 @@ const stateText = (preset) => ({
   measured: "measured",
 }[preset.state] ?? preset.state);
 
-/** A section inside the second card: a small heading, then what follows it. */
-function section(host, title, prose = null) {
+/** A part of the second card: a tinted sub-box with a numbered heading, so
+    the three parts -- focus, X/Y, confirmation -- read as three things at a
+    glance. Returns the element to put the part's contents in. */
+function part(host, number, title, prose = null) {
+  const box = document.createElement("div");
+  box.className = "setup-part";
   const h = document.createElement("div");
-  h.className = "setup-section";
-  h.textContent = title;
-  host.append(h);
+  h.className = "setup-part-title";
+  h.innerHTML = `<span class="setup-part-number"></span><span></span>`;
+  h.firstChild.textContent = String(number);
+  h.lastChild.textContent = title;
+  box.append(h);
   if (prose) {
     const p = document.createElement("p");
     p.className = "side-note";
     p.textContent = prose;
-    host.append(p);
+    box.append(p);
   }
+  host.append(box);
+  return box;
 }
 
 export default {
   id: "calibration",
-  label: "Optics calibration",
+  label: "Objective calibration",
 
   mount(host, ctx) {
     if (!ctx.supported()) {
@@ -74,8 +83,10 @@ export default {
     if (!lenses.length) {
       presets.body.append(note("The driver lists no objectives; connect first.", "bad"));
     } else {
+      /* The dropdown sits on the left beside its label; Reset, once there
+         is something to reset, on the far right. */
       const row = document.createElement("div");
-      row.className = "setup-row";
+      row.className = "setup-row setup-reference";
       const label = document.createElement("label");
       label.textContent = "Reference objective";
       const select = document.createElement("select");
@@ -89,11 +100,15 @@ export default {
         o.value = String(l.slot); o.textContent = lensLabel(l); o.selected = reference?.slot === l.slot;
         select.append(o);
       }
+      /* Once chosen, the reference is locked: the presets below hang from
+         it. Reset clears it, and them, to choose again. */
+      select.disabled = Boolean(reference);
       select.addEventListener("change", () => {
         ctx.setReference(select.value === "" ? null : Number(select.value));
         ctx.refresh();
       });
       row.append(label, select);
+      if (reference) row.append(press("Reset", async () => { ctx.setReference(null); ctx.refresh(); }));
       presets.body.append(row);
     }
     /* One preset per other lens, each read as the pair it measures --
@@ -123,15 +138,14 @@ export default {
     host.append(presets.box);
 
     /* ---- 2. the chosen preset: focus, X/Y, and the confirmation ------------ */
-    const target = current ? bySlot(current.target) : null;
-    const work = cell(current ? `Calibration — ${target?.name ?? "target"}` : "Calibration");
-    if (!current) {
-      work.body.append(note(slots.length ? "Choose a preset above to measure it." : "Choose the reference first."));
-    } else {
+    if (!current) return { host };
+    const target = bySlot(current.target);
+    const work = cell(`Calibration — ${reference?.name ?? "reference"} vs ${target?.name ?? "target"}`);
+    {
       const viewKey = (side) => `${cal.reference}-${cal.current}:${side}`;
 
       /* focus: the reference and the target, each its own curve */
-      section(work.body, "Focus (Z)",
+      const focus = part(work.body, 1, "Focus (Z)",
         `With the ${side_(reference)} in and the field in focus, measure; switch only to the `
         + `${side_(target)}, refocus without moving X/Y, and measure again.`);
       for (const [side, lens] of [["reference", reference], ["target", target]]) {
@@ -148,26 +162,26 @@ export default {
           }
           ctx.refresh();
         }, { busy: "measuring…" }));
-        work.body.append(r);
-        if (view?.failed) work.body.append(note(`Failed — ${view.failed}`, "bad"));
+        focus.append(r);
+        if (view?.failed) focus.append(note(`Failed — ${view.failed}`, "bad"));
         else if (view) {
           const bracketed = view.bracketed !== false;
           const seen = view.lens;
           const wrong = seen && lens && String(seen.slot) !== String(lens.slot);
-          work.body.append(note(
+          focus.append(note(
             `${lensLabel(seen)} · ${view.pixel_um} µm/px · `
             + (bracketed ? `peak z = ${Number(view.peak_z_um).toFixed(3)} um` : "no focus peak within the stack — refocus and measure again")
             + (wrong ? ` — expected ${lensLabel(lens)}: change the lens and measure again` : ""),
             bracketed && !wrong ? "ok" : "bad"));
-          if (view.diagnostic_url) work.body.append(picture(view.diagnostic_url, `${side} focus curve and sharpest slice`));
+          if (view.diagnostic_url) focus.append(picture(view.diagnostic_url, `${side} focus curve and sharpest slice`));
         }
       }
 
       /* X/Y: the offset, from matching the two images pixel by pixel */
-      section(work.body, "X/Y", "The X/Y offset, from matching the two images pixel by pixel.");
+      const xy = part(work.body, 2, "X/Y", "The X/Y offset, from matching the two images pixel by pixel.");
       const ready = current.views?.reference && current.views?.target
         && !current.views.reference.failed && !current.views.target.failed;
-      work.body.append(press("Measure X/Y", async () => {
+      xy.append(press("Measure X/Y", async () => {
         try {
           ctx.holdPresetAnswer(cal.current, await ctx.setup.measure("objective_pair",
             { reference: viewKey("reference"), target: viewKey("target") }));
@@ -177,45 +191,43 @@ export default {
         ctx.refresh();
       }, { busy: "measuring…", disabled: !ready }));
       const held = current.answer;
-      if (held?.failed) work.body.append(note(`Failed — ${held.failed}`, "bad"));
+      if (held?.failed) xy.append(note(`Failed — ${held.failed}`, "bad"));
       else if (held) {
         const t = held.translation_um ?? {};
-        work.body.append(note(
+        xy.append(note(
           `${lensLabel(reference)} → ${lensLabel(target)} · translation XY (${signed(t.x)}, ${signed(t.y)}) um · `
           + `Z ${signed(t.z)} um · ${held.accepted ? "trusted" : "WEAK VOTE"}`, held.accepted ? "ok" : "bad"));
-        if (held.why) work.body.append(note(held.why, "bad"));
-        if (held.diagnostic_url) work.body.append(picture(held.diagnostic_url, "the two objectives overlaid, as acquired and after the correction"));
+        if (held.why) xy.append(note(held.why, "bad"));
+        if (held.diagnostic_url) xy.append(picture(held.diagnostic_url, "the two objectives overlaid, as acquired and after the correction"));
       }
     }
 
-    /* the confirmation: every preset against the reference, and adopting */
+    /* the confirmation: this set's X, Y and Z, and adopting */
     const standing = ctx.standing();
-    if (slots.length) {
-      section(work.body, "Confirmation",
-        "Every preset against the reference. Save and adopt publishes them all, measured or still at "
-        + "zero, as the driver's calibration: the reference at zero, each target relative to it.");
+    {
+      const confirm = part(work.body, 3, "Confirmation",
+        `Where the ${target?.name ?? "target"} looks relative to the ${reference?.name ?? "reference"}. `
+        + "Save and adopt publishes the whole calibration, every preset at its current offset.");
+      const tiles = document.createElement("div");
+      tiles.className = "setup-xyz";
+      const t = current.translation_um;
+      for (const [axis, value] of [["X", t.x], ["Y", t.y], ["Z", t.z]]) {
+        const tile = document.createElement("div");
+        tile.className = "setup-xyz-tile" + (current.state === "default" ? " default" : "");
+        tile.innerHTML = `<span class="setup-xyz-axis"></span><span class="setup-xyz-value"></span><span class="setup-xyz-unit">µm</span>`;
+        tile.querySelector(".setup-xyz-axis").textContent = axis;
+        tile.querySelector(".setup-xyz-value").textContent = signed(value);
+        tiles.append(tile);
+      }
+      confirm.append(tiles);
+      confirm.append(note(current.state === "measured" ? "Measured in this session."
+        : current.state === "published" ? "As published; not measured in this session."
+        : "Still the ideal of zero; measure above to replace it with what the microscope does."));
       if (standing?.source === "published") {
         const n = Object.keys(standing.document?.objectives ?? {}).length;
-        work.body.append(note(`What stands now: ${n} objective(s) published.`));
+        confirm.append(note(`What stands now: ${n} objective(s) published.`));
       }
-      const table = document.createElement("table");
-      table.className = "setup-table";
-      table.innerHTML = "<thead><tr><th>Objective</th><th>X</th><th>Y</th><th>Z</th><th>State</th></tr></thead><tbody></tbody>";
-      const tbody = table.querySelector("tbody");
-      const rows = [[reference, { translation_um: { x: 0, y: 0, z: 0 }, state: "reference" }]]
-        .concat(slots.map((slot) => [bySlot(cal.presets[slot].target), cal.presets[slot]]));
-      for (const [lens, preset] of rows) {
-        const t = preset.translation_um;
-        const tr = document.createElement("tr");
-        if (preset.state === "default") tr.className = "default";
-        for (const text of [lensLabel(lens), signed(t.x), signed(t.y), signed(t.z),
-          preset.state === "reference" ? "reference" : stateText(preset)]) {
-          const td = document.createElement("td"); td.textContent = text; tr.append(td);
-        }
-        tbody.append(tr);
-      }
-      work.body.append(table);
-      work.body.append(publishRow({
+      confirm.append(publishRow({
         label: "Save and adopt",
         published: ctx.publishedNote(),
         onPublish: async () => {
