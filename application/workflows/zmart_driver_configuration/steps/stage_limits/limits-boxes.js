@@ -157,9 +157,13 @@ export default {
       else { ctx.edit(key, kind === "allowed" ? { allowed: [] } : { range: [null, null] }); fields[0]?.focus(); }
     };
 
-    /* The rows are the file's keys, in the file's order, each drawn the way
-       the driver says that key is: an axis, the slot list, a setting -- and a
-       key the driver did not describe still gets a row, as itself. */
+    /* The rows are the file's keys, in the file's order, and every row is
+       drawn the same way: a tick, the name, the kind chooser, the fields.
+       The page does not decide what a key is -- a stage axis, the slot
+       list and a setting all get the same chooser -- because the page does
+       not know the nature of a field; the driver does, and it refuses at
+       publish what it cannot take. The driver's description only supplies
+       the wording: a label, a unit, a note. */
     for (const key of Object.keys(held)) {
       if (key === "published_at") continue;
       const isAxis = axes.has(key);
@@ -168,12 +172,9 @@ export default {
         : isSlots ? doc.slots.label
         : (doc.settings ?? []).includes(key) ? key.replace(/^set_/, "").replaceAll("_", " ") : key;
       const applied = kindOf(held[key]) !== "none";
-      /* A stage range is a range, both ends closed; the slot list is a list;
-         any other setting may be either, and says which. */
-      const kind = isAxis ? "range" : isSlots ? "allowed" : (applied ? kindOf(held[key]) : "range");
-      const fields = fieldsFor(key, label, kind, { open: !isAxis });
-      const before = (isAxis || isSlots) ? [] : [kindChooser(key, label, kind)];
-      row(key, label, [...before, ...fields], { applied, onTick: untick(fields, key, kind) });
+      const kind = applied ? kindOf(held[key]) : "range";
+      const fields = fieldsFor(key, label, kind, { open: true });
+      row(key, label, [kindChooser(key, label, kind), ...fields], { applied, onTick: untick(fields, key, kind) });
       if (isAxis && axes.get(key).note) edit.body.append(note(axes.get(key).note));
       if (isSlots && doc.slots.note) edit.body.append(note(doc.slots.note));
     }
