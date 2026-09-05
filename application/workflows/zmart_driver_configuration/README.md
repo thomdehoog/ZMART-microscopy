@@ -68,7 +68,9 @@ steps/
 The page-side half of the seam is `../../parts/microscope/setup.js`; the
 Python half is `zmart_setup/` at the repository root, with each driver's setup
 beside its operating adapter (`zmart_drivers/mock/mock_setup.py`,
-`zmart_drivers/leica/.../zmart_adapter/setup.py`). The measurements themselves
+`zmart_drivers/leica/.../zmart_adapter/setup.py`). A new microscope plugs in
+by registering one ops table with the seam and needs no change here; the
+recipe is the "Adding a microscope" section of `zmart_setup/README.md`. The measurements themselves
 live in `zmart_analysis/workflows/driver_configuration/`, and never learn which
 microscope took the pictures.
 
