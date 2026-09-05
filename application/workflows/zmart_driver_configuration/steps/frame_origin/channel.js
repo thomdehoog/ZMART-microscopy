@@ -8,7 +8,7 @@
  * the drives one per row, as the instrument reports them, and says plainly
  * that these readings are what will be (0, 0, 0). Nothing here drives the
  * stage: the operator takes the microscope to the origin in its own
- * software, presses Read to see the drives there, and Import to make it so.
+ * software and presses Read, and the readings are the origin from then on.
  */
 
 import { cell, note, press, readout } from "../cells.js";
@@ -28,28 +28,23 @@ export default {
     }
 
     const origin = cell("Set origin",
-      "Move the stage to the origin in the microscope's own software, then import. "
-      + "The imported readings become (0, 0, 0) from the next connect on.");
+      "Move the stage to the origin in the microscope's own software, then read. "
+      + "The readings become (0, 0, 0) from the next connect on.");
     const adopted = ctx.publishedNote()?.startsWith("Adopted") ?? false;
     const standing = ctx.standing();
     if (!adopted) {
       if (standing?.source === "published") {
         const d = standing.document?.origin ?? standing.document ?? {};
         origin.body.append(note(`Published origin: (${Number(d.x_um).toFixed(0)}, ${Number(d.y_um).toFixed(0)}, `
-          + `${Number(d.z_um ?? d.z_focus_um).toFixed(1)}) µm. Importing replaces it.`));
+          + `${Number(d.z_um ?? d.z_focus_um).toFixed(1)}) µm. Reading replaces it.`));
       } else if (standing) {
         origin.body.append(note("No origin published: the frame is the stage's absolute zero."));
       }
     }
 
-    const row = document.createElement("div");
-    row.className = "setup-row";
-    row.style.justifyContent = "flex-start";
-    row.append(press("Read", async () => {
-      try { ctx.holdHere(await ctx.setup.where()); } catch (why) { ctx.holdHere(null, why.message); }
-      ctx.refresh();
-    }, { busy: "reading…" }));
-    row.append(press("Import", async () => {
+    /* One press. Reading the drives is adopting them: what the instrument
+       reports at the moment of the press is the origin, published at once. */
+    origin.body.append(press("Read", async () => {
       try {
         const document = await ctx.setup.measure("origin");
         const where = await ctx.setup.publish("origin", document);
@@ -57,11 +52,10 @@ export default {
         ctx.settle(`(${Number(document.x_um).toFixed(0)}, ${Number(document.y_um).toFixed(0)}, ${Number(document.z_um).toFixed(1)}) · adopted`,
           `Adopted: ${where.snapshot?.split("/").pop() ?? where.path}`);
       } catch (why) {
-        ctx.settle(null, `Import failed — ${why.message}`);
+        ctx.settle(null, `Reading failed — ${why.message}`);
       }
       ctx.refresh();
-    }, { busy: "importing…" }));
-    origin.body.append(row);
+    }, { busy: "reading…" }));
 
     /* The drives, one per row, and what the row of numbers means. */
     const here = ctx.here();
