@@ -398,6 +398,19 @@ let stageWatch = null;
       if (!(chosen === "new" && offersNew) && !state.configurations.some((c) => c.id === chosen)) {
         state.session.configuration = state.configurations[0]?.id ?? (offersNew ? "new" : null);
       }
+      /* A machine nobody has set up yet cannot be driven: a session needs a
+         configuration with limits, and there is none. So the page's first
+         look, when it opened on a driving workflow and found the machine
+         bare, moves to the configuration workflow, where the work is. Only
+         the first look, and only when no workflow was asked for by name. */
+      if (!firstLookTaken) {
+        firstLookTaken = true;
+        const bare = !state.configurations.some((c) => c.has?.limits);
+        if (bare && !offersNew && !WORKFLOW_ASKED_FOR && WORKFLOWS.zmart_driver_configuration) {
+          switchWorkflow("zmart_driver_configuration");
+          return;
+        }
+      }
       renderSetup(); renderActionBar();
     }).catch((why) => {
       state.configurations = []; state.session.configuration = null;
@@ -405,6 +418,8 @@ let stageWatch = null;
       renderSetup(); renderActionBar();
     });
   }
+
+  let firstLookTaken = false;
 
   const el = (id) => document.getElementById(id);
 
@@ -428,12 +443,14 @@ let stageWatch = null;
   /* Choosing a workflow is choosing to begin it: the switch restarts the run.
      There is no Restart button — the session card's Disconnect ends a run,
      and picking a workflow starts one. */
-  selectEl.addEventListener("change", () => {
-    state.wf = selectEl.value;
+  function switchWorkflow(key) {
+    state.wf = key;
+    selectEl.value = key;
     backend = backendFor(state.wf);
     resetRun();
     listInstruments();
-  });
+  }
+  selectEl.addEventListener("change", () => switchWorkflow(selectEl.value));
 
   /* Closing the session takes the run with it: settings were read off this
      microscope, the origin is in its coordinates, and the tiles came from it.
