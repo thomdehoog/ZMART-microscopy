@@ -3,10 +3,23 @@
 Every folder in here that contains a `flow.js` is a workflow the operator can
 choose. The folder's name is what the chooser at the top left of the window
 shows — underscores read as spaces, first letter capitalised, so
-`target_acquisition` appears as **Target acquisition**. Adding a workflow means
-adding a folder with a `flow.js` in it; nothing else in the application has to
-change, because the framework finds these folders by looking
+`target_acquisition` appears as **Target acquisition**. A flow whose folder
+rule would come out wrong may say its own name instead (`export const name`),
+which is how `zmart_driver_configuration` appears as **ZMART driver
+configuration** rather than "Zmart". Adding a workflow means adding a folder
+with a `flow.js` in it; nothing else in the application has to change, because
+the framework finds these folders by looking
 (`../framework/rules/finding-workflows.js` says how).
+
+There are two:
+
+- **`target_acquisition/`** — a run on a microscope that has already been set
+  up: find the targets on an overview and acquire them.
+- **`zmart_driver_configuration/`** — the setting up: publish how far the stage
+  may travel, which way the picture is turned, how the objectives line up, and
+  where the frame counts from. It has no canvas, and it does not go through
+  the controller — it speaks to the driver's *setup* through `zmart_drivers.setup`, a
+  seam nothing holding a session can reach. Its own `README.md` says why.
 
 ## What is inside a workflow's folder
 
@@ -83,3 +96,22 @@ fields, all optional except the first two.
   needs; a step that only shows the operator something produces nothing to wait
   for, and saying so here lets them walk straight past it. See
   `../framework/rules/steps.js`, which is where the rule lives.
+- `channel` — the step's own controls, as `{id, label, mount(host, ctx)}`.
+  The shell mounts them in the panel's channel when the step is walked to
+  and hands `mount` the run through `ctx`. This is how a workflow adds steps
+  without adding to the framework: the page knows the target-acquisition
+  steps by their ids, and any step it does not know brings its channel along.
+
+## What a flow is made of
+
+`flow.js` exports `steps` (the list) and `blurb` (the sentence), and may also
+export `name` (when the folder rule would misname it), `panels` (what it puts on
+screen — the canvas, or a panel of its own), `opensFirst` (the workflow a fresh
+page opens on), and `backend` (what it talks to, when that is not the page's
+usual session bridge — the driver-configuration workflow brings the setup seam).
+
+One exception to `opensFirst`: when the page first looks at the chosen
+microscope and finds no configuration with limits, it moves to the
+driver-configuration workflow on its own, since a driving workflow could not
+connect there anyway. It does this once, on the first look, and never when a
+workflow was asked for by name in the address (`?workflow=...`).

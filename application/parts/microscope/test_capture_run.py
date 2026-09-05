@@ -15,8 +15,10 @@ _MOCK = {"vendor": "mock", "microscope": "mock-scope", "api": "mock-api", "clien
 
 @pytest.fixture
 def mic():
+    from zmart_drivers.mock import mock_setup
+
     register_mock()
-    session = zmart_controller.set_instrument(_MOCK)
+    session = zmart_controller.set_instrument({**_MOCK, "configuration": mock_setup.configured()})
     yield session
     session.disconnect()
 

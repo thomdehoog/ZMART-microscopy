@@ -56,8 +56,11 @@ DUSTY = (-900.0, 0.0)
 def scope(tmp_path):
     """A connected mock scope writing into this test's own folder."""
     mock_driver.register_mock()
+    from zmart_drivers.mock import mock_setup
+
     instrument = next(i for i in get_instruments() if i["vendor"] == "mock")
     instrument["output_root"] = str(tmp_path)
+    instrument["configuration"] = mock_setup.configured()
     session = set_instrument(instrument)
     yield session
     session.disconnect()

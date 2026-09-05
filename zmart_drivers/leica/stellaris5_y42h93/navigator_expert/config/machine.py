@@ -1,39 +1,60 @@
 """Machine-local resolution of this microscope's coordinate-system config.
 
-Each subsystem owns an independent, append-only timestamp tree under the
-microscope API root::
+A microscope's configuration -- its limits, calibration, orientation and
+origin -- lives in ProgramData as **configurations**: one folder per pass
+through the ZMART driver configuration workflow, named by the moment it was
+started, and each holding the four subsystem trees in full::
 
     <programdata_root>/<vendor>/<microscope_id>/<api>/
-        limits/<datetime>/
-            limits.json
-            notebook/set_limits_<datetime>.ipynb
-            data/
-                template/<saved experiment>.{xml,rgn,lrp}
-        calibration/
-            <datetime>/
-                calibration.json
-                calibrations/<name>/calibration.json
-                <executed>.ipynb
-            <session-id>/
-                calibration.json
-                <acquisition-name>/
+        configuration_<datetime>/
+            limits/<datetime>/
+                limits.json
+                notebook/set_limits_<datetime>.ipynb
+                data/
+                    template/<saved experiment>.{xml,rgn,lrp}
+            calibration/
+                <datetime>/
+                    calibration.json
+                    calibrations/<name>/calibration.json
+                    <executed>.ipynb
+                <session-id>/
+                    calibration.json
+                    <acquisition-name>/
+                        data/
+                        reports/
+            orientation/
+                <datetime>/
+                    orientation.json
+                    data/notebook/set_orientation.ipynb
+                <session-id>/
                     data/
                     reports/
-        orientation/
-            <datetime>/
-                orientation.json
-                data/notebook/set_orientation.ipynb
-            <session-id>/
-                data/
-                reports/
-                configs/
-        origin/<datetime>/
-            origin.json
+                    configs/
+            origin/<datetime>/
+                origin.json
+
+A configuration is complete on its own: a new one starts as a copy of the
+newest snapshot of each subsystem of the one standing before it, and then
+only what the operator adopts in it changes. The driver stands on exactly one
+configuration -- the one named at connect, else the newest -- and never looks
+across them. Older configurations are the history of how the machine was set
+up, and any of them can be connected with again.
+
+Inside a configuration, each subsystem keeps its own append-only timestamp
+tree, exactly as before configurations existed: a subsystem's files carry the
+document plus its evidence (figures, notebooks, the measurement's numbers),
+so what was measured can be shown again.
 
 The newest timestamp in each subsystem wins independently. Publishing limits
 does not duplicate calibration or orientation, and every origin change keeps
 its own immutable record. The frame origin remains session-scoped: the driver
 does not restore it at connect.
+
+``sessions/`` is not a subsystem and this driver never reads it. It is where
+the ZMART driver configuration workflow keeps each operator's pass through
+its steps -- the four documents as last adopted, under a name -- so a setup
+can be reopened and edited. Adopting still writes the subsystem snapshot
+above; the session record is a copy beside it, updated as the session goes.
 
 Operator-published runtime values live in ProgramData. Bundled defaults stay
 inside the installed code and are used directly only when no machine limits
@@ -58,6 +79,10 @@ sortable::
 
     2026-07-01T14-30-00-123456Z
 
+Subsystem trees written straight under the API root by releases before
+configurations existed are copied, once, into a first configuration; the
+old trees stay where they were.
+
 The active snapshot for a subsystem is its lexical max. A new snapshot must
 stamp strictly later than the latest snapshot in that same subsystem, so a
 backward system clock or same-microsecond re-run cannot make fresh config stale.
@@ -71,7 +96,7 @@ import os
 import re
 import shutil
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -83,6 +108,16 @@ PROGRAMDATA_ROOT_ENV = "ZMART_MICROSCOPY_ROOT"
 # UTC, microsecond precision, Windows-path-safe, lexical order == chronological.
 _SNAPSHOT_FORMAT = "%Y-%m-%dT%H-%M-%S-%fZ"
 _SNAPSHOT_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{6}Z$")
+
+#: A configuration folder is ``configuration_<datetime>``.
+CONFIGURATION_PREFIX = "configuration_"
+_CONFIGURATION_RE = re.compile(
+    r"^configuration_(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{6}Z)$"
+)
+
+#: The configuration the driver stands on in this process, chosen at connect
+#: (see :func:`use_configuration`); ``None`` means the newest.
+_CHOSEN_CONFIGURATION: str | None = None
 
 CALIBRATION_FILENAME = "calibration.json"
 CALIBRATIONS_DIRNAME = "calibrations"
@@ -121,6 +156,63 @@ def format_snapshot_name(moment: datetime) -> str:
 def is_snapshot_name(name: str) -> bool:
     """True if *name* is a well-formed snapshot folder name."""
     return bool(_SNAPSHOT_RE.match(name))
+
+
+def format_configuration_name(moment: datetime) -> str:
+    """``configuration_<datetime>`` for *moment* (converted to UTC)."""
+    return CONFIGURATION_PREFIX + format_snapshot_name(moment)
+
+
+def is_configuration_name(name: str) -> bool:
+    """True if *name* is a well-formed configuration folder name."""
+    return bool(_CONFIGURATION_RE.match(name))
+
+
+def configuration_moment(name: str) -> datetime:
+    """When the configuration called *name* was started."""
+    match = _CONFIGURATION_RE.match(name)
+    if match is None:
+        raise ValueError(f"not a configuration name: {name!r}")
+    return datetime.strptime(match.group(1), _SNAPSHOT_FORMAT).replace(tzinfo=timezone.utc)
+
+
+def _operator_published(subsystem: str, file: Path) -> bool:
+    """Whether a snapshot's document is the operator's rather than the
+    bundled default the driver seeds at connect. Limits are never seeded, so
+    their presence is the proof; an orientation says ``measured``; a
+    calibration names objectives; an origin exists only when set."""
+    if subsystem in ("limits", "origin"):
+        return True
+    try:
+        document = json.loads(file.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    if subsystem == "orientation":
+        return bool(document.get("measured"))
+    if subsystem == "calibration":
+        return bool(document.get("objectives"))
+    return True
+
+
+def use_configuration(name: str | None) -> None:
+    """Choose the configuration this process's driver stands on.
+
+    ``None`` means the newest, which is what a driver connecting on its own
+    gets. A name must be one of :meth:`MachineProfile.configurations`; the
+    controller passes one through at every connect.
+    """
+    global _CHOSEN_CONFIGURATION
+    if name is not None:
+        if not is_configuration_name(name):
+            raise ValueError(f"not a configuration name: {name!r}")
+        if not (MACHINE.api_root() / name).is_dir():
+            raise FileNotFoundError(f"no configuration {name} under {MACHINE.api_root()}")
+    _CHOSEN_CONFIGURATION = name
+
+
+def chosen_configuration() -> str | None:
+    """The configuration chosen with :func:`use_configuration`, if any."""
+    return _CHOSEN_CONFIGURATION
 
 
 def _write_json(path: Path, payload: dict) -> None:
@@ -172,6 +264,9 @@ class MachineProfile:
     microscope_id: str = "stellaris5_y42h93"
     api: str = "navigator_expert"
     programdata_root: Path | None = None
+    #: A fixed configuration to stand on. ``None`` means the one chosen with
+    #: :func:`use_configuration`, else the newest, else one seeded now.
+    configuration: str | None = None
 
     def root(self) -> Path:
         if self.programdata_root is not None:
@@ -179,11 +274,159 @@ class MachineProfile:
         env = os.environ.get(PROGRAMDATA_ROOT_ENV)
         return Path(env) if env else DEFAULT_PROGRAMDATA_ROOT
 
-    def snapshot_root(self) -> Path:
+    def api_root(self) -> Path:
+        """``<programdata_root>/<vendor>/<microscope_id>/<api>``: where the
+        configurations of this microscope are."""
         return self.root() / self.vendor / self.microscope_id / self.api
 
+    # --- configurations ---------------------------------------------------
+
+    def configurations(self) -> list[Path]:
+        """Every configuration folder, oldest first."""
+        self.migrate_subsystem_trees()
+        root = self.api_root()
+        if not root.is_dir():
+            return []
+        return sorted(
+            (p for p in root.iterdir() if p.is_dir() and is_configuration_name(p.name)),
+            key=lambda p: p.name,
+        )
+
+    def newest_configuration(self) -> Path | None:
+        found = self.configurations()
+        return found[-1] if found else None
+
+    def describe_configuration(self, path: Path) -> dict:
+        """One configuration as a listing shows it: its id, when it was
+        started, and which subsystems hold a published document."""
+        bound = replace(self, configuration=path.name)
+        has = {}
+        for subsystem in SUBSYSTEMS:
+            latest = bound.latest_snapshot(subsystem)
+            file = latest / _SUBSYSTEM_FILENAME[subsystem] if latest is not None else None
+            has[subsystem] = bool(file is not None and file.is_file() and _operator_published(subsystem, file))
+        return {
+            "id": path.name,
+            "created_at": configuration_moment(path.name).isoformat(),
+            "has": has,
+        }
+
+    def configuration_root(self) -> Path:
+        """The configuration this profile stands on.
+
+        The profile's own ``configuration`` when set; else the one chosen at
+        connect; else the newest on disk; else one seeded now, so that a
+        driver on a fresh machine has somewhere to keep its defaults.
+        """
+        name = self.configuration
+        if name is None and self.programdata_root is None:
+            # The choice made at connect belongs to this process's machine,
+            # the one the environment names -- not to a profile a caller
+            # rooted somewhere else by hand. A choice whose folder is gone
+            # (a test moved the root) is dropped with a word, not obeyed.
+            chosen = _CHOSEN_CONFIGURATION
+            if chosen is not None and not (self.api_root() / chosen).is_dir():
+                log.warning("chosen configuration %s is not under %s; standing on the newest", chosen, self.api_root())
+                chosen = None
+            name = chosen
+        if name is not None:
+            path = self.api_root() / name
+            if not path.is_dir():
+                raise FileNotFoundError(f"no configuration {name} under {self.api_root()}")
+            return path
+        newest = self.newest_configuration()
+        if newest is not None:
+            return newest
+        return self._seed_configuration(datetime.now(timezone.utc))
+
+    def _seed_configuration(self, moment: datetime) -> Path:
+        target = self.api_root() / format_configuration_name(moment)
+        for subsystem in SUBSYSTEMS:
+            (target / subsystem).mkdir(parents=True, exist_ok=True)
+        return target
+
+    def new_configuration(self, moment: datetime | None = None) -> Path:
+        """Start a configuration as a full copy of what stands now: the newest
+        snapshot of each subsystem of the configuration this profile stands
+        on, so the new one is complete before anything is adopted in it."""
+        moment = moment or datetime.now(timezone.utc)
+        source = self.newest_configuration()
+        target = self.api_root() / format_configuration_name(moment)
+        if target.exists():
+            raise FileExistsError(f"configuration {target.name} already exists")
+        if source is not None and target.name <= source.name:
+            raise ValueError(
+                f"new configuration {target.name!r} does not sort after newest "
+                f"{source.name!r}; the system clock moved backward"
+            )
+        staging = self.api_root() / f".{target.name}.partial"
+        if staging.exists():
+            shutil.rmtree(staging)
+        staging.mkdir(parents=True)
+        try:
+            for subsystem in SUBSYSTEMS:
+                (staging / subsystem).mkdir()
+                if source is None:
+                    continue
+                latest = replace(self, configuration=source.name).latest_snapshot(subsystem)
+                if latest is not None:
+                    shutil.copytree(_io_path(latest), _io_path(staging / subsystem / latest.name))
+            os.replace(staging, target)
+        except BaseException:
+            shutil.rmtree(staging, ignore_errors=True)
+            raise
+        return target
+
+    def migrate_subsystem_trees(self) -> Path | None:
+        """Copy subsystem trees written straight under the API root, by
+        releases before configurations existed, into a first configuration.
+
+        Copy, never move: like the driver's other migrations, this leaves the
+        old trees exactly where they were, as migration input. It runs only
+        while no configuration exists, so it happens once on a machine.
+        Returns the configuration it made, or ``None`` when there was nothing
+        to do.
+        """
+        root = self.api_root()
+        loose = [root / subsystem for subsystem in SUBSYSTEMS if (root / subsystem).is_dir()]
+        if not loose:
+            return None
+        if any(p.is_dir() and is_configuration_name(p.name) for p in root.iterdir()):
+            return None
+        newest = max(
+            (p.name for tree in loose for p in tree.iterdir() if p.is_dir() and is_snapshot_name(p.name)),
+            default=None,
+        )
+        moment = (
+            datetime.strptime(newest, _SNAPSHOT_FORMAT).replace(tzinfo=timezone.utc)
+            if newest else datetime.now(timezone.utc)
+        )
+        target = root / format_configuration_name(moment)
+        staging = root / f".{target.name}.partial"
+        if staging.exists():
+            shutil.rmtree(staging)
+        staging.mkdir()
+        try:
+            for tree in loose:
+                shutil.copytree(_io_path(tree), _io_path(staging / tree.name))
+            for subsystem in SUBSYSTEMS:
+                (staging / subsystem).mkdir(exist_ok=True)
+            os.replace(staging, target)
+        except BaseException:
+            shutil.rmtree(staging, ignore_errors=True)
+            raise
+        log.info("copied subsystem trees under %s into %s", root, target.name)
+        return target
+
+    # --- inside the configuration -------------------------------------------
+
+    def snapshot_root(self) -> Path:
+        """The configuration this profile stands on; every subsystem tree is
+        directly below it."""
+        return self.configuration_root()
+
     def ensure_layout(self) -> Path:
-        """Create the API root and its subsystem directories if absent."""
+        """Create the configuration's subsystem directories if absent."""
         root = self.snapshot_root()
         for subsystem in SUBSYSTEMS:
             (root / subsystem).mkdir(parents=True, exist_ok=True)
@@ -215,7 +458,7 @@ class MachineProfile:
         """
         moved: list[Path] = []
         for src in self._legacy_snapshots():
-            target = self.snapshot_root() / src.name
+            target = self.api_root() / src.name
             if target.exists():
                 log.warning("legacy snapshot %s also exists at %s; not moving", src, target)
                 continue
@@ -240,7 +483,7 @@ class MachineProfile:
 
     def _flat_snapshots(self) -> list[Path]:
         """Old API-level snapshots, retained as migration input."""
-        root = self.snapshot_root()
+        root = self.api_root()
         if not root.is_dir():
             return []
         return sorted(

@@ -31,7 +31,6 @@ from application.workflows.target_acquisition.webapp import make_server  # noqa:
 
 _STEP_ORDER = [
     "connect",
-    "set_origin",
     "capture_overview_job",
     "capture_target_job",
     "load_positions",

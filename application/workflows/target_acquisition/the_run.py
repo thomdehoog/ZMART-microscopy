@@ -37,6 +37,12 @@ def connect(vendor: str, *, output_root: Any = None, **extras: Any):
     The driver adapter must already be imported (importing it is what registers
     the instrument with ``get_instruments()``). ``output_root`` and any ``extras``
     are dropped into the connection dict before connecting.
+
+    A session stands on one of the machine's configurations -- its limits,
+    orientation, calibration and origin as one set. Pass ``configuration=<id>``
+    in ``extras`` to choose one; without it, this takes the newest, which is
+    what the operator page offers by default. The controller still refuses a
+    configuration without limits.
     """
     import zmart_controller
 
@@ -51,6 +57,10 @@ def connect(vendor: str, *, output_root: Any = None, **extras: Any):
     if output_root is not None:
         instrument["output_root"] = str(output_root)
     instrument.update(extras)
+    if not instrument.get("configuration"):
+        newest = zmart_controller.get_configurations(instrument)
+        if newest:
+            instrument["configuration"] = newest[0]["id"]
     return zmart_controller.set_instrument(instrument)
 
 

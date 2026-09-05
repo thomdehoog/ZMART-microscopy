@@ -132,7 +132,7 @@ def test_full_mock_run_move_and_acquire(tmp_path):
     # The controller round-trip, z-focus model, and state round-trip are exercised.
     assert {
         "get_info: output_root returned",
-        "set_origin",
+        "get_xyz: the frame as connected",
         "xy: frame x",
         "zgalvo: frame z",
         "zgalvo: drive moved by delta (sign check)",

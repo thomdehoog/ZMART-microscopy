@@ -65,18 +65,31 @@ def _read_json(path: Path) -> dict[str, Any]:
         return json.load(fh)
 
 
-def _normalize_range(values: Any, *, path: Path, name: str) -> list[float]:
-    """Validate one strict numeric ``[min, max]`` and return floats."""
+def _normalize_range(values: Any, *, path: Path, name: str, open_ends: bool = False) -> list:
+    """Validate one numeric ``[min, max]`` and return floats.
+
+    A stage range is strict: both ends numbers, finite, in order. A setter's
+    range may leave either end open (``null`` in the file), so that "at most
+    10" is a limit without having to invent a minimum -- the check then
+    only looks at the end that was given.
+    """
     if not isinstance(values, list) or len(values) != 2:
         raise ValueError(f"{path} {name} must be [min, max], got {values!r}")
-    if any(isinstance(value, bool) or not isinstance(value, (int, float)) for value in values):
-        raise ValueError(f"{path} {name} must contain numbers, got {values!r}")
-    low, high = float(values[0]), float(values[1])
-    if not (math.isfinite(low) and math.isfinite(high)):
-        raise ValueError(f"{path} {name} is not finite: {values!r}")
-    if low > high:
+    out: list = []
+    for value in values:
+        if value is None and open_ends:
+            out.append(None)
+            continue
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ValueError(f"{path} {name} must contain numbers, got {values!r}")
+        if not math.isfinite(float(value)):
+            raise ValueError(f"{path} {name} is not finite: {values!r}")
+        out.append(float(value))
+    if out[0] is None and out[1] is None:
+        raise ValueError(f"{path} {name} has both ends open; use [] for unrestricted")
+    if out[0] is not None and out[1] is not None and out[0] > out[1]:
         raise ValueError(f"{path} {name} has min > max: {values!r}")
-    return [low, high]
+    return out
 
 
 def _validate_limits(limits: dict[str, Any], *, path: Path) -> dict[str, list[float]]:
@@ -117,7 +130,9 @@ def _normalize_typed_limit(
     if not isinstance(values, list):
         raise ValueError(f"{path} {name}.{kind} must be a list, got {values!r}")
     if kind == "range":
-        return {"range": _normalize_range(values, path=path, name=f"{name}.range")}
+        # A stage axis (asked for as a range) is strict; a setter may leave an end open.
+        return {"range": _normalize_range(values, path=path, name=f"{name}.range",
+                                          open_ends=required_kind is None)}
     if not values:
         raise ValueError(
             f"{path} {name}.allowed must not be empty; use [] for unrestricted setters"

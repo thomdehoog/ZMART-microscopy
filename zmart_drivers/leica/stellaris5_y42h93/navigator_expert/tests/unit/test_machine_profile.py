@@ -13,6 +13,8 @@ from navigator_expert.config.machine import MachineProfile, format_snapshot_name
 _AT_1400 = datetime(2026, 7, 1, 14, 0, tzinfo=timezone.utc)
 _AT_1430 = datetime(2026, 7, 1, 14, 30, tzinfo=timezone.utc)
 _AT_1500 = datetime(2026, 7, 1, 15, 0, tzinfo=timezone.utc)
+# A configuration seeded today is named by now, so a new one has to be later.
+_TOMORROW = (datetime.now(timezone.utc) + timedelta(days=1)).replace(microsecond=0)
 _FILENAMES = {
     "limits": "limits.json",
     "calibration": "calibration.json",
@@ -38,7 +40,7 @@ def _mk_snapshot(
 
 
 def _mk_flat_snapshot(profile: MachineProfile, name: str) -> Path:
-    snapshot = profile.snapshot_root() / name
+    snapshot = profile.api_root() / name
     snapshot.mkdir(parents=True)
     (snapshot / "limits.json").write_text('{"limits": "old"}', encoding="utf-8")
     (snapshot / ".limits-machine").touch()
@@ -63,12 +65,67 @@ def test_snapshot_name_is_utc_windows_safe_and_sortable():
     assert not is_snapshot_name("2026-07-01T14-30-00Z")
 
 
-def test_subsystem_roots_are_directly_below_api_root(tmp_path):
+def test_subsystem_roots_are_directly_below_the_configuration(tmp_path):
     profile = _profile(tmp_path)
     api_root = tmp_path / "leica" / "stellaris5_y42h93" / "navigator_expert"
-    assert profile.snapshot_root() == api_root
+    assert profile.api_root() == api_root
+    # With no configuration yet, one is seeded: the driver has to stand somewhere.
+    root = profile.snapshot_root()
+    assert root.parent == api_root
+    assert machine.is_configuration_name(root.name)
     for subsystem in _FILENAMES:
-        assert profile.subsystem_root(subsystem) == api_root / subsystem
+        assert profile.subsystem_root(subsystem) == root / subsystem
+    # And it is the same one on every ask.
+    assert profile.snapshot_root() == root
+    assert [p.name for p in profile.configurations()] == [root.name]
+
+
+def test_a_named_configuration_is_stood_on_and_a_missing_one_refused(tmp_path):
+    profile = _profile(tmp_path)
+    first = profile.snapshot_root()
+    second = profile.new_configuration(_TOMORROW)
+    assert second.name == machine.format_configuration_name(_TOMORROW)
+    assert profile.snapshot_root() == second          # the newest, by default
+    bound = MachineProfile(programdata_root=tmp_path, configuration=first.name)
+    assert bound.snapshot_root() == first
+    with pytest.raises(FileNotFoundError):
+        MachineProfile(programdata_root=tmp_path, configuration="configuration_2000-01-01T00-00-00-000000Z").snapshot_root()
+
+
+def test_a_new_configuration_copies_the_newest_snapshot_of_each_subsystem(tmp_path):
+    profile = _profile(tmp_path)
+    _mk_snapshot(profile, "limits", "2026-07-01T14-00-00-000000Z", {"x_um": {"range": [0, 1]}})
+    _mk_snapshot(profile, "limits", "2026-07-01T14-30-00-000000Z", {"x_um": {"range": [0, 2]}})
+    _mk_snapshot(profile, "origin", "2026-07-01T14-00-00-000000Z", {"x_um": 5})
+    older = profile.snapshot_root()
+    fresh = profile.new_configuration(_TOMORROW)
+    assert sorted(p.name for p in fresh.iterdir()) == ["calibration", "limits", "orientation", "origin"]
+    copied = sorted(p.name for p in (fresh / "limits").iterdir())
+    assert copied == ["2026-07-01T14-30-00-000000Z"]        # the newest only
+    assert json.loads((fresh / "limits" / copied[0] / "limits.json").read_text()) == {"x_um": {"range": [0, 2]}}
+    assert (fresh / "origin" / "2026-07-01T14-00-00-000000Z" / "origin.json").is_file()
+    assert list((fresh / "calibration").iterdir()) == []
+    # The older configuration is untouched, and adopting in the new one leaves it so.
+    assert sorted(p.name for p in (older / "limits").iterdir()) == [
+        "2026-07-01T14-00-00-000000Z", "2026-07-01T14-30-00-000000Z"]
+    said = profile.describe_configuration(fresh)
+    assert said["id"] == fresh.name
+    assert said["has"] == {"limits": True, "calibration": False, "orientation": False, "origin": True}
+
+
+def test_subsystem_trees_under_the_api_root_are_copied_into_a_first_configuration(tmp_path):
+    api_root = tmp_path / "leica" / "stellaris5_y42h93" / "navigator_expert"
+    old = api_root / "limits" / "2026-07-01T14-30-00-000000Z"
+    old.mkdir(parents=True)
+    (old / "limits.json").write_text('{"x_um": {"range": [0, 1]}}', encoding="utf-8")
+    (api_root / "origin").mkdir()
+    profile = _profile(tmp_path)
+    found = profile.configurations()
+    assert [p.name for p in found] == ["configuration_2026-07-01T14-30-00-000000Z"]
+    assert (old / "limits.json").is_file()                 # the old tree stays as it was
+    assert profile.configurations() == found              # and is not copied twice
+    assert (found[0] / "limits" / "2026-07-01T14-30-00-000000Z" / "limits.json").is_file()
+    assert profile.latest_snapshot("limits") == found[0] / "limits" / "2026-07-01T14-30-00-000000Z"
 
 
 def test_ensure_layout_creates_every_subsystem_directory(tmp_path):
@@ -162,7 +219,7 @@ def test_pre_api_flat_snapshot_copies_then_migrates(tmp_path):
 
     migrated = profile.migrate_flat_snapshots()
 
-    moved = profile.snapshot_root() / legacy.name
+    moved = profile.api_root() / legacy.name
     assert legacy.exists()
     assert moved.exists()
     assert set(migrated) == {"limits", "calibration", "orientation"}

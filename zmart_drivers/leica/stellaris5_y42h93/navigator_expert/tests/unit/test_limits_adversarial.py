@@ -852,6 +852,9 @@ def test_controller_session_bypass_refuses_at_the_commands_layer(clear_stage_lim
         patch.object(_cmd_settings, "make_changeable_copy", side_effect=lambda s: s),
     ):
         instrument = next(i for i in zmart_controller.get_instruments() if i["vendor"] == "leica")
+        # A session stands on a configuration: the newest, which holds the
+        # limits provisioned for this test.
+        instrument["configuration"] = zmart_controller.get_configurations(instrument)[0]["id"]
         session = zmart_controller.set_instrument(instrument)
         try:
             with pytest.raises(RuntimeError, match="outside"):

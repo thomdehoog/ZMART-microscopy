@@ -2,9 +2,12 @@
 
 It exercises the full controller contract so the package can be tested offline,
 and it shows the shape a real driver implements: it receives the connection dict,
-owns the frame origin (user coordinates are micrometers from it), and does the
-work the controller does not -- settling before capture, saving, and
-owning the changeable/observed state boundary.
+stands on the frame origin the setup workflow published (user coordinates
+are micrometers from it), and does the work the controller does not --
+settling before capture, saving, and owning the changeable/observed state
+boundary. How it is *set up* -- the origin, the envelope, the camera's turn --
+is :mod:`mock_setup`'s, reached through :mod:`zmart_drivers.setup` and never through
+the controller.
 
 It sits beside the other drivers, and that is deliberate. It was filed under
 ``zmart_controller/tests/`` for a while, which made everything that needed a
@@ -139,10 +142,15 @@ class MockHandle:
     y: float = 0.0
     z: float = 0.0
 
-    # frame origin (the raw position that reads as zero)
+    # frame origin (the raw position that reads as zero), taken at connect
+    # from what the setup workflow published for this machine
     origin_x: float = 0.0
     origin_y: float = 0.0
     origin_z: float = 0.0
+    # the published envelope every move is checked against, and where it
+    # came from ("published", or "default" when nothing has been published)
+    envelope: dict = field(default_factory=dict)
+    envelope_source: str = "default"
 
     # mutable instrument settings
     laser_power: float = 5.0
@@ -241,6 +249,7 @@ def connect(connection: dict):
     handle.connected_at = time.monotonic()
     handle.state_file = where_the_instrument_stands(connection)
     _read_the_settings(handle)
+    _stand_on_the_published_configuration(handle)
     handle.tile_positions = [
         {"x": 0.0, "y": 0.0, "z": 0.0, "tile_size": {"x": 100.0, "y": 100.0}},
         {"x": 120.0, "y": 0.0, "z": 0.0, "tile_size": {"x": 100.0, "y": 100.0}},
@@ -263,13 +272,55 @@ def _require_open(handle: MockHandle) -> None:
         raise RuntimeError("session is disconnected")
 
 
-def set_origin(handle: MockHandle) -> dict:
-    """Mark the current position as the origin -- it now reads (0, 0, 0)."""
-    _require_open(handle)
-    handle.origin_x = handle.x
-    handle.origin_y = handle.y
-    handle.origin_z = handle.z
-    return {"origin": {"x": handle.origin_x, "y": handle.origin_y, "z": handle.origin_z}}
+def _stand_on_the_published_configuration(handle: MockHandle) -> None:
+    """Read what the setup workflow published for this machine, and stand on it.
+
+    A real driver reads its configuration from the machine's own folder at
+    connect; the mock reads the same kind of tree, written by
+    :mod:`mock_setup`. The origin makes the frame count from where the
+    operator said; the limits are the envelope every move is checked
+    against. Neither can be changed through this driver: the controller has
+    no op for it, which is the boundary the setup workflow exists to keep.
+    """
+    from . import mock_setup  # noqa: PLC0415 -- a sibling, imported here so
+    # that registering the driver stays free of the setup side
+
+    root = mock_setup.where_the_machine_is(handle.connection)
+    # The configuration named at connect, else the newest -- fixed for the
+    # whole session, so nothing published later moves it.
+    handle.configuration = mock_setup.configuration_root(root, handle.connection.get("configuration")).name
+    tree = root / handle.configuration
+    origin = mock_setup.newest(tree, "origin")
+    if origin:
+        handle.origin_x = float(origin.get("x_um", 0.0))
+        handle.origin_y = float(origin.get("y_um", 0.0))
+        handle.origin_z = float(origin.get("z_um", 0.0))
+    limits = mock_setup.newest(tree, "limits")
+    handle.envelope = {
+        axis: [float(v) for v in (limits or {}).get(axis, {}).get("range", mock_setup.PHYSICAL_UM[axis])]
+        for axis in ("x_um", "y_um", "z_um")
+    }
+    handle.envelope_source = "published" if limits else "default"
+
+
+def _within_the_envelope(handle: MockHandle, raw: dict[str, float]) -> None:
+    """Refuse a raw target outside the published envelope, and independently
+    outside the physical travel -- the second check stands whatever a file
+    says, which is what makes it a backstop."""
+    from . import mock_setup  # noqa: PLC0415
+
+    for axis, value in raw.items():
+        low, high = handle.envelope.get(axis, mock_setup.PHYSICAL_UM[axis])
+        if not (low <= value <= high):
+            raise RuntimeError(
+                f"{axis} = {value:g} is outside the published envelope [{low:g}, {high:g}]"
+            )
+        low, high = mock_setup.PHYSICAL_UM[axis]
+        if not (low <= value <= high):
+            raise RuntimeError(
+                f"{axis} = {value:g} is outside the physical travel [{low:g}, {high:g}] "
+                "-- refused regardless of any published envelope"
+            )
 
 
 def get_actuators(handle: MockHandle) -> dict:
@@ -354,9 +405,9 @@ def set_xyz(
     """
     _require_open(handle)
     chosen = _resolve_actuators(with_actuators)
-    handle.x = handle.origin_x + x
-    handle.y = handle.origin_y + y
-    handle.z = handle.origin_z + z
+    raw = {"x_um": handle.origin_x + x, "y_um": handle.origin_y + y, "z_um": handle.origin_z + z}
+    _within_the_envelope(handle, raw)
+    handle.x, handle.y, handle.z = raw["x_um"], raw["y_um"], raw["z_um"]
     return {"position": {"x": x, "y": y, "z": z}, "actuators": chosen}
 
 
@@ -490,6 +541,7 @@ def _write_a_frame(
     frame_px, px = _frame_of(handle.job, acquisition_type)
     where = _user_position(handle)
     frame = _the_sample_from(np, where["x"], where["y"], height_um, channel, frame_px, px)
+    frame = _as_this_rig_saves_it(np, handle, frame)
     size = frame.shape[0]
     tifffile.imwrite(
         path,
@@ -502,6 +554,31 @@ def _write_a_frame(
         ),
     )
     return path
+
+
+def _as_this_rig_saves_it(np, handle: MockHandle, aligned):
+    """The picture as this rig would save it: recorded by a camera mounted the
+    way the rig's is, then corrected by whatever orientation has been published.
+
+    On a rig nobody has measured the two do not cancel, and the saved picture
+    comes out turned -- exactly as it would on a real microscope. Once the
+    setup workflow has measured and published the orientation, they cancel
+    and the picture lines up with the stage.
+    """
+    from . import mock_setup  # noqa: PLC0415
+
+    root = mock_setup.where_the_machine_is(handle.connection)
+    # A machine nobody has looked at has no rig file, and images aligned, as
+    # the mock always did. The pretend camera turn arrives with the rig file,
+    # which the mock instrument window or the setup workflow writes on first
+    # sight -- from then on the pictures are honest about how it is mounted.
+    if not (root / mock_setup.RIG_FILENAME).exists():
+        return aligned
+    rig = mock_setup.read_rig(root)
+    raw = mock_setup.as_the_camera_records(np, aligned, rig["camera"])
+    tree = root / handle.configuration if getattr(handle, "configuration", None) else mock_setup.configuration_root(root)
+    published = mock_setup.newest(tree, "orientation") or {}
+    return mock_setup.as_the_stage_sees(np, raw, published)
 
 
 #: How wide a captured frame is, in pixels: a quarter of the micrograph.
@@ -761,6 +838,7 @@ _CONNECTION_CHECKS: list[tuple[str, float]] = [
     ("client", 0.25),
     ("serial", 0.5),
     ("stage", 0.75),
+    ("limits", 0.9),
     ("output root", 1.0),
 ]
 
@@ -775,6 +853,10 @@ def _connection_status(handle: MockHandle) -> dict[str, str]:
         "client": str(handle.client),
         "serial": handle.serial,
         "stage": f"x {user['x']:.1f} · y {user['y']:.1f} · z {user['z']:.1f} um",
+        # What the stage is fenced by, and whether an operator published it or
+        # the mock is standing on its own physical travel -- the same
+        # "(fallback)" the Leica driver reports until limits are published.
+        "limits": "published" if handle.envelope_source == "published" else "default (fallback)",
         "output root": str(Path(handle.connection.get("output_root") or "mock-output")),
     }
     return {
@@ -804,6 +886,14 @@ def get_info(handle: MockHandle) -> dict:
     }
 
 
+def configurations(connection: dict | None = None) -> list:
+    """The configurations this rig has, newest first, so a session can be
+    opened on one of them. Reads the machine root; connects to nothing."""
+    from . import mock_setup  # noqa: PLC0415
+
+    return mock_setup.list_configurations(connection)
+
+
 def register_mock() -> None:
     """Register this mock driver into the controller's registry.
 
@@ -818,7 +908,6 @@ def register_mock() -> None:
             "connect": connect,
             "disconnect": disconnect,
             "get_acquisition_options": get_acquisition_options,
-            "set_origin": set_origin,
             "get_actuators": get_actuators,
             "get_xyz": get_xyz,
             "set_xyz": set_xyz,
@@ -828,5 +917,6 @@ def register_mock() -> None:
             "get_procedures": get_procedures,
             "run_procedure": run_procedure,
             "get_info": get_info,
+            "configurations": configurations,
         },
     )

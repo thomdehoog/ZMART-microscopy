@@ -14,7 +14,7 @@ Safe by default:
   - read-only unless a phase is opted in
   - ``--enforce-ci-default-position`` moves to the rig's four-axis CI
     baseline before any other write phase
-  - ``--allow-move`` (set_origin + set_xyz round-trip, incl. the z-focus
+  - ``--allow-move`` (set_xyz round-trip from the frame as connected, incl. the z-focus
     additive sub-check) restores the original XY / both z drives in a finally
   - ``--allow-acquire`` runs one real capture+save into the controller run root
   - interactive 'yes' prompt before live writes unless --yes or --mock
@@ -24,7 +24,7 @@ share one schema.
 
 Usage:
   python validate_zmart_adapter.py --read-only --output -       # CI-safe, live
-  python validate_zmart_adapter.py --allow-move --yes           # + set_origin/set_xyz
+  python validate_zmart_adapter.py --allow-move --yes           # + set_xyz round-trip
   python validate_zmart_adapter.py --allow-move --allow-acquire --yes
   python validate_zmart_adapter.py --mock --allow-move          # CI: in-process mock
 
@@ -121,6 +121,13 @@ def _connect_session(args: argparse.Namespace, adapter: Any, output_root: str | 
         # (same pinning as validate_hardware --mock).
         profiles.STATE_READERS = replace(profiles.STATE_READERS, selected_job_confirm_source="api")
 
+    # A session stands on one of the machine's configurations. The validator
+    # takes the newest unless the connection already names one, which is
+    # what the operator page offers first.
+    if not inst.get("configuration"):
+        offered = zmart_controller.get_configurations(inst)
+        if offered:
+            inst["configuration"] = offered[0]["id"]
     return zmart_controller.set_instrument(inst)
 
 
@@ -130,7 +137,7 @@ def _confirm_live_write(args: argparse.Namespace) -> bool:
         return True
     parts = []
     if args.allow_move:
-        parts.append("set_origin + small XY/Z moves (restored)")
+        parts.append("small XY/Z moves from the frame as connected (restored)")
     if args.allow_state:
         parts.append("a job switch + restore (set_state)")
     if args.allow_autofocus:
@@ -173,12 +180,10 @@ def phase_readonly(v: vh.Validator, sess: Any, args: argparse.Namespace) -> None
             hw = xyz.get("hardware") or {}
             needed = {"x_um", "y_um", "z_wide_um", "z_galvo_um", "objective", "job"}
             v.compare("get_xyz: hardware block complete", needed.issubset(hw), True)
-            # The origin is session-scoped and never restored at connect, so on
-            # this fresh session frame == hardware holds here (origin is all
-            # zero until set_origin runs). The origin arithmetic itself is
-            # verified in phase_move, right after set_origin, via the
-            # "origin: frame -> 0" checks below, which also cover a non-zero
-            # origin.
+            # The frame stands on whatever origin the machine has published;
+            # with none, frame == hardware. Either way the arithmetic is
+            # exercised in phase_move, which drives relative to the frame as
+            # connected.
             v.compare(
                 "get_xyz: objective has a name",
                 bool((hw.get("objective") or {}).get("name")),
@@ -370,7 +375,7 @@ def _restore(
 
 
 def phase_move(v: vh.Validator, sess: Any, drv: Any, args: argparse.Namespace) -> None:
-    """set_origin + set_xyz round-trip, incl. the z-focus additive sub-check.
+    """set_xyz round-trip from the frame as connected, incl. the z-focus additive sub-check.
 
     The z model claims frame z = z-wide + z-galvo (additive, same sign). The
     focus is driven via z-galvo (baseline 0, symmetric envelope) so it works on
@@ -381,19 +386,26 @@ def phase_move(v: vh.Validator, sess: Any, drv: Any, args: argparse.Namespace) -
     orig = {k: base[k] for k in ("x_um", "y_um", "z_wide_um", "z_galvo_um")}
     job = base["job"]
     limits = drv.get_stage_limits()
-    dx = dy = args.xy_delta_um
     dzw = args.z_wide_delta_um
-    dzg = args.z_galvo_delta_um
     restore_zwide = False
 
-    with v.phase("move (set_origin + set_xyz)"):
+    with v.phase("move (set_xyz from the frame as connected)"):
         try:
-            v.callable("set_origin", sess.set_origin, mutating=True)
-            f = v.callable("get_xyz after set_origin", sess.get_xyz)
+            # The origin is machine configuration, published through the setup
+            # workflow and read at connect; a session cannot set one. So the
+            # legs below are driven relative to wherever the frame stands now,
+            # which also exercises a non-zero origin whenever one is published.
+            f = v.callable("get_xyz: the frame as connected", sess.get_xyz)
             if f is not None:
-                v.compare("origin: frame x -> 0", f["x"]["value"], 0.0, tolerance=XY_TOL_UM)
-                v.compare("origin: frame y -> 0", f["y"]["value"], 0.0, tolerance=XY_TOL_UM)
-                v.compare("origin: frame z -> 0", f["z"]["value"], 0.0, tolerance=Z_TOL_UM)
+                base_frame = {axis: f[axis]["value"] for axis in ("x", "y", "z")}
+                v.compare(
+                    "frame: x is finite", math.isfinite(base_frame["x"]), True
+                )
+            else:
+                base_frame = {"x": 0.0, "y": 0.0, "z": 0.0}
+            dx = base_frame["x"] + args.xy_delta_um
+            dy = base_frame["y"] + args.xy_delta_um
+            dzg = base_frame["z"] + args.z_galvo_delta_um
 
             # XY leg: hold focus via the galvo (keeps z-wide untouched on the sim).
             v.callable(
@@ -422,7 +434,7 @@ def phase_move(v: vh.Validator, sess: Any, drv: Any, args: argparse.Namespace) -
                 v.compare(
                     "zgalvo: drive moved by delta (sign check)",
                     f["hardware"]["z_galvo_um"] - orig["z_galvo_um"],
-                    dzg,
+                    args.z_galvo_delta_um,
                     tolerance=Z_TOL_UM,
                 )
                 v.compare(
@@ -461,7 +473,7 @@ def phase_move(v: vh.Validator, sess: Any, drv: Any, args: argparse.Namespace) -
                     v.compare(
                         "zwide: z-galvo drive unchanged",
                         f["hardware"]["z_galvo_um"] - orig["z_galvo_um"],
-                        dzg,
+                        args.z_galvo_delta_um,
                         tolerance=Z_TOL_UM,
                     )
             else:
@@ -631,7 +643,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
     # phase gates
     p.add_argument("--read-only", action="store_true", help="skip all move/state/acquire phases")
-    p.add_argument("--allow-move", action="store_true", help="set_origin + set_xyz round-trip")
+    p.add_argument("--allow-move", action="store_true", help="set_xyz round-trip from the frame as connected")
     p.add_argument(
         "--allow-state", action="store_true", help="get/set_state round-trip (switches jobs)"
     )
@@ -657,7 +669,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
     # acquire
     p.add_argument(
-        "--output-root", default=None, help="where acquire/set_origin write (default: temp)"
+        "--output-root", default=None, help="where acquire writes (default: temp)"
     )
 
     # output + gating

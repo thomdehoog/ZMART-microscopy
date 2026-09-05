@@ -23,6 +23,7 @@ import time
 from pathlib import Path
 
 import pytest
+from zmart_drivers.mock import mock_setup
 
 def _load_bridge():
     spec = importlib.util.spec_from_file_location(
@@ -540,6 +541,7 @@ def test_a_scan_really_captures_at_every_position(monkeypatch, tmp_path):
     mock_driver.register_mock()
     instrument = next(i for i in zmart_controller.get_instruments() if i["vendor"] == "mock")
     instrument["output_root"] = str(tmp_path)
+    instrument["configuration"] = mock_setup.configured()
     session = zmart_controller.set_instrument(instrument)
     monkeypatch.setattr(bridge, "_session", session)
     try:
@@ -591,6 +593,7 @@ def test_a_scan_stops_and_says_so_when_a_capture_fails(monkeypatch, tmp_path):
     mock_driver.register_mock()
     instrument = next(i for i in zmart_controller.get_instruments() if i["vendor"] == "mock")
     instrument["output_root"] = str(tmp_path)
+    instrument["configuration"] = mock_setup.configured()
     session = zmart_controller.set_instrument(instrument)
 
     class _FailsOnTheSecond:
@@ -641,6 +644,7 @@ def test_the_viewer_makes_a_picture_of_every_field_that_was_imaged(monkeypatch, 
     mock_driver.register_mock()
     instrument = next(i for i in zmart_controller.get_instruments() if i["vendor"] == "mock")
     instrument["output_root"] = str(tmp_path)
+    instrument["configuration"] = mock_setup.configured()
     session = zmart_controller.set_instrument(instrument)
     monkeypatch.setattr(bridge, "_session", session)
     try:
@@ -683,6 +687,7 @@ def test_nothing_is_drawn_for_a_scan_that_has_imaged_nothing(monkeypatch, tmp_pa
     mock_driver.register_mock()
     instrument = next(i for i in zmart_controller.get_instruments() if i["vendor"] == "mock")
     instrument["output_root"] = str(tmp_path)
+    instrument["configuration"] = mock_setup.configured()
     session = zmart_controller.set_instrument(instrument)
     monkeypatch.setattr(bridge, "_session", session)
     try:
@@ -1003,6 +1008,7 @@ def test_a_fresh_connect_forgets_the_last_sessions_runs(monkeypatch, tmp_path):
     mock_driver.register_mock()
     instrument = next(i for i in zmart_controller.get_instruments() if i["vendor"] == "mock")
     instrument["output_root"] = str(tmp_path)
+    instrument["configuration"] = mock_setup.configured()
     bridge._records["overview"] = [{"stale": True}]
     bridge._scan.update(running=False, done=5, of=5, error=None, acquisition_type="overview")
     bridge._focus.update(running=False, done=3, of=3, error=None, points=[{"x": 1}])
@@ -1218,6 +1224,7 @@ def test_a_copy_is_drawn_with_the_display_the_page_asks_with(monkeypatch, tmp_pa
     mock_driver.register_mock()
     instrument = next(i for i in zmart_controller.get_instruments() if i["vendor"] == "mock")
     instrument["output_root"] = str(tmp_path)
+    instrument["configuration"] = mock_setup.configured()
     session = zmart_controller.set_instrument(instrument)
     monkeypatch.setattr(bridge, "_session", session)
     try:
@@ -1280,6 +1287,7 @@ def test_a_targets_scan_is_served_as_one_resolved_store(monkeypatch, tmp_path):
     mock_driver.register_mock()
     instrument = next(i for i in zmart_controller.get_instruments() if i["vendor"] == "mock")
     instrument["output_root"] = str(tmp_path)
+    instrument["configuration"] = mock_setup.configured()
     session = zmart_controller.set_instrument(instrument)
     monkeypatch.setattr(bridge, "_session", session)
     monkeypatch.setattr(bridge, "_run", bridge.prepare_experiment(str(tmp_path), bridge.EXPERIMENT))
@@ -1332,3 +1340,64 @@ def test_placing_a_target_retries_only_a_transient_windows_file_lock(monkeypatch
     with pytest.raises(ValueError, match="invalid target geometry"):
         bridge._place_target_frame({"position_label": "one"}, tmp_path, [(1.0, 2.0)])
     assert len(calls) == 1
+
+
+# ---------------------------------------------------------------------------
+# The setup routes: a second door into the instrument, kept apart from the session
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture()
+def a_mock_rig(monkeypatch, tmp_path):
+    """The mock's setup, registered, with its machine root under this test."""
+    from zmart_drivers.mock import mock_setup
+    from zmart_drivers.setup import registry as setup_registry
+
+    monkeypatch.setattr(setup_registry, "REGISTRY", {})
+    monkeypatch.setenv(mock_setup.MACHINE_ROOT_ENV, str(tmp_path / "machine"))
+    monkeypatch.setattr(bridge, "_setup", None)
+    monkeypatch.setattr(bridge, "_lens_views", {})
+    monkeypatch.setattr(bridge, "_output_root", str(tmp_path / "out"))
+    mock_setup.register_mock_setup()
+    yield mock_setup
+    bridge._setup_close()
+
+
+def test_opening_a_setup_never_opens_a_session(a_mock_rig):
+    """The boundary, at the bridge: the setup routes hold no session."""
+    answer = bridge._setup_open({"connection": dict(a_mock_rig.CONNECTION)})
+    assert answer["context"] == {"vendor": "mock", "microscope": "mock-scope", "api": "mock-api"}
+    assert answer["describe"]["subsystems"]["limits"]["supported"] is True
+    assert bridge._session is None
+    with pytest.raises(RuntimeError, match="connect first"):
+        bridge._require_session()
+
+
+def test_the_setup_routes_measure_and_publish_through_the_seam(a_mock_rig):
+    bridge._setup_open({"connection": dict(a_mock_rig.CONNECTION)})
+    # The origin: where the stage stands, published as a dated snapshot.
+    here = bridge._require_setup().where()
+    document = bridge._setup_measure({"what": "origin"})
+    assert {k: document[k] for k in ("x_um", "y_um", "z_um")} == {k: here[k] for k in ("x_um", "y_um", "z_um")}
+    published = bridge._require_setup().publish("origin", document)
+    assert Path(published["path"]).name == "origin.json"
+    assert bridge._require_setup().read("origin")["source"] == "published"
+    # The orientation: three pictures and a known move, answered by the analysis.
+    answer = bridge._setup_measure({"what": "orientation", "stage_move_um": 120.0})
+    assert answer["accepted"], answer["why"]
+    assert answer["orientation"]["rotation_deg"] == 90  # the mock rig's camera
+    # The picture the notebook would show, offered to the page by a route of
+    # its own that only ever hands out the setup's own PNGs.
+    assert answer["diagnostic_url"].startswith("/api/setup/picture/")
+    assert (bridge._setup_pictures / answer["diagnostic_url"][len("/api/setup/picture/"):]).is_file()
+    # The boundary needs the operator's markers, and says so.
+    with pytest.raises(RuntimeError, match="four markers"):
+        bridge._setup_measure({"what": "boundary"})
+
+
+def test_a_setup_that_is_not_open_is_a_plain_error(a_mock_rig):
+    with pytest.raises(RuntimeError, match="open one first"):
+        bridge._setup_measure({"what": "origin"})
+    with pytest.raises(ValueError, match="unknown measurement"):
+        bridge._setup_open({"connection": dict(a_mock_rig.CONNECTION)})
+        bridge._setup_measure({"what": "colour"})
