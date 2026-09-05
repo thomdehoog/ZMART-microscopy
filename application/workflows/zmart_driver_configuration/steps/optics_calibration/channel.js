@@ -38,7 +38,11 @@ export default {
       const view = views[name];
       if (view?.failed) c.body.append(note(`Failed — ${view.failed}`, "bad"));
       else if (view) {
-        c.body.append(note(`slot ${view.lens?.slot ?? "?"} · ${view.lens?.name ?? "?"} · ${view.pixel_um} µm/px · peak z = ${Number(view.peak_z_um).toFixed(3)} um`, "ok"));
+        const bracketed = view.bracketed !== false;
+        c.body.append(note(`slot ${view.lens?.slot ?? "?"} · ${view.lens?.name ?? "?"} · ${view.pixel_um} µm/px · `
+          + (bracketed ? `peak z = ${Number(view.peak_z_um).toFixed(3)} um`
+                       : `no focus peak within the stack — refocus under this lens and measure again`),
+          bracketed ? "ok" : "bad"));
         if (view.diagnostic_url) c.body.append(picture(view.diagnostic_url, `${name} focus curve and the sharpest slice`));
       }
       return c.box;

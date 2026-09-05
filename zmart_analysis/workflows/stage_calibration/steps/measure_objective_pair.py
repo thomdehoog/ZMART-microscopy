@@ -82,14 +82,19 @@ def sharp_height_um(stack, z_um) -> dict:
     scores = np.array([_brenner(p) for p in planes])
     best = int(np.argmax(scores))
     peak_z = float(z[best])
-    if 0 < best < len(scores) - 1:
+    # A peak on the first or last plane is not a peak: the stack did not reach
+    # far enough to see the sharpness fall away again on that side, so the
+    # true focus may lie beyond it. Reported rather than guessed.
+    bracketed = 0 < best < len(scores) - 1
+    if bracketed:
         a, b, c = scores[best - 1], scores[best], scores[best + 1]
         denominator = a - 2 * b + c
         if denominator < 0:
             offset = 0.5 * (a - c) / denominator
             step = float(z[best + 1] - z[best - 1]) / 2.0
             peak_z = float(z[best] + offset * step)
-    return {"peak_z_um": peak_z, "peak_index": best, "scores": scores.tolist(), "z_um": z.tolist()}
+    return {"peak_z_um": peak_z, "peak_index": best, "bracketed": bool(bracketed),
+            "scores": scores.tolist(), "z_um": z.tolist()}
 
 
 def _to_scale(image: np.ndarray, from_um: float, to_um: float) -> np.ndarray:
@@ -168,6 +173,13 @@ def run(pipeline_data: dict, state: dict, **params) -> dict:
 
     agreement = overlap_agreement(ref_c, tgt_c, dcol_px, drow_px)
     accepted = agreement >= agreement_min
+    # A focus difference is only reported when both stacks bracketed their
+    # peak; a peak on the end of a stack says "refocus and take a wider
+    # stack", not a height.
+    unbracketed = [name for name in ("reference", "target")
+                   if focus[name] is not None and not focus[name]["bracketed"]]
+    if unbracketed:
+        dz_um = None
     return {
         "measure_objective_pair": {
             "translation_um": {"x": dx_um, "y": dy_um, "z": dz_um},
@@ -177,10 +189,14 @@ def run(pipeline_data: dict, state: dict, **params) -> dict:
                 "dcol_px": dcol_px, "drow_px": drow_px,
                 "agreement": agreement, "error": float(error),
             },
-            "accepted": bool(accepted),
-            "why": None if accepted else (
-                f"the two pictures agree only {agreement:.2f} where they overlap (less than "
-                f"{agreement_min}); check that both were taken at the same stage position and in focus"
+            "accepted": bool(accepted) and not unbracketed,
+            "why": (
+                None if accepted and not unbracketed
+                else (f"the focus peak sits at the end of the {' and '.join(unbracketed)} stack, so the "
+                      "sharpest plane was not reached; refocus under that lens and measure it again")
+                if unbracketed
+                else (f"the two pictures agree only {agreement:.2f} where they overlap (less than "
+                      f"{agreement_min}); check that both were taken at the same stage position and in focus")
             ),
             "settings": {"channel": channel, "upsample": upsample},
         }
@@ -230,9 +246,13 @@ def write_focus_diagnostic(stack, focus: dict, path, *, title: str = "Software A
     ax = fig.add_axes([0.07, bottom, 0.94 - square - 0.07 - 0.04, height])
     ax_img = fig.add_axes([0.94 - square, bottom, square, height])
     ax.plot(focus["z_um"], focus["scores"], marker="o")
-    ax.axvline(focus["peak_z_um"], color="red", linestyle="--", label=f"peak z = {focus['peak_z_um']:.3f} um")
+    bracketed = focus.get("bracketed", True)
+    ax.axvline(focus["peak_z_um"], color="red" if bracketed else "#b45309", linestyle="--",
+               label=f"peak z = {focus['peak_z_um']:.3f} um" if bracketed
+               else f"no peak: sharpest at the stack's end ({focus['peak_z_um']:.1f} um)")
     ax.set_xlabel("z (um, absolute)"); ax.set_ylabel("Brenner Gradient Score")
-    ax.set_title(title); ax.legend(loc="best")
+    ax.set_title(title if bracketed else f"{title} — refocus and measure again", color="#0f172a" if bracketed else "#b45309")
+    ax.legend(loc="best")
     stack = list(stack or [])
     if stack:
         ax_img.imshow(_plane(stack[min(focus["peak_index"], len(stack) - 1)], channel), cmap="gray", origin="upper")
