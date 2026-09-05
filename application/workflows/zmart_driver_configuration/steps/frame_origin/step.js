@@ -6,17 +6,22 @@
  * the instrument happens to call zero, which is what lets a position written
  * down today still mean the same place tomorrow.
  *
- * This one is different from the three steps above it, and the difference is
- * worth knowing. Limits, orientation and optics are properties of the
- * microscope: measured once, published to the machine, and read back at every
- * connect from then on. The origin belongs to the session you are in. The
- * driver does not restore it when you connect, so a run that wants a frame of
- * its own sets one at the start.
+ * It is the fourth of the four things the driver keeps for a machine, beside
+ * the limits, the stage-to-image turn and the optics. Its folder sits with
+ * theirs under ProgramData and every change to it keeps its own dated record.
+ * What makes it unlike the other three is only when it is applied: the driver
+ * does not restore it at the next connect, so a run that wants a frame of its
+ * own says so at the start.
  *
- * It is also the one step here that is a single call rather than a notebook:
- * `Session.set_origin()` in the controller declares that where the stage is
- * standing right now is (0, 0, 0). So the work of this step is driving the
- * stage to the place you want to count from and saying "here".
+ * Like the other three, it is published by the driver rather than reached
+ * through the controller, and for the same reason. Moving the origin redefines
+ * the frame that every position already recorded is expressed in. Nothing
+ * breaks loudly when it changes — a target list captured beforehand simply
+ * means somewhere else afterwards, and no tile knows it — which is exactly the
+ * kind of quiet damage the boundary exists to prevent.
+ *
+ * The work of the step is driving the stage to the place you want to count
+ * from and saying "here".
  */
 
 export const frameOrigin = {

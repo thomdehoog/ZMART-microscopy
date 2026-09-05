@@ -29,7 +29,9 @@ Five steps, in order:
    up with each other, so a target found on a low-power overview is still
    centred under the high-power lens.
 5. **Set up origin** — the point the run counts from. Once set, reported
-   positions are micrometres from there.
+   positions are micrometres from there. Like the three above it, this is
+   published by the driver rather than reached through the controller; see
+   the boundary section below.
 
 Steps 2 to 5 correspond exactly to the four subsystems the driver already keeps
 under `C:\ProgramData\zmart-microscopy\<vendor>\<microscope>\<api>\`: `limits`,
@@ -78,16 +80,39 @@ Any further gating of the publish path — an explicit operator confirmation, or
 a machine-local check that this really is the instrument's own PC — belongs with
 that agent work and is deliberately **not** being built now.
 
-### The one exception, and why it is not an inconsistency
+### The origin moves out of the controller too
 
-`set_origin` is already on the controller (`layer.py`), and should stay there.
-The origin is session-scoped — the driver does not even restore it at connect —
-and it cannot widen anything: changing where you count from does not change
-where the stage may go. It is a frame convenience, not a safety envelope.
+An earlier draft of this note argued that `set_origin` was a principled
+exception and should stay on the controller, because the origin is
+session-scoped and cannot widen the stage envelope. That argument was too
+narrow, and the decision has gone the other way: the origin moves out with the
+other three.
 
-So step 5 goes through the controller while steps 2 to 4 do not. That asymmetry
-is deliberate, and is written down here so that it is not later tidied away by
-moving the other three alongside it.
+Widening the envelope is not the only way to do damage. Moving the origin
+redefines the frame every recorded position is expressed in. Nothing breaks
+loudly; a target list captured before the change simply means somewhere else
+afterwards, and no tile knows it. Against the reason this boundary exists at
+all — that an agent must not arrive at machine configuration on its own — a
+silent redefinition of the coordinate frame is at least as serious as a wider
+fence, and harder to notice.
+
+The driver already treats it as configuration. `config/machine.py` lists
+`origin` as one of its four subsystems, with its own `origin.json` and its own
+dated, append-only snapshots, "so every origin change keeps its own immutable
+record". What makes it unlike the other three is only that the driver does not
+restore it at connect. That is a statement about when it is applied, not about
+what kind of thing it is.
+
+So all four subsystems — limits, calibration, orientation, origin — are
+configured by the same path, and the controller keeps none of them.
+
+**What this costs, and it is not nothing.** `set_origin` is in the controller's
+required ops table (`registry.py`), which every registered driver must supply,
+and `layer.py` currently tells the reader to "call `set_origin()` at session
+start". Taking it out changes the op contract for every driver at once, and
+changes the advice a workflow author is given. That is a deliberate change to
+the controller rather than a side effect of adding a workflow, so it is
+recorded here and done as its own piece of work.
 
 ## Why the steps need per-driver flexibility
 
@@ -113,10 +138,53 @@ The decision taken was to keep those accounts **page-side**: one module per
 driver under the workflow, chosen after Connect. `drivers/what-a-driver-declares.js`
 says what such a module has to contain.
 
+## Steps 3 and 4 are two parties, not one
+
+Measuring the stage-to-image turn and measuring the optics look like driver
+work, and half of each is. The other half is not, and separating them is what
+keeps the per-driver modules small.
+
+`docs/design/what-runs-where.md` already states the rule this follows:
+
+> The **instrument** moves and captures. It produces pixels.
+> **ZMART_analysis** reads pixels and produces numbers.
+> The **page** decides.
+
+Applied to these two steps:
+
+- **Step 3, stage-to-image.** The instrument's part is to image a field that
+  has structure in it and is in focus — nuclei, or anything else with edges to
+  recognise — then move the stage a known distance and image it again. That is
+  vendor work: only the driver can move this stage and expose this sensor. The
+  analysis then takes the pair of images and answers which of the eight ways of
+  laying an image down fits what it sees. Nothing in that answer is Leica's or
+  Zeiss's; it is two pictures and a shift.
+- **Step 4, optics.** The same shape. The driver images the same field through
+  each objective of the pair, and moves a known distance in X, Y and Z. The
+  analysis returns the pixel size and how the two lenses line up.
+
+So the vendor-specific part of both steps is "move here, capture that", and the
+numbers come back from an analysis workflow that never learns which microscope
+took the pictures. That belongs in `zmart_analysis/workflows/`, beside `focus/`
+and `object_analysis/`, as its own pipeline. Two consequences worth having in
+mind:
+
+1. **The per-driver modules stay small.** A new manufacturer has to say how to
+   move and how to capture, and inherits the measurement itself.
+2. **The measurement can be checked without a microscope.** A pipeline that
+   takes images and returns numbers can be run against saved images, so the
+   part most likely to be subtly wrong is the part that is testable offline.
+
+These two steps also carry an operator prerequisite that no readiness rule can
+check for them: there has to be a specimen under the objective with structure in
+it, and it has to be in focus. The step says so in words rather than pretending
+to verify it.
+
 ## What is not done
 
 The step declarations, the panel, and the driver contract are written. Not yet
 built: the driver modules themselves, the controls each step shows, the
 framework's ability to give a workflow a display name that keeps an acronym
 (`zmart_driver_configuration` currently reads as "Zmart driver configuration"),
-and the test updates that follow from a second workflow existing.
+the test updates that follow from a second workflow existing, and the two
+analysis pipelines steps 3 and 4 depend on.
