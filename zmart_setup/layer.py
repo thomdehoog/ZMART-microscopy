@@ -116,7 +116,8 @@ class Setup:
 
     def publish(self, subsystem: str, document: dict, *, evidence: list | None = None) -> dict:
         """Write ``document`` as a dated snapshot of ``subsystem``, keeping the
-        ``evidence`` files (figures, the measurement's numbers) beside it."""
+        ``evidence`` -- files or folders: figures, the measurement's numbers,
+        the raw frames and stacks -- beside it."""
         self._require_open()
         _require_subsystem(subsystem)
         if not isinstance(document, dict):

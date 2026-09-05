@@ -30,8 +30,10 @@ A configuration lives under the machine's root as `configuration_<datetime>/`
 (the ProgramData API root on the Leica, the machine root on the mock), holding
 the four subsystem trees the driver has always kept, unchanged inside it. Each
 subsystem snapshot carries its document and, beside it, the evidence: the
-figures the analysis drew and the measurement's numbers, so a reopened
-configuration shows what was measured. The driver stands on exactly one
+figures the analysis drew, the measurement's numbers, the raw frames and
+stacks it was measured from, and the analysis recipe (the pipeline YAML) it
+ran by, so a reopened configuration shows what was measured and the
+measurement can be repeated exactly. The driver stands on exactly one
 configuration: the one named at connect, else the newest. The controller always
 names one, and refuses one without limits.
 

@@ -234,8 +234,8 @@ _setup_evidence: dict[str, dict[str, Path]] = {}
 
 
 def _with_evidence(subsystem: str, answer: dict) -> dict:
-    """Turn a read's evidence paths into routes the page can show."""
-    files = {Path(p).name: Path(p) for p in answer.get("evidence") or []}
+    """Turn a read's evidence into routes the page can show, by name."""
+    files = {str(e["name"]): Path(e["path"]) for e in answer.get("evidence") or [] if isinstance(e, dict)}
     _setup_evidence[subsystem] = files
     answer["evidence_urls"] = {name: f"/api/setup/evidence/{subsystem}/{name}" for name in files}
     return answer
@@ -245,10 +245,14 @@ def _setup_publish(asked: dict) -> dict:
     """Publish one subsystem's document, with the evidence the page names.
 
     Evidence is a list of ``{"name": ..., "picture": url}`` -- one of this
-    setup's own pictures, by the route the measure answered with -- or
-    ``{"name": ..., "note": {...}}``, numbers to keep as JSON. Each is staged
-    under this setup's picture folder and handed to the driver to keep beside
-    the document in the snapshot.
+    setup's own pictures, by the route the measure answered with --
+    ``{"name": ..., "note": {...}}``, numbers to keep as JSON, or
+    ``{"name": ..., "raw": folder}``, the raw frames and stacks a measure
+    acquired into one of this setup's picture folders, or
+    ``{"name": ..., "pipeline": step}``, the analysis recipe the measure ran
+    by, so it can be repeated exactly. Each is staged under
+    this setup's picture folder and handed to the driver to keep beside the
+    document in the snapshot.
     """
     setup = _require_setup()
     subsystem = asked["subsystem"]
@@ -270,6 +274,22 @@ def _setup_publish(asked: dict) -> dict:
                 shutil.copy2(source, target)
             elif "note" in item:
                 target.write_text(json.dumps(item["note"], indent=2, default=str), encoding="utf-8")
+            elif "pipeline" in item:
+                try:
+                    recipe = zmart_setup.procedures.pipeline_path(str(item["pipeline"]))
+                except KeyError:
+                    continue
+                shutil.copy2(recipe, target)
+            elif "raw" in item:
+                source = (_setup_pictures / str(item["raw"])).resolve()
+                if _setup_pictures.resolve() not in source.parents or not source.is_dir():
+                    continue
+                if target.exists():
+                    shutil.rmtree(target)
+                target.mkdir()
+                for frame in sorted(source.iterdir()):
+                    if frame.is_file() and frame.suffix.lower() in (".tif", ".tiff"):
+                        shutil.copy2(frame, target / frame.name)
             else:
                 continue
             kept.append(str(target))

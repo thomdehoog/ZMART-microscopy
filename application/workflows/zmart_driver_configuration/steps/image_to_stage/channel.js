@@ -79,6 +79,8 @@ export default {
             }, [
               ...(answer.diagnostic_url ? [{ name: "orientation.png", picture: answer.diagnostic_url }] : []),
               { name: "orientation_measurement.json", note: numbers },
+              { name: "orientation_frames", raw: "orientation" },
+              { name: "orientation.yaml", pipeline: "measure_orientation" },
             ]);
             ctx.settle(`${answer.orientation.rotation_deg}°${answer.orientation.reflection ? " mirrored" : ""} · adopted`,
               "Adopted.");

@@ -188,15 +188,19 @@ def test_evidence_is_kept_beside_the_document_and_read_back(setup, tmp_path):
     picture.write_bytes(b"\x89PNG not really")
     numbers = tmp_path / "orientation_measurement.json"
     numbers.write_text('{"residual": 0.1}', encoding="utf-8")
+    frames = tmp_path / "orientation_frames"
+    frames.mkdir()
+    (frames / "home_Z00000.ome.tiff").write_bytes(b"II*\x00")
     where = setup.publish("orientation", {"rotation_deg": 90, "reflection": False},
-                          evidence=[picture, numbers, tmp_path / "missing.png"])
-    assert sorted(Path(p).name for p in where["evidence"]) == ["orientation.png", "orientation_measurement.json"]
+                          evidence=[picture, numbers, frames, tmp_path / "missing.png"])
+    names = ["orientation.png", "orientation_frames/home_Z00000.ome.tiff", "orientation_measurement.json"]
+    assert sorted(e["name"] for e in where["evidence"]) == names
     read = setup.read("orientation")
     assert read["source"] == "published"
-    assert sorted(Path(p).name for p in read["evidence"]) == ["orientation.png", "orientation_measurement.json"]
-    assert Path(read["evidence"][0]).read_bytes() == b"\x89PNG not really"
+    assert sorted(e["name"] for e in read["evidence"]) == names
+    assert Path(next(e["path"] for e in read["evidence"] if e["name"] == "orientation.png")).read_bytes() == b"\x89PNG not really"
     # A new configuration carries the evidence along with the snapshot it copies.
     import time
     time.sleep(0.01)
     setup.new_configuration()
-    assert sorted(Path(p).name for p in setup.read("orientation")["evidence"]) == ["orientation.png", "orientation_measurement.json"]
+    assert sorted(e["name"] for e in setup.read("orientation")["evidence"]) == names

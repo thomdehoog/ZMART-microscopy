@@ -355,7 +355,7 @@ def publish(handle: SetupHandle, subsystem: str, document: dict, evidence=()) ->
     _require_open(handle)
     machine = _machine.MACHINE
     moment = datetime.now(timezone.utc)
-    archive = [str(p) for p in (evidence or ()) if Path(p).is_file()]
+    archive = [str(p) for p in (evidence or ()) if Path(p).exists()]
     if subsystem == "limits":
         template_paths = (handle.last_markers or {}).get("template_paths") or ()
         published = _limits_config.adopt_limits(
@@ -394,15 +394,24 @@ def publish(handle: SetupHandle, subsystem: str, document: dict, evidence=()) ->
     raise ValueError(f"unknown subsystem {subsystem!r}")
 
 
-def _evidence(snapshot: Path, document_name: str) -> list[str]:
-    """The figures and numbers archived beside a snapshot's document: its
-    top-level PNG and JSON files, the document itself aside."""
+#: What the profile keeps in a snapshot for its own reasons, not as evidence.
+_NOT_EVIDENCE = {"calibrations", "notebook"}
+
+
+def _evidence(snapshot: Path, document_name: str) -> list[dict]:
+    """What was archived beside a snapshot's document -- figures, numbers,
+    the raw frames and stacks in their folders -- each named relative to the
+    snapshot; the document itself and the profile's own folders aside."""
     if not snapshot.is_dir():
         return []
-    return sorted(
-        str(p) for p in snapshot.iterdir()
-        if p.is_file() and p.suffix in (".png", ".json") and p.name != document_name
-    )
+    found = []
+    for p in sorted(snapshot.rglob("*")):
+        rel = p.relative_to(snapshot)
+        if not p.is_file() or rel.name == document_name or _NOT_EVIDENCE & set(rel.parts):
+            continue
+        if p.suffix.lower() in (".png", ".json", ".yaml", ".tif", ".tiff"):
+            found.append({"name": rel.as_posix(), "path": str(p)})
+    return found
 
 
 def _origin_payload(handle: SetupHandle, document: dict) -> dict:
