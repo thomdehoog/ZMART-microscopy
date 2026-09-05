@@ -52,7 +52,7 @@ def test_turning_the_camera_is_what_the_setup_driver_then_measures(api):
 
 def test_changing_the_lens_is_observed_by_the_setup_driver(api):
     window, mock_setup = api
-    window.change_lens(1)
+    window.change_lens(2)
     handle = mock_setup.open_setup({})
     assert mock_setup.objective(handle)["name"] == "40x dry"
     with pytest.raises(ValueError, match="no objective"):

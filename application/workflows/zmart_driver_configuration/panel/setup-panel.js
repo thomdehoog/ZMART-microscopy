@@ -120,6 +120,11 @@ export const setupPanel = {
         .setup-set-pair { font-variant-numeric: tabular-nums; }
         .setup-set-state { color: var(--ink-3); font-size: 12px; }
         .setup-set.default .setup-set-state { color: var(--ink-3); }
+        /* A section inside a card: a small heading with a rule above it, so
+           one card can hold the focus, the X/Y and the confirmation in turn. */
+        .setup-section { font-size: 13px; font-weight: 600; color: var(--ink);
+                         border-top: 1px solid var(--line); padding-top: 12px; margin-top: 4px; }
+        .setup-section:first-child { border-top: 0; padding-top: 0; margin-top: 0; }
         /* The summary: one line per objective, numbers under numbers. */
         .setup-table { border-collapse: collapse; width: 100%; font-size: 13px; }
         .setup-table th { text-align: left; font-weight: 600; color: var(--ink-3); padding: 2px 10px 4px 0; }
