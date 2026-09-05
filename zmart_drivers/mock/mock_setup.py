@@ -67,14 +67,18 @@ PHYSICAL_UM = {"x_um": [-5_000.0, 125_000.0], "y_um": [-5_000.0, 85_000.0], "z_u
 SETTINGS = ("set_laser_power", "set_gain")
 
 #: What the rig is on a fresh machine: a camera mounted a quarter-turn round,
-#: which is the whole reason the orientation step exists; two lenses, the
-#: high-power one looking a little off and focusing a little higher, which is
-#: what the optics step measures; no markers placed yet; the stage at home.
+#: which is the whole reason the orientation step exists; a turret of four
+#: lenses, each of the higher-power ones looking a little off the 10x and
+#: focusing a little higher or lower, which is what the optics step measures
+#: (a perfectly parcentric and parfocal microscope would have every offset at
+#: zero); no markers placed yet; the stage at home.
 DEFAULT_RIG = {
     "camera": {"rotation_deg": 90, "reflection": False},
     "objectives": [
         {"slot": 0, "name": "10x dry", "pixel_um": 4.0, "offset_um": {"x": 0.0, "y": 0.0, "z": 0.0}},
-        {"slot": 1, "name": "40x dry", "pixel_um": 1.0, "offset_um": {"x": -18.0, "y": 11.0, "z": 3.5}},
+        {"slot": 1, "name": "20x dry", "pixel_um": 2.0, "offset_um": {"x": 6.0, "y": -4.0, "z": 1.2}},
+        {"slot": 2, "name": "40x dry", "pixel_um": 1.0, "offset_um": {"x": -18.0, "y": 11.0, "z": 3.5}},
+        {"slot": 3, "name": "63x oil", "pixel_um": 0.6, "offset_um": {"x": -9.0, "y": 7.0, "z": -2.0}},
     ],
     "objective_slot": 0,
     "frame_px": 256,

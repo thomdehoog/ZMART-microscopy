@@ -16,12 +16,12 @@
  * discards every preset: their offsets were relative to a lens that is no
  * longer the reference, and they start again from zero.
  *
- * Four boxes. **Reference and presets**: the reference, and one preset per
- * other lens. **Focus (Z)** and **X/Y**: the measures of the chosen preset,
- * each showing its own result the way the notebook cell does. **Summary**:
- * every preset's numbers, and Save and adopt, which publishes them in the
- * driver's own calibration shape -- the reference at zero, each target
- * relative to it.
+ * Two boxes. **Reference and presets**: the reference, and one preset per
+ * other lens, to click on and refine. **Calibration of the chosen preset**:
+ * one card in three sections -- focus (Z), X/Y, and the confirmation, where
+ * every preset's numbers stand together above Save and adopt, which
+ * publishes them in the driver's own calibration shape: the reference at
+ * zero, each target relative to it.
  */
 
 import { cell, note, picture, press, publishRow } from "../cells.js";
@@ -34,6 +34,20 @@ const stateText = (preset) => ({
   published: "published, not measured here",
   measured: "measured",
 }[preset.state] ?? preset.state);
+
+/** A section inside the second card: a small heading, then what follows it. */
+function section(host, title, prose = null) {
+  const h = document.createElement("div");
+  h.className = "setup-section";
+  h.textContent = title;
+  host.append(h);
+  if (prose) {
+    const p = document.createElement("p");
+    p.className = "side-note";
+    p.textContent = prose;
+    host.append(p);
+  }
+}
 
 export default {
   id: "calibration",
@@ -82,7 +96,9 @@ export default {
       row.append(label, select);
       presets.body.append(row);
     }
-    /* One preset per other lens; pressing one chooses it for the cells below. */
+    /* One preset per other lens, each read as the pair it measures --
+       "10x dry vs 40x dry" -- one under the other; pressing one chooses it
+       for the cells below. */
     if (slots.length) {
       const list = document.createElement("div");
       list.className = "setup-sets";
@@ -92,7 +108,7 @@ export default {
         r.type = "button";
         r.className = "setup-set" + (slot === cal.current ? " chosen" : "") + (preset.state === "default" ? " default" : "");
         r.innerHTML = `<b></b><span class="setup-set-pair"></span><span class="setup-set-state"></span>`;
-        r.querySelector("b").textContent = lensLabel(bySlot(preset.target));
+        r.querySelector("b").textContent = `${reference?.name ?? "reference"} vs ${bySlot(preset.target)?.name ?? `slot ${slot}`}`;
         r.querySelector(".setup-set-pair").textContent = offsetText(preset.translation_um);
         r.querySelector(".setup-set-state").textContent = stateText(preset);
         r.addEventListener("click", () => { ctx.choosePreset(slot === cal.current ? null : slot); ctx.refresh(); });
@@ -106,16 +122,16 @@ export default {
     }
     host.append(presets.box);
 
+    /* ---- 2. the chosen preset: focus, X/Y, and the confirmation ------------ */
+    const target = current ? bySlot(current.target) : null;
+    const work = cell(current ? `Calibration — ${target?.name ?? "target"}` : "Calibration");
     if (!current) {
-      const { box, body } = cell("Focus (Z) and X/Y");
-      body.append(note(slots.length ? "Choose a preset above to measure it." : "Choose the reference first."));
-      host.append(box);
+      work.body.append(note(slots.length ? "Choose a preset above to measure it." : "Choose the reference first."));
     } else {
-      const target = bySlot(current.target);
       const viewKey = (side) => `${cal.reference}-${cal.current}:${side}`;
 
-      /* ---- 2. focus: the reference and the target, each its own curve ------ */
-      const focus = cell(`Focus (Z) — ${target?.name ?? "target"}`,
+      /* focus: the reference and the target, each its own curve */
+      section(work.body, "Focus (Z)",
         `With the ${side_(reference)} in and the field in focus, measure; switch only to the `
         + `${side_(target)}, refocus without moving X/Y, and measure again.`);
       for (const [side, lens] of [["reference", reference], ["target", target]]) {
@@ -132,27 +148,26 @@ export default {
           }
           ctx.refresh();
         }, { busy: "measuring…" }));
-        focus.body.append(r);
-        if (view?.failed) focus.body.append(note(`Failed — ${view.failed}`, "bad"));
+        work.body.append(r);
+        if (view?.failed) work.body.append(note(`Failed — ${view.failed}`, "bad"));
         else if (view) {
           const bracketed = view.bracketed !== false;
           const seen = view.lens;
           const wrong = seen && lens && String(seen.slot) !== String(lens.slot);
-          focus.body.append(note(
+          work.body.append(note(
             `${lensLabel(seen)} · ${view.pixel_um} µm/px · `
             + (bracketed ? `peak z = ${Number(view.peak_z_um).toFixed(3)} um` : "no focus peak within the stack — refocus and measure again")
             + (wrong ? ` — expected ${lensLabel(lens)}: change the lens and measure again` : ""),
             bracketed && !wrong ? "ok" : "bad"));
-          if (view.diagnostic_url) focus.body.append(picture(view.diagnostic_url, `${side} focus curve and sharpest slice`));
+          if (view.diagnostic_url) work.body.append(picture(view.diagnostic_url, `${side} focus curve and sharpest slice`));
         }
       }
-      host.append(focus.box);
 
-      /* ---- 3. X/Y ------------------------------------------------------------- */
-      const xy = cell(`X/Y — ${target?.name ?? "target"}`, "The X/Y offset, from matching the two images pixel by pixel.");
+      /* X/Y: the offset, from matching the two images pixel by pixel */
+      section(work.body, "X/Y", "The X/Y offset, from matching the two images pixel by pixel.");
       const ready = current.views?.reference && current.views?.target
         && !current.views.reference.failed && !current.views.target.failed;
-      xy.body.append(press("Measure X/Y", async () => {
+      work.body.append(press("Measure X/Y", async () => {
         try {
           ctx.holdPresetAnswer(cal.current, await ctx.setup.measure("objective_pair",
             { reference: viewKey("reference"), target: viewKey("target") }));
@@ -162,32 +177,31 @@ export default {
         ctx.refresh();
       }, { busy: "measuring…", disabled: !ready }));
       const held = current.answer;
-      if (held?.failed) xy.body.append(note(`Failed — ${held.failed}`, "bad"));
+      if (held?.failed) work.body.append(note(`Failed — ${held.failed}`, "bad"));
       else if (held) {
         const t = held.translation_um ?? {};
-        xy.body.append(note(
+        work.body.append(note(
           `${lensLabel(reference)} → ${lensLabel(target)} · translation XY (${signed(t.x)}, ${signed(t.y)}) um · `
           + `Z ${signed(t.z)} um · ${held.accepted ? "trusted" : "WEAK VOTE"}`, held.accepted ? "ok" : "bad"));
-        if (held.why) xy.body.append(note(held.why, "bad"));
-        if (held.diagnostic_url) xy.body.append(picture(held.diagnostic_url, "the two objectives overlaid, as acquired and after the correction"));
+        if (held.why) work.body.append(note(held.why, "bad"));
+        if (held.diagnostic_url) work.body.append(picture(held.diagnostic_url, "the two objectives overlaid, as acquired and after the correction"));
       }
-      host.append(xy.box);
     }
 
-    /* ---- 4. the summary, and adopting ---------------------------------------- */
-    const summary = cell("Summary",
-      "Every preset against the reference. Save and adopt publishes them all, measured or still at "
-      + "zero, as the driver's calibration: the reference at zero, each target relative to it.");
+    /* the confirmation: every preset against the reference, and adopting */
     const standing = ctx.standing();
-    if (standing?.source === "published") {
-      const n = Object.keys(standing.document?.objectives ?? {}).length;
-      summary.body.append(note(`What stands now: ${n} objective(s) published.`));
-    }
     if (slots.length) {
+      section(work.body, "Confirmation",
+        "Every preset against the reference. Save and adopt publishes them all, measured or still at "
+        + "zero, as the driver's calibration: the reference at zero, each target relative to it.");
+      if (standing?.source === "published") {
+        const n = Object.keys(standing.document?.objectives ?? {}).length;
+        work.body.append(note(`What stands now: ${n} objective(s) published.`));
+      }
       const table = document.createElement("table");
       table.className = "setup-table";
       table.innerHTML = "<thead><tr><th>Objective</th><th>X</th><th>Y</th><th>Z</th><th>State</th></tr></thead><tbody></tbody>";
-      const body = table.querySelector("tbody");
+      const tbody = table.querySelector("tbody");
       const rows = [[reference, { translation_um: { x: 0, y: 0, z: 0 }, state: "reference" }]]
         .concat(slots.map((slot) => [bySlot(cal.presets[slot].target), cal.presets[slot]]));
       for (const [lens, preset] of rows) {
@@ -198,38 +212,36 @@ export default {
           preset.state === "reference" ? "reference" : stateText(preset)]) {
           const td = document.createElement("td"); td.textContent = text; tr.append(td);
         }
-        body.append(tr);
+        tbody.append(tr);
       }
-      summary.body.append(table);
-    } else {
-      summary.body.append(note("No presets yet."));
+      work.body.append(table);
+      work.body.append(publishRow({
+        label: "Save and adopt",
+        published: ctx.publishedNote(),
+        onPublish: async () => {
+          if (!reference) { ctx.settle(null, "Choose the reference objective first."); ctx.refresh(); return; }
+          const objectives = {
+            [String(reference.slot)]: { name: reference.name, translation_um: [0, 0, 0] },
+          };
+          for (const slot of slots) {
+            const preset = cal.presets[slot];
+            const t = preset.translation_um;
+            const lens = bySlot(preset.target);
+            objectives[slot] = { name: lens?.name ?? `slot ${slot}`, translation_um: [t.x, t.y, t.z ?? 0] };
+          }
+          const schema = standing?.document?.schema_version;
+          const document_ = schema !== undefined ? { schema_version: schema, objectives } : { objectives };
+          const measured = slots.filter((slot) => cal.presets[slot].state === "measured").length;
+          try {
+            const where = await ctx.setup.publish("calibration", document_);
+            ctx.settle(`${reference.name} reference · ${slots.length} preset(s), ${measured} measured · adopted`,
+              `Adopted: ${where.snapshot?.split("/").pop() ?? where.path}`);
+          } catch (why) { ctx.settle(null, `Adopting failed — ${why.message}`); }
+          ctx.refresh();
+        },
+      }));
     }
-    summary.body.append(publishRow({
-      label: "Save and adopt",
-      published: ctx.publishedNote(),
-      onPublish: async () => {
-        if (!reference) { ctx.settle(null, "Choose the reference objective first."); ctx.refresh(); return; }
-        const objectives = {
-          [String(reference.slot)]: { name: reference.name, translation_um: [0, 0, 0] },
-        };
-        for (const slot of slots) {
-          const preset = cal.presets[slot];
-          const t = preset.translation_um;
-          const lens = bySlot(preset.target);
-          objectives[slot] = { name: lens?.name ?? `slot ${slot}`, translation_um: [t.x, t.y, t.z ?? 0] };
-        }
-        const schema = standing?.document?.schema_version;
-        const document_ = schema !== undefined ? { schema_version: schema, objectives } : { objectives };
-        const measured = slots.filter((slot) => cal.presets[slot].state === "measured").length;
-        try {
-          const where = await ctx.setup.publish("calibration", document_);
-          ctx.settle(`${reference.name} reference · ${slots.length} preset(s), ${measured} measured · adopted`,
-            `Adopted: ${where.snapshot?.split("/").pop() ?? where.path}`);
-        } catch (why) { ctx.settle(null, `Adopting failed — ${why.message}`); }
-        ctx.refresh();
-      },
-    }));
-    host.append(summary.box);
+    host.append(work.box);
     return { host };
   },
 };

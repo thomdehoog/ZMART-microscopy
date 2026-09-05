@@ -72,7 +72,7 @@ def test_the_optics_procedure_finds_where_the_second_lens_looks(setup, tmp_path)
     _change_lens(setup, 0)
     reference = procedures.capture_lens_view(setup, into=tmp_path / "lens", name="reference",
                                              orientation=orientation)
-    _change_lens(setup, 1)
+    _change_lens(setup, 2)
     target = procedures.capture_lens_view(setup, into=tmp_path / "lens", name="target",
                                           orientation=orientation)
     answer = procedures.measure_objective_pair(reference, target)
@@ -82,13 +82,13 @@ def test_the_optics_procedure_finds_where_the_second_lens_looks(setup, tmp_path)
     assert answer["translation_um"]["z"] == pytest.approx(3.5, abs=0.6)
     assert answer["lenses"] == {
         "reference": {"slot": 0, "name": "10x dry", "pixel_um": 4.0},
-        "target": {"slot": 1, "name": "40x dry", "pixel_um": 1.0},
+        "target": {"slot": 2, "name": "40x dry", "pixel_um": 1.0},
     }
     document = procedures.calibration_document(setup.read("calibration")["document"], answer)
     setup.publish("calibration", document)
     held = setup.read("calibration")["document"]["objectives"]
     assert held["0"]["translation_um"] == {"x": 0.0, "y": 0.0, "z": 0.0}
-    assert held["1"]["measured_against"] == "0"
+    assert held["2"]["measured_against"] == "0"
 
 
 def test_the_boundary_is_read_from_four_markers_and_nothing_else(setup):
@@ -144,6 +144,6 @@ def test_a_setup_that_starts_over_reads_the_defaults_not_what_stands(setup):
 
 def test_the_turret_is_listed_by_the_driver(setup):
     lenses = setup.objectives()
-    assert [l["slot"] for l in lenses] == [0, 1]
-    assert lenses[1]["name"] == "40x dry"
+    assert [l["slot"] for l in lenses] == [0, 1, 2, 3]
+    assert lenses[2]["name"] == "40x dry"
     assert setup.describe()["can"]["objectives"] is True

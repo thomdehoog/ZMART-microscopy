@@ -197,7 +197,7 @@ to verify it.
   their recipes and tests against synthetic pictures. All eight orientations
   are recovered, and the pixel size with them.
 - **`zmart_drivers/mock/mock_setup.py`** and the mock instrument window — a
-  pretend rig with a quarter-turned camera, two lenses and a marker tool, so
+  pretend rig with a quarter-turned camera, a four-lens turret and a marker tool, so
   the whole workflow can be walked on a bench. The mock driver stands on what
   was published: the origin, the envelope, and the orientation correction.
 - **`zmart_drivers/leica/.../zmart_adapter/setup.py`** — the Leica's side,
