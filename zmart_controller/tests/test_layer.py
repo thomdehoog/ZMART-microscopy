@@ -15,7 +15,12 @@ from zmart_controller import get_instruments, set_instrument
 
 
 def _mock_instrument():
-    return next(instrument for instrument in get_instruments() if instrument["vendor"] == "mock")
+    """The mock, with a configuration the controller accepts: one with limits."""
+    from zmart_drivers.mock import mock_setup
+
+    instrument = next(instrument for instrument in get_instruments() if instrument["vendor"] == "mock")
+    instrument["configuration"] = mock_setup.configured()
+    return instrument
 
 
 @pytest.fixture
@@ -82,6 +87,33 @@ class TestFrame:
             assert (pos["x"]["value"], pos["y"]["value"], pos["z"]["value"]) == (-1000.0, -2000.0, -5.0)
             session.set_xyz(0, 0, 0)
             assert session.get_xyz()["x"]["value"] == 0.0
+        finally:
+            session.disconnect()
+
+    def test_a_session_always_stands_on_a_configuration_with_limits(self, tmp_path):
+        """The controller refuses to open without a configuration, or on one
+        without limits; the driver alone may, which is what its setup does."""
+        from zmart_controller import get_configurations
+        from zmart_drivers.mock import mock_setup
+
+        instrument = next(i for i in get_instruments() if i["vendor"] == "mock")
+        instrument["output_root"] = str(tmp_path)
+        # A fresh machine: its first configuration exists but holds no limits.
+        mock_setup.open_setup({})
+        listed = get_configurations(instrument)
+        assert len(listed) == 1 and listed[0]["has"]["limits"] is False
+        with pytest.raises(ValueError, match="needs a configuration"):
+            set_instrument(instrument)
+        with pytest.raises(ValueError, match="no configuration"):
+            set_instrument({**instrument, "configuration": "configuration_2000-01-01T00-00-00-000000Z"})
+        with pytest.raises(RuntimeError, match="has no limits"):
+            set_instrument({**instrument, "configuration": listed[0]["id"]})
+        # Once limits are published into it, the same configuration connects.
+        ready = mock_setup.configured()
+        assert ready == listed[0]["id"]
+        session = set_instrument({**instrument, "configuration": ready})
+        try:
+            assert session.context["vendor"] == "mock"
         finally:
             session.disconnect()
 

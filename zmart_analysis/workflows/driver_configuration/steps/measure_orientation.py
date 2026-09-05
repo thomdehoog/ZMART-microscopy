@@ -55,7 +55,7 @@ METADATA = {
     "description": "Which of the eight lossless orientations lines the picture up with the stage",
     "version": "1.0",
     "max_workers": 1,
-    "environment": "ZMART--stage_calibration--main",
+    "environment": "ZMART--driver_configuration--main",
 }
 
 SCHEMA_VERSION = 3

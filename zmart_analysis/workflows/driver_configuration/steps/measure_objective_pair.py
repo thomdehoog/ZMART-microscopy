@@ -46,7 +46,7 @@ METADATA = {
     "description": "Where and at what height a target objective looks relative to a reference one",
     "version": "1.0",
     "max_workers": 1,
-    "environment": "ZMART--stage_calibration--main",
+    "environment": "ZMART--driver_configuration--main",
 }
 
 #: How well the two pictures must agree, once one is laid over the other by

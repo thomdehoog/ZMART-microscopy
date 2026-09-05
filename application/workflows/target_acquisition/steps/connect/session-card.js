@@ -91,6 +91,39 @@ export function renderSessionCard(host, ctx) {
     });
 
     form.append(scope, api, pw);
+
+    /* The configuration the session will stand on: the machine's limits,
+       orientation, calibration and origin as one set. Listed newest first
+       as soon as the microscope and API are chosen, the newest selected, and
+       locked with the rest once the session is open -- a session cannot
+       change what it stands on. The setup workflow chooses its own, so it
+       offers none here. */
+    if (ctx.configurations) {
+      const listed = ctx.configurations();
+      const conf = document.createElement("label");
+      conf.className = "field";
+      conf.innerHTML = "<span>Configuration</span><select></select>";
+      const confSel = conf.querySelector("select");
+      const when = (iso) => (iso ? new Date(iso).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }) : "");
+      if (!listed.length) {
+        const o = document.createElement("option");
+        o.value = ""; o.textContent = "none — define limits in ZMART driver configuration first";
+        confSel.append(o);
+      }
+      for (const c of listed) {
+        const o = document.createElement("option");
+        o.value = c.id;
+        o.textContent = `Configuration · ${when(c.created_at)}` + (c.has?.limits ? "" : " · no limits");
+        confSel.append(o);
+      }
+      confSel.value = session.configuration ?? "";
+      confSel.disabled = locked || !listed.length;
+      confSel.addEventListener("change", () => {
+        session.configuration = confSel.value || null;
+        ctx.changed();
+      });
+      form.append(conf);
+    }
     card.append(form);
   }
 

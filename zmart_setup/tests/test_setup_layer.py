@@ -59,7 +59,9 @@ def test_describe_answers_for_every_subsystem_even_the_unsaid(driver):
     assert said["subsystems"]["limits"] == {"supported": True, "axes": ["x_um"]}
     assert said["subsystems"]["origin"] == {"supported": False}
     assert said["subsystems"]["orientation"] == {"supported": False}
-    assert said["can"] == {"objective": True, "objectives": False, "markers": False, "home": False}
+    assert said["can"] == {"objective": True, "objectives": False, "markers": False,
+                           "configurations": False, "new_configuration": False,
+                           "use_configuration": False, "configuration": False}
     assert setup.supports("limits") and not setup.supports("calibration")
 
 

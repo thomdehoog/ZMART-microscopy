@@ -222,50 +222,94 @@ _setups_turn = threading.Lock()
 _setup_pictures: Path | None = None
 
 
-#: The session the open setup is working in, by id, once the operator has
-#: chosen or started one. What each step adopts is recorded into it.
-_setup_session_id: str | None = None
-
-
 def _require_setup():
     if _setup is None:
         raise RuntimeError("no setup is open — open one first")
     return _setup
 
 
-def _setup_session(asked: dict) -> dict:
-    """Choose the session to work in: ``{"open": id}`` reopens one,
-    ``{"new": name}`` starts one from what stands. Answers with the record."""
-    global _setup_session_id
-    setup = _require_setup()
-    if "open" in asked:
-        record = setup.session(str(asked["open"]))
-    elif "new" in asked:
-        record = setup.new_session(asked.get("new") or None)
-    else:
-        raise ValueError("choose a session with {'open': id} or start one with {'new': name}")
-    _setup_session_id = record["id"]
-    return record
+#: The evidence files of the last read of each subsystem, by file name, so a
+#: page can ask for one by name and nothing outside them is ever served.
+_setup_evidence: dict[str, dict[str, Path]] = {}
 
 
-def _setup_publish(asked: dict) -> dict:
-    """Publish through the driver and, when a session is open, keep what
-    was published as that session's document."""
-    setup = _require_setup()
-    answer = setup.publish(asked["subsystem"], asked["document"])
-    if _setup_session_id is not None:
-        held = answer.get("document") if isinstance(answer.get("document"), dict) else asked["document"]
-        try:
-            setup.record(_setup_session_id, asked["subsystem"], held)
-            answer["session"] = _setup_session_id
-        except Exception as why:  # noqa: BLE001 -- the publish stands; say the record did not
-            answer["session_problem"] = str(why)
+def _with_evidence(subsystem: str, answer: dict) -> dict:
+    """Turn a read's evidence paths into routes the page can show."""
+    files = {Path(p).name: Path(p) for p in answer.get("evidence") or []}
+    _setup_evidence[subsystem] = files
+    answer["evidence_urls"] = {name: f"/api/setup/evidence/{subsystem}/{name}" for name in files}
     return answer
 
 
+def _setup_publish(asked: dict) -> dict:
+    """Publish one subsystem's document, with the evidence the page names.
+
+    Evidence is a list of ``{"name": ..., "picture": url}`` -- one of this
+    setup's own pictures, by the route the measure answered with -- or
+    ``{"name": ..., "note": {...}}``, numbers to keep as JSON. Each is staged
+    under this setup's picture folder and handed to the driver to keep beside
+    the document in the snapshot.
+    """
+    setup = _require_setup()
+    subsystem = asked["subsystem"]
+    kept: list[str] = []
+    named = asked.get("evidence") or []
+    if named and _setup_pictures:
+        staging = _setup_pictures / "evidence" / subsystem
+        staging.mkdir(parents=True, exist_ok=True)
+        for item in named:
+            name = Path(str(item.get("name") or "")).name
+            if not name or name.startswith("."):
+                continue
+            target = staging / name
+            if "picture" in item:
+                rel = str(item["picture"])[len("/api/setup/picture/"):]
+                source = (_setup_pictures / rel).resolve()
+                if _setup_pictures.resolve() not in source.parents or not source.is_file():
+                    continue
+                shutil.copy2(source, target)
+            elif "note" in item:
+                target.write_text(json.dumps(item["note"], indent=2, default=str), encoding="utf-8")
+            else:
+                continue
+            kept.append(str(target))
+    answer = setup.publish(subsystem, asked["document"], evidence=kept)
+    return answer
+
+
+def _send_setup_evidence(self, path: str) -> None:
+    """One evidence file of the last read, by subsystem and name."""
+    parts = path[len("/api/setup/evidence/"):].split("/", 1)
+    if len(parts) != 2:
+        self._answer({"error": f"no evidence at {path}"}, status=404)
+        return
+    where = _setup_evidence.get(parts[0], {}).get(parts[1])
+    if where is None or not where.is_file():
+        self._answer({"error": f"no evidence at {path}"}, status=404)
+        return
+    body = where.read_bytes()
+    self.send_response(200)
+    self.send_header("Content-Type", "image/png" if where.suffix == ".png" else "application/json")
+    self.send_header("Content-Length", str(len(body)))
+    self.send_header("Cache-Control", "no-store")
+    self.end_headers()
+    self.wfile.write(body)
+
+
+def _setup_configuration(asked: dict) -> dict:
+    """Choose the configuration the setup works in: ``{"open": id}`` stands on
+    one, ``{"new": true}`` starts one as a full copy of what stands now.
+    Answers with the configuration's record."""
+    setup = _require_setup()
+    if "open" in asked:
+        return setup.use_configuration(str(asked["open"]))
+    if asked.get("new"):
+        return setup.new_configuration()
+    raise ValueError("choose a configuration with {'open': id} or start one with {'new': true}")
+
+
 def _setup_open(asked: dict) -> dict:
-    global _setup, _setup_pictures, _setup_session_id
-    _setup_session_id = None
+    global _setup, _setup_pictures
     connection = asked.get("connection")
     if not isinstance(connection, dict):
         raise ValueError("opening a setup needs the instrument's connection entry")
@@ -280,11 +324,10 @@ def _setup_open(asked: dict) -> dict:
 
 
 def _setup_close() -> dict:
-    global _setup, _setup_session_id
+    global _setup
     if _setup is not None:
         _setup.close()
         _setup = None
-    _setup_session_id = None
     return {"closed": True}
 
 
@@ -1567,15 +1610,19 @@ class _Bridge(BaseHTTPRequestHandler):
             elif path == "/api/setup/objectives":
                 with _setups_turn:
                     self._answer({"objectives": _require_setup().objectives()})
-            elif path == "/api/setup/sessions":
+            elif path == "/api/setup/configurations":
                 with _setups_turn:
-                    self._answer({"sessions": _require_setup().sessions(), "current": _setup_session_id})
+                    setup = _require_setup()
+                    self._answer({"configurations": setup.configurations(), "current": setup.configuration()})
             elif path.startswith("/api/setup/picture/"):
                 _send_setup_picture(self, path)
+            elif path.startswith("/api/setup/evidence/"):
+                _send_setup_evidence(self, path)
             elif path.startswith("/api/setup/read/"):
                 fresh = any(pair in ("fresh=1", "fresh=true") for pair in query.split("&"))
+                subsystem = path.rsplit("/", 1)[-1]
                 with _setups_turn:
-                    self._answer(_require_setup().read(path.rsplit("/", 1)[-1], fresh=fresh))
+                    self._answer(_with_evidence(subsystem, _require_setup().read(subsystem, fresh=fresh)))
             elif path == "/api/info":
                 # The driver's account of the session: its connection checks
                 # (polled while they answer), the canvas, the setup.
@@ -1648,12 +1695,16 @@ class _Bridge(BaseHTTPRequestHandler):
             elif self.path == "/api/setup/measure":
                 with _setups_turn:
                     self._answer(_setup_measure(asked))
-            elif self.path == "/api/setup/session":
+            elif self.path == "/api/setup/configuration":
                 with _setups_turn:
-                    self._answer(_setup_session(asked))
+                    self._answer(_setup_configuration(asked))
             elif self.path == "/api/setup/publish":
                 with _setups_turn:
                     self._answer(_setup_publish(asked))
+            elif self.path == "/api/configurations":
+                # What a machine can be connected with, before connecting: no
+                # instrument is opened to answer this.
+                self._answer({"configurations": zmart_controller.get_configurations(asked["connection"])})
             else:
                 self._answer({"error": f"no route {self.path}"}, status=404)
         except Exception as why:  # noqa: BLE001

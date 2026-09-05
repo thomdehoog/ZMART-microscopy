@@ -15,16 +15,17 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from . import sessions as _sessions
 from .registry import IDENTITY, OPTIONAL_OPS, SUBSYSTEMS, resolve
 
 
 class Setup:
     """A driver opened for configuration. Obtain one with :func:`open_setup`."""
 
-    def __init__(self, ops: dict[str, Any], handle: Any, context: dict[str, str]) -> None:
+    def __init__(self, ops: dict[str, Any], handle: Any, context: dict[str, str],
+                 connection: dict[str, Any] | None = None) -> None:
         self._ops = ops
         self._handle = handle
+        self._connection = dict(connection or {})
         self._closed = False
         #: How the driver was chosen: vendor, microscope, api.
         self.context = context
@@ -113,50 +114,47 @@ class Setup:
             return self._ops["read"](self._handle, subsystem, fresh=True)
         return self._ops["read"](self._handle, subsystem)
 
-    def publish(self, subsystem: str, document: dict) -> dict:
+    def publish(self, subsystem: str, document: dict, *, evidence: list | None = None) -> dict:
+        """Write ``document`` as a dated snapshot of ``subsystem``, keeping the
+        ``evidence`` files (figures, the measurement's numbers) beside it."""
         self._require_open()
         _require_subsystem(subsystem)
         if not isinstance(document, dict):
             raise ValueError(f"a {subsystem} document is a dict, got {type(document).__name__}")
+        kept = [str(path) for path in (evidence or [])]
+        if kept:
+            return self._ops["publish"](self._handle, subsystem, dict(document), evidence=kept)
         return self._ops["publish"](self._handle, subsystem, dict(document))
 
-    # --- sessions: a pass through the workflow, kept to reopen -----------
+    # --- configurations: what the machine stands on --------------------------
 
-    def sessions_root(self) -> Path:
-        """Where this machine's setup sessions are kept: under the folder the
-        driver names as its home, else under the user's home, by instrument."""
+    def _configuration_op(self, name: str):
+        if name not in self._ops:
+            raise RuntimeError("this driver keeps no configurations")
+        return self._ops[name]
+
+    def configurations(self) -> list[dict]:
+        """Every configuration the machine has, newest first."""
         self._require_open()
-        if "home" in self._ops:
-            return Path(self._ops["home"](self._handle)) / "sessions"
-        key = "-".join(self.context[k] for k in IDENTITY)
-        return Path.home() / ".zmart" / "setup-sessions" / key
+        return list(self._configuration_op("configurations")(self._connection))
 
-    def sessions(self) -> list[dict]:
-        """Every session kept for this machine, newest first."""
-        return _sessions.list_sessions(self.sessions_root())
-
-    def new_session(self, name: str | None = None) -> dict:
-        """Start a session from what stands now: each supported subsystem's
-        document as the driver reads it, published or default."""
+    def new_configuration(self) -> dict:
+        """Start a configuration as a full copy of what stands now, and stand on it."""
         self._require_open()
-        documents = {}
-        for subsystem in SUBSYSTEMS:
-            if not self.supports(subsystem):
-                continue
-            try:
-                documents[subsystem] = self.read(subsystem)["document"]
-            except Exception:  # noqa: BLE001 -- a subsystem that cannot be read is simply not held
-                continue
-        return _sessions.create_session(self.sessions_root(), name, documents)
+        return dict(self._configuration_op("new_configuration")(self._handle))
 
-    def session(self, session_id: str) -> dict:
-        """One session in full, its documents included."""
-        return _sessions.open_session(self.sessions_root(), session_id)
+    def use_configuration(self, configuration: str) -> dict:
+        """Stand on one of the machine's configurations, by id."""
+        self._require_open()
+        return dict(self._configuration_op("use_configuration")(self._handle, str(configuration)))
 
-    def record(self, session_id: str, subsystem: str, document: dict) -> dict:
-        """Keep ``document`` as what the session holds for ``subsystem``."""
-        _require_subsystem(subsystem)
-        return _sessions.record_document(self.sessions_root(), session_id, subsystem, document)
+    def configuration(self) -> dict | None:
+        """The configuration this setup stands on, or None before one is chosen."""
+        self._require_open()
+        if "configuration" not in self._ops:
+            return None
+        said = self._ops["configuration"](self._handle)
+        return None if said is None else dict(said)
 
     def close(self) -> None:
         """Idempotent: a second close is a no-op."""
@@ -176,4 +174,4 @@ def open_setup(instrument: dict[str, Any]) -> Setup:
     ops, connection = resolve(instrument)
     handle = ops["open"](connection)
     context = {key: connection[key] for key in IDENTITY}
-    return Setup(ops, handle, context)
+    return Setup(ops, handle, context, connection)

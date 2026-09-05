@@ -20,62 +20,60 @@ import { reworded } from "../../../../framework/rules/steps.js";
 import { cell, note, press } from "../cells.js";
 
 /**
- * The setup session: which pass through the workflow this is. Once a driver
- * is connected, the sessions kept for that machine are listed newest first,
- * to reopen one and see and edit what it holds, or a new one is started
- * from what the machine has now. Every step after Connect starts from what
- * the chosen session holds, and each Save and adopt is recorded into it.
+ * The configuration: which pass through the workflow this is. Once a driver
+ * is connected, the configurations the machine keeps are listed newest
+ * first, to reopen one and see and edit what it holds, or a new one is
+ * started as a full copy of what stands now. Every step after Connect
+ * starts from what the chosen configuration holds, and each Save and adopt
+ * writes into it.
  */
-const setupSession = {
-  id: "setup-session",
+const setupConfiguration = {
+  id: "setup-configuration",
   label: "Setup",
   mount(host, ctx) {
     if (!ctx.connected()) return { host };
-    const box = cell("Setup session",
-      "Reopen a session, or start a new one from what the machine has now.");
-    const current = ctx.session();
-    const sessions = ctx.sessions();
+    const box = cell("Configuration",
+      "Reopen a configuration, or start a new one as a copy of the newest.");
+    const current = ctx.configuration();
+    const listed = ctx.configurations();
     const when = (iso) => (iso ? new Date(iso).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }) : "");
-    const fail = (why) => { box.body.append(note(`Could not open the session — ${why.message}`, "bad")); };
+    const fail = (why) => { box.body.append(note(`Could not open the configuration — ${why.message}`, "bad")); };
 
-    /* One row: the sessions so far, newest first, Open, and New session.
-       A session is known by when it was started; it needs no name. */
+    /* One row: the configurations so far, newest first, Open, and New. A
+       configuration is known by when it was started. */
     const row = document.createElement("div");
     row.className = "setup-row setup-reference";
     const label = document.createElement("label");
-    label.textContent = "Session";
+    label.textContent = "Configuration";
     const select = document.createElement("select");
     select.className = "setup-field setup-wide";
-    select.setAttribute("aria-label", "setup session");
-    if (!sessions.length) {
+    select.setAttribute("aria-label", "configuration");
+    if (!listed.length) {
       const o = document.createElement("option");
       o.value = ""; o.textContent = "none yet"; select.append(o);
       select.disabled = true;
     }
-    for (const s of sessions) {
+    for (const c of listed) {
       const o = document.createElement("option");
-      o.value = s.id;
-      const adopted = s.updated_at && s.updated_at !== s.created_at ? ` · adopted ${when(s.updated_at)}` : "";
-      o.textContent = `${when(s.created_at)}${adopted}`;
-      o.selected = current?.id === s.id;
+      o.value = c.id;
+      const held = Object.entries(c.has ?? {}).filter(([, v]) => v).map(([k]) => k);
+      o.textContent = `${when(c.created_at)}` + (held.length ? ` · ${held.join(", ")}` : " · empty");
+      o.selected = current?.id === c.id;
       select.append(o);
     }
     const open = press("Open", async () => {
       if (!select.value) return;
-      try { await ctx.chooseSession(select.value); } catch (why) { fail(why); return; }
+      try { await ctx.chooseConfiguration(select.value); } catch (why) { fail(why); return; }
       ctx.refresh();
-    }, { busy: "opening…", disabled: !sessions.length });
-    const fresh = press("New session", async () => {
-      try { await ctx.startSession(""); } catch (why) { fail(why); return; }
+    }, { busy: "opening…", disabled: !listed.length });
+    const fresh = press("New configuration", async () => {
+      try { await ctx.startConfiguration(); } catch (why) { fail(why); return; }
       ctx.refresh();
     }, { busy: "starting…" });
     row.append(label, select, open, fresh);
     box.body.append(row);
 
-    if (current) {
-      box.body.append(note(`Open · started ${when(current.created_at)}`
-        + (current.updated_at && current.updated_at !== current.created_at ? ` · last adopted ${when(current.updated_at)}` : ""), "ok"));
-    }
+    if (current) box.body.append(note(`Open · started ${when(current.created_at)}`, "ok"));
     host.append(box.box);
     return { host };
   },
@@ -85,5 +83,5 @@ export const connect = reworded(connectToTheMicroscope, {
   why: "Choose the microscope, its API and the password, then open the session "
     + "— the settings on the steps below are read from the instrument through it.",
   panels: ["setup"],
-  channel: setupSession,
+  channel: setupConfiguration,
 });

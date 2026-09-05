@@ -237,6 +237,7 @@ def connect(connection: dict) -> ZmartHandle:
         load_limits=connection.get("load_limits", True),
         load_calibration=connection.get("load_calibration", True),
         calibration_name=connection.get("calibration_name"),
+        configuration=connection.get("configuration"),
     )
     handle = ZmartHandle(client=client, connection=dict(connection), hash6=run_hash())
     loaded = _session_state.get(client)
@@ -1417,6 +1418,13 @@ def _connection_status(handle: ZmartHandle, root: Path) -> dict:
         ),
         "output root": str(root),
     }
+
+
+def configurations(connection: dict | None = None) -> list:
+    """The configurations this microscope has, newest first -- so a session
+    can be opened on one of them. Reads ProgramData; opens no client."""
+    machine = _machine.MACHINE
+    return [machine.describe_configuration(path) for path in reversed(machine.configurations())]
 
 
 def register() -> None:

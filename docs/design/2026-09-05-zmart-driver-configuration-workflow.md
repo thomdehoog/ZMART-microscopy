@@ -192,7 +192,7 @@ to verify it.
   the vendor-blind procedures that drive it: read the boundary, measure the
   orientation, capture a lens view, measure the pair, origin here. The package
   never imports the controller, and a test says so.
-- **`zmart_analysis/workflows/stage_calibration/`** — the two measurements as
+- **`zmart_analysis/workflows/driver_configuration/`** — the two measurements as
   pipeline steps, `measure_orientation` and `measure_objective_pair`, with
   their recipes and tests against synthetic pictures. All eight orientations
   are recovered, and the pixel size with them.
@@ -221,19 +221,38 @@ to verify it.
   same driver functions the notebooks use and are tested offline only where a
   seam can be patched; the first run on the bench is where they are proven.
 
-## Setup sessions
+## Configurations
 
 A setup is rarely finished in one sitting, and a machine is set up more than
-once. So the workflow keeps **sessions**: one pass through the steps, known
-by the moment it was started. After Connect the operator reopens a session,
-which brings every step back to what it holds, or starts a new one from what
-the machine has now. Each Save and adopt still writes the driver's own dated
-snapshot, exactly as before; it is also recorded into the open session, so the
-session is the one place that says what this pass came to across all four
-subsystems.
+once. So a machine keeps **configurations**: one folder per pass through the
+steps, named by the moment it was started, holding all four subsystems --
+limits, orientation, objective calibration, origin -- as one complete set::
 
-Sessions live in `zmart_setup.sessions`, beside the driver's snapshots as
-`sessions/<datetime>/session.json` under the folder the driver names through
-its optional `home` op, in the same timestamp form as the snapshots. The
-driver never reads that tree: what stands for a machine is still the newest
-snapshot per subsystem, and a session is a record of how it got there.
+    <programdata_root>/<vendor>/<microscope>/<api>/
+        configuration_<datetime>/
+            limits/<datetime>/limits.json          (+ evidence)
+            orientation/<datetime>/orientation.json
+            calibration/<datetime>/calibration.json
+            origin/<datetime>/origin.json
+
+A new configuration starts as a full copy of the newest snapshot of each
+subsystem, so it is complete before anything is adopted in it; then only what
+the operator adopts changes. The versions of a machine's setup are simply its
+configurations, newest first. Inside a configuration each subsystem keeps its
+dated snapshot tree exactly as the driver always did, and each snapshot carries
+the evidence beside the document -- the figures the analysis drew and the
+measurement's numbers -- so a reopened configuration shows what was measured.
+
+Connecting always names a configuration. The driver stands on exactly that one
+and never looks across them; on its own it takes the newest. The controller
+always passes one and refuses one without limits, so a session is never left
+without an envelope -- the driver's own setup may connect without, which is
+why the refusal is the controller's. The connect card lists the machine's
+configurations newest first, the newest selected, and locks the choice with
+the rest once the session is open: a session cannot change what it stands on.
+
+The driver change for this is one method: the machine profile's
+`snapshot_root()` answers with the configuration folder rather than the API
+root, and subsystem trees written before configurations existed are copied,
+once, into a first configuration -- copied, never moved, like the driver's
+other migrations.

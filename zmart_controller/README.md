@@ -77,11 +77,21 @@ registry keys on, plus any driver-specific params (client name, api delay, host,
 controller forwards it to the driver's `connect` untouched. `set_instrument()`
 opens the session. After this, every `zmart` call goes to that microscope.
 
+A session stands on one of the machine's **configurations**: its limits, its
+stage-to-image orientation, its objective calibration and the origin its
+positions count from, kept together as one folder by the ZMART driver
+configuration workflow. `get_configurations(instrument)` lists them newest
+first without connecting; `set_instrument()` needs `instrument["configuration"]`
+set to one of their ids, and refuses a configuration without limits, so a
+session is never opened without an envelope. The configuration cannot change
+while the session is open.
+
 ```python
 instrument = zmart_controller.get_instruments()[0]
 # {"vendor": "leica", "microscope": "stellaris5-y42h93", "api": "navigator-expert",
 #  "client": "PythonClient", "api_delay_ms": None, "output_root": None}
 
+instrument["configuration"] = zmart_controller.get_configurations(instrument)[0]["id"]
 zmart_controller.set_instrument(instrument)
 ```
 

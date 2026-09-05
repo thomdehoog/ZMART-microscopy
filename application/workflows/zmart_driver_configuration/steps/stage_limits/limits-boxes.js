@@ -80,8 +80,7 @@ export default {
     const edit = cell("Configure",
       "Tick a limit to apply it. Ranges include both ends.");
     const standing = ctx.standing();
-    if (standing) edit.body.append(note(`From ${standing.source === "session" ? "this session"
-      : standing.source === "published" ? "the published limits" : "the defaults"}.`));
+    if (standing) edit.body.append(note(`From ${standing.source === "published" ? "the published limits" : "the defaults"}.`));
 
     const required = new Set(doc.required ?? []);
 
