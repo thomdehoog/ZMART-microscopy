@@ -10,23 +10,21 @@
  * its button does, is the step's.
  */
 
-/** A cell: a title, a paragraph, and a body to put controls and answers in. */
+import { sideGroup } from "../../../framework/window/panels.js";
+
+/** A cell: the same box the target-acquisition channel is made of -- a small
+    heading above a white card -- with the notebook's sentence first inside
+    the card, and the controls and what came back under it. */
 export function cell(title, prose = null) {
-  const box = document.createElement("section");
-  box.className = "setup-cell";
-  const head = document.createElement("div");
-  head.className = "setup-cell-title";
-  head.textContent = title;
-  box.append(head);
+  const { group, body } = sideGroup(title);
+  group.classList.add("setup-cell");
   if (prose) {
     const p = document.createElement("p");
+    p.className = "side-note";
     p.textContent = prose;
-    box.append(p);
+    body.append(p);
   }
-  const body = document.createElement("div");
-  body.className = "setup-cell-body";
-  box.append(body);
-  return { box, body };
+  return { box: group, body };
 }
 
 /** A press. `busy` is the wording while the work is out with the instrument. */
