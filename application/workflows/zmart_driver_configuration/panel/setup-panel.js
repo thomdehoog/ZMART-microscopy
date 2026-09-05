@@ -120,18 +120,32 @@ export const setupPanel = {
         .setup-set-pair { font-variant-numeric: tabular-nums; }
         .setup-set-state { color: var(--ink-3); font-size: 12px; }
         .setup-set.default .setup-set-state { color: var(--ink-3); }
-        /* A section inside a card: a small heading with a rule above it, so
-           one card can hold the focus, the X/Y and the confirmation in turn. */
-        .setup-section { font-size: 13px; font-weight: 600; color: var(--ink);
-                         border-top: 1px solid var(--line); padding-top: 12px; margin-top: 4px; }
-        .setup-section:first-child { border-top: 0; padding-top: 0; margin-top: 0; }
-        /* The summary: one line per objective, numbers under numbers. */
-        .setup-table { border-collapse: collapse; width: 100%; font-size: 13px; }
-        .setup-table th { text-align: left; font-weight: 600; color: var(--ink-3); padding: 2px 10px 4px 0; }
-        .setup-table td { padding: 3px 10px 3px 0; border-top: 1px solid var(--line); font-variant-numeric: tabular-nums; }
-        .setup-table th:not(:first-child):not(:last-child),
-        .setup-table td:not(:first-child):not(:last-child) { text-align: right; }
-        .setup-table tr.default td { color: var(--ink-3); }
+        /* A part of a card: a tinted sub-box with a numbered heading, so a
+           card holding the focus, the X/Y and the confirmation shows three
+           things at a glance rather than one long column. */
+        .setup-part { display: flex; flex-direction: column; gap: 10px;
+                      background: var(--surface-2); border: 1px solid var(--line);
+                      border-radius: 8px; padding: 12px 14px; }
+        .setup-part-title { display: flex; align-items: center; gap: 8px;
+                            font-size: 13px; font-weight: 600; color: var(--ink); }
+        .setup-part-number { display: inline-flex; align-items: center; justify-content: center;
+                             width: 20px; height: 20px; border-radius: 50%; font-size: 11px;
+                             font-weight: 700; color: #fff; background: var(--accent); }
+        .setup-part .setup-table td { border-top-color: var(--line-strong, var(--line)); }
+        /* The reference row: label and dropdown on the left, Reset on the right. */
+        .setup-reference { justify-content: flex-start; }
+        .setup-reference > label { flex: 0 0 auto; }
+        .setup-reference > button { margin-left: auto; }
+        /* The chosen set's X, Y and Z: three plain tiles, read at one glance. */
+        .setup-xyz { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+        .setup-xyz-tile { display: flex; flex-direction: column; gap: 2px; align-items: flex-start;
+                          background: #fff; border: 1px solid var(--line); border-radius: 8px;
+                          padding: 10px 12px; }
+        .setup-xyz-axis { font-size: 11px; font-weight: 700; letter-spacing: 0.07em; color: var(--ink-3); }
+        .setup-xyz-value { font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums;
+                           color: var(--ink); line-height: 1.2; }
+        .setup-xyz-unit { font-size: 12px; color: var(--ink-3); }
+        .setup-xyz-tile.default .setup-xyz-value { color: var(--ink-3); }
       </style>
       <div class="setup-notebook">
         <!-- The column of cells. The shell fills this; what goes in it is the

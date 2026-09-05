@@ -1,5 +1,5 @@
 /**
- * ZMART driver setup — setting a microscope up, before any run.
+ * ZMART driver configuration — setting a microscope up, before any run.
  *
  * Target acquisition is a run on a microscope that has already been set up.
  * This is the setting up: five steps that walk an operator through what a
@@ -30,7 +30,7 @@ import { opticsCalibration } from "./steps/optics_calibration/step.js";
 import { frameOrigin } from "./steps/frame_origin/step.js";
 
 /* The folder rule would read "Zmart driver configuration". ZMART is a name. */
-export const name = "ZMART driver setup";
+export const name = "ZMART driver configuration";
 
 export const blurb =
   "Set a microscope up for ZMART: its stage limits, which way its picture is "
