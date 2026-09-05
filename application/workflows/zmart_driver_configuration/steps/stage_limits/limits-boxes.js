@@ -187,6 +187,7 @@ export default {
         try {
           const where = await ctx.setup.publish("limits", ctx.limits());
           const x = ctx.limits()?.[doc.measured[0]];
+          await ctx.restand?.();
           ctx.settle(`${measuredLabels[0]} ${asRange(x)} · published`, `Published to ${where.path}`);
         } catch (why) {
           ctx.settle(null, `Publishing failed — ${why.message}`);

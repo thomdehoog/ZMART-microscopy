@@ -90,6 +90,7 @@ export default {
         try {
           const document = await ctx.setup.measure("origin");
           const where = await ctx.setup.publish("origin", document);
+          await ctx.restand?.();
           ctx.settle(`(${um(document.x_um, 0)}, ${um(document.y_um, 0)}, ${um(document.z_um, 1)}) · published`,
             `Published to ${where.path}`);
         } catch (why) {
