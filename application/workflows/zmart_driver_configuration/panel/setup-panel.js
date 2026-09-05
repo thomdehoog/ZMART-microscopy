@@ -92,6 +92,21 @@ export const setupPanel = {
         .setup-choices { display: flex; flex-direction: column; gap: 6px; }
         .setup-choice { display: flex; align-items: baseline; gap: 8px; font-size: 13px; cursor: pointer; }
         .setup-choice-said { color: var(--ink-3); }
+        /* A field looks the way the session card's fields look: the page
+           says what a field is once, and these are fields. */
+        .setup-field, .setup-row select, .setup-kind {
+          font: inherit; font-size: 13px; color: var(--ink);
+          background: var(--surface-2); border: 1px solid var(--line-strong);
+          border-radius: 7px; height: var(--control, 30px); padding: 0 9px;
+          width: 240px; box-sizing: border-box;
+        }
+        .setup-field:focus, .setup-row select:focus, .setup-kind:focus { outline: none; }
+        .setup-field:disabled, .setup-row select:disabled, .setup-kind:disabled { opacity: .45; }
+        .setup-number { width: 120px; }
+        .setup-kind { width: 132px; }
+        /* A limit's row: its tick first, then its name, then its fields. */
+        .setup-limit > input[type="checkbox"] { flex: 0 0 auto; margin: 0 2px 0 0; }
+        .setup-limit > label { flex: 1 1 auto; }
       </style>
       <div class="setup-notebook">
         <!-- The column of cells. The shell fills this; what goes in it is the

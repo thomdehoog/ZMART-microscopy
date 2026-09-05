@@ -74,6 +74,8 @@ LIMITS_DOCUMENT = {
          "note": "Starts at zero: the wide stage cannot travel to a negative position."},
     ],
     "measured": ["x_um", "y_um"],
+    # Every stage range is required: limits.json refuses an axis without one.
+    "required": ["x_um", "y_um", "z_galvo_um", "z_wide_um"],
     "slots": {"key": "objective_slot", "label": "Objective slots",
               "note": "Empty means every slot the turret reports. Slots count from zero."},
     "settings": list(_limits_checks.SETTER_LIMIT_KEYS),

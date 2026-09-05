@@ -27,28 +27,31 @@ import { cell, note, press, publishRow } from "../cells.js";
 const asRange = (entry) => {
   const range = entry?.range;
   if (!Array.isArray(range) || range.length !== 2) return "not set";
-  return `${range[0]} … ${range[1]}`;
+  const end = (v) => (v === null || v === undefined ? "open" : v);
+  return `${end(range[0])} … ${end(range[1])}`;
 };
 
-/** A setting's constraint as text for its field: empty for unrestricted. */
-const asText = (entry) => {
-  if (entry === undefined || entry === null) return "";
-  if (Array.isArray(entry) && entry.length === 0) return "";
-  if (Array.isArray(entry)) return entry.join(", ");
-  if (entry.allowed) return entry.allowed.join(", ");
-  if (entry.range) return `${entry.range[0]} … ${entry.range[1]}`;
-  return JSON.stringify(entry);
+/** What kind of limit an entry is: a numeric range, a list of allowed
+    values, or none. An open end of a range is `null` in the file. */
+const kindOf = (entry) => {
+  if (!entry || (Array.isArray(entry) && entry.length === 0)) return "none";
+  if (entry.range) return "range";
+  if (entry.allowed) return "allowed";
+  return "none";
 };
 
-/** Text typed into a setting's field, back into the file's shape. */
-const fromText = (text, kind) => {
-  const t = text.trim();
-  if (!t) return [];
-  const range = t.match(/^\s*(-?[\d.]+)\s*(?:…|\.\.\.?|to|-)\s*(-?[\d.]+)\s*$/);
-  if (range && kind !== "allowed") return { range: [Number(range[1]), Number(range[2])] };
-  const parts = t.split(",").map((s) => s.trim()).filter(Boolean);
-  return { allowed: parts.map((s) => (Number.isFinite(Number(s)) ? Number(s) : s)) };
+/** An end of a range as its field shows it: blank when open. */
+const endText = (entry, end) => {
+  const v = entry?.range?.[end];
+  return v === null || v === undefined ? "" : String(v);
 };
+
+/** Allowed values as one field shows them: comma-separated. */
+const allowedText = (entry) => (entry?.allowed ?? []).join(", ");
+
+/** Comma-separated text back into a list, numbers as numbers. */
+const allowedFrom = (text) => text.split(",").map((t) => t.trim()).filter(Boolean)
+  .map((t) => (Number.isFinite(Number(t)) && t !== "" ? Number(t) : t));
 
 export default {
   id: "limits",
@@ -75,22 +78,39 @@ export default {
 
     /* ---- Configure: every field of the file ------------------------------ */
     const edit = cell("Configure",
-      "Review the limits. Ranges include both endpoints; an empty setting means reviewed and unrestricted.");
+      "Review the limits. Ranges include both endpoints. Ticked, a limit is applied; unticked, it is reviewed and unrestricted.");
     const standing = ctx.standing();
     if (standing) edit.body.append(note(`Starting from the ${standing.source === "published" ? "published" : "default"} limits.`));
 
-    const row = (label, ...fields) => {
+    const required = new Set(doc.required ?? []);
+
+    /* One row per key: a tick saying whether this limit is applied, the
+       name, and the fields. Unticked writes `[]` to the file -- reviewed,
+       and no limit enforced -- which is a different thing from never having
+       looked, so the row stays visible either way. A key the driver cannot
+       leave open (the stage ranges) shows its tick set and fixed. */
+    const row = (key, label, fields, { applied, onTick }) => {
       const r = document.createElement("div");
-      r.className = "setup-row";
+      r.className = "setup-row setup-limit";
+      const tick = document.createElement("input");
+      tick.type = "checkbox";
+      tick.checked = applied || required.has(key);
+      tick.disabled = required.has(key);
+      if (required.has(key)) tick.title = "always enforced";
+      tick.setAttribute("aria-label", `apply a limit to ${label}`);
+      tick.addEventListener("change", () => onTick(tick.checked));
       const name = document.createElement("label");
       name.textContent = label;
-      r.append(name, ...fields);
+      for (const f of fields) f.disabled = !tick.checked;
+      r.append(tick, name, ...fields);
       edit.body.append(r);
+      return { tick, fields };
     };
-    const numberField = (key, end, label) => {
+    const numberField = (key, end, label, { open = false } = {}) => {
       const box = document.createElement("input");
-      box.type = "number"; box.className = "side-number";
-      box.value = held[key]?.range?.[end] ?? "";
+      box.type = "number"; box.className = "setup-field setup-number";
+      box.value = endText(held[key], end);
+      box.placeholder = open ? (end === 0 ? "no minimum" : "no maximum") : "";
       box.setAttribute("aria-label", label);
       box.addEventListener("change", () => {
         const range = [...(held[key]?.range ?? [null, null])];
@@ -99,33 +119,63 @@ export default {
       });
       return box;
     };
-    const textField = (key, label, placeholder, kind) => {
+    const allowedField = (key, label, placeholder) => {
       const box = document.createElement("input");
-      box.type = "text"; box.className = "side-text";
+      box.type = "text"; box.className = "setup-field";
       box.placeholder = placeholder;
-      box.value = asText(held[key]);
-      box.setAttribute("aria-label", label);
-      box.addEventListener("change", () => ctx.edit(key, fromText(box.value, kind)));
+      box.value = allowedText(held[key]);
+      box.setAttribute("aria-label", `${label}, allowed values`);
+      box.addEventListener("change", () => ctx.edit(key, { allowed: allowedFrom(box.value) }));
       return box;
+    };
+    /* A setting is fenced one of two ways, and the operator says which: a
+       range -- either end may be left open, so "at most 10" is a range with
+       no minimum -- or a list of the values that are allowed, which is how a
+       choice such as the objective is fenced. Changing the kind starts the
+       fields empty; the file holds one kind at a time. */
+    const kindChooser = (key, label, current) => {
+      const select = document.createElement("select");
+      select.className = "setup-kind";
+      select.setAttribute("aria-label", `how ${label} is limited`);
+      for (const [value, words] of [["range", "range"], ["allowed", "allowed values"]]) {
+        const o = document.createElement("option");
+        o.value = value; o.textContent = words; o.selected = value === current;
+        select.append(o);
+      }
+      select.addEventListener("change", () => {
+        ctx.edit(key, select.value === "range" ? { range: [null, null] } : { allowed: [] });
+        ctx.refresh();
+      });
+      return select;
+    };
+    const fieldsFor = (key, label, kind, { open }) => (kind === "allowed"
+      ? [allowedField(key, label, "values, e.g. 0, 2 or a, b")]
+      : [numberField(key, 0, `${label} minimum`, { open }), numberField(key, 1, `${label} maximum`, { open })]);
+    const untick = (fields, key, kind) => (on) => {
+      for (const f of fields) { f.disabled = !on; if (!on) f.value = ""; }
+      if (!on) ctx.edit(key, []);
+      else { ctx.edit(key, kind === "allowed" ? { allowed: [] } : { range: [null, null] }); fields[0]?.focus(); }
     };
 
     /* The rows are the file's keys, in the file's order, each drawn the way
        the driver says that key is: an axis, the slot list, a setting -- and a
        key the driver did not describe still gets a row, as itself. */
     for (const key of Object.keys(held)) {
-      if (axes.has(key)) {
-        const axis = axes.get(key);
-        row(`${axis.label} (${axis.unit})`,
-          numberField(key, 0, `${axis.label} lowest`), numberField(key, 1, `${axis.label} highest`));
-        if (axis.note) edit.body.append(note(axis.note));
-      } else if (doc.slots && key === doc.slots.key) {
-        row(doc.slots.label, textField(key, doc.slots.label, "every slot", "allowed"));
-        if (doc.slots.note) edit.body.append(note(doc.slots.note));
-      } else if ((doc.settings ?? []).includes(key)) {
-        row(key.replace(/^set_/, "").replaceAll("_", " "), textField(key, key, "no limit"));
-      } else if (key !== "published_at") {
-        row(key, textField(key, key, ""));
-      }
+      if (key === "published_at") continue;
+      const isAxis = axes.has(key);
+      const isSlots = Boolean(doc.slots) && key === doc.slots.key;
+      const label = isAxis ? `${axes.get(key).label} (${axes.get(key).unit})`
+        : isSlots ? doc.slots.label
+        : (doc.settings ?? []).includes(key) ? key.replace(/^set_/, "").replaceAll("_", " ") : key;
+      const applied = kindOf(held[key]) !== "none";
+      /* A stage range is a range, both ends closed; the slot list is a list;
+         any other setting may be either, and says which. */
+      const kind = isAxis ? "range" : isSlots ? "allowed" : (applied ? kindOf(held[key]) : "range");
+      const fields = fieldsFor(key, label, kind, { open: !isAxis });
+      const before = (isAxis || isSlots) ? [] : [kindChooser(key, label, kind)];
+      row(key, label, [...before, ...fields], { applied, onTick: untick(fields, key, kind) });
+      if (isAxis && axes.get(key).note) edit.body.append(note(axes.get(key).note));
+      if (isSlots && doc.slots.note) edit.body.append(note(doc.slots.note));
     }
     edit.body.append(publishRow({
       label: "Save and adopt",
@@ -153,7 +203,7 @@ export default {
     const chosen = { x: held2.actuators?.x ?? guess("x"), y: held2.actuators?.y ?? guess("y") };
     const [xKey, yKey] = measured;
 
-    const imp = cell("Import stage limits",
+    const imp = cell("Import X/Y stage limits",
       "Drive the stage to each corner of the safe area in the microscope's own software and capture it "
       + "there. Only X and Y are imported, from the drives chosen below; the four captures become the "
       + "X and Y ranges above.");
@@ -164,7 +214,7 @@ export default {
         const label = document.createElement("label");
         label.textContent = `${axis.toUpperCase()} from`;
         const select = document.createElement("select");
-        select.className = "side-text";
+        select.className = "setup-field";
         for (const n of names) {
           const o = document.createElement("option");
           o.value = n; o.textContent = n; o.selected = n === chosen[axis];
@@ -191,7 +241,7 @@ export default {
       said.className = "setup-note";
       const got = corners[key];
       said.textContent = got ? `x ${Number(got.x).toFixed(1)} · y ${Number(got.y).toFixed(1)} µm` : "not captured";
-      r.append(name, said, press("Capture", async () => {
+      r.append(name, said, press(got ? "Update" : "Import", async () => {
         try {
           const now = await ctx.setup.where();
           const a = now.actuators ?? {};
