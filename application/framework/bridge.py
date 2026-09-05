@@ -106,7 +106,7 @@ if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
 import zmart_controller  # noqa: E402
-import zmart_setup  # noqa: E402
+import zmart_drivers.setup  # noqa: E402
 from application.parts.storage.output import (  # noqa: E402
     move_record_images,
     position_label,
@@ -276,7 +276,7 @@ def _setup_publish(asked: dict) -> dict:
                 target.write_text(json.dumps(item["note"], indent=2, default=str), encoding="utf-8")
             elif "pipeline" in item:
                 try:
-                    recipe = zmart_setup.procedures.pipeline_path(str(item["pipeline"]))
+                    recipe = zmart_drivers.setup.procedures.pipeline_path(str(item["pipeline"]))
                 except KeyError:
                     continue
                 shutil.copy2(recipe, target)
@@ -345,7 +345,7 @@ def _setup_open(asked: dict) -> dict:
     # The driver opens on the newest first when a new one is asked for, since
     # "new" is not a folder it could stand on.
     chosen = connection.get("configuration")
-    _setup = zmart_setup.open_setup({**connection, "configuration": None if chosen == "new" else chosen})
+    _setup = zmart_drivers.setup.open_setup({**connection, "configuration": None if chosen == "new" else chosen})
     if chosen == "new":
         _setup.new_configuration()
     elif chosen:
@@ -372,7 +372,7 @@ def _setup_reopen() -> None:
     standing = _setup.configuration()
     _setup.close()
     _setup = None
-    _setup = zmart_setup.open_setup({**connection, "configuration": standing["id"] if standing else None})
+    _setup = zmart_drivers.setup.open_setup({**connection, "configuration": standing["id"] if standing else None})
     if standing:
         _setup.use_configuration(standing["id"])
 
@@ -417,7 +417,7 @@ def _setup_measure(asked: dict) -> dict:
     """Run one of the vendor-blind procedures against the open setup."""
     setup = _require_setup()
     what = asked.get("what")
-    procedures = zmart_setup.procedures
+    procedures = zmart_drivers.setup.procedures
     if what == "boundary":
         return procedures.read_boundary(setup)
     if what == "orientation":
@@ -1652,7 +1652,7 @@ class _Bridge(BaseHTTPRequestHandler):
             elif path == "/api/instruments":
                 self._answer({"instruments": _instruments()})
             elif path == "/api/setup/instruments":
-                self._answer({"instruments": zmart_setup.get_instruments()})
+                self._answer({"instruments": zmart_drivers.setup.get_instruments()})
             elif path == "/api/setup":
                 with _setups_turn:
                     setup = _setup
@@ -1750,7 +1750,7 @@ class _Bridge(BaseHTTPRequestHandler):
                 with _setups_turn:
                     self._answer(_setup_measure(asked))
             elif self.path == "/api/setup/configurations":
-                self._answer({"configurations": zmart_setup.get_configurations(asked["connection"])})
+                self._answer({"configurations": zmart_drivers.setup.get_configurations(asked["connection"])})
             elif self.path == "/api/setup/configuration":
                 with _setups_turn:
                     self._answer(_setup_configuration(asked))

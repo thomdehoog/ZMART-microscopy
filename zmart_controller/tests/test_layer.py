@@ -68,7 +68,7 @@ class TestFrame:
         assert pos["x"]["unit"] == "um"
 
     def test_a_session_cannot_move_the_point_it_counts_from(self, mic):
-        """The origin is machine configuration, published through zmart_setup;
+        """The origin is machine configuration, published through zmart_drivers.setup;
         the operating surface has no way to change it."""
         assert not hasattr(mic, "set_origin")
 

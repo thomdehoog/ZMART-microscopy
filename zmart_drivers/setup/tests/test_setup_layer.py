@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from zmart_setup import layer, registry
+from zmart_drivers.setup import layer, registry
 
 
 @pytest.fixture(autouse=True)

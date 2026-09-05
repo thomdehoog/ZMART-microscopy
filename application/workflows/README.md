@@ -18,7 +18,7 @@ There are two:
 - **`zmart_driver_configuration/`** — the setting up: publish how far the stage
   may travel, which way the picture is turned, how the objectives line up, and
   where the frame counts from. It has no canvas, and it does not go through
-  the controller — it speaks to the driver's *setup* through `zmart_setup`, a
+  the controller — it speaks to the driver's *setup* through `zmart_drivers.setup`, a
   seam nothing holding a session can reach. Its own `README.md` says why.
 
 ## What is inside a workflow's folder

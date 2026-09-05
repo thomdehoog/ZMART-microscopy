@@ -6,7 +6,7 @@ stands on the frame origin the setup workflow published (user coordinates
 are micrometers from it), and does the work the controller does not --
 settling before capture, saving, and owning the changeable/observed state
 boundary. How it is *set up* -- the origin, the envelope, the camera's turn --
-is :mod:`mock_setup`'s, reached through :mod:`zmart_setup` and never through
+is :mod:`mock_setup`'s, reached through :mod:`zmart_drivers.setup` and never through
 the controller.
 
 It sits beside the other drivers, and that is deliberate. It was filed under

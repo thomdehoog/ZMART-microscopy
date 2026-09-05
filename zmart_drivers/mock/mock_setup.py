@@ -1,7 +1,7 @@
 """The mock microscope's configuration: a pretend rig, set up the way a real one is.
 
 Where :mod:`mock_driver` stands in for a microscope being *driven*, this
-stands in for one being *set up*. It registers with :mod:`zmart_setup`, not
+stands in for one being *set up*. It registers with :mod:`zmart_drivers.setup`, not
 with the controller, and supplies the small vocabulary that package asks of a
 driver: where the stage is, move it, take a picture, say which lens is in,
 read the operator's markers, and read and publish the four configuration
@@ -625,7 +625,7 @@ CONNECTION = {"vendor": "mock", "microscope": "mock-scope", "api": "mock-api", "
 
 def register_mock_setup() -> None:
     """Register this mock with the setup registry — and only with that one."""
-    from zmart_setup.registry import register
+    from zmart_drivers.setup.registry import register
 
     register(
         CONNECTION,

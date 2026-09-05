@@ -21,10 +21,10 @@ to be trusted further than it must be: say where the stage is, move it and
 read back where it went, take a picture, say which objective is in, and read
 and write the four configuration documents. Everything measured from the
 pictures happens in :mod:`zmart_analysis`, which never learns which microscope
-took them. See :mod:`zmart_setup.registry` for the exact list.
+took them. See :mod:`zmart_drivers.setup.registry` for the exact list.
 
-    import zmart_setup
-    setup = zmart_setup.open_setup(zmart_setup.get_instruments()[0])
+    import zmart_drivers.setup
+    setup = zmart_drivers.setup.open_setup(zmart_drivers.setup.get_instruments()[0])
     setup.describe()               # what this driver can configure, and how
     setup.publish("limits", doc)   # a dated snapshot under ProgramData
     setup.close()

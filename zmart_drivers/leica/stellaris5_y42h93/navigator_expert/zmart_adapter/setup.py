@@ -3,7 +3,7 @@
 Where :mod:`zmart_adapter` is what a *session* drives this microscope through,
 this is what the *setup workflow* configures it through, and the two are
 registered with different registries on purpose: nothing holding a controller
-session can reach anything here. See :mod:`zmart_setup` for why that
+session can reach anything here. See :mod:`zmart_drivers.setup` for why that
 separation is a safety property.
 
 What this supplies is the small vocabulary that package asks of every driver,
@@ -480,8 +480,8 @@ def configuration(handle) -> dict | None:
 
 
 def register() -> None:
-    """Register this microscope's setup with ``zmart_setup`` -- and only there."""
-    from zmart_setup.registry import register as _register
+    """Register this microscope's setup with ``zmart_drivers.setup`` -- and only there."""
+    from zmart_drivers.setup.registry import register as _register
 
     _register(
         CONNECTION,
