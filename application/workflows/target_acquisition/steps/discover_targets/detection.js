@@ -41,6 +41,7 @@ export const settingsFor = (settings) => ({
 export const labelColour = (n, alpha = 1) =>
   `hsla(${(n * 137.508) % 360}, 68%, 58%, ${alpha})`;
 
+import { dressTheMask } from "./mask-dress.js";
 import { sideGroup } from "../../../../framework/window/panels.js";
 
 export default {
@@ -327,37 +328,13 @@ export default {
         paint.filter = "none";
       }
       const maskAlpha = settings.maskAlpha ?? 1;
-      if (showingMasks && mode === "fill") {
-        paint.globalAlpha = maskAlpha;
-        paint.drawImage(mask, ox, oy, frame * scale, frame * scale);
-        paint.globalAlpha = 1;
-      }
-      if (showingMasks && mode === "line") {
-        /* The rim is the mask minus its own eroded self. Erode first --
-           destination-in against four shifted copies keeps only the pixels
-           covered from every direction, the interior -- then punch that
-           interior out of the full mask. Punching with shifted copies
-           directly erased the rim too: every edge pixel is covered by the
-           copy shifted INTO its object, and four directions cover them all. */
+      if (showingMasks) {
+        /* Dressed the same way the canvas dresses it: one colour or each
+           object's own, filled or outline only. */
         const size = Math.max(1, Math.round(frame * scale));
-        const eroded = document.createElement("canvas");
-        eroded.width = size;
-        eroded.height = size;
-        const ep = eroded.getContext("2d");
-        ep.drawImage(mask, 0, 0, size, size);
-        ep.globalCompositeOperation = "destination-in";
-        for (const [dx, dy] of [[2, 0], [-2, 0], [0, 2], [0, -2]]) {
-          ep.drawImage(mask, dx, dy, size, size);
-        }
-        const o = document.createElement("canvas");
-        o.width = size;
-        o.height = size;
-        const op = o.getContext("2d");
-        op.drawImage(mask, 0, 0, size, size);
-        op.globalCompositeOperation = "destination-out";
-        op.drawImage(eroded, 0, 0);
+        const dressed = dressTheMask(mask, { size, colour: settings.maskColour ?? null, mode });
         paint.globalAlpha = maskAlpha;
-        paint.drawImage(o, ox, oy, frame * scale, frame * scale);
+        paint.drawImage(dressed, ox, oy, frame * scale, frame * scale);
         paint.globalAlpha = 1;
       }
 
