@@ -177,21 +177,20 @@ export default {
       if (isAxis && axes.get(key).note) edit.body.append(note(axes.get(key).note));
       if (isSlots && doc.slots.note) edit.body.append(note(doc.slots.note));
     }
-    edit.body.append(publishRow({
-      label: "Save and adopt",
-      published: ctx.publishedNote(),
-      onPublish: async () => {
-        try {
-          const where = await ctx.setup.publish("limits", ctx.limits());
-          const first = measured[0] ?? doc.axes[0]?.key;
-          ctx.settle(`${axes.get(first)?.label ?? first} ${asRange(ctx.limits()[first])} · adopted`,
-            `Adopted: ${where.snapshot?.split("/").pop() ?? where.path}`);
-        } catch (why) {
-          ctx.settle(null, `Adopting failed — ${why.message}`);
-        }
-        ctx.refresh();
-      },
-    }));
+    /* Both boxes end in Save and adopt, and both publish the same document:
+       the limits as they stand above, with whatever the import filled in. */
+    const adopt = async () => {
+      try {
+        const where = await ctx.setup.publish("limits", ctx.limits());
+        const first = measured[0] ?? doc.axes[0]?.key;
+        ctx.settle(`${axes.get(first)?.label ?? first} ${asRange(ctx.limits()[first])} · adopted`,
+          `Adopted: ${where.snapshot?.split("/").pop() ?? where.path}`);
+      } catch (why) {
+        ctx.settle(null, `Adopting failed — ${why.message}`);
+      }
+      ctx.refresh();
+    };
+    edit.body.append(publishRow({ label: "Save and adopt", published: ctx.publishedNote(), onPublish: adopt }));
     host.append(edit.box);
 
     /* ---- Import stage limits: the four corners, read from the drives ------ */
@@ -265,8 +264,10 @@ export default {
     if (CORNERS.every(([k]) => corners[k])) {
       imp.body.append(note(
         `Imported: ${axes.get(xKey)?.label ?? xKey} ${asRange(held[xKey])} · `
-        + `${axes.get(yKey)?.label ?? yKey} ${asRange(held[yKey])} — replaced above. Save and adopt when the rest is reviewed.`, "ok"));
+        + `${axes.get(yKey)?.label ?? yKey} ${asRange(held[yKey])} — replaced above.`, "ok"));
     }
+    imp.body.append(publishRow({ label: "Save and adopt", published: ctx.publishedNote(), onPublish: adopt,
+      disabled: !CORNERS.every(([k]) => corners[k]) }));
     host.append(imp.box);
     return { host };
   },
