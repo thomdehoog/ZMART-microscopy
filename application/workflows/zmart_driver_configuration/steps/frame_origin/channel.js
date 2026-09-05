@@ -1,5 +1,5 @@
 /**
- * Step 5's cell -- the actuators as they stand, the press that reads them,
+ * Step 3's cell -- the actuators as they stand, the press that reads them,
  * and the press that makes those readings zero.
  *
  * An origin is not three numbers: it is a reading of every drive the
@@ -59,6 +59,7 @@ export default {
       origin.body.append(readout([["X", `${here.x_um} µm`], ["Y", `${here.y_um} µm`], ["Z", `${here.z_um} µm`]]));
     }
     if (ctx.hereProblem()) origin.body.append(note(ctx.hereProblem(), "bad"));
+
 
     /* At the bottom of the box: Read takes the readings and holds them,
        nothing written yet; Save and adopt, beside it, publishes them. */

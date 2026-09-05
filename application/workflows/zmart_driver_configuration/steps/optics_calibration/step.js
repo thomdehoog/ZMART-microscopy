@@ -1,5 +1,5 @@
 /**
- * Step 4 — Objective calibration.
+ * Step 5 — Objective calibration.
  *
  * This is the step that gives a picture its scale: how many micrometres of
  * specimen one pixel covers, and how the two objectives you work between line

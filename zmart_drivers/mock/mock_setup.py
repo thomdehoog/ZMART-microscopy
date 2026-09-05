@@ -249,6 +249,10 @@ class SetupHandle:
     closed: bool = False
     #: The configuration this setup stands on, by folder name, once chosen.
     configuration: str | None = None
+    #: The envelope loaded at open from the configuration's published limits,
+    #: the way a real driver loads its limits at connect: None until limits
+    #: are published, and unchanged until the setup is opened again.
+    envelope: dict | None = None
 
     @property
     def tree(self) -> Path:
@@ -269,9 +273,15 @@ def open_setup(connection: dict) -> SetupHandle:
     if not (root / RIG_FILENAME).exists():
         write_rig(root, read_rig(root))
     # A first configuration is seeded so the machine has one to stand on --
-    # the same thing the Leica does at connect.
-    configuration_root(root)
-    return SetupHandle(root=root, connection=dict(connection), opened_at=time.monotonic())
+    # the same thing the Leica does at connect -- and its published limits,
+    # if any, are loaded now, as a real driver loads them at connect.
+    tree = configuration_root(root, connection.get("configuration") or None)
+    limits = newest(tree, "limits")
+    envelope = None
+    if limits:
+        envelope = {axis: [float(v) for v in limits[axis]["range"]]
+                    for axis in PHYSICAL_UM if isinstance(limits.get(axis), dict) and "range" in limits[axis]}
+    return SetupHandle(root=root, connection=dict(connection), opened_at=time.monotonic(), envelope=envelope)
 
 
 def close_setup(handle: SetupHandle) -> None:
@@ -347,7 +357,8 @@ def where(handle: SetupHandle) -> dict:
 
 
 def move(handle: SetupHandle, x_um: float, y_um: float, z_um: float) -> dict:
-    """Move within the physical travel, and answer with the readback."""
+    """Move within the limits loaded at open, and within the physical
+    travel whatever is published; answer with the readback."""
     _require_open(handle)
     asked = {"x_um": float(x_um), "y_um": float(y_um), "z_um": float(z_um)}
     for axis, value in asked.items():
@@ -356,6 +367,12 @@ def move(handle: SetupHandle, x_um: float, y_um: float, z_um: float) -> dict:
             raise RuntimeError(
                 f"{axis} = {value:g} is outside the stage's physical travel "
                 f"[{low:g}, {high:g}] — refused regardless of any published envelope"
+            )
+        fence = (handle.envelope or {}).get(axis)
+        if fence and not (fence[0] <= value <= fence[1]):
+            raise RuntimeError(
+                f"{axis} = {value:g} is outside the limits [{fence[0]:g}, {fence[1]:g}] "
+                "this setup was opened with"
             )
     rig = read_rig(handle.root)
     rig["stage"] = asked

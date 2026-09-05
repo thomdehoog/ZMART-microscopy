@@ -1,5 +1,5 @@
 /**
- * Step 4's cells -- the reference objective, its presets, and the measures
+ * Step 5's cells -- the reference objective, its presets, and the measures
  * of the one chosen.
  *
  * Ideally a microscope is parcentric and parfocal: change the lens and the

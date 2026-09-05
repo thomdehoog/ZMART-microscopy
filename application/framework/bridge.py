@@ -294,6 +294,9 @@ def _setup_publish(asked: dict) -> dict:
                 continue
             kept.append(str(target))
     answer = setup.publish(subsystem, asked["document"], evidence=kept)
+    if subsystem == "limits":
+        _setup_reopen()
+        answer["reopened"] = True
     return answer
 
 
@@ -336,11 +339,13 @@ def _setup_open(asked: dict) -> dict:
     if _setup is not None:
         _setup.close()
         _setup = None
-    _setup = zmart_setup.open_setup(connection)
     # The configuration to work in comes with the connection, the way the
     # controller's does: an id to reopen, or "new" to start one as a copy of
     # the newest. Chosen on the connect card, so both workflows connect alike.
+    # The driver opens on the newest first when a new one is asked for, since
+    # "new" is not a folder it could stand on.
     chosen = connection.get("configuration")
+    _setup = zmart_setup.open_setup({**connection, "configuration": None if chosen == "new" else chosen})
     if chosen == "new":
         _setup.new_configuration()
     elif chosen:
@@ -349,6 +354,27 @@ def _setup_open(asked: dict) -> dict:
     _setup_pictures = root / "driver-setup" / time.strftime("%Y-%m-%dT%H-%M-%S")
     _setup_pictures.mkdir(parents=True, exist_ok=True)
     return {"context": _setup.context, "describe": _setup.describe(), "pictures": str(_setup_pictures)}
+
+
+def _setup_reopen() -> None:
+    """Open the driver's setup again on the configuration it stands on.
+
+    A driver applies a configuration's limits when it opens on it, and
+    nothing in the configuration workflow applies them otherwise. So once
+    limits are adopted, the setup is closed and opened again, behind the
+    card, which stays connected -- and from then on the driver's own gate
+    fences every move of the steps that follow with the limits just adopted.
+    """
+    global _setup
+    if _setup is None:
+        return
+    connection = dict(_setup.connection)
+    standing = _setup.configuration()
+    _setup.close()
+    _setup = None
+    _setup = zmart_setup.open_setup({**connection, "configuration": standing["id"] if standing else None})
+    if standing:
+        _setup.use_configuration(standing["id"])
 
 
 def _setup_close() -> dict:

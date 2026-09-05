@@ -1,5 +1,5 @@
 /**
- * Step 3 — Image-to-stage calibration.
+ * Step 4 — Image-to-stage calibration.
  *
  * A camera or a scanner is often mounted a quarter or a half turn away from
  * the stage's own X and Y. When it is, telling the stage to move right shows

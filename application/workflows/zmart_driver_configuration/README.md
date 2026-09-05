@@ -14,17 +14,26 @@ Five steps, walked before any imaging workflow can stand on the machine:
    automation may use, and a permitted value or range for each setting the
    driver can change. Two boxes: one that reads the corners the operator
    marked, one that holds the document to publish.
-3. **Image-to-stage calibration** — which of the eight lossless ways of laying a
+3. **Define coordinate system origin** — drive to the point the run should count from and make it
+   (0, 0, 0). A snapshot of every drive's reading; it needs no picture, so it
+   comes straight after the limits.
+4. **Image-to-stage calibration** — which of the eight lossless ways of laying a
    picture down lines it up with the stage. Three pictures and a known move;
    the analysis does the looking.
-4. **Objective calibration** — where and at what height each lens looks relative
+5. **Objective calibration** — where and at what height each lens looks relative
    to one reference lens. Ideally a microscope is parcentric and parfocal and
    every offset is zero, so choosing the reference gives every other lens a
    preset at zero straight away; the reality is often otherwise, so a preset is
    refined by measuring it: the same field through each lens, and a short focus
    stack under each, the operator changing lenses by hand between the two.
-5. **Define coordinate system origin** — drive to the point the run should count from and make it
-   (0, 0, 0).
+
+How the steps lean on each other: the origin in step 3 is a recording and
+moves nothing. Step 4 moves the stage through the driver, and step 5 lays its
+pictures down with the orientation step 4 adopted. The limits apply the way a
+driver applies them, at connect: adopting them in step 2 reopens the driver's
+setup on the same configuration behind the card, which stays connected, so
+from then on the driver's own gate fences every move of steps 4 and 5. Nothing
+in the page or the seam applies limits itself.
 
 A configuration lives under the machine's root as `configuration_<datetime>/`
 (the ProgramData API root on the Leica, the machine root on the mock), holding
@@ -51,9 +60,9 @@ steps/
                      control, and what came back
   connect/           the borrowed Connect step, reworded
   stage_limits/      step 2 and its two boxes
-  image_to_stage/    step 3 and its cells
-  optics_calibration/  step 4 and its cells
-  frame_origin/      step 5 and its cells
+  frame_origin/      step 3 and its cells
+  image_to_stage/    step 4 and its cells
+  optics_calibration/  step 5 and its cells
 ```
 
 The page-side half of the seam is `../../parts/microscope/setup.js`; the

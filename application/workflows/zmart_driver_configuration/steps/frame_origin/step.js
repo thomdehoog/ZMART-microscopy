@@ -1,5 +1,5 @@
 /**
- * Step 5 — Define coordinate system origin.
+ * Step 3 — Define coordinate system origin.
  *
  * The origin is the point the run counts from. Once it is set, the position
  * the stage reports is micrometres from that point rather than from wherever
