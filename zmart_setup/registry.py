@@ -32,8 +32,10 @@ Every op takes the driver's own handle first. Required:
   ``images`` (paths in plane order), ``pixel_um``, ``frame_px`` and ``job``.
   *Raw* means before any orientation correction: measuring the orientation
   needs the pixels as the camera recorded them.
-- ``read(handle, subsystem) -> dict`` -- the document as it currently stands,
-  published or bundled default, with ``source`` saying which.
+- ``read(handle, subsystem, *, fresh=False) -> dict`` -- the document as it
+  currently stands, published or bundled default, with ``source`` saying
+  which; with ``fresh`` the bundled default regardless, which is what a
+  setup that starts over begins from.
 - ``publish(handle, subsystem, document) -> dict`` -- validate and write a dated
   snapshot; answer with where it went.
 

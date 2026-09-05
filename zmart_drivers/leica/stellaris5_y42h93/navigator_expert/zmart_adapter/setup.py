@@ -278,10 +278,20 @@ def markers(handle: SetupHandle) -> dict:
 # ---------------------------------------------------------------------------
 
 
-def read(handle: SetupHandle, subsystem: str) -> dict:
-    """The document that stands: the newest snapshot, else the bundled default."""
+def read(handle: SetupHandle, subsystem: str, *, fresh: bool = False) -> dict:
+    """The document that stands: the newest snapshot, else the bundled default
+    -- or the bundled default regardless, for a setup that starts over."""
     _require_open(handle)
     machine = _machine.MACHINE
+    if fresh:
+        if subsystem == "origin":
+            return {"document": {}, "source": "none", "path": None}
+        filename = {"limits": _machine.LIMITS_FILENAME, "orientation": _machine.ORIENTATION_FILENAME,
+                    "calibration": _machine.CALIBRATION_FILENAME}.get(subsystem)
+        if filename is None:
+            raise ValueError(f"unknown subsystem {subsystem!r}")
+        path = machine.bundled_default_path(filename)
+        return {"document": json.loads(Path(path).read_text(encoding="utf-8")), "source": "default", "path": str(path)}
     if subsystem == "origin":
         payload = machine.read_origin()
         if payload is None:
