@@ -187,7 +187,7 @@ to verify it.
 
 ## What was built, and where
 
-- **`zmart_setup/`** — the setup seam: a registry keyed the way the controller's
+- **`zmart_drivers/setup/`** — the setup seam: a registry keyed the way the controller's
   is but separate from it, a `Setup` that forwards to a driver's small
   vocabulary (where, move, acquire, objective, markers, read, publish), and
   the vendor-blind procedures that drive it: read the boundary, measure the

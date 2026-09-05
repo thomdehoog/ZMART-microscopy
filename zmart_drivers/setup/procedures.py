@@ -24,7 +24,7 @@ from typing import Any
 
 from .layer import Setup
 
-_ANALYSIS = Path(__file__).resolve().parents[1] / "zmart_analysis" / "workflows" / "driver_configuration"
+_ANALYSIS = Path(__file__).resolve().parents[2] / "zmart_analysis" / "workflows" / "driver_configuration"
 _ANALYSIS_STEPS = _ANALYSIS / "steps"
 _ANALYSIS_PIPELINES = _ANALYSIS / "pipelines"
 

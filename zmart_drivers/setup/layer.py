@@ -178,7 +178,7 @@ def _require_subsystem(subsystem: str) -> None:
 
 
 def open_setup(instrument: dict[str, Any]) -> Setup:
-    """Open one of :func:`zmart_setup.get_instruments`'s entries for configuration."""
+    """Open one of :func:`zmart_drivers.setup.get_instruments`'s entries for configuration."""
     ops, connection = resolve(instrument)
     handle = ops["open"](connection)
     context = {key: connection[key] for key in IDENTITY}

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from zmart_setup import registry
+from zmart_drivers.setup import registry
 
 
 @pytest.fixture(autouse=True)
@@ -70,9 +70,9 @@ def test_the_setup_package_never_imports_the_controller():
     import importlib
     import sys
 
-    for name in ("zmart_setup", "zmart_setup.registry", "zmart_setup.layer"):
+    for name in ("zmart_drivers.setup", "zmart_drivers.setup.registry", "zmart_drivers.setup.layer"):
         module = importlib.import_module(name)
         source = open(module.__file__, encoding="utf-8").read()
         assert "import zmart_controller" not in source
         assert "from zmart_controller" not in source
-    assert "zmart_setup" in sys.modules
+    assert "zmart_drivers.setup" in sys.modules

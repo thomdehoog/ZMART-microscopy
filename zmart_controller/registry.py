@@ -38,7 +38,7 @@ logger = logging.getLogger(__name__)
 # disconnect is optional.
 # There is deliberately no configuration op here -- no ``set_origin``, no
 # publishing of limits, orientation or calibration. Those go through
-# ``zmart_setup``, which nothing holding a Session can reach; see that
+# ``zmart_drivers.setup``, which nothing holding a Session can reach; see that
 # package's docstring for why the two doors are kept apart.
 OPS: tuple[str, ...] = (
     "connect",

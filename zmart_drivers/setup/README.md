@@ -1,4 +1,4 @@
-# zmart_setup: the door a microscope is configured through
+# zmart_drivers.setup: the door a microscope is configured through
 
 Two things happen to a microscope in this repository, and they do not share a
 door. **Driving** it, which means moving, imaging and reading its state, goes
@@ -21,12 +21,12 @@ microscope needs no change to the workflow, only a driver that plugs in.
 ## Overview
 
 ```python
-import zmart_setup
+import zmart_drivers.setup as zmart_drivers.setup
 
-instrument = zmart_setup.get_instruments()[0]          # a connection dict
-zmart_setup.get_configurations(instrument)             # the machine's configurations, newest first
+instrument = zmart_drivers.setup.get_instruments()[0]          # a connection dict
+zmart_drivers.setup.get_configurations(instrument)             # the machine's configurations, newest first
 
-setup = zmart_setup.open_setup({**instrument, "configuration": "configuration_2026-..."})
+setup = zmart_drivers.setup.open_setup({**instrument, "configuration": "configuration_2026-..."})
 setup.describe()                       # what this driver can configure, and how
 setup.where()                          # where the stage is, and every drive's reading
 setup.move(x_um, y_um, z_um)           # move, and read back where it went
@@ -36,7 +36,7 @@ setup.publish("limits", document)      # a dated snapshot in the configuration
 setup.close()
 ```
 
-`zmart_setup.procedures` holds the measurements the workflow runs against a
+`zmart_drivers.setup.procedures` holds the measurements the workflow runs against a
 setup: reading the corners, measuring the orientation, capturing a lens view,
 measuring an objective pair, reading the origin. They are written against the
 vocabulary below alone, so they work on any driver that supplies it. The image
@@ -73,7 +73,7 @@ connection dict that carries the `vendor`, `microscope` and `api` identity the
 registry keys on, plus whatever the driver needs to open:
 
 ```python
-from zmart_setup.registry import register
+from zmart_drivers.setup.registry import register
 
 register(
     {"vendor": "leica", "microscope": "stellaris5-y42h93", "api": "navigator-expert",
@@ -174,7 +174,7 @@ keeps the workflow the same on every microscope.
 ## Tests
 
 ```bash
-python -m pytest zmart_setup/tests
+python -m pytest zmart_drivers/setup/tests
 ```
 
 The tests run against the mock, which keeps its configurations under a

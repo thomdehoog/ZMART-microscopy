@@ -1351,7 +1351,7 @@ def test_placing_a_target_retries_only_a_transient_windows_file_lock(monkeypatch
 def a_mock_rig(monkeypatch, tmp_path):
     """The mock's setup, registered, with its machine root under this test."""
     from zmart_drivers.mock import mock_setup
-    from zmart_setup import registry as setup_registry
+    from zmart_drivers.setup import registry as setup_registry
 
     monkeypatch.setattr(setup_registry, "REGISTRY", {})
     monkeypatch.setenv(mock_setup.MACHINE_ROOT_ENV, str(tmp_path / "machine"))

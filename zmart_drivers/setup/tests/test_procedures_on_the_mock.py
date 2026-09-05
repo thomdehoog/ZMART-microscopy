@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 
 from zmart_drivers.mock import mock_setup
-from zmart_setup import open_setup, procedures, registry
+from zmart_drivers.setup import open_setup, procedures, registry
 
 
 @pytest.fixture

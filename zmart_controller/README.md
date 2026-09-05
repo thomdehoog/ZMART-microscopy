@@ -104,7 +104,7 @@ connection field is an explicit workflow override and remains authoritative.
 A position only means something against a frame. The origin of that frame --
 the stage position that reads as (0, 0, 0) -- is part of the machine's
 published configuration, alongside its limits, its stage-to-image orientation
-and its objective calibration. It is set through `zmart_setup` (the ZMART driver
+and its objective calibration. It is set through `zmart_drivers.setup` (the ZMART driver
 configuration workflow on the operator page) and read by the driver at connect.
 There is deliberately no way to set it from a session: a run that could move
 the point it counts from would silently redefine every position it had already

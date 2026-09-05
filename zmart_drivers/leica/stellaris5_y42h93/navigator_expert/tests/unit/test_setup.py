@@ -18,7 +18,7 @@ from unittest.mock import patch
 from navigator_expert.config.machine import MachineProfile, is_snapshot_name
 from navigator_expert.zmart_adapter import setup as leica_setup
 from navigator_expert.zmart_adapter import zmart_adapter as adapter
-from zmart_setup import registry as setup_registry
+from zmart_drivers.setup import registry as setup_registry
 
 
 def _settings(z_wide_um=50.0, z_galvo_um=0.0, slot=3):
