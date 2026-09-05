@@ -1531,8 +1531,9 @@ class _Bridge(BaseHTTPRequestHandler):
             elif path.startswith("/api/setup/picture/"):
                 _send_setup_picture(self, path)
             elif path.startswith("/api/setup/read/"):
+                fresh = any(pair in ("fresh=1", "fresh=true") for pair in query.split("&"))
                 with _setups_turn:
-                    self._answer(_require_setup().read(path.rsplit("/", 1)[-1]))
+                    self._answer(_require_setup().read(path.rsplit("/", 1)[-1], fresh=fresh))
             elif path == "/api/info":
                 # The driver's account of the session: its connection checks
                 # (polled while they answer), the canvas, the setup.

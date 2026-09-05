@@ -95,9 +95,14 @@ class Setup:
 
     # --- the four documents ----------------------------------------------
 
-    def read(self, subsystem: str) -> dict:
+    def read(self, subsystem: str, *, fresh: bool = False) -> dict:
+        """The document as it stands -- or, with ``fresh``, the driver's own
+        default for it, as a new setup starts from rather than editing what a
+        previous one published."""
         self._require_open()
         _require_subsystem(subsystem)
+        if fresh:
+            return self._ops["read"](self._handle, subsystem, fresh=True)
         return self._ops["read"](self._handle, subsystem)
 
     def publish(self, subsystem: str, document: dict) -> dict:

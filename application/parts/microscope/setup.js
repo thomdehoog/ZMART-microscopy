@@ -44,9 +44,11 @@ export const setupBackend = {
     return ask("/api/setup/move", { x_um, y_um, z_um });
   },
 
-  /** The document that stands for one subsystem, and where it came from. */
-  async read(subsystem) {
-    return ask(`/api/setup/read/${subsystem}`);
+  /** The document that stands for one subsystem, and where it came from --
+      or, with `fresh`, the driver's default for it, as a setup that starts
+      over begins from. */
+  async read(subsystem, { fresh = false } = {}) {
+    return ask(`/api/setup/read/${subsystem}${fresh ? "?fresh=1" : ""}`);
   },
 
   /** Run one of the measuring procedures: `boundary`, `orientation`, `lens`

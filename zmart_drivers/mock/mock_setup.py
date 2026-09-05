@@ -392,12 +392,13 @@ def _default(subsystem: str) -> dict:
     return {}
 
 
-def read(handle: SetupHandle, subsystem: str) -> dict:
-    """The document as it stands: the newest snapshot, else the bundled default."""
+def read(handle: SetupHandle, subsystem: str, *, fresh: bool = False) -> dict:
+    """The document as it stands: the newest snapshot, else the bundled
+    default -- or the default regardless, for a setup that starts over."""
     _require_open(handle)
     if subsystem not in SUBSYSTEM_FILES:
         raise ValueError(f"unknown subsystem {subsystem!r}")
-    found = snapshots(handle.root, subsystem)
+    found = [] if fresh else snapshots(handle.root, subsystem)
     if found:
         document = json.loads((found[-1] / SUBSYSTEM_FILES[subsystem]).read_text(encoding="utf-8"))
         return {"document": document, "source": "published", "path": str(found[-1])}

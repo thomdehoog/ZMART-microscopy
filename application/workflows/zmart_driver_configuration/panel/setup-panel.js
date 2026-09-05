@@ -88,6 +88,10 @@ export const setupPanel = {
         .setup-picture { display: block; width: 100%; margin: 4px 0 0;
                          border: 1px solid var(--line); border-radius: 6px; background: #fff; }
         .setup-foot { padding: 4px 0 0; }
+        /* The two ways a setup may begin, one per line, the choice first. */
+        .setup-choices { display: flex; flex-direction: column; gap: 6px; }
+        .setup-choice { display: flex; align-items: baseline; gap: 8px; font-size: 13px; cursor: pointer; }
+        .setup-choice-said { color: var(--ink-3); }
       </style>
       <div class="setup-notebook">
         <!-- The column of cells. The shell fills this; what goes in it is the

@@ -132,3 +132,11 @@ def test_each_publish_is_a_new_dated_snapshot_and_the_newest_stands(setup):
     assert first["snapshot"] != second["snapshot"]
     assert setup.read("origin")["document"]["x_um"] == 4
     assert len(mock_setup.snapshots(mock_setup.where_the_machine_is(), "origin")) == 2
+
+
+def test_a_setup_that_starts_over_reads_the_defaults_not_what_stands(setup):
+    setup.publish("orientation", {"rotation_deg": 90, "reflection": False})
+    assert setup.read("orientation")["document"]["rotation_deg"] == 90
+    fresh = setup.read("orientation", fresh=True)
+    assert fresh["source"] == "default"
+    assert fresh["document"]["measured"] is False

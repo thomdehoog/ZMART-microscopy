@@ -1585,7 +1585,10 @@ let stageWatch = null;
   let setupRun = newSetupRun();
   function newSetupRun() {
     return { held: {}, views: {}, here: null, hereProblem: null, moveUm: 40,
-      limitsDoc: null, standing: {}, published: {}, describe: null };
+      limitsDoc: null, standing: {}, published: {}, describe: null,
+      /* Whether this setup edits what the machine has published ("edit") or
+         starts over from the driver's defaults ("new"). Chosen at Connect. */
+      mode: "edit" };
   }
 
   /* After a setup opens: what the driver says about itself, what stands for
@@ -1594,8 +1597,9 @@ let stageWatch = null;
   async function primeSetupRun(info) {
     const seam = backend.setup;
     setupRun.describe = info?.describe ?? (await seam.status())?.describe ?? null;
+    const fresh = setupRun.mode === "new";
     for (const name of ["limits", "orientation", "calibration", "origin"]) {
-      try { setupRun.standing[name] = await seam.read(name); } catch (why) { setupRun.standing[name] = null; }
+      try { setupRun.standing[name] = await seam.read(name, { fresh }); } catch (why) { setupRun.standing[name] = null; }
     }
     setupRun.limitsDoc = setupRun.standing.limits?.document
       ? JSON.parse(JSON.stringify(setupRun.standing.limits.document)) : null;
@@ -1634,6 +1638,17 @@ let stageWatch = null;
       limits: () => setupRun.limitsDoc,
       edit: (key, value) => { if (setupRun.limitsDoc) setupRun.limitsDoc[key] = value; },
       publishedNote: () => setupRun.published[s.id] ?? null,
+      mode: () => setupRun.mode,
+      /* Changing the choice after connecting re-reads what the steps start
+         from; before connecting it is simply remembered for the connect. */
+      setMode: async (mode) => {
+        setupRun.mode = mode;
+        if (state.done.has("connect") && backend.kind === "setup") {
+          setupRun.limitsDoc = null;
+          await primeSetupRun(null);
+        }
+      },
+      connected: () => state.done.has("connect"),
       /* After a publish, what stands is what was just written; the cell
          reads it back rather than remembering, so the sentence about it is
          the driver's word and not the page's. */
@@ -2071,6 +2086,12 @@ let stageWatch = null;
     const pad = document.createElement("div");
     pad.className = "side-pad";
     card(pad);
+    /* A workflow's own step may add to the card -- the driver-setup
+       workflow asks, under Connect, whether this setup starts over or edits
+       what the machine already has, because that is decided before anything
+       is read. */
+    const s = step(state.activeIdx);
+    if (s.channel) s.channel.mount(pad, channelContextFor(s));
     host.append(pad);
   }
 
