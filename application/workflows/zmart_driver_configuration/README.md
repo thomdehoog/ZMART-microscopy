@@ -2,14 +2,14 @@
 
 Five steps, walked before any imaging workflow can stand on the machine:
 
-1. **Connect** — open the driver's *setup*, then choose the **configuration**
-   to work in: reopen one to see and edit what it holds, or start a new one
-   as a full copy of the newest. A configuration is one folder the machine
-   keeps, named by the moment it was started, holding its limits, orientation,
-   objective calibration and origin together. Every step after Connect starts
-   from what the chosen configuration holds, and each Save and adopt writes
-   into it. The same step target acquisition
-   starts with, borrowed unchanged; only the backend behind it differs.
+1. **Connect** — the same card target acquisition starts with: the microscope,
+   its API, the password, and the **configuration** to work in. The list is
+   the machine's configurations, newest first, with one more choice here:
+   *New configuration*, which starts one as a full copy of the newest. A
+   configuration is one folder the machine keeps, named by the moment it was
+   started, holding its limits, orientation, objective calibration and origin
+   together. Every step after Connect starts from what the chosen
+   configuration holds, and each Save and adopt writes into it.
 2. **Define limits** — how far the stage may travel, which objective slots
    automation may use, and a permitted value or range for each setting the
    driver can change. Two boxes: one that reads the corners the operator
@@ -23,7 +23,7 @@ Five steps, walked before any imaging workflow can stand on the machine:
    preset at zero straight away; the reality is often otherwise, so a preset is
    refined by measuring it: the same field through each lens, and a short focus
    stack under each, the operator changing lenses by hand between the two.
-5. **Define origin** — drive to the point the run should count from and make it
+5. **Define coordinate system origin** — drive to the point the run should count from and make it
    (0, 0, 0).
 
 A configuration lives under the machine's root as `configuration_<datetime>/`

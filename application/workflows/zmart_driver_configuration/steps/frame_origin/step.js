@@ -1,5 +1,5 @@
 /**
- * Step 5 — Define origin.
+ * Step 5 — Define coordinate system origin.
  *
  * The origin is the point the run counts from. Once it is set, the position
  * the stage reports is micrometres from that point rather than from wherever
@@ -28,7 +28,7 @@ import channel from "./channel.js";
 
 export const frameOrigin = {
   id: "origin",
-  title: "Define origin",
+  title: "Define coordinate system origin",
   why: "Drive to the point the run should count from and make it (0, 0, 0) — "
     + "positions are micrometres from there.",
   panels: ["setup"],

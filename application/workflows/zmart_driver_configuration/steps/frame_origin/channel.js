@@ -18,7 +18,7 @@ const reading = (a) => `${Number(a.value).toFixed(2)} ${a.unit ?? ""}`.trim();
 
 export default {
   id: "origin",
-  label: "Define origin",
+  label: "Define coordinate system origin",
 
   mount(host, ctx) {
     if (!ctx.supported()) {

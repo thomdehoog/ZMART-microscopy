@@ -393,8 +393,10 @@ let stageWatch = null;
     }
     return backend.configurations(connection).then((list) => {
       state.configurations = list ?? [];
-      if (!state.configurations.some((c) => c.id === state.session.configuration)) {
-        state.session.configuration = state.configurations[0]?.id ?? null;
+      const offersNew = Boolean(backend.offersNewConfiguration);
+      const chosen = state.session.configuration;
+      if (!(chosen === "new" && offersNew) && !state.configurations.some((c) => c.id === chosen)) {
+        state.session.configuration = state.configurations[0]?.id ?? (offersNew ? "new" : null);
       }
       renderSetup(); renderActionBar();
     }).catch((why) => {
@@ -1665,10 +1667,15 @@ let stageWatch = null;
     const seam = backend.setup;
     setupRun.describe = info?.describe ?? (await seam.status())?.describe ?? null;
     try {
-      const listed = await seam.configurations();
+      const listed = await seam.standingConfiguration();
       setupRun.configurations = listed.configurations ?? [];
       setupRun.configuration = listed.current ?? setupRun.configuration;
-    } catch (why) { setupRun.configurations = []; }
+    } catch (why) { setupRun.configurations = []; console.warn(`could not read the configuration: ${why.message}`); }
+    /* A step the configuration already holds a document for counts as done,
+       so a reopened configuration can be walked to any step and edited. */
+    for (const [id, held] of Object.entries(setupRun.configuration?.has ?? {})) {
+      if (held && steps().some((st) => st.id === id)) { state.done.add(id); state.notes[id] = "in the configuration"; }
+    }
     /* What each step starts from: what the driver reads inside the
        configuration being stood on -- published there, or its default. */
     for (const name of ["limits", "orientation", "calibration", "origin"]) {
@@ -1701,24 +1708,6 @@ let stageWatch = null;
     if (standing?.measured) return { rotation_deg: standing.rotation_deg, reflection: standing.reflection };
     return null;
   };
-
-  /* Entering a configuration: the run starts over from what it holds, with
-     the connect step still done and everything after it fresh. A step the
-     configuration already holds a document for counts as done, so a
-     reopened one can be walked to any step and edited there. */
-  async function enterConfiguration(record) {
-    const describe = setupRun.describe;
-    setupRun = newSetupRun();
-    setupRun.describe = describe;
-    setupRun.configuration = record;
-    for (const id of [...state.done]) if (id !== "connect") { state.done.delete(id); state.ran.delete(id); delete state.notes[id]; }
-    await primeSetupRun(null);
-    for (const [id, held] of Object.entries(record.has ?? {})) {
-      if (!held || !steps().some((st) => st.id === id)) continue;
-      state.done.add(id);
-      state.notes[id] = "in the configuration";
-    }
-  }
 
   /* A configuration step's channel, or -- before a configuration is chosen
      under Connect -- the one sentence saying so, since every step starts
@@ -1783,19 +1772,8 @@ let stageWatch = null;
           preset.state = "measured";
         }
       },
-      /* The configuration this run works in, the ones the machine has, and
-         the two ways to get one. Choosing either re-reads what every step
-         starts from, and forgets what this run measured so far. */
+      /* The configuration this run works in, chosen on the connect card. */
       configuration: () => setupRun.configuration,
-      configurations: () => setupRun.configurations,
-      chooseConfiguration: async (id) => {
-        const record = await backend.setup.openConfiguration(id);
-        await enterConfiguration(record);
-      },
-      startConfiguration: async () => {
-        const record = await backend.setup.newConfiguration();
-        await enterConfiguration(record);
-      },
       connected: () => state.done.has("connect"),
       /* After a publish, what stands is what was just written; the cell
          reads it back rather than remembering, so the sentence about it is
@@ -2204,6 +2182,7 @@ let stageWatch = null;
         checks: () => state.checks,
         chosenMicroscope, chosenConnection,
         configurations: backend.configurations ? () => state.configurations : null,
+        offersNewConfiguration: () => Boolean(backend.offersNewConfiguration),
         connect: () => runStep(indexOfStep("connect")),
         /* Closing takes the run with it, for the reason resetRun gives:
            everything after this was read off this session. It works while
@@ -2216,6 +2195,9 @@ let stageWatch = null;
           thePicture.reset();
           stage.forgetTheCanvas();
           renderAll();
+          /* The machine may have gained a configuration while connected --
+             the one just made -- so the card's list is read again. */
+          listConfigurations();
         },
         changed: () => { renderSetup(); renderActionBar(); listConfigurations(); },
       });
@@ -2235,9 +2217,7 @@ let stageWatch = null;
     const pad = document.createElement("div");
     pad.className = "side-pad";
     card(pad);
-    /* A workflow's own step may add to the card -- the driver-configuration
-       workflow asks, under Connect, which configuration to work in, because
-       every step after it starts from what that configuration holds. */
+    /* A workflow's own step may add to the card. */
     const s = step(state.activeIdx);
     if (s.channel) mountChannel(pad, s);
     host.append(pad);

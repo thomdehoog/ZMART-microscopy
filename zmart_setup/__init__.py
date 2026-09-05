@@ -35,6 +35,6 @@ University of Zurich (thom.dehoog@zmb.uzh.ch, thomdehoog@gmail.com).
 
 from .layer import Setup, open_setup
 from . import procedures
-from .registry import SUBSYSTEMS, get_instruments, register
+from .registry import SUBSYSTEMS, get_configurations, get_instruments, register
 
-__all__ = ["SUBSYSTEMS", "Setup", "get_instruments", "open_setup", "procedures", "register"]
+__all__ = ["SUBSYSTEMS", "Setup", "get_configurations", "get_instruments", "open_setup", "procedures", "register"]

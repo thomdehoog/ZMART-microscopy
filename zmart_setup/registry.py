@@ -138,6 +138,16 @@ def get_instruments() -> list[dict[str, Any]]:
     return [dict(entry["connection"]) for entry in REGISTRY.values()]
 
 
+def get_configurations(connection: dict[str, Any]) -> list[dict[str, Any]]:
+    """The configurations a machine keeps, newest first, touching no hardware
+    -- so a connect card can offer them before anything is opened. A driver
+    that keeps none lists none."""
+    ops, resolved = resolve(connection)
+    if "configurations" not in ops:
+        return []
+    return list(ops["configurations"](resolved))
+
+
 def resolve(connection: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
     """The ops table registered for this identity, and the connection to open with.
 

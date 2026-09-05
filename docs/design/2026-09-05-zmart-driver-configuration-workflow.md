@@ -32,7 +32,7 @@ Five steps, in order:
    every other lens a preset at that ideal, and measuring a preset replaces the
    ideal with what the microscope actually does. Changing the reference starts
    the presets over, because every offset was relative to it.
-5. **Define origin** — the point the run counts from. Once set, reported
+5. **Define coordinate system origin** — the point the run counts from. Once set, reported
    positions are micrometres from there. Like the three above it, this is
    published by the driver rather than reached through the controller; see
    the boundary section below.
@@ -252,6 +252,9 @@ without an envelope -- the driver's own setup may connect without, which is
 why the refusal is the controller's. The connect card lists the machine's
 configurations newest first, the newest selected, and locks the choice with
 the rest once the session is open: a session cannot change what it stands on.
+The driver configuration workflow uses the very same card, with one more
+choice in the list, *New configuration*; so the two workflows connect alike,
+and the only difference is what may be chosen.
 
 The driver change for this is one method: the machine profile's
 `snapshot_root()` answers with the configuration folder rather than the API

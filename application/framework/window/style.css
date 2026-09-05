@@ -188,10 +188,10 @@
   display: grid;
   /* narrow: the rail is navigation, and every pixel it gives up goes to the
      stage and the channel */
-  /* Wide enough for the longest workflow name the chooser holds —
-     "Target acquisition prototype" — without the ellipsis that made the
-     run's three variants read identically when the chooser is closed. */
-  grid-template-columns: minmax(196px, 284px) 1fr;
+  /* Wide enough for the longest workflow name the chooser holds --
+     "ZMART driver configuration" -- to read in full when the chooser is
+     closed, so the two workflows are told apart at a glance. */
+  grid-template-columns: minmax(220px, 320px) 1fr;
   flex: 1;
   min-height: 0;
 }
@@ -1355,7 +1355,9 @@ canvas.livecv[hidden] { display: none; }
    --brand is its own token — point it at the institute's blue when the real
    brand values are to hand and nothing else has to change. */
 :root { --brand: var(--accent-deep); }
-.wf-box { justify-content: space-between; padding-top: 8px; padding-bottom: 10px; }
+/* Room between the name of the program and the workflow chooser under it:
+   the top of the rail breathes rather than stacking the two. */
+.wf-box { justify-content: space-between; padding-top: 14px; padding-bottom: 14px; gap: 14px; }
 .brand { display: flex; align-items: baseline; gap: 6px; user-select: none; }
 .brand-mark {
   font-size: 21px; font-weight: 750; letter-spacing: -0.02em;

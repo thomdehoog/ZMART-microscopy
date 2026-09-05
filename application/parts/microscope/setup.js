@@ -72,7 +72,9 @@ export const setupBackend = {
 
   /** The configurations this machine keeps, newest first, and the one the
       setup stands on, if chosen. */
-  async configurations() {
+  /** The configurations the open setup's machine keeps, and the one being
+      stood on -- read once the driver is open. */
+  async standingConfiguration() {
     return ask("/api/setup/configurations");
   },
 
@@ -107,12 +109,23 @@ export const setupAsBackend = {
     return setupBackend.instruments();
   },
 
-  /* No configuration dropdown on the card: the setup chooses its own, under
-     Connect, once the driver is open and can list them. */
-  configurations: null,
+  /** The configurations a machine keeps, listed before opening it, so the
+      card offers them beside "New configuration". */
+  async configurations(connection) {
+    return (await ask("/api/setup/configurations", { connection })).configurations;
+  },
+
+  /* The card lists "New configuration" among the choices for this backend:
+     a setup may start one, where a session may only stand on one. */
+  offersNewConfiguration: true,
 
   async connect(session, { onChecks, onCheck } = {}) {
-    const opened = await setupBackend.open({ ...session?.connection, password: session?.password });
+    /* The password and the configuration travel with the connection, as
+       they do for a session: the configuration is an id to reopen, or
+       "new" to start one as a copy of the newest. */
+    const opened = await setupBackend.open({
+      ...session?.connection, password: session?.password, configuration: session?.configuration,
+    });
     const checks = opened.describe?.checks ?? {};
     const keys = Object.keys(checks);
     onChecks?.(keys);

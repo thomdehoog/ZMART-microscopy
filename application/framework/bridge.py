@@ -337,6 +337,14 @@ def _setup_open(asked: dict) -> dict:
         _setup.close()
         _setup = None
     _setup = zmart_setup.open_setup(connection)
+    # The configuration to work in comes with the connection, the way the
+    # controller's does: an id to reopen, or "new" to start one as a copy of
+    # the newest. Chosen on the connect card, so both workflows connect alike.
+    chosen = connection.get("configuration")
+    if chosen == "new":
+        _setup.new_configuration()
+    elif chosen:
+        _setup.use_configuration(str(chosen))
     root = Path(_output_root or connection.get("output_root") or "setup-pictures")
     _setup_pictures = root / "driver-setup" / time.strftime("%Y-%m-%dT%H-%M-%S")
     _setup_pictures.mkdir(parents=True, exist_ok=True)
@@ -1715,6 +1723,8 @@ class _Bridge(BaseHTTPRequestHandler):
             elif self.path == "/api/setup/measure":
                 with _setups_turn:
                     self._answer(_setup_measure(asked))
+            elif self.path == "/api/setup/configurations":
+                self._answer({"configurations": zmart_setup.get_configurations(asked["connection"])})
             elif self.path == "/api/setup/configuration":
                 with _setups_turn:
                     self._answer(_setup_configuration(asked))
