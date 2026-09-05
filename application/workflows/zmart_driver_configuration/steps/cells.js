@@ -94,3 +94,31 @@ export function picture(url, alt) {
   img.alt = alt;
   return img;
 }
+
+/** A part inside a card: a tinted sub-box with a heading, numbered when
+    the card holds several in turn, so a box inside a box changes shade and
+    reads as one thing at a glance. Returns the element to fill. */
+export function part(host, title, { number = null, prose = null } = {}) {
+  const box = document.createElement("div");
+  box.className = "setup-part";
+  const h = document.createElement("div");
+  h.className = "setup-part-title";
+  if (number !== null) {
+    const n = document.createElement("span");
+    n.className = "setup-part-number";
+    n.textContent = String(number);
+    h.append(n);
+  }
+  const t = document.createElement("span");
+  t.textContent = title;
+  h.append(t);
+  box.append(h);
+  if (prose) {
+    const p = document.createElement("p");
+    p.className = "side-note";
+    p.textContent = prose;
+    box.append(p);
+  }
+  host.append(box);
+  return box;
+}

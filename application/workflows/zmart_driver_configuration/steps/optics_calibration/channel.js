@@ -25,7 +25,7 @@
  * the driver's own shape: the reference at zero, each target relative to it.
  */
 
-import { cell, note, picture, press, publishRow } from "../cells.js";
+import { cell, note, part, picture, press, publishRow } from "../cells.js";
 
 const lensLabel = (lens) => (lens ? `slot ${lens.slot} · ${lens.name}` : "—");
 const signed = (v, d = 2) => (v === null || v === undefined ? "—" : `${v >= 0 ? "+" : ""}${Number(v).toFixed(d)}`);
@@ -35,28 +35,6 @@ const stateText = (preset) => ({
   published: "held",
   measured: "measured",
 }[preset.state] ?? preset.state);
-
-/** A part of the second card: a tinted sub-box with a numbered heading, so
-    the three parts -- focus, X/Y, confirmation -- read as three things at a
-    glance. Returns the element to put the part's contents in. */
-function part(host, number, title, prose = null) {
-  const box = document.createElement("div");
-  box.className = "setup-part";
-  const h = document.createElement("div");
-  h.className = "setup-part-title";
-  h.innerHTML = `<span class="setup-part-number"></span><span></span>`;
-  h.firstChild.textContent = String(number);
-  h.lastChild.textContent = title;
-  box.append(h);
-  if (prose) {
-    const p = document.createElement("p");
-    p.className = "side-note";
-    p.textContent = prose;
-    box.append(p);
-  }
-  host.append(box);
-  return box;
-}
 
 export default {
   id: "calibration",
@@ -146,9 +124,9 @@ export default {
       const keptAs = (what) => kept[`${cal.reference}-${cal.current}-${what}.png`] ?? null;
 
       /* focus: the reference and the target, each its own curve */
-      const focus = part(work.body, 1, "Focus (Z)",
+      const focus = part(work.body, "Focus (Z)", { number: 1, prose:
         `Focus with the ${reference?.name ?? "reference"} and measure. Switch to the ${target?.name ?? "target"}, `
-        + "refocus without moving X/Y, and measure again.");
+        + "refocus without moving X/Y, and measure again." });
       for (const [side, lens] of [["reference", reference], ["target", target]]) {
         const view = current.views?.[side];
         const r = document.createElement("div");
@@ -181,7 +159,7 @@ export default {
       }
 
       /* X/Y: the offset, from matching the two images pixel by pixel */
-      const xy = part(work.body, 2, "X/Y");
+      const xy = part(work.body, "X/Y", { number: 2 });
       const ready = current.views?.reference && current.views?.target
         && !current.views.reference.failed && !current.views.target.failed;
       xy.append(press("Measure X/Y", async () => {
@@ -211,8 +189,8 @@ export default {
     /* the confirmation: this set's X, Y and Z, and adopting */
     const standing = ctx.standing();
     {
-      const confirm = part(work.body, 3, "Confirmation",
-        `${target?.name ?? "target"} relative to ${reference?.name ?? "reference"}. Save and adopt publishes every preset.`);
+      const confirm = part(work.body, "Confirmation", { number: 3, prose:
+        `${target?.name ?? "target"} relative to ${reference?.name ?? "reference"}. Save and adopt publishes every preset.` });
       const tiles = document.createElement("div");
       tiles.className = "setup-xyz";
       const t = current.translation_um;
