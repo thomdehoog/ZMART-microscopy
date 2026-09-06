@@ -298,12 +298,21 @@ def _the_pixel_size_of(ome_xml: str) -> tuple[float, float]:
 
 
 def _the_z_model(record: dict, planes: list[dict]) -> dict:
-    """The reversible 2-D display anchor and untouched acquisition-Z evidence.
+    """Where the stack stands in the shared picture, and the raw Z it came from.
+
+    Every stack is stood on the table: its **lowest plane** -- the one taken at
+    the lowest stage Z -- lands on display z = 0, and the rest of the stack
+    rises above it at the spacing it was acquired with. A flat capture, a
+    single plane, lies on the table too. So whichever stacks a run gathers,
+    the Z slider under the picture starts at the bottom of every one of them,
+    and two stacks of different heights can be compared plane by plane from
+    the bottom up. Where each plane really was on the stage is kept beside
+    it, untouched, as provenance: raw stage or focus Z is never taken for the
+    specimen's own depth.
 
     Array order comes from the record's z indices. Its signed spacing is kept:
-    a stack acquired downwards remains a downward stack. The one placement
-    operation maps an explicitly resolved source-local voxel centre to display
-    z=0; raw stage/focus Z is provenance, never asserted to be specimen Z.
+    a stack acquired downwards remains a downward stack, so the lowest plane
+    is then the last one in the array rather than the first.
     """
     numbered = sorted({int(plane.get("z", 0)) for plane in planes})
     centres: list[float | None] = []
@@ -317,7 +326,6 @@ def _the_z_model(record: dict, planes: list[dict]) -> dict:
         ]
         centres.append(float(np.median(found)) if found else None)
 
-    known = [(index, value) for index, value in enumerate(centres) if value is not None]
     adjacent_steps = [
         centres[index + 1] - centres[index]
         for index in range(len(centres) - 1)
@@ -337,18 +345,14 @@ def _the_z_model(record: dict, planes: list[dict]) -> dict:
     if len(numbered) == 1:
         anchor = 0
         resolved_by = "only-voxel-center"
-        legacy_fallback = False
-    elif requested_z is not None and known:
-        anchor = min(known, key=lambda item: abs(item[1] - requested_z))[0]
-        resolved_by = "requested-stage-focus-z"
-        legacy_fallback = False
     else:
-        # Old records do not state which stack plane was the reference. Resolve
-        # their historical middle-plane convention once, write that decision
-        # into the store, and never let Viewer source arrival order choose it.
-        anchor = len(numbered) // 2
-        resolved_by = "legacy-middle-plane"
-        legacy_fallback = True
+        # The lowest plane of the stack. With an increasing spacing that is
+        # the first plane in the array; a stack acquired downwards holds its
+        # lowest plane last. Decided here, once, and written into the store,
+        # so the viewer never has to guess it from whichever source arrived
+        # first.
+        anchor = 0 if spacing > 0 else len(numbered) - 1
+        resolved_by = "table-lowest-plane"
 
     return {
         "model": "zmart-microscopy-2d-display-anchor-v1",
@@ -358,7 +362,7 @@ def _the_z_model(record: dict, planes: list[dict]) -> dict:
             "voxel_index": anchor,
             "coordinate_um": 0.0,
             "resolved_by": resolved_by,
-            "legacy_fallback": legacy_fallback,
+            "legacy_fallback": False,
         },
         "source_local": {
             "plane_order": numbered,
@@ -391,9 +395,9 @@ def _the_corner_of(
     The record's stage point is the centre of the frame; the store's
     convention is the corner of the first voxel along the sample.
 
-    The z origin was resolved once by :func:`_the_z_model`: it maps the chosen
-    source-local anchor centre to the shared 2-D display plane without treating
-    raw stage/focus Z as registered specimen geometry.
+    The z origin was decided once by :func:`_the_z_model`: it puts the
+    stack's lowest plane on display z = 0, the table every stack stands on,
+    without treating raw stage/focus Z as the specimen's own depth.
     """
     x_um = float(planes[0].get("x_um") or 0.0)
     y_um = float(planes[0].get("y_um") or 0.0)

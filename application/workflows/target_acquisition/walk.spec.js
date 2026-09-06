@@ -24,7 +24,7 @@ import os from "node:os";
 import path from "node:path";
 import { operateTheInstrument, rest, showTheChannel, startTheBridge }
   from "./steps/scan_the_overview/live-bridge.js";
-import { photograph } from "./steps/scan_the_overview/pixels.js";
+import { fractionLit, photograph } from "./steps/scan_the_overview/pixels.js";
 
 /** How coloured a photograph is: the mean gap between a pixel's strongest
  * and weakest channel. Zero for a grey picture. */
@@ -173,9 +173,17 @@ test.describe("the target acquisition workflow, walked screen by screen", () => 
          does not. Moved to the top of the stack and back. */
       await expect(page.locator("#axis-z")).toBeVisible({ timeout: 30_000 });
       await expect(page.locator("#axis-t")).toBeHidden();
+      /* Every stack stands on the table, so the picture opens at the bottom
+         plane; and the flat overview stays in view at the top of the stacks,
+         as it lies on the table too. */
+      await expect(page.locator("#plane-readout")).toContainText("plane 1 of");
+      const atTheBottom = fractionLit(await photograph(page, "#picture-host", 1));
+      expect(atTheBottom, "the overview is lit at the bottom").toBeGreaterThan(0.01);
       await page.locator("#plane").evaluate((s) => { s.value = s.max; s.dispatchEvent(new Event("input", { bubbles: true })); });
       await rest(1500);
       await shot(page, "scan-done-z-top");
+      const atTheTop = fractionLit(await photograph(page, "#picture-host", 1));
+      expect(atTheTop, "the overview is still lit at the top of the stacks").toBeGreaterThan(atTheBottom * 0.5);
       await page.locator("#plane").evaluate((s) => { s.value = s.min; s.dispatchEvent(new Event("input", { bubbles: true })); });
       await rest(800);
       /* The row's chips: the overview's channels, each a dot and a name.

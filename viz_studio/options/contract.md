@@ -32,8 +32,11 @@ exactly one thing:
  *   coverage      the imaged regions, as `zmart_storage/coverage.py` records them,
  *                 or null when the run keeps no record
  *   background    the page colour, so the seam never shows
- *   presentation  `"2d-overlay"` when source-declared anchor planes share z=0;
- *                 navigation selects that plane but never changes placement
+ *   presentation  `"2d-overlay"` when the sources stand on one table: every
+ *                 stack's lowest plane at z=0, as the run's writer places them.
+ *                 The picture opens on that plane, and a flat source (one
+ *                 plane) stays in view at every depth; navigation never
+ *                 changes a placement
  *   onViewChanged called whenever the view settles, with the same record
  *                 `whereThingsAreDrawn()` gives back
  * @returns {Promise<Viewer>}

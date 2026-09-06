@@ -115,6 +115,7 @@ import {
 } from "neuroglancer/unstable/ui/default_input_event_bindings.js";
 import "neuroglancer/unstable/kvstore/enabled_frontend_modules.js";
 import { makeMinimalViewer } from "neuroglancer/unstable/ui/minimal_viewer.js";
+import { makeCoordinateSpace, newDimensionId } from "neuroglancer/unstable/coordinate_transform.js";
 import { makeLayer, deleteLayer } from "neuroglancer/unstable/layer/index.js";
 import "neuroglancer/unstable/ui/default_viewer.css";
 import "./engine-chrome.css";
@@ -203,9 +204,12 @@ const SLACK_AROUND_THE_IMAGED_GROUND = 64;
  *                   `whereThingsAreDrawn()` gives back: the centre and zoom in
  *                   micrometres, the size of the box, and `project`/`unproject`
  *                   for placing ordinary HTML elements in the same coordinates.
- *   `presentation`  `"2d-overlay"` selects the display-anchor plane z=0 already
- *                   encoded by each source. It changes navigation only; source
- *                   transforms remain authoritative for placement.
+ *   `presentation`  `"2d-overlay"` for sources that stand on one table: the
+ *                   run's writer puts every stack's lowest plane at z=0, so the
+ *                   picture opens there, and a flat source is kept in view at
+ *                   every depth (`withItsDepthKeptToItself`). It changes
+ *                   navigation and how a flat source's depth is read, never
+ *                   where a source is placed.
  * @returns {Promise<Viewer>} the handle; see `../contract.md` for what it offers.
  *
  * It can fail in two ways worth knowing about: an address without a scheme is
@@ -291,6 +295,9 @@ export async function openViewer(element, options = {}) {
     // The load states already moved back to the corner of their first voxel,
     // so a source is corrected once however many times the sources change.
     correctedLoadStates: new WeakSet(),
+    // Whether the picture has been opened at the bottom of its stacks yet;
+    // see `standOnTheTable`.
+    stoodOnTheTable: false,
     // The pieces of picture that have been superseded but are still on screen,
     // one set of piece names per source the engine reads from. See
     // `keepShowingThePictureWhileTheNewOneArrives` for what they are for; the
@@ -1194,10 +1201,27 @@ function pinTheAxesThatMeasureDistance(viewer) {
   if (distances.length < 2) return;
   // Width first, depth last. An OME-Zarr image lists its distance axes
   // slowest-changing first — depth, height, width — so reversing them is what
-  // puts width across the window and depth into the screen.
-  const facing = distances.slice(0, 3).reverse();
+  // puts width across the window and depth into the screen. The axes are
+  // taken by name where they carry the usual ones, because they do not
+  // always arrive in that order: a flat overview brings only width and
+  // height (its depth stays its own, see
+  // `countFromTheCornerOfTheVoxelRatherThanItsMiddle`), and the depth of a
+  // stack that lands later is listed after them.
+  const usual = ["x", "y", "z"];
+  const facing = distances.every((name) => usual.includes(name))
+    ? usual.filter((name) => distances.includes(name))
+    : distances.slice(0, 3).reverse();
+  // Called again whenever a source lands, so a depth that arrives after the
+  // first pinning is taken into the screen too; the engine keeps the axes it
+  // was given by name and would leave a later depth unseen. Left alone when
+  // nothing has changed, so that this does not disturb the view.
+  const { displayDimensions } = viewer.navigationState.pose;
+  const now = Array.from(displayDimensions.value?.displayDimensionIndices ?? [])
+    .filter((at) => at >= 0)
+    .map((at) => space.names[at]);
+  if (now.length === facing.length && now.every((name, at) => name === facing[at])) return;
   try {
-    viewer.navigationState.pose.displayDimensions.restoreState(facing);
+    displayDimensions.restoreState(facing);
   } catch {
     // An engine that will not take them leaves the view as it was rather than
     // leaving the page broken. This runs while an operator is waiting for their
@@ -1341,9 +1365,87 @@ function countFromTheCornerOfTheVoxelRatherThanItsMiddle(own) {
         anythingMoved = true;
       }
       own.correctedLoadStates.add(loadState);
-      if (anythingMoved) placing.value = { ...placed, transform: moved };
+      /* A flat picture lies on the table and is seen from every height. */
+      const outputs = isOnePlaneDeep(placed) ? withItsDepthKeptToItself(outputSpace) : outputSpace;
+      if (anythingMoved || outputs !== outputSpace) {
+        placing.value = { ...placed, transform: moved, outputSpace: outputs };
+      }
     }
   }
+  // A depth that arrived with this source is taken into the screen, and the
+  // picture is opened at the bottom of it.
+  pinTheAxesThatMeasureDistance(own.viewer);
+  standOnTheTable(own);
+}
+
+/**
+ * Whether a source holds one plane only: a flat picture rather than a stack.
+ *
+ * Read from the source's own extent as the engine read it, before any
+ * placement, so a single plane placed anywhere is still one plane.
+ */
+function isOnePlaneDeep(placed) {
+  const { inputSpace, outputSpace } = placed;
+  const into = outputSpace?.names?.indexOf("z") ?? -1;
+  if (into < 0 || !inputSpace?.bounds) return false;
+  // The transform this project writes is a scale and a shift, axis for axis,
+  // so the input axis is the output axis unless the input names say otherwise.
+  const from = inputSpace.names?.indexOf("z") >= 0 ? inputSpace.names.indexOf("z") : into;
+  const planes = inputSpace.bounds.upperBounds[from] - inputSpace.bounds.lowerBounds[from];
+  return planes <= 1;
+}
+
+/**
+ * The same output space with its depth made the layer's own rather than the
+ * picture's.
+ *
+ * Every stack in the picture stands on one table: its lowest plane at z = 0
+ * (`application/parts/storage/zarr_positions.py` writes it so). A flat
+ * picture — the overview, a single-plane target — lies on that table too,
+ * and an operator moving up through a stack should keep seeing it, the way
+ * they keep seeing the slide while focussing through a specimen. The engine
+ * draws a source only on the depth being looked at, so a flat picture kept
+ * on the shared depth axis would vanish one plane up. Instead its depth is
+ * made *local*: a dimension the engine keeps to the layer, marked by a
+ * trailing `'` in its name the way the channel already is (`c'`), which the
+ * engine then draws whatever depth the picture is at. The shared depth
+ * axis is left to the stacks, so `theDepthItCanShow` still spans exactly
+ * the planes there are to choose between.
+ */
+function withItsDepthKeptToItself(outputSpace) {
+  const at = outputSpace.names.indexOf("z");
+  const names = [...outputSpace.names];
+  names[at] = "z'";
+  // A renamed axis is a new axis to the engine, which tells them apart by
+  // number rather than by name; keeping the old number would tie it to the
+  // stacks' depth it has just been taken off.
+  const ids = [...outputSpace.ids];
+  ids[at] = newDimensionId();
+  const timestamps = [...outputSpace.timestamps];
+  timestamps[at] = Date.now();
+  return makeCoordinateSpace({ ...outputSpace, names, ids, timestamps });
+}
+
+/**
+ * Open the picture at the bottom of the stacks, once, when it first has a
+ * depth to open at.
+ *
+ * On the table (see `withItsDepthKeptToItself`) every stack begins at z = 0,
+ * so that is where the picture starts, and the Z slider under it reads
+ * "plane 1". The engine on its own would open a depth that lands after the
+ * first source in the middle of it. Only once: after that the depth is the
+ * operator's to choose, and a stack landing later must not pull the view
+ * back down.
+ */
+function standOnTheTable(own) {
+  if (own.presentation !== "2d-overlay" || own.stoodOnTheTable) return;
+  const info = own.viewer.navigationState.displayDimensionRenderInfo.value;
+  const depth = info?.displayDimensionIndices?.[2] ?? -1;
+  if (depth < 0) return;
+  own.stoodOnTheTable = true;
+  const moved = Float32Array.from(own.viewer.navigationState.position.value);
+  moved[depth] = 0;
+  own.viewer.navigationState.position.value = moved;
 }
 
 // ---------------------------------------------------------------------------
@@ -1636,11 +1738,13 @@ function openOnThePlaneWhereTheSpecimenIs(own, specimen) {
   if (depth < 0 || !space?.bounds) return;
   const moved = Float32Array.from(own.viewer.navigationState.position.value);
   if (own.presentation === "2d-overlay") {
-    /* Placement already maps each source's explicit anchor voxel centre to
-       shared display z=0. Navigation selects that plane; it must never rewrite
-       a transform or infer an anchor from whichever source loaded first. */
+    /* Every stack stands on the table with its lowest plane at z = 0 (the
+       writer puts it there), so the picture opens at the bottom. Navigation
+       only selects that plane; it never rewrites a placement or infers one
+       from whichever source loaded first. */
     moved[depth] = 0;
     own.viewer.navigationState.position.value = moved;
+    own.stoodOnTheTable = true;
     return;
   }
   const planes = Math.round(
