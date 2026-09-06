@@ -189,9 +189,13 @@ class TestTheStore:
         model = description["attributes"]["zmart_microscopy"]["z_coordinate"]
 
         assert transforms["scale"]["scale"][2] == pytest.approx(-2.0)
-        assert transforms["translation"]["translation"][2] == pytest.approx(2.0)
+        # The stack stands on the table: its lowest plane, the last one in an
+        # array acquired downwards, lands on display z = 0, and the first
+        # plane stands 4 µm above it.
+        assert transforms["translation"]["translation"][2] == pytest.approx(4.0)
         anchor = model["display_anchor"]["voxel_index"]
-        assert anchor == 1
+        assert anchor == 2
+        assert model["display_anchor"]["resolved_by"] == "table-lowest-plane"
         assert transforms["translation"]["translation"][2] + anchor * -2.0 == pytest.approx(0.0)
         assert model["source_local"] == {
             "plane_order": [0, 1, 2],
@@ -205,17 +209,33 @@ class TestTheStore:
         assert provenance["requested_stage_focus_z_um"] == 10.0
         assert provenance["registered_specimen_z"] is False
 
-    def test_legacy_stack_fallback_is_resolved_and_recorded_once(self, tmp_path):
-        store = position_store_from_record(
-            a_z_stack(tmp_path, requested_z=None), tmp_path / "positions"
+    def test_a_stack_stands_on_the_table_whichever_way_it_was_acquired(self, tmp_path):
+        """The lowest plane lands on z = 0 whether the array runs up or down,
+        and a record without a requested focus is placed the same way."""
+        (tmp_path / "up").mkdir()
+        (tmp_path / "down").mkdir()
+        upwards = position_store_from_record(
+            a_z_stack(tmp_path / "up", heights=(8.0, 10.0, 12.0), requested_z=None),
+            tmp_path / "up" / "positions",
         )
-        description = json.loads((store / "zarr.json").read_text())
-        anchor = description["attributes"]["zmart_microscopy"]["z_coordinate"][
-            "display_anchor"
-        ]
-        assert anchor["voxel_index"] == 1
-        assert anchor["resolved_by"] == "legacy-middle-plane"
-        assert anchor["legacy_fallback"] is True
+        described = json.loads((upwards / "zarr.json").read_text())
+        dataset = described["attributes"]["ome"]["multiscales"][0]["datasets"][0]
+        transforms = {item["type"]: item for item in dataset["coordinateTransformations"]}
+        anchor = described["attributes"]["zmart_microscopy"]["z_coordinate"]["display_anchor"]
+        assert transforms["scale"]["scale"][2] == pytest.approx(2.0)
+        assert transforms["translation"]["translation"][2] == pytest.approx(0.0)
+        assert anchor["voxel_index"] == 0
+        assert anchor["resolved_by"] == "table-lowest-plane"
+        assert anchor["legacy_fallback"] is False
+
+        downwards = position_store_from_record(
+            a_z_stack(tmp_path / "down", requested_z=None), tmp_path / "down" / "positions"
+        )
+        anchor = json.loads((downwards / "zarr.json").read_text())["attributes"]["zmart_microscopy"][
+            "z_coordinate"
+        ]["display_anchor"]
+        assert anchor["voxel_index"] == 2
+        assert anchor["resolved_by"] == "table-lowest-plane"
 
     def test_a_whole_capture_file_lands_channel_by_channel(self, tmp_path):
         record = one_file_whole_capture(tmp_path, channels=3, size=128)
