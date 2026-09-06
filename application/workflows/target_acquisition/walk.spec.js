@@ -168,6 +168,16 @@ test.describe("the target acquisition workflow, walked screen by screen", () => 
       await page.evaluate(() => window.__theStageCanvas.fadeTo(0.15));
       await framePlan(page);
       await shot(page, "scan-done-picture");
+      /* Under the picture: the focus stacks give it a depth, so the Z
+         slider stands across its foot; nothing here is a timelapse, so T
+         does not. Moved to the top of the stack and back. */
+      await expect(page.locator("#axis-z")).toBeVisible({ timeout: 30_000 });
+      await expect(page.locator("#axis-t")).toBeHidden();
+      await page.locator("#plane").evaluate((s) => { s.value = s.max; s.dispatchEvent(new Event("input", { bubbles: true })); });
+      await rest(1500);
+      await shot(page, "scan-done-z-top");
+      await page.locator("#plane").evaluate((s) => { s.value = s.min; s.dispatchEvent(new Event("input", { bubbles: true })); });
+      await rest(800);
       /* The row's chips: the overview's channels, each a dot and a name.
          The dot hides the channel; the name chooses it and opens Display
          settings, where its histogram is. */

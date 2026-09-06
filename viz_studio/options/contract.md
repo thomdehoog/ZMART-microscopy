@@ -49,6 +49,7 @@ viewer.getView()                   // → { centre, zoom }, the view now on scre
 viewer.measurementBox?.()          // optional: visible flat [[y0,x0],[y1,x1]] fractions
 viewer.theDepthItCanShow()         // → { lowUm, highUm, stepUm, atUm }, or null when flat
 viewer.setPlane(z)                 // which plane of the stack, in micrometres
+viewer.theMomentsItCanShow()       // → { many, at }, or null when there is one moment
 viewer.setMoment(t)                // which moment of a timelapse, counted from the first
 viewer.addSources(acquisitions)    // append-only growth of the same rows; Promise<boolean>
 viewer.showPicture(on)             // draw the acquisitions, or not; the viewer stays open
