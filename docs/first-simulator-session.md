@@ -20,6 +20,11 @@ The bench prerequisites for the driver are in the driver's own
 - [ ] A template is loaded with a job selected. The setup reads and acquires
       through the selected job, and refuses with "No Navigator Expert job is
       selected in LAS X" when there is none.
+- [ ] LAS X native AutoSave is switched on in the StartUp configuration, with
+      a base folder the driver can read. Every picture the workflows take is
+      what LAS X saves there; the Connect card's *autosave* check reads
+      "enabled" when it is, and target acquisition will not proceed while it
+      says "failed — LAS X will not save what is captured".
 - [ ] The page has been built on a developer machine (`npm run build` in
       `application/`), and the three files it leaves in
       `application/framework/window/static/` have come across together.
