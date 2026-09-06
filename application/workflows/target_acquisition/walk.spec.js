@@ -174,7 +174,20 @@ test.describe("the target acquisition workflow, walked screen by screen", () => 
       await expect(page.locator("#acquisition-name")).toHaveText("overview");
       const chips = page.locator("#canvas-chips .chip");
       await expect.poll(() => chips.count(), { timeout: 30_000 }).toBeGreaterThan(1);
+      /* A dot hides its channel and the chip fades, crossed; again, back. */
       await chips.nth(1).locator(".chip-dot").click();
+      await expect(chips.nth(1)).toHaveClass(/\boff\b/);
+      await rest(800);
+      await shot(page, "scan-done-channel-hidden");
+      await chips.nth(1).locator(".chip-dot").click();
+      await expect(chips.nth(1)).toHaveClass(/\bon\b/);
+      /* A name chooses the channel and opens its settings; short of room
+         the names are gone and a double press on the dot does the same. */
+      if (await chips.nth(1).locator(".chip-name").isVisible()) {
+        await chips.nth(1).locator(".chip-name").click();
+      } else {
+        await chips.nth(1).locator(".chip-dot").dblclick();
+      }
       await expect(chips.nth(1)).toHaveClass(/\bchosen\b/);
       await expect(page.locator(".side-tab .tab[aria-selected='true']")).toHaveText("Display settings");
       await rest(800);
@@ -228,15 +241,21 @@ test.describe("the target acquisition workflow, walked screen by screen", () => 
            dressed: one colour, outline only, fainter. */
         await expect(page.locator("#mask-btn")).toBeVisible();
         await page.locator("#mask-btn").click();
-        await expect(page.locator("#mask-pop")).toBeVisible();
-        await shot(page, "detect-mask-card");
-        await page.locator("#mask-hidden").click();
-        await expect(page.locator("#mask-hidden")).toHaveAttribute("aria-pressed", "true");
+        await expect(page.locator("#mask-btn")).toHaveAttribute("aria-pressed", "false");
         await rest(800);
         await shot(page, "detect-mask-hidden");
-        await page.locator("#mask-shown").click();
-        await expect(page.locator("#mask-shown")).toHaveAttribute("aria-pressed", "true");
+        await page.locator("#mask-btn").click();
+        await expect(page.locator("#mask-btn")).toHaveAttribute("aria-pressed", "true");
         await rest(500);
+        /* The card, by the name when there is room for one, else by a
+           double press on the dot. */
+        if (await page.locator("#mask-name").isVisible()) {
+          await page.locator("#mask-name").click();
+        } else {
+          await page.locator("#mask-btn").dblclick();
+        }
+        await expect(page.locator("#mask-pop")).toBeVisible();
+        await shot(page, "detect-mask-card");
         await page.locator('.mask-colour[data-colour="#ffd400"]').click();
         await page.locator("#mask-line").click();
         await page.locator("#mask-opacity").evaluate((slider) => {
@@ -247,6 +266,12 @@ test.describe("the target acquisition workflow, walked screen by screen", () => 
         await shot(page, "detect-mask-dressed");
         await page.keyboard.press("Escape");
         await expect(page.locator("#mask-pop")).toBeHidden();
+        /* Tile: the view brought in on the one field the frame is on. */
+        await expect(page.locator("#tile-btn")).toBeEnabled();
+        await page.locator("#tile-btn").click();
+        await rest(1500);
+        await shot(page, "detect-tile-framed");
+        await framePlan(page);
 
         /* Step 7: a gate drawn on the feature plot, around most of the cloud. */
         await walkTo(page, "Discover Targets");

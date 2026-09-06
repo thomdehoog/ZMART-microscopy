@@ -57,39 +57,52 @@ export const canvasPanel = {
                   title="Tile set: frame the nearest tileset; press again for the next">
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="2.5" y="2.5" width="4.5" height="4.5" rx="0.8"/><rect x="9" y="2.5" width="4.5" height="4.5" rx="0.8"/><rect x="2.5" y="9" width="4.5" height="4.5" rx="0.8"/><rect x="9" y="9" width="4.5" height="4.5" rx="0.8"/></svg>
           </button>
+          <button class="run icon" id="tile-btn" type="button" disabled aria-label="Tile"
+                  title="Tile: frame the one field the frame is on">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="3" y="3" width="10" height="10" rx="1"/></svg>
+          </button>
           <!-- Right, the picture: which acquisition the row is about, its
                channels as chips, the masks as one of them, and Grayscale.
                A chip's dot shows or hides it; its name opens its settings. -->
           <span class="canvas-toolbar-right">
-            <span class="acquisition-pick" id="acquisition-pick" hidden>
-              <button class="run" id="acquisition-btn" type="button" aria-haspopup="true" aria-expanded="false"
+            <!-- A joined strip: which acquisition the row is about -- the
+                 layers pictogram, its name, a caret that opens the list --
+                 and beside it the grey switch. -->
+            <span class="canvas-strip" id="acquisition-pick" hidden>
+              <button class="run strip-first" id="acquisition-btn" type="button" aria-haspopup="true" aria-expanded="false"
                       title="Which acquisition the row shows; show or hide any of them">
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" aria-hidden="true"><path d="M8 2.5 14 6 8 9.5 2 6z"/><path d="M2 9.5 8 13l6-3.5"/></svg>
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M1.5 8s2.5-4.5 6.5-4.5S14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8z"/><circle cx="8" cy="8" r="2"/></svg>
                 <span id="acquisition-name">Overview</span>
                 <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 4l2.5 2.5L7.5 4"/></svg>
               </button>
-              <div class="canvas-card acquisition-menu" id="acquisition-menu" hidden></div>
-            </span>
-            <!-- Grey, for every picture at once: tinted while on, and the
-                 chips' dots go grey with the picture, so the state is on
-                 show twice. -->
-            <button class="run switch" id="grey-btn" type="button" hidden aria-pressed="false"
-                    title="Every picture in grey; press again for its colours">
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="8" cy="8" r="5.5"/><path d="M8 2.5v11A5.5 5.5 0 0 0 8 2.5z" fill="currentColor" stroke="none"/></svg>
-              <span>Grey</span>
-            </button>
-            <span class="canvas-chips" id="canvas-chips"></span>
-            <span class="chip mask-chip" id="mask-chip" hidden>
-              <button class="chip-dot" id="mask-btn" type="button" aria-haspopup="true" aria-expanded="false"
-                      title="Masks: shown or hidden, their colour, look and opacity"></button>
+              <!-- Grey, square-cornered so it sits flush between the picker
+                   and the channels. Its glyph shows three colours while the
+                   picture is in colour and three greys once it is grey. -->
+              <button class="run icon switch strip-mid" id="grey-btn" type="button" aria-pressed="false" aria-label="Grey"
+                      title="Grey: every picture in grey; press again for its colours">
+                <svg class="grey-glyph" width="18" height="16" viewBox="0 0 18 16" aria-hidden="true">
+                  <rect class="bar-r" x="1" y="3" width="4.6" height="10" rx="1.2"/>
+                  <rect class="bar-g" x="6.7" y="3" width="4.6" height="10" rx="1.2"/>
+                  <rect class="bar-b" x="12.4" y="3" width="4.6" height="10" rx="1.2"/>
+                </svg>
+              </button>
+              <!-- The acquisition's channels, in a flat box joined onto the
+                   strip: a dot in each channel's colour with its name when
+                   there is room, its number in the dot when there is not.
+                   The dot shows or hides the channel; the name opens its
+                   settings. The masks are one chip more, of the same kind,
+                   since they belong to the same acquisition. -->
+              <span class="canvas-channels" id="canvas-channels">
+              <span class="canvas-chips" id="canvas-chips"></span>
+              <span class="chip mask-chip on" id="mask-chip" hidden>
+              <button class="chip-dot mask-dot" id="mask-btn" type="button" aria-pressed="true"
+                      title="Masks: press to show or hide, press twice for their colour, look and opacity">
+                <!-- A cell's contour: the masks are outlines of objects. -->
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 2.8 10.2 2 13.8 5.6 12.6 11.2 7.4 13.8 2.6 10.4 2.2 6.2z"/></svg>
+              </button>
+              <button class="chip-name" id="mask-name" type="button" aria-haspopup="true" aria-expanded="false"
+                      title="The masks' colour, look and opacity">Mask</button>
               <div class="canvas-card mask-pop" id="mask-pop" hidden>
-                <div class="mask-pop-row">
-                  <span class="mask-pop-label">Masks</span>
-                  <span class="seg mask-look">
-                    <button id="mask-shown" type="button" aria-pressed="true">Shown</button>
-                    <button id="mask-hidden" type="button" aria-pressed="false">Hidden</button>
-                  </span>
-                </div>
                 <div class="mask-pop-row">
                   <span class="mask-pop-label">Colour</span>
                   <span class="mask-colours" id="mask-colours"></span>
@@ -107,6 +120,9 @@ export const canvasPanel = {
                          aria-label="mask opacity">
                 </div>
               </div>
+              </span>
+              </span>
+              <div class="canvas-card acquisition-menu" id="acquisition-menu" hidden></div>
             </span>
           </span>
         </div>
@@ -186,15 +202,16 @@ export const canvasPanel = {
         readout: null,
         carrier: find("carrier-btn"),
         tileset: find("tileset-btn"),
+        tile: find("tile-btn"),
         mask: find("mask-btn"),
         maskChip: find("mask-chip"),
-        maskShown: find("mask-shown"),
-        maskHidden: find("mask-hidden"),
+        maskName: find("mask-name"),
         maskPop: find("mask-pop"),
         acquisitionPick: find("acquisition-pick"),
         acquisitionName: find("acquisition-name"),
         acquisitionMenu: find("acquisition-menu"),
         chips: find("canvas-chips"),
+        channelsBox: find("canvas-channels"),
         maskColours: find("mask-colours"),
         maskFill: find("mask-fill"),
         maskLine: find("mask-line"),

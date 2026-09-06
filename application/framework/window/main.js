@@ -2420,15 +2420,16 @@ let stageWatch = null;
     readout: theCanvas.parts.readout,
     carrierButton: theCanvas.parts.carrier,
     tilesetButton: theCanvas.parts.tileset,
+    tileButton: theCanvas.parts.tile,
     maskButton: theCanvas.parts.mask,
     maskChip: theCanvas.parts.maskChip,
-    maskShown: theCanvas.parts.maskShown,
-    maskHidden: theCanvas.parts.maskHidden,
+    maskName: theCanvas.parts.maskName,
     maskPop: theCanvas.parts.maskPop,
     acquisitionPick: theCanvas.parts.acquisitionPick,
     acquisitionName: theCanvas.parts.acquisitionName,
     acquisitionMenu: theCanvas.parts.acquisitionMenu,
     chips: theCanvas.parts.chips,
+    channelsBox: theCanvas.parts.channelsBox,
     /* A chip's name opens the picture's own settings for that channel: the
        column switches to Display settings, where the histogram is. */
     openDisplaySettings: () => {
