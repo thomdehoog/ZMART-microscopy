@@ -346,10 +346,13 @@ def _restore(
 ) -> None:
     """Return the stage to its captured state.
 
-    z-galvo and XY are restored by driving frame (0,0,0) through the adapter
-    (origin was captured at the original spot). z-wide is restored directly
-    only if this run actually moved it (its baseline may sit outside the
-    envelope on the simulator, so we never touch it there).
+    XY and z-galvo are driven straight back to the stage coordinates read
+    before the phase began. Frame (0,0,0) would not do: the origin is machine
+    configuration read at connect, not something a session sets at the spot
+    it started from, so the frame's zero may lie anywhere -- outside the
+    limits on a machine nobody has configured. z-wide is restored only if
+    this run actually moved it (its baseline may sit outside the envelope
+    on the simulator, so we never touch it there).
     """
     client = sess._handle.client
     if restore_zwide:
@@ -366,9 +369,18 @@ def _restore(
             context={"z_wide_um": orig["z_wide_um"]},
             mutating=True,
         )
+    def do_xy_and_galvo() -> bool:
+        moved = drv.move_xy(client, orig["x_um"], orig["y_um"], unit="um")
+        if not moved.get("success"):
+            raise RuntimeError(f"XY restore not accepted: {moved}")
+        focused = drv.move_z(client, job, orig["z_galvo_um"], unit="um", z_mode="galvo")
+        if not focused.get("success"):
+            raise RuntimeError(f"z-galvo restore not accepted: {focused}")
+        return True
+
     v.callable(
-        "move: restore XY + focus (frame 0,0,0)",
-        lambda: sess.set_xyz(0.0, 0.0, 0.0, with_actuators={"z": "z-galvo"}),
+        "move: restore XY + z-galvo (stage coordinates)",
+        do_xy_and_galvo,
         context=dict(orig, job=job),
         mutating=True,
     )

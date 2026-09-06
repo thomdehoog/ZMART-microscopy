@@ -156,7 +156,7 @@ def test_full_mock_run_move_and_acquire(tmp_path):
     assert "| Phase | Actions attempted | Passed | Warned | Failed | Skipped " in text
     assert "## Chronological detail (every attempted action)" in text
     assert "set_xyz: XY move" in text
-    assert "move: restore XY + focus (frame 0,0,0)" in text
+    assert "move: restore XY + z-galvo (stage coordinates)" in text
     assert "set_state: restore" in text
 
 
