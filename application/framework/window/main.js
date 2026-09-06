@@ -2423,6 +2423,7 @@ let stageWatch = null;
     tileButton: theCanvas.parts.tile,
     maskButton: theCanvas.parts.mask,
     maskChip: theCanvas.parts.maskChip,
+    maskDivide: theCanvas.parts.maskDivide,
     maskShape: theCanvas.parts.maskShape,
     maskName: theCanvas.parts.maskName,
     maskShown: theCanvas.parts.maskShown,

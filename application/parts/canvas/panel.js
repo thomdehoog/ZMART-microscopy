@@ -65,9 +65,33 @@ export const canvasPanel = {
                channels as chips, the masks as one of them, and Grayscale.
                A chip's dot shows or hides it; its name opens its settings. -->
           <span class="canvas-toolbar-right">
+            <!-- Colour or grey, a toggle of its own at the head of the
+                 row: a knob that sits on the left over three coloured
+                 bars while the picture is in colour, and slides right
+                 over three grey bars once it is grey. It acts on the
+                 pictures only; the masks keep their own colours
+                 whichever side it is on. -->
+            <span class="grey-toggle" id="grey-toggle" role="group" aria-label="Colour or grey" data-grey="false">
+              <button class="bare" id="colour-btn" type="button" aria-pressed="true" aria-label="Colour"
+                      title="Colour: every picture in its own colours">
+                <svg class="grey-glyph colours" width="18" height="16" viewBox="0 0 18 16" aria-hidden="true">
+                  <rect class="bar-r" x="1" y="3" width="4.6" height="10" rx="1.2"/>
+                  <rect class="bar-g" x="6.7" y="3" width="4.6" height="10" rx="1.2"/>
+                  <rect class="bar-b" x="12.4" y="3" width="4.6" height="10" rx="1.2"/>
+                </svg>
+              </button>
+              <button class="bare" id="grey-btn" type="button" aria-pressed="false" aria-label="Grey"
+                      title="Grey: every picture in grey">
+                <svg class="grey-glyph greys" width="18" height="16" viewBox="0 0 18 16" aria-hidden="true">
+                  <rect class="bar-r" x="1" y="3" width="4.6" height="10" rx="1.2"/>
+                  <rect class="bar-g" x="6.7" y="3" width="4.6" height="10" rx="1.2"/>
+                  <rect class="bar-b" x="12.4" y="3" width="4.6" height="10" rx="1.2"/>
+                </svg>
+              </button>
+            </span>
             <!-- A joined strip: which acquisition the row is about -- the
-                 layers pictogram, its name, a caret that opens the list --
-                 and beside it the grey switch. -->
+                 eye, its name, a caret that opens the list -- and its
+                 channels in a box beside it. -->
             <span class="canvas-strip" id="acquisition-pick" hidden>
               <button class="run strip-first" id="acquisition-btn" type="button" aria-haspopup="true" aria-expanded="false"
                       title="Which acquisition the row shows; show or hide any of them">
@@ -75,34 +99,14 @@ export const canvasPanel = {
                 <span id="acquisition-name">Overview</span>
                 <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 4l2.5 2.5L7.5 4"/></svg>
               </button>
-              <!-- Colour or grey, as a toggle flush between the picker and
-                   the channels: a knob that sits on the left over three
-                   coloured bars while the picture is in colour, and slides
-                   right over three grey bars once it is grey. -->
-              <span class="grey-toggle strip-mid" id="grey-toggle" role="group" aria-label="Colour or grey" data-grey="false">
-                <button class="bare" id="colour-btn" type="button" aria-pressed="true" aria-label="Colour"
-                        title="Colour: every picture in its own colours">
-                  <svg class="grey-glyph colours" width="18" height="16" viewBox="0 0 18 16" aria-hidden="true">
-                    <rect class="bar-r" x="1" y="3" width="4.6" height="10" rx="1.2"/>
-                    <rect class="bar-g" x="6.7" y="3" width="4.6" height="10" rx="1.2"/>
-                    <rect class="bar-b" x="12.4" y="3" width="4.6" height="10" rx="1.2"/>
-                  </svg>
-                </button>
-                <button class="bare" id="grey-btn" type="button" aria-pressed="false" aria-label="Grey"
-                        title="Grey: every picture in grey">
-                  <svg class="grey-glyph greys" width="18" height="16" viewBox="0 0 18 16" aria-hidden="true">
-                    <rect class="bar-r" x="1" y="3" width="4.6" height="10" rx="1.2"/>
-                    <rect class="bar-g" x="6.7" y="3" width="4.6" height="10" rx="1.2"/>
-                    <rect class="bar-b" x="12.4" y="3" width="4.6" height="10" rx="1.2"/>
-                  </svg>
-                </button>
-              </span>
               <!-- The acquisition's channels, in a flat box joined onto the
                    strip: a dot in each channel's colour with its name when
                    there is room, its number in the dot when there is not.
                    The dot shows or hides the channel; the name opens its
-                   settings. The masks are one chip more, of the same kind,
-                   since they belong to the same acquisition. -->
+                   settings. The masks stand in the same box, past a short
+                   dividing line: they lie on the acquisition, but they are
+                   their own thing, and the colour-or-grey toggle leaves
+                   them alone. -->
               <span class="canvas-channels" id="canvas-channels">
               <span class="canvas-chips" id="canvas-chips"></span>
               <!-- While the picture is grey the acquisition is one grey
@@ -113,6 +117,7 @@ export const canvasPanel = {
                         title="The grey channel: its histogram, window and opacity">G</button>
                 <button class="chip-name" id="grey-chip-name" type="button">Grey</button>
               </span>
+              <span class="chip-divide" id="mask-divide" hidden></span>
               <span class="chip mask-chip on" id="mask-chip" hidden>
               <!-- The masks' chip is a cell's shape, not a circle: a small
                    spindle in the masks' colour. Pressed, its card opens. -->
@@ -250,6 +255,7 @@ export const canvasPanel = {
         tile: find("tile-btn"),
         mask: find("mask-btn"),
         maskChip: find("mask-chip"),
+        maskDivide: find("mask-divide"),
         maskShape: host.querySelector(".mask-shape"),
         maskName: find("mask-name"),
         maskShown: find("mask-shown"),
