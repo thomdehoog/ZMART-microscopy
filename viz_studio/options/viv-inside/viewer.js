@@ -1461,6 +1461,16 @@ function handleFor(own) {
       showTheView(own);
     },
 
+    /** How long the timelapse is, and which moment is on screen; nothing
+     *  for a single moment. */
+    theMomentsItCanShow() {
+      const source = own.opened[0]?.pyramid?.[0];
+      const at = source?.labels?.indexOf("t") ?? -1;
+      const many = at >= 0 ? source.shape[at] : 0;
+      if (!(many > 1)) return null;
+      return { many, at: Math.min(Math.max(Math.round(own.moment ?? 0), 0), many - 1) };
+    },
+
     /** Which moment of a timelapse to show, counted from the first. */
     setMoment(t) {
       own.moment = t;

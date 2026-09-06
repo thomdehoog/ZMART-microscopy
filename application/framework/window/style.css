@@ -1987,7 +1987,28 @@ canvas.livecv[hidden] { display: none; }
    the focus map's colour ramp -- stands at the right, where the eye looks
    for one. The scale bar stays at the foot of the picture, where a scale bar
    is expected. */
-.plot-column { display: grid; grid-template-rows: auto minmax(0, 1fr); min-height: 0; min-width: 0; }
+.plot-column { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; min-height: 0; min-width: 0; }
+/* The sliders under the picture: Z above T, each across the whole width. */
+.canvas-axes { display: grid; gap: 6px; padding: 8px 14px 10px; border-top: 1px solid var(--line); background: var(--screen); }
+.canvas-axes[hidden] { display: none; }
+.canvas-axis { display: grid; grid-template-columns: 18px 24px minmax(0, 1fr) auto; align-items: center; gap: 10px; font-size: 11px; color: var(--ink-3); }
+/* Play: a small triangle that becomes two bars while it runs. */
+.canvas-axis-play {
+  width: 24px; height: 22px; padding: 0; border: 1px solid var(--line-strong); border-radius: 5px;
+  background: var(--screen); color: var(--accent-deep); cursor: pointer; position: relative;
+}
+.canvas-axis-play::before {
+  content: ""; position: absolute; left: 8px; top: 5px; border-style: solid;
+  border-width: 5px 0 5px 8px; border-color: transparent transparent transparent currentColor;
+}
+.canvas-axis-play[aria-pressed="true"]::before {
+  left: 7px; top: 5px; width: 3px; height: 10px; border: none; border-left: 3px solid currentColor; border-right: 3px solid currentColor; box-sizing: content-box; padding: 0 2px;
+}
+.canvas-axis-play:hover { border-color: var(--accent); color: var(--accent); }
+.canvas-axis[hidden] { display: none; }
+.canvas-axis-name { font-weight: 700; color: var(--ink-2); text-align: center; }
+.canvas-axis input { width: 100%; margin: 0; }
+.canvas-axis-value { min-width: 150px; text-align: right; font-variant-numeric: tabular-nums; color: var(--ink); }
 .canvas-toolbar {
   display: flex; align-items: center; gap: 8px; min-height: 52px;
   padding: 4px 12px; background: transparent;
