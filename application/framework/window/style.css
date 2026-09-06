@@ -1596,10 +1596,13 @@ canvas.livecv[hidden] { display: none; }
   display: flex; flex-direction: column; gap: 0;
   padding: 0;
 }
+/* The canvas's own layers stand under the picture's settings, at the foot
+   of the column: the picture is what the column is about. */
+.display-side > .display-layer-settings { order: 2; }
 .display-side[hidden] { display: none; }
 .display-side > .viewer-panel { flex: 1 1 auto; height: auto; min-height: 0; }
 .display-layer-settings {
-  flex: none; margin: var(--box-gap) 14px 0;
+  flex: none; margin: var(--box-gap) 14px;
 }
 .display-layer-settings .side-group-body { gap: 10px; }
 .display-layer-settings #stage-layers { align-items: flex-start; }
@@ -2000,6 +2003,8 @@ canvas.livecv[hidden] { display: none; }
 .canvas-toolbar-right button[hidden] { display: none; }
 /* The row's presses carry a pictogram before the word. */
 .canvas-toolbar button.run { display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; flex: none; }
+/* A press that is only its pictogram: square, the symbol centred. */
+.canvas-toolbar button.run.icon { width: var(--control); padding: 0; justify-content: center; }
 .canvas-toolbar button.run svg { flex: none; }
 
 /* The picture's half of the row: the acquisition picker, one chip per
