@@ -293,7 +293,7 @@ let stageWatch = null;
     targetTilesAlpha: 0.5,
     /* The placing levers, as scan-areas.js reads them, and what the last
        placing came to. */
-    placing: { margin: 1, objectsMax: 50, tilesMax: null, overlapMin: 0.2 },
+    placing: { margin: 1, objectsMax: 50, minimise: true, overlapMin: 0.2 },
     tilePlan: null,
     acquired: [],
     /* The acquired target whose pair the gallery shows, chosen there or on
@@ -485,7 +485,7 @@ let stageWatch = null;
       targetPictures: backendFor(state.wf).viewOf?.("targets") ?? null,
       cellsShown: false, gates: [], gated: new Set(), restricted: new Set(),
       targetTiles: [], targetTilesAlpha: 0.5, tilePlan: null,
-      placing: { margin: 1, objectsMax: 50, tilesMax: null, overlapMin: 0.2 },
+      placing: { margin: 1, objectsMax: 50, minimise: true, overlapMin: 0.2 },
       acquired: [], acquiredLabels: {}, acquiredTiles: {},
       selectedTarget: null, hoveredTarget: null,
       locked: false,
@@ -1537,15 +1537,15 @@ let stageWatch = null;
       if (!byTileset.has(tileset)) byTileset.set(tileset, []);
       byTileset.get(tileset).push(target);
     }
-    /* A target-tile ceiling belongs to one overview tileset. Planning the
-       groups independently makes that accounting real; a target in a
-       neighbouring tileset cannot consume this one's allowance or share one
-       of its target tiles. */
+    /* Each overview tileset is planned on its own, so every target tile
+       belongs to one tileset: a target near a border never shares a tile
+       with a neighbour across it, and Step 9 can account for the tiles per
+       tileset. */
     const plans = [...byTileset].map(([overviewTileset, group]) => ({
       overviewTileset,
       plan: planScanAreas(group, state.targetFrameUm, {
         margin: p.margin,
-        areas: { max: p.tilesMax },
+        minimise: p.minimise !== false,
         overlap: { min: p.overlapMin },
       }),
     }));
