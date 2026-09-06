@@ -211,10 +211,27 @@ test.describe("the target acquisition workflow, walked screen by screen", () => 
       await expect(page.locator("#grey-btn")).toHaveAttribute("aria-pressed", "true");
       await rest(1200);
       await shot(page, "scan-done-grayscale");
+      /* Grey is one channel: the dots give way to one chip, and its box
+         holds one window and one opacity for the sum. */
+      await expect(page.locator("#grey-chip")).toBeVisible();
+      await expect(page.locator("#canvas-chips")).toBeHidden();
+      await page.locator("#grey-chip-btn").click();
+      await expect(page.locator("#grey-pop")).toBeVisible();
+      await rest(600);
+      await shot(page, "scan-done-grey-box");
+      await page.locator('#grey-pop input[aria-label^="min"]').evaluate((slider) => {
+        slider.value = "20"; slider.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      await rest(900);
+      await shot(page, "scan-done-grey-windowed");
+      await page.keyboard.press("Escape");
+      await expect(page.locator("#grey-pop")).toBeHidden();
       const greyPicture = await photograph(page, "#picture-host", 0.6);
       await page.locator("#colour-btn").click();
       await expect(page.locator("#grey-btn")).toHaveAttribute("aria-pressed", "false");
       await expect(page.locator("#colour-btn")).toHaveAttribute("aria-pressed", "true");
+      await expect(page.locator("#canvas-chips")).toBeVisible();
+      await expect(page.locator("#grey-chip")).toBeHidden();
       await rest(1200);
       await shot(page, "scan-done-color-again");
       /* Proved on the pixels, not the button: in grey the three channels of

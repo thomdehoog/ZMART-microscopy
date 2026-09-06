@@ -105,6 +105,14 @@ export const canvasPanel = {
                    since they belong to the same acquisition. -->
               <span class="canvas-channels" id="canvas-channels">
               <span class="canvas-chips" id="canvas-chips"></span>
+              <!-- While the picture is grey the acquisition is one grey
+                   channel: this chip stands in for the dots, and its box
+                   holds the one window, opacity and Auto for the sum. -->
+              <span class="chip grey-chip on" id="grey-chip" hidden>
+                <button class="chip-dot grey-dot" id="grey-chip-btn" type="button"
+                        title="The grey channel: its histogram, window and opacity">G</button>
+                <button class="chip-name" id="grey-chip-name" type="button">Grey</button>
+              </span>
               <span class="chip mask-chip on" id="mask-chip" hidden>
               <!-- The masks' chip is a cell's shape, not a circle: a small
                    spindle in the masks' colour. Pressed, its card opens. -->
@@ -159,6 +167,7 @@ export const canvasPanel = {
               <!-- The chosen channel's box, the very one from Display
                    settings, lent to the row while it is open here. -->
               <div class="canvas-card channel-pop" id="channel-pop" hidden></div>
+              <div class="canvas-card grey-pop" id="grey-pop" hidden></div>
             </span>
           </span>
         </div>
@@ -246,6 +255,10 @@ export const canvasPanel = {
         maskShown: find("mask-shown"),
         maskHidden: find("mask-hidden"),
         channelPop: find("channel-pop"),
+        greyChip: find("grey-chip"),
+        greyChipButton: find("grey-chip-btn"),
+        greyChipName: find("grey-chip-name"),
+        greyPop: find("grey-pop"),
         maskPop: find("mask-pop"),
         acquisitionPick: find("acquisition-pick"),
         acquisitionName: find("acquisition-name"),

@@ -1100,6 +1100,11 @@ export async function mountViewerPanel(near, {
      overview scan puts the focus stack away. */
   const groupSwitches = new Map();
   const greySwitches = new Map();
+  /* The one grey channel each acquisition collapses to while grey is on:
+     its window as shares a and b of every member's colour window, its
+     opacity as a factor s on every member's colour weight. */
+  const composites = new Map();
+  const compositeMembers = new Map();
   /* Whether each acquisition is drawn in grey now, beside the switch that
      changes it, so the canvas's own Grayscale press can say which way it
      will go. */
@@ -1169,26 +1174,42 @@ export async function mountViewerPanel(near, {
         greyPick.setAttribute("aria-pressed", grey ? "true" : "false");
         greyPick.title = grey ? "Give the channels their colours back" : "Draw this acquisition in grey";
       };
+      /* Grey collapses the acquisition to one channel: every member is
+         drawn in grey and the engine adds them, which is the weighted sum
+         of the channels as they stand in colour. So the colour
+         configuration -- each member's window and weight -- is frozen when
+         grey goes on, and one control over the sum moves all of them in
+         proportion: a window as a share of each member's own, an opacity
+         as a factor on each member's weight. Colour restores them all. */
       const drawInGrey = (grey) => {
         for (const { one, at } of members) {
           if (grey && !one.grey) {
             one.colourInColour = one.colour;
             one.colorInColour = one.color;
+            one.colourWindow = one.window ? { ...one.window } : null;
+            one.colourWeight = one.weight;
             const share = Array.isArray(one.colour) ? luminanceOf(one.colour) : 1;
             one.colour = [share, share, share];
             one.color = cssOf(one.colour);
           } else if (!grey && one.grey) {
             one.colour = one.colourInColour ?? one.colour;
             one.color = one.colorInColour ?? one.color;
+            if (one.colourWindow) one.window = { ...one.colourWindow };
+            if (Number.isFinite(one.colourWeight)) one.weight = one.colourWeight;
+            viewer.setChannel(at, { window: one.window, weight: one.weight });
           }
           one.grey = grey;
           remember(one);
           paintSwatches(at);
           viewer.setChannel(at, { colour: one.colour });
         }
+        if (grey) composites.set(groupName, { a: 0, b: 1, s: 1, log: false });
+        else composites.delete(groupName);
+        if (chosen !== null && members.some(({ at }) => at === chosen)) refreshControls();
         sayTheColours();
         displayChangedSoon();
       };
+      compositeMembers.set(groupName, members);
       greyPick.addEventListener("click", () => drawInGrey(!members.every(({ one }) => one.grey)));
       greySwitches.set(groupName, drawInGrey);
       /* Judged on what is on show: an acquisition hidden by its eye does
@@ -1462,6 +1483,73 @@ export async function mountViewerPanel(near, {
   /* The chosen channel's box -- its histogram, window and opacity -- can
      stand under the canvas's own row for a while: lent to a card there and
      taken back into the column when the card closes. One box, one truth. */
+  /* The grey channel: what it stands at, its histogram over the sum, and
+     the three things that move it -- the window, the opacity, Auto. */
+  const applyComposite = (name) => {
+    const state = composites.get(name);
+    const members = compositeMembers.get(name);
+    if (!state || !members) return;
+    for (const { one, at } of members) {
+      const base = one.colourWindow ?? windowOf(one);
+      const span = base.high - base.low || 1;
+      const low = base.low + state.a * span;
+      one.window = { low, high: Math.max(base.low + state.b * span, low + 1) };
+      one.weight = Math.min(1, Math.max(0, (one.colourWeight ?? 1) * state.s));
+      remember(one);
+      viewer.setChannel(at, { window: one.window, weight: one.weight });
+      if (chosen === at) refreshControls();
+    }
+    displayChangedSoon();
+  };
+  panel.composite = (name) => {
+    const state = composites.get(name);
+    const members = compositeMembers.get(name);
+    if (!state || !members) return null;
+    /* One histogram over the sum: each member's counts laid along the
+       share of its own colour window, each member weighed by its total so
+       a bright channel and a faint one count alike. */
+    const bins = new Array(64).fill(0);
+    let measured = 0;
+    for (const { one } of members) {
+      const shape = one.histogram;
+      if (!shape?.counts?.length) continue;
+      measured += 1;
+      const base = one.colourWindow ?? windowOf(one);
+      const span = base.high - base.low || 1;
+      const total = shape.counts.reduce((sum, c) => sum + c, 0) || 1;
+      const width = (shape.high - shape.low) || 1;
+      shape.counts.forEach((count, i) => {
+        const brightness = shape.low + ((i + 0.5) * width) / shape.counts.length;
+        const f = Math.min(1, Math.max(0, (brightness - base.low) / span));
+        bins[Math.min(63, Math.floor(f * 64))] += count / total;
+      });
+    }
+    return { ...state, counts: bins, measured, channels: members.length };
+  };
+  panel.setComposite = (name, next) => {
+    const state = composites.get(name);
+    if (!state) return;
+    Object.assign(state, next);
+    state.a = Math.min(Math.max(state.a, 0), 0.98);
+    state.b = Math.max(Math.min(state.b, 1), state.a + 0.02);
+    applyComposite(name);
+  };
+  panel.autoComposite = async (name) => {
+    const members = compositeMembers.get(name);
+    if (!members || !composites.get(name)) return;
+    for (const { one, at } of members) {
+      if (!one.source) continue;
+      const result = await measureViewerRow(one, { box: viewer.measurementBox?.(at) ?? [[0, 0], [1, 1]] });
+      if (!result?.ok || !result.answer?.window) continue;
+      const { low, high } = result.answer.window;
+      one.histogram = result.answer.histogram ?? one.histogram;
+      one.colourWindow = { low, high: Math.max(high, low + 1) };
+    }
+    if (!composites.get(name)) return;
+    Object.assign(composites.get(name), { a: 0, b: 1 });
+    applyComposite(name);
+  };
+  panel.acquisitionGrey = (name) => Boolean(greyStates.get(name)?.().grey);
   panel.lendSettingsCard = (into) => { into.append(settingsCard); };
   panel.reclaimSettingsCard = () => { if (settingsCard.parentElement !== bar) bar.insertBefore(settingsCard, wholeCard); };
   panel.requestedState = panelState;
