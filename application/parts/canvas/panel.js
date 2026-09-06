@@ -49,13 +49,13 @@ export const canvasPanel = {
              layer on show needs read, such as the focus map's colour ramp. -->
         <div class="canvas-toolbar" id="canvas-toolbar">
           <!-- Left, the two presses that say what to look at. -->
-          <button class="run" id="carrier-btn" type="button" title="Frame the carrier on the stage">
+          <button class="run icon" id="carrier-btn" type="button" aria-label="Carrier"
+                  title="Carrier: frame the carrier on the stage">
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 5.5V2h3.5M10.5 2H14v3.5M14 10.5V14h-3.5M5.5 14H2v-3.5"/><rect x="5" y="6" width="6" height="4" rx="0.8"/></svg>
-            <span>Carrier</span>
           </button>
-          <button class="run" id="tileset-btn" type="button" disabled title="Frame the nearest tileset; press again for the next">
+          <button class="run icon" id="tileset-btn" type="button" disabled aria-label="Tile set"
+                  title="Tile set: frame the nearest tileset; press again for the next">
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="2.5" y="2.5" width="4.5" height="4.5" rx="0.8"/><rect x="9" y="2.5" width="4.5" height="4.5" rx="0.8"/><rect x="2.5" y="9" width="4.5" height="4.5" rx="0.8"/><rect x="9" y="9" width="4.5" height="4.5" rx="0.8"/></svg>
-            <span>Tile set</span>
           </button>
           <!-- Right, the picture: which acquisition the row is about, its
                channels as chips, the masks as one of them, and Grayscale.
