@@ -435,11 +435,9 @@ export async function mountViewerPanel(near, {
   measurementNotice.setAttribute("role", "status");
   measurementNotice.dataset.measurementState = "idle";
 
-  const histogramValue = el("output", [
-    "display:block", "min-height:13px", "padding:0 12px 2px",
-    `color:${INK.textMuted}`, `font:${font(400, 10)}`,
-    "font-variant-numeric:tabular-nums", "text-align:right",
-  ].join(";"), "point at the histogram");
+  /* The value under the pointer is read by assistive technology only; it
+     takes no room under the histogram, so the axis boxes sit right below. */
+  const histogramValue = el("output", "position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);", "");
   histogramValue.setAttribute("aria-label", "histogram value");
 
   const valueInput = (label) => {
@@ -455,7 +453,7 @@ export async function mountViewerPanel(near, {
     return input;
   };
 
-  const axisRow = el("div", "display:flex;align-items:center;justify-content:space-between;gap:6px;padding:0 12px 14px;");
+  const axisRow = el("div", "display:flex;align-items:center;justify-content:space-between;gap:6px;padding:6px 12px 14px;");
   const axisLow = valueInput("axis from");
   const autoButton = el("button", [
     "width:54px", "height:24px", "padding:0", `border:1px solid ${INK.controlBorder}`,
@@ -835,6 +833,9 @@ export async function mountViewerPanel(near, {
     } else {
       remember(row);
       refreshControls();
+      /* The histogram is news too: whoever draws this channel elsewhere,
+         the box under the canvas row for one, should hear of it. */
+      displayChangedSoon();
     }
     sayMeasurement("ready", "Smart Viewer measurement ready.");
     return result;
@@ -926,7 +927,7 @@ export async function mountViewerPanel(near, {
     });
   }
   plot.addEventListener("pointerleave", () => {
-    if (!held) histogramValue.textContent = "point at the histogram";
+    if (!held) histogramValue.textContent = "";
   });
   plot.addEventListener("dblclick", () => {
     if (chosen !== null) setTheAxis(rows[chosen], null);
@@ -1550,6 +1551,52 @@ export async function mountViewerPanel(near, {
     applyComposite(name);
   };
   panel.acquisitionGrey = (name) => Boolean(greyStates.get(name)?.().grey);
+
+  /* One colour channel, for the box under the canvas row: what it looks
+     like now, a way to change it, and Auto. The same window, axis and
+     opacity the column's own box acts on, so the two never disagree. */
+  panel.channelBox = (index) => {
+    const row = rows[index];
+    if (!row) return null;
+    const hist = row.histogram;
+    return {
+      name: row.name, color: row.color, hex: hexOf(row.colour), visible: row.visible !== false,
+      counts: hist?.counts ?? [], range: hist ? { low: hist.low, high: hist.high } : null,
+      window: { ...windowOf(row) }, axis: { ...theAxis(row) },
+      weight: Number.isFinite(row.weight) ? row.weight : 1, log: Boolean(row.log),
+      measured: Boolean(hist?.counts?.length),
+    };
+  };
+  panel.channelAct = (index, next) => {
+    const row = rows[index];
+    if (!row) return;
+    if (chosen !== index) chooseRow(index);
+    if (next.window) takeTheWindow(next.window);
+    if ("axis" in next) setTheAxis(row, next.axis);
+    if (Number.isFinite(next.weight)) {
+      row.weight = Math.max(0, Math.min(1, next.weight));
+      remember(row);
+      viewer.setChannel(index, { weight: row.weight });
+      refreshControls();
+      displayChangedSoon();
+    }
+    if (typeof next.log === "boolean" && next.log !== logScale) logButton.click();
+    if (next.colour) {
+      row.colour = rgbOf(next.colour);
+      row.color = cssOf(row.colour);
+      row.grey = false;
+      remember(row);
+      paintSwatches(index);
+      viewer.setChannel(index, { colour: row.colour });
+      displayChangedSoon();
+    }
+  };
+  panel.autoChannel = async (index) => {
+    if (!rows[index]) return;
+    if (chosen !== index) chooseRow(index);
+    await requestMeasurement(index, { auto: true });
+    displayChangedSoon();
+  };
   panel.lendSettingsCard = (into) => { into.append(settingsCard); };
   panel.reclaimSettingsCard = () => { if (settingsCard.parentElement !== bar) bar.insertBefore(settingsCard, wholeCard); };
   panel.requestedState = panelState;

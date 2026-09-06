@@ -2007,11 +2007,12 @@ canvas.livecv[hidden] { display: none; }
 .canvas-toolbar button.run.icon { width: var(--control); padding: 0; justify-content: center; }
 .canvas-toolbar button.run svg { flex: none; }
 
-/* The picture's half of the row, in three pieces: a joined strip, a little
-   raised, holding the acquisition picker with its channels flat in a box
-   beside it, a numbered dot each; past a short dividing line in that same
-   box, the masks; and at the end of the row, on its own, the
-   colour-or-grey toggle. */
+/* The picture's half of the row, in three pieces: the colour-or-grey
+   toggle on its own; then a joined strip, a little raised, holding the
+   acquisition picker with its channels flat in a box beside it, a numbered
+   dot each; and past a short dividing line in that same box, the masks.
+   The cards hang from the strip: the acquisitions' list under its press,
+   every other card at the row's right edge. */
 .canvas-strip { position: relative; display: inline-flex; flex: none; }
 .canvas-strip[hidden] { display: none; }
 /* The acquisition's press stands a little proud of the row, and the box of
@@ -2112,28 +2113,46 @@ canvas.livecv[hidden] { display: none; }
   box-shadow: 0 0 0 1px var(--screen);
 }
 
-/* The grey channel's chip and its box. */
+/* The grey channel's chip. */
 .canvas-chips[hidden] { display: none; }
 .grey-dot { background: #6b7280; color: #fff; font: 600 10px system-ui, sans-serif; text-shadow: 0 0 2px rgba(0, 0, 0, 0.7); }
-.grey-pop { right: 0; width: 320px; padding: 10px 12px; display: grid; gap: 6px; color: var(--ink-2); }
-.grey-box-head { display: flex; align-items: baseline; gap: 8px; padding-bottom: 2px; }
-.grey-box-title { font-size: 12.5px; font-weight: 600; color: var(--ink); }
-.grey-box-sub { font-size: 11px; color: var(--ink-3); }
-.grey-box-plot { display: block; width: 100%; height: 72px; color: var(--ink-2); background: var(--surface-2); border: 1px solid var(--line); border-radius: 3px; }
-.grey-box-buttons { display: flex; gap: 4px; justify-content: center; padding: 2px 0 4px; }
-.grey-box-button { width: 54px; height: 24px; padding: 0; border: 1px solid var(--line-strong); border-radius: 3px; background: var(--surface-3); color: var(--ink); font: 600 11px system-ui, sans-serif; cursor: pointer; }
-.grey-box-button[aria-pressed="true"] { background: var(--accent); color: #fff; border-color: var(--accent); }
-.grey-box-button:disabled { opacity: 0.5; cursor: default; }
-.grey-box-row { display: grid; grid-template-columns: 52px 1fr 48px; gap: 6px; align-items: center; font-size: 10.5px; color: var(--ink-3); }
-.grey-box-value { text-align: right; font-variant-numeric: tabular-nums; font-size: 11px; color: var(--ink); }
 
-/* The chosen channel's box under the row: the column's own box, lent. The
-   card is that box alone -- no heading, no second frame round it. */
-.channel-pop { right: 0; width: 470px; padding: 0; border: none; background: none; box-shadow: none; }
-.channel-pop > * { width: 100%; }
-.channel-pop .side-group { margin: 0; }
-.channel-pop .side-group-title { display: none; }
-.channel-pop .side-group-body { box-shadow: 0 8px 24px rgba(15, 23, 42, 0.14); }
+/* A channel's box under the row -- the same box for a colour channel and
+   for the grey one: a head, a histogram, the axis's ends with Auto and Log
+   between them, then min, max and opacity, each a slider and a box. */
+.grey-pop, .channel-pop { right: 0; width: 320px; padding: 10px 12px 12px; display: grid; gap: 6px; color: var(--ink-2); }
+.canvas-box-head { display: flex; align-items: center; gap: 8px; padding-bottom: 4px; border-bottom: 1px solid var(--line); margin-bottom: 2px; min-height: 24px; user-select: none; }
+.canvas-box-title { font-size: 12.5px; font-weight: 600; color: var(--ink); }
+.canvas-box-sub { font-size: 11px; color: var(--ink-3); }
+.canvas-box-name { font-size: 12.5px; font-weight: 600; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.canvas-box-eye {
+  width: 24px; height: 24px; padding: 0; display: inline-flex; align-items: center; justify-content: center;
+  background: none; border: none; border-radius: 5px; color: var(--ink-2); cursor: pointer;
+}
+.canvas-box-eye:hover { background: var(--surface-3); color: var(--ink); }
+.canvas-box-eye .canvas-box-eye-slash { display: none; }
+.canvas-box-eye[aria-pressed="false"] { color: var(--ink-3); }
+.canvas-box-eye[aria-pressed="false"] .canvas-box-eye-slash { display: block; }
+/* The swatch is the channel's colour; the browser's own picker lies over
+   it, invisible, so a press on the swatch opens it. */
+.canvas-box-swatch {
+  position: relative; overflow: hidden; width: 16px; height: 16px; border-radius: 4px; flex: none;
+  border: 1px solid rgba(15, 23, 42, 0.25); box-shadow: inset 0 0 0 1px var(--screen); cursor: pointer;
+}
+.canvas-box-swatch input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+.canvas-box-plot { display: block; width: 100%; height: 72px; color: var(--ink-2); background: var(--surface-2); border: 1px solid var(--line); border-radius: 3px; touch-action: none; user-select: none; }
+.canvas-box-axis { display: grid; grid-template-columns: 54px 1fr 54px; align-items: center; gap: 6px; padding: 4px 0 6px; }
+.canvas-box-buttons { display: flex; gap: 4px; justify-content: center; }
+.canvas-box-button { width: 54px; height: 24px; padding: 0; border: 1px solid var(--line-strong); border-radius: 3px; background: var(--surface-3); color: var(--ink); font: 600 11px system-ui, sans-serif; cursor: pointer; }
+.canvas-box-button[aria-pressed="true"] { background: var(--accent); color: #fff; border-color: var(--accent); }
+.canvas-box-button:disabled { opacity: 0.5; cursor: default; }
+.canvas-box-row { display: grid; grid-template-columns: 52px 1fr 54px; gap: 6px; align-items: center; font-size: 10.5px; color: var(--ink-3); }
+.canvas-box-value {
+  width: 54px; height: 24px; box-sizing: border-box; padding: 1px 4px; text-align: right;
+  font: 500 11px system-ui, sans-serif; font-variant-numeric: tabular-nums; color: var(--ink);
+  background: var(--surface-2); border: 1px solid var(--line); border-radius: 3px;
+}
+.canvas-box-value:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 
 /* A card under a press in the row: the masks' dress, the acquisitions. */
 .canvas-card {
@@ -2143,8 +2162,20 @@ canvas.livecv[hidden] { display: none; }
   box-shadow: 0 8px 24px rgba(15, 23, 42, 0.14);
 }
 .canvas-card[hidden] { display: none; }
-.mask-pop { width: 252px; }
+.mask-pop { width: 248px; gap: 9px; padding: 9px 12px 12px; }
+.mask-pop-head { display: flex; align-items: center; gap: 8px; padding-bottom: 3px; border-bottom: 1px solid var(--line); margin-bottom: 1px; }
+.mask-pop-name { font-size: 12.5px; font-weight: 600; color: var(--ink); }
+.mask-eye {
+  width: 24px; height: 24px; padding: 0; display: inline-flex; align-items: center; justify-content: center;
+  background: none; border: none; border-radius: 5px; color: var(--ink-2); cursor: pointer;
+}
+.mask-eye:hover { background: var(--surface-3); color: var(--ink); }
+.mask-eye .mask-eye-slash { display: none; }
+.mask-eye[aria-pressed="false"] { color: var(--ink-3); }
+.mask-eye[aria-pressed="false"] .mask-eye-slash { display: block; }
 .mask-pop-row { display: grid; grid-template-columns: 58px 1fr; align-items: center; gap: 8px; }
+.mask-opacity-row { display: grid; grid-template-columns: 1fr 38px; align-items: center; gap: 6px; }
+.mask-opacity-value { font-size: 11px; color: var(--ink); text-align: right; font-variant-numeric: tabular-nums; }
 .mask-pop-label {
   font-size: 10.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase;
   color: var(--ink-3);
@@ -2155,6 +2186,13 @@ canvas.livecv[hidden] { display: none; }
   border: 1px solid var(--line-strong); box-shadow: inset 0 0 0 1px var(--screen);
 }
 .mask-colour[aria-pressed="true"] { box-shadow: 0 0 0 2px var(--screen), 0 0 0 4px var(--accent); }
+/* The swatch that opens the colour picker: the picker itself lies over it,
+   invisible, so a press on the swatch opens it. */
+.mask-pick { position: relative; overflow: hidden; }
+/* The masks' card hangs from the row's right edge like every other card,
+   not from the chip: the chip gives up its own frame of reference. */
+.mask-chip { position: static; }
+.mask-pick input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
 .mask-look { display: inline-flex; justify-self: start; }
 #mask-opacity { width: 100%; margin: 0; }
 

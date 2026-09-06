@@ -219,11 +219,28 @@ test.describe("the target acquisition workflow, walked screen by screen", () => 
       await expect(page.locator("#grey-pop")).toBeVisible();
       await rest(600);
       await shot(page, "scan-done-grey-box");
-      await page.locator('#grey-pop input[aria-label^="min"]').evaluate((slider) => {
+      await page.locator('#grey-pop input[aria-label^="min of"]').evaluate((slider) => {
         slider.value = "20"; slider.dispatchEvent(new Event("input", { bubbles: true }));
       });
       await rest(900);
       await shot(page, "scan-done-grey-windowed");
+      /* The box has the same handles as a colour channel's: a number typed
+         into the max box moves its slider, the wheel zooms the histogram
+         and the axis boxes under it say what is on view. */
+      const maxBox = page.locator('#grey-pop input[aria-label^="max value"]');
+      await maxBox.fill("80");
+      await maxBox.press("Enter");
+      await expect(page.locator('#grey-pop input[aria-label^="max of"]')).toHaveValue("80");
+      await page.locator("#grey-pop svg").hover();
+      await page.mouse.wheel(0, -300);
+      await rest(300);
+      const axisFrom = parseFloat(await page.locator('#grey-pop input[aria-label^="axis from"]').inputValue());
+      const axisTo = parseFloat(await page.locator('#grey-pop input[aria-label^="axis to"]').inputValue());
+      expect(axisTo - axisFrom).toBeLessThan(100);
+      await page.locator("#grey-pop svg").dblclick();
+      await expect(page.locator('#grey-pop input[aria-label^="axis to"]')).toHaveValue("100%");
+      await rest(300);
+      await shot(page, "scan-done-grey-typed");
       await page.keyboard.press("Escape");
       await expect(page.locator("#grey-pop")).toBeHidden();
       const greyPicture = await photograph(page, "#picture-host", 0.6);
@@ -272,14 +289,14 @@ test.describe("the target acquisition workflow, walked screen by screen", () => 
         await page.locator("#mask-btn").click();
         await expect(page.locator("#mask-pop")).toBeVisible();
         await shot(page, "detect-mask-card");
-        await page.locator("#mask-hidden").click();
+        await page.locator("#mask-eye").click();
         await expect(page.locator("#mask-btn")).toHaveAttribute("aria-pressed", "false");
         await rest(800);
         await shot(page, "detect-mask-hidden");
-        await page.locator("#mask-shown").click();
+        await page.locator("#mask-eye").click();
         await expect(page.locator("#mask-btn")).toHaveAttribute("aria-pressed", "true");
         await rest(500);
-        await page.locator('.mask-colour[data-colour="#ffd400"]').click();
+        await page.locator("#mask-picker").fill("#ffd400");
         await page.locator("#mask-line").click();
         await page.locator("#mask-opacity").evaluate((slider) => {
           slider.value = "60";

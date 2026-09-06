@@ -65,6 +65,38 @@ export const canvasPanel = {
                channels as chips, the masks as one of them, and Grayscale.
                A press on a chip opens its box. -->
           <span class="canvas-toolbar-right">
+            <!-- Colour or grey, a toggle of its own at the head of the
+                 row. Each side is a ramp, the bar a microscopist knows
+                 from the lookup table of any viewer: a rainbow ramp for
+                 colour, a black-to-white ramp for grey. The knob sits
+                 over the side in force. It acts on the pictures only;
+                 the masks keep their own colours whichever side it is
+                 on. -->
+            <span class="grey-toggle" id="grey-toggle" role="group" aria-label="Colour or grey" data-grey="false">
+              <button class="bare" id="colour-btn" type="button" aria-pressed="true" aria-label="Colour"
+                      title="Colour: every channel in its own colour">
+                <svg class="grey-glyph colours" width="18" height="16" viewBox="0 0 18 16" aria-hidden="true">
+                  <defs>
+                    <linearGradient id="ramp-colours" x1="0" y1="0" x2="1" y2="0">
+                      <stop offset="0" stop-color="#3b82f6"/><stop offset="0.35" stop-color="#22c55e"/>
+                      <stop offset="0.65" stop-color="#eab308"/><stop offset="1" stop-color="#ef4444"/>
+                    </linearGradient>
+                  </defs>
+                  <rect class="ramp" x="1" y="4" width="16" height="8" rx="1.5"/>
+                </svg>
+              </button>
+              <button class="bare" id="grey-btn" type="button" aria-pressed="false" aria-label="Grey"
+                      title="Grey: the channels folded into one grey picture">
+                <svg class="grey-glyph greys" width="18" height="16" viewBox="0 0 18 16" aria-hidden="true">
+                  <defs>
+                    <linearGradient id="ramp-greys" x1="0" y1="0" x2="1" y2="0">
+                      <stop offset="0" stop-color="#111827"/><stop offset="1" stop-color="#f3f4f6"/>
+                    </linearGradient>
+                  </defs>
+                  <rect class="ramp" x="1" y="4" width="16" height="8" rx="1.5"/>
+                </svg>
+              </button>
+            </span>
             <!-- A joined strip: which acquisition the row is about -- the
                  eye, its name, a caret that opens the list -- and its
                  channels in a box beside it. -->
@@ -114,12 +146,14 @@ export const canvasPanel = {
                 </svg>
               </button>
               <div class="canvas-card mask-pop" id="mask-pop" hidden>
-                <div class="mask-pop-row">
-                  <span class="mask-pop-label">Masks</span>
-                  <span class="seg mask-look">
-                    <button id="mask-shown" type="button" aria-pressed="true">Shown</button>
-                    <button id="mask-hidden" type="button" aria-pressed="false">Hidden</button>
-                  </span>
+                <!-- The masks' card, in the language of a channel's box: an
+                     eye and a name at the head, then the colour, the look
+                     and the opacity, one quiet row each. -->
+                <div class="mask-pop-head">
+                  <button class="mask-eye" id="mask-eye" type="button" aria-pressed="true" title="Show or hide the masks">
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M1.5 8s2.5-4.5 6.5-4.5S14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8z"/><circle cx="8" cy="8" r="2"/><path class="mask-eye-slash" d="M3 13L13 3"/></svg>
+                  </button>
+                  <span class="mask-pop-name">Masks</span>
                 </div>
                 <div class="mask-pop-row">
                   <span class="mask-pop-label">Colour</span>
@@ -128,14 +162,16 @@ export const canvasPanel = {
                 <div class="mask-pop-row">
                   <span class="mask-pop-label">Look</span>
                   <span class="seg mask-look">
-                    <button id="mask-fill" type="button" aria-pressed="true">Fill</button>
-                    <button id="mask-line" type="button" aria-pressed="false">Line</button>
+                    <button id="mask-fill" type="button" aria-pressed="true">Solid</button>
+                    <button id="mask-line" type="button" aria-pressed="false">Outline</button>
                   </span>
                 </div>
                 <div class="mask-pop-row">
                   <span class="mask-pop-label">Opacity</span>
-                  <input id="mask-opacity" type="range" min="10" max="100" step="5"
-                         aria-label="mask opacity">
+                  <span class="mask-opacity-row">
+                    <input class="zv-range" id="mask-opacity" type="range" min="10" max="100" step="5" aria-label="mask opacity">
+                    <output class="mask-opacity-value" id="mask-opacity-value" aria-hidden="true">80%</output>
+                  </span>
                 </div>
               </div>
               </span>
@@ -145,38 +181,6 @@ export const canvasPanel = {
                    settings, lent to the row while it is open here. -->
               <div class="canvas-card channel-pop" id="channel-pop" hidden></div>
               <div class="canvas-card grey-pop" id="grey-pop" hidden></div>
-            </span>
-            <!-- Colour or grey, a toggle of its own at the end of the
-                 row. Each side is a ramp, the bar a microscopist knows
-                 from the lookup table of any viewer: a rainbow ramp for
-                 colour, a black-to-white ramp for grey. The knob sits
-                 over the side in force. It acts on the pictures only;
-                 the masks keep their own colours whichever side it is
-                 on. -->
-            <span class="grey-toggle" id="grey-toggle" role="group" aria-label="Colour or grey" data-grey="false">
-              <button class="bare" id="colour-btn" type="button" aria-pressed="true" aria-label="Colour"
-                      title="Colour: every channel in its own colour">
-                <svg class="grey-glyph colours" width="18" height="16" viewBox="0 0 18 16" aria-hidden="true">
-                  <defs>
-                    <linearGradient id="ramp-colours" x1="0" y1="0" x2="1" y2="0">
-                      <stop offset="0" stop-color="#3b82f6"/><stop offset="0.35" stop-color="#22c55e"/>
-                      <stop offset="0.65" stop-color="#eab308"/><stop offset="1" stop-color="#ef4444"/>
-                    </linearGradient>
-                  </defs>
-                  <rect class="ramp" x="1" y="4" width="16" height="8" rx="1.5"/>
-                </svg>
-              </button>
-              <button class="bare" id="grey-btn" type="button" aria-pressed="false" aria-label="Grey"
-                      title="Grey: the channels folded into one grey picture">
-                <svg class="grey-glyph greys" width="18" height="16" viewBox="0 0 18 16" aria-hidden="true">
-                  <defs>
-                    <linearGradient id="ramp-greys" x1="0" y1="0" x2="1" y2="0">
-                      <stop offset="0" stop-color="#111827"/><stop offset="1" stop-color="#f3f4f6"/>
-                    </linearGradient>
-                  </defs>
-                  <rect class="ramp" x="1" y="4" width="16" height="8" rx="1.5"/>
-                </svg>
-              </button>
             </span>
           </span>
         </div>
@@ -261,8 +265,8 @@ export const canvasPanel = {
         maskChip: find("mask-chip"),
         maskDivide: find("mask-divide"),
         maskShape: host.querySelector(".mask-shape"),
-        maskShown: find("mask-shown"),
-        maskHidden: find("mask-hidden"),
+        maskEye: find("mask-eye"),
+        maskOpacityValue: find("mask-opacity-value"),
         channelPop: find("channel-pop"),
         greyChip: find("grey-chip"),
         greyChipButton: find("grey-chip-btn"),
