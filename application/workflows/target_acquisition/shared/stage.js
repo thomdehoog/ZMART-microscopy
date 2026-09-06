@@ -29,6 +29,7 @@ import { carrierLayers } from "../steps/define_carrier/layers.js";
 import { scanAreaLayers } from "../steps/define_scan_area/layers.js";
 import { focusLayers } from "../steps/focus_strategy/layers.js";
 import { MASK_COLOURS, MASK_RAINBOW } from "../steps/discover_targets/mask-dress.js";
+import { mountGreyBox } from "../../../parts/canvas/grey-box.js";
 import { overviewLayers } from "../steps/scan_the_overview/layers.js";
 import { targetLayers } from "../steps/discover_targets/layers.js";
 import { acquiredLayers } from "../steps/acquire_targets/layers.js";
@@ -1293,6 +1294,26 @@ ctx.maskName?.addEventListener("click", openTheMaskCard);
 ctx.maskShown?.addEventListener("click", () => { theCanvas.showLayer("segmentation", true); drawStage(); });
 ctx.maskHidden?.addEventListener("click", () => { theCanvas.showLayer("segmentation", false); drawStage(); });
 if (ctx.channelPop) cards.push([ctx.channelPop, null]);
+
+/* The grey channel's chip: while the picture is grey it stands in for the
+   dots, and a press opens the one box for the sum. */
+let greyBox = null;
+if (ctx.greyPop) cards.push([ctx.greyPop, ctx.greyChipButton]);
+const openTheGreyBox = (e) => {
+  e.stopPropagation();
+  const panel = window.__viewerPanel;
+  const names = panel?.acquisitions?.().map((one) => one.name) ?? [];
+  const shown = theRowsAcquisition(names);
+  if (!panel || !shown) return;
+  if (ctx.greyPop.hidden) {
+    greyBox = mountGreyBox(ctx.greyPop, { panel, acquisition: shown, changed: () => sayWhatThePressesDo() });
+    openOnly(ctx.greyPop, ctx.greyChipButton, true);
+  } else {
+    openOnly(ctx.greyPop, ctx.greyChipButton, false);
+  }
+};
+ctx.greyChipButton?.addEventListener("click", openTheGreyBox);
+ctx.greyChipName?.addEventListener("click", openTheGreyBox);
 if (ctx.maskColours) {
   for (const colour of MASK_COLOURS) {
     const dot = document.createElement("button");
@@ -1454,6 +1475,12 @@ function sayWhatThePressesDo() {
   }
   if (panel) drawTheChips(panel, shown);
   else if (ctx.chips) { ctx.chips.replaceChildren(); ctx.chips.dataset.stamp = ""; }
+  /* Grey: the acquisition is one channel, so the dots give way to one chip. */
+  const greyNow = Boolean(shown && panel?.acquisitionGrey?.(shown));
+  if (ctx.greyChip) ctx.greyChip.hidden = !greyNow;
+  if (ctx.chips) ctx.chips.hidden = greyNow;
+  if (!greyNow && ctx.greyPop && !ctx.greyPop.hidden) closeTheCards();
+  if (greyNow && ctx.greyPop && !ctx.greyPop.hidden) greyBox?.refresh();
 
   const mask = ctx.maskButton;
   if (mask) {
@@ -1505,7 +1532,8 @@ function sayWhatThePressesDo() {
   /* The channels' box stands only when it holds something; without it the
      grey switch ends the strip. */
   if (ctx.channelsBox) {
-    const holds = Boolean(ctx.chips?.childElementCount) || (ctx.maskChip && !ctx.maskChip.hidden);
+    const holds = Boolean(ctx.chips?.childElementCount) || (ctx.maskChip && !ctx.maskChip.hidden)
+      || (ctx.greyChip && !ctx.greyChip.hidden);
     ctx.channelsBox.hidden = !holds;
     ctx.greyToggle?.classList.toggle("strip-last", !holds);
   }
