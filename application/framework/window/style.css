@@ -2095,8 +2095,10 @@ canvas.livecv[hidden] { display: none; }
    own thing. It stops short of the top and bottom on purpose. */
 .chip-divide { flex: none; width: 1px; height: 16px; margin: 0 5px 0 4px; background: var(--line-strong); align-self: center; }
 .chip-divide[hidden] { display: none; }
-/* The masks' chip is a cell's outline in the masks' own dress, drawn by
-   the page; no line crosses it when hidden, the fade says so alone. */
+/* The masks' chip is a cell in the masks' own dress, drawn by the page. It
+   stands in the row only once a detection has laid masks. Hidden, it keeps
+   its colours and a black line crosses it, the way a hidden channel's dot
+   is crossed. */
 .mask-dot {
   width: 24px; height: 24px; border-radius: 0; border: none; box-shadow: none;
   background: none; padding: 0; display: inline-flex; align-items: center; justify-content: center;
@@ -2104,7 +2106,11 @@ canvas.livecv[hidden] { display: none; }
 }
 .mask-dot svg { width: 22px; height: 22px; display: block; }
 .mask-dot:hover { transform: scale(1.1); }
-.chip.off .mask-dot::after { display: none; }
+.chip.off .mask-dot { opacity: 1; }
+.chip.off .mask-dot::after {
+  display: block; left: -3px; right: -3px; height: 2px; background: #000; border-radius: 1px;
+  box-shadow: 0 0 0 1px var(--screen);
+}
 
 /* The grey channel's chip and its box. */
 .canvas-chips[hidden] { display: none; }
