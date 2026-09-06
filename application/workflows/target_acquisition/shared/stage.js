@@ -28,8 +28,8 @@ import { putTheCanvasIn } from "../../../parts/canvas/viewer.js";
 import { carrierLayers } from "../steps/define_carrier/layers.js";
 import { scanAreaLayers } from "../steps/define_scan_area/layers.js";
 import { focusLayers } from "../steps/focus_strategy/layers.js";
-import { MASK_COLOURS, MASK_RAINBOW } from "../steps/discover_targets/mask-dress.js";
-import { mountGreyBox } from "../../../parts/canvas/grey-box.js";
+import { MASK_RAINBOW } from "../steps/discover_targets/mask-dress.js";
+import { mountChannelBox } from "../../../parts/canvas/channel-box.js";
 import { overviewLayers } from "../steps/scan_the_overview/layers.js";
 import { targetLayers } from "../steps/discover_targets/layers.js";
 import { acquiredLayers } from "../steps/acquire_targets/layers.js";
@@ -1271,8 +1271,6 @@ function openOnly(card, button, open) {
     c.hidden = !on;
     b?.setAttribute("aria-expanded", String(on));
   }
-  /* The channel's box goes back to its column the moment its card closes. */
-  if (ctx.channelPop?.hidden) window.__viewerPanel?.reclaimSettingsCard?.();
 }
 function closeTheCards() { openOnly(null, null, false); }
 document.addEventListener("click", (e) => {
@@ -1290,9 +1288,65 @@ const openTheMaskCard = (e) => { e.stopPropagation(); openOnly(ctx.maskPop, ctx.
 /* Like a channel's chip: a press on the shape or the name opens the card,
    and shown or hidden is the card's first line. */
 ctx.maskButton?.addEventListener("click", openTheMaskCard);
-ctx.maskShown?.addEventListener("click", () => { theCanvas.showLayer("segmentation", true); drawStage(); });
-ctx.maskHidden?.addEventListener("click", () => { theCanvas.showLayer("segmentation", false); drawStage(); });
+ctx.maskEye?.addEventListener("click", () => {
+  theCanvas.showLayer("segmentation", theCanvas.layerShown?.("segmentation") === false);
+  drawStage();
+});
 if (ctx.channelPop) cards.push([ctx.channelPop, null]);
+let channelBox = null;
+
+/* What a colour channel's box needs of the panel: its numbers as they
+   stand, and where a change goes. The panel keeps the truth; the column's
+   own box and this one both read it. */
+const aColourChannel = (panel, index, label) => ({
+  kind: "colour", label, unit: "",
+  state: () => panel.channelBox?.(index) ?? null,
+  setWindow: (window_) => panel.channelAct?.(index, { window: window_ }),
+  setAxis: (axis) => panel.channelAct?.(index, { axis }),
+  setWeight: (weight) => panel.channelAct?.(index, { weight }),
+  setLog: (log) => panel.channelAct?.(index, { log }),
+  setVisible: (on) => panel.setChannelVisible?.(index, on),
+  setColour: (hex) => panel.channelAct?.(index, { colour: hex }),
+  auto: () => panel.autoChannel?.(index),
+  changed: () => sayWhatThePressesDo(),
+});
+
+/* The grey channel's box speaks in percent of the summed window: the
+   composite's shares are its numbers, and the axis on view is its own. */
+const theGreyChannel = (panel, acquisition) => {
+  let view = null;
+  return {
+    kind: "grey", label: `the grey ${acquisition}`, unit: "%",
+    state: () => {
+      const c = panel.composite?.(acquisition);
+      if (!c) return null;
+      return {
+        title: acquisition,
+        sub: c.measured
+          ? `one grey channel, the sum of ${c.channels}`
+          : `one grey channel, the sum of ${c.channels}; press Auto to measure`,
+        counts: c.counts, range: { low: 0, high: 100 },
+        window: { low: c.a * 100, high: c.b * 100 },
+        axis: view ?? { low: 0, high: 100 },
+        weight: c.s, log: Boolean(c.log), measured: c.measured,
+      };
+    },
+    setWindow: ({ low, high }) => {
+      const a = Math.max(0, Math.min(low, 98)) / 100;
+      const b = Math.max(a + 0.02, Math.min(high, 100) / 100);
+      panel.setComposite?.(acquisition, { a, b });
+    },
+    setAxis: (axis) => {
+      if (!axis) { view = null; return; }
+      const low = Math.max(0, Math.min(axis.low, 99));
+      view = { low, high: Math.min(100, Math.max(axis.high, low + 1)) };
+    },
+    setWeight: (s) => panel.setComposite?.(acquisition, { s }),
+    setLog: (log) => panel.setComposite?.(acquisition, { log }),
+    auto: () => panel.autoComposite?.(acquisition),
+    changed: () => sayWhatThePressesDo(),
+  };
+};
 
 /* The grey channel's chip: while the picture is grey it stands in for the
    dots, and a press opens the one box for the sum. */
@@ -1305,24 +1359,36 @@ const openTheGreyBox = (e) => {
   const shown = theRowsAcquisition(names);
   if (!panel || !shown) return;
   if (ctx.greyPop.hidden) {
-    greyBox = mountGreyBox(ctx.greyPop, { panel, acquisition: shown, changed: () => sayWhatThePressesDo() });
+    greyBox = mountChannelBox(ctx.greyPop, theGreyChannel(panel, shown));
     openOnly(ctx.greyPop, ctx.greyChipButton, true);
   } else {
     openOnly(ctx.greyPop, ctx.greyChipButton, false);
   }
 };
 ctx.greyChipButton?.addEventListener("click", openTheGreyBox);
+/* The masks' colour: a rainbow dot for each object its own colour, and
+   beside it a swatch that opens the browser's own colour picker, the way a
+   channel's colour is chosen in Display settings. */
+let maskPicker = null;
 if (ctx.maskColours) {
-  for (const colour of MASK_COLOURS) {
-    const dot = document.createElement("button");
-    dot.type = "button";
-    dot.className = "mask-colour";
-    dot.dataset.colour = colour ?? "";
-    dot.style.background = colour ?? MASK_RAINBOW;
-    dot.title = colour ? `every object in ${colour}` : "each object its own colour";
-    dot.addEventListener("click", () => { maskDress().maskColour = colour; drawStage(); });
-    ctx.maskColours.append(dot);
-  }
+  const rainbow = document.createElement("button");
+  rainbow.type = "button";
+  rainbow.className = "mask-colour";
+  rainbow.dataset.colour = "";
+  rainbow.style.background = MASK_RAINBOW;
+  rainbow.title = "Each object its own colour";
+  rainbow.addEventListener("click", () => { maskDress().maskColour = null; drawStage(); });
+  const swatch = document.createElement("label");
+  swatch.className = "mask-colour mask-pick";
+  swatch.title = "Every object in one colour: choose it";
+  maskPicker = document.createElement("input");
+  maskPicker.type = "color";
+  maskPicker.id = "mask-picker";
+  maskPicker.value = "#ffd400";
+  maskPicker.setAttribute("aria-label", "choose a colour for the masks");
+  maskPicker.addEventListener("input", () => { maskDress().maskColour = maskPicker.value; drawStage(); });
+  swatch.append(maskPicker);
+  ctx.maskColours.append(rainbow, swatch);
 }
 ctx.maskFill?.addEventListener("click", () => { maskDress().maskShow = "fill"; drawStage(); });
 ctx.maskLine?.addEventListener("click", () => { maskDress().maskShow = "line"; drawStage(); });
@@ -1390,15 +1456,15 @@ function drawTheChips(panel, acquisition) {
       dot.title = `${channel.name}${channel.visible ? "" : " (hidden)"}: its box, with the eye, the histogram, the window and the opacity`;
       dot.setAttribute("aria-pressed", String(channel.visible));
       dot.setAttribute("aria-label", channel.name);
-      /* A press on the dot opens the channel's box under the row: the same
-         box Display settings shows, with its eye, its histogram and its
-         sliders, lent here while the card is open. The dot is the whole
-         chip -- its number in its colour says which channel it is; the
-         name waits in the box. */
+      /* A press on the dot opens the channel's box under the row: an eye,
+         its colour and its name at the head, then its histogram and
+         sliders, on the same numbers the column's own box shows. The dot
+         is the whole chip -- its number in its colour says which channel
+         it is; the name waits in the box. */
       const openTheBox = (e) => {
         e.stopPropagation();
         panel.chooseRow(channel.index);
-        panel.lendSettingsCard?.(ctx.channelPop);
+        channelBox = mountChannelBox(ctx.channelPop, aColourChannel(panel, channel.index, channel.name));
         openOnly(ctx.channelPop, null, true);
         sayWhatThePressesDo();
       };
@@ -1464,6 +1530,7 @@ function sayWhatThePressesDo() {
   if (ctx.chips) ctx.chips.hidden = greyNow;
   if (!greyNow && ctx.greyPop && !ctx.greyPop.hidden) closeTheCards();
   if (greyNow && ctx.greyPop && !ctx.greyPop.hidden) greyBox?.refresh();
+  if (ctx.channelPop && !ctx.channelPop.hidden) channelBox?.refresh();
 
   const mask = ctx.maskButton;
   if (mask) {
@@ -1475,8 +1542,7 @@ function sayWhatThePressesDo() {
     ctx.maskChip?.classList.toggle("on", on);
     ctx.maskChip?.classList.toggle("off", !on);
     mask.setAttribute("aria-pressed", String(on));
-    ctx.maskShown?.setAttribute("aria-pressed", String(on));
-    ctx.maskHidden?.setAttribute("aria-pressed", String(!on));
+    ctx.maskEye?.setAttribute("aria-pressed", String(on));
     const dress = maskDress();
     /* The pictogram wears the dress: the colour chosen or the rainbow, and
        filled or a thick outline round a white middle. */
@@ -1488,15 +1554,21 @@ function sayWhatThePressesDo() {
       ctx.maskShape.setAttribute("stroke-width", line ? "2.2" : "0.8");
       ctx.maskShape.setAttribute("stroke-linejoin", "round");
     }
-    for (const dot of ctx.maskColours?.querySelectorAll(".mask-colour") ?? []) {
-      dot.setAttribute("aria-pressed", String((dress.maskColour ?? "") === dot.dataset.colour));
+    const rainbowDot = ctx.maskColours?.querySelector('.mask-colour[data-colour=""]');
+    rainbowDot?.setAttribute("aria-pressed", String(!dress.maskColour));
+    if (maskPicker) {
+      const swatch = maskPicker.parentElement;
+      swatch.setAttribute("aria-pressed", String(Boolean(dress.maskColour)));
+      if (dress.maskColour && document.activeElement !== maskPicker) maskPicker.value = dress.maskColour;
+      swatch.style.background = maskPicker.value;
     }
     const line = dress.maskShow === "line";
     ctx.maskFill?.setAttribute("aria-pressed", String(!line));
     ctx.maskLine?.setAttribute("aria-pressed", String(line));
-    if (ctx.maskOpacity && document.activeElement !== ctx.maskOpacity) {
-      ctx.maskOpacity.value = String(Math.round((dress.maskAlpha ?? 0.8) * 100));
-    }
+    const percent = Math.round((dress.maskAlpha ?? 0.8) * 100);
+    if (ctx.maskOpacity && document.activeElement !== ctx.maskOpacity) ctx.maskOpacity.value = String(percent);
+    if (ctx.maskOpacity) ctx.maskOpacity.style.setProperty("--fill", `${((percent - 10) / 90) * 100}%`);
+    if (ctx.maskOpacityValue) ctx.maskOpacityValue.textContent = `${percent}%`;
   }
   if (ctx.greyButton) {
     const can = Boolean(panel?.drawAllInGrey);
