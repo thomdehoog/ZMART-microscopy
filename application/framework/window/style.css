@@ -2024,14 +2024,14 @@ canvas.livecv[hidden] { display: none; }
 .canvas-strip .run.switch[aria-pressed="true"] {
   background: var(--accent-tint); border-color: var(--line-strong); box-shadow: none;
 }
-/* The grey switch's glyph shows the state it will leave: colours while the
-   picture is in colour, greys once it is grey. */
-.grey-glyph .bar-r { fill: #ef4444; }
-.grey-glyph .bar-g { fill: #22c55e; }
-.grey-glyph .bar-b { fill: #3b82f6; }
-.bare.switch[aria-pressed="true"] .grey-glyph .bar-r { fill: #d1d5db; }
-.bare.switch[aria-pressed="true"] .grey-glyph .bar-g { fill: #9ca3af; }
-.bare.switch[aria-pressed="true"] .grey-glyph .bar-b { fill: #4b5563; }
+/* The grey switch's glyph shows where the press takes you: three greys
+   while the picture is in colour, three colours once it is grey. */
+.grey-glyph .bar-r { fill: #d1d5db; }
+.grey-glyph .bar-g { fill: #9ca3af; }
+.grey-glyph .bar-b { fill: #4b5563; }
+.switch[aria-pressed="true"] .grey-glyph .bar-r { fill: #ef4444; }
+.switch[aria-pressed="true"] .grey-glyph .bar-g { fill: #22c55e; }
+.switch[aria-pressed="true"] .grey-glyph .bar-b { fill: #3b82f6; }
 
 /* The channels' box: flat, bordered on the top, right and bottom, joined
    onto the grey switch, so the strip reads as one piece and the box says
@@ -2062,8 +2062,10 @@ canvas.livecv[hidden] { display: none; }
 }
 .chip.chosen .chip-name { color: var(--ink); }
 .chip-name:hover { color: var(--accent-deep); }
-/* Hidden: the chip fades and a line crosses its dot. */
-.chip.off { opacity: 0.45; }
+/* Hidden: the chip's dot and name fade and a line crosses the dot. Only
+   those two fade, not the chip: a faded chip would become a layer of its
+   own and trap its card beneath the picture. */
+.chip.off .chip-dot, .chip.off .chip-name { opacity: 0.45; }
 .chip.off .chip-dot::after {
   content: ""; position: absolute; left: -4px; right: -4px; top: 50%; height: 1.5px;
   background: var(--ink); transform: rotate(-45deg);
@@ -2074,13 +2076,21 @@ canvas.livecv[hidden] { display: none; }
 .canvas-channels.compact .chip-dot {
   width: 18px; height: 18px; color: #fff; text-shadow: 0 0 2px rgba(0, 0, 0, 0.7);
 }
-.mask-chip .chip-dot { width: 16px; height: 16px; }
 .chip { height: 28px; }
-/* The masks' dot wears a contour, white on a dark halo so it reads on any
-   colour, in the full form and the compact form alike. */
-.mask-dot { display: inline-flex; align-items: center; justify-content: center; color: #fff; }
-.mask-dot svg { width: 12px; height: 12px; filter: drop-shadow(0 0 1.2px rgba(0, 0, 0, 0.85)); }
-.canvas-channels.compact .mask-dot svg { width: 13px; height: 13px; }
+/* The masks' chip is a cell's outline in the masks' own dress, drawn by
+   the page; no line crosses it when hidden, the fade says so alone. */
+.mask-dot, .canvas-channels.compact .mask-dot {
+  width: 26px; height: 18px; border-radius: 0; border: none; box-shadow: none;
+  background: none; padding: 0; display: inline-flex; align-items: center; justify-content: center;
+  color: transparent; text-shadow: none;
+}
+.mask-dot svg { width: 24px; height: 16px; display: block; }
+.mask-dot:hover { transform: scale(1.1); }
+.chip.off .mask-dot::after { display: none; }
+
+/* The chosen channel's box under the row: the column's own box, lent. */
+.channel-pop { right: 0; width: 470px; padding: 6px; }
+.channel-pop > * { width: 100%; }
 
 /* A card under a press in the row: the masks' dress, the acquisitions. */
 .canvas-card {

@@ -76,8 +76,9 @@ export const canvasPanel = {
                 <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 4l2.5 2.5L7.5 4"/></svg>
               </button>
               <!-- Grey, square-cornered so it sits flush between the picker
-                   and the channels. Its glyph shows three colours while the
-                   picture is in colour and three greys once it is grey. -->
+                   and the channels. Its glyph shows where the press takes
+                   you: greys while the picture is in colour, colours once
+                   it is grey. -->
               <button class="run icon switch strip-mid" id="grey-btn" type="button" aria-pressed="false" aria-label="Grey"
                       title="Grey: every picture in grey; press again for its colours">
                 <svg class="grey-glyph" width="18" height="16" viewBox="0 0 18 16" aria-hidden="true">
@@ -95,14 +96,35 @@ export const canvasPanel = {
               <span class="canvas-channels" id="canvas-channels">
               <span class="canvas-chips" id="canvas-chips"></span>
               <span class="chip mask-chip on" id="mask-chip" hidden>
+              <!-- The masks' chip is a cell's shape, not a circle: a small
+                   spindle in the masks' colour. Pressed, its card opens. -->
               <button class="chip-dot mask-dot" id="mask-btn" type="button" aria-pressed="true"
-                      title="Masks: press to show or hide, press twice for their colour, look and opacity">
-                <!-- A cell's contour: the masks are outlines of objects. -->
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 2.8 10.2 2 13.8 5.6 12.6 11.2 7.4 13.8 2.6 10.4 2.2 6.2z"/></svg>
+                      title="Masks: shown or hidden, their colour, look and opacity">
+                <!-- A cell's outline, curved the way a fibroblast lies. It
+                     wears the masks' own dress: their colour, or the
+                     rainbow for each object its own; filled, or a thick
+                     outline round a white middle when Line is chosen. -->
+                <svg width="24" height="16" viewBox="0 0 24 16" aria-hidden="true">
+                  <defs>
+                    <linearGradient id="mask-rainbow" x1="0" y1="0" x2="1" y2="0">
+                      <stop offset="0" stop-color="#ff5c7a"/><stop offset="0.2" stop-color="#ffb340"/>
+                      <stop offset="0.4" stop-color="#ffe066"/><stop offset="0.6" stop-color="#6be585"/>
+                      <stop offset="0.8" stop-color="#4fd1ff"/><stop offset="1" stop-color="#8f7bff"/>
+                    </linearGradient>
+                  </defs>
+                  <path class="mask-shape" d="M2.2 8.6C3.4 4.6 7.6 2.2 11.4 2.6c2.6.3 4.4 2 7.6 1.4 2.4-.4 3.4 1.4 2.4 3.2-1 1.8-3.8 2-5.6 3.4-2 1.6-3.2 4-6.4 3.8-2.6-.2-3.4-2.2-5.4-2.6C2.4 11.4 1.6 10.4 2.2 8.6z"/>
+                </svg>
               </button>
               <button class="chip-name" id="mask-name" type="button" aria-haspopup="true" aria-expanded="false"
                       title="The masks' colour, look and opacity">Mask</button>
               <div class="canvas-card mask-pop" id="mask-pop" hidden>
+                <div class="mask-pop-row">
+                  <span class="mask-pop-label">Masks</span>
+                  <span class="seg mask-look">
+                    <button id="mask-shown" type="button" aria-pressed="true">Shown</button>
+                    <button id="mask-hidden" type="button" aria-pressed="false">Hidden</button>
+                  </span>
+                </div>
                 <div class="mask-pop-row">
                   <span class="mask-pop-label">Colour</span>
                   <span class="mask-colours" id="mask-colours"></span>
@@ -123,6 +145,9 @@ export const canvasPanel = {
               </span>
               </span>
               <div class="canvas-card acquisition-menu" id="acquisition-menu" hidden></div>
+              <!-- The chosen channel's box, the very one from Display
+                   settings, lent to the row while it is open here. -->
+              <div class="canvas-card channel-pop" id="channel-pop" hidden></div>
             </span>
           </span>
         </div>
@@ -205,7 +230,11 @@ export const canvasPanel = {
         tile: find("tile-btn"),
         mask: find("mask-btn"),
         maskChip: find("mask-chip"),
+        maskShape: host.querySelector(".mask-shape"),
         maskName: find("mask-name"),
+        maskShown: find("mask-shown"),
+        maskHidden: find("mask-hidden"),
+        channelPop: find("channel-pop"),
         maskPop: find("mask-pop"),
         acquisitionPick: find("acquisition-pick"),
         acquisitionName: find("acquisition-name"),
