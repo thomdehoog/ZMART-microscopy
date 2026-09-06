@@ -48,25 +48,48 @@ export const canvasPanel = {
              presses that say what to look at; right, whatever legend the
              layer on show needs read, such as the focus map's colour ramp. -->
         <div class="canvas-toolbar" id="canvas-toolbar">
-          <button class="run" id="carrier-btn" type="button"
-                  title="Frame the carrier on the stage">Carrier</button>
-          <button class="run" id="tileset-btn" type="button" disabled
-                  title="Frame the nearest tileset; press again for the next">Tile set</button>
-          <!-- At the right, two switches on the picture: the masks, while
-               detection has laid them, and every picture in grey. Each is
-               tinted while it is on, the way the page shows every other
-               on-or-off press, and a press flips it. -->
+          <!-- Left, the two presses that say what to look at. -->
+          <button class="run" id="carrier-btn" type="button" title="Frame the carrier on the stage">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 5.5V2h3.5M10.5 2H14v3.5M14 10.5V14h-3.5M5.5 14H2v-3.5"/><rect x="5" y="6" width="6" height="4" rx="0.8"/></svg>
+            <span>Carrier</span>
+          </button>
+          <button class="run" id="tileset-btn" type="button" disabled title="Frame the nearest tileset; press again for the next">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="2.5" y="2.5" width="4.5" height="4.5" rx="0.8"/><rect x="9" y="2.5" width="4.5" height="4.5" rx="0.8"/><rect x="2.5" y="9" width="4.5" height="4.5" rx="0.8"/><rect x="9" y="9" width="4.5" height="4.5" rx="0.8"/></svg>
+            <span>Tile set</span>
+          </button>
+          <!-- Right, the picture: which acquisition the row is about, its
+               channels as chips, the masks as one of them, and Grayscale.
+               A chip's dot shows or hides it; its name opens its settings. -->
           <span class="canvas-toolbar-right">
-            <!-- The masks: a swatch that opens their dress -- colour, fill
-                 or line, opacity -- and the switch that shows or hides
-                 them. Here only while detection has laid masks. -->
-            <span class="mask-cluster" id="mask-cluster" hidden>
-              <button class="mask-swatch" id="mask-swatch" type="button"
-                      aria-haspopup="true" aria-expanded="false"
-                      title="The masks' colour, look and opacity"></button>
-              <button class="run switch" id="mask-btn" type="button" aria-pressed="true"
-                      title="Show or hide the detected masks">Mask</button>
-              <div class="mask-pop" id="mask-pop" hidden>
+            <span class="acquisition-pick" id="acquisition-pick" hidden>
+              <button class="run" id="acquisition-btn" type="button" aria-haspopup="true" aria-expanded="false"
+                      title="Which acquisition the row shows; show or hide any of them">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" aria-hidden="true"><path d="M8 2.5 14 6 8 9.5 2 6z"/><path d="M2 9.5 8 13l6-3.5"/></svg>
+                <span id="acquisition-name">Overview</span>
+                <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 4l2.5 2.5L7.5 4"/></svg>
+              </button>
+              <div class="canvas-card acquisition-menu" id="acquisition-menu" hidden></div>
+            </span>
+            <!-- Grey, for every picture at once: tinted while on, and the
+                 chips' dots go grey with the picture, so the state is on
+                 show twice. -->
+            <button class="run switch" id="grey-btn" type="button" hidden aria-pressed="false"
+                    title="Every picture in grey; press again for its colours">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="8" cy="8" r="5.5"/><path d="M8 2.5v11A5.5 5.5 0 0 0 8 2.5z" fill="currentColor" stroke="none"/></svg>
+              <span>Grey</span>
+            </button>
+            <span class="canvas-chips" id="canvas-chips"></span>
+            <span class="chip mask-chip" id="mask-chip" hidden>
+              <button class="chip-dot" id="mask-btn" type="button" aria-haspopup="true" aria-expanded="false"
+                      title="Masks: shown or hidden, their colour, look and opacity"></button>
+              <div class="canvas-card mask-pop" id="mask-pop" hidden>
+                <div class="mask-pop-row">
+                  <span class="mask-pop-label">Masks</span>
+                  <span class="seg mask-look">
+                    <button id="mask-shown" type="button" aria-pressed="true">Shown</button>
+                    <button id="mask-hidden" type="button" aria-pressed="false">Hidden</button>
+                  </span>
+                </div>
                 <div class="mask-pop-row">
                   <span class="mask-pop-label">Colour</span>
                   <span class="mask-colours" id="mask-colours"></span>
@@ -85,8 +108,6 @@ export const canvasPanel = {
                 </div>
               </div>
             </span>
-            <button class="run switch" id="grey-btn" type="button" disabled aria-pressed="false"
-                    title="Draw every picture in grey, or in its colours again">Grayscale</button>
           </span>
         </div>
         <div class="plot-host">
@@ -166,9 +187,14 @@ export const canvasPanel = {
         carrier: find("carrier-btn"),
         tileset: find("tileset-btn"),
         mask: find("mask-btn"),
-        maskCluster: find("mask-cluster"),
-        maskSwatch: find("mask-swatch"),
+        maskChip: find("mask-chip"),
+        maskShown: find("mask-shown"),
+        maskHidden: find("mask-hidden"),
         maskPop: find("mask-pop"),
+        acquisitionPick: find("acquisition-pick"),
+        acquisitionName: find("acquisition-name"),
+        acquisitionMenu: find("acquisition-menu"),
+        chips: find("canvas-chips"),
         maskColours: find("mask-colours"),
         maskFill: find("mask-fill"),
         maskLine: find("mask-line"),
