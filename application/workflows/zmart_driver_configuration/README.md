@@ -26,6 +26,10 @@ Five steps, walked before any imaging workflow can stand on the machine:
    preset at zero straight away; the reality is often otherwise, so a preset is
    refined by measuring it: the same field through each lens, and a short focus
    stack under each, the operator changing lenses by hand between the two.
+   Save and adopt publishes the reference and every preset that was measured
+   (or held from an earlier pass). A lens nobody has measured is left out of
+   the configuration, and the driver refuses to run under it until it is
+   measured: safer than writing down an offset of nothing.
 
 How the steps lean on each other: the origin in step 3 is a recording and
 moves nothing. Step 4 moves the stage through the driver, and step 5 lays its
