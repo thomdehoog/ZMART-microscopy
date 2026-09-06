@@ -1221,23 +1221,50 @@ function frameTileset() {
 }
 ctx.tilesetButton.addEventListener("click", frameTileset);
 
-/* Mask: the detected masks off and on, while detection has laid them on
-   the picture. The press stands in the row only then, and says which way
-   it will go. */
-ctx.maskButton?.addEventListener("click", () => {
-  theCanvas.showLayer("segmentation", !theCanvas.layerShown?.("segmentation"));
-  drawStage();
-});
+/* ---- the picture's half of the canvas row -------------------------------
+   Which acquisition the row is about, its channels as chips, the masks as
+   one of them, and Grayscale. The chips read the picture's own panel and
+   act through it, so the row and Display settings never disagree. */
 
-/* The masks' dress: the swatch opens a small card under itself with the
-   colour, the look and the opacity; each choice is written to the same
-   settings the tile test reads, so the two always agree. */
-const maskDress = () => run.detect ?? {};
-function showMaskCard(open) {
-  if (!ctx.maskPop) return;
-  ctx.maskPop.hidden = !open;
-  ctx.maskSwatch?.setAttribute("aria-expanded", String(open));
+/* The acquisition the row shows: the operator's choice, else the one the
+   step is about -- the focus stacks on the focus step, the targets while
+   acquiring, the overview otherwise -- else the first there is. */
+let chosenAcquisition = null;
+function theRowsAcquisition(names) {
+  if (chosenAcquisition && names.includes(chosenAcquisition)) return chosenAcquisition;
+  const mode = step(run.activeIdx)?.mode;
+  const wanted = mode === "focus" ? "focussing" : mode === "targets" ? "targets" : "overview";
+  return names.includes(wanted) ? wanted : names[0] ?? null;
 }
+
+/* Every card in the row closes the way a menu does: a press anywhere else,
+   or Escape. */
+const cards = [];
+function openOnly(card, button, open) {
+  for (const [c, b] of cards) {
+    const on = open && c === card;
+    c.hidden = !on;
+    b?.setAttribute("aria-expanded", String(on));
+  }
+}
+function closeTheCards() { openOnly(null, null, false); }
+document.addEventListener("click", (e) => {
+  if (cards.some(([c]) => !c.hidden) && !e.target.closest?.(".canvas-toolbar-right")) closeTheCards();
+});
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeTheCards(); });
+
+/* Mask: a chip like the channels', whose dot opens the masks' card --
+   shown or hidden, their colour, their look, their opacity. The chip
+   stands in the row only while detection has laid masks on the
+   acquisition the row shows. */
+const maskDress = () => run.detect ?? {};
+if (ctx.maskPop) cards.push([ctx.maskPop, ctx.maskButton]);
+ctx.maskButton?.addEventListener("click", (e) => {
+  e.stopPropagation();
+  openOnly(ctx.maskPop, ctx.maskButton, ctx.maskPop.hidden);
+});
+ctx.maskShown?.addEventListener("click", () => { theCanvas.showLayer("segmentation", true); drawStage(); });
+ctx.maskHidden?.addEventListener("click", () => { theCanvas.showLayer("segmentation", false); drawStage(); });
 if (ctx.maskColours) {
   for (const colour of MASK_COLOURS) {
     const dot = document.createElement("button");
@@ -1256,21 +1283,19 @@ ctx.maskOpacity?.addEventListener("input", () => {
   maskDress().maskAlpha = Number(ctx.maskOpacity.value) / 100;
   drawStage();
 });
-ctx.maskSwatch?.addEventListener("click", (e) => {
+
+/* The acquisition picker: the layers pictogram, the acquisition's name, and
+   a menu of every acquisition with an eye. Choosing one puts its channels
+   in the row; its eye shows or hides the whole acquisition. */
+if (ctx.acquisitionMenu) cards.push([ctx.acquisitionMenu, ctx.acquisitionPick?.querySelector("button")]);
+ctx.acquisitionPick?.querySelector("button")?.addEventListener("click", (e) => {
   e.stopPropagation();
-  showMaskCard(ctx.maskPop.hidden);
-});
-/* The card closes the way a menu does: a press anywhere else, or Escape. */
-document.addEventListener("click", (e) => {
-  if (ctx.maskPop && !ctx.maskPop.hidden && !ctx.maskCluster?.contains(e.target)) showMaskCard(false);
-});
-document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape" && ctx.maskPop && !ctx.maskPop.hidden) showMaskCard(false);
+  openOnly(ctx.acquisitionMenu, e.currentTarget, ctx.acquisitionMenu.hidden);
 });
 
-/* Grayscale, or Color: every acquisition on the picture drawn in grey, or
-   each in its own colours again. The picture's own panel keeps the colours
-   and does the drawing; this is the same switch for all of them at once. */
+/* Grayscale: every acquisition on the picture drawn in grey, or each in its
+   own colours again. The picture's own panel keeps the colours and does the
+   drawing; this is the same switch for all of them at once. */
 ctx.greyButton?.addEventListener("click", () => {
   const panel = window.__viewerPanel;
   if (!panel?.drawAllInGrey) return;
@@ -1278,18 +1303,112 @@ ctx.greyButton?.addEventListener("click", () => {
   sayWhatThePressesDo();
 });
 
-/* The presses at the right show whether they are on, from what the picture
-   shows now: tinted while on, outlined while off. Asked on every draw, and
-   after a press. */
+/* The panel is remade when the picture's sources change, so the hook is
+   put on whichever panel stands now, once. */
+let hookedPanel = null;
+function followThePanel() {
+  const panel = window.__viewerPanel;
+  if (!panel || panel === hookedPanel) return;
+  hookedPanel = panel;
+  panel.onChanged?.(() => sayWhatThePressesDo());
+}
+
+const EYE = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M1.5 8s2.5-4.5 6.5-4.5S14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8z"/><circle cx="8" cy="8" r="2"/></svg>';
+
+/* One chip per channel of the acquisition the row shows: a dot in the
+   channel's colour, named on hover. The chosen channel's dot carries the
+   hairline; a hidden channel's dot fades. A press chooses the channel and
+   opens Display settings, where its histogram, window and opacity are. */
+function drawTheChips(panel, acquisition) {
+  const host = ctx.chips;
+  if (!host) return;
+  const channels = acquisition ? panel.channelsOf(acquisition) : [];
+  const stamp = JSON.stringify(channels);
+  if (host.dataset.stamp === stamp) return;
+  host.dataset.stamp = stamp;
+  host.replaceChildren();
+  for (const channel of channels) {
+    const chip = document.createElement("span");
+    chip.className = `chip${channel.visible ? " on" : ""}${channel.chosen ? " chosen" : ""}`;
+    chip.dataset.channel = channel.name;
+    const dot = document.createElement("button");
+    dot.type = "button";
+    dot.className = "chip-dot";
+    dot.style.background = channel.color;
+    dot.title = `${channel.name}${channel.visible ? "" : " (hidden)"}: its histogram, window and opacity`;
+    dot.setAttribute("aria-label", channel.name);
+    dot.addEventListener("click", () => {
+      panel.chooseRow(channel.index);
+      ctx.openDisplaySettings?.();
+      sayWhatThePressesDo();
+    });
+    chip.append(dot);
+    host.append(chip);
+  }
+}
+
+/* The picker's menu: every acquisition, with an eye and its channel count;
+   the one the row shows is marked. */
+function drawTheMenu(panel, acquisitions, shown) {
+  const menu = ctx.acquisitionMenu;
+  if (!menu) return;
+  const stamp = JSON.stringify([acquisitions, shown]);
+  if (menu.dataset.stamp === stamp) return;
+  menu.dataset.stamp = stamp;
+  menu.replaceChildren();
+  for (const one of acquisitions) {
+    const line = document.createElement("div");
+    line.className = `acquisition-line${one.name === shown ? " chosen" : ""}${one.shown ? "" : " off"}`;
+    const eye = document.createElement("button");
+    eye.type = "button";
+    eye.className = "acquisition-eye";
+    eye.innerHTML = EYE;
+    eye.title = one.shown ? `Hide ${one.name}` : `Show ${one.name}`;
+    eye.setAttribute("aria-pressed", String(one.shown));
+    eye.setAttribute("aria-label", `show or hide ${one.name}`);
+    eye.addEventListener("click", (e) => { e.stopPropagation(); panel.showAcquisition(one.name, !one.shown); });
+    const name = document.createElement("button");
+    name.type = "button";
+    name.className = "acquisition-choose";
+    name.textContent = one.name;
+    name.addEventListener("click", () => { chosenAcquisition = one.name; closeTheCards(); sayWhatThePressesDo(); });
+    const count = document.createElement("span");
+    count.className = "acquisition-count";
+    count.textContent = `${one.channels} channel${one.channels === 1 ? "" : "s"}`;
+    line.append(eye, name, count);
+    menu.append(line);
+  }
+}
+
+/* The row's right half, from what the picture shows now. Asked on every
+   draw, on every change the panel reports, and after a press. */
 function sayWhatThePressesDo() {
+  followThePanel();
+  const panel = window.__viewerPanel;
+  const acquisitions = panel?.acquisitions?.() ?? [];
+  const names = acquisitions.map((one) => one.name);
+  const shown = theRowsAcquisition(names);
+
+  if (ctx.acquisitionPick) {
+    ctx.acquisitionPick.hidden = !acquisitions.length;
+    if (ctx.acquisitionName && shown) ctx.acquisitionName.textContent = shown;
+    if (panel) drawTheMenu(panel, acquisitions, shown);
+  }
+  if (panel) drawTheChips(panel, shown);
+  else if (ctx.chips) { ctx.chips.replaceChildren(); ctx.chips.dataset.stamp = ""; }
+
   const mask = ctx.maskButton;
   if (mask) {
-    const laid = theStack.some((layer) => layer.key === "segmentation" && layer.has);
-    if (ctx.maskCluster) ctx.maskCluster.hidden = !laid; else mask.hidden = !laid;
-    if (!laid) showMaskCard(false);
-    mask.setAttribute("aria-pressed", String(theCanvas.layerShown?.("segmentation") !== false));
+    const laid = theStack.some((layer) => layer.key === "segmentation" && layer.has)
+      && (shown === null || shown === "overview");
+    if (ctx.maskChip) ctx.maskChip.hidden = !laid;
+    if (!laid && ctx.maskPop && !ctx.maskPop.hidden) closeTheCards();
+    const on = theCanvas.layerShown?.("segmentation") !== false;
+    ctx.maskChip?.classList.toggle("on", on);
+    ctx.maskShown?.setAttribute("aria-pressed", String(on));
+    ctx.maskHidden?.setAttribute("aria-pressed", String(!on));
     const dress = maskDress();
-    if (ctx.maskSwatch) ctx.maskSwatch.style.background = dress.maskColour ?? MASK_RAINBOW;
+    mask.style.background = dress.maskColour ?? MASK_RAINBOW;
     for (const dot of ctx.maskColours?.querySelectorAll(".mask-colour") ?? []) {
       dot.setAttribute("aria-pressed", String((dress.maskColour ?? "") === dot.dataset.colour));
     }
@@ -1300,11 +1419,9 @@ function sayWhatThePressesDo() {
       ctx.maskOpacity.value = String(Math.round((dress.maskAlpha ?? 0.8) * 100));
     }
   }
-  const grey = ctx.greyButton;
-  if (grey) {
-    const panel = window.__viewerPanel;
-    grey.disabled = !panel?.drawAllInGrey;
-    grey.setAttribute("aria-pressed", String(Boolean(panel?.allGrey?.())));
+  if (ctx.greyButton) {
+    ctx.greyButton.hidden = !panel?.drawAllInGrey;
+    ctx.greyButton.setAttribute("aria-pressed", String(Boolean(panel?.allGrey?.())));
   }
 }
 

@@ -101,7 +101,7 @@ test.describe("the target acquisition workflow, walked screen by screen", () => 
   test("from Connect to acquired targets, every screen on the way", async ({ page }) => {
     const bridge = await startTheBridge({ port: PORT });
     const errors = [];
-    page.on("pageerror", (why) => errors.push(why.message));
+    page.on("pageerror", (why) => { errors.push(why.message); console.log(`page error: ${why.message}`); });
     try {
       await page.goto(`${bridge.at}/`);
       await rest(2500);
@@ -168,8 +168,20 @@ test.describe("the target acquisition workflow, walked screen by screen", () => 
       await page.evaluate(() => window.__theStageCanvas.fadeTo(0.15));
       await framePlan(page);
       await shot(page, "scan-done-picture");
-      /* Grayscale on, then off: the same picture in grey and back, by the
-         switch in the canvas's row, tinted while it is on. */
+      /* The row's chips: the overview's channels, each a dot and a name.
+         The dot hides the channel; the name chooses it and opens Display
+         settings, where its histogram is. */
+      await expect(page.locator("#acquisition-name")).toHaveText("overview");
+      const chips = page.locator("#canvas-chips .chip");
+      await expect.poll(() => chips.count(), { timeout: 30_000 }).toBeGreaterThan(1);
+      await chips.nth(1).locator(".chip-dot").click();
+      await expect(chips.nth(1)).toHaveClass(/\bchosen\b/);
+      await expect(page.locator(".side-tab .tab[aria-selected='true']")).toHaveText("Display settings");
+      await rest(800);
+      await shot(page, "scan-done-channel-settings");
+      await showTheChannel(page);
+      /* Grey on, then off: the same picture in grey and back, by the switch
+         in the canvas's row, tinted while on; the dots go grey with it. */
       await expect(page.locator("#grey-btn")).toHaveAttribute("aria-pressed", "false");
       await page.locator("#grey-btn").click();
       await expect(page.locator("#grey-btn")).toHaveAttribute("aria-pressed", "true");
@@ -211,21 +223,20 @@ test.describe("the target acquisition workflow, walked screen by screen", () => 
         const found = await page.evaluate(() => window.__theStageCanvas.targets());
         expect(found.length, "detection placed candidates on the canvas").toBeGreaterThan(0);
         await shot(page, "detect-done");
-        /* The masks off and on again, by the press that stands in the row
-           only while detection has laid them. */
+        /* The masks' chip stands in the row only while detection has laid
+           them; its dot opens their card. Hidden and shown again, then
+           dressed: one colour, outline only, fainter. */
         await expect(page.locator("#mask-btn")).toBeVisible();
-        await expect(page.locator("#mask-btn")).toHaveAttribute("aria-pressed", "true");
         await page.locator("#mask-btn").click();
-        await expect(page.locator("#mask-btn")).toHaveAttribute("aria-pressed", "false");
-        await rest(800);
-        await shot(page, "detect-mask-hidden");
-        await page.locator("#mask-btn").click();
-        await expect(page.locator("#mask-btn")).toHaveAttribute("aria-pressed", "true");
-        await rest(500);
-        /* Their dress, from the swatch: one colour, outline only, fainter. */
-        await page.locator("#mask-swatch").click();
         await expect(page.locator("#mask-pop")).toBeVisible();
         await shot(page, "detect-mask-card");
+        await page.locator("#mask-hidden").click();
+        await expect(page.locator("#mask-hidden")).toHaveAttribute("aria-pressed", "true");
+        await rest(800);
+        await shot(page, "detect-mask-hidden");
+        await page.locator("#mask-shown").click();
+        await expect(page.locator("#mask-shown")).toHaveAttribute("aria-pressed", "true");
+        await rest(500);
         await page.locator('.mask-colour[data-colour="#ffd400"]').click();
         await page.locator("#mask-line").click();
         await page.locator("#mask-opacity").evaluate((slider) => {

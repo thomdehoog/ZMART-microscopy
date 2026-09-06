@@ -319,7 +319,9 @@ export async function mountViewerPanel(near, {
   /* A slider can produce dozens of inputs in one gesture. The canvas should
      follow all of them immediately, while consumers of rendered JPEG copies
      need only the settled display request. */
+  const changedHooks = new Set();
   const displayChangedSoon = () => {
+    for (const hook of changedHooks) { try { hook(); } catch { /* a hook's own business */ } }
     if (typeof changed !== "function") return;
     if (changedTimer !== null) clearTimeout(changedTimer);
     changedTimer = setTimeout(() => {
@@ -1438,6 +1440,25 @@ export async function mountViewerPanel(near, {
     const shown = [...greyStates.values()].map((ask) => ask()).filter((state) => state.visible);
     return shown.length > 0 && shown.every((state) => state.grey);
   };
+  /* What the canvas's own row needs of the panel: the acquisitions and their
+     channels as they stand, the three things a chip does -- show or hide a
+     channel, choose it, show or hide its acquisition -- and a way to hear
+     that something changed so the row can redraw. */
+  panel.acquisitions = () => [...groupShown.keys()].map((name) => ({
+    name, shown: groupShown.get(name) !== false,
+    channels: rows.filter((row) => row.acquisition === name).length,
+  }));
+  panel.channelsOf = (name) => rows
+    .map((row, index) => ({ row, index }))
+    .filter(({ row }) => row.acquisition === name)
+    .map(({ row, index }) => ({
+      index, name: row.name, color: row.color ?? cssOf(null), visible: row.visible,
+      chosen: chosen === index,
+    }));
+  panel.setChannelVisible = (index, on) => { if (rows[index]) setChannelVisible(index, on); };
+  panel.chooseRow = (index) => { if (rows[index]) chooseRow(index); };
+  panel.acquisitionShown = (name) => groupShown.get(name) !== false;
+  panel.onChanged = (fn) => { changedHooks.add(fn); return () => changedHooks.delete(fn); };
   panel.requestedState = panelState;
   window.__viewerPanel = panel;
   if (rows.length) {
