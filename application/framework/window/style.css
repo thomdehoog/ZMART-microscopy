@@ -2013,9 +2013,13 @@ canvas.livecv[hidden] { display: none; }
    and past a short dividing line in that same box, the masks. */
 .canvas-strip { position: relative; display: inline-flex; flex: none; }
 .canvas-strip[hidden] { display: none; }
+/* The acquisition's press stands a little proud of the row, and the box of
+   channels beside it lies a little below it: the press decides what the
+   box holds, so it reads as the thing on top. */
 .canvas-strip .run {
-  background: linear-gradient(var(--screen), var(--surface-2));
-  box-shadow: 0 1px 0 rgba(15, 23, 42, 0.05);
+  background: linear-gradient(var(--screen), var(--surface-3));
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.8);
+  position: relative; z-index: 1;
 }
 .canvas-strip .run.strip-first { border-radius: 7px 0 0 7px; }
 .canvas-strip .run.strip-first.strip-last { border-radius: 7px; }
@@ -2063,45 +2067,31 @@ canvas.livecv[hidden] { display: none; }
    says which channels belong to the acquisition named at its left. */
 .canvas-channels {
   display: flex; align-items: center; gap: 2px; min-width: 0;
-  height: var(--control); padding: 0 6px; box-sizing: border-box;
+  height: var(--control); padding: 0 7px; box-sizing: border-box;
   border: 1px solid var(--line-strong); border-left: none; border-radius: 0 7px 7px 0;
   background: var(--screen);
+  box-shadow: inset 0 1px 3px rgba(15, 23, 42, 0.10);
 }
 .canvas-channels[hidden] { display: none; }
 .canvas-chips { display: flex; align-items: center; gap: 2px; min-width: 0; }
-.chip {
-  position: relative; display: inline-flex; align-items: center; gap: 6px;
-  height: 30px; padding: 0 6px;
-}
+/* A chip is a numbered dot in the channel's colour, nothing more. */
+.chip { position: relative; display: inline-flex; align-items: center; height: 28px; padding: 0 3px; }
 .chip[hidden] { display: none; }
 .chip-dot {
-  position: relative; width: 16px; height: 16px; border-radius: 50%; padding: 0; cursor: pointer;
+  position: relative; width: 18px; height: 18px; border-radius: 50%; padding: 0; cursor: pointer;
   border: 1px solid rgba(15, 23, 42, 0.18); box-shadow: inset 0 0 0 1px var(--screen);
-  font: 600 9.5px system-ui, sans-serif; color: transparent; overflow: visible;
-  transition: transform 0.12s;
+  font: 600 9.5px system-ui, sans-serif; color: #fff; text-shadow: 0 0 2px rgba(0, 0, 0, 0.7);
+  overflow: visible; transition: transform 0.12s;
 }
 .chip-dot:hover { transform: scale(1.12); }
-.chip-name {
-  font: inherit; font-size: 12.5px; font-weight: 600; color: var(--ink-2);
-  background: none; border: none; padding: 0; cursor: pointer; white-space: nowrap;
-}
-.chip.chosen .chip-name { color: var(--ink); }
-.chip-name:hover { color: var(--accent-deep); }
-/* Hidden: the chip's dot and name fade and a line crosses the dot. Only
-   those two fade, not the chip: a faded chip would become a layer of its
-   own and trap its card beneath the picture. */
-.chip.off .chip-dot, .chip.off .chip-name { opacity: 0.45; }
+/* Hidden: the dot fades and a line crosses it. Only the dot fades, not the
+   chip: a faded chip would become a layer of its own and trap its card
+   beneath the picture. */
+.chip.off .chip-dot { opacity: 0.45; }
 .chip.off .chip-dot::after {
   content: ""; position: absolute; left: -4px; right: -4px; top: 50%; height: 1.5px;
   background: var(--ink); transform: rotate(-45deg);
 }
-/* Short of room: the names go and each dot carries its number. */
-.canvas-channels.compact .chip { padding: 0 3px; }
-.canvas-channels.compact .chip-name { display: none; }
-.canvas-channels.compact .chip-dot {
-  width: 18px; height: 18px; color: #fff; text-shadow: 0 0 2px rgba(0, 0, 0, 0.7);
-}
-.chip { height: 28px; }
 /* A short line between the channels and the masks: the same box, since the
    masks lie on this acquisition, but a visible seam, since they are their
    own thing. It stops short of the top and bottom on purpose. */
@@ -2109,7 +2099,7 @@ canvas.livecv[hidden] { display: none; }
 .chip-divide[hidden] { display: none; }
 /* The masks' chip is a cell's outline in the masks' own dress, drawn by
    the page; no line crosses it when hidden, the fade says so alone. */
-.mask-dot, .canvas-channels.compact .mask-dot {
+.mask-dot {
   width: 24px; height: 24px; border-radius: 0; border: none; box-shadow: none;
   background: none; padding: 0; display: inline-flex; align-items: center; justify-content: center;
   color: transparent; text-shadow: none;

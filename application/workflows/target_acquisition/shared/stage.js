@@ -1285,12 +1285,11 @@ document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeTheCa
    stands in the row only while detection has laid masks on the
    acquisition the row shows. */
 const maskDress = () => run.detect ?? {};
-if (ctx.maskPop) cards.push([ctx.maskPop, ctx.maskName]);
-const openTheMaskCard = (e) => { e.stopPropagation(); openOnly(ctx.maskPop, ctx.maskName, ctx.maskPop.hidden); };
+if (ctx.maskPop) cards.push([ctx.maskPop, ctx.maskButton]);
+const openTheMaskCard = (e) => { e.stopPropagation(); openOnly(ctx.maskPop, ctx.maskButton, ctx.maskPop.hidden); };
 /* Like a channel's chip: a press on the shape or the name opens the card,
    and shown or hidden is the card's first line. */
 ctx.maskButton?.addEventListener("click", openTheMaskCard);
-ctx.maskName?.addEventListener("click", openTheMaskCard);
 ctx.maskShown?.addEventListener("click", () => { theCanvas.showLayer("segmentation", true); drawStage(); });
 ctx.maskHidden?.addEventListener("click", () => { theCanvas.showLayer("segmentation", false); drawStage(); });
 if (ctx.channelPop) cards.push([ctx.channelPop, null]);
@@ -1313,7 +1312,6 @@ const openTheGreyBox = (e) => {
   }
 };
 ctx.greyChipButton?.addEventListener("click", openTheGreyBox);
-ctx.greyChipName?.addEventListener("click", openTheGreyBox);
 if (ctx.maskColours) {
   for (const colour of MASK_COLOURS) {
     const dot = document.createElement("button");
@@ -1392,9 +1390,11 @@ function drawTheChips(panel, acquisition) {
       dot.title = `${channel.name}${channel.visible ? "" : " (hidden)"}: its box, with the eye, the histogram, the window and the opacity`;
       dot.setAttribute("aria-pressed", String(channel.visible));
       dot.setAttribute("aria-label", channel.name);
-      /* A press on the dot or the name opens the channel's box under the
-         row: the same box Display settings shows, with its eye, its
-         histogram and its sliders, lent here while the card is open. */
+      /* A press on the dot opens the channel's box under the row: the same
+         box Display settings shows, with its eye, its histogram and its
+         sliders, lent here while the card is open. The dot is the whole
+         chip -- its number in its colour says which channel it is; the
+         name waits in the box. */
       const openTheBox = (e) => {
         e.stopPropagation();
         panel.chooseRow(channel.index);
@@ -1403,27 +1403,10 @@ function drawTheChips(panel, acquisition) {
         sayWhatThePressesDo();
       };
       dot.addEventListener("click", openTheBox);
-      const name = document.createElement("button");
-      name.type = "button";
-      name.className = "chip-name";
-      name.textContent = channel.name;
-      name.title = `${channel.name}: its box, with the eye, the histogram, the window and the opacity`;
-      name.addEventListener("click", openTheBox);
-      chip.append(dot, name);
+      chip.append(dot);
       host.append(chip);
     });
   }
-  fitTheChips();
-}
-
-/* Names while there is room for them, numbers in the dots when there is
-   not: measured, since the room depends on the window and the column. */
-function fitTheChips() {
-  const box = ctx.channelsBox;
-  const right = box?.closest(".canvas-toolbar-right");
-  if (!box || !right) return;
-  box.classList.remove("compact");
-  if (right.scrollWidth > right.clientWidth + 1) box.classList.add("compact");
 }
 
 /* The picker's menu: every acquisition, with an eye and its channel count;
@@ -1546,7 +1529,6 @@ function sayWhatThePressesDo() {
        both are there to be kept apart. */
     if (ctx.maskDivide) ctx.maskDivide.hidden = !(channelsThere && masksThere);
   }
-  fitTheChips();
 }
 
 /* The legend at the foot of the picture, for whichever layer asks for one. A
@@ -1600,7 +1582,7 @@ function legendSettles() {
        shape, and what the pointer should look like over it. */
     /* The canvas measures itself; this only asks for the layers again, since
        what they draw depends on how big the box is. */
-    resize() { theCanvasNarrowed(); redrawViewSoon(); fitTheChips(); },
+    resize() { theCanvasNarrowed(); redrawViewSoon(); },
     cursor(shape) { stageBox.style.cursor = shape; },
     view,
     travelUm: STAGE_UM,
