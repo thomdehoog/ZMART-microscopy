@@ -75,18 +75,28 @@ export const canvasPanel = {
                 <span id="acquisition-name">Overview</span>
                 <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 4l2.5 2.5L7.5 4"/></svg>
               </button>
-              <!-- Grey, square-cornered so it sits flush between the picker
-                   and the channels. Its glyph shows where the press takes
-                   you: greys while the picture is in colour, colours once
-                   it is grey. -->
-              <button class="run icon switch strip-mid" id="grey-btn" type="button" aria-pressed="false" aria-label="Grey"
-                      title="Grey: every picture in grey; press again for its colours">
-                <svg class="grey-glyph" width="18" height="16" viewBox="0 0 18 16" aria-hidden="true">
-                  <rect class="bar-r" x="1" y="3" width="4.6" height="10" rx="1.2"/>
-                  <rect class="bar-g" x="6.7" y="3" width="4.6" height="10" rx="1.2"/>
-                  <rect class="bar-b" x="12.4" y="3" width="4.6" height="10" rx="1.2"/>
-                </svg>
-              </button>
+              <!-- Colour or grey, as a toggle flush between the picker and
+                   the channels: a knob that sits on the left over three
+                   coloured bars while the picture is in colour, and slides
+                   right over three grey bars once it is grey. -->
+              <span class="grey-toggle strip-mid" id="grey-toggle" role="group" aria-label="Colour or grey" data-grey="false">
+                <button class="bare" id="colour-btn" type="button" aria-pressed="true" aria-label="Colour"
+                        title="Colour: every picture in its own colours">
+                  <svg class="grey-glyph colours" width="18" height="16" viewBox="0 0 18 16" aria-hidden="true">
+                    <rect class="bar-r" x="1" y="3" width="4.6" height="10" rx="1.2"/>
+                    <rect class="bar-g" x="6.7" y="3" width="4.6" height="10" rx="1.2"/>
+                    <rect class="bar-b" x="12.4" y="3" width="4.6" height="10" rx="1.2"/>
+                  </svg>
+                </button>
+                <button class="bare" id="grey-btn" type="button" aria-pressed="false" aria-label="Grey"
+                        title="Grey: every picture in grey">
+                  <svg class="grey-glyph greys" width="18" height="16" viewBox="0 0 18 16" aria-hidden="true">
+                    <rect class="bar-r" x="1" y="3" width="4.6" height="10" rx="1.2"/>
+                    <rect class="bar-g" x="6.7" y="3" width="4.6" height="10" rx="1.2"/>
+                    <rect class="bar-b" x="12.4" y="3" width="4.6" height="10" rx="1.2"/>
+                  </svg>
+                </button>
+              </span>
               <!-- The acquisition's channels, in a flat box joined onto the
                    strip: a dot in each channel's colour with its name when
                    there is room, its number in the dot when there is not.
@@ -100,19 +110,20 @@ export const canvasPanel = {
                    spindle in the masks' colour. Pressed, its card opens. -->
               <button class="chip-dot mask-dot" id="mask-btn" type="button" aria-pressed="true"
                       title="Masks: shown or hidden, their colour, look and opacity">
-                <!-- A cell's outline, curved the way a fibroblast lies. It
-                     wears the masks' own dress: their colour, or the
-                     rainbow for each object its own; filled, or a thick
-                     outline round a white middle when Line is chosen. -->
-                <svg width="24" height="16" viewBox="0 0 24 16" aria-hidden="true">
+                <!-- A cell with long branching processes, the way a
+                     stellate cell lies. It wears the masks' own dress:
+                     their colour, or the rainbow for each object its own;
+                     filled, or a thick outline round a white middle when
+                     Line is chosen. -->
+                <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true">
                   <defs>
-                    <linearGradient id="mask-rainbow" x1="0" y1="0" x2="1" y2="0">
-                      <stop offset="0" stop-color="#ff5c7a"/><stop offset="0.2" stop-color="#ffb340"/>
-                      <stop offset="0.4" stop-color="#ffe066"/><stop offset="0.6" stop-color="#6be585"/>
-                      <stop offset="0.8" stop-color="#4fd1ff"/><stop offset="1" stop-color="#8f7bff"/>
+                    <linearGradient id="mask-rainbow" x1="0" y1="0" x2="1" y2="1">
+                      <stop offset="0" stop-color="#4f7bff"/><stop offset="0.25" stop-color="#c04bff"/>
+                      <stop offset="0.5" stop-color="#ff4d6d"/><stop offset="0.7" stop-color="#ffb02e"/>
+                      <stop offset="0.85" stop-color="#8be04a"/><stop offset="1" stop-color="#2fd6c9"/>
                     </linearGradient>
                   </defs>
-                  <path class="mask-shape" d="M2.2 8.6C3.4 4.6 7.6 2.2 11.4 2.6c2.6.3 4.4 2 7.6 1.4 2.4-.4 3.4 1.4 2.4 3.2-1 1.8-3.8 2-5.6 3.4-2 1.6-3.2 4-6.4 3.8-2.6-.2-3.4-2.2-5.4-2.6C2.4 11.4 1.6 10.4 2.2 8.6z"/>
+                  <path class="mask-shape" d="M20.4 12.2C20.6 12.4 20.9 12.6 21.1 12.9C21.3 13.1 21.4 13.4 21.5 13.6C21.5 13.9 21.4 14.1 21.2 14.3C21.1 14.5 20.8 14.7 20.5 14.8C20.2 15.0 19.8 15.1 19.5 15.1C19.1 15.2 18.7 15.2 18.4 15.3C18.1 15.3 17.8 15.4 17.5 15.4C17.3 15.4 17.1 15.5 16.9 15.6C16.8 15.6 16.6 15.7 16.6 15.8C16.5 16.0 16.4 16.1 16.4 16.3C16.4 16.5 16.4 16.7 16.4 17.0C16.4 17.2 16.5 17.5 16.5 17.8C16.5 18.1 16.4 18.4 16.4 18.6C16.3 18.9 16.2 19.1 16.1 19.3C15.9 19.4 15.7 19.5 15.5 19.5C15.3 19.6 15.1 19.5 14.8 19.4C14.6 19.3 14.3 19.1 14.1 19.0C13.9 18.8 13.6 18.6 13.4 18.5C13.2 18.3 13.1 18.2 12.9 18.1C12.7 18.0 12.6 17.9 12.4 17.8C12.3 17.8 12.1 17.8 12.0 17.8C11.9 17.9 11.7 17.9 11.6 18.0C11.4 18.1 11.2 18.3 11.1 18.5C10.9 18.6 10.7 18.9 10.4 19.1C10.2 19.3 9.9 19.5 9.7 19.7C9.4 19.9 9.1 20.1 8.8 20.3C8.6 20.4 8.3 20.4 8.0 20.4C7.8 20.4 7.6 20.3 7.4 20.1C7.3 19.9 7.2 19.7 7.1 19.4C7.0 19.1 7.0 18.7 7.0 18.4C7.1 18.1 7.1 17.7 7.2 17.4C7.2 17.1 7.3 16.8 7.3 16.5C7.4 16.3 7.4 16.0 7.4 15.8C7.5 15.6 7.5 15.5 7.4 15.3C7.4 15.1 7.4 15.0 7.3 14.9C7.3 14.8 7.2 14.6 7.2 14.5C7.1 14.4 7.0 14.3 6.9 14.2C6.7 14.1 6.6 14.0 6.4 13.9C6.3 13.8 6.1 13.7 5.9 13.6C5.7 13.5 5.4 13.4 5.2 13.2C4.9 13.1 4.6 12.9 4.4 12.8C4.2 12.6 4.0 12.4 3.9 12.2C3.7 12.0 3.6 11.8 3.6 11.6C3.6 11.4 3.7 11.2 3.8 11.0C4.0 10.8 4.2 10.6 4.4 10.5C4.6 10.3 4.9 10.2 5.1 10.1C5.4 10.0 5.7 9.9 5.9 9.8C6.1 9.7 6.3 9.6 6.5 9.5C6.6 9.4 6.7 9.3 6.8 9.2C6.8 9.0 6.8 8.9 6.8 8.7C6.8 8.5 6.7 8.2 6.7 7.9C6.6 7.7 6.5 7.4 6.4 7.0C6.4 6.7 6.3 6.3 6.2 6.0C6.2 5.6 6.2 5.3 6.2 5.0C6.3 4.7 6.4 4.4 6.5 4.1C6.6 3.9 6.8 3.7 7.0 3.5C7.1 3.3 7.3 3.1 7.6 3.0C7.8 2.8 8.0 2.7 8.2 2.6C8.4 2.4 8.7 2.3 8.9 2.2C9.2 2.1 9.4 2.1 9.7 2.0C9.9 2.0 10.2 2.1 10.5 2.2C10.8 2.3 11.0 2.5 11.3 2.7C11.5 2.9 11.8 3.2 12.0 3.5C12.2 3.8 12.4 4.2 12.6 4.5C12.7 4.8 12.9 5.1 13.0 5.4C13.2 5.7 13.3 5.9 13.4 6.1C13.5 6.4 13.6 6.5 13.7 6.7C13.8 6.8 13.9 6.9 14.1 6.9C14.2 7.0 14.3 7.0 14.5 7.0C14.7 7.0 14.8 7.0 15.1 6.9C15.3 6.8 15.5 6.8 15.8 6.7C16.0 6.6 16.3 6.5 16.6 6.4C16.9 6.4 17.2 6.3 17.5 6.3C17.8 6.3 18.0 6.3 18.2 6.4C18.4 6.5 18.6 6.7 18.7 6.9C18.8 7.0 18.8 7.3 18.8 7.6C18.8 7.8 18.7 8.1 18.6 8.4C18.5 8.6 18.4 8.9 18.3 9.2C18.2 9.4 18.0 9.7 18.0 9.9C17.9 10.1 17.9 10.2 17.9 10.4C17.9 10.5 18.0 10.7 18.1 10.8C18.2 10.9 18.4 11.1 18.6 11.2C18.8 11.3 19.1 11.5 19.4 11.6C19.7 11.8 20.1 12.0 20.4 12.2Z"/>
                 </svg>
               </button>
               <button class="chip-name" id="mask-name" type="button" aria-haspopup="true" aria-expanded="false"
@@ -246,6 +257,8 @@ export const canvasPanel = {
         maskLine: find("mask-line"),
         maskOpacity: find("mask-opacity"),
         grey: find("grey-btn"),
+        colour: find("colour-btn"),
+        greyToggle: find("grey-toggle"),
         legend: find("canvas-legend"),
         overviewCanvas: find("overview-canvas"),
         overviewNote: find("overview-note"),

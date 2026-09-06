@@ -1326,9 +1326,11 @@ pickButton?.addEventListener("click", (e) => {
    own colours again. The picture's own panel keeps the colours and does the
    drawing; this is the same switch for all of them at once. */
 ctx.greyButton?.addEventListener("click", () => {
-  const panel = window.__viewerPanel;
-  if (!panel?.drawAllInGrey) return;
-  panel.drawAllInGrey(!panel.allGrey());
+  window.__viewerPanel?.drawAllInGrey?.(true);
+  sayWhatThePressesDo();
+});
+ctx.colourButton?.addEventListener("click", () => {
+  window.__viewerPanel?.drawAllInGrey?.(false);
   sayWhatThePressesDo();
 });
 
@@ -1473,7 +1475,8 @@ function sayWhatThePressesDo() {
       const line = dress.maskShow === "line";
       ctx.maskShape.setAttribute("fill", line ? "#ffffff" : paint);
       ctx.maskShape.setAttribute("stroke", line ? paint : "rgba(15, 23, 42, 0.35)");
-      ctx.maskShape.setAttribute("stroke-width", line ? "2.6" : "0.9");
+      ctx.maskShape.setAttribute("stroke-width", line ? "2.2" : "0.8");
+      ctx.maskShape.setAttribute("stroke-linejoin", "round");
     }
     for (const dot of ctx.maskColours?.querySelectorAll(".mask-colour") ?? []) {
       dot.setAttribute("aria-pressed", String((dress.maskColour ?? "") === dot.dataset.colour));
@@ -1486,15 +1489,25 @@ function sayWhatThePressesDo() {
     }
   }
   if (ctx.greyButton) {
-    ctx.greyButton.disabled = !panel?.drawAllInGrey;
-    ctx.greyButton.setAttribute("aria-pressed", String(Boolean(panel?.allGrey?.())));
+    const can = Boolean(panel?.drawAllInGrey);
+    const grey = Boolean(panel?.allGrey?.());
+    ctx.greyButton.disabled = !can;
+    ctx.greyButton.setAttribute("aria-pressed", String(grey));
+    if (ctx.colourButton) {
+      ctx.colourButton.disabled = !can;
+      ctx.colourButton.setAttribute("aria-pressed", String(can && !grey));
+    }
+    if (ctx.greyToggle) {
+      ctx.greyToggle.dataset.grey = String(grey);
+      ctx.greyToggle.classList.toggle("off", !can);
+    }
   }
   /* The channels' box stands only when it holds something; without it the
      grey switch ends the strip. */
   if (ctx.channelsBox) {
     const holds = Boolean(ctx.chips?.childElementCount) || (ctx.maskChip && !ctx.maskChip.hidden);
     ctx.channelsBox.hidden = !holds;
-    ctx.greyButton?.classList.toggle("strip-last", !holds);
+    ctx.greyToggle?.classList.toggle("strip-last", !holds);
   }
   fitTheChips();
 }

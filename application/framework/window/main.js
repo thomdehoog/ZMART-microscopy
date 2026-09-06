@@ -2445,6 +2445,8 @@ let stageWatch = null;
     maskLine: theCanvas.parts.maskLine,
     maskOpacity: theCanvas.parts.maskOpacity,
     greyButton: theCanvas.parts.grey,
+    colourButton: theCanvas.parts.colour,
+    greyToggle: theCanvas.parts.greyToggle,
     legend: theCanvas.parts.legend,
     css, sizeCanvas, el,
     run: state,

@@ -2019,19 +2019,40 @@ canvas.livecv[hidden] { display: none; }
 .canvas-strip .run.strip-first { border-radius: 7px 0 0 7px; }
 .canvas-strip .run.strip-last { border-radius: 0 7px 7px 0; border-left: none; }
 /* Between the picker and the channels, square-cornered, flush on both sides. */
-.canvas-strip .run.strip-mid { border-radius: 0; border-left: none; }
-.canvas-strip .run.strip-mid.strip-last { border-radius: 0 7px 7px 0; }
+.canvas-strip .strip-mid { border-radius: 0; border-left: none; }
+.canvas-strip .strip-mid.strip-last { border-radius: 0 7px 7px 0; }
+/* The colour-or-grey toggle: a sunken track with a raised knob that sits
+   over the side in force -- colours at the left, greys at the right. */
+.grey-toggle {
+  position: relative; display: inline-flex; align-items: stretch; box-sizing: border-box;
+  height: var(--control); padding: 3px; gap: 2px;
+  border: 1px solid var(--line-strong); background: var(--surface-3);
+}
+.grey-toggle::before {
+  content: ""; position: absolute; top: 3px; bottom: 3px; left: 3px; width: 28px;
+  border-radius: 5px; background: var(--screen); border: 1px solid var(--line-strong);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.16); transition: transform 0.15s ease;
+}
+.grey-toggle[data-grey="true"]::before { transform: translateX(30px); }
+.grey-toggle .bare {
+  position: relative; z-index: 1; width: 28px; padding: 0; display: inline-flex;
+  align-items: center; justify-content: center; background: none; border: none; cursor: pointer;
+  opacity: 0.45; transition: opacity 0.15s;
+}
+.grey-toggle .bare[aria-pressed="true"] { opacity: 1; }
+.grey-toggle.off { opacity: 0.4; }
+.grey-toggle.off .bare { cursor: default; }
 .canvas-strip .run.switch[aria-pressed="true"] {
   background: var(--accent-tint); border-color: var(--line-strong); box-shadow: none;
 }
-/* The grey switch's glyph shows where the press takes you: three greys
-   while the picture is in colour, three colours once it is grey. */
-.grey-glyph .bar-r { fill: #d1d5db; }
-.grey-glyph .bar-g { fill: #9ca3af; }
-.grey-glyph .bar-b { fill: #4b5563; }
-.switch[aria-pressed="true"] .grey-glyph .bar-r { fill: #ef4444; }
-.switch[aria-pressed="true"] .grey-glyph .bar-g { fill: #22c55e; }
-.switch[aria-pressed="true"] .grey-glyph .bar-b { fill: #3b82f6; }
+/* The pair's glyphs: three greys on the grey press, three colours on the
+   colour press. */
+.grey-glyph.greys .bar-r { fill: #d1d5db; }
+.grey-glyph.greys .bar-g { fill: #9ca3af; }
+.grey-glyph.greys .bar-b { fill: #4b5563; }
+.grey-glyph.colours .bar-r { fill: #ef4444; }
+.grey-glyph.colours .bar-g { fill: #22c55e; }
+.grey-glyph.colours .bar-b { fill: #3b82f6; }
 
 /* The channels' box: flat, bordered on the top, right and bottom, joined
    onto the grey switch, so the strip reads as one piece and the box says
@@ -2080,17 +2101,21 @@ canvas.livecv[hidden] { display: none; }
 /* The masks' chip is a cell's outline in the masks' own dress, drawn by
    the page; no line crosses it when hidden, the fade says so alone. */
 .mask-dot, .canvas-channels.compact .mask-dot {
-  width: 26px; height: 18px; border-radius: 0; border: none; box-shadow: none;
+  width: 24px; height: 24px; border-radius: 0; border: none; box-shadow: none;
   background: none; padding: 0; display: inline-flex; align-items: center; justify-content: center;
   color: transparent; text-shadow: none;
 }
-.mask-dot svg { width: 24px; height: 16px; display: block; }
+.mask-dot svg { width: 22px; height: 22px; display: block; }
 .mask-dot:hover { transform: scale(1.1); }
 .chip.off .mask-dot::after { display: none; }
 
-/* The chosen channel's box under the row: the column's own box, lent. */
-.channel-pop { right: 0; width: 470px; padding: 6px; }
+/* The chosen channel's box under the row: the column's own box, lent. The
+   card is that box alone -- no heading, no second frame round it. */
+.channel-pop { right: 0; width: 470px; padding: 0; border: none; background: none; box-shadow: none; }
 .channel-pop > * { width: 100%; }
+.channel-pop .side-group { margin: 0; }
+.channel-pop .side-group-title { display: none; }
+.channel-pop .side-group-body { box-shadow: 0 8px 24px rgba(15, 23, 42, 0.14); }
 
 /* A card under a press in the row: the masks' dress, the acquisitions. */
 .canvas-card {
