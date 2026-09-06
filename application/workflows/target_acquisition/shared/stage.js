@@ -1322,9 +1322,6 @@ const theGreyChannel = (panel, acquisition) => {
       if (!c) return null;
       return {
         title: acquisition,
-        sub: c.measured
-          ? `one grey channel, the sum of ${c.channels}`
-          : `one grey channel, the sum of ${c.channels}; press Auto to measure`,
         counts: c.counts, range: { low: 0, high: 100 },
         window: { low: c.a * 100, high: c.b * 100 },
         axis: view ?? { low: 0, high: 100 },
