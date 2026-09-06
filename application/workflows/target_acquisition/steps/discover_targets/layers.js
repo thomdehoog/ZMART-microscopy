@@ -5,6 +5,7 @@
  * position the channel's preview is of — a question about what you are looking
  * at rather than a thing the run produced.
  */
+import { dressTheMask } from "./mask-dress.js";
 /* One mask picture per field, fetched when first painted. A field whose
    detection has not run answers 404; that is remembered briefly and asked
    again, because a discovery marching across the sample fills them in. */
@@ -92,11 +93,27 @@ function shapeOverlay(base, fieldLabel, wanted, redraw) {
   return cv;
 }
 
+/* One dressed mask per field, in the colour and look the operator chose,
+   rebuilt only when that choice changes. */
+const dressedMasks = new Map();
+
+function dressedMask(label, img, dress) {
+  const colour = dress?.maskColour ?? null;
+  const mode = dress?.maskShow === "line" ? "line" : "fill";
+  const stamp = `${colour}|${mode}|${discovery}`;
+  const held = dressedMasks.get(label);
+  if (held && held.stamp === stamp) return held.canvas;
+  const canvas = dressTheMask(img, { size: img.naturalWidth || img.width, colour, mode });
+  dressedMasks.set(label, { stamp, canvas });
+  return canvas;
+}
+
 /** The masks are forgotten when a discovery begins: a field's mask from a
     tile test would otherwise stand in for the run's own until the page was
     reopened. */
 export function forgetTheMasks() {
   maskImages.clear();
+  dressedMasks.clear();
   /* And the label maps and the shapes lit from them: kept, a field's
      old map was lit with the new run's label numbers, and the wrong
      objects -- whole merged regions -- came up in blue. */
@@ -258,8 +275,10 @@ export function targetLayers(theRun) {
         if (x > w || y > h || x + size < 0 || y + size < 0) continue;
         const img = maskImage(base, label, redraw);
         if (!img) continue;
-        ctx.globalAlpha = 0.8;
-        ctx.drawImage(img, x, y, size, size);
+        /* Worn the way the operator dressed it -- colour, fill or line,
+           opacity -- the same dress the tile test wears. */
+        ctx.globalAlpha = run.detect?.maskAlpha ?? 0.8;
+        ctx.drawImage(dressedMask(label, img, run.detect), x, y, size, size);
         ctx.globalAlpha = 1;
       }
     },
@@ -273,6 +292,9 @@ export function targetLayers(theRun) {
        the one the gating and the target scan area are read against. */
     shown: ["scan", "detect", "gate", "select"].includes(activeMode) && !!theCurrentField(),
     staysSolid: true,
+    /* Where the frame stands, for the canvas's own press that brings the
+       view in on it. */
+    field: theCurrentField,
     paint: (frame) => {
       const ctx = frame.context;
       const { place, scale } = drawnIn(frame);

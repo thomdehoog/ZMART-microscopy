@@ -10,17 +10,20 @@
  * the object's own size is both, and the longest reach holds the object
  * whole whichever way it lies.
  *
- * The geometric levers are deliberately few:
+ * The levers are deliberately few:
  *   margin    the ring, as a fraction of the object's reach
- *   areas.max the maximum target tiles in this overview tileset
+ *   minimise  whether to look for the fewest tiles that cover every
+ *             target (on), or simply to centre one tile on each (off)
  *   overlap.min the fixed stitching overlap wherever one target needs
  *             several tiles
  *
- * Scattered placing searches the useful candidate areas for the smallest set
- * that covers every target. Equal-size plans are settled by the least
- * reacquired ground. A target larger than a frame is covered by the same
- * fixed-overlap raster Step 3 uses for a drawn tileset. A tile ceiling may
- * leave targets uncovered, but it never clips a stitched block in half.
+ * With minimising on, placing searches the useful candidate areas for the
+ * smallest set that covers every target, and equal-size plans are settled
+ * by the least reacquired ground. With it off, every target gets a tile of
+ * its own, centred on it, however the tiles overlap. Either way a target
+ * larger than a frame is covered by the same fixed-overlap raster Step 3
+ * uses for a drawn tileset, and every sampled target is covered: the
+ * operator bounds the work by how many targets are sampled.
  *
  * Pure, so every rule is pinned without a page.
  */
@@ -125,10 +128,10 @@ export function planScanAreas(targets, frameUm, rules = {}) {
   /* Omitted keeps the documented default. Explicit null is the UI switch
      being off, which means no extra ring around the object. */
   const margin = Math.max(0, Number(rules.margin === null ? 0 : rules.margin ?? 1) || 0);
-  const areas = rules.areas ?? {};
   const overlap = rules.overlap ?? {};
-  /* Canonical input makes budget choices and tile keys independent of the
-     order in which fields happened to report their targets. */
+  const minimise = rules.minimise !== false;
+  /* Canonical input makes tile keys independent of the order in which
+     fields happened to report their targets. */
   targets = [...targets].sort((a, b) => String(a.id).localeCompare(String(b.id))
     || a.x - b.x || a.y - b.y);
   if (!(frameUm > 0)) {
@@ -142,10 +145,6 @@ export function planScanAreas(targets, frameUm, rules = {}) {
   const notes = [];
   const stitching = Math.min(0.9, Math.max(0, Number(overlap.min) || 0));
   const isCovered = (cell) => coveredByTiles(cell, placed, frameUm, margin);
-  let stopped = false;
-  const askedMaximum = Number(areas.max);
-  const maximum = areas.max == null ? null
-    : Number.isFinite(askedMaximum) ? Math.max(0, Math.floor(askedMaximum)) : 0;
 
   /* Only targets that individually need several frames enter the stitching
      path. Ordinary targets whose margins merely touch one of them remain in
@@ -155,39 +154,34 @@ export function planScanAreas(targets, frameUm, rules = {}) {
   const inAStitchedBlock = new Set(stitched.flatMap((one) => one.targets.map((target) => target.id)));
   for (const { tiles: block } of stitched) placed.push(...block);
 
-  /* With the ordinary controls, solve the cover itself: a locally attractive
-     first tile can otherwise force two later tiles where another first choice
-     would finish in one. The bounded fallback only matters for pathological
-     very large components; its incumbent is still the best complete cover
-     found, never a partial plan. */
-  const pending = targets.filter((target) => !inAStitchedBlock.has(target.id)
-    && !tooBig(target) && !isCovered(target));
-  const pool = candidateAreas(pending, frameUm, margin);
-  const exact = minimumAreaCover(pending, pool, placed, frameUm);
-  placed.push(...exact.areas);
-
-  /* A hard budget changes the objective from a complete minimum cover to a
-     maximum-coverage partial one. Re-select whole bundles from scratch so a
-     four-tile large target cannot consume the budget ahead of four ordinary
-     one-tile targets merely because it appeared first. A connected shared
-     raster is one option, and each large target's own complete raster is an
-     option too; therefore a connected component that does not fit cannot
-     incorrectly hide a member that does. */
-  let budgetSearchBounded = false;
-  if (maximum != null && placed.length > maximum) {
-    const budgeted = tilesUnderBudget(
-      targets, frameUm, margin, stitching, maximum, stitched,
-    );
-    placed.splice(0, placed.length, ...budgeted.tiles);
-    budgetSearchBounded = budgeted.bounded;
-    stopped = true;
+  let exact = { areas: [], bounded: false };
+  if (minimise) {
+    /* Solve the cover itself: a locally attractive first tile can otherwise
+       force two later tiles where another first choice would finish in one.
+       The bounded fallback only matters for pathological very large
+       components; its incumbent is still the best complete cover found,
+       never a partial plan. */
+    const pending = targets.filter((target) => !inAStitchedBlock.has(target.id)
+      && !tooBig(target) && !isCovered(target));
+    const pool = candidateAreas(pending, frameUm, margin);
+    exact = minimumAreaCover(pending, pool, placed, frameUm);
+    placed.push(...exact.areas);
+    /* Once a minimum-count cover is chosen, ordinary tiles may slide
+       anywhere inside the common feasible rectangle of the targets they
+       promise to hold. Use that freedom to reduce reacquired ground without
+       changing the tile count or coverage. Stitched tiles have no feasible
+       rectangle here: their fixed Step 3 lattice and overlap remain
+       untouched. */
+    minimiseRepeatedGround(placed, targets, frameUm, margin);
+  } else {
+    /* The plain way: one tile on every ordinary target, centred on it. Two
+       neighbours each get their own tile even where one would hold both;
+       that is the point of the switch being off. */
+    for (const target of targets) {
+      if (inAStitchedBlock.has(target.id) || tooBig(target)) continue;
+      placed.push({ id: target.id, x: target.x, y: target.y, covers: [target.id] });
+    }
   }
-  /* Once a minimum-count cover is chosen, ordinary tiles may slide anywhere
-     inside the common feasible rectangle of the targets they promise to
-     hold. Use that freedom to reduce reacquired ground without changing the
-     tile count or coverage. Stitched tiles have no feasible rectangle here:
-     their fixed Step 3 lattice and overlap remain untouched. */
-  minimiseRepeatedGround(placed, targets, frameUm, margin);
   /* Recompute coverage from the final union of the rectangles actually being
      drawn and acquired. Candidate labels are useful metadata, but cannot be
      the authority: some footprints are completed jointly by adjacent tiles. */
@@ -233,10 +227,8 @@ export function planScanAreas(targets, frameUm, rules = {}) {
     tile.key = `${targetId}#${tileIndex}`;
   }
 
-  if (stopped && uncovered.length) notes.push(`stopped at ${maximum} target tiles: ${uncovered.length} targets are not covered`);
-  if (budgetSearchBounded) notes.push("target-tile budget search reached its limit; using the best coverage found");
-  if (exact.bounded && !stopped) notes.push("minimum-tile search reached its limit; using the best complete cover found");
-  if (uncovered.length && !stopped) {
+  if (exact.bounded) notes.push("minimum-tile search reached its limit; using the best complete cover found");
+  if (uncovered.length) {
     notes.push(`${uncovered.length} targets are not covered by the placed tile geometry`);
   }
   return { placed, uncovered, leftOut: [], notes };
@@ -552,275 +544,6 @@ function minimiseRepeatedGround(placed, targets, frameUm, margin) {
     }
     if (!changed) break;
   }
-}
-
-/**
- * Spend a hard target-tile budget on the whole-tile bundles that cover the
- * most targets. Oversized targets offer both their connected shared raster
- * and one complete raster apiece. Once one representation of a connected
- * component is chosen, it is not mixed with the other representation.
- */
-function tilesUnderBudget(targets, frameUm, margin, stitching, maximum, sharedBlocks) {
-  if (maximum <= 0 || !targets.length) return { tiles: [], bounded: false };
-  const tooBig = (target) => reachUm(target, margin) * 2 > frameUm;
-  const large = targets.filter(tooBig);
-  const ordinary = targets.filter((target) => !tooBig(target));
-  const componentOf = new Map();
-  sharedBlocks.forEach((block, component) => {
-    block.targets.forEach((target) => componentOf.set(target.id, component));
-  });
-
-  const options = [];
-  /* A common lattice can cover overlapping large targets with fewer tiles
-     than their independent rasters. Single-target shared blocks would only
-     duplicate the individual option. */
-  sharedBlocks.forEach((block, component) => {
-    if (block.targets.length < 2) return;
-    options.push({
-      kind: "shared", component,
-      name: `shared:${block.targets.map((target) => target.id).sort().join(",")}`,
-      tiles: block.tiles,
-    });
-  });
-  for (const target of large) {
-    const block = stitchedBlocks([target], frameUm, margin, stitching)[0];
-    if (!block) continue;
-    options.push({
-      kind: "individual", component: componentOf.get(target.id),
-      name: `large:${target.id}`, tiles: block.tiles,
-    });
-  }
-  candidateAreas(ordinary, frameUm, margin).forEach((tile) => {
-    /* The mean seat is best for a tile considered alone, while a feasible
-       edge can meet its neighbour and complete another target jointly. Keep
-       the centre and rectangle edges as distinct budget choices. */
-    /* Keep the feasible edges because adjacent choices can complete a target
-       jointly only when their frame boundaries meet. The dense search below
-       considers these through a narrow missed-target exchange, not by
-       exhaustively combining every seat. */
-    const expandSeats = tile.groupSize <= 16;
-    const xs = [...new Set([tile.x, ...(expandSeats
-      ? [tile.feasible?.x0, tile.feasible?.x1] : [])].filter(Number.isFinite))];
-    const ys = [...new Set([tile.y, ...(expandSeats
-      ? [tile.feasible?.y0, tile.feasible?.y1] : [])].filter(Number.isFinite))];
-    for (const x of xs) for (const y of ys) options.push({
-      kind: "ordinary", component: null,
-      ordinaryGroup: tile.ordinaryGroup, groupSize: tile.groupSize,
-      name: `ordinary:${tile.covers.slice().sort().join(",")}:${x}:${y}`,
-      tiles: [{ ...tile, x, y }],
-    });
-  });
-
-  const bitOf = new Map(targets.map((target, i) => [target.id, 1n << BigInt(i)]));
-  const count = (mask) => {
-    let many = 0;
-    for (let left = mask; left; left &= left - 1n) many += 1;
-    return many;
-  };
-  const full = (1n << BigInt(targets.length)) - 1n;
-  options.forEach((option, order) => {
-    option.order = order;
-    option.cost = option.tiles.length;
-    /* This mask is useful ordering information only. The selected union is
-       the coverage authority below: two tiles may jointly complete a target
-       even though neither tile or bundle completes it alone. */
-    option.mask = targets.reduce((mask, target) => (
-      coveredByTiles(target, option.tiles, frameUm, margin)
-        ? mask | bitOf.get(target.id) : mask
-    ), 0n);
-    option.groupMask = option.ordinaryGroup == null ? full
-      : option.ordinaryGroup.split("\u0000").reduce((mask, id) =>
-        mask | (bitOf.get(id) ?? 0n), 0n);
-  });
-  const useful = options.filter((option) => option.mask && option.cost <= maximum)
-    .sort((a, b) => (count(b.mask) / b.cost) - (count(a.mask) / a.cost)
-      || count(b.mask) - count(a.mask) || a.cost - b.cost
-      || a.name.localeCompare(b.name));
-  useful.forEach((option, order) => { option.order = order; });
-  const detailedSearch = targets.length <= 16 && useful.length <= 500;
-  const allowed = (option, modes, used) => {
-    if (used.has(option.order)) return false;
-    const mode = modes.get(option.component);
-    return option.component == null || mode == null || mode === option.kind;
-  };
-  const withMode = (modes, option) => {
-    if (option.component == null || modes.get(option.component) === option.kind) return modes;
-    const next = new Map(modes);
-    next.set(option.component, option.kind);
-    return next;
-  };
-
-  const unionMask = (chosen, only = full) => {
-    const tiles = chosen.flatMap((option) => option.tiles);
-    return targets.reduce((mask, target) => (
-      (only & (bitOf.get(target.id) ?? 0n))
-        && coveredByTiles(target, tiles, frameUm, margin)
-        ? mask | bitOf.get(target.id) : mask
-    ), 0n);
-  };
-
-  /* A deterministic incumbent, ordered by the real gain of the combined
-     geometry per tile. Recomputing the union here is what lets the second of
-     two adjacent tiles complete a footprint split across their boundary. */
-  const greedy = [];
-  const greedyUsed = new Set();
-  let greedyModes = new Map();
-  let greedyMask = 0n;
-  let greedyCost = 0;
-  while (greedyCost < maximum) {
-    const next = useful.filter((option) => allowed(option, greedyModes, greedyUsed)
-      && greedyCost + option.cost <= maximum)
-      .map((option) => ({
-        option,
-        after: detailedSearch
-          ? unionMask([...greedy, option]) : greedyMask | option.mask,
-        repeated: repeatedOverlap(option.tiles, greedy.flatMap((one) => one.tiles), frameUm),
-      })).map((one) => ({ ...one, gain: count(one.after & ~greedyMask) }))
-      .filter(({ gain }) => gain > 0)
-      .sort((a, b) => (b.gain / b.option.cost) - (a.gain / a.option.cost)
-        || b.gain - a.gain || a.option.cost - b.option.cost
-        || a.repeated - b.repeated || a.option.name.localeCompare(b.option.name))[0];
-    if (!next) break;
-    greedy.push(next.option);
-    greedyUsed.add(next.option.order);
-    greedyModes = withMode(greedyModes, next.option);
-    greedyMask = detailedSearch ? next.after : unionMask(greedy);
-    greedyCost += next.option.cost;
-  }
-
-  let best = [...greedy];
-  let bestMask = greedyMask;
-  let bestCost = greedyCost;
-  let bestOverlap = repeatedOverlap(best.flatMap((one) => one.tiles), [], frameUm);
-  const namesOf = (chosen) => chosen.map((one) => one.name).sort().join("|");
-  let bestNames = namesOf(best);
-  const takeIfBetter = (chosen, mask, cost) => {
-    const many = count(mask);
-    const bestMany = count(bestMask);
-    const tiles = chosen.flatMap((one) => one.tiles);
-    const overlap = repeatedOverlap(tiles, [], frameUm);
-    const names = namesOf(chosen);
-    if (many > bestMany || (many === bestMany && (cost < bestCost
-      || (cost === bestCost && (overlap < bestOverlap - 1e-9
-        || (Math.abs(overlap - bestOverlap) <= 1e-9 && names < bestNames)))))) {
-      best = [...chosen];
-      bestMask = mask;
-      bestCost = cost;
-      bestOverlap = overlap;
-      bestNames = names;
-    }
-  };
-
-  /* A one-for-one exchange repairs the common greedy failure cheaply: a tile
-     that looks equivalent alone can line up with its neighbour and complete
-     an additional footprint. Repeat because one successful exchange may make
-     another useful. */
-  const compatible = (chosen) => {
-    const modes = new Map();
-    for (const option of chosen) {
-      if (option.component == null) continue;
-      const mode = modes.get(option.component);
-      if (mode != null && mode !== option.kind) return false;
-      modes.set(option.component, option.kind);
-    }
-    return true;
-  };
-  for (let pass = 0; detailedSearch && pass < 4; pass++) {
-    const beforeNames = bestNames;
-    const seed = [...best];
-    const selected = new Set(seed.map((option) => option.order));
-    for (let drop = 0; drop < seed.length; drop++) {
-      for (const option of useful) {
-        if (selected.has(option.order)) continue;
-        const trial = seed.map((one, i) => i === drop ? option : one);
-        const cost = trial.reduce((sum, one) => sum + one.cost, 0);
-        if (cost > maximum || !compatible(trial)) continue;
-        takeIfBetter(trial, unionMask(trial), cost);
-      }
-    }
-    if (bestNames === beforeNames) break;
-  }
-  /* Keep a small beam of equally good exchanges for two rounds. The first
-     swap can exchange which target is missing without improving the count;
-     the second can then use the new geometry to complete both. Retaining
-     those plateau states avoids paying for a plate-sized exhaustive search. */
-  const hasLocalAmbiguity = best.some((option) => option.kind === "ordinary"
-    && option.groupSize > 1 && option.groupSize <= 16);
-  let exchangeFrontier = detailedSearch || hasLocalAmbiguity ? [[...best]] : [];
-  const exchangeSeen = new Set([namesOf(best)]);
-  for (let depth = 0; depth < 2; depth++) {
-    const next = [];
-    for (const seed of exchangeFrontier) {
-      const selected = new Set(seed.map((option) => option.order));
-      const seedMask = unionMask(seed);
-      for (let drop = 0; drop < seed.length; drop++) {
-        if (!detailedSearch && (seed[drop].kind !== "ordinary"
-          || seed[drop].groupSize <= 1 || seed[drop].groupSize > 16)) continue;
-        for (const option of useful) {
-          if (selected.has(option.order)) continue;
-          /* On a dense bounded path, look only at a seat variant of the tile
-             being exchanged or an option that directly holds something this
-             state misses. That retains the two-step plateau needed for joint
-             coverage without restoring a plate-sized quadratic search. */
-          if (!detailedSearch && option.ordinaryGroup !== seed[drop].ordinaryGroup) continue;
-          const trial = seed.map((one, i) => i === drop ? option : one);
-          const names = namesOf(trial);
-          if (exchangeSeen.has(names)) continue;
-          exchangeSeen.add(names);
-          const cost = trial.reduce((sum, one) => sum + one.cost, 0);
-          if (cost > maximum || !compatible(trial)) continue;
-          const mask = detailedSearch ? unionMask(trial)
-            : (seedMask & ~seed[drop].groupMask)
-              | unionMask(trial, seed[drop].groupMask);
-          takeIfBetter(trial, mask, cost);
-          next.push({
-            chosen: trial, many: count(mask), cost,
-            overlap: repeatedOverlap(trial.flatMap((one) => one.tiles), [], frameUm),
-            names,
-          });
-        }
-      }
-    }
-    next.sort((a, b) => b.many - a.many || a.cost - b.cost
-      || a.overlap - b.overlap || a.names.localeCompare(b.names));
-    exchangeFrontier = next.slice(0, detailedSearch ? 32 : 16)
-      .map((one) => one.chosen);
-    if (!exchangeFrontier.length || count(bestMask) === targets.length) break;
-  }
-
-  /* Maximum coverage with arbitrary tile unions is combinatorial. Enumerate
-     subsets exactly for ordinary microscope-sized components, but stop after
-     a small deterministic visit budget so a dense field cannot freeze the UI.
-     The greedy incumbent above remains valid and the note makes a bounded
-     result explicit. */
-  const EXACT_BUDGET_VISITS = detailedSearch ? 5000 : 0;
-  let visits = 0;
-  let bounded = !detailedSearch;
-  const search = (start, cost, chosen, modes, used) => {
-    if (++visits > EXACT_BUDGET_VISITS) { bounded = true; return; }
-    const covered = unionMask(chosen);
-    takeIfBetter(chosen, covered, cost);
-    if (cost >= maximum || covered === full) return;
-
-    /* Canonical increasing indices enumerate every subset once. Unlike the
-       former target-branch search, this does not discard tiles that provide
-       only one half of a target's requested footprint. */
-    for (let i = start; i < useful.length; i++) {
-      const option = useful[i];
-      if (!allowed(option, modes, used) || cost + option.cost > maximum) continue;
-      chosen.push(option);
-      used.add(option.order);
-      search(i + 1, cost + option.cost, chosen, withMode(modes, option), used);
-      used.delete(option.order);
-      chosen.pop();
-      if (bounded) break;
-    }
-  };
-  if (detailedSearch) search(0, 0, [], new Map(), new Set());
-  return {
-    tiles: best.flatMap((option) => option.tiles.map((tile) => ({ ...tile }))),
-    bounded,
-  };
 }
 
 /**

@@ -8,6 +8,13 @@ Companion documents:
 Branch `claude/smart-operator-workflow-review-ehw3c5`, over the uncommitted
 placement fix that the review cleared for coverage.
 
+> **Update, 2026-09-06.** The target-tile ceiling described below was removed
+> again, and its place in the box is taken by a switch, **Minimise the number
+> of tiles**. On, the planner looks for the fewest tiles that cover every
+> sampled target, as below. Off, every sampled target gets one tile centred
+> on it. Either way every sampled target is covered: the operator bounds the
+> work by how many targets are sampled, not by how many tiles may be laid.
+
 ## What Step 8 becomes
 
 Four controls, all in the main box. **More settings** goes away entirely.

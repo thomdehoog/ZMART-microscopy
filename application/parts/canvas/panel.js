@@ -42,7 +42,160 @@ export const canvasPanel = {
   build(host) {
     host.innerHTML = `
       <div class="canvas-body">
+        <div class="plot-column">
+        <!-- A row the canvas keeps for its own controls, so the picture never
+             reaches the top edge and nothing floats over it. Left, the two
+             presses that say what to look at; right, whatever legend the
+             layer on show needs read, such as the focus map's colour ramp. -->
+        <div class="canvas-toolbar" id="canvas-toolbar">
+          <!-- Left, the two presses that say what to look at. -->
+          <button class="run icon" id="carrier-btn" type="button" aria-label="Carrier"
+                  title="Carrier: frame the carrier on the stage">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 5.5V2h3.5M10.5 2H14v3.5M14 10.5V14h-3.5M5.5 14H2v-3.5"/><rect x="5" y="6" width="6" height="4" rx="0.8"/></svg>
+          </button>
+          <button class="run icon" id="tileset-btn" type="button" disabled aria-label="Tile set"
+                  title="Tile set: frame the nearest tileset; press again for the next">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="2.5" y="2.5" width="4.5" height="4.5" rx="0.8"/><rect x="9" y="2.5" width="4.5" height="4.5" rx="0.8"/><rect x="2.5" y="9" width="4.5" height="4.5" rx="0.8"/><rect x="9" y="9" width="4.5" height="4.5" rx="0.8"/></svg>
+          </button>
+          <button class="run icon" id="tile-btn" type="button" disabled aria-label="Tile"
+                  title="Tile: frame the one field the frame is on">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="3" y="3" width="10" height="10" rx="1"/></svg>
+          </button>
+          <!-- Right, the picture: which acquisition the row is about, its
+               channels as chips, the masks as one of them, and Grayscale.
+               A press on a chip opens its box. -->
+          <span class="canvas-toolbar-right">
+            <!-- Colour or grey, a toggle of its own at the head of the
+                 row. Each side is a ramp, the bar a microscopist knows
+                 from the lookup table of any viewer: a rainbow ramp for
+                 colour, a black-to-white ramp for grey. The knob sits
+                 over the side in force. It acts on the pictures only;
+                 the masks keep their own colours whichever side it is
+                 on. -->
+            <span class="grey-toggle" id="grey-toggle" role="group" aria-label="Colour or grey" data-grey="false">
+              <button class="bare" id="colour-btn" type="button" aria-pressed="true" aria-label="Colour"
+                      title="Colour: every channel in its own colour">
+                <svg class="grey-glyph colours" width="18" height="16" viewBox="0 0 18 16" aria-hidden="true">
+                  <defs>
+                    <linearGradient id="ramp-colours" x1="0" y1="0" x2="1" y2="0">
+                      <stop offset="0" stop-color="#3b82f6"/><stop offset="0.35" stop-color="#22c55e"/>
+                      <stop offset="0.65" stop-color="#eab308"/><stop offset="1" stop-color="#ef4444"/>
+                    </linearGradient>
+                  </defs>
+                  <rect class="ramp" x="1" y="4" width="16" height="8" rx="1.5"/>
+                </svg>
+              </button>
+              <button class="bare" id="grey-btn" type="button" aria-pressed="false" aria-label="Grey"
+                      title="Grey: the channels folded into one grey picture">
+                <svg class="grey-glyph greys" width="18" height="16" viewBox="0 0 18 16" aria-hidden="true">
+                  <defs>
+                    <linearGradient id="ramp-greys" x1="0" y1="0" x2="1" y2="0">
+                      <stop offset="0" stop-color="#111827"/><stop offset="1" stop-color="#f3f4f6"/>
+                    </linearGradient>
+                  </defs>
+                  <rect class="ramp" x="1" y="4" width="16" height="8" rx="1.5"/>
+                </svg>
+              </button>
+            </span>
+            <!-- A joined strip: which acquisition the row is about -- the
+                 eye, its name, a caret that opens the list -- and its
+                 channels in a box beside it. -->
+            <span class="canvas-strip" id="acquisition-pick" hidden>
+              <button class="run strip-first" id="acquisition-btn" type="button" aria-haspopup="true" aria-expanded="false"
+                      title="Which acquisition the row shows; show or hide any of them">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M1.5 8s2.5-4.5 6.5-4.5S14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8z"/><circle cx="8" cy="8" r="2"/></svg>
+                <span id="acquisition-name">Overview</span>
+                <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 4l2.5 2.5L7.5 4"/></svg>
+              </button>
+              <!-- The acquisition's channels, in a flat box joined onto the
+                   strip: a numbered dot in each channel's colour, and no
+                   more, since the colour and the number say which channel
+                   it is. The dot opens the channel's box. The masks stand in the same box, past a short
+                   dividing line: they lie on the acquisition, but they are
+                   their own thing, and the colour-or-grey toggle leaves
+                   them alone. -->
+              <span class="canvas-channels" id="canvas-channels">
+              <span class="canvas-chips" id="canvas-chips"></span>
+              <!-- While the picture is grey the acquisition is one grey
+                   channel: this chip stands in for the dots, and its box
+                   holds the one window, opacity and Auto for the sum. -->
+              <span class="chip grey-chip on" id="grey-chip" hidden>
+                <button class="chip-dot grey-dot" id="grey-chip-btn" type="button" aria-label="Grey"
+                        title="The grey channel: its histogram, window and opacity">1</button>
+              </span>
+              <span class="chip-divide" id="mask-divide" hidden></span>
+              <span class="chip mask-chip on" id="mask-chip" hidden>
+              <!-- The masks' chip is a cell's shape, not a circle: a small
+                   spindle in the masks' colour. Pressed, its card opens. -->
+              <button class="chip-dot mask-dot" id="mask-btn" type="button" aria-pressed="true" aria-haspopup="true" aria-expanded="false"
+                      title="Masks: shown or hidden, their colour, look and opacity">
+                <!-- A cell with six uneven bumps, no two sides alike, the
+                     way a real cell lies. It wears the masks' own dress:
+                     their colour, or the rainbow for each object its own;
+                     filled, or a thick outline round a white middle when
+                     Line is chosen. -->
+                <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true">
+                  <defs>
+                    <linearGradient id="mask-rainbow" x1="0" y1="0" x2="1" y2="1">
+                      <stop offset="0" stop-color="#4f7bff"/><stop offset="0.25" stop-color="#c04bff"/>
+                      <stop offset="0.5" stop-color="#ff4d6d"/><stop offset="0.7" stop-color="#ffb02e"/>
+                      <stop offset="0.85" stop-color="#8be04a"/><stop offset="1" stop-color="#2fd6c9"/>
+                    </linearGradient>
+                  </defs>
+                  <path class="mask-shape" d="M16.70 14.15 C16.96 14.81 18.88 16.79 19.07 17.57 C19.25 18.36 18.58 19.05 17.79 18.89 C16.99 18.73 15.05 17.03 14.30 16.63 C13.55 16.23 13.45 16.24 13.28 16.50 C13.11 16.76 13.42 17.79 13.26 18.20 C13.10 18.62 12.63 18.86 12.32 18.99 C12.01 19.12 11.70 19.12 11.40 18.97 C11.10 18.83 10.91 18.46 10.50 18.15 C10.08 17.83 9.52 17.66 8.93 17.08 C8.33 16.51 7.79 15.26 6.93 14.70 C6.07 14.14 4.34 14.24 3.78 13.74 C3.23 13.25 3.15 12.32 3.60 11.74 C4.06 11.16 5.92 10.57 6.53 10.24 C7.14 9.92 7.10 10.17 7.27 9.80 C7.43 9.43 7.52 8.66 7.52 8.03 C7.53 7.40 7.19 6.46 7.32 6.01 C7.45 5.57 7.84 5.30 8.31 5.36 C8.77 5.41 9.53 6.12 10.09 6.33 C10.65 6.54 11.44 6.47 11.67 6.61 C11.89 6.75 11.25 7.82 11.46 7.16 C11.67 6.50 12.40 3.35 12.92 2.65 C13.44 1.95 14.35 2.12 14.58 2.96 C14.81 3.80 14.22 6.76 14.28 7.70 C14.34 8.64 14.33 8.33 14.94 8.59 C15.55 8.85 17.33 9.03 17.93 9.27 C18.53 9.51 18.38 9.78 18.51 10.04 C18.64 10.31 18.70 10.55 18.70 10.84 C18.70 11.13 18.72 11.32 18.52 11.79 C18.33 12.26 17.82 13.26 17.52 13.66 C17.21 14.05 16.44 13.50 16.70 14.15Z"/>
+                </svg>
+              </button>
+              <div class="canvas-card mask-pop" id="mask-pop" hidden>
+                <!-- The masks' card, in the language of a channel's box: an
+                     eye and a name at the head, then the colour, the look
+                     and the opacity, one quiet row each. -->
+                <div class="mask-pop-head">
+                  <button class="mask-eye" id="mask-eye" type="button" aria-pressed="true" title="Show or hide the masks">
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M1.5 8s2.5-4.5 6.5-4.5S14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8z"/><circle cx="8" cy="8" r="2"/><path class="mask-eye-slash" d="M3 13L13 3"/></svg>
+                  </button>
+                  <span class="mask-pop-name">Masks</span>
+                </div>
+                <div class="mask-pop-row">
+                  <span class="mask-pop-label">Colour</span>
+                  <span class="mask-colours" id="mask-colours"></span>
+                </div>
+                <div class="mask-pop-row">
+                  <span class="mask-pop-label">Look</span>
+                  <span class="seg mask-look">
+                    <button id="mask-fill" type="button" aria-pressed="true">Solid</button>
+                    <button id="mask-line" type="button" aria-pressed="false">Outline</button>
+                  </span>
+                </div>
+                <div class="mask-pop-row">
+                  <span class="mask-pop-label">Opacity</span>
+                  <span class="mask-opacity-row">
+                    <input class="zv-range" id="mask-opacity" type="range" min="10" max="100" step="5" aria-label="mask opacity">
+                    <output class="mask-opacity-value" id="mask-opacity-value" aria-hidden="true">80%</output>
+                  </span>
+                </div>
+              </div>
+              </span>
+              </span>
+              <div class="canvas-card acquisition-menu" id="acquisition-menu" hidden></div>
+              <!-- The chosen channel's box, the very one from Display
+                   settings, lent to the row while it is open here. -->
+              <div class="canvas-card channel-pop" id="channel-pop" hidden></div>
+              <div class="canvas-card grey-pop" id="grey-pop" hidden></div>
+            </span>
+          </span>
+        </div>
         <div class="plot-host">
+          <!-- A legend for the layer on show -- the focus map's colour
+               ramp -- at the foot of the picture on the left, on a plate,
+               clear of the scale bar at the right. -->
+          <div class="canvas-legend" id="canvas-legend" hidden>
+            <span class="canvas-legend-ramp"></span>
+            <span class="canvas-legend-ends">
+              <span class="canvas-legend-lo"></span>
+              <span class="canvas-legend-title"></span>
+              <span class="canvas-legend-hi"></span>
+            </span>
+          </div>
           <!-- Where the picture is built. The drawing engine makes its own
                surfaces inside this, and the workflow's layers are drawn over
                them, so nothing here is a canvas of the page's own. It keeps
@@ -61,8 +214,7 @@ export const canvasPanel = {
           <div class="plot picturecv" id="picture-host"></div>
           <div class="live-note" id="overview-note" hidden></div>
           <div class="tip" id="stage-tip"></div>
-          <button class="fit-on-canvas" id="fit-btn" type="button"
-                  title="Fit the specimen in the canvas">Fit</button>
+        </div>
         </div>
         <!-- The divider is the channel's edge made draggable: the operator
              reshapes how much of the window the channel takes. -->
@@ -106,7 +258,33 @@ export const canvasPanel = {
         layerBar: find("stage-layers"),
         tip: find("stage-tip"),
         readout: null,
-        fit: find("fit-btn"),
+        carrier: find("carrier-btn"),
+        tileset: find("tileset-btn"),
+        tile: find("tile-btn"),
+        mask: find("mask-btn"),
+        maskChip: find("mask-chip"),
+        maskDivide: find("mask-divide"),
+        maskShape: host.querySelector(".mask-shape"),
+        maskEye: find("mask-eye"),
+        maskOpacityValue: find("mask-opacity-value"),
+        channelPop: find("channel-pop"),
+        greyChip: find("grey-chip"),
+        greyChipButton: find("grey-chip-btn"),
+        greyPop: find("grey-pop"),
+        maskPop: find("mask-pop"),
+        acquisitionPick: find("acquisition-pick"),
+        acquisitionName: find("acquisition-name"),
+        acquisitionMenu: find("acquisition-menu"),
+        chips: find("canvas-chips"),
+        channelsBox: find("canvas-channels"),
+        maskColours: find("mask-colours"),
+        maskFill: find("mask-fill"),
+        maskLine: find("mask-line"),
+        maskOpacity: find("mask-opacity"),
+        grey: find("grey-btn"),
+        colour: find("colour-btn"),
+        greyToggle: find("grey-toggle"),
+        legend: find("canvas-legend"),
         overviewCanvas: find("overview-canvas"),
         overviewNote: find("overview-note"),
         pictureHost: find("picture-host"),

@@ -237,17 +237,6 @@ button.ghost {
   padding: 6px 11px; cursor: pointer;
 }
 button.ghost:hover:enabled { background: var(--line); color: var(--ink); }
-/* Framing the picture is the one thing this bar does, so it is blue like every
-   other button that does something. */
-#fit-btn {
-  color: #fff; background: var(--accent); border-color: var(--accent);
-}
-#fit-btn:hover:enabled { background: var(--accent-deep); border-color: var(--accent-deep); }
-:root[data-theme="dark"] #fit-btn,
-:root:not([data-theme="light"]) #fit-btn { color: #04121d; }
-@media (prefers-color-scheme: light) {
-  :root:not([data-theme="dark"]) #fit-btn { color: #fff; }
-}
 button.ghost:disabled { opacity: 0.45; cursor: default; }
 
 /* A button that undoes something the rest of the run rests on. Built like
@@ -1336,7 +1325,9 @@ canvas.livecv[hidden] { display: none; }
    The workflow box on the left and the tab bar on the right both sit above a
    rule that runs the width of the app. One shared height keeps that rule
    continuous instead of stepping down where the columns meet. */
-:root { --head-h: 86px; }
+/* Tall enough for the wordmark, a clear line of its own height under it,
+   and the workflow chooser: the top of the page breathes on both sides. */
+:root { --head-h: 118px; }
 .wf-box { height: var(--head-h); justify-content: center; padding-top: 0; padding-bottom: 0; }
 .tabs { height: var(--head-h); align-items: center; }
 .tabs .tab { height: 100%; }
@@ -1357,7 +1348,11 @@ canvas.livecv[hidden] { display: none; }
 :root { --brand: var(--accent-deep); }
 /* Room between the name of the program and the workflow chooser under it:
    the top of the rail breathes rather than stacking the two. */
-.wf-box { justify-content: space-between; padding-top: 14px; padding-bottom: 14px; gap: 14px; }
+/* The gap over the chooser and the tab's padding under its label are set
+   together, so the middle of the chooser is level with the middle of the
+   tab label across the rule: 14 + 21 + 38 + 34 + 11 is the header's height. */
+.wf-box { justify-content: space-between; padding-top: 14px; padding-bottom: 11px; gap: 38px; }
+.tabs { --tab-pad-b: 14px; }
 .brand { display: flex; align-items: baseline; gap: 6px; user-select: none; }
 .brand-mark {
   font-size: 21px; font-weight: 750; letter-spacing: -0.02em;
@@ -1601,10 +1596,13 @@ canvas.livecv[hidden] { display: none; }
   display: flex; flex-direction: column; gap: 0;
   padding: 0;
 }
+/* The canvas's own layers stand under the picture's settings, at the foot
+   of the column: the picture is what the column is about. */
+.display-side > .display-layer-settings { order: 2; }
 .display-side[hidden] { display: none; }
 .display-side > .viewer-panel { flex: 1 1 auto; height: auto; min-height: 0; }
 .display-layer-settings {
-  flex: none; margin: var(--box-gap) 14px 0;
+  flex: none; margin: var(--box-gap) 14px;
 }
 .display-layer-settings .side-group-body { gap: 10px; }
 .display-layer-settings #stage-layers { align-items: flex-start; }
@@ -1983,19 +1981,267 @@ canvas.livecv[hidden] { display: none; }
 #stage-layers { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 
 
-/* Fit, in the corner of the canvas. The strip under the canvas is gone and this
-   is the one control from it that belongs with the picture rather than beside
-   it: it is about where you are looking, not about what is drawn.
-   
-   Top right: clear of the scale bar, which is drawn bottom right, and out of
-   the way of the sample, which sits in the middle. */
-.fit-on-canvas {
-  position: absolute; left: 12px; top: 12px; z-index: 3;
-  background: var(--surface-2); border: 1px solid var(--line-strong);
-  border-radius: 8px; padding: 5px 12px; font-weight: 600; font-size: 12.5px;
-  color: var(--ink-2); cursor: pointer;
+/* The canvas's own row, under the tab and above the picture. The picture never
+   reaches the top edge, so nothing has to float over it: the presses that say
+   what to look at stand at the left, and a legend for the layer on show --
+   the focus map's colour ramp -- stands at the right, where the eye looks
+   for one. The scale bar stays at the foot of the picture, where a scale bar
+   is expected. */
+.plot-column { display: grid; grid-template-rows: auto minmax(0, 1fr); min-height: 0; min-width: 0; }
+.canvas-toolbar {
+  display: flex; align-items: center; gap: 8px; min-height: 52px;
+  padding: 4px 12px; background: transparent;
+  /* The row never widens the canvas's column: it takes no more than its
+     column, and the chips are what give way when it is short of room.
+     Not clipped itself, so a card can hang below it. */
+  min-width: 0; white-space: nowrap;
 }
-.fit-on-canvas:hover { color: var(--ink); background: var(--surface-3); }
+/* The same blue-on-white press as Rerun and Run new points: one look for
+   every press on the page. */
+.canvas-toolbar button.run { align-self: center; }
+.canvas-toolbar-right { margin-left: auto; display: flex; align-items: center; gap: 8px; min-width: 0; }
+.canvas-toolbar-right button[hidden] { display: none; }
+/* The row's presses carry a pictogram before the word. */
+.canvas-toolbar button.run { display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; flex: none; }
+/* A press that is only its pictogram: square, the symbol centred. */
+.canvas-toolbar button.run.icon { width: var(--control); padding: 0; justify-content: center; }
+.canvas-toolbar button.run svg { flex: none; }
+
+/* The picture's half of the row, in three pieces: the colour-or-grey
+   toggle on its own; then a joined strip, a little raised, holding the
+   acquisition picker with its channels flat in a box beside it, a numbered
+   dot each; and past a short dividing line in that same box, the masks.
+   The cards hang from the strip: the acquisitions' list under its press,
+   every other card at the row's right edge. */
+.canvas-strip { position: relative; display: inline-flex; flex: none; }
+.canvas-strip[hidden] { display: none; }
+/* The acquisition's press stands a little proud of the row, and the box of
+   channels beside it lies a little below it: the press decides what the
+   box holds, so it reads as the thing on top. */
+.canvas-strip .run {
+  background: linear-gradient(var(--screen), var(--surface-3));
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.8);
+  position: relative; z-index: 1;
+}
+.canvas-strip .run.strip-first { border-radius: 7px 0 0 7px; }
+.canvas-strip .run.strip-first.strip-last { border-radius: 7px; }
+.canvas-strip .run.strip-last { border-radius: 0 7px 7px 0; border-left: none; }
+/* Between the picker and the channels, square-cornered, flush on both sides. */
+.canvas-strip .strip-mid { border-radius: 0; border-left: none; }
+.canvas-strip .strip-mid.strip-last { border-radius: 0 7px 7px 0; }
+/* The colour-or-grey toggle: a sunken track with a raised knob that sits
+   over the side in force -- colours at the left, greys at the right. It
+   stands on its own, rounded like every other press in the row. */
+.grey-toggle {
+  position: relative; display: inline-flex; align-items: stretch; box-sizing: border-box; flex: none;
+  height: var(--control); padding: 3px; gap: 2px; border-radius: 7px;
+  border: 1px solid var(--line-strong); background: var(--surface-3);
+}
+.grey-toggle[hidden] { display: none; }
+.grey-toggle::before {
+  content: ""; position: absolute; top: 3px; bottom: 3px; left: 3px; width: 28px;
+  border-radius: 5px; background: var(--screen); border: 1px solid var(--line-strong);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.16); transition: transform 0.15s ease;
+}
+.grey-toggle[data-grey="true"]::before { transform: translateX(30px); }
+.grey-toggle .bare {
+  position: relative; z-index: 1; width: 28px; padding: 0; display: inline-flex;
+  align-items: center; justify-content: center; background: none; border: none; cursor: pointer;
+  opacity: 0.45; transition: opacity 0.15s;
+}
+.grey-toggle .bare[aria-pressed="true"] { opacity: 1; }
+.grey-toggle.off { opacity: 0.4; }
+.grey-toggle.off .bare { cursor: default; }
+.canvas-strip .run.switch[aria-pressed="true"] {
+  background: var(--accent-tint); border-color: var(--line-strong); box-shadow: none;
+}
+/* The pair's glyphs: a rainbow ramp on the colour side, a black-to-white
+   ramp on the grey side, each with a hairline so the light end still has
+   an edge. */
+.grey-glyph.colours .ramp { fill: url(#ramp-colours); }
+.grey-glyph.greys .ramp { fill: url(#ramp-greys); stroke: rgba(15, 23, 42, 0.25); stroke-width: 0.6; }
+
+/* The channels' box: flat, bordered on the top, right and bottom, joined
+   onto the acquisition's press, so the strip reads as one piece and the box
+   says which channels belong to the acquisition named at its left. */
+.canvas-channels {
+  display: flex; align-items: center; gap: 2px; min-width: 0;
+  height: var(--control); padding: 0 7px; box-sizing: border-box;
+  border: 1px solid var(--line-strong); border-left: none; border-radius: 0 7px 7px 0;
+  background: var(--screen);
+  box-shadow: inset 0 1px 3px rgba(15, 23, 42, 0.10);
+}
+.canvas-channels[hidden] { display: none; }
+.canvas-chips { display: flex; align-items: center; gap: 2px; min-width: 0; }
+/* A chip is a numbered dot in the channel's colour, nothing more. */
+.chip { position: relative; display: inline-flex; align-items: center; height: 28px; padding: 0 3px; }
+.chip[hidden] { display: none; }
+.chip-dot {
+  position: relative; width: 18px; height: 18px; border-radius: 50%; padding: 0; cursor: pointer;
+  border: 1px solid rgba(15, 23, 42, 0.18); box-shadow: inset 0 0 0 1px var(--screen);
+  font: 600 9.5px system-ui, sans-serif; color: #fff; text-shadow: 0 0 2px rgba(0, 0, 0, 0.7);
+  overflow: visible; transition: transform 0.12s;
+}
+.chip-dot:hover { transform: scale(1.12); }
+/* Hidden: the dot fades and a line crosses it. Only the dot fades, not the
+   chip: a faded chip would become a layer of its own and trap its card
+   beneath the picture. */
+.chip.off .chip-dot { opacity: 0.45; }
+.chip.off .chip-dot::after {
+  content: ""; position: absolute; left: -4px; right: -4px; top: 50%; height: 1.5px;
+  background: var(--ink); transform: rotate(-45deg);
+}
+/* A short line between the channels and the masks: the same box, since the
+   masks lie on this acquisition, but a visible seam, since they are their
+   own thing. It stops short of the top and bottom on purpose. */
+.chip-divide { flex: none; width: 1px; height: 16px; margin: 0 5px 0 4px; background: var(--line-strong); align-self: center; }
+.chip-divide[hidden] { display: none; }
+/* The masks' chip is a cell in the masks' own dress, drawn by the page. It
+   stands in the row only once a detection has laid masks. Hidden, it keeps
+   its colours and a black line crosses it, the way a hidden channel's dot
+   is crossed. */
+.mask-dot {
+  width: 24px; height: 24px; border-radius: 0; border: none; box-shadow: none;
+  background: none; padding: 0; display: inline-flex; align-items: center; justify-content: center;
+  color: transparent; text-shadow: none;
+}
+.mask-dot svg { width: 22px; height: 22px; display: block; }
+.mask-dot:hover { transform: scale(1.1); }
+.chip.off .mask-dot { opacity: 1; }
+.chip.off .mask-dot::after {
+  display: block; left: -3px; right: -3px; height: 2px; background: #000; border-radius: 1px;
+  box-shadow: 0 0 0 1px var(--screen);
+}
+
+/* The grey channel's chip. */
+.canvas-chips[hidden] { display: none; }
+.grey-dot { background: #6b7280; color: #fff; font: 600 10px system-ui, sans-serif; text-shadow: 0 0 2px rgba(0, 0, 0, 0.7); }
+
+/* A channel's box under the row -- the same box for a colour channel and
+   for the grey one: a head, a histogram, the axis's ends with Auto and Log
+   between them, then min, max and opacity, each a slider and a box. */
+.grey-pop, .channel-pop { right: 0; width: 320px; padding: 10px 12px 12px; display: grid; gap: 6px; color: var(--ink-2); }
+.canvas-box-head { display: flex; align-items: center; gap: 8px; padding-bottom: 4px; border-bottom: 1px solid var(--line); margin-bottom: 2px; min-height: 24px; user-select: none; }
+.canvas-box-title { font-size: 12.5px; font-weight: 600; color: var(--ink); }
+.canvas-box-name { font-size: 12.5px; font-weight: 600; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.canvas-box-eye {
+  width: 24px; height: 24px; padding: 0; display: inline-flex; align-items: center; justify-content: center;
+  background: none; border: none; border-radius: 5px; color: var(--ink-2); cursor: pointer;
+}
+.canvas-box-eye:hover { background: var(--surface-3); color: var(--ink); }
+.canvas-box-eye .canvas-box-eye-slash { display: none; }
+.canvas-box-eye[aria-pressed="false"] { color: var(--ink-3); }
+.canvas-box-eye[aria-pressed="false"] .canvas-box-eye-slash { display: block; }
+/* The swatch is the channel's colour; the browser's own picker lies over
+   it, invisible, so a press on the swatch opens it. */
+.canvas-box-swatch {
+  position: relative; overflow: hidden; width: 16px; height: 16px; border-radius: 4px; flex: none;
+  border: 1px solid rgba(15, 23, 42, 0.25); box-shadow: inset 0 0 0 1px var(--screen); cursor: pointer;
+}
+.canvas-box-swatch input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+.canvas-box-plot { display: block; width: 100%; height: 72px; color: var(--ink-2); background: var(--surface-2); border: 1px solid var(--line); border-radius: 3px; touch-action: none; user-select: none; }
+.canvas-box-axis { display: grid; grid-template-columns: 54px 1fr 54px; align-items: center; gap: 6px; padding: 4px 0 6px; }
+.canvas-box-buttons { display: flex; gap: 4px; justify-content: center; }
+.canvas-box-button { width: 54px; height: 24px; padding: 0; border: 1px solid var(--line-strong); border-radius: 3px; background: var(--surface-3); color: var(--ink); font: 600 11px system-ui, sans-serif; cursor: pointer; }
+.canvas-box-button[aria-pressed="true"] { background: var(--accent); color: #fff; border-color: var(--accent); }
+.canvas-box-button:disabled { opacity: 0.5; cursor: default; }
+.canvas-box-row { display: grid; grid-template-columns: 52px 1fr 54px; gap: 6px; align-items: center; font-size: 10.5px; color: var(--ink-3); }
+.canvas-box-value {
+  width: 54px; height: 24px; box-sizing: border-box; padding: 1px 4px; text-align: right;
+  font: 500 11px system-ui, sans-serif; font-variant-numeric: tabular-nums; color: var(--ink);
+  background: var(--surface-2); border: 1px solid var(--line); border-radius: 3px;
+}
+.canvas-box-value:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* A card under a press in the row: the masks' dress, the acquisitions. */
+.canvas-card {
+  position: absolute; top: calc(100% + 6px); right: 0; z-index: 6;
+  display: grid; gap: 10px; padding: 11px 12px;
+  background: var(--screen); border: 1px solid var(--line-strong); border-radius: 9px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.14);
+}
+.canvas-card[hidden] { display: none; }
+.mask-pop { width: 248px; gap: 9px; padding: 9px 12px 12px; }
+.mask-pop-head { display: flex; align-items: center; gap: 8px; padding-bottom: 3px; border-bottom: 1px solid var(--line); margin-bottom: 1px; }
+.mask-pop-name { font-size: 12.5px; font-weight: 600; color: var(--ink); }
+.mask-eye {
+  width: 24px; height: 24px; padding: 0; display: inline-flex; align-items: center; justify-content: center;
+  background: none; border: none; border-radius: 5px; color: var(--ink-2); cursor: pointer;
+}
+.mask-eye:hover { background: var(--surface-3); color: var(--ink); }
+.mask-eye .mask-eye-slash { display: none; }
+.mask-eye[aria-pressed="false"] { color: var(--ink-3); }
+.mask-eye[aria-pressed="false"] .mask-eye-slash { display: block; }
+.mask-pop-row { display: grid; grid-template-columns: 58px 1fr; align-items: center; gap: 8px; }
+.mask-opacity-row { display: grid; grid-template-columns: 1fr 38px; align-items: center; gap: 6px; }
+.mask-opacity-value { font-size: 11px; color: var(--ink); text-align: right; font-variant-numeric: tabular-nums; }
+.mask-pop-label {
+  font-size: 10.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--ink-3);
+}
+.mask-colours { display: flex; gap: 6px; }
+.mask-colour {
+  width: 18px; height: 18px; border-radius: 50%; padding: 0; cursor: pointer;
+  border: 1px solid var(--line-strong); box-shadow: inset 0 0 0 1px var(--screen);
+}
+.mask-colour[aria-pressed="true"] { box-shadow: 0 0 0 2px var(--screen), 0 0 0 4px var(--accent); }
+/* The swatch that opens the colour picker: the picker itself lies over it,
+   invisible, so a press on the swatch opens it. */
+.mask-pick { position: relative; overflow: hidden; }
+/* The masks' card hangs from the row's right edge like every other card,
+   not from the chip: the chip gives up its own frame of reference. */
+.mask-chip { position: static; }
+.mask-pick input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+.mask-look { display: inline-flex; justify-self: start; }
+#mask-opacity { width: 100%; margin: 0; }
+
+.acquisition-pick { position: relative; }
+.acquisition-pick[hidden] { display: none; }
+.acquisition-menu { left: 0; right: auto; min-width: 230px; gap: 2px; padding: 6px; }
+.acquisition-line {
+  display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 8px;
+  padding: 4px 6px; border-radius: 6px;
+}
+.acquisition-line.chosen { background: var(--accent-tint); }
+.acquisition-line.off .acquisition-choose, .acquisition-line.off .acquisition-count { color: var(--ink-3); opacity: 0.6; }
+.acquisition-eye {
+  display: inline-flex; padding: 2px; border: none; background: none; cursor: pointer;
+  color: var(--ink-2); border-radius: 4px;
+}
+.acquisition-eye[aria-pressed="false"] { opacity: 0.4; }
+.acquisition-choose {
+  font: inherit; font-size: 12.5px; font-weight: 600; color: var(--ink);
+  background: none; border: none; padding: 0; cursor: pointer; text-align: left;
+}
+.acquisition-line.chosen .acquisition-choose { color: var(--accent-deep); }
+.acquisition-count { font-size: 11px; color: var(--ink-3); }
+/* On is tinted, off is outlined: the same look as every other on-or-off
+   press on the page, so the state can be read without reading the label. */
+.canvas-toolbar button.switch[aria-pressed="true"] {
+  background: var(--accent-tint); color: var(--accent-deep); border-color: var(--accent);
+}
+/* The legend stands at the foot of the picture on the left, on a plate so
+   its values read on every hue, clear of the scale bar at the right. Two
+   lines: the colours, and under them the two values at the ends of the bar
+   with what the colours mean between them. */
+.canvas-legend {
+  position: absolute; left: 12px; bottom: 30px; z-index: 3;
+  display: flex; flex-direction: column; align-items: stretch;
+  gap: 4px; width: 300px; padding: 6px 8px; color: var(--ink-2);
+  background: color-mix(in srgb, var(--screen) 88%, transparent);
+  border: 1px solid var(--line); border-radius: 6px;
+}
+.canvas-legend[hidden] { display: none; }
+.canvas-legend-ramp { display: block; height: 10px; border-radius: 2px; border: 1px solid var(--line-strong); }
+.canvas-legend-ends {
+  display: flex; justify-content: space-between; align-items: baseline; gap: 10px;
+  font-family: ui-monospace, Consolas, monospace; font-size: 11px; line-height: 1.2;
+}
+.canvas-legend-ends > span { white-space: nowrap; }
+.canvas-legend-title {
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-size: 11.5px; font-weight: 600; color: var(--ink-3);
+}
 
 /* The status bar: one quiet sentence at the foot of the rail, there only
    while something is running -- what is happening lives beside the steps it

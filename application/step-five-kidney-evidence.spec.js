@@ -944,7 +944,7 @@ test("deterministic kidney evidence records 0, 3, 6, and 9 landed positions", as
     const beforeFit = viewRecord(overviewOnly.raw);
     await audit.duringNavigation(async () => {
       await page.evaluate(() => window.__theStageCanvas.fadeTo(0.15));
-      await page.locator("#fit-btn").click();
+      await page.locator("#carrier-btn").click();
       await rest(1000);
     });
     const wholePlate = await takeEvidence({
