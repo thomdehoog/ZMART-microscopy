@@ -1489,6 +1489,17 @@ function handleFor(own) {
       if (changed) own.deck?.setProps({ layers: layersFor(own) });
     },
 
+    /** How long the timelapse is, and which moment is on screen; nothing
+     *  for a single moment. */
+    theMomentsItCanShow() {
+      const first = own.images[0];
+      const source = first?.sources?.[0];
+      const at = source?.labels?.indexOf("t") ?? -1;
+      const many = at >= 0 ? source.shape[at] : 0;
+      if (!(many > 1)) return null;
+      return { many, at: Math.min(Math.max(Math.round(first.moment ?? 0), 0), many - 1) };
+    },
+
     /** Which moment of a timelapse to show, counted from the first. */
     setMoment(t) {
       let changed = false;

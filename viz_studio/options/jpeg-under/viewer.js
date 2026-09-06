@@ -138,6 +138,7 @@ export async function openViewer(element, options = {}) {
        is better than pretending to a depth this cannot show. */
     theDepthItCanShow() { return null; },
     setPlane() {},
+    theMomentsItCanShow() { return null; },
     setMoment() {},
     setChannel() {},
 
