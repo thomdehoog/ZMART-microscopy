@@ -215,6 +215,27 @@ export const canvasPanel = {
           <div class="live-note" id="overview-note" hidden></div>
           <div class="tip" id="stage-tip"></div>
         </div>
+        <!-- Under the picture: a way through a stack (Z) and along a
+             timelapse (T), one slider each across the whole width, Z above
+             T. A row stands only while the picture has more than one plane,
+             or more than one moment, to choose between; a flat picture of
+             one moment shows neither. -->
+        <div class="canvas-axes" id="canvas-axes" hidden>
+          <div class="canvas-axis" id="axis-z" hidden>
+            <span class="canvas-axis-name">Z</span>
+            <button class="canvas-axis-play" id="plane-play" type="button" aria-pressed="false"
+                    aria-label="play through the planes" title="Play through the planes; press again to pause"></button>
+            <input class="zv-range" id="plane" type="range" aria-label="depth of the picture">
+            <output class="canvas-axis-value" id="plane-readout"></output>
+          </div>
+          <div class="canvas-axis" id="axis-t" hidden>
+            <span class="canvas-axis-name">T</span>
+            <button class="canvas-axis-play" id="moment-play" type="button" aria-pressed="false"
+                    aria-label="play through the moments" title="Play through the moments; press again to pause"></button>
+            <input class="zv-range" id="moment" type="range" aria-label="moment of the picture">
+            <output class="canvas-axis-value" id="moment-readout"></output>
+          </div>
+        </div>
         </div>
         <!-- The divider is the channel's edge made draggable: the operator
              reshapes how much of the window the channel takes. -->
@@ -288,6 +309,15 @@ export const canvasPanel = {
         overviewCanvas: find("overview-canvas"),
         overviewNote: find("overview-note"),
         pictureHost: find("picture-host"),
+        axes: find("canvas-axes"),
+        axisZ: find("axis-z"),
+        plane: find("plane"),
+        planePlay: find("plane-play"),
+        planeReadout: find("plane-readout"),
+        axisT: find("axis-t"),
+        moment: find("moment"),
+        momentPlay: find("moment-play"),
+        momentReadout: find("moment-readout"),
       },
     };
   },

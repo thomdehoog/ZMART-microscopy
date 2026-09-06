@@ -2050,6 +2050,25 @@ function handleFor(own) {
       own.viewer.navigationState.position.value = moved;
     },
 
+    /**
+     * How long the timelapse is, so a page can offer a way along it: how many
+     * moments, and which one is on screen, counted from the first. Nothing
+     * when there is only one moment: a single frame is not a timelapse.
+     */
+    theMomentsItCanShow() {
+      const space = own.viewer.navigationState.position.coordinateSpace.value;
+      if (!space?.units || !space.bounds) return null;
+      const at = Array.from(space.units).indexOf("s");
+      if (at < 0) return null;
+      const many = Math.round(space.bounds.upperBounds[at] - space.bounds.lowerBounds[at]);
+      if (!(many > 1)) return null;
+      const onWholeNumbers = space.bounds.voxelCenterAtIntegerCoordinates[at];
+      const lower = space.bounds.lowerBounds[at];
+      const first = onWholeNumbers ? Math.ceil(lower) : Math.ceil(lower - 0.5) + 0.5;
+      const now = own.viewer.navigationState.position.value[at];
+      return { many, at: Math.min(Math.max(Math.round(now - first), 0), many - 1) };
+    },
+
     /** Which moment of a timelapse to show, counted from the first. */
     setMoment(t) {
       const space = own.viewer.navigationState.position.coordinateSpace.value;

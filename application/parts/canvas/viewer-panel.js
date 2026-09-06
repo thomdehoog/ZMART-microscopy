@@ -1415,32 +1415,12 @@ export async function mountViewerPanel(near, {
     requestMeasurement(index, { debounce: 120 });
   }
 
-  /* ---- the picture as a whole: the depth a stack is looked at ----
-     The eyes on the acquisitions switch the picture on and off; this card
-     is there only while a stack is open and has a depth to choose. */
+  /* ---- the picture as a whole ----
+     The eyes on the acquisitions switch the picture on and off. The way
+     through a stack, and along a timelapse, is not here: those two sliders
+     lie under the picture itself, across its whole width, where the
+     canvas shows them only while there is a plane or a moment to choose. */
   const { card: wholeCard, body: whole } = aCard("picture");
-
-  const depth = viewer.theDepthItCanShow?.();
-  if (depth && depth.highUm > depth.lowUm) {
-    const depthLine = el("label",
-      `display:grid;grid-template-columns:58px 1fr 58px;gap:6px;align-items:center;padding:2px 12px;font-size:10px;color:${INK.textMuted};`);
-    depthLine.append(el("span", "", "depth (z)"));
-    const depthSlider = dressed(el("input"));
-    depthSlider.type = "range";
-    depthSlider.min = String(depth.lowUm);
-    depthSlider.max = String(depth.highUm);
-    depthSlider.step = String(depth.stepUm || 1);
-    depthSlider.value = String(depth.atUm ?? depth.lowUm);
-    const depthBox = el("span",
-      `text-align:right;font-variant-numeric:tabular-nums;color:${INK.textPrimary};font-size:11px;`,
-      `${Math.round(Number(depthSlider.value))} µm`);
-    depthSlider.addEventListener("input", () => {
-      viewer.setPlane?.(Number(depthSlider.value));
-      depthBox.textContent = `${Math.round(Number(depthSlider.value))} µm`;
-    });
-    depthLine.append(depthSlider, depthBox);
-    whole.append(depthLine);
-  }
   wholeCard.hidden = !whole.childElementCount;
 
   bar.append(dataCard, settingsCard, wholeCard);

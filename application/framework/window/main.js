@@ -18,6 +18,7 @@ import {
 } from "../../parts/microscope/instruments.js";
 import { isFailed } from "../../parts/microscope/connection-status.js";
 import { displayedPictureAddress } from "../../parts/canvas/display-of.js";
+import { mountTheAxes } from "../../parts/canvas/axes.js";
 import { cellsInAllGates, keptUnderCeiling }
   from "../../workflows/target_acquisition/steps/refine_targets/gating.js";
 import { selectionPanel }
@@ -2370,6 +2371,9 @@ let stageWatch = null;
      until it moves into the panel's own building — which is the same move
      that makes the canvas step-agnostic. */
   const theCanvas = thePanels.canvas;
+  /* The Z and T sliders under the picture, on whichever picture is open. */
+  const theAxes = mountTheAxes(theCanvas.parts, { picture: () => window.__thePicture ?? null });
+  window.__theAxes = theAxes;
 
   const { thePicture, liveOverview } = watchTheRun({
     pictureHost: theCanvas.parts.pictureHost,
@@ -2398,6 +2402,7 @@ let stageWatch = null;
        reaches the picture, which mounts the settings again, which says so
        again -- a loop that never let the page settle. */
     displayChanged: () => {
+      theAxes.refresh();
       renderTabs(); renderSide(shownPanel());
       /* The gallery's pairs wear the picture's settings: rows that have just
          come -- the targets' own, at the end of their run -- are what its
