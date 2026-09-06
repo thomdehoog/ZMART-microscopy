@@ -238,7 +238,7 @@ test("canvas layer controls live under Display settings from the start", async (
   await expect(page.locator("#stage-layers .layer-chip")).not.toHaveCount(0);
   await expect(page.locator(".canvas-foot"), "the canvas has no bottom bar").toHaveCount(0);
   await expect(page.locator("#stage-readout"), "there is no live x/y readout").toHaveCount(0);
-  await expect(page.locator("#fit-btn")).toBeVisible();
+  await expect(page.locator("#carrier-btn")).toBeVisible();
 });
 
 test("the channel folds away to the right and comes back", async ({ page }) => {
@@ -1031,7 +1031,7 @@ test("walking back to the carrier takes the plan off the canvas, and keeps it",
   async ({ page }) => {
     await throughSetup(page);
     const shot = async () => {
-      await page.locator("#fit-btn").click();
+      await page.locator("#carrier-btn").click();
       await page.mouse.move(10, 10);
       await page.waitForTimeout(250);
       return page.locator("#stage-canvas").screenshot();
@@ -1535,7 +1535,7 @@ test("one walk of the whole run", async ({ page }) => {
   await expect(adding.locator(".side-group-body"))
     .toContainText("Max targets per overview tileset");
   await expect(adding.locator(".side-group-body"))
-    .toContainText("Max target tiles per overview tileset");
+    .toContainText("Minimise the number of tiles");
   await expect(adding.locator(".target-main-settings-title"))
     .toHaveText("Main settings");
   await expect(page.locator("#tiles-margin"), "the coverage margin stays in the top box")
@@ -1569,22 +1569,13 @@ test("one walk of the whole run", async ({ page }) => {
   expect(unrestrictedPlan.restricted.filter((id) => !heldByAreas.has(id)),
     "every target reported as covered is held with its margin by the placed areas")
     .toEqual([]);
-  /* The second ceiling is tile accounting, independently per overview
-     tileset. It may leave targets uncovered, but no tileset can spend a
-     neighbour's allowance. */
-  await page.locator("#tiles-max-on").check();
-  await page.locator("#tiles-max").fill("1");
-  await page.locator("#tiles-max").dispatchEvent("input");
+  /* Minimising off: one tile on every sampled target, centred on it, so
+     there are exactly as many tiles as targets, whatever the neighbours. */
+  await page.locator("#tiles-minimise").uncheck();
   await runStep(page, 1000);
-  const tileLimited = await page.evaluate(() => window.__theRunState());
-  const tilesPerOverview = new Map();
-  for (const tile of tileLimited.targetTilePositions) {
-    tilesPerOverview.set(tile.overviewTileset,
-      (tilesPerOverview.get(tile.overviewTileset) ?? 0) + 1);
-  }
-  expect([...tilesPerOverview.values()].every((count) => count <= 1),
-    "the target-tile ceiling is applied to each overview tileset").toBe(true);
-  await page.locator("#tiles-max-on").uncheck();
+  const plain = await page.evaluate(() => window.__theRunState());
+  expect(plain.targetTiles, "one centred tile per sampled target").toBe(plain.restricted.length);
+  await page.locator("#tiles-minimise").check();
   await page.locator("#gate-max-on").check();
   await page.locator("#gate-max").fill("1");
   await page.locator("#gate-max").dispatchEvent("input");

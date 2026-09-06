@@ -175,6 +175,7 @@ let stageWatch = null;
       border: 0,       // µm from the field's edge inside which a cell is dropped
       binning: 1,      // segment on a copy this many times smaller each side
       maskShow: "fill", // how the test view wears the masks: fill | line | off
+      maskColour: null, // one colour for every object, or null for each its own
       maskAlpha: 0.65,  // how strongly the masks sit on the image (0..1)
       imageGrey: false, // the test image in grey (set by a landed test, hand-flipped)
       tile: 0,
@@ -292,7 +293,7 @@ let stageWatch = null;
     targetTilesAlpha: 0.5,
     /* The placing levers, as scan-areas.js reads them, and what the last
        placing came to. */
-    placing: { margin: 1, objectsMax: 50, tilesMax: null, overlapMin: 0.2 },
+    placing: { margin: 1, objectsMax: 50, minimise: true, overlapMin: 0.2 },
     tilePlan: null,
     acquired: [],
     /* The acquired target whose pair the gallery shows, chosen there or on
@@ -484,7 +485,7 @@ let stageWatch = null;
       targetPictures: backendFor(state.wf).viewOf?.("targets") ?? null,
       cellsShown: false, gates: [], gated: new Set(), restricted: new Set(),
       targetTiles: [], targetTilesAlpha: 0.5, tilePlan: null,
-      placing: { margin: 1, objectsMax: 50, tilesMax: null, overlapMin: 0.2 },
+      placing: { margin: 1, objectsMax: 50, minimise: true, overlapMin: 0.2 },
       acquired: [], acquiredLabels: {}, acquiredTiles: {},
       selectedTarget: null, hoveredTarget: null,
       locked: false,
@@ -1536,15 +1537,15 @@ let stageWatch = null;
       if (!byTileset.has(tileset)) byTileset.set(tileset, []);
       byTileset.get(tileset).push(target);
     }
-    /* A target-tile ceiling belongs to one overview tileset. Planning the
-       groups independently makes that accounting real; a target in a
-       neighbouring tileset cannot consume this one's allowance or share one
-       of its target tiles. */
+    /* Each overview tileset is planned on its own, so every target tile
+       belongs to one tileset: a target near a border never shares a tile
+       with a neighbour across it, and Step 9 can account for the tiles per
+       tileset. */
     const plans = [...byTileset].map(([overviewTileset, group]) => ({
       overviewTileset,
       plan: planScanAreas(group, state.targetFrameUm, {
         margin: p.margin,
-        areas: { max: p.tilesMax },
+        minimise: p.minimise !== false,
         overlap: { min: p.overlapMin },
       }),
     }));
@@ -2417,7 +2418,39 @@ let stageWatch = null;
     layerBar: theCanvas.parts.layerBar,
     tip: theCanvas.parts.tip,
     readout: theCanvas.parts.readout,
-    fitButton: theCanvas.parts.fit,
+    carrierButton: theCanvas.parts.carrier,
+    tilesetButton: theCanvas.parts.tileset,
+    tileButton: theCanvas.parts.tile,
+    maskButton: theCanvas.parts.mask,
+    maskChip: theCanvas.parts.maskChip,
+    maskDivide: theCanvas.parts.maskDivide,
+    maskShape: theCanvas.parts.maskShape,
+    maskEye: theCanvas.parts.maskEye,
+    maskOpacityValue: theCanvas.parts.maskOpacityValue,
+    channelPop: theCanvas.parts.channelPop,
+    greyChip: theCanvas.parts.greyChip,
+    greyChipButton: theCanvas.parts.greyChipButton,
+    greyPop: theCanvas.parts.greyPop,
+    maskPop: theCanvas.parts.maskPop,
+    acquisitionPick: theCanvas.parts.acquisitionPick,
+    acquisitionName: theCanvas.parts.acquisitionName,
+    acquisitionMenu: theCanvas.parts.acquisitionMenu,
+    chips: theCanvas.parts.chips,
+    channelsBox: theCanvas.parts.channelsBox,
+    /* A chip's name opens the picture's own settings for that channel: the
+       column switches to Display settings, where the histogram is. */
+    openDisplaySettings: () => {
+      if (!displaySettingsAvailable()) return;
+      state.sideView = "display"; renderSide(shownPanel()); renderTabs();
+    },
+    maskColours: theCanvas.parts.maskColours,
+    maskFill: theCanvas.parts.maskFill,
+    maskLine: theCanvas.parts.maskLine,
+    maskOpacity: theCanvas.parts.maskOpacity,
+    greyButton: theCanvas.parts.grey,
+    colourButton: theCanvas.parts.colour,
+    greyToggle: theCanvas.parts.greyToggle,
+    legend: theCanvas.parts.legend,
     css, sizeCanvas, el,
     run: state,
     carrierWidget, scanfieldsWidget,

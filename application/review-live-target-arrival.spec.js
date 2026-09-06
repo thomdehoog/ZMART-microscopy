@@ -773,7 +773,7 @@ async function throughStepFive({ page, take, port, bridge }) {
 async function proveTargetArrival({
   page, take, port, bridge, plan, planBoxes, expectedTargets, trigger, mode, outcome,
 }) {
-  await page.locator("#fit-btn").click();
+  await page.locator("#carrier-btn").click();
   await rest(800);
   const fitBefore = await stageView(page);
   const pictureBefore = await pictureTag(page);

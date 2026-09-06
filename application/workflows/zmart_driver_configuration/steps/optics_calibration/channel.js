@@ -9,8 +9,13 @@
  * ideal. Choose the reference objective, and every other lens on the turret
  * gets a preset at once, each starting at the ideal offset of (0, 0, 0).
  * Choose a preset and measure it to replace that ideal with what the
- * microscope actually does. Save and adopt publishes all of them, measured
- * or not, so the driver always has a complete calibration to stand on.
+ * microscope actually does. Save and adopt publishes the reference and every
+ * preset that has been measured, or was held from an earlier pass. A lens
+ * not measured is left out: the driver then refuses to run under it until
+ * it is, which is safer than claiming an offset of nothing. (The driver
+ * also insists on exactly one lens at zero offset, the reference, so a
+ * turret of four lenses with three unmeasured could not be published
+ * at all if the unmeasured ones went in as zeros.)
  *
  * The reference is the anchor every offset hangs from, so changing it
  * discards every preset: their offsets were relative to a lens that is no
@@ -21,8 +26,8 @@
  * at. **Calibration**, which appears once a preset is chosen: one card in
  * three parts -- focus (Z), X/Y, and the confirmation, where the chosen
  * set's X, Y and Z stand as three plain tiles above Save and adopt. Adopting
- * publishes the whole calibration, every preset at its current offset, in
- * the driver's own shape: the reference at zero, each target relative to it.
+ * publishes the calibration in the driver's own shape: the reference at
+ * zero, and each measured or held target relative to it.
  */
 
 import { cell, note, part, picture, press, publishRow } from "../cells.js";
@@ -190,7 +195,7 @@ export default {
     const standing = ctx.standing();
     {
       const confirm = part(work.body, "Confirmation", { number: 3, prose:
-        `${target?.name ?? "target"} relative to ${reference?.name ?? "reference"}. Save and adopt publishes every preset.` });
+        `${target?.name ?? "target"} relative to ${reference?.name ?? "reference"}. Save and adopt publishes the reference and every measured preset; a lens not measured is left out until it is.` });
       const tiles = document.createElement("div");
       tiles.className = "setup-xyz";
       const t = current.translation_um;
@@ -204,7 +209,7 @@ export default {
       }
       confirm.append(tiles);
       confirm.append(note(current.state === "measured" ? "Measured."
-        : current.state === "published" ? "Held, not measured here." : "Not measured: zero assumed."));
+        : current.state === "published" ? "Held, not measured here." : "Not measured: left out of the configuration until it is."));
       confirm.append(publishRow({
         label: "Save and adopt",
         published: ctx.publishedNote(),
@@ -215,6 +220,8 @@ export default {
           };
           for (const slot of slots) {
             const preset = cal.presets[slot];
+            /* A lens nobody has measured has no offset to publish. */
+            if (preset.state === "default") continue;
             const t = preset.translation_um;
             const lens = bySlot(preset.target);
             objectives[slot] = { name: lens?.name ?? `slot ${slot}`, translation_um: [t.x, t.y, t.z ?? 0] };

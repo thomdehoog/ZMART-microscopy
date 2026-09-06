@@ -319,7 +319,9 @@ export async function mountViewerPanel(near, {
   /* A slider can produce dozens of inputs in one gesture. The canvas should
      follow all of them immediately, while consumers of rendered JPEG copies
      need only the settled display request. */
+  const changedHooks = new Set();
   const displayChangedSoon = () => {
+    for (const hook of changedHooks) { try { hook(); } catch { /* a hook's own business */ } }
     if (typeof changed !== "function") return;
     if (changedTimer !== null) clearTimeout(changedTimer);
     changedTimer = setTimeout(() => {
@@ -433,11 +435,9 @@ export async function mountViewerPanel(near, {
   measurementNotice.setAttribute("role", "status");
   measurementNotice.dataset.measurementState = "idle";
 
-  const histogramValue = el("output", [
-    "display:block", "min-height:13px", "padding:0 12px 2px",
-    `color:${INK.textMuted}`, `font:${font(400, 10)}`,
-    "font-variant-numeric:tabular-nums", "text-align:right",
-  ].join(";"), "point at the histogram");
+  /* The value under the pointer is read by assistive technology only; it
+     takes no room under the histogram, so the axis boxes sit right below. */
+  const histogramValue = el("output", "position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);", "");
   histogramValue.setAttribute("aria-label", "histogram value");
 
   const valueInput = (label) => {
@@ -453,7 +453,7 @@ export async function mountViewerPanel(near, {
     return input;
   };
 
-  const axisRow = el("div", "display:flex;align-items:center;justify-content:space-between;gap:6px;padding:0 12px 14px;");
+  const axisRow = el("div", "display:flex;align-items:center;justify-content:space-between;gap:6px;padding:6px 12px 14px;");
   const axisLow = valueInput("axis from");
   const autoButton = el("button", [
     "width:54px", "height:24px", "padding:0", `border:1px solid ${INK.controlBorder}`,
@@ -833,6 +833,9 @@ export async function mountViewerPanel(near, {
     } else {
       remember(row);
       refreshControls();
+      /* The histogram is news too: whoever draws this channel elsewhere,
+         the box under the canvas row for one, should hear of it. */
+      displayChangedSoon();
     }
     sayMeasurement("ready", "Smart Viewer measurement ready.");
     return result;
@@ -924,7 +927,7 @@ export async function mountViewerPanel(near, {
     });
   }
   plot.addEventListener("pointerleave", () => {
-    if (!held) histogramValue.textContent = "point at the histogram";
+    if (!held) histogramValue.textContent = "";
   });
   plot.addEventListener("dblclick", () => {
     if (chosen !== null) setTheAxis(rows[chosen], null);
@@ -1098,6 +1101,15 @@ export async function mountViewerPanel(near, {
      overview scan puts the focus stack away. */
   const groupSwitches = new Map();
   const greySwitches = new Map();
+  /* The one grey channel each acquisition collapses to while grey is on:
+     its window as shares a and b of every member's colour window, its
+     opacity as a factor s on every member's colour weight. */
+  const composites = new Map();
+  const compositeMembers = new Map();
+  /* Whether each acquisition is drawn in grey now, beside the switch that
+     changes it, so the canvas's own Grayscale press can say which way it
+     will go. */
+  const greyStates = new Map();
   let heading = null;
   let groupBox = null;
   rows.forEach((row, index) => {
@@ -1163,28 +1175,50 @@ export async function mountViewerPanel(near, {
         greyPick.setAttribute("aria-pressed", grey ? "true" : "false");
         greyPick.title = grey ? "Give the channels their colours back" : "Draw this acquisition in grey";
       };
+      /* Grey collapses the acquisition to one channel: every member is
+         drawn in grey and the engine adds them, which is the weighted sum
+         of the channels as they stand in colour. So the colour
+         configuration -- each member's window and weight -- is frozen when
+         grey goes on, and one control over the sum moves all of them in
+         proportion: a window as a share of each member's own, an opacity
+         as a factor on each member's weight. Colour restores them all. */
       const drawInGrey = (grey) => {
         for (const { one, at } of members) {
           if (grey && !one.grey) {
             one.colourInColour = one.colour;
             one.colorInColour = one.color;
+            one.colourWindow = one.window ? { ...one.window } : null;
+            one.colourWeight = one.weight;
             const share = Array.isArray(one.colour) ? luminanceOf(one.colour) : 1;
             one.colour = [share, share, share];
             one.color = cssOf(one.colour);
           } else if (!grey && one.grey) {
             one.colour = one.colourInColour ?? one.colour;
             one.color = one.colorInColour ?? one.color;
+            if (one.colourWindow) one.window = { ...one.colourWindow };
+            if (Number.isFinite(one.colourWeight)) one.weight = one.colourWeight;
+            viewer.setChannel(at, { window: one.window, weight: one.weight });
           }
           one.grey = grey;
           remember(one);
           paintSwatches(at);
           viewer.setChannel(at, { colour: one.colour });
         }
+        if (grey) composites.set(groupName, { a: 0, b: 1, s: 1, log: false });
+        else composites.delete(groupName);
+        if (chosen !== null && members.some(({ at }) => at === chosen)) refreshControls();
         sayTheColours();
         displayChangedSoon();
       };
+      compositeMembers.set(groupName, members);
       greyPick.addEventListener("click", () => drawInGrey(!members.every(({ one }) => one.grey)));
       greySwitches.set(groupName, drawInGrey);
+      /* Judged on what is on show: an acquisition hidden by its eye does
+         not decide whether the picture looks grey. */
+      greyStates.set(groupName, () => ({
+        grey: members.every(({ one }) => one.grey),
+        visible: members.some(({ one }) => one.visible !== false),
+      }));
       sayTheColours();
       head.append(disclosure, groupEye, el("span",
         `flex:1;font:${font(600, 12)};letter-spacing:.02em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;`,
@@ -1422,6 +1456,149 @@ export async function mountViewerPanel(near, {
   panel.sourcesChanged = sourcesChanged;
   panel.showAcquisition = (name, on) => groupSwitches.get(name)?.(on);
   panel.drawInGrey = (name, grey) => greySwitches.get(name)?.(grey);
+  /* Every acquisition at once, for the canvas's own switch. */
+  panel.drawAllInGrey = (grey) => { for (const draw of greySwitches.values()) draw(grey); };
+  panel.allGrey = () => {
+    const shown = [...greyStates.values()].map((ask) => ask()).filter((state) => state.visible);
+    return shown.length > 0 && shown.every((state) => state.grey);
+  };
+  /* What the canvas's own row needs of the panel: the acquisitions and their
+     channels as they stand, the three things a chip does -- show or hide a
+     channel, choose it, show or hide its acquisition -- and a way to hear
+     that something changed so the row can redraw. */
+  panel.acquisitions = () => [...groupShown.keys()].map((name) => ({
+    name, shown: groupShown.get(name) !== false,
+    channels: rows.filter((row) => row.acquisition === name).length,
+  }));
+  panel.channelsOf = (name) => rows
+    .map((row, index) => ({ row, index }))
+    .filter(({ row }) => row.acquisition === name)
+    .map(({ row, index }) => ({
+      index, name: row.name, color: row.color ?? cssOf(null), visible: row.visible,
+      chosen: chosen === index,
+    }));
+  panel.setChannelVisible = (index, on) => { if (rows[index]) setChannelVisible(index, on); };
+  panel.chooseRow = (index) => { if (rows[index]) chooseRow(index); };
+  panel.acquisitionShown = (name) => groupShown.get(name) !== false;
+  panel.onChanged = (fn) => { changedHooks.add(fn); return () => changedHooks.delete(fn); };
+  /* The chosen channel's box -- its histogram, window and opacity -- can
+     stand under the canvas's own row for a while: lent to a card there and
+     taken back into the column when the card closes. One box, one truth. */
+  /* The grey channel: what it stands at, its histogram over the sum, and
+     the three things that move it -- the window, the opacity, Auto. */
+  const applyComposite = (name) => {
+    const state = composites.get(name);
+    const members = compositeMembers.get(name);
+    if (!state || !members) return;
+    for (const { one, at } of members) {
+      const base = one.colourWindow ?? windowOf(one);
+      const span = base.high - base.low || 1;
+      const low = base.low + state.a * span;
+      one.window = { low, high: Math.max(base.low + state.b * span, low + 1) };
+      one.weight = Math.min(1, Math.max(0, (one.colourWeight ?? 1) * state.s));
+      remember(one);
+      viewer.setChannel(at, { window: one.window, weight: one.weight });
+      if (chosen === at) refreshControls();
+    }
+    displayChangedSoon();
+  };
+  panel.composite = (name) => {
+    const state = composites.get(name);
+    const members = compositeMembers.get(name);
+    if (!state || !members) return null;
+    /* One histogram over the sum: each member's counts laid along the
+       share of its own colour window, each member weighed by its total so
+       a bright channel and a faint one count alike. */
+    const bins = new Array(64).fill(0);
+    let measured = 0;
+    for (const { one } of members) {
+      const shape = one.histogram;
+      if (!shape?.counts?.length) continue;
+      measured += 1;
+      const base = one.colourWindow ?? windowOf(one);
+      const span = base.high - base.low || 1;
+      const total = shape.counts.reduce((sum, c) => sum + c, 0) || 1;
+      const width = (shape.high - shape.low) || 1;
+      shape.counts.forEach((count, i) => {
+        const brightness = shape.low + ((i + 0.5) * width) / shape.counts.length;
+        const f = Math.min(1, Math.max(0, (brightness - base.low) / span));
+        bins[Math.min(63, Math.floor(f * 64))] += count / total;
+      });
+    }
+    return { ...state, counts: bins, measured, channels: members.length };
+  };
+  panel.setComposite = (name, next) => {
+    const state = composites.get(name);
+    if (!state) return;
+    Object.assign(state, next);
+    state.a = Math.min(Math.max(state.a, 0), 0.98);
+    state.b = Math.max(Math.min(state.b, 1), state.a + 0.02);
+    applyComposite(name);
+  };
+  panel.autoComposite = async (name) => {
+    const members = compositeMembers.get(name);
+    if (!members || !composites.get(name)) return;
+    for (const { one, at } of members) {
+      if (!one.source) continue;
+      const result = await measureViewerRow(one, { box: viewer.measurementBox?.(at) ?? [[0, 0], [1, 1]] });
+      if (!result?.ok || !result.answer?.window) continue;
+      const { low, high } = result.answer.window;
+      one.histogram = result.answer.histogram ?? one.histogram;
+      one.colourWindow = { low, high: Math.max(high, low + 1) };
+    }
+    if (!composites.get(name)) return;
+    Object.assign(composites.get(name), { a: 0, b: 1 });
+    applyComposite(name);
+  };
+  panel.acquisitionGrey = (name) => Boolean(greyStates.get(name)?.().grey);
+
+  /* One colour channel, for the box under the canvas row: what it looks
+     like now, a way to change it, and Auto. The same window, axis and
+     opacity the column's own box acts on, so the two never disagree. */
+  panel.channelBox = (index) => {
+    const row = rows[index];
+    if (!row) return null;
+    const hist = row.histogram;
+    return {
+      name: row.name, color: row.color, hex: hexOf(row.colour), visible: row.visible !== false,
+      counts: hist?.counts ?? [], range: hist ? { low: hist.low, high: hist.high } : null,
+      window: { ...windowOf(row) }, axis: { ...theAxis(row) },
+      weight: Number.isFinite(row.weight) ? row.weight : 1, log: Boolean(row.log),
+      measured: Boolean(hist?.counts?.length),
+    };
+  };
+  panel.channelAct = (index, next) => {
+    const row = rows[index];
+    if (!row) return;
+    if (chosen !== index) chooseRow(index);
+    if (next.window) takeTheWindow(next.window);
+    if ("axis" in next) setTheAxis(row, next.axis);
+    if (Number.isFinite(next.weight)) {
+      row.weight = Math.max(0, Math.min(1, next.weight));
+      remember(row);
+      viewer.setChannel(index, { weight: row.weight });
+      refreshControls();
+      displayChangedSoon();
+    }
+    if (typeof next.log === "boolean" && next.log !== logScale) logButton.click();
+    if (next.colour) {
+      row.colour = rgbOf(next.colour);
+      row.color = cssOf(row.colour);
+      row.grey = false;
+      remember(row);
+      paintSwatches(index);
+      viewer.setChannel(index, { colour: row.colour });
+      displayChangedSoon();
+    }
+  };
+  panel.autoChannel = async (index) => {
+    if (!rows[index]) return;
+    if (chosen !== index) chooseRow(index);
+    await requestMeasurement(index, { auto: true });
+    displayChangedSoon();
+  };
+  panel.lendSettingsCard = (into) => { into.append(settingsCard); };
+  panel.reclaimSettingsCard = () => { if (settingsCard.parentElement !== bar) bar.insertBefore(settingsCard, wholeCard); };
   panel.requestedState = panelState;
   window.__viewerPanel = panel;
   if (rows.length) {
