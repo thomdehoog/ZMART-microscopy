@@ -76,6 +76,13 @@ export const selectionPanel = {
       return line;
     };
     const lever = (key) => (v) => { ctx.setRule(key, v); ctx.changed?.(); };
+    /* A switch with no number: on or off is the whole setting. */
+    const toggled = (text, id, on, take) => {
+      const box = document.createElement("input");
+      box.type = "checkbox"; box.id = id; box.checked = on;
+      box.addEventListener("change", () => take(box.checked));
+      return checked(text, box);
+    };
 
     /* The step's own press, at the end of the simple box. */
     const act = document.createElement("div");
@@ -128,7 +135,10 @@ export const selectionPanel = {
     simple.append(
       mainSettingsTitle,
       switched("Max targets per overview tileset", "gate-max", rules.objectsMax, { min: 1, resting: 50 }, lever("objectsMax")),
-      switched("Max target tiles per overview tileset", "tiles-max", rules.tilesMax, { min: 1, resting: 50 }, lever("tilesMax")),
+      /* On, the placing looks for the fewest tiles that cover every
+         target, so neighbours share one. Off, every target gets a tile of
+         its own, centred on it. */
+      toggled("Minimise the number of tiles", "tiles-minimise", rules.minimise !== false, lever("minimise")),
       switched("Margin around a target (% of its size)", "tiles-margin", rules.margin,
         { min: 0, step: 10, scale: 100, resting: 100 }, lever("margin")),
       switched("Tile overlap for big targets (%)", "overlap-min", rules.overlapMin,
