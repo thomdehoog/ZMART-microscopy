@@ -292,6 +292,9 @@ export function targetLayers(theRun) {
        the one the gating and the target scan area are read against. */
     shown: ["scan", "detect", "gate", "select"].includes(activeMode) && !!theCurrentField(),
     staysSolid: true,
+    /* Where the frame stands, for the canvas's own press that brings the
+       view in on it. */
+    field: theCurrentField,
     paint: (frame) => {
       const ctx = frame.context;
       const { place, scale } = drawnIn(frame);

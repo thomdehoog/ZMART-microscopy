@@ -746,6 +746,7 @@ function drawStage() {
   }
   theStack = stack;
   theCanvas.setLayersAbove(stack);
+  if (ctx.tileButton) ctx.tileButton.disabled = !theFramedField();
   sayWhatThePressesDo();
 
   /* Set here rather than on the pointer alone, so a tool armed from the panel
@@ -1221,6 +1222,29 @@ function frameTileset() {
 }
 ctx.tilesetButton.addEventListener("click", frameTileset);
 
+/* The one field the frame is on: the position detection is tuned on, or
+   before the scan the field under the stage. The layer that draws the
+   frame says where it stands. */
+function theFramedField() {
+  const layer = theStack.find((one) => one.key === "detect" && one.has);
+  return layer?.field?.() ?? null;
+}
+
+/** Tile: frame that one field, filling the canvas with it. */
+function frameTile() {
+  const t = theFramedField();
+  if (!t) return;
+  const half = t.frameUm / 2;
+  const rect = stageBox.getBoundingClientRect();
+  const w = rect.width || 800, h = rect.height || 600;
+  const zoom = t.frameUm / Math.max(1, Math.min(w, h) - 2 * FIT_MARGIN);
+  const centre = { x: t.x, y: t.y };
+  theCanvas.lookAt({ zoom, centre });
+  thePicture.followTheStage({ zoom, centre });
+  drawStage();
+}
+ctx.tileButton?.addEventListener("click", frameTile);
+
 /* ---- the picture's half of the canvas row -------------------------------
    Which acquisition the row is about, its channels as chips, the masks as
    one of them, and Grayscale. The chips read the picture's own panel and
@@ -1253,18 +1277,30 @@ document.addEventListener("click", (e) => {
 });
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeTheCards(); });
 
-/* Mask: a chip like the channels', whose dot opens the masks' card --
-   shown or hidden, their colour, their look, their opacity. The chip
+/* Mask: a chip like the channels'. Its dot shows and hides the detected
+   masks; its name opens their card -- colour, look, opacity. The chip
    stands in the row only while detection has laid masks on the
    acquisition the row shows. */
 const maskDress = () => run.detect ?? {};
-if (ctx.maskPop) cards.push([ctx.maskPop, ctx.maskButton]);
-ctx.maskButton?.addEventListener("click", (e) => {
-  e.stopPropagation();
-  openOnly(ctx.maskPop, ctx.maskButton, ctx.maskPop.hidden);
+if (ctx.maskPop) cards.push([ctx.maskPop, ctx.maskName]);
+const openTheMaskCard = () => openOnly(ctx.maskPop, ctx.maskName, ctx.maskPop.hidden);
+/* Like a channel's dot: one press shows or hides, two in a row open the
+   card instead, so the press waits a moment for a second. */
+let maskPress = null;
+ctx.maskButton?.addEventListener("click", () => {
+  if (maskPress) return;
+  maskPress = setTimeout(() => {
+    maskPress = null;
+    theCanvas.showLayer("segmentation", !theCanvas.layerShown?.("segmentation"));
+    drawStage();
+  }, 220);
 });
-ctx.maskShown?.addEventListener("click", () => { theCanvas.showLayer("segmentation", true); drawStage(); });
-ctx.maskHidden?.addEventListener("click", () => { theCanvas.showLayer("segmentation", false); drawStage(); });
+ctx.maskButton?.addEventListener("dblclick", (e) => {
+  e.stopPropagation();
+  clearTimeout(maskPress); maskPress = null;
+  openTheMaskCard();
+});
+ctx.maskName?.addEventListener("click", (e) => { e.stopPropagation(); openTheMaskCard(); });
 if (ctx.maskColours) {
   for (const colour of MASK_COLOURS) {
     const dot = document.createElement("button");
@@ -1287,10 +1323,11 @@ ctx.maskOpacity?.addEventListener("input", () => {
 /* The acquisition picker: the layers pictogram, the acquisition's name, and
    a menu of every acquisition with an eye. Choosing one puts its channels
    in the row; its eye shows or hides the whole acquisition. */
-if (ctx.acquisitionMenu) cards.push([ctx.acquisitionMenu, ctx.acquisitionPick?.querySelector("button")]);
-ctx.acquisitionPick?.querySelector("button")?.addEventListener("click", (e) => {
+const pickButton = ctx.acquisitionPick?.querySelector("#acquisition-btn");
+if (ctx.acquisitionMenu) cards.push([ctx.acquisitionMenu, pickButton]);
+pickButton?.addEventListener("click", (e) => {
   e.stopPropagation();
-  openOnly(ctx.acquisitionMenu, e.currentTarget, ctx.acquisitionMenu.hidden);
+  openOnly(ctx.acquisitionMenu, pickButton, ctx.acquisitionMenu.hidden);
 });
 
 /* Grayscale: every acquisition on the picture drawn in grey, or each in its
@@ -1316,35 +1353,69 @@ function followThePanel() {
 const EYE = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M1.5 8s2.5-4.5 6.5-4.5S14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8z"/><circle cx="8" cy="8" r="2"/></svg>';
 
 /* One chip per channel of the acquisition the row shows: a dot in the
-   channel's colour, named on hover. The chosen channel's dot carries the
-   hairline; a hidden channel's dot fades. A press chooses the channel and
-   opens Display settings, where its histogram, window and opacity are. */
+   channel's colour and its name, or its number in the dot when the row is
+   short of room. The dot shows or hides the channel -- hidden, the chip
+   fades and a line crosses the dot. The name chooses the channel and opens
+   Display settings, where its histogram, window and opacity are. */
 function drawTheChips(panel, acquisition) {
   const host = ctx.chips;
   if (!host) return;
   const channels = acquisition ? panel.channelsOf(acquisition) : [];
   const stamp = JSON.stringify(channels);
-  if (host.dataset.stamp === stamp) return;
-  host.dataset.stamp = stamp;
-  host.replaceChildren();
-  for (const channel of channels) {
-    const chip = document.createElement("span");
-    chip.className = `chip${channel.visible ? " on" : ""}${channel.chosen ? " chosen" : ""}`;
-    chip.dataset.channel = channel.name;
-    const dot = document.createElement("button");
-    dot.type = "button";
-    dot.className = "chip-dot";
-    dot.style.background = channel.color;
-    dot.title = `${channel.name}${channel.visible ? "" : " (hidden)"}: its histogram, window and opacity`;
-    dot.setAttribute("aria-label", channel.name);
-    dot.addEventListener("click", () => {
-      panel.chooseRow(channel.index);
-      ctx.openDisplaySettings?.();
-      sayWhatThePressesDo();
+  if (host.dataset.stamp !== stamp) {
+    host.dataset.stamp = stamp;
+    host.replaceChildren();
+    channels.forEach((channel, n) => {
+      const chip = document.createElement("span");
+      chip.className = `chip${channel.visible ? " on" : " off"}${channel.chosen ? " chosen" : ""}`;
+      chip.dataset.channel = channel.name;
+      const dot = document.createElement("button");
+      dot.type = "button";
+      dot.className = "chip-dot";
+      dot.style.background = channel.color;
+      dot.textContent = String(n + 1);
+      dot.title = `${channel.name}: press to ${channel.visible ? "hide" : "show"}, press twice for its settings`;
+      dot.setAttribute("aria-pressed", String(channel.visible));
+      dot.setAttribute("aria-label", `show or hide ${channel.name}`);
+      /* One press shows or hides; two in a row open the settings instead,
+         so the toggle waits a moment to see whether a second press follows.
+         Without names in the row, this is the way to a channel's histogram. */
+      let pending = null;
+      dot.addEventListener("click", () => {
+        if (pending) return;
+        pending = setTimeout(() => { pending = null; panel.setChannelVisible(channel.index, !channel.visible); }, 220);
+      });
+      dot.addEventListener("dblclick", () => {
+        clearTimeout(pending); pending = null;
+        panel.chooseRow(channel.index);
+        ctx.openDisplaySettings?.();
+        sayWhatThePressesDo();
+      });
+      const name = document.createElement("button");
+      name.type = "button";
+      name.className = "chip-name";
+      name.textContent = channel.name;
+      name.title = `${channel.name}: its histogram, window and opacity`;
+      name.addEventListener("click", () => {
+        panel.chooseRow(channel.index);
+        ctx.openDisplaySettings?.();
+        sayWhatThePressesDo();
+      });
+      chip.append(dot, name);
+      host.append(chip);
     });
-    chip.append(dot);
-    host.append(chip);
   }
+  fitTheChips();
+}
+
+/* Names while there is room for them, numbers in the dots when there is
+   not: measured, since the room depends on the window and the column. */
+function fitTheChips() {
+  const box = ctx.channelsBox;
+  const right = box?.closest(".canvas-toolbar-right");
+  if (!box || !right) return;
+  box.classList.remove("compact");
+  if (right.scrollWidth > right.clientWidth + 1) box.classList.add("compact");
 }
 
 /* The picker's menu: every acquisition, with an eye and its channel count;
@@ -1405,8 +1476,9 @@ function sayWhatThePressesDo() {
     if (!laid && ctx.maskPop && !ctx.maskPop.hidden) closeTheCards();
     const on = theCanvas.layerShown?.("segmentation") !== false;
     ctx.maskChip?.classList.toggle("on", on);
-    ctx.maskShown?.setAttribute("aria-pressed", String(on));
-    ctx.maskHidden?.setAttribute("aria-pressed", String(!on));
+    ctx.maskChip?.classList.toggle("off", !on);
+    mask.setAttribute("aria-pressed", String(on));
+    mask.title = on ? "Hide the detected masks" : "Show the detected masks";
     const dress = maskDress();
     mask.style.background = dress.maskColour ?? MASK_RAINBOW;
     for (const dot of ctx.maskColours?.querySelectorAll(".mask-colour") ?? []) {
@@ -1420,9 +1492,17 @@ function sayWhatThePressesDo() {
     }
   }
   if (ctx.greyButton) {
-    ctx.greyButton.hidden = !panel?.drawAllInGrey;
+    ctx.greyButton.disabled = !panel?.drawAllInGrey;
     ctx.greyButton.setAttribute("aria-pressed", String(Boolean(panel?.allGrey?.())));
   }
+  /* The channels' box stands only when it holds something; without it the
+     grey switch ends the strip. */
+  if (ctx.channelsBox) {
+    const holds = Boolean(ctx.chips?.childElementCount) || (ctx.maskChip && !ctx.maskChip.hidden);
+    ctx.channelsBox.hidden = !holds;
+    ctx.greyButton?.classList.toggle("strip-last", !holds);
+  }
+  fitTheChips();
 }
 
 /* The legend at the foot of the picture, for whichever layer asks for one. A
@@ -1476,7 +1556,7 @@ function legendSettles() {
        shape, and what the pointer should look like over it. */
     /* The canvas measures itself; this only asks for the layers again, since
        what they draw depends on how big the box is. */
-    resize() { theCanvasNarrowed(); redrawViewSoon(); },
+    resize() { theCanvasNarrowed(); redrawViewSoon(); fitTheChips(); },
     cursor(shape) { stageBox.style.cursor = shape; },
     view,
     travelUm: STAGE_UM,
