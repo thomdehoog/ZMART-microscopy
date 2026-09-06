@@ -212,8 +212,9 @@ test.describe("the target acquisition workflow, walked screen by screen", () => 
       await rest(1200);
       await shot(page, "scan-done-grayscale");
       const greyPicture = await photograph(page, "#picture-host", 0.6);
-      await page.locator("#grey-btn").click();
+      await page.locator("#colour-btn").click();
       await expect(page.locator("#grey-btn")).toHaveAttribute("aria-pressed", "false");
+      await expect(page.locator("#colour-btn")).toHaveAttribute("aria-pressed", "true");
       await rest(1200);
       await shot(page, "scan-done-color-again");
       /* Proved on the pixels, not the button: in grey the three channels of
