@@ -63,32 +63,8 @@ export const canvasPanel = {
           </button>
           <!-- Right, the picture: which acquisition the row is about, its
                channels as chips, the masks as one of them, and Grayscale.
-               A chip's dot shows or hides it; its name opens its settings. -->
+               A press on a chip opens its box. -->
           <span class="canvas-toolbar-right">
-            <!-- Colour or grey, a toggle of its own at the head of the
-                 row: a knob that sits on the left over three coloured
-                 bars while the picture is in colour, and slides right
-                 over three grey bars once it is grey. It acts on the
-                 pictures only; the masks keep their own colours
-                 whichever side it is on. -->
-            <span class="grey-toggle" id="grey-toggle" role="group" aria-label="Colour or grey" data-grey="false">
-              <button class="bare" id="colour-btn" type="button" aria-pressed="true" aria-label="Colour"
-                      title="Colour: every picture in its own colours">
-                <svg class="grey-glyph colours" width="18" height="16" viewBox="0 0 18 16" aria-hidden="true">
-                  <rect class="bar-r" x="1" y="3" width="4.6" height="10" rx="1.2"/>
-                  <rect class="bar-g" x="6.7" y="3" width="4.6" height="10" rx="1.2"/>
-                  <rect class="bar-b" x="12.4" y="3" width="4.6" height="10" rx="1.2"/>
-                </svg>
-              </button>
-              <button class="bare" id="grey-btn" type="button" aria-pressed="false" aria-label="Grey"
-                      title="Grey: every picture in grey">
-                <svg class="grey-glyph greys" width="18" height="16" viewBox="0 0 18 16" aria-hidden="true">
-                  <rect class="bar-r" x="1" y="3" width="4.6" height="10" rx="1.2"/>
-                  <rect class="bar-g" x="6.7" y="3" width="4.6" height="10" rx="1.2"/>
-                  <rect class="bar-b" x="12.4" y="3" width="4.6" height="10" rx="1.2"/>
-                </svg>
-              </button>
-            </span>
             <!-- A joined strip: which acquisition the row is about -- the
                  eye, its name, a caret that opens the list -- and its
                  channels in a box beside it. -->
@@ -169,6 +145,38 @@ export const canvasPanel = {
                    settings, lent to the row while it is open here. -->
               <div class="canvas-card channel-pop" id="channel-pop" hidden></div>
               <div class="canvas-card grey-pop" id="grey-pop" hidden></div>
+            </span>
+            <!-- Colour or grey, a toggle of its own at the end of the
+                 row. Each side is a ramp, the bar a microscopist knows
+                 from the lookup table of any viewer: a rainbow ramp for
+                 colour, a black-to-white ramp for grey. The knob sits
+                 over the side in force. It acts on the pictures only;
+                 the masks keep their own colours whichever side it is
+                 on. -->
+            <span class="grey-toggle" id="grey-toggle" role="group" aria-label="Colour or grey" data-grey="false">
+              <button class="bare" id="colour-btn" type="button" aria-pressed="true" aria-label="Colour"
+                      title="Colour: every channel in its own colour">
+                <svg class="grey-glyph colours" width="18" height="16" viewBox="0 0 18 16" aria-hidden="true">
+                  <defs>
+                    <linearGradient id="ramp-colours" x1="0" y1="0" x2="1" y2="0">
+                      <stop offset="0" stop-color="#3b82f6"/><stop offset="0.35" stop-color="#22c55e"/>
+                      <stop offset="0.65" stop-color="#eab308"/><stop offset="1" stop-color="#ef4444"/>
+                    </linearGradient>
+                  </defs>
+                  <rect class="ramp" x="1" y="4" width="16" height="8" rx="1.5"/>
+                </svg>
+              </button>
+              <button class="bare" id="grey-btn" type="button" aria-pressed="false" aria-label="Grey"
+                      title="Grey: the channels folded into one grey picture">
+                <svg class="grey-glyph greys" width="18" height="16" viewBox="0 0 18 16" aria-hidden="true">
+                  <defs>
+                    <linearGradient id="ramp-greys" x1="0" y1="0" x2="1" y2="0">
+                      <stop offset="0" stop-color="#111827"/><stop offset="1" stop-color="#f3f4f6"/>
+                    </linearGradient>
+                  </defs>
+                  <rect class="ramp" x="1" y="4" width="16" height="8" rx="1.5"/>
+                </svg>
+              </button>
             </span>
           </span>
         </div>

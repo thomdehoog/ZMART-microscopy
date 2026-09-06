@@ -2007,10 +2007,11 @@ canvas.livecv[hidden] { display: none; }
 .canvas-toolbar button.run.icon { width: var(--control); padding: 0; justify-content: center; }
 .canvas-toolbar button.run svg { flex: none; }
 
-/* The picture's half of the row, in three pieces: the colour-or-grey toggle
-   on its own; then a joined strip, a little raised, holding the acquisition
-   picker with its channels flat in a box beside it, a dot and a name each;
-   and past a short dividing line in that same box, the masks. */
+/* The picture's half of the row, in three pieces: a joined strip, a little
+   raised, holding the acquisition picker with its channels flat in a box
+   beside it, a numbered dot each; past a short dividing line in that same
+   box, the masks; and at the end of the row, on its own, the
+   colour-or-grey toggle. */
 .canvas-strip { position: relative; display: inline-flex; flex: none; }
 .canvas-strip[hidden] { display: none; }
 /* The acquisition's press stands a little proud of the row, and the box of
@@ -2053,14 +2054,11 @@ canvas.livecv[hidden] { display: none; }
 .canvas-strip .run.switch[aria-pressed="true"] {
   background: var(--accent-tint); border-color: var(--line-strong); box-shadow: none;
 }
-/* The pair's glyphs: three greys on the grey press, three colours on the
-   colour press. */
-.grey-glyph.greys .bar-r { fill: #d1d5db; }
-.grey-glyph.greys .bar-g { fill: #9ca3af; }
-.grey-glyph.greys .bar-b { fill: #4b5563; }
-.grey-glyph.colours .bar-r { fill: #ef4444; }
-.grey-glyph.colours .bar-g { fill: #22c55e; }
-.grey-glyph.colours .bar-b { fill: #3b82f6; }
+/* The pair's glyphs: a rainbow ramp on the colour side, a black-to-white
+   ramp on the grey side, each with a hairline so the light end still has
+   an edge. */
+.grey-glyph.colours .ramp { fill: url(#ramp-colours); }
+.grey-glyph.greys .ramp { fill: url(#ramp-greys); stroke: rgba(15, 23, 42, 0.25); stroke-width: 0.6; }
 
 /* The channels' box: flat, bordered on the top, right and bottom, joined
    onto the acquisition's press, so the strip reads as one piece and the box
