@@ -1270,6 +1270,8 @@ function openOnly(card, button, open) {
     c.hidden = !on;
     b?.setAttribute("aria-expanded", String(on));
   }
+  /* The channel's box goes back to its column the moment its card closes. */
+  if (ctx.channelPop?.hidden) window.__viewerPanel?.reclaimSettingsCard?.();
 }
 function closeTheCards() { openOnly(null, null, false); }
 document.addEventListener("click", (e) => {
@@ -1283,24 +1285,14 @@ document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeTheCa
    acquisition the row shows. */
 const maskDress = () => run.detect ?? {};
 if (ctx.maskPop) cards.push([ctx.maskPop, ctx.maskName]);
-const openTheMaskCard = () => openOnly(ctx.maskPop, ctx.maskName, ctx.maskPop.hidden);
-/* Like a channel's dot: one press shows or hides, two in a row open the
-   card instead, so the press waits a moment for a second. */
-let maskPress = null;
-ctx.maskButton?.addEventListener("click", () => {
-  if (maskPress) return;
-  maskPress = setTimeout(() => {
-    maskPress = null;
-    theCanvas.showLayer("segmentation", !theCanvas.layerShown?.("segmentation"));
-    drawStage();
-  }, 220);
-});
-ctx.maskButton?.addEventListener("dblclick", (e) => {
-  e.stopPropagation();
-  clearTimeout(maskPress); maskPress = null;
-  openTheMaskCard();
-});
-ctx.maskName?.addEventListener("click", (e) => { e.stopPropagation(); openTheMaskCard(); });
+const openTheMaskCard = (e) => { e.stopPropagation(); openOnly(ctx.maskPop, ctx.maskName, ctx.maskPop.hidden); };
+/* Like a channel's chip: a press on the shape or the name opens the card,
+   and shown or hidden is the card's first line. */
+ctx.maskButton?.addEventListener("click", openTheMaskCard);
+ctx.maskName?.addEventListener("click", openTheMaskCard);
+ctx.maskShown?.addEventListener("click", () => { theCanvas.showLayer("segmentation", true); drawStage(); });
+ctx.maskHidden?.addEventListener("click", () => { theCanvas.showLayer("segmentation", false); drawStage(); });
+if (ctx.channelPop) cards.push([ctx.channelPop, null]);
 if (ctx.maskColours) {
   for (const colour of MASK_COLOURS) {
     const dot = document.createElement("button");
@@ -1374,33 +1366,26 @@ function drawTheChips(panel, acquisition) {
       dot.className = "chip-dot";
       dot.style.background = channel.color;
       dot.textContent = String(n + 1);
-      dot.title = `${channel.name}: press to ${channel.visible ? "hide" : "show"}, press twice for its settings`;
+      dot.title = `${channel.name}${channel.visible ? "" : " (hidden)"}: its box, with the eye, the histogram, the window and the opacity`;
       dot.setAttribute("aria-pressed", String(channel.visible));
-      dot.setAttribute("aria-label", `show or hide ${channel.name}`);
-      /* One press shows or hides; two in a row open the settings instead,
-         so the toggle waits a moment to see whether a second press follows.
-         Without names in the row, this is the way to a channel's histogram. */
-      let pending = null;
-      dot.addEventListener("click", () => {
-        if (pending) return;
-        pending = setTimeout(() => { pending = null; panel.setChannelVisible(channel.index, !channel.visible); }, 220);
-      });
-      dot.addEventListener("dblclick", () => {
-        clearTimeout(pending); pending = null;
+      dot.setAttribute("aria-label", channel.name);
+      /* A press on the dot or the name opens the channel's box under the
+         row: the same box Display settings shows, with its eye, its
+         histogram and its sliders, lent here while the card is open. */
+      const openTheBox = (e) => {
+        e.stopPropagation();
         panel.chooseRow(channel.index);
-        ctx.openDisplaySettings?.();
+        panel.lendSettingsCard?.(ctx.channelPop);
+        openOnly(ctx.channelPop, null, true);
         sayWhatThePressesDo();
-      });
+      };
+      dot.addEventListener("click", openTheBox);
       const name = document.createElement("button");
       name.type = "button";
       name.className = "chip-name";
       name.textContent = channel.name;
-      name.title = `${channel.name}: its histogram, window and opacity`;
-      name.addEventListener("click", () => {
-        panel.chooseRow(channel.index);
-        ctx.openDisplaySettings?.();
-        sayWhatThePressesDo();
-      });
+      name.title = `${channel.name}: its box, with the eye, the histogram, the window and the opacity`;
+      name.addEventListener("click", openTheBox);
       chip.append(dot, name);
       host.append(chip);
     });
@@ -1478,9 +1463,18 @@ function sayWhatThePressesDo() {
     ctx.maskChip?.classList.toggle("on", on);
     ctx.maskChip?.classList.toggle("off", !on);
     mask.setAttribute("aria-pressed", String(on));
-    mask.title = on ? "Hide the detected masks" : "Show the detected masks";
+    ctx.maskShown?.setAttribute("aria-pressed", String(on));
+    ctx.maskHidden?.setAttribute("aria-pressed", String(!on));
     const dress = maskDress();
-    mask.style.background = dress.maskColour ?? MASK_RAINBOW;
+    /* The pictogram wears the dress: the colour chosen or the rainbow, and
+       filled or a thick outline round a white middle. */
+    if (ctx.maskShape) {
+      const paint = dress.maskColour ?? "url(#mask-rainbow)";
+      const line = dress.maskShow === "line";
+      ctx.maskShape.setAttribute("fill", line ? "#ffffff" : paint);
+      ctx.maskShape.setAttribute("stroke", line ? paint : "rgba(15, 23, 42, 0.35)");
+      ctx.maskShape.setAttribute("stroke-width", line ? "2.6" : "0.9");
+    }
     for (const dot of ctx.maskColours?.querySelectorAll(".mask-colour") ?? []) {
       dot.setAttribute("aria-pressed", String((dress.maskColour ?? "") === dot.dataset.colour));
     }

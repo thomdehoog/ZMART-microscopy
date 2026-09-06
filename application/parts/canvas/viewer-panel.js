@@ -1459,6 +1459,11 @@ export async function mountViewerPanel(near, {
   panel.chooseRow = (index) => { if (rows[index]) chooseRow(index); };
   panel.acquisitionShown = (name) => groupShown.get(name) !== false;
   panel.onChanged = (fn) => { changedHooks.add(fn); return () => changedHooks.delete(fn); };
+  /* The chosen channel's box -- its histogram, window and opacity -- can
+     stand under the canvas's own row for a while: lent to a card there and
+     taken back into the column when the card closes. One box, one truth. */
+  panel.lendSettingsCard = (into) => { into.append(settingsCard); };
+  panel.reclaimSettingsCard = () => { if (settingsCard.parentElement !== bar) bar.insertBefore(settingsCard, wholeCard); };
   panel.requestedState = panelState;
   window.__viewerPanel = panel;
   if (rows.length) {
