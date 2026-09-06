@@ -2007,9 +2007,10 @@ canvas.livecv[hidden] { display: none; }
 .canvas-toolbar button.run.icon { width: var(--control); padding: 0; justify-content: center; }
 .canvas-toolbar button.run svg { flex: none; }
 
-/* The picture's half of the row. A joined strip, a little raised, holds the
-   acquisition picker and the grey switch; beside it the channels stand
-   flat, a dot and a name each, the masks one chip more of the same kind. */
+/* The picture's half of the row, in three pieces: the colour-or-grey toggle
+   on its own; then a joined strip, a little raised, holding the acquisition
+   picker with its channels flat in a box beside it, a dot and a name each;
+   and past a short dividing line in that same box, the masks. */
 .canvas-strip { position: relative; display: inline-flex; flex: none; }
 .canvas-strip[hidden] { display: none; }
 .canvas-strip .run {
@@ -2017,17 +2018,20 @@ canvas.livecv[hidden] { display: none; }
   box-shadow: 0 1px 0 rgba(15, 23, 42, 0.05);
 }
 .canvas-strip .run.strip-first { border-radius: 7px 0 0 7px; }
+.canvas-strip .run.strip-first.strip-last { border-radius: 7px; }
 .canvas-strip .run.strip-last { border-radius: 0 7px 7px 0; border-left: none; }
 /* Between the picker and the channels, square-cornered, flush on both sides. */
 .canvas-strip .strip-mid { border-radius: 0; border-left: none; }
 .canvas-strip .strip-mid.strip-last { border-radius: 0 7px 7px 0; }
 /* The colour-or-grey toggle: a sunken track with a raised knob that sits
-   over the side in force -- colours at the left, greys at the right. */
+   over the side in force -- colours at the left, greys at the right. It
+   stands on its own, rounded like every other press in the row. */
 .grey-toggle {
-  position: relative; display: inline-flex; align-items: stretch; box-sizing: border-box;
-  height: var(--control); padding: 3px; gap: 2px;
+  position: relative; display: inline-flex; align-items: stretch; box-sizing: border-box; flex: none;
+  height: var(--control); padding: 3px; gap: 2px; border-radius: 7px;
   border: 1px solid var(--line-strong); background: var(--surface-3);
 }
+.grey-toggle[hidden] { display: none; }
 .grey-toggle::before {
   content: ""; position: absolute; top: 3px; bottom: 3px; left: 3px; width: 28px;
   border-radius: 5px; background: var(--screen); border: 1px solid var(--line-strong);
@@ -2055,8 +2059,8 @@ canvas.livecv[hidden] { display: none; }
 .grey-glyph.colours .bar-b { fill: #3b82f6; }
 
 /* The channels' box: flat, bordered on the top, right and bottom, joined
-   onto the grey switch, so the strip reads as one piece and the box says
-   which channels belong to the acquisition named at its left. */
+   onto the acquisition's press, so the strip reads as one piece and the box
+   says which channels belong to the acquisition named at its left. */
 .canvas-channels {
   display: flex; align-items: center; gap: 2px; min-width: 0;
   height: var(--control); padding: 0 6px; box-sizing: border-box;
@@ -2098,6 +2102,11 @@ canvas.livecv[hidden] { display: none; }
   width: 18px; height: 18px; color: #fff; text-shadow: 0 0 2px rgba(0, 0, 0, 0.7);
 }
 .chip { height: 28px; }
+/* A short line between the channels and the masks: the same box, since the
+   masks lie on this acquisition, but a visible seam, since they are their
+   own thing. It stops short of the top and bottom on purpose. */
+.chip-divide { flex: none; width: 1px; height: 16px; margin: 0 5px 0 4px; background: var(--line-strong); align-self: center; }
+.chip-divide[hidden] { display: none; }
 /* The masks' chip is a cell's outline in the masks' own dress, drawn by
    the page; no line crosses it when hidden, the fade says so alone. */
 .mask-dot, .canvas-channels.compact .mask-dot {

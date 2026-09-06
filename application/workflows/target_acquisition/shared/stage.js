@@ -1517,7 +1517,12 @@ function sayWhatThePressesDo() {
   }
   if (ctx.greyButton) {
     const can = Boolean(panel?.drawAllInGrey);
-    const grey = Boolean(panel?.allGrey?.());
+    /* The toggle tells the truth about the acquisition on show -- the one
+       the chips belong to -- so a picture that a step drew grey on its own
+       (detection greys the overview under its masks) reads as grey here
+       too, whatever the hidden acquisitions are still set to. A press still
+       moves every acquisition at once. */
+    const grey = Boolean(shown ? panel?.acquisitionGrey?.(shown) : panel?.allGrey?.());
     ctx.greyButton.disabled = !can;
     ctx.greyButton.setAttribute("aria-pressed", String(grey));
     if (ctx.colourButton) {
@@ -1530,12 +1535,16 @@ function sayWhatThePressesDo() {
     }
   }
   /* The channels' box stands only when it holds something; without it the
-     grey switch ends the strip. */
+     acquisition's press ends the strip on its own. */
   if (ctx.channelsBox) {
-    const holds = Boolean(ctx.chips?.childElementCount) || (ctx.maskChip && !ctx.maskChip.hidden)
+    const channelsThere = (Boolean(ctx.chips?.childElementCount) && !ctx.chips.hidden)
       || (ctx.greyChip && !ctx.greyChip.hidden);
-    ctx.channelsBox.hidden = !holds;
-    ctx.greyToggle?.classList.toggle("strip-last", !holds);
+    const masksThere = Boolean(ctx.maskChip && !ctx.maskChip.hidden);
+    ctx.channelsBox.hidden = !(channelsThere || masksThere);
+    pickButton?.classList.toggle("strip-last", !(channelsThere || masksThere));
+    /* The short line between the channels and the masks stands only when
+       both are there to be kept apart. */
+    if (ctx.maskDivide) ctx.maskDivide.hidden = !(channelsThere && masksThere);
   }
   fitTheChips();
 }
