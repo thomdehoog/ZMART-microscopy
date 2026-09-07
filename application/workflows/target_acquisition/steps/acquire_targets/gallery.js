@@ -78,6 +78,7 @@ function targetFrame(src, field) {
   return cv;
 }
 
+import { progressBox } from "../../shared/progress.js";
 import { sideGroup } from "../../../../framework/window/panels.js";
 
 export default {
@@ -112,6 +113,13 @@ export default {
     const act = document.createElement("div");
     act.className = "acquire-action side-act";
 
+    /* How the run is going, above what it has made: hidden until the press
+       is taken, then the tile being taken at the left and the arithmetic at
+       the right, the way the detection step tells it. */
+    const progress = progressBox("Acquisition progress");
+    progress.doing.id = "acquire-doing";
+    progress.count.id = "acquire-count";
+
     const listBox = sideGroup("Acquired target tiles");
     /* The list, in the focus step's own clothes: a row a target, the chosen
        one lit, the box capped and scrolling past its few rows. */
@@ -132,7 +140,7 @@ export default {
     /* The settings the targets are imaged with were recorded on the step
        before, beside the selection; here the press stands over what it
        will make. */
-    side.append(listBox.group, pairBox.group, act);
+    side.append(progress.group, listBox.group, pairBox.group, act);
     host.append(side);
 
     const targetIdOf = (tile) => tile?.targetId ?? tile?.covers?.[0] ?? null;
@@ -231,6 +239,7 @@ export default {
     rebuild();
     return {
       rebuild,
+      progress: progress.say,
       /** The choice changed -- here, or on the canvas. */
       chosen() {
         for (const row of list.querySelectorAll(".point-row")) {
