@@ -88,6 +88,24 @@ def position_store_from_record(record: dict, into: Path | str) -> Path:
     raise last  # pragma: no cover -- the loop above always returns or raises
 
 
+def frame_um_of(store: Path | str) -> float:
+    """How wide one position's store is on the sample, in micrometres: its
+    finest level's width times the pixel size the writer recorded. The store
+    is the capture's own word on its size, where a recording made before
+    the run is only what was promised."""
+    import zarr  # noqa: PLC0415
+
+    opened = zarr.open(str(store), mode="r")
+    attributes = dict(opened.attrs)
+    multiscale = ((attributes.get("ome") or attributes).get("multiscales") or [{}])[0]
+    axes = [axis.get("name") for axis in multiscale.get("axes", [])]
+    width_px = opened[multiscale["datasets"][0]["path"]].shape[-1]
+    for transform in multiscale["datasets"][0].get("coordinateTransformations", []):
+        if transform.get("type") == "scale":
+            return float(width_px * transform["scale"][axes.index("x") if "x" in axes else -1])
+    raise RuntimeError(f"{store} declares no pixel size")
+
+
 def _write_a_position(record: dict, into: Path | str) -> Path:
     """One attempt at :func:`position_store_from_record`."""
     planes = record.get("planes") or []
@@ -476,7 +494,11 @@ def place_into_resolved_store(record: dict, into: Path | str, planned_um: list[t
     ``planned_um`` are the centres of every frame the run will take, so the
     store can be declared whole at the first capture; the frame's own size
     and pixels come from that capture. Ground no frame has reached holds
-    zero, which the engine's program does not draw.
+    zero, which the engine's program does not draw -- and so that a frame is
+    drawn whole, a written pixel is never zero: the mosaic is a display
+    product, and 0 in it means "no frame here" and nothing else. A pixel the
+    detector read as 0 is kept as 1, one count in sixty-five thousand; the
+    frame's own store beside keeps the raw value.
     """
     planes = record.get("planes") or []
     if not planes:
@@ -532,7 +554,7 @@ def place_into_resolved_store(record: dict, into: Path | str, planned_um: list[t
     finest = zarr.open(str(store / "0"), mode="r+")
     piece = volume[..., : finest.shape[-2] - y0, : finest.shape[-1] - x0]
     if piece.shape[-2] > 0 and piece.shape[-1] > 0:
-        finest[..., y0:y0 + piece.shape[-2], x0:x0 + piece.shape[-1]] = piece
+        finest[..., y0:y0 + piece.shape[-2], x0:x0 + piece.shape[-1]] = np.maximum(piece, 1)
         _refresh_mean_pyramid(
             store, y0, y0 + piece.shape[-2], x0, x0 + piece.shape[-1]
         )
