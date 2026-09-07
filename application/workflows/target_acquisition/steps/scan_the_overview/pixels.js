@@ -140,6 +140,38 @@ export async function photograph(page, selector, share = MIDDLE) {
 }
 
 /**
+ * How far one drawing sits from another on the same photograph, in pixels.
+ *
+ * Two yes-or-no maps of the same size -- where the masks are, where the
+ * nuclei are -- and the shift of the first that lays it best over the second,
+ * searched over a small square of shifts. `{ dx, dy, score }`, where a
+ * positive `dx` means the first map had to move right to fit. The score is
+ * the overlap at that shift as a fraction of the first map's area, so a
+ * drawing that lands on nothing at any shift scores near zero.
+ */
+export function bestShift(first, second, width, height, reach = 12) {
+  let best = { dx: 0, dy: 0, score: -1 };
+  let area = 0;
+  for (let i = 0; i < first.length; i++) area += first[i] ? 1 : 0;
+  if (!area) return { dx: 0, dy: 0, score: 0 };
+  for (let dy = -reach; dy <= reach; dy++) {
+    for (let dx = -reach; dx <= reach; dx++) {
+      let hit = 0;
+      for (let y = Math.max(0, -dy); y < Math.min(height, height - dy); y++) {
+        const from = y * width;
+        const to = (y + dy) * width + dx;
+        for (let x = Math.max(0, -dx); x < Math.min(width, width - dx); x++) {
+          if (first[from + x] && second[to + x]) hit++;
+        }
+      }
+      const score = hit / area;
+      if (score > best.score) best = { dx, dy, score };
+    }
+  }
+  return best;
+}
+
+/**
  * Whether one pixel is showing picture rather than background.
  *
  * `only` narrows the question to one of red, green or blue. That is worth having
