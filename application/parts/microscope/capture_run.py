@@ -8,6 +8,7 @@ internals -- only the ``zmart_controller`` session (``set_state`` / ``set_xyz``
 
 from __future__ import annotations
 
+import sys
 from collections.abc import Callable
 from typing import Any
 
@@ -81,9 +82,7 @@ def capture_positions(
     but no records are returned: a cancelled run reads as unfinished, not
     as a shorter success.
     """
-    output = (
-        prepare_acquisition(output_root, acquisition_type) if output_root is not None else None
-    )
+    output = prepare_acquisition(output_root, acquisition_type) if output_root is not None else None
 
     if state is not None:
         session.set_state(state)
@@ -114,9 +113,15 @@ def capture_positions(
             position_label=label_value,
             options=options,
         )
-        record["requested_position_um"] = {
-            axis: float(pos[axis]) for axis in ("x", "y", "z")
-        }
+        record["requested_position_um"] = {axis: float(pos[axis]) for axis in ("x", "y", "z")}
+        if record.get("timing_s"):
+            # Where the seconds of this site went, as the driver clocked them.
+            print(
+                f"site {index}/{len(positions)} timing_s: "
+                + " ".join(f"{k}={v}" for k, v in record["timing_s"].items()),
+                file=sys.stderr,
+                flush=True,
+            )
         if output is not None:
             move_record_images(record, output.data)
             record["acquisition_root"] = str(output.root)

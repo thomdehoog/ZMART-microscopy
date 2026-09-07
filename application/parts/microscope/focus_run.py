@@ -54,6 +54,7 @@ University of Zurich (thom.dehoog@zmb.uzh.ch, thomdehoog@gmail.com).
 from __future__ import annotations
 
 import json
+import sys
 import time
 from pathlib import Path
 from typing import Any
@@ -141,9 +142,7 @@ def _shifted_into_the_drive_frame(found: dict, shift: float) -> dict:
         moved["z_um"] = float(found["z_um"]) + shift
     traces = found.get("traces")
     if isinstance(traces, dict):
-        moved["traces"] = {
-            name: _a_curve_shifted(curve, shift) for name, curve in traces.items()
-        }
+        moved["traces"] = {name: _a_curve_shifted(curve, shift) for name, curve in traces.items()}
     return moved
 
 
@@ -230,9 +229,7 @@ def measure_focus(
     ``cancel`` is asked before every move; answering True raises
     :class:`RunCancelled` cleanly between two points, having moved nothing.
     """
-    output = (
-        prepare_acquisition(output_root, FOCUSSING) if output_root is not None else None
-    )
+    output = prepare_acquisition(output_root, FOCUSSING) if output_root is not None else None
     if state is not None:
         session.set_state(as_state(state))
     standing = None
@@ -268,6 +265,14 @@ def measure_focus(
             record = session.acquire(
                 acquisition_type=FOCUSSING, position_label=position_label(index)
             )
+            if record.get("timing_s"):
+                # Where the seconds of this point went, as the driver clocked them.
+                print(
+                    f"focus point {index} timing_s: "
+                    + " ".join(f"{k}={v}" for k, v in record["timing_s"].items()),
+                    file=sys.stderr,
+                    flush=True,
+                )
             if output is not None:
                 move_record_images(record, output.data)
                 # The caller's own keeping of the landed capture -- the
