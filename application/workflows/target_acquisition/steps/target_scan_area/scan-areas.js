@@ -204,7 +204,7 @@ export function planScanAreas(targets, frameUm, rules = {}) {
        that is the point of the switch being off. */
     for (const target of targets) {
       if (inAStitchedBlock.has(target.id) || tooBig(target)) continue;
-      placed.push({ id: target.id, x: target.x, y: target.y, covers: [target.id] });
+      placed.push({ id: target.id, targetId: target.id, x: target.x, y: target.y, frameUm, covers: [target.id] });
     }
   }
   /* Recompute coverage from the final union of the rectangles actually being

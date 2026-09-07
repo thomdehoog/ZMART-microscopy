@@ -48,71 +48,67 @@
       <div id="focus-controls" hidden>
         <div class="side-group">
           <div class="side-group-title">Add focus points</div>
-          <div class="side-group-body">
+          <div class="side-group-body fp-box">
             <!-- The same two ways the step before offers, under the same
-                 words — one at a time by hand, or so many to a tileset all at
-                 once — and side by side, because either is a whole answer and
-                 neither comes before the other. -->
-            <div class="fp-ways">
-              <div class="fp-way">
-                <!-- Two rows, one for each way: the word that names the way,
-                     then what it is done with. By hand, the two tools; by
-                     count, the two pairs side by side, each count joined to
-                     its press. -->
-                <div class="fp-row">
-                  <div class="side-sub">Manual</div>
-                  <div class="fp-tools2">
-                    <button type="button" class="sf-tool" id="fp-select"
-                            title="Select — press a point to choose it, drag to move it">
-                      <span class="sf-glyph">↖</span>
-                    </button>
-                    <button type="button" class="sf-tool" id="fp-pick"
-                            title="Place focus points — press the map to put one down, press one to take it away">
-                      <!-- The mark it puts down, drawn at the size a glyph is: the
-                           button and the thing it makes say the same thing. Its
-                           proportions are the canvas reticle's — a circle of 4.5
-                           with arms from 6.5 to 11, at a scale of one to two. -->
-                      <svg class="sf-glyph sf-glyph-drawn" viewBox="0 0 22 22" aria-hidden="true">
-                        <circle cx="11" cy="11" r="2.25" />
-                        <path d="M 5.5 11 L 7.75 11 M 14.25 11 L 16.5 11
-                                 M 11 5.5 L 11 7.75 M 11 14.25 L 11 16.5" />
-                      </svg>
-                    </button>
-                  </div>
-                </div>
-                <div class="fp-row">
-                  <div class="side-sub">Automatic</div>
-                  <!-- Every drawn thing measured in its own right: so many
-                       points inside each tileset, however many tilesets there
-                       are. -->
-                  <div class="fp-lay">
-                    <input type="number" id="fp-count" min="1" max="99" step="1"
-                           aria-label="how many focus points in each tileset"
-                           title="How many focus points to lay in each tileset">
-                    <button type="button" class="sf-flat sf-doing" id="fp-place">Per tileset</button>
-                  </div>
-                  <!-- One set over everything there is, which is the answer for a
-                       sample that sits flat: the height across a slide is one
-                       surface, and measuring it once beats measuring it again in
-                       every tileset standing on it. -->
-                  <div class="fp-lay">
-                    <input type="number" id="fp-count-all" min="1" max="99" step="1"
-                           aria-label="how many focus points over the whole carrier"
-                           title="How many focus points to lay over the whole carrier">
-                    <button type="button" class="sf-flat sf-doing" id="fp-place-all">Per carrier</button>
-                  </div>
-                </div>
+                 words -- one at a time by hand, or so many to a tileset all
+                 at once -- and what is then done with the points, under a
+                 third. Every row of controls starts at the box's edge. -->
+            <div class="side-sub">Manual</div>
+            <div class="fp-tools">
+              <div>
+              <button type="button" class="sf-tool" id="fp-select"
+                      title="Select — press a point to choose it, drag to move it">
+                <span class="sf-glyph">↖</span>
+              </button>
+              <button type="button" class="sf-tool" id="fp-pick"
+                      title="Place focus points — press the map to put one down, press one to take it away">
+                <!-- The mark it puts down, drawn at the size a glyph is: the
+                     button and the thing it makes say the same thing. Its
+                     proportions are the canvas reticle's — a circle of 4.5
+                     with arms from 6.5 to 11, at a scale of one to two. -->
+                <svg class="sf-glyph sf-glyph-drawn" viewBox="0 0 22 22" aria-hidden="true">
+                  <circle cx="11" cy="11" r="2.25" />
+                  <path d="M 5.5 11 L 7.75 11 M 14.25 11 L 16.5 11
+                           M 11 5.5 L 11 7.75 M 11 14.25 L 11 16.5" />
+                </svg>
+              </button>
               </div>
             </div>
 
-            <!-- What can be done to a map that has already been run, and not
-                 there before one has: every press here is about a map that
-                 exists, and three greyed buttons under the press that makes one
-                 say nothing the greyed press has not already said. -->
-            <div class="fp-again" id="fp-again">
-              <!-- One slot for the one act: the step's own press makes the
-                   map, and Rerun stands here once there is one to measure
-                   again. -->
+            <div class="side-sub">Automatic</div>
+            <div class="fp-row">
+              <!-- Every drawn thing measured in its own right: so many
+                   points inside each tileset, however many tilesets there
+                   are. -->
+              <div class="fp-lay">
+                <input type="number" id="fp-count" min="1" max="99" step="1"
+                       aria-label="how many focus points in each tileset"
+                       title="How many focus points to lay in each tileset">
+                <button type="button" class="sf-flat sf-doing" id="fp-place">Per tileset</button>
+              </div>
+              <!-- One set over everything there is, which is the answer for a
+                   sample that sits flat: the height across a slide is one
+                   surface, and measuring it once beats measuring it again in
+                   every tileset standing on it. -->
+              <div class="fp-lay">
+                <input type="number" id="fp-count-all" min="1" max="99" step="1"
+                       aria-label="how many focus points over the whole carrier"
+                       title="How many focus points to lay over the whole carrier">
+                <button type="button" class="sf-flat sf-doing" id="fp-place-all">Per carrier</button>
+              </div>
+              <!-- Throwing the points away stands beside the ways of
+                   laying them: it is about the points, not about the map. -->
+              <button type="button" class="sf-flat" id="fp-clear"
+                      title="Throw away the points, and the map measured from them with it">
+                Clear all
+              </button>
+            </div>
+
+            <!-- What is done with the points. The step's own press makes the
+                 map; Rerun stands in its place once there is one to measure
+                 again, and the two beside it act on that map. -->
+            <div class="side-sub">Apply</div>
+            <div class="fp-row" id="fp-again">
               <div class="focus-action"></div>
               <button type="button" class="sf-flat sf-doing" id="fp-rerun"
                       title="Measure every point again, each search starting from the height the objective is at now">
@@ -121,10 +117,6 @@
               <button type="button" class="sf-flat sf-doing" id="fp-runnew"
                       title="Measure only the points that have no reading yet — placed since the last run, or moved since they were read">
                 Run new points
-              </button>
-              <button type="button" class="sf-flat" id="fp-clear"
-                      title="Throw away the points, and the map measured from them with it">
-                Clear all
               </button>
             </div>
           </div>

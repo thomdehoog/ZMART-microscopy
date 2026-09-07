@@ -1013,17 +1013,17 @@ test("Steps 1 to 8 through the operator page on the real bridge, Viewer 0.2 and 
        Interrupt, the bridge puts the field's worker down, the readout says
        the field was not examined and the press is ready again. The real
        test that follows then pays the worker's spawn once more. */
-    await page.getByRole("button", { name: "Test this tile" }).click();
+    await page.getByRole("button", { name: "Test detection on this tile" }).click();
     await expect(page.locator("#detect-try"), "the press that started the test becomes Interrupt").toHaveText("Interrupt");
     await expect.poll(async () => (await bridgeJson(page, PORT, "/api/targets/discover")).running, { timeout: 30_000 }).toBe(true);
     await page.locator("#detect-try").click();
     await expect(page.locator("#detect-readout")).toContainText("stopped by hand", { timeout: 120_000 });
     const afterTheHand = await bridgeJson(page, PORT, "/api/targets/discover");
     expect(afterTheHand, "the bridge says the test was stopped, not failed, and examined nothing").toMatchObject({ running: false, stopped: true, error: null, fields: [], failed: [] });
-    await expect(page.locator("#detect-try")).toHaveText("Test this tile");
+    await expect(page.locator("#detect-try")).toHaveText("Test detection on this tile");
     await expect(page.locator("#detect-try")).toBeEnabled();
     outcome.discovery = { tileTestStoppedByHand: afterTheHand };
-    await page.getByRole("button", { name: "Test this tile" }).click();
+    await page.getByRole("button", { name: "Test detection on this tile" }).click();
     await expect.poll(async () => {
       const state = await bridgeJson(page, PORT, "/api/targets/discover");
       return !state.running && (state.error || ((state.fields?.length ?? 0) + (state.failed?.length ?? 0)) >= 1);

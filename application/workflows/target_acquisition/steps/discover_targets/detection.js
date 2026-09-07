@@ -145,8 +145,13 @@ export default {
       });
       maskToggle.append(b);
     }
-    /* And how strongly the masks sit on the image, a small slider beside
-       the presses. */
+    /* And how strongly the masks sit on the image: a small slider beside
+       the presses, named, because a bare slider after three presses said
+       nothing about what it moves. */
+    const alphaWord = document.createElement("span");
+    alphaWord.className = "mask-alpha-word";
+    alphaWord.textContent = "Opacity";
+    maskToggle.append(alphaWord);
     const alpha = document.createElement("input");
     alpha.type = "range";
     alpha.min = "10";
@@ -160,14 +165,26 @@ export default {
     });
     maskToggle.append(alpha);
 
-    /* One flex line under the image: mask presses and the picker, spaced
-       by the row itself, so nothing can ever collide the way
-       absolutely-centred pieces could. Colour or grey is not decided here:
-       it is the acquisition's own, on its chip in the canvas's row, and the
-       test image wears the picture's colours as they are. */
+    /* And the image's dress at the right: colour or grey. The dress is the
+       overview acquisition's own, held on its chip in the canvas's row;
+       this press flips that same switch, so the card and the picture never
+       disagree, and the way back is the same press. */
+    const greyToggle = document.createElement("div");
+    greyToggle.className = "image-toggle";
+    const greyBtn = document.createElement("button");
+    greyBtn.type = "button";
+    greyBtn.className = "ghost tiny";
+    greyBtn.textContent = "Grey";
+    greyBtn.title = "Draw the overview in grey, or give the channels their colours back";
+    greyBtn.addEventListener("click", () => ctx.setGrey?.(!ctx.inGrey?.()));
+    greyToggle.append(greyBtn);
+
+    /* One flex line under the image: mask presses, the picker, the grey
+       press -- spaced by the row itself, so nothing can ever collide the
+       way absolutely-centred pieces could. */
     const line = document.createElement("div");
     line.className = "tile-line";
-    line.append(maskToggle, picker);
+    line.append(maskToggle, picker, greyToggle);
     /* The picture in a square box of its own, so the canvas is sized by
        the box and not by the host that also holds the control line. */
     const pictureBox = document.createElement("div");
@@ -190,7 +207,7 @@ export default {
     tryBtn.className = "run";
     tryBtn.type = "button";
     tryBtn.id = "detect-try";
-    tryBtn.textContent = "Test this tile";
+    tryBtn.textContent = "Test detection on this tile";
     const presses = document.createElement("div");
     presses.className = "detect-presses";
     presses.append(tryBtn);
@@ -337,14 +354,16 @@ export default {
       /* The mask controls stand in their place from the start, disabled
          until a test gives them masks to wear: a control that appears
          from nowhere moves the line; one that wakes up does not. */
-      for (const el of maskToggle.querySelectorAll("button, input")) {
-        el.disabled = !settings.tested;
-      }
+      /* Not there until a test has landed: the presses and the slider
+         dress masks, and greyed above a picture with none they were a
+         row of questions about nothing. */
+      maskToggle.hidden = !settings.tested;
       for (const b of maskToggle.querySelectorAll("button")) {
         b.setAttribute(
           "aria-pressed", String(b.dataset.mode === (settings.maskShow ?? "fill")));
       }
       alpha.value = String(Math.round((settings.maskAlpha ?? 1) * 100));
+      greyBtn.setAttribute("aria-pressed", String(Boolean(ctx.inGrey?.())));
       const fast = settings.algo === "fast";
       methodPick.value = settings.algo;
       cellposeHead.textContent = fast
@@ -417,7 +436,7 @@ export default {
     function sayThePress() {
       const settings = ctx.settings();
       const found = settings.tested ? ` (${settings.tried.length} objects)` : "";
-      tryBtn.textContent = testing ? (testing.stopping ? "stopping…" : "Interrupt") : `Test this tile${found}`;
+      tryBtn.textContent = testing ? (testing.stopping ? "stopping…" : "Interrupt") : `Test detection on this tile${found}`;
       tryBtn.classList.toggle("running", !!testing);
       tryBtn.disabled = Boolean(testing?.stopping);
     }

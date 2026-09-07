@@ -12,16 +12,6 @@
      column of boxes used to space its own — 8px here, 10 there, 12 in the
      focus step — so no two steps read alike. */
   --box-gap: 16px;
-  /* the width shared by the hand's button, the number and the press that
-     measures — set by the longest of their words */
-  /* The focus channel's two columns. A tool is an icon button not much wider
-     than it is tall — it carries a glyph and nothing else — and the number
-     beside a press is as wide as the two tools and the gap between them, so
-     every row in the box breaks at the same place and what is left of each row
-     is the press. */
-  --fp-tool: 44px;
-  --fp-gap: 8px;
-  --fp-col: calc(2 * var(--fp-tool) + var(--fp-gap));
   --line: #e2e8f0;
   --line-strong: #cbd5e1;
   --ink: #0f172a;
@@ -39,8 +29,10 @@
      orange, because a point somebody edited is not a point in trouble */
   --edit-ink: #eab308;
   --warn-line: #fde68a;
-  /* data marks — validated for BOTH surfaces, so they never change */
-  --mark-selected: #16a34a;
+  /* data marks — validated for BOTH surfaces, so they never change. The
+     selected green is vivid, on Thom's word: the darker green it was
+     sank into the magenta and cyan of the tissue it marks. */
+  --mark-selected: #22e05a;
   --mark-acquired: #16a34a;
   --mark-context: #94a3b8;
   /* where the microscope is standing. A deep blue, on Thom's word: the red
@@ -405,21 +397,29 @@ button.run:disabled { opacity: 0.4; cursor: default; }
   flex: 1 1 240px; min-width: 0; min-height: 3.2em; white-space: normal; line-height: 1.35;
 }
 .tile-pick { display: flex; justify-content: center; align-items: center; gap: 6px; font-family: var(--mono); font-size: 12px; }
-/* One flex line under the image: mask presses left, picker in the
-   middle, grey toggle right -- the row itself spaces them, so nothing
-   collides however narrow the channel gets. */
+/* One flex line under the image: mask presses left once there are
+   masks, the pager and the grey press at the right from the start, so
+   the pager does not move when the presses arrive. The row itself spaces
+   them, so nothing collides however narrow the channel gets. */
 .tile-host { position: relative; }
 .tile-line {
   height: 24px; margin-top: 8px;
   display: flex; align-items: center; gap: 8px;
 }
-.tile-line .tile-pick { margin: 0 auto; }
+.tile-line .tile-pick { margin-left: auto; }
 /* What the last test found, on the control line beside the picker. */
 /* One chip family on the image's control line: every press the same
    height and corner, however it is built. */
 .tile-host .tile-pick .ghost.tiny,
+.image-toggle .ghost.tiny,
 .mask-toggle .ghost.tiny { border-radius: 6px; height: 28px; font-size: 12px; padding: 0 10px; }
 .mask-toggle { display: flex; gap: 2px; align-items: center; }
+.mask-toggle[hidden] { display: none; }
+/* The slider's name, in the quiet ink a label wears, a little clear of
+   the presses so it reads with the slider and not as a fourth press. */
+.mask-toggle .mask-alpha-word {
+  margin-left: 6px; font-size: 11px; color: var(--ink-3); white-space: nowrap;
+}
 /* The slider in the house dress too: a slim line and a small round
    thumb, not the browser's chunky default -- the last raw widget on an
    otherwise finished line. */
@@ -433,11 +433,10 @@ button.run:disabled { opacity: 0.4; cursor: default; }
   width: 11px; height: 11px; border-radius: 50%;
   background: var(--accent, #0284c7); border: none;
 }
+.image-toggle .ghost.tiny[aria-pressed="true"],
 .mask-toggle .ghost.tiny[aria-pressed="true"] {
   background: var(--surface-2); border-color: var(--line-strong); color: var(--ink);
 }
-.mask-toggle .ghost.tiny:disabled { opacity: 0.45; cursor: default; }
-.mask-toggle .mask-alpha:disabled { opacity: 0.35; cursor: default; }
 /* the pager sits at the far end of the heading it belongs to */
 .side-head .tile-pick { margin-left: auto; letter-spacing: normal; text-transform: none; }
 .tile-pick #tile-label { min-width: 62px; text-align: center; color: var(--ink-2); }
@@ -525,116 +524,46 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
   max-height: 88px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);
 }
 
-/* A row of its own rather than the scan fields' row reused: the button is the
-   same kind of button and wears `.sf-tool`, but a second element answering to
-   `.sf-tools` made every question about "the tool row" ambiguous. One tool in
-   it, at a tool's width instead of stretched to the channel — a button that
-   changed size with how many neighbours it had would not read as the same
-   kind of thing. */
-.fp-tools { display: flex; align-items: stretch; gap: 8px; }
-.fp-tools .sf-tool { flex: 0 0 52px; }
-
-/* The two ways of putting points down, side by side under a word apiece: the
-   hand on the left at a tool's width, and on the right the number and the
-   button that lays that many. Both stand as tall as the tool, so the row reads
-   as one row rather than a tall thing beside a short one. */
-/* The two ways of putting points down, one under the other: each is a whole
-   answer, and stacked they read as two ways rather than as one row of controls
-   that happens to have two headings. */
-/* The two ways stand apart, but not as far apart as the step before leaves
-   them: there each way is a paragraph of controls, and here the second is one
-   heading over two rows, so the 22px measured there opened a hole in the
-   middle of a short box. */
-.fp-ways { display: flex; flex-direction: column; gap: 14px; }
-.fp-way { display: flex; flex-direction: column; gap: 5px; }
-/* Every control in this box stands at the channel's own height — the crosshair
-   included, though the drawing tools a step earlier are taller. There it is a
-   row of six glyphs and nothing else; here it shares its rows with buttons, and
-   one button taller than the rest reads as a mistake rather than as a tool. */
-/* One width down the left of the box: the hand's button, the number beside the
-   press that lays them, and the press that measures the map. Three controls of
-   one size read as one column of controls — wide enough for the longest of
-   their words, which is the press. */
-.fp-way .sf-tool { height: var(--control); }
-/* Every row in this box on one grid: three columns, the first holding
-   whatever the row is set by — two tools, or a number — and the press taking
-   the other two. Rerun, Refine and Reset sit on those same three, so a press
-   in any row begins where Refine does. */
-.fp-hand, .fp-lay, .fp-again, .ft-acts {
-  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: var(--fp-gap); align-items: center;
-}
-.fp-hand .sf-flat, .fp-lay .sf-flat { grid-column: 2 / -1; height: var(--control); }
-/* Both ways of laying points on one row, half the column each. The count
-   is two digits at most, so its box keeps to that and the press takes the
-   rest. */
+/* The focus box on one grid. Three rows of controls under a word apiece,
+   and every row breaks on the same three columns: the two count-and-press
+   pairs with Clear all beside them, and the three presses that act on the
+   map under them, so a press in either row begins where the one above it
+   does. The hand's two tools share the first column between them, so their
+   right edge is the right edge of the pair below. */
+.fp-box { gap: 6px; }
+.fp-box > .side-sub { margin: 0; }
+/* A word that starts the next part stands clear of the part before it. */
+.fp-box > .side-sub:not(:first-child) { margin-top: 12px; }
+.fp-tools { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.fp-tools > div { display: flex; gap: 6px; }
+.fp-tools .sf-tool { flex: 1; height: var(--control); }
+.fp-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.fp-row[hidden] { display: none; }
+.fp-row .sf-flat { height: var(--control); padding: 0 6px; }
 /* Each count belongs to its press, and the pair says so by being one
-   control: joined edges, no air inside, real air between the pairs. The
-   press is as wide as its words and no wider. */
-.fp-row .fp-lay { height: var(--control); grid-template-columns: 50px minmax(0, 1fr); gap: 0; }
-.fp-row .fp-lay input { padding: 0 6px; }
-.fp-row .fp-lay input { border-radius: 7px 0 0 7px; border-right: none; }
-.fp-row .fp-lay .sf-flat {
-  grid-column: 2; padding: 0 8px;
-  border-radius: 0 7px 7px 0;
-}
-/* One three-column table for the whole box, a row to a way: the way's
-   word in the first column, what it is done with in the other two. The
-   hand's two tools sit in the second; the two count-and-press pairs take
-   one column each. Rerun, Run new points and Clear all keep the same
-   three columns below, so every press begins where the one above it does. */
-.fp-row { display: grid; grid-template-columns: max-content minmax(0, 1fr) minmax(0, 1fr); gap: 12px; align-items: center; }
-.fp-row > .side-sub { margin-bottom: 0; }
-.fp-tools2 { display: flex; gap: 3px; }
-.fp-tools2 .sf-tool { height: var(--control); width: var(--control); }
-/* Two presses each since Refine and Accept went; the rows stay even. */
-.ft-acts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-/* Three presses of one width: the words' column above is only as wide as
-   its words, so these stand on thirds of their own rather than on it. */
-.fp-again { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
-/* The two tools share the first cell between them. */
-.fp-tools { grid-column: 1; display: flex; gap: var(--fp-gap); }
-.fp-tools .sf-tool { flex: 1; }
-/* How many, and the press that lays them. The number is the width of the
-   hand's button above it — the two are the same kind of thing, one to a way. */
-.fp-lay { height: var(--control); }
-.fp-lay input { grid-column: 1; }
+   control: joined edges, no air inside. The count is two digits at most,
+   so its box keeps to that and the press takes the rest. */
+.fp-lay { display: grid; grid-template-columns: 42px minmax(0, 1fr); height: var(--control); }
 .fp-lay input {
   /* read from the left, like every other number in the channel */
-  width: 100%; height: 100%; text-align: left; padding: 0 8px;
+  width: 100%; height: 100%; text-align: left; padding: 0 6px;
   font: inherit; font-size: 13px; font-family: var(--mono); color: var(--ink);
   background: var(--surface-2); border: 1px solid var(--line-strong);
-  border-radius: 6px;
+  border-right: none; border-radius: 6px 0 0 6px;
 }
 .fp-lay input:focus { outline: none; }
-.fp-lay .sf-flat { height: 100%; padding: 0 6px; }
-
-/* What is done to every point there is: the press that measures them all, and
-   the one that takes them all away. The row above acts on one tileset at a
-   time; this one acts on the map.
-
-   Two buttons and nothing else: the press greys itself while there is nothing
-   to measure, which is the whole of what there is to say. Laid on the same two
-   columns as the row above — indented past the hand's column, so `Clear` is
-   exactly as wide as the `Place` it undoes. */
-/* The step's own press shares Rerun's cell: one of the two is always put
+.fp-lay .sf-flat { height: 100%; border-radius: 0 6px 6px 0; }
+/* The step's own press shares Rerun's row: one of the two is always put
    away, and a `display` of its own beats the `hidden` attribute, so both
    are put away explicitly. */
-.fp-again .focus-action { display: flex; align-items: stretch; }
-.fp-again .focus-action[hidden] { display: none; }
-.fp-again .focus-action button.run { width: 100%; padding: 0 6px; white-space: nowrap; }
+.focus-action { display: flex; align-items: stretch; }
+.focus-action[hidden] { display: none; }
+.focus-action button.run { width: 100%; padding: 0 6px; white-space: nowrap; }
 
-/* What can be done to a map that has been run: three presses of one width,
-   because none of them is the main one — the main one is above, and this row
-   is what to do about what it produced. */
-.fp-again { margin-top: 8px; }
-/* The same row of presses, about one point rather than about the map, so it
-   stands under the plot that shows that point on the columns the map's own
-   presses keep. */
-.ft-acts { margin-top: 10px; }
+/* The same row of presses about one point rather than about the map: two
+   since Refine and Accept went, under the plot that shows that point. */
+.ft-acts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 10px; }
 .ft-acts .sf-flat { height: var(--control); padding: 0 8px; }
-.fp-again[hidden] { display: none; }
-.fp-again .sf-flat { height: var(--control); padding: 0 8px; }
 
 .side-head {
   font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
@@ -1551,15 +1480,16 @@ canvas.livecv[hidden] { display: none; }
    height of the page. Pressed, the column goes and the handle stays as the
    way back, so the canvas takes the room and nothing is lost. */
 .side-fold {
-  width: 30px; height: 64px; padding: 0; cursor: pointer; align-self: center;
+  width: 18px; height: 64px; padding: 0; cursor: pointer; align-self: center;
   /* A tab on the column's edge: rounded on the side that faces the
      canvas, flat and open where it meets the column, so it reads as part
      of it rather than a button laid beside it. */
   border: 1px solid var(--line-strong); border-right: none; border-radius: 9px 0 0 9px;
   background: var(--screen); color: var(--accent-deep); font: inherit; font-size: 20px;
-  /* Over the canvas's edge rather than in a column of its own: the grid
-     gives it no room, so folded, only the tab shows at the right. */
-  margin-left: -15px; position: relative; z-index: 4;
+  /* Over the canvas's edge rather than in a column of its own: pulled back
+     by its whole width, the grid gives it no room at all, so the picture
+     runs to the column's edge and the tab lies on it. */
+  margin-left: -18px; position: relative; z-index: 4;
   box-shadow: -2px 0 7px rgba(15, 23, 42, 0.10);
 }
 .side-fold:hover, .side-fold:focus-visible {
@@ -1980,7 +1910,10 @@ canvas.livecv[hidden] { display: none; }
    the focus map's colour ramp -- stands at the right, where the eye looks
    for one. The scale bar stays at the foot of the picture, where a scale bar
    is expected. */
-.plot-column { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; min-height: 0; min-width: 0; }
+/* The picture reaches the top of its column: the toolbar's row floats over
+   it rather than taking a strip of its own, which read as a white margin
+   above the picture. */
+.plot-column { position: relative; display: grid; grid-template-rows: minmax(0, 1fr) auto; min-height: 0; min-width: 0; }
 /* The sliders under the picture: Z above T, each across the whole width. */
 .canvas-axes { display: grid; gap: 6px; padding: 8px 14px 10px; border-top: 1px solid var(--line); background: var(--screen); }
 .canvas-axes[hidden] { display: none; }
@@ -2003,8 +1936,16 @@ canvas.livecv[hidden] { display: none; }
 .canvas-axis input { width: 100%; margin: 0; }
 .canvas-axis-value { min-width: 150px; text-align: right; font-variant-numeric: tabular-nums; color: var(--ink); }
 .canvas-toolbar {
-  display: flex; align-items: center; gap: 8px; min-height: 52px;
-  padding: 4px 12px; background: transparent;
+  position: absolute; top: 0; left: 0; right: 0; z-index: 3;
+  /* The presses stand at the top of the row, and the row is exactly as
+     tall as they are plus its padding: its lower content edge is their
+     lower edge, which is what Fit measures the picture's room from. */
+  display: flex; align-items: flex-start; gap: 8px;
+  padding: 11px 12px; background: transparent;
+  /* And as tall as it is with the presses even while they are away, before
+     the microscope is connected: the row's edge does not move when they
+     arrive, so neither does the picture under it. */
+  min-height: calc(var(--control) + 22px); box-sizing: border-box;
   /* The row never widens the canvas's column: it takes no more than its
      column, and the chips are what give way when it is short of room.
      Not clipped itself, so a card can hang below it. */
@@ -2058,14 +1999,17 @@ canvas.livecv[hidden] { display: none; }
   height: var(--control); padding: 0 10px 0 8px; cursor: pointer; user-select: none;
 }
 .acquisition-press:hover { border-color: var(--accent); color: var(--accent); }
-/* The word at the head of a bar, IMAGE or MASK, in the page's ink with a
+/* The word at the head of a bar, ACQUISITIONS or MASKS, in the page's ink with a
    hairline after it: the two bars in the row are two kinds of thing. */
 .bar-word {
   display: inline-flex; align-items: center; height: 16px; flex: none;
   padding-right: 7px; margin-right: 1px; border-right: 1px solid var(--line-strong);
   font: 700 9.5px var(--sans); letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink);
 }
-.acquisition-press > svg { display: block; flex: none; }
+/* In the press the eye wears the press's own ink, as it did while it was a
+   drawing there, and no padding of its own: the press already spaces it. */
+.acquisition-press > .acquisition-eye { color: inherit; padding: 0; }
+.acquisition-press > .acquisition-eye svg { display: block; }
 /* The name stands in a box of the chip's height, and the box is centred
    in the row rather than the word: a lowercase word has no ascenders to
    speak of, so its letters sit in the lower half of the em box, and centring
@@ -2139,7 +2083,7 @@ canvas.livecv[hidden] { display: none; }
   background: var(--ink); transform: rotate(-45deg);
 }
 /* The masks' bar: a flat box the shape of the channels' box, rounded at
-   both ends, at the right end of the row, headed MASK. One cell per mask
+   both ends, at the right end of the row, headed MASKS. One cell per mask
    layer, in the layer's own dress; hidden, the cell fades and a line
    crosses it, the way a hidden channel's dot is crossed. */
 .canvas-masks {

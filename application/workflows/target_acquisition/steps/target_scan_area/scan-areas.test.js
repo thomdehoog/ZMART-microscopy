@@ -146,6 +146,10 @@ describe("placing scan areas", () => {
     const plain = planScanAreas(targets, 100, { margin: 0, minimise: false });
     expect(plain.placed.map((tile) => [tile.x, tile.y])).toEqual([[0, 0], [30, 0], [600, 0]]);
     expect(plain.placed.map((tile) => tile.key)).toEqual(["a#0", "b#0", "c#0"]);
+    /* Each tile says how wide it is, as the stitched and the minimised
+       ones do: the picture draws a tile by its own frame, and a tile
+       without one was fifty tiles placed and none on screen. */
+    expect(plain.placed.map((tile) => tile.frameUm)).toEqual([100, 100, 100]);
     expect(plain.uncovered).toEqual([]);
     const fewest = planScanAreas(targets, 100, { margin: 0 });
     expect(fewest.placed).toHaveLength(2);

@@ -34,12 +34,11 @@ function maskImage(base, label, redraw) {
    in the PNG's colour bytes, so any one object's true shape can be lit. */
 const labelMaps = new Map();
 
+/* The map for a field as it stands: ready with its labels, still on its
+   way, or failed -- and a failed one is asked for again after a while. */
 function labelMap(base, label, redraw) {
   const held = labelMaps.get(label);
-  if (held) {
-    if (held.ready) return held;
-    if (!held.failed || performance.now() - held.failed < 5000) return null;
-  }
+  if (held && (held.ready || !held.failed || performance.now() - held.failed < 5000)) return held;
   const img = new Image();
   img.crossOrigin = "anonymous";
   const keep = { img, ready: false, failed: 0, w: 0, h: 0, labels: null };
@@ -57,21 +56,29 @@ function labelMap(base, label, redraw) {
     keep.w = cv.width; keep.h = cv.height; keep.labels = labels; keep.ready = true;
     redraw();
   };
-  img.onerror = () => { keep.failed = performance.now(); };
+  img.onerror = () => { keep.failed = performance.now(); redraw(); };
   img.src = `${base}/${label}.labels.png?d=${discovery}`;
-  return null;
+  return keep;
 }
 
-/* One tinted bitmap per field per selection: rebuilt only when what is lit
-   there changes, drawn as a picture after that. */
-const shapeOverlays = new Map();
+/* One bitmap per field per selection: the lit shapes cut from the label
+   map, each in its own ink, then dressed the way the operator dressed the
+   targets in their card -- one colour over all, filled or outlined.
+   Rebuilt only when what is lit or the dress changes, drawn as a picture
+   after that; the dress's opacity is applied at the drawing.
 
-function shapeOverlay(base, fieldLabel, wanted, redraw) {
-  const stamp = [...wanted.entries()].map(([l, c]) => `${l}${c}`).sort().join(",");
+   Answers with the field's state: the shapes, or that the map is still on
+   its way, or that it failed. The three are drawn differently -- a map on
+   its way is drawn as nothing, since a dot that turns into a shape a
+   moment later read as a flash on the picture. */
+const shapeOverlays = new Map();
+function shapeOverlay(base, fieldLabel, wanted, dress, redraw) {
+  const stamp = [...wanted.entries()].map(([l, c]) => `${l}${c}`).sort().join(",")
+    + `|${dress.colour}|${dress.show}`;
   const held = shapeOverlays.get(fieldLabel);
-  if (held && held.stamp === stamp) return held.canvas;
+  if (held && held.stamp === stamp) return { shapes: held.canvas };
   const map = labelMap(base, fieldLabel, redraw);
-  if (!map) return null;
+  if (!map.ready) return map.failed ? { failed: true } : { loading: true };
   const cv = document.createElement("canvas");
   cv.width = map.w; cv.height = map.h;
   const paint = cv.getContext("2d");
@@ -87,11 +94,14 @@ function shapeOverlay(base, fieldLabel, wanted, redraw) {
     const c = colours.get(map.labels[i]);
     if (!c) continue;
     out.data[p] = c[0]; out.data[p + 1] = c[1]; out.data[p + 2] = c[2];
-    out.data[p + 3] = 170;
+    out.data[p + 3] = 255;
   }
   paint.putImageData(out, 0, 0);
-  shapeOverlays.set(fieldLabel, { stamp, canvas: cv });
-  return cv;
+  const dressed = dressTheMask(cv, {
+    size: map.w, colour: dress.colour ?? null, mode: dress.show === "line" ? "line" : "fill",
+  });
+  shapeOverlays.set(fieldLabel, { stamp, canvas: dressed });
+  return { shapes: dressed };
 }
 
 /* One dressed mask per field per mask layer, in the colour and look the
@@ -162,6 +172,10 @@ export function targetLayers(theRun) {
     if (activeMode === "select" || activeMode === "targets") {
       const tiles = theTargetTiles();
       if (!tiles.length) return theFieldUnderTheStage(run.targetFrameUm);
+      /* While the targets are being taken the frame is on the stage: it
+         goes with the crosshair from tile to tile, where the acquisition
+         is, rather than standing on the tile Tile last framed. */
+      if (activeMode === "targets" && run.running) return theFieldUnderTheStage(run.targetFrameUm);
       const t = tiles[Math.min(run.detect.targetTile ?? 0, tiles.length - 1)];
       return { x: t.x, y: t.y, frameUm: t.frameUm ?? run.targetFrameUm };
     }
@@ -190,11 +204,13 @@ export function targetLayers(theRun) {
     label: "Cells",
     explains: "Targets selected for the workflow. Before feature gating every candidate is "
       + "shown; afterwards only targets inside the gate remain.",
-    /* The chosen cells' shapes belong to the step that chooses them. On the
-       discovery step the masks themselves are on the picture; on the
-       acquisition step the frames are, and a lit shape over a frame hid the
-       very pixels it was imaged for. */
-    shown: run.cellsShown && (activeMode === "gate" || activeMode === "select"),
+    /* The chosen cells' shapes belong to the steps that choose and image
+       them. On the discovery step the masks themselves are on the picture;
+       on the acquisition step the frames are, and a lit shape over a frame
+       hides the very pixels it was imaged for -- so there the layer's eye
+       is pressed off for the operator on the way in, and its cell stays in
+       the strip for a look. */
+    shown: run.cellsShown && ["gate", "select", "targets"].includes(activeMode),
     /* Readable over the very fields they were found in: the see-through
        windows that reveal the picture cut every layer beneath them, and the
        objects were cut away exactly where the tissue is. The layer's own
@@ -209,9 +225,10 @@ export function targetLayers(theRun) {
          read as an artefact on the picture, and the masks on the discovery
          step already showed the whole population. */
 
-      /* The chosen, in their own segmented shapes: each workflow target's
-         mask pixels are green. A blob says less than the shape itself, so it
-         is only the honest fallback while a field's label map is unavailable. */
+      /* The chosen, in their own segmented shapes: each target's mask
+         pixels lit. A dot says less than the shape itself, so it is only
+         the honest fallback for a target whose shape cannot be had -- a
+         field whose label map failed to load, or a target with no label. */
       const gr = Math.max(3, 4.2 * Math.sqrt(scale / 0.03));
       /* One population, one colour. Step 7 starts with all candidates so the
          operator can see what there is to gate, then removes everything the
@@ -238,15 +255,17 @@ export function targetLayers(theRun) {
           }
         }
         const base = run.overviewPictures;
+        const dress = run.targetsDress;
+        ctx.globalAlpha = dress.alpha;
         for (const [field, wanted] of byField) {
           const t = run.plan[field];
           const fieldLabel = run.fieldLabels[field];
-          const over = base && t ? shapeOverlay(base, fieldLabel, wanted, redraw) : null;
-          if (over) {
+          const over = base && t ? shapeOverlay(base, fieldLabel, wanted, dress, redraw) : { failed: true };
+          if (over.shapes) {
             const half = t.frameUm / 2;
             const [x, y] = place(t.x - half, t.y - half);
-            ctx.drawImage(over, x, y, t.frameUm * scale, t.frameUm * scale);
-          } else {
+            ctx.drawImage(over.shapes, x, y, t.frameUm * scale, t.frameUm * scale);
+          } else if (over.failed) {
             for (const label of wanted.keys()) {
               const c = [...run.cells.values()].find(
                 (one) => one.field === field && one.label === label);
@@ -258,10 +277,11 @@ export function targetLayers(theRun) {
           const [x, y] = place(c.x, c.y);
           if (x < -10 || y < -10 || x > w + 10 || y > h + 10) continue;
           ctx.beginPath(); ctx.arc(x, y, gr, 0, Math.PI * 2);
-          ctx.fillStyle = inkOf(c.id);
+          ctx.fillStyle = dress.colour ?? inkOf(c.id);
           ctx.fill();
           ctx.lineWidth = 1.5; ctx.strokeStyle = css("--screen"); ctx.stroke();
         }
+        ctx.globalAlpha = 1;
       }
     },
     reaches: (at) => {

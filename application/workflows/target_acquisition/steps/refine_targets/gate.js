@@ -117,7 +117,7 @@ export default {
     const legend = document.createElement("div");
     legend.className = "legend analysis-legend";
     for (const [ink, what] of [["--mark-context", "candidates before gating"],
-      ["--mark-selected", "workflow targets"]]) {
+      ["--mark-selected", "targets"]]) {
       const one = document.createElement("span");
       one.innerHTML = `<i class="dot" style="background:var(${ink})"></i> `;
       one.append(what);

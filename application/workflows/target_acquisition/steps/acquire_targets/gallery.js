@@ -140,7 +140,7 @@ export default {
     /* The settings the targets are imaged with were recorded on the step
        before, beside the selection; here the press stands over what it
        will make. */
-    side.append(progress.group, listBox.group, pairBox.group, act);
+    side.append(listBox.group, pairBox.group, progress.group, act);
     host.append(side);
 
     const targetIdOf = (tile) => tile?.targetId ?? tile?.covers?.[0] ?? null;
