@@ -287,14 +287,20 @@ def _prime_selected_job_log_cluster(client, jobs):
             log.debug("Could not prime log job cluster for %r", name, exc_info=True)
 
 
-def _selected_job_name_from_log(profile):
-    """Fresh selected-job name from LAS X logs, or None when unavailable."""
+def _selected_job_name_from_log(profile, *, max_age_s="fresh"):
+    """Selected-job name from LAS X logs, or None when unavailable.
+
+    ``max_age_s`` defaults to the profile's freshness window: the evidence
+    a confirmation needs. ``None`` reads the log's last applied selection at
+    any age -- the standing state, as the log last saw it change.
+    """
     try:
         from ..readers import log_reader as _log_reader
 
-        max_age_s = profile.selected_job_log_cluster_max_age_s
-        if max_age_s is None:
-            max_age_s = profile.selected_job_log_max_age_s
+        if max_age_s == "fresh":
+            max_age_s = profile.selected_job_log_cluster_max_age_s
+            if max_age_s is None:
+                max_age_s = profile.selected_job_log_max_age_s
         selected = _log_reader.get_selected_job(max_age_s=max_age_s)
     except Exception:
         log.debug("Could not read selected job from LAS X log", exc_info=True)
@@ -314,12 +320,17 @@ def prepare_select_job(client, job_name):
 
     No-op proof is source-coherent: in ``api`` mode the API readback
     decides, exactly as today. When the log participates (``log`` /
-    ``hybrid``) only fresh log state can prove a no-op - a no-op re-select
-    emits no new CurrentBlock event, and a stale API readback equalling the
-    target is precisely the inadmissible evidence, so it must never
-    suppress a real command. With the log stale or silent, the command
-    fires and may time out unconfirmed: that is correct fail-closed
-    behavior, not a bug.
+    ``hybrid``) fresh log state proves a no-op - a no-op re-select emits no
+    new CurrentBlock event, and a stale API readback equalling the target
+    is precisely the inadmissible evidence, so it alone must never suppress
+    a real command. In ``hybrid`` mode there is one more proof, for the
+    standing state from a cold start where fresh evidence cannot exist: the
+    API's selected job AND the log's last applied selection, at any age,
+    naming the target together. Two independent sources agreeing is not the
+    stale witness; a switch made by hand leaves a newer CurrentBlock line
+    behind, so the two then disagree and the command fires. With neither
+    proof, the command fires and may time out unconfirmed: that is correct
+    fail-closed behavior, not a bug.
     """
     profile = _state_reader_profile()
     source = profile.selected_job_confirm_source
@@ -378,4 +389,17 @@ def prepare_select_job(client, job_name):
         log.debug("Could not enumerate/prime jobs before select_job", exc_info=True)
     if context["api_baseline_name"] == job_name:
         context["api_said_selected"] = True
+        if _selected_job_name_from_log(profile, max_age_s=None) == job_name:
+            return {
+                "success": True,
+                "confirmed": True,
+                "message": f"'{job_name}' already selected",
+                "logs": [
+                    _make_log_entry(
+                        "info",
+                        "selected job confirmed: the API and the LAS X log's last "
+                        "applied selection agree",
+                    )
+                ],
+            }, context
     return None, context

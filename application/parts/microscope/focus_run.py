@@ -79,52 +79,20 @@ class RunCancelled(RuntimeError):
     """
 
 
-def apply_state_settled(session: Any, settings: dict, *, timeout_s: float = 8.0) -> None:
-    """Apply recorded settings, and wait until the instrument says they took.
+def as_state(settings: dict) -> dict:
+    """Recorded settings in the shape ``set_state`` reads.
 
-    Two lessons from one morning at the Stellaris, both of which ran a scan
-    on the wrong job.
-
-    **The shape.** The driver reads ``changeable`` off what it is handed and
-    applies that; the page's recordings store the changeable half bare. Passed
-    through unwrapped, the driver found no ``changeable``, applied nothing,
-    and said so to nobody — every capture ran on whatever job was selected by
-    hand. So a caller holding the bare half has it wrapped, and a caller with
-    a full ``get_state`` answer passes it through.
-
-    **The wait.** ``set_state`` answers when the selection is dispatched, not
-    when LAS X has finished swapping jobs, and the first field of a scan
-    fired on the job the focus run left selected — a six-plane stack where an
-    overview frame belonged. So the changeable state is read back until it
-    matches what was asked. The readback can itself lag reality on this
-    instrument, which is why a timeout proceeds with a warning rather than
-    refusing a run the instrument may well be ready for.
+    The driver reads ``changeable`` off what it is handed and applies that;
+    the page's recordings store the changeable half bare. Passed through
+    unwrapped, the driver found no ``changeable``, applied nothing, and said
+    so to nobody — every capture ran on whatever job was selected by hand.
+    So the bare half is wrapped here, and a full ``get_state`` answer passes
+    through. Nothing waits afterwards: ``set_state`` returns once the
+    instrument has taken the settings, or raises. That is the controller's
+    contract, and the wait this module once kept on the driver's behalf
+    proceeded past its own timeout onto the wrong job.
     """
-    state = settings if "changeable" in settings else {"changeable": dict(settings)}
-    session.set_state(state)
-    asked = state.get("changeable") or {}
-    # A session that cannot report its state has nothing to wait for — the
-    # controller's sessions all can, but the stubs the tests drive need not.
-    reader = getattr(session, "get_state", None)
-    if not asked or reader is None:
-        return
-    deadline = time.monotonic() + timeout_s
-    standing: dict = {}
-    while time.monotonic() < deadline:
-        try:
-            standing = reader().get("changeable") or {}
-        except Exception:  # noqa: BLE001 — a flaking readback is not a failed apply
-            standing = {}
-        if all(standing.get(key) == value for key, value in asked.items()):
-            return
-        time.sleep(0.25)
-    import logging
-
-    logging.getLogger(__name__).warning(
-        "the instrument's settings did not read back as asked within %.0fs "
-        "(asked %r, standing %r) — capturing anyway",
-        timeout_s, asked, standing,
-    )
+    return settings if "changeable" in settings else {"changeable": dict(settings)}
 
 
 def log_focus_scoring_failed(index: int, why: Exception) -> None:
@@ -266,7 +234,7 @@ def measure_focus(
         prepare_acquisition(output_root, FOCUSSING) if output_root is not None else None
     )
     if state is not None:
-        apply_state_settled(session, state)
+        session.set_state(as_state(state))
     standing = None
     measured = []
     for index, point in enumerate(points):

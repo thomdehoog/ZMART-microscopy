@@ -14,6 +14,14 @@ caller mistakes, ``RuntimeError`` for instrument failures or refusals) and never
 encode failure in a returned dict; the controller catches nothing and propagates
 driver exceptions to the caller unchanged.
 
+Every call answers for the instrument, not for the message. A ``get_*`` returns
+a reading the instrument gave; ``set_xyz``, ``set_state``, ``run_procedure`` and
+``acquire`` return once the instrument has confirmed the change or finished the
+work. The retrying is the driver's, inside the call -- a silent instrument is
+asked again, a command whose readback does not match is sent again -- and the
+driver raises when its patience runs out. Nothing returns "accepted": a caller
+holding an answer can build on it, and never polls for what it asked.
+
 Author: Thom de Hoog, Center for Microscopy and Image Analysis (ZMB),
 University of Zurich (thom.dehoog@zmb.uzh.ch, thomdehoog@gmail.com).
 """
@@ -70,7 +78,9 @@ class Session:
         Carries a ``"changeable"`` part (the settings ``set_state``
         reapplies) and an ``"observed"`` part (a read-only report:
         instrument identity and current condition). The controller does not
-        interpret it; the driver owns the boundary.
+        interpret it; the driver owns the boundary. A fresh reading, waited
+        for: a silent instrument is asked again, and this raises once it
+        stays silent.
         """
         return self._ops["get_state"](self._handle)
 
@@ -78,7 +88,8 @@ class Session:
         """Reapply captured state; return whatever the driver reports.
 
         The driver acts on the ``"changeable"`` part only; ``"observed"`` is
-        a report, never an instruction.
+        a report, never an instruction. Returns once the instrument has taken
+        the settings, confirmed by the driver's readback; raises otherwise.
         """
         return self._ops["set_state"](self._handle, state)
 
@@ -89,7 +100,9 @@ class Session:
     def run_procedure(self, procedure: dict) -> dict:
         """Run a procedure; return whatever the driver reports.
 
-        Its meaning is encoded in the dict and run by the driver.
+        Its meaning is encoded in the dict and run by the driver. Returns
+        once the procedure has run and the instrument confirms where it left
+        things; raises otherwise.
         """
         return self._ops["run_procedure"](self._handle, procedure)
 
@@ -109,14 +122,17 @@ class Session:
         ``{"z": "piezo"}``; names must come from :meth:`get_actuators`). The
         driver validates the choice and echoes it in the reading; whether the
         value differs per actuator is driver-defined — the Leica driver's z,
-        for example, reads the same regardless.
+        for example, reads the same regardless. A fresh reading, waited for:
+        a silent instrument is asked again, and this raises once it stays
+        silent.
         """
         return self._ops["get_xyz"](self._handle, with_actuators=with_actuators)
 
     def set_xyz(self, x: float, y: float, z: float, with_actuators: dict | None = None) -> dict:
         """Move to an absolute target in the frame (micrometers from the published origin).
 
-        Returns whatever the driver reports (e.g. a move record / confirmation).
+        Returns once the stage stands there, confirmed by the driver's
+        readback, with the driver's move record; raises otherwise.
         ``with_actuators`` selects the actuator
         that realizes the move per axis (``None`` -> the reference one). The driver
         applies the objective offset and the actuator transform -- that
@@ -149,7 +165,9 @@ class Session:
         driver's output records — how it appears (filename slot, lineage) is
         driver-defined. ``options`` carries the acquisition and saving settings from
         :meth:`get_acquisition_options`; pass it through untouched -- the driver
-        fills any omitted option from its active default.
+        fills any omitted option from its active default. Returns once the
+        capture is saved and the instrument answers questions again; raises
+        otherwise.
         """
         return self._ops["acquire"](
             self._handle,

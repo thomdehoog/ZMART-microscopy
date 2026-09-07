@@ -2596,6 +2596,72 @@ class TestConfirmSelectJob(unittest.TestCase):
         get_jobs.assert_not_called()
         dispatch_mock.assert_called_once()
 
+    def test_hybrid_select_job_is_a_noop_when_api_and_the_logs_last_selection_agree(self):
+        """Re-selecting the job the instrument already stands on, from a cold start.
+
+        A no-op re-select emits no CurrentBlock line, so nothing can witness
+        it: fired, it ends unconfirmed after every attempt, and a capture on
+        the job in hand was refused after nine seconds on the simulator. Fresh
+        log evidence cannot exist once the last switch is older than the log
+        window. What can exist is two independent sources agreeing on the
+        standing state: the API's selected job and the log's last applied
+        selection, at any age. Either alone is refused as before -- a stale
+        API equalling the target is exactly the inadmissible evidence.
+        """
+        client = make_client()
+        client.PyApiSelectJobByName = make_api_obj()
+        profile = profiles.StateReaderProfile(selected_job_confirm_source="hybrid")
+        jobs = [
+            {"Name": "AF Job", "IsSelected": True},
+            {"Name": "Overview", "IsSelected": False},
+        ]
+
+        def log_selection(profile, **asked):
+            # nothing fresh (the default read); the last applied selection,
+            # however old (an explicit max_age_s=None), is AF Job
+            return "AF Job" if asked.get("max_age_s", "fresh") is None else None
+
+        with (
+            patch.object(profiles, "STATE_READERS", profile),
+            patch.object(confirm_select_job, "_selected_job_name_from_log", side_effect=log_selection),
+            patch.object(confirm_select_job, "_selected_job_api_jobs", return_value=(jobs, "ok")),
+            patch.object(commands, "_dispatch") as dispatch_mock,
+        ):
+            result = commands.select_job(client, "AF Job")
+
+        self.assertTrue(result["success"])
+        self.assertTrue(result["confirmed"])
+        self.assertIn("already selected", result["message"])
+        dispatch_mock.assert_not_called()
+
+    def test_hybrid_select_job_fires_when_only_the_api_says_selected(self):
+        """The log's last applied selection names another job (or none): the
+        API alone is the stale witness the policy refuses, so the command fires."""
+        client = make_client()
+        client.PyApiSelectJobByName = make_api_obj()
+        profile = profiles.StateReaderProfile(selected_job_confirm_source="hybrid")
+        jobs = [
+            {"Name": "AF Job", "IsSelected": True},
+            {"Name": "Overview", "IsSelected": False},
+        ]
+        dispatched = {"success": True, "confirmed": True, "message": "sent"}
+        for last_applied in ("Overview", None):
+            with self.subTest(last_applied=last_applied):
+                with (
+                    patch.object(profiles, "STATE_READERS", profile),
+                    patch.object(
+                        confirm_select_job, "_selected_job_name_from_log",
+                        side_effect=lambda profile, **asked: (
+                            last_applied if asked.get("max_age_s", "fresh") is None else None
+                        ),
+                    ),
+                    patch.object(confirm_select_job, "_selected_job_api_jobs", return_value=(jobs, "ok")),
+                    patch.object(commands, "_dispatch", return_value=dispatched) as dispatch_mock,
+                ):
+                    result = commands.select_job(client, "AF Job")
+                self.assertEqual(result, dispatched)
+                dispatch_mock.assert_called_once()
+
     def test_select_job_primes_log_cluster_when_profile_enables_it(self):
         client = make_client()
         client.PyApiSelectJobByName = make_api_obj()

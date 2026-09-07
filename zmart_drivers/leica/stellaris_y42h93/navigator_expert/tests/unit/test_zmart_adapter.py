@@ -278,6 +278,63 @@ class TestFrame(unittest.TestCase):
         self.assertEqual(pos["hardware"]["x_um"], 1010.0)
         self.assertIn("objective", pos["hardware"])
 
+    def test_get_xyz_waits_through_the_instruments_silence(self):
+        """A read is answered or raises; a silent instrument is asked again.
+
+        LAS X returns nothing for a while after a capture and while a dialog
+        is up. One unanswered read used to be the reading's failure, and the
+        page's mark went blank over a stage that was standing still.
+        """
+        h = _handle(origin=_origin())
+        silence = {"unanswered": 0}
+
+        def xy(client, **kwargs):
+            if silence["unanswered"] < 3:
+                silence["unanswered"] += 1
+                return None
+            return {"x_um": 7.0, "y_um": 8.0}
+
+        patches = _patch_position()
+        with (
+            patch.object(adapter._patient, "PATIENCE_S", 5.0),
+            patch.object(adapter._readers, "get_xy", xy),
+            patches[1], patches[2], patches[3],
+        ):
+            pos = adapter.get_xyz(h)
+        self.assertEqual((pos["x"]["value"], pos["y"]["value"]), (7.0, 8.0))
+        self.assertEqual(silence["unanswered"], 3)
+
+    def test_get_xyz_raises_once_the_instrument_stays_silent(self):
+        h = _handle(origin=_origin())
+        patches = _patch_position()
+        with (
+            patch.object(adapter._patient, "PATIENCE_S", 0.05),
+            patch.object(adapter._readers, "get_xy", return_value=None),
+            patches[1], patches[2], patches[3],
+        ):
+            with self.assertRaisesRegex(RuntimeError, "stage XY.*answered nothing"):
+                adapter.get_xyz(h)
+
+    def test_a_reader_that_raises_is_asked_again_too(self):
+        """A read that blows up mid-silence is the same silence, not a failure."""
+        h = _handle(origin=_origin())
+        answers = iter([RuntimeError("no receipt"), None, {"x_um": 1.0, "y_um": 2.0}])
+
+        def xy(client, **kwargs):
+            answer = next(answers)
+            if isinstance(answer, Exception):
+                raise answer
+            return answer
+
+        patches = _patch_position()
+        with (
+            patch.object(adapter._patient, "PATIENCE_S", 5.0),
+            patch.object(adapter._readers, "get_xy", xy),
+            patches[1], patches[2], patches[3],
+        ):
+            pos = adapter.get_xyz(h)
+        self.assertEqual(pos["x"]["value"], 1.0)
+
     def test_set_xyz_moves_to_absolute_and_maps_z_actuator(self):
         h = _handle(origin=_origin(x_um=1000.0, y_um=2000.0, z_focus_um=30.0))
         moves = {}
@@ -487,7 +544,7 @@ class TestAcquire(unittest.TestCase):
         with (
             patch.object(adapter._readers, "get_jobs", return_value=self._jobs()),
             patch.object(adapter._readers, "get_hardware_info", return_value={}),
-            patch.object(adapter._commands, "select_job", lambda c, j, **k: {"success": True}),
+            patch.object(adapter._commands, "select_job", lambda c, j, **k: {"success": True, "confirmed": True}),
             patch.object(adapter._motion, "correct_backlash", lambda client, **k: None),
             patch.object(adapter._capture, "acquire", lambda c, j, **k: SimpleNamespace(job=j)),
             patch.object(adapter._save, "save", fake_save),
@@ -553,7 +610,7 @@ class TestAcquire(unittest.TestCase):
 
         def fake_select_job(client, job, **kwargs):
             calls["selected"] = job
-            return {"success": True}
+            return {"success": True, "confirmed": True}
 
         def fake_capture(client, job, **kwargs):
             calls["captured"] = job
@@ -745,6 +802,7 @@ class TestAcquire(unittest.TestCase):
 
         with (
             self._capturing() as calls,
+            patch.object(adapter._patient, "PATIENCE_S", 5.0),
             patch.object(adapter._capture, "acquire", capture),
             patch.object(adapter._readers, "get_xy", xy),
         ):
@@ -755,6 +813,64 @@ class TestAcquire(unittest.TestCase):
             deaf["unanswered"], 3,
             "acquire returned while the instrument was still deaf",
         )
+
+    def test_acquire_asks_the_driver_to_select_the_job_every_time(self):
+        """Whether the job is already selected is the driver's decision.
+
+        The adapter used to ask a reader first and skip the selection when
+        the name matched. That reader can be stale on this instrument, and a
+        stale match captured on the job the step before left behind. The
+        driver's own ``select_job`` decides the no-op from the right source,
+        so it is always asked.
+        """
+        h = _handle(connection={**adapter.CONNECTION, "output_root": "/tmp/out"})
+        asked = []
+        with (
+            self._capturing(),
+            patch.object(
+                adapter._commands, "select_job",
+                lambda c, j, **k: asked.append(j) or {"success": True, "confirmed": True},
+            ),
+        ):
+            adapter.acquire(h, acquisition_type="overview", position_label="A1")
+        self.assertEqual(asked, ["Overview"])
+
+    def test_acquire_refuses_when_the_selection_is_not_confirmed(self):
+        h = _handle(connection={**adapter.CONNECTION, "output_root": "/tmp/out"})
+        with (
+            self._capturing(),
+            patch.object(
+                adapter._commands, "select_job",
+                lambda c, j, **k: {"success": True, "confirmed": False},
+            ),
+            patch.object(adapter._capture, "acquire") as capture,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "select_job.*unconfirmed"):
+                adapter.acquire(h, acquisition_type="overview", position_label="A1")
+        capture.assert_not_called()
+
+    def test_the_capture_raises_when_the_instrument_never_answers_again(self):
+        """A record for a capture the instrument has not come back from is a
+        record nobody can act on: the next question fails anyway. Say so here."""
+        h = _handle(connection={**adapter.CONNECTION, "output_root": "/tmp/out"})
+        h.driven_to = {"x": 0.0, "y": 0.0, "z": 100.0, "z_wide_um": 1000.0}
+        deaf = {"is": False}
+
+        def capture(client, job, **kwargs):
+            deaf["is"] = True
+            return SimpleNamespace(job=job)
+
+        def xy(client, **kwargs):
+            return None if deaf["is"] else {"x_um": 1.0, "y_um": 2.0}
+
+        with (
+            self._capturing(),
+            patch.object(adapter._patient, "PATIENCE_S", 0.05),
+            patch.object(adapter._capture, "acquire", capture),
+            patch.object(adapter._readers, "get_xy", xy),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "after the capture.*answered nothing"):
+                adapter.acquire(h, acquisition_type="overview", position_label="A1")
 
     def test_acquire_applies_the_rigs_measured_orientation(self):
         """The microscope's measured turn reaches ``save``, so saved planes are
@@ -793,7 +909,7 @@ class TestAcquire(unittest.TestCase):
                 patch.object(adapter._readers, "get_jobs", return_value=self._jobs()),
                 patch.object(adapter._readers, "get_hardware_info", return_value={}),
                 patch.object(
-                    adapter._commands, "select_job", lambda client, job, **k: {"success": True}
+                    adapter._commands, "select_job", lambda client, job, **k: {"success": True, "confirmed": True}
                 ),
                 patch.object(adapter._motion, "correct_backlash", lambda client, **k: None),
                 patch.object(
@@ -828,7 +944,7 @@ class TestAcquire(unittest.TestCase):
         return (
             patch.object(adapter._readers, "get_jobs", return_value=self._jobs()),
             patch.object(adapter._readers, "get_hardware_info", return_value={}),
-            patch.object(adapter._commands, "select_job", return_value={"success": True}),
+            patch.object(adapter._commands, "select_job", return_value={"success": True, "confirmed": True}),
             patch.object(
                 adapter._motion,
                 "correct_backlash",
@@ -916,7 +1032,7 @@ class TestAcquire(unittest.TestCase):
 
         def fake_select_job(client, job, **kwargs):
             order.append(("select", job))
-            return {"success": True}
+            return {"success": True, "confirmed": True}
 
         def fake_correct_backlash(client, **kwargs):
             order.append(("backlash", client, kwargs["passes"]))
@@ -940,7 +1056,7 @@ class TestAcquire(unittest.TestCase):
             patch.object(adapter._capture, "acquire", fake_capture),
             patch.object(adapter._save, "save", fake_save),
             patch.object(adapter._scanfields, "get_template_state", return_value="fresh"),
-            patches[2],
+            patches[0], patches[1], patches[2], patches[3],
         ):
             record = adapter.acquire(
                 h,
@@ -967,6 +1083,7 @@ class TestAcquire(unittest.TestCase):
         patches = _patch_position(job="Overview")
         with (
             patch.object(adapter._readers, "get_jobs", return_value=self._jobs()),
+            patch.object(adapter._commands, "select_job", return_value={"success": True, "confirmed": True}),
             patch.object(adapter._motion, "correct_backlash", side_effect=calls.append),
             patch.object(
                 adapter._capture,
@@ -979,7 +1096,7 @@ class TestAcquire(unittest.TestCase):
                 return_value=SimpleNamespace(image_paths={}, xml_paths={}, naming=None),
             ),
             patch.object(adapter._scanfields, "get_template_state", return_value="fresh"),
-            patches[2],
+            patches[0], patches[1], patches[2], patches[3],
         ):
             record = adapter.acquire(
                 h,
@@ -998,7 +1115,7 @@ class TestAcquire(unittest.TestCase):
         patches = _patch_position(job="Overview")
         with (
             patch.object(adapter._readers, "get_jobs", return_value=self._jobs()),
-            patch.object(adapter._commands, "select_job", return_value={"success": True}),
+            patch.object(adapter._commands, "select_job", return_value={"success": True, "confirmed": True}),
             patch.object(adapter._motion, "correct_backlash", lambda client, **k: None),
             patch.object(
                 adapter._capture,
@@ -1018,7 +1135,7 @@ class TestAcquire(unittest.TestCase):
                 "strip_template",
                 side_effect=lambda client, **k: calls.append("strip") or strip_result,
             ),
-            patches[2],
+            patches[0], patches[1], patches[2], patches[3],
         ):
             adapter.acquire(h, acquisition_type="prescan", position_label="1", options=options)
         return calls
@@ -1136,7 +1253,8 @@ class TestStateAndProcedures(unittest.TestCase):
             p[0],
             p[1],
             p[2],
-            patch.object(adapter._commands, "select_job", return_value={"success": True}) as select,
+            patch.object(adapter._readers, "get_job_settings", return_value={}),
+            patch.object(adapter._commands, "select_job", return_value={"success": True, "confirmed": True}) as select,
         ):
             captured = adapter.get_state(h)
             captured["changeable"]["job"] = "HiRes"
@@ -1146,6 +1264,74 @@ class TestStateAndProcedures(unittest.TestCase):
             result = adapter.set_state(h, captured)
             self.assertEqual(result["applied"], {"job": "HiRes"})
             select.assert_called_once()
+
+    def test_set_state_raises_when_the_selection_is_not_confirmed(self):
+        """``success`` alone means the command was accepted. A job the
+        instrument has not finished switching to is a scan on the wrong job,
+        and the caller is told rather than left to poll."""
+        h = _handle()
+        p = self._state_patches()
+        with (
+            p[0], p[1], p[2],
+            patch.object(
+                adapter._commands, "select_job",
+                return_value={"success": True, "confirmed": False, "message": "readback unconfirmed"},
+            ),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "select_job.*unconfirmed"):
+                adapter.set_state(h, {"changeable": {"job": "HiRes"}})
+
+    def test_get_state_waits_through_the_instruments_silence(self):
+        h = _handle()
+        p = self._state_patches()
+        silence = {"unanswered": 0}
+
+        def selected(client, **kwargs):
+            if silence["unanswered"] < 2:
+                silence["unanswered"] += 1
+                return None
+            return {"Name": "Overview", "IsSelected": True}
+
+        with (
+            p[0], p[2],
+            patch.object(adapter._patient, "PATIENCE_S", 5.0),
+            patch.object(adapter._readers, "get_selected_job", selected),
+            patch.object(adapter._readers, "get_job_settings", return_value={}),
+        ):
+            state = adapter.get_state(h)
+        self.assertEqual(state["changeable"], {"job": "Overview"})
+        self.assertEqual(silence["unanswered"], 2)
+
+    def test_get_state_raises_once_the_instrument_stays_silent(self):
+        h = _handle()
+        p = self._state_patches()
+        with (
+            p[0], p[2],
+            patch.object(adapter._patient, "PATIENCE_S", 0.05),
+            patch.object(adapter._readers, "get_selected_job", return_value=None),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "selected LAS X job.*answered nothing"):
+                adapter.get_state(h)
+
+    def test_autofocus_raises_when_the_selection_is_not_restored(self):
+        h = _handle()
+        p = self._state_patches()
+        position = _patch_position(z_wide_um=42.0, z_galvo_um=1.5)
+
+        def select(client, job, **kwargs):
+            return {"success": True, "confirmed": job == "AF Job"}
+
+        with (
+            p[2], position[0], position[1], position[2], position[3],
+            patch.object(adapter._scanfields, "get_template_state", return_value="fresh"),
+            patch.object(adapter._commands, "select_job", select),
+            patch.object(
+                adapter._capture, "acquire",
+                lambda client, job, **k: SimpleNamespace(job=job, started_at=0.0, finished_at=1.0),
+            ),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "restore.*Overview.*unconfirmed"):
+                adapter.run_procedure(h, {"name": "autofocus"})
 
     def test_set_state_refuses_a_job_that_no_longer_exists(self):
         h = _handle()
@@ -1191,7 +1377,7 @@ class TestStateAndProcedures(unittest.TestCase):
                 adapter._commands,
                 "select_job",
                 side_effect=lambda client, job, **k: (
-                    calls.append(("select", job)) or {"success": True}
+                    calls.append(("select", job)) or {"success": True, "confirmed": True}
                 ),
             ),
             patch.object(
@@ -1227,7 +1413,7 @@ class TestStateAndProcedures(unittest.TestCase):
             position[3],
             patch.object(adapter._scanfields, "get_template_state", return_value="unstripped"),
             patch.object(adapter._scanfields, "strip_template", strip),
-            patch.object(adapter._commands, "select_job", return_value={"success": True}),
+            patch.object(adapter._commands, "select_job", return_value={"success": True, "confirmed": True}),
             patch.object(
                 adapter._capture,
                 "acquire",
@@ -2033,6 +2219,7 @@ class TestFunctionLimits(unittest.TestCase):
                 return_value={"Name": "Overview", "IsSelected": True},
             ),
             patch.object(adapter._readers, "get_jobs", return_value=[]),
+            patch.object(adapter._readers, "get_job_settings", return_value={}),
         ):
             observed = adapter.get_state(h)["observed"]
         self.assertEqual(

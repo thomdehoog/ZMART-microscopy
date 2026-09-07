@@ -99,20 +99,28 @@ def record_before_change(
         return None
 
     from .. import readers as _readers
+    from ..readers import patient as _patient
 
+    # Every reading is waited for: LAS X answers nothing for seconds at a
+    # time, and a change refused over one empty answer is a change the
+    # operator has to ask for twice.
     if job_name is None:
-        selected = _readers.get_selected_job(client) or {}
+        selected = _patient.answered(
+            lambda: _readers.get_selected_job(client), "the selected job"
+        )
         job_name = selected.get("Name")
         if not job_name:
-            raise RuntimeError("could not determine the selected job")
-    xy = _readers.get_xy(client) or {}
+            raise RuntimeError(f"the instrument named no selected job: {selected}")
+    xy = _patient.answered(lambda: _readers.get_xy(client), "the stage XY position")
     if "x_um" not in xy or "y_um" not in xy:
         raise RuntimeError(f"get_xy returned no readback: {xy}")
-    settings = _readers.get_job_settings(client, job_name) or {}
+    settings = _patient.answered(
+        lambda: _readers.get_job_settings(client, job_name), f"the settings of job '{job_name}'"
+    )
     slot = (settings.get("objective") or {}).get("slotIndex")
-    z_wide = _readers.read_zwide_um(client, job_name)
-    if z_wide is None:
-        raise RuntimeError(f"z-wide readback unavailable for job {job_name!r}")
+    z_wide = _patient.answered(
+        lambda: _readers.read_zwide_um(client, job_name), f"z-wide for job '{job_name}'"
+    )
     return {
         "job": job_name,
         "x_um": float(xy["x_um"]),
@@ -152,9 +160,24 @@ def compensate_after_change(
 
     try:
         from .. import readers as _readers
+        from ..readers import patient as _patient
 
         if new_slot is None:
-            settings = _readers.get_job_settings(client, job_name) or {}
+            # Read right after the switch, while LAS X may still be swapping
+            # and answering nothing: waited for, so that silence is not
+            # mistaken for a lens the instrument cannot name.
+            try:
+                settings = _patient.answered(
+                    lambda: _readers.get_job_settings(client, job_name),
+                    f"the settings of job '{job_name}'",
+                )
+            except RuntimeError as exc:
+                return _failed(
+                    f"the objective could not be identified after the change ({exc}), "
+                    "so the position was NOT compensated — re-check the objective "
+                    "and position before acquiring",
+                    changed=None,
+                )
             new_slot = (settings.get("objective") or {}).get("slotIndex")
         new_slot = None if new_slot is None else int(new_slot)
         old_slot = before["slot"]
