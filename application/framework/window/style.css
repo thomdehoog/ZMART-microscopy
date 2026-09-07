@@ -2230,6 +2230,9 @@ canvas.livecv[hidden] { display: none; }
   color: var(--ink-2); border-radius: 4px;
 }
 .acquisition-eye[aria-pressed="false"] { opacity: 0.4; }
+/* A hidden acquisition's eye is struck through, as the layer and mask eyes are. */
+.acquisition-eye .acquisition-eye-slash { display: none; }
+.acquisition-eye[aria-pressed="false"] .acquisition-eye-slash { display: block; }
 .acquisition-choose {
   font: inherit; font-size: 12.5px; font-weight: 600; color: var(--ink);
   background: none; border: none; padding: 0; cursor: pointer; text-align: left;
