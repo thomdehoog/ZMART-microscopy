@@ -29,6 +29,7 @@ import { carrierLayers } from "../steps/define_carrier/layers.js";
 import { scanAreaLayers } from "../steps/define_scan_area/layers.js";
 import { focusLayers } from "../steps/focus_strategy/layers.js";
 import { MASK_RAINBOW } from "../steps/discover_targets/mask-dress.js";
+import { maskLayersOn } from "./mask-layers.js";
 import { mountChannelBox } from "../../../parts/canvas/channel-box.js";
 import { overviewLayers } from "../steps/scan_the_overview/layers.js";
 import { targetLayers } from "../steps/discover_targets/layers.js";
@@ -1251,7 +1252,7 @@ function frameTile() {
 ctx.tileButton?.addEventListener("click", frameTile);
 
 /* ---- the picture's half of the canvas row -------------------------------
-   Which acquisition the row is about, its channels as chips, the masks as
+   Which acquisition the row is about, its channels as chips, and beside it the masks as
    one of them, and Grayscale. The chips read the picture's own panel and
    act through it, so the row and Display settings never disagree. */
 
@@ -1282,20 +1283,28 @@ document.addEventListener("click", (e) => {
 });
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeTheCards(); });
 
-/* Mask: a chip like the channels'. Its dot shows and hides the detected
-   masks; its name opens their card -- colour, look, opacity. The chip
-   stands in the row only while detection has laid masks on the
-   acquisition the row shows. */
-const maskDress = () => run.detect ?? {};
-if (ctx.maskPop) cards.push([ctx.maskPop, ctx.maskButton]);
-const openTheMaskCard = (e) => { e.stopPropagation(); openOnly(ctx.maskPop, ctx.maskButton, ctx.maskPop.hidden); };
-/* Like a channel's chip: a press on the shape or the name opens the card,
-   and shown or hidden is the card's first line. */
-ctx.maskButton?.addEventListener("click", openTheMaskCard);
-ctx.maskEye?.addEventListener("click", () => {
-  theCanvas.showLayer("segmentation", theCanvas.layerShown?.("segmentation") === false);
+/* Masks: a bar of their own at the right end of the row, one cell per mask
+   layer lying on the acquisition the row shows. A press on a cell shows or
+   hides that layer; the triangle beside it opens the layer's card, where
+   the eye, the colour, the look and the opacity are that layer's own. The
+   card is one card for whichever layer was last opened. */
+let chosenMask = null;
+if (ctx.maskPop) cards.push([ctx.maskPop, null]);
+const theMaskKind = () => theAcquisitionOnShow() ?? "overview";
+const theMaskLayers = () => maskLayersOn(run.masks ?? [], theMaskKind());
+const theChosenMask = () => {
+  const layers = theMaskLayers();
+  return layers.find((one) => one.id === chosenMask) ?? layers[0] ?? null;
+};
+/* A change to the chosen layer: made, drawn, and said in the bar and the card. */
+const dressTheChosen = (change) => {
+  const layer = theChosenMask();
+  if (!layer) return;
+  change(layer);
   drawStage();
-});
+  sayWhatThePressesDo();
+};
+ctx.maskEye?.addEventListener("click", () => dressTheChosen((layer) => { layer.shown = !layer.shown; }));
 if (ctx.channelPop) cards.push([ctx.channelPop, null]);
 let channelBox = null;
 
@@ -1352,7 +1361,7 @@ const theGreyChannel = (panel, acquisition) => {
 /* The grey channel's chip: while the picture is grey it stands in for the
    dots, and a press opens the one box for the sum. */
 let greyBox = null;
-if (ctx.greyPop) cards.push([ctx.greyPop, ctx.greyChipButton]);
+if (ctx.greyPop) cards.push([ctx.greyPop, ctx.greyChipMore]);
 const openTheGreyBox = (e) => {
   e.stopPropagation();
   const panel = window.__viewerPanel;
@@ -1361,15 +1370,16 @@ const openTheGreyBox = (e) => {
   if (!panel || !shown) return;
   if (ctx.greyPop.hidden) {
     greyBox = mountChannelBox(ctx.greyPop, theGreyChannel(panel, shown));
-    openOnly(ctx.greyPop, ctx.greyChipButton, true);
+    openOnly(ctx.greyPop, ctx.greyChipMore, true);
   } else {
-    openOnly(ctx.greyPop, ctx.greyChipButton, false);
+    openOnly(ctx.greyPop, ctx.greyChipMore, false);
   }
 };
-ctx.greyChipButton?.addEventListener("click", openTheGreyBox);
-/* The masks' colour: a rainbow dot for each object its own colour, and
-   beside it a swatch that opens the browser's own colour picker, the way a
-   channel's colour is chosen in Display settings. */
+ctx.greyChipMore?.addEventListener("click", openTheGreyBox);
+/* A mask layer's colour: a rainbow dot for each object its own colour, a
+   few swatches -- five colours and a grey -- and at the end a swatch that
+   opens the browser's own colour picker for any other. */
+const MASK_SWATCHES = ["#ffd400", "#ff5a5f", "#3ddc84", "#4f8dff", "#c04bff", "#9aa3ad"];
 let maskPicker = null;
 if (ctx.maskColours) {
   const rainbow = document.createElement("button");
@@ -1378,7 +1388,18 @@ if (ctx.maskColours) {
   rainbow.dataset.colour = "";
   rainbow.style.background = MASK_RAINBOW;
   rainbow.title = "Each object its own colour";
-  rainbow.addEventListener("click", () => { maskDress().maskColour = null; drawStage(); });
+  rainbow.addEventListener("click", () => dressTheChosen((layer) => { layer.dress.colour = null; }));
+  ctx.maskColours.append(rainbow);
+  for (const hex of MASK_SWATCHES) {
+    const one = document.createElement("button");
+    one.type = "button";
+    one.className = "mask-colour";
+    one.dataset.colour = hex;
+    one.style.background = hex;
+    one.title = "Every object in this colour";
+    one.addEventListener("click", () => dressTheChosen((layer) => { layer.dress.colour = hex; }));
+    ctx.maskColours.append(one);
+  }
   const swatch = document.createElement("label");
   swatch.className = "mask-colour mask-pick";
   swatch.title = "Every object in one colour: choose it";
@@ -1387,16 +1408,62 @@ if (ctx.maskColours) {
   maskPicker.id = "mask-picker";
   maskPicker.value = "#ffd400";
   maskPicker.setAttribute("aria-label", "choose a colour for the masks");
-  maskPicker.addEventListener("input", () => { maskDress().maskColour = maskPicker.value; drawStage(); });
+  maskPicker.addEventListener("input", () => dressTheChosen((layer) => { layer.dress.colour = maskPicker.value; }));
   swatch.append(maskPicker);
-  ctx.maskColours.append(rainbow, swatch);
+  ctx.maskColours.append(swatch);
 }
-ctx.maskFill?.addEventListener("click", () => { maskDress().maskShow = "fill"; drawStage(); });
-ctx.maskLine?.addEventListener("click", () => { maskDress().maskShow = "line"; drawStage(); });
+ctx.maskFill?.addEventListener("click", () => dressTheChosen((layer) => { layer.dress.show = "fill"; }));
+ctx.maskLine?.addEventListener("click", () => dressTheChosen((layer) => { layer.dress.show = "line"; }));
 ctx.maskOpacity?.addEventListener("input", () => {
-  maskDress().maskAlpha = Number(ctx.maskOpacity.value) / 100;
-  drawStage();
+  dressTheChosen((layer) => { layer.dress.alpha = Number(ctx.maskOpacity.value) / 100; });
 });
+
+/* A cell with six uneven bumps, no two sides alike, the way a real cell
+   lies: the glyph a mask layer wears in the bar, in its own dress. */
+const MASK_CELL = "M16.70 14.15 C16.96 14.81 18.88 16.79 19.07 17.57 C19.25 18.36 18.58 19.05 17.79 18.89 C16.99 18.73 15.05 17.03 14.30 16.63 C13.55 16.23 13.45 16.24 13.28 16.50 C13.11 16.76 13.42 17.79 13.26 18.20 C13.10 18.62 12.63 18.86 12.32 18.99 C12.01 19.12 11.70 19.12 11.40 18.97 C11.10 18.83 10.91 18.46 10.50 18.15 C10.08 17.83 9.52 17.66 8.93 17.08 C8.33 16.51 7.79 15.26 6.93 14.70 C6.07 14.14 4.34 14.24 3.78 13.74 C3.23 13.25 3.15 12.32 3.60 11.74 C4.06 11.16 5.92 10.57 6.53 10.24 C7.14 9.92 7.10 10.17 7.27 9.80 C7.43 9.43 7.52 8.66 7.52 8.03 C7.53 7.40 7.19 6.46 7.32 6.01 C7.45 5.57 7.84 5.30 8.31 5.36 C8.77 5.41 9.53 6.12 10.09 6.33 C10.65 6.54 11.44 6.47 11.67 6.61 C11.89 6.75 11.25 7.82 11.46 7.16 C11.67 6.50 12.40 3.35 12.92 2.65 C13.44 1.95 14.35 2.12 14.58 2.96 C14.81 3.80 14.22 6.76 14.28 7.70 C14.34 8.64 14.33 8.33 14.94 8.59 C15.55 8.85 17.33 9.03 17.93 9.27 C18.53 9.51 18.38 9.78 18.51 10.04 C18.64 10.31 18.70 10.55 18.70 10.84 C18.70 11.13 18.72 11.32 18.52 11.79 C18.33 12.26 17.82 13.26 17.52 13.66 C17.21 14.05 16.44 13.50 16.70 14.15Z";
+
+/* The masks bar: one cell per mask layer on the acquisition the row shows,
+   rebuilt only when a layer, its dress or the chosen one changes. */
+function drawTheMasks(layers) {
+  const host = ctx.maskCells;
+  if (!host) return;
+  const chosen = theChosenMask()?.id ?? null;
+  const stamp = JSON.stringify([layers, chosen]);
+  if (host.dataset.stamp === stamp) return;
+  host.dataset.stamp = stamp;
+  host.replaceChildren();
+  for (const layer of layers) {
+    const chip = document.createElement("span");
+    chip.className = `chip mask-cell${layer.shown ? " on" : " off"}${layer.id === chosen ? " chosen" : ""}`;
+    chip.dataset.mask = layer.id;
+    const dot = document.createElement("button");
+    dot.type = "button";
+    dot.className = "mask-dot";
+    dot.title = layer.shown ? `Hide ${layer.name}` : `Show ${layer.name}`;
+    dot.setAttribute("aria-pressed", String(layer.shown));
+    dot.setAttribute("aria-label", `show or hide ${layer.name}`);
+    /* The cell wears the layer's dress: its colour or the rainbow, filled,
+       or a thick outline round a white middle when the layer is outlines. */
+    const paint = layer.dress.colour ?? "url(#mask-rainbow)";
+    const line = layer.dress.show === "line";
+    dot.innerHTML = `<svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path d="${MASK_CELL}" fill="${line ? "#ffffff" : paint}" stroke="${line ? paint : "rgba(15, 23, 42, 0.35)"}" stroke-width="${line ? "2.2" : "0.8"}" stroke-linejoin="round"/></svg>`;
+    dot.addEventListener("click", (e) => {
+      e.stopPropagation();
+      layer.shown = !layer.shown;
+      drawStage();
+      sayWhatThePressesDo();
+    });
+    const more = chipMore(`settings for ${layer.name}`);
+    more.addEventListener("click", (e) => {
+      e.stopPropagation();
+      chosenMask = layer.id;
+      sayWhatThePressesDo();
+      openOnly(ctx.maskPop, more, true);
+    });
+    chip.append(dot, more);
+    host.append(chip);
+  }
+}
 
 /* The acquisition picker: the layers pictogram, the ramp chip, the
    acquisition's name, and a menu of every acquisition with an eye and a
@@ -1459,6 +1526,22 @@ const EYE = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke=
    short of room. The dot shows or hides the channel -- hidden, the chip
    fades and a line crosses the dot. The name chooses the channel and opens
    Display settings, where its histogram, window and opacity are. */
+/**
+ * The small triangle beside a chip's dot or cell: the press that opens the
+ * thing's card, where the dot itself shows or hides it. One shape for the
+ * channels' chips and the masks' cells, so the row has one rule.
+ */
+function chipMore(label) {
+  const more = document.createElement("button");
+  more.type = "button";
+  more.className = "chip-more";
+  more.setAttribute("aria-label", label);
+  more.setAttribute("aria-haspopup", "true");
+  more.title = "Open its box";
+  more.innerHTML = '<svg width="8" height="8" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 4l2.5 2.5L7.5 4"/></svg>';
+  return more;
+}
+
 function drawTheChips(panel, acquisition) {
   const host = ctx.chips;
   if (!host) return;
@@ -1476,23 +1559,30 @@ function drawTheChips(panel, acquisition) {
       dot.className = "chip-dot";
       dot.style.background = channel.color;
       dot.textContent = String(n + 1);
-      dot.title = `${channel.name}${channel.visible ? "" : " (hidden)"}: its box, with the eye, the histogram, the window and the opacity`;
+      dot.title = channel.visible ? `Hide ${channel.name}` : `Show ${channel.name}`;
       dot.setAttribute("aria-pressed", String(channel.visible));
-      dot.setAttribute("aria-label", channel.name);
-      /* A press on the dot opens the channel's box under the row: an eye,
-         its colour and its name at the head, then its histogram and
-         sliders, on the same numbers the column's own box shows. The dot
-         is the whole chip -- its number in its colour says which channel
-         it is; the name waits in the box. */
-      const openTheBox = (e) => {
+      dot.setAttribute("aria-label", `show or hide ${channel.name}`);
+      /* A press on the dot shows or hides the channel, at once and with no
+         box in the way: switching a channel off is the frequent act. The
+         dot's number in its colour says which channel it is. */
+      dot.addEventListener("click", (e) => {
+        e.stopPropagation();
+        panel.setChannelVisible?.(channel.index, !channel.visible);
+        sayWhatThePressesDo();
+      });
+      /* The triangle beside it opens the channel's box under the row: an
+         eye, its colour and its name at the head, then its histogram and
+         sliders, on the same numbers the column's own box shows. The box's
+         eye and the dot are one state, read from the panel. */
+      const more = chipMore(`settings for ${channel.name}`);
+      more.addEventListener("click", (e) => {
         e.stopPropagation();
         panel.chooseRow(channel.index);
         channelBox = mountChannelBox(ctx.channelPop, aColourChannel(panel, channel.index, channel.name));
         openOnly(ctx.channelPop, null, true);
         sayWhatThePressesDo();
-      };
-      dot.addEventListener("click", openTheBox);
-      chip.append(dot);
+      });
+      chip.append(dot, more);
       host.append(chip);
     });
   }
@@ -1564,55 +1654,45 @@ function sayWhatThePressesDo() {
   if (greyNow && ctx.greyPop && !ctx.greyPop.hidden) greyBox?.refresh();
   if (ctx.channelPop && !ctx.channelPop.hidden) channelBox?.refresh();
 
-  const mask = ctx.maskButton;
-  if (mask) {
-    const laid = theStack.some((layer) => layer.key === "segmentation" && layer.has)
-      && (shown === null || shown === "overview");
-    if (ctx.maskChip) ctx.maskChip.hidden = !laid;
-    if (!laid && ctx.maskPop && !ctx.maskPop.hidden) closeTheCards();
-    const on = theCanvas.layerShown?.("segmentation") !== false;
-    ctx.maskChip?.classList.toggle("on", on);
-    ctx.maskChip?.classList.toggle("off", !on);
-    mask.setAttribute("aria-pressed", String(on));
-    ctx.maskEye?.setAttribute("aria-pressed", String(on));
-    const dress = maskDress();
-    /* The pictogram wears the dress: the colour chosen or the rainbow, and
-       filled or a thick outline round a white middle. */
-    if (ctx.maskShape) {
-      const paint = dress.maskColour ?? "url(#mask-rainbow)";
-      const line = dress.maskShow === "line";
-      ctx.maskShape.setAttribute("fill", line ? "#ffffff" : paint);
-      ctx.maskShape.setAttribute("stroke", line ? paint : "rgba(15, 23, 42, 0.35)");
-      ctx.maskShape.setAttribute("stroke-width", line ? "2.2" : "0.8");
-      ctx.maskShape.setAttribute("stroke-linejoin", "round");
+  if (ctx.masksBar) {
+    const layers = theMaskLayers();
+    ctx.masksBar.hidden = !layers.length;
+    if (!layers.length && ctx.maskPop && !ctx.maskPop.hidden) closeTheCards();
+    drawTheMasks(layers);
+    const layer = theChosenMask();
+    if (layer) {
+      ctx.maskEye?.setAttribute("aria-pressed", String(layer.shown));
+      if (ctx.maskName) ctx.maskName.textContent = layer.name;
+      if (ctx.maskHow) {
+        ctx.maskHow.textContent = `${layer.how} · ${layer.objects} object${layer.objects === 1 ? "" : "s"}`;
+      }
+      const dress = layer.dress;
+      for (const swatch of ctx.maskColours?.querySelectorAll(".mask-colour[data-colour]") ?? []) {
+        swatch.setAttribute("aria-pressed", String((dress.colour ?? "") === swatch.dataset.colour));
+      }
+      if (maskPicker) {
+        const swatch = maskPicker.parentElement;
+        const free = Boolean(dress.colour) && !MASK_SWATCHES.includes(dress.colour);
+        swatch.setAttribute("aria-pressed", String(free));
+        if (free && document.activeElement !== maskPicker) maskPicker.value = dress.colour;
+        swatch.style.background = maskPicker.value;
+      }
+      const line = dress.show === "line";
+      ctx.maskFill?.setAttribute("aria-pressed", String(!line));
+      ctx.maskLine?.setAttribute("aria-pressed", String(line));
+      const percent = Math.round(dress.alpha * 100);
+      if (ctx.maskOpacity && document.activeElement !== ctx.maskOpacity) ctx.maskOpacity.value = String(percent);
+      if (ctx.maskOpacity) ctx.maskOpacity.style.setProperty("--fill", `${((percent - 10) / 90) * 100}%`);
+      if (ctx.maskOpacityValue) ctx.maskOpacityValue.textContent = `${percent}%`;
     }
-    const rainbowDot = ctx.maskColours?.querySelector('.mask-colour[data-colour=""]');
-    rainbowDot?.setAttribute("aria-pressed", String(!dress.maskColour));
-    if (maskPicker) {
-      const swatch = maskPicker.parentElement;
-      swatch.setAttribute("aria-pressed", String(Boolean(dress.maskColour)));
-      if (dress.maskColour && document.activeElement !== maskPicker) maskPicker.value = dress.maskColour;
-      swatch.style.background = maskPicker.value;
-    }
-    const line = dress.maskShow === "line";
-    ctx.maskFill?.setAttribute("aria-pressed", String(!line));
-    ctx.maskLine?.setAttribute("aria-pressed", String(line));
-    const percent = Math.round((dress.maskAlpha ?? 0.8) * 100);
-    if (ctx.maskOpacity && document.activeElement !== ctx.maskOpacity) ctx.maskOpacity.value = String(percent);
-    if (ctx.maskOpacity) ctx.maskOpacity.style.setProperty("--fill", `${((percent - 10) / 90) * 100}%`);
-    if (ctx.maskOpacityValue) ctx.maskOpacityValue.textContent = `${percent}%`;
   }
   /* The channels' box stands only when it holds something; without it the
      acquisition's press ends the strip on its own. */
   if (ctx.channelsBox) {
     const channelsThere = (Boolean(ctx.chips?.childElementCount) && !ctx.chips.hidden)
       || (ctx.greyChip && !ctx.greyChip.hidden);
-    const masksThere = Boolean(ctx.maskChip && !ctx.maskChip.hidden);
-    ctx.channelsBox.hidden = !(channelsThere || masksThere);
-    pickButton?.classList.toggle("strip-last", !(channelsThere || masksThere));
-    /* The short line between the channels and the masks stands only when
-       both are there to be kept apart. */
-    if (ctx.maskDivide) ctx.maskDivide.hidden = !(channelsThere && masksThere);
+    ctx.channelsBox.hidden = !channelsThere;
+    pickButton?.classList.toggle("strip-last", !channelsThere);
   }
 }
 

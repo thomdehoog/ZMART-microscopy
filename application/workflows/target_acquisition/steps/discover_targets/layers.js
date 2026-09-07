@@ -93,18 +93,19 @@ function shapeOverlay(base, fieldLabel, wanted, redraw) {
   return cv;
 }
 
-/* One dressed mask per field, in the colour and look the operator chose,
-   rebuilt only when that choice changes. */
+/* One dressed mask per field per mask layer, in the colour and look the
+   operator chose for that layer, rebuilt only when that choice changes. */
 const dressedMasks = new Map();
 
-function dressedMask(label, img, dress) {
-  const colour = dress?.maskColour ?? null;
-  const mode = dress?.maskShow === "line" ? "line" : "fill";
+function dressedMask(label, img, layer) {
+  const colour = layer.dress.colour ?? null;
+  const mode = layer.dress.show === "line" ? "line" : "fill";
   const stamp = `${colour}|${mode}|${discovery}`;
-  const held = dressedMasks.get(label);
+  const key = `${layer.id}:${label}`;
+  const held = dressedMasks.get(key);
   if (held && held.stamp === stamp) return held.canvas;
   const canvas = dressTheMask(img, { size: img.naturalWidth || img.width, colour, mode });
-  dressedMasks.set(label, { stamp, canvas });
+  dressedMasks.set(key, { stamp, canvas });
   return canvas;
 }
 
@@ -256,13 +257,18 @@ export function targetLayers(theRun) {
        picture, and the canvas shows the masks as the run lays them down,
        field by field. */
     has: run.examined.size > 0,
-    shown: run.cellsShown,
+    /* Shown while any mask layer on the overview is: the layer's own
+       switch is the cell in the masks bar, and the canvas's layer button
+       stands over all of them. */
+    shown: (run.masks ?? []).some((one) => one.kind === "overview" && one.shown),
     staysSolid: true,
     paint: (frame) => {
       const ctx = frame.context;
       const { place, scale, w, h } = drawnIn(frame);
       const base = run.overviewPictures;
       if (!base) return;
+      const layers = (run.masks ?? []).filter((one) => one.kind === "overview" && one.shown);
+      if (!layers.length) return;
       for (let i = 0; i < run.plan.length; i++) {
         const label = run.fieldLabels[i];
         /* Only fields the run has examined: a mask file a tile test left
@@ -276,10 +282,12 @@ export function targetLayers(theRun) {
         if (x > w || y > h || x + size < 0 || y + size < 0) continue;
         const img = maskImage(base, label, redraw);
         if (!img) continue;
-        /* Worn the way the operator dressed it -- colour, fill or line,
-           opacity -- the same dress the tile test wears. */
-        ctx.globalAlpha = run.detect?.maskAlpha ?? 0.8;
-        ctx.drawImage(dressedMask(label, img, run.detect), x, y, size, size);
+        /* Worn the way the operator dressed the layer -- colour, fill or
+           line, opacity -- in its card in the masks bar. */
+        for (const layer of layers) {
+          ctx.globalAlpha = layer.dress.alpha;
+          ctx.drawImage(dressedMask(label, img, layer), x, y, size, size);
+        }
         ctx.globalAlpha = 1;
       }
     },

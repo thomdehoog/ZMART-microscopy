@@ -44,6 +44,8 @@ import scanfieldsWidget, { presetInk } from "../../workflows/target_acquisition/
 import detectionPanel, { settingsFor }
   from "../../workflows/target_acquisition/steps/discover_targets/detection.js";
 import { forgetTheMasks } from "../../workflows/target_acquisition/steps/discover_targets/layers.js";
+import { newMaskLayer, replaceMaskLayer }
+  from "../../workflows/target_acquisition/shared/mask-layers.js";
 import gatingPanel from "../../workflows/target_acquisition/steps/refine_targets/gate.js";
 import galleryWidget from "../../workflows/target_acquisition/steps/acquire_targets/gallery.js";
 /* The rehearsal's own maths — the deterministic random stream, the autofocus
@@ -102,6 +104,8 @@ let stageWatch = null;
     state.fieldLabels[field.field] = field.position_label;
     state.examined.add(field.field);
     for (const cell of field.cells) state.cells.set(cell.id, stage.toCarrier(cell));
+    const laid = state.masks.find((one) => one.kind === "overview");
+    if (laid) laid.objects = state.cells.size;
   }
 
   /** What discovery came to, said beside the button. */
@@ -169,7 +173,7 @@ let stageWatch = null;
   // tile, then applied to the rest
   function newDetect() {
     return {
-      algo: "fast",  // how objects are found: fast (watershed) | accurate (Cellpose)
+      algo: "fast",  // how objects are found: fast (watershed) | robust (Cellpose)
       diameter: 30,
       cellprob: 0,
       threshold: 100,  // fast only: a nucleus's mean above background, in counts
@@ -272,6 +276,9 @@ let stageWatch = null;
     /* The fields the run's own discovery has examined: the masks the canvas
        shows are theirs alone, never a tile test's left on disk. */
     examined: new Set(),
+    /* The mask layers detection has laid, one per picture it ran on: what
+       the masks bar draws and whose dress the canvas wears. */
+    masks: [],
     overviewPictures: backendFor(WORKFLOWS[WORKFLOW_ASKED_FOR] ? WORKFLOW_ASKED_FOR : DEFAULT_WORKFLOW).viewOf?.("overview") ?? null,
     targetPictures: backendFor(WORKFLOWS[WORKFLOW_ASKED_FOR] ? WORKFLOW_ASKED_FOR : DEFAULT_WORKFLOW).viewOf?.("targets") ?? null,
     cellsShown: false,
@@ -481,7 +488,7 @@ let stageWatch = null;
       fields: [], plan: [], checks: [],
       tabs: [], tab: null, tilesShown: 0,
       focus: newFocus(), focusMaps: {}, focusFor: null,
-      detect: newDetect(), cells: new Map(), fieldLabels: {}, examined: new Set(),
+      detect: newDetect(), cells: new Map(), fieldLabels: {}, examined: new Set(), masks: [],
       overviewPictures: backendFor(state.wf).viewOf?.("overview") ?? null,
       targetPictures: backendFor(state.wf).viewOf?.("targets") ?? null,
       cellsShown: false, gates: [], gated: new Set(), restricted: new Set(),
@@ -830,6 +837,13 @@ let stageWatch = null;
       state.cellsShown = true;
       state.examined = new Set();
       forgetTheMasks();
+      /* The run's masks are a mask layer on the overview, born wearing the
+         dress the tile test wears now. A run writes over the last run's
+         mask files, so it takes the last run's place in the bar. */
+      state.masks = replaceMaskLayer(state.masks, newMaskLayer({
+        algo: state.detect.algo, kind: "overview", existing: state.masks,
+        dress: { colour: state.detect.maskColour, show: state.detect.maskShow, alpha: state.detect.maskAlpha },
+      }));
       detectionShown?.progress?.({ start: true });
       backend.discoverTargets({
         settings: settingsFor(state.detect),
@@ -2416,15 +2430,15 @@ let stageWatch = null;
     carrierButton: theCanvas.parts.carrier,
     tilesetButton: theCanvas.parts.tileset,
     tileButton: theCanvas.parts.tile,
-    maskButton: theCanvas.parts.mask,
-    maskChip: theCanvas.parts.maskChip,
-    maskDivide: theCanvas.parts.maskDivide,
-    maskShape: theCanvas.parts.maskShape,
+    masksBar: theCanvas.parts.masksBar,
+    maskCells: theCanvas.parts.maskCells,
+    maskName: theCanvas.parts.maskName,
+    maskHow: theCanvas.parts.maskHow,
     maskEye: theCanvas.parts.maskEye,
     maskOpacityValue: theCanvas.parts.maskOpacityValue,
     channelPop: theCanvas.parts.channelPop,
     greyChip: theCanvas.parts.greyChip,
-    greyChipButton: theCanvas.parts.greyChipButton,
+    greyChipMore: theCanvas.parts.greyChipMore,
     greyPop: theCanvas.parts.greyPop,
     maskPop: theCanvas.parts.maskPop,
     acquisitionPick: theCanvas.parts.acquisitionPick,
