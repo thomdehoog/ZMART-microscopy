@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import os
 import tempfile
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from navigator_expert.commands import gate as _gate
@@ -93,23 +93,26 @@ def hermetic_mock_machine_root() -> Path:
     appdata.mkdir(parents=True)
     os.environ["APPDATA"] = str(appdata)
     profile = provision_machine_limits(root)
-    profile.publish_snapshot(
-        _SEED_MOMENT,
-        calibration_name="water_lens_setup",
-        calibration={
-            "schema_version": 13,
-            "objectives": {
-                "1": {
-                    "name": "HC PL APO 10x/0.40 CS2",
-                    "translation_um": [0.0, 0.0, 0.0],
-                },
-                "3": {
-                    "name": "HC PL APO 63x/1.40 OIL CS2",
-                    "translation_um": [10.0, -6.0, -3.0],
-                },
+    calibration = {
+        "schema_version": 13,
+        "objectives": {
+            "1": {
+                "name": "HC PL APO 10x/0.40 CS2",
+                "translation_um": [0.0, 0.0, 0.0],
+            },
+            "3": {
+                "name": "HC PL APO 63x/1.40 OIL CS2",
+                "translation_um": [10.0, -6.0, -3.0],
             },
         },
+    }
+    profile.publish_snapshot(
+        _SEED_MOMENT, calibration_name="water_lens_setup", calibration=calibration
     )
+    # The same pairs as the unnamed (default) calibration too: a connection
+    # that names no calibration -- the adapter validators under --mock --
+    # stands on this one, and its job switches swap slots 3 <-> 1.
+    profile.publish_snapshot(_SEED_MOMENT + timedelta(microseconds=1), calibration=calibration)
     profiles.LOG_READER = profiles.LogReaderProfile(
         lcs_log_path=str(root / "no_such_lcsCommand.log"),
         msgbox_log_path=str(root / "no_such_MatrixScreener.log"),
