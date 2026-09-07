@@ -772,11 +772,12 @@ let stageWatch = null;
              on the field being taken now, not the one just finished. */
           state.detect.tile = Math.min(done, state.plan.length - 1);
           /* The mark keeps up with the stage field by field, not every few
-             seconds. */
+             seconds: the watch is asked now, and the bridge answers where
+             the run sent the stage. The finished record's own position is
+             not taken as the mark -- the stage has moved on to the next
+             field by the time it lands, and a mark set from both flickered
+             between the field just done and the one being taken. */
           stageWatch?.refresh();
-          /* The mark moves with the scan: each answer says where the stage
-             stood, and the watch's own poll is seconds behind it. */
-          if (at) takeThePosition(at);
           state.notes[s.id] = scanNote();
           stage.groundFollowsTheScan();
           /* Each position the scan reports is a reason to read the run again,
@@ -961,10 +962,9 @@ let stageWatch = null;
           status.say(`acquiring pair ${done} of ${picked.length}`);
           /* The mark keeps up with the stage tile by tile, as it does
              through the overview scan: the watch is asked now rather than
-             at its own next poll, and a record that says where the stage
-             stood is taken as well. */
+             at its own next poll. The finished record's position is not
+             the mark -- see the scan above. */
           stageWatch?.refresh();
-          if (at) takeThePosition(at);
           accountFor(records);
           state.notes[s.id] = `${done} / ${picked.length} pairs`;
           /* The tile under the objective now, by its target's id: what is
