@@ -238,7 +238,22 @@ test("canvas layer controls live under Display settings from the start", async (
   await expect(page.locator("#stage-layers .layer-chip")).not.toHaveCount(0);
   await expect(page.locator(".canvas-foot"), "the canvas has no bottom bar").toHaveCount(0);
   await expect(page.locator("#stage-readout"), "there is no live x/y readout").toHaveCount(0);
+  /* The three framing presses are about a stage, and there is none until a
+     session is open: they appear with the connection and go with it. */
+  await expect(page.locator("#carrier-btn")).toBeHidden();
+  await expect(page.locator("#tileset-btn")).toBeHidden();
+  await expect(page.locator("#tile-btn")).toBeHidden();
+});
+
+test("the framing presses come with the session and go with it", async ({ page }) => {
+  await connect(page);
   await expect(page.locator("#carrier-btn")).toBeVisible();
+  await expect(page.locator("#tileset-btn")).toBeVisible();
+  await expect(page.locator("#tile-btn")).toBeVisible();
+  await page.locator(".session-foot button.danger").click();
+  await expect(page.locator("#carrier-btn")).toBeHidden();
+  await expect(page.locator("#tileset-btn")).toBeHidden();
+  await expect(page.locator("#tile-btn")).toBeHidden();
 });
 
 test("the channel folds away to the right and comes back", async ({ page }) => {

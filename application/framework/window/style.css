@@ -418,8 +418,7 @@ button.run:disabled { opacity: 0.4; cursor: default; }
 /* One chip family on the image's control line: every press the same
    height and corner, however it is built. */
 .tile-host .tile-pick .ghost.tiny,
-.mask-toggle .ghost.tiny,
-.image-toggle .ghost.tiny { border-radius: 6px; height: 28px; font-size: 12px; padding: 0 10px; }
+.mask-toggle .ghost.tiny { border-radius: 6px; height: 28px; font-size: 12px; padding: 0 10px; }
 .mask-toggle { display: flex; gap: 2px; align-items: center; }
 /* The slider in the house dress too: a slim line and a small round
    thumb, not the browser's chunky default -- the last raw widget on an
@@ -434,8 +433,7 @@ button.run:disabled { opacity: 0.4; cursor: default; }
   width: 11px; height: 11px; border-radius: 50%;
   background: var(--accent, #0284c7); border: none;
 }
-.mask-toggle .ghost.tiny[aria-pressed="true"],
-.image-toggle .ghost.tiny[aria-pressed="true"] {
+.mask-toggle .ghost.tiny[aria-pressed="true"] {
   background: var(--surface-2); border-color: var(--line-strong); color: var(--ink);
 }
 .mask-toggle .ghost.tiny:disabled { opacity: 0.45; cursor: default; }
@@ -2017,6 +2015,7 @@ canvas.livecv[hidden] { display: none; }
 .canvas-toolbar-right button[hidden] { display: none; }
 /* The row's presses carry a pictogram before the word. */
 .canvas-toolbar button.run { display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; flex: none; }
+.canvas-toolbar button.run[hidden] { display: none; }
 /* A press that is only its pictogram: square, the symbol centred. */
 .canvas-toolbar button.run.icon { width: var(--control); padding: 0; justify-content: center; }
 .canvas-toolbar button.run svg { flex: none; }
