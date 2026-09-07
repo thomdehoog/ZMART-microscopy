@@ -1436,12 +1436,6 @@ export async function mountViewerPanel(near, {
   panel.sourcesChanged = sourcesChanged;
   panel.showAcquisition = (name, on) => groupSwitches.get(name)?.(on);
   panel.drawInGrey = (name, grey) => greySwitches.get(name)?.(grey);
-  /* Every acquisition at once, for the canvas's own switch. */
-  panel.drawAllInGrey = (grey) => { for (const draw of greySwitches.values()) draw(grey); };
-  panel.allGrey = () => {
-    const shown = [...greyStates.values()].map((ask) => ask()).filter((state) => state.visible);
-    return shown.length > 0 && shown.every((state) => state.grey);
-  };
   /* What the canvas's own row needs of the panel: the acquisitions and their
      channels as they stand, the three things a chip does -- show or hide a
      channel, choose it, show or hide its acquisition -- and a way to hear

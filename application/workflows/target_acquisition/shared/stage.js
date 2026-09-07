@@ -1398,29 +1398,40 @@ ctx.maskOpacity?.addEventListener("input", () => {
   drawStage();
 });
 
-/* The acquisition picker: the layers pictogram, the acquisition's name, and
-   a menu of every acquisition with an eye. Choosing one puts its channels
-   in the row; its eye shows or hides the whole acquisition. */
+/* The acquisition picker: the layers pictogram, the ramp chip, the
+   acquisition's name, and a menu of every acquisition with an eye and a
+   chip of its own. Choosing one puts its channels in the row; its eye shows
+   or hides the whole acquisition; its chip draws it in grey or in colour.
+   The press is a span with a button inside it, so it answers the keyboard
+   the way a button would. */
 const pickButton = ctx.acquisitionPick?.querySelector("#acquisition-btn");
 if (ctx.acquisitionMenu) cards.push([ctx.acquisitionMenu, pickButton]);
-pickButton?.addEventListener("click", (e) => {
+const openThePicker = (e) => {
   e.stopPropagation();
   openOnly(ctx.acquisitionMenu, pickButton, ctx.acquisitionMenu.hidden);
+};
+pickButton?.addEventListener("click", openThePicker);
+pickButton?.addEventListener("keydown", (e) => {
+  if (e.target !== pickButton || (e.key !== "Enter" && e.key !== " ")) return;
+  e.preventDefault();
+  openThePicker(e);
 });
 
-/* Grayscale: the acquisition on show drawn in grey, or in its own colours
-   again. The picture's own panel keeps the colours and does the drawing;
-   the row's chips belong to one acquisition, and so does this switch. */
+/* Colour or grey is the acquisition's own: the picture's panel keeps the
+   colours and does the drawing, and the chip on the acquisition's name --
+   in the press and on its line in the menu -- is the one switch, shown
+   twice. */
 const theAcquisitionOnShow = () =>
   theRowsAcquisition((window.__viewerPanel?.acquisitions?.() ?? []).map((one) => one.name));
-const drawTheShownIn = (grey) => {
-  const panel = window.__viewerPanel;
-  const shown = theAcquisitionOnShow();
-  if (shown && panel?.drawInGrey) panel.drawInGrey(shown, grey);
-  else panel?.drawAllInGrey?.(grey);
+const drawTheAcquisitionIn = (name, grey) => {
+  window.__viewerPanel?.drawInGrey?.(name, grey);
+  sayWhatThePressesDo();
 };
-ctx.greyButton?.addEventListener("click", () => { drawTheShownIn(true); sayWhatThePressesDo(); });
-ctx.colourButton?.addEventListener("click", () => { drawTheShownIn(false); sayWhatThePressesDo(); });
+ctx.rampChip?.addEventListener("click", (e) => {
+  e.stopPropagation();
+  const shown = theAcquisitionOnShow();
+  if (shown) drawTheAcquisitionIn(shown, ctx.rampChip.getAttribute("aria-pressed") !== "true");
+});
 
 /* The panel is remade when the picture's sources change, so the hook is
    put on whichever panel stands now, once. */
@@ -1432,6 +1443,15 @@ function followThePanel() {
   panel.onChanged?.(() => sayWhatThePressesDo());
 }
 
+/* The chip's glyph: both ramps, and the chip's pressed state says which one
+   shows. The gradients are defined once, on the chip in the press. */
+const RAMP = '<svg width="14" height="8" viewBox="0 0 14 8" aria-hidden="true"><rect class="ramp colours" width="14" height="8" rx="1.5"/><rect class="ramp greys" width="14" height="8" rx="1.5"/></svg>';
+/* One chip, in the press or on a menu line, told what it stands for. */
+function dressTheChip(chip, name, grey) {
+  chip.setAttribute("aria-pressed", String(grey));
+  chip.setAttribute("aria-label", `show ${name} in colour or in grey`);
+  chip.title = grey ? "Show this layer in colour" : "Show this layer in grey";
+}
 const EYE = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M1.5 8s2.5-4.5 6.5-4.5S14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8z"/><circle cx="8" cy="8" r="2"/><path class="acquisition-eye-slash" d="M3 13L13 3"/></svg>';
 
 /* One chip per channel of the acquisition the row shows: a dot in the
@@ -1478,12 +1498,13 @@ function drawTheChips(panel, acquisition) {
   }
 }
 
-/* The picker's menu: every acquisition, with an eye and its channel count;
-   the one the row shows is marked. */
+/* The picker's menu: every acquisition, with an eye, its ramp chip and its
+   name; the one the row shows is marked. */
 function drawTheMenu(panel, acquisitions, shown) {
   const menu = ctx.acquisitionMenu;
   if (!menu) return;
-  const stamp = JSON.stringify([acquisitions, shown]);
+  const greys = acquisitions.map((one) => Boolean(panel.acquisitionGrey?.(one.name)));
+  const stamp = JSON.stringify([acquisitions, shown, greys]);
   if (menu.dataset.stamp === stamp) return;
   menu.dataset.stamp = stamp;
   menu.replaceChildren();
@@ -1498,15 +1519,22 @@ function drawTheMenu(panel, acquisitions, shown) {
     eye.setAttribute("aria-pressed", String(one.shown));
     eye.setAttribute("aria-label", `show or hide ${one.name}`);
     eye.addEventListener("click", (e) => { e.stopPropagation(); panel.showAcquisition(one.name, !one.shown); });
+    /* The line's chip switches this acquisition without choosing it, and
+       the menu stays open: the operator is looking at the layers, not
+       leaving them. */
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.className = "ramp-chip";
+    chip.innerHTML = RAMP;
+    const grey = greys[acquisitions.indexOf(one)];
+    dressTheChip(chip, one.name, grey);
+    chip.addEventListener("click", (e) => { e.stopPropagation(); drawTheAcquisitionIn(one.name, !grey); });
     const name = document.createElement("button");
     name.type = "button";
     name.className = "acquisition-choose";
     name.textContent = one.name;
     name.addEventListener("click", () => { chosenAcquisition = one.name; closeTheCards(); sayWhatThePressesDo(); });
-    const count = document.createElement("span");
-    count.className = "acquisition-count";
-    count.textContent = `${one.channels} channel${one.channels === 1 ? "" : "s"}`;
-    line.append(eye, name, count);
+    line.append(eye, chip, name);
     menu.append(line);
   }
 }
@@ -1523,6 +1551,7 @@ function sayWhatThePressesDo() {
   if (ctx.acquisitionPick) {
     ctx.acquisitionPick.hidden = !acquisitions.length;
     if (ctx.acquisitionName && shown) ctx.acquisitionName.textContent = shown;
+    if (ctx.rampChip && shown) dressTheChip(ctx.rampChip, shown, Boolean(panel?.acquisitionGrey?.(shown)));
     if (panel) drawTheMenu(panel, acquisitions, shown);
   }
   if (panel) drawTheChips(panel, shown);
@@ -1572,28 +1601,6 @@ function sayWhatThePressesDo() {
     if (ctx.maskOpacity && document.activeElement !== ctx.maskOpacity) ctx.maskOpacity.value = String(percent);
     if (ctx.maskOpacity) ctx.maskOpacity.style.setProperty("--fill", `${((percent - 10) / 90) * 100}%`);
     if (ctx.maskOpacityValue) ctx.maskOpacityValue.textContent = `${percent}%`;
-  }
-  if (ctx.greyButton) {
-    const can = Boolean(panel?.drawAllInGrey);
-    /* The toggle tells the truth about the acquisition on show -- the one
-       the chips belong to -- so a picture that a step drew grey on its own
-       (detection greys the overview under its masks) reads as grey here
-       too, whatever the hidden acquisitions are still set to. A press still
-       moves every acquisition at once. */
-    const grey = Boolean(shown ? panel?.acquisitionGrey?.(shown) : panel?.allGrey?.());
-    ctx.greyButton.disabled = !can;
-    ctx.greyButton.setAttribute("aria-pressed", String(grey));
-    if (ctx.colourButton) {
-      ctx.colourButton.disabled = !can;
-      ctx.colourButton.setAttribute("aria-pressed", String(can && !grey));
-    }
-    if (ctx.greyToggle) {
-      ctx.greyToggle.dataset.grey = String(grey);
-      ctx.greyToggle.classList.toggle("off", !can);
-      /* Colour or grey is a question about a picture: the toggle stands
-         only once there is an acquisition to draw, as the strip does. */
-      ctx.greyToggle.hidden = !acquisitions.length;
-    }
   }
   /* The channels' box stands only when it holds something; without it the
      acquisition's press ends the strip on its own. */

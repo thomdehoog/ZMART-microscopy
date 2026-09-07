@@ -2051,37 +2051,38 @@ canvas.livecv[hidden] { display: none; }
 /* Between the picker and the channels, square-cornered, flush on both sides. */
 .canvas-strip .strip-mid { border-radius: 0; border-left: none; }
 .canvas-strip .strip-mid.strip-last { border-radius: 0 7px 7px 0; }
-/* The colour-or-grey toggle: a sunken track with a raised knob that sits
-   over the side in force -- colours at the left, greys at the right. It
-   stands on its own, rounded like every other press in the row. */
-.grey-toggle {
-  position: relative; display: inline-flex; align-items: stretch; box-sizing: border-box; flex: none;
-  height: var(--control); padding: 3px; gap: 2px; border-radius: 7px;
-  border: 1px solid var(--line-strong); background: var(--surface-3);
-}
-.grey-toggle[hidden] { display: none; }
-.grey-toggle::before {
-  content: ""; position: absolute; top: 3px; bottom: 3px; left: 3px; width: 28px;
-  border-radius: 5px; background: var(--screen); border: 1px solid var(--line-strong);
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.16); transition: transform 0.15s ease;
-}
-.grey-toggle[data-grey="true"]::before { transform: translateX(30px); }
-.grey-toggle .bare {
-  position: relative; z-index: 1; width: 28px; padding: 0; display: inline-flex;
-  align-items: center; justify-content: center; background: none; border: none; cursor: pointer;
-  opacity: 0.45; transition: opacity 0.15s;
-}
-.grey-toggle .bare[aria-pressed="true"] { opacity: 1; }
-.grey-toggle.off { opacity: 0.4; }
-.grey-toggle.off .bare { cursor: default; }
 .canvas-strip .run.switch[aria-pressed="true"] {
   background: var(--accent-tint); border-color: var(--line-strong); box-shadow: none;
 }
-/* The pair's glyphs: a rainbow ramp on the colour side, a black-to-white
-   ramp on the grey side, each with a hairline so the light end still has
-   an edge. */
-.grey-glyph.colours .ramp { fill: url(#ramp-colours); }
-.grey-glyph.greys .ramp { fill: url(#ramp-greys); stroke: rgba(15, 23, 42, 0.25); stroke-width: 0.6; }
+/* The acquisition's press is a span with the ramp chip inside it, so it
+   dresses itself the way `button.run` does and lays its parts on one centre
+   line: the eye, the chip, the name and the caret, each in a box of the
+   same height, so the word sits neither above nor below the glyphs. */
+.acquisition-press {
+  display: inline-flex; align-items: center; gap: 6px; box-sizing: border-box;
+  font: inherit; font-size: 13px; font-weight: 600; line-height: 1;
+  color: var(--accent-deep); border: 1px solid var(--line-strong);
+  height: var(--control); padding: 0 10px 0 8px; cursor: pointer; user-select: none;
+}
+.acquisition-press:hover { border-color: var(--accent); color: var(--accent); }
+.acquisition-press > svg { display: block; flex: none; }
+/* The ramp chip: the lookup-table bar a microscopist knows, in a small
+   bordered box. Pressed means grey, and the glyph says which: a rainbow
+   ramp in colour, a black-to-white ramp in grey, each with a hairline so
+   the light end still has an edge. */
+.ramp-chip {
+  display: inline-flex; align-items: center; justify-content: center; flex: none;
+  width: 22px; height: 18px; padding: 0; box-sizing: border-box;
+  border: 1px solid var(--line-strong); border-radius: 4px; background: var(--screen);
+  cursor: pointer;
+}
+.ramp-chip:hover { border-color: var(--accent); }
+.ramp-chip svg { display: block; }
+.ramp-chip .ramp { stroke: rgba(15, 23, 42, 0.25); stroke-width: 0.6; }
+.ramp-chip .ramp.colours { fill: url(#ramp-colours); }
+.ramp-chip .ramp.greys { fill: url(#ramp-greys); }
+.ramp-chip[aria-pressed="true"] .ramp.colours { display: none; }
+.ramp-chip:not([aria-pressed="true"]) .ramp.greys { display: none; }
 
 /* The channels' box: flat, bordered on the top, right and bottom, joined
    onto the acquisition's press, so the strip reads as one piece and the box
@@ -2220,12 +2221,14 @@ canvas.livecv[hidden] { display: none; }
 .acquisition-pick { position: relative; }
 .acquisition-pick[hidden] { display: none; }
 .acquisition-menu { left: 0; right: auto; min-width: 230px; gap: 2px; padding: 6px; }
+/* Eye, chip, name: the same order and the same columns as the press
+   above, so the menu reads as the press unfolded. */
 .acquisition-line {
-  display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 8px;
+  display: grid; grid-template-columns: auto auto 1fr; align-items: center; gap: 8px;
   padding: 4px 6px; border-radius: 6px;
 }
 .acquisition-line.chosen { background: var(--accent-tint); }
-.acquisition-line.off .acquisition-choose, .acquisition-line.off .acquisition-count { color: var(--ink-3); opacity: 0.6; }
+.acquisition-line.off .acquisition-choose, .acquisition-line.off .ramp-chip { color: var(--ink-3); opacity: 0.6; }
 .acquisition-eye {
   display: inline-flex; padding: 2px; border: none; background: none; cursor: pointer;
   color: var(--ink-2); border-radius: 4px;
@@ -2239,7 +2242,6 @@ canvas.livecv[hidden] { display: none; }
   background: none; border: none; padding: 0; cursor: pointer; text-align: left;
 }
 .acquisition-line.chosen .acquisition-choose { color: var(--accent-deep); }
-.acquisition-count { font-size: 11px; color: var(--ink-3); }
 /* On is tinted, off is outlined: the same look as every other on-or-off
    press on the page, so the state can be read without reading the label. */
 .canvas-toolbar button.switch[aria-pressed="true"] {

@@ -222,11 +222,27 @@ test.describe("the target acquisition workflow, walked screen by screen", () => 
       await expect(page.locator('#display-side input[type="range"]').first()).toBeVisible();
       await shot(page, "scan-done-channel-settings");
       await showTheChannel(page);
-      /* Grey on, then off: the same picture in grey and back, by the switch
-         in the canvas's row, tinted while on; the dots go grey with it. */
-      await expect(page.locator("#grey-btn")).toHaveAttribute("aria-pressed", "false");
-      await page.locator("#grey-btn").click();
-      await expect(page.locator("#grey-btn")).toHaveAttribute("aria-pressed", "true");
+      /* Grey on, then off: the same picture in grey and back, by the ramp
+         chip inside the acquisition's press; the dots go grey with it. The
+         chip is the layer's own switch, so the menu's line for this
+         acquisition shows the same state, and pressing the chip there does
+         not choose the acquisition or close the menu. */
+      await expect(page.locator("#ramp-chip")).toHaveAttribute("aria-pressed", "false");
+      await page.locator("#ramp-chip").click();
+      await expect(page.locator("#ramp-chip")).toHaveAttribute("aria-pressed", "true");
+      await expect(page.locator("#acquisition-menu")).toBeHidden();
+      await page.locator("#acquisition-btn").click();
+      const chosenLineChip = page.locator("#acquisition-menu .acquisition-line.chosen .ramp-chip");
+      await expect(chosenLineChip).toHaveAttribute("aria-pressed", "true");
+      await expect(page.locator("#acquisition-menu .acquisition-count")).toHaveCount(0);
+      await chosenLineChip.click();
+      await expect(page.locator("#acquisition-menu")).toBeVisible();
+      await expect(chosenLineChip).toHaveAttribute("aria-pressed", "false");
+      await expect(page.locator("#ramp-chip")).toHaveAttribute("aria-pressed", "false");
+      await chosenLineChip.click();
+      await expect(page.locator("#ramp-chip")).toHaveAttribute("aria-pressed", "true");
+      await page.keyboard.press("Escape");
+      await expect(page.locator("#acquisition-menu")).toBeHidden();
       await rest(1200);
       await shot(page, "scan-done-grayscale");
       /* Grey is one channel: the dots give way to one chip, and its box
@@ -262,9 +278,8 @@ test.describe("the target acquisition workflow, walked screen by screen", () => 
       await page.keyboard.press("Escape");
       await expect(page.locator("#grey-pop")).toBeHidden();
       const greyPicture = await photograph(page, "#picture-host", 0.6);
-      await page.locator("#colour-btn").click();
-      await expect(page.locator("#grey-btn")).toHaveAttribute("aria-pressed", "false");
-      await expect(page.locator("#colour-btn")).toHaveAttribute("aria-pressed", "true");
+      await page.locator("#ramp-chip").click();
+      await expect(page.locator("#ramp-chip")).toHaveAttribute("aria-pressed", "false");
       await expect(page.locator("#canvas-chips")).toBeVisible();
       await expect(page.locator("#grey-chip")).toBeHidden();
       await rest(1200);
