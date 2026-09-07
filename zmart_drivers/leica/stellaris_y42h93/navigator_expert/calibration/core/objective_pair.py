@@ -45,6 +45,7 @@ visualization.
 
 from __future__ import annotations
 
+import importlib
 import json
 import logging
 import math
@@ -56,8 +57,13 @@ from typing import Any
 
 import numpy as np
 
-import navigator_expert as drv
-from navigator_expert.algorithms import VOTING_METHODS, brenner, register_voting
+from ... import PACKAGE
+from ...algorithms import VOTING_METHODS, brenner, register_voting
+
+# The driver package itself, whatever it is called on this machine: the
+# folder it is in decides that (see zmart_drivers/discovery.py), so it is
+# reached by its own recorded name rather than by a name written here.
+drv = importlib.import_module(PACKAGE)
 
 from .common import (
     STAGING_SCHEMA_VERSION,

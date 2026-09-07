@@ -41,17 +41,23 @@ import json
 import logging
 import time
 from dataclasses import dataclass, field
+import importlib
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-import navigator_expert as drv
-from navigator_expert.acquisition.naming import Naming, run_hash
-from navigator_expert.config import machine as _machine
-from navigator_expert.limits import config as _limits_config
-from navigator_expert.limits import checks as _limits_checks
-from navigator_expert.orientation import Orientation
-from navigator_expert.readers import parsing as _parsing
+from .. import PACKAGE
+from ..acquisition.naming import Naming, run_hash
+from ..config import machine as _machine
+from ..limits import config as _limits_config
+from ..limits import checks as _limits_checks
+from ..orientation import Orientation
+from ..readers import parsing as _parsing
+
+# The driver package itself, whatever it is called on this machine: the
+# folder it is in decides that (see zmart_drivers/discovery.py), so it is
+# reached by its own recorded name rather than by a name written here.
+drv = importlib.import_module(PACKAGE)
 
 from . import zmart_adapter as _adapter
 
@@ -192,7 +198,7 @@ def move(handle: SetupHandle, x_um: float, y_um: float, z_um: float) -> dict:
     """Move XY and the wide Z drive through the gated, verified movers, and
     answer with where the stage was read back to be."""
     _require_open(handle)
-    from navigator_expert.calibration.core.common import move_xy_and_verify, move_zwide_and_verify
+    from ..calibration.core.common import move_xy_and_verify, move_zwide_and_verify
 
     here = where(handle)
     if abs(here["z_um"] - z_um) > 1e-6:
@@ -207,7 +213,7 @@ def acquire(handle: SetupHandle, *, into: str, name: str, z_um: list[float] | No
     saved under ``into`` with the driver's own naming. Raw: the picture as the
     camera recorded it, before any orientation correction."""
     _require_open(handle)
-    from navigator_expert.calibration.core.common import move_zwide_and_verify
+    from ..calibration.core.common import move_zwide_and_verify
 
     job = _job(handle)
     folder = Path(into)
@@ -259,7 +265,7 @@ def objective(handle: SetupHandle) -> dict:
 def objectives(handle: SetupHandle) -> list:
     """Every lens the turret holds, from the instrument's hardware report."""
     _require_open(handle)
-    from navigator_expert.commands import objectives as _objectives
+    from ..commands import objectives as _objectives
 
     hw = drv.get_hardware_info(handle.client) or {}
     found = []
@@ -274,7 +280,7 @@ def markers(handle: SetupHandle) -> dict:
     active LAS X template, read without changing that template. The saved
     template trio is kept so it can be archived with the limits."""
     _require_open(handle)
-    from navigator_expert.limits.adaptive import capture_adaptive_xy_limits
+    from ..limits.adaptive import capture_adaptive_xy_limits
 
     captured = capture_adaptive_xy_limits(handle.client)
     handle.last_markers = captured
@@ -366,7 +372,7 @@ def publish(handle: SetupHandle, subsystem: str, document: dict, evidence=()) ->
     if subsystem == "orientation":
         # The document names the turn and the mirror; the driver derives the
         # rest (the sign convention) from those, so the two cannot disagree.
-        from navigator_expert.orientation import orientation_config
+        from ..orientation import orientation_config
 
         orientation = Orientation(
             rotate_deg=int(document["rotation_deg"]), mirrored=bool(document["reflection"]),
@@ -377,7 +383,7 @@ def publish(handle: SetupHandle, subsystem: str, document: dict, evidence=()) ->
         return {"path": str(snapshot / _machine.ORIENTATION_FILENAME), "snapshot": str(snapshot),
                 "evidence": _evidence(snapshot, _machine.ORIENTATION_FILENAME)}
     if subsystem == "calibration":
-        from navigator_expert.calibration.core import model as _model
+        from ..calibration.core import model as _model
 
         # The schema is the driver's to say: a publisher supplies the
         # objectives and their offsets, and the file carries this driver's

@@ -22,6 +22,7 @@ License: MIT
 
 from __future__ import annotations
 
+import importlib
 import math
 import time
 from dataclasses import dataclass, field
@@ -30,8 +31,13 @@ from typing import Any
 
 import numpy as np
 
-import navigator_expert as drv
-from navigator_expert.algorithms import register_voting
+from ... import PACKAGE
+from ...algorithms import register_voting
+
+# The driver package itself, whatever it is called on this machine: the
+# folder it is in decides that (see zmart_drivers/discovery.py), so it is
+# reached by its own recorded name rather than by a name written here.
+drv = importlib.import_module(PACKAGE)
 
 from . import model as _model
 from .common import (

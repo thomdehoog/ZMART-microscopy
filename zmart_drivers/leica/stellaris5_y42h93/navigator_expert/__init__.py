@@ -21,6 +21,13 @@ Package layout::
 
 __version__ = "6.0.0"
 
+#: This package's own dotted name. The driver is imported under whatever
+#: name the folder it lives in gives it (``zmart_drivers.leica.<folder>.navigator_expert``
+#: on the operator page, plain ``navigator_expert`` in its own tests and
+#: notebooks), so modules that need the package itself reach it through
+#: this rather than through a name written into them.
+PACKAGE = __name__
+
 __all__ = [
     # logging
     "log",
