@@ -107,16 +107,6 @@ if str(_ROOT) not in sys.path:
 
 import zmart_controller  # noqa: E402
 import zmart_drivers.setup  # noqa: E402
-from application.parts.storage.output import (  # noqa: E402
-    move_record_images,
-    position_label,
-    prepare_acquisition,
-    prepare_experiment,
-)
-from application.parts.storage.zarr_positions import (  # noqa: E402
-    frame_um_of, place_into_resolved_store, position_store_from_record,
-)
-from application.parts.storage import viewer_service  # noqa: E402
 from application.parts.analysis import warm  # noqa: E402
 from application.parts.microscope import detection, focus_score  # noqa: E402
 from application.parts.microscope.focus_run import (  # noqa: E402
@@ -124,6 +114,18 @@ from application.parts.microscope.focus_run import (  # noqa: E402
     RunCancelled,
     as_state,
     measure_focus,
+)
+from application.parts.storage import viewer_service  # noqa: E402
+from application.parts.storage.output import (  # noqa: E402
+    move_record_images,
+    position_label,
+    prepare_acquisition,
+    prepare_experiment,
+)
+from application.parts.storage.zarr_positions import (  # noqa: E402
+    frame_um_of,
+    place_into_resolved_store,
+    position_store_from_record,
 )
 
 # ---------------------------------------------------------------------------
@@ -135,6 +137,54 @@ _the_instruments_turn = threading.Lock()
 # The open controller session, or None. One session at a time: the window is
 # one operator at one instrument.
 _session = None
+
+# The stage's last known position, in ``get_xyz``'s shape: what the page's
+# clock is answered with while a run holds the instrument's turn.
+_last_xyz: dict | None = None
+
+
+def _where_the_stage_is() -> dict:
+    """``get_xyz``, unless a run holds the instrument's turn: then the last
+    reading, marked ``busy``.
+
+    The page asks every few seconds and gives up client-side after a moment,
+    but the request it abandoned stayed queued here behind the site being
+    captured, and every queued one then read the stage -- from an instrument
+    that answers nothing right after an export -- before the run could take
+    its next turn. The panel froze and the run crawled, over a mark that only
+    needs to know where the stage was last.
+    """
+    global _last_xyz
+    if not _a_run_has_the_stage() and _the_instruments_turn.acquire(blocking=False):
+        try:
+            _last_xyz = _require_session().get_xyz()
+            return _last_xyz
+        finally:
+            _the_instruments_turn.release()
+    if _last_xyz is None:
+        raise RuntimeError("the instrument is busy and has not yet said where the stage is")
+    return {**_last_xyz, "busy": True}
+
+
+def _a_run_has_the_stage() -> bool:
+    """Whether a focus map, a scan or a target run is driving the stage.
+
+    For as long as one is, its own record of where it sent the stage is the
+    answer, even between two sites when the instrument's turn is free: a
+    position read right after a move can still report the site before, and
+    the mark jumped back and forth on that stale answer.
+    """
+    return any(run.get("running") for run in (_focus, _scan, _targets))
+
+
+def _the_stage_was_sent_to(x: float, y: float, z: float) -> None:
+    """A run's own record of where it drove the stage, for the clock above."""
+    global _last_xyz
+    _last_xyz = {
+        "x": {"value": float(x), "unit": "um"},
+        "y": {"value": float(y), "unit": "um"},
+        "z": {"value": float(z), "unit": "um"},
+    }
 
 # How the driver was chosen; filled by connect, shown by /api/connect replies.
 _context: dict = {}
@@ -748,13 +798,16 @@ def _drive_to(asked: dict) -> dict:
         float(asked["z"]) if asked.get("z") is not None else here("z"),
     )
     arrived = (went or {}).get("position")
+    global _last_xyz
     if not arrived:
-        return session.get_xyz()
-    return {
+        _last_xyz = session.get_xyz()
+        return _last_xyz
+    _last_xyz = {
         axis: {"value": float(arrived[axis]), "unit": "um"}
         for axis in ("x", "y", "z")
         if axis in arrived
     }
+    return _last_xyz
 
 
 # ---------------------------------------------------------------------------
@@ -866,7 +919,15 @@ def _focus_worker(asked: list, state: dict | None = None) -> None:
                     "doing", f"{phase} point {index + 1} of {len(asked)}"
                 ),
                 output_root=_the_run(),
-                on_point=lambda m, _n=[0]: (landed(_n[0], m), _n.__setitem__(0, _n[0] + 1)),
+                on_point=lambda m, _n=[0]: (
+                    _the_stage_was_sent_to(
+                        m["x_um"],
+                        m["y_um"],
+                        m["z_um"] if m.get("z_um") is not None else 0.0,
+                    ),
+                    landed(_n[0], m),
+                    _n.__setitem__(0, _n[0] + 1),
+                ),
                 cancel=lambda: _stop_asked["focus"],
                 # Every focus stack also stands as an OME-Zarr position, so
                 # the focussing is a source of its own in the viewer.
@@ -976,6 +1037,7 @@ def _scan_worker(
                         standing = float(session.get_xyz()["z"]["value"])
                     z = standing
                 session.set_xyz(float(position["x"]), float(position["y"]), float(z))
+                _the_stage_was_sent_to(position["x"], position["y"], z)
                 record = session.acquire(
                     acquisition_type=acquisition_type,
                     position_label=_label_for(i, position),
@@ -987,6 +1049,14 @@ def _scan_worker(
                 }
                 move_record_images(
                     record, prepare_acquisition(_the_run(), acquisition_type).data
+                )
+            if record.get("timing_s"):
+                # Where the seconds of this site went, as the driver clocked them.
+                print(
+                    f"site {i + 1}/{len(positions)} timing_s: "
+                    + " ".join(f"{k}={v}" for k, v in record["timing_s"].items()),
+                    file=sys.stderr,
+                    flush=True,
                 )
             # Outside the instrument's turn: the conversion reads files the
             # capture already wrote, and holding the lock for it would keep
@@ -1662,8 +1732,7 @@ class _Bridge(BaseHTTPRequestHandler):
                 with _the_instruments_turn:
                     self._answer(_require_session().get_info())
             elif path == "/api/xyz":
-                with _the_instruments_turn:
-                    self._answer(_require_session().get_xyz())
+                self._answer(_where_the_stage_is())
             elif path == "/api/acquisition_options":
                 with _the_instruments_turn:
                     self._answer(_acquisition_options())

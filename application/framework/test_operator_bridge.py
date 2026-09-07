@@ -141,6 +141,40 @@ def test_an_axis_not_asked_about_is_left_where_it_stands(driver):
     assert driver.drove_to[-1] == (25_000.0, 30_000.0, -390.0)
 
 
+def test_the_stage_is_read_when_the_instrument_is_free(driver, monkeypatch):
+    """A free instrument is asked, and what it says is remembered."""
+    monkeypatch.setattr(bridge, "_last_xyz", None)
+    bridge._drive_to({"x": 1_000, "y": 2_000, "z": -3})
+    where = bridge._where_the_stage_is()
+    assert "busy" not in where
+    assert {axis: where[axis]["value"] for axis in ("x", "y", "z")} == {
+        "x": 1_000.0,
+        "y": 2_000.0,
+        "z": -3.0,
+    }
+    assert bridge._last_xyz is where
+
+
+def test_a_busy_instrument_answers_the_last_position_marked_busy(driver, monkeypatch):
+    """The page's clock never queues behind a site being captured."""
+    monkeypatch.setattr(bridge, "_last_xyz", None)
+    bridge._the_stage_was_sent_to(5_000, 6_000, -7)
+    with bridge._the_instruments_turn:
+        where = bridge._where_the_stage_is()
+    assert where["busy"] is True
+    assert {axis: where[axis]["value"] for axis in ("x", "y", "z")} == {
+        "x": 5_000.0,
+        "y": 6_000.0,
+        "z": -7.0,
+    }
+
+
+def test_a_busy_instrument_with_nothing_remembered_refuses(driver, monkeypatch):
+    monkeypatch.setattr(bridge, "_last_xyz", None)
+    with bridge._the_instruments_turn, pytest.raises(RuntimeError, match="busy"):
+        bridge._where_the_stage_is()
+
+
 def test_a_driver_that_names_no_position_is_asked_where_it_ended_up(monkeypatch):
     """Some may confirm the move and say nothing about where."""
 
