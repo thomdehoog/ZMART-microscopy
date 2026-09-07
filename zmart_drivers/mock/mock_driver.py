@@ -870,13 +870,21 @@ def get_info(handle: MockHandle) -> dict:
     ``connection_status`` is what a client shows under Connect: one row per
     key, its value the answer or ``"pending"`` until the check has answered
     (a value beginning ``failed`` is a failed check). ``canvas`` is the stage
-    travel a client draws to scale; where the stage is comes from ``get_xyz``.
+    travel a client draws to scale, in the frame ``get_xyz`` counts in --
+    the travel shifted by the published origin, as the Leica reports its
+    own. Reported from the raw zero instead, a page drew the travel from 0
+    and the stage mark at -60 mm, off the picture, once a configuration had
+    published the travel's centre as the origin.
     """
     _require_open(handle)
     root = Path(handle.connection.get("output_root") or "mock-output")
+    origin = {"x_um": handle.origin_x, "y_um": handle.origin_y, "z_um": handle.origin_z}
     return {
         "connection_status": _connection_status(handle),
-        "canvas": dict(CANVAS_UM),
+        "canvas": {
+            axis: [low - origin[axis], high - origin[axis]]
+            for axis, (low, high) in CANVAS_UM.items()
+        },
         "tile_positions": [dict(pos) for pos in handle.tile_positions],
         "focus_positions": [
             {"x": pos["x"], "y": pos["y"], "z": pos["z"]} for pos in handle.tile_positions
