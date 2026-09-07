@@ -46,13 +46,16 @@ export default {
    *   `sizeCanvas(cv)` `css(name)`  the page's canvas plumbing
    */
   mount(host, ctx) {
-    /* Which features the plot spans right now. */
-    /* The map first, when there is one: the embedding is what the cells are
-       gated on by default, and the two detector features stand in until it
-       has been drawn. A pair the operator chose is kept. */
+    /* Which features the plot spans right now. The detector's two stand-ins
+       until the classical features land; then shape against brightness,
+       eccentricity by intensity_mean, which is the pair an operator gates
+       nuclei on first. The move is made once. A pair the operator chose is
+       kept, and the map (umap_1, umap_2) is in the pickers for that hand
+       only: an embedding is not a default anyone can read a gate off. */
     let fx = "area";
     let fy = "intensity";
     let chosenByHand = false;
+    let movedToMeasured = false;
     /* The polygon being laid, in feature units, until it closes. */
     let draft = null;
     /* The vertex the hand holds mid-drag, and the one last chosen. */
@@ -256,8 +259,10 @@ export default {
     /** The pickers offer every feature the cells carry; the pair in use wins. */
     function refreshPickers() {
       const names = featureNames(theCells());
-      if (!chosenByHand && names.includes("umap_1") && names.includes("umap_2")) {
-        fx = "umap_1"; fy = "umap_2";
+      if (!chosenByHand && !movedToMeasured
+        && names.includes("eccentricity") && names.includes("intensity_mean")) {
+        fx = "eccentricity"; fy = "intensity_mean";
+        movedToMeasured = true;
       }
       for (const [sel, current] of [[pickX, fx], [pickY, fy]]) {
         sel.textContent = "";
@@ -282,20 +287,8 @@ export default {
       });
     }
 
-    /* The map is the default pair from the moment it exists, wherever the
-       operator stands when it lands; a pair chosen by hand is kept. */
-    function preferTheMap() {
-      if (chosenByHand) return;
-      const names = featureNames(theCells());
-      if (names.includes("umap_1") && names.includes("umap_2") && (fx !== "umap_1" || fy !== "umap_2")) {
-        fx = "umap_1"; fy = "umap_2";
-        if (pickX.options.length) { pickX.value = fx; pickY.value = fy; }
-      }
-    }
-
     function draw() {
       if (!ctx.sizeCanvas(cv)) return;
-      preferTheMap();
       const paint = cv.getContext("2d");
       const w = cv.cssW, h = cv.cssH;
       paint.clearRect(0, 0, w, h);

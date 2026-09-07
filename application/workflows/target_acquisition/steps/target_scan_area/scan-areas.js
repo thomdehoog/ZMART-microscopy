@@ -25,6 +25,13 @@
  * uses for a drawn tileset, and every sampled target is covered: the
  * operator bounds the work by how many targets are sampled.
  *
+ * Larger than a frame means the object itself, never the object with its
+ * margin: one frame for a thing that fits in one frame. A target that fits
+ * but whose ring would not is given the ring one frame can hold, and the
+ * plan's notes say for how many targets the margin gave and by how much.
+ * Without this, a 100 % margin rastered a 66 um label into four 128 um
+ * frames, and the operator saw four tiles round an object that fit in one.
+ *
  * Pure, so every rule is pinned without a page.
  */
 
@@ -49,12 +56,30 @@ export function objectReachUm(cell) {
   return area > 0 ? Math.sqrt(area / Math.PI) : 0;
 }
 
-/** How far a target reaches with its margin: what an area must hold whole. */
-export const reachUm = (cell, margin) => objectReachUm(cell) * (1 + margin);
+/**
+ * How far a target reaches with its margin: what an area must hold whole.
+ *
+ * Clipped to half a frame when the object itself fits one: the margin is a
+ * ring the operator would like, the frame is what there is, and a ring
+ * that does not fit is not a reason to lay a raster. An object that does
+ * not fit is stitched and keeps its whole margin across the raster.
+ */
+export function reachUm(cell, margin, frameUm) {
+  const own = objectReachUm(cell);
+  const asked = own * (1 + margin);
+  return own * 2 <= frameUm ? Math.min(asked, frameUm / 2) : asked;
+}
+
+/** The margin one frame can give a target that fits it, as a fraction of
+    its reach; the margin asked for when it fits whole. */
+export function marginGiven(cell, margin, frameUm) {
+  const own = objectReachUm(cell);
+  return own > 0 ? reachUm(cell, margin, frameUm) / own - 1 : margin;
+}
 
 /** Whether an area centred at `area` holds the target whole, margin and all. */
 export function coveredBy(cell, area, frameUm, margin) {
-  const reach = reachUm(cell, margin);
+  const reach = reachUm(cell, margin, frameUm);
   return Math.abs(cell.x - area.x) + reach <= frameUm / 2
     && Math.abs(cell.y - area.y) + reach <= frameUm / 2;
 }
@@ -66,7 +91,7 @@ export function coveredBy(cell, area, frameUm, margin) {
  * evidence from which the coverage summary is calculated.
  */
 export function coveredByTiles(cell, areas, frameUm, margin) {
-  const reach = reachUm(cell, margin);
+  const reach = reachUm(cell, margin, frameUm);
   const wanted = {
     x0: cell.x - reach, x1: cell.x + reach,
     y0: cell.y - reach, y1: cell.y + reach,
@@ -139,7 +164,7 @@ export function planScanAreas(targets, frameUm, rules = {}) {
   }
 
   const holds = (cell, area) => coveredBy(cell, area, frameUm, margin);
-  const tooBig = (cell) => reachUm(cell, margin) * 2 > frameUm;
+  const tooBig = (cell) => objectReachUm(cell) * 2 > frameUm;
   const placed = [];
   const uncovered = [];
   const notes = [];
@@ -227,6 +252,15 @@ export function planScanAreas(targets, frameUm, rules = {}) {
     tile.key = `${targetId}#${tileIndex}`;
   }
 
+  /* Targets that fit one frame but whose ring would not: how many, and the
+     smallest ring the frame left them, so the operator knows what the
+     summary's "covered" means for those. */
+  const clipped = targets.map((target) => marginGiven(target, margin, frameUm))
+    .filter((given) => given < margin - 1e-9);
+  if (clipped.length) {
+    const least = Math.round(Math.min(...clipped) * 100);
+    notes.push(`${clipped.length} target${clipped.length === 1 ? "" : "s"} fit${clipped.length === 1 ? "s" : ""} one frame only with a smaller margin (${least} % instead of ${Math.round(margin * 100)} %)`);
+  }
   if (exact.bounded) notes.push("minimum-tile search reached its limit; using the best complete cover found");
   if (uncovered.length) {
     notes.push(`${uncovered.length} targets are not covered by the placed tile geometry`);
@@ -478,7 +512,7 @@ function minimiseRepeatedGround(placed, targets, frameUm, margin) {
        footprint edge. Include those seats as well as overlap breakpoints. */
     const half = side / 2;
     for (const target of affectedTargets) {
-      const reach = reachUm(target, margin);
+      const reach = reachUm(target, margin, frameUm);
       seats.push(
         clipped(target[axis] - reach - half, lo, hi),
         clipped(target[axis] - reach + half, lo, hi),
@@ -504,7 +538,7 @@ function minimiseRepeatedGround(placed, targets, frameUm, margin) {
       };
       const neighbours = others.filter(interacts);
       const affectedTargets = mustRemainCovered.filter((target) => {
-        const reach = reachUm(target, margin);
+        const reach = reachUm(target, margin, frameUm);
         return target.x + reach >= tile.feasible.x0 - possibleHalf
           && target.x - reach <= tile.feasible.x1 + possibleHalf
           && target.y + reach >= tile.feasible.y0 - possibleHalf
@@ -554,7 +588,7 @@ function minimiseRepeatedGround(placed, targets, frameUm, margin) {
  */
 function stitchedBlocks(targets, frameUm, margin, stitching) {
   const withBox = targets.map((target) => {
-    const reach = reachUm(target, margin);
+    const reach = reachUm(target, margin, frameUm);
     return {
       target,
       reach,
@@ -637,7 +671,7 @@ function stitchedBlocks(targets, frameUm, margin, stitching) {
 function candidateAreas(targets, frameUm, margin) {
   const half = frameUm / 2;
   const ranged = targets.map((target, order) => {
-    const slack = half - reachUm(target, margin);
+    const slack = half - reachUm(target, margin, frameUm);
     return {
       target,
       order,
