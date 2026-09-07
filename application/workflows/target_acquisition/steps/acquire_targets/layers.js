@@ -49,7 +49,9 @@ export function acquiredLayers(theRun) {
            the gallery shows -- is outlined along its own frame's edge, so it
            is found among them without a mark over its pixels; the one under
            the pointer is outlined lightly, saying what a press would take. */
-        const chosen = run.selectedTarget === key;
+        /* The gallery follows the newest frame quietly as a run grows; that
+           is not a choice, and the field box already says where the run is. */
+        const chosen = run.selectedTarget === key && !run.selectedQuietly;
         const hovered = run.hoveredTarget === key && !chosen;
         if (chosen || hovered) {
           const half = acquired.frameUm / 2;

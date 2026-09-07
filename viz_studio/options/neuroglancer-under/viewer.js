@@ -683,7 +683,7 @@ async function start(own, acquisitions) {
       // acquisition per address is what produced 27 controls for a 3-channel,
       // 3-by-3 overview and is deliberately impossible here.
       source: row.sources.length === 1 ? row.sources[0] : row.sources,
-      shader: shaderFor(row.colour),
+      shader: shaderFor(row.colour, { opaque: row.opaque }),
       shaderControls: controlsFor(row),
       // How solid this layer is. The engine's own default for an image layer is
       // a half, which is right for looking through one layer at another and
@@ -1053,6 +1053,9 @@ async function rowsFor(acquisitions) {
         url: sources[0],
         sources,
         acquisition: acquisition.name,
+        /* Whether every store of this acquisition is one imaged position and
+           nothing else, so a layer may be opaque across its whole extent. */
+        opaque: acquisition.opaque === true,
         name: channel.name,
         // The engine keeps one flat list of layers and needs their names to be
         // different from one another, and two acquisitions can easily hold a
@@ -1479,7 +1482,7 @@ function standOnTheTable(own) {
  * already compiled instead of causing a fresh one to be built several times a
  * second.
  */
-function shaderFor(colour, { asAVolume = false } = {}) {
+function shaderFor(colour, { asAVolume = false, opaque = false } = {}) {
   void colour; // kept in the signature for the call sites; the colour travels
   //             as a control now, so a colour change never recompiles.
   /* The ZMART viewer's own programs, ported verbatim from its
@@ -1493,7 +1496,14 @@ function shaderFor(colour, { asAVolume = false } = {}) {
      - alpha in the flat program comes from `imaged()` — an invlerp over the
        RAW value — not from the windowed one. That difference is load-bearing:
        alpha from the windowed value punched holes wherever a pixel sat below
-       the window's floor, so raising MIN made the specimen see-through. */
+       the window's floor, so raising MIN made the specimen see-through.
+
+     `opaque` goes one step further for an acquisition whose every store is
+     one imaged position and nothing else: coverage is then the store's own
+     extent, all or nothing, and alpha is simply 1. Alpha from the raw value
+     still punched a hole wherever the detector recorded an exact zero -- a
+     few hundred pixels a tile on a dark background -- and the page's ground
+     showed through each as a white speck no window could remove. */
   if (asAVolume) {
     return (
       "#uicontrol invlerp normalized\n" +
@@ -1518,7 +1528,9 @@ function shaderFor(colour, { asAVolume = false } = {}) {
     "void main() {\n" +
     "  float v = normalized();\n" +
     "  vec3 shown = color * (v * weight);\n" +
-    "  emitRGBA(vec4(shown, imaged() > 0.0 ? 1.0 : 0.0));\n" +
+    (opaque
+      ? "  emitRGBA(vec4(shown, 1.0));\n"
+      : "  emitRGBA(vec4(shown, imaged() > 0.0 ? 1.0 : 0.0));\n") +
     "}\n"
   );
 }
@@ -2236,7 +2248,7 @@ function handleFor(own) {
         // program starts on its controls' defaults, so the row's own values
         // are restored right after it — whole, never piecewise.
         if (layer.fragmentMain) {
-          layer.fragmentMain.value = shaderFor(row.colour, { asAVolume: own.showingVolume });
+          layer.fragmentMain.value = shaderFor(row.colour, { asAVolume: own.showingVolume, opaque: row.opaque });
           layer.shaderControlState.restoreState(
             controlsFor(row, { asAVolume: own.showingVolume }),
           );

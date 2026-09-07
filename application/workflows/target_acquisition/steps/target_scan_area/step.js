@@ -135,14 +135,14 @@ export const selectionPanel = {
     simple.append(
       mainSettingsTitle,
       switched("Max targets per overview tileset", "gate-max", rules.objectsMax, { min: 1, resting: 50 }, lever("objectsMax")),
-      /* On, the placing looks for the fewest tiles that cover every
-         target, so neighbours share one. Off, every target gets a tile of
-         its own, centred on it. */
-      toggled("Minimise the number of tiles", "tiles-minimise", rules.minimise !== false, lever("minimise")),
       switched("Margin around a target (% of its size)", "tiles-margin", rules.margin,
         { min: 0, step: 10, scale: 100, resting: 100 }, lever("margin")),
       switched("Tile overlap for big targets (%)", "overlap-min", rules.overlapMin,
         { min: 0, max: 90, step: 5, scale: 100, resting: 20 }, lever("overlapMin")),
+      /* On, the placing looks for the fewest tiles that cover every
+         target, so neighbours share one. Off, every target gets a tile of
+         its own, centred on it. */
+      toggled("Minimise the number of tiles", "tiles-minimise", rules.minimise !== false, lever("minimise")),
       placeLine,
     );
     adding.body.append(simple);
