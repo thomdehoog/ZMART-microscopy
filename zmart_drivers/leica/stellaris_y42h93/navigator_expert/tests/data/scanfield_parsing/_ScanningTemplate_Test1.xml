@@ -1,0 +1,616 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScanningTemplate xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" Author="Frank Sieckmann" Company="Leica Microsystems CMS GmbH Mannheim - 01.2023" Version="4" Type="ScanningTemplate" Framework="M6" Description="This XML file contains the machine-readable data of an individually adjusted scan template (Navigator Expert, Coral Cryo">
+  <CustomerData>
+    <FileCreated>2026-02-18	20:33:59</FileCreated>
+    <FileUpdated />
+    <FileVersion>0</FileVersion>
+  </CustomerData>
+  <SystemData>
+    <Application>M6</Application>
+  </SystemData>
+  <LabBookData />
+  <ExperimentData>
+    <Experiment CanDoCAM="false" CanDoDataExporter="false" CanDoDeleteImages="false" CanDoDSM="false">
+      <ApplicationData>
+        <MatrixData>
+          <AutofocusData ZUseMode="eUseNothing" AFForecastMode="0" />
+          <CAMData IsEnabled="false" />
+          <CountOfData IsEnabled="true" SamplesX="0" SamplesY="0" SectionsX="2" SectionsY="2" RegionsX="0" RegionsY="0" ScanFieldsX="2" ScanFieldsY="2" />
+          <DriftCompensationData IsEnabled="false" RepeatLoopInterval="1" RepeatFieldInterval="1" Slices="7" ScanRange="20" Units="Microns" />
+          <WaterDispenserData IsEnabled="false" RepeatInterval="1" RepeatFieldInterval="1" PumpDelay="500" PumpTime="500" PumpFrequency="0" PumpAmplitude="0" UseWaterPumpForAFMap="0" PumpingIntervalForAFPoints="0" Units="MilliSeconds" />
+          <TrackingData IsEnabled="false" RepeatInterval="0" SmallObjectSize="0" SensitivityLevel="0" RemoveBoundaryTouchingObjects="false" RemoveSmallObjects="false" JobId="0" />
+          <TriggerData IsEnabled="false" TriggerRepeatIntervalMin="0" TriggerInSelectedIndex="0" TriggerOutSelectedIndex="0" />
+          <AutoStartAfterAFData IsEnabled="false" TimeUntilStart="10" Units="Seconds" />
+          <DelayUntilExperimentStarts IsEnabled="false" TimeUntilStart="60" Units="Seconds" />
+          <TimeLapseData IsEnabled="true" RunTime="00 days 00 hours 05 minutes" RepeatTime="00 days 00 hours 05 minutes" RepeatLoops="1" RepeatTimeDays="0" RepeatTimeHours="0" RepeatTimeMinutes="5" />
+          <DistanceData IsEnabled="true">
+            <Origin IsEnabled="true" OriginX="32700" OriginY="7700" OriginZ="0" Units="Microns" />
+            <Sample IsEnabled="false" DistanceX="0" DistanceY="0" DistanceZ="0" Units="Microns" />
+            <Section IsEnabled="true" DistanceX="0" DistanceY="0" DistanceZ="0" Units="Microns" />
+            <Region IsEnabled="false" DistanceX="0" DistanceY="0" DistanceZ="0" Units="Microns" />
+            <Field IsEnabled="true" DistanceX="1600" DistanceY="1600" DistanceZ="0" Units="Microns" />
+          </DistanceData>
+          <CarrierData IsEnabled="true" Opacity="0" SlideTypeSelected="true" DishTypeSelected="false" WellPlateTypeSelected="false" ChamberSlideTypeSelected="false" SingleGridCartridgeTypeSelected="false" AutoGridCartridgeTypeSelected="false" SelectedGlassTypeIndex="0" SelectedDishTypeIndex="0" SelectedWellplateTypeIndex="0" SelectedChamberSlideTypeIndex="0" SelectedGridTypeIndex="1" Description1="Frost" Description2="Convallaria" RotationAngle="0" Angle0Degree="true" Angle90Degree="false" Angle180Degree="false" Angle270Degree="false" />
+          <RobotData IsEnabled="false" PlateCount="1" LoadPlateTriggerOut="-1" LoadPlateTriggerIn="-1" StageLoadPositionX="0" StageLoadPositionY="0" ZWideLoadPosition="0" DoWaterPumpingAfterPlateChange="false" PumpingTimeOnPlateChange="0" WaitTimeAfterPumpingOnPlateChange="0" Units="Microns" TimeUnits="Seconds" />
+          <ObstacleData IsEnabled="false" ObstacleHeight="0" Units="Microns" />
+          <ConfocalData FieldRotation="0" />
+          <WideFieldData />
+          <NavigatorData />
+        </MatrixData>
+        <CLEMData>
+          <RareEventManager>
+            <IsMaximalEventsPerImageEnabled>false</IsMaximalEventsPerImageEnabled>
+            <IsRunTimelapseEnabled>false</IsRunTimelapseEnabled>
+            <IsAutoFocusEnabled>false</IsAutoFocusEnabled>
+            <IsAutoStartEnabled>false</IsAutoStartEnabled>
+            <IsAiviaInterfaceEnabled>false</IsAiviaInterfaceEnabled>
+            <SelectedRareEventStartType>Manually</SelectedRareEventStartType>
+            <SelectedRareEventStartTypeIndex>3</SelectedRareEventStartTypeIndex>
+            <SelectedAutoFocusJobIndex>0</SelectedAutoFocusJobIndex>
+            <DetectionLimitPerImage>1</DetectionLimitPerImage>
+            <RuntimeLoops>1</RuntimeLoops>
+            <RuntimeHours>0</RuntimeHours>
+            <RuntimeMinutes>0</RuntimeMinutes>
+            <RuntimeSeconds>0</RuntimeSeconds>
+            <RepeatTimeSeconds>30</RepeatTimeSeconds>
+            <AutoFocusRange>100</AutoFocusRange>
+            <AutoFocusSlices>11</AutoFocusSlices>
+            <AutoFocusInterval>1</AutoFocusInterval>
+            <AutoFocusRangeUnits>Microns</AutoFocusRangeUnits>
+            <AutoStartCount>5</AutoStartCount>
+            <SelectedHiResJobIndex>0</SelectedHiResJobIndex>
+            <SelectedHiResAFJobIndex>0</SelectedHiResAFJobIndex>
+            <SelectedAiviaWorkflowIndex>0</SelectedAiviaWorkflowIndex>
+            <AiviaWorkflows />
+          </RareEventManager>
+          <CamSettings />
+          <CryoPumpData />
+          <ChosenJobs>
+            <SpiralScan JobId="0" SelectedListIndex="0" />
+            <AutoFocusScan JobId="0" SelectedListIndex="0" />
+            <OverviewScan JobId="0" SelectedListIndex="0" />
+            <LamellaScan JobId="0" SelectedListIndex="0" />
+          </ChosenJobs>
+        </CLEMData>
+        <ArgusData />
+        <NavigatorData>
+          <RareEventManager>
+            <IsMaximalEventsPerImageEnabled>false</IsMaximalEventsPerImageEnabled>
+            <IsRunTimelapseEnabled>false</IsRunTimelapseEnabled>
+            <IsAutoFocusEnabled>false</IsAutoFocusEnabled>
+            <IsAutoStartEnabled>true</IsAutoStartEnabled>
+            <IsAiviaInterfaceEnabled>false</IsAiviaInterfaceEnabled>
+            <SelectedRareEventStartTypeIndex>-1</SelectedRareEventStartTypeIndex>
+            <SelectedAutoFocusJobIndex>0</SelectedAutoFocusJobIndex>
+            <DetectionLimitPerImage>1</DetectionLimitPerImage>
+            <RuntimeLoops>1</RuntimeLoops>
+            <RuntimeHours>0</RuntimeHours>
+            <RuntimeMinutes>0</RuntimeMinutes>
+            <RuntimeSeconds>0</RuntimeSeconds>
+            <RepeatTimeSeconds>30</RepeatTimeSeconds>
+            <AutoFocusRange>80</AutoFocusRange>
+            <AutoFocusSlices>25</AutoFocusSlices>
+            <AutoFocusInterval>1</AutoFocusInterval>
+            <AutoFocusRangeUnits>Microns</AutoFocusRangeUnits>
+            <AutoStartCount>5</AutoStartCount>
+            <SelectedHiResJobIndex>0</SelectedHiResJobIndex>
+            <SelectedHiResAFJobIndex>0</SelectedHiResAFJobIndex>
+            <SelectedAiviaWorkflowIndex>0</SelectedAiviaWorkflowIndex>
+            <AiviaWorkflows>
+              <AiviaWorkflow>Find Nucleus Recipe</AiviaWorkflow>
+              <AiviaWorkflow>Find Cytoskellet Recipe</AiviaWorkflow>
+              <AiviaWorkflow>Find Appotosis Recipe</AiviaWorkflow>
+              <AiviaWorkflow>Find Anaphase Recipe</AiviaWorkflow>
+            </AiviaWorkflows>
+          </RareEventManager>
+          <FirstIntervalCenterData FirstIntervalCenterRandomSelected="Interval">
+            <FirstData>
+              <DeleteCurrentAFPoints>true</DeleteCurrentAFPoints>
+            </FirstData>
+            <IntervalData>
+              <DeleteCurrentAFPoints>true</DeleteCurrentAFPoints>
+              <IsEdge>false</IsEdge>
+              <EveryFieldValue>1</EveryFieldValue>
+              <EveryColumnValue>1</EveryColumnValue>
+              <EveryRowValue>1</EveryRowValue>
+            </IntervalData>
+            <CenterData>
+              <DeleteCurrentAFPoints>true</DeleteCurrentAFPoints>
+              <RadiusInMicrons>2000</RadiusInMicrons>
+              <CountOfFocusFields>5</CountOfFocusFields>
+            </CenterData>
+            <RandomData>
+              <DeleteCurrentAFPoints>true</DeleteCurrentAFPoints>
+              <RadiusInMicrons>1000</RadiusInMicrons>
+              <CountOfRandomFields>5</CountOfRandomFields>
+            </RandomData>
+          </FirstIntervalCenterData>
+          <ArrayFilledRandom ArrayFilledRandomSelected="Array">
+            <FilledData>
+              <MosaicOverlapInPercent>5</MosaicOverlapInPercent>
+              <FillFactorInPercent>100</FillFactorInPercent>
+            </FilledData>
+            <RandomData>
+              <Number>1</Number>
+              <IsRandomSelected>true</IsRandomSelected>
+              <IsCanOverlapSelected>false</IsCanOverlapSelected>
+              <Bias>0</Bias>
+            </RandomData>
+          </ArrayFilledRandom>
+          <CamSettings />
+          <ChosenJobs>
+            <AutoFocusScan JobId="17" JobName="AF Job" SelectedListIndex="0" />
+            <OverviewScan JobId="19" JobName="Overview" SelectedListIndex="0" />
+          </ChosenJobs>
+        </NavigatorData>
+      </ApplicationData>
+      <ScanFields>
+        <ScanFieldData IsEnabled="true" UniqueID="570e2ba0-688d-4e6d-bce6-f0aac6a0a31c" ScanOrder="1" ScanRotationAngle="0">
+          <LogicalData Experiment="0" SampleX="0" SampleY="0" SectionX="0" SectionY="0" RegionX="0" RegionY="0" FieldX="0" FieldY="0" />
+          <PhysicalData XPosition="43840.023231506348" YPosition="40160.022306442261" ZPosition="-0.0035762778338764914" Units="Microns" />
+          <CanDoData AutoFocus="false" DriftCompensation="false" Tracking="false" WaterDispenser="false" Trigger="false" />
+          <ColorData IsDisabled="#A7A7A7" AutoFocus="#DC143C" Tracking="#228B22" DriftCompensation="#E9B0C1" WaterDispenser="#79A6E9" ScanField="#E9967A" FocusMap="#C4E949" />
+          <JobData>
+            <MainJobData IsEnabled="true" IsAssigned="true" JobName="?" JobId="0" ScanRange="0" Slices="0" Units="Microns" />
+            <AutoFoci>
+              <AutoFocusJobData IsEnabled="false" IsAssigned="true" JobName="AF Job" JobId="17" ScanRange="0" Slices="0" Units="Microns" />
+            </AutoFoci>
+            <DriftJobData IsEnabled="false" IsAssigned="true" JobName="AF Job" JobId="17" ScanRange="0" Slices="0" Units="Microns" />
+            <TrackingJobData IsEnabled="false" IsAssigned="false" JobId="-1" ScanRange="0" Slices="0" Units="Microns" />
+          </JobData>
+          <WaterDispenserData IsEnabled="false" RepeatInterval="0" RepeatFieldInterval="0" PumpDelay="0" PumpTime="0" PumpFrequency="0" PumpAmplitude="0" UseWaterPumpForAFMap="0" PumpingIntervalForAFPoints="0" Units="MilliSeconds" />
+        </ScanFieldData>
+        <ScanFieldData IsEnabled="true" UniqueID="2eec532d-8364-4b4a-92fe-64d776a662ec" ScanOrder="2" ScanRotationAngle="0">
+          <LogicalData Experiment="0" SampleX="0" SampleY="0" SectionX="0" SectionY="0" RegionX="0" RegionY="0" FieldX="0" FieldY="1" />
+          <PhysicalData XPosition="43840.023231506348" YPosition="41760.023736953735" ZPosition="-0.0035762778338764914" Units="Microns" />
+          <CanDoData AutoFocus="false" DriftCompensation="false" Tracking="false" WaterDispenser="false" Trigger="false" />
+          <ColorData IsDisabled="#A7A7A7" AutoFocus="#DC143C" Tracking="#228B22" DriftCompensation="#E9B0C1" WaterDispenser="#79A6E9" ScanField="#E9967A" FocusMap="#C4E949" />
+          <JobData>
+            <MainJobData IsEnabled="true" IsAssigned="true" JobName="?" JobId="0" ScanRange="0" Slices="0" Units="Microns" />
+            <AutoFoci>
+              <AutoFocusJobData IsEnabled="false" IsAssigned="true" JobName="AF Job" JobId="17" ScanRange="0" Slices="0" Units="Microns" />
+            </AutoFoci>
+            <DriftJobData IsEnabled="false" IsAssigned="true" JobName="AF Job" JobId="17" ScanRange="0" Slices="0" Units="Microns" />
+            <TrackingJobData IsEnabled="false" IsAssigned="false" JobId="-1" ScanRange="0" Slices="0" Units="Microns" />
+          </JobData>
+          <WaterDispenserData IsEnabled="false" RepeatInterval="0" RepeatFieldInterval="0" PumpDelay="0" PumpTime="0" PumpFrequency="0" PumpAmplitude="0" UseWaterPumpForAFMap="0" PumpingIntervalForAFPoints="0" Units="MilliSeconds" />
+        </ScanFieldData>
+        <ScanFieldData IsEnabled="true" UniqueID="12af126d-5724-48fb-bb3d-05bacc6c1398" ScanOrder="3" ScanRotationAngle="0">
+          <LogicalData Experiment="0" SampleX="0" SampleY="0" SectionX="0" SectionY="0" RegionX="0" RegionY="0" FieldX="1" FieldY="0" />
+          <PhysicalData XPosition="45440.023183822632" YPosition="40160.022306442261" ZPosition="-0.0035762778338764914" Units="Microns" />
+          <CanDoData AutoFocus="false" DriftCompensation="false" Tracking="false" WaterDispenser="false" Trigger="false" />
+          <ColorData IsDisabled="#A7A7A7" AutoFocus="#DC143C" Tracking="#228B22" DriftCompensation="#E9B0C1" WaterDispenser="#79A6E9" ScanField="#E9967A" FocusMap="#C4E949" />
+          <JobData>
+            <MainJobData IsEnabled="true" IsAssigned="true" JobName="?" JobId="0" ScanRange="0" Slices="0" Units="Microns" />
+            <AutoFoci>
+              <AutoFocusJobData IsEnabled="false" IsAssigned="true" JobName="AF Job" JobId="17" ScanRange="0" Slices="0" Units="Microns" />
+            </AutoFoci>
+            <DriftJobData IsEnabled="false" IsAssigned="true" JobName="AF Job" JobId="17" ScanRange="0" Slices="0" Units="Microns" />
+            <TrackingJobData IsEnabled="false" IsAssigned="false" JobId="-1" ScanRange="0" Slices="0" Units="Microns" />
+          </JobData>
+          <WaterDispenserData IsEnabled="false" RepeatInterval="0" RepeatFieldInterval="0" PumpDelay="0" PumpTime="0" PumpFrequency="0" PumpAmplitude="0" UseWaterPumpForAFMap="0" PumpingIntervalForAFPoints="0" Units="MilliSeconds" />
+        </ScanFieldData>
+        <ScanFieldData IsEnabled="true" UniqueID="d7c0191b-e92a-4efa-9b73-65dac4771e59" ScanOrder="4" ScanRotationAngle="0">
+          <LogicalData Experiment="0" SampleX="0" SampleY="0" SectionX="0" SectionY="0" RegionX="0" RegionY="0" FieldX="1" FieldY="1" />
+          <PhysicalData XPosition="45440.023183822632" YPosition="41760.023736953735" ZPosition="-0.0035762778338764914" Units="Microns" />
+          <CanDoData AutoFocus="false" DriftCompensation="false" Tracking="false" WaterDispenser="false" Trigger="false" />
+          <ColorData IsDisabled="#A7A7A7" AutoFocus="#DC143C" Tracking="#228B22" DriftCompensation="#E9B0C1" WaterDispenser="#79A6E9" ScanField="#E9967A" FocusMap="#C4E949" />
+          <JobData>
+            <MainJobData IsEnabled="true" IsAssigned="true" JobName="?" JobId="0" ScanRange="0" Slices="0" Units="Microns" />
+            <AutoFoci>
+              <AutoFocusJobData IsEnabled="false" IsAssigned="true" JobName="AF Job" JobId="17" ScanRange="0" Slices="0" Units="Microns" />
+            </AutoFoci>
+            <DriftJobData IsEnabled="false" IsAssigned="true" JobName="AF Job" JobId="17" ScanRange="0" Slices="0" Units="Microns" />
+            <TrackingJobData IsEnabled="false" IsAssigned="false" JobId="-1" ScanRange="0" Slices="0" Units="Microns" />
+          </JobData>
+          <WaterDispenserData IsEnabled="false" RepeatInterval="0" RepeatFieldInterval="0" PumpDelay="0" PumpTime="0" PumpFrequency="0" PumpAmplitude="0" UseWaterPumpForAFMap="0" PumpingIntervalForAFPoints="0" Units="MilliSeconds" />
+        </ScanFieldData>
+        <ScanFieldData IsEnabled="true" UniqueID="8573bc7e-7ff7-4eba-9dd9-e91d3b763d70" ScanOrder="5" ScanRotationAngle="0">
+          <LogicalData Experiment="0" SampleX="0" SampleY="0" SectionX="0" SectionY="1" RegionX="0" RegionY="0" FieldX="0" FieldY="0" />
+          <PhysicalData XPosition="43840.023231506348" YPosition="40160.022306442261" ZPosition="-0.0035762778338764914" Units="Microns" />
+          <CanDoData AutoFocus="false" DriftCompensation="false" Tracking="false" WaterDispenser="false" Trigger="false" />
+          <ColorData IsDisabled="#A7A7A7" AutoFocus="#DC143C" Tracking="#228B22" DriftCompensation="#E9B0C1" WaterDispenser="#79A6E9" ScanField="#E9967A" FocusMap="#C4E949" />
+          <JobData>
+            <MainJobData IsEnabled="true" IsAssigned="true" JobName="?" JobId="0" ScanRange="0" Slices="0" Units="Microns" />
+            <AutoFoci>
+              <AutoFocusJobData IsEnabled="false" IsAssigned="true" JobName="AF Job" JobId="17" ScanRange="0" Slices="0" Units="Microns" />
+            </AutoFoci>
+            <DriftJobData IsEnabled="false" IsAssigned="true" JobName="AF Job" JobId="17" ScanRange="0" Slices="0" Units="Microns" />
+            <TrackingJobData IsEnabled="false" IsAssigned="false" JobId="-1" ScanRange="0" Slices="0" Units="Microns" />
+          </JobData>
+          <WaterDispenserData IsEnabled="false" RepeatInterval="0" RepeatFieldInterval="0" PumpDelay="0" PumpTime="0" PumpFrequency="0" PumpAmplitude="0" UseWaterPumpForAFMap="0" PumpingIntervalForAFPoints="0" Units="MilliSeconds" />
+        </ScanFieldData>
+        <ScanFieldData IsEnabled="true" UniqueID="56ade248-f726-473b-9e38-7c1755d50fbc" ScanOrder="6" ScanRotationAngle="0">
+          <LogicalData Experiment="0" SampleX="0" SampleY="0" SectionX="0" SectionY="1" RegionX="0" RegionY="0" FieldX="0" FieldY="1" />
+          <PhysicalData XPosition="43840.023231506348" YPosition="41760.023736953735" ZPosition="-0.0035762778338764914" Units="Microns" />
+          <CanDoData AutoFocus="false" DriftCompensation="false" Tracking="false" WaterDispenser="false" Trigger="false" />
+          <ColorData IsDisabled="#A7A7A7" AutoFocus="#DC143C" Tracking="#228B22" DriftCompensation="#E9B0C1" WaterDispenser="#79A6E9" ScanField="#E9967A" FocusMap="#C4E949" />
+          <JobData>
+            <MainJobData IsEnabled="true" IsAssigned="true" JobName="?" JobId="0" ScanRange="0" Slices="0" Units="Microns" />
+            <AutoFoci>
+              <AutoFocusJobData IsEnabled="false" IsAssigned="true" JobName="AF Job" JobId="17" ScanRange="0" Slices="0" Units="Microns" />
+            </AutoFoci>
+            <DriftJobData IsEnabled="false" IsAssigned="true" JobName="AF Job" JobId="17" ScanRange="0" Slices="0" Units="Microns" />
+            <TrackingJobData IsEnabled="false" IsAssigned="false" JobId="-1" ScanRange="0" Slices="0" Units="Microns" />
+          </JobData>
+          <WaterDispenserData IsEnabled="false" RepeatInterval="0" RepeatFieldInterval="0" PumpDelay="0" PumpTime="0" PumpFrequency="0" PumpAmplitude="0" UseWaterPumpForAFMap="0" PumpingIntervalForAFPoints="0" Units="MilliSeconds" />
+        </ScanFieldData>
+        <ScanFieldData IsEnabled="true" UniqueID="57d9d548-42a6-4601-9e33-b87bf97ebaef" ScanOrder="7" ScanRotationAngle="0">
+          <LogicalData Experiment="0" SampleX="0" SampleY="0" SectionX="0" SectionY="1" RegionX="0" RegionY="0" FieldX="1" FieldY="0" />
+          <PhysicalData XPosition="45440.023183822632" YPosition="40160.022306442261" ZPosition="-0.0035762778338764914" Units="Microns" />
+          <CanDoData AutoFocus="false" DriftCompensation="false" Tracking="false" WaterDispenser="false" Trigger="false" />
+          <ColorData IsDisabled="#A7A7A7" AutoFocus="#DC143C" Tracking="#228B22" DriftCompensation="#E9B0C1" WaterDispenser="#79A6E9" ScanField="#E9967A" FocusMap="#C4E949" />
+          <JobData>
+            <MainJobData IsEnabled="true" IsAssigned="true" JobName="?" JobId="0" ScanRange="0" Slices="0" Units="Microns" />
+            <AutoFoci>
+              <AutoFocusJobData IsEnabled="false" IsAssigned="true" JobName="AF Job" JobId="17" ScanRange="0" Slices="0" Units="Microns" />
+            </AutoFoci>
+            <DriftJobData IsEnabled="false" IsAssigned="true" JobName="AF Job" JobId="17" ScanRange="0" Slices="0" Units="Microns" />
+            <TrackingJobData IsEnabled="false" IsAssigned="false" JobId="-1" ScanRange="0" Slices="0" Units="Microns" />
+          </JobData>
+          <WaterDispenserData IsEnabled="false" RepeatInterval="0" RepeatFieldInterval="0" PumpDelay="0" PumpTime="0" PumpFrequency="0" PumpAmplitude="0" UseWaterPumpForAFMap="0" PumpingIntervalForAFPoints="0" Units="MilliSeconds" />
+        </ScanFieldData>
+        <ScanFieldData IsEnabled="true" UniqueID="18eb5c1e-a1a7-4376-aeee-c1aa67dc484e" ScanOrder="8" ScanRotationAngle="0">
+          <LogicalData Experiment="0" SampleX="0" SampleY="0" SectionX="0" SectionY="1" RegionX="0" RegionY="0" FieldX="1" FieldY="1" />
+          <PhysicalData XPosition="45440.023183822632" YPosition="41760.023736953735" ZPosition="-0.0035762778338764914" Units="Microns" />
+          <CanDoData AutoFocus="false" DriftCompensation="false" Tracking="false" WaterDispenser="false" Trigger="false" />
+          <ColorData IsDisabled="#A7A7A7" AutoFocus="#DC143C" Tracking="#228B22" DriftCompensation="#E9B0C1" WaterDispenser="#79A6E9" ScanField="#E9967A" FocusMap="#C4E949" />
+          <JobData>
+            <MainJobData IsEnabled="true" IsAssigned="true" JobName="?" JobId="0" ScanRange="0" Slices="0" Units="Microns" />
+            <AutoFoci>
+              <AutoFocusJobData IsEnabled="false" IsAssigned="true" JobName="AF Job" JobId="17" ScanRange="0" Slices="0" Units="Microns" />
+            </AutoFoci>
+            <DriftJobData IsEnabled="false" IsAssigned="true" JobName="AF Job" JobId="17" ScanRange="0" Slices="0" Units="Microns" />
+            <TrackingJobData IsEnabled="false" IsAssigned="false" JobId="-1" ScanRange="0" Slices="0" Units="Microns" />
+          </JobData>
+          <WaterDispenserData IsEnabled="false" RepeatInterval="0" RepeatFieldInterval="0" PumpDelay="0" PumpTime="0" PumpFrequency="0" PumpAmplitude="0" UseWaterPumpForAFMap="0" PumpingIntervalForAFPoints="0" Units="MilliSeconds" />
+        </ScanFieldData>
+        <ScanFieldData IsEnabled="true" UniqueID="38b3f77c-f032-423d-b026-11a1df3f1ff8" ScanOrder="9" ScanRotationAngle="0">
+          <LogicalData Experiment="0" SampleX="0" SampleY="0" SectionX="1" SectionY="0" RegionX="0" RegionY="0" FieldX="0" FieldY="0" />
+          <PhysicalData XPosition="43840.023231506348" YPosition="40160.022306442261" ZPosition="-0.0035762778338764914" Units="Microns" />
+          <CanDoData AutoFocus="false" DriftCompensation="false" Tracking="false" WaterDispenser="false" Trigger="false" />
+          <ColorData IsDisabled="#A7A7A7" AutoFocus="#DC143C" Tracking="#228B22" DriftCompensation="#E9B0C1" WaterDispenser="#79A6E9" ScanField="#E9967A" FocusMap="#C4E949" />
+          <JobData>
+            <MainJobData IsEnabled="true" IsAssigned="true" JobName="?" JobId="0" ScanRange="0" Slices="0" Units="Microns" />
+            <AutoFoci>
+              <AutoFocusJobData IsEnabled="false" IsAssigned="true" JobName="AF Job" JobId="17" ScanRange="0" Slices="0" Units="Microns" />
+            </AutoFoci>
+            <DriftJobData IsEnabled="false" IsAssigned="true" JobName="AF Job" JobId="17" ScanRange="0" Slices="0" Units="Microns" />
+            <TrackingJobData IsEnabled="false" IsAssigned="false" JobId="-1" ScanRange="0" Slices="0" Units="Microns" />
+          </JobData>
+          <WaterDispenserData IsEnabled="false" RepeatInterval="0" RepeatFieldInterval="0" PumpDelay="0" PumpTime="0" PumpFrequency="0" PumpAmplitude="0" UseWaterPumpForAFMap="0" PumpingIntervalForAFPoints="0" Units="MilliSeconds" />
+        </ScanFieldData>
+        <ScanFieldData IsEnabled="true" UniqueID="a553c737-c99e-4175-ae4a-34f7f80cab3c" ScanOrder="10" ScanRotationAngle="0">
+          <LogicalData Experiment="0" SampleX="0" SampleY="0" SectionX="1" SectionY="0" RegionX="0" RegionY="0" FieldX="0" FieldY="1" />
+          <PhysicalData XPosition="43840.023231506348" YPosition="41760.023736953735" ZPosition="-0.0035762778338764914" Units="Microns" />
+          <CanDoData AutoFocus="false" DriftCompensation="false" Tracking="false" WaterDispenser="false" Trigger="false" />
+          <ColorData IsDisabled="#A7A7A7" AutoFocus="#DC143C" Tracking="#228B22" DriftCompensation="#E9B0C1" WaterDispenser="#79A6E9" ScanField="#E9967A" FocusMap="#C4E949" />
+          <JobData>
+            <MainJobData IsEnabled="true" IsAssigned="true" JobName="?" JobId="0" ScanRange="0" Slices="0" Units="Microns" />
+            <AutoFoci>
+              <AutoFocusJobData IsEnabled="false" IsAssigned="true" JobName="AF Job" JobId="17" ScanRange="0" Slices="0" Units="Microns" />
+            </AutoFoci>
+            <DriftJobData IsEnabled="false" IsAssigned="true" JobName="AF Job" JobId="17" ScanRange="0" Slices="0" Units="Microns" />
+            <TrackingJobData IsEnabled="false" IsAssigned="false" JobId="-1" ScanRange="0" Slices="0" Units="Microns" />
+          </JobData>
+          <WaterDispenserData IsEnabled="false" RepeatInterval="0" RepeatFieldInterval="0" PumpDelay="0" PumpTime="0" PumpFrequency="0" PumpAmplitude="0" UseWaterPumpForAFMap="0" PumpingIntervalForAFPoints="0" Units="MilliSeconds" />
+        </ScanFieldData>
+        <ScanFieldData IsEnabled="true" UniqueID="70bd35fa-0afe-4e2d-bcfc-810faaf45980" ScanOrder="11" ScanRotationAngle="0">
+          <LogicalData Experiment="0" SampleX="0" SampleY="0" SectionX="1" SectionY="0" RegionX="0" RegionY="0" FieldX="1" FieldY="0" />
+          <PhysicalData XPosition="45440.023183822632" YPosition="40160.022306442261" ZPosition="-0.0035762778338764914" Units="Microns" />
+          <CanDoData AutoFocus="false" DriftCompensation="false" Tracking="false" WaterDispenser="false" Trigger="false" />
+          <ColorData IsDisabled="#A7A7A7" AutoFocus="#DC143C" Tracking="#228B22" DriftCompensation="#E9B0C1" WaterDispenser="#79A6E9" ScanField="#E9967A" FocusMap="#C4E949" />
+          <JobData>
+            <MainJobData IsEnabled="true" IsAssigned="true" JobName="?" JobId="0" ScanRange="0" Slices="0" Units="Microns" />
+            <AutoFoci>
+              <AutoFocusJobData IsEnabled="false" IsAssigned="true" JobName="AF Job" JobId="17" ScanRange="0" Slices="0" Units="Microns" />
+            </AutoFoci>
+            <DriftJobData IsEnabled="false" IsAssigned="true" JobName="AF Job" JobId="17" ScanRange="0" Slices="0" Units="Microns" />
+            <TrackingJobData IsEnabled="false" IsAssigned="false" JobId="-1" ScanRange="0" Slices="0" Units="Microns" />
+          </JobData>
+          <WaterDispenserData IsEnabled="false" RepeatInterval="0" RepeatFieldInterval="0" PumpDelay="0" PumpTime="0" PumpFrequency="0" PumpAmplitude="0" UseWaterPumpForAFMap="0" PumpingIntervalForAFPoints="0" Units="MilliSeconds" />
+        </ScanFieldData>
+        <ScanFieldData IsEnabled="true" UniqueID="11a8deae-c6b4-4e88-b8cf-bee6085e276b" ScanOrder="12" ScanRotationAngle="0">
+          <LogicalData Experiment="0" SampleX="0" SampleY="0" SectionX="1" SectionY="0" RegionX="0" RegionY="0" FieldX="1" FieldY="1" />
+          <PhysicalData XPosition="45440.023183822632" YPosition="41760.023736953735" ZPosition="-0.0035762778338764914" Units="Microns" />
+          <CanDoData AutoFocus="false" DriftCompensation="false" Tracking="false" WaterDispenser="false" Trigger="false" />
+          <ColorData IsDisabled="#A7A7A7" AutoFocus="#DC143C" Tracking="#228B22" DriftCompensation="#E9B0C1" WaterDispenser="#79A6E9" ScanField="#E9967A" FocusMap="#C4E949" />
+          <JobData>
+            <MainJobData IsEnabled="true" IsAssigned="true" JobName="?" JobId="0" ScanRange="0" Slices="0" Units="Microns" />
+            <AutoFoci>
+              <AutoFocusJobData IsEnabled="false" IsAssigned="true" JobName="AF Job" JobId="17" ScanRange="0" Slices="0" Units="Microns" />
+            </AutoFoci>
+            <DriftJobData IsEnabled="false" IsAssigned="true" JobName="AF Job" JobId="17" ScanRange="0" Slices="0" Units="Microns" />
+            <TrackingJobData IsEnabled="false" IsAssigned="false" JobId="-1" ScanRange="0" Slices="0" Units="Microns" />
+          </JobData>
+          <WaterDispenserData IsEnabled="false" RepeatInterval="0" RepeatFieldInterval="0" PumpDelay="0" PumpTime="0" PumpFrequency="0" PumpAmplitude="0" UseWaterPumpForAFMap="0" PumpingIntervalForAFPoints="0" Units="MilliSeconds" />
+        </ScanFieldData>
+        <ScanFieldData IsEnabled="true" UniqueID="504be981-f432-4699-aa79-18c3e05642eb" ScanOrder="13" ScanRotationAngle="0">
+          <LogicalData Experiment="0" SampleX="0" SampleY="0" SectionX="1" SectionY="1" RegionX="0" RegionY="0" FieldX="0" FieldY="0" />
+          <PhysicalData XPosition="43840.023231506348" YPosition="40160.022306442261" ZPosition="-0.0035762778338764914" Units="Microns" />
+          <CanDoData AutoFocus="false" DriftCompensation="false" Tracking="false" WaterDispenser="false" Trigger="false" />
+          <ColorData IsDisabled="#A7A7A7" AutoFocus="#DC143C" Tracking="#228B22" DriftCompensation="#E9B0C1" WaterDispenser="#79A6E9" ScanField="#E9967A" FocusMap="#C4E949" />
+          <JobData>
+            <MainJobData IsEnabled="true" IsAssigned="true" JobName="?" JobId="0" ScanRange="0" Slices="0" Units="Microns" />
+            <AutoFoci>
+              <AutoFocusJobData IsEnabled="false" IsAssigned="true" JobName="AF Job" JobId="17" ScanRange="0" Slices="0" Units="Microns" />
+            </AutoFoci>
+            <DriftJobData IsEnabled="false" IsAssigned="true" JobName="AF Job" JobId="17" ScanRange="0" Slices="0" Units="Microns" />
+            <TrackingJobData IsEnabled="false" IsAssigned="false" JobId="-1" ScanRange="0" Slices="0" Units="Microns" />
+          </JobData>
+          <WaterDispenserData IsEnabled="false" RepeatInterval="0" RepeatFieldInterval="0" PumpDelay="0" PumpTime="0" PumpFrequency="0" PumpAmplitude="0" UseWaterPumpForAFMap="0" PumpingIntervalForAFPoints="0" Units="MilliSeconds" />
+        </ScanFieldData>
+        <ScanFieldData IsEnabled="true" UniqueID="04f7e796-16a8-4e1b-a303-5b3af821780e" ScanOrder="14" ScanRotationAngle="0">
+          <LogicalData Experiment="0" SampleX="0" SampleY="0" SectionX="1" SectionY="1" RegionX="0" RegionY="0" FieldX="0" FieldY="1" />
+          <PhysicalData XPosition="43840.023231506348" YPosition="41760.023736953735" ZPosition="-0.0035762778338764914" Units="Microns" />
+          <CanDoData AutoFocus="false" DriftCompensation="false" Tracking="false" WaterDispenser="false" Trigger="false" />
+          <ColorData IsDisabled="#A7A7A7" AutoFocus="#DC143C" Tracking="#228B22" DriftCompensation="#E9B0C1" WaterDispenser="#79A6E9" ScanField="#E9967A" FocusMap="#C4E949" />
+          <JobData>
+            <MainJobData IsEnabled="true" IsAssigned="true" JobName="?" JobId="0" ScanRange="0" Slices="0" Units="Microns" />
+            <AutoFoci>
+              <AutoFocusJobData IsEnabled="false" IsAssigned="true" JobName="AF Job" JobId="17" ScanRange="0" Slices="0" Units="Microns" />
+            </AutoFoci>
+            <DriftJobData IsEnabled="false" IsAssigned="true" JobName="AF Job" JobId="17" ScanRange="0" Slices="0" Units="Microns" />
+            <TrackingJobData IsEnabled="false" IsAssigned="false" JobId="-1" ScanRange="0" Slices="0" Units="Microns" />
+          </JobData>
+          <WaterDispenserData IsEnabled="false" RepeatInterval="0" RepeatFieldInterval="0" PumpDelay="0" PumpTime="0" PumpFrequency="0" PumpAmplitude="0" UseWaterPumpForAFMap="0" PumpingIntervalForAFPoints="0" Units="MilliSeconds" />
+        </ScanFieldData>
+        <ScanFieldData IsEnabled="true" UniqueID="e3e0b89d-3be7-48e7-9de5-84c128010b6d" ScanOrder="15" ScanRotationAngle="0">
+          <LogicalData Experiment="0" SampleX="0" SampleY="0" SectionX="1" SectionY="1" RegionX="0" RegionY="0" FieldX="1" FieldY="0" />
+          <PhysicalData XPosition="45440.023183822632" YPosition="40160.022306442261" ZPosition="-0.0035762778338764914" Units="Microns" />
+          <CanDoData AutoFocus="false" DriftCompensation="false" Tracking="false" WaterDispenser="false" Trigger="false" />
+          <ColorData IsDisabled="#A7A7A7" AutoFocus="#DC143C" Tracking="#228B22" DriftCompensation="#E9B0C1" WaterDispenser="#79A6E9" ScanField="#E9967A" FocusMap="#C4E949" />
+          <JobData>
+            <MainJobData IsEnabled="true" IsAssigned="true" JobName="?" JobId="0" ScanRange="0" Slices="0" Units="Microns" />
+            <AutoFoci>
+              <AutoFocusJobData IsEnabled="false" IsAssigned="true" JobName="AF Job" JobId="17" ScanRange="0" Slices="0" Units="Microns" />
+            </AutoFoci>
+            <DriftJobData IsEnabled="false" IsAssigned="true" JobName="AF Job" JobId="17" ScanRange="0" Slices="0" Units="Microns" />
+            <TrackingJobData IsEnabled="false" IsAssigned="false" JobId="-1" ScanRange="0" Slices="0" Units="Microns" />
+          </JobData>
+          <WaterDispenserData IsEnabled="false" RepeatInterval="0" RepeatFieldInterval="0" PumpDelay="0" PumpTime="0" PumpFrequency="0" PumpAmplitude="0" UseWaterPumpForAFMap="0" PumpingIntervalForAFPoints="0" Units="MilliSeconds" />
+        </ScanFieldData>
+        <ScanFieldData IsEnabled="true" UniqueID="16c44135-4fa3-491b-b185-d0b1c6e40fb1" ScanOrder="16" ScanRotationAngle="0">
+          <LogicalData Experiment="0" SampleX="0" SampleY="0" SectionX="1" SectionY="1" RegionX="0" RegionY="0" FieldX="1" FieldY="1" />
+          <PhysicalData XPosition="45440.023183822632" YPosition="41760.023736953735" ZPosition="-0.0035762778338764914" Units="Microns" />
+          <CanDoData AutoFocus="false" DriftCompensation="false" Tracking="false" WaterDispenser="false" Trigger="false" />
+          <ColorData IsDisabled="#A7A7A7" AutoFocus="#DC143C" Tracking="#228B22" DriftCompensation="#E9B0C1" WaterDispenser="#79A6E9" ScanField="#E9967A" FocusMap="#C4E949" />
+          <JobData>
+            <MainJobData IsEnabled="true" IsAssigned="true" JobName="?" JobId="0" ScanRange="0" Slices="0" Units="Microns" />
+            <AutoFoci>
+              <AutoFocusJobData IsEnabled="false" IsAssigned="true" JobName="AF Job" JobId="17" ScanRange="0" Slices="0" Units="Microns" />
+            </AutoFoci>
+            <DriftJobData IsEnabled="false" IsAssigned="true" JobName="AF Job" JobId="17" ScanRange="0" Slices="0" Units="Microns" />
+            <TrackingJobData IsEnabled="false" IsAssigned="false" JobId="-1" ScanRange="0" Slices="0" Units="Microns" />
+          </JobData>
+          <WaterDispenserData IsEnabled="false" RepeatInterval="0" RepeatFieldInterval="0" PumpDelay="0" PumpTime="0" PumpFrequency="0" PumpAmplitude="0" UseWaterPumpForAFMap="0" PumpingIntervalForAFPoints="0" Units="MilliSeconds" />
+        </ScanFieldData>
+        <ScanFieldData IsEnabled="true" UniqueID="71d9328e-ccde-4804-00ac-d989b5a0255e" ScanOrder="17" ScanRotationAngle="0">
+          <LogicalData Experiment="0" SampleX="0" SampleY="0" SectionX="26" SectionY="0" RegionX="0" RegionY="0" FieldX="0" FieldY="0" />
+          <PhysicalData XPosition="73772.26016998291" YPosition="40825.599203109741" ZPosition="-0.0035762778338764914" Units="Microns" />
+          <CanDoData AutoFocus="false" DriftCompensation="false" Tracking="false" WaterDispenser="false" Trigger="false" />
+          <ColorData IsDisabled="#A7A7A7" AutoFocus="#DC143C" Tracking="#228B22" DriftCompensation="#E9B0C1" WaterDispenser="#79A6E9" ScanField="#E9967A" FocusMap="#C4E949" />
+          <JobData>
+            <MainJobData IsEnabled="true" IsAssigned="true" JobName="Overview" JobId="19" ScanRange="0" Slices="0" Units="Microns" />
+            <AutoFoci>
+              <AutoFocusJobData IsEnabled="false" IsAssigned="true" JobName="AF Job" JobId="17" ScanRange="0" Slices="0" Units="Microns" />
+            </AutoFoci>
+            <DriftJobData IsEnabled="false" IsAssigned="true" JobName="AF Job" JobId="17" ScanRange="0" Slices="0" Units="Microns" />
+            <TrackingJobData IsEnabled="false" IsAssigned="false" JobId="-1" ScanRange="0" Slices="0" Units="Microns" />
+          </JobData>
+          <WaterDispenserData IsEnabled="false" RepeatInterval="0" RepeatFieldInterval="0" PumpDelay="0" PumpTime="0" PumpFrequency="0" PumpAmplitude="0" UseWaterPumpForAFMap="0" PumpingIntervalForAFPoints="0" Units="MilliSeconds" />
+        </ScanFieldData>
+        <ScanFieldData IsEnabled="true" UniqueID="71d9328e-ccde-4804-00ac-d989b5a0255e" ScanOrder="18" ScanRotationAngle="0">
+          <LogicalData Experiment="0" SampleX="0" SampleY="0" SectionX="26" SectionY="0" RegionX="0" RegionY="0" FieldX="0" FieldY="1" />
+          <PhysicalData XPosition="73772.26016998291" YPosition="42220.599203109741" ZPosition="-0.0035762778338764914" Units="Microns" />
+          <CanDoData AutoFocus="false" DriftCompensation="false" Tracking="false" WaterDispenser="false" Trigger="false" />
+          <ColorData IsDisabled="#A7A7A7" AutoFocus="#DC143C" Tracking="#228B22" DriftCompensation="#E9B0C1" WaterDispenser="#79A6E9" ScanField="#E9967A" FocusMap="#C4E949" />
+          <JobData>
+            <MainJobData IsEnabled="true" IsAssigned="true" JobName="Overview" JobId="19" ScanRange="0" Slices="0" Units="Microns" />
+            <AutoFoci>
+              <AutoFocusJobData IsEnabled="false" IsAssigned="true" JobName="AF Job" JobId="17" ScanRange="0" Slices="0" Units="Microns" />
+            </AutoFoci>
+            <DriftJobData IsEnabled="false" IsAssigned="true" JobName="AF Job" JobId="17" ScanRange="0" Slices="0" Units="Microns" />
+            <TrackingJobData IsEnabled="false" IsAssigned="false" JobId="-1" ScanRange="0" Slices="0" Units="Microns" />
+          </JobData>
+          <WaterDispenserData IsEnabled="false" RepeatInterval="0" RepeatFieldInterval="0" PumpDelay="0" PumpTime="0" PumpFrequency="0" PumpAmplitude="0" UseWaterPumpForAFMap="0" PumpingIntervalForAFPoints="0" Units="MilliSeconds" />
+        </ScanFieldData>
+        <ScanFieldData IsEnabled="true" UniqueID="71d9328e-ccde-4804-00ac-d989b5a0255e" ScanOrder="19" ScanRotationAngle="0">
+          <LogicalData Experiment="0" SampleX="0" SampleY="0" SectionX="26" SectionY="0" RegionX="0" RegionY="0" FieldX="0" FieldY="2" />
+          <PhysicalData XPosition="73772.26016998291" YPosition="43615.599203109741" ZPosition="-0.0035762778338764914" Units="Microns" />
+          <CanDoData AutoFocus="false" DriftCompensation="false" Tracking="false" WaterDispenser="false" Trigger="false" />
+          <ColorData IsDisabled="#A7A7A7" AutoFocus="#DC143C" Tracking="#228B22" DriftCompensation="#E9B0C1" WaterDispenser="#79A6E9" ScanField="#E9967A" FocusMap="#C4E949" />
+          <JobData>
+            <MainJobData IsEnabled="true" IsAssigned="true" JobName="Overview" JobId="19" ScanRange="0" Slices="0" Units="Microns" />
+            <AutoFoci>
+              <AutoFocusJobData IsEnabled="false" IsAssigned="true" JobName="AF Job" JobId="17" ScanRange="0" Slices="0" Units="Microns" />
+            </AutoFoci>
+            <DriftJobData IsEnabled="false" IsAssigned="true" JobName="AF Job" JobId="17" ScanRange="0" Slices="0" Units="Microns" />
+            <TrackingJobData IsEnabled="false" IsAssigned="false" JobId="-1" ScanRange="0" Slices="0" Units="Microns" />
+          </JobData>
+          <WaterDispenserData IsEnabled="false" RepeatInterval="0" RepeatFieldInterval="0" PumpDelay="0" PumpTime="0" PumpFrequency="0" PumpAmplitude="0" UseWaterPumpForAFMap="0" PumpingIntervalForAFPoints="0" Units="MilliSeconds" />
+        </ScanFieldData>
+        <ScanFieldData IsEnabled="true" UniqueID="71d9328e-ccde-4804-00ac-d989b5a0255e" ScanOrder="20" ScanRotationAngle="0">
+          <LogicalData Experiment="0" SampleX="0" SampleY="0" SectionX="26" SectionY="0" RegionX="0" RegionY="0" FieldX="0" FieldY="3" />
+          <PhysicalData XPosition="73772.26016998291" YPosition="45010.599203109741" ZPosition="-0.0035762778338764914" Units="Microns" />
+          <CanDoData AutoFocus="false" DriftCompensation="false" Tracking="false" WaterDispenser="false" Trigger="false" />
+          <ColorData IsDisabled="#A7A7A7" AutoFocus="#DC143C" Tracking="#228B22" DriftCompensation="#E9B0C1" WaterDispenser="#79A6E9" ScanField="#E9967A" FocusMap="#C4E949" />
+          <JobData>
+            <MainJobData IsEnabled="true" IsAssigned="true" JobName="Overview" JobId="19" ScanRange="0" Slices="0" Units="Microns" />
+            <AutoFoci>
+              <AutoFocusJobData IsEnabled="false" IsAssigned="true" JobName="AF Job" JobId="17" ScanRange="0" Slices="0" Units="Microns" />
+            </AutoFoci>
+            <DriftJobData IsEnabled="false" IsAssigned="true" JobName="AF Job" JobId="17" ScanRange="0" Slices="0" Units="Microns" />
+            <TrackingJobData IsEnabled="false" IsAssigned="false" JobId="-1" ScanRange="0" Slices="0" Units="Microns" />
+          </JobData>
+          <WaterDispenserData IsEnabled="false" RepeatInterval="0" RepeatFieldInterval="0" PumpDelay="0" PumpTime="0" PumpFrequency="0" PumpAmplitude="0" UseWaterPumpForAFMap="0" PumpingIntervalForAFPoints="0" Units="MilliSeconds" />
+        </ScanFieldData>
+        <ScanFieldData IsEnabled="true" UniqueID="71d9328e-ccde-4804-00ac-d989b5a0255e" ScanOrder="21" ScanRotationAngle="0">
+          <LogicalData Experiment="0" SampleX="0" SampleY="0" SectionX="26" SectionY="0" RegionX="0" RegionY="0" FieldX="0" FieldY="4" />
+          <PhysicalData XPosition="73772.26016998291" YPosition="46405.599203109741" ZPosition="-0.0035762778338764914" Units="Microns" />
+          <CanDoData AutoFocus="false" DriftCompensation="false" Tracking="false" WaterDispenser="false" Trigger="false" />
+          <ColorData IsDisabled="#A7A7A7" AutoFocus="#DC143C" Tracking="#228B22" DriftCompensation="#E9B0C1" WaterDispenser="#79A6E9" ScanField="#E9967A" FocusMap="#C4E949" />
+          <JobData>
+            <MainJobData IsEnabled="true" IsAssigned="true" JobName="Overview" JobId="19" ScanRange="0" Slices="0" Units="Microns" />
+            <AutoFoci>
+              <AutoFocusJobData IsEnabled="false" IsAssigned="true" JobName="AF Job" JobId="17" ScanRange="0" Slices="0" Units="Microns" />
+            </AutoFoci>
+            <DriftJobData IsEnabled="false" IsAssigned="true" JobName="AF Job" JobId="17" ScanRange="0" Slices="0" Units="Microns" />
+            <TrackingJobData IsEnabled="false" IsAssigned="false" JobId="-1" ScanRange="0" Slices="0" Units="Microns" />
+          </JobData>
+          <WaterDispenserData IsEnabled="false" RepeatInterval="0" RepeatFieldInterval="0" PumpDelay="0" PumpTime="0" PumpFrequency="0" PumpAmplitude="0" UseWaterPumpForAFMap="0" PumpingIntervalForAFPoints="0" Units="MilliSeconds" />
+        </ScanFieldData>
+        <ScanFieldData IsEnabled="true" UniqueID="71d9328e-ccde-4804-00ac-d989b5a0255e" ScanOrder="22" ScanRotationAngle="0">
+          <LogicalData Experiment="0" SampleX="0" SampleY="0" SectionX="26" SectionY="0" RegionX="0" RegionY="0" FieldX="1" FieldY="0" />
+          <PhysicalData XPosition="75167.2601699829" YPosition="40825.599203109741" ZPosition="-0.0035762778338764914" Units="Microns" />
+          <CanDoData AutoFocus="false" DriftCompensation="false" Tracking="false" WaterDispenser="false" Trigger="false" />
+          <ColorData IsDisabled="#A7A7A7" AutoFocus="#DC143C" Tracking="#228B22" DriftCompensation="#E9B0C1" WaterDispenser="#79A6E9" ScanField="#E9967A" FocusMap="#C4E949" />
+          <JobData>
+            <MainJobData IsEnabled="true" IsAssigned="true" JobName="Overview" JobId="19" ScanRange="0" Slices="0" Units="Microns" />
+            <AutoFoci>
+              <AutoFocusJobData IsEnabled="false" IsAssigned="true" JobName="AF Job" JobId="17" ScanRange="0" Slices="0" Units="Microns" />
+            </AutoFoci>
+            <DriftJobData IsEnabled="false" IsAssigned="true" JobName="AF Job" JobId="17" ScanRange="0" Slices="0" Units="Microns" />
+            <TrackingJobData IsEnabled="false" IsAssigned="false" JobId="-1" ScanRange="0" Slices="0" Units="Microns" />
+          </JobData>
+          <WaterDispenserData IsEnabled="false" RepeatInterval="0" RepeatFieldInterval="0" PumpDelay="0" PumpTime="0" PumpFrequency="0" PumpAmplitude="0" UseWaterPumpForAFMap="0" PumpingIntervalForAFPoints="0" Units="MilliSeconds" />
+        </ScanFieldData>
+        <ScanFieldData IsEnabled="true" UniqueID="71d9328e-ccde-4804-00ac-d989b5a0255e" ScanOrder="23" ScanRotationAngle="0">
+          <LogicalData Experiment="0" SampleX="0" SampleY="0" SectionX="26" SectionY="0" RegionX="0" RegionY="0" FieldX="1" FieldY="1" />
+          <PhysicalData XPosition="75167.2601699829" YPosition="42220.599203109741" ZPosition="-0.0035762778338764914" Units="Microns" />
+          <CanDoData AutoFocus="false" DriftCompensation="false" Tracking="false" WaterDispenser="false" Trigger="false" />
+          <ColorData IsDisabled="#A7A7A7" AutoFocus="#DC143C" Tracking="#228B22" DriftCompensation="#E9B0C1" WaterDispenser="#79A6E9" ScanField="#E9967A" FocusMap="#C4E949" />
+          <JobData>
+            <MainJobData IsEnabled="true" IsAssigned="true" JobName="Overview" JobId="19" ScanRange="0" Slices="0" Units="Microns" />
+            <AutoFoci>
+              <AutoFocusJobData IsEnabled="false" IsAssigned="true" JobName="AF Job" JobId="17" ScanRange="0" Slices="0" Units="Microns" />
+            </AutoFoci>
+            <DriftJobData IsEnabled="false" IsAssigned="true" JobName="AF Job" JobId="17" ScanRange="0" Slices="0" Units="Microns" />
+            <TrackingJobData IsEnabled="false" IsAssigned="false" JobId="-1" ScanRange="0" Slices="0" Units="Microns" />
+          </JobData>
+          <WaterDispenserData IsEnabled="false" RepeatInterval="0" RepeatFieldInterval="0" PumpDelay="0" PumpTime="0" PumpFrequency="0" PumpAmplitude="0" UseWaterPumpForAFMap="0" PumpingIntervalForAFPoints="0" Units="MilliSeconds" />
+        </ScanFieldData>
+        <ScanFieldData IsEnabled="true" UniqueID="71d9328e-ccde-4804-00ac-d989b5a0255e" ScanOrder="24" ScanRotationAngle="0">
+          <LogicalData Experiment="0" SampleX="0" SampleY="0" SectionX="26" SectionY="0" RegionX="0" RegionY="0" FieldX="1" FieldY="2" />
+          <PhysicalData XPosition="75167.2601699829" YPosition="43615.599203109741" ZPosition="-0.0035762778338764914" Units="Microns" />
+          <CanDoData AutoFocus="false" DriftCompensation="false" Tracking="false" WaterDispenser="false" Trigger="false" />
+          <ColorData IsDisabled="#A7A7A7" AutoFocus="#DC143C" Tracking="#228B22" DriftCompensation="#E9B0C1" WaterDispenser="#79A6E9" ScanField="#E9967A" FocusMap="#C4E949" />
+          <JobData>
+            <MainJobData IsEnabled="true" IsAssigned="true" JobName="Overview" JobId="19" ScanRange="0" Slices="0" Units="Microns" />
+            <AutoFoci>
+              <AutoFocusJobData IsEnabled="false" IsAssigned="true" JobName="AF Job" JobId="17" ScanRange="0" Slices="0" Units="Microns" />
+            </AutoFoci>
+            <DriftJobData IsEnabled="false" IsAssigned="true" JobName="AF Job" JobId="17" ScanRange="0" Slices="0" Units="Microns" />
+            <TrackingJobData IsEnabled="false" IsAssigned="false" JobId="-1" ScanRange="0" Slices="0" Units="Microns" />
+          </JobData>
+          <WaterDispenserData IsEnabled="false" RepeatInterval="0" RepeatFieldInterval="0" PumpDelay="0" PumpTime="0" PumpFrequency="0" PumpAmplitude="0" UseWaterPumpForAFMap="0" PumpingIntervalForAFPoints="0" Units="MilliSeconds" />
+        </ScanFieldData>
+        <ScanFieldData IsEnabled="true" UniqueID="71d9328e-ccde-4804-00ac-d989b5a0255e" ScanOrder="25" ScanRotationAngle="0">
+          <LogicalData Experiment="0" SampleX="0" SampleY="0" SectionX="26" SectionY="0" RegionX="0" RegionY="0" FieldX="1" FieldY="3" />
+          <PhysicalData XPosition="75167.2601699829" YPosition="45010.599203109741" ZPosition="-0.0035762778338764914" Units="Microns" />
+          <CanDoData AutoFocus="false" DriftCompensation="false" Tracking="false" WaterDispenser="false" Trigger="false" />
+          <ColorData IsDisabled="#A7A7A7" AutoFocus="#DC143C" Tracking="#228B22" DriftCompensation="#E9B0C1" WaterDispenser="#79A6E9" ScanField="#E9967A" FocusMap="#C4E949" />
+          <JobData>
+            <MainJobData IsEnabled="true" IsAssigned="true" JobName="Overview" JobId="19" ScanRange="0" Slices="0" Units="Microns" />
+            <AutoFoci>
+              <AutoFocusJobData IsEnabled="false" IsAssigned="true" JobName="AF Job" JobId="17" ScanRange="0" Slices="0" Units="Microns" />
+            </AutoFoci>
+            <DriftJobData IsEnabled="false" IsAssigned="true" JobName="AF Job" JobId="17" ScanRange="0" Slices="0" Units="Microns" />
+            <TrackingJobData IsEnabled="false" IsAssigned="false" JobId="-1" ScanRange="0" Slices="0" Units="Microns" />
+          </JobData>
+          <WaterDispenserData IsEnabled="false" RepeatInterval="0" RepeatFieldInterval="0" PumpDelay="0" PumpTime="0" PumpFrequency="0" PumpAmplitude="0" UseWaterPumpForAFMap="0" PumpingIntervalForAFPoints="0" Units="MilliSeconds" />
+        </ScanFieldData>
+        <ScanFieldData IsEnabled="true" UniqueID="71d9328e-ccde-4804-00ac-d989b5a0255e" ScanOrder="26" ScanRotationAngle="0">
+          <LogicalData Experiment="0" SampleX="0" SampleY="0" SectionX="26" SectionY="0" RegionX="0" RegionY="0" FieldX="1" FieldY="4" />
+          <PhysicalData XPosition="75167.2601699829" YPosition="46405.599203109741" ZPosition="-0.0035762778338764914" Units="Microns" />
+          <CanDoData AutoFocus="false" DriftCompensation="false" Tracking="false" WaterDispenser="false" Trigger="false" />
+          <ColorData IsDisabled="#A7A7A7" AutoFocus="#DC143C" Tracking="#228B22" DriftCompensation="#E9B0C1" WaterDispenser="#79A6E9" ScanField="#E9967A" FocusMap="#C4E949" />
+          <JobData>
+            <MainJobData IsEnabled="true" IsAssigned="true" JobName="Overview" JobId="19" ScanRange="0" Slices="0" Units="Microns" />
+            <AutoFoci>
+              <AutoFocusJobData IsEnabled="false" IsAssigned="true" JobName="AF Job" JobId="17" ScanRange="0" Slices="0" Units="Microns" />
+            </AutoFoci>
+            <DriftJobData IsEnabled="false" IsAssigned="true" JobName="AF Job" JobId="17" ScanRange="0" Slices="0" Units="Microns" />
+            <TrackingJobData IsEnabled="false" IsAssigned="false" JobId="-1" ScanRange="0" Slices="0" Units="Microns" />
+          </JobData>
+          <WaterDispenserData IsEnabled="false" RepeatInterval="0" RepeatFieldInterval="0" PumpDelay="0" PumpTime="0" PumpFrequency="0" PumpAmplitude="0" UseWaterPumpForAFMap="0" PumpingIntervalForAFPoints="0" Units="MilliSeconds" />
+        </ScanFieldData>
+        <ScanFieldData IsEnabled="true" UniqueID="71d9328e-ccde-4804-00ac-d989b5a0255e" ScanOrder="27" ScanRotationAngle="0">
+          <LogicalData Experiment="0" SampleX="0" SampleY="0" SectionX="26" SectionY="0" RegionX="0" RegionY="0" FieldX="2" FieldY="0" />
+          <PhysicalData XPosition="76562.26016998291" YPosition="40825.599203109741" ZPosition="-0.0035762778338764914" Units="Microns" />
+          <CanDoData AutoFocus="false" DriftCompensation="false" Tracking="false" WaterDispenser="false" Trigger="false" />
+          <ColorData IsDisabled="#A7A7A7" AutoFocus="#DC143C" Tracking="#228B22" DriftCompensation="#E9B0C1" WaterDispenser="#79A6E9" ScanField="#E9967A" FocusMap="#C4E949" />
+          <JobData>
+            <MainJobData IsEnabled="true" IsAssigned="true" JobName="Overview" JobId="19" ScanRange="0" Slices="0" Units="Microns" />
+            <AutoFoci>
+              <AutoFocusJobData IsEnabled="false" IsAssigned="true" JobName="AF Job" JobId="17" ScanRange="0" Slices="0" Units="Microns" />
+            </AutoFoci>
+            <DriftJobData IsEnabled="false" IsAssigned="true" JobName="AF Job" JobId="17" ScanRange="0" Slices="0" Units="Microns" />
+            <TrackingJobData IsEnabled="false" IsAssigned="false" JobId="-1" ScanRange="0" Slices="0" Units="Microns" />
+          </JobData>
+          <WaterDispenserData IsEnabled="false" RepeatInterval="0" RepeatFieldInterval="0" PumpDelay="0" PumpTime="0" PumpFrequency="0" PumpAmplitude="0" UseWaterPumpForAFMap="0" PumpingIntervalForAFPoints="0" Units="MilliSeconds" />
+        </ScanFieldData>
+        <ScanFieldData IsEnabled="true" UniqueID="71d9328e-ccde-4804-00ac-d989b5a0255e" ScanOrder="28" ScanRotationAngle="0">
+          <LogicalData Experiment="0" SampleX="0" SampleY="0" SectionX="26" SectionY="0" RegionX="0" RegionY="0" FieldX="2" FieldY="1" />
+          <PhysicalData XPosition="76562.26016998291" YPosition="42220.599203109741" ZPosition="-0.0035762778338764914" Units="Microns" />
+          <CanDoData AutoFocus="false" DriftCompensation="false" Tracking="false" WaterDispenser="false" Trigger="false" />
+          <ColorData IsDisabled="#A7A7A7" AutoFocus="#DC143C" Tracking="#228B22" DriftCompensation="#E9B0C1" WaterDispenser="#79A6E9" ScanField="#E9967A" FocusMap="#C4E949" />
+          <JobData>
+            <MainJobData IsEnabled="true" IsAssigned="true" JobName="Overview" JobId="19" ScanRange="0" Slices="0" Units="Microns" />
+            <AutoFoci>
+              <AutoFocusJobData IsEnabled="false" IsAssigned="true" JobName="AF Job" JobId="17" ScanRange="0" Slices="0" Units="Microns" />
+            </AutoFoci>
+            <DriftJobData IsEnabled="false" IsAssigned="true" JobName="AF Job" JobId="17" ScanRange="0" Slices="0" Units="Microns" />
+            <TrackingJobData IsEnabled="false" IsAssigned="false" JobId="-1" ScanRange="0" Slices="0" Units="Microns" />
+          </JobData>
+          <WaterDispenserData IsEnabled="false" RepeatInterval="0" RepeatFieldInterval="0" PumpDelay="0" PumpTime="0" PumpFrequency="0" PumpAmplitude="0" UseWaterPumpForAFMap="0" PumpingIntervalForAFPoints="0" Units="MilliSeconds" />
+        </ScanFieldData>
+        <ScanFieldData IsEnabled="true" UniqueID="71d9328e-ccde-4804-00ac-d989b5a0255e" ScanOrder="29" ScanRotationAngle="0">
+          <LogicalData Experiment="0" SampleX="0" SampleY="0" SectionX="26" SectionY="0" RegionX="0" RegionY="0" FieldX="2" FieldY="2" />
+          <PhysicalData XPosition="76562.26016998291" YPosition="43615.599203109741" ZPosition="-0.0035762778338764914" Units="Microns" />
+          <CanDoData AutoFocus="false" DriftCompensation="false" Tracking="false" WaterDispenser="false" Trigger="false" />
+          <ColorData IsDisabled="#A7A7A7" AutoFocus="#DC143C" Tracking="#228B22" DriftCompensation="#E9B0C1" WaterDispenser="#79A6E9" ScanField="#E9967A" FocusMap="#C4E949" />
+          <JobData>
+            <MainJobData IsEnabled="true" IsAssigned="true" JobName="Overview" JobId="19" ScanRange="0" Slices="0" Units="Microns" />
+            <AutoFoci>
+              <AutoFocusJobData IsEnabled="false" IsAssigned="true" JobName="AF Job" JobId="17" ScanRange="0" Slices="0" Units="Microns" />
+            </AutoFoci>
+            <DriftJobData IsEnabled="false" IsAssigned="true" JobName="AF Job" JobId="17" ScanRange="0" Slices="0" Units="Microns" />
+            <TrackingJobData IsEnabled="false" IsAssigned="false" JobId="-1" ScanRange="0" Slices="0" Units="Microns" />
+          </JobData>
+          <WaterDispenserData IsEnabled="false" RepeatInterval="0" RepeatFieldInterval="0" PumpDelay="0" PumpTime="0" PumpFrequency="0" PumpAmplitude="0" UseWaterPumpForAFMap="0" PumpingIntervalForAFPoints="0" Units="MilliSeconds" />
+        </ScanFieldData>
+        <ScanFieldData IsEnabled="true" UniqueID="71d9328e-ccde-4804-00ac-d989b5a0255e" ScanOrder="30" ScanRotationAngle="0">
+          <LogicalData Experiment="0" SampleX="0" SampleY="0" SectionX="26" SectionY="0" RegionX="0" RegionY="0" FieldX="2" FieldY="3" />
+          <PhysicalData XPosition="76562.26016998291" YPosition="45010.599203109741" ZPosition="-0.0035762778338764914" Units="Microns" />
+          <CanDoData AutoFocus="false" DriftCompensation="false" Tracking="false" WaterDispenser="false" Trigger="false" />
+          <ColorData IsDisabled="#A7A7A7" AutoFocus="#DC143C" Tracking="#228B22" DriftCompensation="#E9B0C1" WaterDispenser="#79A6E9" ScanField="#E9967A" FocusMap="#C4E949" />
+          <JobData>
+            <MainJobData IsEnabled="true" IsAssigned="true" JobName="Overview" JobId="19" ScanRange="0" Slices="0" Units="Microns" />
+            <AutoFoci>
+              <AutoFocusJobData IsEnabled="false" IsAssigned="true" JobName="AF Job" JobId="17" ScanRange="0" Slices="0" Units="Microns" />
+            </AutoFoci>
+            <DriftJobData IsEnabled="false" IsAssigned="true" JobName="AF Job" JobId="17" ScanRange="0" Slices="0" Units="Microns" />
+            <TrackingJobData IsEnabled="false" IsAssigned="false" JobId="-1" ScanRange="0" Slices="0" Units="Microns" />
+          </JobData>
+          <WaterDispenserData IsEnabled="false" RepeatInterval="0" RepeatFieldInterval="0" PumpDelay="0" PumpTime="0" PumpFrequency="0" PumpAmplitude="0" UseWaterPumpForAFMap="0" PumpingIntervalForAFPoints="0" Units="MilliSeconds" />
+        </ScanFieldData>
+        <ScanFieldData IsEnabled="true" UniqueID="71d9328e-ccde-4804-00ac-d989b5a0255e" ScanOrder="31" ScanRotationAngle="0">
+          <LogicalData Experiment="0" SampleX="0" SampleY="0" SectionX="26" SectionY="0" RegionX="0" RegionY="0" FieldX="2" FieldY="4" />
+          <PhysicalData XPosition="76562.26016998291" YPosition="46405.599203109741" ZPosition="-0.0035762778338764914" Units="Microns" />
+          <CanDoData AutoFocus="false" DriftCompensation="false" Tracking="false" WaterDispenser="false" Trigger="false" />
+          <ColorData IsDisabled="#A7A7A7" AutoFocus="#DC143C" Tracking="#228B22" DriftCompensation="#E9B0C1" WaterDispenser="#79A6E9" ScanField="#E9967A" FocusMap="#C4E949" />
+          <JobData>
+            <MainJobData IsEnabled="true" IsAssigned="true" JobName="Overview" JobId="19" ScanRange="0" Slices="0" Units="Microns" />
+            <AutoFoci>
+              <AutoFocusJobData IsEnabled="false" IsAssigned="true" JobName="AF Job" JobId="17" ScanRange="0" Slices="0" Units="Microns" />
+            </AutoFoci>
+            <DriftJobData IsEnabled="false" IsAssigned="true" JobName="AF Job" JobId="17" ScanRange="0" Slices="0" Units="Microns" />
+            <TrackingJobData IsEnabled="false" IsAssigned="false" JobId="-1" ScanRange="0" Slices="0" Units="Microns" />
+          </JobData>
+          <WaterDispenserData IsEnabled="false" RepeatInterval="0" RepeatFieldInterval="0" PumpDelay="0" PumpTime="0" PumpFrequency="0" PumpAmplitude="0" UseWaterPumpForAFMap="0" PumpingIntervalForAFPoints="0" Units="MilliSeconds" />
+        </ScanFieldData>
+      </ScanFields>
+    </Experiment>
+  </ExperimentData>
+</ScanningTemplate>

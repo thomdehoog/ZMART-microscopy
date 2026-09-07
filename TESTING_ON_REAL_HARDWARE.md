@@ -11,8 +11,12 @@ its own, so it is tested there. That is what this branch is arranged for.
 
 ## Where to start
 
-Check out **`claude/one-checkout`**. It holds the viewer, the writer and the
-operator page in one tree, with one copy of each drawing engine.
+Check out **`claude/smart-operator-workflow-review-ehw3c5`**. It holds the
+viewer, the writer, the operator page and the Leica driver in one tree, with
+one copy of each drawing engine, and it is where every later change has been
+merged (the driver configuration workflow, the canvas row, the Z and T sliders,
+the table depth alignment). The older `claude/one-checkout` is entirely
+contained in it.
 
 ### 1. Start the operator page
 
@@ -233,7 +237,8 @@ about that page from before then rested on its unit tests alone.
 
 | branch | what it is |
 | --- | --- |
-| **`claude/one-checkout`** | **Use this.** Viewer, writer and operator page together. |
+| **`claude/smart-operator-workflow-review-ehw3c5`** | **Use this.** Viewer, writer, operator page and Leica driver together, with everything merged since. |
+| `claude/one-checkout` | The first one-tree checkout. Entirely contained in the above. |
 | `claude/viewer-only` | What the viewer looked like before the merge. Kept as a fallback. |
 | `claude/viewer-as-a-workflow` | The operator page before the merge. Kept as a fallback. |
 | `claude/live-tiles-mvp` | Entirely contained in the above. Safe to close. |
