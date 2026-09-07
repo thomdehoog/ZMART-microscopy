@@ -2066,6 +2066,13 @@ canvas.livecv[hidden] { display: none; }
 }
 .acquisition-press:hover { border-color: var(--accent); color: var(--accent); }
 .acquisition-press > svg { display: block; flex: none; }
+/* The name stands in a box of the chip's height and is centred in it: a
+   bare run of text is centred on its line box, whose middle sits above
+   the letters' middle, so the word read a pixel or two low beside the
+   glyphs. */
+.acquisition-press > #acquisition-name {
+  display: inline-flex; align-items: center; height: 18px; padding-bottom: 1px;
+}
 /* The ramp chip: the lookup-table bar a microscopist knows, in a small
    bordered box. Pressed means grey, and the glyph says which: a rainbow
    ramp in colour, a black-to-white ramp in grey, each with a hairline so
