@@ -120,7 +120,7 @@ export default {
     progress.doing.id = "acquire-doing";
     progress.count.id = "acquire-count";
 
-    const listBox = sideGroup("Acquired target tiles");
+    const listBox = sideGroup("Target list");
     /* The list, in the focus step's own clothes: a row a target, the chosen
        one lit, the box capped and scrolling past its few rows. */
     const list = document.createElement("div");
@@ -131,7 +131,7 @@ export default {
     listBox.body.append(list);
 
     /* The one pair on show: the chosen target's. */
-    const pairBox = sideGroup("Overview crop · target frame");
+    const pairBox = sideGroup("Overview / Target scan");
     const pair = document.createElement("div");
     pair.className = "pairs";
     pair.id = "pairs";

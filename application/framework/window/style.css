@@ -523,6 +523,10 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
   /* three rows on screen; the rest scroll under them */
   max-height: 88px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);
 }
+/* The target list is longer: five rows on screen. An operator checks the
+   acquired tiles against each other, and three at a time hid the ones a
+   comparison was about. */
+.side-group-body > #target-list { max-height: 147px; }
 
 /* The focus box on one grid. Three rows of controls under a word apiece,
    and every row breaks on the same three columns: the two count-and-press
