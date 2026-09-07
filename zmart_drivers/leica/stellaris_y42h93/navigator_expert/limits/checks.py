@@ -47,17 +47,17 @@ from typing import Any
 # (micrometers, [min, max] per axis). The bundled X/Y defaults deliberately
 # start at 1000 um as a conservative safety margin; that margin is not the
 # physical coordinate floor, so operator-measured limits may extend below
-# it, down to coordinate zero. The z-wide maximum of 8000 um is the
-# MEASURED travel of this stage (operator-confirmed at the rig,
-# 2026-07-19). The X/Y upper bounds and the z-galvo range remain the
-# historical ZMB STELLARIS 5 (serial y42h93) envelope until someone
-# verifies different travel on the rig.
+# it, down to coordinate zero. The z-galvo range of +-750 um and the z-wide
+# maximum of 8000 um are the MEASURED travel of this stage (operator-confirmed
+# at the rig, 2026-07-19 and 2026-09-07). The X/Y upper bounds remain the
+# historical ZMB STELLARIS 5 (serial y42h93) envelope until someone verifies
+# different travel on the rig.
 # NEVER widen these without measured rig data; narrowing is always safe.
 # ---------------------------------------------------------------------------
 STAGE_BACKSTOP_UM = {
     "x": (0.0, 130000.0),
     "y": (0.0, 100000.0),
-    "z_galvo": (-250.0, 250.0),
+    "z_galvo": (-750.0, 750.0),
     "z_wide": (0.0, 8000.0),
 }
 

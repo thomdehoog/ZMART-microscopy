@@ -992,7 +992,7 @@ def test_containment_checker_accepts_the_template_and_narrower():
         motion_limits.check_envelope_within_backstop(dict(DEFAULT_STAGE_UM, y=[-1.0, 90000.0]))
     with pytest.raises(RuntimeError, match="backstop"):
         motion_limits.check_envelope_within_backstop(
-            dict(DEFAULT_STAGE_UM, z_galvo=[-251.0, 250.0])
+            dict(DEFAULT_STAGE_UM, z_galvo=[-751.0, 750.0])
         )
 
 
