@@ -27,8 +27,11 @@ import time
 from pathlib import Path
 from typing import Any
 
-#: Where the workflows live. A pipeline is named after its workflow and found
-#: at ``<name>/pipelines/<name>.yaml``, so naming one is all a caller does.
+#: Where the workflows live. A pipeline is named after its YAML and found at
+#: ``<workflow>/pipelines/<name>.yaml`` under whichever workflow has it, so
+#: naming one is all a caller does. A workflow's main pipeline carries the
+#: workflow's own name; its variants carry that name and a suffix
+#: (``object_analysis_fast``).
 WORKFLOWS = Path(__file__).resolve().parents[3] / "zmart_analysis" / "workflows"
 
 #: How often to look for a finished job. The engine has no blocking read.
@@ -36,8 +39,11 @@ _LOOK_EVERY_S = 0.05
 
 
 def pipeline_yaml(name: str) -> Path:
-    """Where a pipeline's YAML is, by the name of its workflow."""
-    return WORKFLOWS / name / "pipelines" / f"{name}.yaml"
+    """Where a pipeline's YAML is, by its name, under whichever workflow has it."""
+    found = sorted(WORKFLOWS.glob(f"*/pipelines/{name}.yaml"))
+    if not found:
+        raise FileNotFoundError(f"no workflow under {WORKFLOWS} has a pipeline {name!r}")
+    return found[0]
 
 
 class Analysis:
@@ -66,7 +72,13 @@ class Analysis:
             # loading, a big frame pays its own size. A worker that has
             # genuinely wedged is reached by the operator's hand instead:
             # :meth:`shutdown` puts it down, and nothing else may.
-            self._engine = Engine(execution_timeout=None)
+            #
+            # And the workers stay for the session. The engine's other
+            # default reaps one idle for 300 s, so a press six minutes after
+            # the last paid every spawn and import again -- six seconds on
+            # a desk PC, a silent minute on the rig -- which is the one cost
+            # this module exists to pay once.
+            self._engine = Engine(execution_timeout=None, idle_timeout=None)
         return self._engine
 
     def run(self, pipeline: str, given: dict) -> dict:

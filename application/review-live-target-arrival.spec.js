@@ -1006,8 +1006,8 @@ test("Steps 1 to 8 through the operator page on the real bridge, Viewer 0.2 and 
 
     /* ---------------------------------------------------------- Step 6 */
     await gotoStep(page, "Detect objects");
-    /* The review runs Cellpose, the accurate way; the page opens on the fast one. */
-    await page.selectOption("#detect-method", "accurate");
+    /* The review runs Cellpose, the robust way; the page opens on the fast one. */
+    await page.selectOption("#detect-method", "robust");
     await expect(page.locator("#tile-label")).toHaveText("1 / 9");
     /* A tile test stopped by hand first: the press that started it reads
        Interrupt, the bridge puts the field's worker down, the readout says
@@ -1463,8 +1463,8 @@ test("Step 8 interruption: an acquisition stopped by hand accounts for exactly w
     /* Steps 6 and 7 the short way: the whole population discovered, one
        gate, a ceiling high enough that the run outlasts the operator's hand. */
     await gotoStep(page, "Detect objects");
-    /* The review runs Cellpose, the accurate way; the page opens on the fast one. */
-    await page.selectOption("#detect-method", "accurate");
+    /* The review runs Cellpose, the robust way; the page opens on the fast one. */
+    await page.selectOption("#detect-method", "robust");
     await page.locator(".panel.on button.step-run").click();
     await expect(page.locator(".panel.on button.step-run")).toHaveText("Run again", { timeout: 1_500_000 });
     const discovery = await bridgeJson(page, port, "/api/targets/discover");

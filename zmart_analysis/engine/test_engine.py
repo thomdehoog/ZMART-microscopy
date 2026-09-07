@@ -270,6 +270,17 @@ class TestPhases(unittest.TestCase):
         self.assertEqual(len(phases), 1)
         self.assertEqual(phases[0].scope, "region")
 
+    def test_a_pipeline_may_place_a_step_in_another_environment(self):
+        """``environment`` on a YAML step is the engine's, not the step's params."""
+        steps = [{"step": {"environment": "other-env", "sigma": 1.0}}]
+        phases = split_phases(steps)
+        self.assertEqual(phases[0].steps[0].environment, "other-env")
+        self.assertEqual(phases[0].steps[0].params, {"sigma": 1.0})
+
+    def test_a_step_without_the_key_runs_where_its_file_says(self):
+        phases = split_phases([{"step": {"sigma": 1.0}}])
+        self.assertIsNone(phases[0].steps[0].environment)
+
 
 # ---- Worker (protocol) -----------------------------------------------
 
@@ -637,6 +648,28 @@ class TestPool(unittest.TestCase):
         self.assertEqual(len(env_pool._idle), 0)
         pool.shutdown_all()
 
+    def test_no_idle_timeout_means_never_reaped(self):
+        """``idle_timeout=None`` keeps a worker for as long as the pool lives.
+
+        The operator page holds one engine for the session and its workers'
+        imports are the cost it exists to avoid paying twice; a press five
+        minutes after the last one found them reaped and paid it again.
+        """
+        from engine._pool import WorkerPool
+        from engine._worker import Worker
+        path = _temp_step("def run(pd, state, **p): return pd")
+        pool = WorkerPool(idle_timeout=None)
+        pool.execute(None, path, {}, {}, timeout=10)
+
+        env_pool = pool._env_pools[None]
+        time.sleep(0.3)
+        env_pool.reap_idle()
+        self.assertEqual(len(env_pool._idle), 1)
+        self.assertFalse(env_pool._idle[0].is_idle(now=time.monotonic() + 1e9))
+        pool.shutdown_all()
+
+        self.assertFalse(Worker(idle_timeout=None).is_idle())
+
     def test_semaphore_limits_concurrency(self):
         """max_workers=1 serializes execution of the same step."""
         from engine._pool import WorkerPool
@@ -757,6 +790,30 @@ class TestEngineRegister(unittest.TestCase):
             # Exactly one registration wins; every other thread sees ValueError.
             self.assertEqual(sum(errors), 7)
             self.assertIn("dup", e._pipelines)
+
+    def test_the_yaml_environment_overrides_the_step_files(self):
+        """A step file names the environment it usually runs in; a pipeline
+        may put it elsewhere. The file here pins an environment that does
+        not exist, and only the YAML's word for the orchestrator's own gets
+        it to run at all."""
+        _temp_step("""
+            import sys
+            METADATA = {"environment": "no-such-env"}
+            def run(pd, state, **p):
+                pd["executable"] = sys.executable
+                return pd
+        """, name="reg_env_override")
+        from engine import Engine
+        with Engine() as e:
+            yaml = _temp_yaml(
+                "wf:\n  - reg_env_override:\n"
+                f"      environment: {e._default_env}"
+            )
+            e.register("test", yaml)
+            self.assertIsNone(e._pipelines["test"].step_settings["reg_env_override"]["environment"])
+            e.submit("test", {})
+            results = _wait_for_results(e, "test", 1, timeout=30)
+        self.assertEqual(results[0]["executable"], sys.executable)
 
 
 # ---- Engine (submit) -------------------------------------------------

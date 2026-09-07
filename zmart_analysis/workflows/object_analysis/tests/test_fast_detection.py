@@ -1,6 +1,6 @@
 """The fast detector: QuPath's watershed, held to a field whose nuclei are known.
 
-Cellpose is the accurate way and a minute a field; this is the way that
+Cellpose is the robust way and a minute a field; this is the way that
 answers in a second. The test lays nuclei down itself -- bright discs of a
 known size on a sloped, noisy background, some touching -- so the count it
 expects is not a guess, and checks that the two methods are told apart by
@@ -63,10 +63,10 @@ def test_a_threshold_above_the_nuclei_finds_nothing():
 
 def test_the_two_methods_have_different_identities():
     given = {"diameter": 30, "channels": [0]}
-    accurate = segmentation_params(given, {"method": "accurate"})
+    robust = segmentation_params(given, {"method": "robust"})
     fast = segmentation_params(given, {"method": "fast", "threshold": 100})
-    assert accurate["method"] == "accurate" and fast["method"] == "fast"
+    assert robust["method"] == "robust" and fast["method"] == "fast"
     assert fast["threshold"] == 100.0
-    assert segmentation_params_hash(accurate) != segmentation_params_hash(fast)
-    # The default, when the pipeline says nothing, is the accurate one.
-    assert segmentation_params(given, {})["method"] == "accurate"
+    assert segmentation_params_hash(robust) != segmentation_params_hash(fast)
+    # The default, when the pipeline says nothing, is the robust one.
+    assert segmentation_params(given, {})["method"] == "robust"

@@ -75,12 +75,35 @@ export const selectionPanel = {
       return line;
     };
     const lever = (key) => (v) => { ctx.setRule(key, v); ctx.changed?.(); };
-    /* A switch with no number: on or off is the whole setting. */
-    const toggled = (text, id, on, take) => {
-      const box = document.createElement("input");
-      box.type = "checkbox"; box.id = id; box.checked = on;
-      box.addEventListener("change", () => take(box.checked));
-      return checked(text, box);
+    /* A choice between two ways, drawn as the page draws every such choice:
+       a segmented strip, the chosen side in accent, on the controls column
+       where the numbers above it stand. Exactly one side is chosen. */
+    const chosen = (text, id, sides, which, take) => {
+      const line = document.createElement("div");
+      line.className = "gate-draw";
+      const label = document.createElement("label");
+      label.textContent = text;
+      const strip = document.createElement("div");
+      strip.className = "seg"; strip.id = id;
+      strip.setAttribute("role", "radiogroup");
+      strip.setAttribute("aria-label", text);
+      const buttons = sides.map(([value, words]) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.setAttribute("role", "radio");
+        button.textContent = words;
+        button.addEventListener("click", () => {
+          for (const [other, side] of buttons) side.setAttribute("aria-checked", String(other === value));
+          take(value);
+        });
+        return [value, button];
+      });
+      for (const [value, button] of buttons) {
+        button.setAttribute("aria-checked", String(value === which));
+        strip.append(button);
+      }
+      line.append(label, strip);
+      return line;
     };
 
     /* The step's own press, at the end of the simple box. */
@@ -127,10 +150,11 @@ export const selectionPanel = {
         { min: 0, step: 10, scale: 100, resting: 100 }, lever("margin")),
       switched("Tile overlap for big targets (%)", "overlap-min", rules.overlapMin,
         { min: 0, max: 90, step: 5, scale: 100, resting: 20 }, lever("overlapMin")),
-      /* On, the placing looks for the fewest tiles that cover every
-         target, so neighbours share one. Off, every target gets a tile of
-         its own, centred on it. */
-      toggled("Minimise the number of tiles", "tiles-minimise", rules.minimise !== false, lever("minimise")),
+      /* Fewest: the placing looks for the fewest tiles that cover every
+         sampled target, so neighbours share one. One per target: every
+         target gets a tile of its own, centred on it. */
+      chosen("Number of tiles", "tiles-count", [[true, "Fewest"], [false, "One per target"]],
+        rules.minimise !== false, lever("minimise")),
       placeLine,
     );
     adding.body.append(simple);
