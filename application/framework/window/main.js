@@ -762,8 +762,9 @@ let stageWatch = null;
           if (state.running !== s.id) return;
           state.tilesShown = done;
           status.say(`scanning field ${done} of ${state.plan.length}`);
-          /* The lit frame follows the scan, as it follows the segmentation. */
-          state.detect.tile = Math.max(0, done - 1);
+          /* The lit frame follows the scan, as it follows the segmentation:
+             on the field being taken now, not the one just finished. */
+          state.detect.tile = Math.min(done, state.plan.length - 1);
           /* The mark keeps up with the stage field by field, not every few
              seconds. */
           stageWatch?.refresh();
@@ -788,11 +789,8 @@ let stageWatch = null;
         (outcome?.records ?? []).forEach((r, i) => {
           if (r?.position_label) state.fieldLabels[i] = r.position_label;
         });
-        /* Detection starts at the first field. During the scan the current
-           field follows the stage, but carrying the last scan position into
-           Step 6 opened its test picker at 9 / 9 and made the first field look
-           as though it had disappeared. */
-        state.detect.tile = 0;
+        /* The lit frame stays on the field the scan ended on, where the
+           stage is; detection's test picker opens there too. */
         return outcome?.stopped
           ? stoppedShort(`stopped by hand — ${scanNote()}`)
           : finish();
@@ -919,7 +917,9 @@ let stageWatch = null;
           const positionIndex = tile.positionIndex ?? state.targetTiles.indexOf(tile);
           state.acquiredTiles[id] = {
             x: tile.x, y: tile.y,
-            frameUm: tile.frameUm ?? state.targetFrameUm,
+            /* As wide as the capture actually is, once the record says; the
+               recording's promise stands in only until it does. */
+            frameUm: records[i]?.frame_um ?? tile.frameUm ?? state.targetFrameUm,
             label: records[i]?.position_label,
             positionIndex,
             tile: { ...tile, positionIndex },
@@ -1448,8 +1448,10 @@ let stageWatch = null;
       tileByKey: (key) => state.acquiredTiles[key]?.tile,
       cellById: (id) => state.cells.get(id),
       /* Both halves wear the target display settings and cover the exact
-         acquired frame. That makes their colours, intensity windows and
-         physical scale directly comparable despite different resolutions. */
+         acquired frame, so the physical scale is directly comparable. Each
+         is shown under its own acquisition's window: the two were exposed
+         differently, and the overview crop under the targets' window came
+         out black. */
       fieldOf: (tile, cell) => {
         const frame = state.acquiredTiles[tile.key];
         return {
@@ -1457,9 +1459,7 @@ let stageWatch = null;
           cropX: frame?.x ?? cell.x,
           cropY: frame?.y ?? cell.y,
           cropFrameUm: frame?.frameUm ?? state.targetFrameUm,
-          picture: pictureOf("overview", state.fieldLabels[cell.field], {
-            displayAs: "targets", requireDisplay: true,
-          }),
+          picture: pictureOf("overview", state.fieldLabels[cell.field], { requireDisplay: true }),
         };
       },
       pictureOf: (id) => pictureOf(
@@ -1479,6 +1479,7 @@ let stageWatch = null;
   function selectTarget(id, { quietly = false } = {}) {
     if (state.selectedTarget === id) return;
     state.selectedTarget = id;
+    state.selectedQuietly = quietly;
     if (!quietly) galleryPanel?.chosen();
     /* The chosen frame is raised above its neighbours in the picture, where
        frames overlap: the backend writes it on top and the picture follows. */
@@ -2569,6 +2570,9 @@ let stageWatch = null;
     /* The chosen acquired tile key, so a test can press on the picture and
        see the choice land. */
     selectedTarget: state.selectedTarget ?? null,
+    /* Whether that choice was the gallery's own, following the newest frame
+       as a run grows, rather than the operator's. */
+    selectedQuietly: state.selectedQuietly === true,
     acquiredTileKeys: [...state.acquired],
     restricted: [...state.restricted],
     targetTiles: state.targetTiles.length,
