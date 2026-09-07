@@ -254,6 +254,12 @@ def setup_workflow_env(
         "-n",
         env_name,
         f"python={args.python}",
+        # conda-forge and nothing else: without a channel named here conda
+        # falls back to `defaults`, whose terms of service the lab does not
+        # accept, and a rig's base config may add it implicitly.
+        "--override-channels",
+        "-c",
+        "conda-forge",
         "-y",
         "-q",
     ]
