@@ -2065,6 +2065,13 @@ canvas.livecv[hidden] { display: none; }
   height: var(--control); padding: 0 10px 0 8px; cursor: pointer; user-select: none;
 }
 .acquisition-press:hover { border-color: var(--accent); color: var(--accent); }
+/* The word at the head of a bar, IMAGE or MASK, in the page's ink with a
+   hairline after it: the two bars in the row are two kinds of thing. */
+.bar-word {
+  display: inline-flex; align-items: center; height: 16px; flex: none;
+  padding-right: 7px; margin-right: 1px; border-right: 1px solid var(--line-strong);
+  font: 700 9.5px var(--sans); letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink);
+}
 .acquisition-press > svg { display: block; flex: none; }
 /* The name stands in a box of the chip's height, and the box is centred
    in the row rather than the word: a lowercase word has no ascenders to
@@ -2104,9 +2111,22 @@ canvas.livecv[hidden] { display: none; }
 }
 .canvas-channels[hidden] { display: none; }
 .canvas-chips { display: flex; align-items: center; gap: 2px; min-width: 0; }
-/* A chip is a numbered dot in the channel's colour, nothing more. */
-.chip { position: relative; display: inline-flex; align-items: center; height: 28px; padding: 0 3px; }
+/* A chip is a numbered dot in the channel's colour and, beside it, the
+   small triangle that opens its box. The dot is pressed to show or hide the
+   channel; the triangle is its own press with its own hover, so the two are
+   not confused. The chosen chip sits on the accent tint, both parts. */
+.chip {
+  position: relative; display: inline-flex; align-items: center; gap: 1px;
+  height: 24px; padding: 0 2px; border-radius: 5px;
+}
 .chip[hidden] { display: none; }
+.chip.chosen { background: var(--accent-tint); }
+.chip-more {
+  width: 10px; height: 18px; padding: 0; display: inline-flex; align-items: center; justify-content: center;
+  background: none; border: none; border-radius: 3px; color: var(--ink-3); cursor: pointer;
+}
+.chip-more:hover { background: var(--surface-3); color: var(--ink); }
+.chip-more svg { display: block; }
 .chip-dot {
   position: relative; width: 18px; height: 18px; border-radius: 50%; padding: 0; cursor: pointer;
   border: 1px solid rgba(15, 23, 42, 0.18); box-shadow: inset 0 0 0 1px var(--screen);
@@ -2114,6 +2134,9 @@ canvas.livecv[hidden] { display: none; }
   overflow: visible; transition: transform 0.12s;
 }
 .chip-dot:hover { transform: scale(1.12); }
+/* The grey chip's dot is a glyph, not a press: it neither grows nor invites. */
+.grey-dot { cursor: default; }
+.grey-dot:hover { transform: none; }
 /* Hidden: the dot fades and a line crosses it. Only the dot fades, not the
    chip: a faded chip would become a layer of its own and trap its card
    beneath the picture. */
@@ -2122,21 +2145,31 @@ canvas.livecv[hidden] { display: none; }
   content: ""; position: absolute; left: -4px; right: -4px; top: 50%; height: 1.5px;
   background: var(--ink); transform: rotate(-45deg);
 }
-/* A short line between the channels and the masks: the same box, since the
-   masks lie on this acquisition, but a visible seam, since they are their
-   own thing. It stops short of the top and bottom on purpose. */
-.chip-divide { flex: none; width: 1px; height: 16px; margin: 0 5px 0 4px; background: var(--line-strong); align-self: center; }
-.chip-divide[hidden] { display: none; }
-/* The masks' chip is a cell in the masks' own dress, drawn by the page. It
-   stands in the row only once a detection has laid masks. Hidden, it keeps
-   its colours and a black line crosses it, the way a hidden channel's dot
-   is crossed. */
-.mask-dot {
-  width: 24px; height: 24px; border-radius: 0; border: none; box-shadow: none;
-  background: none; padding: 0; display: inline-flex; align-items: center; justify-content: center;
-  color: transparent; text-shadow: none;
+/* The masks' bar: a flat box the shape of the channels' box, rounded at
+   both ends, at the right end of the row, headed MASK. One cell per mask
+   layer, in the layer's own dress; hidden, the cell fades and a line
+   crosses it, the way a hidden channel's dot is crossed. */
+.canvas-masks {
+  position: relative; display: flex; align-items: center; gap: 4px; flex: none;
+  height: var(--control); padding: 0 7px; box-sizing: border-box;
+  border: 1px solid var(--line-strong); border-radius: 7px;
+  background: var(--screen);
+  box-shadow: inset 0 1px 3px rgba(15, 23, 42, 0.10);
 }
+.canvas-masks[hidden] { display: none; }
+.mask-cells { display: flex; align-items: center; gap: 2px; min-width: 0; }
+.mask-dot {
+  width: 24px; height: 24px; padding: 0; border: none; background: none; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center; position: relative;
+  transition: transform 0.12s;
+}
+.mask-dot:hover { transform: scale(1.12); }
 .mask-dot svg { width: 22px; height: 22px; display: block; }
+.chip.off .mask-dot { opacity: 0.45; }
+.chip.off .mask-dot::after {
+  content: ""; position: absolute; left: -2px; right: -2px; top: 50%; height: 1.5px;
+  background: var(--ink); transform: rotate(-45deg);
+}
 .mask-dot:hover { transform: scale(1.1); }
 .chip.off .mask-dot { opacity: 1; }
 .chip.off .mask-dot::after {
@@ -2192,9 +2225,15 @@ canvas.livecv[hidden] { display: none; }
   box-shadow: 0 8px 24px rgba(15, 23, 42, 0.14);
 }
 .canvas-card[hidden] { display: none; }
-.mask-pop { width: 248px; gap: 9px; padding: 9px 12px 12px; }
+/* Wide enough for the colour row: the rainbow, six swatches and the
+   picker, at 18 px and 6 px apart, beside their label. Narrower, the row
+   overflowed and pushed the opacity's readout past the card's edge. */
+.mask-pop { width: 280px; gap: 9px; padding: 9px 12px 12px; }
 .mask-pop-head { display: flex; align-items: center; gap: 8px; padding-bottom: 3px; border-bottom: 1px solid var(--line); margin-bottom: 1px; }
 .mask-pop-name { font-size: 12.5px; font-weight: 600; color: var(--ink); }
+/* How the layer was made and how many objects it holds, in quiet ink at
+   the end of the head. */
+.mask-pop-how { margin-left: auto; font-size: 11px; color: var(--ink-3); white-space: nowrap; }
 .mask-eye {
   width: 24px; height: 24px; padding: 0; display: inline-flex; align-items: center; justify-content: center;
   background: none; border: none; border-radius: 5px; color: var(--ink-2); cursor: pointer;
@@ -2219,9 +2258,6 @@ canvas.livecv[hidden] { display: none; }
 /* The swatch that opens the colour picker: the picker itself lies over it,
    invisible, so a press on the swatch opens it. */
 .mask-pick { position: relative; overflow: hidden; }
-/* The masks' card hangs from the row's right edge like every other card,
-   not from the chip: the chip gives up its own frame of reference. */
-.mask-chip { position: static; }
 .mask-pick input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
 .mask-look { display: inline-flex; justify-self: start; }
 #mask-opacity { width: 100%; margin: 0; }
