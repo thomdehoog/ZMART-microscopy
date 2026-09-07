@@ -373,18 +373,20 @@ export default {
 
       const gated = ctx.gated();
 
-      // Before the first gate, every candidate provides the context needed to
-      // draw one. Once a gate exists, that context goes away: only workflow
-      // targets remain, so a grey population cannot be mistaken for selected
-      // data carried into later steps.
+      // Every candidate is the context a gate is drawn and adjusted in, so
+      // the grey population stays under the gate once one exists -- fainter,
+      // so the targets it admits read as the selection. The legend says
+      // which is which; only the green ones go on to the next step.
       const crowd = cells.length;
       const dot = crowd > 3000 ? 1.2 : crowd > 800 ? 1.7 : 2;
       const marked = gated;
-      if (!ctx.gates().length) {
+      {
+        const faint = ctx.gates().length ? 0.6 : 1;
         paint.fillStyle = ctx.css("--mark-context");
-        paint.globalAlpha = crowd > 3000 ? 0.35 : 0.5;
+        paint.globalAlpha = (crowd > 3000 ? 0.35 : 0.5) * faint;
         paint.beginPath();
         for (const c of cells) {
+          if (marked.has(c.id)) continue;
           const x = sx(cellFeature(c, fx), w), y = sy(cellFeature(c, fy), h);
           paint.moveTo(x + dot, y); paint.arc(x, y, dot, 0, Math.PI * 2);
         }

@@ -140,7 +140,7 @@ export function targetLayers(theRun) {
      then; otherwise the field detection was last on. */
   const theCurrentField = () => {
     if (beforeTheScan()) return theFieldUnderTheStage(run.plan[0]?.frameUm);
-    if (activeMode === "select") return theFieldUnderTheStage(run.targetFrameUm);
+    if (activeMode === "select" || activeMode === "targets") return theFieldUnderTheStage(run.targetFrameUm);
     return run.plan[run.detect.tile];
   };
   /* How far a press reaches, in world units. Taken from the last paint --
@@ -290,7 +290,7 @@ export function targetLayers(theRun) {
       + "tile the channel's preview is of.",
     /* Kept through the two steps after: the field detection was last on is
        the one the gating and the target scan area are read against. */
-    shown: ["scan", "detect", "gate", "select"].includes(activeMode) && !!theCurrentField(),
+    shown: ["scan", "detect", "gate", "select", "targets"].includes(activeMode) && !!theCurrentField(),
     staysSolid: true,
     /* Where the frame stands, for the canvas's own press that brings the
        view in on it. */
