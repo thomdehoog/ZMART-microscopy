@@ -28,13 +28,20 @@
 const WHERE =
   new URLSearchParams(globalThis.location?.search ?? "").get("bridge") ?? "";
 
+/** A bridge route as an address the page can fetch or put in an `img`: the
+    route itself on the microscope, prefixed with the bridge's origin when
+    the dev server holds the page. Pictures the bridge serves need this as
+    much as the JSON calls do -- an `img` asks the page's own origin
+    otherwise, and the dev server answers with the page. */
+export const atBridge = (route) => `${WHERE}${route}`;
+
 import { PENDING, isFailed } from "./connection-status.js";
 
 /** One call to the bridge: JSON in, JSON out, failure as a plain sentence.
     Exported for the setup side (`setup.js`), which speaks to the same bridge
     on routes of its own. */
 export async function ask(route, payload) {
-  const answer = await fetch(`${WHERE}${route}`, payload === undefined
+  const answer = await fetch(atBridge(route), payload === undefined
     ? undefined
     : {
       method: "POST",

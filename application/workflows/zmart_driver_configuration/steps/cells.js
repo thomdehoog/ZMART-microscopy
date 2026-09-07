@@ -11,6 +11,7 @@
  */
 
 import { sideGroup } from "../../../framework/window/panels.js";
+import { atBridge } from "../../../parts/microscope/live.js";
 
 /** A cell: the same box the target-acquisition channel is made of -- a small
     heading above a white card -- with the notebook's sentence first inside
@@ -90,7 +91,7 @@ export function publishRow({ label, onPublish, published, disabled = false }) {
 export function picture(url, alt) {
   const img = document.createElement("img");
   img.className = "setup-picture";
-  img.src = `${url}?t=${Date.now()}`;
+  img.src = atBridge(`${url}?t=${Date.now()}`);
   img.alt = alt;
   return img;
 }

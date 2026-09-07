@@ -209,40 +209,71 @@ def move(handle: SetupHandle, x_um: float, y_um: float, z_um: float) -> dict:
 
 
 def acquire(handle: SetupHandle, *, into: str, name: str, z_um: list[float] | None = None) -> dict:
-    """One raw frame under the selected job, or a stack of them at ``z_um``,
-    saved under ``into`` with the driver's own naming. Raw: the picture as the
-    camera recorded it, before any orientation correction."""
-    _require_open(handle)
-    from ..calibration.core.common import move_zwide_and_verify
+    """One acquisition under the selected job, saved under ``into`` with the
+    driver's own naming. Raw: the picture as the camera recorded it, before
+    any orientation correction.
 
+    The z-stack is the microscope's own: the operator configures it on the
+    job in LAS X, and pressing acquire takes it. A stack job answers with
+    every plane and its height: the stack is centred on where the stage
+    stands, spread by the job's step. A single-plane job answers with one
+    plane. Heights asked for in ``z_um`` are what a caller wants a stack to
+    cover; they are not stepped through here -- that would run the job once
+    per height -- so a single-plane job asked for a stack is refused with
+    the fix in the message.
+    """
+    _require_open(handle)
     job = _job(handle)
     folder = Path(into)
     folder.mkdir(parents=True, exist_ok=True)
-    heights = [None] if not z_um else [float(z) for z in z_um]
-    paths: list[str] = []
-    pixel_um = None
-    frame_px = None
-    for index, height in enumerate(heights):
-        if height is not None:
-            move_zwide_and_verify(handle.client, job, height)
-        naming = Naming(acquisition_type="setup", hash6=handle.hash6, position_label=f"{name}_{index:05d}")
-        acq = drv.acquire(handle.client, job)
-        saved = drv.save(handle.client, acq, folder / name, naming, orientation=Orientation())
-        for _index, path in sorted(saved.image_paths.items()):
-            paths.append(str(path))
-        if pixel_um is None:
-            settings = drv.get_job_settings(handle.client, job) or {}
-            geometry = _parsing.parse_tile_geometry(settings) or {}
-            pixel_um = geometry.get("pixel_w_um")
-            frame_px = [geometry.get("pixels_x"), geometry.get("pixels_y")]
+    settings = drv.get_job_settings(handle.client, job) or {}
+    geometry = _parsing.parse_tile_geometry(settings) or {}
+    pixel_um = geometry.get("pixel_w_um")
+    frame_px = [geometry.get("pixels_x"), geometry.get("pixels_y")]
+
+    naming = Naming(acquisition_type="setup", hash6=handle.hash6, position_label=f"{name}_00000")
+    acq = drv.acquire(handle.client, job)
+    saved = drv.save(handle.client, acq, folder / name, naming, orientation=Orientation())
+    planes = sorted(saved.image_paths.items(), key=lambda item: (item[0].t, item[0].z, item[0].c))
+    z_indices = sorted({plane.z for plane, _ in planes})
+    standing = where(handle)
+    if len(z_indices) > 1:
+        # One plane per height, first channel only. LAS X centres the stack
+        # on where the stage stands, so the heights are that position spread
+        # by the job's step.
+        first_channel = min(plane.c for plane, _ in planes)
+        paths = [str(path) for plane, path in planes if plane.c == first_channel]
+        step = _stack_step_um(_parsing.stack_from_settings(settings), len(z_indices))
+        middle = (len(z_indices) - 1) / 2
+        heights = [standing["z_um"] + (i - middle) * step for i in range(len(z_indices))]
+    else:
+        if z_um and len(z_um) > 1:
+            raise RuntimeError(
+                f"job {job!r} takes a single plane, and a focus stack was asked for -- "
+                "configure a z-stack on the job in LAS X and press again"
+            )
+        paths = [str(path) for _plane, path in planes]
+        heights = [standing["z_um"]]
     return {
         "images": paths,
-        "z_um": [h for h in heights if h is not None] or [where(handle)["z_um"]],
+        "z_um": heights,
         "pixel_um": float(pixel_um) if pixel_um is not None else None,
         "frame_px": frame_px,
         "job": job,
-        "position": where(handle),
+        "position": standing,
     }
+
+
+def _stack_step_um(stack: dict | None, planes: int) -> float:
+    """The spacing between a stack job's planes, from its settings: the step
+    it names, else its range spread over the planes, else nothing (0)."""
+    if not stack:
+        return 0.0
+    if stack.get("stepSize"):
+        return float(stack["stepSize"])
+    if stack.get("size") and planes > 1:
+        return float(stack["size"]) / (planes - 1)
+    return 0.0
 
 
 def objective(handle: SetupHandle) -> dict:

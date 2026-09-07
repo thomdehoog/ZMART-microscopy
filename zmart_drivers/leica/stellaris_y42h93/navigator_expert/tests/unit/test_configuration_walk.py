@@ -67,6 +67,9 @@ JOBS = {
               "pixel_um": 1.0, "frame_px": 256},
 }
 HOME = (50000.0, 30000.0)
+#: The focus stack the operator configures on each job in LAS X: centred on
+#: the job's z, one micrometre apart. The driver takes it as it is.
+STACK_HALF_UM, STACK_SECTIONS = 6.0, 13
 
 
 def _instrument() -> MockLasxClient:
@@ -80,6 +83,8 @@ def _instrument() -> MockLasxClient:
             "pixelSize": f"{spec['pixel_um']} um x {spec['pixel_um']} um",
             "format": f"{spec['frame_px']} x {spec['frame_px']}",
             "imageSize": f"{field_um} um x {field_um} um",
+            "stack": {"begin": -STACK_HALF_UM, "end": STACK_HALF_UM, "sections": STACK_SECTIONS,
+                      "stepSize": 1.0, "size": 2 * STACK_HALF_UM},
         })
     client._selected_job = "Overview"
     return client
@@ -90,33 +95,37 @@ def _the_operator_focuses(client: MockLasxClient, job: str) -> None:
     x, y = client._stage_x * 1e6, client._stage_y * 1e6
     sharp = mock_driver.sharp_height_um(x, y) + OFFSET_UM[JOBS[job]["slot"]][2]
     client._jobs[job]["zPosition"]["z-wide"]["position"] = sharp
+    client._jobs[job]["stack"].update(begin=sharp - STACK_HALF_UM, end=sharp + STACK_HALF_UM)
 
 
 def _camera(root: Path):
-    """What LAS X native AutoSave writes after an acquire: one plane of the
-    sample as seen from where the stage stands, through the job's lens, by
-    the camera as mounted."""
+    """What LAS X native AutoSave writes after an acquire: the sample as seen
+    from where the stage stands, through the job's lens, by the camera as
+    mounted -- one plane per section of the job's stack."""
     def collect(client, acq, **_kw):
         job = client._jobs[acq.job]
         x, y = client._stage_x * 1e6, client._stage_y * 1e6
-        z = float(job["zPosition"]["z-wide"]["position"])
         slot = job["objective"]["slotIndex"]
         pixel = float(job["pixelSize"].split()[0])
         frame_px = int(job["format"].split()[0])
         dx, dy, dz = OFFSET_UM[slot]
-        aligned = mock_driver._the_sample_from(np, x + dx, y + dy, z - dz, 0, frame_px=frame_px, pixel_um=pixel)
-        raw = mock_setup.as_the_camera_records(np, aligned, CAMERA)
+        stack = job["stack"]
+        heights = list(np.linspace(float(stack["begin"]), float(stack["end"]), int(stack["sections"])))
         folder = root / "autosave" / f"{acq.job}-{acq.started_at:.6f}"
         folder.mkdir(parents=True)
-        path = folder / "image--Z00--C00.ome.tif"
-        tifffile.imwrite(str(path), raw)
+        planes = {}
+        for index, z in enumerate(heights):
+            aligned = mock_driver._the_sample_from(np, x + dx, y + dy, z - dz, 0, frame_px=frame_px, pixel_um=pixel)
+            raw = mock_setup.as_the_camera_records(np, aligned, CAMERA)
+            path = folder / f"image--Z{index:02d}--C00.ome.tif"
+            tifffile.imwrite(str(path), raw)
+            planes[product.PlaneIndex(0, index, 0)] = product.PlaneSource(path=path)
         return product.ExportedAcquisition(
             source_root=folder.parent, source_dir=folder,
-            positions=[product.ExportedPosition(
-                t=0, planes={product.PlaneIndex(0, 0, 0): product.PlaneSource(path=path)})],
+            positions=[product.ExportedPosition(t=0, planes=planes)],
             metadata=product.AcquisitionMetadata(
-                size_x=frame_px, size_y=frame_px, size_t=1, size_z=1, size_c=1, pixel_type="uint16",
-                physical_size_x_um=pixel, physical_size_y_um=pixel,
+                size_x=frame_px, size_y=frame_px, size_t=1, size_z=len(heights), size_c=1, pixel_type="uint16",
+                physical_size_x_um=pixel, physical_size_y_um=pixel, physical_size_z_um=1.0,
                 channels=(product.ChannelMetadata(index=0, name="C0"),)),
             method="test camera", source_exporter="lasx_native_autosave", vendor_metadata_sources=(),
         )

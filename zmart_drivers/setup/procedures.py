@@ -147,36 +147,53 @@ def capture_lens_view(setup: Setup, *, into: str | Path, name: str, orientation:
 
     Called once under the reference lens and once under the target lens; the
     operator changes lenses between the two in the vendor's own software.
+
+    When the driver's selected job is itself a stack, the first capture
+    already is the focus stack -- every plane with its height -- and no
+    second capture is asked for. Otherwise the stack is the driver stepping
+    the focus drive through ``stack_half_um`` either side of here.
     """
     here = setup.where()
     lens = setup.objective() if setup.can("objective") else {"slot": None, "name": "unknown"}
     into = Path(into) / name
     frame = setup.acquire(into=into, name="frame")
-    heights = [here["z_um"] + d for d in _steps(-stack_half_um, stack_half_um, stack_step_um)]
-    try:
-        stack = setup.acquire(into=into, name="stack", z_um=heights)
-    finally:
-        # The stack leaves the focus drive at its last height. Put it back
-        # where the operator had it, as the orientation measurement does, so
-        # the field is still in focus when they change the lens.
-        setup.move(here["x_um"], here["y_um"], here["z_um"])
-    view = {
-        "lens": lens,
-        "pixel_um": frame.get("pixel_um"),
-        "image": _corrected(_one_plane(frame), orientation),
-        "stack": [_corrected(p, orientation) for p in stack["images"]],
-        "z_um": stack.get("z_um") or heights,
-        "position": here,
-        "records": {"frame": frame, "stack": stack},
-    }
+    if _is_a_stack(frame):
+        stack, heights = frame, [float(z) for z in frame["z_um"]]
+    else:
+        heights = [here["z_um"] + d for d in _steps(-stack_half_um, stack_half_um, stack_step_um)]
+        try:
+            stack = setup.acquire(into=into, name="stack", z_um=heights)
+        finally:
+            # The stack leaves the focus drive at its last height. Put it back
+            # where the operator had it, as the orientation measurement does, so
+            # the field is still in focus when they change the lens.
+            setup.move(here["x_um"], here["y_um"], here["z_um"])
+    planes = [_corrected(p, orientation) for p in stack["images"]]
     # The notebook shows the focus result under the cell that measured it,
     # so it is worked out here rather than only when the pair is measured.
     step = _analysis_step("measure_objective_pair")
-    view["focus"] = step.sharp_height_um(view["stack"], view["z_um"])
+    focus = step.sharp_height_um(planes, stack.get("z_um") or heights)
+    view = {
+        "lens": lens,
+        "pixel_um": frame.get("pixel_um"),
+        # The lens's picture: the frame, or the sharpest plane of a stack job.
+        "image": planes[focus["peak_index"]] if stack is frame else _corrected(_one_plane(frame), orientation),
+        "stack": planes,
+        "z_um": stack.get("z_um") or heights,
+        "position": here,
+        "records": {"frame": frame, "stack": stack},
+        "focus": focus,
+    }
     view["diagnostic"] = step.write_focus_diagnostic(
         view["stack"], view["focus"], into / "focus.png", title=f"Software Autofocus · {name}",
     )
     return view
+
+
+def _is_a_stack(record: dict) -> bool:
+    """A capture that already holds several heights, one plane each."""
+    heights = record.get("z_um") or []
+    return len(heights) > 1 and len(record.get("images") or []) == len(heights)
 
 
 def measure_objective_pair(reference: dict, target: dict) -> dict:
