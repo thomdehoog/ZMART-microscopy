@@ -47,9 +47,9 @@ export default {
    */
   mount(host, ctx) {
     /* Which features the plot spans right now. The detector's two stand-ins
-       until the classical features land; then shape against brightness,
-       eccentricity by intensity_mean, which is the pair an operator gates
-       nuclei on first. The move is made once. A pair the operator chose is
+       until the classical features land; then brightness across and shape
+       up, intensity_mean by eccentricity, which is the pair an operator
+       gates nuclei on first. The move is made once. A pair the operator chose is
        kept, and the map (umap_1, umap_2) is in the pickers for that hand
        only: an embedding is not a default anyone can read a gate off. */
     let fx = "area";
@@ -261,7 +261,7 @@ export default {
       const names = featureNames(theCells());
       if (!chosenByHand && !movedToMeasured
         && names.includes("eccentricity") && names.includes("intensity_mean")) {
-        fx = "eccentricity"; fy = "intensity_mean";
+        fx = "intensity_mean"; fy = "eccentricity";
         movedToMeasured = true;
       }
       for (const [sel, current] of [[pickX, fx], [pickY, fy]]) {
