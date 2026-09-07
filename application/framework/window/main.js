@@ -562,7 +562,6 @@ let stageWatch = null;
       + ".detect-action, .select-action, .acquire-action",
     )) {
       slot.textContent = "";
-      slot.classList.remove("split-actions");
     }
     if (!shown) return;
     const i = state.activeIdx, s = step(i);
@@ -608,7 +607,6 @@ let stageWatch = null;
       current.addEventListener("click", () => runStep(i, {
         targetTiles: [currentFrame.tile], append: true,
       }));
-      host.classList.add("split-actions");
       host.append(current);
     }
     if (running && brake) {
@@ -832,10 +830,6 @@ let stageWatch = null;
       state.cellsShown = true;
       state.examined = new Set();
       forgetTheMasks();
-      /* The picture goes grey the moment the run starts: the objects are
-         what is being looked at now, and the colours would fight their
-         labels as they land. */
-      window.__viewerPanel?.drawInGrey?.("overview", true);
       detectionShown?.progress?.({ start: true });
       backend.discoverTargets({
         settings: settingsFor(state.detect),
@@ -1467,6 +1461,9 @@ let stageWatch = null;
         { requireDisplay: true },
       ),
       selected: () => state.selectedTarget,
+      /* Whether the current selection is the gallery's own quiet follow
+         rather than the operator's choice. */
+      quiet: () => state.selectedQuietly === true,
       select: (id, opts) => selectTarget(id, opts),
       recordingSlot: (into, opts) => renderRecordingSlot(into, recordingOptions(opts)),
       changed: () => renderActionBar(),

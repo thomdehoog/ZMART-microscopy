@@ -2358,7 +2358,6 @@ canvas.livecv[hidden] { display: none; }
 /* The step's own press at the top of its channel: the button and its
    sentence in one quiet row, gone entirely when the renderer left it empty. */
 .side-act { display: flex; align-items: center; gap: 10px; }
-.acquire-action.split-actions { justify-content: space-between; }
 /* The scan summary: a label and its value to a row, the labels one column. */
 .scan-summary {
   display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; align-items: baseline;
