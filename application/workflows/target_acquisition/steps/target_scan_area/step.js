@@ -29,8 +29,7 @@ export const targetScanArea = {
  * `rules()` and `setRule(key, value)`, the four placement controls;
  * `restricted()`, the sample;
  * `tiles()`, the scan areas placed; `plan()`, what the last placing came
- * to; `reset()`, forget sample and areas; `showTiles(on)`, `tilesShown()`;
- * and `changed()`.
+ * to; and `changed()`.
  */
 export const selectionPanel = {
   id: "select",
@@ -115,20 +114,9 @@ export const selectionPanel = {
     const mainSettingsTitle = document.createElement("div");
     mainSettingsTitle.className = "target-main-settings-title";
     mainSettingsTitle.textContent = "Main settings";
-    const reset = document.createElement("button");
-    reset.type = "button";
-    reset.className = "ghost tiny";
-    reset.id = "reset-tiles";
-    reset.textContent = "Reset";
-    const hide = document.createElement("button");
-    hide.type = "button";
-    hide.className = "ghost tiny";
-    hide.id = "hide-tiles";
     const placeLine = document.createElement("div");
     placeLine.className = "side-act press-line";
-    const placeSpace = document.createElement("span");
-    placeSpace.className = "spacer";
-    placeLine.append(act, placeSpace, reset, hide);
+    placeLine.append(act);
     const notes = document.createElement("div");
     notes.className = "side-note";
     notes.id = "tiles-notes";
@@ -153,9 +141,6 @@ export const selectionPanel = {
       const sampled = ctx.restricted().size;
       const plan = ctx.plan();
       const covered = Math.max(0, sampled - (plan?.uncovered?.length ?? 0));
-      reset.disabled = sampled === 0 && n === 0;
-      hide.disabled = n === 0;
-      hide.textContent = ctx.tilesShown() ? "Hide" : "Show";
       summary.group.hidden = !plan;
       areaCount.value.textContent = String(n);
       sampledCount.key.textContent = rules.objectsMax == null ? "Gated targets" : "Sampled targets";
@@ -165,8 +150,6 @@ export const selectionPanel = {
          could not be honoured is said here. */
       notes.textContent = (plan?.notes ?? []).join(" · ");
     };
-    reset.addEventListener("click", () => { ctx.reset(); say(); ctx.changed?.(); });
-    hide.addEventListener("click", () => { ctx.showTiles(!ctx.tilesShown()); say(); });
 
     side.append(recording, adding.group, summary.group);
     host.append(side);

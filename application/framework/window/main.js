@@ -1569,18 +1569,7 @@ let stageWatch = null;
   const selectionMount = (host) => (selectionShown = selectionPanel.mount(host, {
     recordingSlot: (into, opts) => renderRecordingSlot(into, recordingOptions(opts)),
     restricted: () => state.restricted,
-    /* Forget the sample and the scan areas: the gated targets stand whole
-       again and the press is asked for. */
-    reset: () => {
-      state.restricted = new Set();
-      state.targetTiles = [];
-      state.tilePlan = null;
-      state.done.delete("select");
-      state.ran.delete("select");
-    },
     tiles: () => state.targetTiles,
-    showTiles: (on) => stage.showLayer("frames", on),
-    tilesShown: () => stage.layerShown("frames"),
     rules: () => state.placing,
     /* A lever moved is a plan not yet placed: the press is asked for again. */
     setRule: (key, value) => {
