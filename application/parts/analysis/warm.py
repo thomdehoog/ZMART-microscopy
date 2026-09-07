@@ -102,14 +102,20 @@ class Analysis:
             engine.register(pipeline, str(pipeline_yaml(pipeline)))
             self._registered.add(pipeline)
 
+        # The engine keeps every failure a pipeline ever had, results are
+        # drained. A failure from before this job is not this job's: judged
+        # on it, the first good stack after a bad one was declared lost while
+        # its score was still being computed.
+        failed_before = len(engine.status(pipeline).get("failures") or ())
         engine.submit(pipeline, given)
         while True:
             status = engine.status(pipeline)
             for result in engine.results(pipeline):
                 return result
-            if status.get("failed"):
+            failures = status.get("failures") or []
+            if len(failures) > failed_before:
                 raise RuntimeError(
-                    f"the {pipeline!r} pipeline failed: {status.get('failures')}"
+                    f"the {pipeline!r} pipeline failed: {failures[failed_before:]}"
                 )
             time.sleep(_LOOK_EVERY_S)
 
