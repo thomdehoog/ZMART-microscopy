@@ -367,6 +367,38 @@ class TestFrame(unittest.TestCase):
         self.assertEqual(adapter._resolve_actuators(None)["z"], "z-wide")
         self.assertEqual(adapter._resolve_actuators(None)["x"], "motoric")
 
+    def test_a_second_move_after_a_set_state_asks_the_instrument_nothing(self):
+        """The session stands on the job set_state selected; the drives are
+        where the last move sent them. A run's sites move without a read."""
+        h = _handle(origin=_origin(x_um=1000.0, y_um=2000.0, z_focus_um=30.0))
+        moves = []
+
+        def fake_move_z(client, job, z, unit="um", z_mode="galvo", **kwargs):
+            moves.append((job, z, z_mode))
+            return {"success": True, "confirmed": True}
+
+        patches = _patch_position(z_wide_um=32.0, z_galvo_um=3.0, job="Overview")
+        with (
+            patch.object(adapter._motion, "arrive_xy", return_value={"success": True, "confirmed": True}),
+            patch.object(adapter._commands, "move_z", fake_move_z),
+            patch.object(adapter._commands, "select_job", return_value={"success": True, "confirmed": True}),
+            patch.object(adapter._readers, "get_jobs", return_value=[{"Name": "Overview"}]),
+            patches[0] as xy,
+            patches[1] as settings,
+            patches[2],
+            patches[3],
+        ):
+            adapter.set_state(h, {"changeable": {"job": "Overview"}})
+            adapter.set_xyz(h, 10.0, 20.0, 5.0, with_actuators={"z": "z-galvo"})
+            asked_before = (xy.call_count, settings.call_count)
+            adapter.set_xyz(h, 30.0, 40.0, 7.0, with_actuators={"z": "z-galvo"})
+        self.assertEqual((xy.call_count, settings.call_count), asked_before)
+        self.assertEqual(xy.call_count, 0)
+        # the second move builds on the drives the first one commanded:
+        # focus 30 + 7 = 37, z-wide still at 32, so the galvo takes 5
+        self.assertEqual(moves[-1], ("Overview", 5.0, "galvo"))
+
+
     def test_set_xyz_z_wide_compensates_parked_galvo(self):
         # origin inside the physical backstop (x/y >= 1000)
         h = _handle(origin=_origin(x_um=10000.0, y_um=10000.0, z_focus_um=30.0))
