@@ -419,11 +419,13 @@ def phase_move(v: vh.Validator, sess: Any, drv: Any, args: argparse.Namespace) -
             dy = base_frame["y"] + args.xy_delta_um
             dzg = base_frame["z"] + args.z_galvo_delta_um
 
-            # XY leg: hold focus via the galvo (keeps z-wide untouched on the sim).
+            # XY leg: hold the current focus via the galvo (keeps z-wide untouched; frame z
+            # is kept as read, so a published origin with a non-zero z-wide is not asked
+            # of the galvo).
             v.callable(
                 "set_xyz: XY move",
-                lambda: sess.set_xyz(dx, dy, 0.0, with_actuators={"z": "z-galvo"}),
-                context={"to_frame": (dx, dy, 0.0), "z_actuator": "z-galvo"},
+                lambda: sess.set_xyz(dx, dy, base_frame["z"], with_actuators={"z": "z-galvo"}),
+                context={"to_frame": (dx, dy, base_frame["z"]), "z_actuator": "z-galvo"},
                 mutating=True,
             )
             f = v.callable("get_xyz after XY", sess.get_xyz)
@@ -603,7 +605,7 @@ def phase_acquire(v: vh.Validator, sess: Any, args: argparse.Namespace) -> None:
     with v.phase("acquire (capture + save)"):
         # The live LAS X session decides where it writes; save collects from
         # the single native AutoSave path.
-        options: dict[str, Any] = {"backlash_correction": True}
+        options: dict[str, Any] = {"backlash_correction": True, "backlash_rounds": 1}
         rec = v.callable(
             "acquire: capture + save",
             lambda: sess.acquire(
