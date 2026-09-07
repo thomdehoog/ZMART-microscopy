@@ -114,7 +114,7 @@ from application.parts.storage.output import (  # noqa: E402
     prepare_experiment,
 )
 from application.parts.storage.zarr_positions import (  # noqa: E402
-    place_into_resolved_store, position_store_from_record,
+    frame_um_of, place_into_resolved_store, position_store_from_record,
 )
 from application.parts.storage import viewer_service  # noqa: E402
 from application.parts.analysis import warm  # noqa: E402
@@ -901,6 +901,12 @@ _scan = {
 #: folder of their own, kept as records and never opened as sources.
 TARGET_FRAMES = "target-frames"
 
+#: The acquisitions the viewer watches as ONE resolved mosaic rather than as
+#: a store per position. A per-position store is one imaged frame and may be
+#: drawn opaque over its whole extent; a mosaic carries its own coverage --
+#: see :func:`place_into_resolved_store` -- and must not be.
+RESOLVED = frozenset({"targets"})
+
 # A chosen target is written over the resolved mosaic while the Viewer may be
 # reading the same chunks. Writers must never overlap one another, and Windows
 # can briefly refuse an overwrite while its reader still owns the file. Keep
@@ -1025,6 +1031,11 @@ def _keep_position_as_zarr(record: dict, acquisition_type: str) -> None:
             record["resolved"] = str(_place_target_frame(record, folder, _scan["planned"]))
         else:
             record["zarr"] = str(position_store_from_record(record, folder))
+        # The frame's true width on the sample. A recording made before the
+        # run says what was promised; the instrument may have stood on
+        # another job by the time it captured, and the page draws, crops and
+        # opens the ground over what actually landed.
+        record["frame_um"] = frame_um_of(record["zarr"])
     except Exception as why:  # noqa: BLE001 -- filed, not fatal
         record["zarr_error"] = str(why)
         return
@@ -1661,7 +1672,10 @@ class _Bridge(BaseHTTPRequestHandler):
             elif path == "/api/targets/discover":
                 self._answer(dict(_targets))
             elif path == "/api/viewer":
-                self._answer(viewer_service.status())
+                status = viewer_service.status()
+                for acquisition in status.get("acquisitions") or []:
+                    acquisition["opaque"] = acquisition.get("name") not in RESOLVED
+                self._answer(status)
             elif path.startswith("/view/"):
                 self._send_a_picture(path, query)
             elif not path.startswith("/api/"):

@@ -26,6 +26,33 @@ PIPELINE = "object_analysis"
 IMAGE_TO_STAGE = [[1.0, 0.0], [0.0, 1.0]]
 
 
+def pixel_size_of(record: dict, fallback: float) -> float:
+    """The pixel size the capture was taken at, in micrometres.
+
+    From the capture's own OME-Zarr store when it has one: the scale the
+    writer recorded is the instrument's word at the time of the capture.
+    ``fallback`` is what the instrument reports *now*, which is only right
+    while the same job is still selected -- a detection re-run after the
+    target job was chosen took the 40x pixel size for the 10x overview, and
+    a 30 um diameter became 211 px.
+    """
+    store = record.get("zarr")
+    if not store:
+        return float(fallback)
+    try:
+        import zarr  # noqa: PLC0415 -- kept off the import path, as the bridge does
+
+        attrs = dict(zarr.open(str(store), mode="r").attrs)
+        multiscale = ((attrs.get("ome") or attrs).get("multiscales") or [{}])[0]
+        axes = [axis.get("name") for axis in multiscale.get("axes", [])]
+        for transform in multiscale["datasets"][0].get("coordinateTransformations", []):
+            if transform.get("type") == "scale":
+                return float(transform["scale"][axes.index("x") if "x" in axes else -1])
+    except Exception:  # noqa: BLE001 -- a store that will not say is answered by the fallback
+        pass
+    return float(fallback)
+
+
 def what_was_captured(record: dict, *, field: int, pixel_um: float, settings: dict) -> dict:
     """The step's input for one field: its first channel, and where it was taken.
 
@@ -53,7 +80,7 @@ def what_was_captured(record: dict, *, field: int, pixel_um: float, settings: di
         "tile_id": [record["acquisition_type"], int(field), 0],
         "tile_stage_xy_um": [float(plane["x_um"]), float(plane["y_um"])],
         "tile_z_um": float(plane["z_um"]),
-        "source_pixel_size_um": [float(pixel_um), float(pixel_um)],
+        "source_pixel_size_um": [pixel_size_of(record, pixel_um)] * 2,
         "image_to_stage": IMAGE_TO_STAGE,
         "gpu": True,
     }
