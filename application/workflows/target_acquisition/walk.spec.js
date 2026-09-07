@@ -22,7 +22,7 @@ import { test, expect } from "@playwright/test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { operateTheInstrument, rest, showTheChannel, startTheBridge }
+import { operateTheInstrument, rest, showDisplaySettings, showTheChannel, startTheBridge }
   from "./steps/scan_the_overview/live-bridge.js";
 import { bestShift, fractionLit, photograph } from "./steps/scan_the_overview/pixels.js";
 
@@ -196,9 +196,19 @@ test.describe("the target acquisition workflow, walked screen by screen", () => 
       await page.evaluate(() => window.__theStageCanvas.fadeTo(0.15));
       await framePlan(page);
       await shot(page, "scan-done-picture");
-      /* Under the picture: the focus stacks give it a depth, so the Z
-         slider stands across its foot; nothing here is a timelapse, so T
-         does not. Moved to the top of the stack and back. */
+      /* Under the picture: the picture is one room, as deep as the deepest
+         stack shown in it. On the way to the scan the page pressed the focus
+         stacks' eye off -- over the overview they are a square of other
+         pixels -- so with only the flat overview shown there is no depth and
+         no Z slider. Their eye pressed on gives the room its depth and the
+         slider stands across the picture's foot; nothing here is a
+         timelapse, so T does not. Moved to the top of the stack and back. */
+      await expect(page.locator("#axis-z")).toBeHidden();
+      await showDisplaySettings(page);
+      const focusEye = page.locator('button[aria-label="toggle group focussing"]');
+      await expect(focusEye).toHaveAttribute("aria-pressed", "false");
+      await focusEye.click();
+      await showTheChannel(page);
       await expect(page.locator("#axis-z")).toBeVisible({ timeout: 30_000 });
       await expect(page.locator("#axis-t")).toBeHidden();
       /* Every stack stands on the table, so the picture opens at the bottom
@@ -214,6 +224,12 @@ test.describe("the target acquisition workflow, walked screen by screen", () => 
       expect(atTheTop, "the overview is still lit at the top of the stacks").toBeGreaterThan(atTheBottom * 0.5);
       await page.locator("#plane").evaluate((s) => { s.value = s.min; s.dispatchEvent(new Event("input", { bubbles: true })); });
       await rest(800);
+      /* And their eye pressed off again takes the depth with it: the room is
+         only as deep as what is shown in it. */
+      await showDisplaySettings(page);
+      await focusEye.click();
+      await showTheChannel(page);
+      await expect(page.locator("#axis-z")).toBeHidden({ timeout: 10_000 });
       /* The row's chips: the overview's channels, each a dot and a name.
          The dot hides the channel; the name chooses it and opens Display
          settings, where its histogram is. */
