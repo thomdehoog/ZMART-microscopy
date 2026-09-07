@@ -1381,7 +1381,9 @@ def _targets_worker(fields: list, settings: dict, map_population: bool) -> None:
             cells = [cell for result in _targets["fields"] for cell in result["cells"]]
             if cells:
                 _targets["phase"] = "umap"
-                _targets["doing"] = f"calculating UMAP for {len(cells)} objects"
+                # The map is one of the features, so the line says what the
+                # operator is waiting for rather than which one it is.
+                _targets["doing"] = f"extracting features for {len(cells)} objects"
                 try:
                     from application.parts.analysis import embedding
 

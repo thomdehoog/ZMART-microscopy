@@ -24,7 +24,10 @@ export function scanAreaLayers(theRun) {
        that is still being changed shows a plan for a carrier that may be
        about to stop existing. The fields are kept, not discarded: coming
        forward again finds them where they were. */
-    shown: run.activeIdx >= indexOfStep("scanfields"),
+    /* And not once every planned field has landed: by then the images are
+       the whole answer, and the dimmed outlines over them read as seams
+       in the picture rather than as a plan. */
+    shown: run.activeIdx >= indexOfStep("scanfields") && !(run.plan.length && shown >= run.plan.length),
     paint: (frame) => {
       const ctx = frame.context;
       const { place, scale } = drawnIn(frame);
