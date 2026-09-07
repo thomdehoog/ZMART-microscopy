@@ -72,7 +72,7 @@ export const canvasPanel = {
                  over the side in force. It acts on the pictures only;
                  the masks keep their own colours whichever side it is
                  on. -->
-            <span class="grey-toggle" id="grey-toggle" role="group" aria-label="Colour or grey" data-grey="false">
+            <span class="grey-toggle" id="grey-toggle" role="group" aria-label="Colour or grey" data-grey="false" hidden>
               <button class="bare" id="colour-btn" type="button" aria-pressed="true" aria-label="Colour"
                       title="Colour: every channel in its own colour">
                 <svg class="grey-glyph colours" width="18" height="16" viewBox="0 0 18 16" aria-hidden="true">
