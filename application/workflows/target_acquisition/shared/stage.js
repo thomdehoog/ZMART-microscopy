@@ -1584,6 +1584,9 @@ function sayWhatThePressesDo() {
     if (ctx.greyToggle) {
       ctx.greyToggle.dataset.grey = String(grey);
       ctx.greyToggle.classList.toggle("off", !can);
+      /* Colour or grey is a question about a picture: the toggle stands
+         only once there is an acquisition to draw, as the strip does. */
+      ctx.greyToggle.hidden = !acquisitions.length;
     }
   }
   /* The channels' box stands only when it holds something; without it the
