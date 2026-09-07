@@ -73,8 +73,39 @@ def _the_python_of(environment):
     `conda run` activates the environment and starts the interpreter as its
     own child, so the worker is a grandchild of the engine. A test stands a
     wrapper of its own here to prove the whole tree is put down.
+
+    The interpreter is named by its path, not as `python`: on Windows,
+    `conda run` leaves an interpreter that already stands first on PATH
+    ahead of the environment's own, so a process started from another
+    environment's shell ran every step in that shell's interpreter and
+    failed on the first import the step needed. The path comes from
+    `conda info`, read once.
     """
-    return [CONDA_CMD, "run", "-n", environment, "python"]
+    prefix = _the_prefix_of(environment)
+    python = "python" if prefix is None else str(_the_interpreter_in(prefix))
+    return [CONDA_CMD, "run", "-n", environment, python]
+
+
+_prefixes = None
+
+
+def _the_prefix_of(environment):
+    """Where a named environment lives, or None when conda does not list it."""
+    global _prefixes
+    if _prefixes is None:
+        try:
+            from .conda_utils import get_conda_info
+            _prefixes = {Path(env).name: Path(env) for env in get_conda_info().get("envs", [])}
+        except Exception as why:  # noqa: BLE001 -- conda unreachable: fall back to the name
+            logger.warning("could not list conda environments (%s); naming the interpreter as 'python'", why)
+            _prefixes = {}
+    return _prefixes.get(environment)
+
+
+def _the_interpreter_in(prefix):
+    """The interpreter an environment keeps, where each platform keeps it."""
+    windows = prefix / "python.exe"
+    return windows if windows.exists() else prefix / "bin" / "python"
 
 
 class _StderrDrainer:
