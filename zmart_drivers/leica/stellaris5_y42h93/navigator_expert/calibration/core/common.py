@@ -21,6 +21,7 @@ Path-base convention (used by every workflow's save / save_and_visualize):
 
 from __future__ import annotations
 
+import importlib
 import json
 import time
 from dataclasses import dataclass
@@ -31,7 +32,12 @@ from typing import Any
 import numpy as np
 import tifffile
 
-import navigator_expert as drv
+from ... import PACKAGE
+
+# The driver package itself, whatever it is called on this machine: the
+# folder it is in decides that (see zmart_drivers/discovery.py), so it is
+# reached by its own recorded name rather than by a name written here.
+drv = importlib.import_module(PACKAGE)
 
 from ... import orientation as _orientation
 from ...acquisition.naming import Naming, run_hash

@@ -214,9 +214,21 @@ register by import, connect, look around read-only, then origin/move/acquire.
 
 ## Adding a microscope
 
-A driver is a set of functions — one per operation — registered under a
-`connection` dict (which carries the `vendor` / `microscope` / `api` identity plus
-any connect params):
+On the operator page, a microscope is a folder. Put a driver under
+`zmart_drivers/<vendor>/<microscope>/` and the page finds it at start and
+offers it in its Microscope list; nothing else has to be edited. What makes
+the folder a driver is a Python package inside it with a `zmart_adapter`
+package that registers the instrument when imported, the way the Leica's
+`navigator_expert/zmart_adapter` does. The folder's name becomes the
+microscope's name (`stellaris5_y42h93` the folder is `stellaris5-y42h93` the
+microscope), so a copy of a driver folder under a new name is a second
+microscope, with configurations of its own. `zmart_drivers/discovery.py` is
+where this happens, and it says which folders it found and which it could
+not import.
+
+Underneath, a driver is a set of functions — one per operation — registered
+under a `connection` dict (which carries the `vendor` / `microscope` / `api`
+identity plus any connect params):
 
 ```python
 from zmart_controller.registry import register
