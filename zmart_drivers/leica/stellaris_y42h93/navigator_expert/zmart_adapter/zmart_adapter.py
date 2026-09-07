@@ -198,6 +198,10 @@ class ZmartHandle:
     #: rides along because a job states its stack in absolute z-wide, and
     #: without the anchor those slices cannot be put in the frame.
     driven_to: dict[str, float] | None = None
+    #: The job ``set_state`` selected and the objective it found there: what
+    #: a move needs to know besides where the drives were last sent, so that
+    #: from the second move on it asks the instrument nothing before moving.
+    standing_on: dict[str, Any] | None = None
     position_counter: int = 0
     acquisition_hashes: set[str] = field(default_factory=set)
     translations: dict[int, tuple[float, float, float]] | None = None
@@ -385,13 +389,34 @@ def _confirmed(result: dict | None, what: str) -> dict:
     return result
 
 
-def _hardware_snapshot(handle: ZmartHandle) -> dict:
+def _hardware_snapshot(handle: ZmartHandle, *, with_xy: bool = True) -> dict:
     """One consistent read of everything the frame math needs.
 
     Stage XY, both z drives, and the current objective use the configured
     reader policy; each is waited for and raises once the instrument stays silent.
+    A move does not need to know where the stage stands to say where it
+    goes -- its targets are the origin plus the frame -- so ``set_xyz``
+    asks without XY: that read is the call the instrument leaves unanswered
+    longest after an export, and it cost every site of a run a wait for
+    a number nothing used.
     """
-    xy = _patient.answered(lambda: _readers.get_xy(handle.client), "the stage XY position")
+    if not with_xy and handle.standing_on is not None and handle.driven_to is not None:
+        # A move asks nothing: the job and objective are the ones set_state
+        # stood the session on, the drives are where set_xyz last sent them.
+        # Only the first move after a set_state reads where the drives stand.
+        return {
+            "job": handle.standing_on["job"],
+            "x_um": math.nan,
+            "y_um": math.nan,
+            "z_wide_um": handle.driven_to["z_wide_um"],
+            "z_galvo_um": handle.driven_to["z_galvo_um"],
+            "objective": handle.standing_on["objective"],
+        }
+    xy = (
+        _patient.answered(lambda: _readers.get_xy(handle.client), "the stage XY position")
+        if with_xy
+        else {"x_um": math.nan, "y_um": math.nan}
+    )
     job = _selected_job_name(handle)
     settings = _patient.answered(
         lambda: _readers.get_job_settings(handle.client, job), f"the settings of job '{job}'"
@@ -633,7 +658,7 @@ def set_xyz(
     """
     _require_open(handle)
     chosen = _resolve_actuators(with_actuators)
-    snap = _hardware_snapshot(handle)
+    snap = _hardware_snapshot(handle, with_xy=False)
     dt = _objective_delta_um(handle, snap.get("objective"))  # raises if unavailable
     abs_x = handle.origin["x_um"] + x + dt[0]
     abs_y = handle.origin["y_um"] + y + dt[1]
@@ -691,6 +716,9 @@ def set_xyz(
         "z": z,
         "z_wide_um": next(
             (target for mode, target in z_targets if mode == "zwide"), snap["z_wide_um"]
+        ),
+        "z_galvo_um": next(
+            (target for mode, target in z_targets if mode == "galvo"), snap["z_galvo_um"]
         ),
     }
     return {
@@ -1174,6 +1202,11 @@ def set_state(handle: ZmartHandle, state: dict) -> dict:
             )
         _confirmed(_commands.select_job(handle.client, job), f"select_job('{job}')")
         applied["job"] = job
+        settings = _patient.answered(
+            lambda: _readers.get_job_settings(handle.client, job), f"the settings of job '{job}'"
+        )
+        handle.standing_on = {"job": job, "objective": settings.get("objective")}
+        handle.driven_to = None
     return {"applied": applied}
 
 
@@ -1202,6 +1235,10 @@ def get_procedures(handle: ZmartHandle) -> dict:
 def run_procedure(handle: ZmartHandle, procedure: dict) -> dict:
     """Run a procedure from :func:`get_procedures`; report what ran."""
     _require_open(handle)
+    # A procedure switches jobs and moves drives on its own: what the
+    # session was standing on, and where it last drove, no longer hold.
+    handle.standing_on = None
+    handle.driven_to = None
     name = procedure.get("name")
     if name == "backlash_takeup":
         _motion.correct_backlash(handle.client)
