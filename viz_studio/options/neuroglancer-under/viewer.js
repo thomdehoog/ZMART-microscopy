@@ -1387,6 +1387,24 @@ function countFromTheCornerOfTheVoxelRatherThanItsMiddle(own) {
  * Read from the source's own extent as the engine read it, before any
  * placement, so a single plane placed anywhere is still one plane.
  */
+/** How many planes the deepest loaded source of one acquisition holds;
+    0 when none of its sources has loaded yet. */
+function planesDeepIn(own, acquisition) {
+  let deepest = 0;
+  for (const row of own.rows ?? []) {
+    if ((row.acquisition ?? row.name?.split("/")[0]) !== acquisition) continue;
+    for (const source of row.managed?.layer?.dataSources ?? []) {
+      const placed = source?.loadState?.transform?.value;
+      const inputSpace = placed?.inputSpace;
+      const from = inputSpace?.names?.indexOf("z") ?? -1;
+      if (from < 0 || !inputSpace?.bounds) continue;
+      const planes = Math.round(inputSpace.bounds.upperBounds[from] - inputSpace.bounds.lowerBounds[from]);
+      if (planes > deepest) deepest = planes;
+    }
+  }
+  return deepest;
+}
+
 function isOnePlaneDeep(placed) {
   const { inputSpace, outputSpace } = placed;
   const into = outputSpace?.names?.indexOf("z") ?? -1;
@@ -2125,15 +2143,18 @@ function handleFor(own) {
      * counts in — the two are useless apart. Nothing when there is no depth to
      * speak of: a single plane is not a stack.
      */
-    theDepthItCanShow() {
+    theDepthItCanShow(acquisition = null) {
       const info = own.viewer.navigationState.displayDimensionRenderInfo.value;
       const space = own.viewer.navigationState.position.coordinateSpace.value;
       const depth = info?.displayDimensionIndices?.[2] ?? -1;
       if (depth < 0 || !space?.bounds) return null;
       const umPerVoxel = space.scales[depth] * UM_PER_M;
-      const planes = Math.round(
-        space.bounds.upperBounds[depth] - space.bounds.lowerBounds[depth],
-      );
+      /* The engine's own space spans every acquisition it holds. Asked
+         about one, the answer is that one's: the deepest of its loaded
+         sources, so a flat overview beside a stack is still flat. */
+      const planes = acquisition === null
+        ? Math.round(space.bounds.upperBounds[depth] - space.bounds.lowerBounds[depth])
+        : planesDeepIn(own, acquisition);
       if (!(umPerVoxel > 0) || !(planes > 1)) return null;
       /* Counted from the first plane, not from the engine's own lower bound.
          Those differ by half a voxel — this engine puts its bounds at voxel

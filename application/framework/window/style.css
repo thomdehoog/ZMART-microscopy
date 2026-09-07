@@ -1193,9 +1193,10 @@ canvas.livecv[hidden] { display: none; }
   border: 1px solid var(--line); border-radius: 9px; overflow: hidden;
   background: var(--surface-2); display: flex; flex-direction: column;
 }
-/* The overview crop is context above the high-resolution target frame; both
-   use the full channel width. */
-.pair .imgs { display: grid; grid-template-columns: 1fr; gap: 1px; background: var(--line); }
+/* The overview crop beside the high-resolution target frame, the same
+   physical window at two resolutions; the column can be widened for a
+   closer look. */
+.pair .imgs { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--line); }
 .pair canvas { display: block; width: 100%; height: auto; background: #000; }
 .pair .meta {
   display: flex; align-items: center; gap: 6px; padding: 6px 8px;
