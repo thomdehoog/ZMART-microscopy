@@ -1137,6 +1137,17 @@ let stageWatch = null;
        is a square of other pixels on the picture the operator came to
        look at. Its eye is pressed for them on the way to the scan. */
     if (steps()[i]?.id === "scan") window.__viewerPanel?.showAcquisition?.("focussing", false);
+    /* The overview went grey for the masks; arriving to acquire the
+       targets, the operator wants to see the sample again, in colour. Done
+       once the step has rendered: the panel rebuilds its rows for the
+       step, and a switch thrown before that was thrown at the old rows. */
+    if (steps()[i]?.id === "acquire") {
+      setTimeout(() => {
+        if (window.__viewerPanel?.acquisitionGrey?.("overview")) {
+          window.__viewerPanel?.drawInGrey?.("overview", false);
+        }
+      }, 0);
+    }
     /* The masks showed the whole population; on the way to choosing from
        it the targets are the thing to look at, and every object lit under
        them hid which were chosen. The masks' eyes are pressed off for the

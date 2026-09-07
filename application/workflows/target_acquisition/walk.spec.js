@@ -556,8 +556,14 @@ test.describe("the target acquisition workflow, walked screen by screen", () => 
         await shot(page, "target-area-placed-picture");
 
         /* Step 9: the targets acquired, one capture per scan area placed. */
+        const overviewInGrey = () =>
+          page.evaluate(() => Boolean(window.__viewerPanel?.acquisitionGrey?.("overview")));
+        expect(await overviewInGrey()).toBe(true);
         await walkTo(page, "Acquire Targets");
         await shot(page, "acquire-before");
+        /* The overview went grey for the masks; arriving here the operator
+           wants to see the sample again, so it is back in colour. */
+        expect(await overviewInGrey()).toBe(false);
         /* The overview's masks keep their strip on the acquisition step,
            and the targets' cell is there too, its eye pressed off on the
            way in so the frames' pixels are not hidden under lit shapes. */
