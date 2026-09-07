@@ -284,6 +284,23 @@ last field.
 `max_workers: 1` stays: nine fields at ~1.4 s are 13 s in series, and the step's
 concurrency is per file, not per method.
 
+**Amended 2026-09-07.** Point 2 did not hold on the page: the engine's reaper put the
+workers down after 300 s idle, so every press more than five minutes after the last
+was a cold one and paid the Cellpose worker's spawn for a watershed (measured in
+`FAST_DETECTION_SLOW_2026-09-07.md`: 5.6-6.7 s on a desk PC against 0.4 s warm). Two
+changes, neither of them a second step file: `warm.py` now builds the engine with
+`idle_timeout=None`, so the workers live as long as the page's session; and a
+pipeline YAML may place a step in another environment with `environment:` on the
+step, which `object_analysis_fast.yaml` uses to run `detect_objects` in
+`ZMART--object_analysis--classical` (the readers it needs, tifffile, ngio and
+ome-types, were added to that profile). The bridge picks the pipeline by method
+(`PIPELINES` in `application/parts/microscope/detection.py`). The fast pipeline also
+leaves out the three per-object texture extras: on a 488-object mock tile glrlm, lbp
+and fft were 4.5 s of a 5.8 s features step, everything else 1.5 s, measured in the
+classical environment in-process. Points 3 and 4 stand,
+and are why the override lives in the YAML and not in a copy of the file. The same day the
+other mode was renamed from `accurate` to `robust`, on the page and in the step alike.
+
 ## 6. Where the fast mode will be worse, and how to word the choice
 
 - **Touching nuclei.** The LoG watershed separates two nuclei only where the blur

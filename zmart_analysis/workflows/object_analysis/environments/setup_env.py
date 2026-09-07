@@ -28,7 +28,7 @@ WORKFLOW = "object_analysis"
 PYTHON_VERSION = "3.12"
 
 STEP_PROFILES = {
-    "vision": {
+    "cellpose": {
         "description": "Cellpose detection",
         "install_torch": True,
         "pip_packages": [
@@ -68,12 +68,19 @@ STEP_PROFILES = {
         ],
     },
     "classical": {
-        "description": "scikit-image classical feature extraction",
+        "description": "scikit-image classical feature extraction and the fast detector",
         "install_torch": False,
         "pip_packages": [
             "pyyaml",
             "numpy",
             "scikit-image>=0.23",
+            # The fast detector runs here too (object_analysis_fast.yaml),
+            # and it reads the position and writes its masks the same way
+            # the cellpose one does: the same readers, torch left out.
+            "tifffile>=2026.6.1",
+            "imagecodecs",
+            "ngio",          # OME-Zarr, NGFF 0.4 and 0.5
+            "ome-types",     # OME-XML metadata
         ],
         "diagnostics": [
             (
@@ -85,6 +92,28 @@ STEP_PROFILES = {
                 "regionprops_table(m, properties=('label', 'area')); "
                 "print('OK')",
             ),
+            (
+                "the fast detector's watershed",
+                "from skimage import filters, measure, morphology, segmentation; "
+                "from scipy import ndimage; print('OK')",
+            ),
+            (
+                "TIFF/zarr interop",
+                "import tifffile, tifffile.zarr, zarr; "
+                "print(f'tifffile {tifffile.__version__} + zarr {zarr.__version__}')",
+            ),
+            (
+                "reads an OME-Zarr position",
+                "import tempfile, numpy as np, ngio; "
+                "from pathlib import Path; "
+                "d = Path(tempfile.mkdtemp()) / 'p.zarr'; "
+                "ngio.create_ome_zarr_from_array("
+                "    d, np.zeros((1, 1, 2, 8, 8), dtype='uint16'), pixelsize=1.0, "
+                "    axes_names=('t','c','z','y','x'), levels=1, overwrite=True); "
+                "c = ngio.open_ome_zarr_container(str(d), mode='r'); "
+                "print('OK')",
+            ),
+            ("OME-XML metadata", "import ome_types; print('OK')"),
         ],
     },
 }
@@ -92,7 +121,7 @@ STEP_PROFILES = {
 
 def _selected_profile() -> dict:
     parser = argparse.ArgumentParser(add_help=False)
-    parser.add_argument("--step", default="vision")
+    parser.add_argument("--step", default="cellpose")
     args, _ = parser.parse_known_args()
     if args.step not in STEP_PROFILES:
         expected = ", ".join(sorted(STEP_PROFILES))
@@ -504,5 +533,5 @@ if __name__ == "__main__":
         diagnostics=profile["diagnostics"],
         python_version=PYTHON_VERSION,
         install_torch=profile["install_torch"],
-        default_step="vision",
+        default_step="cellpose",
     )

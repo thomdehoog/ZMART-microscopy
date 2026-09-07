@@ -130,8 +130,9 @@ class WorkerPool:
 
     Parameters
     ----------
-    idle_timeout : float
-        Seconds before idle workers are shut down (default: 300).
+    idle_timeout : float or None
+        Seconds before idle workers are shut down (default: 300); None
+        means they are never reaped.
     connect_timeout : float
         Seconds to wait for a new worker to connect (default: 60).
     """
@@ -213,7 +214,7 @@ class WorkerPool:
     def _ensure_reaper(self):
         """Start the reaper thread on first pool creation."""
         if self._reaper is None:
-            logger.debug("Pool: starting reaper (idle_timeout=%.0fs)",
+            logger.debug("Pool: starting reaper (idle_timeout=%s)",
                          self.idle_timeout)
             self._reaper = threading.Thread(
                 target=self._reaper_loop, daemon=True,

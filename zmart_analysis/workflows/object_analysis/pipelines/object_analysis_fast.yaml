@@ -1,0 +1,41 @@
+# Object-centered analysis for one acquired image tile, the fast way.
+#
+# The same three steps as object_analysis.yaml with detection placed in the
+# classical environment: the watershed needs scipy and scikit-image and no
+# torch, and a cold press through the cellpose environment was paying the
+# torch worker's spawn for it. Every parameter is the same and can be
+# overridden per submission the same way; the table lands under the same
+# name, `object_analysis`, so whoever reads it does not know which way it
+# was found.
+
+metadata:
+  purpose: "Object-centered image analysis, classical detector"
+  version: "1.0"
+  verbose: 1
+  functions_dir: "../steps"
+
+object_analysis:
+  - detect_objects:
+      environment: ZMART--object_analysis--classical
+      method: fast       # QuPath-style watershed; robust (Cellpose) needs object_analysis.yaml
+      threshold: 100     # a nucleus's mean above background, in counts
+      channels: null
+      channel_axis: null
+      diameter: null
+      segmentation_binning: 1
+      border_margin_px: null
+      min_area_px: null
+      max_area_px: null
+      min_equivalent_diameter_um: null
+      max_equivalent_diameter_um: null
+
+  - extract_classical_features:
+      # Everything but the per-object texture crops. glrlm, lbp and fft each
+      # loop over every object in Python and were 4.5 s of a 5.8 s step on a
+      # 488-object mock tile; the rest, one pass over the label image, was
+      # 1.5 s. Size, shape, intensity, background and neighbourhood stay,
+      # and each is a gating axis on the page; the texture columns are what
+      # robust mode has that fast does not.
+      extras: [intensity, neighbourhood, morphology, gradients, stat_texture]
+
+  - build_object_table:

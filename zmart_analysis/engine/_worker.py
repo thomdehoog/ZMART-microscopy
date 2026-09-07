@@ -154,8 +154,9 @@ class Worker:
     environment : str or None
         Conda environment name. None means the orchestrator's own
         environment (uses sys.executable directly).
-    idle_timeout : float
-        Seconds of inactivity before eligible for reaper shutdown.
+    idle_timeout : float or None
+        Seconds of inactivity before eligible for reaper shutdown; None
+        means never.
     connect_timeout : float
         Seconds to wait for the subprocess to connect back.
     """
@@ -371,7 +372,13 @@ class Worker:
         return payload
 
     def is_idle(self, now=None):
-        """True if worker has been idle longer than idle_timeout."""
+        """True if worker has been idle longer than idle_timeout.
+
+        Never, when there is no idle_timeout: the worker is kept for as long
+        as its pool is.
+        """
+        if self.idle_timeout is None:
+            return False
         if now is None:
             now = time.monotonic()
         return (now - self._last_active) > self.idle_timeout

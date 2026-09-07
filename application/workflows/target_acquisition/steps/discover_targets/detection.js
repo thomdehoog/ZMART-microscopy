@@ -12,7 +12,7 @@
  */
 
 /** The algorithms this page offers, and what their settings mean. */
-/* The two ways of finding objects, in the operator's words. Accurate is
+/* The two ways of finding objects, in the operator's words. Robust is
    Cellpose: a model, about a minute a field on the card and ten on the CPU.
    Fast is what QuPath's cell detection does -- background off, a blob
    response, a watershed -- a second or two a field with no model to load. */
@@ -21,8 +21,8 @@ export const ALGOS = {
     label: "Fast",
     blurb: "Watershed, as QuPath does it. Diameter sets its scale; threshold is how bright a nucleus must be above the background, in counts.",
   },
-  accurate: {
-    label: "Accurate",
+  robust: {
+    label: "Robust",
     blurb: "Cellpose. Diameter is the size it looks for; cell probability is how sure it has to be.",
   },
 };

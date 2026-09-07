@@ -49,7 +49,7 @@ def test_the_settings_reach_the_detector_in_its_own_units():
     assert given["cellprob_threshold"] == -1.0
     # How the objects are found rides along in the step's own word, and the
     # fast way's threshold only with it.
-    assert given["method"] == "accurate"
+    assert given["method"] == "robust"
     assert "threshold" not in given
     fast = detection.what_was_captured(
         _record(), field=0, pixel_um=4.0,
@@ -129,6 +129,13 @@ def test_through_runs_the_object_pipeline_once_per_field():
     find = detection.through(analysis, pixel_um=4.0)
     found = find(_record(), field=0, settings={"diameter": 20.0, "cellprob": 0.0})
     assert analysis.asked[0][0] == "object_analysis"
+    # The fast way goes through the pipeline that never spawns the vision
+    # environment: a cold press paid the torch worker for a watershed.
+    find(_record(), field=0, settings={"method": "fast", "diameter": 20.0})
+    assert analysis.asked[1][0] == "object_analysis_fast"
+    assert analysis.asked[1][1]["method"] == "fast"
+    find(_record(), field=0, settings={"method": "robust", "diameter": 20.0})
+    assert analysis.asked[2][0] == "object_analysis"
     assert analysis.asked[0][1]["diameter"] == 5.0
     targets = found["cells"]
     assert targets[0]["x"] == 1.0 and targets[0]["area"] == 64.0
