@@ -2066,12 +2066,13 @@ canvas.livecv[hidden] { display: none; }
 }
 .acquisition-press:hover { border-color: var(--accent); color: var(--accent); }
 .acquisition-press > svg { display: block; flex: none; }
-/* The name stands in a box of the chip's height and is centred in it: a
-   bare run of text is centred on its line box, whose middle sits above
-   the letters' middle, so the word read a pixel or two low beside the
-   glyphs. */
+/* The name stands in a box of the chip's height, and the box is centred
+   in the row rather than the word: a lowercase word has no ascenders to
+   speak of, so its letters sit in the lower half of the em box, and centring
+   the em box put the word two pixels low beside the glyphs. The bottom
+   padding lifts the letters by half its own height. */
 .acquisition-press > #acquisition-name {
-  display: inline-flex; align-items: center; height: 18px; padding-bottom: 1px;
+  display: inline-flex; align-items: center; height: 18px; padding-bottom: 4px;
 }
 /* The ramp chip: the lookup-table bar a microscopist knows, in a small
    bordered box. Pressed means grey, and the glyph says which: a rainbow
