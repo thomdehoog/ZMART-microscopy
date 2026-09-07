@@ -1237,13 +1237,30 @@ function theFramedField() {
    whole picture rather than as one field of it. */
 const ROOM_AROUND_A_TILE = 0.15;
 
-/** Tile: frame that one field, with a little ground around it. */
-function frameTile() {
-  const t = theFramedField();
-  if (!t) return;
+/** The zoom that frames a field of `frameUm` with a little ground around it. */
+function zoomForATile(frameUm) {
   const rect = stageBox.getBoundingClientRect();
   const w = rect.width || 800, h = rect.height || 600;
-  const zoom = t.frameUm * (1 + 2 * ROOM_AROUND_A_TILE) / Math.max(1, Math.min(w, h) - 2 * FIT_MARGIN);
+  return frameUm * (1 + 2 * ROOM_AROUND_A_TILE) / Math.max(1, Math.min(w, h) - 2 * FIT_MARGIN);
+}
+
+/** Tile: frame the current field, with a little ground around it. Pressed
+    while that field is already framed -- in the middle, at a tile's zoom --
+    it goes on to the next field in reading order, and round again, so the
+    press is also a tour of the plan, the way Tile set tours the tilesets. */
+function frameTile() {
+  const layer = theStack.find((one) => one.key === "detect" && one.has);
+  let t = layer?.field?.() ?? null;
+  if (!t) return;
+  const here = theView();
+  const inTheMiddle = Math.abs(here.centre.x - t.x) <= t.frameUm / 2
+    && Math.abs(here.centre.y - t.y) <= t.frameUm / 2;
+  const atATilesZoom = Math.abs(here.zoom - zoomForATile(t.frameUm)) <= 0.1 * zoomForATile(t.frameUm);
+  if (inTheMiddle && atATilesZoom && layer.next) {
+    layer.next();
+    t = layer.field?.() ?? t;
+  }
+  const zoom = zoomForATile(t.frameUm);
   const centre = { x: t.x, y: t.y };
   theCanvas.lookAt({ zoom, centre });
   thePicture.followTheStage({ zoom, centre });
