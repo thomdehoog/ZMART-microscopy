@@ -96,9 +96,22 @@ from . import info as _info
 
 log = logging.getLogger(__name__)
 
+import pathlib as _pathlib
+
+
+def _microscope_name_of(folder: "_pathlib.Path") -> str:
+    """Identities are spelt with hyphens, folders with underscores (a Python
+    package name cannot hold a hyphen): ``stellaris5_y42h93`` the folder is
+    ``stellaris5-y42h93`` the microscope."""
+    return folder.name.replace("_", "-")
+
+
 CONNECTION = {
     "vendor": "leica",
-    "microscope": "stellaris5-y42h93",
+    # The microscope is named after the folder this driver is in (see
+    # zmart_drivers/discovery.py): copy the folder under a new name and the
+    # copy is a second microscope, never a quarrel over one name.
+    "microscope": _microscope_name_of(_pathlib.Path(__file__).resolve().parents[2]),
     "api": "navigator-expert",
     # driver-specific connect params — edit before set_instrument():
     "client": "PythonClient",

@@ -261,7 +261,9 @@ class MachineProfile:
     """
 
     vendor: str = "leica"
-    microscope_id: str = "stellaris5_y42h93"
+    #: The folder this driver is in: a copy of the driver under another
+    #: folder name keeps its configurations under that name.
+    microscope_id: str = Path(__file__).resolve().parents[2].name
     api: str = "navigator_expert"
     programdata_root: Path | None = None
     #: A fixed configuration to stand on. ``None`` means the one chosen with
