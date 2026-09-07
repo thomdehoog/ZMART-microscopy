@@ -348,13 +348,12 @@ export default {
    * in rather than drawn over the top afterwards so that one place decides how
    * a field looks; two would disagree about a fill the moment either changed.
    */
-  drawOn(ctx, { fields, preset, carrier, toScreen, scale, marked = null, dim = false }) {
+  drawOn(ctx, { fields, preset, carrier, toScreen, scale, marked = null }) {
     if (!fields?.length) return;
     const on = (id) => !!marked?.has(id);
     const ink = preset?.ink ?? PRESET_INK[0];
-    const base = dim ? 0.45 : 1;
     ctx.save();
-    ctx.globalAlpha = base;
+    ctx.globalAlpha = 1;
 
     /* The tiles carry the marking too, and for a grid position they are all of
        it — its own drawing is nothing, because the tile already says where it
@@ -377,9 +376,9 @@ export default {
         continue;
       }
       ctx.fillStyle = hot ? vivid(ink) : ink;
-      ctx.globalAlpha = base * (hot ? MARKED_TILE_FILL : TILE_FILL);
+      ctx.globalAlpha = hot ? MARKED_TILE_FILL : TILE_FILL;
       ctx.fillRect(x, y, s, s);
-      ctx.globalAlpha = base;
+      ctx.globalAlpha = 1;
       ctx.strokeStyle = hot ? vivid(ink) : ink;
       ctx.lineWidth = hot ? MARKED_TILE_W : TILE_W;
       ctx.strokeRect(x, y, s, s);

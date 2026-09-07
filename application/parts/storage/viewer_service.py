@@ -48,7 +48,7 @@ VIEWER_POLL_TIMEOUT_S = 1.0
 #: release.  An editable checkout is intentionally allowed, but an old copy of
 #: the viewer living inside this repository is not: those sources are historical
 #: reference material and do not own the runtime boundary.
-SMART_VIEWER_VERSION = "0.2.0"
+SMART_VIEWER_VERSION = "0.2.1"
 _MICROSCOPY_ROOT = Path(__file__).resolve().parents[3]
 
 #: The service's whole state: one viewer per bridge process, like the run.

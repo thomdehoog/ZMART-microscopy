@@ -9,13 +9,13 @@ only as historical design reference.
 
 ## Reproducible Smart Operator setup
 
-The Smart Viewer integration is tested with `zmart-viewer` 0.2.0 at commit
-`9ff10b04e803fbe2a71a1735a8065a845ea803dd`. Keep its checkout beside this one:
+The Smart Viewer integration requires `zmart-viewer` 0.2.1 (`v0.2.1`) at commit
+`18bd328267922eeca878f7839d4d66bce0d11bfb`. Keep its checkout beside this one:
 
 ```bash
 git clone https://github.com/thomdehoog/ZMART-microscopy.git
 git clone https://github.com/thomdehoog/ZMART-viewer.git
-git -C ZMART-viewer checkout 9ff10b04e803fbe2a71a1735a8065a845ea803dd
+git -C ZMART-viewer checkout 18bd328267922eeca878f7839d4d66bce0d11bfb
 
 cd ZMART-microscopy
 conda env create -f environment.yml

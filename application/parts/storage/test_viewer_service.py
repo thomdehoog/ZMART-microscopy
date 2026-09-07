@@ -32,7 +32,7 @@ def _empty_service(*, port: int | None = None) -> dict:
 def test_the_installed_smart_viewer_is_the_separate_supported_package():
     found = service.viewer_provenance()
 
-    assert found["version"] == "0.2.0"
+    assert found["version"] == "0.2.1"
     assert not Path(found["path"]).is_relative_to(service._MICROSCOPY_ROOT)
 
 
@@ -40,12 +40,15 @@ def test_an_in_repository_viewer_copy_is_refused():
     copied = service._MICROSCOPY_ROOT / "viz_studio" / "backend" / "zmart_viewer.py"
 
     with pytest.raises(RuntimeError, match="separate ZMART-viewer checkout"):
-        service._validate_viewer_provenance("0.2.0", copied)
+        service._validate_viewer_provenance("0.2.1", copied)
 
 
-def test_an_unproved_viewer_release_is_refused(tmp_path):
-    with pytest.raises(RuntimeError, match="Smart Viewer 0.2.0 is required"):
-        service._validate_viewer_provenance("0.1.0", tmp_path / "zmart_viewer" / "__init__.py")
+@pytest.mark.parametrize("installed_version", ["0.1.0", "0.2.0", "0.2.2"])
+def test_an_unproved_viewer_release_is_refused(tmp_path, installed_version):
+    with pytest.raises(RuntimeError, match=r"Smart Viewer 0\.2\.1 is required"):
+        service._validate_viewer_provenance(
+            installed_version, tmp_path / "zmart_viewer" / "__init__.py"
+        )
 
 
 def test_the_external_viewer_owns_the_measurement_route(tmp_path):

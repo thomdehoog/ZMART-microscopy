@@ -500,7 +500,6 @@ let stageWatch = null;
       locked: false,
     });
     view.fitted = false;
-    stage?.groundFollowsTheScan();
     focusPanelsFor(0);
     gatingShown?.redraw();
     renderPointList();
@@ -779,7 +778,6 @@ let stageWatch = null;
              between the field just done and the one being taken. */
           stageWatch?.refresh();
           state.notes[s.id] = scanNote();
-          stage.groundFollowsTheScan();
           /* Each position the scan reports is a reason to read the run again,
              because the tile it just saved is new picture that nothing on disk
              announces — the images were declared at their full size before any
@@ -978,10 +976,6 @@ let stageWatch = null;
             done, of: picked.length,
             doing: done < picked.length ? `tile ${done + 1} · ${next.targetId ?? next.id}` : "",
           });
-          /* The ground opens over each acquired frame the way it opens over
-             each overview field, so a target imaged at the edge of the plan
-             shows through where it was taken rather than under the ground. */
-          stage.groundFollowsTheScan();
           /* The list beside the canvas grows with the rings on it. */
           galleryPanel?.rebuild();
           redrawSoon(); renderAll();
@@ -990,7 +984,6 @@ let stageWatch = null;
         /* A stopped run accounts for what it took, and claims nothing more:
            only the cells with a record are acquired. */
         accountFor(records, stopped ? records.length : picked.length);
-        stage.groundFollowsTheScan();
         redrawSoon();
         /* The gallery shows what was acquired, stopped or not: a run put
            down by hand after two pairs showed its two rings on the canvas
@@ -1041,7 +1034,6 @@ let stageWatch = null;
       if (s.mode === "scan") {
         state.tilesShown = state.plan.length;
         state.notes[s.id] = scanNote();
-        stage.groundFollowsTheScan();
         stageWatch?.refresh();
       }
       if (s.mode === "detect") {
@@ -2471,6 +2463,7 @@ let stageWatch = null;
        Disconnect, so the page reopened an empty JPEG picture on a bridge
        that had no run to serve. */
     viewerSources: () => (state.done.has("connect") ? backend?.viewerSources?.() : null) ?? null,
+    connected: () => state.done.has("connect"),
     overviewCanvas: theCanvas.parts.overviewCanvas,
     overviewNote: theCanvas.parts.overviewNote,
     view: () => stage.pictureView(),
@@ -2503,6 +2496,7 @@ let stageWatch = null;
      workflow's, so it lives with the workflow; the framework hands it the canvas,
      the run, and the few things it must be able to call back into. */
   const stage = openTheStage({
+    pictureHost: theCanvas.parts.pictureHost,
     box: theCanvas.parts.box,
     layerBar: theCanvas.parts.layerBar,
     tip: theCanvas.parts.tip,
@@ -2618,10 +2612,6 @@ let stageWatch = null;
   /* Left where a test can reach it: what matters about a picture is what
      reached the screen, and only the page can be asked. */
   window.__theStageCanvas = {
-    openScannedGround: (howMuch) => stage.openScannedGround(howMuch),
-    closeTheGround: () => stage.closeTheGround(),
-    openThisGround: (windows) => stage.openThisGround(windows),
-    groundWindows: () => stage.groundWindows(),
     layers: () => stage.layers(),
     showLayer: (key, on) => stage.showLayer(key, on),
     layerShown: (key) => stage.layerShown(key),

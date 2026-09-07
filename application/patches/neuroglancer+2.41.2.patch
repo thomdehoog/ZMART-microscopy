@@ -1,3 +1,5 @@
+Keep alpha edits aligned with ZMART-viewer's app/page/scripts/patch_neuroglancer.mjs.
+
 diff --git a/node_modules/neuroglancer/lib/chunk_manager/frontend.js b/node_modules/neuroglancer/lib/chunk_manager/frontend.js
 index 9d88f14..f882d5b 100644
 --- a/node_modules/neuroglancer/lib/chunk_manager/frontend.js
@@ -13,3 +15,67 @@ index 9d88f14..f882d5b 100644
    if (DEBUG_CHUNK_UPDATES) {
      console.log(
        `${Date.now()} Chunk.update received: ${source.rpcId} ${x.id} ${x.state} with chunkDataSize ${x.chunkDataSize}`
+diff --git a/node_modules/neuroglancer/lib/display_context.js b/node_modules/neuroglancer/lib/display_context.js
+index ad38658..24c8f2e 100644
+--- a/node_modules/neuroglancer/lib/display_context.js
++++ b/node_modules/neuroglancer/lib/display_context.js
+@@ -520,10 +520,12 @@ export class DisplayContext extends RefCounted {
+       panel.draw();
+     }
+     gl.disable(gl.SCISSOR_TEST);
+-    this.gl.clearColor(1, 1, 1, 1);
+-    this.gl.colorMask(false, false, false, true);
+-    gl.clear(gl.COLOR_BUFFER_BIT);
+-    this.gl.colorMask(true, true, true, true);
++    if (!this.transparentBackground) {
++      this.gl.clearColor(1, 1, 1, 1);
++      this.gl.colorMask(false, false, false, true);
++      gl.clear(gl.COLOR_BUFFER_BIT);
++      this.gl.colorMask(true, true, true, true);
++    }
+     this.updateFinished.dispatch();
+     this.framerateMonitor.endLastTimeQuery(gl, ext);
+     this.framerateMonitor.grabAnyFinishedQueryResults(gl);
+diff --git a/node_modules/neuroglancer/lib/sliceview/frontend.js b/node_modules/neuroglancer/lib/sliceview/frontend.js
+index 1ef60b6..86031ef 100644
+--- a/node_modules/neuroglancer/lib/sliceview/frontend.js
++++ b/node_modules/neuroglancer/lib/sliceview/frontend.js
+@@ -602,6 +602,8 @@ else {
+       glsl_fragmentMainEnd = `
+   sampledColor = uBackgroundColor;
+ }
++// The embedding surface uses binary coverage, independently of channel weights.
++if (uBackgroundColor.a == 0.0) sampledColor.a = float(sampledColor.a > 0.0);
+ emit(sampledColor * uColorFactor, 0u);
+ `;
+     }
+diff --git a/node_modules/neuroglancer/lib/sliceview/panel.js b/node_modules/neuroglancer/lib/sliceview/panel.js
+index 2dee22f..cd88ec4 100644
+--- a/node_modules/neuroglancer/lib/sliceview/panel.js
++++ b/node_modules/neuroglancer/lib/sliceview/panel.js
+@@ -279,6 +279,7 @@ export class SliceViewPanel extends RenderedDataPanel {
+     backgroundColor[1] = crossSectionBackgroundColor[1];
+     backgroundColor[2] = crossSectionBackgroundColor[2];
+     backgroundColor[3] = 1;
++    if (this.context.transparentBackground) backgroundColor.fill(0);
+     this.offscreenFramebuffer.bindSingle(0 /* COLOR */);
+     this.sliceViewRenderHelper.draw(
+       sliceView.offscreenFramebuffer.colorBuffers[0].texture,
+@@ -301,6 +302,8 @@ export class SliceViewPanel extends RenderedDataPanel {
+         WebGL2RenderingContext.ONE_MINUS_SRC_ALPHA
+       );
++      // Preserve image alpha under annotations.
++      if (this.context.transparentBackground) gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+       this.offscreenFramebuffer.bind(width, height);
+     };
+     bindFramebuffer();
+     const renderContext = {
+@@ -340,6 +343,8 @@ export class SliceViewPanel extends RenderedDataPanel {
+           WebGL2RenderingContext.SRC_ALPHA,
+           WebGL2RenderingContext.ONE_MINUS_SRC_ALPHA
+         );
++        // Preserve image alpha under scale bars.
++        if (this.context.transparentBackground) gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+         this.scaleBars.draw(
+           projectionParameters,
+           this.navigationState.displayDimensionRenderInfo.value,
