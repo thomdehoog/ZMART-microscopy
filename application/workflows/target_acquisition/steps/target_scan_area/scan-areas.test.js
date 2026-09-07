@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   coveredBy, coveredByTiles, objectReachUm, overlapShare, planScanAreas,
-  repeatedOverlap,
+  reachUm, repeatedOverlap,
 } from "./scan-areas.js";
 
 /* An object as the detector reports it: area in µm² on the cell, area and
@@ -15,7 +15,7 @@ const object = (id, x, y, { major = 20, areaPx = 100, pixelUm = 1 } = {}) => ({
 /* An independent coverage oracle. It neither reads `tile.covers` nor calls a
    planner coverage helper: target and tile edges partition the requested
    footprint into cells, and every cell must lie in a real tile rectangle. */
-const oracleReach = (target, margin) => {
+const oracleReach = (target, margin, frameUm) => {
   const px = Number(target.features?.area);
   const um = Number(target.area);
   const pixelUm = px > 0 && um > 0 ? Math.sqrt(um / px) : 1;
@@ -23,11 +23,12 @@ const oracleReach = (target, margin) => {
   const own = Number.isFinite(major) && major > 0
     ? major * pixelUm / 2
     : um > 0 ? Math.sqrt(um / Math.PI) : 0;
-  return own * (1 + Math.max(0, Number(margin) || 0));
+  const asked = own * (1 + Math.max(0, Number(margin) || 0));
+  return own * 2 <= frameUm ? Math.min(asked, frameUm / 2) : asked;
 };
 
 const oracleCovered = (target, tiles, frameUm, margin) => {
-  const reach = oracleReach(target, margin);
+  const reach = oracleReach(target, margin, frameUm);
   const wanted = {
     x0: target.x - reach, x1: target.x + reach,
     y0: target.y - reach, y1: target.y + reach,
@@ -90,6 +91,17 @@ describe("what an object reaches", () => {
   it("falls back to a disc of its area when no ellipse was fitted", () => {
     const bare = { id: "a", x: 0, y: 0, area: Math.PI * 25, features: {} };
     expect(objectReachUm(bare)).toBeCloseTo(5, 6);
+  });
+
+  it("keeps its margin only as far as one frame can give it", () => {
+    // reach 10; margin 900 % asks 100 either side, a frame of 100 gives 50.
+    const fits = object("a", 0, 0);
+    expect(reachUm(fits, 9, 100)).toBe(50);
+    expect(reachUm(fits, 1, 100)).toBe(20);
+    // An object that does not fit the frame by itself is not clipped: it is
+    // stitched, and its margin is honoured across the raster.
+    const big = object("b", 0, 0, { major: 120 });
+    expect(reachUm(big, 1, 100)).toBe(120);
   });
 
   it("is covered when it lies inside the area with its margin whole", () => {
@@ -314,6 +326,19 @@ describe("the edges of placing", () => {
     expect(placed[0]).toMatchObject({ id: "a", x: 12, y: -7, frameUm: 100, covers: ["a"] });
   });
 
+  it("an object that fits one frame gets one tile, its margin clipped and said", () => {
+    // reach 40 with a 100 % margin asks 160 across; the frame is 100, the
+    // object 80. One frame, centred, and the summary says the margin gave.
+    const target = object("a", 0, 0, { major: 80 });
+    for (const minimise of [true, false]) {
+      const { placed, uncovered, notes } = planScanAreas([target], 100, { margin: 1, overlap: { min: 0.2 }, minimise });
+      expect(placed).toHaveLength(1);
+      expect(placed[0]).toMatchObject({ x: 0, y: 0, targetId: "a" });
+      expect(uncovered).toEqual([]);
+      expect(notes).toEqual(["1 target fits one frame only with a smaller margin (25 % instead of 100 %)"]);
+    }
+  });
+
   it("an object that exactly fills the frame with its margin is still placed", () => {
     // reach 10, margin 400 % -> 50 either side: exactly the frame
     const { placed, uncovered } = planScanAreas([object("a", 0, 0)], 100, { margin: 4 });
@@ -327,12 +352,18 @@ describe("the edges of placing", () => {
     expect(strict.placed).toEqual(plain.placed);
   });
 
-  it("an explicitly switched-off margin adds no ring", () => {
+  it("an explicitly switched-off margin adds no ring, and says nothing about it", () => {
+    // reach 10 in a frame of 20: the object fills the frame exactly.
     const target = object("a", 0, 0);
-    expect(planScanAreas([target], 20, { margin: null }).placed).toHaveLength(1);
+    const off = planScanAreas([target], 20, { margin: null });
+    expect(off.placed).toHaveLength(1);
+    expect(off.notes).toEqual([]);
+    // With the default margin the ring cannot fit; the object still gets
+    // its one frame, and the plan says the ring gave way entirely.
     const withDefaultMargin = planScanAreas([target], 20, {});
-    expect(withDefaultMargin.placed.length).toBeGreaterThan(1);
+    expect(withDefaultMargin.placed).toHaveLength(1);
     expect(withDefaultMargin.uncovered).toEqual([]);
+    expect(withDefaultMargin.notes).toEqual(["1 target fits one frame only with a smaller margin (0 % instead of 100 %)"]);
   });
 
   it("two objects on one spot share one area", () => {
