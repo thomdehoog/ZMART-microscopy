@@ -215,14 +215,15 @@ export default {
     };
 
     const rebuild = () => {
-      /* A choice outlives a rebuild while its target is still acquired; a
-         run that has just begun, or lost the chosen one, shows the newest.
-         Until something is acquired there is nothing to list or to show,
-         and the boxes wait rather than stand empty. */
+      /* The operator's choice outlives a rebuild while its target is still
+         acquired. Otherwise the pair follows the newest frame as the run
+         grows -- a follow is quiet, so it keeps following. Until something
+         is acquired there is nothing to list or to show, and the boxes wait
+         rather than stand empty. */
       const ids = known();
       listBox.group.hidden = !ids.length;
       pairBox.group.hidden = !ids.length;
-      if (!ids.includes(ctx.selected())) ctx.select(ids.at(-1) ?? null, { quietly: true });
+      if (!ids.includes(ctx.selected()) || ctx.quiet?.()) ctx.select(ids.at(-1) ?? null, { quietly: true });
       showTheList();
       showThePair();
     };
