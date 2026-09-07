@@ -845,7 +845,7 @@ let stageWatch = null;
         algo: state.detect.algo, kind: "overview", existing: state.masks,
         dress: { colour: state.detect.maskColour, show: state.detect.maskShow, alpha: state.detect.maskAlpha },
       }));
-      detectionShown?.progress?.({ start: true });
+      detectionShown?.progress?.({ start: true, doing: "starting the workers…" });
       backend.discoverTargets({
         settings: settingsFor(state.detect),
         onDoing: (sentence) => {
@@ -945,6 +945,7 @@ let stageWatch = null;
         state.acquiredTiles = {};
         galleryPanel?.rebuild();
       }
+      galleryPanel?.progress?.({ start: true });
       backend.scanOverview({
         positions: picked.map(positionFor),
         planned: state.targetTiles.map(positionFor),
@@ -960,6 +961,13 @@ let stageWatch = null;
           if (at) takeThePosition(at);
           accountFor(records);
           state.notes[s.id] = `${done} / ${picked.length} pairs`;
+          /* The tile under the objective now, by its target's id: what is
+             being taken, beside how far along the run is. */
+          const next = picked[Math.min(done, picked.length - 1)];
+          galleryPanel?.progress?.({
+            done, of: picked.length,
+            doing: done < picked.length ? `tile ${done + 1} · ${next.targetId ?? next.id}` : "",
+          });
           /* The ground opens over each acquired frame the way it opens over
              each overview field, so a target imaged at the edge of the plan
              shows through where it was taken rather than under the ground. */
@@ -978,10 +986,17 @@ let stageWatch = null;
            down by hand after two pairs showed its two rings on the canvas
            and an empty gallery beside them. */
         galleryPanel?.rebuild();
+        galleryPanel?.progress?.({
+          done: records.length, of: picked.length,
+          ended: true, note: stopped ? "stopped by hand" : `${records.length} pairs acquired`,
+        });
         return stopped
           ? stoppedShort(`stopped by hand — ${records.length} of ${picked.length} pairs acquired`)
           : finish();
-      }, itFailed);
+      }, (why) => {
+        galleryPanel?.progress?.({ ended: true, note: `failed — ${why.message}` });
+        return itFailed(why);
+      });
       return;
     }
 

@@ -42,6 +42,7 @@ export const labelColour = (n, alpha = 1) =>
   `hsla(${(n * 137.508) % 360}, 68%, 58%, ${alpha})`;
 
 import { dressTheMask } from "./mask-dress.js";
+import { progressBox } from "../../shared/progress.js";
 import { sideGroup } from "../../../../framework/window/panels.js";
 
 export default {
@@ -209,29 +210,13 @@ export default {
     presses.append(tryBtn);
     test.body.append(canvasHost, readout, cellposeHead, params, presses);
 
-    /* Where the run says how it is going: hidden until a run begins, then
-       one line for what is being detected and one for the arithmetic --
-       done, still to go, and the time that pace projects. The projection is
-       re-figured every time a field lands, so the first field paying the
-       workers' spawn corrects itself instead of colouring the estimate. */
-    const progress = sideGroup("Object detection progress");
-    progress.group.style.display = "none";
-    /* A bar that fills as the fields land, sweeping while the workers are
-       still starting; under it what is being segmented and, at the other
-       end, the arithmetic. */
-    const bar = document.createElement("div");
-    bar.className = "progress-bar";
-    const fill = document.createElement("div");
-    fill.className = "progress-fill";
-    bar.append(fill);
-    const progressLine = document.createElement("div");
-    progressLine.className = "progress-line";
-    const doingLine = document.createElement("span");
-    doingLine.id = "detect-doing";
-    const countLine = document.createElement("span");
-    countLine.id = "detect-count";
-    progressLine.append(doingLine, countLine);
-    progress.body.append(bar, progressLine);
+    /* Where the run says how it is going: the shared box, hidden until a
+       run begins. The projection is re-figured every time a field lands, so
+       the first field paying the workers' spawn corrects itself instead of
+       colouring the estimate. */
+    const progress = progressBox("Object detection progress");
+    progress.doing.id = "detect-doing";
+    progress.count.id = "detect-count";
 
     side.append(method.group, test.group, progress.group, act);
     host.append(side);
@@ -487,60 +472,13 @@ export default {
       }, (why) => { settled(); readout.textContent = why.message; });
     });
 
-    /** A duration in the box's own words. */
-    const saySpan = (s) => (s >= 90
-      ? `${Math.floor(s / 60)} min ${String(Math.round(s % 60)).padStart(2, "0")} s`
-      : `${s >= 10 ? Math.round(s) : Math.max(0.1, s).toFixed(1)} s`);
-
-    /* When the run under way began, for the pace the count line projects.
-       Cleared when the run ends; restarted if the panel was remounted
-       mid-run, which loses the early pace but never shows a stale one. */
-    let ranSince = null;
-
-    /** One discovery's story, told as the page hears it land. */
-    function sayProgress(snap) {
-      progress.group.style.display = "";
-      if (snap.start) {
-        ranSince = performance.now();
-        bar.classList.add("busy");
-        fill.style.width = "0%";
-        doingLine.textContent = "starting the workers…";
-        countLine.textContent = "";
-        return;
-      }
-      if (snap.doing != null) doingLine.textContent = snap.doing;
-      if (snap.done != null && snap.of) {
-        if (ranSince === null) ranSince = performance.now();
-        const gone = (performance.now() - ranSince) / 1000;
-        const per = snap.done ? gone / snap.done : null;
-        const still = snap.of - snap.done;
-        /* Position progress is exact: one lands only after detection and all
-           classical features for it have finished. UMAP has no honest
-           per-position percentage, so after all positions reach 100% the
-           bar keeps sweeping while that population-wide phase is running. */
-        const mapping = snap.phase === "umap" && snap.running !== false;
-        bar.classList.toggle("busy", still > 0 || mapping);
-        fill.style.width = `${(100 * snap.done) / snap.of}%`;
-        countLine.textContent = per === null
-          ? `0 of ${snap.of}`
-          : `${snap.done} of ${snap.of}`
-            + (still ? ` · ≈ ${saySpan(per * still)} left` : "")
-            + (mapping && snap.objects ? ` · ${snap.objects} objects` : "");
-      }
-      if (snap.ended) {
-        bar.classList.remove("busy");
-        doingLine.textContent = snap.note;
-        ranSince = null;
-      }
-    }
-
     new ResizeObserver(() => drawTheTile()).observe(canvasHost);
 
     drawTheControls();
     drawTheTile();
     return {
       redraw: () => { drawTheControls(); drawTheTile(); },
-      progress: sayProgress,
+      progress: progress.say,
     };
   },
 };
