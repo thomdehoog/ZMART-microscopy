@@ -11,12 +11,29 @@ its own, so it is tested there. That is what this branch is arranged for.
 
 ## Where to start
 
-Check out **`claude/smart-operator-workflow-review-ehw3c5`**. It holds the
+Clone **`claude/smart-operator-workflow-review-ehw3c5`**. It holds the
 viewer, the writer, the operator page and the Leica driver in one tree, with
 one copy of each drawing engine, and it is where every later change has been
 merged (the driver configuration workflow, the canvas row, the Z and T sliders,
-the table depth alignment). The older `claude/one-checkout` is entirely
-contained in it.
+the table depth alignment, driver folders found at start). The older
+`claude/one-checkout` is entirely contained in it.
+
+One command gives a checkout that is already on that branch:
+
+```bash
+git clone --branch claude/smart-operator-workflow-review-ehw3c5 https://github.com/thomdehoog/ZMART-microscopy.git
+```
+
+If the repository is already on the machine, fetch and switch instead:
+
+```bash
+git fetch origin
+git checkout claude/smart-operator-workflow-review-ehw3c5
+git pull origin claude/smart-operator-workflow-review-ehw3c5
+```
+
+No build is needed before starting: the built page is committed with the
+branch, so the bridge serves it as it is.
 
 ### 1. Start the operator page
 
