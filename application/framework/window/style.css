@@ -418,8 +418,7 @@ button.run:disabled { opacity: 0.4; cursor: default; }
 /* One chip family on the image's control line: every press the same
    height and corner, however it is built. */
 .tile-host .tile-pick .ghost.tiny,
-.mask-toggle .ghost.tiny,
-.image-toggle .ghost.tiny { border-radius: 6px; height: 28px; font-size: 12px; padding: 0 10px; }
+.mask-toggle .ghost.tiny { border-radius: 6px; height: 28px; font-size: 12px; padding: 0 10px; }
 .mask-toggle { display: flex; gap: 2px; align-items: center; }
 /* The slider in the house dress too: a slim line and a small round
    thumb, not the browser's chunky default -- the last raw widget on an
@@ -434,8 +433,7 @@ button.run:disabled { opacity: 0.4; cursor: default; }
   width: 11px; height: 11px; border-radius: 50%;
   background: var(--accent, #0284c7); border: none;
 }
-.mask-toggle .ghost.tiny[aria-pressed="true"],
-.image-toggle .ghost.tiny[aria-pressed="true"] {
+.mask-toggle .ghost.tiny[aria-pressed="true"] {
   background: var(--surface-2); border-color: var(--line-strong); color: var(--ink);
 }
 .mask-toggle .ghost.tiny:disabled { opacity: 0.45; cursor: default; }
@@ -549,11 +547,6 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
    middle of a short box. */
 .fp-ways { display: flex; flex-direction: column; gap: 14px; }
 .fp-way { display: flex; flex-direction: column; gap: 5px; }
-/* Six pixels between a heading and what it heads, which is what the step
-   before leaves. The heading carries a negative bottom margin so that it sits
-   close to its own controls wherever it is used, and against this row's gap
-   that came to one pixel — the word all but touching the buttons. */
-.fp-way > .side-sub { margin-bottom: 1px; }
 /* Every control in this box stands at the channel's own height — the crosshair
    included, though the drawing tools a step earlier are taller. There it is a
    row of six glyphs and nothing else; here it shares its rows with buttons, and
@@ -578,24 +571,21 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
 /* Each count belongs to its press, and the pair says so by being one
    control: joined edges, no air inside, real air between the pairs. The
    press is as wide as its words and no wider. */
-.fp-one .fp-lay { height: var(--control); grid-template-columns: 50px minmax(0, 1fr); gap: 0; }
-.fp-one .fp-lay input { padding: 0 6px; }
-.fp-one .fp-lay input { border-radius: 7px 0 0 7px; border-right: none; }
-.fp-one .fp-lay .sf-flat {
+.fp-row .fp-lay { height: var(--control); grid-template-columns: 50px minmax(0, 1fr); gap: 0; }
+.fp-row .fp-lay input { padding: 0 6px; }
+.fp-row .fp-lay input { border-radius: 7px 0 0 7px; border-right: none; }
+.fp-row .fp-lay .sf-flat {
   grid-column: 2; padding: 0 8px;
   border-radius: 0 7px 7px 0;
 }
-/* The two words stand over the row's two halves: the first column is as
-   wide as the two 44px tools and the gap between them. */
-/* One three-column table for the whole box: the hand tools, then a pair
-   above each press in the foot -- the two rows align because they share
-   the template. */
-.fp-one { display: grid; grid-template-columns: 110px minmax(0, 1fr) minmax(0, 1fr); gap: 12px; align-items: stretch; }
+/* One three-column table for the whole box, a row to a way: the way's
+   word in the first column, what it is done with in the other two. The
+   hand's two tools sit in the second; the two count-and-press pairs take
+   one column each. Rerun, Run new points and Clear all keep the same
+   three columns below, so every press begins where the one above it does. */
+.fp-row { display: grid; grid-template-columns: 110px minmax(0, 1fr) minmax(0, 1fr); gap: 12px; align-items: center; }
+.fp-row > .side-sub { margin-bottom: 0; }
 .fp-tools2 { display: flex; gap: 3px; }
-/* The two words over the row, on its own columns: "Manual" over the hand
-   tools, "Automatic" over both counts and their presses. */
-.fp-heads { align-items: end; margin-bottom: 4px; }
-.fp-heads .fp-head-auto { grid-column: 2 / -1; }
 .fp-tools2 .sf-tool { height: var(--control); width: var(--control); }
 /* Two presses each since Refine and Accept went; the rows stay even. */
 .ft-acts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -999,7 +989,7 @@ button.run.running::after {
   font-family: var(--mono); font-size: 11.5px; color: var(--ink-3);
   font-variant-numeric: tabular-nums;
 }
-.progress-line #detect-count { color: var(--ink-1); flex: none; }
+.progress-line .progress-count { color: var(--ink-1); flex: none; }
 
 /* ---- the selection channel ----------------------------------------------
    The gated cells light up on the canvas; the channel holds the scatter they
@@ -2025,6 +2015,7 @@ canvas.livecv[hidden] { display: none; }
 .canvas-toolbar-right button[hidden] { display: none; }
 /* The row's presses carry a pictogram before the word. */
 .canvas-toolbar button.run { display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; flex: none; }
+.canvas-toolbar button.run[hidden] { display: none; }
 /* A press that is only its pictogram: square, the symbol centred. */
 .canvas-toolbar button.run.icon { width: var(--control); padding: 0; justify-content: center; }
 .canvas-toolbar button.run svg { flex: none; }

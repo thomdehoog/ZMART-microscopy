@@ -112,11 +112,13 @@ class Engine:
 
     Parameters
     ----------
-    idle_timeout : float
-        Seconds before idle workers are shut down (default: 300).
+    idle_timeout : float or None
+        Seconds before idle workers are shut down (default: 300). None
+        keeps them for as long as the engine lives, for a caller that holds
+        one engine for a session and wants the workers' imports paid once.
     max_concurrent : int
         Maximum concurrent operations in the thread pool (default: 8).
-    execution_timeout : float
+    execution_timeout : float or None
         Default timeout for a single step in seconds (default: 300).
     """
 
@@ -144,7 +146,7 @@ class Engine:
             or Path(sys.prefix).name
         )
 
-        logger.debug("Engine created: idle_timeout=%.0f, "
+        logger.debug("Engine created: idle_timeout=%s, "
                      "max_concurrent=%d, default_env=%s",
                      idle_timeout, max_concurrent, self._default_env)
 
@@ -155,7 +157,10 @@ class Engine:
         Register a pipeline by name.
 
         Parses the YAML, resolves functions_dir, reads METADATA from all
-        step files via AST, and builds the internal phase structure.
+        step files via AST, and builds the internal phase structure. A step
+        runs in the environment its file names unless the YAML names one
+        for it; either way an environment that is the orchestrator's own
+        becomes None, the orchestrator's interpreter.
 
         Parameters
         ----------
@@ -188,8 +193,7 @@ class Engine:
                     if step.name not in step_settings:
                         step_path = functions_dir / f"{step.name}.py"
                         settings = get_step_settings(step_path)
-                        # Resolve environment
-                        env = settings["environment"]
+                        env = step.environment or settings["environment"]
                         if env is not None and env == self._default_env:
                             env = None
                         settings["environment"] = env

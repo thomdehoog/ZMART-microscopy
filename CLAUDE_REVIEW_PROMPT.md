@@ -2,8 +2,8 @@
 
 Repository: https://github.com/thomdehoog/ZMART-microscopy
 Branch: `codex/transparent-operator-layers`
-Base: `1860b1f4` on `claude/smart-operator-workflow-review-ehw3c5`.
-Review `git diff 1860b1f4...HEAD`. No PR has been opened.
+Base: `8dbbf768` on `claude/smart-operator-workflow-review-ehw3c5`.
+Review `git diff 8dbbf768...HEAD`. No PR has been opened.
 The original review clone's unrelated uncommitted changes are not in this branch.
 Generated files under `application/framework/window/static` are excluded.
 
@@ -26,6 +26,10 @@ installed ZMART-viewer 0.2.0, not the historical in-repository backend copy.
 The microscopy writer publishes dense individual position stores, so its adapter
 can use constant alpha within a source. It must not apply this rule to a sparse
 composed bounding box. That case needs the viewer repository's geometry coverage.
+Resolved target display mosaics keep their existing explicit encoding (zero is
+a gap, acquired values are at least one; raw frames are kept separately). The
+bridge disables dense opacity for these mosaics. This patch does not change
+their writer or substitute a dense bounding box for their coverage.
 
 ## What to challenge
 
@@ -39,26 +43,42 @@ placement; initial empty viewer lifecycle and disconnect races; first-source
 installation; channel mixing and zero pixels; growing C/Z/T extents; and source
 replacement. Check generic canvas behaviour and JPEG fallback, not just NG.
 
-One remaining inherited boundary deserves scrutiny: adding a different
-acquisition/channel shape still takes the existing reopen path. Only first-source
-installation and appended sources on stable rows preserve the viewer instance.
-This branch does not claim seamless scene replacement across arbitrary types.
+New acquisition/channel rows append to the existing viewer, preserving its
+loaded layers. Their display panel is remounted only when row shape changes,
+retaining requested settings and cancelling old indexed measurements first.
+Removing or replacing existing source addresses still requires a scene reopen.
+Session generations reject stale opening/growth results after disconnect.
+An unavailable source response is not interpreted as an empty scene. Spatial
+axes are selected before alignment corrections, including early source callbacks.
 
 ## Evidence and reproduction
 
-`docs/transparency-proof/` contains unmodified browser screenshots of step 4,
-step 5 and a diagnostic three-surface stack. Magenta is beneath the image; the
-orange label is above. The test compares the screenshot with imagery hidden to
-ensure it counted real image pixels, not UI decorations.
+`docs/transparency-proof/README.md` explains the generated browser artifacts.
+Screenshots are test outputs, not tracked fixtures. Magenta is beneath the image;
+the orange label is above. Differential screenshots measure actual imagery for
+both the NG and JPEG paths, not only the background canvas's alpha.
 
-The application build passed, 481 Vitest tests passed (15 skipped), and all 17
-viewer-service Python tests passed. The real mock-bridge browser walk passed
-repeatedly: it checks empty Connect state, retained first viewer at step 4,
-ground enabled and no cut-outs at steps 4/5, plus screenshot pixels on all levels.
-The viewer repository separately passes its 47 targeted Python/browser tests.
-All four targeted operator browser tests pass, including JPEG registration
-during pan/zoom and opaque lower-background behaviour. The automatic cut-out
-path and its notifications have been removed, not kept as no-op compatibility.
+The corrected mock walk checks successful focus and overview responses, captured
+slices without lost points, all planned records, and viewer identity at steps 4/5.
+It uses a fresh mock configuration: reusing a configuration whose origin was
+changed by another test reproduced the review's out-of-envelope errors.
+The nine-step upstream walk additionally checks viewer identity through target
+acquisition; keep its Z/T assertions intact and report any baseline failures.
+The automatic cut-out path and its notifications have been removed, not retained
+as no-op compatibility.
+
+Final qualification on 2026-09-07: fresh dependency installation and build passed;
+501 Vitest tests passed (15 skipped); 17 service tests passed; all five browser
+tests passed in 4.1 minutes, including the full nine-step acquisition walk,
+loaded target rows, unchanged viewer identity, and the original Z/T assertions.
+The companion viewer at `b5b3d27` passed 52 targeted tests and changed-file lint.
+An independent subagent reviewed the corrections and also ran the unpatched
+`8dbbf768` nine-step baseline successfully. No assertions were relaxed to qualify
+our branch. Long viewer replay/benchmark suites were not rerun.
+
+Fresh local artifacts are under
+`C:\ProgramData\MinicondaZMB\home\t.de\operator-review-final-browser-20260907`
+and `C:\ProgramData\MinicondaZMB\home\t.de\operator-review-final-proof-20260907`.
 No physical Leica acquisition or Firefox/Edge qualification is claimed.
 
 Worktree: `C:\ProgramData\MinicondaZMB\home\t.de\zmart-operator-transparency-20260907`.
@@ -77,7 +97,7 @@ From `application`:
     npm ci
     npm run build
     npx vitest run
-    npx playwright test transparent-middle.spec.js the-scan-under-the-plan.spec.js
+    npx playwright test workflows/target_acquisition/walk.spec.js transparent-middle.spec.js the-scan-under-the-plan.spec.js
 
 From the root:
 

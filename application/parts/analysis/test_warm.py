@@ -119,6 +119,26 @@ def test_the_engine_is_built_with_no_per_call_clock(monkeypatch):
     assert built.get("execution_timeout", "unset") is None
 
 
+def test_the_workers_are_kept_for_the_whole_session(monkeypatch):
+    """The engine's own default reaps a worker idle for 300 s; ours must not.
+
+    The workers' imports are the cost this module exists to pay once. A press
+    six minutes after the last one found them reaped and paid it again, six
+    seconds on this PC and a silent minute on the rig.
+    """
+    import zmart_analysis.engine as engine_module
+
+    built = {}
+
+    class _Caught:
+        def __init__(self, **kwargs):
+            built.update(kwargs)
+
+    monkeypatch.setattr(engine_module, "Engine", _Caught)
+    warm.Analysis().engine
+    assert built.get("idle_timeout", "unset") is None
+
+
 def test_the_workers_are_let_go_and_can_start_again():
     engine = _Engine()
     analysis = warm.Analysis(engine)
@@ -142,9 +162,19 @@ def test_the_process_shares_one_analysis():
     warm.close()
 
 
-def test_a_pipeline_is_found_by_the_name_of_its_workflow():
+def test_a_pipeline_is_found_by_its_name_under_whichever_workflow_has_it():
     assert warm.pipeline_yaml("focus").is_file()
     assert warm.pipeline_yaml("object_analysis").is_file()
+    # A workflow's second pipeline: the same steps, one of them placed in
+    # another environment.
+    fast = warm.pipeline_yaml("object_analysis_fast")
+    assert fast.is_file()
+    assert fast.parent == warm.pipeline_yaml("object_analysis").parent
+
+
+def test_a_pipeline_nobody_has_is_said_so():
+    with pytest.raises(FileNotFoundError, match="no_such_pipeline"):
+        warm.pipeline_yaml("no_such_pipeline")
 
 
 def test_a_new_analysis_is_handed_out_while_the_old_one_is_still_being_put_down():

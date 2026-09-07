@@ -95,6 +95,7 @@ export function watchTheRun(ctx) {
     let viewer = null;
     let opening = false;
     let checkingForGrowth = false;
+    let generation = 0;
     /* What the open viewer was opened on, so a change — the run growing a
        second kind of scan — is noticed and the viewer reopened over it. */
     let openedOn = null;
@@ -145,6 +146,8 @@ export function watchTheRun(ctx) {
         };
       }
       const sources = await ctx.viewerSources?.();
+      // An unavailable response is not an instruction to remove loaded images.
+      if (sources == null && viewer) return null;
       if (sources?.length) {
         /* The engine draws acquisitions in the order supplied, first at the
            bottom. The overview is the base map and focussing is the local
@@ -171,17 +174,24 @@ export function watchTheRun(ctx) {
     async function open() {
       if (viewer || opening) return;
       opening = true;
+      const session = generation;
       try {
         const wanted = await whatToOpen();
-        if (!wanted) return;
+        if (!wanted || session !== generation) return;
         const openViewer = await openerFor(wanted.engine);
-        viewer = await openViewer(host, {
+        if (session !== generation) return;
+        const opened = await openViewer(host, {
           acquisitions: wanted.acquisitions,
           presentation: "2d-overlay",
           transparentBackground: true,
           // NG's colour setting accepts RGB; its separate flag clears alpha.
           background: wanted.engine === "jpeg-under" ? "transparent" : ctx.css("--screen"),
         });
+        if (session !== generation) {
+          opened.destroy();
+          return;
+        }
+        viewer = opened;
         openedOn = wanted.signature;
         openedNames = wanted.acquisitions.map(({ name }) => name);
         inStageFrame = wanted.inStageFrame;
@@ -199,23 +209,27 @@ export function watchTheRun(ctx) {
            copy has no channels to offer. */
         panel?.destroy?.();
         panel = null;
-        if (wanted.signature.startsWith("sources:")) {
-          const { mountViewerPanel } = await import("../../../../parts/canvas/viewer-panel.js");
-          panel = await mountViewerPanel(host.parentElement ?? host, {
-            viewer, acquisitions: wanted.acquisitions, css: ctx.css,
-            requestedState: requestedPanelState,
-            into: ctx.displayHost?.() ?? null,
-            /* A small displayed copy (the discovery preview or Step 9 pair)
-               must follow colour, visibility and window changes too. */
-            changed: () => ctx.displaySettingsChanged?.(),
-          });
-        }
+        if (wanted.signature.startsWith("sources:")) await mountPanel(wanted, session);
+        if (session !== generation) return;
         ctx.displayChanged?.();
       } catch (e) {
         console.error(`the scan could not be opened — ${e.message}`);
       } finally {
-        opening = false;
+        if (session === generation) opening = false;
       }
+    }
+
+    async function mountPanel(wanted, session) {
+      const { mountViewerPanel } = await import("../../../../parts/canvas/viewer-panel.js");
+      if (session !== generation) return;
+      const mounted = await mountViewerPanel(host.parentElement ?? host, {
+        viewer, acquisitions: wanted.acquisitions, css: ctx.css,
+        requestedState: requestedPanelState,
+        into: ctx.displayHost?.() ?? null,
+        changed: () => ctx.displaySettingsChanged?.(),
+      });
+      if (session !== generation) mounted.destroy();
+      else panel = mounted;
     }
 
     /** Put the scan where the plan is looking, exactly. */
@@ -239,39 +253,49 @@ export function watchTheRun(ctx) {
       viewer.setView(v);
     }
 
-    /** Add positions of the stable acquisition to its existing layers.
-
-        A new acquisition type or a replaced source list is a different scene
-        and still takes the reopen path. Merely growing the watched positions
-        folder must not: closing it revokes `/data/N/` while chunks belonging
-        to that same picture may still be in flight. */
+    /** Append positions and acquisition rows without retiring loaded images.
+        Only removal or replacement of sources needs a different scene. */
     async function reopenIfTheRunGrew() {
       if (!viewer || opening || checkingForGrowth) return;
       checkingForGrowth = true;
+      const session = generation;
       try {
         const wanted = await whatToOpen();
-        if (!wanted || wanted.signature === openedOn) return;
+        if (session !== generation || !wanted || wanted.signature === openedOn) return;
+        // Stop the old panel's indexed measurements before rows can move.
+        const sameRows = await panel?.sourcesChanged(wanted.acquisitions);
+        if (session !== generation) return;
+        if (panel && !sameRows) {
+          panel.destroy();
+          panel = null;
+        }
         if (wanted.signature.startsWith("sources:")
             && openedOn?.startsWith("sources:")
             && await viewer.addSources?.(wanted.acquisitions)) {
+          if (session !== generation) return;
           openedOn = wanted.signature;
           openedNames = wanted.acquisitions.map(({ name }) => name);
           followTheStage();
-          await panel?.sourcesChanged?.(wanted.acquisitions);
+          if (!panel) await mountPanel(wanted, session);
+          if (session !== generation) return;
           /* New rows -- a fresh acquisition's channels -- are new display
              settings for everything drawn with them: the page is told, the
              way it is when the settings first come. */
           ctx.displayChanged?.();
           return;
         }
+        if (session !== generation) return;
         closePicture();
         await open();
       } finally {
-        checkingForGrowth = false;
+        if (session === generation) checkingForGrowth = false;
       }
     }
 
     function closePicture({ forgetVisibility = false } = {}) {
+      generation += 1;
+      opening = false;
+      checkingForGrowth = false;
       panel?.destroy?.();
       panel = null;
       ctx.displayChanged?.();

@@ -55,52 +55,52 @@
                  neither comes before the other. -->
             <div class="fp-ways">
               <div class="fp-way">
-                <!-- One row for the whole act: the two hand tools, then the
-                     two automatics, each count joined to its press -- and the
-                     two words over it, on the same columns, so each names
-                     what stands under it without moving anything. -->
-                <div class="fp-one fp-heads">
+                <!-- Two rows, one for each way: the word that names the way,
+                     then what it is done with. By hand, the two tools; by
+                     count, the two pairs side by side, each count joined to
+                     its press. -->
+                <div class="fp-row">
                   <div class="side-sub">Manual</div>
-                  <div class="side-sub fp-head-auto">Automatic</div>
+                  <div class="fp-tools2">
+                    <button type="button" class="sf-tool" id="fp-select"
+                            title="Select — press a point to choose it, drag to move it">
+                      <span class="sf-glyph">↖</span>
+                    </button>
+                    <button type="button" class="sf-tool" id="fp-pick"
+                            title="Place focus points — press the map to put one down, press one to take it away">
+                      <!-- The mark it puts down, drawn at the size a glyph is: the
+                           button and the thing it makes say the same thing. Its
+                           proportions are the canvas reticle's — a circle of 4.5
+                           with arms from 6.5 to 11, at a scale of one to two. -->
+                      <svg class="sf-glyph sf-glyph-drawn" viewBox="0 0 22 22" aria-hidden="true">
+                        <circle cx="11" cy="11" r="2.25" />
+                        <path d="M 5.5 11 L 7.75 11 M 14.25 11 L 16.5 11
+                                 M 11 5.5 L 11 7.75 M 11 14.25 L 11 16.5" />
+                      </svg>
+                    </button>
+                  </div>
                 </div>
-                <div class="fp-one">
-                <div class="fp-tools2">
-                <button type="button" class="sf-tool" id="fp-select"
-                        title="Select — press a point to choose it, drag to move it">
-                  <span class="sf-glyph">↖</span>
-                </button>
-                <button type="button" class="sf-tool" id="fp-pick"
-                        title="Place focus points — press the map to put one down, press one to take it away">
-                  <!-- The mark it puts down, drawn at the size a glyph is: the
-                       button and the thing it makes say the same thing. Its
-                       proportions are the canvas reticle's — a circle of 4.5
-                       with arms from 6.5 to 11, at a scale of one to two. -->
-                  <svg class="sf-glyph sf-glyph-drawn" viewBox="0 0 22 22" aria-hidden="true">
-                    <circle cx="11" cy="11" r="2.25" />
-                    <path d="M 5.5 11 L 7.75 11 M 14.25 11 L 16.5 11
-                             M 11 5.5 L 11 7.75 M 11 14.25 L 11 16.5" />
-                  </svg>
-                </button>
-                </div>
-                <!-- Every drawn thing measured in its own right: so many
-                     points inside each tileset, however many tilesets there
-                     are. -->
-                <div class="fp-lay">
-                  <input type="number" id="fp-count" min="1" max="99" step="1"
-                         aria-label="how many focus points in each tileset"
-                         title="How many focus points to lay in each tileset">
-                  <button type="button" class="sf-flat sf-doing" id="fp-place">Per tileset</button>
-                </div>
-                <!-- One set over everything there is, which is the answer for a
-                     sample that sits flat: the height across a slide is one
-                     surface, and measuring it once beats measuring it again in
-                     every tileset standing on it. -->
-                <div class="fp-lay">
-                  <input type="number" id="fp-count-all" min="1" max="99" step="1"
-                         aria-label="how many focus points over the whole carrier"
-                         title="How many focus points to lay over the whole carrier">
-                  <button type="button" class="sf-flat sf-doing" id="fp-place-all">Per carrier</button>
-                </div>
+                <div class="fp-row">
+                  <div class="side-sub">Automatic</div>
+                  <!-- Every drawn thing measured in its own right: so many
+                       points inside each tileset, however many tilesets there
+                       are. -->
+                  <div class="fp-lay">
+                    <input type="number" id="fp-count" min="1" max="99" step="1"
+                           aria-label="how many focus points in each tileset"
+                           title="How many focus points to lay in each tileset">
+                    <button type="button" class="sf-flat sf-doing" id="fp-place">Per tileset</button>
+                  </div>
+                  <!-- One set over everything there is, which is the answer for a
+                       sample that sits flat: the height across a slide is one
+                       surface, and measuring it once beats measuring it again in
+                       every tileset standing on it. -->
+                  <div class="fp-lay">
+                    <input type="number" id="fp-count-all" min="1" max="99" step="1"
+                           aria-label="how many focus points over the whole carrier"
+                           title="How many focus points to lay over the whole carrier">
+                    <button type="button" class="sf-flat sf-doing" id="fp-place-all">Per carrier</button>
+                  </div>
                 </div>
               </div>
             </div>

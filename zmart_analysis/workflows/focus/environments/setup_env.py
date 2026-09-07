@@ -2,7 +2,7 @@
 
 One environment, ``ZMART--focus--main``. Scoring sharpness needs numpy, a DCT
 from scipy, and the readers -- no cellpose, no torch, no GPU. Keeping it out
-of the vision environment means a focus run costs a small environment rather
+of the cellpose environment means a focus run costs a small environment rather
 than a deep-learning one.
 """
 

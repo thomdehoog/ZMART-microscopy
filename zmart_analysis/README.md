@@ -11,8 +11,9 @@ decides what to do about it. Nothing here moves a stage. See
   an entropy one, both on every run, peak refined between planes. Returns a
   trace and a decision.
 - **`object_analysis/`** — cellpose detection, per-object features, object
-  table. `object_analysis.yaml` is detection plus features; `object_detection.yaml`
-  stops at the checkpoint.
+  table. `object_analysis.yaml` is detection plus features; `object_analysis_fast.yaml`
+  the same with the watershed detector in the classical environment;
+  `object_detection.yaml` stops at the checkpoint.
 
 Each step's docstring is the reference for what it takes and returns; each
 pipeline's YAML lists every parameter with its default. Detection parameters

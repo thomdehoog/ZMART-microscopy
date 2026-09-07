@@ -15,8 +15,11 @@ import math
 from pathlib import Path
 from typing import Any, Callable
 
-#: The ZMART_analysis workflow that finds the objects in one field.
-PIPELINE = "object_analysis"
+#: The ZMART_analysis pipeline that finds the objects in one field, by how the
+#: page asked for them to be found. Both are the same three steps and answer
+#: under the same name; the fast one places detection in the classical
+#: environment, so a watershed never pays the torch worker's spawn.
+PIPELINES = {"robust": "object_analysis", "fast": "object_analysis_fast"}
 
 #: Which way the image's axes point on the stage: a column to the right is
 #: +x, a row down is +y. The mock cuts its frames straight from the sample, so
@@ -109,8 +112,8 @@ def what_was_captured(record: dict, *, field: int, pixel_um: float, settings: di
         if analysis.name == "data":
             given["output_dir"] = str(analysis.parent / "analysis")
     # How the objects are found: the page's word for it is the step's.
-    method = settings.get("method") or "accurate"
-    if method not in ("accurate", "fast"):
+    method = settings.get("method") or "robust"
+    if method not in PIPELINES:
         raise ValueError(f"unknown detection method {method!r}")
     given["method"] = method
     if method == "fast" and settings.get("threshold") is not None:
@@ -174,7 +177,7 @@ def through(analysis: Any, *, pixel_um: float) -> Callable[[dict, int, dict], di
 
     def find(record: dict, field: int, settings: dict) -> dict:
         given = what_was_captured(record, field=field, pixel_um=pixel_um, settings=settings)
-        result = analysis.run(PIPELINE, given)
+        result = analysis.run(PIPELINES[given["method"]], given)
         # The table stands under the pipeline's name; the detection step's
         # own record stands beside it, stripped of its arrays, and that is
         # where the device it ran on is written.

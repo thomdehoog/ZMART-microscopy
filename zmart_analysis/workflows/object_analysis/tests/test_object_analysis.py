@@ -20,6 +20,7 @@ WORKFLOW = Path(__file__).resolve().parents[1]
 STEPS_DIR = WORKFLOW / "steps"
 CLASSICAL_YAML = WORKFLOW / "pipelines" / "object_analysis.yaml"
 DETECTION_YAML = WORKFLOW / "pipelines" / "object_detection.yaml"
+FAST_YAML = WORKFLOW / "pipelines" / "object_analysis_fast.yaml"
 
 
 def _load_step(name: str):
@@ -200,8 +201,44 @@ def test_the_pipelines_register(tmp_path):
     try:
         engine.register("classical", str(CLASSICAL_YAML))
         engine.register("detection", str(DETECTION_YAML))
+        engine.register("fast", str(FAST_YAML))
+        placed = {
+            name: engine._pipelines[name].step_settings["detect_objects"]["environment"]
+            for name in ("classical", "fast")
+        }
     finally:
         engine.shutdown()
+    # The fast pipeline is the same three steps with detection placed in the
+    # classical environment: a watershed needs no torch, and a cold press
+    # was paying the vision worker's spawn for one.
+    assert placed["classical"] == "ZMART--object_analysis--cellpose"
+    assert placed["fast"] == "ZMART--object_analysis--classical"
+
+
+def test_the_fast_pipeline_answers_under_the_same_name():
+    """Whoever reads the table reads ``pipeline_data["object_analysis"]``."""
+    import yaml
+
+    fast = yaml.safe_load(FAST_YAML.read_text())
+    steps = [next(iter(step)) for step in fast["object_analysis"]]
+    assert steps == ["detect_objects", "extract_classical_features", "build_object_table"]
+    detect = fast["object_analysis"][0]["detect_objects"]
+    assert detect["method"] == "fast"
+    assert detect["environment"] == "ZMART--object_analysis--classical"
+
+
+def test_the_fast_pipeline_leaves_out_the_per_object_texture_crops():
+    """glrlm, lbp and fft each loop over every object's crop in Python and
+    together were 4.5 s of a 5.8 s features step on a 488-object mock tile;
+    everything else was 1.5 s. Fast means without them."""
+    import yaml
+
+    fast = yaml.safe_load(FAST_YAML.read_text())
+    extras, _unknown = extract_classical_features._expand_extras(
+        fast["object_analysis"][1]["extract_classical_features"]["extras"]
+    )
+    assert not extras & {"glrlm", "lbp", "fft"}
+    assert extras == set(extract_classical_features.EXTRAS) - {"glrlm", "lbp", "fft"}
 
 
 def test_object_analysis_hands_off_to_target_discovery(tmp_path):
