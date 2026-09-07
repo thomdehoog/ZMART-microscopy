@@ -185,7 +185,7 @@ export function watchTheRun(ctx) {
           presentation: "2d-overlay",
           transparentBackground: true,
           // NG's colour setting accepts RGB; its separate flag clears alpha.
-          background: wanted.engine === "jpeg-under" ? "transparent" : ctx.css("--screen"),
+          background: ctx.css("--screen"),
         });
         if (session !== generation) {
           opened.destroy();

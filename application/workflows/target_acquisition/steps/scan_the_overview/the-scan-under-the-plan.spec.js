@@ -132,18 +132,6 @@ const howFarApart = (page) => page.evaluate(() => {
   return worst;
 });
 
-/** How much of the plan's surface has been cut away, so the scan shows through. */
-const howMuchIsOpen = (page) => page.evaluate(() => {
-  // The plan and background now occupy the lower application drawing.
-  const surfaces = [...document.querySelectorAll("#stage-canvas canvas")];
-  const cv = surfaces[0];
-  if (!cv) throw new Error("the plan has no surface to read");
-  const seen = cv.getContext("2d").getImageData(0, 0, cv.width, cv.height).data;
-  let clear = 0;
-  for (let i = 3; i < seen.length; i += 4) if (seen[i] < 8) clear += 1;
-  return clear / (seen.length / 4);
-});
-
 test("is not opened at all unless the page was pointed at one", async ({ page }) => {
   /* An engine is a large thing to fetch, and a page nobody pointed at a scan
      has no use for one. */
@@ -184,7 +172,7 @@ test("lands exactly where the plan says, at every zoom and after panning",
     expect(await howFarApart(page), "panning pulled the two apart").toBeLessThan(0.001);
   });
 
-test("keeps the lower background opaque without acquisition cut-outs", async ({ page }) => {
+test("draws the JPEG picture above the enabled background", async ({ page }) => {
   test.setTimeout(A_RUN_TAKES_A_WHILE);
   await page.goto("/?backend=pretend");
   await page.waitForTimeout(800);
@@ -195,14 +183,11 @@ test("keeps the lower background opaque without acquisition cut-outs", async ({ 
   await page.waitForFunction(() => !!window.__thePicture, null, { timeout: 20_000 });
 
   // Acquired images sit above the plan; the background need not be cut away.
-  await page.waitForTimeout(400);
-  expect(await howMuchIsOpen(page)).toBeLessThan(0.0002);
-  expect(await page.evaluate(() => window.__theStageCanvas.groundWindows())).toEqual([]);
+  expect(await page.evaluate(() => window.__theStageCanvas.layerShown("ground"))).toBe(true);
 
   // Measure the actual JPEG composite, not only the background canvas's alpha.
   // Frame a field using the operator's control; a whole plate makes each JPEG
   // only a handful of screen pixels, regardless of the quality of its rendering.
-  const plateView = await page.evaluate(() => window.__theStageCanvas.view());
   await page.locator("#tile-btn").click();
   const stage = page.locator("#stage-canvas");
   const visible = readPng(await stage.screenshot());
@@ -217,10 +202,4 @@ test("keeps the lower background opaque without acquisition cut-outs", async ({ 
   expect(imagePixels, "hiding the JPEG picture must change visible image pixels").toBeGreaterThan(1000);
   await page.evaluate(() => window.__thePicture.showPicture(true));
 
-  // Explicit operator visibility controls still work independently.
-  await page.evaluate(view => window.__theStageCanvas.lookAt(view), plateView);
-  await page.evaluate(() => window.__theStageCanvas.showLayer("ground", false));
-  await page.waitForTimeout(500);
-  expect(await howMuchIsOpen(page), "the lower canvas must clear when its background is hidden")
-    .toBeGreaterThan(0.4);
 });

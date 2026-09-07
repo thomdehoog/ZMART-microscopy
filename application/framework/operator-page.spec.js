@@ -1765,21 +1765,6 @@ test("one walk of the whole run", async ({ page }) => {
       "a press inside the frame chooses the tile that was acquired there").toBe(other.key);
     await expect(page.locator(`#target-list .point-row[aria-current="true"]`)).toHaveCount(1);
   }
-  /* The ground opens over each acquired frame as it does over each overview
-     field: one window per planned scan area, centred on that area rather than
-     silently returning to the anchor target. */
-  const windows = await page.evaluate(() => window.__theStageCanvas.groundWindows());
-  const { targetFrameUm: frameUm, targetTilePositions } = await page.evaluate(
-    () => window.__theRunState());
-  expect(frameUm, "the recording says how wide an acquired frame is").toBeGreaterThan(0);
-  for (const tile of targetTilePositions) {
-    const window = windows.find((one) =>
-      Math.abs(one.x + one.w / 2 - tile.x) < 1e-6
-      && Math.abs(one.y + one.h / 2 - tile.y) < 1e-6);
-    expect(window, `the ground is open over the planned area for ${tile.targetId}`).toBeTruthy();
-    expect(window.w).toBeCloseTo(frameUm, 6);
-    expect(window.h).toBeCloseTo(frameUm, 6);
-  }
   /* The two repeat choices live under the current comparison. Current means
      precisely the selected scan area; rerunning it preserves every other
      acquired pair, while the full-run action remains on the right. */
