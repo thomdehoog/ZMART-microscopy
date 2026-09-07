@@ -2359,7 +2359,10 @@ let stageWatch = null;
      that makes the canvas step-agnostic. */
   const theCanvas = thePanels.canvas;
   /* The Z and T sliders under the picture, on whichever picture is open. */
-  const theAxes = mountTheAxes(theCanvas.parts, { picture: () => window.__thePicture ?? null });
+  const theAxes = mountTheAxes(theCanvas.parts, {
+    picture: () => window.__thePicture ?? null,
+    acquisition: () => window.__theStageCanvas?.acquisitionOnShow?.() ?? null,
+  });
   window.__theAxes = theAxes;
 
   const { thePicture, liveOverview } = watchTheRun({
@@ -2529,6 +2532,7 @@ let stageWatch = null;
     layers: () => stage.layers(),
     showLayer: (key, on) => stage.showLayer(key, on),
     layerShown: (key) => stage.layerShown(key),
+    acquisitionOnShow: () => stage.acquisitionOnShow?.() ?? null,
     fadeTo: (value) => stage.fadeTo(value),
     plan: () => stage.plan(),
     targets: () => stage.targets(),

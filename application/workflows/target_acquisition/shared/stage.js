@@ -743,7 +743,7 @@ function drawStage() {
      nothing. What each layer works out for itself as `shown` is the first of
      the two, so that is the answer handed over. */
   for (const layer of stack) {
-    layer.has = layer.shown !== false;
+    if (layer.has === undefined) layer.has = layer.shown !== false;
   }
   theStack = stack;
   theCanvas.setLayersAbove(stack);
@@ -1231,14 +1231,18 @@ function theFramedField() {
   return layer?.field?.() ?? null;
 }
 
-/** Tile: frame that one field, filling the canvas with it. */
+/* How much ground a framed field keeps around it, as a fraction of its
+   width each side: a field that fills the canvas edge to edge reads as the
+   whole picture rather than as one field of it. */
+const ROOM_AROUND_A_TILE = 0.15;
+
+/** Tile: frame that one field, with a little ground around it. */
 function frameTile() {
   const t = theFramedField();
   if (!t) return;
-  const half = t.frameUm / 2;
   const rect = stageBox.getBoundingClientRect();
   const w = rect.width || 800, h = rect.height || 600;
-  const zoom = t.frameUm / Math.max(1, Math.min(w, h) - 2 * FIT_MARGIN);
+  const zoom = t.frameUm * (1 + 2 * ROOM_AROUND_A_TILE) / Math.max(1, Math.min(w, h) - 2 * FIT_MARGIN);
   const centre = { x: t.x, y: t.y };
   theCanvas.lookAt({ zoom, centre });
   thePicture.followTheStage({ zoom, centre });
@@ -1404,17 +1408,19 @@ pickButton?.addEventListener("click", (e) => {
   openOnly(ctx.acquisitionMenu, pickButton, ctx.acquisitionMenu.hidden);
 });
 
-/* Grayscale: every acquisition on the picture drawn in grey, or each in its
-   own colours again. The picture's own panel keeps the colours and does the
-   drawing; this is the same switch for all of them at once. */
-ctx.greyButton?.addEventListener("click", () => {
-  window.__viewerPanel?.drawAllInGrey?.(true);
-  sayWhatThePressesDo();
-});
-ctx.colourButton?.addEventListener("click", () => {
-  window.__viewerPanel?.drawAllInGrey?.(false);
-  sayWhatThePressesDo();
-});
+/* Grayscale: the acquisition on show drawn in grey, or in its own colours
+   again. The picture's own panel keeps the colours and does the drawing;
+   the row's chips belong to one acquisition, and so does this switch. */
+const theAcquisitionOnShow = () =>
+  theRowsAcquisition((window.__viewerPanel?.acquisitions?.() ?? []).map((one) => one.name));
+const drawTheShownIn = (grey) => {
+  const panel = window.__viewerPanel;
+  const shown = theAcquisitionOnShow();
+  if (shown && panel?.drawInGrey) panel.drawInGrey(shown, grey);
+  else panel?.drawAllInGrey?.(grey);
+};
+ctx.greyButton?.addEventListener("click", () => { drawTheShownIn(true); sayWhatThePressesDo(); });
+ctx.colourButton?.addEventListener("click", () => { drawTheShownIn(false); sayWhatThePressesDo(); });
 
 /* The panel is remade when the picture's sources change, so the hook is
    put on whichever panel stands now, once. */
@@ -1634,6 +1640,8 @@ function legendSettles() {
        the same place, rather than working it out a second time from numbers
        that would then have to agree. */
     pictureView: () => theCanvas.view,
+    /** Which acquisition the row's chips belong to right now. */
+    acquisitionOnShow: () => theAcquisitionOnShow(),
     /* Restore an exact carrier-local view without depending on the global
        debug handle: the live picture beneath has a second canvas and may be
        the last one that registered itself there. */

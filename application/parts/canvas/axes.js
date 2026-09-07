@@ -30,7 +30,7 @@
  *   sliders accordingly. Call it whenever the picture opens, closes or
  *   changes what it draws.
  */
-export function mountTheAxes(parts, { picture, watchEveryMs = 1000, playEveryMs = { plane: 120, moment: 350 } }) {
+export function mountTheAxes(parts, { picture, acquisition = null, watchEveryMs = 1000, playEveryMs = { plane: 120, moment: 350 } }) {
   const { axes, axisZ, plane, planePlay, planeReadout, axisT, moment, momentPlay, momentReadout } = parts;
   let depth = null;
   let moments = null;
@@ -103,7 +103,9 @@ export function mountTheAxes(parts, { picture, watchEveryMs = 1000, playEveryMs 
 
   function refresh() {
     const viewer = picture();
-    depth = viewer?.theDepthItCanShow?.() ?? null;
+    /* The depth of the acquisition on show, not of everything the engine
+       holds: a flat overview beside a focus stack offers no way through. */
+    depth = viewer?.theDepthItCanShow?.(acquisition?.() ?? null) ?? null;
     moments = viewer?.theMomentsItCanShow?.() ?? null;
     const deep = Boolean(depth && depth.highUm > depth.lowUm);
     if (deep) {
@@ -139,7 +141,7 @@ export function mountTheAxes(parts, { picture, watchEveryMs = 1000, playEveryMs 
   const look = () => {
     const viewer = picture();
     const now = JSON.stringify([
-      Boolean(viewer), viewer?.theDepthItCanShow?.() ?? null, viewer?.theMomentsItCanShow?.() ?? null,
+      Boolean(viewer), viewer?.theDepthItCanShow?.(acquisition?.() ?? null) ?? null, viewer?.theMomentsItCanShow?.() ?? null,
     ]);
     if (now === seen) return;
     seen = now;

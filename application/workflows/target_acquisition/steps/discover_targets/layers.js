@@ -249,13 +249,14 @@ export function targetLayers(theRun) {
     explains: "Cellpose's masks laid over the fields they were found in, each "
       + "object in its own colour -- what detection actually saw, not just "
       + "where it put a point.",
-    /* The masks belong to the step that tunes them: from the refine step
-       on, the picture is about the selection, and later the acquisition.
-       The layer's own button still brings them back wherever wanted. And
-       they are the run's, not a tile test's: a test is judged in the
-       panel's own picture, and the canvas shows the masks as the run lays
-       them down, field by field. */
-    shown: activeMode === "detect" && run.cellsShown,
+    /* The run has masks once detection has examined a field, and keeps
+       them through every step after: the canvas shows them until the
+       operator turns them off, and its button brings them back. They are
+       the run's, not a tile test's: a test is judged in the panel's own
+       picture, and the canvas shows the masks as the run lays them down,
+       field by field. */
+    has: run.examined.size > 0,
+    shown: run.cellsShown,
     staysSolid: true,
     paint: (frame) => {
       const ctx = frame.context;
