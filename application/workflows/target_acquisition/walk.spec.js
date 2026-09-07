@@ -147,9 +147,28 @@ test.describe("the target acquisition workflow, walked screen by screen", () => 
       const plan = await page.evaluate(() => window.__theStageCanvas.plan());
       expect(plan.length, "the slide was tiled").toBeGreaterThan(0);
       await shot(page, "overview-area-planned");
+      /* There is a current tile from the first plan on: Tile is live, frames
+         the plan's first field, and pressed again while that field is in
+         the middle walks on to the next in reading order. */
+      await expect(page.locator("#tile-btn")).toBeEnabled();
+      await page.locator("#tile-btn").click();
+      await rest(400);
+      const onTheFirst = await page.evaluate(() => window.__theStageCanvas.view());
+      expect(Math.hypot(onTheFirst.centre.x - plan[0].x, onTheFirst.centre.y - plan[0].y),
+        "Tile frames the first field").toBeLessThan(1);
+      await page.locator("#tile-btn").click();
+      await rest(400);
+      const onTheSecond = await page.evaluate(() => window.__theStageCanvas.view());
+      const next = plan[Math.min(1, plan.length - 1)];
+      expect(Math.hypot(onTheSecond.centre.x - next.x, onTheSecond.centre.y - next.y),
+        "Tile again walks to the next field").toBeLessThan(1);
+      expect(onTheSecond.zoom).toBeCloseTo(onTheFirst.zoom, 6);
+      await shot(page, "overview-area-second-tile");
 
       /* Step 4: the focus job, points placed, every one measured. */
       await walkTo(page, "Focus strategy");
+      /* The tile stays current on every step after the plan. */
+      await expect(page.locator("#tile-btn")).toBeEnabled();
       await shot(page, "focus-before");
       inTheInstrument.choose("Focussing");
       await record(page, "focus-preset", "af");

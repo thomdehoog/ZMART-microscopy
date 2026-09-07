@@ -183,7 +183,8 @@ let stageWatch = null;
       maskColour: null, // one colour for every object, or null for each its own
       maskAlpha: 0.65,  // how strongly the masks sit on the image (0..1)
       imageGrey: false, // the test image in grey (set by a landed test, hand-flipped)
-      tile: 0,
+      tile: 0,         // the current field of the plan: framed, tested, toured by Tile
+      targetTile: 0,   // the current target tile, on the steps about the targets
       hovered: -1,     // the tile under the pointer, a press from being tested
       tested: false,
       tried: [],
