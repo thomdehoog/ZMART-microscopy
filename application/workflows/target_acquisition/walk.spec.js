@@ -24,7 +24,7 @@ import os from "node:os";
 import path from "node:path";
 import { operateTheInstrument, rest, showTheChannel, startTheBridge }
   from "./steps/scan_the_overview/live-bridge.js";
-import { fractionLit, photograph } from "./steps/scan_the_overview/pixels.js";
+import { bestShift, fractionLit, photograph } from "./steps/scan_the_overview/pixels.js";
 
 /** How coloured a photograph is: the mean gap between a pixel's strongest
  * and weakest channel. Zero for a grey picture. */
@@ -329,6 +329,87 @@ test.describe("the target acquisition workflow, walked screen by screen", () => 
         await page.locator("#tile-btn").click();
         await rest(1500);
         await shot(page, "detect-tile-framed");
+
+        /* The masks land on their nuclei. Photographed off the screen, the
+           way the operator sees them: once with the masks solid red and
+           once without, and the shift that lays the red over the bright
+           nuclei has to be nothing. A drawing a few pixels off reads as a
+           rim of nucleus beside every mask, and that is exactly what the
+           operator reported. */
+        await page.locator("#mask-btn").click();
+        await expect(page.locator("#mask-pop")).toBeVisible();
+        await page.locator("#mask-picker").fill("#ff0000");
+        await page.locator("#mask-fill").click();
+        await page.locator("#mask-opacity").evaluate((slider) => {
+          slider.value = "100";
+          slider.dispatchEvent(new Event("input", { bubbles: true }));
+        });
+        await rest(900);
+        /* At the field's own zoom and at zooms either side of it, since the
+           engine draws a different stored resolution at each. */
+        const framed = await page.evaluate(() => window.__theStageCanvas.view());
+        for (const times of [0.5, 1, 2, 4]) {
+          await page.evaluate((view) => window.__theStageCanvas.lookAt(view),
+            { zoom: framed.zoom * times, centre: framed.centre });
+          await rest(1200);
+          const withMasks = await photograph(page, "#picture-host", 0.6);
+          await page.locator("#mask-eye").click();
+          await rest(900);
+          const withoutMasks = await photograph(page, "#picture-host", 0.6);
+          await page.locator("#mask-eye").click();
+          await rest(300);
+          const { width, height, channels } = withMasks;
+          const masks = new Uint8Array(width * height);
+          const nuclei = new Uint8Array(width * height);
+          for (let i = 0; i < width * height; i++) {
+            const a = i * channels;
+            const [r, g, b] = [withMasks.data[a], withMasks.data[a + 1], withMasks.data[a + 2]];
+            masks[i] = r > 150 && g < 110 && b < 110 ? 1 : 0;
+            const bright = Math.max(withoutMasks.data[a], withoutMasks.data[a + 1], withoutMasks.data[a + 2]);
+            nuclei[i] = bright > 90 ? 1 : 0;
+          }
+          const shift = bestShift(masks, nuclei, width, height, 12);
+          console.log(`at ${(framed.zoom * times).toFixed(3)} um/px (${times}x the field zoom): masks over nuclei dx=${shift.dx} dy=${shift.dy} px = ${(shift.dx * framed.zoom * times).toFixed(2)},${(shift.dy * framed.zoom * times).toFixed(2)} um, overlap ${shift.score.toFixed(2)}`);
+        }
+        await page.evaluate((view) => window.__theStageCanvas.lookAt(view), framed);
+        await rest(900);
+        const withMasks = await photograph(page, "#picture-host", 0.6);
+        await page.locator("#mask-eye").click();
+        await rest(900);
+        const withoutMasks = await photograph(page, "#picture-host", 0.6);
+        await page.locator("#mask-eye").click();
+        await page.keyboard.press("Escape");
+        await rest(500);
+        {
+          const { width, height, channels } = withMasks;
+          const masks = new Uint8Array(width * height);
+          const nuclei = new Uint8Array(width * height);
+          for (let i = 0; i < width * height; i++) {
+            const a = i * channels;
+            const [r, g, b] = [withMasks.data[a], withMasks.data[a + 1], withMasks.data[a + 2]];
+            masks[i] = r > 150 && g < 110 && b < 110 ? 1 : 0;
+            const bright = Math.max(withoutMasks.data[a], withoutMasks.data[a + 1], withoutMasks.data[a + 2]);
+            nuclei[i] = bright > 90 ? 1 : 0;
+          }
+          const shift = bestShift(masks, nuclei, width, height, 12);
+          console.log(`masks over nuclei: best shift dx=${shift.dx} dy=${shift.dy} px, overlap ${shift.score.toFixed(2)}`);
+          /* The same question asked of each quarter: a shift that is the
+             same everywhere is a displacement; one that grows away from the
+             middle is a scale. */
+          const hw = Math.floor(width / 2), hh = Math.floor(height / 2);
+          for (const [name, x0, y0] of [["top-left", 0, 0], ["top-right", hw, 0], ["bottom-left", 0, hh], ["bottom-right", hw, hh]]) {
+            const a = new Uint8Array(hw * hh), b = new Uint8Array(hw * hh);
+            for (let y = 0; y < hh; y++) for (let x = 0; x < hw; x++) {
+              a[y * hw + x] = masks[(y + y0) * width + x + x0];
+              b[y * hw + x] = nuclei[(y + y0) * width + x + x0];
+            }
+            const q = bestShift(a, b, hw, hh, 12);
+            console.log(`  ${name}: dx=${q.dx} dy=${q.dy} overlap ${q.score.toFixed(2)}`);
+          }
+          expect(shift.score, "the masks lie over nuclei at all").toBeGreaterThan(0.3);
+          expect(Math.abs(shift.dx), "masks sit on their nuclei across").toBeLessThanOrEqual(1);
+          expect(Math.abs(shift.dy), "masks sit on their nuclei down").toBeLessThanOrEqual(1);
+        }
         await framePlan(page);
 
         /* Step 7: a gate drawn on the feature plot, around most of the cloud. */
