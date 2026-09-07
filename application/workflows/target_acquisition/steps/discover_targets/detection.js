@@ -160,28 +160,14 @@ export default {
     });
     maskToggle.append(alpha);
 
-    /* And the image's own dress at the right: colour or grey, flipped by
-       hand -- a landed test flips it to grey so the coloured masks stand
-       on quiet ground, and this is the way back. */
-    const greyToggle = document.createElement("div");
-    greyToggle.className = "image-toggle";
-    const greyBtn = document.createElement("button");
-    greyBtn.type = "button";
-    greyBtn.className = "ghost tiny";
-    greyBtn.textContent = "Grey";
-    greyBtn.addEventListener("click", () => {
-      const settings = ctx.settings();
-      settings.imageGrey = !settings.imageGrey;
-      refresh();
-    });
-    greyToggle.append(greyBtn);
-
-    /* One flex line under the image: mask presses, the picker, the grey
-       toggle -- spaced by the row itself, so nothing can ever collide the
-       way absolutely-centred pieces could. */
+    /* One flex line under the image: mask presses and the picker, spaced
+       by the row itself, so nothing can ever collide the way
+       absolutely-centred pieces could. Colour or grey is not decided here:
+       it is the acquisition's own, on its chip in the canvas's row, and the
+       test image wears the picture's colours as they are. */
     const line = document.createElement("div");
     line.className = "tile-line";
-    line.append(maskToggle, picker, greyToggle);
+    line.append(maskToggle, picker);
     /* The picture in a square box of its own, so the canvas is sized by
        the box and not by the host that also holds the control line. */
     const pictureBox = document.createElement("div");
@@ -296,8 +282,9 @@ export default {
 
       paint.fillStyle = "#05090e";
       paint.fillRect(ox, oy, frame * scale, frame * scale);
-      /* The image wears what the toggles say: grey ground or its own
-         colours, and the segmentation filled, outlined, or absent. */
+      /* The image wears the overview's own dress, colour or grey as its
+         chip in the canvas's row says, and what the mask presses say: the
+         segmentation filled, outlined, or absent. */
       const mode = settings.maskShow ?? "fill";
       const masksWanted = settings.tested && mode !== "off";
       const showingMasks = Boolean(masksWanted && mask);
@@ -307,8 +294,8 @@ export default {
       paint.imageSmoothingEnabled = false;
       if (picture) {
         /* Set either way: a filter left on the context outlives the
-           press that turned it off. */
-        paint.filter = settings.imageGrey ? "grayscale(1)" : "none";
+           flip that turned it off. */
+        paint.filter = ctx.inGrey?.() ? "grayscale(1)" : "none";
         paint.drawImage(picture, ox, oy, frame * scale, frame * scale);
         paint.filter = "none";
       }
@@ -357,7 +344,6 @@ export default {
         b.setAttribute(
           "aria-pressed", String(b.dataset.mode === (settings.maskShow ?? "fill")));
       }
-      greyBtn.setAttribute("aria-pressed", String(Boolean(settings.imageGrey)));
       alpha.value = String(Math.round((settings.maskAlpha ?? 1) * 100));
       const fast = settings.algo === "fast";
       methodPick.value = settings.algo;
@@ -466,7 +452,6 @@ export default {
         }
         settings.tried = found.cells;
         settings.tested = true;
-        settings.imageGrey = true;
         showThePictureOf(found.position_label);
         refresh();
       }, (why) => { settled(); readout.textContent = why.message; });

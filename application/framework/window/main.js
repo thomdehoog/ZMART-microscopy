@@ -182,7 +182,6 @@ let stageWatch = null;
       maskShow: "fill", // how the test view wears the masks: fill | line | off
       maskColour: null, // one colour for every object, or null for each its own
       maskAlpha: 0.65,  // how strongly the masks sit on the image (0..1)
-      imageGrey: false, // the test image in grey (set by a landed test, hand-flipped)
       tile: 0,         // the current field of the plan: framed, tested, toured by Tile
       targetTile: 0,   // the current target tile, on the steps about the targets
       hovered: -1,     // the tile under the pointer, a press from being tested
@@ -1375,6 +1374,9 @@ let stageWatch = null;
   const detectionMount = (host) => {
     detectionShown = detectionPanel.mount(host, {
       settings: () => state.detect,
+      /* Colour or grey is the overview's own, switched on its chip in the
+         canvas's row and nowhere else; the card follows it. */
+      inGrey: () => Boolean(window.__viewerPanel?.acquisitionGrey?.("overview")),
       plan: () => state.plan,
       tryOn: (field, settings) => backend.discoverTargets({ fields: [field], settings })
         .then(({ fields, failed, stopped }) => {
@@ -2358,6 +2360,19 @@ let stageWatch = null;
     renderActionBar();
     renderTabs();
     renderPanels();
+    renderFramingPresses();
+  }
+
+  /* The canvas's three framing presses -- carrier, tile set, tile -- are
+     about a stage, and there is no stage until a session is open. They
+     appear with the connection and go with it, rather than standing over
+     an empty canvas offering to frame what is not there. */
+  function renderFramingPresses() {
+    const connected = state.done.has("connect");
+    const parts = thePanels.canvas?.parts ?? {};
+    for (const press of [parts.carrier, parts.tileset, parts.tile]) {
+      if (press) press.hidden = !connected;
+    }
   }
 
   /* ============================================================
@@ -2391,7 +2406,13 @@ let stageWatch = null;
   /* The Z and T sliders under the picture, on whichever picture is open. */
   const theAxes = mountTheAxes(theCanvas.parts, {
     picture: () => window.__thePicture ?? null,
-    acquisition: () => window.__theStageCanvas?.acquisitionOnShow?.() ?? null,
+    /* The acquisitions shown, by name: the room is as deep as the deepest
+       of them, whichever one's chips are in the row. */
+    acquisitions: () => {
+      const panel = window.__viewerPanel;
+      if (!panel?.acquisitions) return null;
+      return panel.acquisitions().map((one) => one.name).filter((name) => panel.acquisitionShown?.(name) !== false);
+    },
   });
   window.__theAxes = theAxes;
 
@@ -2431,7 +2452,9 @@ let stageWatch = null;
     },
     /* A display control changed after the panel was mounted. The available
        tabs did not change, only displayed copies that use the snapshot did. */
-    displaySettingsChanged: () => galleryPanel?.rebuild(),
+    /* The gallery's pairs and the detection card both wear the overview's
+       dress, colour or grey, so both are drawn again when it changes. */
+    displaySettingsChanged: () => { galleryPanel?.rebuild(); detectionShown?.redraw(); },
     css,
   });
 

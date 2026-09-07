@@ -52,6 +52,30 @@ describe("the sliders under the picture", () => {
     expect(parts.planeReadout.textContent).toBe("7 µm · plane 8 of 21");
   });
 
+  it("has the depth of the room: any acquisition shown that is a stack", () => {
+    /* The picture is one room. A flat overview on show beside the focus
+       stacks does not hide the way through them: the overview lies on the
+       table at every depth, and the slider walks the stacks. Hidden
+       acquisitions do not count, and a picture with no stacks shown has no
+       depth to offer. */
+    const depths = { overview: null, focussing: { lowUm: 0, highUm: 60, stepUm: 1, atUm: 0 } };
+    const room = {
+      theDepthItCanShow: (name) => (name === null ? depths.focussing : depths[name]),
+      theMomentsItCanShow: () => null,
+    };
+    let shown = ["overview", "focussing"];
+    const parts = theParts();
+    mountTheAxes(parts, { picture: () => room, acquisitions: () => shown, watchEveryMs: 0 }).refresh();
+    expect(parts.axisZ.hidden).toBe(false);
+    expect(parts.planeReadout.textContent).toBe("0 µm · plane 1 of 61");
+    shown = ["overview"];
+    mountTheAxes(parts, { picture: () => room, acquisitions: () => shown, watchEveryMs: 0 }).refresh();
+    expect(parts.axisZ.hidden).toBe(true);
+    shown = ["focussing"];
+    mountTheAxes(parts, { picture: () => room, acquisitions: () => shown, watchEveryMs: 0 }).refresh();
+    expect(parts.axisZ.hidden).toBe(false);
+  });
+
   it("offers T for a timelapse, counted in moments from the first", () => {
     const parts = theParts();
     const timelapse = {

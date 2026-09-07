@@ -1233,9 +1233,11 @@ function theFramedField() {
 }
 
 /* How much ground a framed field keeps around it, as a fraction of its
-   width each side: a field that fills the canvas edge to edge reads as the
-   whole picture rather than as one field of it. */
-const ROOM_AROUND_A_TILE = 0.15;
+   width each side: half a field, so the field stands in the middle of the
+   canvas at half its shorter side with its neighbours round it. At 15 %
+   the field all but filled the canvas and read as the whole picture rather
+   than as one field of it, and the operator called it too far in. */
+const ROOM_AROUND_A_TILE = 0.5;
 
 /** The zoom that frames a field of `frameUm` with a little ground around it. */
 function zoomForATile(frameUm) {
