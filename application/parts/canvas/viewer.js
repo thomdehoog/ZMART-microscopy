@@ -318,6 +318,9 @@ export function putTheCanvasIn({
      first. Left empty by a page that is only looking at the canvas, which then
      gets the demonstration's one layer so that there is something to see. */
   layersAbove = [],
+  // Optional external image surface, between the named layer and those above it.
+  pictureHost = null,
+  pictureAbove = null,
   /* Told what an operator clicked, when a layer claims the click:
      `({ layer, what, at }) => …`. This is how clicking a position opens the
      field it stands for. The canvas does not act on the click itself — what a
@@ -578,6 +581,12 @@ export function putTheCanvasIn({
   function handTheSlotsTheirDrawings(picture = viewer, { openedJustNow = false } = {}) {
     if (!picture) return;
     const nothingToDraw = openedJustNow ? null : paintNothingAtAll;
+    if (pictureHost && pictureAbove) {
+      const split = stackAbove.findIndex(layer => layer.key === pictureAbove) + 1;
+      picture.drawUnder(theDrawingAbove(stackAbove.slice(0, split)) ?? nothingToDraw);
+      picture.drawOver(theDrawingAbove(stackAbove.slice(split), { dial }) ?? nothingToDraw);
+      return;
+    }
     picture.drawUnder(showing.beneath ? theGroundBeneath : nothingToDraw);
     /* The whole stack above the picture arrives as one drawing, because that is
        what the interface takes: one function per slot. Which layers are in it,
@@ -735,6 +744,7 @@ export function putTheCanvasIn({
         // requests and is right in every other way.
         coverage: null,
         background,
+        middleSurface: pictureHost,
         onViewChanged: (where) => { sayWhereTheViewIs(where); onViewMoved?.(where); },
       }),
       acquisitions.length ? wanted : `${wanted}, opened with no acquisition,`,

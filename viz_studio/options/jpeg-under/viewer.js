@@ -107,6 +107,14 @@ export async function openViewer(element, options = {}) {
   };
 
   buildTheThreeSurfaces(own);
+  if (options.middleSurface) {
+    const middle = options.middleSurface;
+    middle.style.zIndex = "1";
+    own.surfaces.under.style.zIndex = "0";
+    own.surfaces.picture.style.zIndex = "0";
+    own.surfaces.over.style.zIndex = "2";
+    own.surfaces.box.insertBefore(middle, own.surfaces.over);
+  }
   await readTheNotes(own);
   fitToWhatThereIs(own);
 

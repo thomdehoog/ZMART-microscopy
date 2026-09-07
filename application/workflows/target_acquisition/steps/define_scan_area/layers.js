@@ -8,16 +8,14 @@
  */
 export function scanAreaLayers(theRun) {
   const {
-    run, drawnIn, scanfieldsWidget, activePreset, indexOfStep, editing, shown,
+    run, drawnIn, scanfieldsWidget, activePreset, indexOfStep, editing,
     asAPress, editorTook, renderRail,
   } = theRun;
   return {
     plan: {
     key: "plan",
     label: "Plan",
-    explains: "The positions the microscope was told to visit. It stays readable once "
-      + "the tiles start landing on top of it, dimmed, because by then the images "
-      + "are the answer and this is only the question.",
+    explains: "The planned scan area, beneath acquired images. Unacquired areas remain visible.",
     /* Not before the step that says where to scan. Walking back to the
        carrier is walking back to a question the plan is an answer to — the
        fields were placed against these areas, and drawing them over a plate
@@ -30,7 +28,7 @@ export function scanAreaLayers(theRun) {
       const { place, scale } = drawnIn(frame);
       scanfieldsWidget.drawOn(ctx, {
         fields: run.fields, preset: activePreset(), carrier: run.carrier,
-        toScreen: place, scale: scale, dim: shown > 0,
+        toScreen: place, scale: scale, dim: false,
         marked: editing?.marked(),
       });
     },

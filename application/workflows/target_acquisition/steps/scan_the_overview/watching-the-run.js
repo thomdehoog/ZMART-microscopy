@@ -162,7 +162,10 @@ export function watchTheRun(ctx) {
           inStageFrame: true,
         };
       }
-      return null;
+      return ctx.connected?.() ? {
+        engine: search.get("engine") ?? "neuroglancer-under",
+        acquisitions: [], signature: "sources:", inStageFrame: true,
+      } : null;
     }
 
     async function open() {
@@ -175,9 +178,9 @@ export function watchTheRun(ctx) {
         viewer = await openViewer(host, {
           acquisitions: wanted.acquisitions,
           presentation: "2d-overlay",
-          /* The same colour the page paints, so the seam between the scan's own
-             background and the ground above it never shows. */
-          background: ctx.css("--screen"),
+          transparentBackground: true,
+          // NG's colour setting accepts RGB; its separate flag clears alpha.
+          background: wanted.engine === "jpeg-under" ? "transparent" : ctx.css("--screen"),
         });
         openedOn = wanted.signature;
         openedNames = wanted.acquisitions.map(({ name }) => name);
@@ -253,6 +256,7 @@ export function watchTheRun(ctx) {
             && await viewer.addSources?.(wanted.acquisitions)) {
           openedOn = wanted.signature;
           openedNames = wanted.acquisitions.map(({ name }) => name);
+          followTheStage();
           await panel?.sourcesChanged?.(wanted.acquisitions);
           /* New rows -- a fresh acquisition's channels -- are new display
              settings for everything drawn with them: the page is told, the
@@ -314,19 +318,8 @@ export function watchTheRun(ctx) {
      reads as the page having stumbled. */
   thePicture.open();
 
-  /* One clock, doing both halves of the same job. Nothing on disk announces a
-     new field, so the scan has to be asked for rather than told — and nothing
-     announces the *first* field either: a scan that has imaged nothing has no
-     note to open, so the picture cannot be opened until one lands.
-
-     This used to hang off the overview's own heartbeat, which meant a page
-     watching a scan and nothing else — the ordinary case for a run the page is
-     taking itself — opened once against an empty run, failed, and never asked
-     again. The picture stayed black for the whole acquisition.
-
-     A run that has stopped changing simply draws the same picture again, so
-     the cost of this when there is nothing new is one small request every
-     couple of seconds. */
+  // Open an empty viewer after Connect, then poll for published sources and
+  // refresh existing ones. There is no separate step-4/step-5 viewer lifecycle.
   setInterval(() => {
     if (thePicture.opened) {
       thePicture.mayHaveLanded();

@@ -341,7 +341,9 @@ def _the_acquisitions_in(config: dict, port: int) -> list[dict]:
             continue
         acquisition = grouped.setdefault(
             group,
-            {"name": group, "url": sources[0], "channels": []},
+            # This service opens the writer's position folders, not a padded
+            # mosaic. Each published store is one dense image footprint.
+            {"name": group, "url": sources[0], "channels": [], "opaque": True},
         )
         acquisition["channels"].append(
             {
