@@ -146,67 +146,33 @@ def _require_session():
     return _session
 
 
-# Where the Leica driver lives. Its folder is not a package on the path —
-# the example notebook adds it and imports the adapter, and importing IS
-# registering: that is the driver's own opt-in.
-_LEICA_HOME = _ROOT / "zmart_drivers" / "leica" / "stellaris5_y42h93"
-
-
-def _leica_connection() -> dict:
-    """Register the Leica driver and hand back its own connection identity.
-
-    The identity — vendor, microscope, api, and the driver-specific connect
-    parameters — is the adapter's ``CONNECTION``, taken verbatim rather than
-    restated here: one owner, so the bridge can never ask for an instrument
-    under a name the driver did not give itself. The driver speaks to real
-    LAS X or to its simulator without knowing which; nothing here does
-    either.
-    """
-    if str(_LEICA_HOME) not in sys.path:
-        sys.path.insert(0, str(_LEICA_HOME))
-    from navigator_expert.zmart_adapter import CONNECTION  # importing registers
-
-    return dict(CONNECTION)
-
-
 def _register_known_drivers() -> None:
     """Put every driver this machine has into the controller's registry.
 
     The registry is what the page's Microscope list shows — ``get_instruments``
     is the controller's own answer to "what can I connect to" — so the bridge
-    registers what it can find at start: the mock always, the Leica when its
-    driver imports. A driver that fails to import is simply not offered.
+    registers what it can find at start: the mock always, and every driver
+    folder under ``zmart_drivers/<vendor>/`` (see ``zmart_drivers/discovery.py``;
+    a folder is the whole of a driver, and adding one is all it takes). A
+    driver that fails to import is simply not offered, and says why once.
+    Importing a driver registers its setup too, the second door into the
+    same instrument that the configuration workflow uses; the two registries
+    stay apart, and nothing that holds a session may reach the second.
     """
+    from zmart_drivers.discovery import register_every_driver
     from zmart_drivers.mock.mock_driver import register_mock
+    from zmart_drivers.mock.mock_setup import register_mock_setup
 
     register_mock()
-    try:
-        _leica_connection()
-    except Exception as why:  # noqa: BLE001 — not installed here is a normal state
-        print(f"bridge: the Leica driver is not available on this machine ({why})")
+    register_mock_setup()
+    for driver in register_every_driver(say=lambda line: print(f"bridge: {line}")):
+        if driver.registered:
+            print(f"bridge: driver {driver.vendor}/{driver.folder} registered as "
+                  f"{driver.connection.get('vendor')}/{driver.connection.get('microscope')}")
 
 
 def _instruments() -> list:
     return zmart_controller.get_instruments()
-
-
-def _register_known_setup_drivers() -> None:
-    """Put every driver's *setup* into the setup registry.
-
-    A separate registry, deliberately: what the controller can drive and what
-    the setup workflow can configure are two doors into the same instrument,
-    and nothing that holds a session may reach the second. The mock always;
-    the Leica when its driver imports.
-    """
-    from zmart_drivers.mock.mock_setup import register_mock_setup
-
-    register_mock_setup()
-    try:
-        if str(_LEICA_HOME) not in sys.path:
-            sys.path.insert(0, str(_LEICA_HOME))
-        import navigator_expert.zmart_adapter.setup  # noqa: F401 -- importing registers
-    except Exception as why:  # noqa: BLE001 -- not installed here is a normal state
-        print(f"bridge: the Leica setup driver is not available on this machine ({why})")
 
 
 # ---------------------------------------------------------------------------
@@ -1780,7 +1746,6 @@ def _a_bridge_on(port: int, output_root: str | None = None) -> ThreadingHTTPServ
     global _output_root
     _output_root = output_root
     _register_known_drivers()
-    _register_known_setup_drivers()
     return ThreadingHTTPServer(("127.0.0.1", port), _Bridge)
 
 

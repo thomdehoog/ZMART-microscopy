@@ -99,7 +99,9 @@ const inTheInstrument = {
 };
 const chooseTheLeica = async (page) => {
   const scope = page.locator(".panel.on .session-form select").nth(0);
-  const value = await scope.evaluate((sel) => [...sel.options].find((o) => /leica|stellaris/i.test(o.textContent))?.value);
+  /* This driver's own entry: the one named after its folder. A second
+     Leica folder is a second entry, and it is not the one stood in for. */
+  const value = await scope.evaluate((sel) => [...sel.options].find((o) => /stellaris5.y42h93/i.test(o.textContent + o.value))?.value);
   if (value === undefined) throw new Error("the Leica is not offered on the card");
   await scope.selectOption(value);
 };

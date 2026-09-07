@@ -12,6 +12,8 @@
 export const MICROSCOPES = {
   "mock-scope": { label: "Mock", detail: "the controller's fake driver" },
   "stellaris5-y42h93": { label: "Leica Stellaris 5", detail: "y42h93" },
+  // A second folder of the same driver, under zmart_drivers/leica/stellaris_y42h93.
+  "stellaris-y42h93": { label: "Leica Stellaris", detail: "y42h93 · second folder" },
 };
 
 export const APIS = {

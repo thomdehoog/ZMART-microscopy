@@ -37,6 +37,21 @@ os.environ.setdefault("ZMART_MICROSCOPY_ROOT", tempfile.mkdtemp(prefix="zmart-le
 
 import test_configuration_walk as walk  # noqa: E402  -- the stand-ins live there
 
+# The bridge finds this driver by its folder and imports it as
+# zmart_drivers.leica.<folder>.navigator_expert (see zmart_drivers/discovery.py),
+# which is a second copy of the package beside the plain `navigator_expert`
+# the walk test above imports. The stand-ins have to be put on the copy the
+# bridge will drive, so they are taken from it here, by the folder's name.
+import importlib  # noqa: E402
+
+PACKAGE = f"zmart_drivers.leica.{LEICA.name}.navigator_expert"
+drv_session = importlib.import_module(f"{PACKAGE}.connection.session")
+_save = importlib.import_module(f"{PACKAGE}.acquisition.save")
+materialize = importlib.import_module(f"{PACKAGE}.acquisition.materialize")
+product = importlib.import_module(f"{PACKAGE}.acquisition.product")
+_machine = importlib.import_module(f"{PACKAGE}.config.machine")
+importlib.import_module(f"{PACKAGE}.zmart_adapter.setup")
+
 client = walk._instrument()
 camera_root = Path(tempfile.mkdtemp(prefix="zmart-leica-camera-"))
 
@@ -111,15 +126,15 @@ def camera(root):
             raw = mock_setup.as_the_camera_records(np, aligned, walk.CAMERA)
             path = folder / f"image--Z{index:02d}--C00.ome.tif"
             tifffile.imwrite(str(path), raw)
-            planes[walk.product.PlaneIndex(0, index, 0)] = walk.product.PlaneSource(path=path)
+            planes[product.PlaneIndex(0, index, 0)] = product.PlaneSource(path=path)
         step = (heights[-1] - heights[0]) / (len(heights) - 1) if len(heights) > 1 else None
-        return walk.product.ExportedAcquisition(
+        return product.ExportedAcquisition(
             source_root=folder.parent, source_dir=folder,
-            positions=[walk.product.ExportedPosition(t=0, planes=planes)],
-            metadata=walk.product.AcquisitionMetadata(
+            positions=[product.ExportedPosition(t=0, planes=planes)],
+            metadata=product.AcquisitionMetadata(
                 size_x=frame_px, size_y=frame_px, size_t=1, size_z=len(heights), size_c=1, pixel_type="uint16",
                 physical_size_x_um=pixel, physical_size_y_um=pixel, physical_size_z_um=step,
-                channels=(walk.product.ChannelMetadata(index=0, name="C0"),)),
+                channels=(product.ChannelMetadata(index=0, name="C0"),)),
             method="test camera", source_exporter="lasx_native_autosave", vendor_metadata_sources=(),
         )
     return collect
@@ -138,10 +153,10 @@ startup.mkdir(parents=True)
 
 healthy = {"path": "x", "corrupted": False, "violations": [], "error": None}
 for p in (
-    patch.object(walk.drv_session, "connect_python_client", return_value=client),
-    patch.object(walk._save, "collect_lasx_native_autosave", camera(camera_root)),
-    patch.object(walk.materialize._ome, "check_ome_tiff", return_value=healthy),
-    patch.object(walk.materialize._ome, "check_ome_xml_file", return_value=healthy),
+    patch.object(drv_session, "connect_python_client", return_value=client),
+    patch.object(_save, "collect_lasx_native_autosave", camera(camera_root)),
+    patch.object(materialize._ome, "check_ome_tiff", return_value=healthy),
+    patch.object(materialize._ome, "check_ome_xml_file", return_value=healthy),
 ):
     p.start()
 
@@ -155,7 +170,8 @@ def configure() -> dict:
     from zmart_drivers.setup import procedures
     seam = walk.seam
     into = Path(tempfile.mkdtemp(prefix="zmart-leica-configure-"))
-    instrument = next(i for i in seam.get_instruments() if i["vendor"] == "leica")
+    from zmart_drivers.discovery import microscope_name_of
+    instrument = next(i for i in seam.get_instruments() if i["microscope"] == microscope_name_of(LEICA))
     setup = seam.open_setup(instrument)
     started = setup.new_configuration()
     corners = [(5000.0, 6000.0), (110000.0, 6000.0), (5000.0, 70000.0), (110000.0, 70000.0)]
@@ -185,7 +201,7 @@ def configure() -> dict:
         "2": {"name": walk.JOBS["HiRes"]["name"], "translation_um": [t["x"], t["y"], t["z"]]},
     }})
     setup.close()
-    walk._machine.use_configuration(None)
+    _machine.use_configuration(None)
     client._selected_job = "Overview"
     walk._the_operator_focuses(client, "Overview")
     return {"configuration": started["id"], "translation_um": t}
