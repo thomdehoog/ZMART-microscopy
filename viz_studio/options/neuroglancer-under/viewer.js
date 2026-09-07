@@ -222,6 +222,7 @@ export async function openViewer(element, options = {}) {
   const {
     acquisitions = [],
     coverage = null,
+    transparentBackground = false,
     background = "#000000",
     onViewChanged = null,
     presentation = "source-geometry",
@@ -254,6 +255,7 @@ export async function openViewer(element, options = {}) {
   const own = {
     element,
     coverage,
+    transparentBackground,
     background,
     onViewChanged,
     presentation,
@@ -386,7 +388,7 @@ function buildTheTwoSurfaces(own) {
   if (getComputedStyle(element).position === "static") {
     element.style.position = "relative";
   }
-  element.style.background = own.background;
+  element.style.background = own.transparentBackground ? "transparent" : own.background;
 
   own.engineHost = document.createElement("div");
   own.engineHost.className = "zmart-engine-underneath";
@@ -639,6 +641,7 @@ async function start(own, acquisitions) {
 
   // Which panels are on screen. Paired with the axis order below; see FLAT_LAYOUT.
   own.viewer.layout.restoreState(FLAT_LAYOUT);
+  own.viewer.display.transparentBackground = own.transparentBackground;
 
   // The engine's own furniture is off. It draws a cluster of layout buttons in
   // one corner, a panel of axis names in another, axis lines through the middle
@@ -665,7 +668,12 @@ async function start(own, acquisitions) {
 
   // -- the acquisitions ---------------------------------------------------
 
+  await loadAcquisitions(own, acquisitions);
+}
+
+async function loadAcquisitions(own, acquisitions) {
   own.rows = await rowsFor(acquisitions);
+  if (!own.rows.length) return;
   /* Which acquisition a row belongs to, and whether it opens one: the
      channels of one acquisition add together, and an acquisition drawn over
      another covers it rather than mixing with it -- a target frame over the
@@ -1097,6 +1105,10 @@ async function rowsFor(acquisitions) {
  */
 async function addSourcesToTheOpenRows(own, acquisitions) {
   if (own.destroyed) return false;
+  if (!own.rows.length) {
+    await loadAcquisitions(own, acquisitions);
+    return true;
+  }
   const wanted = await rowsFor(acquisitions);
   if (wanted.length !== own.rows.length) return false;
 
@@ -2249,6 +2261,7 @@ function handleFor(own) {
     showVolume(on) {
       own.showingVolume = on !== false;
       own.viewer.layout.restoreState(own.showingVolume ? VOLUME_LAYOUT : FLAT_LAYOUT);
+      own.viewer.display.transparentBackground = own.transparentBackground && !own.showingVolume;
       handTheEngineItsOwnGestures(own);
       for (const row of own.rows) {
         const layer = row.managed?.layer;
@@ -2429,13 +2442,8 @@ function handleFor(own) {
      * the same frame, so a page writes the two the same way. Hand over `null` to
      * say there is nothing beneath, and no surface is laid down at all.
      *
-     * **On this engine an operator will not see it.** Neuroglancer forces its
-     * canvas opaque at the end of every frame, so the surface this paints on is
-     * covered completely wherever the engine is drawing. The drawing is made all
-     * the same, on a surface genuinely behind the engine's, because pretending
-     * otherwise — by drawing it on top with holes cut in it — would make this
-     * option look like the others while doing something quite different. Ask
-     * `drawsUnder` before relying on it; it is `false` here and says why.
+     * Visible outside image footprints when transparentBackground is enabled
+     * in 2D; opaque mode and volume rendering retain the original background.
      */
     drawUnder(paint) {
       own.paintBeneath = paint;
@@ -2447,20 +2455,16 @@ function handleFor(own) {
      * Whether a drawing handed to `drawUnder` really ends up beneath the
      * picture, where an operator can see it.
      *
-     * `false` here, and measured rather than assumed: with one colour painted
-     * behind this engine's canvas and another set as the engine's own
-     * background, an operator saw none of the colour behind and 97% of the
-     * engine's background over ground nobody had imaged.
+     * Transparency is opt-in and applies only to the flat view.
      */
-    drawsUnder: false,
+    get drawsUnder() { return own.transparentBackground && !own.showingVolume; },
 
     /** Why, in a sentence a page can show to whoever is looking at it. */
-    drawsUnderBecause:
-      "neuroglancer forces the whole of its canvas opaque at the end of every " +
-      "frame, so nothing placed behind it is ever seen. Anything that has to " +
-      "sit beneath the picture on this engine has to go inside the engine as a " +
-      "layer of its own, which means it must be written to the store first and " +
-      "cannot change while somebody is watching.",
+    get drawsUnderBecause() {
+      return this.drawsUnder
+        ? "The flat viewer is transparent outside acquired image footprints."
+        : "The viewer background is opaque; enable transparentBackground for 2D embedding.";
+    },
 
     /**
      * Where the canvas is looking, in a form good enough to place an ordinary
