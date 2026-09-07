@@ -44,7 +44,7 @@ import scanfieldsWidget, { presetInk } from "../../workflows/target_acquisition/
 import detectionPanel, { settingsFor }
   from "../../workflows/target_acquisition/steps/discover_targets/detection.js";
 import { forgetTheMasks } from "../../workflows/target_acquisition/steps/discover_targets/layers.js";
-import { newMaskLayer, replaceMaskLayer }
+import { newMaskLayer, replaceMaskLayer, targetsDress, tilesDress }
   from "../../workflows/target_acquisition/shared/mask-layers.js";
 import gatingPanel from "../../workflows/target_acquisition/steps/refine_targets/gate.js";
 import galleryWidget from "../../workflows/target_acquisition/steps/acquire_targets/gallery.js";
@@ -282,6 +282,7 @@ let stageWatch = null;
     overviewPictures: backendFor(WORKFLOWS[WORKFLOW_ASKED_FOR] ? WORKFLOW_ASKED_FOR : DEFAULT_WORKFLOW).viewOf?.("overview") ?? null,
     targetPictures: backendFor(WORKFLOWS[WORKFLOW_ASKED_FOR] ? WORKFLOW_ASKED_FOR : DEFAULT_WORKFLOW).viewOf?.("targets") ?? null,
     cellsShown: false,
+    targetsDress: targetsDress(),
     /* Which of the two the column beside the canvas shows: the step's own
        channel, or the picture's display settings. A page preference, kept
        across steps and sessions alike. */
@@ -298,7 +299,7 @@ let stageWatch = null;
        those -- the plan the acquisition images. */
     restricted: new Set(),
     targetTiles: [],
-    targetTilesAlpha: 0.5,
+    tilesDress: tilesDress(),
     /* The placing levers, as scan-areas.js reads them, and what the last
        placing came to. */
     placing: { margin: 1, objectsMax: 50, minimise: true, overlapMin: 0.2 },
@@ -491,8 +492,8 @@ let stageWatch = null;
       detect: newDetect(), cells: new Map(), fieldLabels: {}, examined: new Set(), masks: [],
       overviewPictures: backendFor(state.wf).viewOf?.("overview") ?? null,
       targetPictures: backendFor(state.wf).viewOf?.("targets") ?? null,
-      cellsShown: false, gates: [], gated: new Set(), restricted: new Set(),
-      targetTiles: [], targetTilesAlpha: 0.5, tilePlan: null,
+      cellsShown: false, targetsDress: targetsDress(), gates: [], gated: new Set(), restricted: new Set(),
+      targetTiles: [], tilesDress: tilesDress(), tilePlan: null,
       placing: { margin: 1, objectsMax: 50, minimise: true, overlapMin: 0.2 },
       acquired: [], acquiredLabels: {}, acquiredTiles: {},
       selectedTarget: null, hoveredTarget: null,
@@ -821,6 +822,7 @@ let stageWatch = null;
     }
 
     if (s.mode === "detect") {
+      overviewGoesGreyForTheMasks();
       state.cells = new Map();
       /* A fresh discovery invalidates everything named by the old ids: the
          gate and the acquired pairs -- a stale id crashed
@@ -957,12 +959,21 @@ let stageWatch = null;
         onProgress: (done, of, at, records = []) => {
           if (state.running !== s.id) return;
           status.say(`acquiring pair ${done} of ${picked.length}`);
+          /* The mark keeps up with the stage tile by tile, as it does
+             through the overview scan: the watch is asked now rather than
+             at its own next poll, and a record that says where the stage
+             stood is taken as well. */
+          stageWatch?.refresh();
           if (at) takeThePosition(at);
           accountFor(records);
           state.notes[s.id] = `${done} / ${picked.length} pairs`;
           /* The tile under the objective now, by its target's id: what is
              being taken, beside how far along the run is. */
           const next = picked[Math.min(done, picked.length - 1)];
+          /* And the frame on the picture goes with it: the current target
+             tile is the one being taken, so the frame stands where the
+             acquisition is rather than where Tile last left it. */
+          state.detect.targetTile = next.positionIndex ?? state.targetTiles.indexOf(next);
           galleryPanel?.progress?.({
             done, of: picked.length,
             doing: done < picked.length ? `tile ${done + 1} · ${next.targetId ?? next.id}` : "",
@@ -1126,10 +1137,20 @@ let stageWatch = null;
        is a square of other pixels on the picture the operator came to
        look at. Its eye is pressed for them on the way to the scan. */
     if (steps()[i]?.id === "scan") window.__viewerPanel?.showAcquisition?.("focussing", false);
+    /* The masks showed the whole population; on the way to choosing from
+       it the targets are the thing to look at, and every object lit under
+       them hid which were chosen. The masks' eyes are pressed off for the
+       operator, and stay in the strip for the way back. */
+    if (steps()[i]?.id === "gate") for (const mask of state.masks) mask.shown = false;
     /* The gallery's pictures wear the canvas's display settings, which may
        have changed since they were drawn: coming back to the step draws
        them again with the settings of now. */
     if (steps()[i]?.id === "acquire") galleryPanel?.rebuild();
+    /* The targets' lit shapes and the tiles' tint over the frames being
+       imaged hide the very pixels the operator came to see: their eyes are
+       pressed off on the way to the acquisition, and their cells stay in
+       the strip. */
+    if (steps()[i]?.id === "acquire") { stage.showLayer("cells", false); stage.showLayer("frames", false); }
   }
 
   /* ============================================================
@@ -1370,16 +1391,26 @@ let stageWatch = null;
   /* Detection is the same shape as focus: the step happens on the canvas —
      the cells it finds land there — and its controls sit in the channel,
      where the settings are tried on one position before the sample runs. */
+  /* Detection is judged by its masks, and coloured masks read best on
+     quiet ground: running one, on a tile or over the sample, draws the
+     overview in grey if it was not already. The chip in the canvas's row
+     and the card's Grey press are the way back; nothing else switches it. */
+  const overviewGoesGreyForTheMasks = () => {
+    if (!window.__viewerPanel?.acquisitionGrey?.("overview")) window.__viewerPanel?.drawInGrey?.("overview", true);
+  };
   let detectionShown = null;
   const detectionMount = (host) => {
     detectionShown = detectionPanel.mount(host, {
       settings: () => state.detect,
-      /* Colour or grey is the overview's own, switched on its chip in the
-         canvas's row and nowhere else; the card follows it. */
+      /* Colour or grey is the overview's own, held on its chip in the
+         canvas's row; the card reads it there and its Grey press flips
+         the same switch. */
       inGrey: () => Boolean(window.__viewerPanel?.acquisitionGrey?.("overview")),
+      setGrey: (grey) => window.__viewerPanel?.drawInGrey?.("overview", grey),
       plan: () => state.plan,
-      tryOn: (field, settings) => backend.discoverTargets({ fields: [field], settings })
-        .then(({ fields, failed, stopped }) => {
+      tryOn: (field, settings) => {
+        overviewGoesGreyForTheMasks();
+        return backend.discoverTargets({ fields: [field], settings }).then(({ fields, failed, stopped }) => {
           const found = fields?.[0];
           /* Stopped by the operator's hand before the field answered: the
              backend says so, and that is neither a field nor a failure. */
@@ -1391,7 +1422,8 @@ let stageWatch = null;
             throw new Error(failed?.[0]?.why ?? `position ${field + 1} was not examined`);
           }
           return { ...found, cells: found.cells.map(stage.toCarrier) };
-        }),
+        });
+      },
       /* The same brake the step's own Run has: the bridge stops the field
          being segmented now, not at the next one. */
       stopTargets: () => backend.stopTargets?.(),
@@ -1613,8 +1645,6 @@ let stageWatch = null;
       state.ran.delete("select");
     },
     plan: () => state.tilePlan,
-    alpha: () => state.targetTilesAlpha,
-    setAlpha: (alpha) => { state.targetTilesAlpha = alpha; },
     changed: () => {
       state.targetFrameUm = activeRecording(state.targetType)?.frameUm ?? null;
       drawStage(); renderRail(); renderActionBar(); gatingShown?.redraw(); selectionShown?.redraw?.();
@@ -2482,6 +2512,7 @@ let stageWatch = null;
     maskPop: theCanvas.parts.maskPop,
     acquisitionPick: theCanvas.parts.acquisitionPick,
     acquisitionName: theCanvas.parts.acquisitionName,
+    acquisitionEye: theCanvas.parts.acquisitionEye,
     acquisitionMenu: theCanvas.parts.acquisitionMenu,
     chips: theCanvas.parts.chips,
     channelsBox: theCanvas.parts.channelsBox,

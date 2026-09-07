@@ -10,20 +10,31 @@ export function acquiredLayers(theRun) {
     label: "Target tiles",
     explains: "The tiles laid round the restricted targets, in the target settings' "
       + "frame -- the plan the acquisition step images.",
-    shown: activeMode === "select" && run.targetTiles.length > 0,
+    /* On the step that places them and the one that images them; on the
+       latter their eye is pressed off on the way in, since a tint over the
+       frames hides the pixels they were imaged for, and their cell stays
+       in the strip for a look at the plan. */
+    shown: (activeMode === "select" || activeMode === "targets") && run.targetTiles.length > 0,
     staysSolid: true,
+    /* Worn the way the operator dressed the tiles in their cell in the
+       masks strip: one colour, the accent unless chosen, filled or as an
+       outline, at the dress's opacity. */
     paint: (frame) => {
       const ctx = frame.context;
       const { place, scale, w, h } = drawnIn(frame);
-      ctx.globalAlpha = run.targetTilesAlpha;
-      ctx.fillStyle = css("--accent");
-      ctx.strokeStyle = css("--accent-deep"); ctx.lineWidth = 1;
+      const dress = run.tilesDress;
+      const colour = dress.colour ?? css("--accent");
+      const outline = dress.show === "line";
+      ctx.globalAlpha = dress.alpha;
+      ctx.fillStyle = colour;
+      ctx.strokeStyle = outline ? colour : css("--accent-deep");
+      ctx.lineWidth = outline ? 2 : 1;
       for (const tile of run.targetTiles) {
         const half = tile.frameUm / 2;
         const [x, y] = place(tile.x - half, tile.y - half);
         const side = tile.frameUm * scale;
         if (x > w || y > h || x + side < 0 || y + side < 0) continue;
-        ctx.fillRect(x, y, side, side);
+        if (!outline) ctx.fillRect(x, y, side, side);
         ctx.strokeRect(x, y, side, side);
       }
       ctx.globalAlpha = 1;

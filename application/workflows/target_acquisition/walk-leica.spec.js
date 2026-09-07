@@ -236,7 +236,7 @@ test.describe("the target acquisition workflow, walked on the Leica driver with 
       /* Step 6: one tile through the real detection, then all of them. */
       await walkTo(page, "Detect objects");
       await rest(800);
-      await page.getByRole("button", { name: "Test this tile" }).click();
+      await page.getByRole("button", { name: "Test detection on this tile" }).click();
       await expect.poll(async () => {
         const state = await ask(page, PORT, "/api/targets/discover");
         return !state.running && (state.error || ((state.fields?.length ?? 0) + (state.failed?.length ?? 0)) >= 1);

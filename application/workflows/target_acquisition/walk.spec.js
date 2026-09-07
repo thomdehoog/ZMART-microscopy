@@ -234,7 +234,7 @@ test.describe("the target acquisition workflow, walked screen by screen", () => 
          The dot hides the channel; the name chooses it and opens Display
          settings, where its histogram is. */
       await expect(page.locator("#acquisition-name")).toHaveText("overview");
-      await expect(page.locator("#acquisition-btn .bar-word")).toHaveText("image");
+      await expect(page.locator("#acquisition-btn .bar-word")).toHaveText("acquisitions");
       const chips = page.locator("#canvas-chips .chip");
       await expect.poll(() => chips.count(), { timeout: 30_000 }).toBeGreaterThan(1);
       /* The list of acquisitions, with an eye each. Pressed on the name:
@@ -286,6 +286,19 @@ test.describe("the target acquisition workflow, walked screen by screen", () => 
          chip is the layer's own switch, so the menu's line for this
          acquisition shows the same state, and pressing the chip there does
          not choose the acquisition or close the menu. */
+      /* The eye in the press hides the acquisition the row is on, and the
+         same press shows it again; the menu's line follows, and neither
+         press opens the menu. */
+      await expect(page.locator("#acquisition-eye")).toHaveAttribute("aria-pressed", "true");
+      await page.locator("#acquisition-eye").click();
+      await expect(page.locator("#acquisition-eye")).toHaveAttribute("aria-pressed", "false");
+      await expect(page.locator("#acquisition-menu")).toBeHidden();
+      await page.locator("#acquisition-name").click();
+      await expect(page.locator("#acquisition-menu .acquisition-line.chosen .acquisition-eye")).toHaveAttribute("aria-pressed", "false");
+      await page.locator("#acquisition-name").click();
+      await page.locator("#acquisition-eye").click();
+      await expect(page.locator("#acquisition-eye")).toHaveAttribute("aria-pressed", "true");
+      await expect(page.locator("#acquisition-menu")).toBeHidden();
       await expect(page.locator("#ramp-chip")).toHaveAttribute("aria-pressed", "false");
       await page.locator("#ramp-chip").click();
       await expect(page.locator("#ramp-chip")).toHaveAttribute("aria-pressed", "true");
@@ -349,11 +362,14 @@ test.describe("the target acquisition workflow, walked screen by screen", () => 
       expect(chromaOf(greyPicture), "grey means grey").toBeLessThan(4);
       expect(chromaOf(colourPicture), "colour came back").toBeGreaterThan(20);
 
-      /* Step 6: one tile through the real detection. */
+      /* Step 6: one tile through the real detection. Running it draws the
+         overview in grey, for the masks to stand on quiet ground. */
       await walkTo(page, "Detect objects");
       await rest(800);
+      await expect(page.locator("#ramp-chip")).toHaveAttribute("aria-pressed", "false");
       await shot(page, "detect-before");
-      await page.getByRole("button", { name: "Test this tile" }).click();
+      await page.getByRole("button", { name: "Test detection on this tile" }).click();
+      await expect(page.locator("#ramp-chip")).toHaveAttribute("aria-pressed", "true");
       await expect.poll(async () => {
         const state = await ask(page, PORT, "/api/targets/discover");
         return !state.running && (state.error || ((state.fields?.length ?? 0) + (state.failed?.length ?? 0)) >= 1);
@@ -381,7 +397,7 @@ test.describe("the target acquisition workflow, walked screen by screen", () => 
            card, named for what it outlines and how. Hidden and shown again
            from the card's eye and from the cell, then dressed: one colour,
            outline only, fainter. */
-        await expect(page.locator("#canvas-masks .bar-word")).toHaveText("mask");
+        await expect(page.locator("#canvas-masks .bar-word")).toHaveText("masks");
         const maskCell = page.locator("#canvas-masks .mask-cell").first();
         await expect(maskCell).toBeVisible();
         await maskCell.locator(".chip-more").click();
@@ -542,8 +558,17 @@ test.describe("the target acquisition workflow, walked screen by screen", () => 
         /* Step 9: the targets acquired, one capture per scan area placed. */
         await walkTo(page, "Acquire Targets");
         await shot(page, "acquire-before");
-        /* The overview's masks keep their strip on the acquisition step. */
+        /* The overview's masks keep their strip on the acquisition step,
+           and the targets' cell is there too, its eye pressed off on the
+           way in so the frames' pixels are not hidden under lit shapes. */
         await expect(page.locator("#canvas-masks")).toBeVisible();
+        const targetsCell = page.locator('#canvas-masks .mask-cell[data-mask="targets"]');
+        await expect(targetsCell).toBeVisible();
+        await expect(targetsCell.locator(".mask-dot")).toHaveAttribute("aria-pressed", "false");
+        await expect(targetsCell.locator(".chip-more")).toBeVisible();
+        const tilesCell = page.locator('#canvas-masks .mask-cell[data-mask="tiles"]');
+        await expect(tilesCell).toBeVisible();
+        await expect(tilesCell.locator(".mask-dot")).toHaveAttribute("aria-pressed", "false");
         await page.locator(".panel.on button.step-run").click();
         await expect(page.locator(".panel.on button.step-run")).toHaveText("Rerun all", { timeout: 300_000 });
         await rest(2000);

@@ -57,6 +57,20 @@ export function newMaskLayer({ algo, kind, dress, existing = [] }) {
   };
 }
 
+/**
+ * The dress the chosen targets wear on the picture, the same shape a mask
+ * layer's is so the one card dresses both. Colour null is each target in
+ * its own ink: the selected green, or the warning amber for one no tile
+ * covers. Two thirds opaque, as the tint they wore before they had a dress.
+ */
+export const targetsDress = () => ({ colour: null, show: "fill", alpha: 0.67 });
+
+/**
+ * The dress the target tiles wear: colour null is the page's accent blue,
+ * filled, half opaque -- the tint they wore before they had a dress.
+ */
+export const tilesDress = () => ({ colour: null, show: "fill", alpha: 0.5 });
+
 /** The mask layers lying on the image layer `kind`, in the order laid. */
 export const maskLayersOn = (layers, kind) => layers.filter((one) => one.kind === kind);
 

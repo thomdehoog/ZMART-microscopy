@@ -199,6 +199,19 @@ function carrierOriginUm() {
 
 /* How much clear space the travel is framed with, in screen pixels. */
 const FIT_MARGIN = 26;
+/* And above it, the canvas's own presses, which float over the picture:
+   it runs under them to the top edge, so Fit lands the travel the margin
+   below their lower edge rather than behind them. Measured, not declared,
+   so the gap under the presses is the gap beside the travel whatever the
+   row's height is. */
+function roomAbove() {
+  const row = stageBox.closest(".plot-column")?.querySelector(".canvas-toolbar");
+  if (!row) return 0;
+  /* The row's content edge rather than a press's: the presses are away
+     until the microscope is connected, and the row stands either way. */
+  const edge = row.getBoundingClientRect().bottom - parseFloat(getComputedStyle(row).paddingBottom);
+  return Math.max(0, edge - stageBox.getBoundingClientRect().top);
+}
 
 function fitView() {
   const box = stageBox.getBoundingClientRect();
@@ -237,7 +250,7 @@ function whereFitPutsIt(w, h, zoom) {
   const [ox, oy] = carrierOriginUm();
   return {
     x: STAGE_ORIGIN_UM[0] + fw / 2 - ox,
-    y: STAGE_ORIGIN_UM[1] + (h / 2 - FIT_MARGIN) * zoom - oy,
+    y: STAGE_ORIGIN_UM[1] + (h / 2 - roomAbove() - FIT_MARGIN) * zoom - oy,
   };
 }
 
@@ -286,7 +299,7 @@ function insideTheLimits(where) {
 /** The zoom Fit lands on: the stage framed, margin and all. */
 function furthestOut(w, h) {
   const [fw, fh] = STAGE_UM;
-  return 1 / Math.min((w - 2 * FIT_MARGIN) / fw, (h - 2 * FIT_MARGIN) / fh);
+  return 1 / Math.min((w - 2 * FIT_MARGIN) / fw, (h - roomAbove() - 2 * FIT_MARGIN) / fh);
 }
 
 /**
@@ -589,7 +602,7 @@ function drawnIn(frame) {
  * `parts/canvas/layers-above.js`.
  */
 const THE_STACK = [
-  "ground", "limits", "carrier", "tiles", "segmentation", "cells", "frames", "targets",
+  "ground", "limits", "carrier", "tiles", "segmentation", "frames", "cells", "targets",
   "focus", "plan", "focusFrame", "focusPoints", "detect", "editing", "anchors", "stage", "scale",
 ];
 
@@ -941,11 +954,8 @@ function editorTook(kind, e) {
  * in a picture full of drawn edges read as one more thing the run had put
  * there.
  *
- * It sits in a strip of its own, kept clear of the drawing: the plan is cut
- * off above it rather than running under it, because a rule with a plate
- * showing through it can be read as either. The strip is the page's own
- * surface, the same as the empty stage. */
-const SCALE_STRIP = 24;
+ * On the picture, not in a strip of its own: the white band it once cleared
+ * along the bottom read as a margin under the picture, on Thom's word. */
 
 function drawScaleBar(ctx, w, h, scale) {
   const targetPx = 130;
@@ -955,9 +965,6 @@ function drawScaleBar(ctx, w, h, scale) {
     Math.abs(b - raw) < Math.abs(a - raw) ? b : a);
   const px = nice * scale;
   const x = w - px - 20, y = h - 9;
-
-  ctx.fillStyle = css("--screen");
-  ctx.fillRect(0, h - SCALE_STRIP, w, SCALE_STRIP);
 
   ctx.strokeStyle = css("--ink-2");
   ctx.lineWidth = 2;
@@ -1236,11 +1243,11 @@ function theFramedField() {
 }
 
 /* How much ground a framed field keeps around it, as a fraction of its
-   width each side: half a field, so the field stands in the middle of the
-   canvas at half its shorter side with its neighbours round it. At 15 %
-   the field all but filled the canvas and read as the whole picture rather
-   than as one field of it, and the operator called it too far in. */
-const ROOM_AROUND_A_TILE = 0.5;
+   width each side. A sixth of a field: the field stands in the middle of
+   the canvas at three quarters of its shorter side, with a rim of its
+   neighbours round it. Half a field each side was tried and read as too
+   far out; the operator asked for the field a bit bigger than that. */
+const ROOM_AROUND_A_TILE = 1 / 6;
 
 /* And round a framed tileset, as a fraction of its width each side: less
    than a tile keeps, since a tileset is the thing being looked at whole. */
@@ -1341,9 +1348,42 @@ const theMaskKind = () => theAcquisitionOnShow() ?? "overview";
 const theMaskLayers = () => {
   const shown = new Set((window.__viewerPanel?.acquisitions?.() ?? [])
     .filter((one) => one.shown).map((one) => one.name));
-  return shown.size
+  const masks = shown.size
     ? (run.masks ?? []).filter((one) => shown.has(one.kind))
     : maskLayersOn(run.masks ?? [], theMaskKind());
+  return [...masks, theTilesLayer(), theTargetsLayer()].filter(Boolean);
+};
+/* The target tiles, as a layer of the strip: between the masks and the
+   targets, as they lie in the picture. Their cell is a square, since that
+   is what they are on the picture; colour null is the page's accent. */
+const theTilesLayer = () => {
+  const frames = theCanvas.layersAbove.find((one) => one.key === "frames" && one.has);
+  if (!frames) return null;
+  return {
+    id: "tiles", name: "target tiles", how: "placed", objects: run.targetTiles?.length ?? 0,
+    get shown() { return theCanvas.layerShown?.("frames") ?? true; },
+    set shown(on) { theCanvas.showLayer("frames", on); },
+    dress: run.tilesDress,
+    ownColour: css("--accent"),
+    glyph: "square",
+  };
+};
+/* The chosen targets, as a layer of the strip: after the masks they were
+   chosen from, in a mask layer's shape so the one card dresses them. Shown
+   is the canvas's own switch for the cells layer, read and set through it;
+   the dress is the run's. Colour null is each target's own ink, the
+   selected green, and the cell in the strip wears that. */
+const theTargetsLayer = () => {
+  const cells = theCanvas.layersAbove.find((one) => one.key === "cells" && one.has);
+  if (!cells) return null;
+  const lit = run.restricted?.size ? run.restricted : run.gated?.size ? run.gated : run.cells;
+  return {
+    id: "targets", name: "targets", how: "selected", objects: lit?.size ?? 0,
+    get shown() { return theCanvas.layerShown?.("cells") ?? true; },
+    set shown(on) { theCanvas.showLayer("cells", on); },
+    dress: run.targetsDress,
+    ownColour: css("--mark-selected"),
+  };
 };
 const theChosenMask = () => {
   const layers = theMaskLayers();
@@ -1474,6 +1514,8 @@ ctx.maskOpacity?.addEventListener("input", () => {
 /* A cell with six uneven bumps, no two sides alike, the way a real cell
    lies: the glyph a mask layer wears in the bar, in its own dress. */
 const MASK_CELL = "M16.70 14.15 C16.96 14.81 18.88 16.79 19.07 17.57 C19.25 18.36 18.58 19.05 17.79 18.89 C16.99 18.73 15.05 17.03 14.30 16.63 C13.55 16.23 13.45 16.24 13.28 16.50 C13.11 16.76 13.42 17.79 13.26 18.20 C13.10 18.62 12.63 18.86 12.32 18.99 C12.01 19.12 11.70 19.12 11.40 18.97 C11.10 18.83 10.91 18.46 10.50 18.15 C10.08 17.83 9.52 17.66 8.93 17.08 C8.33 16.51 7.79 15.26 6.93 14.70 C6.07 14.14 4.34 14.24 3.78 13.74 C3.23 13.25 3.15 12.32 3.60 11.74 C4.06 11.16 5.92 10.57 6.53 10.24 C7.14 9.92 7.10 10.17 7.27 9.80 C7.43 9.43 7.52 8.66 7.52 8.03 C7.53 7.40 7.19 6.46 7.32 6.01 C7.45 5.57 7.84 5.30 8.31 5.36 C8.77 5.41 9.53 6.12 10.09 6.33 C10.65 6.54 11.44 6.47 11.67 6.61 C11.89 6.75 11.25 7.82 11.46 7.16 C11.67 6.50 12.40 3.35 12.92 2.65 C13.44 1.95 14.35 2.12 14.58 2.96 C14.81 3.80 14.22 6.76 14.28 7.70 C14.34 8.64 14.33 8.33 14.94 8.59 C15.55 8.85 17.33 9.03 17.93 9.27 C18.53 9.51 18.38 9.78 18.51 10.04 C18.64 10.31 18.70 10.55 18.70 10.84 C18.70 11.13 18.72 11.32 18.52 11.79 C18.33 12.26 17.82 13.26 17.52 13.66 C17.21 14.05 16.44 13.50 16.70 14.15Z";
+/* A tile's cell: a square of the cell glyph's size. */
+const MASK_SQUARE = "M4.5 4.5 H19.5 V19.5 H4.5 Z";
 
 /* The masks bar: one cell per mask layer on the acquisition the row shows,
    rebuilt only when a layer, its dress or the chosen one changes. */
@@ -1483,37 +1525,14 @@ const MASK_CELL = "M16.70 14.15 C16.96 14.81 18.88 16.79 19.07 17.57 C19.25 18.3
    look like a mask -- green shapes over the tissue -- and a mask the strip
    did not list, with the detection's mask switched off, read as a mask
    that had appeared from nowhere. */
-const theTargetsLayer = () => theCanvas.layersAbove.find((one) => one.key === "cells" && one.has) ?? null;
-
 function drawTheMasks(layers) {
   const host = ctx.maskCells;
   if (!host) return;
   const chosen = theChosenMask()?.id ?? null;
-  const targets = theTargetsLayer();
-  const stamp = JSON.stringify([layers, chosen, targets && targets.shown]);
+  const stamp = JSON.stringify([layers, chosen]);
   if (host.dataset.stamp === stamp) return;
   host.dataset.stamp = stamp;
   host.replaceChildren();
-  if (targets) {
-    const chip = document.createElement("span");
-    chip.className = `chip mask-cell targets${targets.shown ? " on" : " off"}`;
-    chip.dataset.mask = "targets";
-    const dot = document.createElement("button");
-    dot.type = "button";
-    dot.className = "mask-dot";
-    dot.title = targets.shown ? "Hide the targets" : "Show the targets";
-    dot.setAttribute("aria-pressed", String(targets.shown));
-    dot.setAttribute("aria-label", "show or hide the targets");
-    dot.innerHTML = `<svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path d="${MASK_CELL}" fill="${css("--mark-selected")}" stroke="rgba(15, 23, 42, 0.35)" stroke-width="0.8" stroke-linejoin="round"/></svg>`;
-    dot.addEventListener("click", (e) => {
-      e.stopPropagation();
-      theCanvas.showLayer("cells", !targets.shown);
-      drawStage();
-      sayWhatThePressesDo();
-    });
-    chip.append(dot);
-    host.append(chip);
-  }
   for (const layer of layers) {
     const chip = document.createElement("span");
     chip.className = `chip mask-cell${layer.shown ? " on" : " off"}${layer.id === chosen ? " chosen" : ""}`;
@@ -1524,11 +1543,13 @@ function drawTheMasks(layers) {
     dot.title = layer.shown ? `Hide ${layer.name}` : `Show ${layer.name}`;
     dot.setAttribute("aria-pressed", String(layer.shown));
     dot.setAttribute("aria-label", `show or hide ${layer.name}`);
-    /* The cell wears the layer's dress: its colour or the rainbow, filled,
-       or a thick outline round a white middle when the layer is outlines. */
-    const paint = layer.dress.colour ?? "url(#mask-rainbow)";
+    /* The cell wears the layer's dress: its colour, or its own -- the
+       rainbow of a mask, the green of the targets -- filled, or a thick
+       outline round a white middle when the layer is outlines. */
+    const paint = layer.dress.colour ?? layer.ownColour ?? "url(#mask-rainbow)";
     const line = layer.dress.show === "line";
-    dot.innerHTML = `<svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path d="${MASK_CELL}" fill="${line ? "#ffffff" : paint}" stroke="${line ? paint : "rgba(15, 23, 42, 0.35)"}" stroke-width="${line ? "2.2" : "0.8"}" stroke-linejoin="round"/></svg>`;
+    const shape = layer.glyph === "square" ? MASK_SQUARE : MASK_CELL;
+    dot.innerHTML = `<svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path d="${shape}" fill="${line ? "#ffffff" : paint}" stroke="${line ? paint : "rgba(15, 23, 42, 0.35)"}" stroke-width="${line ? "2.2" : "0.8"}" stroke-linejoin="round"/></svg>`;
     dot.addEventListener("click", (e) => {
       e.stopPropagation();
       layer.shown = !layer.shown;
@@ -1580,6 +1601,15 @@ ctx.rampChip?.addEventListener("click", (e) => {
   const shown = theAcquisitionOnShow();
   if (shown) drawTheAcquisitionIn(shown, ctx.rampChip.getAttribute("aria-pressed") !== "true");
 });
+/* The eye in the press is the shown acquisition's own switch, the same
+   one its line in the menu carries; it hides or shows without opening the
+   menu, and the menu follows through the panel. */
+ctx.acquisitionEye?.addEventListener("click", (e) => {
+  e.stopPropagation();
+  const shown = theAcquisitionOnShow();
+  if (shown) window.__viewerPanel?.showAcquisition?.(shown, ctx.acquisitionEye.getAttribute("aria-pressed") !== "true");
+  sayWhatThePressesDo();
+});
 
 /* The panel is remade when the picture's sources change, so the hook is
    put on whichever panel stands now, once. */
@@ -1599,6 +1629,13 @@ function dressTheChip(chip, name, grey) {
   chip.setAttribute("aria-pressed", String(grey));
   chip.setAttribute("aria-label", `show ${name} in colour or in grey`);
   chip.title = grey ? "Show this layer in colour" : "Show this layer in grey";
+}
+/* One eye, in the press or on a menu line, told whose it is and whether
+   that acquisition is on show. */
+function dressTheEye(eye, name, shown) {
+  eye.setAttribute("aria-pressed", String(shown));
+  eye.setAttribute("aria-label", `show or hide ${name}`);
+  eye.title = shown ? `Hide ${name}` : `Show ${name}`;
 }
 const EYE = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M1.5 8s2.5-4.5 6.5-4.5S14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8z"/><circle cx="8" cy="8" r="2"/><path class="acquisition-eye-slash" d="M3 13L13 3"/></svg>';
 
@@ -1687,9 +1724,7 @@ function drawTheMenu(panel, acquisitions, shown) {
     eye.type = "button";
     eye.className = "acquisition-eye";
     eye.innerHTML = EYE;
-    eye.title = one.shown ? `Hide ${one.name}` : `Show ${one.name}`;
-    eye.setAttribute("aria-pressed", String(one.shown));
-    eye.setAttribute("aria-label", `show or hide ${one.name}`);
+    dressTheEye(eye, one.name, one.shown);
     eye.addEventListener("click", (e) => { e.stopPropagation(); panel.showAcquisition(one.name, !one.shown); });
     /* The line's chip switches this acquisition without choosing it, and
        the menu stays open: the operator is looking at the layers, not
@@ -1724,6 +1759,9 @@ function sayWhatThePressesDo() {
     ctx.acquisitionPick.hidden = !acquisitions.length;
     if (ctx.acquisitionName && shown) ctx.acquisitionName.textContent = shown;
     if (ctx.rampChip && shown) dressTheChip(ctx.rampChip, shown, Boolean(panel?.acquisitionGrey?.(shown)));
+    if (ctx.acquisitionEye && shown) {
+      dressTheEye(ctx.acquisitionEye, shown, acquisitions.find((one) => one.name === shown)?.shown !== false);
+    }
     if (panel) drawTheMenu(panel, acquisitions, shown);
   }
   if (panel) drawTheChips(panel, shown);
@@ -1738,7 +1776,7 @@ function sayWhatThePressesDo() {
 
   if (ctx.masksBar) {
     const layers = theMaskLayers();
-    ctx.masksBar.hidden = !layers.length && !theTargetsLayer();
+    ctx.masksBar.hidden = !layers.length;
     if (!layers.length && ctx.maskPop && !ctx.maskPop.hidden) closeTheCards();
     drawTheMasks(layers);
     const layer = theChosenMask();

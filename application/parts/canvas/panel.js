@@ -43,10 +43,10 @@ export const canvasPanel = {
     host.innerHTML = `
       <div class="canvas-body">
         <div class="plot-column">
-        <!-- A row the canvas keeps for its own controls, so the picture never
-             reaches the top edge and nothing floats over it. Left, the two
-             presses that say what to look at; right, whatever legend the
-             layer on show needs read, such as the focus map's colour ramp. -->
+        <!-- The canvas's own controls, floating over the top of the picture
+             so it reaches the top edge. Left, the two presses that say what
+             to look at; right, whatever legend the layer on show needs read,
+             such as the focus map's colour ramp. -->
         <div class="canvas-toolbar" id="canvas-toolbar">
           <!-- Left, the two presses that say what to look at. -->
           <button class="run icon" id="carrier-btn" type="button" aria-label="Carrier"
@@ -83,10 +83,16 @@ export const canvasPanel = {
                     aria-haspopup="true" aria-expanded="false"
                     title="Which acquisition the row shows; show or hide any of them">
                 <!-- The word says what kind of layer the press names, so the
-                     masks' bar beside it, headed MASK, reads as another kind
+                     masks' bar beside it, headed MASKS, reads as another kind
                      of thing before the eye reaches the dots and cells. -->
-                <span class="bar-word">image</span>
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M1.5 8s2.5-4.5 6.5-4.5S14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8z"/><circle cx="8" cy="8" r="2"/></svg>
+                <span class="bar-word">acquisitions</span>
+                <!-- The eye is the acquisition's own switch, the same one its
+                     line in the menu carries: pressed here it hides or shows
+                     the acquisition the row is on, without opening the menu. -->
+                <button class="acquisition-eye" id="acquisition-eye" type="button" aria-pressed="true"
+                        aria-label="show or hide this acquisition" title="Hide this acquisition">
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M1.5 8s2.5-4.5 6.5-4.5S14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8z"/><circle cx="8" cy="8" r="2"/><path class="acquisition-eye-slash" d="M3 13L13 3"/></svg>
+                </button>
                 <button class="ramp-chip" id="ramp-chip" type="button" aria-pressed="false" aria-label="Colour or grey"
                         title="Show this layer in grey">
                   <svg width="14" height="8" viewBox="0 0 14 8" aria-hidden="true">
@@ -142,7 +148,7 @@ export const canvasPanel = {
                  layer on the picture the row is on, and never offers masks
                  on a picture they do not lie on. -->
             <span class="canvas-masks" id="canvas-masks" hidden>
-              <span class="bar-word">mask</span>
+              <span class="bar-word">masks</span>
               <svg width="0" height="0" aria-hidden="true" style="position:absolute">
                 <defs>
                   <linearGradient id="mask-rainbow" x1="0" y1="0" x2="1" y2="1">
@@ -298,6 +304,7 @@ export const canvasPanel = {
         maskPop: find("mask-pop"),
         acquisitionPick: find("acquisition-pick"),
         acquisitionName: find("acquisition-name"),
+        acquisitionEye: find("acquisition-eye"),
         acquisitionMenu: find("acquisition-menu"),
         chips: find("canvas-chips"),
         channelsBox: find("canvas-channels"),

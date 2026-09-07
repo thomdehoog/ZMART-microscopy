@@ -1450,13 +1450,13 @@ test("one walk of the whole run", async ({ page }) => {
      first stops one by hand: the press that started the test becomes
      Interrupt, the readout says the field was not examined, and the press
      is ready again. */
-  await page.getByRole("button", { name: "Test this tile" }).click();
+  await page.getByRole("button", { name: "Test detection on this tile" }).click();
   await expect(page.locator("#detect-try"), "the press that started the test becomes Interrupt").toHaveText("Interrupt");
   await page.locator("#detect-try").click();
   await expect(page.locator("#detect-readout")).toContainText("stopped by hand");
-  await expect(page.locator("#detect-try")).toHaveText("Test this tile");
+  await expect(page.locator("#detect-try")).toHaveText("Test detection on this tile");
   await expect(page.locator("#detect-try")).toBeEnabled();
-  await page.getByRole("button", { name: "Test this tile" }).click();
+  await page.getByRole("button", { name: "Test detection on this tile" }).click();
   /* What the test found rides on the press that made it. */
   await expect(page.locator("#detect-try")).toContainText(/\(\d+ objects/);
   /* Every field's targets land as the backend reports them; the pretend one
