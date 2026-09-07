@@ -85,6 +85,15 @@ class TestFrame:
         try:
             pos = session.get_xyz()
             assert (pos["x"]["value"], pos["y"]["value"], pos["z"]["value"]) == (-1000.0, -2000.0, -5.0)
+            # The canvas is in the same frame as the position, as the Leica's
+            # is: the travel shifted by the origin. Reported from the raw zero
+            # instead, a page drew the travel from 0 and the stage mark at
+            # -60 mm, off the picture, on a configuration whose origin was
+            # the travel's centre.
+            canvas = session.get_info()["canvas"]
+            assert canvas["x_um"] == [-1000.0, 119_000.0]
+            assert canvas["y_um"] == [-2000.0, 78_000.0]
+            assert canvas["z_um"] == [-5.0, 9_995.0]
             session.set_xyz(0, 0, 0)
             assert session.get_xyz()["x"]["value"] == 0.0
         finally:
