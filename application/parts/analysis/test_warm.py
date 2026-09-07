@@ -10,12 +10,15 @@ from application.parts.analysis import warm
 class _Engine:
     """A stand-in engine that answers immediately and counts what it was told."""
 
-    def __init__(self, answers=None, failure=None):
+    def __init__(self, answers=None, failure=None, stale_failures=()):
         self.registered: list[tuple] = []
         self.submitted: list[tuple] = []
         self.stopped = 0
         self._answers = answers if answers is not None else {}
         self._failure = failure
+        # Failures the pipeline had before: the engine keeps them for as
+        # long as the pipeline lives, and reports them with every status.
+        self._failures: list = list(stale_failures)
         self._waiting: list[dict] = []
 
     def register(self, name, yaml_path):
@@ -25,9 +28,11 @@ class _Engine:
         self.submitted.append((name, data))
         if self._failure is None:  # a job that fails produces no result
             self._waiting.append(self._answers.get(name, {"ran": name}))
+        else:
+            self._failures.append(self._failure)
 
     def status(self, name):
-        return {"failed": 1, "failures": [self._failure]} if self._failure else {}
+        return {"failed": len(self._failures), "failures": list(self._failures)}
 
     def results(self, name):
         out, self._waiting = self._waiting, []
@@ -80,6 +85,32 @@ def test_a_failed_pipeline_is_raised_and_not_answered_for():
     analysis = warm.Analysis(_Engine(failure="the worker died"))
     with pytest.raises(RuntimeError, match="the worker died"):
         analysis.run("focus", {"image_paths": []})
+
+
+def test_a_failure_from_before_the_job_is_not_the_jobs():
+    """The engine keeps every failure a pipeline ever had; a job is judged
+    only by what failed after it was submitted. The first good stack after a
+    bad one was declared lost on the bad one's error while its own score was
+    still being computed."""
+
+    class _Slow(_Engine):
+        def __init__(self):
+            super().__init__(stale_failures=["an earlier stack had one plane"])
+            self.asked = 0
+
+        def results(self, name):
+            self.asked += 1
+            return super().results(name) if self.asked > 3 else []
+
+    got = warm.Analysis(_Slow()).run("focus", {"image_paths": ["a", "b", "c"]})
+    assert got == {"ran": "focus"}
+
+
+def test_a_failure_after_an_earlier_one_is_still_raised():
+    engine = _Engine(failure="the worker died", stale_failures=["an old one"])
+    with pytest.raises(RuntimeError, match="the worker died") as raised:
+        warm.Analysis(engine).run("focus", {"image_paths": []})
+    assert "an old one" not in str(raised.value)
 
 
 def test_an_answer_that_takes_its_time_is_waited_for():
