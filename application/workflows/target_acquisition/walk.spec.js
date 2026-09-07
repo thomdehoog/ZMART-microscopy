@@ -192,6 +192,10 @@ test.describe("the target acquisition workflow, walked screen by screen", () => 
       await page.locator(".panel.on button.step-run").click();
       await expect.poll(async () => (await ask(page, PORT, "/api/scan")).done, { timeout: 400_000 }).toBe(plan.length);
       await expect.poll(async () => !(await ask(page, PORT, "/api/scan")).running, { timeout: 400_000 }).toBe(true);
+      const overview = await ask(page, PORT, "/api/scan");
+      expect(overview).toMatchObject({ error: null, stopped: false, done: plan.length, of: plan.length });
+      expect(overview.records).toHaveLength(plan.length);
+      expect(overview.records.filter(record => record.zarr_error)).toEqual([]);
       await expect(page.locator(".panel.on button.step-run")).toHaveText("Run again", { timeout: 60_000 });
       await rest(3000);
       await shot(page, "scan-done");
@@ -413,11 +417,13 @@ test.describe("the target acquisition workflow, walked screen by screen", () => 
         await shot(page, "detect-mask-dressed");
         await page.keyboard.press("Escape");
         await expect(page.locator("#mask-pop")).toBeHidden();
-        /* The bar follows the picture: the masks lie on the overview, so on
-           the focus stack the bar goes, and comes back with the overview. */
+        /* The bar follows the picture, not the row: the masks lie on the
+           overview, which stays on the picture whichever acquisition the
+           row names, so the bar stays with the row on the focus stack and
+           on the overview alike. A mask on the picture always has its chip. */
         await page.locator("#acquisition-name").click();
         await page.locator("#acquisition-menu .acquisition-choose", { hasText: "focussing" }).click();
-        await expect(page.locator("#canvas-masks")).toBeHidden();
+        await expect(page.locator("#canvas-masks")).toBeVisible();
         await page.locator("#acquisition-name").click();
         await page.locator("#acquisition-menu .acquisition-choose", { hasText: "overview" }).click();
         await expect(page.locator("#canvas-masks")).toBeVisible();
@@ -544,6 +550,8 @@ test.describe("the target acquisition workflow, walked screen by screen", () => 
         /* Step 9: the targets acquired, one capture per scan area placed. */
         await walkTo(page, "Acquire Targets");
         await shot(page, "acquire-before");
+        /* The overview's masks keep their strip on the acquisition step. */
+        await expect(page.locator("#canvas-masks")).toBeVisible();
         await page.locator(".panel.on button.step-run").click();
         await expect(page.locator(".panel.on button.step-run")).toHaveText("Rerun all", { timeout: 300_000 });
         await rest(2000);

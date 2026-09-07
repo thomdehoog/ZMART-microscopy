@@ -2570,7 +2570,6 @@ let stageWatch = null;
   /* Left where a test can reach it: what matters about a picture is what
      reached the screen, and only the page can be asked. */
   window.__theStageCanvas = {
-    groundWindows: () => stage.groundWindows(),
     layers: () => stage.layers(),
     showLayer: (key, on) => stage.showLayer(key, on),
     layerShown: (key) => stage.layerShown(key),

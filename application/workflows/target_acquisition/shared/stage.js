@@ -79,7 +79,6 @@ const theCanvas = putTheCanvasIn({
   background: "transparent",
   layersAbove: [],
   pictureHost: ctx.pictureHost,
-  pictureAbove: "plan",
   /* A press that claimed nothing and went nowhere is the run's own picking, so
      it is answered here. A drag is not: the layers answer for those
      themselves, each in its place in the stack. */
@@ -588,7 +587,7 @@ function drawnIn(frame) {
  */
 const THE_STACK = [
   "ground", "limits", "carrier", "focus", "plan",
-  // Neuroglancer's external surface sits here, above the overview scan area.
+  "picture",
   "tiles", "segmentation", "cells", "frames", "targets",
   "focusFrame", "focusPoints", "detect", "editing", "anchors", "stage", "scale",
 ];
@@ -691,6 +690,7 @@ function theStageLayers({ shown, editing }) {
   };
 
   const supplied = {
+    picture: { key: "picture", has: false },
     ...thePicturesOwnLayers(theRun),
     ...carrierLayers(theRun),
     ...scanAreaLayers(theRun),
@@ -780,8 +780,6 @@ function targetSnapshot() {
  * Read-only geometry and layer controls used by the browser tests.
  */
 window.__theStageCanvas = {
-  /** Where the ground is open right now, in the carrier's micrometres. */
-  groundWindows: () => theCanvas.windows(),
   /** Which layers there are, and which are being drawn. */
   layers: () => theCanvas.layersAbove.map(({ key, label, shown, staysSolid }) =>
     ({ key, label, shown, staysSolid: !!staysSolid })),
@@ -1147,9 +1145,12 @@ function frameTileset() {
   framedTileset = box.key;
   const rect = stageBox.getBoundingClientRect();
   const w = rect.width || 800, h = rect.height || 600;
+  /* With some ground round it, as Tile keeps: filling the canvas edge to
+     edge read as the whole picture rather than as one tileset of it. */
+  const room = 1 + 2 * ROOM_AROUND_A_TILESET;
   const zoom = Math.max(
-    (box.xMax - box.xMin) / Math.max(1, w - 2 * FIT_MARGIN),
-    (box.yMax - box.yMin) / Math.max(1, h - 2 * FIT_MARGIN),
+    (box.xMax - box.xMin) * room / Math.max(1, w - 2 * FIT_MARGIN),
+    (box.yMax - box.yMin) * room / Math.max(1, h - 2 * FIT_MARGIN),
   );
   theCanvas.lookAt({ zoom, centre: middle(box) });
   thePicture.followTheStage({ zoom, centre: middle(box) });
@@ -1171,6 +1172,10 @@ function theFramedField() {
    the field all but filled the canvas and read as the whole picture rather
    than as one field of it, and the operator called it too far in. */
 const ROOM_AROUND_A_TILE = 0.5;
+
+/* And round a framed tileset, as a fraction of its width each side: less
+   than a tile keeps, since a tileset is the thing being looked at whole. */
+const ROOM_AROUND_A_TILESET = 0.1;
 
 /** The zoom that frames a field of `frameUm` with a little ground around it. */
 function zoomForATile(frameUm) {
@@ -1222,14 +1227,30 @@ function theRowsAcquisition(names) {
 /* Every card in the row closes the way a menu does: a press anywhere else,
    or Escape. */
 const cards = [];
+/* The press that opened the card on show, so that the same press closes it:
+   a triangle that only ever opened left no way back but a click elsewhere. */
+let openedBy = null;
 function openOnly(card, button, open) {
   for (const [c, b] of cards) {
     const on = open && c === card;
     c.hidden = !on;
     b?.setAttribute("aria-expanded", String(on));
   }
+  openedBy?.setAttribute("aria-expanded", "false");
+  openedBy = open ? button : null;
+  openedBy?.setAttribute("aria-expanded", "true");
 }
 function closeTheCards() { openOnly(null, null, false); }
+/** Open the card from this press, or close it if this press opened it.
+    The presses are drawn afresh after every press, so the one that opened
+    the card is known by its label rather than by identity. */
+function toggleFrom(card, button, open) {
+  const same = openedBy && openedBy.getAttribute("aria-label") === button.getAttribute("aria-label");
+  if (same && !card.hidden) { closeTheCards(); return false; }
+  open();
+  openOnly(card, button, true);
+  return true;
+}
 document.addEventListener("click", (e) => {
   if (cards.some(([c]) => !c.hidden) && !e.target.closest?.(".canvas-toolbar-right")) closeTheCards();
 });
@@ -1243,7 +1264,18 @@ document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeTheCa
 let chosenMask = null;
 if (ctx.maskPop) cards.push([ctx.maskPop, null]);
 const theMaskKind = () => theAcquisitionOnShow() ?? "overview";
-const theMaskLayers = () => maskLayersOn(run.masks ?? [], theMaskKind());
+/* The masks on the picture: those of every acquisition shown in it, not
+   only of the one the row names. On the acquisition step the row names the
+   targets, whose pictures have no masks, while the overview's masks are
+   still drawn under them -- and a mask on the picture with no chip in the
+   strip cannot be dressed or put away. */
+const theMaskLayers = () => {
+  const shown = new Set((window.__viewerPanel?.acquisitions?.() ?? [])
+    .filter((one) => one.shown).map((one) => one.name));
+  return shown.size
+    ? (run.masks ?? []).filter((one) => shown.has(one.kind))
+    : maskLayersOn(run.masks ?? [], theMaskKind());
+};
 const theChosenMask = () => {
   const layers = theMaskLayers();
   return layers.find((one) => one.id === chosenMask) ?? layers[0] ?? null;
@@ -1376,14 +1408,43 @@ const MASK_CELL = "M16.70 14.15 C16.96 14.81 18.88 16.79 19.07 17.57 C19.25 18.3
 
 /* The masks bar: one cell per mask layer on the acquisition the row shows,
    rebuilt only when a layer, its dress or the chosen one changes. */
+/* The discovered targets on the picture, as the mask strip sees them: a
+   layer of the stage's, present on the steps that choose targets, hidden
+   or shown by the operator's hand like any layer. In the strip because they
+   look like a mask -- green shapes over the tissue -- and a mask the strip
+   did not list, with the detection's mask switched off, read as a mask
+   that had appeared from nowhere. */
+const theTargetsLayer = () => theCanvas.layersAbove.find((one) => one.key === "cells" && one.has) ?? null;
+
 function drawTheMasks(layers) {
   const host = ctx.maskCells;
   if (!host) return;
   const chosen = theChosenMask()?.id ?? null;
-  const stamp = JSON.stringify([layers, chosen]);
+  const targets = theTargetsLayer();
+  const stamp = JSON.stringify([layers, chosen, targets && targets.shown]);
   if (host.dataset.stamp === stamp) return;
   host.dataset.stamp = stamp;
   host.replaceChildren();
+  if (targets) {
+    const chip = document.createElement("span");
+    chip.className = `chip mask-cell targets${targets.shown ? " on" : " off"}`;
+    chip.dataset.mask = "targets";
+    const dot = document.createElement("button");
+    dot.type = "button";
+    dot.className = "mask-dot";
+    dot.title = targets.shown ? "Hide the targets" : "Show the targets";
+    dot.setAttribute("aria-pressed", String(targets.shown));
+    dot.setAttribute("aria-label", "show or hide the targets");
+    dot.innerHTML = `<svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path d="${MASK_CELL}" fill="${css("--mark-selected")}" stroke="rgba(15, 23, 42, 0.35)" stroke-width="0.8" stroke-linejoin="round"/></svg>`;
+    dot.addEventListener("click", (e) => {
+      e.stopPropagation();
+      theCanvas.showLayer("cells", !targets.shown);
+      drawStage();
+      sayWhatThePressesDo();
+    });
+    chip.append(dot);
+    host.append(chip);
+  }
   for (const layer of layers) {
     const chip = document.createElement("span");
     chip.className = `chip mask-cell${layer.shown ? " on" : " off"}${layer.id === chosen ? " chosen" : ""}`;
@@ -1408,9 +1469,8 @@ function drawTheMasks(layers) {
     const more = chipMore(`settings for ${layer.name}`);
     more.addEventListener("click", (e) => {
       e.stopPropagation();
-      chosenMask = layer.id;
+      toggleFrom(ctx.maskPop, more, () => { chosenMask = layer.id; });
       sayWhatThePressesDo();
-      openOnly(ctx.maskPop, more, true);
     });
     chip.append(dot, more);
     host.append(chip);
@@ -1529,9 +1589,10 @@ function drawTheChips(panel, acquisition) {
       const more = chipMore(`settings for ${channel.name}`);
       more.addEventListener("click", (e) => {
         e.stopPropagation();
-        panel.chooseRow(channel.index);
-        channelBox = mountChannelBox(ctx.channelPop, aColourChannel(panel, channel.index, channel.name));
-        openOnly(ctx.channelPop, null, true);
+        toggleFrom(ctx.channelPop, more, () => {
+          panel.chooseRow(channel.index);
+          channelBox = mountChannelBox(ctx.channelPop, aColourChannel(panel, channel.index, channel.name));
+        });
         sayWhatThePressesDo();
       });
       chip.append(dot, more);
@@ -1608,7 +1669,7 @@ function sayWhatThePressesDo() {
 
   if (ctx.masksBar) {
     const layers = theMaskLayers();
-    ctx.masksBar.hidden = !layers.length;
+    ctx.masksBar.hidden = !layers.length && !theTargetsLayer();
     if (!layers.length && ctx.maskPop && !ctx.maskPop.hidden) closeTheCards();
     drawTheMasks(layers);
     const layer = theChosenMask();
@@ -1692,9 +1753,6 @@ function legendSettles() {
       thePicture.followTheStage(where);
       redrawViewSoon();
     },
-    /* The ground opens over what the scan has imaged, so the picture beneath
-       shows through the drawing exactly where it was taken. Called as tiles
-       land, and again when a run is reset and there is nothing to show. */
     fit: fitView,
     /* The canvas is the picture's; the page says when its box has changed
        shape, and what the pointer should look like over it. */
@@ -1732,7 +1790,6 @@ function legendSettles() {
     takeTheCanvas,
     forgetTheCanvas,
     takeThePosition,
-    groundWindows: () => theCanvas.windows(),
     layers: () => theCanvas.layersAbove.map(({ key, label, shown, staysSolid }) =>
       ({ key, label, shown, staysSolid: !!staysSolid })),
     showLayer(key, on) { theCanvas.showLayer(key, on); drawStage(); },

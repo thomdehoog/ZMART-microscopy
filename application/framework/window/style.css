@@ -583,13 +583,15 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
    hand's two tools sit in the second; the two count-and-press pairs take
    one column each. Rerun, Run new points and Clear all keep the same
    three columns below, so every press begins where the one above it does. */
-.fp-row { display: grid; grid-template-columns: 110px minmax(0, 1fr) minmax(0, 1fr); gap: 12px; align-items: center; }
+.fp-row { display: grid; grid-template-columns: max-content minmax(0, 1fr) minmax(0, 1fr); gap: 12px; align-items: center; }
 .fp-row > .side-sub { margin-bottom: 0; }
 .fp-tools2 { display: flex; gap: 3px; }
 .fp-tools2 .sf-tool { height: var(--control); width: var(--control); }
 /* Two presses each since Refine and Accept went; the rows stay even. */
 .ft-acts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-.fp-again { grid-template-columns: 110px minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
+/* Three presses of one width: the words' column above is only as wide as
+   its words, so these stand on thirds of their own rather than on it. */
+.fp-again { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 /* The two tools share the first cell between them. */
 .fp-tools { grid-column: 1; display: flex; gap: var(--fp-gap); }
 .fp-tools .sf-tool { flex: 1; }

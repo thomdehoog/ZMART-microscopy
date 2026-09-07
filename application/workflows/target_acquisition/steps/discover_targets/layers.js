@@ -6,6 +6,7 @@
  * at rather than a thing the run produced.
  */
 import { dressTheMask } from "./mask-dress.js";
+import { activeRecording } from "../../../../parts/microscope/recordings.js";
 /* One mask picture per field, fetched when first painted. A field whose
    detection has not run answers 404; that is remembered briefly and asked
    again, because a discovery marching across the sample fills them in. */
@@ -143,7 +144,20 @@ export function targetLayers(theRun) {
      was last on. There is one from the first plan on, on every step, so
      Tile always has somewhere to go. */
   const theTargetTiles = () => run.targetTiles ?? [];
+  /* The focus frame, while there is one: the chosen point in the
+     focussing settings' frame, which the focus layer draws on the focus
+     step. It is the position there; two frames stood on that step, this
+     layer's on the plan's field and the focus layer's on the point, and
+     the operator asked which was the position. */
+  const theFocusFrame = () => {
+    if (activeMode !== "focus") return null;
+    const at = run.focus.points[run.focus.selected];
+    const frameUm = activeRecording(run.focusPreset)?.frameUm;
+    return at && frameUm ? { x: at.x, y: at.y, frameUm } : null;
+  };
   const theCurrentField = () => {
+    const focus = theFocusFrame();
+    if (focus) return focus;
     if (beforeTheScan()) return theFieldUnderTheStage(run.plan[0]?.frameUm);
     if (activeMode === "select" || activeMode === "targets") {
       const tiles = theTargetTiles();
@@ -327,6 +341,10 @@ export function targetLayers(theRun) {
     field: theCurrentField,
     next: theNextField,
     paint: (frame) => {
+      /* While the focus frame stands, the focus layer draws it on the
+         point; drawn here too, two frames stood for one position. The
+         field stays the layer's, so Tile still has somewhere to go. */
+      if (theFocusFrame()) return;
       const ctx = frame.context;
       const { place, scale } = drawnIn(frame);
       const t = theCurrentField();

@@ -79,7 +79,7 @@ export async function openViewer(element, options = {}) {
 
   const own = {
     element,
-    background,
+    background: options.transparentBackground ? "transparent" : background,
     onViewChanged,
     destroyed: false,
     /* One entry per acquisition, in the order the page gave them, each holding
@@ -107,14 +107,6 @@ export async function openViewer(element, options = {}) {
   };
 
   buildTheThreeSurfaces(own);
-  if (options.middleSurface) {
-    const middle = options.middleSurface;
-    middle.style.zIndex = "1";
-    own.surfaces.under.style.zIndex = "0";
-    own.surfaces.picture.style.zIndex = "0";
-    own.surfaces.over.style.zIndex = "2";
-    own.surfaces.box.insertBefore(middle, own.surfaces.over);
-  }
   await readTheNotes(own);
   fitToWhatThereIs(own);
 
@@ -136,6 +128,8 @@ export async function openViewer(element, options = {}) {
       askForAFrame(own);
       settled(own);
     },
+
+    get middleSlot() { return own.surfaces.middle; },
 
     getView() {
       return { centre: { ...own.view.centre }, zoom: own.view.zoom };
@@ -260,16 +254,20 @@ function buildTheThreeSurfaces(own) {
     position: "absolute", inset: "0", background: own.background, overflow: "hidden",
   });
 
-  const make = () => {
+  const make = (parent, zIndex) => {
     const canvas = document.createElement("canvas");
     Object.assign(canvas.style, {
-      position: "absolute", inset: "0", width: "100%", height: "100%", display: "block",
+      position: "absolute", inset: "0", width: "100%", height: "100%", display: "block", zIndex,
     });
-    box.append(canvas);
+    parent.append(canvas);
     return canvas;
   };
 
-  own.surfaces = { box, under: make(), picture: make(), over: make() };
+  const under = make(box, "0");
+  const middle = document.createElement("div");
+  Object.assign(middle.style, { position: "absolute", inset: "0", zIndex: "1" });
+  box.append(middle);
+  own.surfaces = { box, under, middle, picture: make(middle, "0"), over: make(box, "2") };
   own.element.append(box);
   fitTheSurfaces(own);
 }

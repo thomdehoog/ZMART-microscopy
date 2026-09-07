@@ -41,10 +41,10 @@ describe("the plot's pair", () => {
     expect(mounted(detected).pair()).toEqual(["area", "intensity"]);
   });
 
-  it("moves to eccentricity and intensity_mean when they land, not to the map", () => {
+  it("moves to intensity_mean by eccentricity when they land, not to the map", () => {
     const plot = mounted(detected);
     plot.land(measured);
-    expect(plot.pair()).toEqual(["eccentricity", "intensity_mean"]);
+    expect(plot.pair()).toEqual(["intensity_mean", "eccentricity"]);
     const offered = [...plot.host.querySelectorAll("#gate-fx option")].map((o) => o.value);
     expect(offered).toContain("umap_1");
   });
@@ -55,15 +55,15 @@ describe("the plot's pair", () => {
     const fx = plot.host.querySelector("#gate-fx");
     fx.value = "umap_1";
     fx.dispatchEvent(new Event("change"));
-    expect(plot.pair()).toEqual(["umap_1", "intensity_mean"]);
+    expect(plot.pair()).toEqual(["umap_1", "eccentricity"]);
     plot.land(measured);
-    expect(plot.pair()).toEqual(["umap_1", "intensity_mean"]);
+    expect(plot.pair()).toEqual(["umap_1", "eccentricity"]);
   });
 
   it("moves once: a pair the operator left alone after the move is not moved again", () => {
     const plot = mounted(measured);
-    expect(plot.pair()).toEqual(["eccentricity", "intensity_mean"]);
+    expect(plot.pair()).toEqual(["intensity_mean", "eccentricity"]);
     plot.land(measured);
-    expect(plot.pair()).toEqual(["eccentricity", "intensity_mean"]);
+    expect(plot.pair()).toEqual(["intensity_mean", "eccentricity"]);
   });
 });
