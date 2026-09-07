@@ -62,58 +62,52 @@ export const canvasPanel = {
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="3" y="3" width="10" height="10" rx="1"/></svg>
           </button>
           <!-- Right, the picture: which acquisition the row is about, its
-               channels as chips, the masks as one of them, and Grayscale.
-               A press on a chip opens its box. -->
+               channels as chips, the masks as one of them. A press on a
+               chip opens its box. -->
           <span class="canvas-toolbar-right">
-            <!-- Colour or grey, a toggle of its own at the head of the
-                 row. Each side is a ramp, the bar a microscopist knows
-                 from the lookup table of any viewer: a rainbow ramp for
-                 colour, a black-to-white ramp for grey. The knob sits
-                 over the side in force. It acts on the pictures only;
-                 the masks keep their own colours whichever side it is
-                 on. -->
-            <span class="grey-toggle" id="grey-toggle" role="group" aria-label="Colour or grey" data-grey="false" hidden>
-              <button class="bare" id="colour-btn" type="button" aria-pressed="true" aria-label="Colour"
-                      title="Colour: every channel in its own colour">
-                <svg class="grey-glyph colours" width="18" height="16" viewBox="0 0 18 16" aria-hidden="true">
-                  <defs>
-                    <linearGradient id="ramp-colours" x1="0" y1="0" x2="1" y2="0">
-                      <stop offset="0" stop-color="#3b82f6"/><stop offset="0.35" stop-color="#22c55e"/>
-                      <stop offset="0.65" stop-color="#eab308"/><stop offset="1" stop-color="#ef4444"/>
-                    </linearGradient>
-                  </defs>
-                  <rect class="ramp" x="1" y="4" width="16" height="8" rx="1.5"/>
-                </svg>
-              </button>
-              <button class="bare" id="grey-btn" type="button" aria-pressed="false" aria-label="Grey"
-                      title="Grey: the channels folded into one grey picture">
-                <svg class="grey-glyph greys" width="18" height="16" viewBox="0 0 18 16" aria-hidden="true">
-                  <defs>
-                    <linearGradient id="ramp-greys" x1="0" y1="0" x2="1" y2="0">
-                      <stop offset="0" stop-color="#111827"/><stop offset="1" stop-color="#f3f4f6"/>
-                    </linearGradient>
-                  </defs>
-                  <rect class="ramp" x="1" y="4" width="16" height="8" rx="1.5"/>
-                </svg>
-              </button>
-            </span>
             <!-- A joined strip: which acquisition the row is about -- the
-                 eye, its name, a caret that opens the list -- and its
-                 channels in a box beside it. -->
+                 eye, the ramp chip, its name, a caret that opens the list --
+                 and its channels in a box beside it.
+
+                 The press is a span rather than a button because the chip
+                 inside it is a button of its own: colour or grey is a
+                 property of the acquisition, so its switch stands on the
+                 acquisition's name, and the same chip stands on every line
+                 of the menu. The chip wears the ramp a microscopist knows
+                 from the lookup table of any viewer: a rainbow ramp while
+                 the acquisition is in colour, a black-to-white ramp while it
+                 is grey. It acts on the pictures only; the masks keep their
+                 own colours. -->
             <span class="canvas-strip" id="acquisition-pick" hidden>
-              <button class="run strip-first" id="acquisition-btn" type="button" aria-haspopup="true" aria-expanded="false"
-                      title="Which acquisition the row shows; show or hide any of them">
+              <span class="run strip-first acquisition-press" id="acquisition-btn" role="button" tabindex="0"
+                    aria-haspopup="true" aria-expanded="false"
+                    title="Which acquisition the row shows; show or hide any of them">
                 <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M1.5 8s2.5-4.5 6.5-4.5S14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8z"/><circle cx="8" cy="8" r="2"/></svg>
+                <button class="ramp-chip" id="ramp-chip" type="button" aria-pressed="false" aria-label="Colour or grey"
+                        title="Show this layer in grey">
+                  <svg width="14" height="8" viewBox="0 0 14 8" aria-hidden="true">
+                    <defs>
+                      <linearGradient id="ramp-colours" x1="0" y1="0" x2="1" y2="0">
+                        <stop offset="0" stop-color="#3b82f6"/><stop offset="0.35" stop-color="#22c55e"/>
+                        <stop offset="0.65" stop-color="#eab308"/><stop offset="1" stop-color="#ef4444"/>
+                      </linearGradient>
+                      <linearGradient id="ramp-greys" x1="0" y1="0" x2="1" y2="0">
+                        <stop offset="0" stop-color="#111827"/><stop offset="1" stop-color="#f3f4f6"/>
+                      </linearGradient>
+                    </defs>
+                    <rect class="ramp colours" width="14" height="8" rx="1.5"/>
+                    <rect class="ramp greys" width="14" height="8" rx="1.5"/>
+                  </svg>
+                </button>
                 <span id="acquisition-name">Overview</span>
                 <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 4l2.5 2.5L7.5 4"/></svg>
-              </button>
+              </span>
               <!-- The acquisition's channels, in a flat box joined onto the
                    strip: a numbered dot in each channel's colour, and no
                    more, since the colour and the number say which channel
                    it is. The dot opens the channel's box. The masks stand in the same box, past a short
                    dividing line: they lie on the acquisition, but they are
-                   their own thing, and the colour-or-grey toggle leaves
-                   them alone. -->
+                   their own thing, and the ramp chip leaves them alone. -->
               <span class="canvas-channels" id="canvas-channels">
               <span class="canvas-chips" id="canvas-chips"></span>
               <!-- While the picture is grey the acquisition is one grey
@@ -302,9 +296,7 @@ export const canvasPanel = {
         maskFill: find("mask-fill"),
         maskLine: find("mask-line"),
         maskOpacity: find("mask-opacity"),
-        grey: find("grey-btn"),
-        colour: find("colour-btn"),
-        greyToggle: find("grey-toggle"),
+        rampChip: find("ramp-chip"),
         legend: find("canvas-legend"),
         overviewCanvas: find("overview-canvas"),
         overviewNote: find("overview-note"),
