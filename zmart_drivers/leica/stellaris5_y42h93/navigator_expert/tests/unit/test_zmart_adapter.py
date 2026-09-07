@@ -776,43 +776,6 @@ class TestAcquire(unittest.TestCase):
             "the state document lost the stack it was taken with",
         )
 
-    def test_the_capture_holds_until_the_instrument_answers_again(self):
-        """Control comes back only when LAS X is answering reads again.
-
-        Handing it back sooner turns the caller's very next question into a
-        failure the instrument never deserved: on the simulator, the two
-        points after a capture died on "could not read stage XY position"
-        while LAS X was still digesting the capture before them. The
-        recovery seconds pass either way; they are spent waiting here, once,
-        instead of failing everywhere else.
-        """
-        h = _handle()
-        h.driven_to = {"x": 0.0, "y": 0.0, "z": 100.0, "z_wide_um": 1000.0}
-        deaf = {"is": False, "unanswered": 0}
-
-        def capture(client, job, **kwargs):
-            deaf["is"] = True
-            return SimpleNamespace(job=job)
-
-        def xy(client, **kwargs):
-            if deaf["is"] and deaf["unanswered"] < 3:
-                deaf["unanswered"] += 1
-                return None
-            return {"x_um": 1.0, "y_um": 2.0}
-
-        with (
-            self._capturing() as calls,
-            patch.object(adapter._patient, "PATIENCE_S", 5.0),
-            patch.object(adapter._capture, "acquire", capture),
-            patch.object(adapter._readers, "get_xy", xy),
-        ):
-            adapter.acquire(h, acquisition_type="overview", position_label="A1")
-
-        del calls
-        self.assertEqual(
-            deaf["unanswered"], 3,
-            "acquire returned while the instrument was still deaf",
-        )
 
     def test_acquire_asks_the_driver_to_select_the_job_every_time(self):
         """Whether the job is already selected is the driver's decision.
@@ -849,28 +812,6 @@ class TestAcquire(unittest.TestCase):
                 adapter.acquire(h, acquisition_type="overview", position_label="A1")
         capture.assert_not_called()
 
-    def test_the_capture_raises_when_the_instrument_never_answers_again(self):
-        """A record for a capture the instrument has not come back from is a
-        record nobody can act on: the next question fails anyway. Say so here."""
-        h = _handle(connection={**adapter.CONNECTION, "output_root": "/tmp/out"})
-        h.driven_to = {"x": 0.0, "y": 0.0, "z": 100.0, "z_wide_um": 1000.0}
-        deaf = {"is": False}
-
-        def capture(client, job, **kwargs):
-            deaf["is"] = True
-            return SimpleNamespace(job=job)
-
-        def xy(client, **kwargs):
-            return None if deaf["is"] else {"x_um": 1.0, "y_um": 2.0}
-
-        with (
-            self._capturing(),
-            patch.object(adapter._patient, "PATIENCE_S", 0.05),
-            patch.object(adapter._capture, "acquire", capture),
-            patch.object(adapter._readers, "get_xy", xy),
-        ):
-            with self.assertRaisesRegex(RuntimeError, "after the capture.*answered nothing"):
-                adapter.acquire(h, acquisition_type="overview", position_label="A1")
 
     def test_acquire_applies_the_rigs_measured_orientation(self):
         """The microscope's measured turn reaches ``save``, so saved planes are

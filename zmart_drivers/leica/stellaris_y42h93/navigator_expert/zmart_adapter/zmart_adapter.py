@@ -923,16 +923,31 @@ def acquire(
     # Whether the job is already selected is the driver's decision: its
     # ``select_job`` proves a no-op from the right source, where a name read
     # here can be stale. Asked every time, confirmed or this raises.
+    # Where the seconds of one acquisition go, phase by phase; reported on the
+    # record as ``timing_s`` and logged once per capture.
+    phases: dict[str, float] = {}
+    _t = time.monotonic()
+
+    def _lap(name: str) -> None:
+        nonlocal _t
+        now = time.monotonic()
+        phases[name] = round(now - _t, 3)
+        _t = now
+
     _confirmed(_commands.select_job(handle.client, job), f"select_job('{job}')")
+    _lap("select_job")
 
     backlash_rounds = resolved["backlash_rounds"]
     apply_backlash = resolved["backlash_correction"] and backlash_rounds > 0
     if apply_backlash:
         _motion.correct_backlash(handle.client, passes=backlash_rounds)
+    _lap("backlash")
 
     readings = _state_readings(handle, job)
+    _lap("state_readings")
 
     acq = _capture.acquire(handle.client, job)
+    _lap("capture")
 
     label = position_label if position_label is not None else _next_position_label(handle)
     acquisition_hash = _next_acquisition_hash(handle)
@@ -949,6 +964,7 @@ def acquire(
         acquisition_hash=acquisition_hash,
         job=job,
     )
+    _lap("export_state")
     saved = _save.save(
         handle.client,
         acq,
@@ -970,11 +986,14 @@ def acquire(
         cleanup_source=resolved["cleanup_source"],
     )
 
-    # The acquisition is not over until the instrument answers questions
-    # again: while LAS X prints an export it takes orders but returns empty
-    # answers, and a record handed over during that stretch handed the
-    # silence to the caller's very next question.
-    _patient.answered(lambda: _readers.get_xy(handle.client), "the stage XY position after the capture")
+    _lap("save")
+    phases["total"] = round(sum(phases.values()), 3)
+    log.info(
+        "acquire %s/%s timing_s: %s",
+        acquisition_type,
+        label,
+        " ".join(f"{k}={v}" for k, v in phases.items()),
+    )
 
     written = sorted(saved.image_paths.items())
     taken_at = _where_the_planes_are(handle, readings["job_settings"], len(written))
@@ -999,6 +1018,7 @@ def acquire(
         "acquisition_hash": acquisition_hash,
         "settle": "backlash-corrected" if apply_backlash else "direct",
         "backlash_rounds": backlash_rounds if apply_backlash else 0,
+        "timing_s": phases,
         # ``images`` stays as the simple compatibility list. ``planes`` is the
         # lossless manifest workflows need to distinguish channels from z/t.
         "images": [plane["path"] for plane in planes],

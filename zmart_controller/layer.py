@@ -166,8 +166,7 @@ class Session:
         driver-defined. ``options`` carries the acquisition and saving settings from
         :meth:`get_acquisition_options`; pass it through untouched -- the driver
         fills any omitted option from its active default. Returns once the
-        capture is saved and the instrument answers questions again; raises
-        otherwise.
+        scan is idle and the capture is saved; raises otherwise.
         """
         return self._ops["acquire"](
             self._handle,
