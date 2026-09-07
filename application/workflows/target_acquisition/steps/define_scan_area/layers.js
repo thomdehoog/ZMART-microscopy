@@ -8,32 +8,27 @@
  */
 export function scanAreaLayers(theRun) {
   const {
-    run, drawnIn, scanfieldsWidget, activePreset, indexOfStep, editing, shown,
+    run, drawnIn, scanfieldsWidget, activePreset, indexOfStep, editing,
     asAPress, editorTook, renderRail,
   } = theRun;
   return {
     plan: {
     key: "plan",
     label: "Plan",
-    explains: "The positions the microscope was told to visit. It stays readable once "
-      + "the tiles start landing on top of it, dimmed, because by then the images "
-      + "are the answer and this is only the question.",
+    explains: "The planned scan area, beneath acquired images. Unacquired areas remain visible.",
     /* Not before the step that says where to scan. Walking back to the
        carrier is walking back to a question the plan is an answer to — the
        fields were placed against these areas, and drawing them over a plate
        that is still being changed shows a plan for a carrier that may be
        about to stop existing. The fields are kept, not discarded: coming
        forward again finds them where they were. */
-    /* And not once every planned field has landed: by then the images are
-       the whole answer, and the dimmed outlines over them read as seams
-       in the picture rather than as a plan. */
-    shown: run.activeIdx >= indexOfStep("scanfields") && !(run.plan.length && shown >= run.plan.length),
+    shown: run.activeIdx >= indexOfStep("scanfields"),
     paint: (frame) => {
       const ctx = frame.context;
       const { place, scale } = drawnIn(frame);
       scanfieldsWidget.drawOn(ctx, {
         fields: run.fields, preset: activePreset(), carrier: run.carrier,
-        toScreen: place, scale: scale, dim: shown > 0,
+        toScreen: place, scale: scale,
         marked: editing?.marked(),
       });
     },

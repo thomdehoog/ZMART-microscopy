@@ -16,6 +16,7 @@
  */
 
 import { expect, test } from "@playwright/test";
+import { readPng } from "./pixels.js";
 
 /**
  * How long one of these may take.
@@ -131,21 +132,6 @@ const howFarApart = (page) => page.evaluate(() => {
   return worst;
 });
 
-/** How much of the plan's surface has been cut away, so the scan shows through. */
-const howMuchIsOpen = (page) => page.evaluate(() => {
-  /* The plan is drawn on the topmost of the surfaces the engine builds inside
-     the box — it used to be a canvas of the page's own, and asking the box for
-     a 2D context now gets nothing. The last one is the one drawn over the
-     picture; see `drawOver` in the engine contract. */
-  const surfaces = [...document.querySelectorAll("#stage-canvas canvas")];
-  const cv = surfaces.at(-1);
-  if (!cv) throw new Error("the plan has no surface to read");
-  const seen = cv.getContext("2d").getImageData(0, 0, cv.width, cv.height).data;
-  let clear = 0;
-  for (let i = 3; i < seen.length; i += 4) if (seen[i] < 8) clear += 1;
-  return clear / (seen.length / 4);
-});
-
 test("is not opened at all unless the page was pointed at one", async ({ page }) => {
   /* An engine is a large thing to fetch, and a page nobody pointed at a scan
      has no use for one. */
@@ -186,7 +172,7 @@ test("lands exactly where the plan says, at every zoom and after panning",
     expect(await howFarApart(page), "panning pulled the two apart").toBeLessThan(0.001);
   });
 
-test("shows only where the drawing above it has been opened up", async ({ page }) => {
+test("draws the JPEG picture above the enabled background", async ({ page }) => {
   test.setTimeout(A_RUN_TAKES_A_WHILE);
   await page.goto("/?backend=pretend");
   await page.waitForTimeout(800);
@@ -196,43 +182,24 @@ test("shows only where the drawing above it has been opened up", async ({ page }
   await throughToAScannedPlate(page);
   await page.waitForFunction(() => !!window.__thePicture, null, { timeout: 20_000 });
 
-  /* The run opened its own ground: the scan already shows through the fields
-     it imaged, and nowhere else. The fields are 20x frames, 676 µm against
-     wells of 6.6 mm, so the open ground is small on the canvas: a fraction
-     of a percent open is the whole plan showing. */
-  await page.waitForTimeout(400);
-  expect(await howMuchIsOpen(page), "the scan does not show through what it imaged")
-    .toBeGreaterThan(0.0004);
+  // Acquired images sit above the plan; the background need not be cut away.
+  expect(await page.evaluate(() => window.__theStageCanvas.layerShown("ground"))).toBe(true);
 
-  /* Closed by hand, the surface covers everything again — what an operator
-     sees before they ask for the picture. */
-  await page.evaluate(() => window.__theStageCanvas.closeTheGround());
-  await page.waitForTimeout(400);
-  expect(await howMuchIsOpen(page), "the scan was showing with the ground closed").toBeLessThan(0.0002);
+  // Measure the actual JPEG composite, not only the background canvas's alpha.
+  // Frame a field using the operator's control; a whole plate makes each JPEG
+  // only a handful of screen pixels, regardless of the quality of its rendering.
+  await page.locator("#tile-btn").click();
+  const stage = page.locator("#stage-canvas");
+  const visible = readPng(await stage.screenshot());
+  await page.evaluate(() => window.__thePicture.showPicture(false));
+  const hidden = readPng(await stage.screenshot());
+  let imagePixels = 0;
+  for (let i = 0; i < visible.data.length; i += visible.channels) {
+    const difference = [0, 1, 2].reduce((sum, c) =>
+      sum + Math.abs(visible.data[i + c] - hidden.data[i + c]), 0);
+    if (difference > 30) imagePixels++;
+  }
+  expect(imagePixels, "hiding the JPEG picture must change visible image pixels").toBeGreaterThan(1000);
+  await page.evaluate(() => window.__thePicture.showPicture(true));
 
-  await page.evaluate(() => window.__theStageCanvas.openScannedGround());
-  await page.waitForTimeout(500);
-  const throughTheWindow = await howMuchIsOpen(page);
-  expect(throughTheWindow, "the window did not reach the scan").toBeGreaterThan(0.0004);
-  expect(throughTheWindow, "the window opened far more than the fields it named")
-    .toBeLessThan(0.5);
-
-  await page.evaluate(() => window.__theStageCanvas.closeTheGround());
-  await page.waitForTimeout(400);
-  expect(await howMuchIsOpen(page), "closing the windows left the scan showing")
-    .toBeLessThan(0.0002);
-
-  /* And the blunt way: turn the bottom layer off and the scan is simply there.
-     A window is for looking at part of it; this is for looking at all of it.
-
-     Asked of the canvas rather than pressed on a button, because the strip of
-     controls that held those buttons has been taken off the screen while a
-     better home for it is decided. What is being checked here is the canvas,
-     not the button — and a test that could only reach the canvas through a
-     control somebody was still designing would have to be rewritten every time
-     the design moved. */
-  await page.evaluate(() => window.__theStageCanvas.showLayer("ground", false));
-  await page.waitForTimeout(500);
-  expect(await howMuchIsOpen(page), "turning the background off did not show the scan")
-    .toBeGreaterThan(0.4);
 });

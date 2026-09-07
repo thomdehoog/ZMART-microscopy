@@ -1,8 +1,8 @@
 /**
  * What step 5 draws on the picture: the fields that have been imaged.
  *
- * Not the images themselves — those are the scan, drawn beneath everything by
- * the engine. This is the run's own account of which fields have been taken,
+ * Not the images themselves — those occupy the canvas's middle slot.
+ * This is the run's own account of which fields have been taken,
  * which is what an operator watches fill in.
  */
 export function overviewLayers(theRun) {
@@ -12,14 +12,12 @@ export function overviewLayers(theRun) {
     key: "tiles",
     label: "Tiles",
     explains: "The field the stage is imaging right now. What has been taken needs no "
-      + "mark of its own: the scan's picture shows through the ground exactly there.",
+      + "mark of its own: acquired images cover the plan at those positions.",
     shown: shown > 0,
     paint: (frame) => {
       const ctx = frame.context;
       const { place, scale } = drawnIn(frame);
-      /* Nothing is painted over a taken field: the pixels beneath are what
-         was imaged there, and an outline on a window's edge survived the cut
-         as a hairline over the tissue. */
+      // Acquired image pixels cover the plan; only the active frontier needs a mark.
 
       // ---- scan frontier: the tile the stage is standing on
       if (run.running === "scan" && run.plan[shown]) {
