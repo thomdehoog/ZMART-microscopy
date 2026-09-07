@@ -1,0 +1,150 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScanningTemplate xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" Author="Frank Sieckmann" Company="Leica Microsystems CMS GmbH Mannheim - 01.2023" Version="4" Type="ScanningTemplate" Framework="M6" Description="This XML file contains the machine-readable data of an individually adjusted scan template (Navigator Expert, Coral Cryo">
+  <CustomerData>
+    <FileCreated>2026-05-27	12:09:04</FileCreated>
+    <FileUpdated />
+    <FileVersion>0</FileVersion>
+  </CustomerData>
+  <SystemData>
+    <Application>M6</Application>
+  </SystemData>
+  <LabBookData />
+  <ExperimentData>
+    <Experiment CanDoCAM="false" CanDoDataExporter="false" CanDoDeleteImages="false" CanDoDSM="false">
+      <ApplicationData>
+        <MatrixData>
+          <AutofocusData ZUseMode="eUseNothing" AFForecastMode="0" />
+          <CAMData IsEnabled="false" />
+          <CountOfData IsEnabled="true" SamplesX="0" SamplesY="0" SectionsX="1" SectionsY="1" RegionsX="0" RegionsY="0" ScanFieldsX="7" ScanFieldsY="7" />
+          <DriftCompensationData IsEnabled="false" RepeatLoopInterval="1" RepeatFieldInterval="1" Slices="7" ScanRange="20" Units="Microns" />
+          <WaterDispenserData IsEnabled="false" RepeatInterval="1" RepeatFieldInterval="1" PumpDelay="500" PumpTime="500" PumpFrequency="0" PumpAmplitude="0" UseWaterPumpForAFMap="0" PumpingIntervalForAFPoints="0" Units="MilliSeconds" />
+          <TrackingData IsEnabled="false" RepeatInterval="0" SmallObjectSize="0" SensitivityLevel="0" RemoveBoundaryTouchingObjects="false" RemoveSmallObjects="false" JobId="0" />
+          <TriggerData IsEnabled="false" TriggerRepeatIntervalMin="0" TriggerInSelectedIndex="0" TriggerOutSelectedIndex="0" />
+          <AutoStartAfterAFData IsEnabled="false" TimeUntilStart="10" Units="Seconds" />
+          <DelayUntilExperimentStarts IsEnabled="false" TimeUntilStart="60" Units="Seconds" />
+          <TimeLapseData IsEnabled="true" RunTime="00 days 00 hours 05 minutes" RepeatTime="00 days 00 hours 05 minutes" RepeatLoops="1" RepeatTimeDays="0" RepeatTimeHours="0" RepeatTimeMinutes="5" />
+          <DistanceData IsEnabled="true">
+            <Origin IsEnabled="true" OriginX="32700" OriginY="7700" OriginZ="0" Units="Microns" />
+            <Sample IsEnabled="false" DistanceX="0" DistanceY="0" DistanceZ="0" Units="Microns" />
+            <Section IsEnabled="true" DistanceX="0" DistanceY="0" DistanceZ="0" Units="Microns" />
+            <Region IsEnabled="false" DistanceX="0" DistanceY="0" DistanceZ="0" Units="Microns" />
+            <Field IsEnabled="true" DistanceX="1600" DistanceY="1600" DistanceZ="0" Units="Microns" />
+          </DistanceData>
+          <CarrierData IsEnabled="true" Opacity="0" SlideTypeSelected="true" DishTypeSelected="false" WellPlateTypeSelected="false" ChamberSlideTypeSelected="false" SingleGridCartridgeTypeSelected="false" AutoGridCartridgeTypeSelected="false" SelectedGlassTypeIndex="0" SelectedDishTypeIndex="0" SelectedWellplateTypeIndex="0" SelectedChamberSlideTypeIndex="0" SelectedGridTypeIndex="1" Description1="Frost" Description2="Convallaria" RotationAngle="0" Angle0Degree="true" Angle90Degree="false" Angle180Degree="false" Angle270Degree="false" />
+          <RobotData IsEnabled="false" PlateCount="1" LoadPlateTriggerOut="-1" LoadPlateTriggerIn="-1" StageLoadPositionX="0" StageLoadPositionY="0" ZWideLoadPosition="0" DoWaterPumpingAfterPlateChange="false" PumpingTimeOnPlateChange="0" WaitTimeAfterPumpingOnPlateChange="0" Units="Microns" TimeUnits="Seconds" />
+          <ObstacleData IsEnabled="false" ObstacleHeight="0" Units="Microns" />
+          <ConfocalData FieldRotation="0" />
+          <WideFieldData />
+          <NavigatorData />
+        </MatrixData>
+        <CLEMData>
+          <RareEventManager>
+            <IsMaximalEventsPerImageEnabled>false</IsMaximalEventsPerImageEnabled>
+            <IsRunTimelapseEnabled>false</IsRunTimelapseEnabled>
+            <IsAutoFocusEnabled>false</IsAutoFocusEnabled>
+            <IsAutoStartEnabled>false</IsAutoStartEnabled>
+            <IsAiviaInterfaceEnabled>false</IsAiviaInterfaceEnabled>
+            <SelectedRareEventStartType>Manually</SelectedRareEventStartType>
+            <SelectedRareEventStartTypeIndex>3</SelectedRareEventStartTypeIndex>
+            <SelectedAutoFocusJobIndex>0</SelectedAutoFocusJobIndex>
+            <DetectionLimitPerImage>1</DetectionLimitPerImage>
+            <RuntimeLoops>1</RuntimeLoops>
+            <RuntimeHours>0</RuntimeHours>
+            <RuntimeMinutes>0</RuntimeMinutes>
+            <RuntimeSeconds>0</RuntimeSeconds>
+            <RepeatTimeSeconds>30</RepeatTimeSeconds>
+            <AutoFocusRange>100</AutoFocusRange>
+            <AutoFocusSlices>11</AutoFocusSlices>
+            <AutoFocusInterval>1</AutoFocusInterval>
+            <AutoFocusRangeUnits>Microns</AutoFocusRangeUnits>
+            <AutoStartCount>5</AutoStartCount>
+            <SelectedHiResJobIndex>0</SelectedHiResJobIndex>
+            <SelectedHiResAFJobIndex>0</SelectedHiResAFJobIndex>
+            <SelectedAiviaWorkflowIndex>0</SelectedAiviaWorkflowIndex>
+            <AiviaWorkflows />
+          </RareEventManager>
+          <CamSettings />
+          <CryoPumpData />
+          <ChosenJobs>
+            <SpiralScan JobId="0" SelectedListIndex="0" />
+            <AutoFocusScan JobId="0" SelectedListIndex="0" />
+            <OverviewScan JobId="0" SelectedListIndex="0" />
+            <LamellaScan JobId="0" SelectedListIndex="0" />
+          </ChosenJobs>
+        </CLEMData>
+        <ArgusData />
+        <NavigatorData>
+          <RareEventManager>
+            <IsMaximalEventsPerImageEnabled>false</IsMaximalEventsPerImageEnabled>
+            <IsRunTimelapseEnabled>false</IsRunTimelapseEnabled>
+            <IsAutoFocusEnabled>false</IsAutoFocusEnabled>
+            <IsAutoStartEnabled>true</IsAutoStartEnabled>
+            <IsAiviaInterfaceEnabled>false</IsAiviaInterfaceEnabled>
+            <SelectedRareEventStartTypeIndex>-1</SelectedRareEventStartTypeIndex>
+            <SelectedAutoFocusJobIndex>0</SelectedAutoFocusJobIndex>
+            <DetectionLimitPerImage>1</DetectionLimitPerImage>
+            <RuntimeLoops>1</RuntimeLoops>
+            <RuntimeHours>0</RuntimeHours>
+            <RuntimeMinutes>0</RuntimeMinutes>
+            <RuntimeSeconds>0</RuntimeSeconds>
+            <RepeatTimeSeconds>30</RepeatTimeSeconds>
+            <AutoFocusRange>80</AutoFocusRange>
+            <AutoFocusSlices>25</AutoFocusSlices>
+            <AutoFocusInterval>1</AutoFocusInterval>
+            <AutoFocusRangeUnits>Microns</AutoFocusRangeUnits>
+            <AutoStartCount>5</AutoStartCount>
+            <SelectedHiResJobIndex>0</SelectedHiResJobIndex>
+            <SelectedHiResAFJobIndex>0</SelectedHiResAFJobIndex>
+            <SelectedAiviaWorkflowIndex>0</SelectedAiviaWorkflowIndex>
+            <AiviaWorkflows>
+              <AiviaWorkflow>Find Nucleus Recipe</AiviaWorkflow>
+              <AiviaWorkflow>Find Cytoskellet Recipe</AiviaWorkflow>
+              <AiviaWorkflow>Find Appotosis Recipe</AiviaWorkflow>
+              <AiviaWorkflow>Find Anaphase Recipe</AiviaWorkflow>
+            </AiviaWorkflows>
+          </RareEventManager>
+          <FirstIntervalCenterData FirstIntervalCenterRandomSelected="Interval">
+            <FirstData>
+              <DeleteCurrentAFPoints>true</DeleteCurrentAFPoints>
+            </FirstData>
+            <IntervalData>
+              <DeleteCurrentAFPoints>true</DeleteCurrentAFPoints>
+              <IsEdge>false</IsEdge>
+              <EveryFieldValue>1</EveryFieldValue>
+              <EveryColumnValue>1</EveryColumnValue>
+              <EveryRowValue>1</EveryRowValue>
+            </IntervalData>
+            <CenterData>
+              <DeleteCurrentAFPoints>true</DeleteCurrentAFPoints>
+              <RadiusInMicrons>2000</RadiusInMicrons>
+              <CountOfFocusFields>5</CountOfFocusFields>
+            </CenterData>
+            <RandomData>
+              <DeleteCurrentAFPoints>true</DeleteCurrentAFPoints>
+              <RadiusInMicrons>1000</RadiusInMicrons>
+              <CountOfRandomFields>5</CountOfRandomFields>
+            </RandomData>
+          </FirstIntervalCenterData>
+          <ArrayFilledRandom ArrayFilledRandomSelected="Array">
+            <FilledData>
+              <MosaicOverlapInPercent>10</MosaicOverlapInPercent>
+              <FillFactorInPercent>100</FillFactorInPercent>
+            </FilledData>
+            <RandomData>
+              <Number>1</Number>
+              <IsRandomSelected>false</IsRandomSelected>
+              <IsCanOverlapSelected>false</IsCanOverlapSelected>
+              <Bias>0</Bias>
+            </RandomData>
+          </ArrayFilledRandom>
+          <CamSettings />
+          <ChosenJobs>
+            <AutoFocusScan JobId="4" JobName="AF Job" SelectedListIndex="0" />
+            <OverviewScan JobId="6" JobName="Overview" SelectedListIndex="0" />
+          </ChosenJobs>
+        </NavigatorData>
+      </ApplicationData>
+      <ScanFields />
+    </Experiment>
+  </ExperimentData>
+</ScanningTemplate>
