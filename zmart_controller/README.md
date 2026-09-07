@@ -66,6 +66,14 @@ Omit an option and the driver keeps its active default, so you only specify what
 you want to change. `set_*` applies a snapshot or value (`set_state`, `set_xyz`,
 `set_instrument`); `run_procedure` runs a named procedure instead.
 
+Every call answers for the instrument, not for the message. A `get_*` is a
+reading the instrument gave; `set_xyz`, `set_state`, `run_procedure` and
+`acquire` return once the instrument has confirmed the change or finished the
+work. Drivers retry inside the call -- a silent instrument is asked again, a
+command whose readback does not match is sent again -- and raise when their
+patience runs out. Nothing returns "accepted", so a caller never polls for what
+it asked.
+
 ## The workflow, step by step
 
 ### 1. Get instruments and connect

@@ -122,7 +122,7 @@ from application.parts.microscope import detection, focus_score  # noqa: E402
 from application.parts.microscope.focus_run import (  # noqa: E402
     FOCUSSING,
     RunCancelled,
-    apply_state_settled,
+    as_state,
     measure_focus,
 )
 
@@ -951,12 +951,12 @@ def _scan_worker(
     try:
         if state:
             # The recorded configuration for this kind of scan, applied once
-            # before the first drive and CONFIRMED to have taken -- recording
-            # it and never applying it captured everything with whatever job
-            # happened to be selected, and applying without waiting let the
-            # first field fire on the job the step before left behind.
+            # before the first drive. ``set_state`` returns once the
+            # instrument has taken it, or raises -- recording it and never
+            # applying it captured everything with whatever job happened to
+            # be selected.
             with _the_instruments_turn:
-                apply_state_settled(_require_session(), state)
+                _require_session().set_state(as_state(state))
         for i, position in enumerate(positions):
             if _stop_asked["scan"]:
                 # Between two fields, on the operator's say-so: what was

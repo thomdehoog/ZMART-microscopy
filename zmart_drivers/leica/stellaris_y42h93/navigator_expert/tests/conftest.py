@@ -58,17 +58,21 @@ def fast_timing_windows(monkeypatch):
     """Shrink the real-time confirm/echo poll windows for the offline suite.
 
     The shipped defaults (``timing.CONFIRM_POLL_S = 3`` s per confirm attempt,
-    ``dispatch.ECHO_SETTLE_TIMEOUT_S = 1`` s per fire) are real hardware
-    windows; against mocks they are pure sleep (~35 s of the suite, LT-03).
-    The consumers read both values at call time, so patching here reaches
-    every poll loop. Shipped values are unchanged; a test that needs a
-    specific window passes an explicit ``poll_window=``/``timeout=``.
+    ``dispatch.ECHO_SETTLE_TIMEOUT_S = 1`` s per fire, the readers'
+    ``patient.PATIENCE_S = 30`` s before a silent instrument is given up on) are real
+    hardware windows; against mocks they are pure sleep (~35 s of the suite,
+    LT-03, before the adapter's patience existed). The consumers read the
+    values at call time, so patching here reaches every poll loop. Shipped
+    values are unchanged; a test that needs a specific window passes an
+    explicit ``poll_window=``/``timeout=`` or patches ``patient.PATIENCE_S``.
     """
     from navigator_expert.commands import dispatch
     from navigator_expert.config import timing
+    from navigator_expert.readers import patient
 
     monkeypatch.setattr(timing, "CONFIRM_POLL_S", 0.05)
     monkeypatch.setattr(dispatch, "ECHO_SETTLE_TIMEOUT_S", 0.05)
+    monkeypatch.setattr(patient, "PATIENCE_S", 0.2)
 
 
 @pytest.fixture

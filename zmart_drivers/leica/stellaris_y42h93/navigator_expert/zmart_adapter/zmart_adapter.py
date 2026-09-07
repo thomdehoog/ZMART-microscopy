@@ -90,6 +90,7 @@ from ..commands import routines as _motion
 from ..config import machine as _machine
 from ..connection import session as _session
 from ..connection import session_state as _session_state
+from ..readers import patient as _patient
 from ..readers.derived import z_um_from_settings as _z_um_from_settings
 from ..readers.parsing import parse_tile_geometry as _parse_tile_geometry
 from . import info as _info
@@ -369,19 +370,32 @@ def disconnect(handle: ZmartHandle) -> None:
 # =============================================================================
 
 
+def _confirmed(result: dict | None, what: str) -> dict:
+    """The driver's answer to a command, or a raise.
+
+    ``success`` alone says the command was accepted: every command profile
+    answers success with ``confirmed=False`` once its readback attempts run
+    out, so a caller that reads ``success`` builds on a change the instrument
+    may not have made. A scan captured every field on the job the step
+    before left behind that way. The retrying stays inside the command; what
+    comes out of this door is a confirmed change or an error.
+    """
+    if not result or not result.get("success") or not result.get("confirmed"):
+        raise RuntimeError(f"{what} failed or was unconfirmed: {result}")
+    return result
+
+
 def _hardware_snapshot(handle: ZmartHandle) -> dict:
     """One consistent read of everything the frame math needs.
 
     Stage XY, both z drives, and the current objective use the configured
-    reader policy; raises when any of them is unreadable.
+    reader policy; each is waited for and raises once the instrument stays silent.
     """
-    xy = _readers.get_xy(handle.client)
-    if not xy:
-        raise RuntimeError("could not read stage XY position")
+    xy = _patient.answered(lambda: _readers.get_xy(handle.client), "the stage XY position")
     job = _selected_job_name(handle)
-    settings = _readers.get_job_settings(handle.client, job)
-    if not settings:
-        raise RuntimeError(f"could not read job settings for '{job}'")
+    settings = _patient.answered(
+        lambda: _readers.get_job_settings(handle.client, job), f"the settings of job '{job}'"
+    )
     return {
         "job": job,
         "x_um": float(xy["x_um"]),
@@ -406,13 +420,19 @@ def _delta_or_warn(handle: ZmartHandle, snapshot: dict) -> tuple:
         return (0.0, 0.0, 0.0)
 
 
+def _selected_job(handle: ZmartHandle) -> dict:
+    """The currently selected LAS X job's record; raises when the instrument names none."""
+    selected = _patient.answered(
+        lambda: _readers.get_selected_job(handle.client), "the selected LAS X job"
+    )
+    if not selected.get("Name"):
+        raise RuntimeError(f"the instrument named no selected LAS X job: {selected}")
+    return selected
+
+
 def _selected_job_name(handle: ZmartHandle) -> str:
     """Name of the currently selected LAS X job; raises when unreadable."""
-    selected = _readers.get_selected_job(handle.client)
-    name = selected.get("Name") if selected else None
-    if not name:
-        raise RuntimeError("could not determine the selected LAS X job")
-    return name
+    return _selected_job(handle)["Name"]
 
 
 def _setup_readiness(
@@ -497,7 +517,7 @@ def _job_catalog(handle: ZmartHandle) -> tuple[list[dict], list[dict]]:
     Autofocus jobs are a separate category: they never appear as acquisition
     or state options and run only through the ``autofocus`` procedure.
     """
-    jobs = _readers.get_jobs(handle.client) or []
+    jobs = _patient.answered(lambda: _readers.get_jobs(handle.client), "the job catalog")
     normal = [dict(j) for j in jobs if not j.get("IsAutofocus")]
     autofocus = [dict(j) for j in jobs if j.get("IsAutofocus")]
     return normal, autofocus
@@ -900,10 +920,10 @@ def acquire(
     if resolved["strip_scan_fields"]:
         _ensure_scan_fields_stripped(handle)
 
-    if job != _selected_job_name(handle):
-        select = _commands.select_job(handle.client, job)
-        if not select.get("success"):
-            raise RuntimeError(f"select_job('{job}') failed: {select}")
+    # Whether the job is already selected is the driver's decision: its
+    # ``select_job`` proves a no-op from the right source, where a name read
+    # here can be stale. Asked every time, confirmed or this raises.
+    _confirmed(_commands.select_job(handle.client, job), f"select_job('{job}')")
 
     backlash_rounds = resolved["backlash_rounds"]
     apply_backlash = resolved["backlash_correction"] and backlash_rounds > 0
@@ -950,7 +970,11 @@ def acquire(
         cleanup_source=resolved["cleanup_source"],
     )
 
-    _answers_again(handle)
+    # The acquisition is not over until the instrument answers questions
+    # again: while LAS X prints an export it takes orders but returns empty
+    # answers, and a record handed over during that stretch handed the
+    # silence to the caller's very next question.
+    _patient.answered(lambda: _readers.get_xy(handle.client), "the stage XY position after the capture")
 
     written = sorted(saved.image_paths.items())
     taken_at = _where_the_planes_are(handle, readings["job_settings"], len(written))
@@ -989,29 +1013,6 @@ def acquire(
 # =============================================================================
 # State and procedures
 # =============================================================================
-
-
-def _answers_again(handle: ZmartHandle, ceiling_s: float = 30.0) -> None:
-    """The success-poll's last leg: the instrument answers questions again.
-
-    While LAS X prints an export it takes orders but returns empty answers,
-    and an acquire that returned during that stretch handed the silence to
-    its caller: the focus map's next "where are you?" declared two healthy
-    points dead. The acquisition is not over until the instrument is back.
-    The seconds pass either way -- spent finishing here, once, instead of
-    failing in every caller. Never raises: past *ceiling_s* the silence is
-    warned about and released, and the next read says plainly what is wrong.
-    """
-    deadline = time.monotonic() + ceiling_s
-    while time.monotonic() < deadline:
-        try:
-            if _readers.get_xy(handle.client):
-                return
-        except Exception:  # noqa: BLE001 -- silence is the condition waited out
-            pass
-    log.warning(
-        "the instrument still answers nothing %.0fs after its capture", ceiling_s
-    )
 
 
 def _where_the_planes_are(handle: ZmartHandle, settings: Any, count: int):
@@ -1060,12 +1061,13 @@ def get_state(handle: ZmartHandle) -> dict:
     session. All LAS X-derived values are fresh reads.
     """
     _require_open(handle)
-    hw = _readers.get_hardware_info(handle.client) or {}
+    hw = _patient.answered(lambda: _readers.get_hardware_info(handle.client), "the hardware info")
     microscope = hw.get("Microscope") or {}
-    selected = _readers.get_selected_job(handle.client) or {}
-    if not selected.get("Name"):
-        raise RuntimeError("could not determine the selected LAS X job")
-    settings = _readers.get_job_settings(handle.client, selected["Name"]) or {}
+    selected = _selected_job(handle)
+    settings = _patient.answered(
+        lambda: _readers.get_job_settings(handle.client, selected["Name"]),
+        f"the settings of job '{selected['Name']}'",
+    )
     try:
         geometry = _parse_tile_geometry(settings)
         pixel_x = float(geometry["pixel_w_um"])
@@ -1120,7 +1122,7 @@ def get_state(handle: ZmartHandle) -> dict:
 
 
 def set_state(handle: ZmartHandle, state: dict) -> dict:
-    """Apply the changeable part; report what stuck.
+    """Apply the changeable part; report what stuck, confirmed, or raise.
 
     ``observed`` is a report, never an instruction — it is not read here
     (operator decision, 2026-07-02; an identity gate returns only if the
@@ -1128,11 +1130,17 @@ def set_state(handle: ZmartHandle, state: dict) -> dict:
     must still exist on this instrument before it is reapplied: the catalog
     changes legitimately, so only the REFERENT is guarded — with an error
     that lists what is available.
+
+    This returns once LAS X has finished switching, not when the switch was
+    dispatched: the driver's ``select_job`` reads the selection back, re-fires
+    while it does not match, and this raises if it never does. Whether the
+    job is already selected is that command's decision too, from the right
+    source; a name read here can be stale.
     """
     _require_open(handle)
     applied: dict[str, Any] = {}
     job = (state.get("changeable") or {}).get("job")
-    if job and job != _selected_job_name(handle):
+    if job:
         normal, autofocus = _job_catalog(handle)
         names = [j.get("Name") for j in normal if j.get("Name")]
         if job in (j.get("Name") for j in autofocus):
@@ -1144,9 +1152,7 @@ def set_state(handle: ZmartHandle, state: dict) -> dict:
             raise ValueError(
                 f"job {job!r} no longer exists on this instrument (available: {names})"
             )
-        result = _commands.select_job(handle.client, job)
-        if not result.get("success"):
-            raise RuntimeError(f"select_job('{job}') failed: {result}")
+        _confirmed(_commands.select_job(handle.client, job), f"select_job('{job}')")
         applied["job"] = job
     return {"applied": applied}
 
@@ -1202,11 +1208,10 @@ def _zero_z_galvo(handle: ZmartHandle) -> dict:
     if offset == 0.0:
         return {"transferred_um": 0.0}
     for z_mode, target in (("zwide", snap["z_wide_um"] + offset), ("galvo", 0.0)):
-        result = _commands.move_z(handle.client, snap["job"], target, unit="um", z_mode=z_mode)
-        if not result.get("success") or not result.get("confirmed"):
-            raise RuntimeError(
-                f"zero_z_galvo: move_z ({z_mode}) failed or was unconfirmed: {result}"
-            )
+        _confirmed(
+            _commands.move_z(handle.client, snap["job"], target, unit="um", z_mode=z_mode),
+            f"zero_z_galvo: move_z ({z_mode})",
+        )
     return {"transferred_um": offset}
 
 
@@ -1234,20 +1239,18 @@ def _run_autofocus(handle: ZmartHandle, procedure: dict) -> dict:
 
     _ensure_scan_fields_stripped(handle)
     original = _selected_job_name(handle)
-    if job != original:
-        selected = _commands.select_job(handle.client, job)
-        if not selected.get("success"):
-            raise RuntimeError(f"select_job('{job}') failed: {selected}")
+    _confirmed(_commands.select_job(handle.client, job), f"select_job('{job}')")
     try:
         acq = _capture.acquire(handle.client, job)
         # Read the focus result BEFORE restoring the selection: restoring
         # could reposition (jobs own objective state).
         snap = _hardware_snapshot(handle)
     finally:
-        if job != original:
-            restored = _commands.select_job(handle.client, original)
-            if not restored.get("success"):
-                log.warning("could not restore job %r after autofocus: %s", original, restored)
+        # Restored whatever happened; a capture that failed still leaves the
+        # instrument on the job the operator had. The restore's own verdict
+        # is read below, where it cannot bury the capture's error.
+        restored = _commands.select_job(handle.client, original)
+    _confirmed(restored, f"restore of job '{original}' after autofocus")
     focus = snap["z_wide_um"] + snap["z_galvo_um"]
     dt = _delta_or_warn(handle, snap)
     return {
@@ -1416,7 +1419,11 @@ def _connection_status(handle: ZmartHandle, root: Path) -> dict:
         return f"x {at['x']['value']:.0f} · y {at['y']['value']:.0f} · z {at['z']['value']:.1f} um"
 
     return {
-        "api": "answering" if _try(lambda: _readers.ping(handle.client)) else "failed — no answer",
+        "api": (
+            "answering"
+            if _try(lambda: _patient.answered(lambda: _readers.ping(handle.client), "a ping"))
+            else "failed — no answer"
+        ),
         "limits": (
             f"{limits['source']}{' (fallback)' if limits.get('is_fallback') else ''}"
             if limits else "failed — none loaded, every move refused"
