@@ -1,15 +1,31 @@
 import { expect, test } from "@playwright/test";
 import { startTheBridge } from "./live-bridge.js";
 import { readPng } from "./pixels.js";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 let bridge;
-test.beforeAll(async () => { bridge = await startTheBridge({ port: 8893 }); });
-test.afterAll(async () => { await bridge?.stop(); });
+let previousMachine;
+test.beforeAll(async () => {
+  previousMachine = process.env.ZMART_MOCK_MACHINE;
+  // A configuration walk may have published a different stage origin.
+  process.env.ZMART_MOCK_MACHINE = mkdtempSync(join(tmpdir(), "transparent-machine-"));
+  bridge = await startTheBridge({ port: 8893 });
+});
+test.afterAll(async () => {
+  await bridge?.stop();
+  if (previousMachine === undefined) delete process.env.ZMART_MOCK_MACHINE;
+  else process.env.ZMART_MOCK_MACHINE = previousMachine;
+});
 
 test("Connect opens an empty middle viewer; focusing and overview fill it above the plan", async ({ page }, info) => {
   test.setTimeout(300_000);
   const errors = [];
   page.on("pageerror", error => errors.push(String(error)));
+  page.on("console", message => {
+    if (message.type() === "error") errors.push(message.text());
+  });
   await page.goto(`/?bridge=${encodeURIComponent(bridge.at)}`);
   await page.locator('.field input[type="password"]').fill("hunter2");
   await page.locator(".session-foot button.run").click();
@@ -48,10 +64,20 @@ test("Connect opens an empty middle viewer; focusing and overview fill it above 
   await step("Focus strategy");
   await record("focus-preset", "af");
   await page.locator("#fp-place").click();
+  const focusCount = await page.evaluate(() => window.__theRunState().focus.points);
+  expect(focusCount).toBeGreaterThan(0);
   await page.locator(".panel.on button.step-run").click();
   await page.waitForFunction(() => window.__thePicture?.layersForMeasurement().length > 0, null, { timeout: 120_000 });
   expect(await page.evaluate(() => window.firstPicture === window.__thePicture)).toBe(true);
   await expect(page.locator(".panel.on button.step-run")).not.toHaveClass(/running/, { timeout: 120_000 });
+  const focus = await (await page.request.get(`${bridge.at}/api/focus/measure`)).json();
+  expect(focus).toMatchObject({ running: false, error: null, stopped: false, done: focusCount, of: focusCount });
+  expect(focus.points).toHaveLength(focusCount);
+  for (const point of focus.points) {
+    expect(point.lost, JSON.stringify(point)).toBe(false);
+    expect(point.slices.length).toBeGreaterThan(0);
+  }
+  expect(await page.evaluate(() => window.__thePicture.theMomentsItCanShow())).toBeNull();
   await page.waitForTimeout(3500);
   const box = await page.locator("#stage-canvas").boundingBox();
   const at = await page.evaluate(() => {
@@ -66,8 +92,31 @@ test("Connect opens an empty middle viewer; focusing and overview fill it above 
   expect(await page.evaluate(() => window.__theStageCanvas.groundWindows())).toEqual([]);
 
   await step("Scan the overview");
+  await page.locator("#tileset-btn").click();
+  const planned = await page.evaluate(() => window.__theStageCanvas.plan().length);
+  expect(planned).toBeGreaterThan(0);
+  const firstOverview = page.waitForResponse(async response => {
+    if (!response.url().endsWith("/api/scan") || response.request().method() !== "GET") return false;
+    const scan = await response.json();
+    return scan.running && scan.done > 0 && scan.done < scan.of;
+  }, { timeout: 120_000 });
   await page.locator(".panel.on button.step-run").click();
+  await firstOverview;
+  await page.waitForFunction(() => window.__thePicture.layersForMeasurement().some(
+    row => row.name.startsWith("overview") && row.dims?.length,
+  ));
+  const partial = await (await page.request.get(`${bridge.at}/api/scan`)).json();
+  expect(partial.done).toBeGreaterThan(0);
+  expect(partial.done).toBeLessThan(planned);
+  expect(await page.evaluate(() => window.__thePicture.theMomentsItCanShow())).toBeNull();
+  await page.screenshot({ path: info.outputPath("step-5-partial.png") });
   await expect(page.locator(".panel.on button.step-run")).not.toHaveClass(/running/, { timeout: 120_000 });
+  const scan = await (await page.request.get(`${bridge.at}/api/scan`)).json();
+  expect(scan).toMatchObject({ running: false, error: null, stopped: false, done: planned, of: planned });
+  expect(scan.records).toHaveLength(planned);
+  expect(scan.records.filter(record => record.zarr_error)).toEqual([]);
+  await page.waitForFunction(() => window.__viewerPanel?.acquisitions().some(row => row.name === "overview"));
+  expect(await page.evaluate(() => window.firstPicture === window.__thePicture)).toBe(true);
   await page.waitForTimeout(4000);
   await page.screenshot({ path: info.outputPath("step-5-overview.png") });
   expect(await page.evaluate(() => window.__theStageCanvas.layerShown("ground"))).toBe(true);
@@ -108,5 +157,7 @@ test("Connect opens an empty middle viewer; focusing and overview fill it above 
   expect(imageOnly).toBeGreaterThan(1000);
   await page.evaluate(() => window.__thePicture.showPicture(true));
   expect(errors).toEqual([]);
-  console.log(JSON.stringify({ order, below, above, image, imageOnly }));
+  await info.attach("pixel-measurements", {
+    body: JSON.stringify({ order, below, above, image, imageOnly }), contentType: "application/json",
+  });
 });

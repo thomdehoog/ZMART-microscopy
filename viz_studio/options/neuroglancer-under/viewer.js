@@ -1,7 +1,7 @@
 /**
  * Option A: neuroglancer draws the acquisition in a canvas of its own, and the
- * operator's drawing sits exactly on top of it with holes cut where the picture
- * should show.
+ * host places that canvas between its background and annotation layers. Opt-in
+ * transparency keeps acquired pixels opaque without background cut-outs.
  *
  * This file is the only place in the whole application that knows neuroglancer
  * exists. Everything around it — the page, the two gestures in `../gestures.js`,
@@ -673,7 +673,19 @@ async function start(own, acquisitions) {
 
 async function loadAcquisitions(own, acquisitions) {
   own.rows = await rowsFor(acquisitions);
-  if (!own.rows.length) return;
+  if (own.destroyed || !own.rows.length) return;
+  installRows(own);
+
+  await whenTheAxesAreKnown(own.viewer);
+  if (own.destroyed) return;
+  pinTheAxesThatMeasureDistance(own.viewer);
+  startTimeAtTheFirstMoment(own.viewer);
+  countFromTheCornerOfTheVoxelRatherThanItsMiddle(own);
+  await finishOpeningAcquisitions(own, acquisitions);
+}
+
+/** Install only missing rows, keeping existing layers, controls and textures. */
+function installRows(own) {
   /* Which acquisition a row belongs to, and whether it opens one: the
      channels of one acquisition add together, and an acquisition drawn over
      another covers it rather than mixing with it -- a target frame over the
@@ -683,6 +695,12 @@ async function loadAcquisitions(own, acquisitions) {
   for (const [at, row] of own.rows.entries()) {
     const opensAnAcquisition = own.rows.findIndex((one) => acquisitionOf(one) === acquisitionOf(row)) === at;
     const coversWhatIsBelow = opensAnAcquisition && acquisitionOf(row) !== baseAcquisition;
+    if (row.managed) {
+      const manager = own.viewer.layerManager;
+      manager.reorderManagedLayer(manager.managedLayers.indexOf(row.managed), at);
+      row.managed.layer.blendMode.restoreState(coversWhatIsBelow ? "default" : "additive");
+      continue;
+    }
     const description = {
       type: "image",
       // Smart Viewer 0.2's central rule: every position store of one channel
@@ -751,25 +769,14 @@ async function loadAcquisitions(own, acquisitions) {
     const managed = makeLayer(own.viewer.layerSpecification, row.layerName, description);
     own.viewer.layerSpecification.add(managed, at);
     row.managed = managed;
+    const stop = managed.layer?.dataSourcesChanged?.add(
+      () => countFromTheCornerOfTheVoxelRatherThanItsMiddle(own),
+    );
+    if (stop) (own.stopWatchingTheSources ??= []).push(stop);
   }
+}
 
-  await whenTheAxesAreKnown(own.viewer);
-  pinTheAxesThatMeasureDistance(own.viewer);
-  startTimeAtTheFirstMoment(own.viewer);
-  countFromTheCornerOfTheVoxelRatherThanItsMiddle(own);
-  // A page may open several acquisitions at once, and they do not all arrive
-  // together — the axes become known as soon as the first of them is read, so a
-  // second one may still be on its way. Each layer is therefore looked at again
-  // whenever its source changes. Looking twice costs nothing: the second look
-  // finds the engine already counting from the corner of a voxel and leaves it
-  // alone, which is why this cannot creep half a voxel further with each pass.
-  own.stopWatchingTheSources = own.rows
-    .map((row) => row.managed?.layer?.dataSourcesChanged?.add(
-      () => {
-        countFromTheCornerOfTheVoxelRatherThanItsMiddle(own);
-      },
-    ))
-    .filter(Boolean);
+async function finishOpeningAcquisitions(own, acquisitions) {
   // The engine chooses a starting magnification the first moment it believes it
   // knows what space the picture lives in, and for a moment that is an empty
   // space in which one voxel is one metre. Clearing it now makes it choose
@@ -1099,9 +1106,8 @@ async function rowsFor(acquisitions) {
  * to destroy it: destroying revokes the old `/data/N/` endpoint while its
  * chunks are still in flight, and it also throws away navigation and operator
  * choices. This boundary accepts only the shape Viewer promises here — the
- * same acquisition/channel rows and each old source list as an exact prefix.
- * A caller that presents a different acquisition shape gets `false` and can
- * make the separate decision to open a genuinely different scene.
+ * additional acquisition/channel rows and each old source list as an exact
+ * prefix. Removing or replacing a source remains a genuinely different scene.
  */
 async function addSourcesToTheOpenRows(own, acquisitions) {
   if (own.destroyed) return false;
@@ -1110,12 +1116,12 @@ async function addSourcesToTheOpenRows(own, acquisitions) {
     return true;
   }
   const wanted = await rowsFor(acquisitions);
-  if (wanted.length !== own.rows.length) return false;
+  if (own.destroyed) return false;
+  const nextByName = new Map(wanted.map(row => [row.layerName, row]));
 
-  for (let at = 0; at < wanted.length; at += 1) {
-    const held = own.rows[at];
-    const next = wanted[at];
-    if (held.layerName !== next.layerName || next.sources.length < held.sources.length) {
+  for (const held of own.rows) {
+    const next = nextByName.get(held.layerName);
+    if (!next || !held.managed?.layer || next.sources.length < held.sources.length) {
       return false;
     }
     if (held.sources.some((source, sourceAt) => next.sources[sourceAt] !== source)) {
@@ -1123,11 +1129,11 @@ async function addSourcesToTheOpenRows(own, acquisitions) {
     }
   }
 
-  for (let at = 0; at < wanted.length; at += 1) {
-    const held = own.rows[at];
+  const heldByName = new Map(own.rows.map(row => [row.layerName, row]));
+  for (const held of own.rows) {
     const layer = held.managed?.layer;
     if (!layer) return false;
-    const fresh = wanted[at].sources.slice(held.sources.length);
+    const fresh = nextByName.get(held.layerName).sources.slice(held.sources.length);
     for (const address of fresh) {
       sourceAddressIsWhole(address, held.acquisition);
       // Use the same data-source-specification path as initial layer creation,
@@ -1138,8 +1144,9 @@ async function addSourcesToTheOpenRows(own, acquisitions) {
       }
       held.sources.push(address);
     }
-    // The row stays additive as it grows: see the layer description above.
   }
+  own.rows = wanted.map(row => heldByName.get(row.layerName) ?? row);
+  installRows(own);
   return true;
 }
 
@@ -1187,6 +1194,7 @@ function whenTheAxesAreKnown(viewer) {
       done();
     };
     const stop = position.coordinateSpace.changed.add(look);
+    viewer.registerDisposer(() => { stop(); done(); });
     look();
   });
 }
@@ -1323,6 +1331,9 @@ function startTimeAtTheFirstMoment(viewer) {
  * are not today.
  */
 function countFromTheCornerOfTheVoxelRatherThanItsMiddle(own) {
+  // A newly installed source can notify before initial framing. Select spatial
+  // axes first: the engine's default axes may still include time or channels.
+  pinTheAxesThatMeasureDistance(own.viewer);
   const space = own.viewer.navigationState.position.coordinateSpace.value;
   const shown = axesOnScreen(own.viewer);
   const drawnAcrossTheWindow = new Set(
@@ -1389,7 +1400,6 @@ function countFromTheCornerOfTheVoxelRatherThanItsMiddle(own) {
   }
   // A depth that arrived with this source is taken into the screen, and the
   // picture is opened at the bottom of it.
-  pinTheAxesThatMeasureDistance(own.viewer);
   standOnTheTable(own);
 }
 

@@ -238,7 +238,22 @@ test("canvas layer controls live under Display settings from the start", async (
   await expect(page.locator("#stage-layers .layer-chip")).not.toHaveCount(0);
   await expect(page.locator(".canvas-foot"), "the canvas has no bottom bar").toHaveCount(0);
   await expect(page.locator("#stage-readout"), "there is no live x/y readout").toHaveCount(0);
+  /* The three framing presses are about a stage, and there is none until a
+     session is open: they appear with the connection and go with it. */
+  await expect(page.locator("#carrier-btn")).toBeHidden();
+  await expect(page.locator("#tileset-btn")).toBeHidden();
+  await expect(page.locator("#tile-btn")).toBeHidden();
+});
+
+test("the framing presses come with the session and go with it", async ({ page }) => {
+  await connect(page);
   await expect(page.locator("#carrier-btn")).toBeVisible();
+  await expect(page.locator("#tileset-btn")).toBeVisible();
+  await expect(page.locator("#tile-btn")).toBeVisible();
+  await page.locator(".session-foot button.danger").click();
+  await expect(page.locator("#carrier-btn")).toBeHidden();
+  await expect(page.locator("#tileset-btn")).toBeHidden();
+  await expect(page.locator("#tile-btn")).toBeHidden();
 });
 
 test("the channel folds away to the right and comes back", async ({ page }) => {
@@ -1569,13 +1584,15 @@ test("one walk of the whole run", async ({ page }) => {
   expect(unrestrictedPlan.restricted.filter((id) => !heldByAreas.has(id)),
     "every target reported as covered is held with its margin by the placed areas")
     .toEqual([]);
-  /* Minimising off: one tile on every sampled target, centred on it, so
+  /* One per target: a tile on every sampled target, centred on it, so
      there are exactly as many tiles as targets, whatever the neighbours. */
-  await page.locator("#tiles-minimise").uncheck();
+  await page.locator("#tiles-count button", { hasText: "One per target" }).click();
+  await expect(page.locator("#tiles-count button", { hasText: "One per target" }))
+    .toHaveAttribute("aria-checked", "true");
   await runStep(page, 1000);
   const plain = await page.evaluate(() => window.__theRunState());
   expect(plain.targetTiles, "one centred tile per sampled target").toBe(plain.restricted.length);
-  await page.locator("#tiles-minimise").check();
+  await page.locator("#tiles-count button", { hasText: "Fewest" }).click();
   await page.locator("#gate-max-on").check();
   await page.locator("#gate-max").fill("1");
   await page.locator("#gate-max").dispatchEvent("input");

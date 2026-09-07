@@ -12,7 +12,7 @@ export function overviewLayers(theRun) {
     key: "tiles",
     label: "Tiles",
     explains: "The field the stage is imaging right now. What has been taken needs no "
-      + "mark of its own: the scan's picture shows through the ground exactly there.",
+      + "mark of its own: acquired images cover the plan at those positions.",
     shown: shown > 0,
     paint: (frame) => {
       const ctx = frame.context;

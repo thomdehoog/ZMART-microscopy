@@ -16,6 +16,7 @@
  */
 
 import { expect, test } from "@playwright/test";
+import { readPng } from "./pixels.js";
 
 /**
  * How long one of these may take.
@@ -198,9 +199,28 @@ test("keeps the lower background opaque without acquisition cut-outs", async ({ 
   expect(await howMuchIsOpen(page)).toBeLessThan(0.0002);
   expect(await page.evaluate(() => window.__theStageCanvas.groundWindows())).toEqual([]);
 
+  // Measure the actual JPEG composite, not only the background canvas's alpha.
+  // Frame a field using the operator's control; a whole plate makes each JPEG
+  // only a handful of screen pixels, regardless of the quality of its rendering.
+  const plateView = await page.evaluate(() => window.__theStageCanvas.view());
+  await page.locator("#tile-btn").click();
+  const stage = page.locator("#stage-canvas");
+  const visible = readPng(await stage.screenshot());
+  await page.evaluate(() => window.__thePicture.showPicture(false));
+  const hidden = readPng(await stage.screenshot());
+  let imagePixels = 0;
+  for (let i = 0; i < visible.data.length; i += visible.channels) {
+    const difference = [0, 1, 2].reduce((sum, c) =>
+      sum + Math.abs(visible.data[i + c] - hidden.data[i + c]), 0);
+    if (difference > 30) imagePixels++;
+  }
+  expect(imagePixels, "hiding the JPEG picture must change visible image pixels").toBeGreaterThan(1000);
+  await page.evaluate(() => window.__thePicture.showPicture(true));
+
   // Explicit operator visibility controls still work independently.
+  await page.evaluate(view => window.__theStageCanvas.lookAt(view), plateView);
   await page.evaluate(() => window.__theStageCanvas.showLayer("ground", false));
   await page.waitForTimeout(500);
-  expect(await howMuchIsOpen(page), "turning the background off did not show the scan")
+  expect(await howMuchIsOpen(page), "the lower canvas must clear when its background is hidden")
     .toBeGreaterThan(0.4);
 });

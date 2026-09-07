@@ -26,12 +26,31 @@
  * @param picture a function answering the open picture engine, or null while
  *   there is none. Asked fresh on every refresh, since the picture is
  *   reopened when the run grows a new kind of scan.
+ * @param acquisitions a function naming the acquisitions shown in the
+ *   picture, or null to take the picture's whole depth. The picture is one
+ *   room: every stack stands on the table and every flat picture lies on it
+ *   at every depth, so the room is as deep as the deepest stack shown, and
+ *   the slider walks that whatever acquisition's chips are in the row. A
+ *   hidden stack gives no depth.
  * @returns `{ refresh }`: ask the picture again and show, size and place the
  *   sliders accordingly. Call it whenever the picture opens, closes or
  *   changes what it draws.
  */
-export function mountTheAxes(parts, { picture, acquisition = null, watchEveryMs = 1000, playEveryMs = { plane: 120, moment: 350 } }) {
+export function mountTheAxes(parts, { picture, acquisitions = null, watchEveryMs = 1000, playEveryMs = { plane: 120, moment: 350 } }) {
   const { axes, axisZ, plane, planePlay, planeReadout, axisT, moment, momentPlay, momentReadout } = parts;
+
+  /** The room's depth: the deepest of the acquisitions shown, or the
+      picture's whole depth when nobody says which are shown. */
+  const theDepth = (viewer) => {
+    const shown = acquisitions?.() ?? null;
+    if (shown === null) return viewer?.theDepthItCanShow?.() ?? null;
+    let deepest = null;
+    for (const name of shown) {
+      const one = viewer?.theDepthItCanShow?.(name) ?? null;
+      if (one && (!deepest || one.highUm - one.lowUm > deepest.highUm - deepest.lowUm)) deepest = one;
+    }
+    return deepest;
+  };
   let depth = null;
   let moments = null;
 
@@ -103,9 +122,7 @@ export function mountTheAxes(parts, { picture, acquisition = null, watchEveryMs 
 
   function refresh() {
     const viewer = picture();
-    /* The depth of the acquisition on show, not of everything the engine
-       holds: a flat overview beside a focus stack offers no way through. */
-    depth = viewer?.theDepthItCanShow?.(acquisition?.() ?? null) ?? null;
+    depth = theDepth(viewer);
     moments = viewer?.theMomentsItCanShow?.() ?? null;
     const deep = Boolean(depth && depth.highUm > depth.lowUm);
     if (deep) {
@@ -141,7 +158,7 @@ export function mountTheAxes(parts, { picture, acquisition = null, watchEveryMs 
   const look = () => {
     const viewer = picture();
     const now = JSON.stringify([
-      Boolean(viewer), viewer?.theDepthItCanShow?.(acquisition?.() ?? null) ?? null, viewer?.theMomentsItCanShow?.() ?? null,
+      Boolean(viewer), theDepth(viewer), viewer?.theMomentsItCanShow?.() ?? null,
     ]);
     if (now === seen) return;
     seen = now;

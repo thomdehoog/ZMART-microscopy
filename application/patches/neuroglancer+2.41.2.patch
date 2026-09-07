@@ -1,3 +1,5 @@
+Keep alpha edits aligned with ZMART-viewer's app/page/scripts/patch_neuroglancer.mjs.
+
 diff --git a/node_modules/neuroglancer/lib/chunk_manager/frontend.js b/node_modules/neuroglancer/lib/chunk_manager/frontend.js
 index 9d88f14..f882d5b 100644
 --- a/node_modules/neuroglancer/lib/chunk_manager/frontend.js
@@ -59,18 +61,20 @@ index 2dee22f..cd88ec4 100644
      this.offscreenFramebuffer.bindSingle(0 /* COLOR */);
      this.sliceViewRenderHelper.draw(
        sliceView.offscreenFramebuffer.colorBuffers[0].texture,
-@@ -301,6 +302,7 @@ export class SliceViewPanel extends RenderedDataPanel {
+@@ -301,6 +302,8 @@ export class SliceViewPanel extends RenderedDataPanel {
          WebGL2RenderingContext.ONE_MINUS_SRC_ALPHA
        );
-       this.offscreenFramebuffer.bind(width, height);
++      // Preserve image alpha under annotations.
 +      if (this.context.transparentBackground) gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+       this.offscreenFramebuffer.bind(width, height);
      };
      bindFramebuffer();
      const renderContext = {
-@@ -340,6 +342,7 @@ export class SliceViewPanel extends RenderedDataPanel {
+@@ -340,6 +343,8 @@ export class SliceViewPanel extends RenderedDataPanel {
            WebGL2RenderingContext.SRC_ALPHA,
            WebGL2RenderingContext.ONE_MINUS_SRC_ALPHA
          );
++        // Preserve image alpha under scale bars.
 +        if (this.context.transparentBackground) gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
          this.scaleBars.draw(
            projectionParameters,

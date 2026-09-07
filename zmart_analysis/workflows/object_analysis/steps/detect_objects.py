@@ -21,7 +21,7 @@ METADATA = {
     "description": "Detect objects in a TIFF tile with Cellpose",
     "version": "1.0",
     "max_workers": 1,
-    "environment": "ZMART--object_analysis--vision",
+    "environment": "ZMART--object_analysis--cellpose",
 }
 
 
@@ -213,7 +213,7 @@ def segmentation_params(inp: dict, params: dict) -> dict:
         # From the submission when it names one, else the pipeline's default.
         # That is what lets an operator tune detection on a single position
         # and see the answer without re-registering a pipeline.
-        "method": _setting(inp, params, "method") or "accurate",
+        "method": _setting(inp, params, "method") or "robust",
         "threshold": _none_or_float(_setting(inp, params, "threshold")),
         "cellprob_threshold": _setting(inp, params, "cellprob_threshold"),
         "flow_threshold": _setting(inp, params, "flow_threshold"),
@@ -393,7 +393,7 @@ def segment_position(
     image_path,
     state: dict,
     *,
-    method: str = "accurate",
+    method: str = "robust",
     threshold=None,
     channels=None,
     channel_axis=None,
@@ -413,7 +413,7 @@ def segment_position(
 
     ``image_path`` is an OME-Zarr position or an OME-TIFF; both are read
     through the same contract, so nothing below this line knows which it was.
-    ``method`` is how the objects are found: ``"accurate"`` runs a warm
+    ``method`` is how the objects are found: ``"robust"`` runs a warm
     Cellpose model on the selected channels (2D or up to 3-channel);
     ``"fast"`` runs the classical watershed of :func:`watershed_masks` on the
     first of them, a second or two a field on the CPU and no model to load.
@@ -443,7 +443,7 @@ def segment_position(
         )
         used_gpu, used_device = False, "cpu"
         detector_params = {"method": "fast", "device": used_device, **fast_params}
-    elif method == "accurate":
+    elif method == "robust":
         cellpose_channel_axis = -1 if seg_eval.ndim == 3 else None
         eval_kwargs = _cellpose_eval_kwargs(
             cellprob_threshold=cellprob_threshold,
@@ -483,7 +483,7 @@ def segment_position(
                 **eval_kwargs,
             )
         detector_params = {
-            "method": "accurate",
+            "method": "robust",
             "requested_gpu": bool(gpu),
             "used_gpu": bool(used_gpu),
             "device": used_device,
@@ -493,7 +493,7 @@ def segment_position(
             "diameter": _none_or_float(diameter),
         }
     else:
-        raise ValueError(f"unknown detection method {method!r}; have 'accurate' and 'fast'")
+        raise ValueError(f"unknown detection method {method!r}; have 'robust' and 'fast'")
     if scale != 1.0:
         masks = _resize_nearest(masks, (ny, nx))
     raw_masks = np.asarray(masks, dtype=np.int32)

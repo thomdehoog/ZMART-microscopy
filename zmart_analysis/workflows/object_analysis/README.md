@@ -3,9 +3,38 @@
 Object-centered analysis for one acquired image tile.
 
 ```text
-object_analysis.yaml:   detect_objects -> extract_classical_features -> build_object_table
-object_detection.yaml:  detect_objects   (persist_only: masks and checkpoint, no features)
+object_analysis.yaml:       detect_objects -> extract_classical_features -> build_object_table
+object_analysis_fast.yaml:  the same, detection placed in the classical environment (method: fast),
+                            features without the per-object texture crops (glrlm, lbp, fft)
+object_detection.yaml:      detect_objects   (persist_only: masks and checkpoint, no features)
 ```
+
+A step file names the environment its heaviest caller needs; `detect_objects`
+names the cellpose one. A pipeline may place a step elsewhere with
+`environment:` on the step, which is how the fast pipeline runs the watershed
+in the classical environment and never spawns the torch worker. Both answer
+under `pipeline_data["object_analysis"]`.
+
+## Environments
+
+One environment per model, and one for everything classical:
+
+```text
+ZMART--object_analysis--classical   scipy, scikit-image, the readers: the fast detector and the features
+ZMART--object_analysis--cellpose    torch and Cellpose, the readers: the robust detector
+```
+
+The rule: a model environment holds one model and the readers (tifffile,
+ngio, ome-types), never the features. Cellpose pins one torch, StarDist pins
+TensorFlow, the next model will pin another CUDA, and those pins fight each
+other and drag their own numpy along. Kept apart, a model upgrade breaks only
+its own worker, and a model that will not install on a rig disables one
+option rather than all detection. A new model is a branch in
+`detect_objects.py` that imports its model lazily, a profile in
+`environments/setup_env.py`, and a pipeline YAML placing the step in that
+environment. The fast detector and the features stay together: both are scipy
+and scikit-image on numpy, released together, and splitting them would cost a
+second worker spawn and a pickle hop of the image per field for no isolation.
 
 Every parameter lives in the pipeline YAML with its default, and each can be
 overridden per submission — which is how the operator page tunes detection on

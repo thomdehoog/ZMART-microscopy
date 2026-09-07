@@ -136,13 +136,34 @@ export function targetLayers(theRun) {
   };
   /* Which field the frame is about, in the frame of the recording active
      on the step: before the scan, the field under the stage in the
-     overview's; on the target scan area, the field under the stage in the
-     target settings' -- so importing a closer job shrinks it there and
-     then; otherwise the field detection was last on. */
+     overview's; on the steps about the targets, the current target tile
+     once tiles are placed, else the field under the stage in the target
+     settings' -- so importing a closer job shrinks it there and then;
+     otherwise the current field of the plan, which is the field detection
+     was last on. There is one from the first plan on, on every step, so
+     Tile always has somewhere to go. */
+  const theTargetTiles = () => run.targetTiles ?? [];
   const theCurrentField = () => {
     if (beforeTheScan()) return theFieldUnderTheStage(run.plan[0]?.frameUm);
-    if (activeMode === "select" || activeMode === "targets") return theFieldUnderTheStage(run.targetFrameUm);
+    if (activeMode === "select" || activeMode === "targets") {
+      const tiles = theTargetTiles();
+      if (!tiles.length) return theFieldUnderTheStage(run.targetFrameUm);
+      const t = tiles[Math.min(run.detect.targetTile ?? 0, tiles.length - 1)];
+      return { x: t.x, y: t.y, frameUm: t.frameUm ?? run.targetFrameUm };
+    }
     return run.plan[run.detect.tile];
+  };
+  /* The tile after the current one, in reading order and round again: what
+     Tile goes to when the current one is already framed. Before the scan the
+     frame is the stage's, and the stage is not walked from here. */
+  const theNextField = () => {
+    if (beforeTheScan()) return;
+    if (activeMode === "select" || activeMode === "targets") {
+      const n = theTargetTiles().length;
+      if (n) run.detect.targetTile = ((run.detect.targetTile ?? 0) + 1) % n;
+      return;
+    }
+    if (run.plan.length) run.detect.tile = (run.detect.tile + 1) % run.plan.length;
   };
   /* How far a press reaches, in world units. Taken from the last paint --
      which always precedes a press -- because `reaches` is handed a place and
@@ -297,13 +318,14 @@ export function targetLayers(theRun) {
     label: "Current field",
     explains: "The one position detection is being tuned on, so the canvas says which "
       + "tile the channel's preview is of.",
-    /* Kept through the two steps after: the field detection was last on is
-       the one the gating and the target scan area are read against. */
-    shown: ["scan", "detect", "gate", "select", "targets"].includes(activeMode) && !!theCurrentField(),
+    /* On every step from the first plan on: the current tile is the one
+       the run is on, and the frame says which, whatever the step. */
+    shown: !!theCurrentField(),
     staysSolid: true,
     /* Where the frame stands, for the canvas's own press that brings the
-       view in on it. */
+       view in on it, and the way on to the next one. */
     field: theCurrentField,
+    next: theNextField,
     paint: (frame) => {
       const ctx = frame.context;
       const { place, scale } = drawnIn(frame);

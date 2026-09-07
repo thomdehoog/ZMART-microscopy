@@ -341,8 +341,8 @@ def _the_acquisitions_in(config: dict, port: int) -> list[dict]:
             continue
         acquisition = grouped.setdefault(
             group,
-            # This service opens the writer's position folders, not a padded
-            # mosaic. Each published store is one dense image footprint.
+            # Position stores are dense by default. The bridge overrides this
+            # for resolved mosaics, whose zero denotes unacquired space.
             {"name": group, "url": sources[0], "channels": [], "opaque": True},
         )
         acquisition["channels"].append(

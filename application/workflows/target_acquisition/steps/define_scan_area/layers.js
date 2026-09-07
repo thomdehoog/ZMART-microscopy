@@ -28,7 +28,7 @@ export function scanAreaLayers(theRun) {
       const { place, scale } = drawnIn(frame);
       scanfieldsWidget.drawOn(ctx, {
         fields: run.fields, preset: activePreset(), carrier: run.carrier,
-        toScreen: place, scale: scale, dim: false,
+        toScreen: place, scale: scale,
         marked: editing?.marked(),
       });
     },
