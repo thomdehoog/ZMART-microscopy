@@ -967,14 +967,14 @@ function drawScaleBar(ctx, w, h, scale) {
   const x = w - px - 20, y = h - 9;
 
   ctx.strokeStyle = css("--ink-2");
-  ctx.lineWidth = 2;
+  ctx.lineWidth = 3;
   ctx.beginPath();
   ctx.moveTo(x, y); ctx.lineTo(x + px, y);
   ctx.stroke();
   ctx.fillStyle = css("--ink-2");
-  ctx.font = '11.5px ui-monospace, Consolas, monospace';
+  ctx.font = '600 13px ui-monospace, Consolas, monospace';
   ctx.textAlign = "center";
-  ctx.fillText(nice >= 1000 ? `${nice / 1000} mm` : `${nice} µm`, x + px / 2, y - 4);
+  ctx.fillText(nice >= 1000 ? `${nice / 1000} mm` : `${nice} µm`, x + px / 2, y - 6);
   ctx.textAlign = "left";
 }
 

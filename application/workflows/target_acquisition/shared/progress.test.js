@@ -59,6 +59,20 @@ describe("a progress box", () => {
     expect(bar(b).classList.contains("busy")).toBe(false);
   });
 
+  it("projects a second run from the first one's pace before anything lands", () => {
+    const b = box();
+    b.say({ start: true, of: 4 });
+    expect(words(b)[1], "a first run has no pace to project from").toBe("0 of 4");
+    b.tick(4 * 3_000);
+    b.say({ done: 4, of: 4 });
+    b.say({ ended: true, note: "4 pairs acquired" });
+    b.say({ start: true, of: 10, doing: "starting…" });
+    expect(words(b)).toEqual(["starting…", "0 of 10 · ≈ 30 s left"]);
+    b.tick(5_000);
+    b.say({ done: 1, of: 10 });
+    expect(words(b)[1], "its own pace takes over from the first item").toBe("1 of 10 · ≈ 45 s left");
+  });
+
   it("keeps sweeping through a whole-population phase after every field landed", () => {
     const b = box();
     b.say({ start: true });

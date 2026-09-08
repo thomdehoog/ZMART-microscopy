@@ -194,6 +194,11 @@ export function renderRecordingSlot(host, opts) {
        whole bar, and says the act rather than the word "Record". `takes` is
        what it says with nothing recorded yet, `retakes` once there is. */
     unnamed = false, takes = null, retakes = takes,
+    /* A sentence about the active reading that the step wants said under
+       it, in the page's warning ink, or null: the focussing preset says so
+       when it was read off the job the overview uses. A sentence, not a
+       greyed press -- the reading may be exactly what the operator meant. */
+    warn = () => null,
   } = opts;
   if (!host) return;
   /* The id is the key a half-typed name is remembered under, so a host
@@ -288,6 +293,13 @@ export function renderRecordingSlot(host, opts) {
         activated();
       },
     }));
+    const warned = active ? warn(record) : null;
+    if (warned) {
+      const line = document.createElement("div");
+      line.className = "rec-warn";
+      line.textContent = `⚠ ${warned}`;
+      done.append(line);
+    }
     list.append(done);
   }
   if (unnamed) {

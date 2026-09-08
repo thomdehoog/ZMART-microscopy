@@ -3,7 +3,7 @@ import {
   CARRIER_TYPES, carrierType, fromPreset, matchingPreset, geometry,
   maxRadius, DEFAULT_CARRIER,
   depthMm, describeCarrier,
-  centres, nearestArea, frameFitsArea, frameSeat, insideArea, scanBox,
+  centres, areaLabels, nearestArea, frameFitsArea, frameSeat, insideArea, scanBox,
 } from "../../../workflows/target_acquisition/shared/carriers.js";
 
 const preset = (typeId, label) =>
@@ -24,6 +24,24 @@ describe("a carrier is a grid, whatever it is called", () => {
     const g = geometry(fromPreset("slide", preset("slide", "75 × 25 mm slide")));
     expect([g.width, g.height]).toEqual([73, 23]);
     expect(g.areas).toBe(1);
+  });
+});
+
+describe("the rows and columns are named as a plate is read", () => {
+  const plate = { rows: 8, cols: 12, w: 6.58, h: 6.58, gapX: 2.42, gapY: 2.42, cornerRatio: 1 };
+  it("letters down the rows and numbers across the columns, at their centres", () => {
+    const named = areaLabels(plate);
+    expect(named.rows.map((r) => r.text)).toEqual(["A", "B", "C", "D", "E", "F", "G", "H"]);
+    expect(named.cols.map((c) => c.text)).toEqual(["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"]);
+    expect(named.rows[1]).toMatchObject({ row: 1, col: 0, x: 3.29, y: 12.29 });
+    expect(named.cols[2]).toMatchObject({ row: 0, col: 2, x: 21.29, y: 3.29 });
+  });
+  it("doubles the letters past Z, as a spreadsheet does", () => {
+    const tall = { ...plate, rows: 28, cols: 1 };
+    expect(areaLabels(tall).rows.map((r) => r.text).slice(24)).toEqual(["Y", "Z", "AA", "AB"]);
+  });
+  it("names nothing on a carrier of one area", () => {
+    expect(areaLabels({ ...plate, rows: 1, cols: 1 })).toEqual({ rows: [], cols: [] });
   });
 });
 
