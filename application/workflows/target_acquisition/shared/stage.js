@@ -1410,6 +1410,8 @@ const aColourChannel = (panel, index, label) => ({
   setWindow: (window_) => panel.channelAct?.(index, { window: window_ }),
   setAxis: (axis) => panel.channelAct?.(index, { axis }),
   setWeight: (weight) => panel.channelAct?.(index, { weight }),
+  setGamma: (gamma) => panel.channelAct?.(index, { gamma }),
+  setSaturate: (saturate) => panel.channelAct?.(index, { saturate }),
   setLog: (log) => panel.channelAct?.(index, { log }),
   setVisible: (on) => panel.setChannelVisible?.(index, on),
   setColour: (hex) => panel.channelAct?.(index, { colour: hex }),
@@ -1432,8 +1434,10 @@ const theGreyChannel = (panel, acquisition) => {
         window: { low: c.a * 100, high: c.b * 100 },
         axis: view ?? { low: 0, high: 100 },
         weight: c.s, log: Boolean(c.log), measured: c.measured,
+        gamma: panel.gammaOf?.(acquisition) ?? 1,
       };
     },
+    setGamma: (gamma) => panel.setGammaOf?.(acquisition, gamma),
     setWindow: ({ low, high }) => {
       const a = Math.max(0, Math.min(low, 98)) / 100;
       const b = Math.max(a + 0.02, Math.min(high, 100) / 100);
