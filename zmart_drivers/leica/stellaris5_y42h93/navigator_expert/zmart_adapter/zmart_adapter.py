@@ -198,6 +198,9 @@ class ZmartHandle:
     #: rides along because a job states its stack in absolute z-wide, and
     #: without the anchor those slices cannot be put in the frame.
     driven_to: dict[str, float] | None = None
+    #: What this handle has already said once, so a session is told a thing
+    #: about its configuration one time rather than at every read.
+    warned: set[str] = field(default_factory=set)
     #: The job ``set_state`` selected and the objective it found there: what
     #: a move needs to know besides where the drives were last sent, so that
     #: from the second move on it asks the instrument nothing before moving.
@@ -597,16 +600,45 @@ def _resolve_actuators(with_actuators: dict | None) -> dict[str, str]:
     return chosen
 
 
+#: How specimen z counts against the focus drives, by what the orientation
+#: record declares a larger focus reading does: specimen z is physical up on
+#: every stand, so it counts with the drives where they move the focal plane
+#: up through the sample and against them where they move it down.
+SPECIMEN_Z_FROM_FOCUS = {"up": 1.0, "down": -1.0}
+
+
+def _specimen_z_sign(handle: ZmartHandle) -> float:
+    """Which way the frame's z runs against the focus drives: +1 or -1.
+
+    From the focus direction the orientation record declares. A record that
+    does not declare one counts with the drives, as the driver always did,
+    and says so once: the sign is then a guess, and the direction should be
+    declared in the ``set_orientation`` notebook.
+    """
+    focus_plus = _loaded_orientation(handle).focus_plus
+    if focus_plus is None:
+        if "focus_plus" not in handle.warned:
+            handle.warned.add("focus_plus")
+            log.warning(
+                "the orientation record does not say which way the focus drives "
+                "run; specimen z counts with them, as on an inverted stand. Declare "
+                "it with orientation/notebooks/set_orientation.ipynb."
+            )
+        return 1.0
+    return SPECIMEN_Z_FROM_FOCUS[focus_plus]
+
+
 def get_xyz(handle: ZmartHandle, *, with_actuators: dict | None = None) -> dict:
     """Position per axis in the frame (um from the origin), plus raw hardware.
 
-    ``F = fresh_read − origin − ΔT``: the frame ``z`` is the *focus*
+    ``F = s · (fresh_read − origin − ΔT)``: the frame ``z`` is the *focus*
     displacement ((z-wide + z-galvo) minus the origin's focus sum, so it
-    reads the same regardless of which drive realized the move), and ΔT
-    compensates an objective change relative to the origin's objective
-    (uncompensated-but-loud when translations are unavailable). The
-    untranslated stage values (XY, both z drives, objective) ride along
-    under ``"hardware"``.
+    reads the same regardless of which drive realized the move), signed by
+    the stand so that it grows away from the objective
+    (:func:`_specimen_z_sign`), and ΔT compensates an objective change
+    relative to the origin's objective (uncompensated-but-loud when
+    translations are unavailable). The untranslated stage values (XY, both
+    z drives, objective) ride along under ``"hardware"``.
     """
     _require_open(handle)
     chosen = _resolve_actuators(with_actuators)
@@ -616,7 +648,7 @@ def get_xyz(handle: ZmartHandle, *, with_actuators: dict | None = None) -> dict:
     frame = {
         "x": snap["x_um"] - handle.origin["x_um"] - dt[0],
         "y": snap["y_um"] - handle.origin["y_um"] - dt[1],
-        "z": z_focus - handle.origin["z_focus_um"] - dt[2],
+        "z": _specimen_z_sign(handle) * (z_focus - handle.origin["z_focus_um"] - dt[2]),
     }
     result = {
         axis: {"value": frame[axis], "unit": "um", "actuator": chosen[axis]}
@@ -639,7 +671,8 @@ def set_xyz(
 ) -> dict:
     """Move to (x, y, z) in the frame; confirmed or this raises.
 
-    Destination = origin + F + ΔT, commanded absolutely. Ordinary frame-Z
+    Destination = origin + s·F + ΔT, commanded absolutely, ``s`` the stand's
+    sign on z (:func:`_specimen_z_sign`). Ordinary frame-Z
     movement uses the selected actuator, but objective-calibration ΔT.z always
     belongs to z-wide. With z-wide selected, its one target contains both the
     requested frame Z and ΔT.z while the galvo stays parked. With z-galvo
@@ -662,7 +695,8 @@ def set_xyz(
     dt = _objective_delta_um(handle, snap.get("objective"))  # raises if unavailable
     abs_x = handle.origin["x_um"] + x + dt[0]
     abs_y = handle.origin["y_um"] + y + dt[1]
-    target_focus = handle.origin["z_focus_um"] + z + dt[2]
+    sign = _specimen_z_sign(handle)
+    target_focus = handle.origin["z_focus_um"] + sign * z + dt[2]
     z_targets: list[tuple[str, float]]
     if chosen["z"] == "z-wide":
         z_target = target_focus - snap["z_galvo_um"]
@@ -672,7 +706,7 @@ def set_xyz(
         # its absolute contribution on z-wide so repeated set_xyz calls cannot
         # accumulate it, then let z-galvo realize only the requested frame Z.
         zwide_target = handle.origin["z_wide_um"] + dt[2]
-        z_target = handle.origin["z_galvo_um"] + z
+        z_target = handle.origin["z_galvo_um"] + sign * z
         z_targets = [("zwide", zwide_target), ("galvo", z_target)]
     else:
         z_target = target_focus - snap["z_wide_um"]
@@ -1024,7 +1058,9 @@ def acquire(
     )
 
     written = sorted(saved.image_paths.items())
-    taken_at = _where_the_planes_are(handle, readings["job_settings"], len(written))
+    taken_at = _where_the_planes_are(
+        handle, readings["job_settings"], [int(getattr(index, "z", 0)) for index, _path in written]
+    )
     planes = [
         {
             "t": int(getattr(index, "t", 0)),
@@ -1034,7 +1070,7 @@ def acquire(
             # holds exactly the one plane t/c/z name; were this a store, the
             # same three would index into it and only the path would change.
             "path": str(path),
-            **taken_at(ordinal),
+            **taken_at(int(getattr(index, "z", 0))),
         }
         for ordinal, (index, path) in enumerate(written)
     ]
@@ -1063,33 +1099,41 @@ def acquire(
 # =============================================================================
 
 
-def _where_the_planes_are(handle: ZmartHandle, settings: Any, count: int):
-    """Answer, per plane, where on the sample it was captured.
+def _where_the_planes_are(handle: ZmartHandle, settings: Any, planes_z: list[int]):
+    """Answer, per z index, where on the sample a plane was captured.
 
     In the frame :func:`set_xyz` takes, so a position handed back can be
     handed straight back in. A saved file cannot say this and neither can the
     drive alone: ``settings`` -- the job's stack read before the capture
-    fired, while the instrument still answered -- states it in absolute
-    z-wide, so each height
-    is the frame the drive was sent to, displaced by how far that slice sits
-    from the z-wide the drive was realized at. Nothing is assumed about where
-    in its stack the drive stands. No stack, or one that does not describe the
-    planes that came back, leaves every plane at the drive's height -- a
-    guessed spread is worse than none.
+    fired, while the instrument still answered -- states where each slice
+    sits on the drive that sweeps it, so each height is the frame the drive
+    was sent to, displaced by how far that slice sits from where that drive
+    was realized, signed by the stand (:func:`_specimen_z_sign`). Nothing is
+    assumed about where in its stack the drive stands.
+
+    ``planes_z`` are the z indices of every plane that came back, channels
+    and all; the stack describes the distinct ones. A stack the job does not
+    describe, or one that does not describe that many planes, leaves every
+    plane at the drive's height -- a guessed spread is worse than none.
     """
     at = handle.driven_to
-    slices = _readers.stack_z_wide_um(settings or {}, count)
-    if slices is None and count > 1:
+    z_indices = sorted(set(planes_z))
+    slices = _readers.stack_slices_um(settings or {}, len(z_indices))
+    drive = _readers.stack_drive(settings or {})
+    if slices is None and len(z_indices) > 1:
         log.warning(
             "the job said nothing usable about its stack; "
-            "%d planes are stamped at the drive's height", count,
+            "%d planes are stamped at the drive's height", len(z_indices),
         )
-    def where(ordinal: int) -> dict:
+    sign = _specimen_z_sign(handle) if at is not None else 1.0
+
+    def where(z_index: int) -> dict:
         if at is None:
             return {"x_um": None, "y_um": None, "z_um": None}
         height = at["z"]
         if slices is not None:
-            height += slices[ordinal] - at["z_wide_um"]
+            anchor = at.get("z_galvo_um", 0.0) if drive == "z-galvo" else at["z_wide_um"]
+            height += sign * (slices[z_indices.index(z_index)] - anchor)
         return {"x_um": at["x"], "y_um": at["y"], "z_um": height}
 
     return where
@@ -1314,7 +1358,7 @@ def _run_autofocus(handle: ZmartHandle, procedure: dict) -> dict:
         "ran": "autofocus",
         "job": job,
         "focus_um": focus,
-        "frame_z_um": focus - handle.origin["z_focus_um"] - dt[2],
+        "frame_z_um": _specimen_z_sign(handle) * (focus - handle.origin["z_focus_um"] - dt[2]),
         "duration_s": acq.finished_at - acq.started_at,
     }
 
@@ -1357,6 +1401,7 @@ def _scan_field(handle: ZmartHandle, *, default_job_name: str) -> dict | None:
     )
     dt = _delta_or_warn(handle, _hardware_snapshot(handle))
     origin = handle.origin
+    sign = _specimen_z_sign(handle)
 
     def entry(kind: str, x_um: float, y_um: float, z_um: float | None, **meta: Any) -> dict:
         return {
@@ -1364,7 +1409,7 @@ def _scan_field(handle: ZmartHandle, *, default_job_name: str) -> dict | None:
             "frame": {
                 "x_um": x_um - origin["x_um"] - dt[0],
                 "y_um": y_um - origin["y_um"] - dt[1],
-                "z_um": None if z_um is None else z_um - origin["z_focus_um"] - dt[2],
+                "z_um": None if z_um is None else sign * (z_um - origin["z_focus_um"] - dt[2]),
             },
             "stage": {"x_um": x_um, "y_um": y_um, "z_um": z_um},
             **meta,

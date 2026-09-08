@@ -46,6 +46,34 @@ def test_load_orientation(tmp_path):
     assert orient.load_orientation(p) == Orientation(rotate_deg=180)
 
 
+def test_the_focus_direction_and_the_stand_ride_in_the_record_and_back(tmp_path):
+    p = tmp_path / "orientation.json"
+    declared = Orientation(rotate_deg=90, stand="inverted", focus_plus="up")
+    p.write_text(json.dumps(orient.orientation_config(declared)))
+    loaded = orient.load_orientation(p)
+    assert loaded == declared
+    assert (loaded.stand, loaded.focus_plus) == ("inverted", "up")
+
+
+def test_a_record_from_before_declares_neither(tmp_path):
+    p = tmp_path / "orientation.json"
+    p.write_text(json.dumps(orient.orientation_config(Orientation(rotate_deg=90))))
+    assert {"stand", "focus_plus"}.isdisjoint(json.loads(p.read_text()))
+    loaded = orient.load_orientation(p)
+    assert (loaded.stand, loaded.focus_plus) == (None, None)
+
+
+def test_a_direction_or_stand_that_is_neither_is_refused(tmp_path):
+    with pytest.raises(ValueError, match="stand"):
+        Orientation(stand="sideways")
+    with pytest.raises(ValueError, match="focus_plus"):
+        Orientation(focus_plus="sideways")
+    p = tmp_path / "orientation.json"
+    p.write_text(json.dumps({**orient.orientation_config(Orientation()), "focus_plus": "sideways"}))
+    with pytest.raises(ValueError, match="focus_plus"):
+        orient.load_orientation(p)
+
+
 def test_current_schema_stores_only_authoritative_values(tmp_path):
     orientation = Orientation(rotate_deg=270, mirrored=True)
     payload = orient.orientation_config(orientation)

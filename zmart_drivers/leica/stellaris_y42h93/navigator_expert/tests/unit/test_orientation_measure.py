@@ -512,6 +512,12 @@ def test_successful_run_becomes_active_only_after_validation_and_adoption(
     tifffile.imwrite(validation, np.zeros((4, 4), dtype=np.uint16))
     notebook = tmp_path / "set_orientation.ipynb"
     notebook.write_text('{"cells": []}', encoding="utf-8")
+    # Adoption refuses without the focus direction: the record it writes
+    # carries it, and the sign of specimen z stands on it.
+    with pytest.raises(RuntimeError, match="declare the focus direction"):
+        wf.adopt_orientation(session, notebook)
+    session.focus_plus = "up"
+    session.stand = "inverted"
     adopted = wf.adopt_orientation(session, notebook)
 
     assert Path(adopted["snapshot"]) == session.paths.session_dir

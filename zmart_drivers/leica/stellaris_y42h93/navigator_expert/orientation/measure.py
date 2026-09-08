@@ -28,7 +28,7 @@ import importlib
 import math
 import shutil
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -57,6 +57,8 @@ from ..calibration.core.common import (
 )
 from ..notebook_support import archive_notebook as archive_operator_notebook
 from . import (
+    FOCUS_PLUS,
+    STANDS,
     SCHEMA_VERSION,
     Orientation,
     orientation_config,
@@ -90,6 +92,12 @@ class OrientationSession:
     exported_files: dict[str, str] = field(default_factory=dict)
     registrations: dict[str, dict] = field(default_factory=dict)
     orientation: Orientation | None = None
+    #: Declared by the operator in the notebook before adoption: which way a
+    #: larger focus reading moves the focal plane through the sample, ``up``
+    #: or ``down``. The record is not written without it. The stand,
+    #: ``inverted`` or ``upright``, is a label beside it.
+    focus_plus: str | None = None
+    stand: str | None = None
     d4_label: str | None = None
     residual_from_d4: float | None = None
     is_mirrored: bool | None = None
@@ -841,6 +849,15 @@ def adopt_orientation(session: OrientationSession, notebook_path: str | Path) ->
         raise RuntimeError("run orientation validation before adoption")
     if session.machine is None or session.target_dir is None:
         raise RuntimeError("orientation session has no machine adoption target")
+    if session.focus_plus not in FOCUS_PLUS:
+        raise RuntimeError(
+            "declare the focus direction before adoption: session.focus_plus = "
+            "'up' if a larger focus reading moves the focal plane up through the "
+            "sample, 'down' if down -- specimen z is physical up, and this is the "
+            f"one fact that fixes its sign; got {session.focus_plus!r}"
+        )
+    if session.stand is not None and session.stand not in STANDS:
+        raise RuntimeError(f"the stand is one of {STANDS}; got {session.stand!r}")
 
     target = Path(session.target_dir)
     session_dir = Path(session.paths.session_dir)
@@ -866,7 +883,10 @@ def adopt_orientation(session: OrientationSession, notebook_path: str | Path) ->
     archived = archive_operator_notebook(notebook_path, session_dir)
     write_json_atomic(
         session_dir / ORIENTATION_NAME,
-        orientation_config(session.orientation, measured=True),
+        orientation_config(
+            replace(session.orientation, stand=session.stand, focus_plus=session.focus_plus),
+            measured=True,
+        ),
     )
     session.config_written = True
     session.adopted = True

@@ -51,6 +51,20 @@ from typing import Any
 SCHEMA_VERSION = 3
 _VALID_ROTATIONS = (0, 90, 180, 270)
 
+#: Which way up the stand is: ``inverted`` with the objective below the
+#: sample, ``upright`` with it above. A label for the operator; it does not
+#: decide the sign of z, because an upright stand focuses by moving either
+#: the stage or the objective, and the two run opposite ways.
+STANDS = ("inverted", "upright")
+#: What a larger focus reading does to the focal plane: moves it ``up``
+#: through the sample, against gravity, or ``down``. Declared after a
+#: thirty-second check -- focus on the coverslip, step the focus up, see
+#: which way the plane went -- and it is the one fact that fixes the sign of
+#: specimen z, which is physical up on every stand: zero at the coverslip
+#: face the sample sits on, growing upward. On an inverted stand, where the
+#: focus drives lift the objective, it is ``up``.
+FOCUS_PLUS = ("up", "down")
+
 # How a clockwise turn of ``rotate_deg`` moves an image displacement (column,
 # row): each entry is the 2x2 matrix that sends (+1 column, 0 rows) and
 # (0 columns, +1 row) to their new places. A measured image->stage matrix, if
@@ -86,8 +100,24 @@ class Orientation:
 
     rotate_deg: int = 0
     mirrored: bool = False
+    #: ``inverted`` or ``upright`` once declared (see :data:`STANDS`); None
+    #: on a record from before the stand was part of it.
+    stand: str | None = None
+    #: ``up`` or ``down`` once declared (see :data:`FOCUS_PLUS`); None on a
+    #: record from before the direction was part of it.
+    focus_plus: str | None = None
 
     def __post_init__(self) -> None:
+        if self.stand is not None and self.stand not in STANDS:
+            raise ValueError(
+                f"stand must be one of {STANDS} -- objective below or above the "
+                f"sample -- got {self.stand!r}"
+            )
+        if self.focus_plus is not None and self.focus_plus not in FOCUS_PLUS:
+            raise ValueError(
+                f"focus_plus must be one of {FOCUS_PLUS} -- where a larger focus "
+                f"reading takes the focal plane -- got {self.focus_plus!r}"
+            )
         if self.rotate_deg not in _VALID_ROTATIONS:
             raise ValueError(
                 f"rotate_deg must be a whole quarter-turn -- one of "
@@ -152,13 +182,18 @@ def _signed_axis(row: tuple[int, int]) -> str:
 
 def orientation_config(orientation: Orientation, *, measured: bool = True) -> dict[str, Any]:
     """Build the minimal authoritative orientation document."""
-    return {
+    document = {
         "schema_version": SCHEMA_VERSION,
         "measured": bool(measured),
         "rotation_deg": int(orientation.rotate_deg),
         "reflection": orientation.mirrored,
         "sign_convention": orientation.axis_mapping,
     }
+    if orientation.stand is not None:
+        document["stand"] = orientation.stand
+    if orientation.focus_plus is not None:
+        document["focus_plus"] = orientation.focus_plus
+    return document
 
 
 def orientation_from_config(data: dict[str, Any]) -> Orientation:
@@ -184,6 +219,8 @@ def orientation_from_config(data: dict[str, Any]) -> Orientation:
         orientation = Orientation(
             rotate_deg=data["rotation_deg"],
             mirrored=data["reflection"],
+            stand=data.get("stand"),
+            focus_plus=data.get("focus_plus"),
         )
         if data["sign_convention"] != orientation.axis_mapping:
             raise ValueError(

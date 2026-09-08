@@ -10,6 +10,7 @@ end-to-end pass through a real controller ``Session``.
 import json
 import tempfile
 import unittest
+from collections import namedtuple
 from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
@@ -24,6 +25,17 @@ from navigator_expert.commands import gate as _gate
 from navigator_expert.limits import checks as limits_checks
 from navigator_expert.readers import parsing as _readers_parsing
 from navigator_expert.zmart_adapter import zmart_adapter as adapter
+
+
+#: A saved plane's place in the capture, the way ``save`` keys its files.
+PlaneIndex = namedtuple("PlaneIndex", "t z c")
+
+
+def _stack_of(planes: int, channels: int = 1) -> dict:
+    return {
+        PlaneIndex(0, z, c): Path(f"/tmp/out/img_z{z}_c{c}.ome.tif")
+        for z in range(planes) for c in range(channels)
+    }
 
 
 def _origin(x_um=0.0, y_um=0.0, z_wide_um=0.0, z_galvo_um=0.0, z_focus_um=0.0, objective=None):
@@ -738,8 +750,7 @@ class TestAcquire(unittest.TestCase):
         """
         h = _handle()
         h.driven_to = {"x": 0.0, "y": 0.0, "z": 100.0, "z_wide_um": 1000.0}
-        planes = {i: Path(f"/tmp/out/img_z{i}.ome.tif") for i in range(5)}
-        with self._capturing(image_paths=planes) as calls, patch.object(
+        with self._capturing(image_paths=_stack_of(5)) as calls, patch.object(
             adapter._readers, "get_job_settings",
             return_value={"stack": {"begin": 990.0, "end": 1010.0, "sections": 5}},
         ):
@@ -752,6 +763,89 @@ class TestAcquire(unittest.TestCase):
         )
         self.assertEqual({p["x_um"] for p in record["planes"]}, {0.0})
 
+    def test_a_stack_in_three_channels_has_one_height_per_plane(self):
+        """The stack describes its slices; the channels multiply the files.
+
+        On the simulator an 18-slice stack in three channels came back as 54
+        files, the job's 18 sections were held against the 54, and every
+        plane was stamped at the drive's height -- the whole focus map lay
+        flat. The sections count planes, not files.
+        """
+        h = _handle()
+        h.driven_to = {"x": 0.0, "y": 0.0, "z": 100.0, "z_wide_um": 1000.0}
+        with self._capturing(image_paths=_stack_of(5, channels=3)), patch.object(
+            adapter._readers, "get_job_settings",
+            return_value={"stack": {"begin": 990.0, "end": 1010.0, "sections": 5}},
+        ):
+            record = adapter.acquire(h, acquisition_type="focussing", position_label="A1")
+
+        by_plane = {}
+        for plane in record["planes"]:
+            by_plane.setdefault(plane["z"], set()).add(plane["z_um"])
+        self.assertEqual(by_plane, {0: {90.0}, 1: {95.0}, 2: {100.0}, 3: {105.0}, 4: {110.0}})
+
+    def test_a_stack_swept_by_the_galvo_is_anchored_on_the_galvo(self):
+        """A slice is displaced from where its own drive stood, not the other.
+
+        The job's stack names the drive it sweeps. The simulator's focus job
+        sweeps the galvo between absolute galvo positions; measured against
+        the z-wide those read as a stack thousands of micrometres away.
+        """
+        h = _handle()
+        h.driven_to = {"x": 0.0, "y": 0.0, "z": 100.0, "z_wide_um": 1000.0, "z_galvo_um": 5.0}
+        # As LAS X states the drive, and as the changeable copy renames it.
+        for named in ({"mode": "z-galvo"}, {"zDrive": "z-galvo"}):
+            with self.subTest(named=named), self._capturing(image_paths=_stack_of(5)), patch.object(
+                adapter._readers, "get_job_settings",
+                return_value={"stack": {"begin": -5.0, "end": 15.0, "sections": 5, **named}},
+            ):
+                record = adapter.acquire(h, acquisition_type="focussing", position_label="A1")
+            self.assertEqual([p["z_um"] for p in record["planes"]], [90.0, 95.0, 100.0, 105.0, 110.0])
+
+    def test_where_the_focus_drives_run_down_specimen_z_counts_against_them(self):
+        """The declared focus direction decides the sign of z at the frame
+        boundary, once.
+
+        Specimen z is physical up on every stand. Where a larger focus
+        reading moves the focal plane down through the sample -- an upright
+        stand that focuses by lifting the stage -- a read, a move and the
+        stamps on a stack all carry the opposite sign, and nothing
+        downstream, which speaks the frame, has to know.
+        """
+        upright = adapter._orientation.Orientation(stand="upright", focus_plus="down")
+        h = _handle(origin=_origin(z_focus_um=30.0))
+        patches = _patch_position(z_wide_um=32.0, z_galvo_um=3.0)
+        with patch.object(adapter, "_loaded_orientation", return_value=upright), \
+                patches[0], patches[1], patches[2], patches[3]:
+            pos = adapter.get_xyz(h)
+        self.assertEqual(pos["z"]["value"], -5.0)  # the drives stand 5 above the origin
+
+        moves = {}
+
+        def fake_move_z(client, job, z, unit="um", z_mode="galvo", **kwargs):
+            moves["z"] = (z, z_mode)
+            return {"success": True, "confirmed": True}
+
+        patches = _patch_position(z_wide_um=32.0, z_galvo_um=3.0)
+        with (
+            patch.object(adapter, "_loaded_orientation", return_value=upright),
+            patch.object(adapter._motion, "arrive_xy", lambda c, x, y, **k: {"success": True, "confirmed": True}),
+            patch.object(adapter._commands, "move_z", fake_move_z),
+            patches[0], patches[1], patches[2], patches[3],
+        ):
+            adapter.set_xyz(h, 10.0, 20.0, 5.0, with_actuators={"z": "z-galvo"})
+        # 5 deeper into the specimen is 5 less focus: 30 - 5 = 25, the galvo carries 25 - 32
+        self.assertEqual(moves["z"], (-7.0, "galvo"))
+
+        h.driven_to = {"x": 0.0, "y": 0.0, "z": 5.0, "z_wide_um": 1000.0}
+        with self._capturing(image_paths=_stack_of(3)), \
+                patch.object(adapter, "_loaded_orientation", return_value=upright), \
+                patch.object(adapter._readers, "get_job_settings",
+                             return_value={"stack": {"begin": 990.0, "end": 1010.0, "sections": 3}}):
+            record = adapter.acquire(h, acquisition_type="focussing", position_label="A1")
+        # a slice 10 higher on the drive is 10 shallower in the specimen
+        self.assertEqual([p["z_um"] for p in record["planes"]], [15.0, 5.0, -5.0])
+
     def test_a_stack_that_does_not_straddle_the_drive_is_placed_where_it_is(self):
         """Nothing assumes the drive stands in the middle of its own stack.
 
@@ -761,8 +855,7 @@ class TestAcquire(unittest.TestCase):
         """
         h = _handle()
         h.driven_to = {"x": 0.0, "y": 0.0, "z": 100.0, "z_wide_um": 1000.0}
-        planes = {i: Path(f"/tmp/out/img_z{i}.ome.tif") for i in range(3)}
-        with self._capturing(image_paths=planes), patch.object(
+        with self._capturing(image_paths=_stack_of(3)), patch.object(
             adapter._readers, "get_job_settings",
             return_value={"stack": {"begin": 1000.0, "end": 1020.0, "sections": 3}},
         ):
@@ -782,7 +875,7 @@ class TestAcquire(unittest.TestCase):
         """
         h = _handle()
         h.driven_to = {"x": 0.0, "y": 0.0, "z": 100.0, "z_wide_um": 1000.0}
-        planes = {i: Path(f"/tmp/out/img_z{i}.ome.tif") for i in range(2)}
+        planes = _stack_of(2)
         deaf = {"is": False}
 
         def capture(client, job, **kwargs):

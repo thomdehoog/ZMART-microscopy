@@ -63,15 +63,17 @@ def settings_geometry_ready(settings):
     return bool(settings.get("imageSize"))
 
 
-def stack_z_wide_um(settings, expected: int) -> list[float] | None:
-    """Where each slice of the job's z-stack sits, in absolute z-wide um.
+def stack_slices_um(settings, expected: int) -> list[float] | None:
+    """Where each slice of the job's z-stack sits, on the drive that sweeps it.
 
     ``begin``/``end``/``sections``, evenly spaced, which keeps a reversed
-    stack. ``stepSize`` is not used: LAS X rounds it for display.
+    stack; absolute positions of whichever drive the stack is on (see
+    :func:`stack_drive`). ``stepSize`` is not used: LAS X rounds it for
+    display.
 
     ``None`` when the job takes no stack, or when what it says does not
-    describe the *expected* planes that came back -- a guessed position would
-    place a picture somewhere nobody imaged.
+    describe the *expected* number of planes that came back -- a guessed
+    position would place a picture somewhere nobody imaged.
     """
     from .parsing import make_changeable_copy
 
@@ -100,6 +102,29 @@ def stack_z_wide_um(settings, expected: int) -> list[float] | None:
 
 #: What a stack block must carry before it can say where a slice was taken.
 _STACK_NEEDS = ("begin", "end", "sections")
+
+
+def stack_drive(settings) -> str:
+    """Which z drive the job's stack sweeps: ``"z-galvo"`` or ``"z-wide"``.
+
+    The stack block names it -- ``zDrive`` in the changeable copy, ``mode``
+    as LAS X states it; a block that does not say is taken as the z-wide,
+    the drive a stack is on unless the job chose the galvo.
+    """
+    from .parsing import make_changeable_copy
+
+    try:
+        stack = (make_changeable_copy(settings) or {}).get("stack")
+    except Exception:  # noqa: BLE001 -- a settings shape we cannot read says nothing
+        stack = None
+    raw = settings.get("stack") if isinstance(settings, dict) else None
+    named = ""
+    for block in (stack, raw):
+        if isinstance(block, dict):
+            named = str(block.get("zDrive") or block.get("mode") or "")
+            if named:
+                break
+    return "z-galvo" if "galvo" in named.lower() else "z-wide"
 
 
 def z_um_from_settings(settings, key, *, client=None, job_name=None):

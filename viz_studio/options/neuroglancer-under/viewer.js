@@ -1407,7 +1407,12 @@ function countFromTheCornerOfTheVoxelRatherThanItsMiddle(own) {
       const outputs = flat && outputSpace?.names?.includes("z")
         ? theDepthKeptToItselfFor(own, row, outputSpace) : outputSpace;
       if (flat) {
-        const at = outputSpace?.names?.indexOf("z") ?? -1;
+        /* By whichever name the depth goes: a source that loads into a row
+           whose depth was already kept to itself arrives with `z'` in its
+           output space, not `z`, and looking for `z` alone left exactly that
+           source -- the last field of a four-field overview on the first
+           real run -- one voxel thick and undrawn. */
+        const at = theDepthAxisOf(outputSpace);
         const thinStill = at >= 0 && Math.abs(moved[at * (rank + 1) + at]) < A_FLAT_PICTURES_THICKNESS / 2;
         if (thinStill) {
           // Column-major, (rank + 1) rows a column: the depth's own scale is
@@ -1455,9 +1460,16 @@ function planesDeepIn(own, acquisition) {
   return deepest;
 }
 
+/** Where the depth stands in an output space: the picture's shared `z`, or
+    a flat source's own `z'` once kept to itself (`withItsDepthKeptToItself`).
+    -1 when the space has no depth at all. */
+function theDepthAxisOf(space) {
+  return space?.names?.findIndex((name) => name === "z" || name === "z'") ?? -1;
+}
+
 function isOnePlaneDeep(placed) {
   const { inputSpace, outputSpace } = placed;
-  const into = outputSpace?.names?.indexOf("z") ?? -1;
+  const into = theDepthAxisOf(outputSpace);
   if (into < 0 || !inputSpace?.bounds) return false;
   // The transform this project writes is a scale and a shift, axis for axis,
   // so the input axis is the output axis unless the input names say otherwise.
