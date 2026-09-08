@@ -1310,6 +1310,10 @@ function startTimeAtTheFirstMoment(viewer) {
  * voxel; that would also line the resolutions up with one another, which they
  * are not today.
  */
+/** How thick a flat picture is drawn along its own depth, in voxels of that
+    depth: a metre either way, so no depth a layer is looked at from misses it. */
+const A_FLAT_PICTURES_THICKNESS = 2e6;
+
 function countFromTheCornerOfTheVoxelRatherThanItsMiddle(own) {
   const space = own.viewer.navigationState.position.coordinateSpace.value;
   const shown = axesOnScreen(own.viewer);
@@ -1328,7 +1332,19 @@ function countFromTheCornerOfTheVoxelRatherThanItsMiddle(own) {
     for (const source of row.managed?.layer?.dataSources ?? []) {
       const loadState = source?.loadState;
       const placing = loadState?.transform;
-      if (!placing?.value || !placing.defaultTransform) continue;
+      if (!placing?.value || !placing.defaultTransform) {
+        /* Not read yet. The list of sources changing is what brings this
+           pass round, and a source that finishes loading after the list
+           last changed would otherwise never be looked at -- the fourth
+           field of a four-field overview stayed one voxel thick that way,
+           and was not drawn. Asked once, when it has loaded. */
+        own.watchedSources ??= new WeakSet();
+        if (source?.changed && !own.watchedSources.has(source)) {
+          own.watchedSources.add(source);
+          source.changed.add(() => countFromTheCornerOfTheVoxelRatherThanItsMiddle(own));
+        }
+        continue;
+      }
       /* Each loaded source is moved exactly once. Reading the engine's own
          flag afterwards is not enough: the layer's output space carries one
          flag for every source it holds, and the first correction flips it, so
@@ -1342,10 +1358,11 @@ function countFromTheCornerOfTheVoxelRatherThanItsMiddle(own) {
       const asRead = placing.defaultTransform;
       const stillAsRead = Array.from(asRead.transform ?? [])
         .every((value, at) => value === placed.transform[at]);
-      if (!stillAsRead) {
-        own.correctedLoadStates.add(loadState);
-        continue;
-      }
+      /* A transform already moved -- by an earlier pass, or by the engine
+         carrying a renamed output space across to a source that loaded
+         later -- is not shifted its half voxel again. It may still be a flat
+         picture one voxel thick, and that is put right below. */
+      const shiftHalfAVoxel = stillAsRead;
       /* The engine's `voxelCenterAtIntegerCoordinates` flag is not read any
          more. Measured on 2026-09-02 with the review's target stores: a store
          whose translation is not a whole number of voxels is read with that
@@ -1360,16 +1377,49 @@ function countFromTheCornerOfTheVoxelRatherThanItsMiddle(own) {
       const moved = Float64Array.from(placed.transform);
       let anythingMoved = false;
       for (let axis = 0; axis < rank; axis += 1) {
-        if (!drawnAcrossTheWindow.has(outputSpace?.names?.[axis])) continue;
+        if (!shiftHalfAVoxel || !drawnAcrossTheWindow.has(outputSpace?.names?.[axis])) continue;
         // Where the image sits is the last column of the matrix, and one unit
         // along an axis is one voxel of the finest stored resolution — so half
         // a voxel is simply a half.
         moved[rank * (rank + 1) + axis] += 0.5;
         anythingMoved = true;
       }
+      const flat = isOnePlaneDeep(placed);
+      if (flat === null) {
+        /* The extent is not read yet, so whether this is a flat picture
+           cannot be told. Not marked: the next pass, brought round by the
+           source itself, decides. */
+        own.watchedSources ??= new WeakSet();
+        if (source?.changed && !own.watchedSources.has(source)) {
+          own.watchedSources.add(source);
+          source.changed.add(() => countFromTheCornerOfTheVoxelRatherThanItsMiddle(own));
+        }
+        continue;
+      }
       own.correctedLoadStates.add(loadState);
-      /* A flat picture lies on the table and is seen from every height. */
-      const outputs = isOnePlaneDeep(placed) ? withItsDepthKeptToItself(outputSpace) : outputSpace;
+      /* A flat picture is seen from every height. Its depth is kept to the
+         layer (`withItsDepthKeptToItself`), and its one voxel is made as
+         thick as any depth the layer could be looked at from: flat tiles
+         are written at their own stage z now, a few micrometres apart, and
+         a layer draws only the sources that cross its one local depth --
+         with tiles one voxel thick, that was the top row and not the
+         bottom. Thick, every tile crosses it. */
+      const outputs = flat && outputSpace?.names?.includes("z")
+        ? theDepthKeptToItselfFor(own, row, outputSpace) : outputSpace;
+      if (flat) {
+        const at = outputSpace?.names?.indexOf("z") ?? -1;
+        const thinStill = at >= 0 && Math.abs(moved[at * (rank + 1) + at]) < A_FLAT_PICTURES_THICKNESS / 2;
+        if (thinStill) {
+          // Column-major, (rank + 1) rows a column: the depth's own scale is
+          // on the diagonal, its shift in the last column.
+          const scaleAt = at * (rank + 1) + at;
+          const shiftAt = rank * (rank + 1) + at;
+          const centre = moved[shiftAt] + moved[scaleAt] / 2;
+          moved[scaleAt] = A_FLAT_PICTURES_THICKNESS;
+          moved[shiftAt] = centre - A_FLAT_PICTURES_THICKNESS / 2;
+          anythingMoved = true;
+        }
+      }
       if (anythingMoved || outputs !== outputSpace) {
         placing.value = { ...placed, transform: moved, outputSpace: outputs };
       }
@@ -1413,6 +1463,8 @@ function isOnePlaneDeep(placed) {
   // so the input axis is the output axis unless the input names say otherwise.
   const from = inputSpace.names?.indexOf("z") >= 0 ? inputSpace.names.indexOf("z") : into;
   const planes = inputSpace.bounds.upperBounds[from] - inputSpace.bounds.lowerBounds[from];
+  // Not known yet: the source has a transform before it has an extent.
+  if (!Number.isFinite(planes)) return null;
   return planes <= 1;
 }
 
@@ -1433,6 +1485,17 @@ function isOnePlaneDeep(placed) {
  * axis is left to the stacks, so `theDepthItCanShow` still spans exactly
  * the planes there are to choose between.
  */
+/** One renamed depth per layer: every source of the layer must share the
+    same `z'` axis, or each pass hands the layer a new axis and the engine
+    re-derives every other source's placement against it. */
+function theDepthKeptToItselfFor(own, row, outputSpace) {
+  own.keptDepths ??= new Map();
+  const at = outputSpace.names.indexOf("z");
+  const key = `${row.layerName} ${outputSpace.ids[at]}`;
+  if (!own.keptDepths.has(key)) own.keptDepths.set(key, withItsDepthKeptToItself(outputSpace));
+  return own.keptDepths.get(key);
+}
+
 function withItsDepthKeptToItself(outputSpace) {
   const at = outputSpace.names.indexOf("z");
   const names = [...outputSpace.names];
