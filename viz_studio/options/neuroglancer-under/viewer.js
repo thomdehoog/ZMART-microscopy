@@ -1313,6 +1313,11 @@ function startTimeAtTheFirstMoment(viewer) {
 /** How thick a flat picture is drawn along its own depth, in voxels of that
     depth: a metre either way, so no depth a layer is looked at from misses it. */
 const A_FLAT_PICTURES_THICKNESS = 2e6;
+/** Where every flat picture is drawn along its own depth. The writer
+    stands every flat capture at one shared z
+    (`zarr_positions.A_FLAT_CAPTURES_SHARED_Z_UM`), so its one plane is at
+    voxel 0 of its own depth, and the slab is centred there. */
+const THE_DEPTH_EVERY_FLAT_PICTURE_IS_DRAWN_AT = 0;
 
 function countFromTheCornerOfTheVoxelRatherThanItsMiddle(own) {
   const space = own.viewer.navigationState.position.coordinateSpace.value;
@@ -1397,13 +1402,16 @@ function countFromTheCornerOfTheVoxelRatherThanItsMiddle(own) {
         continue;
       }
       own.correctedLoadStates.add(loadState);
-      /* A flat picture is seen from every height. Its depth is kept to the
-         layer (`withItsDepthKeptToItself`), and its one voxel is made as
-         thick as any depth the layer could be looked at from: flat tiles
-         are written at their own stage z now, a few micrometres apart, and
-         a layer draws only the sources that cross its one local depth --
-         with tiles one voxel thick, that was the top row and not the
-         bottom. Thick, every tile crosses it. */
+      /* A flat picture is seen from every height, beside every other flat
+         picture. Its depth is kept to the layer (`withItsDepthKeptToItself`);
+         it is stood at the one depth every slice is drawn at, and its one
+         voxel is made as thick as any depth the layer could be looked at
+         from. Flat tiles are written at their own z now, a fraction of a
+         micrometre to a micrometre apart, and a layer draws only the sources
+         that cross its one local depth -- tiles standing each at its own
+         height showed two of eight on the first real run, the two whose
+         voxel the depth looked at happened to cross. Stood together and
+         thick, every tile crosses it. */
       const outputs = flat && outputSpace?.names?.includes("z")
         ? theDepthKeptToItselfFor(own, row, outputSpace) : outputSpace;
       if (flat) {
@@ -1419,9 +1427,17 @@ function countFromTheCornerOfTheVoxelRatherThanItsMiddle(own) {
           // on the diagonal, its shift in the last column.
           const scaleAt = at * (rank + 1) + at;
           const shiftAt = rank * (rank + 1) + at;
-          const centre = moved[shiftAt] + moved[scaleAt] / 2;
+          /* The engine reads a store's z translation into the source's
+             *input* bounds, not its transform, and re-expresses those bounds
+             whenever the shared depth's unit changes (a stack landing with
+             its own step does that). A slab scaled by two million from a
+             plane standing at voxel 62 lands a hundred million voxels away,
+             and moves when the unit does: that is how six of eight tiles
+             went undrawn on the first real run. So the writer stands every
+             flat capture at z 0, and the slab is simply centred on the
+             shared depth. */
           moved[scaleAt] = A_FLAT_PICTURES_THICKNESS;
-          moved[shiftAt] = centre - A_FLAT_PICTURES_THICKNESS / 2;
+          moved[shiftAt] = THE_DEPTH_EVERY_FLAT_PICTURE_IS_DRAWN_AT - A_FLAT_PICTURES_THICKNESS / 2;
           anythingMoved = true;
         }
       }

@@ -1,6 +1,6 @@
 """Write a row of flat overview tiles at distinct stage heights, for a test.
 
-    python write-flat-tiles.py <folder> <tiles>
+    python write-flat-tiles.py <folder> <tiles> [<z_um>,<z_um>,...]
 
 ``<tiles>`` one-plane fields side by side along x, each written through the
 run's own writer (``position_store_from_record``) at its own stage z, a
@@ -23,6 +23,8 @@ from application.parts.storage.zarr_positions import position_store_from_record 
 
 folder = Path(sys.argv[1])
 tiles = int(sys.argv[2])
+# The heights, given: a run's own, in whatever order the focus map left them.
+heights = [float(z) for z in sys.argv[3].split(",")] if len(sys.argv) > 3 else None
 side = 1024
 channels = 2
 pixel_um = 1.0
@@ -42,7 +44,7 @@ for index in range(tiles):
             "t": 0, "c": c, "z": 0, "path": str(path),
             "x_um": 1000.0 + index * frame_um, "y_um": 2000.0,
             # Every tile at its own height, as a focus map leaves them.
-            "z_um": 30.0 + index * 0.7,
+            "z_um": heights[index] if heights else 30.0 + index * 0.7,
         })
     record = {
         "acquisition_type": "overview",

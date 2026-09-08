@@ -12,7 +12,11 @@
  * first as the picture, each later one added to the open rows as its field
  * lands, the last one served slowly so its extent arrives after the pass
  * that saw it added. Each source's own depth is read back from the engine:
- * all four must be thick.
+ * all four must be thick, and all must stand at the one depth every slice
+ * is drawn at (the rule: slices all at one z, stacks relative to each
+ * other; the store keeps the height a slice was really taken at). Then the
+ * first real eight-field run's own heights, arriving one by one and all at
+ * once: two of its eight tiles showed.
  */
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -32,10 +36,11 @@ const TILES = 4;
  *  files to the page from another origin, as the viewer beside the bridge
  *  would. One store, named by `slowly`, is answered `byMs` late, so its
  *  description lands after the engine has looked at the row it joined. */
-async function tilesServed(count, { slowly = null, byMs = 0 } = {}) {
+async function tilesServed(count, { slowly = null, byMs = 0, heights = null } = {}) {
   const folder = fs.mkdtempSync(path.join(os.tmpdir(), "zmart-flat-tiles-"));
   const stores = execFileSync(pythonForTheBridge(),
-    [path.join(HERE, "fixtures", "write-flat-tiles.py"), folder, String(count)],
+    [path.join(HERE, "fixtures", "write-flat-tiles.py"), folder, String(count),
+      ...(heights ? [heights.join(",")] : [])],
     { cwd: REPO, encoding: "utf8" }).trim().split(/\r?\n/);
   const server = http.createServer((request, response) => {
     const asked = path.normalize(decodeURIComponent(new URL(request.url, "http://x").pathname));
@@ -55,14 +60,33 @@ async function tilesServed(count, { slowly = null, byMs = 0 } = {}) {
   return { at, stop: () => server.close() };
 }
 
-/** How many voxels deep the engine holds each source of the one layer,
- *  along whichever axis is its depth. */
-const depthsOfTheSources = (page) => page.evaluate(() =>
+/** Where the engine holds each source of the one layer along whichever axis
+ *  is its depth: `[lower, upper]` in voxels of that depth. */
+const depthSpansOfTheSources = (page) => page.evaluate(() =>
   window.__flatTiles.layersForMeasurement().flatMap((layer) => layer.sources.map((source) => {
     if (!source.dims || !source.lower) return null;
     const at = source.dims.findIndex((name) => name.startsWith("z"));
-    return at < 0 ? null : source.upper[at] - source.lower[at];
+    return at < 0 ? null : [source.lower[at], source.upper[at]];
   })));
+
+/** How many voxels deep the engine holds each source. */
+const depthsOfTheSources = async (page) =>
+  (await depthSpansOfTheSources(page)).map((span) => (span ? span[1] - span[0] : span));
+
+/** Every slice is drawn at the same depth: one lower bound shared by all,
+ *  whatever height each was taken at. Returns the lower bounds that differ
+ *  from the first source's, with their index; empty when all agree. */
+const slicesStandingApart = async (page) => {
+  const spans = await depthSpansOfTheSources(page);
+  const shared = spans[0]?.[0];
+  return spans.map((span, index) => (span?.[0] === shared ? null : `source ${index} stands at ${span?.[0]}, not ${shared}`))
+    .filter(Boolean);
+};
+
+/** The heights the first real eight-field run left its tiles at (two wells
+ *  of four, a measured focus map): not monotonic, a fraction of a micrometre
+ *  to a micrometre and a half apart. Two of them showed. */
+const A_REAL_RUNS_HEIGHTS = [62.99, 62.79, 64.26, 64.01, 61.10, 60.40, 62.20, 61.40];
 
 const theOverviewOf = (sources) => [{
   name: "overview", url: sources[0],
@@ -113,9 +137,54 @@ test.describe("a row of flat tiles at their own heights", () => {
         expect(depth, `tile ${index % TILES} of channel ${Math.floor(index / TILES)} is one voxel thick, so it is drawn at one height only`)
           .toBeGreaterThan(1e6);
       }
+      expect(await slicesStandingApart(page), "every slice is drawn at the one shared depth").toEqual([]);
       expect(said, "the page raised nothing").toEqual([]);
     } finally {
       served.stop();
     }
   });
+
+  for (const [arrival, howMany] of [["one field at a time", "one by one"], ["all at once", "together"]]) {
+    test(`eight tiles at a real run's heights are all drawn thick, arriving ${arrival}`, async ({ page }) => {
+      const count = A_REAL_RUNS_HEIGHTS.length;
+      const served = await tilesServed(count, { heights: A_REAL_RUNS_HEIGHTS });
+      const said = [];
+      page.on("pageerror", (why) => said.push(why.message));
+      try {
+        await page.goto("/?backend=pretend");
+        const opened = howMany === "together" ? count : 1;
+        await page.evaluate(async ({ acquisitions }) => {
+          const host = document.createElement("div");
+          host.style.cssText = "position:fixed;inset:0;z-index:999;background:#fff;";
+          document.body.append(host);
+          const { openerFor } = await import("/parts/canvas/engines.js");
+          const openViewer = await openerFor("neuroglancer-under");
+          window.__flatTiles = await openViewer(host, {
+            acquisitions, presentation: "2d-overlay", background: "#ffffff",
+          });
+        }, { acquisitions: theOverviewOf(served.at.slice(0, opened)) });
+        for (let landed = opened + 1; landed <= count; landed += 1) {
+          await page.waitForTimeout(300);
+          const grown = await page.evaluate(
+            (acquisitions) => window.__flatTiles.addSources(acquisitions),
+            theOverviewOf(served.at.slice(0, landed)));
+          expect(grown, `tile ${landed} joined the open picture`).toBe(true);
+        }
+        await expect.poll(() => depthsOfTheSources(page), {
+          message: "every source should be read",
+          timeout: 30_000,
+        }).toEqual(Array.from({ length: 2 * count }, () => expect.any(Number)));
+        await page.waitForTimeout(3000);
+        const depths = await depthsOfTheSources(page);
+        const thin = depths.map((depth, index) => (depth > 1e6 ? null : `tile ${index % count} of channel ${Math.floor(index / count)}: ${depth}`))
+          .filter(Boolean);
+        expect(thin, "every tile is thick").toEqual([]);
+        expect(await slicesStandingApart(page), "every slice is drawn at the one shared depth").toEqual([]);
+        if (process.env.FLAT_TILES_SHOT) await page.screenshot({ path: process.env.FLAT_TILES_SHOT + "-" + howMany.replace(/ /g, "_") + ".png" });
+        expect(said, "the page raised nothing").toEqual([]);
+      } finally {
+        served.stop();
+      }
+    });
+  }
 });

@@ -321,6 +321,15 @@ def _the_pixel_size_of(ome_xml: str) -> tuple[float, float]:
     return one("Y"), one("X")
 
 
+# Where every flat capture stands in z. Slices are all shown at one z and
+# stacks stand relative to each other (the operator's rule): a one-plane
+# capture is placed here whatever height it was taken at, and that height
+# is kept beside it as provenance. A viewer that looks at one depth then
+# sees every slice together instead of the one or two whose micrometre
+# happens to cross the depth it looks at.
+A_FLAT_CAPTURES_SHARED_Z_UM = 0.0
+
+
 def _the_z_model(record: dict, planes: list[dict]) -> dict:
     """Where the capture stands in z, in specimen space.
 
@@ -329,8 +338,9 @@ def _the_z_model(record: dict, planes: list[dict]) -> dict:
     the height above the coverslip face, physical up on every stand:
     ``scale`` is the size of a voxel and is always positive, and
     ``translation`` is where the first voxel sits, positive or negative as
-    the stamps say. A flat capture sits at the z it was taken at. A stack is
-    written **ascending**: its lowest plane first, and the rest above it at
+    the stamps say. A flat capture sits at the one z every flat capture
+    shares (:data:`A_FLAT_CAPTURES_SHARED_Z_UM`), the height it was taken
+    at kept in the provenance. A stack is written **ascending**: its lowest plane first, and the rest above it at
     the spacing it was acquired with. Which way the drive swept is not the
     store's business: a downward sweep is reversed on the way in, and the
     two stores that result are
@@ -343,7 +353,8 @@ def _the_z_model(record: dict, planes: list[dict]) -> dict:
     depth, which blanked a perfectly good overview beside it.
 
     Returns the array order (vendor z numbers, ascending specimen z), the
-    positive spacing, the lowest plane's z, and the provenance.
+    positive spacing, the lowest plane's z (the shared z for a flat
+    capture), and the provenance.
     """
     numbered = sorted({int(plane.get("z", 0)) for plane in planes})
     centres: list[float | None] = []
@@ -386,6 +397,11 @@ def _the_z_model(record: dict, planes: list[dict]) -> dict:
         ascending = list(numbered)
         heights = []
         lowest = requested_z if requested_z is not None else 0.0
+
+    if len(numbered) == 1:
+        # One plane: shown at the z every slice shares. Its own height is
+        # in the provenance below.
+        lowest = A_FLAT_CAPTURES_SHARED_Z_UM
 
     steps = [b - a for a, b in zip(heights, heights[1:])]
     spacing = abs(float(np.median(steps))) if steps else 1.0
