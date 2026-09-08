@@ -322,17 +322,19 @@ def _the_pixel_size_of(ome_xml: str) -> tuple[float, float]:
 
 
 def _the_z_model(record: dict, planes: list[dict]) -> dict:
-    """Where the capture stands in z, in the stage's own frame.
+    """Where the capture stands in z, in specimen space.
 
-    Every store is placed in absolute stage coordinates in all three axes,
-    the way x and y already were: ``scale`` is the size of a voxel and is
-    always positive, and ``translation`` is where the first voxel sits,
-    positive or negative as the stage says. A flat capture sits at the stage
-    z it was taken at. A stack is written **ascending**: its lowest plane
-    first, at the lowest stage z, and the rest above it at the spacing it was
-    acquired with. Which way the stage swept is not the store's business: a
-    top-down sweep is reversed on the way in, and the two stores that result
-    are indistinguishable. The sweep as it happened is kept beside, as
+    Every store is placed in specimen coordinates in all three axes -- the
+    frame the driver drives in, x and y from the origin on the carrier and z
+    the height above the coverslip face, physical up on every stand:
+    ``scale`` is the size of a voxel and is always positive, and
+    ``translation`` is where the first voxel sits, positive or negative as
+    the stamps say. A flat capture sits at the z it was taken at. A stack is
+    written **ascending**: its lowest plane first, and the rest above it at
+    the spacing it was acquired with. Which way the drive swept is not the
+    store's business: a downward sweep is reversed on the way in, and the
+    two stores that result are
+    indistinguishable. The sweep as it happened is kept beside, as
     provenance, for anyone who wants the story rather than the picture.
 
     Why not keep the sign: a negative ``scale`` is not an OME-Zarr transform.
@@ -340,8 +342,8 @@ def _the_z_model(record: dict, planes: list[dict]) -> dict:
     floating-point number"), and one refused layer nulls the scene's shared
     depth, which blanked a perfectly good overview beside it.
 
-    Returns the array order (vendor z numbers, ascending stage z), the
-    positive spacing, the lowest plane's stage z, and the provenance.
+    Returns the array order (vendor z numbers, ascending specimen z), the
+    positive spacing, the lowest plane's z, and the provenance.
     """
     numbered = sorted({int(plane.get("z", 0)) for plane in planes})
     centres: list[float | None] = []
@@ -363,6 +365,13 @@ def _the_z_model(record: dict, planes: list[dict]) -> dict:
             requested_z = None
 
     known = [(centre, number) for centre, number in zip(centres, numbered) if centre is not None]
+    if not known and len(numbered) > 1:
+        # A stack with no height on any plane has no stage z to stand at and
+        # no spacing: a store made up for it would stand at z 0, one
+        # micrometre a plane, and draw as if that were true.
+        raise RuntimeError(
+            "the capture's planes report no stage z, so the stack cannot be placed"
+        )
     if known:
         # Ascending stage z; a plane whose height is unknown keeps its vendor
         # place after the known ones, so nothing is invented for it.
@@ -371,6 +380,9 @@ def _the_z_model(record: dict, planes: list[dict]) -> dict:
         heights = sorted(centre for centre, _number in known)
         lowest = heights[0]
     else:
+        # One flat plane with no height: the requested focus is the only
+        # account there is of where it was taken, and the stage origin
+        # failing that.
         ascending = list(numbered)
         heights = []
         lowest = requested_z if requested_z is not None else 0.0
@@ -389,15 +401,15 @@ def _the_z_model(record: dict, planes: list[dict]) -> dict:
         sweep = "increasing" if last >= first else "decreasing"
 
     return {
-        "model": "zmart-microscopy-absolute-stage-z-v1",
-        "frame": "stage",
+        "model": "zmart-microscopy-specimen-z-v1",
+        "frame": "specimen",
         "array_order": ascending,
         "spacing_um": spacing,
         "lowest_plane_um": float(lowest),
         "unit": "micrometer",
         "acquisition_provenance": {
             "plane_order_as_acquired": numbered,
-            "raw_stage_plane_centres_um": centres,
+            "plane_centres_um": centres,
             "sweep_direction": sweep,
             "requested_stage_focus_z_um": requested_z,
             "unit": "micrometer",
@@ -417,9 +429,8 @@ def _the_corner_of(
     The record's stage point is the centre of the frame; the store's
     convention is the corner of the first voxel along the sample.
 
-    The z origin was decided once by :func:`_the_z_model`: the absolute
-    stage z of the lowest plane, so a store's z is the stage's z like its
-    x and y.
+    The z origin was decided once by :func:`_the_z_model`: the specimen z
+    of the lowest plane, so a store's z is the specimen's like its x and y.
     """
     x_um = float(planes[0].get("x_um") or 0.0)
     y_um = float(planes[0].get("y_um") or 0.0)

@@ -3,7 +3,7 @@
 Both shapes the vendor writes are covered — one file per plane, and one file
 holding a whole capture — and what is asserted is the contract the viewer and
 the analysis stand on: OME-Zarr 0.5, axes t/c/z/y/x, the stage corner in the
-translation, z as the stage's own z whichever way a stack was swept, and the
+translation, z in specimen space whichever way a stack was swept, and the
 pixels round-tripping exactly.
 """
 
@@ -128,14 +128,14 @@ class TestTheStore:
         assert kinds["scale"]["scale"][2] == pytest.approx(1.0)
 
         model = description["attributes"]["zmart_microscopy"]["z_coordinate"]
-        assert model["model"] == "zmart-microscopy-absolute-stage-z-v1"
-        assert model["frame"] == "stage"
+        assert model["model"] == "zmart-microscopy-specimen-z-v1"
+        assert model["frame"] == "specimen"
         assert model["array_order"] == [0]
         assert model["spacing_um"] == 1.0
         assert model["lowest_plane_um"] == -410.0
         assert model["acquisition_provenance"] == {
             "plane_order_as_acquired": [0],
-            "raw_stage_plane_centres_um": [-410.0],
+            "plane_centres_um": [-410.0],
             "sweep_direction": "single-plane",
             "requested_stage_focus_z_um": None,
             "unit": "micrometer",
@@ -185,7 +185,7 @@ class TestTheStore:
 
         provenance = model["acquisition_provenance"]
         assert provenance["plane_order_as_acquired"] == [0, 1, 2]
-        assert provenance["raw_stage_plane_centres_um"] == [12.0, 10.0, 8.0]
+        assert provenance["plane_centres_um"] == [12.0, 10.0, 8.0]
         assert provenance["sweep_direction"] == "decreasing"
         assert provenance["requested_stage_focus_z_um"] == 10.0
 
@@ -220,6 +220,16 @@ class TestTheStore:
             for one in (upwards, downwards)
         ]
         assert sweeps == ["increasing", "decreasing"]
+
+    def test_a_stack_whose_planes_have_no_height_is_refused(self, tmp_path):
+        """Without a height per plane there is no stage z to place the stack
+        at and no spacing to give it: a store invented from nothing would
+        stand at z 0, one micrometre a plane, and draw as if it were true."""
+        record = a_z_stack(tmp_path, requested_z=None)
+        for plane in record["planes"]:
+            plane["z_um"] = None
+        with pytest.raises(RuntimeError, match="no stage z"):
+            position_store_from_record(record, tmp_path / "positions")
 
     def test_a_stack_below_the_stage_origin_has_a_negative_translation(self, tmp_path):
         store = position_store_from_record(

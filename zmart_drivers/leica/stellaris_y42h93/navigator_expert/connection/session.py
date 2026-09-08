@@ -209,6 +209,8 @@ def _load_rig_orientation() -> tuple[Any, dict]:
         "axis_signs": orientation.axis_signs,
         "axis_mapping": orientation.axis_mapping,
         "image_to_stage": [list(row) for row in orientation.image_to_stage],
+        "stand": orientation.stand,
+        "focus_plus": orientation.focus_plus,
     }
 
 

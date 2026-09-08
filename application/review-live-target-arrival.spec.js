@@ -873,7 +873,7 @@ async function proveTargetArrival({
     expect(trace.error, `target store ${index} exists`).toBeUndefined();
     expect(trace.level0.translation[2], `target store ${index} sits at its stage z`)
       .toBeCloseTo(records[index].requested_position_um.z, 3);
-    expect(trace.zCoordinate.frame).toBe("stage");
+    expect(trace.zCoordinate.frame).toBe("specimen");
     expect(trace.zCoordinate.acquisition_provenance.requested_stage_focus_z_um)
       .toBeCloseTo(records[index].requested_position_um.z, 6);
     expect(trace.derivedCentreUm.x).toBeCloseTo(records[index].requested_position_um.x, 3);
