@@ -26,3 +26,37 @@ describe("the window Auto asks for", () => {
     expect(windowFromHistogram({ low: 5, high: 5, counts: [3] }, 1)).toBeNull();
   });
 });
+
+import { windowForTheLook } from "./auto-window.js";
+
+// a background of many dim pixels in bins 0..5, tissue in 10..30, a bright object in 90..99
+const withBackground = {
+  low: 0, high: 1000,
+  counts: Array.from({ length: 100 }, (_, i) =>
+    (i < 5 ? 200 : i >= 10 && i < 30 ? 40 : i >= 90 ? 20 : 0)),
+};
+
+describe("the window the one-press look asks for", () => {
+  it("puts the background under the window and keeps the bright object inside it", () => {
+    const { low, high } = windowForTheLook(withBackground);
+    expect(low).toBeGreaterThanOrEqual(50);
+    expect(low).toBeLessThan(150);
+    expect(high).toBeGreaterThan(900);
+  });
+
+  it("starts just above the background whatever share of the frame it is", () => {
+    const mostlyCells = {
+      low: 0, high: 1000,
+      counts: Array.from({ length: 100 }, (_, i) =>
+        (i < 5 ? 30 : i >= 10 && i < 60 ? 40 : i >= 90 ? 20 : 0)),
+    };
+    const { low } = windowForTheLook(mostlyCells);
+    expect(low).toBeGreaterThanOrEqual(50);
+    expect(low).toBeLessThan(150);
+  });
+
+  it("has nothing to say about an empty or flat histogram", () => {
+    expect(windowForTheLook({ low: 0, high: 10, counts: [] })).toBeNull();
+    expect(windowForTheLook({ low: 5, high: 5, counts: [3] })).toBeNull();
+  });
+});

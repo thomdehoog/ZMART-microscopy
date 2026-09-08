@@ -17,25 +17,54 @@
 const CROP_PX = 132;
 
 /**
- * One small picture: the viewer's copy at `src`, drawn by `draw(paint, img)`
- * once it arrives. A backend that saves nothing gives no address, and the
- * picture is drawn dark, with `draw` given nothing to draw from.
+ * One small picture: the viewer's copy at `src`, drawn by `draw(paint, img,
+ * px)` once it arrives, into a canvas `px` pixels a side. A backend that
+ * saves nothing gives no address, and the picture is drawn dark, with `draw`
+ * given nothing to draw from.
+ *
+ * The canvas is drawn at the size it is shown, times the screen's density,
+ * rather than at a fixed few pixels stretched by the page: a fixed copy
+ * blurred every pair however sharp the frame was. Until it is laid out it
+ * is drawn at `CROP_PX`, and drawn again when its box is known or changes.
  */
 function smallPicture(src, draw) {
   const cv = document.createElement("canvas");
   cv.width = CROP_PX; cv.height = CROP_PX;
   if (src) cv.dataset.picture = src;
-  const paint = cv.getContext("2d");
-  paint.fillStyle = "#05090e";
-  paint.fillRect(0, 0, CROP_PX, CROP_PX);
+  let img = null;
+  const paint = () => {
+    const density = window.devicePixelRatio || 1;
+    const px = Math.max(CROP_PX, Math.round((cv.clientWidth || 0) * density)) || CROP_PX;
+    if (cv.width !== px) { cv.width = px; cv.height = px; }
+    const brush = cv.getContext("2d");
+    brush.fillStyle = "#05090e";
+    brush.fillRect(0, 0, px, px);
+    draw(brush, img, px);
+  };
+  paint();
   if (src) {
-    const img = new Image();
-    img.onload = () => draw(paint, img);
+    img = new Image();
+    img.onload = paint;
     img.src = src;
-  } else {
-    draw(paint, null);
+  }
+  if (typeof ResizeObserver !== "undefined") {
+    const watch = new ResizeObserver(() => { if (cv.isConnected) paint(); });
+    watch.observe(cv);
   }
   return cv;
+}
+
+/**
+ * The drawing is always smoothed, at the best quality the browser has: the
+ * overview crop is a small piece of a field blown up many times, and drawn
+ * as blocks it read as a mosaic rather than as the cells the frame beside
+ * it shows. `sourcePx` and `drawnPx` are kept for the callers, which know
+ * how far each picture is blown up, should the rule ever want them.
+ */
+function scaleFor(paint, sourcePx, drawnPx) {
+  void sourcePx; void drawnPx;
+  paint.imageSmoothingEnabled = true;
+  paint.imageSmoothingQuality = "high";
 }
 
 /**
@@ -51,12 +80,13 @@ function fieldCrop(cell, field) {
   const half = frameUm / 2;
   const centreX = Number.isFinite(field.cropX) ? field.cropX : cell.x;
   const centreY = Number.isFinite(field.cropY) ? field.cropY : cell.y;
-  const cv = smallPicture(field.picture, (paint, img) => {
+  const cv = smallPicture(field.picture, (paint, img, px) => {
     if (img) {
       const perUm = img.naturalWidth / field.frameUm;
       const sx = (centreX - half - (field.x - field.frameUm / 2)) * perUm;
       const sy = (centreY - half - (field.y - field.frameUm / 2)) * perUm;
-      paint.drawImage(img, sx, sy, 2 * half * perUm, 2 * half * perUm, 0, 0, CROP_PX, CROP_PX);
+      scaleFor(paint, 2 * half * perUm, px);
+      paint.drawImage(img, sx, sy, 2 * half * perUm, 2 * half * perUm, 0, 0, px, px);
     }
   });
   cv.dataset.comparison = "overview";
@@ -68,8 +98,11 @@ function fieldCrop(cell, field) {
 
 /** The target's own frame, as it was imaged. */
 function targetFrame(src, field) {
-  const cv = smallPicture(src, (paint, img) => {
-    if (img) paint.drawImage(img, 0, 0, CROP_PX, CROP_PX);
+  const cv = smallPicture(src, (paint, img, px) => {
+    if (img) {
+      scaleFor(paint, img.naturalWidth, px);
+      paint.drawImage(img, 0, 0, px, px);
+    }
   });
   cv.dataset.comparison = "target";
   cv.dataset.frameUm = String(field.cropFrameUm ?? "");

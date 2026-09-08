@@ -173,7 +173,25 @@ export async function viewerRowsFor(acquisitions) {
 }
 
 /** Ask the real Viewer server about one channel without inventing a fallback. */
-import { windowFromHistogram } from "./auto-window.js";
+import { windowFromHistogram, windowForTheLook } from "./auto-window.js";
+
+/**
+ * The colours the one-press look dresses the channels in, by their order
+ * within an acquisition: the same order gives the same colour in every
+ * acquisition, so the overview and the target frame read as one picture --
+ * a one-channel target scan wears the overview's first colour rather than
+ * a colour of its own. Cyan and magenta add to white where they overlap
+ * and stay apart everywhere else; further channels take the remaining
+ * well-separated hues.
+ */
+const LOOK_COLOURS = [
+  [0.2, 0.85, 1.0],   // cyan
+  [1.0, 0.25, 0.9],   // magenta
+  [1.0, 0.85, 0.15],  // yellow
+  [0.25, 1.0, 0.35],  // green
+  [1.0, 0.35, 0.2],   // orange-red
+  [0.45, 0.5, 1.0],   // blue
+];
 
 export async function measureViewerRow(row, {
   signal = null,
@@ -1634,6 +1652,40 @@ export async function mountViewerPanel(near, {
   panel.gammaOf = (name) => compositeMembers.get(name)?.[0]?.one?.gamma ?? 1;
   panel.setGammaOf = (name, gamma) => {
     for (const { at } of compositeMembers.get(name) ?? []) takeTheGamma(at, gamma);
+  };
+  /**
+   * The one-press look for the acquisitions named: every channel measured,
+   * its window set with the background under it and the brightest objects
+   * inside it, a gamma that lifts the mid-tones without flattening the
+   * peaks, and one colour per channel position, the same in every
+   * acquisition. Nothing the operator set is asked about: the press is the
+   * request, and every control can be moved again afterwards.
+   */
+  panel.makeItLook = async (names) => {
+    const wanted = names?.length ? names : [...groupShown.keys()];
+    for (const name of wanted) {
+      const members = rows
+        .map((row, index) => ({ row, index }))
+        .filter(({ row }) => row.acquisition === name);
+      const palette = LOOK_COLOURS;
+      for (const [position, { row, index }] of members.entries()) {
+        const result = await measureViewerRow(row, {
+          box: viewer.measurementBox?.(index) ?? [[0, 0], [1, 1]],
+        });
+        const window_ = result.ok
+          ? (windowForTheLook(result.answer.histogram) ?? result.answer.window)
+          : null;
+        if (result.ok) row.histogram = result.answer.histogram;
+        panel.channelAct(index, {
+          ...(window_ ? { window: window_ } : {}),
+          gamma: 0.85,
+          weight: 1,
+          colour: palette[position % palette.length],
+        });
+        if (!row.visible) setChannelVisible(index, true);
+      }
+    }
+    displayChangedSoon();
   };
   panel.autoChannel = async (index) => {
     if (!rows[index]) return;
