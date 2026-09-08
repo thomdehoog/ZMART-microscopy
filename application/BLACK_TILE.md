@@ -71,6 +71,9 @@ Two things made it invisible until now:
 
 ## The fix
 
+**Done 2026-09-08**, see `ABSOLUTE_Z_PLAN.md` for what was changed and what
+was found on the way.
+
 - **Writer:** keep `scale` positive (absolute spacing) and put the direction
   into the data: either reorder the planes ascending on write, or keep the
   order and express the start height through the translation.

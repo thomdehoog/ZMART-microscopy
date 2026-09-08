@@ -26,8 +26,8 @@
  * - the resolved source's engine bounds contain every stage point the refined
  *   targets were converted to, and both screen projections agree below one
  *   pixel;
- * - every flat target store anchors its only voxel centre at display z=0
- *   while the requested focus height is kept as provenance.
+ * - every flat target store sits at the stage z it was acquired at, and the
+ *   requested focus height is kept as provenance.
  */
 
 import { execFileSync } from "node:child_process";
@@ -871,9 +871,9 @@ async function proveTargetArrival({
   const zTraces = records.map((record) => storeTrace(record.zarr));
   for (const [index, trace] of zTraces.entries()) {
     expect(trace.error, `target store ${index} exists`).toBeUndefined();
-    expect(trace.level0.translation[2], `target store ${index} begins at display z zero`).toBe(0);
-    expect(trace.zCoordinate.display_anchor.coordinate_um).toBe(0);
-    expect(trace.zCoordinate.acquisition_provenance.registered_specimen_z).toBe(false);
+    expect(trace.level0.translation[2], `target store ${index} sits at its stage z`)
+      .toBeCloseTo(records[index].requested_position_um.z, 3);
+    expect(trace.zCoordinate.frame).toBe("stage");
     expect(trace.zCoordinate.acquisition_provenance.requested_stage_focus_z_um)
       .toBeCloseTo(records[index].requested_position_um.z, 6);
     expect(trace.derivedCentreUm.x).toBeCloseTo(records[index].requested_position_um.x, 3);

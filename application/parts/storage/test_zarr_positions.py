@@ -3,7 +3,8 @@
 Both shapes the vendor writes are covered — one file per plane, and one file
 holding a whole capture — and what is asserted is the contract the viewer and
 the analysis stand on: OME-Zarr 0.5, axes t/c/z/y/x, the stage corner in the
-translation, and the pixels round-tripping exactly.
+translation, z as the stage's own z whichever way a stack was swept, and the
+pixels round-tripping exactly.
 """
 
 from __future__ import annotations
@@ -116,40 +117,32 @@ class TestTheStore:
         assert kinds["scale"]["scale"][3] == pytest.approx(2.5)
         assert kinds["scale"]["scale"][4] == pytest.approx(2.5)
 
-    def test_focus_height_does_not_turn_a_flat_overview_into_a_stack(self, tmp_path):
-        # This one-plane field was acquired at z -410 um. That measured height
-        # belongs to the run record, not to the overview's picture geometry:
-        # every flat field must occupy the same visible z plane.
+    def test_a_flat_capture_sits_at_the_stage_z_it_was_taken_at(self, tmp_path):
+        # One plane, acquired at z -410 um. The store's z is the stage's z,
+        # like its x and y: a flat field is one voxel thick, at that height.
         store = position_store_from_record(one_file_per_plane(tmp_path), tmp_path / "positions")
         description = json.loads((store / "zarr.json").read_text())
         finest = description["attributes"]["ome"]["multiscales"][0]["datasets"][0]
         kinds = {t["type"]: t for t in finest["coordinateTransformations"]}
-        assert kinds["translation"]["translation"][2] == 0.0
+        assert kinds["translation"]["translation"][2] == pytest.approx(-410.0)
         assert kinds["scale"]["scale"][2] == pytest.approx(1.0)
 
         model = description["attributes"]["zmart_microscopy"]["z_coordinate"]
-        assert model["display_anchor"] == {
-            "axis": "z",
-            "voxel_index": 0,
-            "coordinate_um": 0.0,
-            "resolved_by": "only-voxel-center",
-            "legacy_fallback": False,
-        }
-        assert model["source_local"] == {
-            "plane_order": [0],
-            "spacing_um": 1.0,
-            "unit": "micrometer",
-            "axis_direction": "single-plane",
-        }
+        assert model["model"] == "zmart-microscopy-absolute-stage-z-v1"
+        assert model["frame"] == "stage"
+        assert model["array_order"] == [0]
+        assert model["spacing_um"] == 1.0
+        assert model["lowest_plane_um"] == -410.0
         assert model["acquisition_provenance"] == {
+            "plane_order_as_acquired": [0],
             "raw_stage_plane_centres_um": [-410.0],
+            "sweep_direction": "single-plane",
             "requested_stage_focus_z_um": None,
             "unit": "micrometer",
-            "registered_specimen_z": False,
         }
 
     @pytest.mark.parametrize("acquisition_type", ["overview", "focussing", "target"])
-    def test_every_flat_acquisition_type_uses_the_shared_display_anchor(
+    def test_every_flat_acquisition_type_keeps_its_own_stage_z(
         self, tmp_path, acquisition_type
     ):
         low = one_file_per_plane(tmp_path / "low", channels=1)
@@ -158,27 +151,18 @@ class TestTheStore:
         high["acquisition_type"] = acquisition_type
         high["position_label"] = "K00_M000000_G000000_P000008_V00"
         high["planes"][0]["z_um"] = 137.5
-        stores = [
-            position_store_from_record(low, tmp_path / "positions"),
-            position_store_from_record(high, tmp_path / "positions"),
-        ]
-        for store in stores:
+        for record, expected in ((low, -410.0), (high, 137.5)):
+            store = position_store_from_record(record, tmp_path / "positions")
             description = json.loads((store / "zarr.json").read_text())
             dataset = description["attributes"]["ome"]["multiscales"][0]["datasets"][0]
             transforms = {item["type"]: item for item in dataset["coordinateTransformations"]}
-            anchor = description["attributes"]["zmart_microscopy"]["z_coordinate"][
-                "display_anchor"
-            ]
-            display_z = (
-                transforms["translation"]["translation"][2]
-                + anchor["voxel_index"] * transforms["scale"]["scale"][2]
-            )
-            assert display_z == pytest.approx(0.0)
+            assert transforms["translation"]["translation"][2] == pytest.approx(expected)
+            assert transforms["scale"]["scale"][2] > 0
 
     @pytest.mark.parametrize("acquisition_type", ["overview", "focussing", "target"])
-    def test_every_stack_acquisition_type_preserves_local_z_geometry(
-        self, tmp_path, acquisition_type
-    ):
+    def test_a_stack_swept_downwards_is_written_ascending(self, tmp_path, acquisition_type):
+        """Planes captured at 12, 10, 8 um land in the array as 8, 10, 12:
+        positive spacing, the lowest plane first and in the translation."""
         store = position_store_from_record(
             a_z_stack(tmp_path, acquisition_type=acquisition_type),
             tmp_path / "positions",
@@ -188,54 +172,65 @@ class TestTheStore:
         transforms = {item["type"]: item for item in dataset["coordinateTransformations"]}
         model = description["attributes"]["zmart_microscopy"]["z_coordinate"]
 
-        assert transforms["scale"]["scale"][2] == pytest.approx(-2.0)
-        # The stack stands on the table: its lowest plane, the last one in an
-        # array acquired downwards, lands on display z = 0, and the first
-        # plane stands 4 µm above it.
-        assert transforms["translation"]["translation"][2] == pytest.approx(4.0)
-        anchor = model["display_anchor"]["voxel_index"]
-        assert anchor == 2
-        assert model["display_anchor"]["resolved_by"] == "table-lowest-plane"
-        assert transforms["translation"]["translation"][2] + anchor * -2.0 == pytest.approx(0.0)
-        assert model["source_local"] == {
-            "plane_order": [0, 1, 2],
-            "spacing_um": -2.0,
-            "unit": "micrometer",
-            "axis_direction": "decreasing",
-        }
+        assert transforms["scale"]["scale"][2] == pytest.approx(2.0)
+        assert transforms["translation"]["translation"][2] == pytest.approx(8.0)
+        assert model["array_order"] == [2, 1, 0]
+        assert model["spacing_um"] == pytest.approx(2.0)
+        assert model["lowest_plane_um"] == pytest.approx(8.0)
+        # The pixels follow: vendor plane z=2 (value 3, taken at 8 um) is
+        # the array's first plane; vendor plane z=0 (value 1) its last.
+        finest = zarr.open(str(store / "0"), mode="r")
+        assert int(finest[0, 0, 0, 0, 0]) == 3
+        assert int(finest[0, 0, 2, 0, 0]) == 1
 
         provenance = model["acquisition_provenance"]
+        assert provenance["plane_order_as_acquired"] == [0, 1, 2]
         assert provenance["raw_stage_plane_centres_um"] == [12.0, 10.0, 8.0]
+        assert provenance["sweep_direction"] == "decreasing"
         assert provenance["requested_stage_focus_z_um"] == 10.0
-        assert provenance["registered_specimen_z"] is False
 
-    def test_a_stack_stands_on_the_table_whichever_way_it_was_acquired(self, tmp_path):
-        """The lowest plane lands on z = 0 whether the array runs up or down,
-        and a record without a requested focus is placed the same way."""
+    def test_the_store_does_not_know_which_way_the_stage_swept(self, tmp_path):
+        """Up or down, the store on disk has the same geometry and the same
+        pixels at the same heights; only the provenance tells them apart."""
         (tmp_path / "up").mkdir()
         (tmp_path / "down").mkdir()
         upwards = position_store_from_record(
             a_z_stack(tmp_path / "up", heights=(8.0, 10.0, 12.0), requested_z=None),
             tmp_path / "up" / "positions",
         )
-        described = json.loads((upwards / "zarr.json").read_text())
-        dataset = described["attributes"]["ome"]["multiscales"][0]["datasets"][0]
-        transforms = {item["type"]: item for item in dataset["coordinateTransformations"]}
-        anchor = described["attributes"]["zmart_microscopy"]["z_coordinate"]["display_anchor"]
-        assert transforms["scale"]["scale"][2] == pytest.approx(2.0)
-        assert transforms["translation"]["translation"][2] == pytest.approx(0.0)
-        assert anchor["voxel_index"] == 0
-        assert anchor["resolved_by"] == "table-lowest-plane"
-        assert anchor["legacy_fallback"] is False
-
         downwards = position_store_from_record(
             a_z_stack(tmp_path / "down", requested_z=None), tmp_path / "down" / "positions"
         )
-        anchor = json.loads((downwards / "zarr.json").read_text())["attributes"]["zmart_microscopy"][
-            "z_coordinate"
-        ]["display_anchor"]
-        assert anchor["voxel_index"] == 2
-        assert anchor["resolved_by"] == "table-lowest-plane"
+        geometry = []
+        for store in (upwards, downwards):
+            described = json.loads((store / "zarr.json").read_text())
+            dataset = described["attributes"]["ome"]["multiscales"][0]["datasets"][0]
+            transforms = {item["type"]: item for item in dataset["coordinateTransformations"]}
+            geometry.append((transforms["scale"]["scale"], transforms["translation"]["translation"]))
+        assert geometry[0] == geometry[1]
+        assert geometry[0][0][2] == pytest.approx(2.0)
+        assert geometry[0][1][2] == pytest.approx(8.0)
+        # Up: value 1 was taken at 8 um and is the first plane. Down: value 3
+        # was taken at 8 um and is the first plane. Same height, same slot.
+        up, down = (zarr.open(str(one / "0"), mode="r") for one in (upwards, downwards))
+        assert int(up[0, 0, 0, 0, 0]) == 1 and int(down[0, 0, 0, 0, 0]) == 3
+        sweeps = [
+            json.loads((one / "zarr.json").read_text())["attributes"]["zmart_microscopy"][
+                "z_coordinate"]["acquisition_provenance"]["sweep_direction"]
+            for one in (upwards, downwards)
+        ]
+        assert sweeps == ["increasing", "decreasing"]
+
+    def test_a_stack_below_the_stage_origin_has_a_negative_translation(self, tmp_path):
+        store = position_store_from_record(
+            a_z_stack(tmp_path, heights=(-3.0, -6.0, -9.0), requested_z=None),
+            tmp_path / "positions",
+        )
+        described = json.loads((store / "zarr.json").read_text())
+        dataset = described["attributes"]["ome"]["multiscales"][0]["datasets"][0]
+        transforms = {item["type"]: item for item in dataset["coordinateTransformations"]}
+        assert transforms["scale"]["scale"][2] == pytest.approx(3.0)
+        assert transforms["translation"]["translation"][2] == pytest.approx(-9.0)
 
     def test_a_whole_capture_file_lands_channel_by_channel(self, tmp_path):
         record = one_file_whole_capture(tmp_path, channels=3, size=128)

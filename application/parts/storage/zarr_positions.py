@@ -112,15 +112,12 @@ def _write_a_position(record: dict, into: Path | str) -> Path:
     if not planes:
         raise RuntimeError("the capture reported no planes, so there is nothing to keep")
 
-    volume, pixel_size_um = _the_volume_of(planes)
-    frames, channels, nz, ny, nx = volume.shape
     z_model = _the_z_model(record, planes)
-    dz = z_model["source_local"]["spacing_um"]
+    volume, pixel_size_um = _the_volume_of(planes, depth_order=z_model["array_order"])
+    frames, channels, nz, ny, nx = volume.shape
+    dz = z_model["spacing_um"]
     corner_um = _the_corner_of(
-        planes,
-        (ny, nx),
-        pixel_size_um,
-        z_origin_um=-z_model["display_anchor"]["voxel_index"] * dz,
+        planes, (ny, nx), pixel_size_um, z_origin_um=z_model["lowest_plane_um"],
     )
 
     into = Path(into)
@@ -222,12 +219,18 @@ def _publish(built: Path, published: Path) -> Path:
 # -- reading what the vendor wrote ------------------------------------------
 
 
-def _the_volume_of(planes: list[dict]) -> tuple[np.ndarray, tuple[float, float]]:
+def _the_volume_of(
+    planes: list[dict], depth_order: list[int] | None = None,
+) -> tuple[np.ndarray, tuple[float, float]]:
     """The capture as one ``(t, c, z, y, x)`` array, and its (y, x) µm/voxel.
 
     The vendor may have written one file per plane or one file for the whole
     capture — the record's plane entries say which slot each file (or slice of
     a file) fills, so both arrive the same way here.
+
+    ``depth_order`` is the vendor's z numbers in the order the array should
+    hold them — ascending stage z, as :func:`_the_z_model` decides. Without
+    it the vendor's own numbering is kept.
     """
     import tifffile
 
@@ -246,7 +249,10 @@ def _the_volume_of(planes: list[dict]) -> tuple[np.ndarray, tuple[float, float]]
         # array indices left channel 0 an empty black plane.
         frames = _packed(planes, "t")
         channels = _packed(planes, "c")
-        depth = _packed(planes, "z")
+        depth = (
+            {number: index for index, number in enumerate(depth_order)}
+            if depth_order is not None else _packed(planes, "z")
+        )
 
         volume: np.ndarray | None = None
         for plane in planes:
@@ -316,21 +322,26 @@ def _the_pixel_size_of(ome_xml: str) -> tuple[float, float]:
 
 
 def _the_z_model(record: dict, planes: list[dict]) -> dict:
-    """Where the stack stands in the shared picture, and the raw Z it came from.
+    """Where the capture stands in z, in the stage's own frame.
 
-    Every stack is stood on the table: its **lowest plane** -- the one taken at
-    the lowest stage Z -- lands on display z = 0, and the rest of the stack
-    rises above it at the spacing it was acquired with. A flat capture, a
-    single plane, lies on the table too. So whichever stacks a run gathers,
-    the Z slider under the picture starts at the bottom of every one of them,
-    and two stacks of different heights can be compared plane by plane from
-    the bottom up. Where each plane really was on the stage is kept beside
-    it, untouched, as provenance: raw stage or focus Z is never taken for the
-    specimen's own depth.
+    Every store is placed in absolute stage coordinates in all three axes,
+    the way x and y already were: ``scale`` is the size of a voxel and is
+    always positive, and ``translation`` is where the first voxel sits,
+    positive or negative as the stage says. A flat capture sits at the stage
+    z it was taken at. A stack is written **ascending**: its lowest plane
+    first, at the lowest stage z, and the rest above it at the spacing it was
+    acquired with. Which way the stage swept is not the store's business: a
+    top-down sweep is reversed on the way in, and the two stores that result
+    are indistinguishable. The sweep as it happened is kept beside, as
+    provenance, for anyone who wants the story rather than the picture.
 
-    Array order comes from the record's z indices. Its signed spacing is kept:
-    a stack acquired downwards remains a downward stack, so the lowest plane
-    is then the last one in the array rather than the first.
+    Why not keep the sign: a negative ``scale`` is not an OME-Zarr transform.
+    neuroglancer refuses it outright ("Expected positive finite
+    floating-point number"), and one refused layer nulls the scene's shared
+    depth, which blanked a perfectly good overview beside it.
+
+    Returns the array order (vendor z numbers, ascending stage z), the
+    positive spacing, the lowest plane's stage z, and the provenance.
     """
     numbered = sorted({int(plane.get("z", 0)) for plane in planes})
     centres: list[float | None] = []
@@ -344,15 +355,6 @@ def _the_z_model(record: dict, planes: list[dict]) -> dict:
         ]
         centres.append(float(np.median(found)) if found else None)
 
-    adjacent_steps = [
-        centres[index + 1] - centres[index]
-        for index in range(len(centres) - 1)
-        if centres[index] is not None and centres[index + 1] is not None
-    ]
-    spacing = float(np.median(adjacent_steps)) if adjacent_steps else 1.0
-    if not math.isfinite(spacing) or spacing == 0:
-        spacing = 1.0
-
     requested = record.get("requested_position_um") or record.get("position") or {}
     requested_z = requested.get("z") if isinstance(requested, dict) else None
     if requested_z is not None:
@@ -360,43 +362,45 @@ def _the_z_model(record: dict, planes: list[dict]) -> dict:
         if not math.isfinite(requested_z):
             requested_z = None
 
-    if len(numbered) == 1:
-        anchor = 0
-        resolved_by = "only-voxel-center"
+    known = [(centre, number) for centre, number in zip(centres, numbered) if centre is not None]
+    if known:
+        # Ascending stage z; a plane whose height is unknown keeps its vendor
+        # place after the known ones, so nothing is invented for it.
+        ascending = [number for _centre, number in sorted(known)]
+        ascending += [number for centre, number in zip(centres, numbered) if centre is None]
+        heights = sorted(centre for centre, _number in known)
+        lowest = heights[0]
     else:
-        # The lowest plane of the stack. With an increasing spacing that is
-        # the first plane in the array; a stack acquired downwards holds its
-        # lowest plane last. Decided here, once, and written into the store,
-        # so the viewer never has to guess it from whichever source arrived
-        # first.
-        anchor = 0 if spacing > 0 else len(numbered) - 1
-        resolved_by = "table-lowest-plane"
+        ascending = list(numbered)
+        heights = []
+        lowest = requested_z if requested_z is not None else 0.0
+
+    steps = [b - a for a, b in zip(heights, heights[1:])]
+    spacing = abs(float(np.median(steps))) if steps else 1.0
+    if not math.isfinite(spacing) or spacing == 0:
+        spacing = 1.0
+
+    if len(numbered) == 1:
+        sweep = "single-plane"
+    elif len(known) < 2:
+        sweep = "unknown"
+    else:
+        first, last = known[0][0], known[-1][0]
+        sweep = "increasing" if last >= first else "decreasing"
 
     return {
-        "model": "zmart-microscopy-2d-display-anchor-v1",
-        "presentation": "2d-overlay",
-        "display_anchor": {
-            "axis": "z",
-            "voxel_index": anchor,
-            "coordinate_um": 0.0,
-            "resolved_by": resolved_by,
-            "legacy_fallback": False,
-        },
-        "source_local": {
-            "plane_order": numbered,
-            "spacing_um": spacing,
-            "unit": "micrometer",
-            "axis_direction": (
-                "single-plane" if len(numbered) == 1
-                else "increasing" if spacing > 0
-                else "decreasing"
-            ),
-        },
+        "model": "zmart-microscopy-absolute-stage-z-v1",
+        "frame": "stage",
+        "array_order": ascending,
+        "spacing_um": spacing,
+        "lowest_plane_um": float(lowest),
+        "unit": "micrometer",
         "acquisition_provenance": {
+            "plane_order_as_acquired": numbered,
             "raw_stage_plane_centres_um": centres,
+            "sweep_direction": sweep,
             "requested_stage_focus_z_um": requested_z,
             "unit": "micrometer",
-            "registered_specimen_z": False,
         },
     }
 
@@ -413,9 +417,9 @@ def _the_corner_of(
     The record's stage point is the centre of the frame; the store's
     convention is the corner of the first voxel along the sample.
 
-    The z origin was decided once by :func:`_the_z_model`: it puts the
-    stack's lowest plane on display z = 0, the table every stack stands on,
-    without treating raw stage/focus Z as the specimen's own depth.
+    The z origin was decided once by :func:`_the_z_model`: the absolute
+    stage z of the lowest plane, so a store's z is the stage's z like its
+    x and y.
     """
     x_um = float(planes[0].get("x_um") or 0.0)
     y_um = float(planes[0].get("y_um") or 0.0)
@@ -503,11 +507,11 @@ def place_into_resolved_store(record: dict, into: Path | str, planned_um: list[t
     planes = record.get("planes") or []
     if not planes:
         raise RuntimeError("the capture reported no planes, so there is nothing to keep")
-    volume, pixel_size_um = _the_volume_of(planes)
-    frames, channels, nz, ny, nx = volume.shape
     z_model = _the_z_model(record, planes)
-    dz = z_model["source_local"]["spacing_um"]
-    z_origin_um = -z_model["display_anchor"]["voxel_index"] * dz
+    volume, pixel_size_um = _the_volume_of(planes, depth_order=z_model["array_order"])
+    frames, channels, nz, ny, nx = volume.shape
+    dz = z_model["spacing_um"]
+    z_origin_um = z_model["lowest_plane_um"]
 
     into = Path(into)
     kind = record.get("acquisition_type") or "capture"

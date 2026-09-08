@@ -26,6 +26,7 @@ The pieces mirror the real boundary exactly:
 from __future__ import annotations
 
 import json
+import os
 import uuid
 from pathlib import Path
 
@@ -238,16 +239,22 @@ class SimulatedSession:
     FOCAL_PLANE_UM = 5.0
     FOCUS_PLANES = 21
     FOCUS_STEP_UM = 1.2
+    #: Which way the pretend stage sweeps a focus stack: ``"up"`` from below
+    #: the centre, or ``"down"`` from above it, the way the Stellaris does.
+    #: ``ZMART_MOCK_FOCUS_SWEEP`` chooses; the store written from either must
+    #: come out the same, which is what the top-down option is there to prove.
+    FOCUS_SWEEP = os.environ.get("ZMART_MOCK_FOCUS_SWEEP", "up")
 
     def _heights(self, acquisition_type: str, centre: float) -> list[float]:
         """The heights this kind of capture visits, centred on where it stands."""
         if acquisition_type != "focussing":
             return [centre]
         middle = (self.FOCUS_PLANES - 1) / 2
-        return [
+        heights = [
             centre + (index - middle) * self.FOCUS_STEP_UM
             for index in range(self.FOCUS_PLANES)
         ]
+        return heights[::-1] if self.FOCUS_SWEEP == "down" else heights
 
     def disconnect(self) -> None:
         self.disconnected = True

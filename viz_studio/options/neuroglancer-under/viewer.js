@@ -204,10 +204,10 @@ const SLACK_AROUND_THE_IMAGED_GROUND = 64;
  *                   `whereThingsAreDrawn()` gives back: the centre and zoom in
  *                   micrometres, the size of the box, and `project`/`unproject`
  *                   for placing ordinary HTML elements in the same coordinates.
- *   `presentation`  `"2d-overlay"` for sources that stand on one table: the
- *                   run's writer puts every stack's lowest plane at z=0, so the
- *                   picture opens there, and a flat source is kept in view at
- *                   every depth (`withItsDepthKeptToItself`). It changes
+ *   `presentation`  `"2d-overlay"` for sources placed in absolute stage z: the
+ *                   picture opens at the lowest plane any stack holds, and a
+ *                   flat source is kept in view at every depth
+ *                   (`withItsDepthKeptToItself`). It changes
  *                   navigation and how a flat source's depth is read, never
  *                   where a source is placed.
  * @returns {Promise<Viewer>} the handle; see `../contract.md` for what it offers.
@@ -1420,9 +1420,9 @@ function isOnePlaneDeep(placed) {
  * The same output space with its depth made the layer's own rather than the
  * picture's.
  *
- * Every stack in the picture stands on one table: its lowest plane at z = 0
- * (`application/parts/storage/zarr_positions.py` writes it so). A flat
- * picture — the overview, a single-plane target — lies on that table too,
+ * Every stack in the picture is placed in absolute stage z, lowest plane
+ * first (`application/parts/storage/zarr_positions.py` writes it so). A flat
+ * picture — the overview, a single-plane target — sits at its own stage z,
  * and an operator moving up through a stack should keep seeing it, the way
  * they keep seeing the slide while focussing through a specimen. The engine
  * draws a source only on the depth being looked at, so a flat picture kept
@@ -1451,22 +1451,41 @@ function withItsDepthKeptToItself(outputSpace) {
  * Open the picture at the bottom of the stacks, once, when it first has a
  * depth to open at.
  *
- * On the table (see `withItsDepthKeptToItself`) every stack begins at z = 0,
- * so that is where the picture starts, and the Z slider under it reads
- * "plane 1". The engine on its own would open a depth that lands after the
- * first source in the middle of it. Only once: after that the depth is the
- * operator's to choose, and a stack landing later must not pull the view
- * back down.
+ * Every stack is written in absolute stage z, lowest plane first, so the
+ * bottom of the shared depth axis is the lowest plane there is, and the Z
+ * slider under the picture reads "plane 1" there. The engine on its own
+ * would open a depth that lands after the first source in the middle of
+ * it. Only once: after that the depth is the operator's to choose, and a
+ * stack landing later must not pull the view back down.
  */
 function standOnTheTable(own) {
   if (own.presentation !== "2d-overlay" || own.stoodOnTheTable) return;
   const info = own.viewer.navigationState.displayDimensionRenderInfo.value;
   const depth = info?.displayDimensionIndices?.[2] ?? -1;
   if (depth < 0) return;
+  const bottom = theLowestPlaneOf(own, depth);
+  if (bottom === null) return;
   own.stoodOnTheTable = true;
   const moved = Float32Array.from(own.viewer.navigationState.position.value);
-  moved[depth] = 0;
+  moved[depth] = bottom;
   own.viewer.navigationState.position.value = moved;
+}
+
+/**
+ * The centre of the lowest plane on the shared depth axis, in the engine's
+ * own coordinates, or null while no stack has declared a depth.
+ *
+ * Stores are written in absolute stage z (`zarr_positions.py`), so the
+ * shared axis's lower bound is the lowest plane any stack holds; flat
+ * pictures keep their depth to themselves (`withItsDepthKeptToItself`) and
+ * do not pull the bound about. Integer coordinates are voxel centres on
+ * this axis, so the first plane's centre is half a voxel in from the bound.
+ */
+function theLowestPlaneOf(own, depth) {
+  const space = own.viewer.navigationState.position.coordinateSpace.value;
+  const lower = space?.bounds?.lowerBounds?.[depth];
+  if (!Number.isFinite(lower)) return null;
+  return space.bounds.voxelCenterAtIntegerCoordinates?.[depth] ? lower + 0.5 : lower;
 }
 
 // ---------------------------------------------------------------------------
@@ -1768,11 +1787,13 @@ function openOnThePlaneWhereTheSpecimenIs(own, specimen) {
   if (depth < 0 || !space?.bounds) return;
   const moved = Float32Array.from(own.viewer.navigationState.position.value);
   if (own.presentation === "2d-overlay") {
-    /* Every stack stands on the table with its lowest plane at z = 0 (the
-       writer puts it there), so the picture opens at the bottom. Navigation
-       only selects that plane; it never rewrites a placement or infers one
-       from whichever source loaded first. */
-    moved[depth] = 0;
+    /* The picture opens at the lowest plane any stack holds -- absolute
+       stage z, as the writer places it. Navigation only selects that plane;
+       it never rewrites a placement or infers one from whichever source
+       loaded first. */
+    const bottom = theLowestPlaneOf(own, depth);
+    if (bottom === null) return;
+    moved[depth] = bottom;
     own.viewer.navigationState.position.value = moved;
     own.stoodOnTheTable = true;
     return;
