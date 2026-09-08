@@ -7,12 +7,15 @@
  * tell this story, so it is built here once and each hands it what it
  * hears:
  *
- *     say({ start: true, doing })          the press is taken
+ *     say({ start: true, of, doing })      the press is taken; with `of`, the
+ *                                          last run's pace projects the whole
+ *                                          time before anything has landed
  *     say({ doing })                       a sentence about what is happening
  *     say({ done, of, doing, ... })        one more landed; the pace since the
  *                                          start projects the time left
  *     say({ ended: true, note })           the run's own last words; the bar
- *                                          stops where the count stands
+ *                                          stops where the count stands, and
+ *                                          the pace is kept for the next run
  *
  * A whole-population phase after every field landed (detection's UMAP)
  * keeps the bar sweeping: `phase: "umap"` with `running` not false, and
@@ -57,38 +60,46 @@ export function progressBox(title, { now = () => performance.now() } = {}) {
   /* Where the count stands, for the line to settle on when the run ends:
      an estimate of time left is no word for a run that has stopped. */
   let stood = null;
+  /* Seconds an item took, on average, in the last run that finished: what
+     the next run is projected from until it has a pace of its own. A first
+     run projects nothing until its first item lands. */
+  let lastPer = null;
+  let landed = 0;
+
+  const projected = (done, of, per) => `${done} of ${of}`
+    + (per !== null && of > done ? ` · ≈ ${saySpan(per * (of - done))} left` : "");
 
   function say(snap) {
     box.group.style.display = "";
     if (snap.start) {
       ranSince = now();
       stood = null;
+      landed = 0;
       bar.classList.add("busy");
       fill.style.width = "0%";
       doing.textContent = snap.doing ?? "";
-      count.textContent = "";
+      count.textContent = snap.of ? projected(0, snap.of, lastPer) : "";
       return;
     }
     if (snap.doing != null) doing.textContent = snap.doing;
     if (snap.done != null && snap.of) {
       if (ranSince === null) ranSince = now();
       const gone = (now() - ranSince) / 1000;
-      const per = snap.done ? gone / snap.done : null;
+      const per = snap.done ? gone / snap.done : lastPer;
+      landed = snap.done;
       const still = snap.of - snap.done;
       stood = `${snap.done} of ${snap.of}`;
       const mapping = snap.phase === "umap" && snap.running !== false;
       bar.classList.toggle("busy", still > 0 || mapping);
       fill.style.width = `${(100 * snap.done) / snap.of}%`;
-      count.textContent = per === null
-        ? `0 of ${snap.of}`
-        : `${snap.done} of ${snap.of}`
-          + (still ? ` · ≈ ${saySpan(per * still)} left` : "")
-          + (mapping && snap.objects ? ` · ${snap.objects} objects` : "");
+      count.textContent = projected(snap.done, snap.of, per)
+        + (mapping && snap.objects ? ` · ${snap.objects} objects` : "");
     }
     if (snap.ended) {
       bar.classList.remove("busy");
       doing.textContent = snap.note;
       if (stood !== null) count.textContent = stood;
+      if (ranSince !== null && landed > 0) lastPer = (now() - ranSince) / 1000 / landed;
       ranSince = null;
     }
   }

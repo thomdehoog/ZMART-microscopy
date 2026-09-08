@@ -19,7 +19,7 @@
 import { sideGroup } from "../../../../framework/window/panels.js";
 import {
   CARRIER_TYPES, carrierType, fromPreset, matchingPreset, geometry, maxRadius,
-  centres, depthMm,
+  centres, areaLabels, depthMm,
 } from "../../shared/carriers.js";
 
 const SVG = "http://www.w3.org/2000/svg";
@@ -39,6 +39,36 @@ const el = (tag, cls, text) => {
 /* Each type is drawn rather than named twice: the icon says slide or plate
    faster than the word under it does, and the word is there for when it does
    not. */
+/* How close, on screen, two names may stand before neither can be read. */
+const NAMES_NEED_PX = 14;
+
+function drawTheNames(ctx, { config, toScreen, scale, colour }) {
+  const { rows, cols } = areaLabels(config);
+  if (!rows.length) return;
+  const { pitchX, pitchY } = geometry(config);
+  if (Math.min(pitchX, pitchY) * MM_UM * scale < NAMES_NEED_PX) return;
+  const at = (a) => toScreen((a.x - config.w / 2) * MM_UM, (a.y - config.h / 2) * MM_UM);
+  const aw = config.w * MM_UM * scale;
+  const ah = config.h * MM_UM * scale;
+  const clear = 8;
+  ctx.save();
+  ctx.fillStyle = colour;
+  ctx.font = "600 11px ui-monospace, Consolas, monospace";
+  ctx.textBaseline = "middle";
+  ctx.textAlign = "right";
+  for (const row of rows) {
+    const [x, y] = at(row);
+    ctx.fillText(row.text, x - clear, y + ah / 2);
+  }
+  ctx.textAlign = "center";
+  ctx.textBaseline = "bottom";
+  for (const col of cols) {
+    const [x, y] = at(col);
+    ctx.fillText(col.text, x + aw / 2, y - clear);
+  }
+  ctx.restore();
+}
+
 const ICONS = {
   slide: (g) => {
     g.append(svgEl("rect", { x: 3, y: 8, width: 22, height: 12, rx: 1.5, fill: "none", stroke: "currentColor", "stroke-width": 1.5 }));
@@ -390,8 +420,16 @@ export default {
       ctx.stroke();
     }
     ctx.restore();
+    drawTheNames(ctx, { config, toScreen, scale, colour });
   },
 
+  /**
+   * The rows' letters down the left and the columns' numbers along the top,
+   * half a pitch outside the first well, at a size that reads on screen
+   * whatever the zoom. Only while the wells are far enough apart for the
+   * names to stand clear of each other: zoomed out to the stage they are
+   * not drawn, and zoomed in past the plate's edge they go with it.
+   */
   render(host, { config, locked, onChange, anchors }) {
     let cfg = { ...config };
     /* Whether the two halves of a pair move together is the operator's choice

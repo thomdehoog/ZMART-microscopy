@@ -48,6 +48,7 @@ import { newMaskLayer, replaceMaskLayer, targetsDress, tilesDress }
   from "../../workflows/target_acquisition/shared/mask-layers.js";
 import gatingPanel from "../../workflows/target_acquisition/steps/refine_targets/gate.js";
 import galleryWidget from "../../workflows/target_acquisition/steps/acquire_targets/gallery.js";
+import { progressBox } from "../../workflows/target_acquisition/shared/progress.js";
 /* The rehearsal's own maths — the deterministic random stream, the autofocus
    sweep with its two metrics and its specks of debris, and the focus-surface
    fitting — is imported rather than written here, so the unit tests and the
@@ -752,6 +753,7 @@ let stageWatch = null;
 
     if (s.mode === "scan") {
       state.tilesShown = 0;
+      scanProgress?.say({ start: true, of: state.plan.length, doing: "starting the scan…" });
       backend.scanOverview({
         /* Each position at the measured focus height for that place. One
            with no surface to read carries no height, and the bridge images
@@ -768,6 +770,10 @@ let stageWatch = null;
           if (state.running !== s.id) return;
           state.tilesShown = done;
           status.say(`scanning field ${done} of ${state.plan.length}`);
+          scanProgress?.say({
+            done, of: state.plan.length,
+            doing: done < state.plan.length ? `field ${done + 1} of ${state.plan.length}` : "",
+          });
           /* The lit frame follows the scan, as it follows the segmentation:
              on the field being taken now, not the one just finished. */
           state.detect.tile = Math.min(done, state.plan.length - 1);
@@ -798,10 +804,14 @@ let stageWatch = null;
         });
         /* The lit frame stays on the field the scan ended on, where the
            stage is; detection's test picker opens there too. */
+        scanProgress?.say({
+          ended: true,
+          note: outcome?.stopped ? "stopped by hand" : `${outcome?.records?.length ?? state.plan.length} fields scanned`,
+        });
         return outcome?.stopped
           ? stoppedShort(`stopped by hand — ${scanNote()}`)
           : finish();
-      }, itFailed);
+      }, (why) => { scanProgress?.say({ ended: true, note: why.message }); itFailed(why); });
       return;
     }
 
@@ -947,7 +957,7 @@ let stageWatch = null;
         state.acquiredTiles = {};
         galleryPanel?.rebuild();
       }
-      galleryPanel?.progress?.({ start: true });
+      galleryPanel?.progress?.({ start: true, of: picked.length, doing: "starting the acquisition…" });
       backend.scanOverview({
         positions: picked.map(positionFor),
         planned: state.targetTiles.map(positionFor),
@@ -1339,6 +1349,16 @@ let stageWatch = null;
         takes: "Import focussing configuration",
         retakes: "Update",
         locked: focusLocked(),
+        /* The one mistake this reading invites: importing with LAS X still
+           on the overview's job. The reading is fine as a reading, so it is
+           said rather than refused. */
+        warn: (record) => {
+          const job = record.changeable?.job;
+          const overview = activeRecording(state.overviewPreset)?.changeable?.job;
+          return job && overview && job === overview
+            ? `Same job as the overview (${job}). Select the focussing job in LAS X and press Update.`
+            : null;
+        },
         changed: () => {
           focusFollowsPreset(); showTheRest(); renderRail(); renderActionBar(); drawStage();
         },
@@ -1358,6 +1378,9 @@ let stageWatch = null;
      when no map was measured. There is nothing here to choose, so the channel
      is a short summary the operator can check at a glance, and the press that
      starts the scan. */
+  /* The scan's progress, the same box the acquisition has: built with the
+     panel, spoken to by the run. */
+  let scanProgress = null;
   const scanWidget = {
     id: "scan",
     label: "Scan the overview",
@@ -1389,7 +1412,10 @@ let stageWatch = null;
         ? `measured map · rms ${state.focus.residual.toFixed(1)} µm`
         : "found at every position");
       body.append(summary);
-      pad.append(group);
+      scanProgress = progressBox("Scan progress");
+      scanProgress.doing.id = "scan-doing";
+      scanProgress.count.id = "scan-count";
+      pad.append(group, scanProgress.group);
 
       // and the press that starts it, at the end of what it acts on
       const action = document.createElement("div");

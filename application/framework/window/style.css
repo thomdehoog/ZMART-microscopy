@@ -564,9 +564,9 @@ button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
 .focus-action[hidden] { display: none; }
 .focus-action button.run { width: 100%; padding: 0 6px; white-space: nowrap; }
 
-/* The same row of presses about one point rather than about the map: two
-   since Refine and Accept went, under the plot that shows that point. */
-.ft-acts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 10px; }
+/* The row of presses under the plot: two about the point on show, and
+   Reset all about the whole map, on the three columns the box above keeps. */
+.ft-acts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 10px; }
 .ft-acts .sf-flat { height: var(--control); padding: 0 8px; }
 
 .side-head {
@@ -1715,6 +1715,12 @@ canvas.livecv[hidden] { display: none; }
 }
 .edit-count { color: var(--edit-ink); }
 .warn-count { color: var(--warn-ink); }
+/* A sentence under a recorded reading, in the warning ink and the
+   reading's own type: what the step has to say about what was read. */
+.rec-warn {
+  color: var(--warn-ink); font-family: var(--mono); font-size: 11.5px; line-height: 1.35;
+  padding: 3px 10px 6px;
+}
 .edit-count:empty, .warn-count:empty { display: none; }
 /* Except where the two parts are one subject rather than two ways of answering
    different ones: the carrier types and the catalogue of them are one question
@@ -2244,15 +2250,15 @@ canvas.livecv[hidden] { display: none; }
   border: 1px solid var(--line); border-radius: 6px;
 }
 .canvas-legend[hidden] { display: none; }
-.canvas-legend-ramp { display: block; height: 10px; border-radius: 2px; border: 1px solid var(--line-strong); }
+.canvas-legend-ramp { display: block; height: 12px; border-radius: 2px; border: 1px solid var(--line-strong); }
 .canvas-legend-ends {
   display: flex; justify-content: space-between; align-items: baseline; gap: 10px;
-  font-family: ui-monospace, Consolas, monospace; font-size: 11px; line-height: 1.2;
+  font-family: ui-monospace, Consolas, monospace; font-size: 13px; font-weight: 600; line-height: 1.2;
 }
 .canvas-legend-ends > span { white-space: nowrap; }
 .canvas-legend-title {
   font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
-  font-size: 11.5px; font-weight: 600; color: var(--ink-3);
+  font-size: 13px; font-weight: 600; color: var(--ink-3);
 }
 
 /* The status bar: one quiet sentence at the foot of the rail, there only

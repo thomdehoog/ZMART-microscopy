@@ -176,7 +176,8 @@
 
             <!-- What can be done to the one point being read. Rerun measures
                  it again; Reset puts it back to the height the instrument
-                 chose. There is no Accept: a height the operator drags simply
+                 chose, and Reset all does that for every point on the map.
+                 There is no Accept: a height the operator drags simply
                  stands, because moving it is the look. -->
             <div class="ft-acts">
               <button type="button" class="sf-flat sf-doing" id="ft-rerun"
@@ -185,7 +186,11 @@
               </button>
               <button type="button" class="sf-flat" id="ft-reset"
                       title="Put this point back to the height the autofocus chose">
-                Reset
+                Reset current
+              </button>
+              <button type="button" class="sf-flat" id="ft-reset-all"
+                      title="Put every point back to the height the autofocus chose">
+                Reset all
               </button>
             </div>
           </div>

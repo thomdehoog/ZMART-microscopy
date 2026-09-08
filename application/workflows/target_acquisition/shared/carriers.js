@@ -325,6 +325,29 @@ export function centres(config) {
   return out;
 }
 
+/**
+ * What the rows and columns are called, with where each name stands: the
+ * letter of every row at the row's centre, the number of every column at
+ * the column's centre, in the carrier's millimetres. A plate is read A1 at
+ * the top left, letters down and numbers across; past Z the letters double,
+ * AA, AB, as a spreadsheet does. A carrier of one area has nothing to name.
+ */
+export function areaLabels(config) {
+  const { rows, cols } = config;
+  if (rows * cols < 2) return { rows: [], cols: [] };
+  const letter = (row) => {
+    let name = "";
+    for (let n = row + 1; n > 0; n = Math.floor((n - 1) / 26)) {
+      name = String.fromCharCode(64 + ((n - 1) % 26) + 1) + name;
+    }
+    return name;
+  };
+  return {
+    rows: Array.from({ length: rows }, (_, row) => ({ text: letter(row), ...centreOf(config, row, 0) })),
+    cols: Array.from({ length: cols }, (_, col) => ({ text: String(col + 1), ...centreOf(config, 0, col) })),
+  };
+}
+
 /** Where one area sits. The one place the answer is worked out. */
 function centreOf(config, row, col) {
   const { w, h } = config;

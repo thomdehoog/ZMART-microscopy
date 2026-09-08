@@ -31,6 +31,7 @@ import { sharePoints } from "../../shared/scanfields.js";
 import { visitOrder } from "./visit-order.js";
 import { zColourDomain } from "./z-domain.js";
 import { status } from "../../../../framework/window/status.js";
+import { progressBox } from "../../shared/progress.js";
 import { activeRecording } from "../../../../parts/microscope/recordings.js";
 
 
@@ -1004,30 +1005,45 @@ function pointToRerun() {
    slider. Each does nothing when there is nothing to do, which is what a
    press for one point should do anyway. */
 
-el("ft-reset").addEventListener("click", () => {
+/* One point put back. Two things to undo, and the point says which one it
+   is. Carried somewhere else on the map, it goes back to where its reading
+   was taken and the reading comes back with it — position, height, and the
+   sweep the plot draws. Standing where it was measured, only the height
+   moved, so only the height goes back: to what the instrument answered, and
+   no longer answered for, since a point put back is a point nobody has
+   looked at yet. */
+function putBack(point) {
   const f = run.focus;
-  if (run.running) return;
-  const moved = pointToRerun();
-  /* Two things to undo, and the point says which one it is. Carried somewhere
-     else on the map, it goes back to where its reading was taken and the
-     reading comes back with it — position, height, and the sweep the plot
-     draws. Standing where it was measured, only the height moved, so only the
-     height goes back. */
-  if (moved?.stale && moved.wasRead) {
-    const { wasRead, ...rest } = moved;
-    f.points[f.points.indexOf(moved)] = {
-      ...rest, ...wasRead, stale: false,
-    };
-  } else {
-    const p = pointOnShow();
-    if (!p) return;
-    /* Back to what the instrument answered, and no longer answered for: a
-       point put back is a point nobody has looked at yet. */
-    p.z = p.zAuto;
-    p.manual = false;
+  if (point.stale && point.wasRead) {
+    const { wasRead, ...rest } = point;
+    f.points[f.points.indexOf(point)] = { ...rest, ...wasRead, stale: false };
+    return;
   }
+  if (point.zAuto === undefined) return;
+  point.z = point.zAuto;
+  point.manual = false;
+}
+
+const afterPuttingBack = () => {
   refitSurface();
   renderPointList(); drawTrace(); stage.draw();
+};
+
+el("ft-reset").addEventListener("click", () => {
+  if (run.running) return;
+  const p = pointToRerun() ?? pointOnShow();
+  if (!p) return;
+  putBack(p);
+  afterPuttingBack();
+});
+
+/* Every point at once: the whole map back to what the instrument
+   answered, for an operator who dragged a few heights to see and wants the
+   measured map back without finding each one. */
+el("ft-reset-all").addEventListener("click", () => {
+  if (run.running) return;
+  for (const p of [...run.focus.points]) putBack(p);
+  afterPuttingBack();
 });
 
 el("ft-rerun").addEventListener("click", async (e) => {
@@ -1075,6 +1091,13 @@ async function rerunOne(f, at, p) {
     f.points[at] = settled({ ...came, stale: false, manual: false });
   }
 }
+
+/* The run's progress, between the presses that start it and the results
+   it fills: the same box the scan and the acquisition have. */
+const focusProgress = progressBox("Focus progress");
+focusProgress.doing.id = "focus-doing";
+focusProgress.count.id = "focus-count";
+el("focus-controls").insertBefore(focusProgress.group, el("focus-controls").children[1]);
 
 const traceCv = el("trace-canvas");
 
@@ -1839,11 +1862,12 @@ async function remeasure({ from = null } = {}) {
      each reader of them learning to cope with a missing field. */
   /* Points are laid on the carrier; the instrument is driven in its own
      frame. Out through `toStage`, back through `toCarrier` -- see stage.js. */
+  focusProgress.say({ start: true, of: asked.length, doing: "starting the focus run…" });
   const { points, stopped } = await backend.measureFocus(asked.map(stage.toStage), {
     metric: f.metric,
     extent: carrierSpan(),
-    /* The status bar reads the bridge's own sentence about the run. */
-    onDoing: (sentence) => status.say(sentence),
+    /* The status bar and the box read the bridge's own sentence about the run. */
+    onDoing: (sentence) => { status.say(sentence); if (sentence) focusProgress.say({ doing: sentence }); },
     /* The recorded focussing configuration, applied once before the run: the
        stack a point captures is whatever this recording says it is. */
     state: activeRecording(run.focusPreset)?.changeable ?? null,
@@ -1875,9 +1899,14 @@ async function remeasure({ from = null } = {}) {
         stage.takeThePosition({ x: measured.x_um, y: measured.y_um });
         f.selected = index;
       }
+      focusProgress.say({ done: index + 1, of: asked.length });
       refitSurface();
       renderPointList(); renderFocusBar(); drawTrace(); stage.draw();
     },
+  });
+  focusProgress.say({
+    ended: true,
+    note: stopped ? "stopped by hand" : `${points.filter((p) => Number.isFinite(p.z_um ?? p.z)).length} of ${asked.length} points measured`,
   });
   /* A stopped run keeps the map as it stands: the points that landed are
      already in it, and the ones never reached are still places to measure —
