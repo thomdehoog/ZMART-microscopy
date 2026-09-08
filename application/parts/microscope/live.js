@@ -157,6 +157,7 @@ export const backend = {
        the driver's business. */
     await ask("/api/connect", {
       connection: { ...session?.connection, password: session?.password, configuration: session?.configuration },
+      bake_coarse: session?.bakeCoarse === true,
     });
     let keys = null;
     const answered = new Set();

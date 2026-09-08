@@ -32,6 +32,8 @@ exactly one thing:
  *   coverage      the imaged regions, as `zmart_storage/coverage.py` records them,
  *                 or null when the run keeps no record
  *   background    the page colour, so the seam never shows
+ *   transparentBackground  opt-in transparent 2D background; each engine derives
+ *                 its own surface colour. Acquired image pixels remain opaque.
  *   presentation  `"2d-overlay"` when the sources stand on one table: every
  *                 stack's lowest plane at z=0, as the run's writer places them.
  *                 The picture opens on that plane, and a flat source (one
@@ -66,6 +68,8 @@ viewer.setChannel(index, { visible, colour, window })
 viewer.handDragsTo(handler)        // a drag means something other than panning; null gives panning back
 viewer.drawUnder(paint)            // the application's drawing beneath the picture
 viewer.drawOver(paint)             // the application's drawing above it
+viewer.middleSlot                  // optional engine-owned DOM slot between the
+                                  // drawings, for hosting an external image viewer
 viewer.drawsUnder                  // true or false: is `drawUnder` really beneath?
 viewer.drawsUnderBecause           // one sentence saying why it is what it is
 viewer.whereThingsAreDrawn()       // the transform, for placing ordinary HTML
@@ -77,8 +81,9 @@ viewer.destroy()
 acquisitions have the same row identities and each row merely appends position
 sources, including when there is nothing new. The existing Viewer instance,
 navigation, visibility, colour, and brightness remain untouched. It returns
-`false` when the acquisition/channel shape changed, so the caller can treat
-that as a different scene. An option that cannot grow in place returns `false`.
+`false` when existing sources are removed or replaced, so the caller can treat
+that as a different scene. New acquisition/channel rows may append in place.
+An option that cannot grow in place returns `false`.
 
 Nothing else is public. Add your option's name to
 `harness/src/options.js` — one line — and the page, the drawing, the

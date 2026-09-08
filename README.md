@@ -9,13 +9,16 @@ only as historical design reference.
 
 ## Reproducible Smart Operator setup
 
-The Smart Viewer integration is tested with `zmart-viewer` 0.2.0 at commit
-`9ff10b04e803fbe2a71a1735a8065a845ea803dd`. Keep its checkout beside this one:
+This integration requires the shared-acquisition viewer at commit
+`e759fec3c6c30e84d1ea115254b7b3b6549819bb` on `codex/mixed-acquisition-depth`,
+built on version 0.2.1. The released `v0.2.1` alone is insufficient. Keep the
+viewer checkout beside this one; publish both branches together before following
+these clone instructions on another machine:
 
 ```bash
 git clone https://github.com/thomdehoog/ZMART-microscopy.git
 git clone https://github.com/thomdehoog/ZMART-viewer.git
-git -C ZMART-viewer checkout 9ff10b04e803fbe2a71a1735a8065a845ea803dd
+git -C ZMART-viewer checkout e759fec3c6c30e84d1ea115254b7b3b6549819bb
 
 cd ZMART-microscopy
 conda env create -f environment.yml
@@ -25,7 +28,8 @@ npm --prefix application ci
 conda run -n zmart-microscopy python -m playwright install chromium
 ```
 
-The service itself checks the distribution version and refuses any Viewer copy
+The service checks the distribution version and acquisition-rendering capability,
+and refuses any Viewer copy
 imported from inside this repository. Confirm both the import and the exact source
 commit before running the operator:
 
@@ -36,6 +40,9 @@ print(viewer_provenance())
 PY
 git -C ../ZMART-viewer rev-parse HEAD
 ```
+
+See [relative-Z integration](docs/relative-z-integration.md) for the bake switch,
+coverage contract, supported geometry and regression commands.
 
 Start the simulated operator from the workflow folder:
 

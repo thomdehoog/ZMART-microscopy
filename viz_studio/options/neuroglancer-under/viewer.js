@@ -1,7 +1,7 @@
 /**
  * Option A: neuroglancer draws the acquisition in a canvas of its own, and the
- * operator's drawing sits exactly on top of it with holes cut where the picture
- * should show.
+ * host places that canvas between its background and annotation layers. Opt-in
+ * transparency keeps acquired pixels opaque without background cut-outs.
  *
  * This file is the only place in the whole application that knows neuroglancer
  * exists. Everything around it — the page, the two gestures in `../gestures.js`,
@@ -79,32 +79,9 @@
  *    resolution. `countFromTheCornerOfTheVoxelRatherThanItsMiddle` puts that
  *    right, and says plainly what part of it a viewer cannot put right.
  *
- * ## The bottom layer, and why this option says no to it
- *
- * `viz_studio/THE_CANVAS.md` describes a canvas of three layers sharing one
- * coordinate system: the application's own drawing beneath the picture, the
- * picture in the middle, and the operator's marks above. The interface offers a
- * slot for each — `drawUnder(paint)` and `drawOver(paint)` — and this option
- * implements both, in the sense that a drawing handed to `drawUnder` really is
- * painted on a surface placed behind the engine's canvas.
- *
- * **An operator will not see it, and this option says so plainly rather than
- * pretending.** `viewer.drawsUnder` is `false` here. Neuroglancer forces the
- * whole of its canvas opaque at the end of every frame, so a surface behind it is
- * never seen at all: measured, with one colour painted behind the engine and
- * another set as the engine's own background, an operator saw 0% of the colour
- * behind and 97% of the engine's background over ground nobody had imaged.
- *
- * The tempting thing to do instead would be to draw the bottom layer *above* the
- * engine with holes cut in it wherever the run has imaged, so that the page looks
- * the same as it does under an engine that can honour the slot. That is not done,
- * and the reason is worth stating: two options that looked identical while doing
- * entirely different things underneath would make the comparison a lie, and a
- * silent difference of exactly that kind is what this whole exercise exists to
- * avoid. An application that needs something beneath the picture on this engine
- * has a different route — put it *inside* the engine as an image or label layer,
- * which does work and is written up in `viz_studio/THE_CANVAS.md`, along with
- * what it costs.
+ * The host owns the layer stack: application ground, this image, then marks.
+ * In transparent 2D mode, authoritative acquired coverage keeps black image
+ * pixels opaque while unacquired ground reveals the layer below.
  */
 
 import "neuroglancer/unstable/util/polyfills.js";
@@ -119,6 +96,7 @@ import { makeCoordinateSpace, newDimensionId } from "neuroglancer/unstable/coord
 import { makeLayer, deleteLayer } from "neuroglancer/unstable/layer/index.js";
 import "neuroglancer/unstable/ui/default_viewer.css";
 import "./engine-chrome.css";
+import { refreshSources } from "./source-refresh.js";
 // The two gestures, from the one copy every option shares. See `../gestures.js`
 // for why there is only one copy and what it costs to have three.
 import { onlyPanAndZoom } from "../gestures.js";
@@ -222,6 +200,7 @@ export async function openViewer(element, options = {}) {
   const {
     acquisitions = [],
     coverage = null,
+    transparentBackground = false,
     background = "#000000",
     onViewChanged = null,
     presentation = "source-geometry",
@@ -254,6 +233,7 @@ export async function openViewer(element, options = {}) {
   const own = {
     element,
     coverage,
+    transparentBackground,
     background,
     onViewChanged,
     presentation,
@@ -386,7 +366,7 @@ function buildTheTwoSurfaces(own) {
   if (getComputedStyle(element).position === "static") {
     element.style.position = "relative";
   }
-  element.style.background = own.background;
+  element.style.background = own.transparentBackground ? "transparent" : own.background;
 
   own.engineHost = document.createElement("div");
   own.engineHost.className = "zmart-engine-underneath";
@@ -474,12 +454,8 @@ function fitTheSurfaces(own) {
  * for one.
  *
  * It goes behind the engine's canvas, which is where the bottom layer of
- * `viz_studio/THE_CANVAS.md` belongs. **It will not be seen**, because this
- * engine forces its canvas opaque at the end of every frame — see the note at
- * the top of this file, and `viewer.drawsUnder`, which says so out loud. It is
- * laid down all the same rather than quietly skipped, so that the arrangement is
- * genuinely the one described and the reason an operator sees nothing is the
- * engine rather than a page that decided not to bother.
+ * `viz_studio/THE_CANVAS.md` belongs. Transparent 2D mode reveals it outside
+ * acquired image coverage; opaque and volume modes retain their background.
  *
  * Made only when it is wanted. A page that never draws beneath the picture never
  * gets a third surface, never clears one every frame, and pays nothing for a
@@ -639,6 +615,7 @@ async function start(own, acquisitions) {
 
   // Which panels are on screen. Paired with the axis order below; see FLAT_LAYOUT.
   own.viewer.layout.restoreState(FLAT_LAYOUT);
+  own.viewer.display.transparentBackground = own.transparentBackground;
 
   // The engine's own furniture is off. It draws a cluster of layout buttons in
   // one corner, a panel of axis names in another, axis lines through the middle
@@ -665,18 +642,67 @@ async function start(own, acquisitions) {
 
   // -- the acquisitions ---------------------------------------------------
 
+  await loadAcquisitions(own, acquisitions);
+}
+
+async function loadAcquisitions(own, acquisitions) {
   own.rows = await rowsFor(acquisitions);
+  if (own.destroyed || !own.rows.length) return;
+  installRows(own);
+
+  await whenTheAxesAreKnown(own.viewer);
+  if (own.destroyed) return;
+  pinTheAxesThatMeasureDistance(own.viewer);
+  startTimeAtTheFirstMoment(own.viewer);
+  countFromTheCornerOfTheVoxelRatherThanItsMiddle(own);
+  await finishOpeningAcquisitions(own, acquisitions);
+}
+
+/** Install only missing rows, keeping existing layers, controls and textures. */
+function installRows(own) {
+  own.coverageLayers ??= new Map();
+  let layerIndex = 0;
   /* Which acquisition a row belongs to, and whether it opens one: the
      channels of one acquisition add together, and an acquisition drawn over
      another covers it rather than mixing with it -- a target frame over the
      overview is a picture of its own, not the sum of two. */
-  const acquisitionOf = (row) => row.acquisition ?? row.name?.split("/")[0] ?? "";
+  const acquisitionOf = (row) => `${row.acquisition ?? row.name?.split("/")[0] ?? ""}/${row.depth ?? ""}`;
   const baseAcquisition = acquisitionOf(own.rows[0] ?? {});
   for (const [at, row] of own.rows.entries()) {
     const opensAnAcquisition = own.rows.findIndex((one) => acquisitionOf(one) === acquisitionOf(row)) === at;
-    const coversWhatIsBelow = opensAnAcquisition && acquisitionOf(row) !== baseAcquisition;
+    if (opensAnAcquisition) for (const member of own.rows.filter(one => acquisitionOf(one) === acquisitionOf(row)
+        && one.coverageSources?.length)) {
+      let coverage = own.coverageLayers.get(member.layerName);
+      if (!coverage) {
+        const managed = makeLayer(own.viewer.layerSpecification, `__coverage__${member.layerName}`, {
+          type: "image", source: member.coverageSources, opacity: 1,
+          localPosition: member.localPosition ?? (member.channelIndex != null ? [member.channelIndex] : undefined),
+          shader: "#uicontrol invlerp covered(range=[0,1], clamp=false)\n"
+            + "void main() { emitRGBA(vec4(0.0,0.0,0.0,float(covered() > 0.0))); }",
+        });
+        own.viewer.layerSpecification.add(managed, layerIndex);
+        coverage = { managed, depth: member.depth, row: member };
+        own.coverageLayers.set(member.layerName, coverage);
+        const stop = managed.layer?.dataSourcesChanged?.add(
+          () => countFromTheCornerOfTheVoxelRatherThanItsMiddle(own),
+        );
+        if (stop) (own.stopWatchingTheSources ??= []).push(stop);
+      }
+      const manager = own.viewer.layerManager;
+      manager.reorderManagedLayer(manager.managedLayers.indexOf(coverage.managed), layerIndex++);
+    }
+    const coversWhatIsBelow = opensAnAcquisition && acquisitionOf(row) !== baseAcquisition
+      && !row.coverageSources?.length;
+    const position = layerIndex++;
+    if (row.managed) {
+      const manager = own.viewer.layerManager;
+      manager.reorderManagedLayer(manager.managedLayers.indexOf(row.managed), position);
+      row.managed.layer.blendMode.restoreState(coversWhatIsBelow ? "default" : "additive");
+      continue;
+    }
     const description = {
       type: "image",
+      visible: own.showingPicture !== false && row.visible !== false,
       // Smart Viewer 0.2's central rule: every position store of one channel
       // is a source of the SAME layer.  Neuroglancer places each one from the
       // transform in its OME-Zarr metadata.  Flattening this array into one
@@ -697,8 +723,8 @@ async function start(own, acquisitions) {
       // Nothing is lost by drawing each at its full strength, because what
       // decides where a layer is see-through here is the little program the
       // engine runs on the graphics card. It emits nothing at all where the
-      // stored number is nought, so ground a channel never imaged still lets the
-      // layers beneath it show through.
+      // stored number is nought. A supplied coverage layer keeps acquired black
+      // pixels opaque independently of that signal; unacquired ground stays clear.
       opacity: 1,
       /* Channels are added to one another, not painted over one another.
        *
@@ -741,27 +767,24 @@ async function start(own, acquisitions) {
           : {}),
     };
     const managed = makeLayer(own.viewer.layerSpecification, row.layerName, description);
-    own.viewer.layerSpecification.add(managed, at);
+    own.viewer.layerSpecification.add(managed, position);
     row.managed = managed;
+    const stop = managed.layer?.dataSourcesChanged?.add(
+      () => countFromTheCornerOfTheVoxelRatherThanItsMiddle(own),
+    );
+    if (stop) (own.stopWatchingTheSources ??= []).push(stop);
   }
+  syncCoverageVisibility(own);
+}
 
-  await whenTheAxesAreKnown(own.viewer);
-  pinTheAxesThatMeasureDistance(own.viewer);
-  startTimeAtTheFirstMoment(own.viewer);
-  countFromTheCornerOfTheVoxelRatherThanItsMiddle(own);
-  // A page may open several acquisitions at once, and they do not all arrive
-  // together — the axes become known as soon as the first of them is read, so a
-  // second one may still be on its way. Each layer is therefore looked at again
-  // whenever its source changes. Looking twice costs nothing: the second look
-  // finds the engine already counting from the corner of a voxel and leaves it
-  // alone, which is why this cannot creep half a voxel further with each pass.
-  own.stopWatchingTheSources = own.rows
-    .map((row) => row.managed?.layer?.dataSourcesChanged?.add(
-      () => {
-        countFromTheCornerOfTheVoxelRatherThanItsMiddle(own);
-      },
-    ))
-    .filter(Boolean);
+function syncCoverageVisibility(own) {
+  for (const coverage of own.coverageLayers?.values() ?? []) {
+    coverage.managed.setVisible(own.showingPicture !== false && !own.showingVolume
+      && coverage.row.visible !== false);
+  }
+}
+
+async function finishOpeningAcquisitions(own, acquisitions) {
   // The engine chooses a starting magnification the first moment it believes it
   // knows what space the picture lives in, and for a moment that is an empty
   // space in which one voxel is one metre. Clearing it now makes it choose
@@ -1052,6 +1075,9 @@ async function rowsFor(acquisitions) {
       rows.push({
         url: sources[0],
         sources,
+        coverageSources: channel.coverageSources,
+        sourceDepths: channel.sourceDepths,
+        sourceRevisions: [...(channel.sourceRevisions ?? sources.map(() => 0))],
         acquisition: acquisition.name,
         /* Whether every store of this acquisition is one imaged position and
            nothing else, so a layer may be opaque across its whole extent. */
@@ -1062,6 +1088,7 @@ async function rowsFor(acquisitions) {
         // channel of the same name — an overview and a detail scan both
         // recording green. So the name carries both halves.
         layerName: `${acquisition.name}/${channel.name}`,
+        logicalName: `${acquisition.name}/${channel.name}`,
         colour: channel.colour || [...WHITE],
         window: channel.window || { ...AN_ORDINARY_WINDOW },
         // Which position along the store's channel axis this row reads from.
@@ -1080,30 +1107,46 @@ async function rowsFor(acquisitions) {
       });
     });
   }
-  return rows;
+  const expanded = rows.flatMap((row, controlIndex) => {
+    if (!row.sourceDepths) return [{ ...row, controlIndex }];
+    return ["flat", "stack"].flatMap(depth => {
+      const indices = row.sourceDepths.flatMap((kind, i) => kind === depth ? [i] : []);
+      if (!indices.length) return [];
+      const part = { ...row, depth, controlIndex, layerName: `${row.layerName}/${depth}` };
+      for (const key of ["sources", "coverageSources", "sourceRevisions"])
+        if (row[key]) part[key] = indices.map(i => row[key][i]);
+      part.url = part.sources[0];
+      return [part];
+    });
+  });
+  return acquisitions.flatMap(acquisition => [undefined, "flat", "stack"].flatMap(depth =>
+    expanded.filter(row => row.acquisition === acquisition.name && row.depth === depth)));
 }
 
 /**
- * Add later position stores to the layers that already draw their channels.
+ * Append acquisition/depth rows and refresh changed aggregates in place.
  *
- * Smart Viewer watches one positions folder and grows the source arrays of its
- * stable acquisition rows. That is an append to an open picture, not a reason
+ * Smart Viewer publishes stable aggregate addresses with completed revisions.
+ * Another acquisition or depth kind can join an open picture without a reason
  * to destroy it: destroying revokes the old `/data/N/` endpoint while its
  * chunks are still in flight, and it also throws away navigation and operator
  * choices. This boundary accepts only the shape Viewer promises here — the
- * same acquisition/channel rows and each old source list as an exact prefix.
- * A caller that presents a different acquisition shape gets `false` and can
- * make the separate decision to open a genuinely different scene.
+ * additional acquisition/channel rows and each old source list as an exact
+ * prefix. Removing or replacing a source remains a genuinely different scene.
  */
 async function addSourcesToTheOpenRows(own, acquisitions) {
   if (own.destroyed) return false;
+  if (!own.rows.length) {
+    await loadAcquisitions(own, acquisitions);
+    return true;
+  }
   const wanted = await rowsFor(acquisitions);
-  if (wanted.length !== own.rows.length) return false;
+  if (own.destroyed) return false;
+  const nextByName = new Map(wanted.map(row => [row.layerName, row]));
 
-  for (let at = 0; at < wanted.length; at += 1) {
-    const held = own.rows[at];
-    const next = wanted[at];
-    if (held.layerName !== next.layerName || next.sources.length < held.sources.length) {
+  for (const held of own.rows) {
+    const next = nextByName.get(held.layerName);
+    if (!next || !held.managed?.layer || next.sources.length < held.sources.length) {
       return false;
     }
     if (held.sources.some((source, sourceAt) => next.sources[sourceAt] !== source)) {
@@ -1111,11 +1154,16 @@ async function addSourcesToTheOpenRows(own, acquisitions) {
     }
   }
 
-  for (let at = 0; at < wanted.length; at += 1) {
-    const held = own.rows[at];
+  const heldByName = new Map(own.rows.map(row => [row.layerName, row]));
+  const changed = new Set();
+  for (const held of own.rows) {
     const layer = held.managed?.layer;
     if (!layer) return false;
-    const fresh = wanted[at].sources.slice(held.sources.length);
+    const next = nextByName.get(held.layerName);
+    held.sources.forEach((url, at) => {
+      if (next.sourceRevisions[at] > held.sourceRevisions[at]) changed.add(url);
+    });
+    const fresh = next.sources.slice(held.sources.length);
     for (const address of fresh) {
       sourceAddressIsWhole(address, held.acquisition);
       // Use the same data-source-specification path as initial layer creation,
@@ -1126,8 +1174,18 @@ async function addSourcesToTheOpenRows(own, acquisitions) {
       }
       held.sources.push(address);
     }
-    // The row stays additive as it grows: see the layer description above.
+    held.sourceRevisions = next.sourceRevisions;
+    held.controlIndex = next.controlIndex;
   }
+  own.rows = wanted.map(row => {
+    if (heldByName.has(row.layerName)) return heldByName.get(row.layerName);
+    const channel = own.rows.find(held => held.acquisition === row.acquisition && held.name === row.name);
+    if (channel) for (const key of ["visible", "colour", "window", "weight", "gamma"])
+      row[key] = channel[key];
+    return row;
+  });
+  installRows(own);
+  refreshSources(own.viewer.chunkManager, changed);
   return true;
 }
 
@@ -1175,6 +1233,7 @@ function whenTheAxesAreKnown(viewer) {
       done();
     };
     const stop = position.coordinateSpace.changed.add(look);
+    viewer.registerDisposer(() => { stop(); done(); });
     look();
   });
 }
@@ -1320,13 +1379,16 @@ const A_FLAT_PICTURES_THICKNESS = 2e6;
 const THE_DEPTH_EVERY_FLAT_PICTURE_IS_DRAWN_AT = 0;
 
 function countFromTheCornerOfTheVoxelRatherThanItsMiddle(own) {
+  // A newly installed source can notify before initial framing. Select spatial
+  // axes first: the engine's default axes may still include time or channels.
+  pinTheAxesThatMeasureDistance(own.viewer);
   const space = own.viewer.navigationState.position.coordinateSpace.value;
   const shown = axesOnScreen(own.viewer);
   const drawnAcrossTheWindow = new Set(
     [space?.names?.[shown.across], space?.names?.[shown.down]].filter(Boolean),
   );
   if (!drawnAcrossTheWindow.size) return;
-  for (const row of own.rows) {
+  for (const row of [...own.rows, ...(own.coverageLayers?.values() ?? [])]) {
     /* Every position store of the row, not only the first. A row that draws a
        whole acquisition holds one source per landed position, and each source
        carries its own placement read from its own OME-Zarr description — so
@@ -1358,6 +1420,18 @@ function countFromTheCornerOfTheVoxelRatherThanItsMiddle(own) {
          that is loaded again gets a new load state and a fresh default
          transform, so it is moved again, which is right. */
       if (own.correctedLoadStates.has(loadState)) continue;
+      if (row.depth) {
+        // Aggregates already publish voxel-centre transforms. Only flat depth is local.
+        own.correctedLoadStates.add(loadState);
+        const output = placing.outputSpace.value;
+        if (row.depth === "flat" && output.names.includes("z")) {
+          placing.restoreState({ ...placing.toJSON(), outputDimensions:
+            Object.fromEntries(output.names.map((name, i) =>
+              [name === "z" ? "z'" : name, [output.scales[i], output.units[i]]])),
+          });
+        }
+        continue;
+      }
       const placed = placing.value;
       const { rank, outputSpace } = placed;
       const asRead = placing.defaultTransform;
@@ -1448,7 +1522,6 @@ function countFromTheCornerOfTheVoxelRatherThanItsMiddle(own) {
   }
   // A depth that arrived with this source is taken into the screen, and the
   // picture is opened at the bottom of it.
-  pinTheAxesThatMeasureDistance(own.viewer);
   standOnTheTable(own);
 }
 
@@ -1474,6 +1547,38 @@ function planesDeepIn(own, acquisition) {
     }
   }
   return deepest;
+}
+
+/** Plane centres and spacing of the selected aggregates, in their displayed Z. */
+function aggregateDepthIn(own, acquisition) {
+  let range = null;
+  for (const row of own.rows) {
+    if (row.depth !== "stack" || (acquisition !== null && row.acquisition !== acquisition)) continue;
+    for (const source of row.managed?.layer?.dataSources ?? []) {
+      const space = source.loadState?.transform?.value?.outputSpace;
+      const z = space?.names.indexOf("z") ?? -1;
+      if (z < 0) continue;
+      for (const { box, transform } of space.boundingBoxes) {
+        // Shared aggregates are axis-aligned; this coefficient retains native
+        // plane spacing even when another acquisition changes the engine's units.
+        const axes = Array.from(box.lowerBounds, (_, axis) => axis)
+          .filter(axis => transform[axis * space.rank + z] !== 0);
+        if (axes.length !== 1) continue;
+        const axis = axes[0], scale = transform[axis * space.rank + z];
+        const planes = box.upperBounds[axis] - box.lowerBounds[axis];
+        if (!(planes > 1)) continue;
+        const unit = space.scales[z] * UM_PER_M;
+        const shift = transform[box.lowerBounds.length * space.rank + z];
+        const stepUm = Math.abs(scale) * unit;
+        const lowUm = (shift + Math.min(scale * box.lowerBounds[axis], scale * box.upperBounds[axis])) * unit + stepUm / 2;
+        const highUm = lowUm + (planes - 1) * stepUm;
+        if (![lowUm, highUm, stepUm].every(Number.isFinite) || !(stepUm > 0)) continue;
+        range = range ? { lowUm: Math.min(range.lowUm, lowUm), highUm: Math.max(range.highUm, highUm),
+          stepUm: Math.min(range.stepUm, stepUm) } : { lowUm, highUm, stepUm };
+      }
+    }
+  }
+  return range;
 }
 
 /** Where the depth stands in an output space: the picture's shared `z`, or
@@ -2050,35 +2155,11 @@ function repaint(own) {
 // section exists because of one thing an operator sees, so it is worth
 // describing that first and the machinery second.
 //
-// While a run is going, the viewer is told every few seconds that a tile may
-// have landed. Each time, it has to make the engine go back to the store,
-// because nothing on disk announces a new tile — see `tilesMayHaveLanded` below
-// for why. Left to itself, the engine handles that by throwing away every piece
-// of picture it had already decoded and starting again from nothing, so the
-// window went completely empty for about a sixth of a second and then filled
-// back in. Measured: the share of the window holding picture read
-// 0.2726 → 0.0000 → 0.1839 across a single refresh. On a real acquisition that
-// is a flash of empty screen every few seconds, at exactly the moment the
-// operator is watching most closely, and it reads as the viewer breaking rather
-// than as the viewer working.
-//
-// **What the engine does and does not offer.** The only instruction the engine's
-// background worker accepts on this subject is "let go of everything you decoded
-// from this source", and a source here is one whole resolution level of one
-// acquisition — there is nothing finer. So the newly imaged ground cannot be
-// singled out: the refetching really is all-or-nothing, and that part is not
-// ours to change.
-//
-// What *is* ours to change is the picture on screen while the refetching
-// happens. The pieces the operator is looking at live in two places at once: the
-// worker's copy, which is what the instruction above throws away, and the
-// browser's own copy already uploaded to the graphics card, which is what is
-// actually drawn. The engine throws both away together, and only the first of
-// those two is necessary. So this keeps the second: the picture already on the
-// screen stays on the screen, and each piece of it is exchanged for its
-// replacement at the moment that replacement finishes downloading. Nothing is
-// ever drawn from two generations of the data at once, because the exchange
-// happens one piece at a time and each piece is whole.
+// New position URLs append without invalidation. A published source revision
+// refreshes that store's decoded chunks, while explicit legacy refreshes may
+// still invalidate the whole picture. Keep its GPU chunks visible until their
+// replacements arrive; invalidating the worker cache alone must not flash a
+// blank canvas.
 
 /**
  * Keep every piece of picture already on screen until its replacement arrives.
@@ -2143,6 +2224,11 @@ function keepShowingThePictureWhileTheNewOneArrives(own) {
         holding = new Set();
         own.superseded.set(source, holding);
       }
+      // A selective refresh must also retire this source's previous generation.
+      for (const piece of holding) {
+        if (source.chunks.has(piece)) source.deleteChunk(piece);
+      }
+      holding.clear();
       for (const piece of source.chunks.keys()) holding.add(piece);
       // Nothing on screen changed, and saying so is not a white lie: every piece
       // the engine was drawing a moment ago is still there to be drawn.
@@ -2267,6 +2353,11 @@ function handleFor(own) {
       const depth = info?.displayDimensionIndices?.[2] ?? -1;
       if (depth < 0 || !space?.bounds) return null;
       const umPerVoxel = space.scales[depth] * UM_PER_M;
+      if (own.rows.some(row => row.depth)) {
+        const range = aggregateDepthIn(own, acquisition);
+        return range && { ...range,
+          atUm: own.viewer.navigationState.position.value[depth] * umPerVoxel };
+      }
       /* The engine's own space spans every acquisition it holds. Asked
          about one, the answer is that one's: the deepest of its loaded
          sources, so a flat overview beside a stack is still flat. */
@@ -2366,7 +2457,9 @@ function handleFor(own) {
      */
     showVolume(on) {
       own.showingVolume = on !== false;
+      syncCoverageVisibility(own);
       own.viewer.layout.restoreState(own.showingVolume ? VOLUME_LAYOUT : FLAT_LAYOUT);
+      own.viewer.display.transparentBackground = own.transparentBackground && !own.showingVolume;
       handTheEngineItsOwnGestures(own);
       for (const row of own.rows) {
         const layer = row.managed?.layer;
@@ -2418,36 +2511,39 @@ function handleFor(own) {
         if (!row.managed) continue;
         row.managed.setVisible(own.showingPicture && row.visible !== false);
       }
+      syncCoverageVisibility(own);
     },
 
     setChannel(index, { visible, colour, window: brightness, weight, gamma } = {}) {
-      const row = own.rows[index];
-      if (!row || !row.managed) return;
-      if (visible !== undefined) row.visible = visible;
-      /* A channel switched on while the whole picture is off stays off on
-         screen, and comes on with the picture. Without this the page could
-         contradict itself: one channel drawn over a picture that is meant not to
-         be there. */
-      const shouldShow = own.showingPicture !== false && row.visible !== false;
-      if (row.managed.visible !== shouldShow) {
-        row.managed.setVisible(shouldShow);
-      }
-      const layer = row.managed.layer;
-      if (!layer) return;
-      if (colour) row.colour = colour;
-      if (brightness) row.window = brightness;
-      /* `weight` is the channel's own opacity, an extension the viewer's
-         panel uses; an option without it simply ignores the key. */
-      if (weight !== undefined) row.weight = weight;
-      if (gamma !== undefined) row.gamma = gamma;
-      if (colour || brightness || weight !== undefined || gamma !== undefined) {
-        // Everything travels as values for controls the compiled program
-        // declares — the colour included, so no change here recompiles.
-        // Restored whole, never piecewise: a partial restore is how one
-        // control quietly resets another to its default.
-        layer.shaderControlState.restoreState(
-          controlsFor(row, { asAVolume: own.showingVolume }),
-        );
+      for (const row of own.rows.filter(one => one.controlIndex === index)) {
+        if (!row.managed) continue;
+        if (visible !== undefined) row.visible = visible;
+        /* A channel switched on while the whole picture is off stays off on
+           screen, and comes on with the picture. Without this the page could
+           contradict itself: one channel drawn over a picture that is meant not to
+           be there. */
+        const shouldShow = own.showingPicture !== false && row.visible !== false;
+        if (row.managed.visible !== shouldShow) {
+          row.managed.setVisible(shouldShow);
+        }
+        syncCoverageVisibility(own);
+        const layer = row.managed.layer;
+        if (!layer) continue;
+        if (colour) row.colour = colour;
+        if (brightness) row.window = brightness;
+        /* `weight` is the channel's own opacity, an extension the viewer's
+           panel uses; an option without it simply ignores the key. */
+        if (weight !== undefined) row.weight = weight;
+        if (gamma !== undefined) row.gamma = gamma;
+        if (colour || brightness || weight !== undefined || gamma !== undefined) {
+          // Everything travels as values for controls the compiled program
+          // declares — the colour included, so no change here recompiles.
+          // Restored whole, never piecewise: a partial restore is how one
+          // control quietly resets another to its default.
+          layer.shaderControlState.restoreState(
+            controlsFor(row, { asAVolume: own.showingVolume }),
+          );
+        }
       }
     },
 
@@ -2485,7 +2581,8 @@ function handleFor(own) {
      */
     layersForMeasurement() {
       const space = own.viewer.navigationState.position.coordinateSpace.value;
-      return own.rows.map((row) => {
+      const channels = new Map();
+      for (const row of own.rows) {
         const sources = Array.from(row.managed?.layer?.dataSources ?? []).map((source, at) => {
           const landed = source?.loadState?.transform?.outputSpace?.value;
           return {
@@ -2509,8 +2606,13 @@ function handleFor(own) {
           };
         });
         const first = sources[0] ?? {};
-        return {
-          name: row.layerName,
+        const held = channels.get(row.controlIndex);
+        if (held) {
+          held.sources.push(...sources);
+          continue;
+        }
+        channels.set(row.controlIndex, {
+          name: row.logicalName,
           visible: row.managed?.visible,
           window: row.window,
           weight: row.weight ?? 1,
@@ -2524,8 +2626,9 @@ function handleFor(own) {
           sources,
           navDims: Array.from(space?.names ?? []),
           nav: Array.from(own.viewer.navigationState.position.value ?? []),
-        };
-      });
+        });
+      }
+      return [...channels].sort(([a], [b]) => a - b).map(([, row]) => row);
     },
 
     /**
@@ -2548,13 +2651,8 @@ function handleFor(own) {
      * the same frame, so a page writes the two the same way. Hand over `null` to
      * say there is nothing beneath, and no surface is laid down at all.
      *
-     * **On this engine an operator will not see it.** Neuroglancer forces its
-     * canvas opaque at the end of every frame, so the surface this paints on is
-     * covered completely wherever the engine is drawing. The drawing is made all
-     * the same, on a surface genuinely behind the engine's, because pretending
-     * otherwise — by drawing it on top with holes cut in it — would make this
-     * option look like the others while doing something quite different. Ask
-     * `drawsUnder` before relying on it; it is `false` here and says why.
+     * Visible outside image footprints when transparentBackground is enabled
+     * in 2D; opaque mode and volume rendering retain the original background.
      */
     drawUnder(paint) {
       own.paintBeneath = paint;
@@ -2566,20 +2664,16 @@ function handleFor(own) {
      * Whether a drawing handed to `drawUnder` really ends up beneath the
      * picture, where an operator can see it.
      *
-     * `false` here, and measured rather than assumed: with one colour painted
-     * behind this engine's canvas and another set as the engine's own
-     * background, an operator saw none of the colour behind and 97% of the
-     * engine's background over ground nobody had imaged.
+     * Transparency is opt-in and applies only to the flat view.
      */
-    drawsUnder: false,
+    get drawsUnder() { return own.transparentBackground && !own.showingVolume; },
 
     /** Why, in a sentence a page can show to whoever is looking at it. */
-    drawsUnderBecause:
-      "neuroglancer forces the whole of its canvas opaque at the end of every " +
-      "frame, so nothing placed behind it is ever seen. Anything that has to " +
-      "sit beneath the picture on this engine has to go inside the engine as a " +
-      "layer of its own, which means it must be written to the store first and " +
-      "cannot change while somebody is watching.",
+    get drawsUnderBecause() {
+      return this.drawsUnder
+        ? "The flat viewer is transparent outside acquired image footprints."
+        : "The viewer background is opaque; enable transparentBackground for 2D embedding.";
+    },
 
     /**
      * Where the canvas is looking, in a form good enough to place an ordinary
@@ -2702,6 +2796,8 @@ function handleFor(own) {
         if (row.managed) deleteLayer(row.managed);
       }
       own.rows = [];
+      for (const coverage of own.coverageLayers?.values() ?? []) deleteLayer(coverage.managed);
+      own.coverageLayers?.clear();
       own.viewer?.dispose?.();
       own.viewer = null;
       own.engineHost?.remove();

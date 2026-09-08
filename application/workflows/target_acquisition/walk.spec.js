@@ -107,9 +107,13 @@ const inTheInstrument = {
 test.describe("the target acquisition workflow, walked screen by screen", () => {
   test.setTimeout(A_WHOLE_WALK);
 
-  test("from Connect to acquired targets, every screen on the way", async ({ page }) => {
+  for (const bake of [false, true]) test(`from Connect to acquired targets, bake ${bake ? "on" : "off"}`, async ({ page }) => {
     const bridge = await startTheBridge({ port: PORT });
     const errors = [];
+    const imageRequests = [];
+    page.on("request", request => {
+      if (/\/data\/.*\/c\//.test(request.url())) imageRequests.push(request.url());
+    });
     page.on("pageerror", (why) => { errors.push(why.message); console.log(`page error: ${why.message}`); });
     try {
       await page.goto(`${bridge.at}/`);
@@ -122,9 +126,12 @@ test.describe("the target acquisition workflow, walked screen by screen", () => 
       /* Step 1: the card, the mock chosen, its configuration offered. */
       const offered = page.locator(".panel.on .session-form select").nth(2);
       await expect(offered).toBeEnabled();
+      await page.getByLabel("Bake coarse images (experimental)").setChecked(bake);
       await page.locator(".panel.on .session-buttons button.run").click();
       await expect(page.locator('.step.done:has-text("Connect")')).toBeVisible({ timeout: 60_000 });
       await expect(page.locator(".check-row.pending")).toHaveCount(0);
+      await page.waitForFunction(() => !!window.__thePicture);
+      await page.evaluate(() => { window.connectedPicture = window.__thePicture; });
       await rest(1200);
       await shot(page, "connected");
 
@@ -190,10 +197,17 @@ test.describe("the target acquisition workflow, walked screen by screen", () => 
       await page.locator(".panel.on button.step-run").click();
       await expect.poll(async () => (await ask(page, PORT, "/api/scan")).done, { timeout: 400_000 }).toBe(plan.length);
       await expect.poll(async () => !(await ask(page, PORT, "/api/scan")).running, { timeout: 400_000 }).toBe(true);
+      const overview = await ask(page, PORT, "/api/scan");
+      expect(overview).toMatchObject({ error: null, stopped: false, done: plan.length, of: plan.length });
+      expect(overview.records).toHaveLength(plan.length);
+      expect(overview.records.filter(record => record.zarr_error)).toEqual([]);
       await expect(page.locator(".panel.on button.step-run")).toHaveText("Run again", { timeout: 60_000 });
       await rest(3000);
       await shot(page, "scan-done");
-      await page.evaluate(() => window.__theStageCanvas.fadeTo(0.15));
+      expect(await page.evaluate(() => window.connectedPicture === window.__thePicture),
+        "overview rows keep the viewer opened at Connect").toBe(true);
+      await expect(page.locator(".layer-fade input")).toHaveValue("100");
+      expect(await page.evaluate(() => window.__theStageCanvas.layerShown("ground"))).toBe(true);
       await framePlan(page);
       await shot(page, "scan-done-picture");
       /* Under the picture: the picture is one room, as deep as the deepest
@@ -580,9 +594,35 @@ test.describe("the target acquisition workflow, walked screen by screen", () => 
         await rest(2000);
         const run = await page.evaluate(() => window.__theRunState());
         expect(run.acquiredTileKeys.length, "one capture per target tile").toBe(run.targetTiles);
+        expect(run.targetTiles).toBeGreaterThan(0);
+        await page.waitForFunction(() => window.__thePicture.layersForMeasurement().some(
+          row => row.name.startsWith("targets/") && row.dims?.length,
+        ));
+        expect(await page.evaluate(() => window.connectedPicture === window.__thePicture),
+          "target rows keep the same viewer and its existing images").toBe(true);
+        await expect(page.locator(".layer-fade input")).toHaveValue("100");
+        expect(await page.evaluate(() => window.__theStageCanvas.layerShown("ground"))).toBe(true);
+        const acquired = await ask(page, PORT, "/api/scan");
+        expect(acquired.error).toBeNull();
+        expect(acquired.records.filter(record => record.zarr_error)).toEqual([]);
+        await expect.poll(async () => (await ask(page, PORT, "/api/viewer")).error,
+          { timeout: 60_000 }).toBeNull();
+        const publication = await ask(page, PORT, "/api/viewer");
+        expect(publication.acquisitions.some(a => a.name === "targets")).toBe(true);
+        for (const acquisition of publication.acquisitions) for (const row of acquisition.channels) {
+          expect(row.sources.length).toBeLessThanOrEqual(2);
+          expect(row.sources.every(source => decodeURIComponent(source).includes("/.zmart-viewer/"))).toBe(true);
+        }
+        expect(imageRequests.length).toBeGreaterThan(0);
+        expect(imageRequests.every(url => decodeURIComponent(url).includes("/.zmart-viewer/"))).toBe(true);
         await shot(page, "acquire-done");
         await framePlan(page);
         await shot(page, "acquire-done-picture");
+        await rest(2500);
+        const beforeIdle = imageRequests.length;
+        await rest(3200);
+        expect(imageRequests.length, "idle publication polling does not refetch images").toBe(beforeIdle);
+        console.log({ bake, aggregateImageRequests: beforeIdle, idleImageRequests: 0 });
       }
 
       await walkTo(page, "Connect");

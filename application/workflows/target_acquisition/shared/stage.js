@@ -71,17 +71,14 @@ const theCanvas = putTheCanvasIn({
   box: stageBox,
   layers: ctx.layerBar,
   readout: ctx.readout,
-  /* Nothing to draw beneath the layers here, and no engine to choose between:
-     the scan that appears under the plan during a run is drawn by the scan
-     step, in a surface of its own below this one. */
+  // The lightweight canvas owns navigation and the two application drawings.
+  // The acquisition viewer occupies its middle slot.
   acquisitions: [],
   engine: "jpeg-under",
-  /* Nothing of its own behind the layers, because the scan the run is writing
-     is drawn beneath this canvas by the scan step. A ground of its own would
-     cover that scan — and cover it precisely where the plan has been opened up
-     to let it show, which is the only place anybody was looking. */
+  // Background is an explicit layer in THE_STACK, not a second CSS fill.
   background: "transparent",
   layersAbove: [],
+  pictureHost: ctx.pictureHost,
   /* A press that claimed nothing and went nowhere is the run's own picking, so
      it is answered here. A drag is not: the layers answer for those
      themselves, each in its place in the stack. */
@@ -591,19 +588,18 @@ function drawnIn(frame) {
 /* The order the stack is drawn in, bottom first.
  *
  * The workflow's to state, and stated in one place, because the order is not
- * something any step could know: it interleaves them. The carrier is under the
- * fields it holds, which are under the focus map measured across them, which is
- * under the plan drawn over all of it — steps 2, 5, 4 and 3, in none of their
- * own order. What each layer *is* belongs to its step; where it sits belongs
- * here.
+ * something any step could know: it interleaves them. Carrier, focus heatmap
+ * and overview plan sit below the acquisition picture; markers sit above it.
+ * What each layer draws belongs to its step; where it sits belongs here.
  *
- * A layer that stays solid is drawn after the rest whatever this says, so
- * anything that must sit low in the picture has to accept the fade. See
+ * Within each drawing slot, layers that stay solid are drawn last. See
  * `parts/canvas/layers-above.js`.
  */
 const THE_STACK = [
-  "ground", "limits", "carrier", "tiles", "segmentation", "frames", "cells", "targets",
-  "focus", "plan", "focusFrame", "focusPoints", "detect", "editing", "anchors", "stage", "scale",
+  "ground", "limits", "carrier", "focus", "plan",
+  "picture",
+  "tiles", "segmentation", "frames", "cells", "targets",
+  "focusFrame", "focusPoints", "detect", "editing", "anchors", "stage", "scale",
 ];
 
 /**
@@ -620,27 +616,7 @@ function thePicturesOwnLayers(theRun) {
     ground: {
       key: "ground",
       label: "Background",
-      explains: "The page's own surface, under everything else the canvas draws. Turn it "
-        + "off and the picture underneath shows through everywhere; leave it on and the "
-        + "picture shows only where a window has been opened.",
-      /* **This is the layer that decides whether a picture underneath can be
-         seen at all**, and it is worth being plain about why it is a layer
-         rather than a fill.
-      
-         The scan itself is drawn on a surface of its own, beneath this one.
-         Anything painted here covers it. So if this were painted outside the
-         stack — which is how it was written first — a window cut through the
-         layers would have nothing to reveal: the drawing above would go, and
-         the page's own grey would still be sitting on top of the picture.
-      
-         As the bottom layer of the stack it is cut by the same window as
-         everything above it, by the same rule and in the same pass. Open a
-         window over the fields that have landed and the scan appears there,
-         through every layer including this one. Turn this off altogether and
-         the scan is simply visible everywhere.
-      
-         It is a flat fill and therefore the one layer that is not sparse, but
-         that is exactly its job: it is the ground, and ground is not sparse. */
+      explains: "The opaque background beneath the plan and acquired images.",
       shown: true,
       paint: ({ context: ctx, width, height }) => {
         ctx.fillStyle = css("--screen");
@@ -724,6 +700,7 @@ function theStageLayers({ shown, editing }) {
   };
 
   const supplied = {
+    picture: { key: "picture", has: false },
     ...thePicturesOwnLayers(theRun),
     ...carrierLayers(theRun),
     ...scanAreaLayers(theRun),
@@ -780,44 +757,6 @@ function drawStage() {
    appeared on screen. */
 
 /**
- * Open the ground the scan has already covered, so the picture shows through.
- *
- * Called as fields land. The plan, the tiles and everything else drawn over a
- * field that has been taken is opened up there, which is how an operator
- * watches the scan appear through their own drawing rather than beside it.
- *
- * In micrometres in the carrier's own frame, which is where the fields are,
- * so the window travels with the sample when the view is panned and grows
- * when it is magnified.
- */
-function openTheGroundThatHasBeenScanned(howMuch = 1) {
-  const shown = Math.max(run.tilesShown, 0);
-  const fields = run.plan.slice(0, shown).map((t) => ({
-    x: t.x - t.frameUm / 2,
-    y: t.y - t.frameUm / 2,
-    w: t.frameUm,
-    h: t.frameUm,
-    letThrough: howMuch,
-  }));
-  /* The acquired target frames too. A shared or stitched tile is not
-     necessarily centred on a cell, and can be at the edge of an overview
-     field, so part of its frame lies
-     outside every field window; without a window of its own that part of
-     picture stayed hidden under the ground until the operator faded the
-     layers by hand. Open the exact physical frame that was acquired. */
-  const targets = (run.acquired ?? []).flatMap((key) => {
-    const tile = run.acquiredTiles?.[key];
-    if (!tile?.frameUm) return [];
-    const half = tile.frameUm / 2;
-    return [{
-      x: tile.x - half, y: tile.y - half,
-      w: tile.frameUm, h: tile.frameUm, letThrough: howMuch,
-    }];
-  });
-  theCanvas.seeThrough([...fields, ...targets]);
-}
-
-/**
  * The discovered targets in the canvas's carrier-local frame.
  *
  * This is a read-only evidence surface, like `plan()` and `project()` below:
@@ -848,20 +787,9 @@ function targetSnapshot() {
 /**
  * What the canvas will answer to, from outside it.
  *
- * The scan is drawn beneath this canvas, and the run opens the ground over
- * every field it has imaged (`groundFollowsTheScan` on the handle), so the
- * picture appears through the drawing exactly where it was taken. These stay
- * exposed for the browser tests, which drive the same rules by hand.
+ * Read-only geometry and layer controls used by the browser tests.
  */
 window.__theStageCanvas = {
-  /** Open the ground the scan has covered, so a picture beneath shows there. */
-  openScannedGround: openTheGroundThatHasBeenScanned,
-  /** Close every window again. */
-  closeTheGround() { theCanvas.seeThrough([]); },
-  /** Open one named piece of the sample, in micrometres in the carrier's frame. */
-  openThisGround(windows) { theCanvas.seeThrough(windows ?? []); },
-  /** Where the ground is open right now, in the carrier's micrometres. */
-  groundWindows: () => theCanvas.windows(),
   /** Which layers there are, and which are being drawn. */
   layers: () => theCanvas.layersAbove.map(({ key, label, shown, staysSolid }) =>
     ({ key, label, shown, staysSolid: !!staysSolid })),
@@ -1864,10 +1792,6 @@ function legendSettles() {
       thePicture.followTheStage(where);
       redrawViewSoon();
     },
-    /* The ground opens over what the scan has imaged, so the picture beneath
-       shows through the drawing exactly where it was taken. Called as tiles
-       land, and again when a run is reset and there is nothing to show. */
-    groundFollowsTheScan: openTheGroundThatHasBeenScanned,
     fit: fitView,
     /* The canvas is the picture's; the page says when its box has changed
        shape, and what the pointer should look like over it. */
@@ -1905,10 +1829,6 @@ function legendSettles() {
     takeTheCanvas,
     forgetTheCanvas,
     takeThePosition,
-    openScannedGround: openTheGroundThatHasBeenScanned,
-    closeTheGround() { theCanvas.seeThrough([]); },
-    openThisGround(windows) { theCanvas.seeThrough(windows ?? []); },
-    groundWindows: () => theCanvas.windows(),
     layers: () => theCanvas.layersAbove.map(({ key, label, shown, staysSolid }) =>
       ({ key, label, shown, staysSolid: !!staysSolid })),
     showLayer(key, on) { theCanvas.showLayer(key, on); drawStage(); },

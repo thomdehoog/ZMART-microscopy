@@ -1,4 +1,5 @@
 import path from "node:path";
+import { realpathSync } from "node:fs";
 import { defineConfig } from "vite";
 import { viteSingleFile } from "vite-plugin-singlefile";
 import {
@@ -201,7 +202,7 @@ export default defineConfig({
        page reaching for whatever else happens to be on the machine. The canvas
        is outside it, so the top of the repository is named as somewhere this
        page is allowed to read from. */
-    fs: { allow: [path.resolve(here, ".."), WHERE_THE_WORKERS_LIVE] },
+    fs: { allow: [path.resolve(here, ".."), realpathSync(WHERE_THE_WORKERS_LIVE)] },
     watch: {
       /* The browser tests leave photographs here. Vite reloads the page when a
          file in the project changes, which is exactly what you want while
