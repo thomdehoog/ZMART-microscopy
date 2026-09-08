@@ -117,14 +117,15 @@ class TestTheStore:
         assert kinds["scale"]["scale"][3] == pytest.approx(2.5)
         assert kinds["scale"]["scale"][4] == pytest.approx(2.5)
 
-    def test_a_flat_capture_sits_at_the_stage_z_it_was_taken_at(self, tmp_path):
-        # One plane, acquired at z -410 um. The store's z is the stage's z,
-        # like its x and y: a flat field is one voxel thick, at that height.
+    def test_a_flat_capture_sits_at_the_z_every_slice_shares(self, tmp_path):
+        # One plane, acquired at z -410 um. Slices are all shown at one z:
+        # the store stands at the shared z, one voxel thick, and the height
+        # it was really taken at is kept as provenance.
         store = position_store_from_record(one_file_per_plane(tmp_path), tmp_path / "positions")
         description = json.loads((store / "zarr.json").read_text())
         finest = description["attributes"]["ome"]["multiscales"][0]["datasets"][0]
         kinds = {t["type"]: t for t in finest["coordinateTransformations"]}
-        assert kinds["translation"]["translation"][2] == pytest.approx(-410.0)
+        assert kinds["translation"]["translation"][2] == pytest.approx(0.0)
         assert kinds["scale"]["scale"][2] == pytest.approx(1.0)
 
         model = description["attributes"]["zmart_microscopy"]["z_coordinate"]
@@ -132,7 +133,7 @@ class TestTheStore:
         assert model["frame"] == "specimen"
         assert model["array_order"] == [0]
         assert model["spacing_um"] == 1.0
-        assert model["lowest_plane_um"] == -410.0
+        assert model["lowest_plane_um"] == 0.0
         assert model["acquisition_provenance"] == {
             "plane_order_as_acquired": [0],
             "plane_centres_um": [-410.0],
@@ -142,7 +143,7 @@ class TestTheStore:
         }
 
     @pytest.mark.parametrize("acquisition_type", ["overview", "focussing", "target"])
-    def test_every_flat_acquisition_type_keeps_its_own_stage_z(
+    def test_every_flat_acquisition_type_stands_at_the_shared_z(
         self, tmp_path, acquisition_type
     ):
         low = one_file_per_plane(tmp_path / "low", channels=1)
@@ -151,13 +152,15 @@ class TestTheStore:
         high["acquisition_type"] = acquisition_type
         high["position_label"] = "K00_M000000_G000000_P000008_V00"
         high["planes"][0]["z_um"] = 137.5
-        for record, expected in ((low, -410.0), (high, 137.5)):
+        for record, taken_at in ((low, -410.0), (high, 137.5)):
             store = position_store_from_record(record, tmp_path / "positions")
             description = json.loads((store / "zarr.json").read_text())
             dataset = description["attributes"]["ome"]["multiscales"][0]["datasets"][0]
             transforms = {item["type"]: item for item in dataset["coordinateTransformations"]}
-            assert transforms["translation"]["translation"][2] == pytest.approx(expected)
+            assert transforms["translation"]["translation"][2] == pytest.approx(0.0)
             assert transforms["scale"]["scale"][2] > 0
+            model = description["attributes"]["zmart_microscopy"]["z_coordinate"]
+            assert model["acquisition_provenance"]["plane_centres_um"] == [taken_at]
 
     @pytest.mark.parametrize("acquisition_type", ["overview", "focussing", "target"])
     def test_a_stack_swept_downwards_is_written_ascending(self, tmp_path, acquisition_type):
