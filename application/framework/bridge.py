@@ -507,6 +507,8 @@ def _connect(asked: dict) -> dict:
     global _run
     _session = zmart_controller.set_instrument(connection)
     _context = dict(_session.context)
+    if connection.get("vendor") == "mock":
+        _open_the_mock_window(connection)
     info = _session.get_info()
     _run = prepare_experiment(info["output_root"], EXPERIMENT)
     # A fresh session has scanned nothing. The bridge outlives the page, and
@@ -533,6 +535,36 @@ def _connect(asked: dict) -> dict:
     viewer_service.stop()
     viewer_service.start(_run)
     return {"context": _context, "info": info, "run": str(_run)}
+
+
+def _open_the_mock_window(connection: dict) -> None:
+    """The mock's own window, opened with the session when it is not open.
+
+    On the Leica LAS X is simply there; the mock has only its window, and
+    an operator connecting to the mock wants it in front of them without
+    remembering to start it. Left alone when one already holds the lock.
+    Its own process, visible: pywebview inherits a hidden window style, so
+    nothing here asks for one. Its failure to start is a warning, never a
+    failed connect.
+    """
+    import logging
+    import os
+    import subprocess
+
+    from zmart_drivers.mock import mock_driver
+
+    state_file = mock_driver.where_the_instrument_stands(connection)
+    if mock_driver.the_window_is_open(state_file):
+        return
+    script = Path(__file__).resolve().parents[1] / "mock-instrument.py"
+    try:
+        subprocess.Popen(
+            [sys.executable, str(script)],
+            cwd=str(script.parent),
+            env={**os.environ, mock_driver.STATE_FILE_ENV: str(state_file)},
+        )
+    except OSError as why:
+        logging.getLogger(__name__).warning("the mock instrument window could not be opened: %s", why)
 
 
 def _disconnect() -> dict:

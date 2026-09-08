@@ -29,7 +29,7 @@ import {
 } from "../../../../parts/microscope/pretend-sample/surface.js";
 import { sharePoints } from "../../shared/scanfields.js";
 import { visitOrder } from "./visit-order.js";
-import { zColourDomain } from "./z-domain.js";
+import { zColourScale } from "./z-domain.js";
 import { status } from "../../../../framework/window/status.js";
 import { progressBox } from "../../shared/progress.js";
 import { activeRecording } from "../../../../parts/microscope/recordings.js";
@@ -219,16 +219,15 @@ const FIELD_W = 148, FIELD_H = 108;
 const fieldCv = document.createElement("canvas");
 fieldCv.width = FIELD_W; fieldCv.height = FIELD_H;
 
-function paintSurface(surf, zLo, zHi, box) {
+function paintSurface(surf, scale, box) {
   const fctx = fieldCv.getContext("2d");
   const img = fctx.createImageData(FIELD_W, FIELD_H);
-  const span = zHi - zLo || 1;
   let k = 0;
   for (let j = 0; j < FIELD_H; j++) {
     const y = box.yMin + ((j + 0.5) / FIELD_H) * (box.yMax - box.yMin);
     for (let i = 0; i < FIELD_W; i++) {
       const x = box.xMin + ((i + 0.5) / FIELD_W) * (box.xMax - box.xMin);
-      const c = viridis((surfaceZ(surf, x, y) - zLo) / span);
+      const c = viridis(scale.t(surfaceZ(surf, x, y)));
       img.data[k++] = c[0]; img.data[k++] = c[1]; img.data[k++] = c[2]; img.data[k++] = 255;
     }
   }
@@ -253,21 +252,19 @@ function drawFocusLayer(ctx, toScreen, scale, w, h) {
   const imaged = Math.max(run.tilesShown, 0);
 
   const box = planBox();
-  let zLo = 0, zHi = 1;
+  let colours = null;
   if (showSurface) {
     // a spline can bulge between its points, so sample the field rather than
     // trusting the corners the way a plane would let you
-    zLo = Infinity; zHi = -Infinity;
+    const sampled = [];
     for (let j = 0; j <= 12; j++) {
       for (let i = 0; i <= 16; i++) {
-        const z = surfaceZ(surf,
+        sampled.push(surfaceZ(surf,
           box.xMin + (i / 16) * (box.xMax - box.xMin),
-          box.yMin + (j / 12) * (box.yMax - box.yMin));
-        if (z < zLo) zLo = z;
-        if (z > zHi) zHi = z;
+          box.yMin + (j / 12) * (box.yMax - box.yMin)));
       }
     }
-    [zLo, zHi] = zColourDomain(zLo, zHi);
+    colours = zColourScale(sampled, run.focus.points.map((p) => p.z));
   }
 
   /* ---- the surface: fitted everywhere, shown only where it is used.
@@ -287,7 +284,7 @@ function drawFocusLayer(ctx, toScreen, scale, w, h) {
   if (showSurface && run.plan.length) {
     const [sx0, sy0] = toScreen(box.xMin, box.yMin);
     const sw = (box.xMax - box.xMin) * scale, sh = (box.yMax - box.yMin) * scale;
-    paintSurface(surf, zLo, zHi, planBox());
+    paintSurface(surf, colours, planBox());
     ctx.save();
     ctx.beginPath();
     run.plan.forEach((t, i) => {
@@ -320,7 +317,7 @@ function drawFocusLayer(ctx, toScreen, scale, w, h) {
        rather than saying where a boundary is. */
     const carriesTheReading = showSurface && i < imaged;
     ctx.strokeStyle = carriesTheReading
-      ? zColor((surfaceZ(surf, t.x, t.y) - zLo) / (zHi - zLo || 1))
+      ? zColor(colours.t(surfaceZ(surf, t.x, t.y)))
       : (showSurface ? "rgba(255,255,255,0.30)" : css("--line-strong"));
     ctx.lineWidth = carriesTheReading ? 2 : 1;
     if (sz < 2) { ctx.fillStyle = ctx.strokeStyle; ctx.fillRect(tx, ty, 2, 2); return; }
@@ -344,17 +341,20 @@ function drawFocusLayer(ctx, toScreen, scale, w, h) {
      and the row shows it in the page's own type. */
   if (!showSurface) return null;
   return {
-    title: "predicted focus height",
-    lo: `${zLo.toFixed(0)}`,
-    hi: `${zHi.toFixed(0)} µm`,
-    ramp: zRampCss(),
+    title: "relative z-depth",
+    lo: `${colours.min.toFixed(1)}`,
+    hi: `${colours.max.toFixed(1)} µm`,
+    ramp: zRampCss(colours.t(colours.min), colours.t(colours.max)),
   };
 }
 
-/** The colour ramp as a CSS gradient, for a legend drawn by the page. */
-function zRampCss() {
+/** The slice of the colour ramp between two places on it, as a CSS
+    gradient for the legend: the colours the map actually reaches. */
+function zRampCss(from = 0, to = 1) {
   const stops = [];
-  for (let i = 0; i <= 16; i++) stops.push(`${zColor(i / 16)} ${(i / 16 * 100).toFixed(1)}%`);
+  for (let i = 0; i <= 16; i++) {
+    stops.push(`${zColor(from + (to - from) * (i / 16))} ${(i / 16 * 100).toFixed(1)}%`);
+  }
   return `linear-gradient(to right, ${stops.join(", ")})`;
 }
 
@@ -1092,12 +1092,15 @@ async function rerunOne(f, at, p) {
   }
 }
 
-/* The run's progress, between the presses that start it and the results
-   it fills: the same box the scan and the acquisition have. */
+/* The run's progress, straight under the focussing configuration while a
+   run is on: the same box the scan and the acquisition have, but put away
+   when the run ends -- the map and its results are the whole answer, and a
+   finished bar between the configuration and the presses was a thing to
+   read past every time. */
 const focusProgress = progressBox("Focus progress");
 focusProgress.doing.id = "focus-doing";
 focusProgress.count.id = "focus-count";
-el("focus-controls").insertBefore(focusProgress.group, el("focus-controls").children[1]);
+el("focus-controls").prepend(focusProgress.group);
 
 const traceCv = el("trace-canvas");
 
@@ -1908,6 +1911,7 @@ async function remeasure({ from = null } = {}) {
     ended: true,
     note: stopped ? "stopped by hand" : `${points.filter((p) => Number.isFinite(p.z_um ?? p.z)).length} of ${asked.length} points measured`,
   });
+  focusProgress.group.style.display = "none";
   /* A stopped run keeps the map as it stands: the points that landed are
      already in it, and the ones never reached are still places to measure —
      replacing the list with the short answer dropped them. */

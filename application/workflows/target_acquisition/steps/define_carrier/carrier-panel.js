@@ -39,32 +39,39 @@ const el = (tag, cls, text) => {
 /* Each type is drawn rather than named twice: the icon says slide or plate
    faster than the word under it does, and the word is there for when it does
    not. */
-/* How close, on screen, two names may stand before neither can be read. */
+/* How tall a name is, as a share of the well pitch: a thing on the carrier,
+   drawn at the carrier's scale, so it grows and shrinks with the wells. */
+const NAME_OF_THE_PITCH = 0.22;
+/* And how close two names may stand on screen before neither can be read:
+   below this the names are not drawn at all. */
 const NAMES_NEED_PX = 14;
 
 function drawTheNames(ctx, { config, toScreen, scale, colour }) {
   const { rows, cols } = areaLabels(config);
   if (!rows.length) return;
   const { pitchX, pitchY } = geometry(config);
-  if (Math.min(pitchX, pitchY) * MM_UM * scale < NAMES_NEED_PX) return;
+  const pitch = Math.min(pitchX, pitchY) * MM_UM * scale;
+  if (pitch < NAMES_NEED_PX) return;
   const at = (a) => toScreen((a.x - config.w / 2) * MM_UM, (a.y - config.h / 2) * MM_UM);
   const aw = config.w * MM_UM * scale;
   const ah = config.h * MM_UM * scale;
-  const clear = 8;
+  const size = pitch * NAME_OF_THE_PITCH;
+  const clear = size * 0.9;
   ctx.save();
   ctx.fillStyle = colour;
-  ctx.font = "600 11px ui-monospace, Consolas, monospace";
+  ctx.font = `500 ${size}px ui-monospace, Consolas, monospace`;
   ctx.textBaseline = "middle";
   ctx.textAlign = "right";
   for (const row of rows) {
     const [x, y] = at(row);
-    ctx.fillText(row.text, x - clear, y + ah / 2);
+    // a capital sits above the middle of its em box; nudged down to the well's centre
+    ctx.fillText(row.text, x - clear, y + ah / 2 + size * 0.1);
   }
   ctx.textAlign = "center";
   ctx.textBaseline = "bottom";
   for (const col of cols) {
     const [x, y] = at(col);
-    ctx.fillText(col.text, x + aw / 2, y - clear);
+    ctx.fillText(col.text, x + aw / 2 - 1, y - clear * 0.5);
   }
   ctx.restore();
 }

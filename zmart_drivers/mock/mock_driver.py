@@ -205,6 +205,70 @@ def where_the_instrument_stands(connection: dict | None = None) -> Path:
     return Path.home() / ".zmart-mock" / "instrument.json"
 
 
+# -- the instrument's own window -------------------------------------------
+#
+# The mock has no software of its own; ``application/mock-instrument.py`` is
+# it. The window claims a lock beside the state file while it is open, so a
+# session that connects to the mock can open the window when it is not
+# there yet and leave it alone when it is -- the way LAS X is simply there
+# on the Leica.
+
+
+def where_the_window_stands(path: Path | None = None) -> Path:
+    """The lock the window holds while open, beside the state file."""
+    where = path or where_the_instrument_stands()
+    return where.with_name("instrument.window")
+
+
+def claim_the_window(pid: int, path: Path | None = None) -> Path:
+    lock = where_the_window_stands(path)
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    lock.write_text(str(int(pid)), encoding="utf-8")
+    return lock
+
+
+def release_the_window(path: Path | None = None) -> None:
+    try:
+        where_the_window_stands(path).unlink()
+    except FileNotFoundError:
+        pass
+
+
+def the_window_is_open(path: Path | None = None) -> bool:
+    """Whether a window holds the lock and is still running: a lock left by
+    a window that died is not a window."""
+    try:
+        pid = int(where_the_window_stands(path).read_text(encoding="utf-8").strip())
+    except (FileNotFoundError, ValueError):
+        return False
+    return _is_running(pid)
+
+
+def _is_running(pid: int) -> bool:
+    if pid <= 0:
+        return False
+    if os.name == "nt":
+        import ctypes
+
+        still_active = 259
+        handle = ctypes.windll.kernel32.OpenProcess(0x1000, False, pid)
+        if not handle:
+            return False
+        try:
+            code = ctypes.c_ulong()
+            ctypes.windll.kernel32.GetExitCodeProcess(handle, ctypes.byref(code))
+            return code.value == still_active
+        finally:
+            ctypes.windll.kernel32.CloseHandle(handle)
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
 def read_instrument_settings(path: Path | None = None) -> dict:
     """The settings in the file, or nothing when there is no file yet."""
     where = path or where_the_instrument_stands()
