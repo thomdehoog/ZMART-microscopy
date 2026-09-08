@@ -640,6 +640,29 @@ let stageWatch = null;
     }
     host.append(run);
 
+    /* Beside the target step's presses, once there is a pair to look at: one
+       press that dresses the picture -- window, gamma and colour of every
+       channel, the overview and the targets alike -- so the pair reads well
+       without a tour of the display settings. */
+    if (s.mode === "targets" && !running && state.ran.has(s.id)) {
+      const look = document.createElement("button");
+      look.className = "run make-it-look";
+      look.type = "button";
+      look.textContent = "Make it look good";
+      look.title = "Auto window, gamma and colours for every channel, overview and targets alike";
+      look.disabled = !window.__viewerPanel?.makeItLook;
+      look.addEventListener("click", async () => {
+        look.disabled = true;
+        look.textContent = "dressing…";
+        try {
+          await window.__viewerPanel?.makeItLook?.(["overview", "targets"]);
+        } finally {
+          renderActionBar();
+        }
+      });
+      host.append(look);
+    }
+
     /* The focus step says nothing beside its press. What it waits for is the
        box it stands in — points, laid by the row above it — and what it came to
        is the traces below; a greyed button between the two is already the whole
