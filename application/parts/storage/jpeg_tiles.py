@@ -503,6 +503,7 @@ def add_a_small_picture(
         {
             "label": label,
             "src": name,
+            "taken": (into / name).stat().st_mtime_ns,
             "x0": centre_x - width_um / 2.0,
             "y0": centre_y - height_um / 2.0,
             "w": width_um,
@@ -679,6 +680,7 @@ def make_small_pictures(
             {
                 "label": copy["label"],
                 "src": name,
+                "taken": (into / name).stat().st_mtime_ns,
                 "x0": centre_x - copy["width_um"] / 2.0,
                 "y0": centre_y - copy["height_um"] / 2.0,
                 "w": copy["width_um"],

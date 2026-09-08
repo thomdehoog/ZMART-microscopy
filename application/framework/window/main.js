@@ -613,9 +613,14 @@ let stageWatch = null;
       current.className = "run rerun-current";
       current.type = "button";
       current.textContent = "Rerun current";
-      current.addEventListener("click", () => runStep(i, {
-        targetTiles: [currentFrame.tile], append: true,
-      }));
+      current.addEventListener("click", () => {
+        /* The tile as it stands now, not as it stood when it was last
+           taken: the operator may have moved it, or remeasured the focus
+           map, since. The stored copy is only the fallback for a tile no
+           longer in the plan. */
+        const fresh = state.targetTiles.find((tile) => tile.key === currentFrame.tile.key);
+        runStep(i, { targetTiles: [fresh ?? currentFrame.tile], append: true });
+      });
       host.append(current);
     }
     if (running && brake) {
@@ -946,6 +951,7 @@ let stageWatch = null;
                recording's promise stands in only until it does. */
             frameUm: records[i]?.frame_um ?? tile.frameUm ?? state.targetFrameUm,
             label: records[i]?.position_label,
+            taken: records[i]?.taken ?? null,
             positionIndex,
             tile: { ...tile, positionIndex },
           };
@@ -1561,10 +1567,16 @@ let stageWatch = null;
           picture: pictureOf("overview", state.fieldLabels[cell.field], { requireDisplay: true }),
         };
       },
-      pictureOf: (id) => pictureOf(
-        "targets", state.acquiredTiles[id]?.label ?? state.acquiredLabels[id],
-        { requireDisplay: true },
-      ),
+      pictureOf: (id) => {
+        const where = pictureOf(
+          "targets", state.acquiredTiles[id]?.label ?? state.acquiredLabels[id],
+          { requireDisplay: true },
+        );
+        /* Stamped by the capture, so a rerun's frame is a new address and
+           the pair on show refreshes rather than keeping the old one. */
+        const taken = state.acquiredTiles[id]?.taken;
+        return where && taken ? `${where}&taken=${taken}` : where;
+      },
       selected: () => state.selectedTarget,
       /* Whether the current selection is the gallery's own quiet follow
          rather than the operator's choice. */

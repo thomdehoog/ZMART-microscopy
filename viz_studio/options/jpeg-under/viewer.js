@@ -298,7 +298,9 @@ async function readTheNotes(own) {
       continue;
     }
     picture.tiles = (note?.tiles || []).map((tile) => ({
-      src: `${at}/${tile.src}`,
+      /* A rerun rewrites a copy under its old name; the stamp makes the
+         address new, so the decoded cache and the browser fetch it again. */
+      src: `${at}/${tile.src}${tile.taken ? `?taken=${tile.taken}` : ""}`,
       grey: Number(tile.grey),
       x0: Number(tile.x0),
       y0: Number(tile.y0),

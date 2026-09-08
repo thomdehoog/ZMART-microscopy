@@ -1079,6 +1079,9 @@ def _scan_worker(
                     "y": float(position["y"]),
                     "z": float(z),
                 }
+                # When the frame was taken: a rerun rewrites the same label,
+                # and the page tells the new pixels from the old by this.
+                record["taken"] = time.time()
                 move_record_images(
                     record, prepare_acquisition(_the_run(), acquisition_type).data
                 )
