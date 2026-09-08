@@ -128,6 +128,15 @@ export function renderSessionCard(host, ctx) {
       });
       form.append(conf);
     }
+    const bake = document.createElement("label");
+    const toggle = document.createElement("input");
+    toggle.type = "checkbox";
+    toggle.checked = session.bakeCoarse === true;
+    toggle.disabled = locked;
+    toggle.addEventListener("change", () => { session.bakeCoarse = toggle.checked; });
+    bake.append(toggle, " Bake coarse images (experimental)");
+    bake.title = "Cache coarse aggregate chunks for all acquisitions. Originals stay separate in either mode. Choose before connecting.";
+    form.append(bake);
     card.append(form);
   }
 

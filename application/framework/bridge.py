@@ -124,7 +124,6 @@ from application.parts.storage.output import (  # noqa: E402
 )
 from application.parts.storage.zarr_positions import (  # noqa: E402
     frame_um_of,
-    place_into_resolved_store,
     position_store_from_record,
 )
 
@@ -533,7 +532,7 @@ def _connect(asked: dict) -> dict:
     # the JPEG copies -- so a viewer that cannot start is a sentence on
     # /api/viewer, never a failed connect.
     viewer_service.stop()
-    viewer_service.start(_run)
+    viewer_service.start(_run, bake=asked.get("bake_coarse") is True, canvas=info.get("canvas"))
     return {"context": _context, "info": info, "run": str(_run)}
 
 
@@ -983,42 +982,10 @@ def _focus_worker(asked: list, state: dict | None = None) -> None:
 _scan = {
     "running": False, "done": 0, "of": 0, "error": None, "stopped": False,
     "acquisition_type": None, "records": [],
-    # every centre the scan will drive to, so a resolved store can be declared
-    # whole at the first capture
+    # Planned centres, retained with scan status for inspection.
     "planned": [],
 }
 
-#: Where a targets scan keeps each frame's own store. The folder the viewer
-#: watches for the targets holds ONE resolved store instead -- see
-#: :func:`place_into_resolved_store` -- so the frames' own stores stand in a
-#: folder of their own, kept as records and never opened as sources.
-TARGET_FRAMES = "target-frames"
-
-#: The acquisitions the viewer watches as ONE resolved mosaic rather than as
-#: a store per position. A per-position store is one imaged frame and may be
-#: drawn opaque over its whole extent; a mosaic carries its own coverage --
-#: see :func:`place_into_resolved_store` -- and must not be.
-RESOLVED = frozenset({"targets"})
-
-# A chosen target is written over the resolved mosaic while the Viewer may be
-# reading the same chunks. Writers must never overlap one another, and Windows
-# can briefly refuse an overwrite while its reader still owns the file. Keep
-# that transient contention bounded here; geometry/data errors still surface
-# immediately.
-_resolved_targets_turn = threading.RLock()
-
-
-def _place_target_frame(record: dict, folder: Path, planned: list) -> Path:
-    """Place one target frame, retrying only a transient Windows file lock."""
-    deadline = time.monotonic() + 2.0
-    with _resolved_targets_turn:
-        while True:
-            try:
-                return place_into_resolved_store(record, folder, planned)
-            except PermissionError:
-                if time.monotonic() >= deadline:
-                    raise
-                time.sleep(0.025)
 
 #: What every scan captured, by the kind of scan. The overview's records are
 #: what discovery reads and what its pictures are made from, and a targets
@@ -1128,14 +1095,7 @@ def _keep_position_as_zarr(record: dict, acquisition_type: str) -> None:
     """
     try:
         folder = _the_run() / "positions" / acquisition_type
-        if acquisition_type == "targets":
-            # The frames overlap, and the engine would add them: each frame's
-            # own store is kept beside, and the watched folder holds the one
-            # resolved store, a later frame overwriting an earlier one.
-            record["zarr"] = str(position_store_from_record(record, _the_run() / "positions" / TARGET_FRAMES))
-            record["resolved"] = str(_place_target_frame(record, folder, _scan["planned"]))
-        else:
-            record["zarr"] = str(position_store_from_record(record, folder))
+        record["zarr"] = str(position_store_from_record(record, folder))
         # The frame's true width on the sample. A recording made before the
         # run says what was promised; the instrument may have stood on
         # another job by the time it captured, and the page draws, crops and
@@ -1146,23 +1106,21 @@ def _keep_position_as_zarr(record: dict, acquisition_type: str) -> None:
         return
     # The viewer beside this bridge links the folder into one live picture;
     # the first position of a kind opens it, the rest ring the doorbell.
-    viewer_service.a_position_landed(acquisition_type, folder)
+    viewer_service.a_position_landed(acquisition_type, folder, store=record["zarr"])
 
 
 def _raise_target(asked: dict) -> dict:
     """Put one acquired target's frame on top of its neighbours.
 
-    The resolved store lets a later frame overwrite an earlier one, so the
-    chosen target -- whose pair the gallery shows -- is raised by writing its
-    frame once more. Cheap: one frame's pixels, and the viewer is told.
+    Publish overlap order; the shared viewer recomposes affected chunks without
+    rewriting the original position store.
     """
     label = str(asked.get("position_label", ""))
     record = next((one for one in _records.get("targets", []) if one.get("position_label") == label), None)
     if record is None:
         raise ValueError(f"no acquired target is labelled {label!r}")
     folder = _the_run() / "positions" / "targets"
-    _place_target_frame(record, folder, _scan["planned"])
-    viewer_service.a_position_landed("targets", folder)
+    viewer_service.raise_position("targets", folder, Path(record["zarr"]))
     return {"raised": label}
 
 
@@ -1320,7 +1278,7 @@ def _replace_the_acquisition(acquisition_type: str, keeping: set[str] = frozense
     positions = run / "positions" / acquisition_type
     stale = [
         child for child in (positions.iterdir() if positions.is_dir() else [])
-        if child.name not in keeping
+        if child.is_dir() and child.name.endswith(".ome.zarr") and child.name not in keeping
     ]
     if stale:
         for child in stale:
@@ -1346,8 +1304,6 @@ def _start_scan(asked: dict) -> dict:
             acquisition_type,
             keeping={f"{acquisition_type}_{_label_for(i, p)}.ome.zarr" for i, p in enumerate(positions)},
         )
-        if acquisition_type == "targets":
-            _replace_the_acquisition(TARGET_FRAMES)
     else:
         _records.setdefault(acquisition_type, [])
         # The view's ordinary JPEG copies are derived from the records. One
@@ -1779,8 +1735,6 @@ class _Bridge(BaseHTTPRequestHandler):
                 self._answer(dict(_targets))
             elif path == "/api/viewer":
                 status = viewer_service.status()
-                for acquisition in status.get("acquisitions") or []:
-                    acquisition["opaque"] = acquisition.get("name") not in RESOLVED
                 self._answer(status)
             elif path.startswith("/view/"):
                 self._send_a_picture(path, query)

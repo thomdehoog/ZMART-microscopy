@@ -95,6 +95,7 @@ export function watchTheRun(ctx) {
     let viewer = null;
     let opening = false;
     let checkingForGrowth = false;
+    let generation = 0;
     /* What the open viewer was opened on, so a change — the run growing a
        second kind of scan — is noticed and the viewer reopened over it. */
     let openedOn = null;
@@ -145,6 +146,8 @@ export function watchTheRun(ctx) {
         };
       }
       const sources = await ctx.viewerSources?.();
+      // An unavailable response is not an instruction to remove loaded images.
+      if (sources == null && viewer) return null;
       if (sources?.length) {
         /* The engine draws acquisitions in the order supplied, first at the
            bottom. The overview is the base map and focussing is the local
@@ -158,27 +161,40 @@ export function watchTheRun(ctx) {
         return {
           engine: search.get("engine") ?? "neuroglancer-under",
           acquisitions: drawOrder,
-          signature: `sources:${addressesIn(drawOrder).join("|")}`,
+          signature: `sources:${JSON.stringify(drawOrder.map(acquisition => [
+            addressesIn([acquisition]),
+            (acquisition.channels ?? []).map(channel => channel.sourceRevisions ?? []),
+          ]))}`,
           inStageFrame: true,
         };
       }
-      return null;
+      return ctx.connected?.() ? {
+        engine: search.get("engine") ?? "neuroglancer-under",
+        acquisitions: [], signature: "sources:", inStageFrame: true,
+      } : null;
     }
 
     async function open() {
       if (viewer || opening) return;
       opening = true;
+      const session = generation;
       try {
         const wanted = await whatToOpen();
-        if (!wanted) return;
+        if (!wanted || session !== generation) return;
         const openViewer = await openerFor(wanted.engine);
-        viewer = await openViewer(host, {
+        if (session !== generation) return;
+        const opened = await openViewer(host, {
           acquisitions: wanted.acquisitions,
           presentation: "2d-overlay",
-          /* The same colour the page paints, so the seam between the scan's own
-             background and the ground above it never shows. */
+          transparentBackground: true,
+          // NG's colour setting accepts RGB; its separate flag clears alpha.
           background: ctx.css("--screen"),
         });
+        if (session !== generation) {
+          opened.destroy();
+          return;
+        }
+        viewer = opened;
         openedOn = wanted.signature;
         openedNames = wanted.acquisitions.map(({ name }) => name);
         inStageFrame = wanted.inStageFrame;
@@ -196,23 +212,27 @@ export function watchTheRun(ctx) {
            copy has no channels to offer. */
         panel?.destroy?.();
         panel = null;
-        if (wanted.signature.startsWith("sources:")) {
-          const { mountViewerPanel } = await import("../../../../parts/canvas/viewer-panel.js");
-          panel = await mountViewerPanel(host.parentElement ?? host, {
-            viewer, acquisitions: wanted.acquisitions, css: ctx.css,
-            requestedState: requestedPanelState,
-            into: ctx.displayHost?.() ?? null,
-            /* A small displayed copy (the discovery preview or Step 9 pair)
-               must follow colour, visibility and window changes too. */
-            changed: () => ctx.displaySettingsChanged?.(),
-          });
-        }
+        if (wanted.signature.startsWith("sources:")) await mountPanel(wanted, session);
+        if (session !== generation) return;
         ctx.displayChanged?.();
       } catch (e) {
         console.error(`the scan could not be opened — ${e.message}`);
       } finally {
-        opening = false;
+        if (session === generation) opening = false;
       }
+    }
+
+    async function mountPanel(wanted, session) {
+      const { mountViewerPanel } = await import("../../../../parts/canvas/viewer-panel.js");
+      if (session !== generation) return;
+      const mounted = await mountViewerPanel(host.parentElement ?? host, {
+        viewer, acquisitions: wanted.acquisitions, css: ctx.css,
+        requestedState: requestedPanelState,
+        into: ctx.displayHost?.() ?? null,
+        changed: () => ctx.displaySettingsChanged?.(),
+      });
+      if (session !== generation) mounted.destroy();
+      else panel = mounted;
     }
 
     /** Put the scan where the plan is looking, exactly. */
@@ -236,38 +256,49 @@ export function watchTheRun(ctx) {
       viewer.setView(v);
     }
 
-    /** Add positions of the stable acquisition to its existing layers.
-
-        A new acquisition type or a replaced source list is a different scene
-        and still takes the reopen path. Merely growing the watched positions
-        folder must not: closing it revokes `/data/N/` while chunks belonging
-        to that same picture may still be in flight. */
+    /** Append positions and acquisition rows without retiring loaded images.
+        Only removal or replacement of sources needs a different scene. */
     async function reopenIfTheRunGrew() {
       if (!viewer || opening || checkingForGrowth) return;
       checkingForGrowth = true;
+      const session = generation;
       try {
         const wanted = await whatToOpen();
-        if (!wanted || wanted.signature === openedOn) return;
+        if (session !== generation || !wanted || wanted.signature === openedOn) return;
+        // Stop the old panel's indexed measurements before rows can move.
+        const sameRows = await panel?.sourcesChanged(wanted.acquisitions);
+        if (session !== generation) return;
+        if (panel && !sameRows) {
+          panel.destroy();
+          panel = null;
+        }
         if (wanted.signature.startsWith("sources:")
             && openedOn?.startsWith("sources:")
             && await viewer.addSources?.(wanted.acquisitions)) {
+          if (session !== generation) return;
           openedOn = wanted.signature;
           openedNames = wanted.acquisitions.map(({ name }) => name);
-          await panel?.sourcesChanged?.(wanted.acquisitions);
+          followTheStage();
+          if (!panel) await mountPanel(wanted, session);
+          if (session !== generation) return;
           /* New rows -- a fresh acquisition's channels -- are new display
              settings for everything drawn with them: the page is told, the
              way it is when the settings first come. */
           ctx.displayChanged?.();
           return;
         }
+        if (session !== generation) return;
         closePicture();
         await open();
       } finally {
-        checkingForGrowth = false;
+        if (session === generation) checkingForGrowth = false;
       }
     }
 
     function closePicture({ forgetVisibility = false } = {}) {
+      generation += 1;
+      opening = false;
+      checkingForGrowth = false;
       panel?.destroy?.();
       panel = null;
       ctx.displayChanged?.();
@@ -300,7 +331,10 @@ export function watchTheRun(ctx) {
       followTheStage,
       reopenIfTheRunGrew,
       /** A field has landed, so there may be more of the scan to read. */
-      mayHaveLanded() { viewer?.tilesMayHaveLanded?.(); },
+      mayHaveLanded() {
+        if (openedOn?.startsWith("sources:")) return reopenIfTheRunGrew();
+        viewer?.tilesMayHaveLanded?.();
+      },
       /** The session is over, and what was opened belongs to it. A reconnect
           is a fresh session: its run starts with nothing scanned, and the
           picture of the last one must not stand in for it. */
@@ -314,22 +348,10 @@ export function watchTheRun(ctx) {
      reads as the page having stumbled. */
   thePicture.open();
 
-  /* One clock, doing both halves of the same job. Nothing on disk announces a
-     new field, so the scan has to be asked for rather than told — and nothing
-     announces the *first* field either: a scan that has imaged nothing has no
-     note to open, so the picture cannot be opened until one lands.
-
-     This used to hang off the overview's own heartbeat, which meant a page
-     watching a scan and nothing else — the ordinary case for a run the page is
-     taking itself — opened once against an empty run, failed, and never asked
-     again. The picture stayed black for the whole acquisition.
-
-     A run that has stopped changing simply draws the same picture again, so
-     the cost of this when there is nothing new is one small request every
-     couple of seconds. */
+  // Open an empty viewer after Connect, then poll for published sources and
+  // refresh existing ones. There is no separate step-4/step-5 viewer lifecycle.
   setInterval(() => {
     if (thePicture.opened) {
-      thePicture.mayHaveLanded();
       /* And whether the run has grown a source the open viewer does not
          hold — the targets landing beside the overview, say. The check is
          one small request, and nothing happens while the answer is the one

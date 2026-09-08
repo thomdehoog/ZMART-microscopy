@@ -76,6 +76,25 @@ describe("the sliders under the picture", () => {
     expect(parts.axisZ.hidden).toBe(false);
   });
 
+  it("unions relative ranges and excludes acquisitions no longer shown", () => {
+    const depths = {
+      a: { lowUm: -5, highUm: 1, stepUm: 1, atUm: 0 },
+      b: { lowUm: -1, highUm: 3, stepUm: 2, atUm: 0 },
+    };
+    const parts = theParts();
+    let shown = ["a", "b"];
+    const axes = mountTheAxes(parts, { picture: () => ({ theDepthItCanShow: name => depths[name] }),
+      acquisitions: () => shown, watchEveryMs: 0 });
+    axes.refresh();
+    expect([parts.plane.min, parts.plane.max, parts.plane.step]).toEqual(["-5", "3", "1"]);
+    shown = ["b"];
+    axes.refresh();
+    expect([parts.plane.min, parts.plane.max, parts.plane.step]).toEqual(["-1", "3", "2"]);
+    shown = [];
+    axes.refresh();
+    expect(parts.axisZ.hidden).toBe(true);
+  });
+
   it("offers T for a timelapse, counted in moments from the first", () => {
     const parts = theParts();
     const timelapse = {

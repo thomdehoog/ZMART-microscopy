@@ -415,61 +415,45 @@ def a_frame_at(folder, x_um, y_um, *, value, size=64, name):
     }
 
 
-def test_the_resolved_store_lets_a_later_frame_overwrite_and_a_raised_one_come_back(tmp_path):
-    """The targets acquisition is served to the canvas as ONE store per
-    channel, sized to the whole planned set, into which every frame is
-    written at its place: where two frames overlap the later one wins, so
-    the engine has nothing left to add within a channel. Writing a frame
-    again puts it on top -- how the chosen target is raised."""
-    from application.parts.storage.zarr_positions import place_into_resolved_store
+@pytest.mark.parametrize("bake", [False, True])
+def test_target_frames_compose_and_raise_without_rewriting_originals(tmp_path, bake):
+    from zmart_viewer.published import STORE, PublishedAcquisition
 
-    planned = [(100.0, 100.0), (140.0, 100.0)]
-    first = a_frame_at(tmp_path / "raw", 100.0, 100.0, value=1000, name="P0")
-    second = a_frame_at(tmp_path / "raw", 140.0, 100.0, value=2000, name="P1")
     into = tmp_path / "positions" / "targets"
-
-    store = place_into_resolved_store(first, into, planned)
-    assert store == into / "targets_resolved.ome.zarr"
-    level0 = zarr.open(str(store / "0"), mode="r")
-    # the whole planned set: from x 68 to 172, y 68 to 132 -> 104 by 64 voxels
-    assert level0.shape[-2:] == (64, 104)
-    described = json.loads((store / "zarr.json").read_text(encoding="utf-8"))
-    translation = described["attributes"]["ome"]["multiscales"][0]["datasets"][0]["coordinateTransformations"][1]["translation"]
-    assert translation[-2:] == [68.0, 68.0]
-    assert level0[0, 0, 0, 10, 10] == 1000 and level0[0, 0, 0, 10, 90] == 0
-
-    place_into_resolved_store(second, into, planned)
-    level0 = zarr.open(str(store / "0"), mode="r")
-    assert level0[0, 0, 0, 10, 50] == 2000, "the overlap holds the later frame"
-    assert level0[0, 0, 0, 10, 10] == 1000 and level0[0, 0, 0, 10, 90] == 2000
-
-    place_into_resolved_store(first, into, planned)
-    level0 = zarr.open(str(store / "0"), mode="r")
-    assert level0[0, 0, 0, 10, 50] == 1000, "raised: the first frame is on top again"
-    assert level0[0, 0, 0, 10, 90] == 2000, "and the rest of the second still stands"
-
-
-def test_the_resolved_store_refreshes_coarse_levels_on_one_global_pixel_lattice(tmp_path):
-    """A frame beginning on an odd finest-level pixel still updates exactly
-    the coarse pixels implied by the resolved image, including its overlap."""
-    from application.parts.storage.zarr_positions import place_into_resolved_store
-
-    planned = [(200.0, 200.0), (241.0, 200.0)]
-    first = a_frame_at(
-        tmp_path / "raw", 200.0, 200.0, value=1000, size=256, name="P0"
-    )
-    second = a_frame_at(
-        tmp_path / "raw", 241.0, 200.0, value=2000, size=256, name="P1"
-    )
-    into = tmp_path / "positions" / "targets"
-
-    store = place_into_resolved_store(first, into, planned)
-    place_into_resolved_store(second, into, planned)
-    finest = np.asarray(zarr.open(str(store / "0"), mode="r"))
-    coarser = np.asarray(zarr.open(str(store / "1"), mode="r"))
-    even = finest[..., : finest.shape[-2] // 2 * 2, : finest.shape[-1] // 2 * 2]
-    expected = np.rint(
-        even.reshape(*even.shape[:-2], even.shape[-2] // 2, 2,
-                     even.shape[-1] // 2, 2).mean(axis=(-3, -1))
-    ).astype(finest.dtype)
-    assert np.array_equal(coarser, expected)
+    records = [
+        a_frame_at(tmp_path / "raw", 256, 256, value=1000, size=512, name="P0"),
+        a_frame_at(tmp_path / "raw", 297, 256, value=0, size=512, name="P1"),
+    ]
+    stores = [position_store_from_record(record, into) for record in records]
+    originals = {p: p.read_bytes() for store in stores for p in store.rglob("*") if p.is_file()}
+    names = [store.name for store in stores]
+    view = PublishedAcquisition(into, piece=64)
+    canvas = {"x_um": [0, 1024], "y_um": [0, 512]}
+    try:
+        for order in (names, names[::-1]):
+            view.publish(into, dict.fromkeys(names, 1), canvas, bake=bake,
+                         composition={"regions": "complete", "order": order, "xy_origin": "corner",
+                                      "pyramid_reduction": "mean-xy2-crop-f32-rint-int"})
+            made = view.outputs[STORE].composer()
+            fine = np.zeros((512, 1024), dtype="uint16")
+            if order == names:
+                fine[:, :41] = 1000
+            else:
+                fine[:, :512] = 1000
+            for level in range(made.mosaic.levels):
+                actual = made.values_for(level, 0, 0, 0)
+                expected = np.zeros((64, 64), dtype="uint16")
+                expected[:min(64, fine.shape[0]), :min(64, fine.shape[1])] = fine[:64, :64]
+                np.testing.assert_array_equal(actual, expected)
+                # Acquired black stays covered; the region outside both footprints does not.
+                x = 540 // 2**level
+                col, pixel = divmod(x, 64)
+                assert made.coverage_for(level, 0, 0, col)[0, pixel] == 1
+                x = 900 // 2**level
+                col, pixel = divmod(x, 64)
+                assert made.coverage_for(level, 0, 0, col)[0, pixel] == 0
+                fine = np.rint(fine.reshape(fine.shape[0]//2, 2, fine.shape[1]//2, 2).mean(axis=(1,3))).astype("uint16")
+        assert all(p.read_bytes() == before for p, before in originals.items())
+        assert not (into / STORE / "0/c").exists()
+    finally:
+        view.close()

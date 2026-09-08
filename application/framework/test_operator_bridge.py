@@ -1194,6 +1194,11 @@ def test_a_scan_started_again_removes_the_stores_it_will_not_rewrite(monkeypatch
     for store in (kept, stale):
         store.mkdir(parents=True)
         (store / "zarr.json").write_text("{}", encoding="utf-8")
+    aggregate = positions / ".zmart-viewer" / "overview.ome.zarr"
+    aggregate.mkdir(parents=True)
+    (aggregate / "publication.json").write_text("published", encoding="utf-8")
+    note = positions / "notes.txt"
+    note.write_text("keep", encoding="utf-8")
     half_written = bridge._run / "positions" / ".writing-overview" / "x"
     half_written.mkdir(parents=True)
     copies = bridge.view_of("overview")
@@ -1206,6 +1211,8 @@ def test_a_scan_started_again_removes_the_stores_it_will_not_rewrite(monkeypatch
     assert told == [("overview", positions)]
     assert kept.is_dir(), "a store the new plan writes again stays for in-place replacement"
     assert not stale.exists()
+    assert (aggregate / "publication.json").read_text(encoding="utf-8") == "published"
+    assert note.read_text(encoding="utf-8") == "keep"
     assert not half_written.parent.exists()
     assert not copies.exists()
     assert "overview" not in bridge._view_built
@@ -1223,9 +1230,64 @@ def test_a_scan_that_only_grows_keeps_the_viewer_open(monkeypatch):
     positions = bridge._run / "positions" / "overview"
     kept = positions / "overview_K00_M000000_G000000_P000000_V00.ome.zarr"
     kept.mkdir(parents=True)
+    (positions / ".zmart-viewer").mkdir()
     bridge._replace_the_acquisition("overview", keeping={kept.name, "overview_next.ome.zarr"})
     assert told == []
     assert kept.is_dir()
+
+
+@pytest.mark.parametrize("bake", [False, True])
+def test_shorter_rerun_preserves_the_live_aggregate_and_republishes_coverage(monkeypatch, bake):
+    from zmart_storage.canvas import _declare_one
+    from zmart_viewer.published import PublishedAcquisition, STORE
+    from application.parts.storage.zarr_positions import _describe_mean_pyramid
+
+    positions = bridge._run / "positions" / "overview"
+    names = ["overview_kept.ome.zarr", "overview_retired.ome.zarr"]
+    for index, name in enumerate(names):
+        store = positions / name
+        arrays = _declare_one(
+            store, canvas_shape=(1, 32, 32), frames=1, channels=1,
+            dtype="uint16", chunk=16, levels=2, voxel_size_um=(1, 1, 1),
+            channel_blocks=[{"label": "signal", "color": "FFFFFF"}],
+            origin_um=(0, 0, index * 64), ome_zarr_version="0.5",
+        )
+        for array in arrays:
+            array[:] = (index + 1) * 100
+        description_path = store / "zarr.json"
+        description = json.loads(description_path.read_text(encoding="utf-8"))
+        _describe_mean_pyramid(description)
+        description_path.write_text(json.dumps(description), encoding="utf-8")
+    canvas = {"x_um": [0, 128], "y_um": [0, 64]}
+    view = PublishedAcquisition(positions, piece=16)
+
+    def publish(held):
+        view.publish(positions, dict.fromkeys(held, 1), canvas, bake=bake, composition={
+            "regions": "complete", "order": held, "xy_origin": "corner",
+            "pyramid_reduction": "mean-xy2-crop-f32-rint-int",
+        })
+
+    try:
+        publish(names)
+        derived = {path: path.read_bytes() for path in (positions / ".zmart-viewer").rglob("*") if path.is_file()}
+        original = {path: path.read_bytes() for path in (positions / names[0]).rglob("*") if path.is_file()}
+        told = []
+        monkeypatch.setattr(bridge.viewer_service, "stores_were_retired", lambda *args: told.append(args))
+        bridge._replace_the_acquisition("overview", keeping={names[0]})
+        assert told == [("overview", positions)]
+        assert all(path.read_bytes() == content for path, content in derived.items())
+        publish(names[:1])
+        composer = view.outputs[STORE].composer()
+        for level in range(composer.mosaic.levels):
+            assert composer.values_for(level, 0, 0, 0)[0, 0] == 100
+            assert composer.coverage_for(level, 0, 0, 0)[0, 0] == 1
+            column, pixel = divmod(64 // 2**level, 16)
+            values = composer.values_for(level, 0, 0, column)
+            assert values is None or values[0, pixel] == 0
+            assert composer.coverage_for(level, 0, 0, column)[0, pixel] == 0
+        assert all(path.read_bytes() == content for path, content in original.items())
+    finally:
+        view.close()
 
 
 def test_starting_a_scan_names_the_stores_it_keeps_by_the_new_plan(monkeypatch):
@@ -1310,11 +1372,8 @@ def test_a_copy_is_drawn_with_the_display_the_page_asks_with(monkeypatch, tmp_pa
 
 
 
-def test_a_targets_scan_is_served_as_one_resolved_store(monkeypatch, tmp_path):
-    """The targets overlap, and the engine would add overlapping frames of one
-    channel: the folder the viewer watches holds ONE resolved store, each
-    frame's own store stands in a folder of its own, and raising a target
-    writes its frame on top again."""
+def test_a_targets_scan_publishes_separate_originals_and_raises_by_order(monkeypatch, tmp_path):
+    """The viewer owns composition; the bridge only publishes originals and order."""
     import zmart_controller
     from zmart_drivers.mock import mock_driver
 
@@ -1335,45 +1394,19 @@ def test_a_targets_scan_is_served_as_one_resolved_store(monkeypatch, tmp_path):
         assert bridge._scan["error"] is None, bridge._scan["error"]
         assert bridge._scan["done"] == 2
         watched = sorted(p.name for p in (bridge._the_run() / "positions" / "targets").iterdir())
-        assert watched == ["targets_resolved.ome.zarr"]
-        frames = sorted(p.name for p in (bridge._the_run() / "positions" / bridge.TARGET_FRAMES).iterdir())
-        assert len(frames) == 2 and all(name.startswith("targets_") for name in frames)
+        assert len(watched) == 2 and all(name.startswith("targets_") for name in watched)
+        originals = {p: p.read_bytes() for p in (bridge._the_run() / "positions" / "targets").rglob("*") if p.is_file()}
+        raised = []
+        monkeypatch.setattr(bridge.viewer_service, "raise_position", lambda *args: raised.append(args))
         label = bridge._records["targets"][0]["position_label"]
         assert bridge._raise_target({"position_label": label}) == {"raised": label}
+        assert raised == [("targets", bridge._the_run() / "positions" / "targets",
+                           Path(bridge._records["targets"][0]["zarr"]))]
+        assert all(p.read_bytes() == data for p, data in originals.items())
         with pytest.raises(ValueError):
             bridge._raise_target({"position_label": "nobody"})
     finally:
         session.disconnect()
-
-
-def test_placing_a_target_retries_only_a_transient_windows_file_lock(monkeypatch, tmp_path):
-    """The live Viewer can briefly hold a chunk while a selected frame is
-    raised over it. That sharing violation is retried; data failures are not
-    hidden behind the same retry."""
-    calls = []
-    expected = tmp_path / "targets_resolved.ome.zarr"
-
-    def briefly_locked(record, folder, planned):
-        calls.append((record, folder, planned))
-        if len(calls) < 3:
-            raise PermissionError("chunk is still being read")
-        return expected
-
-    monkeypatch.setattr(bridge, "place_into_resolved_store", briefly_locked)
-    monkeypatch.setattr(bridge.time, "sleep", lambda _seconds: None)
-    assert bridge._place_target_frame({"position_label": "one"}, tmp_path, [(1.0, 2.0)]) == expected
-    assert len(calls) == 3
-
-    calls.clear()
-
-    def broken(record, folder, planned):
-        calls.append((record, folder, planned))
-        raise ValueError("invalid target geometry")
-
-    monkeypatch.setattr(bridge, "place_into_resolved_store", broken)
-    with pytest.raises(ValueError, match="invalid target geometry"):
-        bridge._place_target_frame({"position_label": "one"}, tmp_path, [(1.0, 2.0)])
-    assert len(calls) == 1
 
 
 # ---------------------------------------------------------------------------

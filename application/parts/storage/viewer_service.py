@@ -1,9 +1,8 @@
 """The ZMART viewer's server, run beside the bridge and pointed at the run.
 
 The viewer (github.com/thomdehoog/ZMART-viewer) is the party that knows how to
-serve OME-Zarr to a drawing engine: it links a folder of position stores into
-one picture without copying a voxel, watches the folder as a run writes into
-it, and answers the pieces of the picture over HTTP. This module runs that
+serve OME-Zarr to a drawing engine, optionally bake a coarse overview, and
+answer image chunks directly over HTTP. This module runs that
 server in-process, on a port of the machine's choosing, and keeps the small
 amount of state the operator page asks about: whether it is up, where it is,
 and which acquisition folders it has open.
@@ -35,20 +34,21 @@ from __future__ import annotations
 import json
 import re
 import threading
+import urllib.error
 import urllib.request
 from importlib.metadata import version
 from pathlib import Path
+from urllib.parse import unquote
 
-#: The operator asks for the live scene every 1.5 seconds.  A read must finish
-#: before the next question or a stalled Viewer creates an ever-growing queue of
-#: bridge requests while the microscope is meant to keep scanning.
-VIEWER_POLL_TIMEOUT_S = 1.0
+#: Only the background publisher waits for the viewer; acquisition and status
+#: requests never perform viewer I/O.
+VIEWER_REQUEST_TIMEOUT_S = 30.0
 
 #: The operator integration is verified against this separate Smart Viewer
 #: release.  An editable checkout is intentionally allowed, but an old copy of
 #: the viewer living inside this repository is not: those sources are historical
 #: reference material and do not own the runtime boundary.
-SMART_VIEWER_VERSION = "0.2.0"
+SMART_VIEWER_VERSION = "0.2.1"
 _MICROSCOPY_ROOT = Path(__file__).resolve().parents[3]
 
 #: The service's whole state: one viewer per bridge process, like the run.
@@ -69,11 +69,15 @@ _viewer: dict = {
     # opened folder itself and adds later stores to the same dataset number,
     # so each folder is opened exactly once for the life of this service.
     "opened": set(),
+    "source_versions": {},
+    "source_order": {},
+    "pending": set(),
+    "wake": None,
 }
 _the_turn = threading.Lock()
 
 
-def start(run_folder: Path | str) -> None:
+def start(run_folder: Path | str, *, bake: bool = False, canvas: dict | None = None) -> None:
     """Bring the viewer up beside the run, or record why it cannot come up.
 
     Never raises: connecting to the microscope must not fail over the
@@ -93,11 +97,16 @@ def start(run_folder: Path | str) -> None:
                 live=True,
                 allow_open=True,
                 panel_side="left",
+                canvas=canvas, transparent_background=True,
             )
             _allow_the_page_to_read(made)
             thread = threading.Thread(target=made.serve_forever, daemon=True)
             thread.start()
-            _viewer.update(server=made, thread=thread, port=made.server_address[1])
+            wake = threading.Event()
+            _viewer.update(server=made, thread=thread, port=made.server_address[1], wake=wake,
+                           bake=bake, folder_types={})
+            _viewer["canvas"] = canvas
+            threading.Thread(target=_publish_changes, args=(wake,), daemon=True).start()
         except Exception as why:  # noqa: BLE001 -- optional guest, sentence not stack
             _viewer["error"] = f"the viewer server did not start: {why}"
 
@@ -122,8 +131,10 @@ def viewer_provenance() -> dict[str, str]:
 def _smart_viewer_server():
     """Return the validated external server module, never a copied backend."""
     viewer_provenance()
-    from zmart_viewer import server
+    from zmart_viewer import published, server
 
+    if getattr(published, "ACQUISITION_RENDERING_VERSION", None) != 1:
+        raise RuntimeError("This operator requires the shared relative-Z acquisition viewer branch")
     return server
 
 
@@ -146,6 +157,8 @@ def stop() -> None:
     """The session is over, and the viewer with it."""
     with _the_turn:
         server = _viewer["server"]
+        if _viewer["wake"] is not None:
+            _viewer["wake"].set()
         _viewer.update(
             server=None,
             thread=None,
@@ -153,6 +166,12 @@ def stop() -> None:
             sources={},
             acquisitions=[],
             opened=set(),
+            source_versions={},
+            source_order={},
+            pending=set(),
+            wake=None,
+            bake=False,
+            folder_types={},
         )
         if server is not None:
             try:
@@ -162,93 +181,127 @@ def stop() -> None:
 
 
 def status() -> dict:
-    """What the operator page asks: is the viewer up, and what does it hold.
-
-    Smart Viewer watches folders that were opened while a run is growing. Its
-    config therefore changes from one source to two, three, and so on without
-    the folder being reopened. Read that config on every operator poll instead
-    of freezing the answer returned by the first ``/api/stores/open`` call.
-    """
-    with _the_turn:
-        port = _viewer["port"]
-
-    if port is not None:
-        try:
-            current = _read(port, "/api/config")
-        except Exception as why:  # noqa: BLE001 -- the scan must carry on
-            with _the_turn:
-                _viewer["error"] = f"the viewer's current picture could not be read: {why}"
-        else:
-            with _the_turn:
-                # A stop/start may have replaced the server while the request
-                # was in flight. Never publish one server's addresses as
-                # another server's state.
-                if _viewer["port"] == port:
-                    _viewer["sources"] = _the_sources_in(current, port)
-                    _viewer["acquisitions"] = _the_acquisitions_in(current, port)
-                    _viewer["error"] = None
-
+    """Return the latest published picture without waiting for viewer I/O."""
     with _the_turn:
         port = _viewer["port"]
         return {
             "running": port is not None,
             "url": f"http://127.0.0.1:{port}" if port is not None else None,
             "sources": {kind: list(held) for kind, held in _viewer["sources"].items()},
-            "acquisitions": list(_viewer["acquisitions"]),
+            "acquisitions": [dict(acquisition) for acquisition in _viewer["acquisitions"]],
             "error": _viewer["error"],
         }
 
 
-def a_position_landed(acquisition_type: str, positions_folder: Path | str) -> None:
-    """A capture's position store has been written: make sure the viewer shows it.
-
-    The first position of an acquisition type opens its folder as a source of
-    its own; every later one only rings the doorbell, and the viewer re-reads
-    what is on disk. Never raises — a viewer that cannot hear costs the live
-    picture, not the scan.
-    """
-    folder = str(positions_folder)
+def a_position_landed(
+    acquisition_type: str, positions_folder: Path | str, *, store: Path | str
+) -> None:
+    """Record a completed write; publication must never hold up acquisition."""
     with _the_turn:
-        port = _viewer["port"]
-        if port is None:
+        if _viewer["port"] is None:
             return
-        first_time = folder not in _viewer["opened"]
-    try:
-        if first_time:
-            answered = _ask(port, "/api/stores/open", {"path": folder})
-            with _the_turn:
-                _viewer["opened"].add(folder)
-                _viewer["sources"] = _the_sources_in(answered, port)
-                _viewer["acquisitions"] = _the_acquisitions_in(answered, port)
-        # A rerun may replace chunks inside the same named store.  Smart Viewer
-        # deliberately distinguishes that case: this wire word tells its live
-        # readers that stable URLs may now contain new bytes.
-        _ask(port, "/api/announce", {"wrote_image_in_place": True})
-    except Exception as why:  # noqa: BLE001 -- the picture lags, the scan goes on
-        with _the_turn:
-            _viewer["error"] = f"the viewer was not told about {acquisition_type}: {why}"
+        versions = _viewer["source_versions"]
+        key = (acquisition_type, Path(store).name)
+        previous = versions.get(key, 0)
+        versions[key] = previous + 1
+        order = _viewer["source_order"].setdefault(acquisition_type, [])
+        if key[1] in order:
+            order.remove(key[1])
+        order.append(key[1])
+        _viewer.setdefault("folder_types", {})[str(positions_folder)] = acquisition_type
+        _queue_publication(str(positions_folder))
+
+
+def raise_position(acquisition_type: str, positions_folder: Path, store: Path) -> None:
+    """Change overlap order without rewriting or re-versioning original pixels."""
+    with _the_turn:
+        order = _viewer["source_order"].get(acquisition_type, [])
+        if store.name in order:
+            order.remove(store.name)
+            order.append(store.name)
+            _queue_publication(str(positions_folder))
 
 
 def stores_were_retired(acquisition_type: str, positions_folder: Path | str) -> None:
-    """Stores of this kind were removed from disk: let the page find out now.
-
-    The viewer keeps a store it once listed in its rows even after the store
-    is gone, and it is not asked to close the acquisition: a folder it has
-    closed is not the same folder to it when opened again, so closing would
-    cost the live picture. Instead the stores are simply gone from disk, the
-    viewer is told something changed, and this service leaves any source
-    whose store is no longer there out of what it hands the page. Never
-    raises — a viewer that cannot hear costs the live picture, not the scan.
-    """
+    """Queue a new snapshot after a shorter rerun removes position stores."""
+    folder = str(positions_folder)
     with _the_turn:
-        port = _viewer["port"]
-        if port is None:
-            return
-    try:
-        _ask(port, "/api/announce", {})
-    except Exception as why:  # noqa: BLE001 -- the picture lags, the scan goes on
+        if folder in _viewer["opened"] or any(
+            kind == acquisition_type for kind, _ in _viewer["source_versions"]
+        ):
+            _queue_publication(folder)
+
+
+def _queue_publication(folder: str) -> None:
+    # Called with the turn held. Coalesce by folder, not by frame.
+    _viewer["pending"].add(folder)
+    _viewer["wake"].set()
+
+
+def _publish_changes(wake: threading.Event) -> None:
+    retry = False
+    while True:
+        wake.wait(timeout=1.5 if retry else None)
         with _the_turn:
-            _viewer["error"] = f"the viewer was not told that {acquisition_type} shrank: {why}"
+            if _viewer["wake"] is not wake:
+                return
+            wake.clear()
+            pending = set(_viewer["pending"])
+            _viewer["pending"].clear()
+        retry = bool(pending) and not _publish_once(wake, pending)
+
+
+def _publish_once(wake: threading.Event, pending: set[str]) -> bool:
+    with _the_turn:
+        if _viewer["wake"] is not wake:
+            return True
+        port = _viewer["port"]
+        opened = set(_viewer["opened"])
+        bake = _viewer.get("bake", False)
+        versions = dict(_viewer["source_versions"])
+        folder_types = dict(_viewer.get("folder_types", {}))
+        orders = {kind: list(names) for kind, names in _viewer["source_order"].items()}
+        canvas = _viewer["canvas"]
+    try:
+        publications = []
+        for folder in pending:
+            completed = {
+                name: revision for (kind, name), revision in versions.items()
+                if kind == folder_types.get(folder) and (Path(folder) / name).is_dir()
+            }
+            if not completed and folder not in opened:
+                continue
+            payload = {"path": folder, "source_revisions": completed, "composition": {
+                "regions": "complete",
+                "order": [n for n in orders.get(folder_types.get(folder), []) if n in completed],
+                "xy_origin": "corner", "pyramid_reduction": "mean-xy2-crop-f32-rint-int",
+            }}
+            if folder not in opened:
+                _ask(port, "/api/stores/open", {
+                    **payload, "bake": bake, "canvas": canvas,
+                })
+                with _the_turn:
+                    if _viewer["wake"] is not wake:
+                        return True
+                    _viewer["opened"].add(folder)
+            else:
+                publications.append(payload)
+        if publications:
+            _ask(port, "/api/announce", {"publications": publications})
+        current = _read(port, "/api/config")
+        # Translation checks stores on disk, so it too stays outside the lock.
+        sources = _the_sources_in(current, port)
+        acquisitions = _the_acquisitions_in(current, port)
+    except Exception as why:  # noqa: BLE001 -- keep the last picture and retry
+        with _the_turn:
+            if _viewer["wake"] is wake:
+                _viewer["error"] = f"the viewer's current picture could not be read: {why}"
+                _viewer["pending"].update(pending)
+        return False
+    with _the_turn:
+        if _viewer["wake"] is wake:
+            _viewer.update(sources=sources, acquisitions=acquisitions, error=None)
+    return True
 
 
 def _still_on_disk(address: str) -> bool:
@@ -264,7 +317,7 @@ def _still_on_disk(address: str) -> bool:
     folders = [Path(folder) for folder in _viewer["opened"]]
     if not found or not folders:
         return True
-    name = found.group(1)
+    name = unquote(found.group(1))
     return any((folder / name).is_dir() for folder in folders)
 
 
@@ -353,6 +406,14 @@ def _the_acquisitions_in(config: dict, port: int) -> list[dict]:
                 "localPosition": layer.get("localPosition"),
                 "visible": layer.get("active") is not False,
                 "sources": sources,
+                "sourceDepths": layer.get("sourceDepths"),
+                **({"coverageSources": layer["coverageSources"]} if layer.get("coverageSources") else {}),
+                "sourceRevisions": layer.get("sourceRevisions") or [
+                    _viewer["source_versions"].get((group, unquote(found.group(1))), 0)
+                    if (found := re.search(r"/data/\d+/([^/|]+)", source))
+                    else 0
+                    for source in sources
+                ],
             }
         )
     return list(grouped.values())
@@ -389,6 +450,8 @@ def _the_scene_in(config: dict, port: int) -> dict:
         row["sources"] = [
             whole(source) for source in row.get("sources") or [] if _still_on_disk(source)
         ]
+        if row.get("coverageSources"):
+            row["coverageSources"] = [whole(source) for source in row["coverageSources"]]
         candidates.append(row)
         for source in row["sources"]:
             found = re.search(r"/data/(\d+)/", source)
@@ -440,13 +503,17 @@ def _ask(port: int, route: str, payload: dict) -> dict:
         data=json.dumps(payload).encode(),
         headers={"Content-Type": "application/json"},
     )
-    with urllib.request.urlopen(request, timeout=30) as answer:
-        return json.loads(answer.read() or b"{}")
+    try:
+        with urllib.request.urlopen(request, timeout=VIEWER_REQUEST_TIMEOUT_S) as answer:
+            return json.loads(answer.read() or b"{}")
+    except urllib.error.HTTPError as error:
+        detail = json.loads(error.read() or b"{}").get("error", str(error))
+        raise RuntimeError(detail) from error
 
 
 def _read(port: int, route: str) -> dict:
     with urllib.request.urlopen(
-        f"http://127.0.0.1:{port}{route}", timeout=VIEWER_POLL_TIMEOUT_S
+        f"http://127.0.0.1:{port}{route}", timeout=VIEWER_REQUEST_TIMEOUT_S
     ) as answer:
         return json.loads(answer.read() or b"{}")
 

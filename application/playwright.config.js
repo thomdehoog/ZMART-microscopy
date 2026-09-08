@@ -62,6 +62,7 @@ function findAChromium() {
 }
 
 const theChromiumToUse = findAChromium();
+const testPort = Number(process.env.ZMART_TEST_PORT || 5174);
 
 export default defineConfig({
   /* The walks stand beside what they walk, so the whole application is the
@@ -75,7 +76,7 @@ export default defineConfig({
   workers: 1,
   reporter: [["list"]],
   use: {
-    baseURL: "http://127.0.0.1:5174",
+    baseURL: `http://127.0.0.1:${testPort}`,
     viewport: { width: 1440, height: 900 },
     launchOptions: {
       /* The acquired overview is drawn by the graphics card, and a browser with
@@ -95,9 +96,9 @@ export default defineConfig({
     },
   },
   webServer: {
-    command: "npm run dev",
-    url: "http://127.0.0.1:5174",
-    reuseExistingServer: true,
+    command: `npm run dev -- --port ${testPort} --strictPort`,
+    url: `http://127.0.0.1:${testPort}`,
+    reuseExistingServer: !process.env.ZMART_TEST_PORT,
     timeout: 60_000,
   },
 });

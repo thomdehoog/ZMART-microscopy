@@ -28,10 +28,8 @@
  *   reopened when the run grows a new kind of scan.
  * @param acquisitions a function naming the acquisitions shown in the
  *   picture, or null to take the picture's whole depth. The picture is one
- *   room: every stack stands on the table and every flat picture lies on it
- *   at every depth, so the room is as deep as the deepest stack shown, and
- *   the slider walks that whatever acquisition's chips are in the row. A
- *   hidden stack gives no depth.
+ *   room: the slider spans the relative depths of all shown stacks. Flat
+ *   pictures remain visible throughout, and hidden stacks add no depth.
  * @returns `{ refresh }`: ask the picture again and show, size and place the
  *   sliders accordingly. Call it whenever the picture opens, closes or
  *   changes what it draws.
@@ -39,17 +37,19 @@
 export function mountTheAxes(parts, { picture, acquisitions = null, watchEveryMs = 1000, playEveryMs = { plane: 120, moment: 350 } }) {
   const { axes, axisZ, plane, planePlay, planeReadout, axisT, moment, momentPlay, momentReadout } = parts;
 
-  /** The room's depth: the deepest of the acquisitions shown, or the
+  /** The room's depth: the union of the acquisitions shown, or the
       picture's whole depth when nobody says which are shown. */
   const theDepth = (viewer) => {
     const shown = acquisitions?.() ?? null;
     if (shown === null) return viewer?.theDepthItCanShow?.() ?? null;
-    let deepest = null;
+    let range = null;
     for (const name of shown) {
       const one = viewer?.theDepthItCanShow?.(name) ?? null;
-      if (one && (!deepest || one.highUm - one.lowUm > deepest.highUm - deepest.lowUm)) deepest = one;
+      if (!one) continue;
+      range = range ? { ...range, lowUm: Math.min(range.lowUm, one.lowUm),
+        highUm: Math.max(range.highUm, one.highUm), stepUm: Math.min(range.stepUm, one.stepUm) } : one;
     }
-    return deepest;
+    return range;
   };
   let depth = null;
   let moments = null;
