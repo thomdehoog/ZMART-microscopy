@@ -107,7 +107,7 @@ export default {
     methodRow.append(methodParam);
     method.body.append(methodRow);
 
-    const test = sideGroup("Test object detection");
+    const test = sideGroup("Configure object detection");
     const params = document.createElement("div");
     params.className = "detect-params";
     const picker = document.createElement("div");
@@ -221,7 +221,14 @@ export default {
     progress.doing.id = "detect-doing";
     progress.count.id = "detect-count";
 
-    side.append(method.group, test.group, progress.group, act);
+    /* The progress under the method it reports on, and put away when the
+       run is done: the masks on the picture are the answer then. A run
+       that failed keeps its box, since the sentence in it is the only
+       account of why. */
+    /* The step's own press stands in the method's box, under the choice
+       it runs with: choosing how and running it are one box. */
+    method.body.append(act);
+    side.append(method.group, progress.group, test.group);
     host.append(side);
 
     /* The picture of the field being looked at, drawn when it arrives. The
@@ -482,7 +489,10 @@ export default {
     drawTheTile();
     return {
       redraw: () => { drawTheControls(); drawTheTile(); },
-      progress: progress.say,
+      progress: (snap) => {
+        progress.say(snap);
+        if (snap.ended && !snap.failed) progress.group.style.display = "none";
+      },
     };
   },
 };

@@ -808,6 +808,9 @@ let stageWatch = null;
           ended: true,
           note: outcome?.stopped ? "stopped by hand" : `${outcome?.records?.length ?? state.plan.length} fields scanned`,
         });
+        /* Put away once the scan is done: the picture is the whole answer,
+           and the press's own note says how many fields it took. */
+        if (scanProgress) scanProgress.group.style.display = "none";
         return outcome?.stopped
           ? stoppedShort(`stopped by hand — ${scanNote()}`)
           : finish();
@@ -886,6 +889,7 @@ let stageWatch = null;
         const failed = out?.failed ?? [];
         detectionShown?.progress?.({
           ended: true,
+          failed: failed.length > 0 || Boolean(out?.embeddingError),
           note: out?.stopped
             ? "stopped by hand"
             : failed.length
@@ -898,7 +902,7 @@ let stageWatch = null;
           ? stoppedShort(`stopped by hand — ${state.cells.size} targets found`)
           : finish();
       }, (why) => {
-        detectionShown?.progress?.({ ended: true, note: why.message });
+        detectionShown?.progress?.({ ended: true, failed: true, note: why.message });
         return itFailed(why);
       });
       return;
@@ -1014,7 +1018,7 @@ let stageWatch = null;
           ? stoppedShort(`stopped by hand — ${records.length} of ${picked.length} pairs acquired`)
           : finish();
       }, (why) => {
-        galleryPanel?.progress?.({ ended: true, note: `failed — ${why.message}` });
+        galleryPanel?.progress?.({ ended: true, failed: true, note: `failed — ${why.message}` });
         return itFailed(why);
       });
       return;
@@ -1198,12 +1202,22 @@ let stageWatch = null;
   /* A slot's options, filled in from the run: a step says which recording it
      is showing and what to do when it changes; where that recording is kept,
      and how to read the instrument, is the run's business. */
+  /* The one mistake every reading after the overview's invites: importing
+     with LAS X still on the overview's job. Said under the reading rather
+     than refused -- the reading is fine as a reading, and a job can serve
+     two steps when that is meant. */
+  const sameSettingAsTheOverview = (record) => {
+    const job = record.changeable?.job;
+    const overview = activeRecording(state.overviewPreset)?.changeable?.job;
+    return job && overview && job === overview ? "Same setting as for the overview scan" : null;
+  };
   const recordingOptions = (opts) => ({
     ...opts,
     slot: () => state[opts.key],
     setSlot: (next) => { state[opts.key] = next; },
     running: () => state.running,
     readSetting: (type, how) => backend.readSetting(type, how),
+    warn: opts.warn ?? (opts.key === "overviewPreset" ? undefined : sameSettingAsTheOverview),
   });
 
   function carrierSettled() {
@@ -1349,16 +1363,6 @@ let stageWatch = null;
         takes: "Import focussing configuration",
         retakes: "Update",
         locked: focusLocked(),
-        /* The one mistake this reading invites: importing with LAS X still
-           on the overview's job. The reading is fine as a reading, so it is
-           said rather than refused. */
-        warn: (record) => {
-          const job = record.changeable?.job;
-          const overview = activeRecording(state.overviewPreset)?.changeable?.job;
-          return job && overview && job === overview
-            ? `Same job as the overview (${job}). Select the focussing job in LAS X and press Update.`
-            : null;
-        },
         changed: () => {
           focusFollowsPreset(); showTheRest(); renderRail(); renderActionBar(); drawStage();
         },

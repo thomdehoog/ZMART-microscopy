@@ -137,10 +137,22 @@ export default {
     pair.id = "pairs";
     pairBox.body.append(pair);
 
-    /* The settings the targets are imaged with were recorded on the step
-       before, beside the selection; here the press stands over what it
-       will make. */
-    side.append(listBox.group, pairBox.group, progress.group, act);
+    /* The settings the targets are imaged with, recorded on the step
+       before and shown again here at the head of the step that images
+       with them, so what the press will do is read before the list of
+       what it did. The progress stands under them while a run is on and
+       is put away when it ends; a failed run keeps its box, since the
+       sentence in it is the only account of why. */
+    const recording = document.createElement("div");
+    recording.id = "target-type-acquire";
+    ctx.recordingSlot(recording, {
+      label: "Acquisition settings", key: "targetType",
+      unnamed: true,
+      takes: "Import target acquisition settings",
+      retakes: "Update",
+      changed: () => ctx.changed?.(),
+    });
+    side.append(recording, progress.group, listBox.group, pairBox.group, act);
     host.append(side);
 
     const targetIdOf = (tile) => tile?.targetId ?? tile?.covers?.[0] ?? null;
@@ -239,7 +251,10 @@ export default {
     rebuild();
     return {
       rebuild,
-      progress: progress.say,
+      progress: (snap) => {
+        progress.say(snap);
+        if (snap.ended && !snap.failed) progress.group.style.display = "none";
+      },
       /** The choice changed -- here, or on the canvas. */
       chosen() {
         for (const row of list.querySelectorAll(".point-row")) {

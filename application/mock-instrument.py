@@ -27,6 +27,7 @@ tomorrow's session still stands on Target -- as a real instrument would.
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -285,7 +286,14 @@ def main() -> int:
         print("pywebview is not installed in this environment")
         return 1
     webview.create_window("Mock instrument", html=PAGE, js_api=Api(), width=520, height=640)
-    webview.start()
+    # Held while the window is open: a session connecting to the mock opens
+    # this window when nothing holds the lock, and leaves it alone when
+    # something does.
+    mock_driver.claim_the_window(os.getpid())
+    try:
+        webview.start()
+    finally:
+        mock_driver.release_the_window()
     return 0
 
 

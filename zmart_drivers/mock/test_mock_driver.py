@@ -23,6 +23,21 @@ import zmart_controller  # noqa: E402
 from zmart_drivers.mock import mock_driver  # noqa: E402
 
 
+def test_the_window_is_open_only_while_a_live_window_holds_the_lock(tmp_path):
+    import os
+
+    state = tmp_path / "instrument.json"
+    assert mock_driver.the_window_is_open(state) is False
+    mock_driver.claim_the_window(os.getpid(), state)
+    assert mock_driver.the_window_is_open(state) is True
+    # a lock left by a window that died is not a window
+    mock_driver.claim_the_window(2 ** 22 + 12345, state)
+    assert mock_driver.the_window_is_open(state) is False
+    mock_driver.release_the_window(state)
+    assert not mock_driver.where_the_window_stands(state).exists()
+    mock_driver.release_the_window(state)
+
+
 @pytest.fixture()
 def session(tmp_path):
     mock_driver.register_mock()

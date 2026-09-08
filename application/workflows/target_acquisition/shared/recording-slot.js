@@ -293,14 +293,16 @@ export function renderRecordingSlot(host, opts) {
         activated();
       },
     }));
+    list.append(done);
+    /* Under the reading's box, not in it: the box is what was read, and
+       the sentence is the step's word about it. */
     const warned = active ? warn(record) : null;
     if (warned) {
       const line = document.createElement("div");
       line.className = "rec-warn";
       line.textContent = `⚠ ${warned}`;
-      done.append(line);
+      list.append(line);
     }
-    list.append(done);
   }
   if (unnamed) {
     /* The reading and the press that replaces it share one row. Both are

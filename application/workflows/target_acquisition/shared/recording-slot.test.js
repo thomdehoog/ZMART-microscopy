@@ -28,15 +28,14 @@ const rendered = (job, warn) => {
 };
 
 const sameAsOverview = (overview) => (record) =>
-  record.changeable?.job === overview
-    ? `Same job as the overview (${overview}). Select the focussing job in LAS X and press Update.`
-    : null;
+  record.changeable?.job === overview ? "Same setting as for the overview scan" : null;
 
 describe("a warning under the active reading", () => {
   it("is said when the focussing reading came off the overview's job", () => {
     const host = rendered("Overview", sameAsOverview("Overview"));
-    expect(host.querySelector(".rec-warn").textContent)
-      .toBe("⚠ Same job as the overview (Overview). Select the focussing job in LAS X and press Update.");
+    const line = host.querySelector(".rec-warn");
+    expect(line.textContent).toBe("⚠ Same setting as for the overview scan");
+    expect(line.parentElement.className, "under the reading's box, not inside it").toBe("rec-list");
   });
 
   it("is not there when the reading came off another job", () => {
