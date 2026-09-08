@@ -1636,11 +1636,12 @@ function shaderFor(colour, { asAVolume = false, opaque = false } = {}) {
     return (
       "#uicontrol invlerp normalized\n" +
       "#uicontrol float weight slider(min=0, max=1, default=1)\n" +
+      "#uicontrol float gamma slider(min=0.1, max=4, default=1)\n" +
       "#uicontrol invlerp imaged(range=[0, 1], clamp=false)\n" +
       '#uicontrol vec3 color color(default="white")\n' +
       "#uicontrol float attenuation slider(min=0, max=8, default=0)\n" +
       "void main() {\n" +
-      "  float v = normalized();\n" +
+      "  float v = pow(normalized(), gamma);\n" +
       "  vec3 shown = color * (v * weight);\n" +
       "  float faded = exp(-attenuation * depthAtRayPosition);\n" +
       "  emitIntensity(v * weight * faded);\n" +
@@ -1651,10 +1652,14 @@ function shaderFor(colour, { asAVolume = false, opaque = false } = {}) {
   return (
     "#uicontrol invlerp normalized\n" +
     "#uicontrol float weight slider(min=0, max=1, default=1)\n" +
+    /* gamma bends the curve between the window's ends: below one the dim
+       end takes more of the screen, which is what a picture with a few
+       bright objects and faint structure between them needs. */
+    "#uicontrol float gamma slider(min=0.1, max=4, default=1)\n" +
     "#uicontrol invlerp imaged(range=[0, 1], clamp=false)\n" +
     '#uicontrol vec3 color color(default="white")\n' +
     "void main() {\n" +
-    "  float v = normalized();\n" +
+    "  float v = pow(normalized(), gamma);\n" +
     "  vec3 shown = color * (v * weight);\n" +
     (opaque
       ? "  emitRGBA(vec4(shown, 1.0));\n"
@@ -1682,6 +1687,7 @@ function controlsFor(row, { asAVolume = false } = {}) {
   const controls = {
     normalized: { range: [row.window.low, row.window.high] },
     weight: row.weight ?? 1,
+    gamma: row.gamma ?? 1,
     color: hexColourFor(row.colour),
   };
   if (asAVolume) controls.attenuation = row.attenuation ?? 0;
@@ -2414,7 +2420,7 @@ function handleFor(own) {
       }
     },
 
-    setChannel(index, { visible, colour, window: brightness, weight } = {}) {
+    setChannel(index, { visible, colour, window: brightness, weight, gamma } = {}) {
       const row = own.rows[index];
       if (!row || !row.managed) return;
       if (visible !== undefined) row.visible = visible;
@@ -2433,7 +2439,8 @@ function handleFor(own) {
       /* `weight` is the channel's own opacity, an extension the viewer's
          panel uses; an option without it simply ignores the key. */
       if (weight !== undefined) row.weight = weight;
-      if (colour || brightness || weight !== undefined) {
+      if (gamma !== undefined) row.gamma = gamma;
+      if (colour || brightness || weight !== undefined || gamma !== undefined) {
         // Everything travels as values for controls the compiled program
         // declares — the colour included, so no change here recompiles.
         // Restored whole, never piecewise: a partial restore is how one

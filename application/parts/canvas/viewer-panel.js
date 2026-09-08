@@ -173,6 +173,8 @@ export async function viewerRowsFor(acquisitions) {
 }
 
 /** Ask the real Viewer server about one channel without inventing a fallback. */
+import { windowFromHistogram } from "./auto-window.js";
+
 export async function measureViewerRow(row, {
   signal = null,
   box = [[0, 0], [1, 1]],
@@ -258,6 +260,8 @@ function rememberedChannel(state, row) {
     colour: remembered.colour ?? row.colour,
     window: remembered.window ?? row.window,
     weight: remembered.weight ?? row.weight ?? 1,
+    gamma: remembered.gamma ?? row.gamma ?? 1,
+    saturate: remembered.saturate ?? row.saturate ?? 1,
     log: remembered.log ?? false,
     axis: remembered.axis ?? null,
     histogram: remembered.histogram ?? row.histogram,
@@ -467,7 +471,13 @@ export async function mountViewerPanel(near, {
   logButton.setAttribute("aria-label", "logarithmic counts");
   logButton.setAttribute("aria-pressed", "false");
   const axisButtons = el("span", "display:flex;align-items:center;gap:4px;");
-  axisButtons.append(autoButton, logButton);
+  /* How much Auto saturates: the percent of pixels set aside at each end.
+     One is the viewer's own; a sample with a few bright objects wants five
+     or ten, so the faint structure between them gets the window. */
+  const saturateBox = valueInput("saturate");
+  saturateBox.title = "Percent of pixels Auto saturates at each end";
+  saturateBox.style.width = "40px";
+  axisButtons.append(autoButton, saturateBox, logButton);
   const axisHigh = valueInput("axis to");
   axisRow.append(axisLow, axisButtons, axisHigh);
 
@@ -488,9 +498,13 @@ export async function mountViewerPanel(near, {
   const opacityRow = controlRow("opacity");
   opacityRow.slider.min = "0"; opacityRow.slider.max = "1"; opacityRow.slider.step = "0.01";
   opacityRow.slider.value = "1";
+  /* gamma bends the curve between the window's ends; one is straight. */
+  const gammaRow = controlRow("gamma");
+  gammaRow.slider.min = "0.1"; gammaRow.slider.max = "4"; gammaRow.slider.step = "0.01";
+  gammaRow.slider.value = "1";
   settings.append(
     chosenHead, plotWrap, histogramValue, axisRow,
-    minRow.line, maxRow.line, opacityRow.line,
+    minRow.line, maxRow.line, opacityRow.line, gammaRow.line,
   );
 
   /* ---- the state the settings act on ---- */
@@ -509,6 +523,8 @@ export async function mountViewerPanel(near, {
       colour: row.colour,
       window: row.window,
       weight: row.weight,
+      gamma: row.gamma ?? 1,
+      saturate: row.saturate ?? 1,
       log: row.log ?? false,
       axis: row.axis ?? null,
       histogram: row.histogram ?? null,
@@ -643,6 +659,8 @@ export async function mountViewerPanel(near, {
     minRow.slider.setAttribute("aria-label", `min ${row.name}`);
     maxRow.slider.setAttribute("aria-label", `max ${row.name}`);
     opacityRow.slider.setAttribute("aria-label", `opacity ${row.name}`);
+    gammaRow.slider.setAttribute("aria-label", `gamma ${row.name}`);
+    saturateBox.setAttribute("aria-label", `saturate ${row.name}`);
     autoButton.setAttribute("aria-label", `auto contrast ${row.name}`);
     logButton.setAttribute("aria-label", logScale ? "plain counts" : "logarithmic counts");
     axisLow.setAttribute("aria-label", `axis from ${row.name}`);
@@ -672,6 +690,11 @@ export async function mountViewerPanel(near, {
     }
     opacityRow.slider.disabled = false;
     opacityRow.slider.value = String(row.weight);
+    gammaRow.slider.disabled = false;
+    gammaRow.box.disabled = false;
+    gammaRow.slider.value = String(row.gamma ?? 1);
+    gammaRow.box.value = (row.gamma ?? 1).toFixed(2);
+    if (document.activeElement !== saturateBox) saturateBox.value = `${row.saturate ?? 1}%`;
     for (const { slider } of [minRow, maxRow, opacityRow]) slider.refill();
     drawTheHistogram();
   }
@@ -711,6 +734,38 @@ export async function mountViewerPanel(near, {
     remember(rows[chosen]);
     viewer.setChannel(chosen, { weight: rows[chosen].weight });
     opacityRow.box.value = `${Math.round(rows[chosen].weight * 100)}%`;
+  });
+  const takeTheGamma = (index, gamma) => {
+    const row = rows[index];
+    if (!row) return;
+    row.gamma = Math.max(0.1, Math.min(4, gamma));
+    remember(row);
+    viewer.setChannel(index, { gamma: row.gamma });
+    if (index === chosen) {
+      gammaRow.slider.value = String(row.gamma);
+      gammaRow.box.value = row.gamma.toFixed(2);
+    }
+    displayChangedSoon();
+  };
+  gammaRow.slider.addEventListener("input", () => {
+    if (chosen !== null) takeTheGamma(chosen, Number(gammaRow.slider.value));
+  });
+  gammaRow.box.addEventListener("change", () => {
+    const value = Number(gammaRow.box.value);
+    if (chosen !== null && Number.isFinite(value) && value > 0) takeTheGamma(chosen, value);
+    else refreshControls();
+  });
+  const takeTheSaturation = (index, percent) => {
+    const row = rows[index];
+    if (!row) return;
+    row.saturate = Math.max(0.01, Math.min(20, percent));
+    remember(row);
+    if (index === chosen) saturateBox.value = `${row.saturate}%`;
+  };
+  saturateBox.addEventListener("change", () => {
+    const value = Number(saturateBox.value.replace("%", ""));
+    if (chosen !== null && Number.isFinite(value)) takeTheSaturation(chosen, value);
+    else refreshControls();
   });
 
   const commitOnLeaving = (input, take) => {
@@ -827,7 +882,12 @@ export async function mountViewerPanel(near, {
     shape = result.answer.histogram;
     row.histogram = shape;
     if (auto) {
-      takeTheWindow(result.answer.window, { operator: false, reframe: true });
+      /* At the saturation the operator chose: the viewer's own window sets
+         one percent aside, and any other share is read off its histogram. */
+      const asked = (row.saturate ?? 1) === 1
+        ? result.answer.window
+        : (windowFromHistogram(shape, row.saturate) ?? result.answer.window);
+      takeTheWindow(asked, { operator: false, reframe: true });
     } else if (!row.window && result.answer.window) {
       takeTheWindow(result.answer.window, { operator: false, reframe: true });
     } else {
@@ -1538,6 +1598,8 @@ export async function mountViewerPanel(near, {
       counts: hist?.counts ?? [], range: hist ? { low: hist.low, high: hist.high } : null,
       window: { ...windowOf(row) }, axis: { ...theAxis(row) },
       weight: Number.isFinite(row.weight) ? row.weight : 1, log: Boolean(row.log),
+      gamma: Number.isFinite(row.gamma) ? row.gamma : 1,
+      saturate: Number.isFinite(row.saturate) ? row.saturate : 1,
       measured: Boolean(hist?.counts?.length),
     };
   };
@@ -1555,6 +1617,8 @@ export async function mountViewerPanel(near, {
       displayChangedSoon();
     }
     if (typeof next.log === "boolean" && next.log !== logScale) logButton.click();
+    if (Number.isFinite(next.gamma)) takeTheGamma(index, next.gamma);
+    if (Number.isFinite(next.saturate)) takeTheSaturation(index, next.saturate);
     if (next.colour) {
       row.colour = rgbOf(next.colour);
       row.color = cssOf(row.colour);
@@ -1564,6 +1628,12 @@ export async function mountViewerPanel(near, {
       viewer.setChannel(index, { colour: row.colour });
       displayChangedSoon();
     }
+  };
+  /* The grey acquisition is one channel to the operator, so its gamma is
+     every member's, set together and read off the first. */
+  panel.gammaOf = (name) => compositeMembers.get(name)?.[0]?.one?.gamma ?? 1;
+  panel.setGammaOf = (name, gamma) => {
+    for (const { at } of compositeMembers.get(name) ?? []) takeTheGamma(at, gamma);
   };
   panel.autoChannel = async (index) => {
     if (!rows[index]) return;
