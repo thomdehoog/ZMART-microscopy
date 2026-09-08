@@ -119,6 +119,7 @@ import { makeCoordinateSpace, newDimensionId } from "neuroglancer/unstable/coord
 import { makeLayer, deleteLayer } from "neuroglancer/unstable/layer/index.js";
 import "neuroglancer/unstable/ui/default_viewer.css";
 import "./engine-chrome.css";
+import { refreshSources } from "./source-refresh.js";
 // The two gestures, from the one copy every option shares. See `../gestures.js`
 // for why there is only one copy and what it costs to have three.
 import { onlyPanAndZoom } from "../gestures.js";
@@ -686,6 +687,8 @@ async function loadAcquisitions(own, acquisitions) {
 
 /** Install only missing rows, keeping existing layers, controls and textures. */
 function installRows(own) {
+  own.coverageLayers ??= new Map();
+  let layerIndex = 0;
   /* Which acquisition a row belongs to, and whether it opens one: the
      channels of one acquisition add together, and an acquisition drawn over
      another covers it rather than mixing with it -- a target frame over the
@@ -694,10 +697,32 @@ function installRows(own) {
   const baseAcquisition = acquisitionOf(own.rows[0] ?? {});
   for (const [at, row] of own.rows.entries()) {
     const opensAnAcquisition = own.rows.findIndex((one) => acquisitionOf(one) === acquisitionOf(row)) === at;
-    const coversWhatIsBelow = opensAnAcquisition && acquisitionOf(row) !== baseAcquisition;
+    if (opensAnAcquisition && row.coverageSources?.length) {
+      let coverage = own.coverageLayers.get(acquisitionOf(row));
+      if (!coverage) {
+        const managed = makeLayer(own.viewer.layerSpecification, `__coverage__${acquisitionOf(row)}`, {
+          type: "image", source: row.coverageSources, opacity: 1,
+          localPosition: row.localPosition ?? (row.channelIndex != null ? [row.channelIndex] : undefined),
+          shader: "#uicontrol invlerp covered(range=[0,1], clamp=false)\n"
+            + "void main() { emitRGBA(vec4(0.0,0.0,0.0,float(covered() > 0.0))); }",
+        });
+        own.viewer.layerSpecification.add(managed, layerIndex);
+        coverage = { managed, acquisition: acquisitionOf(row) };
+        own.coverageLayers.set(acquisitionOf(row), coverage);
+        const stop = managed.layer?.dataSourcesChanged?.add(
+          () => countFromTheCornerOfTheVoxelRatherThanItsMiddle(own),
+        );
+        if (stop) (own.stopWatchingTheSources ??= []).push(stop);
+      }
+      const manager = own.viewer.layerManager;
+      manager.reorderManagedLayer(manager.managedLayers.indexOf(coverage.managed), layerIndex++);
+    }
+    const coversWhatIsBelow = opensAnAcquisition && acquisitionOf(row) !== baseAcquisition
+      && !row.coverageSources?.length;
+    const position = layerIndex++;
     if (row.managed) {
       const manager = own.viewer.layerManager;
-      manager.reorderManagedLayer(manager.managedLayers.indexOf(row.managed), at);
+      manager.reorderManagedLayer(manager.managedLayers.indexOf(row.managed), position);
       row.managed.layer.blendMode.restoreState(coversWhatIsBelow ? "default" : "additive");
       continue;
     }
@@ -723,8 +748,8 @@ function installRows(own) {
       // Nothing is lost by drawing each at its full strength, because what
       // decides where a layer is see-through here is the little program the
       // engine runs on the graphics card. It emits nothing at all where the
-      // stored number is nought, so ground a channel never imaged still lets the
-      // layers beneath it show through.
+      // stored number is nought. A supplied coverage layer keeps acquired black
+      // pixels opaque independently of that signal; unacquired ground stays clear.
       opacity: 1,
       /* Channels are added to one another, not painted over one another.
        *
@@ -767,12 +792,20 @@ function installRows(own) {
           : {}),
     };
     const managed = makeLayer(own.viewer.layerSpecification, row.layerName, description);
-    own.viewer.layerSpecification.add(managed, at);
+    own.viewer.layerSpecification.add(managed, position);
     row.managed = managed;
     const stop = managed.layer?.dataSourcesChanged?.add(
       () => countFromTheCornerOfTheVoxelRatherThanItsMiddle(own),
     );
     if (stop) (own.stopWatchingTheSources ??= []).push(stop);
+  }
+  syncCoverageVisibility(own);
+}
+
+function syncCoverageVisibility(own) {
+  for (const [acquisition, coverage] of own.coverageLayers ?? []) {
+    coverage.managed.setVisible(own.showingPicture !== false && !own.showingVolume
+      && own.rows.some(row => row.acquisition === acquisition && row.visible !== false));
   }
 }
 
@@ -1067,6 +1100,8 @@ async function rowsFor(acquisitions) {
       rows.push({
         url: sources[0],
         sources,
+        coverageSources: channel.coverageSources,
+        sourceRevisions: [...(channel.sourceRevisions ?? sources.map(() => 0))],
         acquisition: acquisition.name,
         /* Whether every store of this acquisition is one imaged position and
            nothing else, so a layer may be opaque across its whole extent. */
@@ -1130,10 +1165,15 @@ async function addSourcesToTheOpenRows(own, acquisitions) {
   }
 
   const heldByName = new Map(own.rows.map(row => [row.layerName, row]));
+  const changed = new Set();
   for (const held of own.rows) {
     const layer = held.managed?.layer;
     if (!layer) return false;
-    const fresh = nextByName.get(held.layerName).sources.slice(held.sources.length);
+    const next = nextByName.get(held.layerName);
+    held.sources.forEach((url, at) => {
+      if (next.sourceRevisions[at] > held.sourceRevisions[at]) changed.add(url);
+    });
+    const fresh = next.sources.slice(held.sources.length);
     for (const address of fresh) {
       sourceAddressIsWhole(address, held.acquisition);
       // Use the same data-source-specification path as initial layer creation,
@@ -1144,9 +1184,11 @@ async function addSourcesToTheOpenRows(own, acquisitions) {
       }
       held.sources.push(address);
     }
+    held.sourceRevisions = next.sourceRevisions;
   }
   own.rows = wanted.map(row => heldByName.get(row.layerName) ?? row);
   installRows(own);
+  refreshSources(own.viewer.chunkManager, changed);
   return true;
 }
 
@@ -1340,7 +1382,7 @@ function countFromTheCornerOfTheVoxelRatherThanItsMiddle(own) {
     [space?.names?.[shown.across], space?.names?.[shown.down]].filter(Boolean),
   );
   if (!drawnAcrossTheWindow.size) return;
-  for (const row of own.rows) {
+  for (const row of [...own.rows, ...(own.coverageLayers?.values() ?? [])]) {
     /* Every position store of the row, not only the first. A row that draws a
        whole acquisition holds one source per landed position, and each source
        carries its own placement read from its own OME-Zarr description — so
@@ -1954,35 +1996,11 @@ function repaint(own) {
 // section exists because of one thing an operator sees, so it is worth
 // describing that first and the machinery second.
 //
-// While a run is going, the viewer is told every few seconds that a tile may
-// have landed. Each time, it has to make the engine go back to the store,
-// because nothing on disk announces a new tile — see `tilesMayHaveLanded` below
-// for why. Left to itself, the engine handles that by throwing away every piece
-// of picture it had already decoded and starting again from nothing, so the
-// window went completely empty for about a sixth of a second and then filled
-// back in. Measured: the share of the window holding picture read
-// 0.2726 → 0.0000 → 0.1839 across a single refresh. On a real acquisition that
-// is a flash of empty screen every few seconds, at exactly the moment the
-// operator is watching most closely, and it reads as the viewer breaking rather
-// than as the viewer working.
-//
-// **What the engine does and does not offer.** The only instruction the engine's
-// background worker accepts on this subject is "let go of everything you decoded
-// from this source", and a source here is one whole resolution level of one
-// acquisition — there is nothing finer. So the newly imaged ground cannot be
-// singled out: the refetching really is all-or-nothing, and that part is not
-// ours to change.
-//
-// What *is* ours to change is the picture on screen while the refetching
-// happens. The pieces the operator is looking at live in two places at once: the
-// worker's copy, which is what the instruction above throws away, and the
-// browser's own copy already uploaded to the graphics card, which is what is
-// actually drawn. The engine throws both away together, and only the first of
-// those two is necessary. So this keeps the second: the picture already on the
-// screen stays on the screen, and each piece of it is exchanged for its
-// replacement at the moment that replacement finishes downloading. Nothing is
-// ever drawn from two generations of the data at once, because the exchange
-// happens one piece at a time and each piece is whole.
+// New position URLs append without invalidation. A published source revision
+// refreshes that store's decoded chunks, while explicit legacy refreshes may
+// still invalidate the whole picture. Keep its GPU chunks visible until their
+// replacements arrive; invalidating the worker cache alone must not flash a
+// blank canvas.
 
 /**
  * Keep every piece of picture already on screen until its replacement arrives.
@@ -2047,6 +2065,11 @@ function keepShowingThePictureWhileTheNewOneArrives(own) {
         holding = new Set();
         own.superseded.set(source, holding);
       }
+      // A selective refresh must also retire this source's previous generation.
+      for (const piece of holding) {
+        if (source.chunks.has(piece)) source.deleteChunk(piece);
+      }
+      holding.clear();
       for (const piece of source.chunks.keys()) holding.add(piece);
       // Nothing on screen changed, and saying so is not a white lie: every piece
       // the engine was drawing a moment ago is still there to be drawn.
@@ -2270,6 +2293,7 @@ function handleFor(own) {
      */
     showVolume(on) {
       own.showingVolume = on !== false;
+      syncCoverageVisibility(own);
       own.viewer.layout.restoreState(own.showingVolume ? VOLUME_LAYOUT : FLAT_LAYOUT);
       own.viewer.display.transparentBackground = own.transparentBackground && !own.showingVolume;
       handTheEngineItsOwnGestures(own);
@@ -2323,6 +2347,7 @@ function handleFor(own) {
         if (!row.managed) continue;
         row.managed.setVisible(own.showingPicture && row.visible !== false);
       }
+      syncCoverageVisibility(own);
     },
 
     setChannel(index, { visible, colour, window: brightness, weight } = {}) {
@@ -2337,6 +2362,7 @@ function handleFor(own) {
       if (row.managed.visible !== shouldShow) {
         row.managed.setVisible(shouldShow);
       }
+      syncCoverageVisibility(own);
       const layer = row.managed.layer;
       if (!layer) return;
       if (colour) row.colour = colour;
@@ -2597,6 +2623,8 @@ function handleFor(own) {
         if (row.managed) deleteLayer(row.managed);
       }
       own.rows = [];
+      for (const coverage of own.coverageLayers?.values() ?? []) deleteLayer(coverage.managed);
+      own.coverageLayers?.clear();
       own.viewer?.dispose?.();
       own.viewer = null;
       own.engineHost?.remove();
