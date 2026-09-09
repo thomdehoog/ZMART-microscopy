@@ -19,6 +19,7 @@ import {
 import { isFailed } from "../../parts/microscope/connection-status.js";
 import { displayedPictureAddress } from "../../parts/canvas/display-of.js";
 import { mountTheAxes } from "../../parts/canvas/axes.js";
+import { showPublicationStatus } from "../../parts/canvas/publication-note.js";
 import { cellsInAllGates, keptUnderCeiling }
   from "../../workflows/target_acquisition/steps/refine_targets/gating.js";
 import { selectionPanel }
@@ -2527,7 +2528,11 @@ let stageWatch = null;
        outlives the session, and its addresses used to be handed out after
        Disconnect, so the page reopened an empty JPEG picture on a bridge
        that had no run to serve. */
-    viewerSources: () => (state.done.has("connect") ? backend?.viewerSources?.() : null) ?? null,
+    viewerSources: () => {
+      const report = (status) => showPublicationStatus(theCanvas.parts.publicationNote, status);
+      if (!state.done.has("connect")) { report(null); return null; }
+      return backend?.viewerSources?.(report) ?? null;
+    },
     connected: () => state.done.has("connect"),
     overviewCanvas: theCanvas.parts.overviewCanvas,
     overviewNote: theCanvas.parts.overviewNote,

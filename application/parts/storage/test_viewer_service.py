@@ -36,6 +36,136 @@ def _empty_service(*, port: int | None = None) -> dict:
     }
 
 
+@pytest.mark.parametrize("bad_first", [False, True])
+@pytest.mark.parametrize("opened_overview", [False, True])
+def test_invalid_overview_does_not_hide_committed_targets(monkeypatch, tmp_path, bad_first, opened_overview):
+    from application.parts.storage.zarr_positions import _describe_mean_pyramid
+    from zmart_storage.canvas import _declare_one
+
+    def write(kind, name, pixel, value):
+        folder = tmp_path / kind
+        store = folder / name
+        arrays = _declare_one(
+            store, canvas_shape=(1, 16, 16), frames=1, channels=1,
+            dtype="uint16", chunk=16, levels=2,
+            voxel_size_um=(1, pixel, pixel), origin_um=(0, 0, 32 if kind == "targets" else 0),
+            channel_blocks=[{"label": "signal", "color": "FFFFFF",
+                             "window": {"start": 0, "end": 255, "min": 0, "max": 65535}}],
+            ome_zarr_version="0.5",
+        )
+        for array in arrays:
+            array[:] = value
+        metadata = store / "zarr.json"
+        description = json.loads(metadata.read_text())
+        _describe_mean_pyramid(description)
+        metadata.write_text(json.dumps(description))
+        service.a_position_landed(kind, folder, store=store)
+        return str(folder)
+
+    monkeypatch.setattr(service, "_viewer", _empty_service())
+    monkeypatch.setattr(service, "_publish_changes", lambda wake: None)
+    service.start(tmp_path, canvas={"x_um": [0, 160], "y_um": [0, 160]})
+    server = service._viewer["server"]
+    assert server is not None, service.status()
+    try:
+        overview = write("overview", "p0.ome.zarr", 2.27, 120)
+        if opened_overview:
+            _flush()
+            assert [a["name"] for a in service.status()["acquisitions"]] == ["overview"]
+        targets = write("targets", "p0.ome.zarr", 0.113747260274, 240)
+        write("overview", "p1.ome.zarr", 2.27495107632, 180)
+        service._viewer["pending"].clear()
+        pending = [overview, targets] if bad_first else [targets, overview]
+        assert service._publish_once(service._viewer["wake"], pending)
+        state = service.status()
+        assert {a["name"] for a in state["acquisitions"]} == (
+            {"overview", "targets"} if opened_overview else {"targets"})
+        assert state["publications"]["targets"]["published"] == 1
+        assert state["publications"]["overview"]["published"] == int(opened_overview)
+        assert state["publications"]["overview"]["acquired"] == 2
+        assert state["publications"]["overview"]["state"] == "blocked"
+        assert not service._viewer["pending"], "invalid geometry must not retry while idle"
+        assert all(len(a["channels"][0]["sources"]) == 1 for a in state["acquisitions"])
+        assert "overview" in state["error"]
+        # Corrected inputs recover without restarting or hiding the target.
+        write("overview", "p1.ome.zarr", 2.27, 180)
+        _flush()
+        state = service.status()
+        assert state["error"] is None
+        assert state["publications"]["overview"]["published"] == 2
+        assert {a["name"] for a in state["acquisitions"]} == {"overview", "targets"}
+    finally:
+        service.stop()
+        server.server_close()
+
+
+def test_retirement_counts_only_current_stores_and_keeps_revision_history(monkeypatch, tmp_path):
+    monkeypatch.setattr(service, "_viewer", _empty_service(port=8848))
+    monkeypatch.setattr(service, "_ask", lambda *_: {})
+    monkeypatch.setattr(service, "_read", lambda *_: {})
+    first, retired = tmp_path / "first.zarr", tmp_path / "retired.zarr"
+    for store in (first, retired):
+        store.mkdir()
+        service.a_position_landed("overview", tmp_path, store=store)
+    assert _flush()
+    retired.rmdir()
+    service.stores_were_retired("overview", tmp_path)
+    assert _flush()
+    assert service.status()["publications"]["overview"] == {
+        "acquired": 1, "published": 1, "state": "ready", "error": None,
+    }
+    retired.mkdir()
+    service.a_position_landed("overview", tmp_path, store=retired)
+    assert service._viewer["source_versions"][("overview", retired.name)] == 2
+    assert service.status()["publications"]["overview"]["state"] == "preparing"
+    assert _flush()
+    assert service.status()["publications"]["overview"]["published"] == 2
+
+
+def test_http_503_retries_without_another_capture(monkeypatch, tmp_path):
+    attempts = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self):
+            attempts.append(json.loads(self.rfile.read(int(self.headers["Content-Length"]))))
+            self.send_response(503 if len(attempts) == 1 else 200)
+            self.end_headers()
+            self.wfile.write(b'{"error":"temporary storage failure"}' if len(attempts) == 1 else b'{}')
+
+        def do_GET(self):
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b'{"layers":[]}')
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    serving = threading.Thread(target=server.serve_forever)
+    serving.start()
+    state = _empty_service(port=server.server_address[1])
+    monkeypatch.setattr(service, "_viewer", state)
+    (tmp_path / "P0.zarr").mkdir()
+    service.a_position_landed("overview", tmp_path, store="P0.zarr")
+    worker = threading.Thread(target=service._publish_changes, args=(state["wake"],))
+    worker.start()
+    try:
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            if service.status()["publications"]["overview"]["state"] == "ready":
+                break
+            time.sleep(0.01)
+        assert service.status()["publications"]["overview"]["state"] == "ready"
+        assert service.status()["error"] is None
+        assert len(attempts) == 2 and attempts[0] == attempts[1]
+    finally:
+        wake = state["wake"]
+        with service._the_turn:
+            state["wake"] = None
+        wake.set()
+        worker.join(2)
+        server.shutdown()
+        server.server_close()
+        serving.join(2)
+
+
 def test_the_installed_smart_viewer_is_the_separate_supported_package():
     found = service.viewer_provenance()
 
@@ -210,6 +340,8 @@ def test_publication_reads_config_and_status_only_reads_the_snapshot(monkeypatch
     service._viewer.clear()
     service._viewer.update(_empty_service(port=8848))
     asked: list[tuple[int, str]] = []
+    service._viewer["opened"].add("published-overview")
+    service._viewer["folder_types"] = {"published-overview": "overview"}
 
     def read(port: int, route: str) -> dict:
         asked.append((port, route))
@@ -217,7 +349,7 @@ def test_publication_reads_config_and_status_only_reads_the_snapshot(monkeypatch
             {
                 "group": "overview",
                 "sources": [
-                    f"/data/0/overview_P{number:06d}.ome.zarr/|zarr3:" for number in range(4)
+                    "/published/overview.ome.zarr/|zarr3:"
                 ],
             }
         )
@@ -233,10 +365,10 @@ def test_publication_reads_config_and_status_only_reads_the_snapshot(monkeypatch
         service._viewer.update(before)
 
     assert asked == [(8848, "/api/config")]
-    assert len(state["sources"]["overview"]) == 4
+    assert len(state["sources"]["overview"]) == 1
     assert len(state["acquisitions"]) == 1
     assert len(state["acquisitions"][0]["channels"]) == 1
-    assert len(state["acquisitions"][0]["channels"][0]["sources"]) == 4
+    assert len(state["acquisitions"][0]["channels"][0]["sources"]) == 1
 
 
 def test_status_keeps_the_last_picture_when_a_refresh_stumbles(monkeypatch):
