@@ -10,7 +10,7 @@ only as historical design reference.
 ## Reproducible Smart Operator setup
 
 This integration requires the shared-acquisition viewer at commit
-`e759fec3c6c30e84d1ea115254b7b3b6549819bb` on `codex/mixed-acquisition-depth`,
+`8604cb812949feb9bdcb5c8bf2739b559543fd44` on `codex/mixed-acquisition-depth`,
 built on version 0.2.1. The released `v0.2.1` alone is insufficient. Both
 `environment.yml` and the package dependencies pin this viewer commit, so it is
 installed automatically; no sibling checkout or `PYTHONPATH` override is needed.

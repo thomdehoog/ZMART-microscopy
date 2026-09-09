@@ -498,13 +498,19 @@ def _only_the_newest_generation_of(held) -> list[dict]:
 
 
 def _ask(port: int, route: str, payload: dict) -> dict:
+    """Wait for this publication before the worker submits its coalesced successor.
+
+    A socket timeout does not cancel the server's write. Retrying it while that
+    write still runs would queue obsolete snapshots instead of coalescing them.
+    Capture and status never wait on this background worker.
+    """
     request = urllib.request.Request(
         f"http://127.0.0.1:{port}{route}",
         data=json.dumps(payload).encode(),
         headers={"Content-Type": "application/json"},
     )
     try:
-        with urllib.request.urlopen(request, timeout=VIEWER_REQUEST_TIMEOUT_S) as answer:
+        with urllib.request.urlopen(request, timeout=None) as answer:
             return json.loads(answer.read() or b"{}")
     except urllib.error.HTTPError as error:
         detail = json.loads(error.read() or b"{}").get("error", str(error))

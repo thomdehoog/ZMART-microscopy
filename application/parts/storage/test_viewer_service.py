@@ -7,6 +7,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import pytest
@@ -327,6 +328,66 @@ def test_background_config_read_has_a_bounded_timeout(monkeypatch):
     assert 0 < service.VIEWER_REQUEST_TIMEOUT_S <= 30
 
 
+def test_slow_publication_finishes_once_then_publishes_latest_snapshot(monkeypatch, tmp_path):
+    entered, release, caught_up = (threading.Event() for _ in range(3))
+    calls = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self):
+            calls.append(json.loads(self.rfile.read(int(self.headers["Content-Length"]))))
+            if len(calls) == 1:
+                entered.set()
+                release.wait(5)
+            else:
+                caught_up.set()
+            self.do_GET()
+
+        def do_GET(self):
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b'{"layers": []}')
+
+        def log_message(self, *args):
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    serving = threading.Thread(target=server.serve_forever)
+    serving.start()
+    state = _empty_service(port=server.server_address[1])
+    monkeypatch.setattr(service, "_viewer", state)
+    monkeypatch.setattr(service, "VIEWER_REQUEST_TIMEOUT_S", 0.02)
+    worker = threading.Thread(target=service._publish_changes, args=(state["wake"],))
+    worker.start()
+    try:
+        for i in range(100):
+            (tmp_path / f"P{i}.zarr").mkdir()
+            service.a_position_landed("overview", tmp_path, store=f"P{i}.zarr")
+            if i == 0:
+                assert entered.wait(2)
+            assert service.status()["error"] is None
+        # Exceed the status-read deadline while the server still owns the write.
+        time.sleep(0.06)
+        assert len(calls) == 1
+        assert service.status()["error"] is None
+        assert state["pending"] == {str(tmp_path)}
+        release.set()
+        assert caught_up.wait(2)
+    finally:
+        release.set()
+        wake = state["wake"]
+        with service._the_turn:
+            state["wake"] = None
+        wake.set()
+        worker.join(2)
+        server.shutdown()
+        server.server_close()
+        serving.join(2)
+    assert not worker.is_alive()
+    assert len(calls) == 2
+    assert len(calls[0]["source_revisions"]) == 1
+    assert len(calls[1]["publications"][0]["source_revisions"]) == 100
+
+
 def test_a_store_gone_from_disk_is_left_out_of_what_the_page_is_handed(tmp_path):
     """A shorter rerun removes stores; the viewer still lists them.
 
@@ -539,21 +600,28 @@ def test_stalled_viewer_does_not_block_capture_or_status_and_coalesces_100_write
     assert sum(route == "/api/announce" for route, _ in calls) <= 2
 
 
-def test_failed_publication_is_retained_and_retried_without_another_capture(monkeypatch, tmp_path):
+@pytest.mark.parametrize("failed_request", ["_ask", "_read"])
+def test_failed_publication_is_retained_and_retried_without_another_capture(
+    monkeypatch, tmp_path, failed_request
+):
     state = _empty_service(port=8848)
     monkeypatch.setattr(service, "_viewer", state)
     monkeypatch.setattr(service, "_ask", lambda *_: {})
+    monkeypatch.setattr(service, "_read", lambda *_: {})
     recovered = threading.Event()
-    reads = []
+    attempts = []
 
-    def read(*_):
-        reads.append(1)
-        if len(reads) == 1:
-            raise TimeoutError("busy")
+    def request(*_):
+        attempts.append(1)
+        if len(attempts) == 1:
+            if failed_request == "_ask":
+                raise RuntimeError("publication failed")
+            raise TimeoutError("config read timed out")
         recovered.set()
         return {}
 
-    monkeypatch.setattr(service, "_read", read)
+    monkeypatch.setattr(service, failed_request, request)
+    (tmp_path / "P0.zarr").mkdir()
     service.a_position_landed("overview", tmp_path, store="P0.zarr")
     worker = threading.Thread(target=service._publish_changes, args=(state["wake"],))
     worker.start()
@@ -565,7 +633,7 @@ def test_failed_publication_is_retained_and_retried_without_another_capture(monk
             state["wake"] = None
         wake.set()
         worker.join(2)
-    assert len(reads) == 2
+    assert len(attempts) == 2
 
 
 def test_late_snapshot_cannot_replace_a_new_session(monkeypatch):
