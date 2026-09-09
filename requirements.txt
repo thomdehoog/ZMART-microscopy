@@ -34,3 +34,6 @@ numpy>=1.24
 # WebView2, which is Chromium underneath, so the drawing engine behaves there as
 # it does in Edge.
 pywebview>=5
+
+# Shared acquisition rendering; released 0.2.1 does not include this capability.
+zmart-viewer @ git+https://github.com/thomdehoog/zmart-viewer.git@e759fec3c6c30e84d1ea115254b7b3b6549819bb
