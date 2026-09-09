@@ -222,6 +222,7 @@ export const canvasPanel = {
                it. See \`viz_studio/options/jpeg-under/\`. -->
           <div class="plot picturecv" id="picture-host"></div>
           <div class="live-note" id="overview-note" hidden></div>
+          <div class="live-note" id="publication-note" role="status" hidden></div>
           <div class="tip" id="stage-tip"></div>
         </div>
         <!-- Under the picture: a way through a stack (Z) and along a
@@ -316,6 +317,7 @@ export const canvasPanel = {
         legend: find("canvas-legend"),
         overviewCanvas: find("overview-canvas"),
         overviewNote: find("overview-note"),
+        publicationNote: find("publication-note"),
         pictureHost: find("picture-host"),
         axes: find("canvas-axes"),
         axisZ: find("axis-z"),

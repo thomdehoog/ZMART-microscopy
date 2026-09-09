@@ -5,7 +5,7 @@ The rig's plane sorting, frame/stamp fixes, gamma controls and target rerun work
 remain in the merge. This branch adds no absolute-Z viewing mode.
 
 Viewer dependency: `codex/mixed-acquisition-depth` at
-`e759fec3c6c30e84d1ea115254b7b3b6549819bb` (0.2.1 baseline).
+`b33a21cb8ff9c3edb6a49c75e46ee5e72790818b` (0.2.1 baseline).
 Install that separate checkout as described in the root README; the service
 checks acquisition-rendering capability rather than silently accepting the old
 release's per-position path.
@@ -19,7 +19,8 @@ release's per-position path.
   pixels. Stacks always render above flats; cross-kind raises are not supported.
 - A coalesced background publisher calls the shared viewer. Acquisition callbacks
   and bridge status requests perform no viewer I/O. Failed publication retains
-  the last picture, reports the error and retries.
+  the last picture for that acquisition and reports the error, without hiding
+  other acquisitions. Temporary failures retry; rejected input waits for a change.
 - The viewer serves at most two sources per acquisition: persistent flats and
   relative-Z stacks. Channel controls address both internal blocks together.
   Original-store count never becomes engine source count.

@@ -36,4 +36,4 @@ numpy>=1.24
 pywebview>=5
 
 # Shared acquisition rendering; released 0.2.1 does not include this capability.
-zmart-viewer @ git+https://github.com/thomdehoog/zmart-viewer.git@8604cb812949feb9bdcb5c8bf2739b559543fd44
+zmart-viewer @ git+https://github.com/thomdehoog/zmart-viewer.git@b33a21cb8ff9c3edb6a49c75e46ee5e72790818b

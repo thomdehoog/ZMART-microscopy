@@ -71,6 +71,8 @@ _viewer: dict = {
     "opened": set(),
     "source_versions": {},
     "source_order": {},
+    "published_versions": {},
+    "publication_failures": {},
     "pending": set(),
     "wake": None,
 }
@@ -163,11 +165,14 @@ def stop() -> None:
             server=None,
             thread=None,
             port=None,
+            error=None,
             sources={},
             acquisitions=[],
             opened=set(),
             source_versions={},
             source_order={},
+            published_versions={},
+            publication_failures={},
             pending=set(),
             wake=None,
             bake=False,
@@ -184,12 +189,30 @@ def status() -> dict:
     """Return the latest published picture without waiting for viewer I/O."""
     with _the_turn:
         port = _viewer["port"]
+        errors = [f"{kind}: {failure['error']}"
+                  for kind, failure in _viewer.get("publication_failures", {}).items()]
+        if _viewer["error"]:
+            errors.append(_viewer["error"])
+        publications = {}
+        for kind, order in _viewer["source_order"].items():
+            published = _viewer.get("published_versions", {}).get(kind, {})
+            failure = _viewer.get("publication_failures", {}).get(kind, {})
+            count = sum(published.get(name) == _viewer["source_versions"][(kind, name)]
+                        for name in order)
+            publications[kind] = {
+                "acquired": len(order), "published": count,
+                "state": ("blocked" if failure.get("blocked") else
+                          "retrying" if failure else
+                          "ready" if count == len(order) else "preparing"),
+                "error": failure.get("error"),
+            }
         return {
             "running": port is not None,
             "url": f"http://127.0.0.1:{port}" if port is not None else None,
             "sources": {kind: list(held) for kind, held in _viewer["sources"].items()},
             "acquisitions": [dict(acquisition) for acquisition in _viewer["acquisitions"]],
-            "error": _viewer["error"],
+            "error": "; ".join(errors) or None,
+            "publications": publications,
         }
 
 
@@ -229,6 +252,7 @@ def stores_were_retired(acquisition_type: str, positions_folder: Path | str) -> 
         if folder in _viewer["opened"] or any(
             kind == acquisition_type for kind, _ in _viewer["source_versions"]
         ):
+            _viewer.setdefault("folder_types", {})[folder] = acquisition_type
             _queue_publication(folder)
 
 
@@ -262,12 +286,14 @@ def _publish_once(wake: threading.Event, pending: set[str]) -> bool:
         folder_types = dict(_viewer.get("folder_types", {}))
         orders = {kind: list(names) for kind, names in _viewer["source_order"].items()}
         canvas = _viewer["canvas"]
-    try:
-        publications = []
-        for folder in pending:
+    retry = set()
+    blocked_folders = set()
+    for folder in pending:
+        kind = folder_types.get(folder)
+        try:
             completed = {
-                name: revision for (kind, name), revision in versions.items()
-                if kind == folder_types.get(folder) and (Path(folder) / name).is_dir()
+                name: revision for (source_kind, name), revision in versions.items()
+                if source_kind == kind and (Path(folder) / name).is_dir()
             }
             if not completed and folder not in opened:
                 continue
@@ -284,24 +310,54 @@ def _publish_once(wake: threading.Event, pending: set[str]) -> bool:
                     if _viewer["wake"] is not wake:
                         return True
                     _viewer["opened"].add(folder)
+                    opened.add(folder)
             else:
-                publications.append(payload)
-        if publications:
-            _ask(port, "/api/announce", {"publications": publications})
+                _ask(port, "/api/announce", {"publications": [payload]})
+            with _the_turn:
+                if _viewer["wake"] is not wake:
+                    return True
+                _viewer.setdefault("published_versions", {})[kind] = completed
+                _viewer.setdefault("publication_failures", {}).pop(kind, None)
+                # Forget retired names only if no newer capture has landed
+                # while this snapshot was publishing.
+                _viewer["source_order"][kind] = [
+                    name for name in _viewer["source_order"].get(kind, [])
+                    if name in completed or _viewer["source_versions"].get((kind, name))
+                    != versions.get((kind, name))
+                ]
+        except Exception as why:  # noqa: BLE001 -- independent acquisition failures
+            blocked = isinstance(why, PublicationRejected)
+            if not blocked:
+                retry.add(folder)
+            else:
+                blocked_folders.add(folder)
+            with _the_turn:
+                if _viewer["wake"] is not wake:
+                    return True
+                _viewer.setdefault("publication_failures", {})[kind] = {
+                    "error": str(why), "blocked": blocked,
+                }
+    read_error = None
+    try:
         current = _read(port, "/api/config")
+        # Discovery may expose an uncommitted position after a rejected open.
+        # Only the acquisitions this service successfully published are eligible.
+        headings = {folder_types.get(folder) for folder in opened}
+        current = {**current, "layers": [row for row in current.get("layers", [])
+                                        if _the_heading_of(row) in headings]}
         # Translation checks stores on disk, so it too stays outside the lock.
         sources = _the_sources_in(current, port)
         acquisitions = _the_acquisitions_in(current, port)
-    except Exception as why:  # noqa: BLE001 -- keep the last picture and retry
-        with _the_turn:
-            if _viewer["wake"] is wake:
-                _viewer["error"] = f"the viewer's current picture could not be read: {why}"
-                _viewer["pending"].update(pending)
-        return False
+    except Exception as why:  # noqa: BLE001 -- keep the last readable picture
+        read_error = f"the viewer's current picture could not be read: {why}"
+        retry.update(set(pending) - blocked_folders)
     with _the_turn:
         if _viewer["wake"] is wake:
-            _viewer.update(sources=sources, acquisitions=acquisitions, error=None)
-    return True
+            if read_error is None:
+                _viewer.update(sources=sources, acquisitions=acquisitions)
+            _viewer["error"] = read_error
+            _viewer["pending"].update(retry)
+    return not retry
 
 
 def _still_on_disk(address: str) -> bool:
@@ -497,6 +553,10 @@ def _only_the_newest_generation_of(held) -> list[dict]:
     return [source for source in sources if numbered(source) == newest]
 
 
+class PublicationRejected(RuntimeError):
+    """Invalid input needs a changed publication, not an idle retry."""
+
+
 def _ask(port: int, route: str, payload: dict) -> dict:
     """Wait for this publication before the worker submits its coalesced successor.
 
@@ -514,7 +574,8 @@ def _ask(port: int, route: str, payload: dict) -> dict:
             return json.loads(answer.read() or b"{}")
     except urllib.error.HTTPError as error:
         detail = json.loads(error.read() or b"{}").get("error", str(error))
-        raise RuntimeError(detail) from error
+        failure = PublicationRejected if error.code in {400, 422} else RuntimeError
+        raise failure(detail) from error
 
 
 def _read(port: int, route: str) -> dict:

@@ -41,6 +41,12 @@ import { PENDING, isFailed } from "./connection-status.js";
     Exported for the setup side (`setup.js`), which speaks to the same bridge
     on routes of its own. */
 export async function ask(route, payload) {
+  const body = await request(route, payload);
+  if (body.error) throw new Error(body.error);
+  return body;
+}
+
+async function request(route, payload) {
   const answer = await fetch(atBridge(route), payload === undefined
     ? undefined
     : {
@@ -49,7 +55,7 @@ export async function ask(route, payload) {
       body: JSON.stringify(payload),
     });
   const body = await answer.json().catch(() => ({}));
-  if (!answer.ok || body.error) {
+  if (!answer.ok) {
     throw new Error(body.error ?? `the bridge answered ${answer.status}`);
   }
   return body;
@@ -122,9 +128,12 @@ export const backend = {
    * draws exactly as it always has.  The `sources` fallback keeps this page
    * able to speak to an older bridge during a rolling update.
    */
-  async viewerSources() {
+  async viewerSources(onStatus) {
     try {
-      const state = await ask("/api/viewer");
+      // A successful status response can contain both available images and a
+      // failed acquisition. Its error must not discard the available images.
+      const state = await request("/api/viewer");
+      onStatus?.(state);
       if (Array.isArray(state?.acquisitions) && state.acquisitions.length) {
         return state.acquisitions;
       }
@@ -133,7 +142,8 @@ export const backend = {
         for (const source of sources) all.push({ url: source.url, name: source.name });
       }
       return all.length ? all : null;
-    } catch {
+    } catch (why) {
+      onStatus?.({ error: `Viewer status unavailable: ${why.message}` });
       return null;
     }
   },
