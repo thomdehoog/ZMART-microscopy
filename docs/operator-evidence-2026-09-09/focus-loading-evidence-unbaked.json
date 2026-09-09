@@ -1,0 +1,166 @@
+{
+  "bake": false,
+  "assertionsPassed": true,
+  "initial": {
+    "zeroPatch": [
+      180,
+      0,
+      0
+    ],
+    "signalPatch": [
+      180,
+      0,
+      0
+    ],
+    "oldZeroPatch": [
+      0,
+      0,
+      0
+    ]
+  },
+  "duringCoverage": {
+    "zeroPatch": [
+      180,
+      0,
+      0
+    ],
+    "signalPatch": [
+      180,
+      120,
+      0
+    ],
+    "oldZeroPatch": [
+      0,
+      0,
+      0
+    ]
+  },
+  "coverageHeld": 1,
+  "settled": {
+    "zeroPatch": [
+      0,
+      0,
+      0
+    ],
+    "signalPatch": [
+      0,
+      120,
+      0
+    ],
+    "oldZeroPatch": [
+      0,
+      0,
+      0
+    ]
+  },
+  "duringSignal": {
+    "zeroPatch": [
+      0,
+      0,
+      0
+    ],
+    "signalPatch": [
+      0,
+      0,
+      0
+    ],
+    "oldZeroPatch": [
+      0,
+      0,
+      0
+    ]
+  },
+  "signalHeld": 2,
+  "settledZ": {
+    "zeroPatch": [
+      0,
+      0,
+      0
+    ],
+    "signalPatch": [
+      0,
+      120,
+      0
+    ],
+    "oldZeroPatch": [
+      0,
+      0,
+      0
+    ]
+  },
+  "errors": [],
+  "requests": [
+    {
+      "url": "http://127.0.0.1:63667/data/0/.zmart-viewer/overview.ome.zarr/__zmart_coverage__/0/c/0/0/0",
+      "coverage": true,
+      "holding": "",
+      "time": 1788949321546
+    },
+    {
+      "url": "http://127.0.0.1:63667/data/0/.zmart-viewer/overview.ome.zarr/0/c/0/0/0",
+      "coverage": false,
+      "holding": "",
+      "time": 1788949321547
+    },
+    {
+      "url": "http://127.0.0.1:63667/data/1/.zmart-viewer/stack.ome.zarr/0/c/0/0/0",
+      "coverage": false,
+      "holding": "",
+      "time": 1788949321547
+    },
+    {
+      "url": "http://127.0.0.1:63667/data/1/.zmart-viewer/stack.ome.zarr/__zmart_coverage__/0/c/0/0/0",
+      "coverage": true,
+      "holding": "",
+      "time": 1788949321547
+    },
+    {
+      "url": "http://127.0.0.1:63667/data/1/.zmart-viewer/stack.ome.zarr/__zmart_coverage__/0/c/0/0/0",
+      "coverage": true,
+      "holding": "coverage",
+      "time": 1788949324128
+    },
+    {
+      "url": "http://127.0.0.1:63667/data/1/.zmart-viewer/stack.ome.zarr/0/c/0/0/0",
+      "coverage": false,
+      "holding": "coverage",
+      "time": 1788949324128
+    },
+    {
+      "url": "http://127.0.0.1:63667/data/1/.zmart-viewer/stack.ome.zarr/__zmart_coverage__/0/c/3/0/0",
+      "coverage": true,
+      "holding": "signal",
+      "time": 1788949327915
+    },
+    {
+      "url": "http://127.0.0.1:63667/data/1/.zmart-viewer/stack.ome.zarr/0/c/3/0/0",
+      "coverage": false,
+      "holding": "signal",
+      "time": 1788949327915
+    },
+    {
+      "url": "http://127.0.0.1:63667/data/1/.zmart-viewer/stack.ome.zarr/__zmart_coverage__/0/c/2/0/0",
+      "coverage": true,
+      "holding": "signal",
+      "time": 1788949327915
+    },
+    {
+      "url": "http://127.0.0.1:63667/data/1/.zmart-viewer/stack.ome.zarr/0/c/2/0/0",
+      "coverage": false,
+      "holding": "signal",
+      "time": 1788949327916
+    },
+    {
+      "url": "http://127.0.0.1:63667/data/1/.zmart-viewer/stack.ome.zarr/__zmart_coverage__/0/c/1/0/0",
+      "coverage": true,
+      "holding": "",
+      "time": 1788949330042
+    },
+    {
+      "url": "http://127.0.0.1:63667/data/1/.zmart-viewer/stack.ome.zarr/0/c/1/0/0",
+      "coverage": false,
+      "holding": "",
+      "time": 1788949330042
+    }
+  ]
+}

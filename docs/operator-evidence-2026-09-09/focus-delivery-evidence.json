@@ -1,0 +1,24 @@
+{
+  "assertionsPassed": true,
+  "during_capture": {
+    "kept_for_viewer": 0,
+    "inspector_points": 0
+  },
+  "during_score": {
+    "kept_for_viewer": 1,
+    "inspector_points": 0
+  },
+  "after_completion": {
+    "kept_for_viewer": 1,
+    "inspector_points": 1
+  },
+  "events": [
+    "drive",
+    "capture_started",
+    "capture_completed",
+    "viewer_keep",
+    "score_started",
+    "score_completed",
+    "inspector_point"
+  ]
+}
