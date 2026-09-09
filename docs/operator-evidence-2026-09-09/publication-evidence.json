@@ -1,0 +1,39 @@
+{
+  "overview": {
+    "native_xy": 2.27495107632,
+    "job_xy": 2.27,
+    "fallback_xy": 2.27495107632,
+    "job_raw_pixel_size": " 2.27 \u00c2\u00b5m x  2.27 \u00c2\u00b5m",
+    "actual_store_rejection": "overview_K00_M000027_G000001_P000000_V00.ome.zarr was taken with voxels of (1.0, 2.27, 2.27) micrometres and overview_K00_M000027_G000001_P000002_V00.ome.zarr with (1.0, 2.27495107632, 2.27495107632) (copy 0). Those are two magnifications, which makes them two acquisitions rather than two tiles of one picture \u2014 and every tile's place is worked out by dividing micrometres by this, so the rest of the run would be drawn in the wrong place.",
+    "in_memory_uniform_sampling_accepted_dtype": "uint16"
+  },
+  "targets": {
+    "native_xy": 0.113747260274,
+    "job_xy": 0.11375,
+    "fallback_xy": 0.113747260274,
+    "job_raw_pixel_size": "113.75 nm x 113.75 nm",
+    "actual_store_rejection": "targets_K00_M000000_G000000_P000000_V00.ome.zarr was taken with voxels of (1.0, 0.11375, 0.11375) micrometres and targets_K00_M000000_G000000_P000004_V00.ome.zarr with (1.0, 0.113747260274, 0.113747260274) (copy 0). Those are two magnifications, which makes them two acquisitions rather than two tiles of one picture \u2014 and every tile's place is worked out by dividing micrometres by this, so the rest of the run would be drawn in the wrong place.",
+    "in_memory_uniform_sampling_accepted_dtype": "uint16"
+  },
+  "cached_acquisition_reproduction": {
+    "before": [
+      "overview"
+    ],
+    "raw_after_error": [
+      "overview",
+      "targets",
+      "p1"
+    ],
+    "cached_after_error": [
+      "overview"
+    ],
+    "error": "the viewer's current picture could not be read: p0.ome.zarr was taken with voxels of (1.0, 2.27, 2.27) micrometres and p1.ome.zarr with (1.0, 2.27495107632, 2.27495107632) (copy 0). Those are two magnifications, which makes them two acquisitions rather than two tiles of one picture \u2014 and every tile's place is worked out by dividing micrometres by this, so the rest of the run would be drawn in the wrong place.",
+    "after_retry_with_valid_inputs": [
+      "overview",
+      "targets",
+      "p1"
+    ],
+    "fixture_folder": "C:\\ProgramData\\MinicondaZMB\\home\\t.de\\operator-diagnostics\\publication-repro-mxj1b4rm",
+    "real_server": true
+  }
+}
