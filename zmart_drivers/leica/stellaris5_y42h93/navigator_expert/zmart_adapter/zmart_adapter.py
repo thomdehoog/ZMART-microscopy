@@ -783,7 +783,7 @@ def get_acquisition_options(handle: ZmartHandle) -> dict:
     to the driver's ``save()``; ``backlash_correction`` runs an XY slack
     takeup before capture and optional ``backlash_rounds`` controls its pass
     count (default ``0``, which skips it); ``strip_scan_fields``
-    (Leica-specific, default on)
+    (Leica-specific, default off)
     empties the scanning template before the capture so LAS X acquires the
     single current position, never a stored scan-field pattern.
     """
@@ -803,7 +803,7 @@ def get_acquisition_options(handle: ZmartHandle) -> dict:
             "options": "int >= 0",
             "active": ACQUISITION_BACKLASH_DEFAULT_ROUNDS,
         },
-        "strip_scan_fields": {"options": [True, False], "active": True},
+        "strip_scan_fields": {"options": [True, False], "active": False},
         "format": {"options": ["ome-tiff"], "active": "ome-tiff"},
         "cleanup_source": {"options": [True, False], "active": False},
     }
@@ -1378,8 +1378,8 @@ def _scan_field(handle: ZmartHandle, *, default_job_name: str) -> dict | None:
     (the same convention as the frame's z axis). None when this machine has
     no LAS X scanning-templates profile.
 
-    Read this BEFORE acquiring: the default ``strip_scan_fields``
-    acquisition option empties the template.
+    Read this before acquiring with ``strip_scan_fields=True``:
+    that opt-in acquisition option empties the template.
     """
     templates_dir = _scanfields.find_scanning_templates_dir()
     if templates_dir is None:

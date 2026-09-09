@@ -500,7 +500,7 @@ class TestAcquire(unittest.TestCase):
         self.assertEqual(opts["backlash_rounds"]["active"], 0)
         self.assertEqual(adapter.ACQUISITION_BACKLASH_DEFAULT_ROUNDS, 0)
         self.assertEqual(opts["backlash_rounds"]["options"], "int >= 0")
-        self.assertEqual(opts["strip_scan_fields"]["active"], True)  # default on
+        self.assertFalse(opts["strip_scan_fields"]["active"])
         self.assertEqual(opts["format"]["active"], "ome-tiff")
         self.assertEqual(opts["cleanup_source"]["active"], False)
 
@@ -1207,25 +1207,30 @@ class TestAcquire(unittest.TestCase):
         return calls
 
     def test_acquire_strips_an_unstripped_template_before_capturing(self):
-        calls = self._acquire_with_template_state("unstripped", strip_result={"success": True})
+        calls = self._acquire_with_template_state(
+            "unstripped", strip_result={"success": True}, options={"strip_scan_fields": True}
+        )
         self.assertEqual(calls, ["strip", "capture"])
 
     def test_acquire_skips_the_strip_when_already_stripped(self):
-        self.assertEqual(self._acquire_with_template_state("stripped"), ["capture"])
-
-    def test_acquire_strip_can_be_opted_out(self):
         calls = self._acquire_with_template_state(
-            "unstripped", options={"strip_scan_fields": False}
+            "stripped", options={"strip_scan_fields": True}
         )
+        self.assertEqual(calls, ["capture"])
+
+    def test_acquire_does_not_strip_by_default(self):
+        calls = self._acquire_with_template_state("unstripped")
         self.assertEqual(calls, ["capture"])
 
     def test_acquire_refuses_an_unreadable_template(self):
         with self.assertRaisesRegex(RuntimeError, "unreadable"):
-            self._acquire_with_template_state("unreadable")
+            self._acquire_with_template_state("unreadable", options={"strip_scan_fields": True})
 
     def test_acquire_refuses_when_the_strip_fails(self):
         with self.assertRaisesRegex(RuntimeError, "could not strip"):
-            self._acquire_with_template_state("unstripped", strip_result=None)
+            self._acquire_with_template_state(
+                "unstripped", strip_result=None, options={"strip_scan_fields": True}
+            )
 
 
 class TestStateAndProcedures(unittest.TestCase):
