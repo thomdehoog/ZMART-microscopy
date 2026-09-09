@@ -11,19 +11,18 @@ only as historical design reference.
 
 This integration requires the shared-acquisition viewer at commit
 `e759fec3c6c30e84d1ea115254b7b3b6549819bb` on `codex/mixed-acquisition-depth`,
-built on version 0.2.1. The released `v0.2.1` alone is insufficient. Keep the
-viewer checkout beside this one; publish both branches together before following
-these clone instructions on another machine:
+built on version 0.2.1. The released `v0.2.1` alone is insufficient. Both
+`environment.yml` and the package dependencies pin this viewer commit, so it is
+installed automatically; no sibling checkout or `PYTHONPATH` override is needed.
+Push the viewer branch before deploying this operator branch on another machine.
+Git and access to both repositories are required for installation:
 
 ```bash
-git clone https://github.com/thomdehoog/ZMART-microscopy.git
-git clone https://github.com/thomdehoog/ZMART-viewer.git
-git -C ZMART-viewer checkout e759fec3c6c30e84d1ea115254b7b3b6549819bb
+git clone --branch codex/operator-relative-z-integration https://github.com/thomdehoog/ZMART-microscopy.git
 
 cd ZMART-microscopy
 conda env create -f environment.yml
 conda run -n zmart-microscopy python -m pip install -e ".[dev]"
-conda run -n zmart-microscopy python -m pip install --no-deps -e ../ZMART-viewer
 npm --prefix application ci
 conda run -n zmart-microscopy python -m playwright install chromium
 ```
@@ -38,7 +37,7 @@ conda run -n zmart-microscopy python - <<'PY'
 from application.parts.storage.viewer_service import viewer_provenance
 print(viewer_provenance())
 PY
-git -C ../ZMART-viewer rev-parse HEAD
+conda run -n zmart-microscopy python -m pip freeze
 ```
 
 See [relative-Z integration](docs/relative-z-integration.md) for the bake switch,
