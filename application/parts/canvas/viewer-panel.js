@@ -839,6 +839,7 @@ export async function mountViewerPanel(near, {
    * operator has since windowed by hand is left alone.
    */
   let windowingEveryChannel = false;
+  let disposed = false;
   async function windowEveryChannel() {
     if (windowingEveryChannel) return;
     windowingEveryChannel = true;
@@ -848,6 +849,7 @@ export async function mountViewerPanel(near, {
         const result = await measureViewerRow(row, {
           box: viewer.measurementBox?.(index) ?? [[0, 0], [1, 1]],
         });
+        if (disposed) return;
         if (!result?.ok || !result.answer?.window || row.window) continue;
         const { low, high } = result.answer.window;
         if (!Number.isFinite(low) || !Number.isFinite(high)) continue;
@@ -1712,6 +1714,7 @@ export async function mountViewerPanel(near, {
     /** Draw one acquisition in grey, or in its colours, as its switch would. */
     drawInGrey(name, grey) { greySwitches.get(name)?.(grey); },
     destroy() {
+      disposed = true;
       cancelMeasurement();
       if (observationTimer) clearInterval(observationTimer);
       if (changedTimer !== null) clearTimeout(changedTimer);
