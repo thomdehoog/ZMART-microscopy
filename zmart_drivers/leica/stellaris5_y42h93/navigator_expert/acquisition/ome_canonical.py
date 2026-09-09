@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import uuid
 import xml.etree.ElementTree as ET
 from dataclasses import replace
@@ -125,13 +126,17 @@ def metadata_with_job_physical_sizes(
     *,
     read_timeout_s: float = JOB_SETTINGS_READ_TIMEOUT_S,
 ) -> AcquisitionMetadata:
-    """Prefer live job geometry for physical sizes, falling back to vendor OME.
+    """Keep native XY sampling and correct AutoSave Z spacing from job geometry.
 
     Vendor OME can be internally valid but semantically wrong. LAS X native
     AutoSave has been observed to write ``PhysicalSizeZ`` as range/sections
-    instead of the OME inter-plane spacing. The job settings are the
-    authoritative source for physical sampling when they can be read quickly.
+    instead of the OME inter-plane spacing. That correction is independent of
+    XY: the job's pixelSize string is rounded for display and must not replace
+    precise native XY values depending on whether a settings read succeeds.
     """
+    for axis, value in (("X", metadata.physical_size_x_um), ("Y", metadata.physical_size_y_um)):
+        if value is None or not math.isfinite(value) or value <= 0:
+            raise ValueError(f"native OME PhysicalSize{axis} must be finite and positive")
     settings = _readers.get_job_settings_bounded(
         client, job_name, deadline_s=read_timeout_s, api_timeout=JOB_SETTINGS_API_TIMEOUT_S
     )
@@ -146,19 +151,10 @@ def metadata_with_job_physical_sizes(
         )
         return metadata
 
-    x_um, y_um = _xy_pixel_sizes_from_job_settings(settings)
     z_um = _z_spacing_from_job_settings(settings)
-
-    updates: dict[str, float | None] = {}
-    if x_um is not _UNKNOWN:
-        updates["physical_size_x_um"] = x_um
-    if y_um is not _UNKNOWN:
-        updates["physical_size_y_um"] = y_um
-    if z_um is not _UNKNOWN:
-        updates["physical_size_z_um"] = z_um
-    if not updates:
+    if z_um is _UNKNOWN:
         return metadata
-    return replace(metadata, **updates)
+    return replace(metadata, physical_size_z_um=z_um)
 
 
 def plane_xml(
@@ -467,18 +463,6 @@ def _ensure_channels(metadata: AcquisitionMetadata) -> AcquisitionMetadata:
 _UNKNOWN = object()
 
 
-def _xy_pixel_sizes_from_job_settings(
-    settings: dict,
-) -> tuple[float | object, float | object]:
-    try:
-        geom = _parsing.parse_tile_geometry(settings)
-    except Exception:
-        return _UNKNOWN, _UNKNOWN
-    x_um = _positive_float_or_unknown(geom.get("pixel_w_um"))
-    y_um = _positive_float_or_unknown(geom.get("pixel_h_um"))
-    return x_um, y_um
-
-
 def _z_spacing_from_job_settings(settings: dict) -> float | None | object:
     stack = _parsing.stack_from_settings(settings)
     if not stack:
@@ -575,13 +559,6 @@ def _int_or_none(value: Any) -> int | None:
         return int(value)
     except (TypeError, ValueError):
         return None
-
-
-def _positive_float_or_unknown(value: Any) -> float | object:
-    parsed = _float_or_none(value)
-    if parsed is None or parsed <= 0:
-        return _UNKNOWN
-    return parsed
 
 
 def _float_or_none(value: Any) -> float | None:

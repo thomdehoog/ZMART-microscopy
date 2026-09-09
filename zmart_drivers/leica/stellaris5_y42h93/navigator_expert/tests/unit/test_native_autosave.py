@@ -73,7 +73,10 @@ def _native_project(root: Path, name: str = "Project001") -> Path:
 
 
 def _write_native_ome_tiff(path: Path, data: np.ndarray, axes: str = "TZCYX") -> Path:
-    tifffile.imwrite(str(path), data, ome=True, metadata={"axes": axes})
+    tifffile.imwrite(str(path), data, ome=True, metadata={
+        "axes": axes, "PhysicalSizeX": 0.125, "PhysicalSizeY": 0.25,
+        "PhysicalSizeXUnit": "µm", "PhysicalSizeYUnit": "µm",
+    })
     now = time.time()
     os.utime(path, (now, now))
     return path

@@ -252,7 +252,50 @@ class TestAcquire:
 
 
 class TestCanonicalPhysicalMetadataAuthority:
-    def test_job_settings_override_vendor_physical_sizes(self):
+    def test_native_units_and_unequal_xy_survive_canonical_serialization(self):
+        from navigator_expert.acquisition.product import PlaneIndex
+
+        xml = ('<OME><Image><Pixels SizeX="8" SizeY="8" SizeT="1" SizeZ="1" SizeC="1" '
+               'Type="uint16" PhysicalSizeX="2274.95107632" PhysicalSizeXUnit="nm" '
+               'PhysicalSizeY="0.113747260274" PhysicalSizeYUnit="µm"/></Image></OME>')
+        metadata = ome_canonical.metadata_from_ome_xml(xml)
+        with patch.object(ome_canonical._readers, "get_job_settings_bounded",
+                          return_value=_job_settings(pixel_size="2.27 um x 113.75 nm")):
+            corrected = ome_canonical.metadata_with_job_physical_sizes(metadata, Mock(), "overview")
+        canonical = ome_canonical.plane_xml(
+            corrected, index=PlaneIndex(t=0, z=0, c=0), filename="plane.ome.tiff", shape_yx=(8, 8),
+        )
+        saved = ome_canonical.metadata_from_ome_xml(canonical)
+        assert saved.physical_size_x_um == pytest.approx(2.27495107632, rel=1e-12)
+        assert saved.physical_size_y_um == pytest.approx(0.113747260274, rel=1e-12)
+
+    @pytest.mark.parametrize("axis", ["x", "y"])
+    @pytest.mark.parametrize("value", [None, 0, -1, float("nan"), float("inf")])
+    def test_missing_or_invalid_native_xy_is_not_silently_calibrated(self, axis, value):
+        metadata = replace(_metadata(), **{f"physical_size_{axis}_um": value})
+        with pytest.raises(ValueError, match=f"PhysicalSize{axis.upper()}"):
+            ome_canonical.metadata_with_job_physical_sizes(metadata, Mock(), "overview")
+
+    @pytest.mark.parametrize(
+        "native_xy,pixel_size",
+        [(2.27495107632, "2.27 um x 2.27 um"),
+         (0.113747260274, "113.75 nm x 113.75 nm")],
+    )
+    def test_recorded_xy_is_independent_of_live_settings_availability(self, native_xy, pixel_size):
+        metadata = replace(_metadata(), physical_size_x_um=native_xy, physical_size_y_um=native_xy)
+        settings = _job_settings(pixel_size=pixel_size)
+        results = []
+        for response in (settings, None, {"pixelSize": "unparseable"}, settings):
+            with patch.object(ome_canonical._readers, "get_job_settings_bounded", return_value=response):
+                out = ome_canonical.metadata_with_job_physical_sizes(metadata, "client", "Same job")
+                results.append((out.physical_size_x_um, out.physical_size_y_um))
+        assert results == [(native_xy, native_xy)] * 4
+        changed = replace(metadata, physical_size_x_um=native_xy * 2, physical_size_y_um=native_xy * 2)
+        with patch.object(ome_canonical._readers, "get_job_settings_bounded", return_value=settings):
+            out = ome_canonical.metadata_with_job_physical_sizes(changed, "client", "Same job")
+        assert out.physical_size_x_um == out.physical_size_y_um == native_xy * 2
+
+    def test_job_settings_correct_z_without_overriding_native_xy(self):
         metadata = replace(
             _metadata(),
             physical_size_x_um=9.0,
@@ -275,8 +318,8 @@ class TestCanonicalPhysicalMetadataAuthority:
             )
 
         assert "mode" not in read_settings.call_args.kwargs
-        assert out.physical_size_x_um == pytest.approx(2.27)
-        assert out.physical_size_y_um == pytest.approx(2.28)
+        assert out.physical_size_x_um == metadata.physical_size_x_um
+        assert out.physical_size_y_um == metadata.physical_size_y_um
         assert out.physical_size_z_um == pytest.approx(2.41)
 
     def test_z_spacing_survives_schema_degraded_settings(self):
