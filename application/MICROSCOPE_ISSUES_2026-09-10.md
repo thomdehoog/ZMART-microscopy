@@ -184,3 +184,35 @@ The counts were the same for Top, Slice and MIP. Reuse requires compatible reduc
 Optimization should preserve correct gap/overlap ownership and reduction arithmetic. Simply bypassing the alignment checks or snapping physical tile positions to a coarser grid would change the image semantics. A bounded benchmark should instead measure repeated reads/composition and evaluate reuse of correctly composed intermediate results, incremental updates and deferred baking.
 
 Additional local evidence: `served-target-pixel-checks.json`, `pyramid-reuse-check.json`, and their diagnostic scripts in the diagnostics folder. The missing ngio dependency and preview failures remain unfixed.
+
+## New finding on 2026-09-11: selecting targets restarts publication
+
+After the user confirmed the completed image looked correct, a further screenshot showed a coarse target in Top view, Plane 12 of 21, with target list row 18 selected. Local screenshot: `C:\Users\t.de\Desktop\{66777486-7248-4DF6-8A5A-F138EBE4FEBB}.png`. Completion of the original acquisition batch therefore did not end the display problem: subsequent interaction can start another publication.
+
+### Confirmed interaction-to-rebuild path
+
+`application/framework/window/main.js::selectTarget` calls `backend.raiseTarget(label)` for an explicit selection of an acquired target. This sends `POST /api/targets/raise`. The bridge calls `viewer_service.raise_position`, which removes that store from the composition order, appends it to the end, and queues publication. Thus selecting a target is coupled to rewriting its overlap order in the persisted aggregate, rather than being only a selection/highlight operation.
+
+The implementation deliberately excludes quiet automatic selection, but ordinary user selection still takes this path. During the new screenshot investigation:
+
+- The operator reported all 20 targets published and `state=ready`.
+- The Top aggregate nevertheless had `pending.json`, timestamped 00:00:16 on 2026-09-11.
+- Its pending and committed source-version dictionaries were identical: this update did not require a new capture or new source pixel revision.
+- Top metadata and coverage requests returned HTTP 503. An isolated fresh Neuroglancer reader also encountered those failures, so the native window alone is not required to reproduce this data-availability problem.
+- The pending update marked 135 level-0 XY pieces, 60 level-1 pieces, 37 level-2 pieces and 23 level-3 pieces dirty, with further work through level 13. A thread snapshot caught the commit building level 4, plane 5.
+
+No selection/reorder POST was issued by the diagnostic reader; it read the existing viewer and data endpoints. Its attempted resolution comparison was stopped when the pending-store responses prevented a fair comparison.
+
+### Why the ready count misses it
+
+`viewer_service.status` compares published source revisions against acquired source revisions. `raise_position` changes composition order without changing those revisions. Therefore the status can remain **20/20 ready while an interaction-triggered aggregate rebuild is in progress**. Status needs to track composition/publication generations and pending work, not just source versions.
+
+### Why a selection can invalidate substantial work
+
+In `published.py::prepare`, the reorder logic compares old and new order lists by ordinal position and marks names at differing positions as affected. Moving one item to the end shifts other items too. Their occupied aggregate pieces then enter the dirty set, without first limiting changes to areas where the relative overlap actually changes. This is an identifiable source of unnecessary invalidation to benchmark and tighten.
+
+### Revised repair priority
+
+Decouple routine target inspection from expensive persistent aggregate rebuilding. Preserve the selected target's intended visual prominence through a transient viewer presentation, or make any necessary reorder work bounded to actual affected overlap while keeping the last committed image readable. Also make pending reorder work visible in publication status. Together with per-view revision propagation, this directly addresses the user's hypothesis that the operator integration is imposing avoidable work on Neuroglancer.
+
+The snapshot does not establish a separate browser resolution-selection defect: the backend was again refusing the data needed for refinement. Test the native client's finer-level loading once the selected view is readable and no selection-triggered rebuild is active. No runtime fixes or restart were performed.
