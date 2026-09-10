@@ -20,6 +20,8 @@ Read [the issue and validation report](MICROSCOPE_ISSUES_2026-09-10.md) and [ins
 
 On 2026-09-11, the user reported that images seem to arrive on screen faster with baking disabled. This is an observed difference, not yet a controlled timing result. It suggests that baking may delay first display through publication dependencies or competition for CPU/I/O; the mechanism remains to be measured.
 
+The user subsequently clarified that display still seems slightly slow with baking disabled and needs more observation. Responsiveness is therefore not considered resolved. The agreed next step is measurement: time **export completion → canonical store ready → publication → first visible image** with baking both enabled and disabled. Time target selection and zoom refinement separately to distinguish image-loading delays from interaction delays. Record these as preliminary user observations until controlled measurements establish their magnitude and cause.
+
 Make baking enabled versus disabled an explicit baseline comparison using the same recorded data, view, viewport, channels and matched cache conditions. Measure first useful display, subsequent pan/zoom/refinement latency, publication completion, CPU/I/O and cache growth. Check both initial and repeated viewing: faster first display alone does not establish which mode provides the best sustained responsiveness.
 
 If the comparison confirms an advantage, evaluate an interactive path with baking disabled or deferred until after first display, with bounded background work. Preserve correctness and readable publication in either mode. Do not change the default solely on this observation.
