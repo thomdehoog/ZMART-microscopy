@@ -11,11 +11,11 @@ from application.parts.storage.viewer_service import _allow_the_page_to_read
 from zmart_storage.canvas import _declare_one
 
 folder = Path(sys.argv[1])
-for name, depth, x, z, reference in (
+for name, depth, x, z, reference in (() if "--existing" in sys.argv else (
     ("flat", 1, 0, 75, 75),
     ("stack", 3, 128, 60, 61.3),
     ("black", 3, 0, 200, 201.3),
-):
+)):
     store = folder / f"{name}.ome.zarr"
     _declare_one(
         store, canvas_shape=(depth, 64, 64), frames=1, channels=2,

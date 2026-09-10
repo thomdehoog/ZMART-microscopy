@@ -26,6 +26,24 @@ beforeEach(() => {
 });
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
 
+test("a failed update is reported and the next publication can recover", async () => {
+  const viewer = { destroy: vi.fn(), setView: vi.fn(), addSources: vi.fn(async () => true) };
+  mocks.opener.mockResolvedValue(async () => viewer);
+  const run = watchTheRun(ctx);
+  await vi.dynamicImportSettled();
+  await settle();
+  const log = vi.spyOn(console, "error").mockImplementation(() => {});
+  try {
+    ctx.viewerSources = async () => { throw new Error("viewer unavailable"); };
+    await run.thePicture.reopenIfTheRunGrew();
+    expect(log).toHaveBeenCalledWith(expect.stringContaining("viewer unavailable"));
+    ctx.viewerSources = async () => [{ name: "overview", url: "/overview" }];
+    await run.thePicture.reopenIfTheRunGrew();
+    expect(viewer.addSources).toHaveBeenCalledOnce();
+    expect(viewer.destroy).not.toHaveBeenCalled();
+  } finally { log.mockRestore(); }
+});
+
 test("reset disposes an opening viewer instead of resurrecting the disconnected session", async () => {
   const pending = deferred();
   const viewer = { destroy: vi.fn(), setView: vi.fn() };
@@ -97,7 +115,7 @@ test("a temporarily unavailable product does not erase the requested view", asyn
     export const selectedViews=(rows,wanted)=>wanted;
     export const inSelectedView=(row,wanted)=>row.view.type===wanted.a;`;
   const embeddingUrl = `data:text/javascript,${encodeURIComponent(api)}`;
-  let modes = ["top", "slice"];
+  let modes = ["slice", "top"];
   ctx.viewerSources = async () => [{name:"a", embeddingUrl, channels:modes.map(type => ({
     view:{acquisition:"a",type}, sources:[`/${type}`], sourceRevisions:[1],
   }))}];

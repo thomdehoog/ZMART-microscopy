@@ -3,7 +3,7 @@
 Feature branch: `codex/operator-named-views-simulator`, based on local
 `codex/operator-relative-z-integration` at `7e0b8f8f`, including its rig fixes.
 Companion viewer branch: `codex/operator-embedding`, version `0.5.0.dev0`.
-Tested viewer commit: `1af6d7ab1633dd34449c6451862d0da1016edc07`.
+Tested viewer commit: `128130d761589c02c67933b40cb379ae33afe0cb`.
 Neither branch is a microscope deployment.
 
 ## Display and storage
@@ -47,6 +47,9 @@ in the storage ingestion seam, only with allowlisted SIMULATOR vendor metadata.
 It neither edits the driver nor changes saved vendor TIFFs. Synthetic provenance
 is recorded in the OME-Zarr. Missing files/coordinates fail instead of becoming
 synthetic success.
+An explicit simulator-identity refusal aborts both scan and focus acquisition.
+The Detect/Discover preview reads the canonical OME-Zarr MIP, as detection does;
+it does not reapply the simulator recipe or read different vendor pixels.
 
 For a bounded capture probe, run the module below in the configured environment:
 
@@ -63,3 +66,19 @@ are covered by automated tests. Original file hashes are retained as evidence.
 Simulator verification is not proof of the rig's stage calibration, optical
 quality, or real acquisition throughput. Do not deploy this branch to the rig
 until the integration review and microscope checks are complete.
+
+## Remaining lifecycle limits
+
+Connect starts a new run. Resuming an existing named publication across a process
+restart is not supported by this operator: its local revision counters must first
+be reconciled with committed viewer revisions. Do not bypass revision rejection.
+
+Superseded per-position projection products are retained. Automatic pruning needs
+ownership across every publication sharing that projection folder; deleting files
+based only on this acquisition's current order could break another view set.
+Repeated rewrites therefore grow projection storage until a safe retention policy
+is implemented. No original or derived acquisition data is deleted by this change.
+
+Synthetic replay proves consistency with the recorded coordinates, not that LAS X
+reported the correct physical coordinates. The full workflow tests use the mock;
+real simulator focus scoring and microscope calibration still require validation.

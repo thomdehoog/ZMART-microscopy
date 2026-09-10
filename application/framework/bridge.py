@@ -1093,6 +1093,8 @@ def _keep_position_as_zarr(record: dict, acquisition_type: str) -> None:
     scan: the vendor's files are on disk and the conversion can be run again,
     while a stage drive cut short cannot.
     """
+    from application.parts.microscope.hijack import NonSimulatorFrameError
+
     try:
         folder = _the_run() / "positions" / acquisition_type
         record["zarr"] = str(position_store_from_record(record, folder, pixel_provider=_pixel_provider))
@@ -1103,6 +1105,8 @@ def _keep_position_as_zarr(record: dict, acquisition_type: str) -> None:
         # another job by the time it captured, and the page draws, crops and
         # opens the ground over what actually landed.
         record["frame_um"] = frame_um_of(record["zarr"])
+    except NonSimulatorFrameError:
+        raise
     except Exception as why:  # noqa: BLE001 -- filed, not fatal
         record["zarr_error"] = str(why)
         return
@@ -1164,10 +1168,14 @@ def _a_picture_as_displayed(acquisition_type: str, label: str, display: list) ->
         return None
     key = (acquisition_type, label, json.dumps(display, sort_keys=True))
     if key not in _displayed_pictures:
-        planes = [(int(p.get("c", 0)), p["path"]) for p in record.get("planes") or [] if p.get("path")]
+        captured = record.get("planes") or []
+        first_time = min((int(p.get("t", 0)) for p in captured), default=0)
+        planes = [(int(p.get("c", 0)), p["path"]) for p in captured
+                  if p.get("path") and int(p.get("t", 0)) == first_time]
         # The whole frame: the operator judges a diameter against this
         # picture, and a thumbnail blown up to the panel's width is blocks.
-        _displayed_pictures[key] = picture_as_displayed(planes, display, budget_px=1024 * 1024)
+        _displayed_pictures[key] = picture_as_displayed(
+            planes, display, budget_px=1024 * 1024, store=record.get("zarr"))
     return _displayed_pictures[key]
 
 

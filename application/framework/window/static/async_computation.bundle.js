@@ -1,4 +1,3 @@
-// node_modules/neuroglancer/lib/async_computation.bundle.js
 var __create = Object.create;
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
@@ -40,6 +39,8 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target,
   mod
 ));
+
+// node_modules/core-js/internals/global-this.js
 var require_global_this = __commonJS({
   "node_modules/core-js/internals/global-this.js"(exports, module) {
     "use strict";
@@ -54,6 +55,8 @@ var require_global_this = __commonJS({
     })() || Function("return this")();
   }
 });
+
+// node_modules/core-js/internals/path.js
 var require_path = __commonJS({
   "node_modules/core-js/internals/path.js"(exports, module) {
     "use strict";
@@ -61,6 +64,8 @@ var require_path = __commonJS({
     module.exports = globalThis2;
   }
 });
+
+// node_modules/core-js/internals/fails.js
 var require_fails = __commonJS({
   "node_modules/core-js/internals/fails.js"(exports, module) {
     "use strict";
@@ -73,6 +78,8 @@ var require_fails = __commonJS({
     };
   }
 });
+
+// node_modules/core-js/internals/function-bind-native.js
 var require_function_bind_native = __commonJS({
   "node_modules/core-js/internals/function-bind-native.js"(exports, module) {
     "use strict";
@@ -84,6 +91,8 @@ var require_function_bind_native = __commonJS({
     });
   }
 });
+
+// node_modules/core-js/internals/function-uncurry-this.js
 var require_function_uncurry_this = __commonJS({
   "node_modules/core-js/internals/function-uncurry-this.js"(exports, module) {
     "use strict";
@@ -98,6 +107,8 @@ var require_function_uncurry_this = __commonJS({
     };
   }
 });
+
+// node_modules/core-js/internals/is-null-or-undefined.js
 var require_is_null_or_undefined = __commonJS({
   "node_modules/core-js/internals/is-null-or-undefined.js"(exports, module) {
     "use strict";
@@ -106,6 +117,8 @@ var require_is_null_or_undefined = __commonJS({
     };
   }
 });
+
+// node_modules/core-js/internals/require-object-coercible.js
 var require_require_object_coercible = __commonJS({
   "node_modules/core-js/internals/require-object-coercible.js"(exports, module) {
     "use strict";
@@ -117,6 +130,8 @@ var require_require_object_coercible = __commonJS({
     };
   }
 });
+
+// node_modules/core-js/internals/to-object.js
 var require_to_object = __commonJS({
   "node_modules/core-js/internals/to-object.js"(exports, module) {
     "use strict";
@@ -127,6 +142,8 @@ var require_to_object = __commonJS({
     };
   }
 });
+
+// node_modules/core-js/internals/has-own-property.js
 var require_has_own_property = __commonJS({
   "node_modules/core-js/internals/has-own-property.js"(exports, module) {
     "use strict";
@@ -138,12 +155,16 @@ var require_has_own_property = __commonJS({
     };
   }
 });
+
+// node_modules/core-js/internals/is-pure.js
 var require_is_pure = __commonJS({
   "node_modules/core-js/internals/is-pure.js"(exports, module) {
     "use strict";
     module.exports = false;
   }
 });
+
+// node_modules/core-js/internals/define-global-property.js
 var require_define_global_property = __commonJS({
   "node_modules/core-js/internals/define-global-property.js"(exports, module) {
     "use strict";
@@ -159,6 +180,8 @@ var require_define_global_property = __commonJS({
     };
   }
 });
+
+// node_modules/core-js/internals/shared-store.js
 var require_shared_store = __commonJS({
   "node_modules/core-js/internals/shared-store.js"(exports, module) {
     "use strict";
@@ -176,6 +199,8 @@ var require_shared_store = __commonJS({
     });
   }
 });
+
+// node_modules/core-js/internals/shared.js
 var require_shared = __commonJS({
   "node_modules/core-js/internals/shared.js"(exports, module) {
     "use strict";
@@ -185,6 +210,8 @@ var require_shared = __commonJS({
     };
   }
 });
+
+// node_modules/core-js/internals/uid.js
 var require_uid = __commonJS({
   "node_modules/core-js/internals/uid.js"(exports, module) {
     "use strict";
@@ -197,6 +224,8 @@ var require_uid = __commonJS({
     };
   }
 });
+
+// node_modules/core-js/internals/environment-user-agent.js
 var require_environment_user_agent = __commonJS({
   "node_modules/core-js/internals/environment-user-agent.js"(exports, module) {
     "use strict";
@@ -206,6 +235,8 @@ var require_environment_user_agent = __commonJS({
     module.exports = userAgent ? String(userAgent) : "";
   }
 });
+
+// node_modules/core-js/internals/environment-v8-version.js
 var require_environment_v8_version = __commonJS({
   "node_modules/core-js/internals/environment-v8-version.js"(exports, module) {
     "use strict";
@@ -231,6 +262,8 @@ var require_environment_v8_version = __commonJS({
     module.exports = version;
   }
 });
+
+// node_modules/core-js/internals/symbol-constructor-detection.js
 var require_symbol_constructor_detection = __commonJS({
   "node_modules/core-js/internals/symbol-constructor-detection.js"(exports, module) {
     "use strict";
@@ -245,6 +278,8 @@ var require_symbol_constructor_detection = __commonJS({
     });
   }
 });
+
+// node_modules/core-js/internals/use-symbol-as-uid.js
 var require_use_symbol_as_uid = __commonJS({
   "node_modules/core-js/internals/use-symbol-as-uid.js"(exports, module) {
     "use strict";
@@ -252,6 +287,8 @@ var require_use_symbol_as_uid = __commonJS({
     module.exports = NATIVE_SYMBOL && !Symbol.sham && typeof Symbol.iterator == "symbol";
   }
 });
+
+// node_modules/core-js/internals/well-known-symbol.js
 var require_well_known_symbol = __commonJS({
   "node_modules/core-js/internals/well-known-symbol.js"(exports, module) {
     "use strict";
@@ -272,6 +309,8 @@ var require_well_known_symbol = __commonJS({
     };
   }
 });
+
+// node_modules/core-js/internals/well-known-symbol-wrapped.js
 var require_well_known_symbol_wrapped = __commonJS({
   "node_modules/core-js/internals/well-known-symbol-wrapped.js"(exports) {
     "use strict";
@@ -279,6 +318,8 @@ var require_well_known_symbol_wrapped = __commonJS({
     exports.f = wellKnownSymbol;
   }
 });
+
+// node_modules/core-js/internals/descriptors.js
 var require_descriptors = __commonJS({
   "node_modules/core-js/internals/descriptors.js"(exports, module) {
     "use strict";
@@ -290,6 +331,8 @@ var require_descriptors = __commonJS({
     });
   }
 });
+
+// node_modules/core-js/internals/is-callable.js
 var require_is_callable = __commonJS({
   "node_modules/core-js/internals/is-callable.js"(exports, module) {
     "use strict";
@@ -301,6 +344,8 @@ var require_is_callable = __commonJS({
     };
   }
 });
+
+// node_modules/core-js/internals/is-object.js
 var require_is_object = __commonJS({
   "node_modules/core-js/internals/is-object.js"(exports, module) {
     "use strict";
@@ -310,6 +355,8 @@ var require_is_object = __commonJS({
     };
   }
 });
+
+// node_modules/core-js/internals/document-create-element.js
 var require_document_create_element = __commonJS({
   "node_modules/core-js/internals/document-create-element.js"(exports, module) {
     "use strict";
@@ -322,6 +369,8 @@ var require_document_create_element = __commonJS({
     };
   }
 });
+
+// node_modules/core-js/internals/ie8-dom-define.js
 var require_ie8_dom_define = __commonJS({
   "node_modules/core-js/internals/ie8-dom-define.js"(exports, module) {
     "use strict";
@@ -337,6 +386,8 @@ var require_ie8_dom_define = __commonJS({
     });
   }
 });
+
+// node_modules/core-js/internals/v8-prototype-define-bug.js
 var require_v8_prototype_define_bug = __commonJS({
   "node_modules/core-js/internals/v8-prototype-define-bug.js"(exports, module) {
     "use strict";
@@ -351,6 +402,8 @@ var require_v8_prototype_define_bug = __commonJS({
     });
   }
 });
+
+// node_modules/core-js/internals/an-object.js
 var require_an_object = __commonJS({
   "node_modules/core-js/internals/an-object.js"(exports, module) {
     "use strict";
@@ -363,6 +416,8 @@ var require_an_object = __commonJS({
     };
   }
 });
+
+// node_modules/core-js/internals/function-call.js
 var require_function_call = __commonJS({
   "node_modules/core-js/internals/function-call.js"(exports, module) {
     "use strict";
@@ -373,6 +428,8 @@ var require_function_call = __commonJS({
     };
   }
 });
+
+// node_modules/core-js/internals/get-built-in.js
 var require_get_built_in = __commonJS({
   "node_modules/core-js/internals/get-built-in.js"(exports, module) {
     "use strict";
@@ -386,6 +443,8 @@ var require_get_built_in = __commonJS({
     };
   }
 });
+
+// node_modules/core-js/internals/object-is-prototype-of.js
 var require_object_is_prototype_of = __commonJS({
   "node_modules/core-js/internals/object-is-prototype-of.js"(exports, module) {
     "use strict";
@@ -393,6 +452,8 @@ var require_object_is_prototype_of = __commonJS({
     module.exports = uncurryThis({}.isPrototypeOf);
   }
 });
+
+// node_modules/core-js/internals/is-symbol.js
 var require_is_symbol = __commonJS({
   "node_modules/core-js/internals/is-symbol.js"(exports, module) {
     "use strict";
@@ -409,6 +470,8 @@ var require_is_symbol = __commonJS({
     };
   }
 });
+
+// node_modules/core-js/internals/try-to-string.js
 var require_try_to_string = __commonJS({
   "node_modules/core-js/internals/try-to-string.js"(exports, module) {
     "use strict";
@@ -422,6 +485,8 @@ var require_try_to_string = __commonJS({
     };
   }
 });
+
+// node_modules/core-js/internals/a-callable.js
 var require_a_callable = __commonJS({
   "node_modules/core-js/internals/a-callable.js"(exports, module) {
     "use strict";
@@ -434,6 +499,8 @@ var require_a_callable = __commonJS({
     };
   }
 });
+
+// node_modules/core-js/internals/get-method.js
 var require_get_method = __commonJS({
   "node_modules/core-js/internals/get-method.js"(exports, module) {
     "use strict";
@@ -445,6 +512,8 @@ var require_get_method = __commonJS({
     };
   }
 });
+
+// node_modules/core-js/internals/ordinary-to-primitive.js
 var require_ordinary_to_primitive = __commonJS({
   "node_modules/core-js/internals/ordinary-to-primitive.js"(exports, module) {
     "use strict";
@@ -461,6 +530,8 @@ var require_ordinary_to_primitive = __commonJS({
     };
   }
 });
+
+// node_modules/core-js/internals/to-primitive.js
 var require_to_primitive = __commonJS({
   "node_modules/core-js/internals/to-primitive.js"(exports, module) {
     "use strict";
@@ -487,6 +558,8 @@ var require_to_primitive = __commonJS({
     };
   }
 });
+
+// node_modules/core-js/internals/to-property-key.js
 var require_to_property_key = __commonJS({
   "node_modules/core-js/internals/to-property-key.js"(exports, module) {
     "use strict";
@@ -498,6 +571,8 @@ var require_to_property_key = __commonJS({
     };
   }
 });
+
+// node_modules/core-js/internals/object-define-property.js
 var require_object_define_property = __commonJS({
   "node_modules/core-js/internals/object-define-property.js"(exports) {
     "use strict";
@@ -542,6 +617,8 @@ var require_object_define_property = __commonJS({
     };
   }
 });
+
+// node_modules/core-js/internals/well-known-symbol-define.js
 var require_well_known_symbol_define = __commonJS({
   "node_modules/core-js/internals/well-known-symbol-define.js"(exports, module) {
     "use strict";
@@ -557,6 +634,8 @@ var require_well_known_symbol_define = __commonJS({
     };
   }
 });
+
+// node_modules/core-js/internals/object-property-is-enumerable.js
 var require_object_property_is_enumerable = __commonJS({
   "node_modules/core-js/internals/object-property-is-enumerable.js"(exports) {
     "use strict";
@@ -569,6 +648,8 @@ var require_object_property_is_enumerable = __commonJS({
     } : $propertyIsEnumerable;
   }
 });
+
+// node_modules/core-js/internals/create-property-descriptor.js
 var require_create_property_descriptor = __commonJS({
   "node_modules/core-js/internals/create-property-descriptor.js"(exports, module) {
     "use strict";
@@ -582,6 +663,8 @@ var require_create_property_descriptor = __commonJS({
     };
   }
 });
+
+// node_modules/core-js/internals/classof-raw.js
 var require_classof_raw = __commonJS({
   "node_modules/core-js/internals/classof-raw.js"(exports, module) {
     "use strict";
@@ -593,6 +676,8 @@ var require_classof_raw = __commonJS({
     };
   }
 });
+
+// node_modules/core-js/internals/indexed-object.js
 var require_indexed_object = __commonJS({
   "node_modules/core-js/internals/indexed-object.js"(exports, module) {
     "use strict";
@@ -608,6 +693,8 @@ var require_indexed_object = __commonJS({
     } : $Object;
   }
 });
+
+// node_modules/core-js/internals/to-indexed-object.js
 var require_to_indexed_object = __commonJS({
   "node_modules/core-js/internals/to-indexed-object.js"(exports, module) {
     "use strict";
@@ -618,6 +705,8 @@ var require_to_indexed_object = __commonJS({
     };
   }
 });
+
+// node_modules/core-js/internals/object-get-own-property-descriptor.js
 var require_object_get_own_property_descriptor = __commonJS({
   "node_modules/core-js/internals/object-get-own-property-descriptor.js"(exports) {
     "use strict";
@@ -641,6 +730,8 @@ var require_object_get_own_property_descriptor = __commonJS({
     };
   }
 });
+
+// node_modules/core-js/modules/es.symbol.dispose.js
 var require_es_symbol_dispose = __commonJS({
   "node_modules/core-js/modules/es.symbol.dispose.js"() {
     "use strict";
@@ -659,6 +750,8 @@ var require_es_symbol_dispose = __commonJS({
     var descriptor;
   }
 });
+
+// node_modules/core-js/es/symbol/dispose.js
 var require_dispose = __commonJS({
   "node_modules/core-js/es/symbol/dispose.js"(exports, module) {
     "use strict";
@@ -667,6 +760,8 @@ var require_dispose = __commonJS({
     module.exports = WrappedWellKnownSymbolModule.f("dispose");
   }
 });
+
+// node_modules/core-js/stable/symbol/dispose.js
 var require_dispose2 = __commonJS({
   "node_modules/core-js/stable/symbol/dispose.js"(exports, module) {
     "use strict";
@@ -674,12 +769,16 @@ var require_dispose2 = __commonJS({
     module.exports = parent;
   }
 });
+
+// node_modules/core-js/modules/esnext.symbol.dispose.js
 var require_esnext_symbol_dispose = __commonJS({
   "node_modules/core-js/modules/esnext.symbol.dispose.js"() {
     "use strict";
     require_es_symbol_dispose();
   }
 });
+
+// node_modules/core-js/actual/symbol/dispose.js
 var require_dispose3 = __commonJS({
   "node_modules/core-js/actual/symbol/dispose.js"(exports, module) {
     "use strict";
@@ -688,6 +787,8 @@ var require_dispose3 = __commonJS({
     module.exports = parent;
   }
 });
+
+// node_modules/core-js/modules/es.symbol.async-dispose.js
 var require_es_symbol_async_dispose = __commonJS({
   "node_modules/core-js/modules/es.symbol.async-dispose.js"() {
     "use strict";
@@ -706,6 +807,8 @@ var require_es_symbol_async_dispose = __commonJS({
     var descriptor;
   }
 });
+
+// node_modules/core-js/es/symbol/async-dispose.js
 var require_async_dispose = __commonJS({
   "node_modules/core-js/es/symbol/async-dispose.js"(exports, module) {
     "use strict";
@@ -714,6 +817,8 @@ var require_async_dispose = __commonJS({
     module.exports = WrappedWellKnownSymbolModule.f("asyncDispose");
   }
 });
+
+// node_modules/core-js/stable/symbol/async-dispose.js
 var require_async_dispose2 = __commonJS({
   "node_modules/core-js/stable/symbol/async-dispose.js"(exports, module) {
     "use strict";
@@ -721,12 +826,16 @@ var require_async_dispose2 = __commonJS({
     module.exports = parent;
   }
 });
+
+// node_modules/core-js/modules/esnext.symbol.async-dispose.js
 var require_esnext_symbol_async_dispose = __commonJS({
   "node_modules/core-js/modules/esnext.symbol.async-dispose.js"() {
     "use strict";
     require_es_symbol_async_dispose();
   }
 });
+
+// node_modules/core-js/actual/symbol/async-dispose.js
 var require_async_dispose3 = __commonJS({
   "node_modules/core-js/actual/symbol/async-dispose.js"(exports, module) {
     "use strict";
@@ -735,6 +844,8 @@ var require_async_dispose3 = __commonJS({
     module.exports = parent;
   }
 });
+
+// node_modules/numcodecs/dist/chunk-INHXZS53.js
 var __toBinary;
 var init_chunk_INHXZS53 = __esm({
   "node_modules/numcodecs/dist/chunk-INHXZS53.js"() {
@@ -756,18 +867,13 @@ var init_chunk_INHXZS53 = __esm({
     })();
   }
 });
+
+// node_modules/numcodecs/dist/blosc.js
 var blosc_exports = {};
 __export(blosc_exports, {
   default: () => blosc_default
 });
-var blosc_codec;
-var blosc_codec_default;
-var blosc_codec_default2;
-var COMPRESSORS;
-var emscriptenModule;
-var init;
-var Blosc;
-var blosc_default;
+var blosc_codec, blosc_codec_default, blosc_codec_default2, COMPRESSORS, emscriptenModule, init, Blosc, blosc_default;
 var init_blosc = __esm({
   "node_modules/numcodecs/dist/blosc.js"() {
     init_chunk_INHXZS53();
@@ -1656,19 +1762,13 @@ var init_blosc = __esm({
     blosc_default = Blosc;
   }
 });
+
+// node_modules/numcodecs/dist/zstd.js
 var zstd_exports = {};
 __export(zstd_exports, {
   default: () => zstd_default
 });
-var zstd_codec;
-var zstd_codec_default;
-var zstd_codec_default2;
-var DEFAULT_CLEVEL;
-var MAX_CLEVEL;
-var emscriptenModule2;
-var init2;
-var Zstd;
-var zstd_default;
+var zstd_codec, zstd_codec_default, zstd_codec_default2, DEFAULT_CLEVEL, MAX_CLEVEL, emscriptenModule2, init2, Zstd, zstd_default;
 var init_zstd = __esm({
   "node_modules/numcodecs/dist/zstd.js"() {
     init_chunk_INHXZS53();
@@ -2438,13 +2538,21 @@ var init_zstd = __esm({
     zstd_default = Zstd;
   }
 });
+
+// node_modules/neuroglancer/lib/util/polyfills.js
 var import_dispose = __toESM(require_dispose3(), 1);
 var import_async_dispose = __toESM(require_async_dispose3(), 1);
+
+// node_modules/neuroglancer/lib/async_computation/index.js
 function asyncComputation(id) {
   return { id };
 }
+
+// node_modules/neuroglancer/lib/async_computation/encode_compressed_segmentation_request.js
 var encodeCompressedSegmentationUint32 = asyncComputation("encodeCompressedSegmentationUint32");
 var encodeCompressedSegmentationUint64 = asyncComputation("encodeCompressedSegmentationUint64");
+
+// node_modules/neuroglancer/lib/async_computation/handler.js
 var handlers = /* @__PURE__ */ new Map();
 function setupChannel(port) {
   self.onmessage = async (msg) => {
@@ -2471,6 +2579,8 @@ setupChannel(self);
 function registerAsyncComputation(request, handler) {
   handlers.set(request.id, handler);
 }
+
+// node_modules/neuroglancer/lib/util/array.js
 function getFortranOrderStrides(size, baseStride = 1) {
   const length2 = size.length;
   const strides = new Array(length2);
@@ -2527,6 +2637,8 @@ var TypedArrayBuilder = class {
     this.length -= end - start;
   }
 };
+
+// node_modules/neuroglancer/lib/sliceview/compressed_segmentation/encode_common.js
 var BLOCK_HEADER_SIZE = 2;
 function newCache() {
   return /* @__PURE__ */ new Map();
@@ -2757,6 +2869,8 @@ function encodeBlock(rawData, inputOffset, inputStrides, blockSize, actualSize, 
     rawData instanceof Uint32Array ? 1 : 2
   );
 }
+
+// node_modules/neuroglancer/lib/async_computation/encode_compressed_segmentation.js
 var tempBuffer = new TypedArrayBuilder(Uint32Array, 2e4);
 registerAsyncComputation(
   encodeCompressedSegmentationUint32,
@@ -2774,7 +2888,11 @@ registerAsyncComputation(
     return { value: tempBuffer.view };
   }
 );
+
+// node_modules/neuroglancer/lib/async_computation/decode_jpeg_request.js
 var decodeJpeg = asyncComputation("decodeJpeg");
+
+// node_modules/neuroglancer/lib/third_party/jpgjs/jpg.js
 function loadURLasArrayBuffer(path, callback) {
   if (path.indexOf("data:") === 0) {
     var offset = path.indexOf("base64,") + 7;
@@ -7688,6 +7806,8 @@ var PDFJS;
 var JpegDecoder = PDFJS.JpegImage;
 var JpxDecoder = PDFJS.JpxImage;
 var Jbig2Decoder = PDFJS.Jbig2Image;
+
+// node_modules/neuroglancer/lib/async_computation/decode_jpeg.js
 registerAsyncComputation(
   decodeJpeg,
   async (data, width, height, area, numComponents, convertToGrayscale) => {
@@ -7742,7 +7862,11 @@ registerAsyncComputation(
     };
   }
 );
+
+// node_modules/neuroglancer/lib/async_computation/decode_png_request.js
 var decodePng = asyncComputation("decodePng");
+
+// node_modules/neuroglancer/lib/sliceview/png/index.js
 var libraryEnv = {
   emscripten_notify_memory_growth: () => {
   },
@@ -7921,6 +8045,8 @@ async function decompressPng(buffer, width, height, area, numComponents, bytesPe
     m.exports.free(imagePtr);
   }
 }
+
+// node_modules/neuroglancer/lib/async_computation/decode_png.js
 registerAsyncComputation(
   decodePng,
   async (data, width, height, area, numComponents, bytesPerPixel, convertToGrayscale) => {
@@ -7936,25 +8062,37 @@ registerAsyncComputation(
     return { value: result, transfer: [result.uint8Array.buffer] };
   }
 );
+
+// node_modules/neuroglancer/lib/async_computation/decode_blosc_request.js
 var decodeBlosc = asyncComputation(
   "decodeBlosc"
 );
+
+// node_modules/neuroglancer/lib/async_computation/decode_blosc.js
 registerAsyncComputation(decodeBlosc, async (data) => {
   const { default: Blosc3 } = await Promise.resolve().then(() => (init_blosc(), blosc_exports));
   const codec = Blosc3.fromConfig({ id: "blosc" });
   const result = await codec.decode(data);
   return { value: result, transfer: [result.buffer] };
 });
+
+// node_modules/neuroglancer/lib/async_computation/decode_zstd_request.js
 var decodeZstd = asyncComputation(
   "decodeZstd"
 );
+
+// node_modules/neuroglancer/lib/async_computation/decode_zstd.js
 registerAsyncComputation(decodeZstd, async (data) => {
   const { default: Zstd3 } = await Promise.resolve().then(() => (init_zstd(), zstd_exports));
   const codec = Zstd3.fromConfig({ id: "blosc" });
   const result = await codec.decode(data);
   return { value: result, transfer: [result.buffer] };
 });
+
+// node_modules/neuroglancer/lib/async_computation/obj_mesh_request.js
 var parseOBJFromArrayBuffer = asyncComputation("parseOBJFromArrayBuffer");
+
+// node_modules/neuroglancer/lib/util/gzip.js
 function isGzipFormat(data) {
   const view = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
   return view.length >= 3 && view[0] === 31 && view[1] === 139 && view[2] === 8;
@@ -7989,6 +8127,8 @@ async function maybeDecompressGzip(data) {
   }
   return byteView;
 }
+
+// node_modules/neuroglancer/lib/async_computation/obj_mesh.js
 registerAsyncComputation(
   parseOBJFromArrayBuffer,
   async (buffer) => {
@@ -8034,7 +8174,11 @@ registerAsyncComputation(
     };
   }
 );
+
+// node_modules/neuroglancer/lib/async_computation/decode_jxl_request.js
 var decodeJxl = asyncComputation("decodeJxl");
+
+// node_modules/neuroglancer/lib/sliceview/jxl/index.js
 var libraryEnv2 = {};
 var jxlModulePromise;
 async function getJxlModulePromise() {
@@ -8146,6 +8290,8 @@ async function decompressJxl(buffer, area, numComponents, bytesPerPixel) {
     }
   }
 }
+
+// node_modules/neuroglancer/lib/async_computation/decode_jxl.js
 registerAsyncComputation(
   decodeJxl,
   async (data, area, numComponents, bytesPerPixel) => {
@@ -8158,9 +8304,13 @@ registerAsyncComputation(
     return { value: result, transfer: [result.uint8Array.buffer] };
   }
 );
+
+// node_modules/neuroglancer/lib/async_computation/decode_compresso_request.js
 var decodeCompresso = asyncComputation(
   "decodeCompresso"
 );
+
+// node_modules/neuroglancer/lib/sliceview/compresso/index.js
 var libraryEnv3 = {
   emscripten_notify_memory_growth: () => {
   },
@@ -8247,11 +8397,17 @@ async function decompressCompresso(buffer) {
     m.exports.free(imagePtr);
   }
 }
+
+// node_modules/neuroglancer/lib/async_computation/decode_compresso.js
 registerAsyncComputation(decodeCompresso, async (data) => {
   const result = await decompressCompresso(data);
   return { value: result, transfer: [result.buffer] };
 });
+
+// node_modules/neuroglancer/lib/async_computation/vtk_mesh_request.js
 var parseVTKFromArrayBuffer = asyncComputation("parseVTKFromArrayBuffer");
+
+// node_modules/neuroglancer/lib/datasource/vtk/parse.js
 var maxHeaderLength = 1e3;
 var vtkHeaderPattern = /^[ \t]*#[ \t]+vtk[ \t]+DataFile[ \t]+Version[ \t]+([^\s]+)[ \t]*\n(.*)\n[ \t]*(ASCII|BINARY)[ \t]*\n[ \t]*DATASET[ \t]+([^ ]+)[ \t]*\n/;
 var pointDataHeaderPattern = /^[ \t]*POINT_DATA[ \t]+([0-9]+)[ \t]*$/;
@@ -8478,6 +8634,8 @@ function parseVTK(data) {
     `VTK data format ${JSON.stringify(dataFormat)} is not supported.`
   );
 }
+
+// node_modules/neuroglancer/lib/async_computation/vtk_mesh.js
 registerAsyncComputation(
   parseVTKFromArrayBuffer,
   async (buffer) => {

@@ -128,6 +128,7 @@ def _write_detection_checkpoint(detection: dict, raw_masks, inp: dict, params: d
         "tile_stage_xy_um": inp["tile_stage_xy_um"],
         "tile_z_um": inp.get("tile_z_um"),
         "z_selection": inp.get("z_selection", "mid"),
+        **({"synthetic_pixels": inp["synthetic_pixels"]} if inp.get("synthetic_pixels") else {}),
         "source_pixel_size_um": inp["source_pixel_size_um"],
         "source_image_size_px": inp.get("source_image_size_px", detection.get("image_size_px")),
         "image_to_stage": inp["image_to_stage"],
@@ -193,6 +194,7 @@ def analysis_dir(image_path: Path | str) -> Path | None:
 
 
 SEGMENTATION_IDENTITY_KEYS = (
+    "z_selection",
     "method",
     "threshold",
     "channels",

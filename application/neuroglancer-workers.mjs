@@ -135,9 +135,9 @@ const lookBesideMeInstead = {
  * @throws if the result is too small to be a real program, which is what a
  *   compile that silently did nothing looks like.
  */
-async function compile(name, plugins = []) {
+async function compile(name, entry, plugins = []) {
   const compiled = await build({
-    entryPoints: [join(WHERE_THE_WORKERS_LIVE, name)],
+    entryPoints: [entry],
     bundle: true,
     // These programs are written as modern JavaScript modules and neuroglancer
     // starts them as such, so the finished program has to be one too.
@@ -166,12 +166,9 @@ async function compile(name, plugins = []) {
 /**
  * Get both background programs ready.
  *
- * Safe to run again at any time, and it deliberately does not try to work out
- * whether the work has already been done. Running it on a program that is
- * already compiled simply compiles it a second time, which costs a second or two
- * and produces the same program. Skipping would be faster and would risk
- * something far worse: a program compiled by an older version of this file
- * quietly staying in place.
+ * Rebuild from the saved original import lists, never the previous bundle.
+ * This includes changes to dependency modules and shared engine patches.
+ * If the original entries are missing, npm ci restores them.
  *
  * @returns how large each finished program is, in bytes, by file name.
  */
@@ -179,10 +176,10 @@ export async function readyTheBackgroundPrograms() {
   const modulePath = execFileSync(process.env.PYTHON || "python", ["-c",
     "from pathlib import Path; import zmart_viewer; print(Path(zmart_viewer.__file__).with_name('neuroglancer-growth.mjs'))"],
     { encoding: "utf8", windowsHide: true }).trim();
-  const { applyGrowthPatches } = await import(pathToFileURL(modulePath).href);
+  const { applyGrowthPatches, workerEntry } = await import(pathToFileURL(modulePath).href);
   applyGrowthPatches(WHERE_THE_WORKERS_LIVE);
-  const unpacking = await compile(THE_UNPACKING_PROGRAM);
-  const fetching = await compile(THE_FETCHING_PROGRAM, [lookBesideMeInstead]);
+  const unpacking = await compile(THE_UNPACKING_PROGRAM, workerEntry(WHERE_THE_WORKERS_LIVE, THE_UNPACKING_PROGRAM));
+  const fetching = await compile(THE_FETCHING_PROGRAM, workerEntry(WHERE_THE_WORKERS_LIVE, THE_FETCHING_PROGRAM), [lookBesideMeInstead]);
   return { [THE_UNPACKING_PROGRAM]: unpacking, [THE_FETCHING_PROGRAM]: fetching };
 }
 

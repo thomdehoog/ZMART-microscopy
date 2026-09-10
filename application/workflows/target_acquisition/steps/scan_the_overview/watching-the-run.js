@@ -327,6 +327,8 @@ export function watchTheRun(ctx) {
         if (session !== generation) return;
         closePicture();
         await open();
+      } catch (error) {
+        console.error(`the scan could not be updated — ${error.message}`);
       } finally {
         if (session === generation) checkingForGrowth = false;
       }

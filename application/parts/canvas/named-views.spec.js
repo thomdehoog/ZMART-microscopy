@@ -91,8 +91,19 @@ for (const bake of [false, true]) for (const flatFirst of [false, true]) {
           await expect.poll(async () => pixel(await photo(), 384)).toEqual(stack);
           expect(pixel(await photo(), 256)).toEqual([255, 0, 255]);
         }
+        await page.evaluate(() => namedViewer.setPlane(0));
+        await expect.poll(async () => pixel(await photo(), 128)).toEqual([80, 80, 0]);
         await photo(`${mode}.png`);
       }
+      // Top at the stack's top plane and MIP must place every edge identically.
+      const scanline = shot => Array.from(shot.data.slice(160 * shot.width * shot.channels,
+        161 * shot.width * shot.channels));
+      await select("top");
+      await page.evaluate(() => namedViewer.setPlane(1.3));
+      await expect.poll(async () => pixel(await photo(), 384)).toEqual([160, 160, 0]);
+      const topEdges = scanline(await photo());
+      await select("max");
+      await expect.poll(async () => scanline(await photo())).toEqual(topEdges);
       // A later acquired black stack covers the old flat signal, not the ground.
       const beforeUpdate = requests.length;
       layers = await publish(["flat", "stack", "black"]);

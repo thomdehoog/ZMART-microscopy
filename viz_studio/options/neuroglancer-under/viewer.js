@@ -92,7 +92,7 @@ import {
 } from "neuroglancer/unstable/ui/default_input_event_bindings.js";
 import "neuroglancer/unstable/kvstore/enabled_frontend_modules.js";
 import { makeMinimalViewer } from "neuroglancer/unstable/ui/minimal_viewer.js";
-import { makeCoordinateSpace, newDimensionId, WatchableCoordinateSpaceTransform } from "neuroglancer/unstable/coordinate_transform.js";
+import { WatchableCoordinateSpaceTransform } from "neuroglancer/unstable/coordinate_transform.js";
 import { makeLayer, deleteLayer } from "neuroglancer/unstable/layer/index.js";
 import "neuroglancer/unstable/ui/default_viewer.css";
 import "./engine-chrome.css";
@@ -185,7 +185,7 @@ const SLACK_AROUND_THE_IMAGED_GROUND = 64;
  *   `presentation`  `"2d-overlay"` for sources placed in absolute stage z: the
  *                   picture opens at the lowest plane any stack holds, and a
  *                   flat source is kept in view at every depth
- *                   (`withItsDepthKeptToItself`). It changes
+ *                   (named Top views use the shared depth binding). It changes
  *                   navigation and how a flat source's depth is read, never
  *                   where a source is placed.
  * @returns {Promise<Viewer>} the handle; see `../contract.md` for what it offers.
@@ -650,7 +650,7 @@ async function loadAcquisitions(own, acquisitions) {
   own.rows = await rowsFor(acquisitions);
   if (own.destroyed || !own.rows.length) return;
   installRows(own);
-
+  await refreshPublishedRows(own);
   await whenTheAxesAreKnown(own.viewer);
   if (own.destroyed) return;
   pinTheAxesThatMeasureDistance(own.viewer);
@@ -1167,6 +1167,7 @@ async function addSourcesToTheOpenRows(own, acquisitions) {
 
   // Named modes replace layers, not the viewer or its navigation state.
   const retired = own.rows.filter(row => row.view && !nextByName.has(row.layerName));
+  const previousView = retired.length ? readTheView(own) : null;
   for (const row of retired) {
     for (const next of wanted.filter(next => next.logicalName === row.logicalName))
       for (const key of ["visible", "colour", "window", "weight", "gamma"]) next[key] = row[key];
@@ -1188,23 +1189,10 @@ async function addSourcesToTheOpenRows(own, acquisitions) {
   }
 
   const heldByName = new Map(own.rows.map(row => [row.layerName, row]));
-  const changed = new Set();
-  const refreshed = new Set(), forgotten = new Set(), geometryReads = [];
   for (const held of own.rows) {
     const layer = held.managed?.layer;
     if (!layer) return false;
     const next = nextByName.get(held.layerName);
-    held.sources.forEach((url, at) => {
-      if (next.sourceRevisions[at] <= held.sourceRevisions[at]) return;
-      if (held.view && next.sourceGeometryRevisions?.[at] !== held.sourceGeometryRevisions?.[at]) {
-        const targets = [layer, own.coverageLayers?.get(held.layerName)?.managed.layer].filter(Boolean);
-        for (const target of targets) for (const source of target.dataSources)
-          geometryReads.push(own.embedding.refreshGeometry(source, own.viewer.chunkManager, refreshed, forgotten));
-      } else {
-        changed.add(url);
-        for (const source of held.coverageSources ?? []) changed.add(source);
-      }
-    });
     const fresh = next.sources.slice(held.sources.length);
     for (const address of fresh) {
       sourceAddressIsWhole(address, held.acquisition);
@@ -1228,10 +1216,39 @@ async function addSourcesToTheOpenRows(own, acquisitions) {
     return row;
   });
   installRows(own);
-  await Promise.all(geometryReads);
+  await refreshPublishedRows(own);
+  if (previousView) {
+    await whenTheAxesAreKnown(own.viewer);
+    if (own.destroyed) return false;
+    pinTheAxesThatMeasureDistance(own.viewer);
+    writeTheView(own, previousView);
+  }
   countFromTheCornerOfTheVoxelRatherThanItsMiddle(own);
-  refreshSources(own.viewer.chunkManager, changed);
   return true;
+}
+
+/** Cache revisions belong to the viewer, not to layers retired by a mode switch. */
+async function refreshPublishedRows(own) {
+  own.sourceVersions ??= new Map();
+  const nextVersions = new Map(), changed = new Set();
+  const refreshed = new Set(), forgotten = new Set(), geometryReads = [];
+  for (const row of own.rows) row.sources.forEach((url, at) => {
+    const next = { revision: row.sourceRevisions[at], geometry: row.sourceGeometryRevisions?.[at] };
+    const previous = own.sourceVersions.get(url);
+    nextVersions.set(url, next);
+    if (!previous || next.revision <= previous.revision) return;
+    if (row.view && (next.geometry == null || next.geometry !== previous.geometry)) {
+      const layers = [row.managed?.layer, own.coverageLayers?.get(row.layerName)?.managed.layer].filter(Boolean);
+      for (const layer of layers) for (const source of layer.dataSources)
+        geometryReads.push(own.embedding.refreshGeometry(source, own.viewer.chunkManager, refreshed, forgotten));
+    } else {
+      changed.add(url);
+      for (const source of row.coverageSources ?? []) changed.add(source);
+    }
+  });
+  await Promise.all(geometryReads);
+  refreshSources(own.viewer.chunkManager, changed);
+  for (const [url, version] of nextVersions) own.sourceVersions.set(url, version);
 }
 
 /**
@@ -1414,12 +1431,6 @@ function startTimeAtTheFirstMoment(viewer) {
  * voxel; that would also line the resolutions up with one another, which they
  * are not today.
  */
-/** How thick a flat picture is drawn along its own depth, in voxels of that
-    depth: a metre either way, so no depth a layer is looked at from misses it. */
-const A_FLAT_PICTURES_THICKNESS = 2e6;
-/** Legacy flat aggregates use display Z=0. Named views bypass this slab
-    and use the shared viewer's depth behavior instead. */
-const THE_DEPTH_EVERY_FLAT_PICTURE_IS_DRAWN_AT = 0;
 
 function countFromTheCornerOfTheVoxelRatherThanItsMiddle(own) {
   // A newly installed source can notify before initial framing. Select spatial
@@ -1432,13 +1443,8 @@ function countFromTheCornerOfTheVoxelRatherThanItsMiddle(own) {
   );
   if (!drawnAcrossTheWindow.size) return;
   for (const row of [...own.rows, ...(own.coverageLayers?.values() ?? [])]) {
-    /* Every position store of the row, not only the first. A row that draws a
-       whole acquisition holds one source per landed position, and each source
-       carries its own placement read from its own OME-Zarr description — so
-       each one has to be moved back by its own half voxel. Correcting only the
-       first source left every later field standing half a voxel (2 µm on the
-       mock's 4 µm pixels) away from the first, which the accepted Step 5
-       records showed as a 2.83 µm error on eight of nine fields. */
+    // Legacy sources need the corner correction; published aggregates already
+    // describe voxel centres at every resolution.
     for (const source of row.managed?.layer?.dataSources ?? []) {
       const loadState = source?.loadState;
       const placing = loadState?.transform;
@@ -1480,10 +1486,7 @@ function countFromTheCornerOfTheVoxelRatherThanItsMiddle(own) {
       const asRead = placing.defaultTransform;
       const stillAsRead = Array.from(asRead.transform ?? [])
         .every((value, at) => value === placed.transform[at]);
-      /* A transform already moved -- by an earlier pass, or by the engine
-         carrying a renamed output space across to a source that loaded
-         later -- is not shifted its half voxel again. It may still be a flat
-         picture one voxel thick, and that is put right below. */
+      // Do not shift a transform that the engine already moved.
       const shiftHalfAVoxel = stillAsRead;
       /* The engine's `voxelCenterAtIntegerCoordinates` flag is not read any
          more. Measured on 2026-09-02 with the review's target stores: a store
@@ -1506,61 +1509,8 @@ function countFromTheCornerOfTheVoxelRatherThanItsMiddle(own) {
         moved[rank * (rank + 1) + axis] += 0.5;
         anythingMoved = true;
       }
-      const flat = row.view ? false : isOnePlaneDeep(placed);
-      if (flat === null) {
-        /* The extent is not read yet, so whether this is a flat picture
-           cannot be told. Not marked: the next pass, brought round by the
-           source itself, decides. */
-        own.watchedSources ??= new WeakSet();
-        if (source?.changed && !own.watchedSources.has(source)) {
-          own.watchedSources.add(source);
-          source.changed.add(() => countFromTheCornerOfTheVoxelRatherThanItsMiddle(own));
-        }
-        continue;
-      }
       own.correctedLoadStates.add(loadState);
-      /* A flat picture is seen from every height, beside every other flat
-         picture. Its depth is kept to the layer (`withItsDepthKeptToItself`);
-         it is stood at the one depth every slice is drawn at, and its one
-         voxel is made as thick as any depth the layer could be looked at
-         from. Flat tiles are written at their own z now, a fraction of a
-         micrometre to a micrometre apart, and a layer draws only the sources
-         that cross its one local depth -- tiles standing each at its own
-         height showed two of eight on the first real run, the two whose
-         voxel the depth looked at happened to cross. Stood together and
-         thick, every tile crosses it. */
-      const outputs = flat && outputSpace?.names?.includes("z")
-        ? theDepthKeptToItselfFor(own, row, outputSpace) : outputSpace;
-      if (flat) {
-        /* By whichever name the depth goes: a source that loads into a row
-           whose depth was already kept to itself arrives with `z'` in its
-           output space, not `z`, and looking for `z` alone left exactly that
-           source -- the last field of a four-field overview on the first
-           real run -- one voxel thick and undrawn. */
-        const at = theDepthAxisOf(outputSpace);
-        const thinStill = at >= 0 && Math.abs(moved[at * (rank + 1) + at]) < A_FLAT_PICTURES_THICKNESS / 2;
-        if (thinStill) {
-          // Column-major, (rank + 1) rows a column: the depth's own scale is
-          // on the diagonal, its shift in the last column.
-          const scaleAt = at * (rank + 1) + at;
-          const shiftAt = rank * (rank + 1) + at;
-          /* The engine reads a store's z translation into the source's
-             *input* bounds, not its transform, and re-expresses those bounds
-             whenever the shared depth's unit changes (a stack landing with
-             its own step does that). A slab scaled by two million from a
-             plane standing at voxel 62 lands a hundred million voxels away,
-             and moves when the unit does: that is how six of eight tiles
-             went undrawn on the first real run. So the writer stands every
-             flat capture at z 0, and the slab is simply centred on the
-             shared depth. */
-          moved[scaleAt] = A_FLAT_PICTURES_THICKNESS;
-          moved[shiftAt] = THE_DEPTH_EVERY_FLAT_PICTURE_IS_DRAWN_AT - A_FLAT_PICTURES_THICKNESS / 2;
-          anythingMoved = true;
-        }
-      }
-      if (anythingMoved || outputs !== outputSpace) {
-        placing.value = { ...placed, transform: moved, outputSpace: outputs };
-      }
+      if (anythingMoved) placing.value = { ...placed, transform: moved };
     }
   }
   // A depth that arrived with this source is taken into the screen, and the
@@ -1568,12 +1518,6 @@ function countFromTheCornerOfTheVoxelRatherThanItsMiddle(own) {
   standOnTheTable(own);
 }
 
-/**
- * Whether a source holds one plane only: a flat picture rather than a stack.
- *
- * Read from the source's own extent as the engine read it, before any
- * placement, so a single plane placed anywhere is still one plane.
- */
 /** How many planes the deepest loaded source of one acquisition holds;
     0 when none of its sources has loaded yet. */
 function planesDeepIn(own, acquisition) {
@@ -1627,66 +1571,12 @@ function aggregateDepthIn(own, acquisition) {
 }
 
 /** Where the depth stands in an output space: the picture's shared `z`, or
-    a flat source's own `z'` once kept to itself (`withItsDepthKeptToItself`).
+    a flat aggregate's own `z'` once kept local by its depth binding.
     -1 when the space has no depth at all. */
 function theDepthAxisOf(space) {
   return space?.names?.findIndex((name) => name === "z" || name === "z'") ?? -1;
 }
 
-function isOnePlaneDeep(placed) {
-  const { inputSpace, outputSpace } = placed;
-  const into = theDepthAxisOf(outputSpace);
-  if (into < 0 || !inputSpace?.bounds) return false;
-  // The transform this project writes is a scale and a shift, axis for axis,
-  // so the input axis is the output axis unless the input names say otherwise.
-  const from = inputSpace.names?.indexOf("z") >= 0 ? inputSpace.names.indexOf("z") : into;
-  const planes = inputSpace.bounds.upperBounds[from] - inputSpace.bounds.lowerBounds[from];
-  // Not known yet: the source has a transform before it has an extent.
-  if (!Number.isFinite(planes)) return null;
-  return planes <= 1;
-}
-
-/**
- * The same output space with its depth made the layer's own rather than the
- * picture's.
- *
- * Every stack in the picture is placed in absolute stage z, lowest plane
- * first (`application/parts/storage/zarr_positions.py` writes it so). A flat
- * picture — the overview, a single-plane target — sits at its own stage z,
- * and an operator moving up through a stack should keep seeing it, the way
- * they keep seeing the slide while focussing through a specimen. The engine
- * draws a source only on the depth being looked at, so a flat picture kept
- * on the shared depth axis would vanish one plane up. Instead its depth is
- * made *local*: a dimension the engine keeps to the layer, marked by a
- * trailing `'` in its name the way the channel already is (`c'`), which the
- * engine then draws whatever depth the picture is at. The shared depth
- * axis is left to the stacks, so `theDepthItCanShow` still spans exactly
- * the planes there are to choose between.
- */
-/** One renamed depth per layer: every source of the layer must share the
-    same `z'` axis, or each pass hands the layer a new axis and the engine
-    re-derives every other source's placement against it. */
-function theDepthKeptToItselfFor(own, row, outputSpace) {
-  own.keptDepths ??= new Map();
-  const at = outputSpace.names.indexOf("z");
-  const key = `${row.layerName} ${outputSpace.ids[at]}`;
-  if (!own.keptDepths.has(key)) own.keptDepths.set(key, withItsDepthKeptToItself(outputSpace));
-  return own.keptDepths.get(key);
-}
-
-function withItsDepthKeptToItself(outputSpace) {
-  const at = outputSpace.names.indexOf("z");
-  const names = [...outputSpace.names];
-  names[at] = "z'";
-  // A renamed axis is a new axis to the engine, which tells them apart by
-  // number rather than by name; keeping the old number would tie it to the
-  // stacks' depth it has just been taken off.
-  const ids = [...outputSpace.ids];
-  ids[at] = newDimensionId();
-  const timestamps = [...outputSpace.timestamps];
-  timestamps[at] = Date.now();
-  return makeCoordinateSpace({ ...outputSpace, names, ids, timestamps });
-}
 
 /**
  * Open the picture at the bottom of the stacks, once, when it first has a
@@ -1718,7 +1608,7 @@ function standOnTheTable(own) {
  *
  * Stores are written in absolute stage z (`zarr_positions.py`), so the
  * shared axis's lower bound is the lowest plane any stack holds; flat
- * pictures keep their depth to themselves (`withItsDepthKeptToItself`) and
+ * flat aggregates keep their depth local and
  * do not pull the bound about. Integer coordinates are voxel centres on
  * this axis, so the first plane's centre is half a voxel in from the bound.
  */

@@ -357,6 +357,7 @@ def picture_as_displayed(
     *,
     budget_px: int = SMALL_ENOUGH,
     quality: int = GOOD_ENOUGH,
+    store: Path | str | None = None,
 ) -> bytes:
     """One field's copy, drawn exactly as the picture on the canvas draws it.
 
@@ -370,17 +371,27 @@ def picture_as_displayed(
     preview in the Discover panel and the gallery's pairs show the same
     sample the canvas shows, not a brighter cousin made with the scan-wide
     stretch the small copies wear.
+
+    When ``store`` is supplied, read its canonical first-timepoint MIP, including
+    any simulator substitution made at ingestion. TIFFs remain the legacy fallback.
     """
     import numpy as np
     import tifffile
 
     channels: dict[int, Any] = {}
-    for c, path in planes:
-        frame = np.asarray(tifffile.imread(str(path)))
-        while frame.ndim > 2:
-            frame = frame.max(axis=0)
-        held = channels.get(int(c))
-        channels[int(c)] = frame if held is None else np.maximum(held, frame)
+    if store is not None:
+        from zmart_analysis.workflows.object_analysis.steps.detect_objects import load_plane
+
+        # Canonical positions pack channels and time from zero, just as detection reads them.
+        channels = {c: np.asarray(load_plane(store, t=0, c=c, z="max")[0])
+                    for c in range(len({c for c, _ in planes}))}
+    else:
+        for c, path in planes:
+            frame = np.asarray(tifffile.imread(str(path)))
+            while frame.ndim > 2:
+                frame = frame.max(axis=0)
+            held = channels.get(int(c))
+            channels[int(c)] = frame if held is None else np.maximum(held, frame)
     if not channels:
         raise ValueError("a field with no planes cannot be pictured")
 
