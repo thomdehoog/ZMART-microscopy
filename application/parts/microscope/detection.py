@@ -59,13 +59,17 @@ def pixel_size_of(record: dict, fallback: float) -> float:
 def what_was_captured(record: dict, *, field: int, pixel_um: float, settings: dict) -> dict:
     """The step's input for one field: its first channel, and where it was taken.
 
-    Detection reads one plane, and the first channel is the one a sample's
+    Detection reads the Z maximum, and the first channel is the one a sample's
     nuclei are in. Where the field is comes off the record, because the
     acquisition is the only thing that knows. The settings arrive in the
     page's units -- a diameter in micrometres -- and leave in the detector's,
     pixels, since the detector has never seen the instrument.
     """
-    every = [plane for plane in record.get("planes") or [] if int(plane.get("z", 0)) == 0]
+    planes = record.get("planes") or []
+    first_time = min((int(p.get("t", 0)) for p in planes), default=0)
+    planes = [p for p in planes if int(p.get("t", 0)) == first_time]
+    lowest_index = min((int(p.get("z", 0)) for p in planes), default=0)
+    every = [plane for plane in planes if int(plane.get("z", 0)) == lowest_index]
     if not every:
         raise RuntimeError(
             "the capture reported no planes, so there is nothing to detect on"
@@ -87,6 +91,10 @@ def what_was_captured(record: dict, *, field: int, pixel_um: float, settings: di
         "image_to_stage": IMAGE_TO_STAGE,
         "gpu": True,
     }
+    pixel_um = given["source_pixel_size_um"][0]
+    stacked = len({p.get("z", 0) for p in planes}) > 1
+    if stacked and not record.get("zarr"):
+        raise RuntimeError("Stack detection requires the completed OME-Zarr position")
     if others:
         # Segmentation stays on the first channel; the rest ride along so
         # the features can be measured on every colour -- each measured
@@ -103,6 +111,9 @@ def what_was_captured(record: dict, *, field: int, pixel_um: float, settings: di
         # beside the vendor's `data`, where every reader already looks.
         given["image_path"] = record["zarr"]
         given["channels"] = [0]
+        given["z_selection"] = "max"
+        if stacked:
+            given["tile_z_um"] = None
         given.pop("extra_channel_paths", None)
         if others:
             given["extra_channel_indices"] = list(range(1, len(others) + 1))
@@ -184,7 +195,8 @@ def through(analysis: Any, *, pixel_um: float) -> Callable[[dict, int, dict], di
         detection = result.get("detect_objects") or {}
         device = (detection.get("detector_params") or {}).get("device")
         return {
-            "cells": as_targets(result["object_analysis"], field=field, pixel_um=pixel_um),
+            "cells": as_targets(result["object_analysis"], field=field,
+                                pixel_um=given["source_pixel_size_um"][0]),
             "device": device,
         }
 

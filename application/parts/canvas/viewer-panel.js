@@ -1514,7 +1514,10 @@ export async function mountViewerPanel(near, {
      the picture itself is. These methods do not expose Neuroglancer. */
   panel.snapshot = panelSnapshot;
   panel.sourcesChanged = sourcesChanged;
-  panel.showAcquisition = (name, on) => groupSwitches.get(name)?.(on);
+  panel.showAcquisition = (name, on) => {
+    rememberedGroups.set(name, on);
+    groupSwitches.get(name)?.(on);
+  };
   panel.drawInGrey = (name, grey) => greySwitches.get(name)?.(grey);
   /* What the canvas's own row needs of the panel: the acquisitions and their
      channels as they stand, the three things a chip does -- show or hide a
@@ -1710,7 +1713,7 @@ export async function mountViewerPanel(near, {
     snapshot: panelSnapshot,
     sourcesChanged,
     /** Show or hide one acquisition, as its eye would. */
-    showAcquisition(name, on) { groupSwitches.get(name)?.(on); },
+    showAcquisition: panel.showAcquisition,
     /** Draw one acquisition in grey, or in its colours, as its switch would. */
     drawInGrey(name, grey) { greySwitches.get(name)?.(grey); },
     destroy() {

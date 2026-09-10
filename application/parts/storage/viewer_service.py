@@ -48,7 +48,7 @@ VIEWER_REQUEST_TIMEOUT_S = 30.0
 #: release.  An editable checkout is intentionally allowed, but an old copy of
 #: the viewer living inside this repository is not: those sources are historical
 #: reference material and do not own the runtime boundary.
-SMART_VIEWER_VERSION = "0.2.1"
+SMART_VIEWER_VERSION = "0.5.0.dev0"
 _MICROSCOPY_ROOT = Path(__file__).resolve().parents[3]
 
 #: The service's whole state: one viewer per bridge process, like the run.
@@ -108,6 +108,7 @@ def start(run_folder: Path | str, *, bake: bool = False, canvas: dict | None = N
             _viewer.update(server=made, thread=thread, port=made.server_address[1], wake=wake,
                            bake=bake, folder_types={})
             _viewer["canvas"] = canvas
+            _viewer["run_folder"] = str(Path(run_folder).resolve())
             threading.Thread(target=_publish_changes, args=(wake,), daemon=True).start()
         except Exception as why:  # noqa: BLE001 -- optional guest, sentence not stack
             _viewer["error"] = f"the viewer server did not start: {why}"
@@ -286,6 +287,7 @@ def _publish_once(wake: threading.Event, pending: set[str]) -> bool:
         folder_types = dict(_viewer.get("folder_types", {}))
         orders = {kind: list(names) for kind, names in _viewer["source_order"].items()}
         canvas = _viewer["canvas"]
+        run_folder = Path(_viewer["run_folder"])
     retry = set()
     blocked_folders = set()
     for folder in pending:
@@ -305,6 +307,12 @@ def _publish_once(wake: threading.Event, pending: set[str]) -> bool:
             if folder not in opened:
                 _ask(port, "/api/stores/open", {
                     **payload, "bake": bake, "canvas": canvas,
+                    "views": {
+                        "path": str(run_folder / "view"),
+                        "acquisition": kind,
+                        "modes": ["top", "slice"], "projections": ["max"],
+                        "projection_path": str(run_folder / kind / "projections"),
+                    },
                 })
                 with _the_turn:
                     if _viewer["wake"] is not wake:
@@ -383,6 +391,8 @@ def _the_heading_of(row: dict) -> str:
     Session and copy decorations belong to the Viewer's library, not to the
     acquisition heading the operator should see.
     """
+    if row.get("view"):
+        return row["view"]["acquisition"]
     group = str(row.get("group") or "picture")
     group = group.rsplit(" · ", 1)[-1]
     group = re.sub(r" \(\d+\)$", "", group)
@@ -406,7 +416,7 @@ def _the_sources_in(config: dict, port: int) -> dict[str, list[dict]]:
     for row in config.get("layers") or []:
         if row.get("kind") != "image":
             continue
-        group = str(row.get("group") or "picture")
+        group = _the_heading_of(row)
         # Session and copy decorations belong to the Viewer's library, not to
         # the acquisition heading the operator should see.
         group = group.rsplit(" · ", 1)[-1]
@@ -414,7 +424,7 @@ def _the_sources_in(config: dict, port: int) -> dict[str, list[dict]]:
         for suffix in (".zmartview.zarr", ".ome.zarr", ".zarr"):
             group = group.removesuffix(suffix)
         for address in row.get("sources") or []:
-            if not _still_on_disk(address):
+            if not row.get("view") and not _still_on_disk(address):
                 continue
             whole = (
                 f"http://127.0.0.1:{port}{address}"
@@ -450,7 +460,8 @@ def _the_acquisitions_in(config: dict, port: int) -> list[dict]:
             continue
         acquisition = grouped.setdefault(
             group,
-            {"name": group, "url": sources[0], "channels": []},
+            {"name": group, "url": sources[0], "channels": [],
+             "embeddingUrl": f"http://127.0.0.1:{port}/embedding.js"},
         )
         acquisition["channels"].append(
             {
@@ -463,6 +474,8 @@ def _the_acquisitions_in(config: dict, port: int) -> list[dict]:
                 "visible": layer.get("active") is not False,
                 "sources": sources,
                 "sourceDepths": layer.get("sourceDepths"),
+                "sourceGeometryRevisions": layer.get("sourceGeometryRevisions"),
+                **({"view": layer["view"]} if layer.get("view") else {}),
                 **({"coverageSources": layer["coverageSources"]} if layer.get("coverageSources") else {}),
                 "sourceRevisions": layer.get("sourceRevisions") or [
                     _viewer["source_versions"].get((group, unquote(found.group(1))), 0)
@@ -489,6 +502,8 @@ def _the_scene_in(config: dict, port: int) -> dict:
         return f"http://127.0.0.1:{port}{text}" if text.startswith("/") else text
 
     def group_of(row: dict) -> str:
+        if row.get("view"):
+            return row["view"]["acquisition"]
         group = str(row.get("group") or "picture")
         group = group.rsplit(" · ", 1)[-1]
         group = re.sub(r" \(\d+\)$", "", group)
@@ -504,7 +519,8 @@ def _the_scene_in(config: dict, port: int) -> dict:
         row = dict(original)
         row["group"] = group_of(row)
         row["sources"] = [
-            whole(source) for source in row.get("sources") or [] if _still_on_disk(source)
+            whole(source) for source in row.get("sources") or []
+            if row.get("view") or _still_on_disk(source)
         ]
         if row.get("coverageSources"):
             row["coverageSources"] = [whole(source) for source in row["coverageSources"]]
@@ -516,6 +532,10 @@ def _the_scene_in(config: dict, port: int) -> dict:
 
     layers = []
     for row in candidates:
+        if row.get("view"):
+            if row["sources"]:
+                layers.append(row)
+            continue
         wanted = newest.get(row["group"], -1)
         row["sources"] = [
             source

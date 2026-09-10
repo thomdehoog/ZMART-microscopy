@@ -31,6 +31,7 @@ def _empty_service(*, port: int | None = None) -> dict:
         "source_versions": {},
         "source_order": {},
         "canvas": {"x_um": [0, 160], "y_um": [0, 160]},
+        "run_folder": "unused-mocked-run",
         "pending": set(),
         "wake": threading.Event(),
     }
@@ -79,7 +80,7 @@ def test_invalid_overview_does_not_hide_committed_targets(monkeypatch, tmp_path,
         assert service._publish_once(service._viewer["wake"], pending)
         state = service.status()
         assert {a["name"] for a in state["acquisitions"]} == (
-            {"overview", "targets"} if opened_overview else {"targets"})
+            {"overview", "targets"} if opened_overview else {"targets"}), state["error"]
         assert state["publications"]["targets"]["published"] == 1
         assert state["publications"]["overview"]["published"] == int(opened_overview)
         assert state["publications"]["overview"]["acquired"] == 2
@@ -169,7 +170,7 @@ def test_http_503_retries_without_another_capture(monkeypatch, tmp_path):
 def test_the_installed_smart_viewer_is_the_separate_supported_package():
     found = service.viewer_provenance()
 
-    assert found["version"] == "0.2.1"
+    assert found["version"] == service.SMART_VIEWER_VERSION
     assert not Path(found["path"]).is_relative_to(service._MICROSCOPY_ROOT)
 
 
@@ -182,7 +183,7 @@ def test_an_in_repository_viewer_copy_is_refused():
 
 @pytest.mark.parametrize("installed_version", ["0.1.0", "0.2.0", "0.2.2"])
 def test_an_unproved_viewer_release_is_refused(tmp_path, installed_version):
-    with pytest.raises(RuntimeError, match=r"Smart Viewer 0\.2\.1 is required"):
+    with pytest.raises(RuntimeError, match="Smart Viewer .* is required"):
         service._validate_viewer_provenance(
             installed_version, tmp_path / "zmart_viewer" / "__init__.py"
         )
@@ -854,17 +855,19 @@ def test_real_viewer_publishes_100_positions_without_holding_up_notifications(
         last_write = time.perf_counter()
         while time.perf_counter() - last_write < 15:
             state = service.status()
-            publication = folder / ".zmart-viewer/overview.ome.zarr/publication.json"
+            publication = tmp_path / "view/overview_top.zmartview.zarr/publication.json"
             completed = json.loads(publication.read_text())["versions"] if publication.exists() else {}
-            if len(completed) == 100 and state["acquisitions"]:
+            if (len(completed) == 100 and state["acquisitions"]
+                    and state["publications"].get("overview", {}).get("state") == "ready"):
                 break
             time.sleep(0.02)
         assert state["error"] is None, state["error"]
-        assert len(state["sources"].get("overview", [])) == 1
+        assert len(state["sources"].get("overview", [])) == 3
         assert len(completed) == 100
-        assert not (folder / ".zmart-viewer/overview.ome.zarr/0/c").exists()
+        assert state["publications"]["overview"]["published"] == 100
+        assert not (tmp_path / "view/overview_top.zmartview.zarr/0/c").exists()
         if not bake:
-            assert not list((folder / ".zmart-viewer/overview.ome.zarr").glob("*/c"))
+            assert not list((tmp_path / "view").glob("*.zmartview.zarr/*/c"))
         print(
             {
                 "positions": 100,

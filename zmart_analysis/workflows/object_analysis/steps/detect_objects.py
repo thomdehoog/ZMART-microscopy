@@ -35,6 +35,7 @@ def run(pipeline_data: dict, state: dict, **params) -> dict:
     detection = segment_position(
         inp["image_path"],
         state,
+        z=inp.get("z_selection", "mid"),
         method=seg_params["method"],
         threshold=seg_params["threshold"],
         channels=seg_params["channels"],
@@ -86,7 +87,7 @@ def run(pipeline_data: dict, state: dict, **params) -> dict:
         # segmenter uses -- and stacked channel-last exactly like the paths.
         planes = [np.asarray(image)]
         planes += [
-            np.asarray(load_plane(inp["image_path"], c=int(channel))[0])
+            np.asarray(load_plane(inp["image_path"], c=int(channel), z=inp.get("z_selection", "mid"))[0])
             for channel in extra_channels
         ]
         image = np.stack(planes, axis=-1)
@@ -126,6 +127,7 @@ def _write_detection_checkpoint(detection: dict, raw_masks, inp: dict, params: d
         "tile_id": inp["tile_id"],
         "tile_stage_xy_um": inp["tile_stage_xy_um"],
         "tile_z_um": inp.get("tile_z_um"),
+        "z_selection": inp.get("z_selection", "mid"),
         "source_pixel_size_um": inp["source_pixel_size_um"],
         "source_image_size_px": inp.get("source_image_size_px", detection.get("image_size_px")),
         "image_to_stage": inp["image_to_stage"],
@@ -206,6 +208,7 @@ SEGMENTATION_IDENTITY_KEYS = (
 def segmentation_params(inp: dict, params: dict) -> dict:
     """Return params that define mask generation, excluding runtime details."""
     return {
+        "z_selection": inp.get("z_selection", "mid"),
         "channels": inp.get("channels", params.get("channels", None)),
         "channel_axis": _channel_axis(
             inp.get("channel_axis", params.get("channel_axis", None))
@@ -396,6 +399,7 @@ def segment_position(
     method: str = "robust",
     threshold=None,
     channels=None,
+    z="mid",
     channel_axis=None,
     border_margin_px=None,
     min_area_px=None,
@@ -425,7 +429,7 @@ def segment_position(
     ``channel_axis`` applies only to an array already in memory and is kept
     for callers that hand one over; a file's axes come from its own metadata.
     """
-    seg_input, _ = load_channels(image_path, channels)
+    seg_input, _ = load_channels(image_path, channels, z=z)
     ny, nx = seg_input.shape[:2]
     seg_eval, scale = _downsample_for_segmentation(
         seg_input,

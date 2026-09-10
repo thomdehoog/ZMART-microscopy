@@ -210,6 +210,26 @@ test.describe("the target acquisition workflow, walked screen by screen", () => 
       expect(await page.evaluate(() => window.__theStageCanvas.layerShown("ground"))).toBe(true);
       await framePlan(page);
       await shot(page, "scan-done-picture");
+      const viewModes = page.locator("#view-modes");
+      await expect.poll(() => page.evaluate(() => window.__viewerPanel?.viewModes?.("overview") ?? []),
+        { timeout: 60_000 }).toEqual(["slice", "top", "max"]);
+      await expect(page.locator("#acquisition-name")).toHaveText("overview");
+      await expect(viewModes).toBeVisible();
+      for (const mode of ["slice", "max", "top"]) {
+        const button = viewModes.locator(`[data-view-mode="${mode}"]`);
+        await button.click();
+        await expect(button).toHaveAttribute("aria-pressed", "true");
+        await expect.poll(() => page.evaluate(mode => {
+          const rows = window.__thePicture.layersForMeasurement().filter(row => row.name.startsWith("overview/"));
+          return rows.length > 0 && rows.every(row => row.sources.every(source =>
+            decodeURIComponent(source.url).includes(`overview_${mode}.zmartview.zarr`)));
+        }, mode)).toBe(true);
+        expect(await page.evaluate(() => window.connectedPicture === window.__thePicture)).toBe(true);
+        await rest(1000);
+        if (mode !== "slice") {
+          expect(fractionLit(await photograph(page, "#picture-host", 1))).toBeGreaterThan(0.01);
+        }
+      }
       /* Under the picture: the picture is one room, as deep as the deepest
          stack shown in it. On the way to the scan the page pressed the focus
          stacks' eye off -- over the overview they are a square of other
@@ -607,14 +627,19 @@ test.describe("the target acquisition workflow, walked screen by screen", () => 
         expect(acquired.records.filter(record => record.zarr_error)).toEqual([]);
         await expect.poll(async () => (await ask(page, PORT, "/api/viewer")).error,
           { timeout: 60_000 }).toBeNull();
+        await expect.poll(async () => (await ask(page, PORT, "/api/viewer")).publications.targets,
+          { timeout: 60_000 }).toEqual({ acquired: run.targetTiles, published: run.targetTiles,
+            state: "ready", error: null });
+        await rest(3000);
         const publication = await ask(page, PORT, "/api/viewer");
         expect(publication.acquisitions.some(a => a.name === "targets")).toBe(true);
         for (const acquisition of publication.acquisitions) for (const row of acquisition.channels) {
-          expect(row.sources.length).toBeLessThanOrEqual(2);
-          expect(row.sources.every(source => decodeURIComponent(source).includes("/.zmart-viewer/"))).toBe(true);
+          expect(row.sources.length).toBe(1);
+          expect(row.view.acquisition).toBe(acquisition.name);
+          expect(row.sources.every(source => decodeURIComponent(source).includes(".zmartview.zarr/"))).toBe(true);
         }
         expect(imageRequests.length).toBeGreaterThan(0);
-        expect(imageRequests.every(url => decodeURIComponent(url).includes("/.zmart-viewer/"))).toBe(true);
+        expect(imageRequests.every(url => decodeURIComponent(url).includes(".zmartview.zarr/"))).toBe(true);
         await shot(page, "acquire-done");
         await framePlan(page);
         await shot(page, "acquire-done-picture");

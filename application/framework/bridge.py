@@ -1095,7 +1095,9 @@ def _keep_position_as_zarr(record: dict, acquisition_type: str) -> None:
     """
     try:
         folder = _the_run() / "positions" / acquisition_type
-        record["zarr"] = str(position_store_from_record(record, folder))
+        record["zarr"] = str(position_store_from_record(record, folder, pixel_provider=_pixel_provider))
+        if _pixel_provider is not None:
+            record["synthetic_pixels"] = _pixel_provider.recipe
         # The frame's true width on the sample. A recording made before the
         # run says what was promised; the instrument may have stood on
         # another job by the time it captured, and the page draws, crops and
@@ -1810,21 +1812,27 @@ class _Bridge(BaseHTTPRequestHandler):
         """Quiet: the terminal is the operator's too."""
 
 
-def _a_bridge_on(port: int, output_root: str | None = None) -> ThreadingHTTPServer:
+_pixel_provider = None
+
+
+def _a_bridge_on(port: int, output_root: str | None = None, *, simulator_pixels=False) -> ThreadingHTTPServer:
     """A bridge ready to answer, with every driver this machine has.
 
     Both ways in build it here. They did not: run as a script it registered
     nothing, so the page's Microscope list came back empty and there was
     nothing to connect to -- while the same file imported and served was fine.
     """
-    global _output_root
+    global _output_root, _pixel_provider
+    from application.parts.microscope.simulator_pixels import SimulatorPixels
+
+    _pixel_provider = SimulatorPixels() if simulator_pixels else None
     _output_root = output_root
     _register_known_drivers()
     return ThreadingHTTPServer(("127.0.0.1", port), _Bridge)
 
 
-def serve(port: int = 8600, output_root: str | None = None) -> ThreadingHTTPServer:
-    server = _a_bridge_on(port, output_root)
+def serve(port: int = 8600, output_root: str | None = None, *, simulator_pixels=False) -> ThreadingHTTPServer:
+    server = _a_bridge_on(port, output_root, simulator_pixels=simulator_pixels)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     return server
 
@@ -1832,11 +1840,13 @@ def serve(port: int = 8600, output_root: str | None = None) -> ThreadingHTTPServ
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--port", type=int, default=8600)
+    parser.add_argument("--simulator-pixels", action="store_true",
+                        help="synthetic pixels, only for captures identified as LAS X SIMULATOR")
     parser.add_argument(
         "--output-root",
         help="where runs go, for a driver that cannot discover its own",
     )
     args = parser.parse_args()
-    server = _a_bridge_on(args.port, args.output_root)
+    server = _a_bridge_on(args.port, args.output_root, simulator_pixels=args.simulator_pixels)
     print(f"bridge listening on 127.0.0.1:{args.port}")
     server.serve_forever()

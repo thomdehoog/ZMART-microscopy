@@ -65,7 +65,7 @@ WRITE_ATTEMPTS = 3
 WRITE_RETRY_S = 0.3
 
 
-def position_store_from_record(record: dict, into: Path | str) -> Path:
+def position_store_from_record(record: dict, into: Path | str, *, pixel_provider=None) -> Path:
     """Write one OME-Zarr 0.5 position from a capture's record, and return it.
 
     ``record`` is what the driver's acquire returned — its ``planes`` name the
@@ -77,9 +77,13 @@ def position_store_from_record(record: dict, into: Path | str) -> Path:
     A rename the file system denies is tried again, in a fresh place, up to
     :data:`WRITE_ATTEMPTS` times; one denied for good raises as itself.
     """
+    if pixel_provider is not None:
+        from application.parts.microscope.hijack import _assert_simulator_paths
+
+        _assert_simulator_paths(record.get("vendor_metadata") or [], record["position_label"])
     for attempt in range(WRITE_ATTEMPTS):
         try:
-            return _write_a_position(record, into)
+            return _write_a_position(record, into, pixel_provider=pixel_provider)
         except PermissionError as denied:
             if attempt == WRITE_ATTEMPTS - 1:
                 raise
@@ -106,14 +110,16 @@ def frame_um_of(store: Path | str) -> float:
     raise RuntimeError(f"{store} declares no pixel size")
 
 
-def _write_a_position(record: dict, into: Path | str) -> Path:
+def _write_a_position(record: dict, into: Path | str, *, pixel_provider=None) -> Path:
     """One attempt at :func:`position_store_from_record`."""
     planes = record.get("planes") or []
     if not planes:
         raise RuntimeError("the capture reported no planes, so there is nothing to keep")
 
     z_model = _the_z_model(record, planes)
-    volume, pixel_size_um = _the_volume_of(planes, depth_order=z_model["array_order"])
+    volume, pixel_size_um = _the_volume_of(
+        planes, depth_order=z_model["array_order"], pixel_provider=pixel_provider,
+    )
     frames, channels, nz, ny, nx = volume.shape
     dz = z_model["spacing_um"]
     corner_um = _the_corner_of(
@@ -169,6 +175,8 @@ def _write_a_position(record: dict, into: Path | str) -> Path:
     description.setdefault("attributes", {})["zmart_microscopy"] = {
         "z_coordinate": z_model,
     }
+    if pixel_provider is not None:
+        description["attributes"]["zmart_microscopy"]["synthetic_pixels"] = pixel_provider.recipe
     _describe_mean_pyramid(description)
     description_path.write_text(json.dumps(description, indent=2), encoding="utf-8")
 
@@ -221,6 +229,7 @@ def _publish(built: Path, published: Path) -> Path:
 
 def _the_volume_of(
     planes: list[dict], depth_order: list[int] | None = None,
+    *, pixel_provider=None,
 ) -> tuple[np.ndarray, tuple[float, float]]:
     """The capture as one ``(t, c, z, y, x)`` array, and its (y, x) µm/voxel.
 
@@ -253,11 +262,19 @@ def _the_volume_of(
             {number: index for index, number in enumerate(depth_order)}
             if depth_order is not None else _packed(planes, "z")
         )
+        slots = {tuple(int(p.get(axis, 0)) for axis in ("t", "c", "z")) for p in planes}
+        if len(slots) != len(planes) or len(slots) != len(frames) * len(channels) * len(depth):
+            raise ValueError("A completed position requires exactly one saved plane per T/C/Z slot")
 
         volume: np.ndarray | None = None
         for plane in planes:
             held = files[str(plane["path"])]
             image = _one_plane_of(held, plane)
+            if pixel_provider is not None:
+                replacement = pixel_provider(image.shape, image.dtype, plane=plane, pixel_um=pixel_size_um)
+                if replacement.shape != image.shape or replacement.dtype != image.dtype:
+                    raise ValueError("Synthetic pixels must preserve the saved plane's shape and dtype")
+                image = replacement
             if volume is None:
                 volume = np.zeros(
                     (len(frames), len(channels), len(depth), *image.shape),
@@ -321,15 +338,6 @@ def _the_pixel_size_of(ome_xml: str) -> tuple[float, float]:
     return one("Y"), one("X")
 
 
-# Where every flat capture stands in z. Slices are all shown at one z and
-# stacks stand relative to each other (the operator's rule): a one-plane
-# capture is placed here whatever height it was taken at, and that height
-# is kept beside it as provenance. A viewer that looks at one depth then
-# sees every slice together instead of the one or two whose micrometre
-# happens to cross the depth it looks at.
-A_FLAT_CAPTURES_SHARED_Z_UM = 0.0
-
-
 def _the_z_model(record: dict, planes: list[dict]) -> dict:
     """Where the capture stands in z, in specimen space.
 
@@ -338,9 +346,9 @@ def _the_z_model(record: dict, planes: list[dict]) -> dict:
     the height above the coverslip face, physical up on every stand:
     ``scale`` is the size of a voxel and is always positive, and
     ``translation`` is where the first voxel sits, positive or negative as
-    the stamps say. A flat capture sits at the one z every flat capture
-    shares (:data:`A_FLAT_CAPTURES_SHARED_Z_UM`), the height it was taken
-    at kept in the provenance. A stack is written **ascending**: its lowest plane first, and the rest above it at
+    the stamps say. A flat capture retains its measured height; placing it
+    on a shared display plane belongs to the viewer aggregate.
+    A stack is written **ascending**: its lowest plane first, and the rest above it at
     the spacing it was acquired with. Which way the drive swept is not the
     store's business: a downward sweep is reversed on the way in, and the
     two stores that result are
@@ -353,8 +361,7 @@ def _the_z_model(record: dict, planes: list[dict]) -> dict:
     depth, which blanked a perfectly good overview beside it.
 
     Returns the array order (vendor z numbers, ascending specimen z), the
-    positive spacing, the lowest plane's z (the shared z for a flat
-    capture), and the provenance.
+    positive spacing, the lowest plane's specimen z, and the provenance.
     """
     numbered = sorted({int(plane.get("z", 0)) for plane in planes})
     centres: list[float | None] = []
@@ -397,11 +404,6 @@ def _the_z_model(record: dict, planes: list[dict]) -> dict:
         ascending = list(numbered)
         heights = []
         lowest = requested_z if requested_z is not None else 0.0
-
-    if len(numbered) == 1:
-        # One plane: shown at the z every slice shares. Its own height is
-        # in the provenance below.
-        lowest = A_FLAT_CAPTURES_SHARED_Z_UM
 
     steps = [b - a for a, b in zip(heights, heights[1:])]
     spacing = abs(float(np.median(steps))) if steps else 1.0

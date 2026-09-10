@@ -306,6 +306,7 @@ button.run {
   height: var(--control); padding: 0 14px; cursor: pointer;
 }
 button.run:hover:enabled { border-color: var(--accent); color: var(--accent); }
+#view-modes button[aria-pressed="true"] { background: var(--accent); color: white; border-color: var(--accent); }
 /* Faded, the way every other disabled control here is. A grey slab was the
    heaviest thing on a bar whose point is the field beside it. */
 button.run:disabled { opacity: 0.4; cursor: default; }
@@ -1950,7 +1951,7 @@ canvas.livecv[hidden] { display: none; }
   /* The presses stand at the top of the row, and the row is exactly as
      tall as they are plus its padding: its lower content edge is their
      lower edge, which is what Fit measures the picture's room from. */
-  display: flex; align-items: flex-start; gap: 8px;
+  display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px;
   padding: 11px 12px; background: transparent;
   /* And as tall as it is with the presses even while they are away, before
      the microscope is connected: the row's edge does not move when they
@@ -1964,7 +1965,7 @@ canvas.livecv[hidden] { display: none; }
 /* The same blue-on-white press as Rerun and Run new points: one look for
    every press on the page. */
 .canvas-toolbar button.run { align-self: center; }
-.canvas-toolbar-right { margin-left: auto; display: flex; align-items: center; gap: 8px; min-width: 0; }
+.canvas-toolbar-right { margin-left: auto; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; min-width: 0; }
 .canvas-toolbar-right button[hidden] { display: none; }
 /* The row's presses carry a pictogram before the word. */
 .canvas-toolbar button.run { display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; flex: none; }

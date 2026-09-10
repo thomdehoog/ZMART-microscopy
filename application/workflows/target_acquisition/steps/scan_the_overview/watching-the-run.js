@@ -103,6 +103,15 @@ export function watchTheRun(ctx) {
     let openedNames = [];
     let inStageFrame = true;
     let panel = null;
+    const viewModes = new Map();
+    const availableViews = new Map();
+    const selectedMode = name => {
+      const keys = availableViews.get(name) ?? [];
+      const requested = viewModes.get(name);
+      return keys.includes(requested) ? requested : keys.includes("top") ? "top" : keys[0];
+    };
+    let embedding = null;
+    let embeddingUrl = null;
     const requestedPanelState = {
       acquisitions: new Map(),
       channels: new Map(),
@@ -149,14 +158,32 @@ export function watchTheRun(ctx) {
       // An unavailable response is not an instruction to remove loaded images.
       if (sources == null && viewer) return null;
       if (sources?.length) {
+        const url = sources.find(a => a.channels?.some(c => c.view))?.embeddingUrl;
+        if (url && url !== embeddingUrl) {
+          embedding = await import(/* @vite-ignore */ url);
+          if (embedding.EMBEDDING_API_VERSION !== 1) throw new Error("Unsupported viewer embedding API");
+          embeddingUrl = url;
+        }
+        availableViews.clear();
+        const selectedSources = sources.map(acquisition => {
+          if (!acquisition.channels?.some(c => c.view)) return acquisition;
+          const layers = acquisition.channels.map(c => ({ ...c, group: acquisition.name }));
+          const choice = embedding.viewChoices(layers)[0];
+          const keys = choice.keys.filter(key => ["top", "slice", "max"].includes(key));
+          availableViews.set(acquisition.name, keys);
+          const mode = selectedMode(acquisition.name);
+          const selected = embedding.selectedViews(layers, { [choice.id]: mode });
+          const channels = layers.filter(row => embedding.inSelectedView(row, selected));
+          return { ...acquisition, channels, url: channels[0]?.sources[0] };
+        });
         /* The engine draws acquisitions in the order supplied, first at the
            bottom. The overview is the base map and focussing is the local
            diagnostic overlay whose eye must make pixels appear and disappear,
            so keep that overlay last without changing any Viewer acquisition,
            channel, or source. */
         const drawOrder = [
-          ...sources.filter(({ name }) => name !== "focussing"),
-          ...sources.filter(({ name }) => name === "focussing"),
+          ...selectedSources.filter(({ name }) => name !== "focussing"),
+          ...selectedSources.filter(({ name }) => name === "focussing"),
         ];
         return {
           engine: search.get("engine") ?? "neuroglancer-under",
@@ -232,7 +259,17 @@ export function watchTheRun(ctx) {
         changed: () => ctx.displaySettingsChanged?.(),
       });
       if (session !== generation) mounted.destroy();
-      else panel = mounted;
+      else {
+        panel = mounted;
+        panel.element.viewModes = name => availableViews.get(name) ?? [];
+        panel.element.viewMode = selectedMode;
+        panel.element.setViewMode = async (name, mode) => {
+          if (!availableViews.get(name)?.includes(mode)) return;
+          viewModes.set(name, mode);
+          ctx.displayChanged?.();
+          await reopenIfTheRunGrew();
+        };
+      }
     }
 
     /** Put the scan where the plan is looking, exactly. */
@@ -308,6 +345,8 @@ export function watchTheRun(ctx) {
       openedNames = [];
       window.__thePicture = null;
       if (forgetVisibility) {
+        viewModes.clear();
+        availableViews.clear();
         requestedPanelState.acquisitions.clear();
         requestedPanelState.channels.clear();
         requestedPanelState.collapsed.clear();
