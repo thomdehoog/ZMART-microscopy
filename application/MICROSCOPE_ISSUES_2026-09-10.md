@@ -235,3 +235,10 @@ Still outstanding:
 - Focus-result navigation behavior after restoring preview generation, and end-to-end validation of preview dependencies in the actual operator environment after repair.
 
 This report is sufficient to prioritize targeted repairs, but those repairs and their regression/performance validation have not yet been performed.
+
+## Explicit outstanding tasks
+
+The user confirmed on 2026-09-11 that the following work still has to be done:
+
+- [ ] Investigate whether an additional native-window rendering, resolution-selection or cache defect remains. Inspect the actual WebView's requests and cache state with publication complete, current revisions delivered and no aggregate rebuild active. Record the result even if no additional defect is found.
+- [ ] Measure the complete performance breakdown: ingestion/store creation, composition and pyramid building, compression, filesystem I/O, cache reuse, preview generation, viewer loading and frontend rendering. Identify the dominant costs with measured timings rather than attributing all delays to the already-confirmed publication bottleneck.
