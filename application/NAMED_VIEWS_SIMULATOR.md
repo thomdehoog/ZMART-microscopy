@@ -3,7 +3,7 @@
 Feature branch: `codex/operator-named-views-simulator`, based on local
 `codex/operator-relative-z-integration` at `7e0b8f8f`, including its rig fixes.
 Companion viewer branch: `codex/operator-embedding`, version `0.5.0.dev0`.
-Tested viewer commit: `128130d761589c02c67933b40cb379ae33afe0cb`.
+Tested viewer commit: `90e0350777a2852ee19dee7b5fe48846aa5bcf14` (published).
 Neither branch is a microscope deployment.
 
 ## Display and storage
@@ -35,9 +35,10 @@ viewer is an explicit error, not an empty canvas fallback. In `application`,
 run `npm ci` and `npm run build` with that environment's Python on the configured
 tool path. The worker build imports the growth patch from the installed viewer.
 Distribute the rebuilt page and its matching generated worker together.
-The feature-only requirements/conda pins name the exact viewer commit. Until
-that commit is pushed, use the local viewer checkout; a remote-only installation
-cannot fetch an unpublished commit. Existing rig pins are unchanged.
+The feature-only requirements/conda pins name the exact published viewer commit.
+The viewer requires its frontend build before wheel creation; a bare Git pip
+install does not perform that build. Use the source-build/wheel instructions in
+`MICROSCOPE_INSTALL_HANDOVER_2026-09-10.md`. Existing rig branches are unchanged.
 
 ## LAS X simulator
 
@@ -47,6 +48,20 @@ in the storage ingestion seam, only with allowlisted SIMULATOR vendor metadata.
 It neither edits the driver nor changes saved vendor TIFFs. Synthetic provenance
 is recorded in the OME-Zarr. Missing files/coordinates fail instead of becoming
 synthetic success.
+The visual simulator now uses the same scikit-image kidney micrograph as the
+mock, with fixed specimen-space XY placement and Gaussian defocus around a
+recorded synthetic focus height (the stage's specimen Z at connection). This
+reference stays fixed across every job, tile and stack in the session and is
+saved in `synthetic-specimen.json` and each position's provenance. Reconnecting
+starts a new synthetic specimen at the new starting height; old captures are
+never rewritten. The probe also anchors once, or accepts `--focus-z-um`.
+It is a defocus model
+of a 2D image, not an anatomical 3D kidney reconstruction. The small cell-pattern
+provider remains available for numerical tests (`--pixels cells` on the probe).
+Focus scoring and focus-stack previews read the canonical first-timepoint store,
+including its physical Z ordering, rather than the untouched vendor stripes.
+The legacy TIFF path remains for callers without a canonical position; failed
+canonical conversion is not permission to score a different TIFF image.
 An explicit simulator-identity refusal aborts both scan and focus acquisition.
 The Detect/Discover preview reads the canonical OME-Zarr MIP, as detection does;
 it does not reapply the simulator recipe or read different vendor pixels.

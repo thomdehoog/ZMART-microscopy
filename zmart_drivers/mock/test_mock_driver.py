@@ -64,6 +64,30 @@ def test_an_overview_frame_is_the_full_frame(session):
     assert _frame_px(record) == mock_driver._FRAME_PX == 256
 
 
+@pytest.mark.parametrize("job,kind,depth,spacing,size", [
+    ("Overview stack", "overview", 7, 2, 256),
+    ("Target stack", "targets", 11, 1, 128),
+])
+def test_imaging_stack_jobs_capture_real_planes_and_return_to_single_plane(session, job, kind, depth, spacing, size):
+    import numpy as np
+
+    session.set_xyz(20_000, 30_000, mock_driver.sharp_height_um(20_000, 30_000))
+    session.set_state({"changeable": {"job": job}})
+    record = session.acquire(acquisition_type=kind, position_label="stack")
+    planes = record["planes"]
+    assert len(planes) == depth * 3
+    assert {p["z"] for p in planes} == set(range(depth))
+    assert {p["c"] for p in planes} == {0, 1, 2}
+    heights = sorted({p["z_um"] for p in planes})
+    assert np.allclose(np.diff(heights), spacing)
+    images = [tifffile.imread(p["path"]) for p in planes if p["c"] == 0]
+    assert all(image.shape == (size, size) for image in images)
+    assert not np.array_equal(images[0], images[depth // 2])
+    session.set_state({"changeable": {"job": job.removesuffix(" stack")}})
+    flat = session.acquire(acquisition_type=kind, position_label="flat")
+    assert len(flat["planes"]) == 3
+
+
 def test_a_focus_stack_is_half_the_side_of_an_overview_frame(session):
     record = session.acquire(acquisition_type="focussing", position_label="P0")
     assert _frame_px(record) == mock_driver._FOCUS_FRAME_PX == mock_driver._FRAME_PX // 2

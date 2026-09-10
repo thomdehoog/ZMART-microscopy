@@ -145,3 +145,62 @@ test("a temporarily unavailable product does not erase the requested view", asyn
   expect(element.viewMode("a")).toBe("slice");
   expect(viewer.addSources.mock.lastCall[0][0].channels[0].view.type).toBe("slice");
 });
+
+test("mode changes use known products during a slow status read and apply the last click", async () => {
+  const api = `export const EMBEDDING_API_VERSION=1;
+    export const viewChoices=rows=>[{id:'a',keys:rows.map(r=>r.view.type)}];
+    export const selectedViews=(rows,wanted)=>wanted;
+    export const inSelectedView=(row,wanted)=>row.view.type===wanted.a;`;
+  const sources = [{name:"a", embeddingUrl:`data:text/javascript,${encodeURIComponent(api)}`,
+    channels:["slice", "top", "max"].map(type => ({view:{acquisition:"a",type}, sources:[`/${type}`]}))}];
+  ctx.viewerSources = vi.fn(async () => sources);
+  const element = {};
+  mocks.mountPanel.mockResolvedValue({element, destroy:vi.fn(), sourcesChanged:async()=>true});
+  const viewer = {destroy:vi.fn(), setView:vi.fn(), addSources:vi.fn(async()=>true)};
+  mocks.opener.mockResolvedValue(async()=>viewer);
+  const run = watchTheRun(ctx);
+  await vi.dynamicImportSettled();
+  await settle();
+  const status = deferred(), install = deferred();
+  ctx.viewerSources.mockImplementationOnce(() => status.promise);
+  const polling = run.thePicture.reopenIfTheRunGrew();
+  await settle();
+  viewer.addSources.mockImplementationOnce(() => install.promise);
+  const slice = element.setViewMode("a", "slice");
+  await settle();
+  expect(viewer.addSources).toHaveBeenCalledOnce();
+  const max = element.setViewMode("a", "max");
+  const top = element.setViewMode("a", "top");
+  install.resolve(true);
+  await Promise.all([slice, max, top]);
+  expect(viewer.addSources).toHaveBeenCalledTimes(2);
+  expect(viewer.addSources.mock.lastCall[0][0].channels[0].view.type).toBe("top");
+  expect(ctx.viewerSources).toHaveBeenCalledTimes(2);
+  status.resolve(sources);
+  await polling;
+  expect(viewer.addSources).toHaveBeenCalledTimes(2);
+});
+
+test("the canvas mode applies to existing and later acquisitions together", async () => {
+  const api = `export const EMBEDDING_API_VERSION=1;
+    export const viewChoices=rows=>[{id:'a',keys:rows.map(r=>r.view.type)}];
+    export const selectedViews=(rows,wanted)=>wanted;
+    export const inSelectedView=(row,wanted)=>row.view.type===wanted.a;`;
+  const embeddingUrl = `data:text/javascript,${encodeURIComponent(api)}`;
+  let names = ["overview", "focussing"];
+  ctx.viewerSources = async () => names.map(name => ({name, embeddingUrl,
+    channels:["slice","top","max"].map(type=>({view:{acquisition:name,type},sources:[`/${name}/${type}`]}))}));
+  const element = {};
+  mocks.mountPanel.mockResolvedValue({element,destroy:vi.fn(),sourcesChanged:async()=>true});
+  const viewer = {destroy:vi.fn(),setView:vi.fn(),addSources:vi.fn(async()=>true)};
+  mocks.opener.mockResolvedValue(async()=>viewer);
+  const run = watchTheRun(ctx);
+  await vi.dynamicImportSettled(); await settle();
+  await element.setViewMode("overview", "slice");
+  expect(viewer.addSources.mock.lastCall[0].map(a=>a.channels[0].view.type)).toEqual(["slice","slice"]);
+  names.push("targets");
+  await run.thePicture.reopenIfTheRunGrew();
+  expect(viewer.addSources.mock.lastCall[0].map(a=>a.channels[0].view.type)).toEqual(["slice","slice","slice"]);
+  await element.setViewMode("targets", "top");
+  expect(viewer.addSources.mock.lastCall[0].map(a=>a.channels[0].view.type)).toEqual(["top","top","top"]);
+});

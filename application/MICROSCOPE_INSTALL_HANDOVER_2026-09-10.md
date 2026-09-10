@@ -4,16 +4,16 @@ Date: 2026-09-10. This is a feature-branch test deployment, not a main-branch re
 
 ## Branches and current readiness
 
-| Component | Repository | Branch | Current committed HEAD |
+| Component | Repository | Branch | Revision |
 | --- | --- | --- | --- |
-| Operator | `thomdehoog/ZMART-microscopy` | `codex/operator-named-views-simulator` | `4de0a8bcf5713c7531a52733a40282ccc2a00c30` |
-| Viewer | `thomdehoog/zmart-viewer` | `codex/operator-embedding` | `128130d761589c02c67933b40cb379ae33afe0cb` |
+| Operator — application to launch | `thomdehoog/ZMART-microscopy` | `codex/operator-named-views-simulator` | The commit containing this updated handover and viewer pin; record `git rev-parse HEAD` after fetching |
+| Viewer — installed dependency, not the operator launcher | `thomdehoog/ZMART-viewer` | `codex/operator-embedding` | `90e0350777a2852ee19dee7b5fe48846aa5bcf14` |
 
 Viewer package version required by the operator: **0.5.0.dev0**.
 
-IMPORTANT: both worktrees currently have uncommitted fixes beyond these HEADs. The simulator session tested those working copies, not just these commits. `requirements.txt` and `environment.yml` still pin the viewer HEAD above. A pull/install of that pin does NOT reproduce the latest tested behavior.
+The viewer revision above is published. This operator increment includes the tested local fixes and updates both `requirements.txt` and `environment.yml` to that viewer revision. Earlier operator commit `40c8d1ed` contains only the initial handover and is NOT the completed update. Fetch the newer operator commit containing this revision of the document.
 
-Before transferring to the microscope: review and commit the intended changes in both repositories, build/verify the viewer, update both operator dependency pins to the new viewer commit, rebuild the operator page, and push the feature branches. Record the final two commit IDs here. Do not push or merge main as part of this handover. This note itself does not perform any of those operations.
+Run the OPERATOR branch on the real microscope using `python application/zmart-interface.py --built`, without `--simulator-pixels`. The branch name does not force simulation. Select the actual Leica instrument and its measured configuration in Connect. Neither feature branch is merged into main.
 
 Current development worktrees:
 
@@ -43,7 +43,7 @@ Use Node 22.12+ for the operator's Vite 8 toolchain. Leave `CONDA_PREFIX` as set
 
 ## Install into a separate environment
 
-These steps assume the final feature commits and matching viewer pin have been published as described above. Use a separate clone/worktree under MinicondaZMB; do not switch the running rig checkout while acquisition is active.
+Use a separate clone/worktree under MinicondaZMB; do not switch the running rig checkout while acquisition is active. The recommended path on the already configured microscope is to clone its known-working conda environment, preserving the original for rollback.
 
 From that operator checkout:
 
@@ -52,20 +52,39 @@ git fetch origin
 git status --short --branch
 git log -1 --oneline
 # Verify this is codex/operator-named-views-simulator at the final handover commit.
-conda env create -n zmart-operator-named-views -f environment.yml
+conda create -n zmart-operator-named-views --clone zmart-microscopy
 conda activate zmart-operator-named-views
-python -m pip install -e .
+```
+
+Replace `zmart-microscopy` in the clone command if the working rig environment has another name. Do not clone the temporary development wrapper environment. For a completely fresh installation, use a copy of `environment.yml` with only its `zmart-viewer @ git+...` pip entry removed, create the new environment from that copy, then install the built viewer below. Keep the checked-in pins unchanged.
+
+IMPORTANT: the Git viewer dependency pin identifies the source revision, but a bare pip Git install cannot build this viewer without its generated frontend. The frontend is not tracked in Git, and wheel creation deliberately rejects a missing/stale build. Build the published viewer source first, or install the supplied matching wheel. Do not run a blind `pip install -e .` that replaces it with an unbuilt Git dependency.
+
+From a separate viewer checkout under MinicondaZMB, with the new environment and tool/cache variables active:
+
+```powershell
+git fetch origin codex/operator-embedding
+git switch --detach 90e0350777a2852ee19dee7b5fe48846aa5bcf14
+npm --prefix app/page ci
+npm --prefix app/page run build
+python -m pip install .
+```
+
+Run this only in the separate clean viewer checkout, not a dirty development worktree. Stop on any build/install failure. Return to the OPERATOR checkout:
+
+```powershell
+python -m pip install --no-deps -e .
 python -m pip check
 python -c "import sys, importlib.metadata as m, zmart_viewer; print(sys.executable); print(m.version('zmart-viewer')); print(zmart_viewer.__file__)"
 ```
 
-`environment.yml` supplies the main operator environment, including pythonnet for LAS X. Installing just the small root `requirements.txt` is not a complete microscope/analysis environment. The version string alone is not enough: multiple development commits use 0.5.0.dev0. Verify the installed viewer commit as well:
+The cloned or freshly prepared conda environment supplies the runtime dependencies, including pythonnet; `--no-deps` here prevents pip replacing the viewer just built. Resolve any `pip check` failures before launch. Installing just root `requirements.txt` is not a complete microscope/analysis environment. The version string alone is not enough: multiple development commits use 0.5.0.dev0. Inspect its installation origin as well:
 
 ```powershell
 python -c "import importlib.metadata as m; print(m.distribution('zmart-viewer').read_text('direct_url.json'))"
 ```
 
-If installing a supplied viewer wheel instead, use the wheel built from the final viewer commit and verify its supplied SHA256. Installing operator requirements afterwards may reinstall the pinned viewer; recheck the installed origin. Do not install an arbitrary older wheel carrying the same version name.
+For a local source install, `direct_url.json` identifies the checkout, not its Git commit: record `git rev-parse HEAD` in that viewer checkout. If installing a supplied viewer wheel instead, use the wheel built from the exact viewer commit and verify its supplied SHA256. Do not install an arbitrary older wheel carrying the same version name.
 
 ## Analysis workers
 

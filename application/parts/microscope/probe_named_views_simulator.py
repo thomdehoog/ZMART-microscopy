@@ -13,7 +13,7 @@ from pathlib import Path
 import numpy as np
 import zarr
 
-from application.parts.microscope.simulator_pixels import SimulatorPixels
+from application.parts.microscope.simulator_pixels import KidneyPixels, SimulatorPixels
 from application.parts.storage.zarr_positions import position_store_from_record
 
 
@@ -21,6 +21,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--job", action="append", required=True)
+    parser.add_argument("--pixels", choices=("kidney", "cells"), default="kidney")
+    parser.add_argument("--focus-z-um", type=float, help="Synthetic specimen focus; defaults to initial stage Z")
     args = parser.parse_args()
     if args.output.exists():
         parser.error("use a new output directory to preserve previous evidence")
@@ -51,6 +53,10 @@ def main():
     client = handle.client
     records = []
     try:
+        focus_z = args.focus_z_um
+        if focus_z is None and args.pixels == "kidney":
+            focus_z = float(driver.get_xyz(handle)["z"]["value"])
+        pixels = KidneyPixels(focus_z_um=focus_z) if args.pixels == "kidney" else SimulatorPixels()
         for i, job in enumerate(args.job):
             print(f"Capturing {job!r} through LAS X", flush=True)
             focus = driver.get_xyz(handle)
@@ -75,7 +81,7 @@ def main():
             paths = set(record["images"] + record["vendor_metadata"])
             before = {path: hashlib.sha256(Path(path).read_bytes()).hexdigest() for path in paths}
             store = position_store_from_record(
-                record, args.output / "positions", pixel_provider=SimulatorPixels()
+                record, args.output / "positions", pixel_provider=pixels
             )
             assert all(
                 hashlib.sha256(Path(path).read_bytes()).hexdigest() == digest
@@ -86,7 +92,7 @@ def main():
             record.update(
                 zarr_path=str(store),
                 original_sha256=before,
-                synthetic_pixels=SimulatorPixels.recipe,
+                synthetic_pixels=pixels.recipe,
                 pixel_shape=list(pixels.shape),
                 pixel_nonzero=int(np.count_nonzero(pixels)),
             )

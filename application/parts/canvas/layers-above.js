@@ -1,15 +1,12 @@
 /**
  * The layers the operator's own drawing is made of, above the picture.
  *
- * The picture at the bottom is always solid. It is never faded and no window is
- * ever cut through it, because the engine that will eventually draw it —
- * neuroglancer — cannot be made see-through, and because there is nothing
- * underneath it for transparency to reveal anyway. `viz_studio/LAYERS.md` sets
- * that out in full.
- *
- * So everything that decides what shows through lives here, in the drawing
- * above. This file takes a stack of layers and turns it into the single paint
- * function the canvas hands to the engine's top slot.
+ * This controls drawing-layer opacity, not acquired-image coverage. The
+ * transparent image engine uses authoritative coverage: acquired black is
+ * opaque and unacquired ground is transparent. The operator splits its drawing
+ * stack around that image layer; it does not cut rectangular acquisition holes.
+ * The optional windows below remain available to other drawing clients.
+ * This file turns drawing layers into one paint function for a canvas slot.
  *
  * ## The three ways a layer can be made see-through
  *

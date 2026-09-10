@@ -56,6 +56,12 @@ def what_was_captured(record: dict) -> dict:
     Nothing is assembled and nothing is copied: the planes are read where the
     acquisition left them.
     """
+    if record.get("zarr"):
+        # Canonical TCZYX stores pack T/C from zero and Z in physical order.
+        # The analysis reader obtains plane heights from that same store.
+        return {"image_path": record["zarr"]}
+    if record.get("synthetic_pixels") or record.get("zarr_error"):
+        raise RuntimeError("Focus requires its canonical position; refusing different vendor pixels")
     every = record.get("planes") or []
     if not every:
         raise RuntimeError("the capture reported no planes, so there is no stack to score")

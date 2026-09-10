@@ -26,6 +26,40 @@ function pressed(button) { return button.attributes?.["aria-pressed"]; }
 const settle = () => new Promise((resolve) => setTimeout(resolve, 30));
 
 describe("the sliders under the picture", () => {
+  it("Top counts planes from one and Slice returns to physical micrometres", async () => {
+    const parts = theParts(), asks = [];
+    let depth = {lowUm:0, highUm:10, stepUm:1, atUm:2, unit:"plane"};
+    const viewer = {theDepthItCanShow:()=>depth, setPlane:value=>asks.push(value)};
+    const axes = mountTheAxes(parts, {picture:()=>viewer, watchEveryMs:0});
+    axes.refresh();
+    expect(parts.plane.min).toBe("1");
+    expect(parts.plane.max).toBe("11");
+    expect(parts.planeReadout.textContent).toBe("Plane 3 of 11");
+    parts.plane.value = "8";
+    parts.plane.fire("input");
+    await settle();
+    expect(asks).toEqual([7]);
+    depth = {lowUm:100, highUm:120, stepUm:2, atUm:104, unit:"um"};
+    axes.refresh();
+    expect(parts.plane.min).toBe("100");
+    expect(parts.planeReadout.textContent).toBe("104 µm · plane 3 of 11");
+    depth = null;
+    axes.refresh();
+    expect(parts.axisZ.hidden).toBe(true);
+  });
+  it("shows a singleton Slice depth and returns an out-of-range Top selection to it", () => {
+    const parts = theParts();
+    const selected = [];
+    const picture = { theDepthItCanShow: () => ({lowUm:7, highUm:7, stepUm:1, atUm:20}),
+      setPlane: z => selected.push(z) };
+    mountTheAxes(parts, {picture: () => picture, watchEveryMs:0}).refresh();
+    expect(parts.axisZ.hidden).toBe(false);
+    expect(parts.axes.hidden).toBe(false);
+    expect(parts.planeReadout.textContent).toBe("7 µm · plane 1 of 1");
+    expect(parts.plane.disabled).toBe(true);
+    expect(parts.planePlay.disabled).toBe(true);
+    expect(selected).toEqual([7]);
+  });
   it("show nothing for a flat, single-moment picture, or no picture at all", () => {
     const parts = theParts();
     const axes = mountTheAxes(parts, { picture: () => null, watchEveryMs: 0 });

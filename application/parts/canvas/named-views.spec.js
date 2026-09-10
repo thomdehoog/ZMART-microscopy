@@ -79,19 +79,53 @@ for (const bake of [false, true]) for (const flatFirst of [false, true]) {
         name ? { path: info.outputPath(name) } : {}));
       const pixel = (shot, x) => Array.from(shot.data.slice((160 * shot.width + x) * shot.channels,
         (160 * shot.width + x) * shot.channels + 3));
+      if (bake && flatFirst) {
+        await select("top");
+        await page.evaluate(() => namedViewer.setPlane(0));
+        await expect.poll(async () => pixel(await photo(), 384)).toEqual([40, 40, 0]);
+        const before = requests.length;
+        let release;
+        const gate = new Promise(resolve => { release = resolve; });
+        let blocked = 0;
+        const delay = async route => { blocked++; await gate; await route.continue(); };
+        await page.route("**/data/**/c/**", delay);
+        try {
+          await page.evaluate(() => namedViewer.setPlane(2));
+          await expect.poll(() => blocked).toBeGreaterThan(0);
+          const cold = await photo("cold-z-waiting.png");
+          console.log({coldZ: {flat:pixel(cold,128), stack:pixel(cold,384), requests:requests.length-before}});
+          expect(pixel(cold,128)).toEqual([80,80,0]);
+          expect(pixel(cold,384)).toEqual([40,40,0]);
+          await expect(page.getByRole("status").filter({hasText:"Loading Z"})).toBeVisible();
+        } finally {
+          release();
+          await page.unrouteAll({behavior:"wait"});
+        }
+        await expect.poll(async () => pixel(await photo(), 384)).toEqual([160, 160, 0]);
+        await photo("cold-z-ready.png");
+        await expect(page.getByRole("status").filter({hasText:"Loading Z"})).toBeHidden();
+        const warm = requests.length;
+        await page.evaluate(() => namedViewer.setPlane(0));
+        await expect.poll(async () => pixel(await photo(), 384)).toEqual([40, 40, 0]);
+        await page.evaluate(() => { namedViewer.setPlane(2); namedViewer.setPlane(0); namedViewer.setPlane(2); });
+        await expect.poll(async () => pixel(await photo(), 384)).toEqual([160, 160, 0]);
+        expect(requests.length - warm).toBe(0);
+      }
       for (const mode of ["top", "slice", "max", "top"]) {
         await select(mode);
         await page.waitForFunction(() => namedViewer.layersForMeasurement().every(row => row.dims?.length));
-        for (const [z, stackValue] of [[0, 100], [1.3, 160], [20, 160]]) {
+        const cases = mode === "slice" ? [[65,40], [66.3,100], [67.6,160], [78,null]]
+          : [[0,40], [1,100], [2,160], [20,160]];
+        for (const [z, stackValue] of cases) {
           await page.evaluate(z => namedViewer.setPlane(z), z);
-          const flat = mode === "slice" && z !== 0 ? [255, 0, 255] : [80, 80, 0];
+          const flat = mode === "slice" && z !== 78 ? [255, 0, 255] : [80, 80, 0];
           const value = mode === "max" ? 160 : stackValue;
-          const stack = mode === "slice" && z === 20 ? [255, 0, 255] : [value, value, 0];
+          const stack = value === null ? [255, 0, 255] : [value, value, 0];
           await expect.poll(async () => pixel(await photo(), 128)).toEqual(flat);
           await expect.poll(async () => pixel(await photo(), 384)).toEqual(stack);
           expect(pixel(await photo(), 256)).toEqual([255, 0, 255]);
         }
-        await page.evaluate(() => namedViewer.setPlane(0));
+        await page.evaluate(z => namedViewer.setPlane(z), mode === "slice" ? 78 : 0);
         await expect.poll(async () => pixel(await photo(), 128)).toEqual([80, 80, 0]);
         await photo(`${mode}.png`);
       }
@@ -99,11 +133,37 @@ for (const bake of [false, true]) for (const flatFirst of [false, true]) {
       const scanline = shot => Array.from(shot.data.slice(160 * shot.width * shot.channels,
         161 * shot.width * shot.channels));
       await select("top");
-      await page.evaluate(() => namedViewer.setPlane(1.3));
+      await page.evaluate(() => namedViewer.setPlane(2));
       await expect.poll(async () => pixel(await photo(), 384)).toEqual([160, 160, 0]);
       const topEdges = scanline(await photo());
       await select("max");
       await expect.poll(async () => scanline(await photo())).toEqual(topEdges);
+      for (const zoom of [0.5, 1, 2, 4]) {
+        await select("top");
+        await page.evaluate(zoom => {
+          namedViewer.setView({centre:{x:96,y:24}, zoom});
+          namedViewer.setPlane(2);
+        }, zoom);
+        await expect(page.getByRole("status").filter({hasText:"Loading Z"})).toBeHidden();
+        // Require actual detail, not a timer or matching blank screenshots.
+        const detail = shot => {
+          const at = x => {
+            const sx = Math.floor(320 + (x - 96) / zoom);
+            const sy = Math.floor(160 + (8.5 - 24) / zoom);
+            return shot.data[(sy * shot.width + sx) * shot.channels];
+          };
+          return zoom <= 1 ? Math.abs(at(136.5) - at(137.5)) : at(136.5);
+        };
+        await expect.poll(async () => detail(await photo())).toBe(zoom <= 1 ? 60 : 190);
+        const reference = Array.from((await photo()).data);
+        await select("max");
+        await page.evaluate(zoom => namedViewer.setView({centre:{x:96,y:24}, zoom}), zoom);
+        await expect.poll(async () => {
+          const result = (await photo()).data;
+          return reference.reduce((count, value, i) => count + (result[i] !== value), 0);
+        }).toBe(0);
+        if (bake && flatFirst) await photo(`mip-detail-zoom-${zoom}.png`);
+      }
       // A later acquired black stack covers the old flat signal, not the ground.
       const beforeUpdate = requests.length;
       layers = await publish(["flat", "stack", "black"]);

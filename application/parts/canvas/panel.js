@@ -49,11 +49,11 @@ export const canvasPanel = {
              such as the focus map's colour ramp. -->
         <div class="canvas-toolbar" id="canvas-toolbar">
           <!-- Left, the two presses that say what to look at. -->
-          <span id="view-modes" role="group" aria-label="Viewing mode" hidden>
-            <button class="run" type="button" data-view-mode="top" aria-pressed="false">Top</button>
-            <button class="run" type="button" data-view-mode="slice" aria-pressed="false">Slice</button>
-            <button class="run" type="button" data-view-mode="max" aria-pressed="false">MIP</button>
-          </span>
+          <select id="view-modes" aria-label="Viewing mode" hidden>
+            <option value="top">Top</option>
+            <option value="slice">Slice</option>
+            <option value="max">MIP</option>
+          </select>
           <button class="run icon" id="carrier-btn" type="button" aria-label="Carrier"
                   title="Carrier: frame the carrier on the stage">
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 5.5V2h3.5M10.5 2H14v3.5M14 10.5V14h-3.5M5.5 14H2v-3.5"/><rect x="5" y="6" width="6" height="4" rx="0.8"/></svg>
