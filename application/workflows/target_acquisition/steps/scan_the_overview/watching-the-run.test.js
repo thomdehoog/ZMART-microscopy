@@ -22,7 +22,7 @@ beforeEach(() => {
   };
   mocks.opener.mockReset();
   mocks.mountPanel.mockReset();
-  mocks.mountPanel.mockResolvedValue({ destroy: vi.fn(), sourcesChanged: async () => true });
+  mocks.mountPanel.mockResolvedValue({ element: {}, destroy: vi.fn(), sourcesChanged: async () => true });
 });
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
 
@@ -89,4 +89,41 @@ test("an unavailable source response does not retire loaded images", async () =>
   expect(viewer.destroy).not.toHaveBeenCalled();
   expect(viewer.addSources).not.toHaveBeenCalled();
   expect(window.__thePicture).toBe(viewer);
+});
+
+test("a temporarily unavailable product does not erase the requested view", async () => {
+  const api = `export const EMBEDDING_API_VERSION=1;
+    export const viewChoices=rows=>[{id:'a',keys:rows.map(r=>r.view.type)}];
+    export const selectedViews=(rows,wanted)=>wanted;
+    export const inSelectedView=(row,wanted)=>row.view.type===wanted.a;`;
+  const embeddingUrl = `data:text/javascript,${encodeURIComponent(api)}`;
+  let modes = ["top", "slice"];
+  ctx.viewerSources = async () => [{name:"a", embeddingUrl, channels:modes.map(type => ({
+    view:{acquisition:"a",type}, sources:[`/${type}`], sourceRevisions:[1],
+  }))}];
+  const element = {};
+  mocks.mountPanel.mockResolvedValue({element, destroy:vi.fn(), sourcesChanged:async()=>true});
+  const viewer = {destroy:vi.fn(), setView:vi.fn(), addSources:vi.fn(async()=>true)};
+  mocks.opener.mockResolvedValue(async()=>viewer);
+  const run = watchTheRun(ctx);
+  await vi.dynamicImportSettled();
+  await settle();
+  expect(element.viewMode("a")).toBe("top");
+  const changing = deferred();
+  viewer.addSources.mockImplementationOnce(() => changing.promise);
+  ctx.displayChanged = vi.fn();
+  const selection = element.setViewMode("a", "slice");
+  expect(ctx.displayChanged).toHaveBeenCalledOnce();
+  expect(element.viewMode("a")).toBe("slice");
+  await settle();
+  changing.resolve(true);
+  await selection;
+  expect(element.viewMode("a")).toBe("slice");
+  modes = ["top"];
+  await run.thePicture.reopenIfTheRunGrew();
+  expect(element.viewMode("a")).toBe("top");
+  modes = ["top", "slice"];
+  await run.thePicture.reopenIfTheRunGrew();
+  expect(element.viewMode("a")).toBe("slice");
+  expect(viewer.addSources.mock.lastCall[0][0].channels[0].view.type).toBe("slice");
 });

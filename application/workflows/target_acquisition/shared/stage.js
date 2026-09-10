@@ -1686,6 +1686,17 @@ function sayWhatThePressesDo() {
   const acquisitions = panel?.acquisitions?.() ?? [];
   const names = acquisitions.map((one) => one.name);
   const shown = theRowsAcquisition(names);
+  const modes = document.getElementById("view-modes");
+  if (modes) {
+    const available = panel?.viewModes?.(shown) ?? [];
+    modes.hidden = !available.length;
+    for (const button of modes.querySelectorAll("[data-view-mode]")) {
+      const mode = button.dataset.viewMode;
+      button.disabled = !available.includes(mode);
+      button.setAttribute("aria-pressed", String(panel?.viewMode?.(shown) === mode));
+      button.onclick = () => panel.setViewMode(shown, mode).catch(console.error);
+    }
+  }
 
   if (ctx.acquisitionPick) {
     ctx.acquisitionPick.hidden = !acquisitions.length;

@@ -54,7 +54,7 @@ DEV_URL = "http://127.0.0.1:5174/"
 BRIDGE = HERE / "framework" / "bridge.py"
 
 
-def _start_bridge() -> str | None:
+def _start_bridge(*, simulator_pixels=False) -> str | None:
     """Start the bridge beside the page, on a spare port, and say where.
 
     Loaded from its file rather than imported through the ``webapp`` package,
@@ -69,7 +69,7 @@ def _start_bridge() -> str | None:
         spec = importlib.util.spec_from_file_location("zmart_bridge", BRIDGE)
         bridge = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(bridge)
-        server = bridge.serve(0)  # port 0: the operating system picks a free one
+        server = bridge.serve(0, simulator_pixels=simulator_pixels)
     except Exception as why:  # noqa: BLE001 — whatever is missing, say so plainly
         print(f"bridge not started ({why}) — the prototype workflow still works")
         return None
@@ -92,6 +92,8 @@ def main() -> int:
         help="open the built page served by the bridge, as the microscope runs it",
     )
     parser.add_argument("--url", default=DEV_URL, help=f"dev server address (default {DEV_URL})")
+    parser.add_argument("--simulator-pixels", action="store_true",
+                        help="replace identified LAS X simulator captures with synthetic pixels")
     args = parser.parse_args()
 
     if not args.built and not _dev_server_is_up(args.url):
@@ -101,7 +103,7 @@ def main() -> int:
         print(f"no build at {BUILT} — run `npm run build` first")
         return 1
 
-    bridge_at = _start_bridge()
+    bridge_at = _start_bridge(simulator_pixels=args.simulator_pixels)
     if not args.built:
         # The dev server holds the page so edits reload live, which puts it on
         # a different address from the bridge — so the page is told where that is.
@@ -121,7 +123,8 @@ def main() -> int:
         return 1
 
     print(f"opening {note}")
-    webview.create_window("ZMART", target, width=1500, height=950)
+    title = "ZMART — LAS X SIMULATOR / SYNTHETIC PIXELS" if args.simulator_pixels else "ZMART"
+    webview.create_window(title, target, width=1500, height=950)
     webview.start()
     return 0
 

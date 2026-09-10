@@ -35,5 +35,5 @@ numpy>=1.24
 # it does in Edge.
 pywebview>=5
 
-# Shared acquisition rendering; released 0.2.1 does not include this capability.
-zmart-viewer @ git+https://github.com/thomdehoog/zmart-viewer.git@b33a21cb8ff9c3edb6a49c75e46ee5e72790818b
+# Named-view embedding, tested 0.5.0.dev0 feature revision.
+zmart-viewer @ git+https://github.com/thomdehoog/zmart-viewer.git@1af6d7ab1633dd34449c6451862d0da1016edc07

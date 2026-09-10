@@ -1,4 +1,4 @@
-// ../../zmart-operator-optional-bake-20260908/application/node_modules/neuroglancer/lib/chunk_worker.bundle.js
+// node_modules/neuroglancer/lib/chunk_worker.bundle.js
 var __create = Object.create;
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
@@ -21885,6 +21885,15 @@ var __decorateClass25 = (decorators, target2, key, kind) => {
   if (kind && result) __defProp26(target2, key, result);
   return result;
 };
+registerRPC("zarr/extendBounds", function({ id, upper, shape, invalidate }) {
+  const source = this.get(id);
+  if (!source) return;
+  const { spec } = source;
+  spec.upperVoxelBound.set(upper);
+  for (let i = 0; i < spec.rank; i++) spec.upperChunkBound[i] = Math.ceil(upper[i] / spec.chunkDataSize[i]);
+  source.parameters.metadata.shape = shape;
+  if (invalidate) source.chunkManager.queueManager.invalidateSourceCache(source);
+});
 var ZarrVolumeChunkSource = class extends WithParameters(
   WithSharedKvStoreContextCounterpart(VolumeChunkSource),
   VolumeChunkSourceParameters5

@@ -92,7 +92,7 @@ import {
 } from "neuroglancer/unstable/ui/default_input_event_bindings.js";
 import "neuroglancer/unstable/kvstore/enabled_frontend_modules.js";
 import { makeMinimalViewer } from "neuroglancer/unstable/ui/minimal_viewer.js";
-import { makeCoordinateSpace, newDimensionId } from "neuroglancer/unstable/coordinate_transform.js";
+import { makeCoordinateSpace, newDimensionId, WatchableCoordinateSpaceTransform } from "neuroglancer/unstable/coordinate_transform.js";
 import { makeLayer, deleteLayer } from "neuroglancer/unstable/layer/index.js";
 import "neuroglancer/unstable/ui/default_viewer.css";
 import "./engine-chrome.css";
@@ -646,6 +646,7 @@ async function start(own, acquisitions) {
 }
 
 async function loadAcquisitions(own, acquisitions) {
+  await loadEmbedding(own, acquisitions);
   own.rows = await rowsFor(acquisitions);
   if (own.destroyed || !own.rows.length) return;
   installRows(own);
@@ -656,6 +657,21 @@ async function loadAcquisitions(own, acquisitions) {
   startTimeAtTheFirstMoment(own.viewer);
   countFromTheCornerOfTheVoxelRatherThanItsMiddle(own);
   await finishOpeningAcquisitions(own, acquisitions);
+}
+
+async function loadEmbedding(own, acquisitions) {
+  const url = acquisitions.find(a => a.channels?.some(c => c.view))?.embeddingUrl;
+  if (!url || own.embeddingUrl === url) return;
+  const api = await import(/* @vite-ignore */ url);
+  if (api.EMBEDDING_API_VERSION !== 1) throw new Error("Unsupported viewer embedding API");
+  own.embedding = api;
+  own.embeddingUrl = url;
+}
+
+function bindNamedDepth(own, row, layer) {
+  if (!row.view || (row.view.type !== "top" && row.view.type !== "projection")) return;
+  own.embedding.keepDepthLocal(layer, row.view.type === "top" ? own.viewer : null,
+    value => new WatchableCoordinateSpaceTransform(value));
 }
 
 /** Install only missing rows, keeping existing layers, controls and textures. */
@@ -681,7 +697,8 @@ function installRows(own) {
             + "void main() { emitRGBA(vec4(0.0,0.0,0.0,float(covered() > 0.0))); }",
         });
         own.viewer.layerSpecification.add(managed, layerIndex);
-        coverage = { managed, depth: member.depth, row: member };
+        bindNamedDepth(own, member, managed.layer);
+        coverage = { managed, depth: member.depth, view: member.view, row: member };
         own.coverageLayers.set(member.layerName, coverage);
         const stop = managed.layer?.dataSourcesChanged?.add(
           () => countFromTheCornerOfTheVoxelRatherThanItsMiddle(own),
@@ -769,6 +786,7 @@ function installRows(own) {
     const managed = makeLayer(own.viewer.layerSpecification, row.layerName, description);
     own.viewer.layerSpecification.add(managed, position);
     row.managed = managed;
+    bindNamedDepth(own, row, managed.layer);
     const stop = managed.layer?.dataSourcesChanged?.add(
       () => countFromTheCornerOfTheVoxelRatherThanItsMiddle(own),
     );
@@ -1077,6 +1095,8 @@ async function rowsFor(acquisitions) {
         sources,
         coverageSources: channel.coverageSources,
         sourceDepths: channel.sourceDepths,
+        sourceGeometryRevisions: channel.sourceGeometryRevisions,
+        view: channel.view,
         sourceRevisions: [...(channel.sourceRevisions ?? sources.map(() => 0))],
         acquisition: acquisition.name,
         /* Whether every store of this acquisition is one imaged position and
@@ -1087,7 +1107,7 @@ async function rowsFor(acquisitions) {
         // different from one another, and two acquisitions can easily hold a
         // channel of the same name — an overview and a detail scan both
         // recording green. So the name carries both halves.
-        layerName: `${acquisition.name}/${channel.name}`,
+        layerName: `${acquisition.name}/${channel.name}${channel.view ? "/" + (channel.view.method ?? channel.view.type) : ""}`,
         logicalName: `${acquisition.name}/${channel.name}`,
         colour: channel.colour || [...WHITE],
         window: channel.window || { ...AN_ORDINARY_WINDOW },
@@ -1108,7 +1128,7 @@ async function rowsFor(acquisitions) {
     });
   }
   const expanded = rows.flatMap((row, controlIndex) => {
-    if (!row.sourceDepths) return [{ ...row, controlIndex }];
+    if (row.view || !row.sourceDepths) return [{ ...row, controlIndex }];
     return ["flat", "stack"].flatMap(depth => {
       const indices = row.sourceDepths.flatMap((kind, i) => kind === depth ? [i] : []);
       if (!indices.length) return [];
@@ -1135,6 +1155,7 @@ async function rowsFor(acquisitions) {
  * prefix. Removing or replacing a source remains a genuinely different scene.
  */
 async function addSourcesToTheOpenRows(own, acquisitions) {
+  await loadEmbedding(own, acquisitions);
   if (own.destroyed) return false;
   if (!own.rows.length) {
     await loadAcquisitions(own, acquisitions);
@@ -1143,6 +1164,18 @@ async function addSourcesToTheOpenRows(own, acquisitions) {
   const wanted = await rowsFor(acquisitions);
   if (own.destroyed) return false;
   const nextByName = new Map(wanted.map(row => [row.layerName, row]));
+
+  // Named modes replace layers, not the viewer or its navigation state.
+  const retired = own.rows.filter(row => row.view && !nextByName.has(row.layerName));
+  for (const row of retired) {
+    for (const next of wanted.filter(next => next.logicalName === row.logicalName))
+      for (const key of ["visible", "colour", "window", "weight", "gamma"]) next[key] = row[key];
+    if (row.managed) deleteLayer(row.managed);
+    const coverage = own.coverageLayers?.get(row.layerName);
+    if (coverage) deleteLayer(coverage.managed);
+    own.coverageLayers?.delete(row.layerName);
+  }
+  own.rows = own.rows.filter(row => !retired.includes(row));
 
   for (const held of own.rows) {
     const next = nextByName.get(held.layerName);
@@ -1156,12 +1189,21 @@ async function addSourcesToTheOpenRows(own, acquisitions) {
 
   const heldByName = new Map(own.rows.map(row => [row.layerName, row]));
   const changed = new Set();
+  const refreshed = new Set(), forgotten = new Set(), geometryReads = [];
   for (const held of own.rows) {
     const layer = held.managed?.layer;
     if (!layer) return false;
     const next = nextByName.get(held.layerName);
     held.sources.forEach((url, at) => {
-      if (next.sourceRevisions[at] > held.sourceRevisions[at]) changed.add(url);
+      if (next.sourceRevisions[at] <= held.sourceRevisions[at]) return;
+      if (held.view && next.sourceGeometryRevisions?.[at] !== held.sourceGeometryRevisions?.[at]) {
+        const targets = [layer, own.coverageLayers?.get(held.layerName)?.managed.layer].filter(Boolean);
+        for (const target of targets) for (const source of target.dataSources)
+          geometryReads.push(own.embedding.refreshGeometry(source, own.viewer.chunkManager, refreshed, forgotten));
+      } else {
+        changed.add(url);
+        for (const source of held.coverageSources ?? []) changed.add(source);
+      }
     });
     const fresh = next.sources.slice(held.sources.length);
     for (const address of fresh) {
@@ -1175,6 +1217,7 @@ async function addSourcesToTheOpenRows(own, acquisitions) {
       held.sources.push(address);
     }
     held.sourceRevisions = next.sourceRevisions;
+    held.sourceGeometryRevisions = next.sourceGeometryRevisions;
     held.controlIndex = next.controlIndex;
   }
   own.rows = wanted.map(row => {
@@ -1185,6 +1228,8 @@ async function addSourcesToTheOpenRows(own, acquisitions) {
     return row;
   });
   installRows(own);
+  await Promise.all(geometryReads);
+  countFromTheCornerOfTheVoxelRatherThanItsMiddle(own);
   refreshSources(own.viewer.chunkManager, changed);
   return true;
 }
@@ -1372,10 +1417,8 @@ function startTimeAtTheFirstMoment(viewer) {
 /** How thick a flat picture is drawn along its own depth, in voxels of that
     depth: a metre either way, so no depth a layer is looked at from misses it. */
 const A_FLAT_PICTURES_THICKNESS = 2e6;
-/** Where every flat picture is drawn along its own depth. The writer
-    stands every flat capture at one shared z
-    (`zarr_positions.A_FLAT_CAPTURES_SHARED_Z_UM`), so its one plane is at
-    voxel 0 of its own depth, and the slab is centred there. */
+/** Legacy flat aggregates use display Z=0. Named views bypass this slab
+    and use the shared viewer's depth behavior instead. */
 const THE_DEPTH_EVERY_FLAT_PICTURE_IS_DRAWN_AT = 0;
 
 function countFromTheCornerOfTheVoxelRatherThanItsMiddle(own) {
@@ -1420,7 +1463,7 @@ function countFromTheCornerOfTheVoxelRatherThanItsMiddle(own) {
          that is loaded again gets a new load state and a fresh default
          transform, so it is moved again, which is right. */
       if (own.correctedLoadStates.has(loadState)) continue;
-      if (row.depth) {
+      if (row.depth || row.view) {
         // Aggregates already publish voxel-centre transforms. Only flat depth is local.
         own.correctedLoadStates.add(loadState);
         const output = placing.outputSpace.value;
@@ -1463,7 +1506,7 @@ function countFromTheCornerOfTheVoxelRatherThanItsMiddle(own) {
         moved[rank * (rank + 1) + axis] += 0.5;
         anythingMoved = true;
       }
-      const flat = isOnePlaneDeep(placed);
+      const flat = row.view ? false : isOnePlaneDeep(placed);
       if (flat === null) {
         /* The extent is not read yet, so whether this is a flat picture
            cannot be told. Not marked: the next pass, brought round by the
@@ -1553,10 +1596,12 @@ function planesDeepIn(own, acquisition) {
 function aggregateDepthIn(own, acquisition) {
   let range = null;
   for (const row of own.rows) {
-    if (row.depth !== "stack" || (acquisition !== null && row.acquisition !== acquisition)) continue;
+    if ((!row.view && row.depth !== "stack") || row.view?.type === "projection"
+        || (acquisition !== null && row.acquisition !== acquisition)) continue;
     for (const source of row.managed?.layer?.dataSources ?? []) {
-      const space = source.loadState?.transform?.value?.outputSpace;
-      const z = space?.names.indexOf("z") ?? -1;
+      const placement = source.loadState?.transform;
+      const space = row.view ? placement?.defaultTransform?.outputSpace : placement?.value?.outputSpace;
+      const z = space?.names.findIndex(name => name === "z" || name === "z'") ?? -1;
       if (z < 0) continue;
       for (const { box, transform } of space.boundingBoxes) {
         // Shared aggregates are axis-aligned; this coefficient retains native
@@ -2353,7 +2398,7 @@ function handleFor(own) {
       const depth = info?.displayDimensionIndices?.[2] ?? -1;
       if (depth < 0 || !space?.bounds) return null;
       const umPerVoxel = space.scales[depth] * UM_PER_M;
-      if (own.rows.some(row => row.depth)) {
+      if (own.rows.some(row => row.depth || row.view)) {
         const range = aggregateDepthIn(own, acquisition);
         return range && { ...range,
           atUm: own.viewer.navigationState.position.value[depth] * umPerVoxel };

@@ -19,7 +19,7 @@ for name, depth, x, z, reference in (
     store = folder / f"{name}.ome.zarr"
     _declare_one(
         store, canvas_shape=(depth, 64, 64), frames=1, channels=2,
-        dtype="uint16", chunk=64, levels=1, voxel_size_um=(1.3, 1, 1),
+        dtype="uint16", chunk=64, levels=3, voxel_size_um=(1.3, 1, 1),
         origin_um=(z, 0, x), channel_blocks=[{"label": "red"}, {"label": "green"}],
         ome_zarr_version="0.5",
     )
@@ -31,7 +31,8 @@ for name, depth, x, z, reference in (
         "frame": "specimen", "acquisition_provenance": {"requested_stage_focus_z_um": reference},
     }}
     for plane in range(depth):
-        group["0"][:, :, plane] = 0 if name == "black" else (80 if depth == 1 else 40 + 60 * plane)
+        for level in range(3):
+            group[str(level)][:, :, plane] = 0 if name == "black" else (80 if depth == 1 else 40 + 60 * plane)
 
 server = make_server(port=0, data_dir=folder, live=True, allow_open=True,
                      transparent_background=True, window=(0, 255))

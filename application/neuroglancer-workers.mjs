@@ -71,6 +71,7 @@
  */
 
 import { build } from "esbuild";
+import { execFileSync } from "node:child_process";
 import { readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -175,6 +176,11 @@ async function compile(name, plugins = []) {
  * @returns how large each finished program is, in bytes, by file name.
  */
 export async function readyTheBackgroundPrograms() {
+  const modulePath = execFileSync(process.env.PYTHON || "python", ["-c",
+    "from pathlib import Path; import zmart_viewer; print(Path(zmart_viewer.__file__).with_name('neuroglancer-growth.mjs'))"],
+    { encoding: "utf8", windowsHide: true }).trim();
+  const { applyGrowthPatches } = await import(pathToFileURL(modulePath).href);
+  applyGrowthPatches(WHERE_THE_WORKERS_LIVE);
   const unpacking = await compile(THE_UNPACKING_PROGRAM);
   const fetching = await compile(THE_FETCHING_PROGRAM, [lookBesideMeInstead]);
   return { [THE_UNPACKING_PROGRAM]: unpacking, [THE_FETCHING_PROGRAM]: fetching };
