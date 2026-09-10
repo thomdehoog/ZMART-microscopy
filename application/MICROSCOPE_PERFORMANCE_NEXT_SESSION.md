@@ -16,6 +16,16 @@ Read [the issue and validation report](MICROSCOPE_ISSUES_2026-09-10.md) and [ins
 
 ## Work order
 
+### User observation: disabling baking appears to show images sooner
+
+On 2026-09-11, the user reported that images seem to arrive on screen faster with baking disabled. This is an observed difference, not yet a controlled timing result. It suggests that baking may delay first display through publication dependencies or competition for CPU/I/O; the mechanism remains to be measured.
+
+Make baking enabled versus disabled an explicit baseline comparison using the same recorded data, view, viewport, channels and matched cache conditions. Measure first useful display, subsequent pan/zoom/refinement latency, publication completion, CPU/I/O and cache growth. Check both initial and repeated viewing: faster first display alone does not establish which mode provides the best sustained responsiveness.
+
+If the comparison confirms an advantage, evaluate an interactive path with baking disabled or deferred until after first display, with bounded background work. Preserve correctness and readable publication in either mode. Do not change the default solely on this observation.
+
+### Planned steps
+
 1. **Measure an export-to-display baseline.** Correlate timestamps by acquisition, position, view and source revision: microscope export completion, conversion start/end, canonical store readiness, publication queue/start/commit, operator revision delivery, first viewer request, first useful displayed image and fine-detail arrival. Separate queue delay from active processing. A successful HTTP response alone does not establish that pixels appeared on screen. Record dataset size, channels, Z depth, bake settings and cache conditions.
 
 2. **Make completed positions visible sooner.** Inspect current scheduling before adding concurrency. Determine whether conversion/publication can overlap the next capture without reading incomplete exports or competing excessively for disk access. Verify that Top becomes usable before Slice/MIP completion, using the existing per-view publication support. Remove any remaining unnecessary wait for an entire batch or all views.
