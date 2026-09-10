@@ -216,3 +216,22 @@ In `published.py::prepare`, the reorder logic compares old and new order lists b
 Decouple routine target inspection from expensive persistent aggregate rebuilding. Preserve the selected target's intended visual prominence through a transient viewer presentation, or make any necessary reorder work bounded to actual affected overlap while keeping the last committed image readable. Also make pending reorder work visible in publication status. Together with per-view revision propagation, this directly addresses the user's hypothesis that the operator integration is imposing avoidable work on Neuroglancer.
 
 The snapshot does not establish a separate browser resolution-selection defect: the backend was again refusing the data needed for refinement. Test the native client's finer-level loading once the selected view is readable and no selection-triggered rebuild is active. No runtime fixes or restart were performed.
+
+## Agreed direction: prioritize responsiveness
+
+The user explicitly prioritizes responsiveness. Let Neuroglancer independently manage chunk fetching, caching, zooming and resolution selection; the operator should manage the acquisition workflow and send lightweight state/revision updates. Routine target inspection should update selection and presentation immediately without waiting for persistent aggregate recomposition. Keep a complete readable generation available, expose ready views promptly, and perform expensive pyramid preparation in the background. The backend must still provide correct readable chunks; this direction does not assume Neuroglancer itself generates the source stores or their pyramids.
+
+## Diagnostic coverage and remaining limits
+
+Every reported symptom has been investigated, but not every possible contributing cause has been proved or excluded.
+
+Confirmed by runtime evidence and source tracing: missing ngio on the operator preview paths; genuine zero-valued first/last focus planes; completed acquisition with prolonged publication; sequential view commits and delayed operator revisions; pending views returning HTTP 503; selection-triggered order changes and rebuilds hidden by the ready count; and restrictive native-pyramid reuse on this recorded geometry. Sampled served pixels matched their committed sources after publication, and the user confirmed the display recovered before further target interaction.
+
+Still outstanding:
+
+- Direct inspection of the existing native WebView's request/cache state during a coarse-frame incident. The isolated reader hit the same unavailable backend, so it could not establish whether an additional native-client resolution/cache defect exists.
+- Exhaustive pixel validation and exact historical screenshot-to-chunk attribution. Six matching patches do not prove every target, plane or pyramid level is correct.
+- A complete performance breakdown separating ingestion/store creation, composition, compression, filesystem I/O, cache reuse, preview generation and frontend rendering. Current evidence identifies expensive publication paths and elapsed commit intervals, not an optimized implementation or a speedup guarantee.
+- Focus-result navigation behavior after restoring preview generation, and end-to-end validation of preview dependencies in the actual operator environment after repair.
+
+This report is sufficient to prioritize targeted repairs, but those repairs and their regression/performance validation have not yet been performed.
