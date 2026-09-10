@@ -16,6 +16,8 @@
 /** The side of one picture, in pixels. */
 const CROP_PX = 132;
 
+import { previewMessage } from "../../shared/preview-message.js";
+
 /**
  * One small picture: the viewer's copy at `src`, drawn by `draw(paint, img,
  * px)` once it arrives, into a canvas `px` pixels a side. A backend that
@@ -32,6 +34,7 @@ function smallPicture(src, draw) {
   cv.width = CROP_PX; cv.height = CROP_PX;
   if (src) cv.dataset.picture = src;
   let img = null;
+  let failed = false;
   const paint = () => {
     const density = window.devicePixelRatio || 1;
     const px = Math.max(CROP_PX, Math.round((cv.clientWidth || 0) * density)) || CROP_PX;
@@ -40,12 +43,23 @@ function smallPicture(src, draw) {
     brush.fillStyle = "#05090e";
     brush.fillRect(0, 0, px, px);
     draw(brush, img, px);
+    if (failed) previewMessage(brush, px, px, "Preview unavailable");
   };
   paint();
   if (src) {
-    img = new Image();
-    img.onload = paint;
-    img.src = src;
+    const requested = new Image();
+    requested.onload = () => {
+      img = requested;
+      failed = false;
+      cv.removeAttribute("aria-label");
+      paint();
+    };
+    requested.onerror = () => {
+      failed = true;
+      cv.setAttribute("aria-label", "Preview unavailable");
+      paint();
+    };
+    requested.src = src;
   }
   if (typeof ResizeObserver !== "undefined") {
     const watch = new ResizeObserver(() => { if (cv.isConnected) paint(); });

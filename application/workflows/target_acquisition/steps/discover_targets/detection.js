@@ -43,6 +43,7 @@ export const labelColour = (n, alpha = 1) =>
 
 import { dressTheMask } from "./mask-dress.js";
 import { progressBox } from "../../shared/progress.js";
+import { previewMessage } from "../../shared/preview-message.js";
 import { sideGroup } from "../../../../framework/window/panels.js";
 
 export default {
@@ -236,6 +237,7 @@ export default {
        the picture comes with the field -- not, as it first did, only after a
        test had already been run blind on it. */
     let picture = null;
+    let pictureFailed = false;
     let mask = null;
     let pictureFor = null;
     let pictureFrom = null;
@@ -253,9 +255,23 @@ export default {
            picture it is, display settings and all. */
         cv.dataset.picture = where ?? "";
         picture = null;
+        pictureFailed = false;
+        cv.removeAttribute("aria-label");
         if (!where) { mask = null; return; }
         const img = new Image();
-        img.onload = () => { picture = img; drawTheTile(); };
+        img.onload = () => {
+          if (pictureFrom !== where) return;
+          picture = img;
+          pictureFailed = false;
+          cv.removeAttribute("aria-label");
+          drawTheTile();
+        };
+        img.onerror = () => {
+          if (pictureFrom !== where) return;
+          pictureFailed = true;
+          cv.setAttribute("aria-label", "Preview unavailable");
+          drawTheTile();
+        };
         img.src = where;
       }
       /* The field's segmentation, when one has been made: served beside the
@@ -352,6 +368,7 @@ export default {
       paint.strokeStyle = ctx.css("--line-strong");
       paint.lineWidth = 1;
       paint.strokeRect(ox + 0.5, oy + 0.5, frame * scale - 1, frame * scale - 1);
+      if (pictureFailed) previewMessage(paint, w, h, "Preview unavailable");
     }
 
     /** The settings, the position picker and the sentence underneath. */
