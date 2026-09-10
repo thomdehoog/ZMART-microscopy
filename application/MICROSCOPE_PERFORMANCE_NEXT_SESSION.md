@@ -38,6 +38,21 @@ If the comparison confirms an advantage, evaluate an interactive path with bakin
 
 5. **Repeat the original 20-target workload.** Compare before/after results under matched settings, distinguishing cold and warm cache runs. Report time to first useful image, per-target export-to-visible delay, publication queue delay, selection latency, zoom-to-fine-detail latency and total completion time. Include slow cases, not only averages. Use recorded data or the mock driver for repeatable measurements; real microscope acquisition requires an agreed operational run.
 
+## Refresh and cache invalidation investigation
+
+On 2026-09-11, the user raised excessive refreshes and overlapping operator/viewer invalidation as possible contributors to the remaining latency. Neuroglancer supplies cache invalidation machinery, and the viewer integration explicitly invokes it. This does not establish that Neuroglancer independently detects every change to data served at a stable URL, or that two independent invalidation passes currently occur.
+
+Source inspection found:
+
+- Operator `application/workflows/target_acquisition/steps/scan_the_overview/watching-the-run.js`, `applyLatestSources`: skips applying sources when the signature of selected source URLs and revisions is unchanged. Changed signatures normally go through `viewer.addSources`; reopening the viewer is a fallback. A status poll is therefore not automatically a cache invalidation or viewer restart.
+- Operator `application/parts/canvas/viewer-panel.js`, `refreshObserved`: checks engine display state every 100 ms and reapplies requested settings on a mismatch. Measure this separately from source-cache invalidation; its frequency alone does not prove costly reloads.
+- Companion viewer `app/page/src/engine.js`, `forgetOneStableSource`: removes matching metadata memo entries and calls `invalidateCache()` on decoded chunk holders for a changed stable source URL. Other source URLs are left alone, but cached chunks within the changed aggregate source may still be discarded more broadly than the changed image region requires.
+- Companion viewer `letGoOfDecodedPieces`: the legacy write-hint path explicitly excludes revisioned sources handled through `syncSources`, providing an existing safeguard against duplicate refreshes. Verify its behavior under the real workload rather than assuming duplicate invalidation is present.
+
+Next-session measurements should count and timestamp status polls, source signature changes, source applications, invalidation calls, affected source URLs/revisions, viewer recreation and repeated chunk downloads. Correlate those with actual publication commits and interaction latency. Distinguish metadata refresh, decoded chunk eviction and ordinary redraws. Include unchanged polls, duplicate write notifications, new positions and reruns, with baking both enabled and disabled.
+
+The objective is to avoid redundant invalidation for the same committed revision and retain unaffected cached data while Neuroglancer handles loading and refinement. Check whether refreshes can be coalesced or narrowed to changed regions. Preserve required invalidation of formerly empty chunks when new pixels arrive and correct refresh after overwriting a source. Excessive or duplicate invalidation remains a hypothesis until these measurements establish its occurrence and cost; no invalidation behavior was changed in this report update.
+
 ## Completion evidence
 
 - Save a reproducible command or profiling harness, settings and timestamped results alongside a concise findings report.
