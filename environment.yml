@@ -91,4 +91,4 @@ dependencies:
       # Canonical OME-Zarr sidebar previews and focus slices run in the operator.
       - ngio==1.1.0
       # Shared acquisition rendering; keep this pin aligned with requirements.txt.
-      - zmart-viewer @ git+https://github.com/thomdehoog/ZMART-viewer.git@90e0350777a2852ee19dee7b5fe48846aa5bcf14
+      - zmart-viewer @ git+https://github.com/thomdehoog/ZMART-viewer.git@643a721f8dd68f61abc8c2ecf40a4bf8d6fb2136

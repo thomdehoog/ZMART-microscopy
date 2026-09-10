@@ -7,7 +7,7 @@ Date: 2026-09-10. This is a feature-branch test deployment, not a main-branch re
 | Component | Repository | Branch | Revision |
 | --- | --- | --- | --- |
 | Operator — application to launch | `thomdehoog/ZMART-microscopy` | `codex/operator-named-views-simulator` | The commit containing this updated handover and viewer pin; record `git rev-parse HEAD` after fetching |
-| Viewer — installed dependency, not the operator launcher | `thomdehoog/ZMART-viewer` | `codex/operator-embedding` | `90e0350777a2852ee19dee7b5fe48846aa5bcf14` |
+| Viewer — installed dependency, not the operator launcher | `thomdehoog/ZMART-viewer` | `codex/operator-publication-responsiveness` | `643a721f8dd68f61abc8c2ecf40a4bf8d6fb2136` |
 
 Viewer package version required by the operator: **0.5.0.dev0**.
 
@@ -17,7 +17,7 @@ Run the OPERATOR branch on the real microscope using `python application/zmart-i
 
 Current development worktrees:
 
-- Operator: `C:\ProgramData\MinicondaZMB\home\t.de\zmart-operator-named-views-20260910`
+- Operator: `C:\ProgramData\MinicondaZMB\home\t.de\zmart-operator-named-views-simulator`
 - Viewer: `C:\ProgramData\MinicondaZMB\home\t.de\zmart-viewer-embedding-20260910`
 
 Keep the existing microscope checkout and environment available for rollback. Do not reset them or copy simulator machine configuration over them.
@@ -63,8 +63,8 @@ IMPORTANT: the Git viewer dependency pin identifies the source revision, but a b
 From a separate viewer checkout under MinicondaZMB, with the new environment and tool/cache variables active:
 
 ```powershell
-git fetch origin codex/operator-embedding
-git switch --detach 90e0350777a2852ee19dee7b5fe48846aa5bcf14
+git fetch origin codex/operator-publication-responsiveness
+git switch --detach 643a721f8dd68f61abc8c2ecf40a4bf8d6fb2136
 npm --prefix app/page ci
 npm --prefix app/page run build
 python -m pip install .
