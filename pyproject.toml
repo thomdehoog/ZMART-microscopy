@@ -7,7 +7,7 @@ name = "zmart-microscopy"
 version = "0.1.0"
 description = "The ZMART smart-microscopy operator, acquisition workflow, and live image writer."
 readme = "README.md"
-requires-python = ">=3.10,<3.13"
+requires-python = ">=3.11,<3.13"
 license = "MIT"
 license-files = ["LICENSE"]
 

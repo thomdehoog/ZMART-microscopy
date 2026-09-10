@@ -73,8 +73,10 @@ python -m pip install .
 Run this only in the separate clean viewer checkout, not a dirty development worktree. Stop on any build/install failure. Return to the OPERATOR checkout:
 
 ```powershell
+python -m pip install ngio==1.1.0
 python -m pip install --no-deps -e .
 python -m pip check
+python -c "import ngio; print('operator canonical preview reader available')"
 python -c "import sys, importlib.metadata as m, zmart_viewer; print(sys.executable); print(m.version('zmart-viewer')); print(zmart_viewer.__file__)"
 ```
 
@@ -85,6 +87,12 @@ python -c "import importlib.metadata as m; print(m.distribution('zmart-viewer').
 ```
 
 For a local source install, `direct_url.json` identifies the checkout, not its Git commit: record `git rev-parse HEAD` in that viewer checkout. If installing a supplied viewer wheel instead, use the wheel built from the exact viewer commit and verify its supplied SHA256. Do not install an arbitrary older wheel carrying the same version name.
+
+The operator requires Python 3.11 or 3.12. Its canonical preview reader (`ngio==1.1.0`) must be installed in the operator environment itself, even when analysis workers already have it. Older cloned environments can lack it. Before launch, check the actual preview routes using the isolated synthetic-store tests (these do not connect to an instrument):
+
+```powershell
+python -m pytest application/parts/storage/test_canonical_previews.py -q
+```
 
 ## Analysis workers
 

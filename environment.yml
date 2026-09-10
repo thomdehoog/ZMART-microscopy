@@ -88,5 +88,7 @@ dependencies:
   # flag is safe on any machine.
   - pip:
       - pywebview>=5
+      # Canonical OME-Zarr sidebar previews and focus slices run in the operator.
+      - ngio==1.1.0
       # Shared acquisition rendering; keep this pin aligned with requirements.txt.
       - zmart-viewer @ git+https://github.com/thomdehoog/ZMART-viewer.git@90e0350777a2852ee19dee7b5fe48846aa5bcf14

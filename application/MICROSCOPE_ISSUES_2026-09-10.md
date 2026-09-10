@@ -1,6 +1,6 @@
 # Microscope operator issues observed on 2026-09-10
 
-The installed named-views operator has missing previews, incomplete-looking target rendering, and slow store preparation and viewer updates. The original observations are recorded below, followed by live diagnostic findings. All issues remain open for fixes; diagnosis did not modify or restart the operator, acquire images, or change microscope settings.
+The installed named-views operator had missing previews, incomplete-looking target rendering, and slow store preparation and viewer updates. The original observations and diagnostic findings are preserved below. The confirmed preview dependency was repaired on 2026-09-11; see the repair status at the end. The publication, responsiveness and remaining rendering investigations are still open. Diagnosis did not acquire images or change microscope settings.
 
 ## Installation under observation
 
@@ -245,3 +245,20 @@ Priority clarification: repair the confirmed preview and interaction/publication
 
 - [ ] Investigate whether an additional native-window rendering, resolution-selection or cache defect remains. Inspect the actual WebView's requests and cache state with publication complete, current revisions delivered and no aggregate rebuild active. Record the result even if no additional defect is found.
 - [ ] Measure the complete performance breakdown: ingestion/store creation, composition and pyramid building, compression, filesystem I/O, cache reuse, preview generation, viewer loading and frontend rendering. Identify the dominant costs with measured timings rather than attributing all delays to the already-confirmed publication bottleneck.
+
+## Repair 1: canonical preview reader restored on 2026-09-11
+
+The operator now declares `ngio==1.1.0` in both dependency manifests. The Python minimum is 3.11, matching this reader's requirement. The installation handover includes an operator-process reader check and HTTP preview regression tests; an analysis worker import check alone is insufficient.
+
+Installed ngio and its missing dependencies in the current operator environment, preserving the installed NumPy, Zarr, Pydantic and viewer versions. Pydantic 2.13.4 was explicitly retained during installation; the resolver selected compatible ome-zarr-models 1.6. The live operator was not restarted and no acquisition was triggered.
+
+Validated:
+
+- The running operator's overview and target displayed-preview endpoints now return HTTP 200 JPEGs, both 1024 by 1024 with nonzero signal (666,618 and 605,266 bytes in the sampled requests).
+- All four recorded focus stores generate 201 JPEG slices each in a separate diagnostic folder. Central-slice maxima are 145, 125, 116 and 120. No source stores or acquisition records were modified.
+- Three new canonical-store HTTP tests cover overview/target MIPs, channel display changes, and focus slices with physical Z heights and genuinely blank end planes. These tests use the actual reader and do not skip when ngio is missing. Together with existing preview/canonical/simulator checks: 22 passed. Two additional bridge preview tests passed.
+- Two browser tests verify visible preview failure messages and recovery to a valid black image. All 525 JavaScript unit tests passed (15 skipped); the production page rebuilt successfully; `pip check` passed.
+
+The rebuilt interface displays `Preview unavailable` for failed detection/gallery image requests and a focus preview status message for missing/failed slices. Failed focus image callbacks are cleared; incomplete gallery images are not passed to canvas drawing. Browser tests covered detection and gallery; direct native-window focus navigation remains to be checked.
+
+Current-session limitation: the four previously measured focus points still contain empty in-memory slice lists from the original failure. Installing the reader does not backfill those lists. Regeneration was verified separately under `operator-diagnostics/preview-repair-evidence`; the current window has not been reloaded or its state replaced. Newly generated focus results can now create their slice copies. The rebuilt failure-message UI takes effect when the page is next loaded. This repair does not claim to resolve any remaining native-window rendering or publication issue.

@@ -1110,6 +1110,11 @@ const traceCv = el("trace-canvas");
    backend serves the copies and the point names them; a backend that
    names none simply keeps the box hidden. */
 const sliceBox = el("zpreview");
+const sliceFailure = document.createElement("p");
+sliceFailure.setAttribute("role", "status");
+sliceFailure.textContent = "Focus preview unavailable.";
+sliceFailure.hidden = true;
+sliceBox.before(sliceFailure);
 const sliceCv = el("zpreview-canvas");
 const orthoCv = el("zortho-canvas");
 const sliceImages = new Map();
@@ -1130,10 +1135,17 @@ function sliceImage(src, ready) {
       held.waiting = [];
       for (const tell of call) tell(held.img);
     };
+    held.img.onerror = () => {
+      held.failed = true;
+      const call = held.waiting;
+      held.waiting = [];
+      for (const tell of call) tell(null);
+    };
     held.img.src = src;
     sliceImages.set(src, held);
   }
-  if (held.img.complete && held.img.naturalWidth) ready(held.img);
+  if (held.failed) ready(null);
+  else if (held.img.complete && held.img.naturalWidth) ready(held.img);
   else held.waiting.push(ready);
 }
 
@@ -1152,6 +1164,7 @@ function buildOrtho(at, slices) {
   orthoBuffer = null;
   const cut = orthoCut;
   slices.forEach((entry, index) => sliceImage(`${at}/${entry.name}`, (img) => {
+    if (!img) return;
     if (orthoOf !== slices || cut !== orthoCut) return;
     if (!orthoBuffer) {
       orthoBuffer = document.createElement("canvas");
@@ -1267,6 +1280,7 @@ function drawZSlice(point) {
   const at = ctx.backend.slicesAt?.();
   const slices = point?.slices ?? [];
   const show = !!at && slices.length > 0 && point.z !== null && !point.stale;
+  sliceFailure.hidden = !(at && point?.z != null && !point.stale && !slices.length);
   sliceBox.hidden = !show;
   if (!show) { sliceShown = null; return; }
 
@@ -1279,7 +1293,13 @@ function drawZSlice(point) {
   /* Painted when it lands, but only if the line still stands on it: a slow
      fetch must not paint a slice the operator has already scrubbed past. */
   sliceImage(`${at}/${nearest.name}`, (img) => {
-    if (sliceShown === nearest.name) paintSlice(img);
+    if (sliceShown !== nearest.name) return;
+    sliceFailure.hidden = !!img;
+    if (img) paintSlice(img);
+    else {
+      sliceOn = null;
+      sliceCv.getContext("2d").clearRect(0, 0, sliceCv.width, sliceCv.height);
+    }
   });
 
   if (orthoOf !== slices) buildOrtho(at, slices);
