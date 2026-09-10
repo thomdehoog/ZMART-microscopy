@@ -305,6 +305,8 @@ def measure_focus(
             "z_um": found.get("z_um"),
             "traces": found.get("traces"),
             "cost_s": {key: round(value, 3) for key, value in cost.items()},
+            "zarr": (record or {}).get("zarr"),
+            "z_shift_um": shift,
             # The stack's own files ride with the measurement, height by
             # height, so the chosen number can be looked at as well as read —
             # each height in the drive frame, like the number it argues for.

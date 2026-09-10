@@ -5,15 +5,15 @@
  * A target acquisition can come back as a z-stack, as a time series, or as
  * both, and then the picture has more than one plane, or more than one
  * moment, to show. Each slider stands only while the picture has such a
- * choice: a flat, single-moment picture shows neither, so the canvas is
- * never asked to find room for a control that does nothing.
+ * choice. Slice also exposes a single plane's Z; Top and MIP need no Z
+ * control for a flat picture.
  *
  * Each row also has a play button: pressed, the slider walks by itself,
  * round to the start at the end, until pressed again. Z and T play
  * independently.
  *
  * The picture engine is what knows the extent: `theDepthItCanShow()` answers
- * in micrometres (or nothing, for a single plane), `theMomentsItCanShow()`
+ * in micrometres (or nothing when Z does not apply), `theMomentsItCanShow()`
  * in moments counted from the first (or nothing, for a single moment). The
  * sliders read those and hand back `setPlane(um)` and `setMoment(t)`.
  */
@@ -81,7 +81,8 @@ export function mountTheAxes(parts, { picture, acquisitions = null, watchEveryMs
     const step = depth.stepUm || 1;
     const which = Math.round((um - depth.lowUm) / step);
     const many = Math.round((depth.highUm - depth.lowUm) / step) + 1;
-    planeReadout.textContent = `${Math.round(um)} µm · plane ${which + 1} of ${many}`;
+    planeReadout.textContent = depth.unit === "plane" ? `Plane ${which + 1} of ${many}`
+      : `${Number(um.toFixed(3))} µm · plane ${which + 1} of ${many}`;
     fill(plane);
   };
   const sayMoment = (t) => {
@@ -90,7 +91,10 @@ export function mountTheAxes(parts, { picture, acquisitions = null, watchEveryMs
     fill(moment);
   };
 
-  const goToPlane = (um) => { sayPlane(um); soon(() => picture()?.setPlane?.(um)); };
+  const goToPlane = (value) => {
+    const um = value - (depth?.unit === "plane" ? 1 : 0);
+    sayPlane(um); soon(() => picture()?.setPlane?.(um));
+  };
   const goToMoment = (t) => { sayMoment(t); soon(() => picture()?.setMoment?.(t)); };
   plane.addEventListener("input", () => goToPlane(Number(plane.value)));
   moment.addEventListener("input", () => goToMoment(Number(moment.value)));
@@ -124,17 +128,27 @@ export function mountTheAxes(parts, { picture, acquisitions = null, watchEveryMs
     const viewer = picture();
     depth = theDepth(viewer);
     moments = viewer?.theMomentsItCanShow?.() ?? null;
-    const deep = Boolean(depth && depth.highUm > depth.lowUm);
+    const deep = Boolean(depth);
     if (deep) {
-      plane.min = String(depth.lowUm);
-      plane.max = String(depth.highUm);
+      const offset = depth.unit === "plane" ? 1 : 0;
+      plane.min = String(depth.lowUm + offset);
+      plane.max = String(depth.highUm + offset);
       plane.step = String(depth.stepUm || 1);
+      const label = axisZ.querySelector?.(".canvas-axis-name");
+      if (label) label.textContent = depth.unit === "plane" ? "Plane" : "Z";
+      plane.setAttribute("aria-label", depth.unit === "plane" ? "Plane from the bottom" : "Specimen Z in micrometres");
       /* Where the picture already is, unless a hand is on the slider. */
-      if (globalThis.document?.activeElement !== plane) plane.value = String(depth.atUm ?? depth.lowUm);
-      sayPlane(Number(plane.value));
+      const at = depth.atUm ?? depth.lowUm;
+      const within = Math.max(depth.lowUm, Math.min(depth.highUm, at));
+      // Switching to Slice can leave the old Top depth outside the new range.
+      if (within !== at) viewer.setPlane(within);
+      if (globalThis.document?.activeElement !== plane) plane.value = String(within + offset);
+      plane.disabled = depth.highUm === depth.lowUm;
+      if (planePlay) planePlay.disabled = plane.disabled;
+      sayPlane(Number(plane.value) - offset);
     }
     axisZ.hidden = !deep;
-    if (!deep) planePlayer.stop();
+    if (!deep || plane.disabled) planePlayer.stop();
     const long = Boolean(moments && moments.many > 1);
     if (long) {
       moment.min = "0";

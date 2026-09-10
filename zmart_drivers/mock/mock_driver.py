@@ -57,7 +57,7 @@ _DEFAULT_ACTUATORS: dict[str, str] = {"x": "motoric", "y": "motoric", "z": "moto
 _PIXEL_UM = 4.0
 
 #: The jobs this pretend instrument has stored, in the order it lists them.
-_JOBS: tuple[str, ...] = ("Overview", "Focussing", "Target")
+_JOBS: tuple[str, ...] = ("Overview", "Overview stack", "Focussing", "Target", "Target stack")
 
 #: What each kind of acquisition captures. On a real instrument this comes from
 #: the settings the operator imported for that kind of scan; here it is how the
@@ -70,6 +70,10 @@ _JOBS: tuple[str, ...] = ("Overview", "Focussing", "Target")
 _ONE_PLANE = {"z_planes": 1, "z_step_um": 0.0, "channels": 3}
 _STACKS: dict[str, dict] = {
     "focussing": {"z_planes": 61, "z_step_um": 68.0 / 60.0, "channels": 1}
+}
+_JOB_STACKS = {
+    "Overview stack": {"z_planes": 7, "z_step_um": 2.0, "channels": 3},
+    "Target stack": {"z_planes": 11, "z_step_um": 1.0, "channels": 3},
 }
 
 # The pretend sample: a real micrograph lying at a slight tilt across the
@@ -554,7 +558,7 @@ def stack_heights(handle: MockHandle, acquisition_type: str) -> list[float]:
     centred there, which is why a caller drives to the middle of the range it
     wants searched rather than to the bottom of it.
     """
-    stack = _STACKS.get(acquisition_type, _ONE_PLANE)
+    stack = _JOB_STACKS.get(handle.job, _STACKS.get(acquisition_type, _ONE_PLANE))
     centre = handle.z - handle.origin_z
     middle = (stack["z_planes"] - 1) / 2
     return [centre + (index - middle) * stack["z_step_um"] for index in range(stack["z_planes"])]
@@ -661,8 +665,10 @@ _FOCUS_FRAME_PX = _FRAME_PX // 2
 #: magnification.
 _JOB_FRAMES: dict[str, tuple[int, float]] = {
     "Overview": (_FRAME_PX, _PIXEL_UM),
+    "Overview stack": (_FRAME_PX, _PIXEL_UM),
     "Focussing": (256, 1.0),
     "Target": (128, 1.0),
+    "Target stack": (128, 1.0),
 }
 
 

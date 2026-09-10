@@ -220,6 +220,13 @@ def _flatten(planes: list[Plane]) -> Any:
             frame = frame.max(axis=0)
         held = channels.get(plane.c)
         channels[plane.c] = frame if held is None else np.maximum(held, frame)
+    return _colour_channels(channels)
+
+
+def _colour_channels(channels):
+    """The same channel palette for canonical planes and legacy TIFF previews."""
+    import numpy as np
+
     if not channels:
         raise ValueError("a field with no planes cannot be pictured")
     if len(channels) == 1:
@@ -532,6 +539,8 @@ def make_slice_copies(
     *,
     budget_px: int = SMALL_ENOUGH,
     quality: int = GOOD_ENOUGH,
+    store: Path | str | None = None,
+    z_shift_um: float = 0.0,
 ) -> list[dict]:
     """One small JPEG per height of one field's stack, brightened together.
 
@@ -551,6 +560,25 @@ def make_slice_copies(
     """
     into = Path(into)
     into.mkdir(parents=True, exist_ok=True)
+    if store is not None:
+        from zmart_analysis.workflows.object_analysis.steps.detect_objects import load_plane
+
+        first, metadata = load_plane(store, t=0, c=0, z=0)
+        sizes = dict(zip(metadata["axes"], metadata["shape"]))
+        depth, count = sizes["z"], sizes.get("c", 1)
+        origin = float(metadata["origin"]["z"])
+        spacing = float(metadata["pixel_size"]["z"])
+        slices, pictures = [], []
+        for z in range(depth):
+            channels = {c: first if z == 0 and c == 0 else load_plane(store, t=0, c=c, z=z)[0]
+                        for c in range(count)}
+            pictures.append(_shrink_to(_colour_channels(channels), budget_px))
+            slices.append({"z_um": origin + z * spacing + z_shift_um,
+                           "name": f"{Path(store).name}_Z{z:05d}.jpg"})
+        low, high = _one_brightening_for_the_whole_scan(pictures)
+        for entry, picture in zip(slices, pictures):
+            (into / entry["name"]).write_bytes(_as_jpeg(_stretch(picture, low, high), quality))
+        return slices
     height_of = {str(Path(plane["path"])): plane.get("z_um") for plane in planes}
     parsed = _planes_among([plane["path"] for plane in planes])
     by_height: dict[int, list[Plane]] = {}

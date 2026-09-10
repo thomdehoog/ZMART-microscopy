@@ -1393,6 +1393,7 @@ def test_a_targets_scan_publishes_separate_originals_and_raises_by_order(monkeyp
             time.sleep(0.1)
         assert bridge._scan["error"] is None, bridge._scan["error"]
         assert bridge._scan["done"] == 2
+        assert not [r.get("zarr_error") for r in bridge._scan["records"] if r.get("zarr_error")]
         watched = sorted(p.name for p in (bridge._the_run() / "positions" / "targets").iterdir())
         assert len(watched) == 2 and all(name.startswith("targets_") for name in watched)
         originals = {p: p.read_bytes() for p in (bridge._the_run() / "positions" / "targets").rglob("*") if p.is_file()}

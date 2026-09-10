@@ -95,6 +95,10 @@ export function watchTheRun(ctx) {
     let viewer = null;
     let opening = false;
     let checkingForGrowth = false;
+    let latestSources = null;
+    let readingSources = null;
+    let applyingSources = null;
+    let updateRequested = false;
     let generation = 0;
     /* What the open viewer was opened on, so a change — the run growing a
        second kind of scan — is noticed and the viewer reopened over it. */
@@ -103,12 +107,13 @@ export function watchTheRun(ctx) {
     let openedNames = [];
     let inStageFrame = true;
     let panel = null;
-    const viewModes = new Map();
+    let requestedMode = "top";
     const availableViews = new Map();
-    const selectedMode = name => {
-      const keys = availableViews.get(name) ?? [];
-      const requested = viewModes.get(name);
-      return keys.includes(requested) ? requested : keys.includes("top") ? "top" : keys[0];
+    const commonModes = () => [...availableViews.values()].reduce(
+      (keys, one) => keys.filter(key => one.includes(key)), ["top", "slice", "max"]);
+    const selectedMode = () => {
+      const keys = commonModes();
+      return keys.includes(requestedMode) ? requestedMode : keys.includes("top") ? "top" : keys[0];
     };
     let embedding = null;
     let embeddingUrl = null;
@@ -144,6 +149,17 @@ export function watchTheRun(ctx) {
      * nothing. `?engine=` still overrides the engine, so the comparisons
      * stay askable.
      */
+    async function readSources() {
+      if (readingSources) return readingSources;
+      const session = generation;
+      const reading = Promise.resolve().then(() => ctx.viewerSources?.()).then(sources => {
+        if (session === generation && sources != null) latestSources = sources;
+      });
+      readingSources = reading;
+      try { await reading; }
+      finally { if (readingSources === reading) readingSources = null; }
+    }
+
     async function whatToOpen() {
       const picture = search.get("picture");
       if (picture) {
@@ -154,7 +170,7 @@ export function watchTheRun(ctx) {
           inStageFrame: false,
         };
       }
-      const sources = await ctx.viewerSources?.();
+      const sources = latestSources;
       // An unavailable response is not an instruction to remove loaded images.
       if (sources == null && viewer) return null;
       if (sources?.length) {
@@ -165,13 +181,18 @@ export function watchTheRun(ctx) {
           embeddingUrl = url;
         }
         availableViews.clear();
+        for (const acquisition of sources) {
+          if (!acquisition.channels?.some(c => c.view)) continue;
+          const layers = acquisition.channels.map(c => ({ ...c, group: acquisition.name }));
+          availableViews.set(acquisition.name, embedding.viewChoices(layers)[0].keys
+            .filter(key => ["top", "slice", "max"].includes(key)));
+        }
         const selectedSources = sources.map(acquisition => {
           if (!acquisition.channels?.some(c => c.view)) return acquisition;
           const layers = acquisition.channels.map(c => ({ ...c, group: acquisition.name }));
           const choice = embedding.viewChoices(layers)[0];
-          const keys = choice.keys.filter(key => ["top", "slice", "max"].includes(key));
-          availableViews.set(acquisition.name, keys);
           const mode = selectedMode(acquisition.name);
+          if (!mode) return { ...acquisition, channels: [], url: undefined };
           const selected = embedding.selectedViews(layers, { [choice.id]: mode });
           const channels = layers.filter(row => embedding.inSelectedView(row, selected));
           return { ...acquisition, channels, url: channels[0]?.sources[0] };
@@ -206,6 +227,7 @@ export function watchTheRun(ctx) {
       opening = true;
       const session = generation;
       try {
+        if (!search.has("picture")) await readSources();
         const wanted = await whatToOpen();
         if (!wanted || session !== generation) return;
         const openViewer = await openerFor(wanted.engine);
@@ -261,13 +283,18 @@ export function watchTheRun(ctx) {
       if (session !== generation) mounted.destroy();
       else {
         panel = mounted;
-        panel.element.viewModes = name => availableViews.get(name) ?? [];
+        panel.element.viewModes = () => availableViews.size ? commonModes() : [];
         panel.element.viewMode = selectedMode;
         panel.element.setViewMode = async (name, mode) => {
-          if (!availableViews.get(name)?.includes(mode)) return;
-          viewModes.set(name, mode);
+          if (!commonModes().includes(mode)) return;
+          requestedMode = mode;
           ctx.displayChanged?.();
-          await reopenIfTheRunGrew();
+          await reopenIfTheRunGrew({ refresh: false });
+          // Plane indices and specimen micrometres are different coordinates.
+          // Never carry the numeric value from one mode into the other.
+          if (requestedMode === mode && mode !== "max") {
+            viewer?.setPlane?.(mode === "top" ? 0 : (viewer.theDepthItCanShow?.()?.lowUm ?? 0));
+          }
         };
       }
     }
@@ -295,10 +322,31 @@ export function watchTheRun(ctx) {
 
     /** Append positions and acquisition rows without retiring loaded images.
         Only removal or replacement of sources needs a different scene. */
-    async function reopenIfTheRunGrew() {
-      if (!viewer || opening || checkingForGrowth) return;
-      checkingForGrowth = true;
+    async function reopenIfTheRunGrew({ refresh = true } = {}) {
+      if (!viewer || opening) return;
       const session = generation;
+      if (refresh) {
+        try { await readSources(); }
+        catch (error) {
+          console.error(`the scan could not be updated — ${error.message}`);
+          return;
+        }
+      }
+      if (session !== generation) return;
+      updateRequested = true;
+      if (checkingForGrowth) return applyingSources;
+      checkingForGrowth = true;
+      applyingSources = (async () => {
+        while (updateRequested && session === generation) {
+          updateRequested = false;
+          await applyLatestSources(session);
+        }
+      })();
+      try { await applyingSources; }
+      finally { if (session === generation) checkingForGrowth = false; }
+    }
+
+    async function applyLatestSources(session) {
       try {
         const wanted = await whatToOpen();
         if (session !== generation || !wanted || wanted.signature === openedOn) return;
@@ -329,8 +377,6 @@ export function watchTheRun(ctx) {
         await open();
       } catch (error) {
         console.error(`the scan could not be updated — ${error.message}`);
-      } finally {
-        if (session === generation) checkingForGrowth = false;
       }
     }
 
@@ -338,6 +384,10 @@ export function watchTheRun(ctx) {
       generation += 1;
       opening = false;
       checkingForGrowth = false;
+      latestSources = null;
+      readingSources = null;
+      applyingSources = null;
+      updateRequested = false;
       panel?.destroy?.();
       panel = null;
       ctx.displayChanged?.();
@@ -347,7 +397,7 @@ export function watchTheRun(ctx) {
       openedNames = [];
       window.__thePicture = null;
       if (forgetVisibility) {
-        viewModes.clear();
+        requestedMode = "top";
         availableViews.clear();
         requestedPanelState.acquisitions.clear();
         requestedPanelState.channels.clear();

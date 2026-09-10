@@ -36,4 +36,4 @@ numpy>=1.24
 pywebview>=5
 
 # Named-view embedding, tested 0.5.0.dev0 feature revision.
-zmart-viewer @ git+https://github.com/thomdehoog/zmart-viewer.git@128130d761589c02c67933b40cb379ae33afe0cb
+zmart-viewer @ git+https://github.com/thomdehoog/ZMART-viewer.git@90e0350777a2852ee19dee7b5fe48846aa5bcf14

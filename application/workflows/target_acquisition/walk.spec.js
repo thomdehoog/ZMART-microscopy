@@ -212,13 +212,12 @@ test.describe("the target acquisition workflow, walked screen by screen", () => 
       await shot(page, "scan-done-picture");
       const viewModes = page.locator("#view-modes");
       await expect.poll(() => page.evaluate(() => window.__viewerPanel?.viewModes?.("overview") ?? []),
-        { timeout: 60_000 }).toEqual(["slice", "top", "max"]);
+        { timeout: 60_000 }).toEqual(["top", "slice", "max"]);
       await expect(page.locator("#acquisition-name")).toHaveText("overview");
       await expect(viewModes).toBeVisible();
       for (const mode of ["slice", "max", "top"]) {
-        const button = viewModes.locator(`[data-view-mode="${mode}"]`);
-        await button.click();
-        await expect(button).toHaveAttribute("aria-pressed", "true");
+        await viewModes.selectOption(mode);
+        await expect(viewModes).toHaveValue(mode);
         await expect.poll(() => page.evaluate(mode => {
           const rows = window.__thePicture.layersForMeasurement().filter(row => row.name.startsWith("overview/"));
           return rows.length > 0 && rows.every(row => row.sources.every(source =>
@@ -226,9 +225,10 @@ test.describe("the target acquisition workflow, walked screen by screen", () => 
         }, mode)).toBe(true);
         expect(await page.evaluate(() => window.connectedPicture === window.__thePicture)).toBe(true);
         await rest(1000);
-        if (mode !== "slice") {
-          expect(fractionLit(await photograph(page, "#picture-host", 1))).toBeGreaterThan(0.01);
-        }
+        if (mode === "slice") await expect(page.locator("#axis-z")).toBeVisible();
+        await expect.poll(async () => fractionLit(await photograph(page, "#picture-host", 1)))
+          .toBeGreaterThan(0.01);
+        await shot(page, `${mode}-image-and-depth-control`);
       }
       /* Under the picture: the picture is one room, as deep as the deepest
          stack shown in it. On the way to the scan the page pressed the focus
@@ -248,7 +248,11 @@ test.describe("the target acquisition workflow, walked screen by screen", () => 
       /* Every stack stands on the table, so the picture opens at the bottom
          plane; and the flat overview stays in view at the top of the stacks,
          as it lies on the table too. */
-      await expect(page.locator("#plane-readout")).toContainText("plane 1 of");
+      // Returning to Top selects its floor, not the former absolute Slice Z.
+      await expect.poll(async () => Math.abs(Number(await page.locator("#plane").inputValue()) - 1))
+        .toBeLessThan(1e-6);
+      await page.locator("#plane").evaluate(s => { s.value = s.min; s.dispatchEvent(new Event("input", { bubbles:true })); });
+      await expect(page.locator("#plane-readout")).toContainText("Plane 1 of");
       const atTheBottom = fractionLit(await photograph(page, "#picture-host", 1));
       expect(atTheBottom, "the overview is lit at the bottom").toBeGreaterThan(0.01);
       await page.locator("#plane").evaluate((s) => { s.value = s.max; s.dispatchEvent(new Event("input", { bubbles: true })); });

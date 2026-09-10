@@ -674,6 +674,36 @@ function bindNamedDepth(own, row, layer) {
     value => new WatchableCoordinateSpaceTransform(value));
 }
 
+function cancelPendingDepth(own) {
+  for (const hold of own.depthFrames?.values() ?? []) hold.cancel();
+}
+
+function holdPendingDepth(own) {
+  if (!own.embedding || own.presentation !== "2d-overlay") return;
+  own.depthFrames ??= new Map();
+  if (!own.depthStatus) {
+    own.depthStatus = document.createElement("span");
+    own.depthStatus.setAttribute("role", "status");
+    own.depthStatus.textContent = "Loading Z…";
+    own.depthStatus.style.cssText = "position:absolute;right:8px;bottom:8px;z-index:1;background:white;color:#345;padding:3px 6px;pointer-events:none";
+    own.depthStatus.hidden = true;
+    own.element.append(own.depthStatus);
+    own.viewer.registerDisposer(() => own.depthStatus.remove());
+  }
+  for (const panel of own.viewer.display.panels) {
+    const slice = panel.sliceView;
+    if (!slice) continue;
+    if (!own.depthFrames.has(slice)) {
+      const hold = own.embedding.holdCompleteSlice(slice, () => {
+        own.depthStatus.hidden = ![...own.depthFrames.values()].some(one => one.pending);
+      });
+      own.depthFrames.set(slice, hold);
+      slice.registerDisposer(() => { hold.dispose(); own.depthFrames.delete(slice); });
+    }
+    own.depthFrames.get(slice).request();
+  }
+}
+
 /** Install only missing rows, keeping existing layers, controls and textures. */
 function installRows(own) {
   own.coverageLayers ??= new Map();
@@ -1155,6 +1185,7 @@ async function rowsFor(acquisitions) {
  * prefix. Removing or replacing a source remains a genuinely different scene.
  */
 async function addSourcesToTheOpenRows(own, acquisitions) {
+  cancelPendingDepth(own);
   await loadEmbedding(own, acquisitions);
   if (own.destroyed) return false;
   if (!own.rows.length) {
@@ -1555,15 +1586,16 @@ function aggregateDepthIn(own, acquisition) {
         if (axes.length !== 1) continue;
         const axis = axes[0], scale = transform[axis * space.rank + z];
         const planes = box.upperBounds[axis] - box.lowerBounds[axis];
-        if (!(planes > 1)) continue;
+        if (!(planes > 0) || (planes === 1 && row.view?.type !== "slice")) continue;
         const unit = space.scales[z] * UM_PER_M;
         const shift = transform[box.lowerBounds.length * space.rank + z];
         const stepUm = Math.abs(scale) * unit;
         const lowUm = (shift + Math.min(scale * box.lowerBounds[axis], scale * box.upperBounds[axis])) * unit + stepUm / 2;
         const highUm = lowUm + (planes - 1) * stepUm;
         if (![lowUm, highUm, stepUm].every(Number.isFinite) || !(stepUm > 0)) continue;
+        const unitName = row.view?.type === "top" ? "plane" : "um";
         range = range ? { lowUm: Math.min(range.lowUm, lowUm), highUm: Math.max(range.highUm, highUm),
-          stepUm: Math.min(range.stepUm, stepUm) } : { lowUm, highUm, stepUm };
+          stepUm: Math.min(range.stepUm, stepUm), unit: unitName } : { lowUm, highUm, stepUm, unit: unitName };
       }
     }
   }
@@ -1997,6 +2029,7 @@ function writeTheView(own, asked) {
   const now = readTheView(own);
   const centre = asked.centre || now.centre;
   const zoom = asked.zoom > 0 ? asked.zoom : now.zoom;
+  if (centre.x !== now.centre.x || centre.y !== now.centre.y || zoom !== now.zoom) cancelPendingDepth(own);
   // Remembered before the patch is worked out, because the patch is worked out
   // from where the view is about to be rather than from where it was.
   own.wanted = { centre, zoom };
@@ -2328,6 +2361,8 @@ function handleFor(own) {
       if (!(umPerVoxel > 0)) return;
       const moved = Float32Array.from(own.viewer.navigationState.position.value);
       moved[depth] = z / umPerVoxel;
+      if (moved[depth] === own.viewer.navigationState.position.value[depth]) return;
+      holdPendingDepth(own);
       own.viewer.navigationState.position.value = moved;
     },
 

@@ -4,6 +4,7 @@ import json
 import sys
 from pathlib import Path
 
+import numpy as np
 import zarr
 from zmart_viewer.server import make_server
 
@@ -12,9 +13,9 @@ from zmart_storage.canvas import _declare_one
 
 folder = Path(sys.argv[1])
 for name, depth, x, z, reference in (() if "--existing" in sys.argv else (
-    ("flat", 1, 0, 75, 75),
-    ("stack", 3, 128, 60, 61.3),
-    ("black", 3, 0, 200, 201.3),
+    ("flat", 1, 0, 78, 75),
+    ("stack", 3, 128, 65, 61.3),
+    ("black", 3, 0, 260, 201.3),
 )):
     store = folder / f"{name}.ome.zarr"
     _declare_one(
@@ -31,8 +32,16 @@ for name, depth, x, z, reference in (() if "--existing" in sys.argv else (
         "frame": "specimen", "acquisition_provenance": {"requested_stage_focus_z_um": reference},
     }}
     for plane in range(depth):
+        pixels = np.full((64, 64), 0 if name == "black" else (80 if depth == 1 else 40 + 60 * plane), dtype="uint16")
+        if name != "black":
+            # One-pixel detail distinguishes a wrong pyramid level from an
+            # otherwise correctly placed constant-valued image.
+            pixels[:16, :16] += (np.indices((16, 16)).sum(axis=0) % 2 * 60).astype("uint16")
         for level in range(3):
-            group[str(level)][:, :, plane] = 0 if name == "black" else (80 if depth == 1 else 40 + 60 * plane)
+            factor = 2**level
+            reduced = pixels.reshape(64 // factor, factor, 64 // factor, factor).mean(axis=(1, 3)).round().astype("uint16")
+            for channel in range(2):
+                group[str(level)][0, channel, plane] = reduced
 
 server = make_server(port=0, data_dir=folder, live=True, allow_open=True,
                      transparent_background=True, window=(0, 255))

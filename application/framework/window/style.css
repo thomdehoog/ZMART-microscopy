@@ -306,7 +306,11 @@ button.run {
   height: var(--control); padding: 0 14px; cursor: pointer;
 }
 button.run:hover:enabled { border-color: var(--accent); color: var(--accent); }
-#view-modes button[aria-pressed="true"] { background: var(--accent); color: white; border-color: var(--accent); }
+#view-modes {
+  width: auto; min-width: 78px; height: var(--control); padding: 0 8px;
+  font: inherit; font-size: 13px; color: var(--accent-deep); background: var(--screen);
+  border: 1px solid var(--line-strong); border-radius: 7px;
+}
 /* Faded, the way every other disabled control here is. A grey slab was the
    heaviest thing on a bar whose point is the field beside it. */
 button.run:disabled { opacity: 0.4; cursor: default; }
@@ -1928,7 +1932,7 @@ canvas.livecv[hidden] { display: none; }
 /* The sliders under the picture: Z above T, each across the whole width. */
 .canvas-axes { display: grid; gap: 6px; padding: 8px 14px 10px; border-top: 1px solid var(--line); background: var(--screen); }
 .canvas-axes[hidden] { display: none; }
-.canvas-axis { display: grid; grid-template-columns: 18px 24px minmax(0, 1fr) auto; align-items: center; gap: 10px; font-size: 11px; color: var(--ink-3); }
+.canvas-axis { display: grid; grid-template-columns: minmax(36px, max-content) 24px minmax(0, 1fr) auto; align-items: center; gap: 10px; font-size: 11px; color: var(--ink-3); }
 /* Play: a small triangle that becomes two bars while it runs. */
 .canvas-axis-play {
   width: 24px; height: 22px; padding: 0; border: 1px solid var(--line-strong); border-radius: 5px;

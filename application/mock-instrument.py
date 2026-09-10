@@ -272,7 +272,9 @@ class Api:
     @staticmethod
     def _frame(job: str) -> str:
         px, um = mock_driver._frame_of(job, "")
-        return f"{px * um:g} × {px * um:g} µm · {um:g} µm/px"
+        stack = mock_driver._JOB_STACKS.get(job)
+        depth = f" · {stack['z_planes']} planes, {stack['z_step_um']:g} µm step" if stack else ""
+        return f"{px * um:g} × {px * um:g} µm · {um:g} µm/px{depth}"
 
     def choose(self, job: str) -> dict:
         mock_driver.write_instrument_settings({"job": job})

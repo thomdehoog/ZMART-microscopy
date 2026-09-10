@@ -495,7 +495,7 @@ _output_root: str | None = None
 
 def _connect(asked: dict) -> dict:
     """Open the session for one of the registry's entries and answer with the driver's account."""
-    global _session, _context
+    global _session, _context, _pixel_provider
     connection = asked.get("connection")
     if not isinstance(connection, dict):
         raise ValueError(
@@ -509,7 +509,23 @@ def _connect(asked: dict) -> dict:
     if connection.get("vendor") == "mock":
         _open_the_mock_window(connection)
     info = _session.get_info()
+    # One synthetic specimen per session, anchored in the same specimen frame
+    # as the captured planes. Never recenter it for a new job, tile or stack.
+    _pixel_provider = None
+    if _simulator_pixels_enabled:
+        from application.parts.microscope.simulator_pixels import KidneyPixels
+
+        try:
+            _pixel_provider = KidneyPixels(focus_z_um=float(_session.get_xyz()["z"]["value"]))
+            _pixel_provider.recipe["focus_reference"] = "session-connect"
+        except Exception:
+            _session.disconnect()
+            _session = None
+            raise
     _run = prepare_experiment(info["output_root"], EXPERIMENT)
+    if _pixel_provider is not None:
+        (_run / "synthetic-specimen.json").write_text(
+            json.dumps(_pixel_provider.recipe, indent=2), encoding="utf-8")
     # A fresh session has scanned nothing. The bridge outlives the page, and
     # records carried over from the last session rebuilt its scan's pictures
     # into this run's view -- a just-connected canvas showed a scan nobody
@@ -567,11 +583,12 @@ def _open_the_mock_window(connection: dict) -> None:
 
 
 def _disconnect() -> dict:
-    global _session, _run, _context
+    global _session, _run, _context, _pixel_provider
     if _session is not None:
         _session.disconnect()
         _session = None
     _run = None
+    _pixel_provider = None
     # The context is the session's: a vendor left over from the last one
     # made the next session's readings pretend it was the mock.
     _context = {}
@@ -929,7 +946,9 @@ def _focus_worker(asked: list, state: dict | None = None) -> None:
             **point, "zAuto": found["z_um"], "z": found["z_um"],
             "lost": found["z_um"] is None, "traces": found["traces"],
             "cost_s": found.get("cost_s"),
-            "slices": _the_slice_copies_of(found.get("planes") or []),
+            "slices": _the_slice_copies_of(found.get("planes") or [],
+                                          store=found.get("zarr"),
+                                          z_shift_um=found.get("z_shift_um", 0.0)),
         })
         _focus["done"] = index + 1
 
@@ -1199,7 +1218,7 @@ _view_lock = threading.Lock()
 _view_built: dict[str, int] = {}
 
 
-def _the_slice_copies_of(planes: list) -> list:
+def _the_slice_copies_of(planes: list, *, store=None, z_shift_um=0.0) -> list:
     """Small copies of one focus stack, one per height, for the panel's eye.
 
     Made as the point lands -- on the worker's time, never a request's -- and
@@ -1210,7 +1229,10 @@ def _the_slice_copies_of(planes: list) -> list:
     from application.parts.storage.jpeg_tiles import make_slice_copies  # noqa: PLC0415
 
     try:
-        return make_slice_copies(view_of(FOCUSSING) , planes)
+        if store is not None:
+            return make_slice_copies(view_of(FOCUSSING), planes, store=store,
+                                     z_shift_um=z_shift_um, budget_px=1024 * 1024)
+        return make_slice_copies(view_of(FOCUSSING), planes)
     except Exception as why:  # noqa: BLE001 -- the preview is optional, the height is not
         import logging
 
@@ -1821,6 +1843,7 @@ class _Bridge(BaseHTTPRequestHandler):
 
 
 _pixel_provider = None
+_simulator_pixels_enabled = False
 
 
 def _a_bridge_on(port: int, output_root: str | None = None, *, simulator_pixels=False) -> ThreadingHTTPServer:
@@ -1830,10 +1853,10 @@ def _a_bridge_on(port: int, output_root: str | None = None, *, simulator_pixels=
     nothing, so the page's Microscope list came back empty and there was
     nothing to connect to -- while the same file imported and served was fine.
     """
-    global _output_root, _pixel_provider
-    from application.parts.microscope.simulator_pixels import SimulatorPixels
+    global _output_root, _pixel_provider, _simulator_pixels_enabled
 
-    _pixel_provider = SimulatorPixels() if simulator_pixels else None
+    _simulator_pixels_enabled = bool(simulator_pixels)
+    _pixel_provider = None
     _output_root = output_root
     _register_known_drivers()
     return ThreadingHTTPServer(("127.0.0.1", port), _Bridge)

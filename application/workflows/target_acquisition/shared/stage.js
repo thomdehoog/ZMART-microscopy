@@ -1690,12 +1690,9 @@ function sayWhatThePressesDo() {
   if (modes) {
     const available = panel?.viewModes?.(shown) ?? [];
     modes.hidden = !available.length;
-    for (const button of modes.querySelectorAll("[data-view-mode]")) {
-      const mode = button.dataset.viewMode;
-      button.disabled = !available.includes(mode);
-      button.setAttribute("aria-pressed", String(panel?.viewMode?.(shown) === mode));
-      button.onclick = () => panel.setViewMode(shown, mode).catch(console.error);
-    }
+    for (const option of modes.options) option.disabled = !available.includes(option.value);
+    modes.value = panel?.viewMode?.(shown) ?? "top";
+    modes.onchange = () => panel.setViewMode(shown, modes.value).catch(console.error);
   }
 
   if (ctx.acquisitionPick) {

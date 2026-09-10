@@ -15,6 +15,8 @@ test("a flat's slider range does not inherit a stack's combined bounds", () => {
     loadState:{transform:{defaultTransform:{outputSpace:space(1)}, value:{outputSpace:space(61)}}},
   }]}}}]};
   expect(range(own, "flat")).toBeNull();
+  own.rows[0].view.type = "slice";
+  expect(range(own, "flat")).toEqual({lowUm:0, highUm:0, stepUm:1, unit:"um"});
   own.rows[0].managed.layer.dataSources[0].loadState.transform.defaultTransform.outputSpace = space(3);
-  expect(range(own, "flat")).toEqual({lowUm:0, highUm:2, stepUm:1});
+  expect(range(own, "flat")).toEqual({lowUm:0, highUm:2, stepUm:1, unit:"um"});
 });
