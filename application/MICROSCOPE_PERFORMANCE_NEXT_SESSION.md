@@ -53,6 +53,18 @@ Next-session measurements should count and timestamp status polls, source signat
 
 The objective is to avoid redundant invalidation for the same committed revision and retain unaffected cached data while Neuroglancer handles loading and refinement. Check whether refreshes can be coalesced or narrowed to changed regions. Preserve required invalidation of formerly empty chunks when new pixels arrive and correct refresh after overwriting a source. Excessive or duplicate invalidation remains a hypothesis until these measurements establish its occurrence and cost; no invalidation behavior was changed in this report update.
 
+## Loaded-stack Z-bar responsiveness test
+
+User-proposed test on 2026-09-11: after a stack loads, move the Z bar left and right repeatedly and observe how promptly the displayed plane follows. Include this in next-session validation; it has not yet been performed or timed.
+
+1. Open a completed recorded stack in the actual native operator's Slice view. Hold the viewport, zoom, channels and display settings constant. Confirm publication is idle and source revisions are stable. An initially visible plane does not mean every Z plane is already cached.
+2. Drag the Z bar from one end to the other and back at a recorded, repeatable pace. Measure the first sweep separately, then repeat several sweeps over the same range to test cache reuse. Use a stack/range that fits available cache for the reuse check and record its size; a larger-than-cache stack is a separate stress case.
+3. Record slider input timestamps and requested planes alongside when the corresponding image actually appears. Measure median, p95 and worst input-to-image delay, visible stalls, lag on direction reversal and time to settle on the correct final plane after release. Correct slider labels or successful chunk responses alone do not prove the image kept up. Obsolete intermediate requests may be coalesced; the latest requested plane must take priority and display correctly.
+4. Correlate first and repeated sweeps with chunk requests, repeated downloads, decoded-cache invalidations, source applications, viewer recreation and frontend frame timing. Distinguish memory-cache misses, browser-cached responses and actual data transfer. Z-bar interaction with an unchanged stack should not itself trigger publication, source revision changes or full-source invalidation; verify this rather than assuming it.
+5. Compare baking enabled versus disabled under matched conditions. Establish the idle-publication baseline first, then repeat while background preparation is active to quantify contention separately. Capture a screen recording or equivalent visual evidence as well as timings.
+
+This test complements export-to-first-image measurements: it tests whether a displayed stack remains responsive during inspection, especially on revisiting planes. A faster repeat sweep would suggest useful caching; continuing lag requires tracing decoding, rendering, scheduling and invalidation rather than attributing it to one cause from appearance alone.
+
 ## Completion evidence
 
 - Save a reproducible command or profiling harness, settings and timestamped results alongside a concise findings report.
