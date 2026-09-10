@@ -1418,6 +1418,89 @@ test("focus points are laid so many to a tileset", async ({ page }) => {
   expect(await page.locator(".point-row").count()).toBe(0);
 });
 
+test("target inspection changes selection without rebuilding published images", async ({ page }) => {
+  test.setTimeout(120_000);
+  await throughFields(page);
+  await placeFocusPoints(page);
+  await runStep(page, 1600);
+  await gotoStep(page, "Scan the overview");
+  await runStep(page, 3000);
+  await gotoStep(page, "Detect objects");
+  await runStep(page, 3000);
+  await gotoStep(page, "Discover Targets");
+  const plot = await page.locator("#scatter-canvas").boundingBox();
+  for (const [x, y] of [[0.86, 0.08], [0.96, 0.08], [0.96, 0.22], [0.86, 0.22], [0.86, 0.08]]) {
+    await page.mouse.click(...plotPoint(plot, x, y));
+  }
+  await expect(page.locator("#gate-list .gate-row")).toHaveCount(1);
+  await gotoStep(page, "Target scan area");
+  await recordSlot(page, "target-type", "targets");
+  await page.locator("#gate-max-on").check();
+  await page.locator("#gate-max").fill("1");
+  await page.locator("#gate-max").dispatchEvent("input");
+  await runStep(page, 1000);
+  await gotoStep(page, "Acquire Targets");
+  await page.evaluate(async () => {
+    const { backend } = await import("/parts/microscope/mock.js");
+    window.selectionRebuilds = [];
+    window.targetCaptureRequests = [];
+    // The live call can remain busy for minutes. Any invocation is a regression,
+    // even when the UI does not await its promise.
+    backend.raiseTarget = label => {
+      window.selectionRebuilds.push(label);
+      return new Promise(() => {});
+    };
+    const scan = backend.scanOverview.bind(backend);
+    backend.scanOverview = args => {
+      if (args.acquisition_type === "targets") window.targetCaptureRequests.push(args.positions);
+      return scan(args);
+    };
+  });
+  await runStep(page, 3000);
+  const run = await page.evaluate(() => window.__theRunState());
+  expect(run.acquiredTileKeys.length).toBeGreaterThan(1);
+  expect(run.selectedQuietly).toBe(true);
+  const choose = key => page.locator(`#target-list .point-row[data-target="${key}"] button`).click();
+  const different = run.acquiredTileKeys.find(key => key !== run.selectedTarget);
+  await choose(different);
+  await expect(page.locator(".pair")).toHaveAttribute("data-target", different);
+  expect(await page.evaluate(() => window.__theRunState().selectedTarget)).toBe(different);
+  expect(await page.evaluate(() => window.selectionRebuilds)).toEqual([]);
+
+  // Choosing the automatically followed frame must make it a manual selection.
+  await runStep(page, 3000);
+  const followed = await page.evaluate(() => window.__theRunState().selectedTarget);
+  await choose(followed);
+  expect(await page.evaluate(() => window.__theRunState().selectedQuietly)).toBe(false);
+
+  const other = await page.evaluate(() => {
+    const run = window.__theRunState();
+    const canvas = document.querySelector("#stage-canvas").getBoundingClientRect();
+    return run.targetTilePositions.find(tile => {
+      const [x, y] = window.__theStageCanvas.project(tile.x, tile.y);
+      return tile.key !== run.selectedTarget && x > 10 && y > 10
+        && x < canvas.width - 10 && y < canvas.height - 10;
+    });
+  });
+  expect(other).toBeTruthy();
+  const [x, y] = await page.evaluate(tile => window.__theStageCanvas.project(tile.x, tile.y), other);
+  const box = await page.locator("#stage-canvas").boundingBox();
+  await page.mouse.click(box.x + x, box.y + y);
+  await expect(page.locator(".pair")).toHaveAttribute("data-target", other.key);
+  await expect(page.locator('#target-list .point-row[aria-current="true"]')).toHaveCount(1);
+  expect(await page.evaluate(() => window.selectionRebuilds)).toEqual([]);
+
+  // Rerun current must capture the new selection, not the button's old selection.
+  const origin = await page.evaluate(() => window.__theStageCanvas.carrierOriginUm());
+  await page.getByRole("button", { name: "Rerun current", exact: true }).click();
+  await expect(page.locator(".panel.on button.step-run")).toHaveText("Rerun all", { timeout: 10_000 });
+  const requests = await page.evaluate(() => window.targetCaptureRequests);
+  expect(requests.at(-1)).toHaveLength(1);
+  expect(requests.at(-1)[0].x).toBeCloseTo(other.x + origin[0], 6);
+  expect(requests.at(-1)[0].y).toBeCloseTo(other.y + origin[1], 6);
+  expect(await page.evaluate(() => window.selectionRebuilds)).toEqual([]);
+});
+
 test("one walk of the whole run", async ({ page }) => {
   /* The whole run, honestly waited for: 96 focus points measured and 864
      positions marched, with runStep holding until each run truly ends. On a
