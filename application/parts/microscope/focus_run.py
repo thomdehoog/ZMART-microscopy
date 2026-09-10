@@ -59,6 +59,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from application.parts.microscope.hijack import NonSimulatorFrameError
 from application.parts.storage.output import (
     move_record_images,
     position_label,
@@ -288,7 +289,7 @@ def measure_focus(
             shift = _the_drive_frames_shift(record, centre)
             found = _shifted_into_the_drive_frame(score(record), shift)
             cost["score"] = time.perf_counter() - began
-        except RunCancelled:
+        except (RunCancelled, NonSimulatorFrameError):
             raise
         except Exception as why:  # noqa: BLE001 -- one bad point must not end the map
             # A point that cannot be driven to, captured, or scored is a

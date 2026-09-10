@@ -417,12 +417,6 @@ def _the_sources_in(config: dict, port: int) -> dict[str, list[dict]]:
         if row.get("kind") != "image":
             continue
         group = _the_heading_of(row)
-        # Session and copy decorations belong to the Viewer's library, not to
-        # the acquisition heading the operator should see.
-        group = group.rsplit(" · ", 1)[-1]
-        group = re.sub(r" \(\d+\)$", "", group)
-        for suffix in (".zmartview.zarr", ".ome.zarr", ".zarr"):
-            group = group.removesuffix(suffix)
         for address in row.get("sources") or []:
             if not row.get("view") and not _still_on_disk(address):
                 continue
@@ -502,14 +496,7 @@ def _the_scene_in(config: dict, port: int) -> dict:
         return f"http://127.0.0.1:{port}{text}" if text.startswith("/") else text
 
     def group_of(row: dict) -> str:
-        if row.get("view"):
-            return row["view"]["acquisition"]
-        group = str(row.get("group") or "picture")
-        group = group.rsplit(" · ", 1)[-1]
-        group = re.sub(r" \(\d+\)$", "", group)
-        for suffix in (".zmartview.zarr", ".ome.zarr", ".zarr"):
-            group = group.removesuffix(suffix)
-        return group
+        return _the_heading_of(row)
 
     candidates = []
     newest: dict[str, int] = {}
@@ -622,7 +609,8 @@ def _allow_the_page_to_read(server) -> None:
     plain = handler.end_headers
 
     def end_headers(self):  # noqa: ANN001 -- http.server's own shape
-        self.send_header("Access-Control-Allow-Origin", "*")
+        if self.path != "/embedding.js":  # The public module owns its CORS header.
+            self.send_header("Access-Control-Allow-Origin", "*")
         plain(self)
 
     def do_OPTIONS(self):  # noqa: N802, ANN001 -- http.server's own naming

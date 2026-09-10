@@ -78,7 +78,10 @@ async function fullestOf(page, name, { seconds = 12 } = {}) {
   do {
     const covered = coveredPixels(await photograph(page, "#picture-host", 1));
     if (!best || covered > best.covered) {
-      best = { covered, shot: await page.locator("#picture-host").screenshot() };
+      // With every acquisition hidden, the host is deliberately invisible.
+      // Photograph its screen rectangle, as the pixel measurement above does.
+      const clip = await page.locator("#picture-host").boundingBox();
+      best = { covered, shot: await page.screenshot({ clip }) };
     }
     await rest(700);
   } while (Date.now() < until);
@@ -256,7 +259,13 @@ test("an operator walks from Connect to a scanned overview", async ({ page }) =>
     .every(({ visible }) => !visible)), {
     message: "the panel did not hide the focussing acquisition",
   }).toBe(true);
-  await page.addStyleTag({ content: ".stagecv { visibility: hidden !important; }" });
+  // The image now lives inside the stage's middle slot. Hide its drawing
+  // layers, not the entire DOM ancestor (which hides the image as well).
+  await page.evaluate(() => {
+    for (const layer of window.__theStageCanvas.layers()) {
+      if (layer.key !== "picture") window.__theStageCanvas.showLayer(layer.key, false);
+    }
+  });
   /* The canvas's own furniture -- the acquisition chips and their eyes --
      stands in the box before any field has landed, so what is measured is
      the rise over that, not an empty box. */
@@ -267,8 +276,14 @@ test("an operator walks from Connect to a scanned overview", async ({ page }) =>
        press stands in its channel, a tab back. */
     await showTheChannel(page);
     await page.locator(".panel.on button.step-run").click();
+    await expect(page.locator(".panel.on button.step-run")).toHaveText("Run again", { timeout: 180_000 });
+    await expect.poll(async () => {
+      const response = await page.request.get(`http://127.0.0.1:${PORT}/api/viewer`);
+      return (await response.json()).publications.overview;
+    }, { message: "the completed overview was not published", timeout: 60_000 })
+      .toEqual({ acquired: plan.length, published: plan.length, state: "ready", error: null });
   }
-  const scanned = await fullestOf(page, "2-after-the-scan", { seconds: 30 });
+  const scanned = await fullestOf(page, "2-after-the-scan", { seconds: 6 });
 
   expect(scanned.covered, `the overview never reached the screen: ${scanned.covered}px`)
     .toBeGreaterThan(empty.covered + 40);

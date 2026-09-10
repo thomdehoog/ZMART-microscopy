@@ -89,4 +89,4 @@ dependencies:
   - pip:
       - pywebview>=5
       # Shared acquisition rendering; keep this pin aligned with requirements.txt.
-      - zmart-viewer @ git+https://github.com/thomdehoog/zmart-viewer.git@1af6d7ab1633dd34449c6451862d0da1016edc07
+      - zmart-viewer @ git+https://github.com/thomdehoog/zmart-viewer.git@128130d761589c02c67933b40cb379ae33afe0cb

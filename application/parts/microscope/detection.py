@@ -83,6 +83,7 @@ def what_was_captured(record: dict, *, field: int, pixel_um: float, settings: di
         key=lambda p: int(p.get("c", 0)),
     )
     given = {
+        **({"synthetic_pixels": record["synthetic_pixels"]} if record.get("synthetic_pixels") else {}),
         "image_path": plane["path"],
         "tile_id": [record["acquisition_type"], int(field), 0],
         "tile_stage_xy_um": [float(plane["x_um"]), float(plane["y_um"])],

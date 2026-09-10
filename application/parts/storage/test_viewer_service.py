@@ -181,7 +181,7 @@ def test_an_in_repository_viewer_copy_is_refused():
         service._validate_viewer_provenance("0.2.1", copied)
 
 
-@pytest.mark.parametrize("installed_version", ["0.1.0", "0.2.0", "0.2.2"])
+@pytest.mark.parametrize("installed_version", ["0.1.0", "0.2.0", "0.2.1", "0.2.2", "0.4.0"])
 def test_an_unproved_viewer_release_is_refused(tmp_path, installed_version):
     with pytest.raises(RuntimeError, match="Smart Viewer .* is required"):
         service._validate_viewer_provenance(
