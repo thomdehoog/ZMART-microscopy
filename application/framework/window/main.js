@@ -1607,20 +1607,16 @@ let stageWatch = null;
       outlines the physical frame. `quietly` is the gallery choosing for
       itself while it rebuilds, so it is not told what it just did. */
   function selectTarget(id, { quietly = false } = {}) {
-    if (state.selectedTarget === id) return;
+    if (state.selectedTarget === id && state.selectedQuietly === quietly) return;
     state.selectedTarget = id;
     state.selectedQuietly = quietly;
-    if (!quietly) galleryPanel?.chosen();
-    /* The chosen frame is raised above its neighbours in the picture, where
-       frames overlap: the backend writes it on top and the picture follows. */
-    const label = state.acquiredLabels[id];
-    /* The gallery quietly follows the newest frame as a run grows. That
-       frame has just been written last already; raising it again adds disk
-       traffic and can contend with the live viewer for the same Zarr chunk.
-       Only an operator's explicit choice changes the stacking order. */
-    if (!quietly && label) {
-      backend.raiseTarget?.(label)?.catch?.((why) => console.warn("the target was not raised: " + why.message));
+    if (!quietly) {
+      galleryPanel?.chosen();
+      renderActionBar();
     }
+    /* Inspection changes only the comparison, frame outline and current-target
+       action. Keep the published overlap order stable: raising a stored frame
+       rebuilds its aggregate and makes readable chunks unavailable to the viewer. */
     stage.draw();
   }
 

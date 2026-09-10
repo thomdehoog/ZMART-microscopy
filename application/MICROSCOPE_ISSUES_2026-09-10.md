@@ -261,4 +261,19 @@ Validated:
 
 The rebuilt interface displays `Preview unavailable` for failed detection/gallery image requests and a focus preview status message for missing/failed slices. Failed focus image callbacks are cleared; incomplete gallery images are not passed to canvas drawing. Browser tests covered detection and gallery; direct native-window focus navigation remains to be checked.
 
-Current-session limitation: the four previously measured focus points still contain empty in-memory slice lists from the original failure. Installing the reader does not backfill those lists. Regeneration was verified separately under `operator-diagnostics/preview-repair-evidence`; the current window has not been reloaded or its state replaced. Newly generated focus results can now create their slice copies. The rebuilt failure-message UI takes effect when the page is next loaded. This repair does not claim to resolve any remaining native-window rendering or publication issue.
+At the time of repair 1, the four previously measured focus points still contained empty in-memory slice lists from the original failure. Installing the reader did not backfill those lists. Regeneration was verified separately under `operator-diagnostics/preview-repair-evidence`; that check did not replace the window's state. Newly generated focus results can now create their slice copies. The user subsequently reran a focus point and then closed the window during repair 2. This repair does not claim to resolve any remaining native-window rendering or publication issue.
+
+## Repair 2: target inspection no longer requests aggregate rebuilding
+
+Ordinary target selection in `main.js::selectTarget` now updates only the local selection, gallery comparison, frame outline and current-target action. It no longer calls `backend.raiseTarget`, so list/canvas clicks do not change persisted composition order or start publication. Neuroglancer continues reading the existing published images. The mosaic retains acquisition overlap order; the sidebar comparison shows the selected frame independently of overlap in the mosaic. Actual acquisition/rerun publication and the explicit backend reorder API are unchanged.
+
+Two selection details were corrected alongside this change: explicitly choosing the quietly followed frame activates its manual outline, and rebuilding the action bar makes `Rerun current` capture the current selection rather than the selection held by an older button callback.
+
+Validation:
+
+- A browser regression using the operator's pretend acquisition workflow reproduced the old defect: the first explicit list selection called the instrumented reorder method. The test failed before the fix and passed afterward.
+- The same test covers quiet following during acquisition, list selection, choosing the quietly followed frame, canvas selection, gallery synchronization, and rerunning the newly selected physical frame. The reorder request stub remains uncalled throughout; if called, it records the invocation and leaves its promise pending to represent slow publication.
+- All 525 JavaScript unit tests passed (15 skipped); the production interface rebuilt successfully.
+- The broader existing `one walk of the whole run` test failed before reaching selection because Detect objects opened at tile `864 / 864` while the test expects `1 / 864`. This is a separate existing issue recorded for follow-up, not fixed in this repair. The focused selection regression does not depend on that initial tile choice.
+
+The user closed the native operator after the focus rerun; the rebuilt interface was then relaunched. Previous session logs were preserved in `operator-diagnostics/before-selection-fix.stdout.log` and `.stderr.log`. No microscope acquisition was triggered by the repair or its tests. Publication availability, per-view revision propagation, truthful pending status and further performance work remain outstanding; preventing selection-triggered rebuilding does not repair those acquisition-time paths.
