@@ -144,9 +144,10 @@ Thus the live viewer had a demonstrable mix of stale revisions, unequal view cov
 ## Recommended repair order
 
 1. Repair the operator reader dependency specification and add preview endpoint coverage, including visible error reporting.
-2. Repair publication availability and per-view revision propagation so ready images update promptly and remain readable.
-3. Profile and optimize composition/baking on this recorded dataset; track generation, publication, loading and rendering separately.
-4. Recheck focus navigation and exact target-plane rendering with current revisions, then investigate any residual cache or rendering defects.
+2. Decouple routine target selection from persistent aggregate rebuilding so inspection remains responsive.
+3. Repair publication availability and per-view revision propagation so ready images update promptly and remain readable; include pending reorder work in status.
+4. Validate these repairs in the operator, including focus navigation, target selection and image refinement during publication.
+5. Then investigate any remaining native-window rendering/cache defect and measure the complete performance breakdown to guide further composition/baking optimization.
 
 No fixes have been applied as part of this diagnosis. Local diagnostic scripts, summaries and profiles are stored under `C:\ProgramData\MinicondaZMB\home\t.de\operator-diagnostics`, including `named-views-diagnosis-summary.json`, `named-views-stall-threads.json`, `named-views-stall-threads-2.json`, and `named-views-stall-profile.json`.
 
@@ -239,6 +240,8 @@ This report is sufficient to prioritize targeted repairs, but those repairs and 
 ## Explicit outstanding tasks
 
 The user confirmed on 2026-09-11 that the following work still has to be done:
+
+Priority clarification: repair the confirmed preview and interaction/publication problems first, following the repair order above. The two investigations below remain required follow-up work, but are not prerequisites for starting those repairs. Use focused measurements and regression checks while repairing each confirmed issue; the complete performance breakdown can follow.
 
 - [ ] Investigate whether an additional native-window rendering, resolution-selection or cache defect remains. Inspect the actual WebView's requests and cache state with publication complete, current revisions delivered and no aggregate rebuild active. Record the result even if no additional defect is found.
 - [ ] Measure the complete performance breakdown: ingestion/store creation, composition and pyramid building, compression, filesystem I/O, cache reuse, preview generation, viewer loading and frontend rendering. Identify the dominant costs with measured timings rather than attributing all delays to the already-confirmed publication bottleneck.
