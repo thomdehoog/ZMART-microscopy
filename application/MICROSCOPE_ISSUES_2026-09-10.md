@@ -277,3 +277,28 @@ Validation:
 - The broader existing `one walk of the whole run` test failed before reaching selection because Detect objects opened at tile `864 / 864` while the test expects `1 / 864`. This is a separate existing issue recorded for follow-up, not fixed in this repair. The focused selection regression does not depend on that initial tile choice.
 
 The user closed the native operator after the focus rerun; the rebuilt interface was then relaunched. Previous session logs were preserved in `operator-diagnostics/before-selection-fix.stdout.log` and `.stderr.log`. No microscope acquisition was triggered by the repair or its tests. Publication availability, per-view revision propagation, truthful pending status and further performance work remain outstanding; preventing selection-triggered rebuilding does not repair those acquisition-time paths.
+
+## Repair 3: readable publication and prompt view revisions
+
+Implemented in viewer commit `643a721f8dd68f61abc8c2ecf40a4bf8d6fb2136`, branch `codex/operator-publication-responsiveness`, and the operator commit containing this report. Both operator dependency manifests and the installation handover now pin that viewer revision.
+
+The viewer serves a complete immutable HTTP generation while the working named view is rebuilt. Metadata, coverage and fine on-demand chunks read the same committed generation; changed original stores cannot silently alter its fine-level pixels. Each completed view is discoverable immediately, including Top during the first opening while Slice still builds. The operator refreshes view metadata independently every 0.5 seconds instead of waiting for the whole publication POST. Metadata reads are serialized outside the acquisition/status lock so delayed responses cannot overwrite newer results. A queued or active publication reports preparing even if its source revision counts already match, as happens for an explicit reorder.
+
+Generation snapshots hard-link atomically replaced aggregate chunks. New source revisions are copied once because original stores may be overwritten in place; unchanged frozen source folders are shared directly across generations and compatible views. Copying large sets of small files uses at most eight workers. Old generations and their caches are released after the last HTTP/configuration reader; frozen sources remain until no registered generation uses them.
+
+Validation:
+
+- 108 viewer tests passed, including the named-view, HTTP server, published acquisition/depth and real Chromium rendering checks. Browser tests used the allowed Chromium executable under MinicondaZMB and NVIDIA ANGLE rendering.
+- Eight focused HTTP regressions cover same-depth and changed-depth updates, pixels/metadata/coverage remaining readable, Top advancing while Slice remains old, first-view discovery, source sharing, final-reader cleanup, and recovery from injected bake, snapshot-copy and publication-ledger failures. These eight passed again after the final cleanup hardening.
+- All 40 operator service tests passed against the changed companion viewer, including the 100-position notification/status responsiveness checks with and without baking. New checks cover pending reorders, intermediate view revisions, rejecting obsolete-session metadata, and excluding uncommitted raw rows during first publication.
+- Ruff and whitespace checks passed. A matching viewer wheel was built in `operator-diagnostics/repair-3-wheel`.
+
+Bounded storage measurement on this workstation: one recorded target store contained 83,959,082 bytes in 3,575 files. The initial serial snapshot copy from E: to C: took 17.76 seconds and recreating its hard links took 4.62 seconds. The final bounded copy took 2.00 seconds; subsequent views/updates reuse an existing source folder without relinking those files. These are individual warm/cold-cache-uncontrolled measurements, not a full acquisition benchmark or a promised overall speedup. Results are saved in `operator-diagnostics/readable-copy-benchmark`.
+
+Limits and deployment checks:
+
+- Extra disk space is required for the current frozen source revisions and temporarily for replaced revisions held by readers. Copy fallback on filesystems without hard links costs more. Pyramid composition itself remains expensive; the full performance breakdown remains outstanding.
+- The immutable HTTP guarantee begins with the first successful publication using the new viewer. Existing views without a readable pointer keep their legacy serving behavior until republished. Direct filesystem readers of the working aggregate do not receive the HTTP snapshot guarantee.
+- Reader leases are local to one server process. Do not run multiple independent viewer servers against the same output folders. Abrupt termination can leave orphan private source folders; automatic crash-orphan scavenging remains follow-up work.
+- The actual native-window resolution/cache investigation, real-microscope validation and full performance profiling are still required. Automated browser success does not prove that every previously reported native rendering symptom is fixed.
+- At commit time, the running operator still has the previous viewer loaded. Install the prepared wheel and relaunch the operator to activate repair 3; current source edits alone do not update its imported Python modules.
