@@ -149,3 +149,38 @@ Thus the live viewer had a demonstrable mix of stale revisions, unequal view cov
 4. Recheck focus navigation and exact target-plane rendering with current revisions, then investigate any residual cache or rendering defects.
 
 No fixes have been applied as part of this diagnosis. Local diagnostic scripts, summaries and profiles are stored under `C:\ProgramData\MinicondaZMB\home\t.de\operator-diagnostics`, including `named-views-diagnosis-summary.json`, `named-views-stall-threads.json`, `named-views-stall-threads-2.json`, and `named-views-stall-profile.json`.
+
+## Completion and additional checks
+
+The final batch completed without intervention. At 23:57:26 local time, the operator reported 20/20 target stores ready, all three target views were revision 7, and the publisher thread was idle. The user then confirmed that the display looked correct. This substantially narrows the reported dark-block problem to the period of incomplete publication/revision propagation; no persistent rendering defect was demonstrated after completion.
+
+| Final batch milestone | Local time |
+| --- | --- |
+| Previous 16-store MIP commit | 23:48:49 |
+| Top reaches 20 stores | 23:53:45 |
+| Slice reaches 20 stores | 23:56:12 |
+| MIP reaches 20 stores | 23:56:18 |
+
+The interval between completion of the 16-store batch and completion of the 20-store batch was approximately 7 minutes 29 seconds. Top finished before the displayed count could advance, and Slice then took a further 2 minutes 27 seconds before MIP completed.
+
+### Served pixels match committed sources after completion
+
+Read-only HTTP checks sampled the final target's full-resolution chunks for Top, Slice, and MIP, in both channels. All six 32-by-32 patches matched their respective committed source pixels exactly (zero differing pixels). Top plane index 9 and Slice plane index 14 both correctly selected native plane index 9 for this target. MIP was checked against its committed projection source. These are bounded samples, not exhaustive image validation.
+
+Those chunk requests took approximately 0.067-0.190 seconds and returned `Cache-Control: no-store`. The operator also advertised revision 7 for every target view. Thus usable pixel delivery after publication is much faster than preparing the publication, and the observed revision lag clears when the batch finishes.
+
+### Existing source pyramids often cannot be reused
+
+A geometry-only check of the actual committed mosaic evaluated `Composer._can_read_native` without building pixels or changing stores:
+
+| Source pyramid level | Occupied aggregate pieces | Pieces allowed to reuse native pyramid data |
+| --- | --- | --- |
+| 1 | 80 | 16 |
+| 2 | 46 | 5 |
+| 3 | 28 | 0 |
+
+The counts were the same for Top, Slice and MIP. Reuse requires compatible reduction arithmetic and aligned acquired-region boundaries on the aggregate grid. When those conditions fail, `_build_slab` recursively composes finer pixels before reducing them. In this dataset, no occupied piece at level 3 qualifies for direct native-pyramid reuse. This identifies a concrete source of extra work behind the sampled recursive composition stacks; it does not quantify every contributor to elapsed time.
+
+Optimization should preserve correct gap/overlap ownership and reduction arithmetic. Simply bypassing the alignment checks or snapping physical tile positions to a coarser grid would change the image semantics. A bounded benchmark should instead measure repeated reads/composition and evaluate reuse of correctly composed intermediate results, incremental updates and deferred baking.
+
+Additional local evidence: `served-target-pixel-checks.json`, `pyramid-reuse-check.json`, and their diagnostic scripts in the diagnostics folder. The missing ngio dependency and preview failures remain unfixed.
