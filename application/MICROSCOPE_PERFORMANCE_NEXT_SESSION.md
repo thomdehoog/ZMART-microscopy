@@ -65,6 +65,19 @@ User-proposed test on 2026-09-11: after a stack loads, move the Z bar left and r
 
 This test complements export-to-first-image measurements: it tests whether a displayed stack remains responsive during inspection, especially on revisiting planes. A faster repeat sweep would suggest useful caching; continuing lag requires tracing decoding, rendering, scheduling and invalidation rather than attributing it to one cause from appearance alone.
 
+## Observed warm-up and speculative Z-plane caching proposal
+
+The user subsequently reported that the displayed image initially appears not to keep up with Z-bar navigation, but responsiveness improves after a while. Record this as an untimed observation. Cache warming or completion of background loading/preparation could explain it; the cause is not established. Extend the Z-bar benchmark to measure time until navigation becomes consistently smooth. Compare waiting without navigating against repeated sweeps to help separate elapsed background work from reuse of visited planes.
+
+The user proposed speculative caching. Evaluate nearby-Z-plane prefetching only after checking the installed Neuroglancer loading, prioritization and cache behavior, so the integration does not duplicate existing work. If measurements show missing-data delays, consider:
+
+- Prefetching a small, bounded number of nearby planes, favoring the current drag direction and visible viewport/resolution.
+- Retaining recently viewed planes to make direction reversals responsive, within an explicit memory budget.
+- Giving the currently requested plane priority over speculative work; cancel or deprioritize obsolete prefetch requests when direction, viewport or source revision changes.
+- Bounding background concurrency, memory and I/O so speculation does not delay first display, publication or other interactions. Preserve revision correctness and avoid broad invalidation of reusable data.
+
+Compare prefetch disabled/enabled using the same first-sweep, repeat-sweep and reversal tests. Measure input-to-image latency, time to smooth navigation, cache hits/misses, unused fetched data, memory and CPU/I/O, with baking both enabled and disabled. Prefetching remains a proposal, not an implemented repair or confirmed solution: repeated invalidation, decoding/rendering limits or background contention may require different changes.
+
 ## Completion evidence
 
 - Save a reproducible command or profiling harness, settings and timestamped results alongside a concise findings report.
