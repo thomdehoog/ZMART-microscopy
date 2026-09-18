@@ -102,7 +102,9 @@ NIS-Elements only tolerates camera and image-window commands (`Capture`,
 `ImageSaveAs`) on its main thread; calling them from another thread crashes
 the application — we found that out on the simulator. So the bridge's network
 side only *queues* requests, and the small loop in `start_bridge.mac` runs them
-on the main thread every 20 ms. While that loop runs, NIS shows a macro as
+on the main thread. The loop sleeps on the queue between requests (measured:
+about a tenth of a CPU core while idle, on top of what NIS uses by itself) and
+answers a position read in about 13 ms. While it runs, NIS shows a macro as
 "running". Reading the position or moving the stage works either way; capture
 needs the loop.
 

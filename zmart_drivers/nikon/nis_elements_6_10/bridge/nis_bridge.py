@@ -21,7 +21,7 @@ Three design rules keep this safe:
   functions crash NIS-Elements when called from another thread (learned the
   hard way with ``Capture``). So the socket threads only queue requests, and
   the macro loop in ``start_bridge.mac`` runs them one by one on the main
-  thread by calling :func:`pump` every few milliseconds.
+  thread by calling :func:`pump`, which sleeps on the queue between requests.
 * **One call at a time.** The queue is drained by that single thread, so two
   requests can never reach the instrument simultaneously.
 
@@ -731,17 +731,23 @@ class BridgeServer(socketserver.ThreadingTCPServer):
         """True when a pump loop has served this server in the last ``within_s`` seconds."""
         return (time.monotonic() - self._last_pump) < within_s
 
-    def pump(self, max_jobs: int = 50) -> int:
+    def pump(self, max_jobs: int = 50, wait_s: float = 0.0) -> int:
         """Run queued requests on the calling thread; returns how many ran.
 
-        Returns at once when the queue is empty, so a UI thread can call this
-        often without stalling.
+        With ``wait_s`` > 0 the first job is waited for up to that long -- the
+        thread sleeps instead of spinning -- so a loop that calls this every
+        few tens of milliseconds costs nothing while idle. Once a job has
+        arrived, the rest of the queue is drained without waiting.
         """
         self._last_pump = time.monotonic()
         ran = 0
         while ran < max_jobs:
             try:
-                job = self.jobs.get_nowait()
+                job = (
+                    self.jobs.get(timeout=wait_s)
+                    if (wait_s > 0 and ran == 0)
+                    else self.jobs.get_nowait()
+                )
             except queue.Empty:
                 break
             try:
@@ -867,16 +873,19 @@ def start(host: str = DEFAULT_HOST, port: int = DEFAULT_PORT, log_path: str | No
     return f"bridge {BRIDGE_VERSION} listening on {host}:{port}; log: {log_path}"
 
 
-def pump() -> None:
+def pump(wait_s: float = 0.05) -> None:
     """Run the queued requests on the calling thread (the macro loop calls this).
 
-    When a client asked for ``shutdown``, the stop file is created so the macro
-    loop ends on its next check.
+    Sleeps up to ``wait_s`` for the first request so an idle bridge costs no
+    CPU; NIS's own message loop gets its turn between calls, so the UI stays
+    responsive with a delay of at most ``wait_s``. When a client asked for
+    ``shutdown``, the stop file is created so the macro loop ends on its next
+    check.
     """
     server = _running.get("server")
     if server is None:
         return
-    server.pump()
+    server.pump(wait_s=wait_s)
     if server.stop_requested and not os.path.exists(STOP_FILE):
         open(STOP_FILE, "w").close()
 
