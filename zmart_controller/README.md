@@ -34,8 +34,8 @@ import zmart_controller
 zmart_controller.get_instruments()
 zmart_controller.set_instrument(instrument=Dict)
 
-# 2) Set the origin point of the frame (current position becomes 0, 0, 0)
-zmart_controller.set_origin()
+# 2) Inspect extra diagnostic information the driver provides
+zmart_controller.get_info()
 
 # 3) Discover actuators, then read or move the position in the frame
 zmart_controller.get_actuators()
@@ -54,10 +54,7 @@ zmart_controller.acquire(acquisition_type=String, position_label=String, options
 zmart_controller.get_procedures()
 zmart_controller.run_procedure(Dict)
 
-# 7) Optionally inspect extra diagnostic information the driver provides
-zmart_controller.get_info()
-
-# 8) Close the session
+# 7) Close the session
 zmart_controller.disconnect()
 ```
 
