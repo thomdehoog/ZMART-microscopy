@@ -28,3 +28,10 @@ workflows/target_acquisition/*_worked*.ipynb
 # What `run_webapp.py --demo` writes: images, reports and the run journal of a
 # simulated run. Regenerated on every demo, never part of the repository.
 workflows/target_acquisition/zmart_demo_run/
+
+# Nikon bridge: the stop flag the macros exchange, and probe outputs.
+zmart_drivers/nikon/nis_elements_6_10/bridge/bridge.stop
+# The start/stop macros carry this computer's repository path; bridge/install.py writes them.
+zmart_drivers/nikon/nis_elements_6_10/bridge/*.mac
+zmart_drivers/nikon/spike/*.report.txt
+zmart_drivers/nikon/spike/*_heartbeat.txt

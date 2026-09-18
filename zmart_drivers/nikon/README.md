@@ -1,15 +1,19 @@
 # Nikon NIS-Elements integration — findings & architecture
 
-> **Status:** investigation complete → first spike. A proof-of-concept round-trip driver spike now
-> exists under [`spike/`](spike/) — its Python client is tested offline (6/6); the resident NIS macro
-> awaits a bench run. **No production driver yet:** the device-verb vocabulary (stage / Z / capture /
-> objective) is still to be pinned (see [Open questions](#open-questions--todo)). This document is the
-> living reference for a `zmart_drivers/nikon/` driver that sits beside
-> `zmart_drivers/leica/stellaris5_y42h93/navigator_expert/`; the dated investigation record and progress log
-> live in [`FINDINGS.md`](FINDINGS.md).
+> **Status (2026-09-18): working driver, simulator-validated.** The driver lives in
+> [`nis_elements_6_10/`](nis_elements_6_10/README.md) and runs the full ZMART round trip (connect, origin,
+> move, **acquire**, state) against NIS-Elements AR 6.10.02 with the Ti2 simulator. Start there.
 >
-> **This folder:** [`README.md`](README.md) (this file — reference) · [`FINDINGS.md`](FINDINGS.md)
-> (investigation + progress log) · [`spike/`](spike/) (round-trip proof: server `.mac` + Python client + tests).
+> The route is **not** the NkSocket one described below. On the 6.10 install every macro function
+> is exported by `g5_regprocs.dll` and callable from the Python interpreter that ships inside
+> NIS-Elements, so a small bridge server runs *inside* NIS and ZMART talks to it over a local
+> socket. The "device-verb blocker" is solved too: the full macro reference is installed under
+> `C:\Program Files\NIS-Elements\Docs\nis\eng_ar\`. The text below is kept as the investigation
+> record that led here; the dated log is in [`FINDINGS.md`](FINDINGS.md).
+>
+> **This folder:** [`nis_elements_6_10/`](nis_elements_6_10/README.md) (the driver) · [`README.md`](README.md)
+> (this file — investigation reference) · [`FINDINGS.md`](FINDINGS.md) (progress log) ·
+> [`spike/`](spike/) (early NkSocket spike and the probe scripts that mapped the embedded Python).
 >
 > **Target instrument:** lab runs **NIS-Elements 6.2** (= 6.20).
 > **Contact:** Kees van der Oord, Nikon (`Kees.van.der.Oord@nikon.com`), who pointed us at the
