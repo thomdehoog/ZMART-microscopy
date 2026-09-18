@@ -35,8 +35,8 @@ Python_RunString("import sys; p = r'{nikon_dir}'; sys.path.insert(0, p) if p not
 WaitText(1, "ZMART bridge: running on port {port} - stop with stop_bridge.mac");
 while (ExistFile("{stop_file}") == 0)
 {{
-    Python_RunString("import nis_elements_6_10.bridge.nis_bridge as b; b.pump()");
-    Wait(0.02);
+    Python_RunString("import nis_elements_6_10.bridge.nis_bridge as b; b.pump(0.05)");
+    Wait(0.01);
 }}
 Python_RunString("import nis_elements_6_10.bridge.nis_bridge as b; import nis; nis.log(b.stop())");
 WaitText(2, "ZMART bridge: stopped");

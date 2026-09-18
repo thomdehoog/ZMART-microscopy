@@ -235,3 +235,6 @@ Rules learned:
    predecessor whose loop has stopped.
 3. After the bridge has run, closing the NIS window can leave `nis_ar.exe` alive in the background
    ("another instance is running" on the next start). Ending the process fixes it; documented.
+4. **A `Wait(0.02)` macro loop spins.** Measured: NIS idles at ~209 % of a core on this PC (the
+   simulator), and the first bridge loop added ~100 % on top. Letting the pump sleep on its queue
+   (`queue.get(timeout=0.05)`) brought that down to ~10 % and halved the read latency (13 ms).
