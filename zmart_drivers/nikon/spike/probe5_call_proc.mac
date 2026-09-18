@@ -1,0 +1,3 @@
+WaitText(1, "probe 5: call_proc shapes");
+Python_RunString("exec(open(r'C:\Users\t.de\repos\ZMART-microscopy\zmart_drivers\nikon\spike\probe5_call_proc.py', encoding='utf-8').read())");
+WaitText(2, "probe 5: done");
