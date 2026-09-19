@@ -1,0 +1,12 @@
+# Packages the ZEISS driver needs on top of the ZMART environment to talk to a
+# ZEN API gateway (real, ZEISS's simulator, or the fake one in zenapi.simulator).
+# The plain offline unit tests need none of these.
+#
+#   pip install -r zmart_drivers/zeiss/zenapi/requirements.txt
+#
+# grpclib is the async gRPC transport the generated ZEISS classes use.
+grpclib>=0.4.7
+# The ZEN API Python package is not on PyPI; ZEISS publishes the wheel in its
+# OAD repository. 2026.05.1 targets ZEN 3.14 (use 2025.10.1 for ZEN 3.13:
+# .../zen_api-2025.10.1/dist/zen_api-2025.10.1-py3-none-any.whl).
+zen_api @ https://raw.githubusercontent.com/zeiss-microscopy/OAD/master/ZEN-API/python_package/zen_api-2026.05.1/dist/zen_api-2026.5.1-py3-none-any.whl

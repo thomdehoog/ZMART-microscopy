@@ -36,20 +36,20 @@ def acquire(
 ) -> AcquisitionResult:
     """Acquire ``experiment`` and return save-agnostic context.
 
-    ``mode="experiment"`` runs the full experiment (a CZI is written on the ZEN
-    side); ``mode="snap"`` acquires a single snap. Raises ``RuntimeError`` if the
-    command did not succeed.
+    ``mode="experiment"`` runs the full experiment; ``mode="snap"`` takes a
+    single image. Either way ZEN writes one CZI on its side, named
+    ``output_name`` (pass one, or let ZEN choose). Raises ``RuntimeError`` if
+    the command did not succeed.
     """
     started_at = time.time()
     if mode == "snap":
         result = _commands.run_snap(client, experiment, **kwargs)
-        output_name = None
     elif mode == "experiment":
         result = _commands.run_experiment(client, experiment, **kwargs)
-        output_name = result.get("output_name")
     else:
         raise ValueError(f"Unknown acquire mode {mode!r}. Use 'experiment' or 'snap'.")
     finished_at = time.time()
+    output_name = result.get("output_name") if result else None
 
     if not result or not result.get("success"):
         raise RuntimeError(f"acquire failed: {result}")

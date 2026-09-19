@@ -74,7 +74,8 @@ class CommandProfile:
         confirm_poll_s: per-attempt readback poll window (NOT a timeout).
         confirm_tolerance: numeric tolerance (µm) for target readbacks.
         poll_interval / poll_timeout / start_timeout / heartbeat_interval:
-            long-running (acquisition) confirmation knobs.
+            spare knobs for long-running confirmations (unused by the blocking
+            ZEN run calls; kept so profiles stay shaped like the other drivers).
         retry_backoff / retry_escalate: transient-retry backoff policy.
         call_timeout: per-RPC gRPC deadline (seconds); None = wait indefinitely
             (used for long acquisitions where the status stream is the gate).
@@ -146,10 +147,11 @@ OBJECTIVE = CommandProfile(
 
 
 # =============================================================================
-# Acquisition. Copies the Leica ACQUIRE posture: never re-send (a re-fire starts
-# a second acquisition), unconfirmed is not a hard fail (save()'s file check is
-# the real data gate). call_timeout=None: the fire RPC may run as long as the
-# acquisition; the status stream is the completion gate.
+# Acquisition. ZEN's RunSnap / RunExperiment block until the acquisition is
+# over, so the RPC itself is the completion gate (call_timeout=None: it may
+# run as long as the experiment). Never re-send: a re-fire would start a
+# second acquisition. The confirmation is one GetStatus readback; unconfirmed
+# is not a hard fail because the CZI on disk is the real evidence.
 # =============================================================================
 
 SNAP = CommandProfile(
@@ -157,9 +159,7 @@ SNAP = CommandProfile(
     max_retries=0,
     max_confirm_attempts=1,
     refire_on_unconfirmed=False,
-    poll_interval=0.1,
-    start_timeout=15.0,
-    heartbeat_interval=30.0,
+    confirm_poll_s=10.0,
     call_timeout=None,
 )
 
@@ -168,8 +168,17 @@ RUN_EXPERIMENT = CommandProfile(
     max_retries=0,
     max_confirm_attempts=1,
     refire_on_unconfirmed=False,
-    poll_interval=0.1,
-    start_timeout=30.0,
-    heartbeat_interval=30.0,
+    confirm_poll_s=10.0,
+    call_timeout=None,
+)
+
+# Focus procedures (software autofocus, Definite Focus). Like acquisitions
+# they block until done and must never be re-sent; there is no readback to
+# confirm against, the returned focus position is the result.
+FOCUS_PROCEDURE = CommandProfile(
+    confirm_fn=None,
+    max_retries=0,
+    max_confirm_attempts=1,
+    refire_on_unconfirmed=False,
     call_timeout=None,
 )

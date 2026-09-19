@@ -10,6 +10,11 @@ Reports land in tests/_report/. Lint and coverage are optional: if ruff /
 pytest-cov are not installed, those steps are skipped with a note rather than
 failing the run.
 
+The offline run has two layers: tests/unit (fake ZEN API objects, no extra
+packages) and tests/gateway (the real zen_api wheel talking TLS to the fake
+gateway in zenapi.simulator). The gateway layer skips itself when the wheel
+or grpclib is not installed; install both (see README) to run it.
+
 Author: Thom de Hoog (ZMB, University of Zurich)
         thom.dehoog@zmb.uzh.ch . thomdehoog@gmail.com
 License: MIT

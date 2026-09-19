@@ -83,7 +83,8 @@ def connect(
 
     Raises:
         ValueError: a required connection parameter could not be resolved.
-        ConnectionError: the channel built but the ping RPC failed.
+        ConnectionError: the channel built but the first read failed.
+        RuntimeError: the ``zen_api`` wheel is not installed.
     """
     if not _rt.zen_api_available():
         raise RuntimeError(
@@ -106,9 +107,16 @@ def connect(
         connect_timeout=connect_timeout or ZEN_API.connect_timeout_s,
     )
 
+    client.runtime = {"host": host, "port": port, **_rt.describe_runtime()}
+
     if not _ping(client):
         client.close()
-        raise ConnectionError(f"Connected to {host}:{port} but the ping RPC failed.")
+        raise ConnectionError(
+            f"Connected to {host}:{port} but the first read (stage position) failed. "
+            "Check that ZEN is running with the ZEN API enabled, that the control "
+            "token in config.ini matches the gateway, and that the gateway lists "
+            "ZEN as a connected API provider (tray icon tool-tip)."
+        )
     log.info("Connected to ZEN API gateway at %s:%d", host, port)
     return client
 

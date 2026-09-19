@@ -5,10 +5,10 @@ Zero-arg-after-binding confirmation functions the dispatch backbone calls to
 verify a command took effect. Each polls a reader (or, for acquisition,
 consumes the native status stream) and returns ``{"success": bool, "logs": [...]}``.
 
-Because ZEN ``move_to`` awaits to completion, the readback confirmations are
-cheap insurance rather than the primary completion signal; ``confirm_acquire``
-is the real one -- it consumes ``register_on_status_changed`` (a strict upgrade
-over log-tailing).
+ZEN's move and run calls only return once the action is done, so every
+confirmation here is cheap insurance rather than the primary completion
+signal: a readback that proves the microscope is where (or in the state) we
+asked for.
 
 Readers are imported lazily inside the functions to keep the import graph
 acyclic (``profiles`` -> ``confirmations`` -> ``readers`` -> ``profiles``).
@@ -23,8 +23,8 @@ from __future__ import annotations
 import logging
 import time
 
-from ..readers.reading import _reading_value_after
 from ..config.timing import CONFIRM_POLL_S
+from ..readers.reading import _reading_value_after
 from .envelope import _make_log_entry
 
 log = logging.getLogger(__name__)
@@ -105,69 +105,51 @@ def confirm_acquire(
     client,
     *,
     experiment_id,
-    start_timeout=15.0,
-    heartbeat_interval=30.0,
+    poll_window=None,
+    poll_interval=0.2,
+    start_timeout=None,
+    heartbeat_interval=None,
     timeout=None,
-    poll_interval=0.1,
+    sink=None,
 ):
-    """Consume the experiment status stream until the acquisition completes.
+    """Check with ``GetStatus`` that the acquisition is over.
 
-    Phase 1: within ``start_timeout``, see running go True.
-    Phase 2: consume progress until running goes back to False (terminal) or the
-             stream ends -> success. If running is never seen -> failure (the
-             acquire profile does not re-fire).
+    ``RunSnap`` and ``RunExperiment`` only return once ZEN has finished (or
+    failed, or was stopped), so by the time this runs the answer should be
+    "not running" straight away. The readback is kept as insurance: it polls
+    ZEN's status for at most ``poll_window`` seconds and succeeds as soon as
+    both running flags are off. The final status (image counts, elapsed time)
+    is returned as ``last_status`` so the caller can record it.
 
-    NOTE (bench-verify): the stream is opened here, i.e. just after the fire. If
-    the server does not replay current status on subscribe and ``run_experiment``
-    returns only on completion, the "register before fire" ordering must move
-    into the wrapper. See the driver README "Risks".
+    ``sink`` is an optional dict; the last status read is stored under
+    ``sink["last_status"]`` so the command wrapper can attach it to its
+    result. ``start_timeout``, ``heartbeat_interval`` and ``timeout`` are
+    accepted for profile compatibility and are not needed with the blocking
+    run calls.
     """
-    from ..readers.api_reader import status_to_dict
+    from ..readers.api_reader import get_status
 
+    poll_window = CONFIRM_POLL_S if poll_window is None else poll_window
     logs = []
-    saw_running = False
-    t_start = time.perf_counter()
-    last_hb = t_start
+    deadline = time.perf_counter() + poll_window
     last_status = None
-    item_timeout = timeout if timeout is not None else max(start_timeout, 600.0)
-
-    factory = lambda: client.experiment.register_on_status_changed(  # noqa: E731
-        client.messages.status_subscribe(experiment_id)
-    )
-    try:
-        for item in client.stream(factory, item_timeout=item_timeout):
-            last_status = status_to_dict(item)
-            running = last_status["is_experiment_running"] or last_status["is_acquisition_running"]
-            elapsed = time.perf_counter() - t_start
-
-            if running:
-                saw_running = True
-            elif saw_running:
-                # running -> not running: acquisition finished
-                return {"success": True, "logs": logs, "last_status": last_status}
-
-            if not saw_running and elapsed > start_timeout:
-                msg = f"Acquisition not started after {start_timeout:.0f}s"
-                log.warning(msg)
-                logs.append(_make_log_entry("warning", msg))
-                return {"success": False, "logs": logs, "last_status": last_status}
-
-            now = time.perf_counter()
-            if now - last_hb > heartbeat_interval:
-                msg = f"Acquiring: {last_status}, {elapsed:.0f}s elapsed"
-                log.info(msg)
-                logs.append(_make_log_entry("info", msg))
-                last_hb = now
-    except TimeoutError:
-        msg = f"Acquisition status stream stalled (> {item_timeout:.0f}s between updates)"
-        log.warning(msg)
-        logs.append(_make_log_entry("warning", msg))
-        return {"success": False, "logs": logs, "last_status": last_status}
-
-    # Stream ended.
-    if saw_running:
-        return {"success": True, "logs": logs, "last_status": last_status}
-    msg = "Acquisition status stream ended without the experiment ever running"
+    while True:
+        try:
+            last_status = get_status(client, experiment_id)
+        except Exception as exc:  # noqa: BLE001 - a failed readback is "unconfirmed"
+            msg = f"Acquisition status readback failed: {exc}"
+            log.warning(msg)
+            logs.append(_make_log_entry("warning", msg))
+            return {"success": False, "logs": logs, "last_status": None}
+        if sink is not None:
+            sink["last_status"] = last_status
+        running = last_status["is_experiment_running"] or last_status["is_acquisition_running"]
+        if not running:
+            return {"success": True, "logs": logs, "last_status": last_status}
+        if time.perf_counter() >= deadline:
+            break
+        time.sleep(poll_interval)
+    msg = f"Acquisition still reported as running after {poll_window:.0f}s: {last_status}"
     log.warning(msg)
     logs.append(_make_log_entry("warning", msg))
     return {"success": False, "logs": logs, "last_status": last_status}

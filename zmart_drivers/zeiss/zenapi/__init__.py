@@ -1,24 +1,28 @@
 """
 zenapi -- ZEISS ZEN API microscope driver.
 ==========================================
-A vendor sibling to the Leica ``navigator_expert`` driver, targeting ZEISS ZEN
-via the ZEN API (gRPC/grpclib through a ZEN API Gateway). The public surface is
-**synchronous** -- a blocking facade over an async core (see
-``connection.client.ZenClient``) -- so operator notebooks keep the thin 1-3 line
-invocation style.
+Drives a ZEISS microscope through ZEN's API (gRPC, reached through the ZEN
+API Gateway). A vendor sibling of the Leica, mesoSPIM and Nikon drivers: the
+public surface is **synchronous** (a blocking facade over the async gRPC
+client, see ``connection.client.ZenClient``), so notebooks stay 1-3 lines per
+step, and importing the package registers the instrument with
+``zmart_controller`` (see ``zen_zmart_adapter``).
 
 Typical session::
 
     import zenapi as drv
     client = drv.connect("config.ini")
-    drv.apply_stage_limits_from_config(drv.load_stage_config("stage.json"))
+    drv.apply_stage_limits_from_config(drv.load_stage_config("stage_limits.json"))
     drv.move_xy(client, 1000, 2000)          # micrometers
     drv.move_z(client, 50)                    # micrometers
     drv.set_objective(client, name="Plan-Apochromat 20x/0.8")
-    exp = drv.load_experiment(client, "TileScan_10x")
-    acq = drv.acquire(client, exp)            # blocks until acquisition complete
+    exp = drv.load_experiment(client, "ZMART_Snap")
+    acq = drv.acquire(client, exp, mode="snap", output_name="tile_01")
     saved = drv.save(client, acq, output_root, naming)
     drv.close(client)
+
+No ZEN at hand? ``python -m zenapi.simulator`` starts a fake ZEN API gateway
+that speaks the real protocol; point ``config.ini`` at it.
 
 Author: Thom de Hoog (ZMB, University of Zurich)
         thom.dehoog@zmb.uzh.ch . thomdehoog@gmail.com
@@ -41,17 +45,28 @@ from .acquisition.save import save
 # --- commands ---
 from .commands.commands import (
     Experiment,
+    find_autofocus,
+    find_surface,
     load_experiment,
     move_xy,
     move_z,
+    recall_focus,
     run_experiment,
     run_snap,
     set_objective,
+    start_experiment,
+    start_live,
+    stop,
+    store_focus,
 )
+
+# --- stage limits (the rulebook; enforced only in commands/) ---
+from .commands.routines import correct_backlash
 
 # --- profiles (tuning surface) ---
 from .config.profiles import (
     FOCUS_MOVE,
+    FOCUS_PROCEDURE,
     OBJECTIVE,
     READERS,
     RUN_EXPERIMENT,
@@ -63,9 +78,6 @@ from .config.profiles import (
 # --- connection ---
 from .connection.client import ZenClient
 from .connection.session import close, connect
-
-# --- stage limits (the rulebook; enforced only in commands/) ---
-from .commands.routines import correct_backlash
 from .limits.checks import (
     apply_stage_limits_from_config,
     get_stage_limits,
@@ -75,6 +87,8 @@ from .limits.stage_config import load as load_stage_config
 
 # --- state readers ---
 from .readers import (
+    get_available_experiments,
+    get_image_output_path,
     get_objective,
     get_objectives,
     get_status,
@@ -83,6 +97,9 @@ from .readers import (
     monitor,
     ping,
 )
+
+# --- the ZMART controller adapter (registers the instrument on import) ---
+from .zen_zmart_adapter import CONNECTION, register  # noqa: E402
 
 __all__ = [
     # connection
@@ -94,6 +111,8 @@ __all__ = [
     "get_z",
     "get_objective",
     "get_objectives",
+    "get_available_experiments",
+    "get_image_output_path",
     "get_status",
     "monitor",
     "ping",
@@ -104,7 +123,17 @@ __all__ = [
     "load_experiment",
     "run_snap",
     "run_experiment",
+    "start_experiment",
+    "start_live",
+    "stop",
+    "find_autofocus",
+    "find_surface",
+    "store_focus",
+    "recall_focus",
     "Experiment",
+    # controller adapter
+    "CONNECTION",
+    "register",
     # stage limits + backlash
     "set_stage_limits",
     "get_stage_limits",
@@ -128,4 +157,5 @@ __all__ = [
     "OBJECTIVE",
     "SNAP",
     "RUN_EXPERIMENT",
+    "FOCUS_PROCEDURE",
 ]

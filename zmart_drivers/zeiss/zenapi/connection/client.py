@@ -53,7 +53,8 @@ class ZenClient:
         channel_factory: zero-arg callable returning a Channel; invoked on the
             loop thread so the channel binds to this client's loop.
         stub_factory: ``(key, channel, metadata) -> stub`` building a subsystem
-            stub ("stage"|"focus"|"objective"|"experiment"|"experiment_streaming").
+            stub. Keys: "stage", "focus", "objective", "experiment",
+            "experiment_streaming", "sw_autofocus", "definite_focus".
         messages: request-message provider (see zen_runtime.RealMessages).
         default_call_timeout: default per-RPC deadline (seconds).
         connect_timeout: deadline for building the channel (seconds).
@@ -76,6 +77,9 @@ class ZenClient:
         self._stubs: dict[str, Any] = {}
         self._objectives_cache: list | None = None
         self._closed = False
+        # Filled by connect(): which wheel / services this session speaks
+        # (see zen_runtime.describe_runtime) plus host and port, for get_info.
+        self.runtime: dict = {}
 
         # Start the dedicated event-loop thread.
         self._loop = asyncio.new_event_loop()
@@ -210,6 +214,16 @@ class ZenClient:
     @property
     def experiment_streaming(self):
         return self._stub("experiment_streaming")
+
+    @property
+    def sw_autofocus(self):
+        """ZEN's software autofocus (runs the focus search of a loaded experiment)."""
+        return self._stub("sw_autofocus")
+
+    @property
+    def definite_focus(self):
+        """ZEISS Definite Focus: find the coverslip surface, store and recall a focus."""
+        return self._stub("definite_focus")
 
     # -- shutdown -------------------------------------------------------------
 
