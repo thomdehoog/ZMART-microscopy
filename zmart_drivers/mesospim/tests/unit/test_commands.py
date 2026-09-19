@@ -99,13 +99,19 @@ def test_set_intensity_out_of_range(client):
 
 
 def test_set_etl(client):
-    r = cmd.set_etl(client, "left", amplitude=3.0, offset=1.5)
+    r = cmd.set_etl(client, "left", amplitude=1.5, offset=1.5)
     assert r["success"]
     from mesospim import readers
 
     state = readers.get_state(client)
-    assert state["etl_l_amplitude"] == 3.0
+    assert state["etl_l_amplitude"] == 1.5
     assert state["etl_l_offset"] == 1.5
+
+
+def test_set_etl_out_of_the_servers_range_is_refused(client):
+    # The server bounds every hardware value the way mesoSPIM's own controls do.
+    r = cmd.set_etl(client, "left", amplitude=3.0)
+    assert not r["success"] and "allowed range" in r["message"]
 
 
 def test_set_etl_bad_side(client):
@@ -119,3 +125,28 @@ def test_stop_and_zero(client):
     from mesospim import readers
 
     assert readers.get_positions(client)["x"] == 0.0
+
+
+def test_move_to_preset_drives_to_the_configured_position(client, server):
+    r = cmd.move_to_preset(client, "load_sample")
+    assert r["success"]
+    from mesospim import readers
+
+    assert readers.get_positions(client)["y"] == server.core.cfg.stage_parameters["y_load_position"]
+    assert not cmd.move_to_preset(client, "somewhere")["success"]
+
+
+def test_server_side_refusal_is_a_failed_envelope(client, server):
+    # Our envelope is wider than the server's here: the server refuses, the
+    # stage does not move, and the refusal is reported, not raised.
+    limits.set_stage_limits(x=(0, 1e7))
+    r = cmd.move_absolute(client, {"x": 1e6})
+    assert not r["success"] and "server rejected" in r["message"]
+    from mesospim import readers
+
+    assert readers.get_positions(client)["x"] == 0.0
+
+
+def test_set_state_unknown_option_is_refused_by_the_server(client):
+    r = cmd.set_filter(client, "no-such-filter")
+    assert not r["success"] and "not one of" in r["message"]

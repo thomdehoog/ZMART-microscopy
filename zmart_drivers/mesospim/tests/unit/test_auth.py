@@ -1,10 +1,10 @@
-"""Token auth for the command server (the network gate).
+"""The password gate of the Remote Control server (the network gate).
 
-The command server can require a shared token. When one is set it must be
-presented in the ``hello`` handshake, and until then every command is refused
-(fail-closed) -- so a client that skips ``hello`` cannot drive the scope. When no
-token is set the server is open (localhost use). Tested against the offline mock
-server, which mirrors the real server's auth so this runs with no Qt/mesoSPIM.
+The server never serves a client that has not sent the password as its first
+frame. mesoSPIM ships with a public placeholder that only works on the local
+machine; the driver uses it unless told otherwise. Tested against the offline
+mock server, which mirrors the real server's gate so this runs with no
+Qt/mesoSPIM.
 
 Author: Thom de Hoog (ZMB, University of Zurich). License: MIT.
 """
@@ -14,11 +14,13 @@ from __future__ import annotations
 import mesospim as drv
 import pytest
 from mesospim.connection.client import MesospimClient, MesospimError
-from mock_mesospim_server import MockMesospimServer
+from mock_mesospim_server import DEFAULT_TOKEN, MockMesospimServer
 
 
-def test_open_server_allows_connect_without_token():
-    with MockMesospimServer() as srv:
+def test_default_password_is_mesospims_loopback_placeholder():
+    # The driver's default password is the one mesoSPIM ships with, so a
+    # local demo works out of the box.
+    with MockMesospimServer(token=DEFAULT_TOKEN) as srv:
         c = MesospimClient(srv.host, srv.port, timeout=3.0)
         c.connect()
         try:
@@ -27,22 +29,22 @@ def test_open_server_allows_connect_without_token():
             c.close()
 
 
-def test_token_server_refuses_missing_token():
+def test_wrong_password_is_refused():
     with MockMesospimServer(token="s3cret") as srv:
-        c = MesospimClient(srv.host, srv.port, timeout=3.0)  # no token
-        with pytest.raises(MesospimError):
+        c = MesospimClient(srv.host, srv.port, timeout=3.0, token="nope")
+        with pytest.raises(MesospimError, match="password"):
             c.connect()
         assert not c.connected
 
 
-def test_token_server_refuses_wrong_token():
+def test_missing_password_falls_back_to_default_and_is_refused_by_a_custom_one():
     with MockMesospimServer(token="s3cret") as srv:
-        c = MesospimClient(srv.host, srv.port, timeout=3.0, token="nope")
+        c = MesospimClient(srv.host, srv.port, timeout=3.0)  # no token given
         with pytest.raises(MesospimError):
             c.connect()
 
 
-def test_token_server_accepts_correct_token_and_serves_commands():
+def test_correct_password_serves_calls():
     with MockMesospimServer(token="s3cret") as srv:
         c = MesospimClient(srv.host, srv.port, timeout=3.0, token="s3cret")
         c.connect()
@@ -53,9 +55,8 @@ def test_token_server_accepts_correct_token_and_serves_commands():
             c.close()
 
 
-def test_non_ascii_token_roundtrips():
-    """A unicode token must work: hmac.compare_digest rejects non-ASCII str, so
-    the server compares UTF-8 bytes. Regression for a token like 'bütton'."""
+def test_non_ascii_password_roundtrips():
+    """A unicode password must work: the server compares UTF-8 bytes in constant time."""
     with MockMesospimServer(token="bütton") as srv:
         good = MesospimClient(srv.host, srv.port, timeout=3.0, token="bütton")
         good.connect()
@@ -68,21 +69,17 @@ def test_non_ascii_token_roundtrips():
             bad.connect()
 
 
-def test_token_server_refuses_script_before_token():
-    """A client whose first frame is not the token is rejected (fail-closed).
-
-    With a token set, the FIRST frame must be that token; anything else (here a
-    script) is refused with ``AUTH-FAILED`` and the connection closed, so an
-    unauthenticated client can never run code on the scope.
-    """
+def test_a_call_before_the_password_is_refused():
+    """Fail-closed: the FIRST frame must be the password; a call in its place is
+    answered ``AUTH-FAILED`` and the connection closed."""
     import socket
 
-    from mesospim.protocol import frame
+    from mesospim.protocol import encode_call, frame
 
     with MockMesospimServer(token="s3cret") as srv:
         raw = socket.create_connection((srv.host, srv.port), timeout=3.0)
         try:
-            raw.sendall(frame("self.move_absolute({'x_abs': 100}, wait_until_done=True)"))
+            raw.sendall(frame(encode_call("move_absolute", {"targets": {"x": 100}})))
             buf = b""
             while b"\n" not in buf:
                 buf += raw.recv(4096)
@@ -93,3 +90,13 @@ def test_token_server_refuses_script_before_token():
             assert rest[:length].decode() == "AUTH-FAILED"
         finally:
             raw.close()
+        assert srv.core.moves == 0
+
+
+def test_session_connect_reads_token_from_connection_dict():
+    with MockMesospimServer(token="s3cret") as srv:
+        client = drv.connect({"host": srv.host, "port": srv.port, "token": "s3cret"})
+        try:
+            assert drv.ping(client)
+        finally:
+            drv.close(client)

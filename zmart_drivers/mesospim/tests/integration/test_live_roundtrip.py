@@ -1,20 +1,20 @@
 """
-Live round-trip against a running mesoSPIM Remote Scripting server.
-==================================================================
+Live round-trip against a running mesoSPIM Remote Control server.
+=================================================================
 The one suite that cannot run in CI: it drives a **real** mesoSPIM through its
-Remote Scripting server (``Tools -> Remote Scripting...``; the upstream PR under
-``pull_request/``) -- ideally in ``-D`` demo mode (all Demo backends, no
+Remote Control TCP server (the Remote Control tab; mesoSPIM-control pull
+request #106) -- ideally in ``-D`` demo mode (all Demo backends, no
 hardware). It is the bench check for the pieces the offline mock cannot prove:
-the injected-script vocabulary (``connection/scripts.py``) against a live Core,
-and the acquisition run + image-writer path resolution.
+the call vocabulary against a live Core, the operation polling, and the
+acquisition run + image-writer path resolution.
 
-Run it (mesoSPIM ``-D`` running with Remote Scripting started, listening on 42000)::
+Run it (mesoSPIM ``-D`` running with the TCP transport started on 42000)::
 
-    python -m pytest zmart_drivers/mesospim/tests -m integration
+    MESOSPIM_TOKEN=<password> python -m pytest zmart_drivers/mesospim/tests -m integration
 
 Point it elsewhere with env vars::
 
-    MESOSPIM_HOST=127.0.0.1 MESOSPIM_PORT=42000 \
+    MESOSPIM_HOST=127.0.0.1 MESOSPIM_PORT=42000 MESOSPIM_TOKEN=<password> \\
         python -m pytest zmart_drivers/mesospim/tests -m integration
 
 The acquisition test fires a capture, so it is **opt-in** to avoid triggering
@@ -41,7 +41,8 @@ pytestmark = pytest.mark.integration
 _HOST = os.environ.get("MESOSPIM_HOST", "127.0.0.1")
 _PORT = int(os.environ.get("MESOSPIM_PORT", "42000"))
 _ALLOW_ACQUIRE = os.environ.get("MESOSPIM_ALLOW_ACQUIRE") == "1"
-_TOKEN = os.environ.get("MESOSPIM_TOKEN")  # set when the server requires a token
+# The Remote Control password; unset means mesoSPIM's loopback placeholder.
+_TOKEN = os.environ.get("MESOSPIM_TOKEN")
 
 
 @pytest.fixture
@@ -50,7 +51,7 @@ def live_client():
     try:
         client = drv.connect({"host": _HOST, "port": _PORT, "timeout": 5.0, "token": _TOKEN})
     except (ConnectionError, drv.MesospimError) as exc:
-        pytest.skip(f"no live mesoSPIM command server at {_HOST}:{_PORT} ({exc})")
+        pytest.skip(f"no live mesoSPIM Remote Control server at {_HOST}:{_PORT} ({exc})")
     try:
         yield client
     finally:
@@ -68,33 +69,39 @@ def wide_limits():
     limits.clear_stage_limits()
 
 
-def test_handshake_reports_protocol_and_app(live_client):
+def test_greeting_reports_protocol_and_app(live_client):
     info = live_client.server_info
     assert info.get("app") == "mesoSPIM-control"
     assert int(info.get("protocol")) == PROTOCOL_VERSION
 
 
 def test_get_config_has_lasers_and_camera(live_client):
-    """Validates the config attribute-name bindings against the live Core."""
+    """Validates the config document against the live Core."""
     cfg = drv.get_config(live_client)
-    assert cfg.get("lasers"), "no lasers reported -- check laserdict binding"
-    assert cfg.get("filters"), "no filters reported -- check filterdict binding"
+    assert cfg.get("lasers"), "no lasers reported"
+    assert cfg.get("filters"), "no filters reported"
     cam = cfg.get("camera") or {}
     assert int(cam.get("pixels_x", 0)) > 0 and int(cam.get("pixels_y", 0)) > 0
-    # zoom pixel sizes come from the separate `pixelsize` dict, not zoomdict.
     for zoom in cfg.get("zooms", []):
         assert "pixel_size_um" in zoom
 
 
-def test_get_state_has_position_and_settings(live_client):
+def test_get_limits_reports_an_envelope_for_every_axis(live_client):
+    enforced = drv.get_limits(live_client)["enforced"]["axes"]
+    for axis in ("x", "y", "z", "f", "theta"):
+        assert enforced.get(axis), f"no enforced limit for {axis!r}"
+
+
+def test_get_state_has_run_state_position_and_settings(live_client):
     state = drv.get_state(live_client)
+    assert state.get("state") is not None, "run state should be readable over Remote Control"
     pos = state.get("position") or {}
     for axis in ("x", "y", "z", "f", "theta"):
         assert axis in pos, f"position missing axis {axis!r}"
 
 
-def test_move_absolute_confirms_without_moving(live_client, wide_limits):
-    """Exercise the move+confirm plumbing with zero net motion (stage-safe)."""
+def test_move_absolute_completes_without_moving(live_client, wide_limits):
+    """Exercise the move + operation polling + confirm plumbing with zero net motion."""
     from mesospim import commands as cmd
 
     pos = drv.get_positions(live_client)
@@ -102,6 +109,7 @@ def test_move_absolute_confirms_without_moving(live_client, wide_limits):
     assert targets, "could not read a linear position to re-target"
     result = cmd.move_absolute(live_client, targets)
     assert result["success"], result["message"]
+    assert result["data"]["operation"]["status"] == "completed"
 
 
 @pytest.mark.skipif(

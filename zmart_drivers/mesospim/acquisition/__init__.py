@@ -7,7 +7,7 @@ from .product import (
     ChannelMetadata,
     SavedAcquisition,
 )
-from .save import canonical_stem, save
+from .save import canonical_stem, data_dir, metadata_dir, save, state_dir, vendor_dir
 
 __all__ = [
     "acquire",
@@ -16,6 +16,10 @@ __all__ = [
     "build_acquisition",
     "save",
     "canonical_stem",
+    "data_dir",
+    "metadata_dir",
+    "state_dir",
+    "vendor_dir",
     "AcquisitionResult",
     "AcquisitionMetadata",
     "ChannelMetadata",

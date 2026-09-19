@@ -1,14 +1,15 @@
 # Driving mesoSPIM from Python — workflow manual
 
 This is the end-to-end manual for controlling a **mesoSPIM** light-sheet microscope
-from an external process (a script, a notebook, or a ZMART workflow), using the
-**Remote Scripting** bridge plus the ZMART mesoSPIM driver and controller adapter.
+from an external process (a script, a notebook, or a ZMART workflow), using
+mesoSPIM's **Remote Control** server plus the ZMART mesoSPIM driver and controller
+adapter.
 
 You get two levels of API:
 
 - **Neutral controller** (`zmart_controller`) — the vendor-agnostic surface a
   workflow uses (`get_xyz` / `set_xyz` / `get_state` / `acquire` …). **Use this by
-  default** — the same code drives Leica/Zeiss/mesoSPIM.
+  default** — the same code drives Leica/Zeiss/Nikon/mesoSPIM.
 - **Flat driver** (`import mesospim`) — the mesoSPIM-specific API (every laser/ETL
   knob, `run_acquisition_list`, …) for anything the neutral surface doesn't cover.
 
@@ -17,36 +18,34 @@ You get two levels of API:
         │  import zmart_controller           ← neutral, vendor-agnostic
         ▼
   mesospim_zmart_adapter  ─ import mesospim  ← the mesoSPIM driver (MIT)
-        │  inject Python script over TCP (length-framed, token-gated)
+        │  named JSON calls over TCP (length-framed, password-gated)
         ▼
-  mesoSPIM-control  ── Tools → Remote Scripting server (GPL, the pull_request/ PR)
-        │  Core.execute_script(script)   (self == Core)
+  mesoSPIM-control  ── Remote Control tab → TCP server (GPL; pull request #106)
+        │  validates, admits one change at a time, calls the Core
         ▼
   the microscope (or the -D demo backends)
 ```
 
 The socket is the license boundary: your client stays **MIT**, mesoSPIM stays
-**GPL**, and the only vocabulary on the wire is "here is some Python, here is its
-console output."
+**GPL**, and the only vocabulary on the wire is a fixed list of named calls the
+server validates itself.
 
 ---
 
-## 1. Prepare mesoSPIM-control (one time) — apply the PR
+## 1. Prepare mesoSPIM-control (one time)
 
-The Remote Scripting server is a small upstream patch (see [`pull_request/`](pull_request/)).
-Apply it to your mesoSPIM-control checkout:
+Remote Control is part of mesoSPIM-control from
+[pull request #106](https://github.com/mesoSPIM/mesoSPIM-control/pull/106). Until it
+is merged, run its branch:
 
 ```bash
-# on the v1.20.0 release tag (the patch's base):
-git checkout -b remote-scripting v1.20.0
-git am pull_request/0001-Add-optional-remote-scripting-server-Tools-Remote-Sc.patch
-
-# on a newer branch (e.g. release/candidate-py312) — 3-way, one trivial conflict:
-git apply --3way pull_request/0001-Add-optional-remote-scripting-server-Tools-Remote-Sc.patch
-#   → keep BOTH sides of the one MainWindow signal-connection conflict.
+git clone https://github.com/thomdehoog/mesoSPIM-control
+cd mesoSPIM-control
+git checkout remote-control-py312
 ```
 
-Validated end to end on **both** v1.20.0 and `release/candidate-py312`.
+Once the pull request is merged, any mesoSPIM-control that carries the **Remote
+Control** tab will do; nothing on the ZMART side changes.
 
 ## 2. Point at the driver
 
@@ -62,28 +61,29 @@ sys.path.insert(0, r"…/ZMART-microscopy/zmart_drivers")   # for `import mesosp
 Importing the driver self-registers it with the controller:
 
 ```python
-import mesospim   # registers instrument (vendor=mesospim, api=remote-scripting)
+import mesospim   # registers instrument (vendor=mesospim, api=remote-control)
 ```
 
-## 3. Start the Remote Scripting server
+## 3. Start the Remote Control server
 
-**Secure by default.** The server is **OFF** until an operator starts it, and when
-started it is **token-gated** — do not run it open on anything but localhost.
+**Off until you start it.** The server is **OFF** until an operator starts it, and it
+always asks for a password.
 
 ### Operator (GUI)
-In mesoSPIM: **Tools → Remote Scripting…**. The dialog pre-fills a fresh **token**
-(keep it — copy it to your client) and binds `127.0.0.1:42000`. Click **Start**.
-(Binding to a non-localhost host with no token is refused with a warning.)
+In mesoSPIM: open the **Remote Control** tab. Choose **TCP**, keep host `127.0.0.1`
+and port `42000`, set a password (the pre-filled `smart_mesospim` is public and is
+only accepted on the local machine), and click **Start**. The tab shows the address
+once the server is listening.
 
 ### Headless / CI / the `-D` demo
-Use the bundled launcher, which boots the demo offscreen and starts the server with
-a token you choose:
+Use the bundled launcher, which boots the demo offscreen and starts the TCP
+transport with a password you choose:
 
 ```powershell
-$env:MESOSPIM_CONTROL_ROOT = "…/mesoSPIM-control"   # a checkout with the PR applied
-$env:MESOSPIM_TOKEN        = "choose-a-token"
+$env:MESOSPIM_CONTROL_ROOT = "…/mesoSPIM-control"   # a checkout that carries Remote Control
+$env:MESOSPIM_TOKEN        = "choose-a-password"
 python zmart_drivers/mesospim/tests/hardware/launch_demo_server.py
-# → prints:  LISTENING 127.0.0.1:42000 token=choose-a-token
+# → prints:  LISTENING 127.0.0.1:42000 token=choose-a-password
 ```
 
 ## 4. Drive the microscope — neutral controller (recommended)
@@ -93,30 +93,32 @@ import zmart_controller
 import mesospim   # registers the instrument at import
 
 sess = zmart_controller.set_instrument({
-    "vendor": "mesospim", "microscope": "mesospim-01", "api": "remote-scripting",
-    "host": "127.0.0.1", "port": 42000, "token": "choose-a-token",   # omit if open
+    "vendor": "mesospim", "microscope": "mesospim-01", "api": "remote-control",
+    "host": "127.0.0.1", "port": 42000, "token": "choose-a-password",   # token None = the local default
 })
 
-sess.get_info()                # identity, initial positions, focus/rotation, output_root
+sess.get_info()                # identity, initial positions, focus/rotation, limits, canvas, output_root
 sess.get_actuators()           # {'x': ['motoric'], 'y': [...], 'z': [...]}
 sess.get_xyz()                 # {'x': {'value','actuator','unit'}, ...} — µm from origin
 sess.get_state()               # {'changeable': {laser,intensity,filter,zoom,shutter,etl_*}, 'observed': {...}}
-sess.get_acquisition_options() # {format, planes, z_step, zoom, shutterconfig, backlash_correction}
+sess.get_acquisition_options() # {format, planes, z_step, z_start, z_end, zoom, shutterconfig, backlash_correction}
 
 # Frame origin: set the current stage position as (0,0,0), then move in µm from it.
 sess.set_origin()              # persisted machine-locally; restored on reconnect
-sess.set_xyz(50, 0, 10)        # move to x=50 µm, y=0, z=10 (relative to origin)
+sess.set_xyz(50, 0, 10)        # move to x=50 µm, y=0, z=10 (relative to origin); returns once the stage is there
 
-# Change light-path settings (the 'changeable' block):
-sess.set_state({"laser": "488 nm", "intensity": 20, "filter": "Empty", "zoom": "1x"})
+# Change light-path settings (the 'changeable' block); names must be the configured ones (see get_state()['observed']):
+sess.set_state({"changeable": {"laser": "488 nm", "intensity": 20, "filter": "515/30", "zoom": "1x"}})
 
-# Focus / rotation / autofocus etc. are exposed as procedures:
-sess.get_procedures()                       # move_focus, move_rotation, zero_stage, ...
+# Focus / rotation, mesoSPIM's own buttons, and stop are procedures:
+sess.get_procedures()                       # move_focus, move_rotation, zero_stage, load_sample, unload_sample, center_sample, stop
 sess.run_procedure({"name": "move_focus", "value": 5100.0})
+sess.run_procedure({"name": "load_sample"})
 
-# Acquire one frame at a labelled position; returns the written files.
+# Acquire one frame at a labelled position; returns the written files and where each plane was taken.
 r = sess.acquire("snap", "A1", options={"format": "ome-tiff"})
-#   → {'image_files': [...snap_A1.tiff], 'metadata_file': [...snap_A1.json], 'planes': 1, ...}
+#   → {'images': [...data/snap_A1.tiff], 'planes': [{'z': 0, 'path': ..., 'x_um': ..., 'z_um': ...}],
+#      'metadata': [...data/metadata/ZMART_state/snap_A1_ZMART_state.json, ...vendor/mesospim/snap_A1_meta.txt], ...}
 
 sess.disconnect()
 ```
@@ -125,59 +127,66 @@ sess.disconnect()
 
 ```python
 import mesospim as drv
-c = drv.connect({"host": "127.0.0.1", "port": 42000, "token": "choose-a-token"})
+c = drv.connect({"host": "127.0.0.1", "port": 42000, "token": "choose-a-password"})
 
 drv.get_config(c)      # lasers / filters / zooms / camera / app / version
+drv.get_limits(c)      # what the server lets a move reach
 drv.get_positions(c)   # {x,y,z,f,theta}
-drv.set_filter(c, "Empty"); drv.set_zoom(c, "1x"); drv.set_intensity(c, 20)
+drv.set_filter(c, "515/30"); drv.set_zoom(c, "1x"); drv.set_intensity(c, 20)
 
 # Moves are FAIL-CLOSED on the flat API: configure the stage envelope first
 # (the controller path in §4 does this for you at connect):
 drv.set_stage_limits(x=(0, 25000), y=(0, 25000), z=(0, 25000), f=(0, 25000), theta=(-360, 360))
-drv.move_absolute(c, {"x": 50.0, "z": 10.0})          # µm
+drv.move_absolute(c, {"x": 50.0, "z": 10.0})          # µm; returns once the stage is there
 
 result = drv.acquire(c, "snap", options={"folder": r"D:\out", "filename": "snap.tiff", "planes": 1})
-saved  = drv.save(result, r"D:\out\run", position_label="A1")   # relocate + JSON sidecar
+saved  = drv.save(result, r"D:\out\run", position_label="A1")   # relocate + print the state
 drv.close(c)
 ```
 
 ## 5. Key behaviours & gotchas
 
-- **Run-state is not observable.** Every read runs inside `Core.execute_script`,
-  which reports `'running_script'` for the read's duration. So `get_state()['state']`
-  and `get_progress()['state']` are `None` (unknown), and there is no `is_idle`.
-  **Judge acquisition completion from the file on disk**, not from state — the driver
-  already does this (it polls until the frame file's size stops growing).
-- **Position/settings ARE truthful** — only the run-state string is masked.
-- **One client at a time.** A new connection preempts a stale one. A dropped or
-  crashed client can neither wedge nor crash mesoSPIM (teardown is guarded).
-- **The GUI blocks while a script runs** (it runs on the Core thread). The driver
-  keeps every injected script short and polls between them — don't inject a long
-  `sleep`.
-- **Token.** Plain TCP: the token gates casual LAN access, it is **not** sniffer-proof.
-  On untrusted networks, tunnel it (SSH/VPN).
+- **Accepted is not finished.** A change is accepted first and finishes later. The
+  driver polls the operation for you, so every call returns once mesoSPIM reports
+  it done — a move once the stage reads back at the target.
+- **One change at a time.** A second change while one runs is refused (`busy`);
+  reads and `stop` still work. Work started in the GUI counts too.
+- **Never re-send an accepted change.** If a wait runs out the driver raises and
+  names the operation; check `get_progress` (`drv.get_progress(c)`) before deciding.
+- **Names must be the configured ones.** Filter, zoom, laser and shutter names are
+  validated by the server against the mesoSPIM configuration; read `get_config`
+  (or `get_state()['observed']`) and pass those names back.
+- **Limits, twice.** The driver refuses a move outside its envelope; the server
+  refuses one outside mesoSPIM's own. Either refusal is `success=False` with the
+  reason; nothing moves.
+- **Password.** Plain TCP: it gates casual LAN access, it is **not** sniffer-proof.
+  On untrusted networks, tunnel it (SSH/VPN). The default password only works on
+  the local machine.
 - **Backlash take-up** on `acquire` is best-effort: it is skipped (with a warning) if
   the take-up move would leave the stage envelope — e.g. exactly at the lower limit.
 
 ## 6. Test it
 
 ```powershell
-# offline (no mesoSPIM, no hardware) — mock server exercises the real scripts:
-python zmart_drivers/mesospim/run_ci.py offline          # 130 tests
+# offline (no mesoSPIM, no hardware) — the mock server validates, gates and polls like the real one:
+python zmart_drivers/mesospim/run_ci.py offline
 
 # online (needs a live server from §3) — driver + adapter round-trip incl. acquire:
-$env:MESOSPIM_TOKEN = "choose-a-token"; $env:MESOSPIM_ALLOW_ACQUIRE = "1"
-python zmart_drivers/mesospim/run_ci.py online           # 11 tests
+$env:MESOSPIM_TOKEN = "choose-a-password"; $env:MESOSPIM_ALLOW_ACQUIRE = "1"
+python zmart_drivers/mesospim/run_ci.py online
 ```
 
 ## 7. Troubleshooting
 
 | Symptom | Cause / fix |
 |---|---|
-| `authentication failed (server said 'AUTH-FAILED')` | Wrong/missing token. Use the exact token the server printed / the dialog shows. |
-| Every integration test **skips** | Nothing is listening on `MESOSPIM_HOST:PORT` — start the server (§3). |
+| `the Remote Control password was refused` | Wrong/missing password. Use the one entered in mesoSPIM's Remote Control tab; unset means `smart_mesospim`, which only works on the local machine. |
+| `cannot reach the mesoSPIM Remote Control server` / every integration test **skips** | Nothing is listening on `MESOSPIM_HOST:PORT` — start the TCP transport in the Remote Control tab (§3). |
 | `move_*` returns `success=False`, "outside limits" | Flat API is fail-closed — call `set_stage_limits(...)` first (the controller does this automatically). |
-| `acquire(...) did not produce a stable stack` | The run never wrote a file — check the `folder`/`filename` and that the writer is enabled; on real hardware confirm `start(row=…)` is the right entry point for your build. |
+| `success=False`, "server rejected: … outside the allowed range" | The server's own envelope (mesoSPIM's `stage_parameters`) is tighter than yours; `get_limits` shows it. |
+| `success=False`, "busy: …" | Another change is still running (yours, or one started in the GUI). Wait for it, or `stop`. |
+| `TimeoutError: … poll get_progress` | mesoSPIM never reported the change finished. Look at `get_progress` and at the mesoSPIM window (a warning dialog?) before sending it again. |
+| `acquire(...): mesoSPIM reported the run finished but the stack is not complete on disk` | The writer wrote nowhere — check `folder`/`filename` and that the image writer plugin is enabled. |
 | Headless launcher hangs "Installing torch …" | A newer mesoSPIM's ImageProcessor plugins pip-install torch at import; the bundled launcher already neutralises this — make sure you're running the committed `launch_demo_server.py`. |
 
 ---

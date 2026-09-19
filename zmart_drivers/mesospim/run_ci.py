@@ -5,10 +5,10 @@ One command runs the driver's quality gate anywhere Python and the driver import
 work (a laptop, a CI runner, the mesoSPIM PC)::
 
     python run_ci.py             # OFFLINE (default): env header + lint + offline suite + coverage
-                                 #   + the headless Qt validator of the resident server (if PyQt5 is present)
     python run_ci.py online      # ONLINE:  the live round-trip vs a running mesoSPIM -D demo (needs the
-                                 #   command server listening on MESOSPIM_HOST/PORT; set MESOSPIM_ALLOW_ACQUIRE=1
-                                 #   to also exercise the capture path)
+                                 #   Remote Control TCP transport listening on MESOSPIM_HOST/PORT with the
+                                 #   password in MESOSPIM_TOKEN; set MESOSPIM_ALLOW_ACQUIRE=1 to also
+                                 #   exercise the capture path)
     python run_ci.py both        # BOTH:    the offline gate followed by the live round-trip
     python run_ci.py --no-lint   # skip ruff (add to any mode)
     python run_ci.py --no-cov    # skip coverage (faster; no pytest-cov needed)
@@ -19,8 +19,8 @@ Design (matching the sibling drivers' run_ci.py):
   * Diagnosable across systems -- an environment header opens the run and
     machine-readable reports land in tests/_report/ (env.json, junit.xml,
     coverage.xml, htmlcov/, ci_summary.json).
-  * Honest exit code -- lint and the (optional) headless validator are reported but
-    the exit code is driven by the test suites; a fatal step failing fails the run.
+  * Honest exit code -- lint is reported but the exit code is driven by the test
+    suites; a fatal step failing fails the run.
 
 Paths resolve from this file, not the working directory -- run it from anywhere.
 
@@ -159,8 +159,8 @@ def main() -> int:
         default="offline",
         help=(
             "which suite to run (default: offline). 'offline' -- no mesoSPIM, no hardware "
-            "(mock command server + the headless Qt validator); 'online' -- the live round-trip "
-            "vs a running mesoSPIM -D demo (needs the command server on MESOSPIM_HOST/PORT); "
+            "(mock Remote Control server); 'online' -- the live round-trip vs a running "
+            "mesoSPIM -D demo (needs the Remote Control TCP transport on MESOSPIM_HOST/PORT); "
             "'both' -- offline then online."
         ),
     )
@@ -194,7 +194,7 @@ def main() -> int:
         else:
             print("\n  (ruff not installed -- skipping lint; `pip install ruff` to enable)")
 
-    # --- OFFLINE: mock-server suite (+coverage) and the headless Qt validator -
+    # --- OFFLINE: mock-server suite (+coverage) -----------------------------
     if run_offline:
         pytest_cmd = [
             sys.executable,
@@ -225,8 +225,8 @@ def main() -> int:
     # --- ONLINE: live round-trip vs a running mesoSPIM -D demo ----------------
     # The integration suite connects to MESOSPIM_HOST/PORT (default 127.0.0.1:42000)
     # and SKIPS cleanly if nothing is listening, so this is safe to run anywhere;
-    # a real check needs the -D demo + command server up. Capture is opt-in via
-    # MESOSPIM_ALLOW_ACQUIRE=1.
+    # a real check needs the -D demo with its Remote Control TCP transport up.
+    # Capture is opt-in via MESOSPIM_ALLOW_ACQUIRE=1.
     if run_online:
         host = env.get("MESOSPIM_HOST", "127.0.0.1")
         port = env.get("MESOSPIM_PORT", "42000")

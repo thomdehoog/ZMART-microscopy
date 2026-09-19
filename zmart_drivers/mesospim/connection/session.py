@@ -2,13 +2,13 @@
 Session lifecycle: connect / close.
 ===================================
 The outer connect wrapper (mesoSPIM analog of the Leica
-``connect_python_client`` and the ZEN ``connect``): resolve host/port from the
-connection dict and/or the connection profile, build a :class:`MesospimClient`,
-perform the ``hello`` handshake, and verify the link with a ``ping`` before
-handing the client back.
+``connect_python_client`` and the ZEN ``connect``): resolve host, port and
+password from the connection dict and/or the connection profile, build a
+:class:`MesospimClient`, send the password, read the ``hello`` greeting, and
+verify the link with a ``ping`` before handing the client back.
 
 Connection parameters come from the ``connection`` dict the ZMART controller
-forwards (``host`` / ``port`` / ``timeout``), falling back to
+forwards (``host`` / ``port`` / ``timeout`` / ``token``), falling back to
 ``config.profiles.CONNECTION`` -- no connection tuning in notebooks or workflows.
 
 Author: Thom de Hoog (ZMB, University of Zurich)
@@ -36,21 +36,24 @@ def connect(
     timeout: float | None = None,
     token: str | None = None,
 ) -> MesospimClient:
-    """Connect to a running mesoSPIM command server.
+    """Connect to a running mesoSPIM Remote Control server.
 
     Args:
         connection: the ZMART controller connection dict; ``host`` / ``port`` /
-            ``timeout`` are read from it when present. Explicit keyword
-            overrides win over the dict, which wins over the profile default.
-        host, port, timeout: explicit overrides.
+            ``timeout`` / ``token`` are read from it when present. Explicit
+            keyword overrides win over the dict, which wins over the profile.
+        host, port, timeout, token: explicit overrides. ``token`` is the
+            Remote Control password; without one the driver uses mesoSPIM's
+            public placeholder, which the server only accepts on the local
+            machine.
 
     Returns:
         A connected, ping-verified :class:`MesospimClient`.
 
     Raises:
         ConnectionError: the socket could not open or the ping failed.
-        MesospimError: the ``hello`` handshake was refused or the server speaks
-            an incompatible protocol version.
+        MesospimError: the password was refused, or the server speaks a
+            protocol version this driver does not know.
     """
     connection = connection or {}
     resolved_host = host or connection.get("host") or CONNECTION.host

@@ -2,14 +2,19 @@
 Instrument-state command wrappers.
 ==================================
 Public write commands for instrument state: filter, zoom, laser, intensity,
-shutter, and ETL settings, applied via the server's ``sig_state_request``. Each
-follows the three-phase pattern shared across the driver:
+shutter, and ETL settings, applied through the server's ``set_state`` call.
+Each follows the three-phase pattern shared across the driver:
 
     Phase A -- pre-checks: validate values.
-    Phase B -- backbone: build a ``fire_fn`` (sends one protocol request) and a
-        target-bound ``confirm_fn`` (reads state back with the freshness gate),
-        then call ``confirm_and_fire``.
+    Phase B -- backbone: build a ``fire_fn`` (one Remote Control call, waited
+        on until mesoSPIM reports it applied) and a target-bound
+        ``confirm_fn`` (reads state back with the freshness gate), then call
+        ``confirm_and_fire``.
     Phase C -- the standard result envelope is returned as-is.
+
+The server checks every setting itself before it applies anything: a filter,
+zoom, laser or shutter name must be one the microscope is configured with,
+and every number must be inside the range mesoSPIM's own controls allow.
 
 Sibling: stage movement lives in :mod:`mesospim.commands.movement`; acquisition
 (snap / run list) lives in :mod:`mesospim.acquisition`. These wrappers cover
@@ -27,8 +32,8 @@ from functools import partial
 
 from ..config.profiles import SET_STATE
 from ..readers.readers import _reading_value_after, get_state
-from .envelope import _fail
 from .dispatch import confirm_and_fire
+from .envelope import _fail
 
 log = logging.getLogger(__name__)
 
@@ -56,7 +61,7 @@ def _confirm_state_keys(client, wanted, *, observed_after):
 
 
 # =============================================================================
-# Instrument-state settings (via sig_state_request on the server)
+# Instrument-state settings (the server's set_state call)
 # =============================================================================
 
 
@@ -65,8 +70,9 @@ def set_state(client, settings: dict) -> dict:
 
     ``settings`` keys are mesoSPIM state keys (``filter``, ``zoom``, ``laser``,
     ``intensity``, ``shutterconfig``, ``etl_l_amplitude``, ...). The server
-    applies them via ``sig_state_request_and_wait_until_done``; confirmation
-    reads the same keys back.
+    validates each one against the microscope's configuration, applies them
+    through the Core's state handler, and reports the operation finished;
+    confirmation then reads the same keys back.
     """
     if not settings:
         return _fail("set_state", "no settings given")
@@ -75,7 +81,7 @@ def set_state(client, settings: dict) -> dict:
         client,
         label,
         SET_STATE,
-        fire_fn=lambda: client.request("set_state", settings=dict(settings)),
+        fire_fn=lambda: client.perform("set_state", settings=dict(settings)),
         confirm_fn=partial(_confirm_state_keys, wanted=dict(settings)),
     )
 

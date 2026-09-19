@@ -15,13 +15,14 @@ def test_ping_false_after_close(client):
     assert readers.ping(client) is False
 
 
-def test_get_state_has_position_and_settings(client):
+def test_get_state_has_run_state_position_and_settings(client):
     state = readers.get_state(client)
-    # Run-state is not observable over the bridge (every read runs inside
-    # execute_script, which reports 'running_script'), so it is reported as None.
-    assert state["state"] is None
+    # Over Remote Control the run state is read truthfully (the old
+    # script-injection bridge could not see it).
+    assert state["state"] == "idle"
     assert set(state["position"]) == {"x", "y", "z", "f", "theta"}
     assert state["laser"] == "488 nm"
+    assert state["etl_l_amplitude"] == 1.0
 
 
 def test_get_positions_all_axes(client):
@@ -44,14 +45,28 @@ def test_get_config_lists(client):
     assert readers.get_lasers(client)
     assert "515/30" in readers.get_filters(client)
     assert any(z["name"] == "1x" for z in readers.get_zooms(client))
+    assert cfg["camera"] == {"pixels_x": 64, "pixels_y": 64}
 
 
-def test_get_progress(client):
+def test_get_limits_reports_the_enforced_envelope(client):
+    limits = readers.get_limits(client)
+    assert limits["stage"]["stage_type"] == "DemoStage"
+    assert limits["enforced"]["axes"]["x"] == [-50000.0, 50000.0]
+    assert limits["enforced"]["axis_offsets"]["x"] == 0.0
+
+
+def test_get_info_reports_identity_and_operation(client):
+    info = readers.get_info(client)
+    assert info["app"] == "mesoSPIM-control" and info["protocol"] == 1
+    assert info["operation"] == {"status": "idle"}
+
+
+def test_get_progress_carries_the_latest_operation(client):
     prog = readers.get_progress(client)
-    # Progress counts are read truthfully; the run-state field is unobservable
-    # over the bridge and is reported as None (see get_state).
     assert "current_plane" in prog
-    assert prog["state"] is None
+    assert prog["operation"] == {"status": "idle"}
+    client.perform("zero", axes=["x"])
+    assert readers.get_progress(client)["operation"]["command"] == "zero"
 
 
 def test_diagnostics_returns_reading(client):

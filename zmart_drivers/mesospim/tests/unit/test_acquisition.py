@@ -55,10 +55,18 @@ def test_save_single_frame(client, tmp_path):
     img = saved.image_paths[0]
     assert img.exists() and img.parent.name == "data"
     assert "A1" in img.name
-    # sidecar metadata
-    assert saved.metadata_path.exists()
-    payload = json.loads(saved.metadata_path.read_text())
+    # ZMART's own account of the capture, printed under data/metadata/ZMART_state.
+    assert saved.state_path.exists()
+    assert saved.state_path.parent.name == "ZMART_state"
+    assert saved.state_path.parent.parent.name == "metadata"
+    assert saved.state_path.parent.parent.parent == img.parent
+    payload = json.loads(saved.state_path.read_text())
     assert payload["position_label"] == "A1"
+    assert payload["images"] == [img.name]
+    # The writer's own notes sit beside it, under metadata/vendor/mesospim.
+    assert len(saved.vendor_metadata_paths) == 1
+    assert saved.vendor_metadata_paths[0].parent.name == "mesospim"
+    assert saved.vendor_metadata_paths[0].name.endswith("_meta.txt")
     # the frame is a readable TIFF
     assert tifffile.imread(str(img)).shape == (64, 64)
 
@@ -151,13 +159,13 @@ def test_save_same_label_gets_unique_stem(tmp_path):
     s1 = acq.save(_result_from([frame]), tmp_path / "run", position_label="A1")
     s2 = acq.save(_result_from([frame]), tmp_path / "run", position_label="A1")
     assert s1.image_paths[0] != s2.image_paths[0]
-    assert s1.metadata_path != s2.metadata_path
+    assert s1.state_path != s2.state_path
     assert s1.image_paths[0].exists() and s2.image_paths[0].exists()
 
 
 def test_acquire_no_frames_raises(client, monkeypatch):
     # Force the server reply to carry no files.
-    real = client.request
+    real = client.perform
 
     def fake(cmd, **args):
         reply = real(cmd, **args)
@@ -165,9 +173,16 @@ def test_acquire_no_frames_raises(client, monkeypatch):
             object.__setattr__(reply, "data", {"files": [], "planes": 0})
         return reply
 
-    monkeypatch.setattr(client, "request", fake)
+    monkeypatch.setattr(client, "perform", fake)
     with pytest.raises(RuntimeError):
         acq.acquire(client, "snap")
+
+
+def test_save_passes_state_through(client, tmp_path):
+    result = acq.snap(client)
+    saved = acq.save(result, tmp_path / "run", position_label="A1", state={"laser": "488 nm"})
+    payload = json.loads(saved.state_path.read_text())
+    assert payload["state"] == {"laser": "488 nm"}
 
 
 def test_acquire_restores_operator_acq_list(client, server):
@@ -178,19 +193,14 @@ def test_acquire_restores_operator_acq_list(client, server):
 
 
 def test_acquire_timeout_raises_and_restores(client, server, monkeypatch):
-    # A run that never writes its stack must FAIL loudly at the acquisition
-    # deadline -- never report success with paths to files that do not exist --
-    # and must still hand the operator's acquisition list back. Completion is
-    # judged from the file on disk (state is unusable over the bridge -- it always
-    # reads 'running_script'), so "never finishes" here means "never writes".
+    # A run mesoSPIM never reports finished must FAIL loudly at the acquisition
+    # deadline -- never report success -- and must still hand the operator's
+    # acquisition list back.
     from dataclasses import replace
 
     from mesospim.acquisition import capture
 
-    def never_writes(row=0):
-        pass  # fire the run but never produce the stack file
-
-    monkeypatch.setattr(server.core, "start", never_writes)
+    server.stall.add("acquire_start")
     monkeypatch.setattr(
         capture,
         "ACQUISITION",
@@ -198,9 +208,49 @@ def test_acquire_timeout_raises_and_restores(client, server, monkeypatch):
     )
     sentinel = ["operator-list"]
     server.core.state["acq_list"] = sentinel
-    with pytest.raises(RuntimeError, match="did not produce a stable stack"):
+    with pytest.raises(TimeoutError, match="acquire_start"):
+        acq.acquire(client, "snap")
+    # The driver asked for the list back; the server refuses while the run
+    # still holds its one-change gate (busy), exactly as the real one would.
+    assert [n for n, _ in server.calls].count("acquire_start") == 1
+    assert "acquire_finish" in [n for n, _ in server.calls]
+
+
+def test_acquire_failed_run_raises_and_restores(client, server, monkeypatch):
+    # A run the server accepts but that fails on the microscope side comes
+    # back as a failed operation: reported, list restored.
+    def refuses(row=0):
+        raise RuntimeError("Core rejected the acquisition during preflight: no disk")
+
+    monkeypatch.setattr(server.core, "start", refuses)
+    sentinel = ["operator-list"]
+    server.core.state["acq_list"] = sentinel
+    with pytest.raises(RuntimeError, match="preflight"):
         acq.acquire(client, "snap")
     assert server.core.state["acq_list"] is sentinel
+
+
+def test_acquire_never_written_stack_raises(client, server, monkeypatch):
+    # mesoSPIM says finished but the writer left no file: fail, never pretend.
+    from dataclasses import replace
+
+    from mesospim.acquisition import capture
+
+    monkeypatch.setattr(server.core, "start", lambda row=0: None)
+    monkeypatch.setattr(
+        capture,
+        "ACQUISITION",
+        replace(capture.ACQUISITION, file_settle_timeout_s=0.2, acquire_poll_s=0.02),
+    )
+    with pytest.raises(RuntimeError, match="not complete on disk"):
+        acq.acquire(client, "snap")
+
+
+def test_acquire_sends_no_null_fields(client, server):
+    # The server refuses a field set to null; the driver leaves those out.
+    acq.snap(client)
+    sent = next(args for name, args in server.calls if name == "acquire_start")
+    assert None not in sent["acquisition"].values()
 
 
 def test_run_acquisition_list(client):

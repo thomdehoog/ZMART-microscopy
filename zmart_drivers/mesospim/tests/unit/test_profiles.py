@@ -30,4 +30,4 @@ def test_hardware_model_present():
 def test_acquisition_formats_and_procedures():
     assert "ome-tiff" in profiles.ACQUISITION.formats
     names = [n for n, _d in profiles.ACQUISITION.procedures]
-    assert "autofocus" in names
+    assert "load_sample" in names and "zero_stage" in names

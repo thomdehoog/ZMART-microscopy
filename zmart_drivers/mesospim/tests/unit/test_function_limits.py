@@ -9,7 +9,6 @@ semantics, and the provenance record.
 import json
 
 import pytest
-
 from mesospim.limits import (
     FunctionLimits,
     LimitsError,

@@ -1,15 +1,15 @@
 """
 State readers.
 ==============
-Read-only queries against the mesoSPIM command server. Every reader maps to one
-protocol ``get_*`` request and parses the reply's ``data`` into a plain value or
-dict; none of them mutate instrument state.
+Read-only questions to the mesoSPIM Remote Control server. Every reader maps
+to one ``get_*`` call and turns the reply into a plain value or dict; none of
+them change anything on the microscope.
 
 Values are source-tagged with a :class:`Reading` when ``diagnostics=True`` so the
 confirmation layer can apply its freshness gate (a readback taken before a
 command fired can never confirm it). Plain reads return the bare value.
 
-mesoSPIM has a single evidence source -- the command server reading the
+mesoSPIM has a single evidence source -- the Remote Control server reading the
 process-wide ``mesoSPIM_StateSingleton`` -- so ``source`` is always ``"server"``
 today. The field is kept so a second source (e.g. a direct stage poll) can be
 added without changing the confirmation contract.
@@ -34,10 +34,10 @@ log = logging.getLogger(__name__)
 def _safe_float(val, default=None):
     """Convert val to float. Returns default on failure or None input.
 
-    Server replies are parsed text, so a field can arrive as a number, a
-    numeric string, or garbage; every reader funnels values through this one
-    forgiving conversion. The movement and acquisition modules import it from
-    here for the same reason.
+    Server replies are parsed JSON, but a field can still arrive as a number,
+    a numeric string, or be missing; every reader funnels values through this
+    one forgiving conversion. The movement and acquisition modules import it
+    from here for the same reason.
     """
     if val is None:
         return default
@@ -87,18 +87,6 @@ def _wrap(value: Any, diagnostics: bool):
     return Reading.now(value) if diagnostics else value
 
 
-# Over the Remote Scripting transport every read runs inside
-# ``mesoSPIM_Core.execute_script``, which sets ``state['state']='running_script'``
-# for the read's duration -- so the machine run-state is NOT observable here; it
-# always reads ``'running_script'``. Report it as ``None`` ("unknown") rather than
-# a misleading value. Position, settings and progress counts ARE read truthfully.
-_UNOBSERVABLE_RUN_STATE = "running_script"
-
-
-def _run_state(raw: Any) -> Any:
-    return None if raw == _UNOBSERVABLE_RUN_STATE else raw
-
-
 # -- connection health --------------------------------------------------------
 
 
@@ -115,19 +103,16 @@ def ping(client) -> bool:
 
 
 def get_state(client, *, diagnostics: bool = False) -> Reading | dict:
-    """Read the full instrument state dict.
+    """Read the instrument's main settings and where it is.
 
-    Keys: ``position`` (``{x,y,z,f,theta}``) and the current settings
-    (``filter``, ``zoom``, ``laser``, ``intensity``, ``shutterconfig``, the
-    ``etl_*`` block, ...), plus ``state``.
-
-    NOTE -- ``state`` (the mesoSPIM run-state string) is **not observable** over
-    this transport: every read runs inside ``Core.execute_script``, which reports
-    ``'running_script'`` for the read's duration, so ``state`` is returned as
-    ``None`` (unknown). Position and settings are read truthfully.
+    Keys: ``state`` (mesoSPIM's own run state: ``idle``, ``live``, a run
+    state, ...), ``position`` (``{x,y,z,f,theta}``) and the current settings
+    (``laser``, ``intensity``, ``filter``, ``zoom``, ``shutterconfig`` and the
+    four ``etl_*`` amplitude/offset values).
     """
     data = dict(client.request("get_state").data)
-    data["state"] = _run_state(data.get("state"))
+    pos = data.get("position") or {}
+    data["position"] = {axis: _safe_float(pos.get(axis)) for axis in AXES}
     return _wrap(data, diagnostics)
 
 
@@ -187,18 +172,40 @@ def get_zooms(client) -> list[dict]:
     return list(get_config(client).get("zooms", []))
 
 
+def get_limits(client, *, diagnostics: bool = False) -> Reading | dict:
+    """Read the limits the Remote Control server enforces before it moves anything.
+
+    Keys: ``stage`` (mesoSPIM's ``stage_parameters`` as configured),
+    ``camera``, ``startup`` and ``enforced`` -- whose ``axes`` map every axis to
+    the ``[low, high]`` range a move may use (um, or degrees for ``theta``),
+    ``axis_offsets`` say how far mesoSPIM's own zero has shifted each axis, and
+    ``parameters`` list the allowed range or options of every setting.
+    """
+    data = dict(client.request("get_limits").data)
+    return _wrap(data, diagnostics)
+
+
+def get_info(client, *, diagnostics: bool = False) -> Reading | dict:
+    """Read the server's own information page.
+
+    Keys: ``app``, ``version``, ``protocol``, ``state``, ``stage_type``,
+    ``save_path``, ``last_acquisition_path``, ``etl_config_path``, the latest
+    ``operation`` and any recent ``warnings`` mesoSPIM showed the operator.
+    """
+    data = dict(client.request("get_info").data)
+    return _wrap(data, diagnostics)
+
+
 # -- acquisition progress -----------------------------------------------------
 
 
 def get_progress(client, *, diagnostics: bool = False) -> Reading | dict:
-    """Read acquisition progress.
+    """Read acquisition progress and the latest operation.
 
-    Keys: ``current_plane``, ``total_planes``, ``current_acquisition``,
-    ``total_acquisitions``, and ``state`` -- which is ``None`` over this transport
-    (the run-state is not observable; see :func:`get_state`). Judge acquisition
-    completion from the frame files on disk, not ``state`` (see
-    ``acquisition.capture``).
+    Keys: ``state``, ``current_plane``, ``total_planes``,
+    ``current_acquisition``, ``total_acquisitions`` and ``operation`` (the
+    latest accepted change: its id, command, status and, once finished, its
+    result or error).
     """
     data = dict(client.request("get_progress").data)
-    data["state"] = _run_state(data.get("state"))
     return _wrap(data, diagnostics)
