@@ -84,6 +84,10 @@ class FakeScope:
         ]
     )
     czi_path: str | None = None
+    # When set, ``run_experiment`` writes a small CZI stand-in named after the
+    # experiment's output name into this folder (as ZEN writes its container
+    # into its image folder) and points ``czi_path`` at it.
+    czi_dir: str | None = None
     # status stream script the experiment stub replays; default = a clean run.
     status_script: list = field(
         default_factory=lambda: [running_status(), running_status(tiles_index=1), idle_status()]
@@ -165,6 +169,14 @@ class _FakeExperimentStub:
 
     async def run_experiment(self, req):
         self._s._maybe_raise("run_experiment")
+        if self._s.czi_dir:
+            import os
+
+            os.makedirs(self._s.czi_dir, exist_ok=True)
+            path = os.path.join(self._s.czi_dir, f"{req.output_name}.czi")
+            with open(path, "wb") as fh:
+                fh.write(b"CZI" + req.output_name.encode("utf-8"))
+            self._s.czi_path = path
         return _obj(output_name=req.output_name)
 
     async def get_image_output_path(self, req):

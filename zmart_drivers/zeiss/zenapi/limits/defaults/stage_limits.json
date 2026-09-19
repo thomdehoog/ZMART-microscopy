@@ -1,0 +1,9 @@
+{
+  "_comment": "The driver-bundled stage envelope, in micrometres, used when the machine has no copy of its own under <ZMART_MICROSCOPY_ROOT>/zeiss/<microscope>/stage_limits.json. It is a generous placeholder for a ZEN light microscope; record the real travel of your stage in the machine copy before driving a mounted sample.",
+  "source": "defaults",
+  "stage_um": {
+    "x": [-60000.0, 60000.0],
+    "y": [-45000.0, 45000.0],
+    "z": [0.0, 12000.0]
+  }
+}

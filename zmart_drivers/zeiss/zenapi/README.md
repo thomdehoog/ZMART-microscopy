@@ -9,8 +9,10 @@ thin 1–3-line invocation style used across the lab's drivers.
 
 - **Author:** Thom de Hoog (ZMB, University of Zurich) · thom.dehoog@zmb.uzh.ch · thomdehoog@gmail.com
 - **License:** MIT
-- **Status:** Minimum viable product (MVP). Core device control, acquisition, readers, and a full offline test suite are
-  implemented and green. Server-facing details are transcribed from the
+- **Status:** Minimum viable product (MVP), **plugged into `zmart_controller`**. Core device control,
+  acquisition, readers, the controller adapter (origin, envelope, moves, objective state, experiment
+  runs saved with their printed state) and a full offline test suite (64 tests) are implemented and
+  green. Server-facing details are transcribed from the
   [ZEISS OAD ZEN-API examples](https://github.com/zeiss-microscopy/OAD/tree/master/ZEN-API) and are
   **not yet validated against the `zen_api` wheel or a live gateway** — see [§10 Risks](#10-risks--bench-verify).
 
@@ -19,7 +21,7 @@ thin 1–3-line invocation style used across the lab's drivers.
 1. [About ZEN API](#1-about-zen-api)
 2. [Requirements & installation](#2-requirements--installation)
 3. [Configuration](#3-configuration)
-4. [Quick start](#4-quick-start)
+4. [Quick start](#4-quick-start) · [4b. Through the ZMART controller](#4b-through-the-zmart-controller)
 5. [Core concepts](#5-core-concepts)
 6. [API reference](#6-api-reference)
 7. [Architecture](#7-architecture)
@@ -110,18 +112,18 @@ client = drv.connect("config.ini")
 drv.apply_stage_limits_from_config(drv.load_stage_config("stage.json"))
 
 # 3. Drive the hardware — synchronous, micrometers.
-drv.move_xy(client, 1000, 2000)                      # µm
-drv.move_z(client, 50)                               # µm
+drv.move_xy(client, 1000, 2000)  # µm
+drv.move_z(client, 50)  # µm
 drv.set_objective(client, name="Plan-Apochromat 20x/0.8")
 
 # 4. Read state.
-print(drv.get_xy(client))                            # {'x_m':..,'y_m':..,'x_um':1000.0,'y_um':2000.0}
-print(drv.get_objective(client))                     # {'index':1,'name':...,'magnification':20}
+print(drv.get_xy(client))  # {'x_m':..,'y_m':..,'x_um':1000.0,'y_um':2000.0}
+print(drv.get_objective(client))  # {'index':1,'name':...,'magnification':20}
 
 # 5. Acquire and persist.
 exp = drv.load_experiment(client, "TileScan_10x")
-acq = drv.acquire(client, exp)                       # blocks until the acquisition completes
-saved = drv.save(client, acq, output_root, naming)   # copies the CZI into the output layout
+acq = drv.acquire(client, exp)  # blocks until the acquisition completes
+saved = drv.save(client, acq, output_root, naming)  # copies the CZI into the output layout
 
 # 6. (Optional) watch live progress.
 for status in drv.monitor(client, exp):
@@ -130,6 +132,66 @@ for status in drv.monitor(client, exp):
 # 7. Close (stops the background event loop).
 drv.close(client)
 ```
+
+## 4b. Through the ZMART controller
+
+The same microscope can be driven through ZMART's vendor-neutral surface, so a
+workflow written for the Leica, Nikon or mesoSPIM driver runs here unchanged.
+Importing `zenapi` registers the instrument; `zenapi_zmart_adapter.py` is the
+seam.
+
+```python
+import zmart_controller
+import zenapi  # registers (vendor=zeiss, microscope=zen-01, api=zen-api)
+
+sess = zmart_controller.set_instrument(
+    {
+        **zenapi.CONNECTION,
+        "config": r"C:\path\to\config.ini",  # the gateway address, certificate and control token
+        "experiment": "TileScan_10x",  # the ZEN experiment acquire() runs by default
+        "output_root": r"D:\runs\today",
+    }
+)
+
+sess.get_info()  # where the session started, the stage envelope, the canvas in the frame, the objectives
+sess.set_origin()  # here is (0, 0, 0) from now on; remembered across sessions
+sess.set_xyz(
+    100, -50, 5
+)  # micrometres from the origin; refused outside the envelope, confirmed by readback
+sess.get_state()  # {'changeable': {'objective_index': 0}, 'observed': {objective, objectives, position, limits}}
+sess.set_state({"changeable": {"objective": "Plan-Apochromat 20x/0.8"}})
+sess.acquire("overview", "A1")  # runs the experiment, saves the CZI, prints the state beside it
+sess.disconnect()
+```
+
+What the adapter stands on:
+
+- **The stage envelope** (how far the stage may travel, micrometres) is loaded at connect and
+  fences every move — fail-closed, like the flat driver. It is read from the machine's own copy,
+  `<ZMART_MICROSCOPY_ROOT>/zeiss/<microscope>/stage_limits.json` (default root
+  `C:\ProgramData\zmart-microscopy`; override with `connection["machine_root"]` or an explicit
+  `connection["stage_limits"]` path), else from the driver's bundled default under
+  `limits/defaults/`, which is a generous placeholder: **record your stage's real travel in the
+  machine copy before driving a mounted sample.** `get_info()["limits"]` says which one governs.
+- **The frame origin** set by `set_origin` is written to `origin.json` in the same folder and
+  restored at connect, so the zero point survives reconnects.
+- **Changeable state** is the objective (by turret index, or by name); ZEN's other settings live in
+  the experiment. **Procedures** are not offered yet (autofocus is an extension seam), so nothing
+  is advertised that would not work.
+- **A capture** runs a ZEN experiment (`options={"experiment": ...}`, else the connection's
+  default) to completion and saves the CZI container ZEN wrote:
+
+  ```
+  <output_root>/<type>/
+      data/
+          <type>_<hash>_<label>.czi                                the pixels (every channel and plane)
+          metadata/
+              ZMART_state/<type>_<hash>_<label>_ZMART_state.json   the objective, position, origin and
+                                                                   experiment the capture was taken under
+  ```
+
+  The record lists the saved `images`, the `metadata` printed, and the `position` in the frame.
+  `acquisition_type` names the folder, so it must be kebab-case lowercase.
 
 ## 5. Core concepts
 
@@ -293,7 +355,11 @@ zmart_drivers/zeiss/zenapi/
 │                 timing.py, units.py  timeouts + the µm/m unit contract
 ├── limits/       checks.py       fail-closed XY/Z envelope (enforced only in commands/)
 │                 stage_config.py per-instrument envelope loader
-├── acquisition/  product.py (neutral types), capture.py (acquire), save.py (CZI)
+│                 defaults/       the bundled stage_limits.json (a placeholder until the machine has its own)
+├── calibration/  machine.py      where the machine's own envelope and the persisted frame origin live
+├── acquisition/  product.py (neutral types), capture.py (acquire), save.py (CZI + the printed state)
+│                 naming.py       the file names and the data/metadata layout
+├── zenapi_zmart_adapter.py       the ZMART controller adapter (ops table; registers at import)
 └── tests/        unit/ + helpers/mock_zen_api.py + hardware/ (marked, excluded by default)
 ```
 
@@ -333,11 +399,12 @@ python run_ci.py --hardware     # ONLY the @pytest.mark.hardware suite (needs a 
 pytest -m "not hardware"        # offline suite directly
 ```
 
-The offline suite (**50 tests**) runs with **no `zen_api` wheel, no gateway, no scope**: a behavioral
+The offline suite (**64 tests**) runs with **no `zen_api` wheel, no gateway, no scope**: a behavioral
 fake ZEN API (`tests/helpers/mock_zen_api.py`) is injected into a **real** `ZenClient`, so the
 async→blocking bridge, dispatch retry/confirm loop, µm↔m conversion, limit enforcement, gRPC-error
-classification, status-stream consumption, `acquire()`/`save()`, and clean package import are all
-exercised for real — only the wire is faked. Hardware tests are marked and excluded by default; point
+classification, status-stream consumption, `acquire()`/`save()`, the controller adapter end to end
+(origin, envelope, moves, objective state, an experiment run saved with its printed state), and clean
+package import are all exercised for real — only the wire is faked. Hardware tests are marked and excluded by default; point
 `ZENAPI_CONFIG` at a `config.ini` and run `pytest -m hardware` on a ZEN bench.
 
 ## 10. Risks / bench-verify
@@ -365,11 +432,13 @@ Not built in the MVP, with clear insertion points:
 - **Calibration** — image↔stage affine, objective parfocality.
 - **Pixel-pull exporter** — `monitor(kind="pixels")` → `ExperimentStreamingService` → numpy → OME/TIFF,
   plus a pluggable save exporter.
-- **Autofocus** — software autofocus (`ExperimentSwAutofocusService`) and Definite Focus.
+- **Autofocus** — software autofocus (`ExperimentSwAutofocusService`) and Definite Focus; once
+  built, it becomes the first procedure the controller adapter offers.
 - **More devices** — Optovar (identical shape to the objective changer), filters, LEDs, detectors.
 
 ## 12. References
 
 - ZEISS OAD — ZEN API examples & docs: <https://github.com/zeiss-microscopy/OAD/tree/master/ZEN-API>
 - ZEN API knowledge base: <https://knowledge.zeiss.com/rms/en/zen/basic-functionality/zen-application-programming-interface-zen-api>
-- Sibling driver (reference architecture): `zmart_drivers/leica/stellaris5_y42h93/navigator_expert/`
+- Sibling drivers (reference architecture): `zmart_drivers/leica/stellaris5_y42h93/navigator_expert/`,
+  `zmart_drivers/nikon/nis_elements_6_10/`, `zmart_drivers/mesospim/`

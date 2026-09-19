@@ -23,8 +23,8 @@ from __future__ import annotations
 import logging
 import time
 
-from ..readers.reading import _reading_value_after
 from ..config.timing import CONFIRM_POLL_S
+from ..readers.reading import _reading_value_after
 from .envelope import _make_log_entry
 
 log = logging.getLogger(__name__)

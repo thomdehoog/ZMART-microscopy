@@ -98,7 +98,11 @@ class SavedAcquisition:
     ZEN writes one CZI container; ``czi_path`` is the persisted file in the
     workflow output layout. ``naming`` is the resolved output naming, matching
     the Leica manifest so downstream consumers stay vendor-neutral.
+    ``state_path`` is where the state the capture was taken under was printed.
     """
 
     czi_path: Path
     naming: Naming
+    # ZMART's printed account of the capture, under ``data/metadata/ZMART_state``
+    # (None when ``save`` was given no state to print).
+    state_path: Path | None = None

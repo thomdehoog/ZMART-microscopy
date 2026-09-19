@@ -20,6 +20,11 @@ Typical session::
     saved = drv.save(client, acq, output_root, naming)
     drv.close(client)
 
+Importing this package also registers the instrument with ``zmart_controller``
+(when the controller is importable), so the same microscope can be driven
+through the vendor-neutral surface: ``zmart_controller.set_instrument(
+{**zenapi.CONNECTION, "config": "config.ini", "experiment": "TileScan_10x"})``.
+
 Author: Thom de Hoog (ZMB, University of Zurich)
         thom.dehoog@zmb.uzh.ch . thomdehoog@gmail.com
 License: MIT
@@ -49,6 +54,9 @@ from .commands.commands import (
     set_objective,
 )
 
+# --- stage limits (the rulebook; enforced only in commands/) ---
+from .commands.routines import correct_backlash
+
 # --- profiles (tuning surface) ---
 from .config.profiles import (
     FOCUS_MOVE,
@@ -63,9 +71,6 @@ from .config.profiles import (
 # --- connection ---
 from .connection.client import ZenClient
 from .connection.session import close, connect
-
-# --- stage limits (the rulebook; enforced only in commands/) ---
-from .commands.routines import correct_backlash
 from .limits.checks import (
     apply_stage_limits_from_config,
     get_stage_limits,
@@ -84,7 +89,13 @@ from .readers import (
     ping,
 )
 
+# --- controller integration (registers at import) ---
+from .zenapi_zmart_adapter import CONNECTION, register
+
 __all__ = [
+    # controller
+    "CONNECTION",
+    "register",
     # connection
     "connect",
     "close",
