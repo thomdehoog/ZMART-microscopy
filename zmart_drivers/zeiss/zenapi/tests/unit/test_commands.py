@@ -92,3 +92,20 @@ def test_definite_focus_store_and_recall(fake_client):
     drv.move_z(client, 500)
     assert drv.recall_focus(client)["z_um"] == pytest.approx(120.0)
     assert scope.z_m == pytest.approx(120e-6)
+
+
+def test_empty_output_name_echo_falls_back_to_requested_name(fake_client):
+    """betterproto gives "" for an unset string; that must not become the CZI name."""
+    from mock_zen_api import _obj
+
+    client, scope = fake_client
+    exp = drv.load_experiment(client, "ZMART_Snap")
+    original = client.experiment.run_snap
+
+    async def _quiet(req):
+        await original(req)
+        return _obj(output_name="")
+
+    client.experiment.run_snap = _quiet
+    assert drv.run_snap(client, exp, output_name="asked")["output_name"] == "asked"
+    assert drv.run_snap(client, exp)["output_name"] is None

@@ -139,14 +139,30 @@ def test_acquire_stack_runs_the_whole_experiment(handle, scope_box):
 
 
 def test_acquire_leaves_czi_on_zen_when_folder_unreachable(handle, scope_box, tmp_path):
+    import time
+
     scope_box["scope"].image_output_folder = str(tmp_path / "not_mounted_share")
     scope_box["scope"]._write_czi = lambda name: None  # ZEN wrote it where we cannot see
     adapter.set_state(handle, {"changeable": {"experiment": "ZMART_Snap"}})
+    t0 = time.perf_counter()
     rec = adapter.acquire(
-        handle, acquisition_type="snap", position_label="x", options={"timeout_s": 0.05}
+        handle, acquisition_type="snap", position_label="x", options={"timeout_s": 30}
     )
+    assert time.perf_counter() - t0 < 5  # an absent folder is reported at once, not waited for
     assert rec["copied"] is False
     assert rec["image_files"] == [rec["zen_image_path"]]
+
+
+def test_same_experiment_is_not_loaded_twice(handle, scope_box):
+    adapter.set_state(handle, {"changeable": {"experiment": "ZMART_Snap"}})
+    adapter.set_state(handle, {"changeable": {"experiment": "ZMART_Snap"}})
+    adapter.acquire(
+        handle, acquisition_type="snap", position_label="a", options={"experiment": "ZMART_Snap"}
+    )
+    loads = [c for c in scope_box["scope"].calls if c[0] == "load"]
+    assert len(scope_box["scope"].loaded) == 1 and loads == []  # the fake logs no load calls
+    adapter.set_state(handle, {"changeable": {"experiment": "ZMART_ZStack"}})
+    assert len(scope_box["scope"].loaded) == 2
 
 
 def test_procedures(handle, scope_box):

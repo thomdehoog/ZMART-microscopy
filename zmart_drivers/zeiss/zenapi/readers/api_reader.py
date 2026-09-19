@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import logging
 
+from ..commands.errors import _status_name
 from ..config.profiles import READERS
 from ..config.units import m_to_um
 from .reading import Reading
@@ -219,12 +220,30 @@ def get_status(client, experiment=None, *, diagnostics=False):
             client.experiment.get_status(client.messages.status_get(experiment_id)),
             timeout=READERS.read_timeout_s,
         )
-    except Exception as exc:  # noqa: BLE001 - "no active experiment" is a normal answer
-        if experiment_id:
+    except Exception as exc:
+        # Without an id, ZEN answers "no active experiment" with an error. Only
+        # that kind of answer (an error from ZEN itself) means idle; a lost
+        # connection, a refused token or a timeout must still surface.
+        if experiment_id or _is_connection_problem(exc):
             raise
         log.debug("get_status without experiment: nothing active (%s)", exc)
         return _wrap(dict(_IDLE_STATUS), diagnostics)
     return _wrap(status_to_dict(resp), diagnostics)
+
+
+# gRPC status codes that mean the gateway or ZEN could not be reached or
+# would not let us in -- never "nothing is running".
+_CONNECTION_STATUSES = frozenset(
+    {"UNAVAILABLE", "UNAUTHENTICATED", "PERMISSION_DENIED", "DEADLINE_EXCEEDED", "CANCELLED"}
+)
+
+
+def _is_connection_problem(exc: BaseException) -> bool:
+    """True when the error is about the link or the token, not about ZEN's state."""
+    if isinstance(exc, TimeoutError):
+        return True
+    name = _status_name(exc)
+    return name is None or name in _CONNECTION_STATUSES
 
 
 def monitor(client, experiment=None, *, kind="status", channel_index=0, enable_raw_data=False):

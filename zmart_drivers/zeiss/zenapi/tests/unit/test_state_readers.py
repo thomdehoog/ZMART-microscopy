@@ -69,3 +69,15 @@ def test_available_experiments_and_output_path(fake_client, tmp_path):
 def test_ping_true(fake_client):
     client, _ = fake_client
     assert drv.ping(client) is True
+
+
+def test_get_status_without_experiment_raises_on_a_dead_link(fake_client):
+    """'Nothing running' is only ZEN's own answer; a lost link or refused token surfaces."""
+    client, scope = fake_client
+    for status in ("UNAVAILABLE", "UNAUTHENTICATED", "PERMISSION_DENIED"):
+        scope.errors["get_status"] = FakeGRPCError(status, "link problem")
+        with pytest.raises(FakeGRPCError, match=status):
+            drv.get_status(client)
+    scope.errors["get_status"] = TimeoutError("deadline")
+    with pytest.raises(TimeoutError):
+        drv.get_status(client)
