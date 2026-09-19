@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import configparser
 import ssl
+from functools import cache
 from importlib import import_module
 from importlib.util import find_spec
 from pathlib import Path
@@ -156,8 +157,13 @@ _STUB_REGISTRY: dict[str, list[tuple[str, str]]] = {
 }
 
 
+@cache
 def _resolve(key: str) -> tuple[str, str]:
-    """Return the (module path, class name) the installed wheel provides for ``key``."""
+    """Return the (module path, class name) the installed wheel provides for ``key``.
+
+    Cached: the installed wheel cannot change while the process runs, and this
+    is called for every request message the driver builds.
+    """
     tried = []
     for module_path, class_name in _STUB_REGISTRY[key]:
         tried.append(f"{module_path}.{class_name}")

@@ -127,3 +127,46 @@ def test_config_ini_round_trip(config_ini, gateway):
     assert cfg["port"] == gateway.port
     assert cfg["control_token"] == gateway.control_token
     assert cfg["cert_file"] == str(gateway.cert_file)
+
+
+def test_second_start_of_the_same_experiment_is_a_fresh_run(client, gateway):
+    """The fake must not answer a new start with the previous run's final status."""
+    gateway.zen.frame_time_s = 0.02
+    exp = drv.load_experiment(client, "ZMART_ZStack")
+    drv.start_experiment(client, exp, output_name="run_a")
+    updates_a = list(drv.monitor(client, exp))
+    drv.start_experiment(client, exp, output_name="run_b")
+    status = drv.get_status(client, exp)
+    assert status["is_experiment_running"] is True
+    updates_b = list(drv.monitor(client, exp))
+    assert updates_a[-1]["is_experiment_running"] is False
+    assert updates_b[0]["is_experiment_running"] is True
+    assert updates_b[-1]["is_experiment_running"] is False
+
+
+def test_starting_a_running_experiment_is_refused(client, gateway):
+    from grpclib import GRPCError
+
+    gateway.zen.frame_time_s = 0.05
+    exp = drv.load_experiment(client, "ZMART_Tiles")
+    drv.start_experiment(client, exp, output_name="busy")
+    with pytest.raises(GRPCError, match="already running"):
+        drv.start_experiment(client, exp, output_name="again")
+    drv.stop(client, exp)
+
+
+def test_gateway_can_be_stopped_and_started_again(tmp_path):
+    from zenapi.simulator import FakeGateway
+
+    gw = FakeGateway(tmp_path / "again")
+    gw.start()
+    gw.stop()
+    gw.port = 0
+    gw.start()
+    try:
+        assert gw.port  # a new free port was picked and is open
+        c = drv.connect(**gw.config())
+        assert drv.ping(c)
+        drv.close(c)
+    finally:
+        gw.stop()

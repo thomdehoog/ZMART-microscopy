@@ -160,7 +160,7 @@ def connect(connection: dict) -> ZenHandle:
         )
         _restore_persisted_origin(handle)
         if connection.get("experiment"):
-            handle.experiment = _cmd.load_experiment(client, str(connection["experiment"]))
+            _use_experiment(handle, str(connection["experiment"]))
     except Exception:
         _close(client)
         raise
@@ -364,9 +364,20 @@ def set_state(handle: ZenHandle, state: dict) -> dict:
         _raise_if_failed(result, "set_state(objective_position)")
         applied["objective_position"] = result["index"]
     if changeable.get("experiment"):
-        handle.experiment = _cmd.load_experiment(handle.client, str(changeable["experiment"]))
+        _use_experiment(handle, str(changeable["experiment"]))
         applied["experiment"] = handle.experiment.name
     return {"applied": applied}
+
+
+def _use_experiment(handle: ZenHandle, name: str) -> None:
+    """Load ``name`` in ZEN unless it is already the loaded experiment.
+
+    Loading again would give ZEN a second copy of the same experiment, so a
+    workflow that names the experiment on every position costs nothing extra.
+    """
+    if handle.experiment is not None and handle.experiment.name == name:
+        return
+    handle.experiment = _cmd.load_experiment(handle.client, name)
 
 
 # =============================================================================
@@ -496,7 +507,7 @@ def acquire(
     _require_open(handle)
     options = dict(options or {})
     if options.get("experiment"):
-        handle.experiment = _cmd.load_experiment(handle.client, str(options["experiment"]))
+        _use_experiment(handle, str(options["experiment"]))
     _require_experiment(handle, "acquire")
     fmt = str(options.get("format", "czi"))
     if fmt != "czi":
@@ -523,13 +534,23 @@ def acquire(
         data_dir = handle.output_root / "data"
         data_dir.mkdir(parents=True, exist_ok=True)
         dst = data_dir / f"{result['output_name']}.czi"
-        try:
-            _wait_stable(zen_path, timeout_s=timeout, poll_s=0.2)
-            shutil.copy2(zen_path, dst)
-            copied = True
-            image_files = [str(dst)]
-        except (TimeoutError, OSError) as exc:
-            log.warning("CZI left on the ZEN computer (%s): %s", zen_path, exc)
+        if not zen_path.parent.is_dir():
+            # The ZEN image folder is not visible from this computer (no share
+            # mounted under that path): say so at once instead of waiting.
+            log.warning(
+                "ZEN's image folder %s is not reachable from this computer; the CZI "
+                "stays there (%s)",
+                zen_path.parent,
+                zen_path,
+            )
+        else:
+            try:
+                _wait_stable(zen_path, timeout_s=timeout, poll_s=0.2)
+                shutil.copy2(zen_path, dst)
+                copied = True
+                image_files = [str(dst)]
+            except (TimeoutError, OSError) as exc:
+                log.warning("CZI left on the ZEN computer (%s): %s", zen_path, exc)
 
     planes = status.get("images_count")
     return {
@@ -589,7 +610,10 @@ OPS = {
 
 
 def register(connection: dict | None = None) -> None:
-    """Register the ZEISS driver with the ZMART controller registry (idempotent)."""
+    """Register the ZEISS driver with the ZMART controller registry.
+
+    Safe to call more than once: a second call only overwrites the same entry.
+    """
     try:
         from zmart_controller.registry import register as _register
     except Exception:  # noqa: BLE001 - controller optional at import time

@@ -341,7 +341,11 @@ def _experiment_service(zen: FakeZen):
 
     def _start(experiment_id: str, coro) -> asyncio.Task:
         if experiment_id in zen.active:
+            coro.close()  # never scheduled; closing it avoids a "never awaited" warning
             raise _grpc_error("FAILED_PRECONDITION", "this experiment is already running")
+        # A fresh run starts with no status, so waiting for "started" cannot
+        # be satisfied by the previous run's final status.
+        zen.last_status.pop(experiment_id, None)
         task = asyncio.get_running_loop().create_task(coro)
         zen.active[experiment_id] = task
         return task
@@ -613,6 +617,9 @@ class FakeGateway:
         self._loop.call_soon_threadsafe(self._stop.set)
         self._thread.join(timeout=10)
         self._thread = None
+        self._loop = None
+        self._ready.clear()
+        self._error = None
 
     def __enter__(self) -> FakeGateway:
         return self.start()

@@ -276,9 +276,10 @@ def _run_acquisition(client, experiment, *, verb, profile, output_name):
     label = f"{verb} '{requested}'" if requested else verb
     r = _dispatch(client, label, profile, fire_fn=fire_fn, confirm_fn=confirm_fn)
     value = r.get("value")
-    r["output_name"] = (
-        _attr(value, "output_name", default=requested or None) if value is not None else None
-    )
+    # betterproto gives "" for an unset string, so an empty echo from ZEN
+    # means "use the name we asked for", and None when ZEN chose and did not say.
+    echoed = _attr(value, "output_name") if value is not None else None
+    r["output_name"] = echoed or requested or None
     r["status"] = sink.get("last_status")
     return r
 
