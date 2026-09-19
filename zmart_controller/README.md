@@ -11,11 +11,14 @@ workflow will run on any microscope that has a driver adapter; your code never
 imports a vendor's API, the driver talks to the microscope's own API, the
 controller stays a thin, easy surface for humans and AI agents alike.
 
-> **Status:** the first real adapter is the Leica Stellaris 5 one — import
+> **Status:** every driver in `zmart_drivers/` registers an adapter. The Leica
+> Stellaris 5 one is production-tested (import
 > `zmart_drivers.leica.stellaris5_y42h93.navigator_expert.zmart_adapter` to
-> register it. The other vendor adapters are still under construction (see
-> [`docs/ZMART.md`](../docs/ZMART.md)); the mock used by the tests and the
-> example notebook registers from the test side.
+> register it); the mesoSPIM, Nikon and ZEISS packages register themselves when
+> imported (`import mesospim`, `import nis_elements_6_10`, `import zenapi`) and
+> are at earlier stages of validation (see [`docs/ZMART.md`](../docs/ZMART.md)).
+> The mock used by the tests and the example notebook registers from the test
+> side.
 
 > **This is the `zmart` surface.** The controller is ZMART's vendor-agnostic API
 > — the layer the outside world will eventually import as `zmart` (today the
