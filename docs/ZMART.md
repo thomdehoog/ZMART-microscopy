@@ -67,7 +67,9 @@ time someone uses them.
   vendor-neutral verb contract is not frozen. Drivers today: Leica
   (production-tested), mesoSPIM (demo-validated, near production), Nikon
   (simulator-validated on NIS-Elements 6.10 incl. Z-stacks; pending real
-  hardware), Zeiss (MVP, offline-green), Evident (investigation).
+  hardware), Zeiss (aligned with the real `zen_api` wheels and validated
+  over TLS against the driver's fake ZEN API gateway; pending ZEISS's
+  simulator or real hardware), Evident (investigation).
 - **The name is set; the code rename is under way.** The project is **ZMART
   Microscopy** (repo `ZMART-microscopy`). The top-level package rename
   `controller/` → `zmart_controller/` is done; still deferred are renaming the repo,

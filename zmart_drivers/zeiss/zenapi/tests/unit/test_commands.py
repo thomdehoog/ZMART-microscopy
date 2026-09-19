@@ -31,14 +31,14 @@ def test_set_objective_by_name(fake_client):
     client, scope = fake_client
     r = drv.set_objective(client, name="Plan-Apochromat 63x/1.4")
     assert r["success"] is True and r["confirmed"] is True
-    assert r["index"] == 2
-    assert scope.objective_index == 2
+    assert r["index"] == 3
+    assert scope.objective_index == 3
 
 
 def test_set_objective_by_index(fake_client):
     client, scope = fake_client
-    drv.set_objective(client, index=1)
-    assert scope.objective_index == 1
+    drv.set_objective(client, index=2)
+    assert scope.objective_index == 2
 
 
 def test_set_objective_unknown_name_raises(fake_client):
@@ -57,8 +57,38 @@ def test_move_xy_permanent_error_fails(fake_client):
 
 def test_load_and_run_experiment(fake_client):
     client, scope = fake_client
-    exp = drv.load_experiment(client, "TileScan")
-    assert exp.experiment_id == "exp::TileScan"
+    exp = drv.load_experiment(client, "ZMART_ZStack")
+    assert exp.experiment_id == "exp::ZMART_ZStack"
     r = drv.run_experiment(client, exp, output_name="myrun")
     assert r["success"] is True
     assert r["output_name"] == "myrun"
+    assert r["status"]["is_experiment_running"] is False
+    assert scope.calls[-1] == ("run_experiment", "exp::ZMART_ZStack", "myrun")
+
+
+def test_run_snap_never_retries(fake_client):
+    client, scope = fake_client
+    scope.errors["run_snap"] = FakeGRPCError("UNAVAILABLE", "flaky")
+    exp = drv.load_experiment(client, "ZMART_Snap")
+    r = drv.run_snap(client, exp, output_name="s")
+    assert r["success"] is False
+    assert r["timing"]["attempts"] == 1  # a re-send would start a second acquisition
+
+
+def test_software_autofocus_reports_focus_um(fake_client):
+    client, scope = fake_client
+    exp = drv.load_experiment(client, "ZMART_Snap")
+    r = drv.find_autofocus(client, exp, timeout_s=12)
+    assert r["success"] is True
+    assert r["z_um"] == pytest.approx(135.0)
+    assert scope.calls[-1] == ("find_autofocus", "exp::ZMART_Snap", 12)
+
+
+def test_definite_focus_store_and_recall(fake_client):
+    client, scope = fake_client
+    _wide_limits()
+    assert drv.find_surface(client)["z_um"] == pytest.approx(120.0)
+    assert drv.store_focus(client)["success"] is True
+    drv.move_z(client, 500)
+    assert drv.recall_focus(client)["z_um"] == pytest.approx(120.0)
+    assert scope.z_m == pytest.approx(120e-6)

@@ -17,6 +17,8 @@ from .checks import (
 from .stage_config import load
 
 __all__ = [
+    "_check_xy_limits",
+    "_check_z_limits",
     "apply_stage_limits_from_config",
     "get_stage_limits",
     "set_stage_limits",

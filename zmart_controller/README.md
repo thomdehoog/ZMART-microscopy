@@ -13,9 +13,10 @@ controller stays a thin, easy surface for humans and AI agents alike.
 
 > **Status:** the first real adapter is the Leica Stellaris 5 one — import
 > `zmart_drivers.leica.stellaris5_y42h93.navigator_expert.zmart_adapter` to
-> register it. The other vendor adapters are still under construction (see
-> [`docs/ZMART.md`](../docs/ZMART.md)); the mock used by the tests and the
-> example notebook registers from the test side.
+> register it. The Nikon (`nis_elements_6_10`) and ZEISS (`zenapi`) drivers
+> register themselves when their package is imported; the other vendor
+> adapters are still under construction (see [`docs/ZMART.md`](../docs/ZMART.md)).
+> The mock used by the tests and the example notebook registers from the test side.
 
 > **This is the `zmart` surface.** The controller is ZMART's vendor-agnostic API
 > — the layer the outside world will eventually import as `zmart` (today the

@@ -23,6 +23,8 @@ def header_lines() -> list[str]:
         f"Python {sys.version.split()[0]}",
         f"zenapi deps  | zen_api={_version('zen_api')} "
         f"grpclib={_version('grpclib')} numpy={_version('numpy')}",
-        "zenapi mode  | offline (fake ZEN API; no gateway). "
-        "Hardware tests are marked @pytest.mark.hardware and excluded by default.",
+        "zenapi mode  | offline. tests/unit: fake ZEN API objects, no wheel needed; "
+        "tests/gateway: the real zen_api wheel over TLS to the fake gateway "
+        "(skipped when the wheel is missing). Hardware tests are marked "
+        "@pytest.mark.hardware and excluded by default.",
     ]

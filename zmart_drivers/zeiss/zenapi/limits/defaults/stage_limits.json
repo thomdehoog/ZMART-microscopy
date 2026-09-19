@@ -1,0 +1,8 @@
+{
+  "_comment": "Generic defaults copied on first connect. Replace with the travel range of YOUR stage (micrometres, absolute ZEN coordinates): the driver refuses any move outside these numbers, and the ZEN API does not report them.",
+  "stage_um": {
+    "x": [-60000.0, 60000.0],
+    "y": [-40000.0, 40000.0],
+    "z": [-10000.0, 10000.0]
+  }
+}

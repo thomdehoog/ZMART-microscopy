@@ -1,13 +1,15 @@
-"""Persist an acquired CZI into the workflow output layout.
+"""Bring an acquired CZI into the workflow's output folder.
 
-ZEN writes one CZI container on the acquisition PC; ``save`` resolves that path
-via ``get_image_output_path``, waits for the file to stop growing, and copies it
-into the canonical ``data/`` directory under ``output_root`` using the
-the driver's private :class:`Naming` slots (with a ``.czi`` extension,
-since a CZI holds the whole c x z grid -- like the XML companion, it omits c/z).
+ZEN writes every acquisition as one CZI file on the ZEN computer, in the
+folder it reports through ``GetImageOutputPath``, named after the acquisition's
+``output_name``. ``save`` resolves that file, waits for it to stop growing
+(ZEN may still be flushing it), and copies it into ``<output_root>/<type>/data/``
+under the driver's :class:`Naming` slots. A CZI holds the whole channel x Z
+grid, so like the Leica XML companion the name omits c/z.
 
-The per-plane pixel-pull path (stream -> numpy -> OME-TIFF) is an extension
-seam; see the driver README.
+When ZMART runs on another computer than ZEN, the ZEN folder must be reachable
+as a network share for the copy to work; ``zen_image_path`` gives the path to
+look for when it is not.
 
 Author: Thom de Hoog (ZMB, University of Zurich)
         thom.dehoog@zmb.uzh.ch . thomdehoog@gmail.com
@@ -20,7 +22,7 @@ import shutil
 import time
 from pathlib import Path
 
-from ..readers.api_reader import _attr
+from ..readers.api_reader import get_image_output_path
 from .naming import data_dir
 from .product import Naming, SavedAcquisition
 
@@ -36,17 +38,12 @@ def _czi_name(naming: Naming) -> str:
     return f"{n.acquisition_type}_{n.hash6}_{n.position_label}.czi"
 
 
-def _resolve_czi_path(client, output_name: str) -> Path:
-    """Ask ZEN for the on-disk path of the CZI it wrote for ``output_name``."""
-    resp = client.submit(
-        client.experiment.get_image_output_path(client.messages.image_output_path(output_name))
-    )
-    if isinstance(resp, (str, Path)):
-        return Path(resp)
-    path = _attr(resp, "path", "output_path", "image_output_path")
-    if path is None:
-        raise RuntimeError(f"ZEN did not return an output path for {output_name!r}")
-    return Path(path)
+def zen_image_path(client, output_name: str) -> Path:
+    """Where ZEN wrote the CZI for ``output_name``: ``<image output folder>/<output_name>.czi``."""
+    folder = get_image_output_path(client)
+    if not folder:
+        raise RuntimeError("ZEN did not report an image output folder")
+    return Path(folder) / f"{output_name}.czi"
 
 
 def _wait_stable(path: Path, *, timeout_s: float = 60.0, poll_s: float = 0.5) -> None:
@@ -60,7 +57,11 @@ def _wait_stable(path: Path, *, timeout_s: float = 60.0, poll_s: float = 0.5) ->
                 return
             last_size = size
         time.sleep(poll_s)
-    raise TimeoutError(f"CZI did not stabilize within {timeout_s}s: {path}")
+    raise TimeoutError(
+        f"CZI did not appear or did not stop growing within {timeout_s}s: {path}. "
+        "If ZMART runs on another computer than ZEN, the ZEN image folder must "
+        "be reachable from here (for example as a network share)."
+    )
 
 
 def save(
@@ -77,7 +78,7 @@ def save(
     Args:
         client: the ZenClient.
         acq: an ``AcquisitionResult`` (must carry ``output_name``).
-        output_root: the run root (a CZI lands under ``<kind>/data/``).
+        output_root: the run root (a CZI lands under ``<type>/data/``).
         naming: the driver's :class:`Naming` for this acquisition.
 
     Returns:
@@ -86,7 +87,7 @@ def save(
     if not getattr(acq, "output_name", None):
         raise ValueError("acquisition has no output_name; nothing to resolve/save")
 
-    src = _resolve_czi_path(client, acq.output_name)
+    src = zen_image_path(client, acq.output_name)
     _wait_stable(src, timeout_s=stable_timeout_s, poll_s=stable_poll_s)
 
     destination = data_dir(output_root, naming.acquisition_type)

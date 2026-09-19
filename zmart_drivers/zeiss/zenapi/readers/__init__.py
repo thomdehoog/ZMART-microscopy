@@ -1,6 +1,8 @@
 """ZEN API state readers (all api / gRPC; no log or hybrid backends)."""
 
 from .api_reader import (
+    get_available_experiments,
+    get_image_output_path,
     get_objective,
     get_objectives,
     get_status,
@@ -19,6 +21,8 @@ __all__ = [
     "get_z",
     "get_objective",
     "get_objectives",
+    "get_available_experiments",
+    "get_image_output_path",
     "get_status",
     "status_to_dict",
     "monitor",
