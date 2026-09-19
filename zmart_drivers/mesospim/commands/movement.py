@@ -8,13 +8,15 @@ Each move follows the three-phase pattern shared across the driver:
 
     Phase A -- pre-checks: validate axes/values, check the stage limits
         (:mod:`mesospim.limits.checks`).
-    Phase B -- backbone: build a ``fire_fn`` (one protocol request) and a
-        target-bound ``confirm_fn`` (reads position back with the freshness
-        gate), then call ``confirm_and_fire`` (the dispatch backbone).
+    Phase B -- backbone: build a ``fire_fn`` (one Remote Control call, waited
+        on until mesoSPIM reports the operation finished) and a target-bound
+        ``confirm_fn`` (reads position back with the freshness gate), then call
+        ``confirm_and_fire`` (the dispatch backbone).
     Phase C -- the standard result envelope is returned as-is.
 
 Unit rule: linear axes are micrometers, ``theta`` is degrees, on the public API
-and the wire. Limit checks happen HERE, before the fire.
+and the wire. Limit checks happen HERE, before the fire; the server checks its
+own configured envelope again before it moves.
 
 Sibling: instrument-state settings (filter / zoom / laser / intensity / shutter
 / ETL) live in :mod:`mesospim.commands.commands`; acquisition lives in
@@ -76,11 +78,12 @@ def _validate_targets(targets: dict) -> dict:
 
 
 def move_absolute(client, targets: dict, *, tolerance: float | None = None) -> dict:
-    """Move one or more axes to absolute targets (um / deg), from the origin.
+    """Move one or more axes to absolute targets (um / deg).
 
     ``targets`` is ``{axis: value}`` over any of ``x, y, z, f, theta``. Limits
     are checked before firing; a violation returns a failed envelope without
-    touching the stage.
+    touching the stage. The call waits until mesoSPIM reports the move
+    finished (it does so only once the stage reads back at the target).
     """
     try:
         clean = _validate_targets(targets)
@@ -95,7 +98,7 @@ def move_absolute(client, targets: dict, *, tolerance: float | None = None) -> d
         client,
         label,
         profile,
-        fire_fn=lambda: client.request("move_absolute", targets=clean),
+        fire_fn=lambda: client.perform("move_absolute", targets=clean),
         confirm_fn=partial(_confirm_positions, targets=clean, tolerance=tol),
     )
 
@@ -135,7 +138,7 @@ def move_relative(client, deltas: dict, *, tolerance: float | None = None) -> di
         client,
         label,
         profile,
-        fire_fn=lambda: client.request("move_relative", deltas=clean),
+        fire_fn=lambda: client.perform("move_relative", deltas=clean),
         confirm_fn=partial(_confirm_positions, targets=expected, tolerance=tol),
     )
 
@@ -161,9 +164,13 @@ def move_rotation(client, theta: float, *, tolerance: float | None = None) -> di
 
 
 def stop(client) -> dict:
-    """Halt all stage motion immediately (no confirmation)."""
+    """Halt all stage motion immediately (no confirmation).
+
+    ``stop`` is one of the server's emergency calls: it runs at once, even
+    while another change is still busy, and marks that change as stopping.
+    """
     return confirm_and_fire(
-        client, "stop", MOVE, fire_fn=lambda: client.request("stop"), confirm_fn=None
+        client, "stop", MOVE, fire_fn=lambda: client.try_request("stop"), confirm_fn=None
     )
 
 
@@ -182,8 +189,23 @@ def zero_axes(client, axes: list[str] | None = None) -> dict:
         client,
         f"zero_axes {axes}",
         MOVE,
-        fire_fn=lambda: client.request("zero", axes=axes),
+        fire_fn=lambda: client.perform("zero", axes=axes),
         confirm_fn=None,
+    )
+
+
+def move_to_preset(client, preset: str) -> dict:
+    """Drive the stage to a position the operator configured in mesoSPIM.
+
+    ``preset`` is ``"load_sample"``, ``"unload_sample"`` or ``"center_sample"``:
+    the positions mesoSPIM's own buttons use (``stage_parameters`` in its
+    configuration). The server checks the preset against its envelope, moves,
+    and reports the operation finished once the stage has arrived.
+    """
+    if preset not in ("load_sample", "unload_sample", "center_sample"):
+        return _fail("move_to_preset", f"unknown preset {preset!r}")
+    return confirm_and_fire(
+        client, preset, MOVE, fire_fn=lambda: client.perform(preset), confirm_fn=None
     )
 
 
@@ -194,6 +216,7 @@ __all__ = [
     "move_z",
     "move_focus",
     "move_rotation",
+    "move_to_preset",
     "stop",
     "zero_axes",
 ]

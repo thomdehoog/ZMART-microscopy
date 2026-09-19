@@ -1,37 +1,11 @@
-"""Remote-scripting framing + the structured-result harness (pure, no sockets).
-
-The harness is tested end to end: build a script with ``wrap_script``, actually
-``exec`` it capturing stdout (exactly as the server does), then extract the
-result with ``parse_result``.
-"""
+"""The Remote Control wire contract (pure, no sockets): framing, calls, replies, operations."""
 
 from __future__ import annotations
 
-import io
-from contextlib import redirect_stdout
+import json
 
 import pytest
 from mesospim import protocol as p
-
-
-def _run(script: str, core=None) -> str:
-    """Exec a wrapped script the way the server does, returning captured stdout.
-
-    Faithful to mesoSPIM_Core.execute_script: ``exec(script)`` **inside a
-    function**, so ``globals() is not locals()`` and ``self`` is a local. Running
-    it this way (rather than ``exec(script, one_dict)``) means these tests catch a
-    harness that breaks nested scopes -- see test_body_with_nested_scope_runs.
-    """
-    buf = io.StringIO()
-    with redirect_stdout(buf):
-        _exec_like_core(core, script)
-    return buf.getvalue()
-
-
-def _exec_like_core(_core, _script):
-    self = _core  # noqa: F841 - the wrapped script binds ``self`` as a local
-    exec(_script)  # noqa: S102 - method-scope exec, exactly like Core.execute_script
-
 
 # -- framing ------------------------------------------------------------------
 
@@ -46,58 +20,85 @@ def test_frame_counts_bytes_not_chars():
     assert p.frame("é") == b"2\n\xc3\xa9"
 
 
-# -- harness: ok / error ------------------------------------------------------
-
-
-def test_wrap_and_parse_ok():
-    reply = p.parse_result(_run(p.wrap_script("_result = {'x': 42}", "n1")), "n1")
-    assert reply.ok and reply.data == {"x": 42}
-
-
-def test_wrap_and_parse_error_is_structured():
-    reply = p.parse_result(_run(p.wrap_script("raise ValueError('boom')", "n2")), "n2")
-    assert not reply.ok and "boom" in reply.error
-
-
-def test_missing_marker_becomes_error():
-    # A pre-harness failure (syntax error, auth text, ...) has no marker; the
-    # whole console text is surfaced as the error, not a parse crash.
-    reply = p.parse_result("Traceback: SyntaxError somewhere", "n3")
-    assert not reply.ok and "Traceback" in reply.error
-
-
-def test_nonce_isolation():
-    # A result emitted under a different nonce must not be accepted.
-    console = _run(p.wrap_script("_result = {'a': 1}", "AAA"))
-    assert not p.parse_result(console, "BBB").ok
-
-
-def test_result_survives_interleaved_output():
-    body = "print('noise from another thread')\n_result = {'v': 1}"
-    reply = p.parse_result(_run(p.wrap_script(body, "n4")), "n4")
-    assert reply.ok and reply.data == {"v": 1}
-
-
-def test_payload_with_marker_text_is_safe():
-    # Because the payload is base64, data may itself contain the delimiter text
-    # without breaking extraction.
-    body = "_result = {'s': '<<<ZMART-RESULT:n5|x|n5:ZMART-END>>>'}"
-    reply = p.parse_result(_run(p.wrap_script(body, "n5")), "n5")
-    assert reply.ok and reply.data["s"].startswith("<<<ZMART")
-
-
-def test_body_with_nested_scope_runs():
-    # mesoSPIM execs the script inside a method (globals() is not locals()), so a
-    # lambda or comprehension that closes over a script-local would raise
-    # NameError unless wrap_script runs the body in a single namespace. This body
-    # has both: a lambda over ``_mult`` and a comprehension over ``_f``. Guards the
-    # scope fix -- with the old nested-emit harness it fails, with the fix it runs.
-    body = "_mult = 10\n_f = lambda k: k * _mult\n_result = {'r': [_f(v) for v in (1, 2, 3)]}"
-    reply = p.parse_result(_run(p.wrap_script(body, "n7")), "n7")
-    assert reply.ok and reply.data == {"r": [10, 20, 30]}
-
-
-def test_malformed_payload_raises_protocol_error():
-    start, end = p._markers("n6")
+def test_frame_refuses_oversized_payload():
     with pytest.raises(p.ProtocolError):
-        p.parse_result(f"{start}not-base64!!{end}", "n6")
+        p.frame(b"x" * (p.MAX_FRAME_BYTES + 1))
+
+
+def test_frame_length_accepts_only_canonical_headers():
+    assert p.frame_length(b"42") == 42
+    for bad in (b"", b"-1", b"4a", b"1" * 17, str(p.MAX_FRAME_BYTES + 1).encode()):
+        with pytest.raises(p.ProtocolError):
+            p.frame_length(bad)
+
+
+# -- calls ----------------------------------------------------------------------
+
+
+def test_encode_call_is_one_named_object():
+    text = p.encode_call("move_absolute", {"targets": {"x": 100.0}})
+    assert json.loads(text) == {"move_absolute": {"targets": {"x": 100.0}}}
+
+
+def test_encode_call_without_args_sends_empty_object():
+    assert json.loads(p.encode_call("ping")) == {"ping": {}}
+
+
+def test_encode_call_refuses_non_finite_numbers():
+    # The server rejects NaN/Infinity as invalid JSON; refuse them before sending.
+    with pytest.raises(p.ProtocolError):
+        p.encode_call("move_absolute", {"targets": {"x": float("nan")}})
+
+
+def test_encode_call_needs_a_name():
+    with pytest.raises(p.ProtocolError):
+        p.encode_call("", {})
+
+
+# -- replies ---------------------------------------------------------------------
+
+
+def test_parse_ok_reply():
+    reply = p.parse_reply(p.OK_MARKER + '{"x": 1.5, "y": 2}')
+    assert reply.ok and reply.data == {"x": 1.5, "y": 2} and reply.code is None
+
+
+def test_parse_ok_reply_with_non_object_body_is_wrapped():
+    reply = p.parse_reply(p.OK_MARKER + "[1, 2]")
+    assert reply.ok and reply.data == {"result": [1, 2]}
+
+
+@pytest.mark.parametrize(
+    "text, code",
+    [
+        ("error: [validation] x=1 is outside the allowed range", "validation"),
+        ("error: [busy] busy: move_absolute (op-000001) is running", "busy"),
+        ("error: [unknown_command] unknown command: 'bogus'", "unknown_command"),
+        ("error: [execution] KeyError('acq_list')", "execution"),
+    ],
+)
+def test_parse_error_reply_carries_code_and_message(text, code):
+    reply = p.parse_reply(text)
+    assert not reply.ok and reply.code == code
+    assert reply.error and reply.error in text
+
+
+def test_parse_garbage_raises_protocol_error():
+    with pytest.raises(p.ProtocolError):
+        p.parse_reply("Traceback (most recent call last): ...")
+    with pytest.raises(p.ProtocolError):
+        p.parse_reply(p.OK_MARKER + "not json")
+
+
+# -- operations ------------------------------------------------------------------
+
+
+def test_operation_of_and_is_active():
+    accepted = {"accepted": True, "operation": {"id": "op-000001", "status": "processing"}}
+    op = p.operation_of(accepted)
+    assert op == {"id": "op-000001", "status": "processing"}
+    assert p.is_active(op)
+    assert p.is_active({"status": "stopping"})
+    assert not p.is_active({"status": "completed"})
+    assert not p.is_active({"status": "idle"})
+    assert p.operation_of({"x": 1}) is None and not p.is_active(None)

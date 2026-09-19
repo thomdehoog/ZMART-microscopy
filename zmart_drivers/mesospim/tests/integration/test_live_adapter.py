@@ -4,13 +4,13 @@ Live adapter round-trip through a real ``zmart_controller.Session``.
 The controller-level analog of ``test_live_roundtrip`` (which drives the flat
 driver): this drives the mesoSPIM **adapter** (``mesospim_zmart_adapter``) exactly
 as a workflow would -- ``zmart_controller.set_instrument(...) -> Session -> get_*/
-set_*/acquire`` -- against a live mesoSPIM Remote Scripting server (ideally ``-D``
+set_*/acquire`` -- against a live mesoSPIM Remote Control server (ideally ``-D``
 demo mode). It is the bench check that the neutral controller contract is wired
 end to end, not just the driver's own API.
 
-Run it (mesoSPIM ``-D`` with Remote Scripting started on 42000)::
+Run it (mesoSPIM ``-D`` with the Remote Control TCP transport started on 42000)::
 
-    MESOSPIM_TOKEN=<token> python -m pytest zmart_drivers/mesospim/tests -m integration
+    MESOSPIM_TOKEN=<password> python -m pytest zmart_drivers/mesospim/tests -m integration
 
 Set ``MESOSPIM_ALLOW_ACQUIRE=1`` to include the capture (fires a snap). If nothing
 listens on the address every test *skips*. Author: Thom de Hoog (ZMB, UZH). MIT.
@@ -22,7 +22,7 @@ import os
 import socket
 
 # Import the driver so its adapter self-registers (mesospim, mesospim-01,
-# remote-scripting) with the controller at import time.
+# remote-control) with the controller at import time.
 import mesospim  # noqa: F401
 import pytest
 
@@ -32,13 +32,15 @@ pytestmark = pytest.mark.integration
 
 _HOST = os.environ.get("MESOSPIM_HOST", "127.0.0.1")
 _PORT = int(os.environ.get("MESOSPIM_PORT", "42000"))
-_TOKEN = os.environ.get("MESOSPIM_TOKEN")  # set when the server requires a token
+_TOKEN = os.environ.get(
+    "MESOSPIM_TOKEN"
+)  # the Remote Control password; unset = the loopback default
 _ALLOW_ACQUIRE = os.environ.get("MESOSPIM_ALLOW_ACQUIRE") == "1"
 
 _CONN = {
     "vendor": "mesospim",
     "microscope": "mesospim-01",
-    "api": "remote-scripting",
+    "api": "remote-control",
     "host": _HOST,
     "port": _PORT,
     "token": _TOKEN,
@@ -62,7 +64,7 @@ def session():
     never a silent skip.
     """
     if not _server_listening():
-        pytest.skip(f"no live mesoSPIM Remote Scripting server at {_HOST}:{_PORT}")
+        pytest.skip(f"no live mesoSPIM Remote Control server at {_HOST}:{_PORT}")
     sess = zmart_controller.set_instrument(dict(_CONN))
     try:
         yield sess
@@ -72,7 +74,7 @@ def session():
 
 def test_instrument_is_registered():
     names = [(i["vendor"], i["microscope"], i["api"]) for i in zmart_controller.get_instruments()]
-    assert ("mesospim", "mesospim-01", "remote-scripting") in names
+    assert ("mesospim", "mesospim-01", "remote-control") in names
 
 
 def test_info_and_actuators(session):
@@ -89,10 +91,13 @@ def test_get_xyz_and_state_shape(session):
         assert xyz[axis]["unit"] == "um"
         assert isinstance(xyz[axis]["value"], (int, float))
     state = session.get_state()
-    # changeable = the light-path settings; observed = identity + limits (never
-    # the run-state, which is unobservable over the bridge).
+    # changeable = the light-path settings; observed = identity, run state,
+    # position, configuration and limits.
     assert "laser" in state["changeable"]
     assert state["observed"]["app"] == "mesoSPIM-control"
+    assert state["observed"]["state"] is not None
+    info = session.get_info()
+    assert info["canvas"] and info["limits"]["server"]
 
 
 def test_acquisition_options(session):
@@ -115,7 +120,7 @@ def test_set_xyz_zero_net_motion_confirms(session):
 )
 def test_acquire_through_session(session, tmp_path):
     result = session.acquire("snap", "A1")
-    files = result.get("image_files") or []
+    files = result.get("images") or []
     assert files, f"no image files in acquire result: {result!r}"
     for path in files:
         assert os.path.isfile(path), f"reported image file missing: {path}"

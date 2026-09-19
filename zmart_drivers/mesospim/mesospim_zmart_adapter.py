@@ -18,13 +18,19 @@ The controller surface is deliberately x/y/z centric. mesoSPIM's extra axes
 state**. The full driver API (``import mesospim``) remains available for anything
 the neutral surface does not cover.
 
+What a capture leaves behind follows the layout every ZMART driver writes: the
+stack under ``<output_root>/data``, and beside it, under ``data/metadata``,
+ZMART's own printed account of the state it was captured under plus the
+mesoSPIM writer's own notes. The returned record says where every plane was
+taken, in the same frame ``set_xyz`` accepts.
+
 Register at import: importing this module (which ``import mesospim`` does via the
 package ``__init__``) runs :func:`register` at the bottom of the file, so
 ``zmart_controller.get_instruments()`` lists the mesoSPIM entry with no explicit
 call -- exactly like the Leica adapter. ``register(connection)`` may be re-called
 to override the identity/params (a specific ``microscope`` name, ``host``/``port``,
-``output_root``); it is idempotent and a safe no-op if ``zmart_controller`` is
-not installed.
+``token``, ``output_root``); it is idempotent and a safe no-op if
+``zmart_controller`` is not installed.
 
 Author: Thom de Hoog (ZMB, University of Zurich)
         thom.dehoog@zmb.uzh.ch . thomdehoog@gmail.com
@@ -38,6 +44,7 @@ import shutil
 import tempfile
 import time
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -79,6 +86,10 @@ _MUTABLE_KEYS = (
     "etl_r_offset",
 )
 
+# The procedures that drive the stage to a position the operator configured in
+# mesoSPIM. Each is one Remote Control call the server checks and waits for.
+_PRESET_PROCEDURES = ("load_sample", "unload_sample", "center_sample")
+
 
 @dataclass
 class MesospimHandle:
@@ -93,6 +104,9 @@ class MesospimHandle:
     # Machine profile: where this instrument's machine-local config lives
     # (stage/function limits, persisted origin). Set at connect.
     machine: Any = None
+    # The stage envelope this session moves within (the machine copy of
+    # stage_limits.json, else the bundled default), as loaded at connect.
+    stage_cfg: dict | None = None
     # Function-keyed limits for this session (mesospim.limits.FunctionLimits),
     # loaded at connect; None when the file could not be loaded — every
     # mutating op then refuses (fail-closed), read-only use still works.
@@ -100,6 +114,12 @@ class MesospimHandle:
     # Monotonic counter to give each acquisition a unique image-writer staging
     # dir (so repeated/same-label captures never collide).
     _acq_seq: int = 0
+    closed: bool = False
+
+
+def _require_open(handle: MesospimHandle) -> None:
+    if handle.closed:
+        raise RuntimeError("session is disconnected")
 
 
 # =============================================================================
@@ -110,13 +130,13 @@ class MesospimHandle:
 def connect(connection: dict) -> MesospimHandle:
     """Open a mesoSPIM session and capture the initial positions.
 
-    Honours ``connection`` keys ``host`` / ``port`` / ``timeout`` (forwarded to
-    the driver ``connect``), ``output_root`` (where ``acquire`` saves),
-    ``machine_root`` (override for the ProgramData root -- see
-    ``calibration.machine``), and ``stage_limits`` (an explicit path to a
-    stage-limits config; default resolves the machine copy, else the bundled
-    envelope). If no ``output_root`` is given, a per-session temp directory is
-    created.
+    Honours ``connection`` keys ``host`` / ``port`` / ``timeout`` / ``token``
+    (forwarded to the driver ``connect``; ``token`` is the Remote Control
+    password), ``output_root`` (where ``acquire`` saves), ``machine_root``
+    (override for the ProgramData root -- see ``calibration.machine``), and
+    ``stage_limits`` (an explicit path to a stage-limits config; default
+    resolves the machine copy, else the bundled envelope). If no
+    ``output_root`` is given, a per-session temp directory is created.
 
     Stage safety limits are loaded here so the controller path is never left
     fail-open: ``check_axis`` rejects an unconfigured axis, so a move can only
@@ -124,7 +144,8 @@ def connect(connection: dict) -> MesospimHandle:
     machine copy else bundled) load here too, with the stage envelope overlaid
     onto their ``stage.*`` constraints; a frame origin persisted by a previous
     session's :func:`set_origin` is restored, so the zero point survives
-    reconnects.
+    reconnects. The Remote Control server enforces its own configured
+    envelope as well, so a move is checked twice, on each side of the socket.
     """
     client = _connect(connection)
     output_root = Path(connection.get("output_root") or tempfile.mkdtemp(prefix="mesospim_run_"))
@@ -161,10 +182,12 @@ def connect(connection: dict) -> MesospimHandle:
         connection=dict(connection),
         output_root=output_root,
         machine=machine,
+        stage_cfg=stage_cfg,
         immutable={
             "app": info.get("app", "mesoSPIM-control"),
             "microscope": connection.get("microscope"),
             "version": info.get("version"),
+            "protocol": info.get("protocol"),
             "host": client.host,
             "port": client.port,
         },
@@ -251,6 +274,7 @@ def _restore_persisted_origin(handle: MesospimHandle) -> None:
 
 def disconnect(handle: MesospimHandle) -> None:
     """Close the underlying client session."""
+    handle.closed = True
     _close(handle.client)
 
 
@@ -268,6 +292,7 @@ def set_origin(handle: MesospimHandle) -> dict:
     already set, and a silent divergence discovered later is worse than
     re-running set_origin after fixing the cause.
     """
+    _require_open(handle)
     _check_limits(handle, "set_origin", {})
     pos = _readers.get_positions(handle.client)
     handle.origin = {axis: float(pos.get(axis) or 0.0) for axis in ("x", "y", "z")}
@@ -295,6 +320,7 @@ def _user_xyz(handle: MesospimHandle, pos: dict) -> dict[str, float]:
 
 def get_actuators(handle: MesospimHandle) -> dict:
     """The actuator options each axis offers (driver-defined)."""
+    _require_open(handle)
     return {axis: list(opts) for axis, opts in _ACTUATORS.items()}
 
 
@@ -312,6 +338,7 @@ def _validate_actuators(with_actuators: dict | None) -> None:
 
 def get_xyz(handle: MesospimHandle, *, with_actuators: dict | None = None) -> dict:
     """Report the linear position per axis (um, relative to origin)."""
+    _require_open(handle)
     _validate_actuators(with_actuators)
     pos = _readers.get_positions(handle.client)
     user = _user_xyz(handle, pos)
@@ -332,8 +359,11 @@ def set_xyz(
     """Move to an absolute target (um, relative to origin); return a move record.
 
     The driver maps user coordinates to raw stage coordinates via the origin and
-    issues one absolute move, then reports the confirmed position.
+    issues one absolute move. The Remote Control server reports the move
+    finished only once the stage reads back at the target, and the driver
+    confirms that reading itself before it returns.
     """
+    _require_open(handle)
     _validate_actuators(with_actuators)
     targets = {
         "x": handle.origin["x"] + float(x),
@@ -362,13 +392,26 @@ def set_xyz(
 def get_state(handle: MesospimHandle) -> dict:
     """Capture instrument state: changeable settings first, then the observed report.
 
-    ``observed`` carries the identity fingerprint plus the provenance of the
-    function limits governing this session (evidence, not an instruction) --
-    None when limits failed to load (every mutating op is then refusing).
+    ``changeable`` is exactly what :func:`set_state` reapplies: the laser and
+    its intensity, the filter, zoom, shutter arrangement and the four ETL
+    values. ``observed`` is a read-only report: the identity fingerprint,
+    mesoSPIM's own run state (``idle``, ``live``, ...), where every axis is
+    (raw stage coordinates, focus and rotation included), the lasers, filters
+    and zooms the microscope is configured with, and the provenance of the
+    function limits governing this session (None when limits failed to load;
+    every mutating op is then refusing).
     """
+    _require_open(handle)
     state = _readers.get_state(handle.client)
     changeable = {key: state.get(key) for key in _MUTABLE_KEYS if state.get(key) is not None}
     observed = dict(handle.immutable)
+    observed["state"] = state.get("state")
+    observed["position"] = dict(state.get("position") or {})
+    config = _try(lambda: _readers.get_config(handle.client)) or {}
+    observed["lasers"] = [laser.get("name") for laser in config.get("lasers", [])]
+    observed["filters"] = list(config.get("filters", []))
+    observed["zooms"] = [zoom.get("name") for zoom in config.get("zooms", [])]
+    observed["shutter_configs"] = list(config.get("shutter_configs", []))
     observed["limits"] = (
         None if handle.function_limits is None else handle.function_limits.describe()
     )
@@ -382,6 +425,7 @@ def set_state(handle: MesospimHandle, state: dict) -> dict:
     (operator decision: the identity gate returns only if the changeable
     part ever grows beyond low-risk settings).
     """
+    _require_open(handle)
     changeable = {k: v for k, v in (state.get("changeable") or {}).items() if k in _MUTABLE_KEYS}
     _check_limits(handle, "set_state", changeable)
     if not changeable:
@@ -398,7 +442,14 @@ def set_state(handle: MesospimHandle, state: dict) -> dict:
 
 
 def get_procedures(handle: MesospimHandle) -> dict:
-    """The named procedures the driver offers."""
+    """The named procedures the driver offers.
+
+    ``move_focus`` and ``move_rotation`` drive the two axes outside the x/y/z
+    frame (micrometres and degrees, raw stage coordinates). The rest are
+    mesoSPIM's own buttons reached over Remote Control: ``zero_stage``, the
+    three configured sample positions, and ``stop``.
+    """
+    _require_open(handle)
     procs = {name: {"description": desc} for name, desc in ACQUISITION.procedures}
     procs["move_focus"] = {"description": "move the focus (detection) axis (um)", "args": ["value"]}
     procs["move_rotation"] = {"description": "rotate the sample (degrees)", "args": ["value"]}
@@ -410,8 +461,11 @@ def run_procedure(handle: MesospimHandle, procedure: dict) -> dict:
 
     The focus / rotation moves are gated by the function-keyed limits under
     the ``f`` / ``theta`` constraints — these axes live outside the xyz frame,
-    so this is where their envelope is enforced at the controller layer.
+    so this is where their envelope is enforced at the controller layer. The
+    sample-position presets are checked by the server against the envelope
+    mesoSPIM is configured with.
     """
+    _require_open(handle)
     name = procedure.get("name")
     if name == "move_focus":
         _check_limits(handle, "run_procedure", {"f": float(procedure["value"])})
@@ -422,13 +476,13 @@ def run_procedure(handle: MesospimHandle, procedure: dict) -> dict:
     elif name == "zero_stage":
         _check_limits(handle, "run_procedure", {})
         result = _cmd.zero_axes(handle.client, ["x", "y", "z"])
-    elif name in ("autofocus", "find_sample"):
+    elif name in _PRESET_PROCEDURES:
         _check_limits(handle, "run_procedure", {})
-        # Server-side named procedures: forwarded verbatim to the command server.
-        reply = handle.client.request("procedure", name=name, args=procedure.get("args", {}))
-        return {"ran": name, "data": dict(reply.data)}
+        result = _cmd.move_to_preset(handle.client, name)
+    elif name == "stop":
+        result = _cmd.stop(handle.client)
     else:
-        raise ValueError(f"unknown procedure {name!r}")
+        raise ValueError(f"unknown procedure {name!r}; known: {sorted(get_procedures(handle))}")
     if not result.get("success"):
         raise RuntimeError(f"procedure {name!r} failed: {result.get('message')}")
     return {"ran": name, "confirmed": result.get("confirmed")}
@@ -440,23 +494,74 @@ def run_procedure(handle: MesospimHandle, procedure: dict) -> dict:
 
 
 def get_acquisition_options(handle: MesospimHandle) -> dict:
-    """The acquisition + saving options this instrument offers (options + active)."""
-    zooms = [name for name, _px in HARDWARE.zoom_pixel_size_um]
+    """The acquisition + saving options this instrument offers (options + active).
+
+    The light-path choices (``zoom``, ``shutterconfig``) list what the
+    connected microscope is configured with; the profile's defaults stand in
+    when the server cannot say.
+    """
+    _require_open(handle)
+    config = _try(lambda: _readers.get_config(handle.client)) or {}
+    zooms = [zoom.get("name") for zoom in config.get("zooms", [])] or [
+        name for name, _px in HARDWARE.zoom_pixel_size_um
+    ]
+    shutters = list(config.get("shutter_configs", [])) or list(HARDWARE.shutter_configs)
     return {
         "format": {"options": list(ACQUISITION.formats), "active": ACQUISITION.save_format},
         "backlash_correction": {"options": [True, False], "active": True},
         "shutterconfig": {
-            "options": list(HARDWARE.shutter_configs),
+            "options": shutters,
             "active": ACQUISITION.default_shutterconfig,
         },
         "zoom": {"options": zooms, "active": ACQUISITION.default_zoom},
         "planes": {"options": "int >= 1", "active": 1},
         "z_step": {"options": "float um", "active": 1.0},
+        "z_start": {"options": "float um from the origin (stack only)", "active": None},
+        "z_end": {"options": "float um from the origin (stack only)", "active": None},
     }
 
 
 _ACQUIRE_STATE_KEYS = ("laser", "intensity", "filter", "zoom", "shutterconfig")
 _ACQUIRE_CAPTURE_KEYS = ("planes", "z_step", "z_start", "z_end")
+
+
+def _try(fn):
+    """Call ``fn()``; degrade any failure to ``None`` (a report must not fail a capture)."""
+    try:
+        return fn()
+    except Exception as exc:  # noqa: BLE001 -- provenance capture is best-effort
+        log.debug("state field unavailable: %s", exc)
+        return None
+
+
+def _export_state(handle: MesospimHandle, *, acquisition_type: str, position_label: str) -> dict:
+    """What the driver knows about the microscope at capture time, JSON-ready.
+
+    Printed beside the images by ``save``. Every field is captured
+    best-effort: a missing reader degrades to ``None`` rather than failing the
+    save, because a picture without its full description is still worth more
+    than no picture.
+    """
+    try:
+        from . import __version__ as driver_version
+    except Exception:  # noqa: BLE001 -- best-effort provenance
+        driver_version = None
+    return {
+        "software": {
+            "driver": "mesospim",
+            "driver_version": driver_version,
+            "api": handle.connection.get("api"),
+            "server": dict(handle.immutable),
+        },
+        "instrument": _try(lambda: get_state(handle)),
+        "position": _try(lambda: get_xyz(handle)),
+        "origin": dict(handle.origin),
+        "provenance": {
+            "acquisition_type": acquisition_type,
+            "position_label": position_label,
+            "exported_at": datetime.now(timezone.utc).isoformat(),
+        },
+    }
 
 
 def acquire(
@@ -469,9 +574,16 @@ def acquire(
     """Capture one dataset and save it, returning the record.
 
     Applies any light-path options as state first, optionally settles the stage
-    (backlash correction), captures via the mesoSPIM image writer, then relocates
-    the frames into ``<output_root>/data/``.
+    (backlash correction), captures via the mesoSPIM image writer, then
+    relocates the stack into ``<output_root>/data/`` and prints the state it
+    was captured under beside it, under ``data/metadata``.
+
+    The record lists the saved ``images``, one ``planes`` entry per plane with
+    its path and where on the sample it was taken (in the frame ``set_xyz``
+    accepts), and the ``metadata`` files written. ``image_files`` repeats the
+    image list under the name earlier workflows used.
     """
+    _require_open(handle)
     options = dict(options or {})
     fmt = options.get("format", ACQUISITION.save_format)
     # Fail-closed gate BEFORE anything is applied; the absolute z bounds are
@@ -515,14 +627,15 @@ def acquire(
         raise RuntimeError(f"acquire: stack Z range outside stage limits: {exc}") from exc
 
     # Give the image writer an explicit, per-acquisition output location so the
-    # resident server can resolve the frame paths and repeated/same-label
-    # captures never collide. Cleaned up after the frames are relocated.
+    # server can report the frame path and repeated/same-label captures never
+    # collide. Cleaned up after the frames are relocated.
     handle._acq_seq += 1
     stem = _acq.canonical_stem(acquisition_type, position_label)
     staging = handle.output_root / "_staging" / f"{stem}_{handle._acq_seq:04d}"
     staging.mkdir(parents=True, exist_ok=True)
     capture_options.setdefault("folder", str(staging))
     capture_options.setdefault("filename", f"{stem}.tiff")
+    state = _export_state(handle, acquisition_type=acquisition_type, position_label=position_label)
     result = _acq.acquire(handle.client, acquisition_type, options=capture_options)
 
     # 4) save into the canonical layout, then drop the staging copies (save()
@@ -534,19 +647,64 @@ def acquire(
             handle.output_root,
             position_label=position_label,
             format=fmt,
+            state=state,
         )
     finally:
         shutil.rmtree(staging, ignore_errors=True)
+
+    planes = _where_the_planes_are(handle, result, saved)
     return {
         "acquisition_type": acquisition_type,
         "position_label": position_label,
         "format": fmt,
-        "planes": result.planes,
+        "plane_count": result.planes,
+        # ``images`` is the simple list every driver returns; ``planes`` is the
+        # lossless manifest workflows need to tell channels from z.
+        "images": [str(p) for p in saved.image_paths],
         "image_files": [str(p) for p in saved.image_paths],
-        "metadata_file": str(saved.metadata_path) if saved.metadata_path else None,
+        "planes": planes,
+        # What the driver printed about this capture, beside the images under
+        # ``data/metadata``: ZMART's own state, and the writer's notes.
+        "metadata": [str(saved.state_path)] + [str(p) for p in saved.vendor_metadata_paths],
         "position": _user_xyz(handle, _readers.get_positions(handle.client)),
         "duration_s": result.duration_s,
     }
+
+
+def _where_the_planes_are(handle: MesospimHandle, result: Any, saved: Any) -> list[dict]:
+    """Say, per plane, where on the sample it was captured.
+
+    In the frame :func:`set_xyz` takes, so a position handed back can be handed
+    straight back in. The acquisition row that ran states the stack in raw
+    stage coordinates (``z_start`` to ``z_end``, evenly spaced over ``planes``),
+    which the origin shifts into the frame. The default mesoSPIM writer keeps
+    every plane of a stack in one file, so the entries share a path and differ
+    in their ``z`` index; a writer that produced one file per plane gives each
+    entry its own.
+    """
+    row = result.acquisition
+    x = float(row.get("x_pos") or 0.0) - handle.origin["x"]
+    y = float(row.get("y_pos") or 0.0) - handle.origin["y"]
+    z_start = float(row.get("z_start") or 0.0)
+    z_end = float(row.get("z_end") or z_start)
+    count = max(1, int(result.planes))
+    step = (z_end - z_start) / (count - 1) if count > 1 else 0.0
+    paths = [str(p) for p in saved.image_paths]
+    planes = []
+    for index in range(count):
+        path = paths[index] if len(paths) == count else paths[0]
+        planes.append(
+            {
+                "t": 0,
+                "c": 0,
+                "z": index,
+                "path": path,
+                "x_um": x,
+                "y_um": y,
+                "z_um": z_start + step * index - handle.origin["z"],
+            }
+        )
+    return planes
 
 
 def _settle(handle: MesospimHandle, overshoot_um: float = 5.0) -> None:
@@ -570,30 +728,79 @@ def _settle(handle: MesospimHandle, overshoot_um: float = 5.0) -> None:
 
 
 # =============================================================================
-# registration
+# info + registration
 # =============================================================================
 
 # The connection identity the ZMART controller keys on. ``microscope`` is a
-# placeholder for a specific instrument; edit it (and host/port/output_root) per
-# deployment before connecting.
+# placeholder for a specific instrument; edit it (and host/port/token/
+# output_root) per deployment before connecting. ``token`` is the Remote
+# Control password; None means mesoSPIM's public loopback placeholder.
 CONNECTION = {
     "vendor": "mesospim",
     "microscope": "mesospim-01",
-    "api": "remote-scripting",
+    "api": "remote-control",
     "host": "127.0.0.1",
     "port": 42000,
+    "token": None,
 }
 
 
 def get_info(handle: MesospimHandle) -> dict:
-    """Read-only extras the driver exposes: initial positions, focus/rotation."""
+    """Read-only extras: where the session started, how far the stage may go, and what it stands on.
+
+    ``limits`` reports the envelope this session moves within (from the
+    machine's stage-limits file) and the one the Remote Control server itself
+    enforces. ``canvas`` is that envelope shifted into the frame, so a workflow
+    knows the x/y/z range it may ask for. ``connection_status`` says, in
+    words, whether each thing a session needs is in place.
+    """
+    _require_open(handle)
     pos = _readers.get_positions(handle.client)
+    server_limits = _try(lambda: _readers.get_limits(handle.client))
     return {
         "initial_positions": [dict(p) for p in handle.initial_positions],
         "focus_um": pos.get("f"),
         "rotation_deg": pos.get("theta"),
         "output_root": str(handle.output_root),
         "server": dict(handle.immutable),
+        "limits": {
+            "session": dict((handle.stage_cfg or {}).get("axes", {})),
+            "server": (server_limits or {}).get("enforced"),
+        },
+        "canvas": _canvas(handle),
+        "connection_status": _connection_status(handle, pos),
+    }
+
+
+def _canvas(handle: MesospimHandle) -> dict | None:
+    """The stage envelope, shifted into the frame: nothing can be imaged
+    outside it. None when no envelope governs the session."""
+    axes = (handle.stage_cfg or {}).get("axes")
+    if not axes:
+        return None
+    return {
+        f"{axis}_um": [axes[axis][0] - handle.origin[axis], axes[axis][1] - handle.origin[axis]]
+        for axis in ("x", "y", "z")
+        if axis in axes
+    }
+
+
+def _connection_status(handle: MesospimHandle, pos: dict) -> dict:
+    """What a session stands on, from what the driver already holds; a failure names itself."""
+    limits = None if handle.function_limits is None else handle.function_limits.describe()
+    return {
+        "api": "answering" if _readers.ping(handle.client) else "failed — no answer",
+        "limits": (
+            f"{limits['source']}{' (fallback)' if limits.get('is_fallback') else ''}"
+            if limits
+            else "failed — none loaded, every move refused"
+        ),
+        "stage": (
+            f"x {pos['x']:.0f} · y {pos['y']:.0f} · z {pos['z']:.1f} um"
+            if all(pos.get(axis) is not None for axis in ("x", "y", "z"))
+            else "failed — no reading"
+        ),
+        "output root": str(handle.output_root),
     }
 
 
@@ -619,7 +826,7 @@ def register(connection: dict | None = None) -> None:
 
     Safe to call more than once (idempotent per identity). ``connection`` may
     override the default identity/params (e.g. a specific ``microscope`` name,
-    ``host``/``port``, ``output_root``).
+    ``host``/``port``/``token``, ``output_root``).
     """
     try:
         from zmart_controller.registry import register as _register

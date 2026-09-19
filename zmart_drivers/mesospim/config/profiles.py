@@ -4,14 +4,16 @@ Connection, command, hardware, and acquisition profiles.
 One place for machine-sensitive tuning and the mesoSPIM hardware model, kept out
 of the command wrappers (which accept explicit overrides only for tests).
 
-- :class:`ConnectionProfile` -- host/port/timeout for the Remote Scripting socket.
+- :class:`ConnectionProfile` -- host, port, password and timing for the Remote
+  Control socket, including how the driver waits for an accepted change to finish.
 - :class:`CommandProfile` -- per-command retry/confirm tuning (the mesoSPIM
   analog of the Leica/ZEN ``CommandProfile``, minus the vendor transport knobs).
 - :class:`HardwareProfile` -- the instrument's axes, laser lines, filters, and
   zoom settings. This mirrors a mesoSPIM ``config`` file's device model; the live
   values are read back from the server via ``readers.get_config`` and this is the
   offline default / validation fallback.
-- :class:`AcquisitionProfile` -- default save format and light-sheet defaults.
+- :class:`AcquisitionProfile` -- default save format, light-sheet defaults and
+  the procedures the controller offers.
 
 Author: Thom de Hoog (ZMB, University of Zurich)
         thom.dehoog@zmb.uzh.ch . thomdehoog@gmail.com
@@ -25,11 +27,30 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class ConnectionProfile:
-    """Command-server socket settings."""
+    """Remote Control socket settings.
+
+    Attributes:
+        host, port: where mesoSPIM's Remote Control TCP server listens. The
+            server binds the local machine only unless the operator changes it.
+        timeout_s: how long one request may take before the socket gives up.
+        token: the Remote Control password. mesoSPIM ships with the public
+            placeholder ``smart_mesospim``, which the server only accepts on
+            the local machine; an operator who exposes the server on the
+            network must set their own, and the driver must then be given it
+            (``connection["token"]``).
+        operation_poll_s: how often ``get_progress`` is asked while an accepted
+            change (a move, a setting) is still running.
+        operation_timeout_s: how long the driver waits for an ordinary change
+            to finish before it gives up. Acquisitions use their own, longer
+            budget (``AcquisitionProfile.acquire_timeout_s``).
+    """
 
     host: str = "127.0.0.1"
     port: int = 42000
     timeout_s: float = 10.0
+    token: str = "smart_mesospim"
+    operation_poll_s: float = 0.05
+    operation_timeout_s: float = 120.0
 
 
 CONNECTION = ConnectionProfile()
@@ -64,7 +85,9 @@ class CommandProfile:
             object.__setattr__(self, "refire_on_unconfirmed", False)
 
 
-# Move commands: reliable fire, reader may lag -> accept unconfirmed as success.
+# Move commands: the server itself only reports a move as completed once the
+# stage reads back within 1 um of every target, so one readback here is
+# insurance, not the gate. An unconfirmed readback is not a failure.
 MOVE = CommandProfile(
     confirm_tolerance=1.0,
     success_on_unconfirmed=True,
@@ -76,8 +99,9 @@ MOVE_ROTATION = CommandProfile(
     success_on_unconfirmed=True,
 )
 
-# State settings (filter / zoom / laser / intensity / shutter / ETL / galvo):
-# the server applies them via sig_state_request; confirm by reading state back.
+# State settings (filter / zoom / laser / intensity / shutter / ETL): the
+# server applies them through the Core's state handler; confirm by reading
+# the same keys back.
 SET_STATE = CommandProfile(
     max_confirm_attempts=3,
     refire_on_unconfirmed=True,
@@ -137,18 +161,26 @@ class AcquisitionProfile:
     formats: tuple[str, ...] = ("ome-tiff", "raw", "h5")
     default_shutterconfig: str = "Left"
     default_zoom: str = "1x"
-    # Total budget for one capture, start to stack-on-disk. The client fires
-    # ``acquire_start`` (which returns immediately) and then polls progress and
-    # file existence until the run is idle and the stack exists, up to this
-    # ceiling (a real stack can take minutes). Sized generously.
+    # Total budget for one capture, start to stack-on-disk. The server accepts
+    # ``acquire_start`` at once and the driver then polls its operation until
+    # mesoSPIM reports the run finished, up to this ceiling (a real stack can
+    # take minutes). Sized generously.
     acquire_timeout_s: float = 600.0
-    # Pause between progress polls while a capture runs.
+    # Pause between polls while a capture runs.
     acquire_poll_s: float = 0.5
-    # Named procedures the driver exposes to the controller.
+    # How long to wait, after the run is reported finished, for the image
+    # writer to stop growing the file. Normally the file is complete already.
+    file_settle_timeout_s: float = 30.0
+    # Named procedures the driver exposes to the controller, beyond the
+    # focus/rotation moves the adapter always offers. Each is a Remote
+    # Control call that moves the stage to a position the operator configured
+    # in mesoSPIM, or a plain stop.
     procedures: tuple[tuple[str, str], ...] = (
-        ("autofocus", "sweep the focus (ETL/remote) for peak sharpness"),
-        ("find_sample", "move to the configured sample-load position"),
-        ("zero_stage", "define the current position as the software origin"),
+        ("zero_stage", "define the current x/y/z position as mesoSPIM's own zero"),
+        ("load_sample", "move the stage to the sample-loading position set in mesoSPIM"),
+        ("unload_sample", "move the stage to the sample-unloading position set in mesoSPIM"),
+        ("center_sample", "move the stage to the sample-centre position set in mesoSPIM"),
+        ("stop", "stop the stage immediately"),
     )
 
 

@@ -191,3 +191,40 @@ an excellent fit for the ZMART adaptive workflow (2× overview → segment → 4
 <!-- Investigation date: 2026-07-01. Maintainer: Thom de Hoog (ZMB / University of Zurich),
      thom.dehoog@zmb.uzh.ch · thomdehoog@gmail.com. License: MIT.
      RDK command shape grounded in the public OLS5000 RDK; FV RDK verbs pending Evident developer access. -->
+
+---
+
+## Public code that speaks the FV RDK (survey, 2026-09-19)
+
+A search of public repositories for anything that talks to the FLUOVIEW RDK turned up one
+implementation, one candidate that could not be opened, and nothing else. The one implementation
+also contradicts the transport assumed above, so it is recorded here before any driver is written.
+
+- **[`jiaxu0715/srs_scan`](https://github.com/jiaxu0715/srs_scan)** (Python, 2026, no licence file,
+  so all rights reserved; treat as a reference to read, never to copy). Automates SRS imaging on an
+  FV3000 through the RDK. Its `olympus_client.py` shows the FV RDK is **XML-RPC over HTTP**, not a
+  text-line TCP protocol: the client is `xmlrpc.client.ServerProxy("http://127.0.0.1:8080/xmlrpc")`,
+  every call takes one dictionary and returns one with `"result": "OK"`. The verbs it uses:
+  `Parameter.getParameter / setParameter / loadParameter` with a `settingId` such as
+  `XY_STAGE_POSITION_SETTING` (x, y in nanometres), `Z_STAGE_POSITION_SETTING`,
+  `LSM_Z_COORDINATE_*_SETTING` (z-stack start/end/step/slices) and the `MATL_ROI_*` family
+  (multi-area time-lapse regions); `Protocol.startProtocol / stopProtocol / getProtocolProgress`
+  (progress `state` is `IDLING` or `SCANNING`; `startProtocol` returns the path of the `.oir` it will
+  write); and `IDA.*` calls to read the image back. Lasers, detector gain and scan settings beyond
+  these are not covered.
+- **EMBL ALMF "AutoMicTools-FluoView bridge"** (`git.embl.de/grp-almf/automictools-fluoview-bridge`,
+  a Fiji/Java plugin driving an FV3000 through the RDK, referenced by the
+  [Smart Microscopy](https://smartmicroscopy.github.io) compatibility list). EMBL's GitLab could not
+  be reached from where this survey ran, so whether it is public, its licence, and whether it holds
+  command names are unconfirmed. Worth opening by hand: it is likely the most mature RDK client.
+- **Nothing in** Micro-Manager, pymmcore, Pycro-Manager, ImSwitch, napari plugins, PyPI or Zenodo
+  drives a FLUOVIEW; the other "fluoview" hits are file readers for `.oir`/`.oif` data.
+- **Official material** stays behind Evident's developer programme: the FV3000 RDK product page says
+  only that it "enables remote control and programming of certain FV3000 functions".
+
+**What this changes for the plan above.** The transport is XML-RPC on port 8080, which Python's
+standard library speaks without any extra package, and the vocabulary is `settingId`-keyed parameter
+get/set plus protocol start/stop/progress rather than `COMMAND= arg` lines. The sibling-driver shape
+(connection + command vocabulary + state readers) is unchanged; only the wire layer and the verbs
+differ from the OLS5000 model sketched in this document. Whether the FV4000's cellSens-FV serves the
+same endpoint is still the question for Evident.

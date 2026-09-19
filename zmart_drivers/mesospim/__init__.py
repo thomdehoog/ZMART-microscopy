@@ -3,20 +3,18 @@ mesospim -- mesoSPIM light-sheet microscope driver (ZMART).
 ===========================================================
 A vendor sibling to the Leica ``navigator_expert`` and ZEISS ``zenapi`` drivers,
 targeting **mesoSPIM-control** (the GPL PyQt5 acquisition app) from an external
-MIT client. mesoSPIM-control has no external control API, so this driver talks to
-its **Remote Scripting** server (a tiny generic bridge -- see ``pull_request/`` --
-that runs a Python script in the live Core and returns the console) over a
-localhost TCP socket. The driver injects small scripts (``connection/scripts.py``)
-and parses a structured result back, keeping ZMART MIT behind the process boundary
-while all the command vocabulary stays client-side. See ``README.md`` for the
-architecture and licensing rationale, and ``pull_request/PROTOCOL.md`` for the
-wire framing.
+MIT client. mesoSPIM-control gained a **Remote Control** server in its pull
+request #106: a fixed list of named, validated calls over a password-gated
+TCP socket. This driver is one client of that server. Nothing ZMART-specific
+runs inside mesoSPIM, which keeps ZMART MIT behind the process boundary. See
+``README.md`` for the architecture and licensing rationale, and ``protocol.py``
+for the wire contract.
 
 The public surface is **synchronous**, so operator notebooks keep the thin
 1-3-line invocation style used across the ZMART drivers::
 
     import mesospim as drv
-    client = drv.connect({"host": "127.0.0.1", "port": 42000})
+    client = drv.connect({"host": "127.0.0.1", "port": 42000, "token": "..."})
     drv.apply_stage_limits_from_config(drv.load_stage_config())
     drv.move_xy(client, 1000, 2000)          # micrometers
     drv.set_filter(client, "515/30")
@@ -25,8 +23,8 @@ The public surface is **synchronous**, so operator notebooks keep the thin
     saved = drv.save(acq, run_dir, position_label="A1")
     drv.close(client)
 
-To drive it through the vendor-neutral controller instead, call
-:func:`mesospim.register` and use ``zmart_controller``.
+To drive it through the vendor-neutral controller instead, import the package
+(which registers the instrument) and use ``zmart_controller``.
 
 Author: Thom de Hoog (ZMB, University of Zurich)
         thom.dehoog@zmb.uzh.ch . thomdehoog@gmail.com
@@ -36,7 +34,7 @@ License: MIT
 from __future__ import annotations
 
 # --- version ---
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 # --- connection ---
 # --- acquisition ---
@@ -60,6 +58,7 @@ from .commands import (
     move_focus,
     move_relative,
     move_rotation,
+    move_to_preset,
     move_xy,
     move_z,
     set_etl,
@@ -82,9 +81,6 @@ from .config import (
 from .connection.client import MesospimClient, MesospimError
 from .connection.session import close, connect
 
-# --- controller integration ---
-from .mesospim_zmart_adapter import register
-
 # --- stage limits (movement wrappers come in via .commands above) ---
 from .limits import (
     LimitError,
@@ -95,8 +91,11 @@ from .limits import (
     set_stage_limits,
 )
 
+# --- controller integration ---
+from .mesospim_zmart_adapter import register
+
 # --- protocol (for advanced callers / server authors) ---
-from .protocol import Reply, frame, parse_result, wrap_script
+from .protocol import PROTOCOL_VERSION, Reply, encode_call, frame, parse_reply
 
 # --- state readers ---
 from .readers import (
@@ -104,7 +103,9 @@ from .readers import (
     get_config,
     get_filters,
     get_hardware_info,
+    get_info,
     get_lasers,
+    get_limits,
     get_position,
     get_positions,
     get_progress,
@@ -122,10 +123,11 @@ __all__ = [
     "connect",
     "close",
     # protocol
+    "PROTOCOL_VERSION",
     "Reply",
     "frame",
-    "wrap_script",
-    "parse_result",
+    "encode_call",
+    "parse_reply",
     # readers
     "Reading",
     "ping",
@@ -135,7 +137,9 @@ __all__ = [
     "get_xyz",
     "get_config",
     "get_hardware_info",
+    "get_info",
     "get_lasers",
+    "get_limits",
     "get_filters",
     "get_zooms",
     "get_progress",
@@ -147,6 +151,7 @@ __all__ = [
     "move_z",
     "move_focus",
     "move_rotation",
+    "move_to_preset",
     "stop",
     "zero_axes",
     "set_state",

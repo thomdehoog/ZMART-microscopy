@@ -1,39 +1,36 @@
 """
-Remote-scripting transport + structured-result envelope.
-========================================================
-The mesoSPIM driver talks to mesoSPIM-control through its **Remote Scripting**
-server (an upstream contribution under ``pull_request/``):
-a tiny, generic bridge that runs a Python script in the live ``mesoSPIM_Core``
-context and returns whatever the script prints. There is **no command vocabulary
-on the wire** -- the driver injects a script, mesoSPIM runs it (``self`` == Core),
-and the console output comes back.
+The wire contract of mesoSPIM Remote Control.
+=============================================
+The mesoSPIM driver talks to mesoSPIM-control through its **Remote Control**
+TCP server (mesoSPIM-control pull request #106). The server understands a
+fixed list of named calls -- ``get_position``, ``move_absolute``,
+``acquire_start`` and so on -- and never runs code a client sends. This module
+is the pure, socket-free half of that conversation: how a call is written on
+the wire and how a reply is read back. The socket itself lives in
+:mod:`mesospim.connection.client`.
 
-This module is the pure, socket-free core of that transport:
+**Framing.** Every message, in both directions, is a byte count, a newline,
+and then that many bytes of UTF-8 text::
 
-1. **Framing** -- length-prefixed, both directions::
+    message = b"<decimal-byte-count>\\n" + <payload bytes>
 
-       message = b"<decimal-byte-count>\\n" + <payload bytes>
+**Calls.** One JSON object with exactly one member: the call's name, and an
+object of its arguments::
 
-   This is the framing the Remote Scripting PR speaks (see
-   ``pull_request/PROTOCOL.md``). It suits arbitrary script text (which contains
-   newlines) where a line-delimited framing would not.
+    {"move_absolute": {"targets": {"x": 100.0}}}
 
-2. **A structured result over an unstructured channel.** The reply is raw
-   console text and may interleave output from other threads (loggers, the demo
-   thread), exactly as mesoSPIM's Script Window console does. So every command
-   the driver injects is wrapped in :func:`wrap_script`, which:
+**Replies.** A successful reply is the marker ``__MESOSPIM_OK__`` followed by
+a JSON object. A refused call is plain text that starts with ``error: [code]``,
+where the code is one of ``validation`` (the request was wrong, nothing
+started), ``busy`` (another change is still running), ``unknown_command`` and
+``execution`` (the microscope side failed). :func:`parse_reply` turns either
+form into a :class:`Reply` so the rest of the driver never looks at the text.
 
-     - emits its result as ``<nonce>`` + base64(JSON) + ``<nonce-end>`` -- a
-       **per-call nonce** so no other output can be mistaken for ours, and
-       **base64** so the payload can never contain the delimiter; and
-     - catches any exception and emits a structured ``{"ok": false, "error":
-       <traceback>}`` instead, so a failing script comes back as a clean NAK, not
-       a client-side parse crash.
-
-   :func:`parse_result` extracts that block from the console text and returns a
-   :class:`Reply`. If no block is present (e.g. a syntax error before the harness
-   ran, which mesoSPIM prints as a bare traceback), the whole console text is
-   returned as the error.
+**Operations.** A call that changes something is *accepted* before the work
+starts. The reply then carries an ``operation`` record (an id and a status),
+and the client polls ``get_progress`` until that operation is ``completed`` or
+``failed``. :mod:`mesospim.connection.client` does that polling; the helpers
+at the bottom of this module read the operation record out of a reply.
 
 Author: Thom de Hoog (ZMB, University of Zurich)
         thom.dehoog@zmb.uzh.ch . thomdehoog@gmail.com
@@ -42,7 +39,6 @@ License: MIT
 
 from __future__ import annotations
 
-import base64
 import json
 import re
 from dataclasses import dataclass, field
@@ -50,26 +46,53 @@ from typing import Any
 
 ENCODING = "utf-8"
 
-# Bumped only if the framing or harness contract changes.
+# The protocol version ``hello`` reports. Bumped only when the framing or the
+# call/reply contract of the Remote Control server changes.
 PROTOCOL_VERSION = 1
+
+# The marker a successful reply starts with, exactly as the server writes it.
+OK_MARKER = "__MESOSPIM_OK__"
+
+# The largest frame the server accepts or sends (one mebibyte), and the
+# longest byte-count header it will read. Mirrors the server so a bad frame
+# is refused on this side before it is ever sent.
+MAX_FRAME_BYTES = 1 << 20
+MAX_FRAME_HEADER_BYTES = 16
+
+# The statuses an operation record can carry. Only the first two mean "still
+# running"; the client keeps polling while it sees one of them.
+PROCESSING = "processing"
+STOPPING = "stopping"
+COMPLETED = "completed"
+FAILED = "failed"
+IDLE = "idle"
+ACTIVE_STATUSES = (PROCESSING, STOPPING)
+TERMINAL_STATUSES = (COMPLETED, FAILED)
+
+_ERROR_RE = re.compile(r"^error:\s*\[(?P<code>[a-z_]+)\]\s*(?P<message>.*)$", re.DOTALL)
 
 
 class ProtocolError(ValueError):
-    """A frame or result payload could not be parsed."""
+    """A frame or a reply could not be understood."""
 
 
 @dataclass(frozen=True)
 class Reply:
-    """A parsed structured result.
+    """What the server answered to one call.
 
-    ``ok`` reports success; ``data`` carries the payload of a successful reply
-    and ``error`` the message of a failed one. ``id`` is unused by the
-    remote-scripting transport (kept for API compatibility with callers).
+    ``ok`` says whether the call was accepted. ``data`` is the JSON object of a
+    successful reply (for a read, the data itself; for a change, the accepted
+    operation record, and once it has finished, the operation's result merged in
+    by the client). ``error`` is the message of a refused call and ``code`` its
+    machine-readable reason (``validation``, ``busy``, ``unknown_command`` or
+    ``execution``), so a caller can decide whether to retry without reading the
+    text. ``id`` is unused by this transport and kept for older callers.
     """
 
     ok: bool
     data: dict[str, Any] = field(default_factory=dict)
     error: str = ""
+    code: str | None = None
     id: int | None = None
 
 
@@ -77,73 +100,90 @@ class Reply:
 
 
 def frame(payload: str | bytes) -> bytes:
-    """Length-prefix ``payload`` for the wire: ``b"<len>\\n" + payload``."""
+    """Put ``payload`` in a frame for the wire: ``b"<len>\\n" + payload``.
+
+    Raises :class:`ProtocolError` when the payload is larger than the server
+    would accept, so an oversized call fails here instead of being cut off.
+    """
     if isinstance(payload, str):
         payload = payload.encode(ENCODING)
+    if len(payload) > MAX_FRAME_BYTES:
+        raise ProtocolError(f"payload exceeds {MAX_FRAME_BYTES} bytes")
     return str(len(payload)).encode("ascii") + b"\n" + payload
 
 
-# -- structured result harness ------------------------------------------------
+def frame_length(head: bytes) -> int:
+    """The number of payload bytes a frame header promises.
 
-_MARKER_PREFIX = "<<<ZMART-RESULT:"
-_MARKER_SUFFIX = ":ZMART-END>>>"
-
-
-def _markers(nonce: str) -> tuple[str, str]:
-    return f"{_MARKER_PREFIX}{nonce}|", f"|{nonce}{_MARKER_SUFFIX}"
-
-
-def wrap_script(body: str, nonce: str) -> str:
-    """Wrap a command ``body`` in the emit/try-except harness.
-
-    ``body`` is Python that runs in the Core context (``self`` == Core) and must
-    assign the result to a name ``_result``. ``nonce`` must be unique per call.
-    The returned script prints exactly one delimited base64(JSON) block.
-
-    Scope note (critical): mesoSPIM runs an injected script with ``exec(script)``
-    **inside** ``mesoSPIM_Core.execute_script`` -- a method, so ``globals() is not
-    locals()``. In that frame any nested function, lambda or comprehension in
-    ``body`` resolves its free names via the *module* globals, not the script's own
-    assignments, and raises ``NameError`` (e.g. a ``lambda`` that reads ``_pos``, or
-    a dict comprehension). So we do NOT inline ``body`` at that top level; we
-    ``exec`` it in a dedicated namespace dict where ``globals is locals`` (normal
-    module scoping), with ``self`` injected. The emit code stays flat at the outer
-    top level, where reading the module-local ``_z*`` imports is fine.
+    The header must be plain decimal digits, like the server's own reader
+    demands; anything else is a framing error and the connection is not to be
+    trusted any further.
     """
-    start, end = _markers(nonce)
-    return (
-        "import json as _zjson, base64 as _zb64, traceback as _ztb\n"
-        "_zns = {'self': self}\n"
-        "try:\n"
-        f"    exec(compile({body!r}, '<zmart-cmd>', 'exec'), _zns)\n"
-        "    _zres = {'ok': True, 'data': _zns.get('_result')}\n"
-        "except Exception:\n"
-        "    _zres = {'ok': False, 'error': _ztb.format_exc()}\n"
-        f"print({start!r} + _zb64.b64encode(_zjson.dumps(_zres).encode('utf-8')).decode('ascii') + {end!r})\n"
-    )
+    if not head or len(head) > MAX_FRAME_HEADER_BYTES or not head.isdigit():
+        raise ProtocolError(f"expected a decimal byte count, got {head!r}")
+    length = int(head)
+    if length > MAX_FRAME_BYTES:
+        raise ProtocolError(f"frame exceeds {MAX_FRAME_BYTES} bytes")
+    return length
 
 
-def parse_result(console: str, nonce: str) -> Reply:
-    """Extract the delimited base64(JSON) result block from console text.
+# -- calls and replies ---------------------------------------------------------
 
-    Returns a :class:`Reply`. If the block is absent, the whole console text is
-    returned as an error (this is how a pre-harness failure -- a syntax error, an
-    import error, an auth/plumbing issue -- surfaces).
+
+def encode_call(name: str, args: dict[str, Any] | None = None) -> str:
+    """Write one call as the JSON text the server expects: ``{name: args}``.
+
+    The server rejects JSON that is not strict (a ``NaN`` or an ``Infinity``),
+    so those are refused here too, before anything is sent.
     """
-    start, end = _markers(nonce)
-    match = re.search(re.escape(start) + "(.*?)" + re.escape(end), console, re.DOTALL)
-    if not match:
-        text = console.strip()
-        return Reply(ok=False, error=text or "no result marker in server reply")
+    if not isinstance(name, str) or not name:
+        raise ProtocolError("a call needs a name")
+    args = dict(args or {})
     try:
-        payload = base64.b64decode(match.group(1)).decode("utf-8")
-        obj = json.loads(payload)
-    except (ValueError, json.JSONDecodeError) as exc:
-        raise ProtocolError(f"could not decode result payload: {exc}") from exc
-    if not isinstance(obj, dict) or "ok" not in obj:
-        raise ProtocolError(f"malformed result object: {obj!r}")
-    ok = bool(obj["ok"])
-    data = obj.get("data", {}) or {}
+        return json.dumps({name: args}, allow_nan=False)
+    except ValueError as exc:
+        raise ProtocolError(f"call {name!r} has a value JSON cannot carry: {exc}") from exc
+
+
+def parse_reply(text: str) -> Reply:
+    """Read a reply frame into a :class:`Reply`.
+
+    A successful reply starts with :data:`OK_MARKER` and carries a JSON object.
+    A refused call starts with ``error: [code]``. Anything else is a
+    :class:`ProtocolError`: the server is not speaking Remote Control, or the
+    connection is out of step.
+    """
+    if text.startswith(OK_MARKER):
+        body = text[len(OK_MARKER) :]
+        try:
+            data = json.loads(body)
+        except json.JSONDecodeError as exc:
+            raise ProtocolError(f"could not decode the reply's JSON: {exc}") from exc
+        if not isinstance(data, dict):
+            data = {"result": data}
+        return Reply(ok=True, data=data)
+    match = _ERROR_RE.match(text.strip())
+    if match:
+        return Reply(ok=False, error=match.group("message").strip(), code=match.group("code"))
+    raise ProtocolError(f"unexpected reply from the server: {text[:200]!r}")
+
+
+# -- operation records -----------------------------------------------------------
+
+
+def operation_of(data: dict[str, Any] | None) -> dict[str, Any] | None:
+    """The operation record inside a reply, or None when the reply has none.
+
+    A read returns its data directly and has no operation; an accepted change
+    carries one under ``operation``; ``get_progress`` reports the latest one
+    under the same key.
+    """
     if not isinstance(data, dict):
-        raise ProtocolError(f"result 'data' must be an object, got {type(data).__name__}")
-    return Reply(ok=ok, data=data, error=str(obj.get("error", "")))
+        return None
+    operation = data.get("operation")
+    return dict(operation) if isinstance(operation, dict) else None
+
+
+def is_active(operation: dict[str, Any] | None) -> bool:
+    """True while the operation is still running (``processing`` or ``stopping``)."""
+    return bool(operation) and operation.get("status") in ACTIVE_STATUSES

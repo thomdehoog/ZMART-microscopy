@@ -74,11 +74,19 @@ class AcquisitionResult:
 
 @dataclass(frozen=True)
 class SavedAcquisition:
-    """Manifest for one persisted acquisition product."""
+    """Manifest for one persisted acquisition product.
+
+    ``image_paths`` are the saved stacks under ``<output_root>/data``.
+    ``state_path`` is ZMART's own account of the capture, printed under
+    ``data/metadata/ZMART_state``; ``vendor_metadata_paths`` are the files the
+    mesoSPIM image writer wrote beside the stack (its ``*_meta.txt``), kept
+    under ``data/metadata/vendor/mesospim``.
+    """
 
     acquisition_type: str
     position_label: str
     image_paths: tuple[Path, ...]
-    metadata_path: Path | None
+    state_path: Path | None
     format: str
     metadata: AcquisitionMetadata
+    vendor_metadata_paths: tuple[Path, ...] = ()

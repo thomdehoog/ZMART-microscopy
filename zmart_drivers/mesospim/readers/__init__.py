@@ -1,11 +1,13 @@
-"""State readers: connection health, position, state, config, progress."""
+"""State readers: connection health, position, state, config, limits, progress."""
 
 from .readers import (
     Reading,
     get_config,
     get_filters,
     get_hardware_info,
+    get_info,
     get_lasers,
+    get_limits,
     get_position,
     get_positions,
     get_progress,
@@ -20,7 +22,9 @@ __all__ = [
     "get_config",
     "get_filters",
     "get_hardware_info",
+    "get_info",
     "get_lasers",
+    "get_limits",
     "get_position",
     "get_positions",
     "get_progress",

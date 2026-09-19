@@ -37,7 +37,7 @@ def session(server, tmp_path):
     connection = {
         "vendor": "mesospim",
         "microscope": "mesospim-test",
-        "api": "remote-scripting",
+        "api": "remote-control",
         "host": server.host,
         "port": server.port,
         "output_root": str(tmp_path / "run"),
@@ -57,7 +57,7 @@ def test_context_identity(session):
     assert session.context == {
         "vendor": "mesospim",
         "microscope": "mesospim-test",
-        "api": "remote-scripting",
+        "api": "remote-control",
     }
 
 
@@ -133,18 +133,42 @@ def test_acquisition_options(session):
 def test_acquire_captures_and_saves(session, tmp_path):
     record = session.acquire("prescan", "A1", options={"format": "ome-tiff"})
     assert record["acquisition_type"] == "prescan"
-    assert record["planes"] == 1
-    assert record["image_files"]
+    assert record["plane_count"] == 1
+    assert record["images"] and record["image_files"] == record["images"]
     from pathlib import Path
 
-    assert Path(record["image_files"][0]).exists()
+    image = Path(record["images"][0])
+    assert image.exists() and image.parent.name == "data"
+    # One plane, with where it was taken, in the frame set_xyz accepts.
+    assert len(record["planes"]) == 1
+    plane = record["planes"][0]
+    assert plane["path"] == str(image) and (plane["t"], plane["c"], plane["z"]) == (0, 0, 0)
+    assert plane["x_um"] == 0.0 and plane["z_um"] == 0.0
+    # What the driver printed about the capture sits under data/metadata.
+    import json
+
+    state_file = Path(record["metadata"][0])
+    assert (
+        state_file.parent.name == "ZMART_state" and state_file.parent.parent.parent == image.parent
+    )
+    printed = json.loads(state_file.read_text())
+    assert printed["state"]["instrument"]["changeable"]["laser"] == "488 nm"
+    assert printed["state"]["provenance"]["position_label"] == "A1"
+    vendor = Path(record["metadata"][1])
+    assert vendor.parent.name == "mesospim" and vendor.parent.parent.name == "vendor"
 
 
 def test_acquire_stack(session):
+    session.set_xyz(0, 0, 100)
+    session.set_origin()  # raw z=100 reads as frame z=0
     record = session.acquire("stack", "B2", options={"z_start": 0, "z_end": 4, "z_step": 1})
-    assert record["planes"] == 5
+    assert record["plane_count"] == 5
     # A 5-plane stack is one multi-page file (matches the real Tiff writer).
-    assert len(record["image_files"]) == 1
+    assert len(record["images"]) == 1
+    # Every plane says where it was taken, in the frame: z 0..4 from the origin.
+    assert [p["z"] for p in record["planes"]] == [0, 1, 2, 3, 4]
+    assert [p["z_um"] for p in record["planes"]] == [0.0, 1.0, 2.0, 3.0, 4.0]
+    assert {p["path"] for p in record["planes"]} == {record["images"][0]}
 
 
 def test_acquire_cleans_staging_and_does_not_duplicate(session, tmp_path):
@@ -176,16 +200,14 @@ def test_acquire_stack_z_out_of_limits_raises(session):
         session.acquire("stack", "Z9", options={"z_start": 0, "z_end": 500, "z_step": 1})
 
 
-def test_procedures(session):
-    from mesospim import MesospimError
-
+def test_procedures(session, server):
     procs = session.get_procedures()
-    assert "autofocus" in procs and "move_focus" in procs
+    assert {"move_focus", "move_rotation", "zero_stage", "load_sample", "stop"} <= set(procs)
+    assert "autofocus" not in procs  # nothing is advertised that the server cannot do
     assert session.run_procedure({"name": "move_focus", "value": 12.0})["ran"] == "move_focus"
-    # autofocus/find_sample are advertised but the resident server NAKs them today
-    # (TODO §5), so forwarding raises rather than silently "succeeding".
-    with pytest.raises(MesospimError):
-        session.run_procedure({"name": "autofocus"})
+    assert session.run_procedure({"name": "load_sample"})["ran"] == "load_sample"
+    assert server.core.position()["y"] == server.core.cfg.stage_parameters["y_load_position"]
+    assert session.run_procedure({"name": "stop"})["ran"] == "stop"
     with pytest.raises(ValueError):
         session.run_procedure({"name": "nope"})
 
@@ -194,6 +216,30 @@ def test_info(session):
     info = session.get_info()
     assert "initial_positions" in info
     assert "output_root" in info
+    assert info["server"]["app"] == "mesoSPIM-control"
+    # How far the stage may go: the session envelope, the server's, and the
+    # canvas in the frame.
+    assert info["limits"]["session"]["x"] == [0.0, 25000.0]
+    assert info["limits"]["server"]["axes"]["x"] == [-50000.0, 50000.0]
+    assert info["canvas"]["x_um"] == [0.0, 25000.0]
+    session.set_xyz(100, 0, 0)
+    session.set_origin()
+    assert session.get_info()["canvas"]["x_um"] == [-100.0, 24900.0]
+    status = info["connection_status"]
+    assert status["api"] == "answering" and "fallback" in status["limits"]
+
+
+def test_observed_reports_run_state_and_configuration(session):
+    observed = session.get_state()["observed"]
+    assert observed["state"] == "idle"
+    assert "488 nm" in observed["lasers"] and "515/30" in observed["filters"]
+    assert set(observed["position"]) == {"x", "y", "z", "f", "theta"}
+
+
+def test_acquisition_options_list_the_configured_zooms(session):
+    opts = session.get_acquisition_options()
+    assert opts["zoom"]["options"] == ["1x", "2x"]
+    assert opts["shutterconfig"]["options"] == ["Left", "Right", "Both"]
 
 
 # =============================================================================
@@ -205,7 +251,7 @@ def _connection(server, tmp_path):
     return {
         "vendor": "mesospim",
         "microscope": "mesospim-test",
-        "api": "remote-scripting",
+        "api": "remote-control",
         "host": server.host,
         "port": server.port,
         "output_root": str(tmp_path / "run"),
@@ -217,7 +263,6 @@ def test_bundled_function_limits_cover_every_mutating_op():
     """THE completeness guard: adding a mutating op without a limits entry fails here."""
     from mesospim import mesospim_zmart_adapter as controller
     from mesospim.calibration import machine
-
     from mesospim.limits import function_limits as shared_limits
 
     path = machine._bundled_default(machine.FUNCTION_LIMITS_FILENAME)

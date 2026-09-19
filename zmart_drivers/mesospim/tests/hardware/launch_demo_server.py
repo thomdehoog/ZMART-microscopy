@@ -1,28 +1,29 @@
 """
-Bring up a headless mesoSPIM ``-D`` demo with the Remote Scripting server started.
-============================================================================
+Bring up a headless mesoSPIM ``-D`` demo with the Remote Control TCP server started.
+==================================================================================
 A bench/CI helper that boots the real **mesoSPIM-control** app (all Demo backends,
-no hardware) offscreen and starts the Remote Scripting server (the upstream PR
-under ``../../pull_request/``) with a token, so the ``-m integration`` suites
-(``test_live_roundtrip`` + ``test_live_adapter``) can drive a real Core unattended.
+no hardware) offscreen and starts its Remote Control TCP transport (the Remote
+Control tab; mesoSPIM-control pull request #106) with a known password, so the
+``-m integration`` suites (``test_live_roundtrip`` + ``test_live_adapter``) can
+drive a real Core unattended.
 
-This is the "server default-ON with a known token, for testing" hook: production
-mesoSPIM stays OFF-by-default (the operator starts it from the Tools menu); this
-script only exists on the test side and calls the server's start slot directly.
+Production mesoSPIM keeps Remote Control OFF until an operator starts it from
+the tab; this script only exists on the test side and calls the Core's start
+slot directly, the same one the tab's Start button reaches.
 
-Requires a mesoSPIM-control checkout WITH the Remote Scripting PR applied
-(``git am pull_request/0001-*.patch``). Configure via env vars:
+Requires a mesoSPIM-control checkout that carries Remote Control (the
+``remote-control-py312`` branch until #106 is merged). Configure via env vars:
 
     MESOSPIM_CONTROL_ROOT   path to that checkout (required)
     MESOSPIM_HOST           bind host   (default 127.0.0.1)
     MESOSPIM_PORT           bind port   (default 42000)
-    MESOSPIM_TOKEN          shared token (default: a generated one, printed below)
+    MESOSPIM_TOKEN          the password (default: a generated one, printed below)
 
 Run it, wait for the ``LISTENING`` line, then run the integration suite in another
 shell with the SAME MESOSPIM_HOST/PORT/TOKEN. Ctrl-C (or kill) to stop.
 
 Author: Thom de Hoog (ZMB, University of Zurich). License: MIT (it drives, but
-does not import, the GPL mesoSPIM-control).
+does not import into ZMART, the GPL mesoSPIM-control).
 """
 
 from __future__ import annotations
@@ -32,9 +33,10 @@ import os
 import secrets
 import sys
 import types
+from typing import NoReturn
 
 
-def _fail(msg: str) -> NoReturn:  # noqa: F821
+def _fail(msg: str) -> NoReturn:
     print(f"launch_demo_server: {msg}", file=sys.stderr)
     raise SystemExit(2)
 
@@ -43,8 +45,8 @@ def main() -> int:
     root = os.environ.get("MESOSPIM_CONTROL_ROOT")
     if not root or not os.path.isdir(root):
         _fail(
-            "set MESOSPIM_CONTROL_ROOT to a mesoSPIM-control checkout with the "
-            "Remote Scripting PR applied (git am pull_request/0001-*.patch)"
+            "set MESOSPIM_CONTROL_ROOT to a mesoSPIM-control checkout that carries "
+            "Remote Control (pull request #106)"
         )
     host = os.environ.get("MESOSPIM_HOST", "127.0.0.1")
     port = int(os.environ.get("MESOSPIM_PORT", "42000"))
@@ -84,12 +86,12 @@ def main() -> int:
 
     app = QtWidgets.QApplication(sys.argv)
 
-    # Some mesoSPIM builds (e.g. the py312 line) ship optional ImageProcessor
-    # plugins that pip-install heavy GPU deps (torch+cu128, ~2 GB) at import time
-    # via plugins.utils.install_and_import. A headless test demo must never do
+    # Some mesoSPIM builds ship optional ImageProcessor plugins that pip-install
+    # heavy GPU deps (torch, ~2 GB) at import time via
+    # plugins.utils.install_and_import. A headless test demo must never do
     # that, so neutralise it to "import if already present, else raise" -- then
-    # PluginRegistry (which catches each plugin's import failure) just skips those
-    # processors. Guarded so it is a no-op on older builds without this hook.
+    # PluginRegistry (which catches each plugin's import failure) just skips
+    # those processors. Guarded so it is a no-op on builds without this hook.
     try:
         from mesoSPIM.src.plugins import utils as _plugin_utils
 
@@ -120,9 +122,12 @@ def main() -> int:
             print(f"FAILED to start: {message}", file=sys.stderr, flush=True)
             app.quit()
 
-    ex.core.sig_remote_scripting_started.connect(on_started)
-    # Start the server via the real queued GUI signal path, exactly as the button.
-    QtCore.QTimer.singleShot(1500, lambda: ex.sig_start_remote_scripting.emit(host, port, token))
+    ex.core.sig_remote_control_started.connect(on_started)
+    # Start the transport through the tab's own signal path, exactly as its
+    # Start button does: (mode, host, port, password), queued to the Core thread.
+    QtCore.QTimer.singleShot(
+        1500, lambda: ex.remote_control.sig_start_remote_control.emit("TCP", host, port, token)
+    )
     return app.exec_()
 
 
