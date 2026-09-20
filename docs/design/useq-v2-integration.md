@@ -107,20 +107,23 @@ keep the door open.
 ## If it is picked up again
 
 The shape to build is a useq layer between the workflows and the controller,
-with the alias rule described above. Commands flow down; results flow back
-up:
+with the alias rule described above. Each layer plugs into the one above it
+and knows nothing about it (the arrows on the left: this is how the vendor
+drivers already register with the controller). At run time, commands flow the
+other way (the arrows on the right):
 
 ```
-workflow / smart interface      decides, writes each planned batch as a useq sequence
-        │  useq sequence
-        ▼
-useq layer                      plays the sequence as controller calls
-        │  set_xyz / set_state / acquire / run_procedure
-        ▼
-controller Session
-        │
-        ▼
-vendor driver                   Nikon, ZEISS, Leica, mesoSPIM: untouched
+  plugs into                                                  commands
+      ▲          workflow / smart interface                       │
+      │          decides, writes each planned batch as a useq     │  useq sequence
+      │          sequence                                         ▼
+      │          useq layer                                       │
+      │          plays the sequence as controller calls           │  set_xyz / set_state /
+      │                                                           │  acquire / run_procedure
+      │          controller Session                               ▼
+      │                                                           │
+      │          vendor driver                                    ▼
+                 Nikon, ZEISS, Leica, mesoSPIM: untouched
 ```
 
 The workflows speak useq downward, the useq layer speaks the controller's
