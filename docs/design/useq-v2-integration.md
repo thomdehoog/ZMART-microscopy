@@ -104,6 +104,20 @@ foundation. Because a native format would speak the controller's contract,
 that translator stays cheap to add later. Nothing needs to be decided now to
 keep the door open.
 
+## useq is optional, today and later
+
+Nothing in ZMART imports or installs useq-schema. This note is the only
+change, and no line of `requirements.txt`, `environment.yml` or any driver
+mentions the package.
+
+If the useq layer is ever built, it stays optional. It sits above the
+controller as a separate piece, so the controller, the drivers and the
+workflows keep working exactly as they do without it. useq-schema would be an
+extra that only people who want to run or exchange useq sequences install,
+imported lazily with a plain message when it is missing. It must never be
+installed inside NIS-Elements: the Nikon bridge runs in the Python that ships
+with NIS and stays standard-library only.
+
 ## If it is picked up again
 
 The shape to build is a useq layer between the workflows and the controller,
