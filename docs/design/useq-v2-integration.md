@@ -113,18 +113,22 @@ drivers already register with the controller). At run time, commands flow the
 other way (the arrows on the right):
 
 ```
-  plugs into                                                  commands
-      ▲          workflow / smart interface                       │
-      │          decides, writes each planned batch as a useq     │  useq sequence
-      │          sequence                                         ▼
-      │          useq layer                                       │
-      │          plays the sequence as controller calls           │  set_xyz / set_state /
-      │                                                           │  acquire / run_procedure
-      │          controller Session                               ▼
-      │                                                           │
-      │          vendor driver                                    ▼
-                 Nikon, ZEISS, Leica, mesoSPIM: untouched
+workflow / smart interface
+   │ useq sequence          ▲
+   ▼                        │
+useq layer                  │
+   │ controller verbs       │ plugs
+   ▼                        │ into
+controller Session          │
+   │                        │
+   ▼                        │
+vendor driver (untouched)
 ```
+
+The workflow decides and writes each planned batch as a useq sequence; the
+useq layer plays it as controller calls (`set_xyz`, `set_state`, `acquire`,
+`run_procedure`); the vendor drivers (Nikon, ZEISS, Leica, mesoSPIM) are not
+changed.
 
 The workflows speak useq downward, the useq layer speaks the controller's
 verbs, and no driver knows useq exists. The reads a smart loop needs
