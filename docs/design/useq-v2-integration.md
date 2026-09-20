@@ -106,8 +106,29 @@ keep the door open.
 
 ## If it is picked up again
 
-The shape to build is the engine above the controller described above, with
-the alias rule, and these facts, all observed by running useq 0.9.2:
+The shape to build is a useq layer between the workflows and the controller,
+with the alias rule described above. Commands flow down; results flow back
+up:
+
+```
+workflow / smart interface      decides, writes each planned batch as a useq sequence
+        │  useq sequence
+        ▼
+useq layer                      plays the sequence as controller calls
+        │  set_xyz / set_state / acquire / run_procedure
+        ▼
+controller Session
+        │
+        ▼
+vendor driver                   Nikon, ZEISS, Leica, mesoSPIM: untouched
+```
+
+The workflows speak useq downward, the useq layer speaks the controller's
+verbs, and no driver knows useq exists. The reads a smart loop needs
+(`get_xyz`, `get_state`, `get_info`) come straight from the controller,
+because useq has no place for them.
+
+These facts were all observed by running useq 0.9.2:
 
 - Iterating `MDASequence(axes=(StagePositions, ChannelsPlan, ZRangeAround),
   axis_order=("p", "c", "z"))` yields events with `x_pos`, `y_pos`, `z_pos`,
