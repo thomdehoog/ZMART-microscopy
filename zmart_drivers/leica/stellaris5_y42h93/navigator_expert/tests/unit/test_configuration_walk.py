@@ -199,7 +199,11 @@ def test_the_workflow_configures_this_driver_and_a_session_then_stands_on_it(sta
     pair = procedures.measure_objective_pair(reference, target)
     assert pair["accepted"], pair.get("why")
     dx, dy, dz = pair["translation_um"]["x"], pair["translation_um"]["y"], pair["translation_um"]["z"]
-    assert abs(dx - OFFSET_UM[2][0]) <= 4.0 and abs(dy - OFFSET_UM[2][1]) <= 4.0
+    # The stand-in's stage stands still on a lens change, so the translation --
+    # how far the reading has to change for the 40x to look where the 10x did --
+    # is the look taken back out.
+    assert pair["stage_shift_um"] == {"x": 0.0, "y": 0.0}
+    assert abs(dx + OFFSET_UM[2][0]) <= 4.0 and abs(dy + OFFSET_UM[2][1]) <= 4.0
     assert abs(dz - OFFSET_UM[2][2]) <= 0.6
     document = {"objectives": {
         "1": {"name": JOBS["Overview"]["name"], "translation_um": [0.0, 0.0, 0.0]},
