@@ -77,7 +77,7 @@ describe("a progress box", () => {
     const b = box();
     b.say({ start: true });
     b.tick(1_000);
-    b.say({ done: 9, of: 9, phase: "umap", running: true, objects: 4054 });
+    b.say({ done: 9, of: 9, phase: "finalizing", running: true, objects: 4054 });
     expect(words(b)[1]).toBe("9 of 9 · 4054 objects");
     expect(bar(b).classList.contains("busy")).toBe(true);
   });

@@ -792,6 +792,11 @@ let stageWatch = null;
         state: activeRecording(state.overviewPreset)?.changeable ?? null,
         onProgress: (done, of, at) => {
           if (state.running !== s.id) return;
+          /* Three polls a second, and most answer with nothing new. Only a
+             field that landed is a reason to move the mark, read the run
+             and draw the page again; a poll that found the count unchanged
+             leaves the page and the picture alone. */
+          if (done === state.tilesShown) return;
           state.tilesShown = done;
           status.say(`scanning field ${done} of ${state.plan.length}`);
           scanProgress?.say({
@@ -898,9 +903,9 @@ let stageWatch = null;
         onField: (field) => {
           if (state.running !== s.id) return;
           fieldFound(field);
-          /* The lit frame follows the run across the sample: the field just
-             detected is the one the picture and the preview are about. */
-          state.detect.tile = field.field;
+          /* The lit frame stays where the operator left it: fields land in
+             the order the analysis finishes them, several at a time, and a
+             frame that jumped to each would only flicker across the sample. */
           state.notes[s.id] = discoveryNote();
           redrawSoon();
         },

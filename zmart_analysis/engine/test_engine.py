@@ -229,6 +229,14 @@ class TestPhases(unittest.TestCase):
         self.assertEqual(phases[0].steps[0].name, "a")
         self.assertEqual(phases[0].steps[1].params, {"x": 1})
 
+    def test_a_pipeline_may_set_a_steps_concurrency(self):
+        """``max_workers`` on a step in the YAML is the engine's key, not a param."""
+        steps = [{"a": {"max_workers": 8, "x": 1}}, {"b": None}]
+        phases = split_phases(steps)
+        self.assertEqual(phases[0].steps[0].max_workers, 8)
+        self.assertEqual(phases[0].steps[0].params, {"x": 1})
+        self.assertIsNone(phases[0].steps[1].max_workers)
+
     def test_one_scope_two_phases(self):
         steps = [
             {"preprocess": None},
@@ -601,6 +609,24 @@ class TestWorkerErrorPaths(unittest.TestCase):
 
 
 class TestPool(unittest.TestCase):
+
+    def test_a_steps_concurrency_is_its_own_at_each_width(self):
+        """Two pipelines sharing a step file may run it at different widths.
+
+        The semaphore used to be created once per step file with whichever
+        width was seen first, so a pipeline that asked for eight got one, or
+        the other way round, depending on registration order.
+        """
+        from engine._pool import WorkerPool
+        pool = WorkerPool()
+        try:
+            one = pool._get_semaphore("/steps/detect.py", 1)
+            eight = pool._get_semaphore("/steps/detect.py", 8)
+            self.assertIsNot(one, eight)
+            self.assertIs(pool._get_semaphore("/steps/detect.py", 8), eight)
+            self.assertEqual(eight._value, 8)
+        finally:
+            pool.shutdown_all(now=True)
 
     def test_per_env_worker_reuse(self):
         from engine._pool import WorkerPool

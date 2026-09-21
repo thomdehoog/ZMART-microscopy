@@ -496,6 +496,22 @@ def test_a_scan_labels_every_position_the_canonical_way(monkeypatch):
     assert scanned["done"] == 2
 
 
+def test_the_scan_answers_only_the_records_since_the_ones_a_page_holds(monkeypatch):
+    """A poll three times a second must not carry every record every time.
+
+    The page keeps the records it was given; asked since that many, the
+    bridge sends the rest. Asked plainly, it still sends everything.
+    """
+    driver = _Capturing()
+    scanned = _scanned(driver, [{"x": 0, "y": 0}, {"x": 10, "y": 0}, {"x": 20, "y": 0}], monkeypatch)
+    assert len(scanned["records"]) == 3
+    later = bridge._the_scan(since=2)
+    assert later["done"] == 3
+    assert [r["position_label"] for r in later["records"]] == [scanned["records"][2]["position_label"]]
+    assert bridge._the_scan(since=3)["records"] == []
+    assert len(bridge._the_scan(since=0)["records"]) == 3
+
+
 def test_a_position_says_where_on_the_plate_it_is(monkeypatch):
     """The page knows which well and which tileset; the label carries it."""
     driver = _Capturing()
@@ -796,6 +812,28 @@ def _asked_for(paths):
 # --- discovering targets -----------------------------------------------------
 
 
+class _Serial:
+    """A finder that answers without pixels, one field after the other: the
+    shape the bridge is handed, with the analysis engine left out."""
+
+    def __init__(self, one):
+        self.one = one
+        self.widths: list[int] = []
+
+    def __call__(self, record, field, settings):
+        return self.one(record, field, settings)
+
+    def each(self, records, settings, *, at_once, until=None):
+        self.widths.append(at_once)
+        for field, record in records.items():
+            if until and until():
+                return
+            try:
+                yield field, self.one(record, field, settings)
+            except Exception as why:  # noqa: BLE001 -- the outcome, as the real finder files it
+                yield field, why
+
+
 def _an_overview_of_two_fields(monkeypatch):
     """A scanned overview to detect on, and a finder that answers without pixels."""
     records = [
@@ -806,7 +844,7 @@ def _an_overview_of_two_fields(monkeypatch):
     monkeypatch.setattr(
         bridge,
         "_find_targets",
-        lambda: (lambda record, field, settings: {"cells": [{
+        lambda: _Serial(lambda record, field, settings: {"cells": [{
             "id": f"{record['position_label']}_obj1", "field": field,
             "x": 100.0 * field, "y": 2.0, "area": 50.0, "intensity": 3.0, "r": 4.0,
             "diameter_asked": settings.get("diameter"),
@@ -879,7 +917,7 @@ def test_full_object_detection_finishes_with_the_population_umap(monkeypatch):
     )
     got = _discovered({"settings": {}})
 
-    assert observed == {"running": True, "phase": "umap", "done": 2, "of": 2}
+    assert observed == {"running": True, "phase": "finalizing", "done": 2, "of": 2}
     assert got["embedding_error"] is None
     assert got["phase"] == "complete"
     assert got["fields"][0]["cells"][0]["features"] == {
@@ -893,6 +931,41 @@ def test_full_object_detection_finishes_with_the_population_umap(monkeypatch):
             f"*_{record['position_label']}_T000000_targets.json"
         ))
         assert "umap_1" in json.loads(kept.read_text(encoding="utf-8"))[0]["features"]
+
+
+def test_fast_fields_are_found_several_at_once_and_kept_in_the_samples_order(monkeypatch):
+    """The fast way hands every field to the analysis at once, takes them in
+    whatever order they land, and says so while they are in flight; what the
+    page reads at the end is in the order the sample was scanned."""
+    _an_overview_of_two_fields(monkeypatch)
+    plain = bridge._find_targets
+    seen = {}
+
+    class _Wide(_Serial):
+        def each(self, records, settings, *, at_once, until=None):
+            self.widths.append(at_once)
+            seen["doing"] = bridge._targets["doing"]
+            for field in sorted(records, reverse=True):
+                yield field, self.one(records[field], field, settings)
+
+    finder = _Wide(plain().one)
+    monkeypatch.setattr(bridge, "_find_targets", lambda: finder)
+    got = _discovered({"settings": {"method": "fast"}})
+    assert finder.widths == [bridge.detection.width_of({"method": "fast"})]
+    assert finder.widths[0] >= 2
+    assert "positions at once" in seen["doing"]
+    assert [field["field"] for field in got["fields"]] == [0, 1]
+    assert got["done"] == 2 and got["objects"] == 2
+    assert got["phase"] == "complete"
+
+
+def test_the_robust_way_finds_one_field_at_a_time(monkeypatch):
+    """Every Cellpose worker holds a model on the card; one at a time."""
+    _an_overview_of_two_fields(monkeypatch)
+    finder = bridge._find_targets()
+    monkeypatch.setattr(bridge, "_find_targets", lambda: finder)
+    _discovered({"settings": {"method": "robust"}})
+    assert finder.widths == [1]
 
 
 def test_what_was_found_is_kept_beside_the_overview(monkeypatch):
@@ -926,7 +999,7 @@ def test_the_operators_hand_stops_discovery_between_fields(monkeypatch):
             bridge._stop_targets()
             return cells
 
-        return find_and_press
+        return _Serial(find_and_press)
 
     monkeypatch.setattr(bridge, "_find_targets", finder)
     got = _discovered({"settings": {}})
@@ -953,7 +1026,7 @@ def test_a_field_that_fails_does_not_take_the_run_down(monkeypatch):
                 raise RuntimeError("the pipeline choked on this field")
             return find(record, field, settings)
 
-        return find_or_die
+        return _Serial(find_or_die)
 
     monkeypatch.setattr(bridge, "_find_targets", finder)
     got = _discovered({"settings": {}})
@@ -980,7 +1053,7 @@ def test_a_worker_put_down_by_the_hand_is_a_stop_not_a_failure(monkeypatch):
             bridge._stop_targets()
             raise RuntimeError("worker crashed: put down by the operator")
 
-        return find_and_die
+        return _Serial(find_and_die)
 
     monkeypatch.setattr(bridge, "_find_targets", finder)
     bridge._discover_targets({"settings": {}})

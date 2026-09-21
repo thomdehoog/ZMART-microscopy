@@ -197,6 +197,8 @@ class Engine:
                         if env is not None and env == self._default_env:
                             env = None
                         settings["environment"] = env
+                        if step.max_workers is not None:
+                            settings["max_workers"] = step.max_workers
                         step_settings[step.name] = settings
 
             state = PipelineState(

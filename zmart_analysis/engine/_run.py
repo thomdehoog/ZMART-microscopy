@@ -57,6 +57,11 @@ class StepConfig:
     name: str
     params: dict
     environment: str | None = None
+    #: The pipeline's word on how many of this step may run at once, over
+    #: the step file's own METADATA. A step file is written for its heaviest
+    #: caller; a pipeline whose work is light (a watershed, not Cellpose)
+    #: may run the same file wide without a second copy of it.
+    max_workers: int | None = None
 
 
 @dataclass
@@ -109,8 +114,8 @@ def split_phases(steps_config):
     first scope are Phase 0 (immediate). Each subsequent scope starts
     a new phase.
 
-    ``scope`` and ``environment`` are the engine's keys on a step and are
-    taken off before the rest reaches the step as its params.
+    ``scope``, ``environment`` and ``max_workers`` are the engine's keys on a
+    step and are taken off before the rest reaches the step as its params.
     """
     phases = []
     current_steps = []
@@ -121,6 +126,7 @@ def split_phases(steps_config):
         raw_params = dict(step_dict[name] or {})
         scope = raw_params.pop("scope", None)
         environment = raw_params.pop("environment", None)
+        max_workers = raw_params.pop("max_workers", None)
 
         if scope is not None:
             if current_steps:
@@ -129,7 +135,10 @@ def split_phases(steps_config):
             current_scope = scope
 
         current_steps.append(
-            StepConfig(name=name, params=raw_params, environment=environment)
+            StepConfig(
+                name=name, params=raw_params, environment=environment,
+                max_workers=int(max_workers) if max_workers is not None else None,
+            )
         )
 
     if current_steps:

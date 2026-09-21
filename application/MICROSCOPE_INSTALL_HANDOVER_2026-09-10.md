@@ -7,11 +7,11 @@ Date: 2026-09-10. This is a feature-branch test deployment, not a main-branch re
 | Component | Repository | Branch | Revision |
 | --- | --- | --- | --- |
 | Operator — application to launch | `thomdehoog/ZMART-microscopy` | `codex/operator-named-views-simulator` | The commit containing this updated handover and viewer pin; record `git rev-parse HEAD` after fetching |
-| Viewer — installed dependency, not the operator launcher | `thomdehoog/ZMART-viewer` | `codex/operator-embedding` | `90e0350777a2852ee19dee7b5fe48846aa5bcf14` |
+| Viewer — installed dependency, not the operator launcher | `thomdehoog/ZMART-viewer` | `codex/operator-embedding` | `6791d28946a094cdda7fba05bff9c7744562b7e6` |
 
 Viewer package version required by the operator: **0.5.0.dev0**.
 
-The viewer revision above is published. This operator increment includes the tested local fixes and updates both `requirements.txt` and `environment.yml` to that viewer revision. Earlier operator commit `40c8d1ed` contains only the initial handover and is NOT the completed update. Fetch the newer operator commit containing this revision of the document.
+The viewer revision above is committed locally in `zmart-viewer-embedding-20260910` and NOT yet pushed; push it before installing from Git. This operator increment includes the tested local fixes and updates both `requirements.txt` and `environment.yml` to that viewer revision. Earlier operator commit `40c8d1ed` contains only the initial handover and is NOT the completed update. Fetch the newer operator commit containing this revision of the document.
 
 Run the OPERATOR branch on the real microscope using `python application/zmart-interface.py --built`, without `--simulator-pixels`. The branch name does not force simulation. Select the actual Leica instrument and its measured configuration in Connect. Neither feature branch is merged into main.
 
@@ -64,7 +64,7 @@ From a separate viewer checkout under MinicondaZMB, with the new environment and
 
 ```powershell
 git fetch origin codex/operator-embedding
-git switch --detach 90e0350777a2852ee19dee7b5fe48846aa5bcf14
+git switch --detach 6791d28946a094cdda7fba05bff9c7744562b7e6
 npm --prefix app/page ci
 npm --prefix app/page run build
 python -m pip install .

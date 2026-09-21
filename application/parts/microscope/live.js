@@ -167,7 +167,7 @@ export const backend = {
        the driver's business. */
     await ask("/api/connect", {
       connection: { ...session?.connection, password: session?.password, configuration: session?.configuration },
-      bake_coarse: session?.bakeCoarse === true,
+      bake_coarse: session?.bakeCoarse !== false,
     });
     let keys = null;
     const answered = new Set();
@@ -345,27 +345,27 @@ export const backend = {
     append = false, planned = null,
   } = {}) {
     await ask("/api/scan", { positions, acquisition_type, state, append, planned });
+    /* The records so far, kept here: each poll asks only for the ones that
+       landed since, so a long scan is not carried whole three times a second. */
+    const records = [];
     for (;;) {
-      const progress = await askedPatiently("/api/scan");
+      const progress = await askedPatiently(`/api/scan?since=${records.length}`);
+      records.push(...(progress.records ?? []));
       /* Where the scan stood when it answered -- the last record's own plane,
          which is the only account of the stage that is already in hand. */
-      const plane = progress.records?.[progress.done - 1]?.planes?.[0];
+      const plane = records[progress.done - 1]?.planes?.[0];
       /* The records so far ride along: each one names the picture the bridge
          has already made of it, so the page can print a field the moment it
          lands rather than when the run answers. */
       onProgress?.(progress.done, progress.of,
-        plane ? { x: plane.x_um, y: plane.y_um, z: plane.z_um } : null,
-        progress.records ?? []);
+        plane ? { x: plane.x_um, y: plane.y_um, z: plane.z_um } : null, records);
       if (progress.error) throw new Error(progress.error);
       if (!progress.running) {
         /* The records come back with the run: what each capture wrote and
            where. Nothing else can reconstruct them, so a run that ended
            without them is a run nobody can account for. `stopped` rides
            along -- the operator's own hand is not a failure. */
-        return {
-          done: progress.done, of: progress.of, records: progress.records,
-          stopped: !!progress.stopped,
-        };
+        return { done: progress.done, of: progress.of, records, stopped: !!progress.stopped };
       }
       await rest(300);
     }

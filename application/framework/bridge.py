@@ -96,6 +96,7 @@ import shutil
 import sys
 import threading
 import time
+import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -548,7 +549,7 @@ def _connect(asked: dict) -> dict:
     # the JPEG copies -- so a viewer that cannot start is a sentence on
     # /api/viewer, never a failed connect.
     viewer_service.stop()
-    viewer_service.start(_run, bake=asked.get("bake_coarse") is True, canvas=info.get("canvas"))
+    viewer_service.start(_run, bake=asked.get("bake_coarse", True) is not False, canvas=info.get("canvas"))
     return {"context": _context, "info": info, "run": str(_run)}
 
 
@@ -1157,8 +1158,6 @@ VIEW = "view"
 
 def _the_display_asked_for(query: str) -> list | None:
     """The ``display=`` of a picture request, or None when none was asked."""
-    import urllib.parse
-
     asked = urllib.parse.parse_qs(query or "").get("display")
     if not asked:
         return None
@@ -1370,9 +1369,18 @@ def _stop_scan() -> dict:
     return _the_scan()
 
 
-def _the_scan() -> dict:
-    """The scan under way or last finished, with what it has captured so far."""
-    return dict(_scan)
+def _the_scan(since: int | None = None) -> dict:
+    """The scan under way or last finished, with what it has captured so far.
+
+    A page that polls while the scan runs already holds the records it was
+    given last time; asked ``since`` that many, it gets only the ones that
+    landed after. Every record rides along otherwise, so a run can always be
+    accounted for from one answer.
+    """
+    answer = dict(_scan)
+    if since is not None:
+        answer["records"] = answer["records"][max(0, since):]
+    return answer
 
 
 # ---------------------------------------------------------------------------
@@ -1429,29 +1437,36 @@ def _discover_targets(asked: dict) -> dict:
 def _targets_worker(fields: list, settings: dict, map_population: bool) -> None:
     try:
         find = _find_targets()
-        for number, field in enumerate(fields):
-            if _stop_asked["targets"]:
-                _targets["stopped"] = True
-                break
-            record = _records["overview"][field]
-            _targets["doing"] = (
-                f"detecting and measuring objects in position {field + 1} "
-                f"({number + 1} of {len(fields)})"
+        records = {field: _records["overview"][field] for field in fields}
+        # Fields are independent, so the fast way finds several at once --
+        # a second of one CPU each -- and the robust way one at a time,
+        # every Cellpose worker holding a model on the card.
+        at_once = detection.width_of(settings)
+
+        def what_is_being_done() -> str:
+            in_flight = min(at_once, len(fields) - _targets["done"])
+            return (
+                f"detecting and measuring objects in {in_flight} "
+                f"position{'s' if in_flight != 1 else ''} at once, "
+                f"{_targets['done']} of {len(fields)} done"
             )
-            try:
-                found = find(record, field, settings)
-            except Exception as why:  # noqa: BLE001 -- filed, not fatal
+
+        _targets["doing"] = what_is_being_done()
+        stopped = lambda: _stop_asked["targets"]  # noqa: E731 -- the brake, asked by the finder
+        for field, found in find.each(records, settings, at_once=at_once, until=stopped):
+            record = records[field]
+            if isinstance(found, Exception):
                 if _stop_asked["targets"]:
-                    # The hand that stopped the run also put its worker
+                    # The hand that stopped the run also put its workers
                     # down; that death is the stop, not a bad field.
-                    _targets["stopped"] = True
                     break
                 # One bad field is filed and stepped over, the way the focus
                 # map files a lost point: a nine-field run died whole on the
                 # one field the pipeline choked on, and nothing short of
                 # running everything again could recover it.
-                _targets["failed"].append({"field": field, "why": str(why)})
+                _targets["failed"].append({"field": field, "why": str(found)})
                 _targets["done"] += 1
+                _targets["doing"] = what_is_being_done()
                 continue
             _keep_targets(found["cells"], record)
             _targets["fields"].append({
@@ -1463,20 +1478,24 @@ def _targets_worker(fields: list, settings: dict, map_population: bool) -> None:
             })
             _targets["objects"] += len(found["cells"])
             _targets["done"] += 1
+            _targets["doing"] = what_is_being_done()
+        if _stop_asked["targets"]:
+            _targets["stopped"] = True
+        # Landed in the engine's order; kept in the sample's.
+        _targets["fields"].sort(key=lambda one: one["field"])
 
-        # UMAP is one statement about the whole population. Classical
-        # features are already measured inside each field's object_analysis
-        # pipeline; only after every field has supplied those rows can this
-        # last phase of the same object-detection operation be calculated.
-        # A one-field settings test deliberately stops at the field result:
-        # an embedding of it would not be the population's coordinate space.
+        # Finalizing the features is one statement about the whole
+        # population: the map (UMAP) is one of them. Classical features are
+        # already measured inside each field's object_analysis pipeline; only
+        # after every field has supplied those rows can this last phase of
+        # the same object-detection operation be calculated. A one-field
+        # settings test deliberately stops at the field result: an embedding
+        # of it would not be the population's coordinate space.
         if map_population and not _targets["stopped"]:
             cells = [cell for result in _targets["fields"] for cell in result["cells"]]
             if cells:
-                _targets["phase"] = "umap"
-                # The map is one of the features, so the line says what the
-                # operator is waiting for rather than which one it is.
-                _targets["doing"] = f"extracting features for {len(cells)} objects"
+                _targets["phase"] = "finalizing"
+                _targets["doing"] = f"finalizing feature extraction: {len(cells)} objects"
                 try:
                     from application.parts.analysis import embedding
 
@@ -1760,7 +1779,8 @@ class _Bridge(BaseHTTPRequestHandler):
                 with _the_instruments_turn:
                     self._answer(_acquisition_options())
             elif path == "/api/scan":
-                self._answer(_the_scan())
+                since = urllib.parse.parse_qs(query or "").get("since", [None])[0]
+                self._answer(_the_scan(int(since) if since is not None else None))
             elif path == "/api/focus/measure":
                 self._answer(dict(_focus))
             elif path == "/api/targets/discover":

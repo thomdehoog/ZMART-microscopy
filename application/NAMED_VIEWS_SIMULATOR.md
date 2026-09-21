@@ -3,7 +3,7 @@
 Feature branch: `codex/operator-named-views-simulator`, based on local
 `codex/operator-relative-z-integration` at `7e0b8f8f`, including its rig fixes.
 Companion viewer branch: `codex/operator-embedding`, version `0.5.0.dev0`.
-Tested viewer commit: `90e0350777a2852ee19dee7b5fe48846aa5bcf14` (published).
+Tested viewer commit: `6791d28946a094cdda7fba05bff9c7744562b7e6` (local to the `zmart-viewer-embedding-20260910` worktree; not pushed yet).
 Neither branch is a microscope deployment.
 
 ## Display and storage
@@ -30,8 +30,10 @@ The coalesced publisher creates `<acquisition>_max.zmartview.zarr` in the
 run's `view` folder and nothing else. Acquisition identity comes from
 metadata. Separate original position stores remain untouched, retaining
 specimen Z. Per-position MIPs go in the acquisition's `projections` folder.
-Bake off/on uses the same product and coverage; the bridge does not compose
-image data.
+Baking is on unless the operator switches it off in the session card: a
+zoomed-out picture composed on demand from every position was measured at
+seconds a chunk against milliseconds baked. Bake off/on uses the same product
+and coverage; the bridge does not compose image data.
 
 Step 6 reads the original position through the analysis reader's `z="max"`
 path, including the additional channels. It uses the captured pixel calibration
