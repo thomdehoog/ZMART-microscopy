@@ -181,18 +181,6 @@ export function targetLayers(theRun) {
     }
     return run.plan[run.detect.tile];
   };
-  /* The tile after the current one, in reading order and round again: what
-     Tile goes to when the current one is already framed. Before the scan the
-     frame is the stage's, and the stage is not walked from here. */
-  const theNextField = () => {
-    if (beforeTheScan()) return;
-    if (activeMode === "select" || activeMode === "targets") {
-      const n = theTargetTiles().length;
-      if (n) run.detect.targetTile = ((run.detect.targetTile ?? 0) + 1) % n;
-      return;
-    }
-    if (run.plan.length) run.detect.tile = (run.detect.tile + 1) % run.plan.length;
-  };
   /* How far a press reaches, in world units. Taken from the last paint --
      which always precedes a press -- because `reaches` is handed a place and
      no frame; reading `scale` here was a ReferenceError, and every click on
@@ -360,9 +348,8 @@ export function targetLayers(theRun) {
     shown: !!theCurrentField(),
     staysSolid: true,
     /* Where the frame stands, for the canvas's own press that brings the
-       view in on it, and the way on to the next one. */
+       view in on it. */
     field: theCurrentField,
-    next: theNextField,
     paint: (frame) => {
       /* While the focus frame stands, the focus layer draws it on the
          point; drawn here too, two frames stood for one position. The
