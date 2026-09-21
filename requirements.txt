@@ -6,7 +6,7 @@
 # description files, measures how bright an image is from the smallest copy of it,
 # and serves bytes. That needs very little.
 #
-# Install into a Python 3.10-3.12 environment:
+# Install into a Python 3.11-3.12 environment:
 #
 #     python -m pip install -e .
 #
@@ -27,6 +27,11 @@ zarr>=3,<4
 # be shown sensibly the moment it opens, and building the shrunk-down copies the
 # viewer draws when zoomed out.
 numpy>=1.24
+
+# The operator reads canonical OME-Zarr pixels for detection/target previews
+# and focus slice copies in its own process, outside the analysis workers.
+# Keep aligned with environment.yml; 1.1.0 is the validated reader version.
+ngio==1.1.0
 
 # Shows the viewer in its own desktop window instead of a browser tab. Optional:
 # without it the page still serves and can be opened in any browser, and the
