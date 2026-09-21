@@ -8,17 +8,30 @@ Neither branch is a microscope deployment.
 
 ## Display and storage
 
-Top | Slice | MIP sit before Carrier. Selection is remembered per acquisition;
-only its selected named product reaches the engine. Top is the operator default.
-The original stores retain specimen Z; relative display placement belongs to
-the viewer. Top holds boundary planes, Slice samples Z, MIP remains flat.
+The operator draws one product of every acquisition: its maximum projection.
+A single plane is its own plane; a stack, the focus stacks of Step 4 included,
+is collapsed to its projection and lies flat beside the single planes. There
+is no Z slider under the picture and no depth to navigate. The T slider
+remains for a timelapse.
 
-The coalesced publisher creates `<acquisition>_top.zmartview.zarr`,
-`<acquisition>_slice.zmartview.zarr`, and `<acquisition>_max.zmartview.zarr`
-in the run's `view` folder. Acquisition identity comes from metadata. Separate
-original position stores remain untouched. Per-position MIPs go in the
-acquisition's `projections` folder. Bake off/on uses the same products and
-coverage; the bridge does not compose image data.
+The dropdown over the picture, in the row's right half directly left of the
+acquisitions strip, lists Projection (the default and the only way that is
+built), Z-slices (Top view), Z-slice (Absolute) and 3D. The last three are
+greyed out and nothing exists behind them; they name what is not built yet.
+The dropdown appears with the first published product. Top and Slice were
+removed on 2026-09-21 (see `PLANE_TOP_ABSOLUTE_SLICE_2026-09-10.md`); the
+shared viewer still supports them for its own use.
+
+The column beside the canvas is the step's channel alone. The picture's own
+panel is mounted out of sight; the operator reaches its acquisitions and
+channels through the row over the picture, whose presses drive that panel.
+
+The coalesced publisher creates `<acquisition>_max.zmartview.zarr` in the
+run's `view` folder and nothing else. Acquisition identity comes from
+metadata. Separate original position stores remain untouched, retaining
+specimen Z. Per-position MIPs go in the acquisition's `projections` folder.
+Bake off/on uses the same product and coverage; the bridge does not compose
+image data.
 
 Step 6 reads the original position through the analysis reader's `z="max"`
 path, including the additional channels. It uses the captured pixel calibration

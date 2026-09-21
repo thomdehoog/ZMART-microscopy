@@ -5,7 +5,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "@playwright/test";
-import { rest, showDisplaySettings, showTheChannel, startTheBridge } from
+import { openTheChannelBox, rest, startTheBridge } from
   "./workflows/target_acquisition/steps/scan_the_overview/live-bridge.js";
 import { readPng } from
   "./workflows/target_acquisition/steps/scan_the_overview/pixels.js";
@@ -817,29 +817,30 @@ function assertCompleteEvidence(record) {
 async function proveAutoUsesViewerMeasurement(page, audit) {
   const successful = () => audit.snapshot().required.measurement.successful;
   const beforeSelection = successful();
-  await showDisplaySettings(page);
-  await page.locator('.viewer-panel [data-channel-row="channel 0"]').first().click();
+  /* The channel's box under the row chooses the channel, which is what
+     asks for its measurement. */
+  await openTheChannelBox(page, "channel 0");
   await expect.poll(successful, {
-    message: "selecting overview channel 0 never reached the real Viewer measurement route",
+    message: "opening overview channel 0's box never reached the real Viewer measurement route",
   }).toBeGreaterThan(beforeSelection);
-  await expect.poll(() => page.locator(".viewer-panel svg rect").count(), {
+  await expect.poll(() => page.locator("#channel-pop svg rect").count(), {
     message: "the real Viewer measurement never drew a histogram",
   }).toBeGreaterThan(0);
 
   const successfulBeforeAuto = successful();
-  /* The panel names this button by its accessible label, "auto contrast
-     <channel>", so the visible word "Auto" alone never matches it. */
-  await page.locator('.viewer-panel button[aria-label^="auto contrast"]').click();
+  await page.locator("#channel-pop").getByRole("button", { name: "Auto", exact: true }).click();
   await expect.poll(successful, {
     message: "Auto never requested a fresh real Viewer measurement",
   }).toBeGreaterThan(successfulBeforeAuto);
-  /* Back to the step's channel, where the next press stands. */
-  await showTheChannel(page);
+  const histogramBars = await page.locator("#channel-pop svg rect").count();
+  /* The box closed again, so the next press stands clear of it. */
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#channel-pop")).toBeHidden();
   return {
     endpoint: "/api/measure",
     successfulBeforeAuto,
     successfulAfterAuto: successful(),
-    histogramBars: await page.locator(".viewer-panel svg rect").count(),
+    histogramBars,
   };
 }
 

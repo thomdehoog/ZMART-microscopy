@@ -37,7 +37,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "@playwright/test";
-import { rest, showDisplaySettings, showTheChannel, startTheBridge } from
+import { rest, setAcquisitionShown, showTheChannel, startTheBridge } from
   "./workflows/target_acquisition/steps/scan_the_overview/live-bridge.js";
 import { readPng } from
   "./workflows/target_acquisition/steps/scan_the_overview/pixels.js";
@@ -295,12 +295,7 @@ async function panelState(page) {
 }
 
 async function setGroupVisible(page, group, visible) {
-  await showDisplaySettings(page);
-  const eye = page.locator(`.viewer-panel button[data-acquisition="${group}"]`);
-  await expect(eye, `the ${group} acquisition eye exists`).toHaveCount(1);
-  if ((await eye.getAttribute("data-on")) === (visible ? "1" : "0")) return;
-  await eye.click();
-  await expect(eye).toHaveAttribute("data-on", visible ? "1" : "0");
+  await setAcquisitionShown(page, group, visible);
   await expect.poll(async () => {
     const rows = await rowsOfGroup(page, group);
     return rows.length > 0 && rows.every((row) => Boolean(row.visible) === visible);
@@ -1081,26 +1076,11 @@ test("Steps 1 to 8 through the operator page on the real bridge, Viewer 0.2 and 
       extra: { discovery: { fields: discovery.fields.map((field) => ({ field: field.field, label: field.position_label, cells: field.cells.length })), failed: discovery.failed ?? [], detectionLayerPixelChange: detectionChanged } },
     });
 
-    /* The display settings are a tab away from the step's channel, in the
-       same column: pressing it shows the picture's panel there and hides the
-       channel, pressing the step's name brings the channel back, and the
-       canvas does not move by a pixel either way. */
-    await expect(page.locator(".side-tab button.tab")).toHaveCount(2);
-    await page.locator(".side-tab button.tab", { hasText: "Detect objects" }).click();
-    await expect(page.locator("#canvas-side")).toBeVisible();
-    const canvasBefore = await page.locator("#stage-canvas").boundingBox();
-    await page.locator(".side-tab button.tab", { hasText: "Display settings" }).click();
-    await expect(page.locator("#display-side .viewer-panel")).toBeVisible();
-    await expect(page.locator("#canvas-side")).toBeHidden();
-    await expect(page.locator(".side-tab button.tab", { hasText: "Display settings" })).toHaveAttribute("aria-selected", "true");
-    expect(await page.locator("#stage-canvas").boundingBox(), "showing the display settings does not move the canvas").toEqual(canvasBefore);
-    await take("step6-display-settings-tab", {
-      step: 6, state: "the display settings shown in the channel's column, a tab away from the step; the canvas where it was",
-    });
-    await page.locator(".side-tab button.tab", { hasText: "Detect objects" }).click();
+    /* The column beside the canvas is the step's channel and nothing else:
+       the picture's own panel is never shown there. */
+    await expect(page.locator(".side-tab")).toHaveText("Detect objects");
     await expect(page.locator("#canvas-side")).toBeVisible();
     await expect(page.locator("#display-side")).toBeHidden();
-    expect(await page.locator("#stage-canvas").boundingBox(), "bringing the channel back does not move the canvas").toEqual(canvasBefore);
 
     /* ---------------------------------------------------------- Step 7 */
     await gotoStep(page, "Discover Targets");
@@ -1621,7 +1601,6 @@ test("Steps 4 to 6: the picture's own box is the switch the focus map reads, and
     });
     const shown = () => page.evaluate(() => window.__theStageCanvas.layerShown("picture"));
 
-    await showDisplaySettings(page);
     const showThePicture = (on) => page.evaluate((flag) => window.__theStageCanvas.showLayer("picture", flag), on);
     expect(await shown()).toBe(true);
     const seeThrough = await coloursOverTheMap();

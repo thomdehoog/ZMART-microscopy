@@ -1,4 +1,4 @@
-# Microscope installation handover — Top / Slice / MIP
+# Microscope installation handover — Projection
 
 Date: 2026-09-10. This is a feature-branch test deployment, not a main-branch release.
 
@@ -131,7 +131,7 @@ Optional preflight tests, from `application`, with the same MinicondaZMB environ
 ```powershell
 npm run test:unit
 npx playwright install chromium
-npx playwright test parts/canvas/named-views.spec.js
+npx playwright test parts/canvas/named-views.spec.js parts/canvas/flat-tiles.spec.js
 ```
 
 Playwright test tooling is not needed for ordinary acquisition. If `PLAYWRIGHT_CHROMIUM` is set, it must name the actual installed executable under MinicondaZMB, not a stale browser path from another machine. Do not run mock/simulator acquisition probes against a real microscope.
@@ -160,7 +160,7 @@ Open `http://127.0.0.1:8600`. Use only one controlling operator process. Confirm
 
 1. Select the real Leica driver and its correct machine configuration. If measured limits or orientation fail validation and bundled defaults are substituted, stop and resolve the configuration; do not bypass limits or copy the simulator's setup.
 2. In a known safe region, acquire one flat image and one small stack. Check actual vendor pixels, XY size/placement, physical plane order and Z against LAS X before a larger run.
-3. Check Top (relative plane navigation with boundary holding), Slice (absolute specimen Z), and MIP. Verify a singleton and a stack both behave correctly, with no unexplained disappearance or opaque unacquired areas.
+3. Check the projection: a single image and a stack both lie flat beside each other, the stack as its maximum over Z, with no unexplained disappearance or opaque unacquired areas. There is no Z slider; the dropdown over the picture offers only Projection, with the three other entries greyed out.
 4. Check focus scoring and sidebar previews against the captured canonical OME-Zarr. The shared reader changed; simulator success alone is not real-microscope validation.
 5. Test detection on one tile. Threshold is in raw counts, not the contrast-stretched preview values. The simulator's 0–16-count images needed a much lower threshold than 100; **do not carry threshold 8 over as a real-microscope recommendation**.
 6. Run a small multi-position acquisition with the desired bake setting. Confirm publication reaches ready and the final images appear without manual refresh before increasing scale.

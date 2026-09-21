@@ -44,16 +44,11 @@ export const canvasPanel = {
       <div class="canvas-body">
         <div class="plot-column">
         <!-- The canvas's own controls, floating over the top of the picture
-             so it reaches the top edge. Left, the two presses that say what
-             to look at; right, whatever legend the layer on show needs read,
-             such as the focus map's colour ramp. -->
+             so it reaches the top edge. Left, the presses that say where to
+             look; right, how the picture is drawn and whatever legend the
+             layer on show needs read, such as the focus map's colour ramp. -->
         <div class="canvas-toolbar" id="canvas-toolbar">
-          <!-- Left, the two presses that say what to look at. -->
-          <select id="view-modes" aria-label="Viewing mode" hidden>
-            <option value="top">Top</option>
-            <option value="slice">Slice</option>
-            <option value="max">MIP</option>
-          </select>
+          <!-- Left, the presses that say where to look. -->
           <button class="run icon" id="carrier-btn" type="button" aria-label="Carrier"
                   title="Carrier: frame the carrier on the stage">
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 5.5V2h3.5M10.5 2H14v3.5M14 10.5V14h-3.5M5.5 14H2v-3.5"/><rect x="5" y="6" width="6" height="4" rx="0.8"/></svg>
@@ -70,6 +65,16 @@ export const canvasPanel = {
                channels as chips, the masks as one of them. A press on a
                chip opens its box. -->
           <span class="canvas-toolbar-right">
+            <!-- How the picture is drawn. One way works: every position is
+                 one flat image, a stack collapsed to its projection. The
+                 other three name what is not built yet, and cannot be chosen.
+                 Shown once a picture has a product to draw. -->
+            <select id="view-modes" aria-label="Viewing mode" hidden>
+              <option value="max">Projection</option>
+              <option value="zslices-top" disabled>Z-slices (Top view)</option>
+              <option value="zslice-absolute" disabled>Z-slice (Absolute)</option>
+              <option value="3d" disabled>3D</option>
+            </select>
             <!-- A joined strip: which acquisition the row is about -- the
                  eye, the ramp chip, its name, a caret that opens the list --
                  and its channels in a box beside it.
@@ -230,19 +235,12 @@ export const canvasPanel = {
           <div class="live-note" id="publication-note" role="status" hidden></div>
           <div class="tip" id="stage-tip"></div>
         </div>
-        <!-- Under the picture: a way through a stack (Z) and along a
-             timelapse (T), one slider each across the whole width, Z above
-             T. A row stands only while the picture has more than one plane,
-             or more than one moment, to choose between; a flat picture of
-             one moment shows neither. -->
+        <!-- Under the picture: a way along a timelapse (T), one slider
+             across the whole width. It stands only while the picture has
+             more than one moment to choose between. There is no way through
+             a stack: the picture is flat, every stack drawn as its
+             projection. -->
         <div class="canvas-axes" id="canvas-axes" hidden>
-          <div class="canvas-axis" id="axis-z" hidden>
-            <span class="canvas-axis-name">Z</span>
-            <button class="canvas-axis-play" id="plane-play" type="button" aria-pressed="false"
-                    aria-label="play through the planes" title="Play through the planes; press again to pause"></button>
-            <input class="zv-range" id="plane" type="range" aria-label="depth of the picture">
-            <output class="canvas-axis-value" id="plane-readout"></output>
-          </div>
           <div class="canvas-axis" id="axis-t" hidden>
             <span class="canvas-axis-name">T</span>
             <button class="canvas-axis-play" id="moment-play" type="button" aria-pressed="false"
@@ -263,10 +261,10 @@ export const canvasPanel = {
                 aria-label="Collapse right sidebar" title="Collapse right sidebar"
                 aria-expanded="true"><span aria-hidden="true">›</span></button>
         <aside class="canvas-side" id="canvas-side" hidden></aside>
-        <!-- The picture's own controls -- its acquisitions, channels and
-             windows -- stand in the same column as the step's channel, and
-             the tab row over the column says which of the two is showing.
-             One column, one width: switching never moves the canvas. -->
+        <!-- Where the picture's own panel -- its acquisitions, channels and
+             windows -- is mounted. Never shown: the operator reaches those
+             through the row over the picture, whose presses drive the same
+             panel. It is kept so the panel has a home in the page. -->
         <aside class="canvas-side display-side" id="display-side" hidden>
           <div class="display-layer-settings side-group">
             <div class="side-group-title">Canvas layers</div>
@@ -325,10 +323,6 @@ export const canvasPanel = {
         publicationNote: find("publication-note"),
         pictureHost: find("picture-host"),
         axes: find("canvas-axes"),
-        axisZ: find("axis-z"),
-        plane: find("plane"),
-        planePlay: find("plane-play"),
-        planeReadout: find("plane-readout"),
         axisT: find("axis-t"),
         moment: find("moment"),
         momentPlay: find("moment-play"),

@@ -226,16 +226,11 @@ test("a session opens with the password left empty", async ({ page }) => {
   await expect(page.locator(".session-foot button.run")).toBeEnabled();
 });
 
-test("canvas layer controls live under Display settings from the start", async ({ page }) => {
-  await expect(page.locator(".side-tab button.tab"))
-    .toHaveText(["Connect", "Display settings"]);
+test("the column beside the canvas is the step's channel, with nothing to switch to", async ({ page }) => {
+  await expect(page.locator(".side-tab")).toHaveText("Connect");
+  await expect(page.locator(".side-tab button.tab")).toHaveCount(0);
   await expect(page.locator("#display-side")).toBeHidden();
   await expect(page.locator("#canvas-side")).toBeVisible();
-  await page.getByRole("tab", { name: "Display settings", exact: true }).click();
-  await expect(page.locator("#display-side")).toBeVisible();
-  await expect(page.locator(".display-layer-settings .side-group-title"))
-    .toHaveText("Canvas layers");
-  await expect(page.locator("#stage-layers .layer-chip")).not.toHaveCount(0);
   await expect(page.locator(".canvas-foot"), "the canvas has no bottom bar").toHaveCount(0);
   await expect(page.locator("#stage-readout"), "there is no live x/y readout").toHaveCount(0);
   /* The three framing presses are about a stage, and there is none until a
@@ -261,7 +256,7 @@ test("the channel folds away to the right and comes back", async ({ page }) => {
   // and gives the canvas the room; the strip stays as the way back, and the
   // column returns the width it had -- the canvas with it
   await expect(page.locator("#canvas-side")).toBeVisible();
-  await expect(page.locator(".side-tab .tab[aria-selected='true']")).toHaveText("Connect");
+  await expect(page.locator(".side-tab")).toHaveText("Connect");
   /* Stand well inside a zoomed sample view: preserving the initial fitted
      stage alone would not catch a sidebar resize that pans a tileset. */
   await page.evaluate(() => window.__theStageCanvas.lookAt({
@@ -289,7 +284,7 @@ test("the channel folds away to the right and comes back", async ({ page }) => {
   expect(viewFolded.zoom).toBeCloseTo(viewBefore.zoom, 9);
   await fold.click();
   await expect(page.locator("#canvas-side")).toBeVisible();
-  await expect(page.locator(".side-tab .tab[aria-selected='true']")).toHaveText("Connect");
+  await expect(page.locator(".side-tab")).toHaveText("Connect");
   await expect.poll(async () => (await page.locator("#stage-canvas").boundingBox()).width)
     .toBe(canvasBefore.width);
   const viewOpen = await page.evaluate(() => window.__theStageCanvas.view());
@@ -544,7 +539,7 @@ test("the canvas is always on the stage, and the channel follows the step",
        controls in the channel on the right. From the very first step — the
        session card is the channel of Connect. */
     await expect(page.locator("#tabs > .tab")).toHaveText(["Canvas"]);
-    await expect(page.locator(".side-tab .tab[aria-selected='true']")).toHaveText("Connect");
+    await expect(page.locator(".side-tab")).toHaveText("Connect");
     // headed the way every other step is headed: the name above the box
     await expect(page.locator("#canvas-side .side-group-title").first())
       .toHaveText("Connect to the microscope");
@@ -556,14 +551,14 @@ test("the canvas is always on the stage, and the channel follows the step",
     await expect(page.locator('.step:has-text("Define Carrier")').first(),
       "and standing on it settles it").toHaveClass(/done/);
     // the channel is named over the column it heads, not as a tab you switch to
-    await expect(page.locator(".side-tab .tab[aria-selected='true']")).toHaveText("Define Carrier");
+    await expect(page.locator(".side-tab")).toHaveText("Define Carrier");
     await expect(page.locator("#canvas-side")).toBeVisible();
     await expect(page.locator(".carrier-card")).toHaveCount(1);
 
     /* Walking back keeps the canvas: the channel changes hands instead. */
     await gotoStep(page, "Connect");
     await expect(page.locator("#tabs > .tab")).toHaveText(["Canvas"]);
-    await expect(page.locator(".side-tab .tab[aria-selected='true']")).toHaveText("Connect");
+    await expect(page.locator(".side-tab")).toHaveText("Connect");
     await expect(page.locator("#canvas-side .side-group-title").first(),
       "and the session comes back when you return")
       .toHaveText("Connect to the microscope");
@@ -576,7 +571,7 @@ test("the canvas is always on the stage, and the channel follows the step",
        heading says whose it is — rather than a second column beside it holding
        controls for a step nobody is on. */
     await gotoStep(page, "Overview scan area");
-    await expect(page.locator(".side-tab .tab[aria-selected='true']")).toHaveText("Overview scan area");
+    await expect(page.locator(".side-tab")).toHaveText("Overview scan area");
     await expect(page.locator(".carrier-card")).toHaveCount(0);
     // the editor is in the same channel, dead until the preset it needs exists
     await expect(page.locator(".sf-card")).toHaveCount(1);
@@ -590,7 +585,7 @@ test("the canvas is always on the stage, and the channel follows the step",
        either — it takes the channel and names it. */
     await placeFocusPoints(page);
     await expect(page.locator("#tabs > .tab")).toHaveText(["Canvas"]);
-    await expect(page.locator(".side-tab .tab[aria-selected='true']")).toHaveText("Focus strategy");
+    await expect(page.locator(".side-tab")).toHaveText("Focus strategy");
     await expect(page.locator("#focus-controls")).toBeVisible();
     await expect(page.locator(".sf-card")).toHaveCount(0);
 
@@ -616,7 +611,7 @@ test("the canvas is always on the stage, and the channel follows the step",
     await runStep(page, 3000);
 
     await gotoStep(page, "Focus strategy");
-    await expect(page.locator(".side-tab .tab[aria-selected='true']"), "walking back brings its channel with it")
+    await expect(page.locator(".side-tab"), "walking back brings its channel with it")
       .toHaveText("Focus strategy");
     await expect(page.locator("#focus-controls")).toBeVisible();
   });
@@ -1785,6 +1780,6 @@ test("one walk of the whole run", async ({ page }) => {
   expect((await targetsOnCanvas(page)).filter((target) => target.acquired).length,
     "rerunning current preserves the other acquired targets").toBe(acquiredBeforeCurrent);
   await expect(page.locator("#target-list .point-row")).toHaveCount(rowsBeforeCurrent);
-  await expect(page.locator(".side-tab .tab[aria-selected='true']"),
+  await expect(page.locator(".side-tab"),
     "inspection continues after the run finishes").toContainText("Acquire Targets");
 });

@@ -310,7 +310,7 @@ def _publish_once(wake: threading.Event, pending: set[str]) -> bool:
                     "views": {
                         "path": str(run_folder / "view"),
                         "acquisition": kind,
-                        "modes": ["top", "slice"], "projections": ["max"],
+                        "modes": [], "projections": ["max"],
                         "projection_path": str(run_folder / kind / "projections"),
                     },
                 })

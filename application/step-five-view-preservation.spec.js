@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "@playwright/test";
-import { rest, showDisplaySettings, startTheBridge } from
+import { rest, setAcquisitionShown, startTheBridge } from
   "./workflows/target_acquisition/steps/scan_the_overview/live-bridge.js";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -66,8 +66,7 @@ async function frontSourceCount(page, acquisition) {
 }
 
 async function setAcquisitionVisible(page, acquisition, visible) {
-  await showDisplaySettings(page);
-  await page.locator(`.viewer-panel button[data-acquisition="${acquisition}"]`).click();
+  await setAcquisitionShown(page, acquisition, visible);
   await expect.poll(() => acquisitionVisible(page, acquisition)).toBe(visible);
 }
 

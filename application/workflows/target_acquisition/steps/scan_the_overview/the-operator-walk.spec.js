@@ -21,7 +21,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "@playwright/test";
-import { rest, showDisplaySettings, showTheChannel, startTheBridge } from "./live-bridge.js";
+import { rest, setAcquisitionShown, showTheChannel, startTheBridge } from "./live-bridge.js";
 import { fractionNear, photograph } from "./pixels.js";
 
 const SHOTS = path.resolve(
@@ -243,16 +243,10 @@ test("an operator walks from Connect to a scanned overview", async ({ page }) =>
      before the overview starts. Hide that acquisition through the operator's
      own control so the pixel rise below belongs specifically to overview;
      acquisition order and shared display Z must not be used as visibility. */
-  await showDisplaySettings(page);
-  const focussingEye = page.locator(
-    '.viewer-panel button[data-acquisition="focussing"]',
-  );
-  /* Whichever way the panel offers it first -- the focussing eye may already
+  /* Whichever way the row offers it first -- the focussing eye may already
      be off when the operator arrives at the scan step -- what matters is that
      it is off before the overview's pixels are counted. */
-  await expect(focussingEye).toBeVisible({ timeout: 30_000 });
-  if (await focussingEye.getAttribute("data-on") === "1") await focussingEye.click();
-  await expect(focussingEye).toHaveAttribute("data-on", "0");
+  await setAcquisitionShown(page, "focussing", false);
   await expect.poll(() => page.evaluate(() => window.__thePicture
     .layersForMeasurement()
     .filter(({ name }) => name.startsWith("focussing"))

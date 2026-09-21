@@ -2,6 +2,8 @@
 
 Result: bounded simulator checks passed. This is not real-microscope certification.
 
+Note, 2026-09-21: the Top and Slice modes exercised below were since removed from the operator; only the projection remains. See `NAMED_VIEWS_SIMULATOR.md`.
+
 ## What actually ran
 
 - The live CAM API reported `SystemType: SIMULATOR`, serial `STELLARIS SIMULATOR`, and idle before acquisition.

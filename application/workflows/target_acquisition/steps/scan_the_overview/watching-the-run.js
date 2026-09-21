@@ -107,14 +107,12 @@ export function watchTheRun(ctx) {
     let openedNames = [];
     let inStageFrame = true;
     let panel = null;
-    let requestedMode = "top";
-    const availableViews = new Map();
-    const commonModes = () => [...availableViews.values()].reduce(
-      (keys, one) => keys.filter(key => one.includes(key)), ["top", "slice", "max"]);
-    const selectedMode = () => {
-      const keys = commonModes();
-      return keys.includes(requestedMode) ? requestedMode : keys.includes("top") ? "top" : keys[0];
-    };
+    /* The one product the picture draws of every acquisition: its maximum
+       projection, so a stack lies flat beside the single planes. The shared
+       viewer names it by its method. */
+    const PROJECTION = "max";
+    /* Whether the run has published a product for the picture to draw. */
+    let hasProducts = false;
     let embedding = null;
     let embeddingUrl = null;
     const requestedPanelState = {
@@ -180,20 +178,15 @@ export function watchTheRun(ctx) {
           if (embedding.EMBEDDING_API_VERSION !== 1) throw new Error("Unsupported viewer embedding API");
           embeddingUrl = url;
         }
-        availableViews.clear();
-        for (const acquisition of sources) {
-          if (!acquisition.channels?.some(c => c.view)) continue;
-          const layers = acquisition.channels.map(c => ({ ...c, group: acquisition.name }));
-          availableViews.set(acquisition.name, embedding.viewChoices(layers)[0].keys
-            .filter(key => ["top", "slice", "max"].includes(key)));
-        }
+        hasProducts = sources.some(acquisition => acquisition.channels?.some(c => c.view));
         const selectedSources = sources.map(acquisition => {
           if (!acquisition.channels?.some(c => c.view)) return acquisition;
           const layers = acquisition.channels.map(c => ({ ...c, group: acquisition.name }));
           const choice = embedding.viewChoices(layers)[0];
-          const mode = selectedMode(acquisition.name);
-          if (!mode) return { ...acquisition, channels: [], url: undefined };
-          const selected = embedding.selectedViews(layers, { [choice.id]: mode });
+          /* An acquisition whose projection is not published yet has nothing
+             to draw; it joins the picture when the product lands. */
+          if (!choice.keys.includes(PROJECTION)) return { ...acquisition, channels: [], url: undefined };
+          const selected = embedding.selectedViews(layers, { [choice.id]: PROJECTION });
           const channels = layers.filter(row => embedding.inSelectedView(row, selected));
           return { ...acquisition, channels, url: channels[0]?.sources[0] };
         });
@@ -283,19 +276,10 @@ export function watchTheRun(ctx) {
       if (session !== generation) mounted.destroy();
       else {
         panel = mounted;
-        panel.element.viewModes = () => availableViews.size ? commonModes() : [];
-        panel.element.viewMode = selectedMode;
-        panel.element.setViewMode = async (name, mode) => {
-          if (!commonModes().includes(mode)) return;
-          requestedMode = mode;
-          ctx.displayChanged?.();
-          await reopenIfTheRunGrew({ refresh: false });
-          // Plane indices and specimen micrometres are different coordinates.
-          // Never carry the numeric value from one mode into the other.
-          if (requestedMode === mode && mode !== "max") {
-            viewer?.setPlane?.(mode === "top" ? 0 : (viewer.theDepthItCanShow?.()?.lowUm ?? 0));
-          }
-        };
+        /* What the row over the picture asks: whether there is a product to
+           draw, and which way it is drawn. There is one way. */
+        panel.element.viewModes = () => hasProducts ? [PROJECTION] : [];
+        panel.element.viewMode = () => PROJECTION;
       }
     }
 
@@ -397,8 +381,7 @@ export function watchTheRun(ctx) {
       openedNames = [];
       window.__thePicture = null;
       if (forgetVisibility) {
-        requestedMode = "top";
-        availableViews.clear();
+        hasProducts = false;
         requestedPanelState.acquisitions.clear();
         requestedPanelState.channels.clear();
         requestedPanelState.collapsed.clear();

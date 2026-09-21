@@ -1,61 +1,37 @@
 /**
- * The two sliders under the picture: through the stack (Z) and along the
- * timelapse (T).
+ * The slider under the picture: along the timelapse (T).
  *
- * A target acquisition can come back as a z-stack, as a time series, or as
- * both, and then the picture has more than one plane, or more than one
- * moment, to show. Each slider stands only while the picture has such a
- * choice. Slice also exposes a single plane's Z; Top and MIP need no Z
- * control for a flat picture.
+ * A target acquisition can come back as a time series, and then the picture
+ * has more than one moment to show. The slider stands only while the picture
+ * has such a choice. There is no way through a stack here: the operator's
+ * picture is flat, every stack in it drawn as its projection.
  *
- * Each row also has a play button: pressed, the slider walks by itself,
- * round to the start at the end, until pressed again. Z and T play
- * independently.
+ * The row has a play button: pressed, the slider walks by itself, round to
+ * the start at the end, until pressed again.
  *
- * The picture engine is what knows the extent: `theDepthItCanShow()` answers
- * in micrometres (or nothing when Z does not apply), `theMomentsItCanShow()`
- * in moments counted from the first (or nothing, for a single moment). The
- * sliders read those and hand back `setPlane(um)` and `setMoment(t)`.
+ * The picture engine is what knows the extent: `theMomentsItCanShow()`
+ * answers in moments counted from the first (or nothing, for a single
+ * moment). The slider reads that and hands back `setMoment(t)`.
  */
 
 /**
- * Wire the two slider rows to the picture.
+ * Wire the slider row to the picture.
  *
- * @param parts the elements: `axes` (the block holding both rows), `axisZ`,
- *   `plane`, `planeReadout`, `axisT`, `moment`, `momentReadout`.
+ * @param parts the elements: `axes` (the block holding the row), `axisT`,
+ *   `moment`, `momentPlay`, `momentReadout`.
  * @param picture a function answering the open picture engine, or null while
  *   there is none. Asked fresh on every refresh, since the picture is
  *   reopened when the run grows a new kind of scan.
- * @param acquisitions a function naming the acquisitions shown in the
- *   picture, or null to take the picture's whole depth. The picture is one
- *   room: the slider spans the relative depths of all shown stacks. Flat
- *   pictures remain visible throughout, and hidden stacks add no depth.
- * @returns `{ refresh }`: ask the picture again and show, size and place the
- *   sliders accordingly. Call it whenever the picture opens, closes or
- *   changes what it draws.
+ * @returns `{ refresh, stop }`: ask the picture again and show, size and
+ *   place the slider accordingly. Call `refresh` whenever the picture opens,
+ *   closes or changes what it draws.
  */
-export function mountTheAxes(parts, { picture, acquisitions = null, watchEveryMs = 1000, playEveryMs = { plane: 120, moment: 350 } }) {
-  const { axes, axisZ, plane, planePlay, planeReadout, axisT, moment, momentPlay, momentReadout } = parts;
-
-  /** The room's depth: the union of the acquisitions shown, or the
-      picture's whole depth when nobody says which are shown. */
-  const theDepth = (viewer) => {
-    const shown = acquisitions?.() ?? null;
-    if (shown === null) return viewer?.theDepthItCanShow?.() ?? null;
-    let range = null;
-    for (const name of shown) {
-      const one = viewer?.theDepthItCanShow?.(name) ?? null;
-      if (!one) continue;
-      range = range ? { ...range, lowUm: Math.min(range.lowUm, one.lowUm),
-        highUm: Math.max(range.highUm, one.highUm), stepUm: Math.min(range.stepUm, one.stepUm) } : one;
-    }
-    return range;
-  };
-  let depth = null;
+export function mountTheAxes(parts, { picture, watchEveryMs = 1000, playEveryMs = 350 }) {
+  const { axes, axisT, moment, momentPlay, momentReadout } = parts;
   let moments = null;
 
   /* A drag asks oftener than a frame is drawn; only the last ask in any
-     frame reaches the engine, the way the canvas's own plane control does. */
+     frame reaches the engine. */
   const frame = globalThis.requestAnimationFrame ?? ((tick) => setTimeout(tick, 16));
   let wanted = null;
   let pending = false;
@@ -76,79 +52,34 @@ export function mountTheAxes(parts, { picture, acquisitions = null, watchEveryMs
     slider.style?.setProperty?.("--fill", `${((Number(slider.value) - low) / (high - low || 1)) * 100}%`);
   };
 
-  const sayPlane = (um) => {
-    if (!depth) return;
-    const step = depth.stepUm || 1;
-    const which = Math.round((um - depth.lowUm) / step);
-    const many = Math.round((depth.highUm - depth.lowUm) / step) + 1;
-    planeReadout.textContent = depth.unit === "plane" ? `Plane ${which + 1} of ${many}`
-      : `${Number(um.toFixed(3))} µm · plane ${which + 1} of ${many}`;
-    fill(plane);
-  };
   const sayMoment = (t) => {
     if (!moments) return;
     momentReadout.textContent = `moment ${t + 1} of ${moments.many}`;
     fill(moment);
   };
-
-  const goToPlane = (value) => {
-    const um = value - (depth?.unit === "plane" ? 1 : 0);
-    sayPlane(um); soon(() => picture()?.setPlane?.(um));
-  };
   const goToMoment = (t) => { sayMoment(t); soon(() => picture()?.setMoment?.(t)); };
-  plane.addEventListener("input", () => goToPlane(Number(plane.value)));
   moment.addEventListener("input", () => goToMoment(Number(moment.value)));
 
   /* Play: the slider walks by itself, one step at a time, round to the
-     start when it reaches the end, until it is pressed again. Z and T each
-     have their own, so a stack can play while the moment stands still and
-     the other way round. */
-  const playing = { plane: null, moment: null };
-  const player = (key, button, slider, go) => {
-    const say = () => button?.setAttribute("aria-pressed", String(Boolean(playing[key])));
-    const stop = () => { if (playing[key]) clearInterval(playing[key]); playing[key] = null; say(); };
-    const start = () => {
-      stop();
-      playing[key] = setInterval(() => {
-        const step = Number(slider.step) || 1;
-        const next = Number(slider.value) + step;
-        const value = next > Number(slider.max) + 1e-9 ? Number(slider.min) : next;
-        slider.value = String(value);
-        go(value);
-      }, playEveryMs[key]);
-      say();
-    };
-    button?.addEventListener("click", () => (playing[key] ? stop() : start()));
-    return { stop };
+     start when it reaches the end, until it is pressed again. */
+  let playing = null;
+  const say = () => momentPlay?.setAttribute("aria-pressed", String(Boolean(playing)));
+  const stopPlaying = () => { if (playing) clearInterval(playing); playing = null; say(); };
+  const startPlaying = () => {
+    stopPlaying();
+    playing = setInterval(() => {
+      const next = Number(moment.value) + 1;
+      const value = next > Number(moment.max) ? Number(moment.min) : next;
+      moment.value = String(value);
+      goToMoment(value);
+    }, playEveryMs);
+    say();
   };
-  const planePlayer = player("plane", planePlay, plane, goToPlane);
-  const momentPlayer = player("moment", momentPlay, moment, goToMoment);
+  momentPlay?.addEventListener("click", () => (playing ? stopPlaying() : startPlaying()));
 
   function refresh() {
     const viewer = picture();
-    depth = theDepth(viewer);
     moments = viewer?.theMomentsItCanShow?.() ?? null;
-    const deep = Boolean(depth);
-    if (deep) {
-      const offset = depth.unit === "plane" ? 1 : 0;
-      plane.min = String(depth.lowUm + offset);
-      plane.max = String(depth.highUm + offset);
-      plane.step = String(depth.stepUm || 1);
-      const label = axisZ.querySelector?.(".canvas-axis-name");
-      if (label) label.textContent = depth.unit === "plane" ? "Plane" : "Z";
-      plane.setAttribute("aria-label", depth.unit === "plane" ? "Plane from the bottom" : "Specimen Z in micrometres");
-      /* Where the picture already is, unless a hand is on the slider. */
-      const at = depth.atUm ?? depth.lowUm;
-      const within = Math.max(depth.lowUm, Math.min(depth.highUm, at));
-      // Switching to Slice can leave the old Top depth outside the new range.
-      if (within !== at) viewer.setPlane(within);
-      if (globalThis.document?.activeElement !== plane) plane.value = String(within + offset);
-      plane.disabled = depth.highUm === depth.lowUm;
-      if (planePlay) planePlay.disabled = plane.disabled;
-      sayPlane(Number(plane.value) - offset);
-    }
-    axisZ.hidden = !deep;
-    if (!deep || plane.disabled) planePlayer.stop();
     const long = Boolean(moments && moments.many > 1);
     if (long) {
       moment.min = "0";
@@ -158,28 +89,25 @@ export function mountTheAxes(parts, { picture, acquisitions = null, watchEveryMs
       sayMoment(Number(moment.value));
     }
     axisT.hidden = !long;
-    if (!long) momentPlayer.stop();
-    axes.hidden = !deep && !long;
+    if (!long) stopPlaying();
+    axes.hidden = !long;
   }
 
-  /* A light watch on the picture. An engine learns how deep and how long
-     its picture is only once the stores' descriptions have arrived, a
-     moment after the picture is opened and after every field that lands,
-     and nothing announces that. So the sliders look for themselves, now
-     and then: once a second, and a redraw only when the answer
-     has changed. */
+  /* A light watch on the picture. An engine learns how long its picture is
+     only once the stores' descriptions have arrived, a moment after the
+     picture is opened and after every field that lands, and nothing
+     announces that. So the slider looks for itself, now and then: once a
+     second, and a redraw only when the answer has changed. */
   let seen = null;
   const look = () => {
     const viewer = picture();
-    const now = JSON.stringify([
-      Boolean(viewer), theDepth(viewer), viewer?.theMomentsItCanShow?.() ?? null,
-    ]);
+    const now = JSON.stringify([Boolean(viewer), viewer?.theMomentsItCanShow?.() ?? null]);
     if (now === seen) return;
     seen = now;
     refresh();
   };
   const watching = watchEveryMs > 0 ? setInterval(look, watchEveryMs) : null;
-  const stop = () => { if (watching) clearInterval(watching); planePlayer.stop(); momentPlayer.stop(); };
+  const stop = () => { if (watching) clearInterval(watching); stopPlaying(); };
 
   return { refresh, stop };
 }

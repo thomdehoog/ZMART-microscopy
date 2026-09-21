@@ -22,7 +22,7 @@ import { test, expect } from "@playwright/test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { operateTheInstrument, rest, showDisplaySettings, showTheChannel, startTheBridge }
+import { operateTheInstrument, rest, setAcquisitionShown, showTheChannel, startTheBridge }
   from "./steps/scan_the_overview/live-bridge.js";
 import { bestShift, fractionLit, photograph } from "./steps/scan_the_overview/pixels.js";
 
@@ -210,64 +210,40 @@ test.describe("the target acquisition workflow, walked screen by screen", () => 
       expect(await page.evaluate(() => window.__theStageCanvas.layerShown("ground"))).toBe(true);
       await framePlan(page);
       await shot(page, "scan-done-picture");
+      /* How the picture is drawn, in the row over it beside the acquisitions:
+         the projection, and three ways that are not built yet, greyed out.
+         Every acquisition, the focus stacks included, is one flat product. */
       const viewModes = page.locator("#view-modes");
       await expect.poll(() => page.evaluate(() => window.__viewerPanel?.viewModes?.("overview") ?? []),
-        { timeout: 60_000 }).toEqual(["top", "slice", "max"]);
+        { timeout: 60_000 }).toEqual(["max"]);
       await expect(page.locator("#acquisition-name")).toHaveText("overview");
       await expect(viewModes).toBeVisible();
-      for (const mode of ["slice", "max", "top"]) {
-        await viewModes.selectOption(mode);
-        await expect(viewModes).toHaveValue(mode);
-        await expect.poll(() => page.evaluate(mode => {
-          const rows = window.__thePicture.layersForMeasurement().filter(row => row.name.startsWith("overview/"));
-          return rows.length > 0 && rows.every(row => row.sources.every(source =>
-            decodeURIComponent(source.url).includes(`overview_${mode}.zmartview.zarr`)));
-        }, mode)).toBe(true);
-        expect(await page.evaluate(() => window.connectedPicture === window.__thePicture)).toBe(true);
-        await rest(1000);
-        if (mode === "slice") await expect(page.locator("#axis-z")).toBeVisible();
-        await expect.poll(async () => fractionLit(await photograph(page, "#picture-host", 1)))
-          .toBeGreaterThan(0.01);
-        await shot(page, `${mode}-image-and-depth-control`);
-      }
-      /* Under the picture: the picture is one room, as deep as the deepest
-         stack shown in it. On the way to the scan the page pressed the focus
-         stacks' eye off -- over the overview they are a square of other
-         pixels -- so with only the flat overview shown there is no depth and
-         no Z slider. Their eye pressed on gives the room its depth and the
-         slider stands across the picture's foot; nothing here is a
-         timelapse, so T does not. Moved to the top of the stack and back. */
-      await expect(page.locator("#axis-z")).toBeHidden();
-      await showDisplaySettings(page);
-      const focusEye = page.locator('button[aria-label="toggle group focussing"]');
-      await expect(focusEye).toHaveAttribute("aria-pressed", "false");
-      await focusEye.click();
-      await showTheChannel(page);
-      await expect(page.locator("#axis-z")).toBeVisible({ timeout: 30_000 });
-      await expect(page.locator("#axis-t")).toBeHidden();
-      /* Every stack stands on the table, so the picture opens at the bottom
-         plane; and the flat overview stays in view at the top of the stacks,
-         as it lies on the table too. */
-      // Returning to Top selects its floor, not the former absolute Slice Z.
-      await expect.poll(async () => Math.abs(Number(await page.locator("#plane").inputValue()) - 1))
-        .toBeLessThan(1e-6);
-      await page.locator("#plane").evaluate(s => { s.value = s.min; s.dispatchEvent(new Event("input", { bubbles:true })); });
-      await expect(page.locator("#plane-readout")).toContainText("Plane 1 of");
-      const atTheBottom = fractionLit(await photograph(page, "#picture-host", 1));
-      expect(atTheBottom, "the overview is lit at the bottom").toBeGreaterThan(0.01);
-      await page.locator("#plane").evaluate((s) => { s.value = s.max; s.dispatchEvent(new Event("input", { bubbles: true })); });
+      await expect(viewModes).toHaveValue("max");
+      await expect(viewModes.locator("option")).toHaveText(["Projection", "Z-slices (Top view)", "Z-slice (Absolute)", "3D"]);
+      await expect(viewModes.locator("option:disabled")).toHaveCount(3);
+      expect(await viewModes.evaluate((select) => {
+        const strip = select.nextElementSibling;
+        return strip?.id === "acquisition-pick" && select.getBoundingClientRect().right <= strip.getBoundingClientRect().left;
+      }), "the dropdown stands directly left of the acquisitions strip").toBe(true);
+      await expect.poll(() => page.evaluate(() => {
+        const rows = window.__thePicture.layersForMeasurement();
+        const of = (kind) => rows.filter(row => row.name.startsWith(`${kind}/`));
+        return ["overview", "focussing"].every(kind => of(kind).length > 0 && of(kind).every(row =>
+          row.sources.every(source => decodeURIComponent(source.url).includes(`${kind}_max.zmartview.zarr`))));
+      }), { timeout: 60_000 }).toBe(true);
+      expect(await page.evaluate(() => window.connectedPicture === window.__thePicture)).toBe(true);
+      await expect.poll(async () => fractionLit(await photograph(page, "#picture-host", 1)))
+        .toBeGreaterThan(0.01);
+      await shot(page, "projection-image");
+      /* Under the picture there is no way through a stack: the focus stacks
+         are drawn flat, as their projections, whether their eye is on or
+         off; and nothing here is a timelapse, so T does not stand either. */
+      await expect(page.locator("#canvas-axes")).toBeHidden();
+      await setAcquisitionShown(page, "focussing", true);
       await rest(1500);
-      await shot(page, "scan-done-z-top");
-      const atTheTop = fractionLit(await photograph(page, "#picture-host", 1));
-      expect(atTheTop, "the overview is still lit at the top of the stacks").toBeGreaterThan(atTheBottom * 0.5);
-      await page.locator("#plane").evaluate((s) => { s.value = s.min; s.dispatchEvent(new Event("input", { bubbles: true })); });
-      await rest(800);
-      /* And their eye pressed off again takes the depth with it: the room is
-         only as deep as what is shown in it. */
-      await showDisplaySettings(page);
-      await focusEye.click();
-      await showTheChannel(page);
-      await expect(page.locator("#axis-z")).toBeHidden({ timeout: 10_000 });
+      await shot(page, "scan-done-with-focus-stacks");
+      await expect(page.locator("#canvas-axes")).toBeHidden();
+      await setAcquisitionShown(page, "focussing", false);
       /* The row's chips: the overview's channels, each a dot and a name.
          The dot hides the channel; the name chooses it and opens Display
          settings, where its histogram is. */
@@ -298,7 +274,7 @@ test.describe("the target acquisition workflow, walked screen by screen", () => 
       await chips.nth(1).locator(".chip-dot").click();
       await expect(chips.nth(1)).toHaveClass(/\bon\b/);
       /* The triangle beside the dot opens the channel's box under the row:
-         the very box Display settings shows, with its eye and histogram.
+         with its eye and histogram.
          The box's eye and the dot are one state: the eye hides the channel
          and the chip fades, crossed; again, back. */
       await chips.nth(1).locator(".chip-more").click();
@@ -313,12 +289,10 @@ test.describe("the target acquisition workflow, walked screen by screen", () => 
       await expect(chips.nth(1)).toHaveClass(/\bon\b/);
       await page.keyboard.press("Escape");
       await expect(page.locator("#channel-pop")).toBeHidden();
-      /* The box is back in Display settings once the card has closed. */
-      await page.locator(".side-tab .tab", { hasText: "Display settings" }).click();
-      await rest(600);
-      await expect(page.locator('#display-side input[type="range"]').first()).toBeVisible();
-      await shot(page, "scan-done-channel-settings");
-      await showTheChannel(page);
+      /* The column beside the canvas is the step's channel alone; the
+         picture's settings are the row's boxes, and nowhere else. */
+      await expect(page.locator(".side-tab button.tab")).toHaveCount(0);
+      await expect(page.locator("#display-side")).toBeHidden();
       /* Grey on, then off: the same picture in grey and back, by the ramp
          chip inside the acquisition's press; the dots go grey with it. The
          chip is the layer's own switch, so the menu's line for this

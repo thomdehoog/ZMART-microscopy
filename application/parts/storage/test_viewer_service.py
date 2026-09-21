@@ -855,17 +855,17 @@ def test_real_viewer_publishes_100_positions_without_holding_up_notifications(
         last_write = time.perf_counter()
         while time.perf_counter() - last_write < 15:
             state = service.status()
-            publication = tmp_path / "view/overview_top.zmartview.zarr/publication.json"
+            publication = tmp_path / "view/overview_max.zmartview.zarr/publication.json"
             completed = json.loads(publication.read_text())["versions"] if publication.exists() else {}
             if (len(completed) == 100 and state["acquisitions"]
                     and state["publications"].get("overview", {}).get("state") == "ready"):
                 break
             time.sleep(0.02)
         assert state["error"] is None, state["error"]
-        assert len(state["sources"].get("overview", [])) == 3
+        assert len(state["sources"].get("overview", [])) == 1
         assert len(completed) == 100
         assert state["publications"]["overview"]["published"] == 100
-        assert not (tmp_path / "view/overview_top.zmartview.zarr/0/c").exists()
+        assert not (tmp_path / "view/overview_max.zmartview.zarr/0/c").exists()
         if not bake:
             assert not list((tmp_path / "view").glob("*.zmartview.zarr/*/c"))
         print(
