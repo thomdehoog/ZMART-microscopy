@@ -17,8 +17,8 @@
  *                                          stops where the count stands, and
  *                                          the pace is kept for the next run
  *
- * A whole-population phase after every field landed (detection's UMAP)
- * keeps the bar sweeping: `phase: "umap"` with `running` not false, and
+ * A whole-population phase after every field landed (detection finalizing
+ * its features) keeps the bar sweeping: `phase: "finalizing"` with `running` not false, and
  * `objects` says how many it is over.
  *
  * Author: Thom de Hoog, Center for Microscopy and Image Analysis (ZMB),
@@ -89,7 +89,7 @@ export function progressBox(title, { now = () => performance.now() } = {}) {
       landed = snap.done;
       const still = snap.of - snap.done;
       stood = `${snap.done} of ${snap.of}`;
-      const mapping = snap.phase === "umap" && snap.running !== false;
+      const mapping = snap.phase === "finalizing" && snap.running !== false;
       bar.classList.toggle("busy", still > 0 || mapping);
       fill.style.width = `${(100 * snap.done) / snap.of}%`;
       count.textContent = projected(snap.done, snap.of, per)

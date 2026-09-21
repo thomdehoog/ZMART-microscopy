@@ -202,12 +202,17 @@ class WorkerPool:
             return self._env_pools[environment]
 
     def _get_semaphore(self, step_path, max_workers):
-        """Get or create a concurrency semaphore for a step."""
+        """Get or create a concurrency semaphore for a step at this width.
+
+        Keyed by the width as well as the file: two pipelines that share a
+        step file and ask for different widths each get their own, rather
+        than whichever width was registered first.
+        """
+        key = (step_path, int(max_workers))
         with self._sem_lock:
-            if step_path not in self._step_semaphores:
-                self._step_semaphores[step_path] = threading.Semaphore(
-                    max_workers)
-            return self._step_semaphores[step_path]
+            if key not in self._step_semaphores:
+                self._step_semaphores[key] = threading.Semaphore(max_workers)
+            return self._step_semaphores[key]
 
     # -- Reaper --------------------------------------------------------
 

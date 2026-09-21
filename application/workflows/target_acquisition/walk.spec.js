@@ -126,7 +126,7 @@ test.describe("the target acquisition workflow, walked screen by screen", () => 
       /* Step 1: the card, the mock chosen, its configuration offered. */
       const offered = page.locator(".panel.on .session-form select").nth(2);
       await expect(offered).toBeEnabled();
-      await page.getByLabel("Bake coarse images (experimental)").setChecked(bake);
+      await page.getByLabel("Bake coarse images").setChecked(bake);
       await page.locator(".panel.on .session-buttons button.run").click();
       await expect(page.locator('.step.done:has-text("Connect")')).toBeVisible({ timeout: 60_000 });
       await expect(page.locator(".check-row.pending")).toHaveCount(0);

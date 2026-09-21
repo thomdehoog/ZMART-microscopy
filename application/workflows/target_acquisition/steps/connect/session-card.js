@@ -131,11 +131,14 @@ export function renderSessionCard(host, ctx) {
     const bake = document.createElement("label");
     const toggle = document.createElement("input");
     toggle.type = "checkbox";
-    toggle.checked = session.bakeCoarse === true;
+    /* On unless switched off: a zoomed-out picture composed on demand from
+       every position was measured at seconds a chunk against milliseconds
+       when baked, and the first screen of a scan is zoomed out. */
+    toggle.checked = session.bakeCoarse !== false;
     toggle.disabled = locked;
     toggle.addEventListener("change", () => { session.bakeCoarse = toggle.checked; });
-    bake.append(toggle, " Bake coarse images (experimental)");
-    bake.title = "Cache coarse aggregate chunks for all acquisitions. Originals stay separate in either mode. Choose before connecting.";
+    bake.append(toggle, " Bake coarse images");
+    bake.title = "Keep the zoomed-out picture ready on disk instead of composing it from every position on each look. Originals stay separate either way. Choose before connecting.";
     form.append(bake);
     card.append(form);
   }

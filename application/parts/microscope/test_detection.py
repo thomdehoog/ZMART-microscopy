@@ -244,3 +244,43 @@ def test_binning_reaches_the_detector_and_one_means_nothing_sent():
         _record(), field=0, pixel_um=4.0, settings={"binning": 1}
     )
     assert "segmentation_binning" not in full
+
+
+def test_through_finds_many_fields_at_once_and_says_which_is_which():
+    """Fields are independent, so the finder hands them all to the analysis
+    and takes the answers as they come, each under its own field."""
+
+    class Analysis:
+        def __init__(self):
+            self.asked = []
+
+        def run_each(self, pipeline, givens, *, at_once, until=None):
+            self.asked.append((pipeline, sorted(givens), at_once))
+            for field in reversed(sorted(givens)):
+                if field == 1:
+                    yield field, RuntimeError("field 1 choked")
+                    continue
+                yield field, {
+                    "detect_objects": {"detector_params": {"device": "cpu"}},
+                    "object_analysis": {"objects": {"n_objects": 1, "properties": {
+                        "object_id": [f"overview_r00{field}_c000_obj0001"], "label": [1],
+                        "stage_x_um": [float(field)], "stage_y_um": [0.0], "area": [4], "intensity_mean": [1.0],
+                    }}},
+                }
+
+    analysis = Analysis()
+    find = detection.through(analysis, pixel_um=4.0)
+    records = {field: _record() for field in (0, 1, 2)}
+    outcomes = dict(find.each(records, settings={"method": "fast"}, at_once=3))
+    assert analysis.asked == [("object_analysis_fast", [0, 1, 2], 3)]
+    assert outcomes[0]["cells"][0]["x"] == 0.0 and outcomes[0]["device"] == "cpu"
+    assert outcomes[2]["cells"][0]["id"] == "overview_r002_c000_obj0001"
+    assert isinstance(outcomes[1], RuntimeError)
+
+
+def test_how_wide_each_way_of_finding_runs():
+    """The watershed is a second of one CPU a field; Cellpose holds a model
+    on the card, so it runs one at a time."""
+    assert detection.width_of({"method": "robust"}) == 1
+    assert detection.width_of({"method": "fast"}) >= 2
+    assert detection.width_of({"method": "fast", "at_once": 3}) == 3

@@ -187,9 +187,7 @@ def through(analysis: Any, *, pixel_um: float) -> Callable[[dict, int, dict], di
     to the CPU took ten times longer and nothing on the page said why.
     """
 
-    def find(record: dict, field: int, settings: dict) -> dict:
-        given = what_was_captured(record, field=field, pixel_um=pixel_um, settings=settings)
-        result = analysis.run(PIPELINES[given["method"]], given)
+    def found_in(result: dict, given: dict, field: int) -> dict:
         # The table stands under the pipeline's name; the detection step's
         # own record stands beside it, stripped of its arrays, and that is
         # where the device it ran on is written.
@@ -201,4 +199,48 @@ def through(analysis: Any, *, pixel_um: float) -> Callable[[dict, int, dict], di
             "device": device,
         }
 
-    return find
+    class Finder:
+        """One field at a time by a call; many at once by :meth:`each`."""
+
+        def __call__(self, record: dict, field: int, settings: dict) -> dict:
+            given = what_was_captured(record, field=field, pixel_um=pixel_um, settings=settings)
+            return found_in(analysis.run(PIPELINES[given["method"]], given), given, field)
+
+        def each(self, records: dict, settings: dict, *, at_once: int, until=None):
+            """Find in every field of *records* (``{field: record}``), *at_once*
+            of them in flight, yielding ``(field, found)`` as each lands and
+            ``(field, error)`` for one whose pipeline failed. Fields are
+            independent, so the order they land in is the engine's."""
+            givens = {
+                field: what_was_captured(record, field=field, pixel_um=pixel_um, settings=settings)
+                for field, record in records.items()
+            }
+            pipelines = {PIPELINES[given["method"]] for given in givens.values()}
+            if len(pipelines) != 1:
+                raise ValueError("every field of one run is found the same way")
+            for field, outcome in analysis.run_each(pipelines.pop(), givens, at_once=at_once, until=until):
+                if isinstance(outcome, Exception):
+                    yield field, outcome
+                else:
+                    yield field, found_in(outcome, givens[field], field)
+
+    return Finder()
+
+
+def width_of(settings: dict) -> int:
+    """How many fields are found at once, by how they are found.
+
+    The watershed is about a second of one CPU a field and fields are
+    independent, so the fast way runs as wide as half the machine's cores,
+    up to the twelve the pipeline allows. Cellpose holds a model on the
+    card, so the robust way runs one at a time. ``at_once`` in the settings
+    is the operator's own number.
+    """
+    import os  # noqa: PLC0415 -- the only use in this module
+
+    asked = settings.get("at_once")
+    if asked:
+        return max(1, int(asked))
+    if (settings.get("method") or "robust") == "fast":
+        return max(2, min(12, (os.cpu_count() or 2) // 2))
+    return 1

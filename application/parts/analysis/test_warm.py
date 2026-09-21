@@ -244,3 +244,64 @@ def test_a_new_analysis_is_handed_out_while_the_old_one_is_still_being_put_down(
     closer.join(timeout=5)
     assert warm.the_analysis() is fresh
     warm._analysis = None
+
+
+class _Wide(_Engine):
+    """A stand-in that answers in its own time and echoes each job's input,
+    as the real engine does, so an answer can be told from the others."""
+
+    def __init__(self, *, fail=(), answer_after=1):
+        super().__init__()
+        self.scopes: list[dict] = []
+        self.in_flight = 0
+        self.widest = 0
+        self._fail = set(fail)
+        self._answer_after = answer_after
+        self._polls = 0
+
+    def submit(self, name, data, scope=None):
+        self.submitted.append((name, data))
+        self.scopes.append(dict(scope or {}))
+        self.in_flight += 1
+        self.widest = max(self.widest, self.in_flight)
+        key = data["warm_key"]
+        if key in self._fail:
+            self._failures.append({"scope": dict(scope or {}), "step": "detect", "error": f"field {key} choked"})
+            self.in_flight -= 1
+        else:
+            self._waiting.append({"input": dict(data), "ran": name})
+
+    def results(self, name):
+        self._polls += 1
+        if self._polls < self._answer_after:
+            return []
+        out, self._waiting = self._waiting, []
+        self.in_flight -= len(out)
+        return out
+
+
+def test_run_each_submits_up_to_the_width_at_once_and_answers_by_key():
+    engine = _Wide()
+    got = dict(warm.Analysis(engine).run_each("object_analysis_fast", {3: {"a": 3}, 7: {"a": 7}, 9: {"a": 9}}, at_once=2))
+    assert set(got) == {3, 7, 9}
+    assert got[7]["input"]["a"] == 7
+    assert engine.widest == 2
+    assert [name for name, _ in engine.registered] == ["object_analysis_fast"]
+
+
+def test_run_each_files_a_failure_under_its_own_key_and_goes_on():
+    engine = _Wide(fail={7})
+    got = dict(warm.Analysis(engine).run_each("object_analysis_fast", {3: {}, 7: {}, 9: {}}, at_once=3))
+    assert isinstance(got[7], RuntimeError) and "choked" in str(got[7])
+    assert got[3]["ran"] == "object_analysis_fast" and got[9]["ran"] == "object_analysis_fast"
+
+
+def test_run_each_stops_submitting_when_asked_and_drains_what_is_in_flight():
+    engine = _Wide(answer_after=2)
+    asked = {"stop": False}
+    seen = []
+    for key, _outcome in warm.Analysis(engine).run_each("focus", {n: {} for n in range(6)}, at_once=2, until=lambda: asked["stop"]):
+        seen.append(key)
+        asked["stop"] = True
+    assert len(engine.submitted) <= 3
+    assert seen and len(seen) <= 3
