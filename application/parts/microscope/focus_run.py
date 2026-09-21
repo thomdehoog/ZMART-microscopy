@@ -180,6 +180,84 @@ def _keep(measured: dict, acquisition: Any, record: dict) -> None:
     (where / name).write_text(json.dumps(measured, indent=2), encoding="utf-8")
 
 
+def measure_one_stack(
+    record: dict,
+    *,
+    x: float,
+    y: float,
+    centre: float,
+    score: Any,
+    index: int = 0,
+    output: Any = None,
+    keep: Any = None,
+    cost: dict | None = None,
+    on_doing: Any = None,
+) -> dict:
+    """The half of a point that begins once its stack is in hand.
+
+    File the stack under the run (``output`` given), hand it to the caller's
+    own keeping, score it and put the answer into the frame the stage drives
+    in, and keep the measurement beside the stack. What comes back is the
+    measurement as :func:`measure_focus` reports it, so a point measured by
+    the page one stack at a time is the same record as one measured by the
+    loop below. A stack that cannot be scored is a LOST point, with the
+    stack it came from still filed; only a cancelled run, or a simulator
+    frame where none was allowed, is allowed through.
+    """
+    cost = dict(cost or {})
+    if output is not None:
+        move_record_images(record, output.data)
+        # The caller's own keeping of the landed capture -- the bridge
+        # converts it to the run's canonical store -- for every stack,
+        # lost or scored.
+        if keep is not None:
+            keep(record)
+    if on_doing is not None:
+        on_doing(index, "scoring")
+    began = time.perf_counter()
+    shift = 0.0
+    found = {"z_um": None, "traces": None}
+    try:
+        shift = _the_drive_frames_shift(record, centre)
+        found = _shifted_into_the_drive_frame(score(record), shift)
+        cost["score"] = time.perf_counter() - began
+    except (RunCancelled, NonSimulatorFrameError):
+        raise
+    except Exception as why:  # noqa: BLE001 -- one bad point must not end the map
+        log_focus_scoring_failed(index, why)
+    measurement = _the_measurement(x, y, found, cost, record, shift)
+    if output is not None:
+        # The whole measurement, not just the score: a kept height that
+        # does not say where it was measured cannot be accounted for.
+        _keep(measurement, output.root, record)
+    return measurement
+
+
+def _the_measurement(x, y, found: dict, cost: dict, record: dict | None, shift: float) -> dict:
+    """One point's record: where, what height, the curves, the cost, the stack."""
+    return {
+        "x_um": x,
+        "y_um": y,
+        "z_um": found.get("z_um"),
+        "traces": found.get("traces"),
+        "cost_s": {key: round(value, 3) for key, value in cost.items()},
+        "zarr": (record or {}).get("zarr"),
+        "z_shift_um": shift,
+        # The stack's own files ride with the measurement, height by
+        # height, so the chosen number can be looked at as well as read --
+        # each height in the drive frame, like the number it argues for.
+        "planes": [
+            {
+                "path": str(plane.get("path")),
+                "z_um": float(plane["z_um"]) + shift
+                if isinstance(plane.get("z_um"), (int, float))
+                else plane.get("z_um"),
+            }
+            for plane in (record or {}).get("planes", [])
+        ],
+    }
+
+
 def measure_focus(
     session: Any,
     points: list[dict],
@@ -243,8 +321,6 @@ def measure_focus(
                 "stage move was made."
             )
         record = None
-        found = {"z_um": None, "traces": None}
-        shift = 0.0
         cost = {}
         try:
             if on_doing is not None:
@@ -274,58 +350,26 @@ def measure_focus(
                     file=sys.stderr,
                     flush=True,
                 )
-            if output is not None:
-                move_record_images(record, output.data)
-                # The caller's own keeping of the landed capture -- the
-                # bridge converts it to the run's canonical store -- done
-                # here so it happens for every stack, lost or scored.
-                if keep is not None:
-                    keep(record)
             cost["capture"] = time.perf_counter() - began
-
-            if on_doing is not None:
-                on_doing(index, "scoring")
-            began = time.perf_counter()
-            shift = _the_drive_frames_shift(record, centre)
-            found = _shifted_into_the_drive_frame(score(record), shift)
-            cost["score"] = time.perf_counter() - began
         except (RunCancelled, NonSimulatorFrameError):
             raise
         except Exception as why:  # noqa: BLE001 -- one bad point must not end the map
-            # A point that cannot be driven to, captured, or scored is a
-            # LOST point, not the end of the run: every drive is absolute,
-            # so the next point is untouched by this one's failure. The map
-            # marches on and the row says what happened. A flaking CAM read
-            # once ended the run two points in; the sentence belongs on one
-            # row, not across the whole map.
+            # A point that cannot be driven to or captured is a LOST point,
+            # not the end of the run: every drive is absolute, so the next
+            # point is untouched by this one's failure. The map marches on
+            # and the row says what happened. A flaking CAM read once ended
+            # the run two points in; the sentence belongs on one row, not
+            # across the whole map. A point lost before its capture has no
+            # stack to file it beside.
             log_focus_scoring_failed(index, why)
-        measurement = {
-            "x_um": point["x"],
-            "y_um": point["y"],
-            "z_um": found.get("z_um"),
-            "traces": found.get("traces"),
-            "cost_s": {key: round(value, 3) for key, value in cost.items()},
-            "zarr": (record or {}).get("zarr"),
-            "z_shift_um": shift,
-            # The stack's own files ride with the measurement, height by
-            # height, so the chosen number can be looked at as well as read —
-            # each height in the drive frame, like the number it argues for.
-            "planes": [
-                {
-                    "path": str(plane.get("path")),
-                    "z_um": float(plane["z_um"]) + shift
-                    if isinstance(plane.get("z_um"), (int, float))
-                    else plane.get("z_um"),
-                }
-                for plane in (record or {}).get("planes", [])
-            ],
-        }
-        if output is not None and record is not None:
-            # The whole measurement, not just the score: a kept height that
-            # does not say where it was measured cannot be accounted for. A
-            # point lost before its capture has no record to file it beside
-            # -- indexing the None ended a run the armor had just saved.
-            _keep(measurement, output.root, record)
+            measurement = _the_measurement(
+                point["x"], point["y"], {"z_um": None, "traces": None}, cost, None, 0.0
+            )
+        else:
+            measurement = measure_one_stack(
+                record, x=point["x"], y=point["y"], centre=float(centre), score=score,
+                index=index, output=output, keep=keep, cost=cost, on_doing=on_doing,
+            )
         measured.append(measurement)
         if on_point is not None:
             on_point(measurement)
