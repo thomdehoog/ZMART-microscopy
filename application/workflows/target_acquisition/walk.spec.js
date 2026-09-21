@@ -617,9 +617,8 @@ test.describe("the target acquisition workflow, walked screen by screen", () => 
         expect(acquired.error).toBeNull();
         expect(acquired.records.filter(record => record.zarr_error)).toEqual([]);
         /* A tile chosen in the list is where the operator is looking: the
-           picture centres on it at the zoom in hand, Tile then frames it and
-           goes on to the next tile, and Tile set frames the tileset it lies
-           in. Carrier is untouched by any of it. */
+           picture centres on it at the zoom in hand and Tile frames it; Tile
+           set frames the tileset it lies in. Carrier is untouched by any of it. */
         const rowsOfTargets = page.locator("#target-list .point-row");
         if (run.targetTilePositions.length > 1) {
           const [first, second] = run.targetTilePositions;
@@ -637,11 +636,14 @@ test.describe("the target acquisition workflow, walked screen by screen", () => 
           const framed = await page.evaluate(() => window.__theStageCanvas.view());
           expect(framed.zoom, "Tile frames the chosen tile").toBeLessThan(wide.zoom);
           expect(Math.hypot(framed.centre.x - first.x, framed.centre.y - first.y)).toBeLessThan(1);
+          /* Pressed again, Tile frames the same field: which field is current
+             is chosen in the list or on the canvas, never by the press. */
           await page.locator("#tile-btn").click();
           await rest(400);
-          const next = await page.evaluate(() => window.__theStageCanvas.view());
-          expect(Math.hypot(next.centre.x - second.x, next.centre.y - second.y),
-            "Tile again goes on to the next tile").toBeLessThan(1);
+          const again = await page.evaluate(() => window.__theStageCanvas.view());
+          expect(Math.hypot(again.centre.x - first.x, again.centre.y - first.y),
+            "Tile again frames the same field").toBeLessThan(1);
+          void second;
           await shot(page, "acquire-tile-from-the-list");
         }
         await expect.poll(async () => (await ask(page, PORT, "/api/viewer")).error,
