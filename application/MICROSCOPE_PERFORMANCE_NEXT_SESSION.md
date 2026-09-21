@@ -1,0 +1,90 @@
+# Next session: export-to-viewer latency and responsiveness
+
+Recorded 2026-09-11 for `codex/operator-named-views-simulator`.
+
+## Objective
+
+Reduce the time from microscope export completion to a useful image appearing in the viewer. Keep selection, previews, panning, zooming and image refinement responsive while remaining stores and views prepare. Optimize first useful display as well as total completion time.
+
+## Starting point
+
+Read [the issue and validation report](MICROSCOPE_ISSUES_2026-09-10.md) and [installation handover](MICROSCOPE_INSTALL_HANDOVER_2026-09-10.md) before changing the installed operator.
+
+- Repairs 1–3 restored preview dependencies, removed selection-triggered aggregate rebuilding, and kept committed HTTP image generations readable during publication with prompt per-view revisions.
+- Native mock validation, committed in `bc475e5c`, covered one overview position, one focus point and two targets. Selection took 84 ms per target; committed chunk requests remained HTTP 200 during a rerun, and finest-level chunks loaded on zoom. This is functional evidence, not a full-scale performance benchmark.
+- Earlier diagnostics found expensive pyramid composition and substantial publication lag. The complete breakdown of export, conversion, copying, compression, composition, cache use and rendering is still missing. Store preparation and pyramid composition are likely opportunities, not a newly confirmed ranking of bottlenecks.
+
+## Work order
+
+### User observation: disabling baking appears to show images sooner
+
+On 2026-09-11, the user reported that images seem to arrive on screen faster with baking disabled. This is an observed difference, not yet a controlled timing result. It suggests that baking may delay first display through publication dependencies or competition for CPU/I/O; the mechanism remains to be measured.
+
+The user subsequently clarified that display still seems slightly slow with baking disabled and needs more observation. Responsiveness is therefore not considered resolved. The agreed next step is measurement: time **export completion → canonical store ready → publication → first visible image** with baking both enabled and disabled. Time target selection and zoom refinement separately to distinguish image-loading delays from interaction delays. Record these as preliminary user observations until controlled measurements establish their magnitude and cause.
+
+Make baking enabled versus disabled an explicit baseline comparison using the same recorded data, view, viewport, channels and matched cache conditions. Measure first useful display, subsequent pan/zoom/refinement latency, publication completion, CPU/I/O and cache growth. Check both initial and repeated viewing: faster first display alone does not establish which mode provides the best sustained responsiveness.
+
+If the comparison confirms an advantage, evaluate an interactive path with baking disabled or deferred until after first display, with bounded background work. Preserve correctness and readable publication in either mode. Do not change the default solely on this observation.
+
+### Planned steps
+
+1. **Measure an export-to-display baseline.** Correlate timestamps by acquisition, position, view and source revision: microscope export completion, conversion start/end, canonical store readiness, publication queue/start/commit, operator revision delivery, first viewer request, first useful displayed image and fine-detail arrival. Separate queue delay from active processing. A successful HTTP response alone does not establish that pixels appeared on screen. Record dataset size, channels, Z depth, bake settings and cache conditions.
+
+2. **Make completed positions visible sooner.** Inspect current scheduling before adding concurrency. Determine whether conversion/publication can overlap the next capture without reading incomplete exports or competing excessively for disk access. Verify that Top becomes usable before Slice/MIP completion, using the existing per-view publication support. Remove any remaining unnecessary wait for an entire batch or all views.
+
+3. **Reduce repeated preparation work.** Measure source copying, compression and pyramid composition separately. Check reuse of existing source data and compatible pyramid levels, and whether changed images invalidate more regions than necessary. The current viewer already shares frozen source revisions across views/generations; build on that rather than duplicating it. Preserve committed-generation consistency while reducing work.
+
+4. **Give visible interaction priority.** Measure competition between background preparation and requests for visible chunks/previews. Bound background CPU and I/O concurrency so panning, zooming, selection and refinement retain capacity. Keep routine operator interactions independent of publication and let Neuroglancer manage loading/refinement without unnecessary operator resets or rebuild requests. Do not add more workers without measuring their effect.
+
+5. **Repeat the original 20-target workload.** Compare before/after results under matched settings, distinguishing cold and warm cache runs. Report time to first useful image, per-target export-to-visible delay, publication queue delay, selection latency, zoom-to-fine-detail latency and total completion time. Include slow cases, not only averages. Use recorded data or the mock driver for repeatable measurements; real microscope acquisition requires an agreed operational run.
+
+## Refresh and cache invalidation investigation
+
+On 2026-09-11, the user raised excessive refreshes and overlapping operator/viewer invalidation as possible contributors to the remaining latency. Neuroglancer supplies cache invalidation machinery, and the viewer integration explicitly invokes it. This does not establish that Neuroglancer independently detects every change to data served at a stable URL, or that two independent invalidation passes currently occur.
+
+Source inspection found:
+
+- Operator `application/workflows/target_acquisition/steps/scan_the_overview/watching-the-run.js`, `applyLatestSources`: skips applying sources when the signature of selected source URLs and revisions is unchanged. Changed signatures normally go through `viewer.addSources`; reopening the viewer is a fallback. A status poll is therefore not automatically a cache invalidation or viewer restart.
+- Operator `application/parts/canvas/viewer-panel.js`, `refreshObserved`: checks engine display state every 100 ms and reapplies requested settings on a mismatch. Measure this separately from source-cache invalidation; its frequency alone does not prove costly reloads.
+- Companion viewer `app/page/src/engine.js`, `forgetOneStableSource`: removes matching metadata memo entries and calls `invalidateCache()` on decoded chunk holders for a changed stable source URL. Other source URLs are left alone, but cached chunks within the changed aggregate source may still be discarded more broadly than the changed image region requires.
+- Companion viewer `letGoOfDecodedPieces`: the legacy write-hint path explicitly excludes revisioned sources handled through `syncSources`, providing an existing safeguard against duplicate refreshes. Verify its behavior under the real workload rather than assuming duplicate invalidation is present.
+
+Next-session measurements should count and timestamp status polls, source signature changes, source applications, invalidation calls, affected source URLs/revisions, viewer recreation and repeated chunk downloads. Correlate those with actual publication commits and interaction latency. Distinguish metadata refresh, decoded chunk eviction and ordinary redraws. Include unchanged polls, duplicate write notifications, new positions and reruns, with baking both enabled and disabled.
+
+The objective is to avoid redundant invalidation for the same committed revision and retain unaffected cached data while Neuroglancer handles loading and refinement. Check whether refreshes can be coalesced or narrowed to changed regions. Preserve required invalidation of formerly empty chunks when new pixels arrive and correct refresh after overwriting a source. Excessive or duplicate invalidation remains a hypothesis until these measurements establish its occurrence and cost; no invalidation behavior was changed in this report update.
+
+## Loaded-stack Z-bar responsiveness test
+
+User-proposed test on 2026-09-11: after a stack loads, move the Z bar left and right repeatedly and observe how promptly the displayed plane follows. Include this in next-session validation; it has not yet been performed or timed.
+
+1. Open a completed recorded stack in the actual native operator's Slice view. Hold the viewport, zoom, channels and display settings constant. Confirm publication is idle and source revisions are stable. An initially visible plane does not mean every Z plane is already cached.
+2. Drag the Z bar from one end to the other and back at a recorded, repeatable pace. Measure the first sweep separately, then repeat several sweeps over the same range to test cache reuse. Use a stack/range that fits available cache for the reuse check and record its size; a larger-than-cache stack is a separate stress case.
+3. Record slider input timestamps and requested planes alongside when the corresponding image actually appears. Measure median, p95 and worst input-to-image delay, visible stalls, lag on direction reversal and time to settle on the correct final plane after release. Correct slider labels or successful chunk responses alone do not prove the image kept up. Obsolete intermediate requests may be coalesced; the latest requested plane must take priority and display correctly.
+4. Correlate first and repeated sweeps with chunk requests, repeated downloads, decoded-cache invalidations, source applications, viewer recreation and frontend frame timing. Distinguish memory-cache misses, browser-cached responses and actual data transfer. Z-bar interaction with an unchanged stack should not itself trigger publication, source revision changes or full-source invalidation; verify this rather than assuming it.
+5. Compare baking enabled versus disabled under matched conditions. Establish the idle-publication baseline first, then repeat while background preparation is active to quantify contention separately. Capture a screen recording or equivalent visual evidence as well as timings.
+
+This test complements export-to-first-image measurements: it tests whether a displayed stack remains responsive during inspection, especially on revisiting planes. A faster repeat sweep would suggest useful caching; continuing lag requires tracing decoding, rendering, scheduling and invalidation rather than attributing it to one cause from appearance alone.
+
+## Observed warm-up and speculative Z-plane caching proposal
+
+The user subsequently reported that the displayed image initially appears not to keep up with Z-bar navigation, but responsiveness improves after a while. Record this as an untimed observation. Cache warming or completion of background loading/preparation could explain it; the cause is not established. Extend the Z-bar benchmark to measure time until navigation becomes consistently smooth. Compare waiting without navigating against repeated sweeps to help separate elapsed background work from reuse of visited planes.
+
+The user proposed speculative caching. Evaluate nearby-Z-plane prefetching only after checking the installed Neuroglancer loading, prioritization and cache behavior, so the integration does not duplicate existing work. If measurements show missing-data delays, consider:
+
+- Prefetching a small, bounded number of nearby planes, favoring the current drag direction and visible viewport/resolution.
+- Retaining recently viewed planes to make direction reversals responsive, within an explicit memory budget.
+- Giving the currently requested plane priority over speculative work; cancel or deprioritize obsolete prefetch requests when direction, viewport or source revision changes.
+- Bounding background concurrency, memory and I/O so speculation does not delay first display, publication or other interactions. Preserve revision correctness and avoid broad invalidation of reusable data.
+
+Compare prefetch disabled/enabled using the same first-sweep, repeat-sweep and reversal tests. Measure input-to-image latency, time to smooth navigation, cache hits/misses, unused fetched data, memory and CPU/I/O, with baking both enabled and disabled. Prefetching remains a proposal, not an implemented repair or confirmed solution: repeated invalidation, decoding/rendering limits or background contention may require different changes.
+
+## Completion evidence
+
+- Save a reproducible command or profiling harness, settings and timestamped results alongside a concise findings report.
+- Identify the largest measured costs and make targeted changes in that order. Set numerical improvement targets after the baseline; no overall speedup is established yet.
+- Verify that preview correctness, selected-target synchronization, readable committed images, source revision updates and viewer continuity survive each change.
+- Show improvement on the larger workload without trading away image correctness or interactive responsiveness. Run focused regression checks appropriate to the changed paths.
+
+## Separate open repairs
+
+Keep the additional findings from native validation visible: long Windows paths can break canonical conversion; focus conversion failures need clearer error/action state; carrier blur can consume navigation clicks. Exhaustive native rendering/cache investigation and navigation across multiple focus points also remain open. They are not established causes of all export-to-viewer latency and should not replace the performance baseline.

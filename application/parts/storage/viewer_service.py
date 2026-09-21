@@ -43,6 +43,7 @@ from urllib.parse import unquote
 #: Only the background publisher waits for the viewer; acquisition and status
 #: requests never perform viewer I/O.
 VIEWER_REQUEST_TIMEOUT_S = 30.0
+_metadata_reads = threading.Lock()
 
 #: The operator integration is verified against this separate Smart Viewer
 #: release.  An editable checkout is intentionally allowed, but an old copy of
@@ -74,6 +75,7 @@ _viewer: dict = {
     "published_versions": {},
     "publication_failures": {},
     "pending": set(),
+    "publishing": set(),
     "wake": None,
 }
 _the_turn = threading.Lock()
@@ -110,6 +112,7 @@ def start(run_folder: Path | str, *, bake: bool = False, canvas: dict | None = N
             _viewer["canvas"] = canvas
             _viewer["run_folder"] = str(Path(run_folder).resolve())
             threading.Thread(target=_publish_changes, args=(wake,), daemon=True).start()
+            threading.Thread(target=_watch_metadata, args=(wake,), daemon=True).start()
         except Exception as why:  # noqa: BLE001 -- optional guest, sentence not stack
             _viewer["error"] = f"the viewer server did not start: {why}"
 
@@ -173,6 +176,7 @@ def stop() -> None:
             source_versions={},
             source_order={},
             published_versions={},
+            publishing=set(),
             publication_failures={},
             pending=set(),
             wake=None,
@@ -195,6 +199,8 @@ def status() -> dict:
         if _viewer["error"]:
             errors.append(_viewer["error"])
         publications = {}
+        busy = _viewer.get("pending", set()) | _viewer.get("publishing", set())
+        busy_kinds = {_viewer.get("folder_types", {}).get(folder) for folder in busy}
         for kind, order in _viewer["source_order"].items():
             published = _viewer.get("published_versions", {}).get(kind, {})
             failure = _viewer.get("publication_failures", {}).get(kind, {})
@@ -204,7 +210,7 @@ def status() -> dict:
                 "acquired": len(order), "published": count,
                 "state": ("blocked" if failure.get("blocked") else
                           "retrying" if failure else
-                          "ready" if count == len(order) else "preparing"),
+                          "ready" if count == len(order) and kind not in busy_kinds else "preparing"),
                 "error": failure.get("error"),
             }
         return {
@@ -273,6 +279,7 @@ def _publish_changes(wake: threading.Event) -> None:
             wake.clear()
             pending = set(_viewer["pending"])
             _viewer["pending"].clear()
+            _viewer.setdefault("publishing", set()).update(pending)
         retry = bool(pending) and not _publish_once(wake, pending)
 
 
@@ -288,6 +295,7 @@ def _publish_once(wake: threading.Event, pending: set[str]) -> bool:
         orders = {kind: list(names) for kind, names in _viewer["source_order"].items()}
         canvas = _viewer["canvas"]
         run_folder = Path(_viewer["run_folder"])
+        _viewer.setdefault("publishing", set()).update(pending)
     retry = set()
     blocked_folders = set()
     for folder in pending:
@@ -345,27 +353,60 @@ def _publish_once(wake: threading.Event, pending: set[str]) -> bool:
                 _viewer.setdefault("publication_failures", {})[kind] = {
                     "error": str(why), "blocked": blocked,
                 }
-    read_error = None
-    try:
-        current = _read(port, "/api/config")
-        # Discovery may expose an uncommitted position after a rejected open.
-        # Only the acquisitions this service successfully published are eligible.
-        headings = {folder_types.get(folder) for folder in opened}
-        current = {**current, "layers": [row for row in current.get("layers", [])
-                                        if _the_heading_of(row) in headings]}
-        # Translation checks stores on disk, so it too stays outside the lock.
-        sources = _the_sources_in(current, port)
-        acquisitions = _the_acquisitions_in(current, port)
-    except Exception as why:  # noqa: BLE001 -- keep the last readable picture
-        read_error = f"the viewer's current picture could not be read: {why}"
+    read_error = _refresh_metadata(wake, include_pending=False)
+    if read_error is not None:
         retry.update(set(pending) - blocked_folders)
     with _the_turn:
         if _viewer["wake"] is wake:
-            if read_error is None:
-                _viewer.update(sources=sources, acquisitions=acquisitions)
             _viewer["error"] = read_error
             _viewer["pending"].update(retry)
+            _viewer.setdefault("publishing", set()).difference_update(pending)
     return not retry
+
+
+def _watch_metadata(wake: threading.Event) -> None:
+    """Follow individual committed views while the publication worker is waiting."""
+    pause = threading.Event()
+    while True:
+        with _the_turn:
+            if _viewer["wake"] is not wake:
+                return
+            active = bool(_viewer.get("publishing") or _viewer.get("opened"))
+        if active:
+            _refresh_metadata(wake)
+        pause.wait(0.5)
+
+
+def _refresh_metadata(wake: threading.Event, *, include_pending=True) -> str | None:
+    # Serialize metadata reads, never acquisition/status requests. A delayed
+    # earlier response must not replace a newer view revision in the cache.
+    with _metadata_reads:
+        return _read_metadata(wake, include_pending=include_pending)
+
+
+def _read_metadata(wake: threading.Event, *, include_pending: bool) -> str | None:
+    with _the_turn:
+        if _viewer["wake"] is not wake:
+            return
+        port = _viewer["port"]
+        folders = _viewer["opened"] | (_viewer.get("publishing", set()) if include_pending else set())
+        headings = {_viewer.get("folder_types", {}).get(folder) for folder in folders}
+        opened_headings = {_viewer.get("folder_types", {}).get(folder)
+                           for folder in _viewer["opened"]}
+    try:
+        current = _read(port, "/api/config")
+        current = {**current, "layers": [row for row in current.get("layers", [])
+                                        if (_the_heading_of(row) in opened_headings
+                                            or (row.get("view") and _the_heading_of(row) in headings))]}
+        sources = _the_sources_in(current, port)
+        acquisitions = _the_acquisitions_in(current, port)
+    except Exception as why:
+        # Keep the last committed metadata during a transient server failure.
+        return f"the viewer's current picture could not be read: {why}"
+    with _the_turn:
+        if _viewer["wake"] is wake:
+            _viewer.update(sources=sources, acquisitions=acquisitions)
+    return None
 
 
 def _still_on_disk(address: str) -> bool:

@@ -661,6 +661,81 @@ def test_source_revisions_match_url_encoded_names(monkeypatch):
     assert rows[0]["channels"][0]["sourceRevisions"] == [3]
 
 
+def test_metadata_advances_while_publication_waits_and_status_tracks_reorders(monkeypatch, tmp_path):
+    state = _empty_service(port=8848)
+    store = tmp_path / "p.ome.zarr"
+    store.mkdir()
+    folder = str(tmp_path)
+    state.update(
+        opened={folder}, folder_types={folder: "targets"},
+        source_versions={("targets", store.name): 1},
+        source_order={"targets": [store.name]},
+        published_versions={"targets": {store.name: 1}},
+    )
+    monkeypatch.setattr(service, "_viewer", state)
+    entered, release = threading.Event(), threading.Event()
+    config = _config({
+        "group": "targets", "view": {"acquisition": "targets", "type": "top"},
+        "sources": ["/data/0/targets_top.zmartview.zarr/|zarr3:"],
+        "sourceRevisions": [2],
+    })
+
+    def ask(*_):
+        entered.set()
+        assert release.wait(5)
+        return {}
+
+    monkeypatch.setattr(service, "_ask", ask)
+    monkeypatch.setattr(service, "_read", lambda *_: config)
+    service.raise_position("targets", tmp_path, store)
+    assert service.status()["publications"]["targets"]["state"] == "preparing"
+    worker = threading.Thread(target=_flush)
+    worker.start()
+    try:
+        assert entered.wait(2)
+        service._refresh_metadata(state["wake"])
+        status = service.status()
+        assert status["acquisitions"][0]["channels"][0]["sourceRevisions"] == [2]
+        assert status["publications"]["targets"] == {
+            "acquired": 1, "published": 1, "state": "preparing", "error": None,
+        }
+    finally:
+        release.set()
+        worker.join(timeout=5)
+    assert not worker.is_alive()
+    assert service.status()["publications"]["targets"]["state"] == "ready"
+
+
+def test_metadata_from_a_closed_session_is_discarded(monkeypatch):
+    state = _empty_service(port=8848)
+    monkeypatch.setattr(service, "_viewer", state)
+
+    def read(*_):
+        state["wake"] = threading.Event()
+        state["sources"] = {"new": []}
+        return _config({"group": "old", "sources": ["/data/0/old.zarr/"]})
+
+    monkeypatch.setattr(service, "_read", read)
+    service._refresh_metadata(state["wake"])
+    assert state["sources"] == {"new": []}
+
+
+def test_first_publication_exposes_only_committed_named_views(monkeypatch, tmp_path):
+    state = _empty_service(port=8848)
+    state.update(publishing={str(tmp_path)}, folder_types={str(tmp_path): "targets"})
+    monkeypatch.setattr(service, "_viewer", state)
+    config = {"layers": [
+        {"group": "targets", "sources": ["/data/0/uncommitted.ome.zarr/|zarr3:"]},
+        {"kind": "image", "group": "targets", "view": {"acquisition": "targets", "type": "top"},
+         "sources": ["/data/1/targets_top.zmartview.zarr/|zarr3:"], "sourceRevisions": [1]},
+    ]}
+    monkeypatch.setattr(service, "_read", lambda *_: config)
+    service._refresh_metadata(state["wake"])
+    assert len(state["acquisitions"]) == 1
+    assert "uncommitted" not in json.dumps(state["sources"])
+    assert "targets_top" in json.dumps(state["sources"])
+
+
 def _flush():
     pending = set(service._viewer["pending"])
     service._viewer["pending"].clear()

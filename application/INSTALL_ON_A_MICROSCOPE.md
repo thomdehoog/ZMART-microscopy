@@ -95,8 +95,18 @@ npm ci
 npm run build
 ```
 
-`--no-deps` keeps pip from replacing the viewer you just built with an unbuilt Git one. The page
-build writes `application/framework/window/static/` (the page and two worker files); the workers
+`--no-deps` keeps pip from replacing the viewer you just built with an unbuilt Git one. The
+operator needs Python 3.11 or 3.12, and its own environment must hold `ngio==1.1.0`: the
+sidebar previews and the focus slices read the canonical OME-Zarr in the operator's process, not
+in an analysis worker, and an older cloned environment can lack it. Check the preview routes
+without an instrument:
+
+```powershell
+python -m pip install ngio==1.1.0
+python -m pytest application/parts/storage/test_canonical_previews.py -q
+```
+
+The page build writes `application/framework/window/static/` (the page and two worker files); the workers
 are compiled from the installed viewer, which is why the viewer comes first. The built page is
 committed, so a checkout already carries one, but rebuild after any change to the page's sources.
 
