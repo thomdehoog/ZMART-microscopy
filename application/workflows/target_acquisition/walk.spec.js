@@ -154,8 +154,8 @@ test.describe("the target acquisition workflow, walked screen by screen", () => 
       expect(plan.length, "the slide was tiled").toBeGreaterThan(0);
       await shot(page, "overview-area-planned");
       /* There is a current tile from the first plan on: Tile is live, frames
-         the plan's first field, and pressed again while that field is in
-         the middle walks on to the next in reading order. */
+         the plan's first field, and pressed again frames that same field:
+         the press never chooses another one. */
       await expect(page.locator("#tile-btn")).toBeEnabled();
       await page.locator("#tile-btn").click();
       await rest(400);
@@ -165,11 +165,10 @@ test.describe("the target acquisition workflow, walked screen by screen", () => 
       await page.locator("#tile-btn").click();
       await rest(400);
       const onTheSecond = await page.evaluate(() => window.__theStageCanvas.view());
-      const next = plan[Math.min(1, plan.length - 1)];
-      expect(Math.hypot(onTheSecond.centre.x - next.x, onTheSecond.centre.y - next.y),
-        "Tile again walks to the next field").toBeLessThan(1);
+      expect(Math.hypot(onTheSecond.centre.x - plan[0].x, onTheSecond.centre.y - plan[0].y),
+        "Tile again stays on the field the box is on").toBeLessThan(1);
       expect(onTheSecond.zoom).toBeCloseTo(onTheFirst.zoom, 6);
-      await shot(page, "overview-area-second-tile");
+      await shot(page, "overview-area-tile-again");
 
       /* Step 4: the focus job, points placed, every one measured. */
       await walkTo(page, "Focus strategy");

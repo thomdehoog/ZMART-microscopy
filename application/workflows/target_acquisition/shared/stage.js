@@ -1188,22 +1188,15 @@ function zoomForATile(frameUm) {
   return frameUm * (1 + 2 * ROOM_AROUND_A_TILE) / Math.max(1, Math.min(w, h) - 2 * FIT_MARGIN);
 }
 
-/** Tile: frame the current field, with a little ground around it. Pressed
-    while that field is already framed -- in the middle, at a tile's zoom --
-    it goes on to the next field in reading order, and round again, so the
-    press is also a tour of the plan, the way Tile set tours the tilesets. */
+/** Tile: frame the current field -- the one the box is on -- with a little
+    ground around it. Pressed again it frames the same field again: it once
+    went on to the next field when this one was already framed, and on the
+    instrument that read as the press choosing another target while the list
+    and the pair stayed on the old one. Which field is current is chosen in
+    the list or on the canvas, never by this press. */
 function frameTile() {
-  const layer = theStack.find((one) => one.key === "detect" && one.has);
-  let t = layer?.field?.() ?? null;
+  const t = theFramedField();
   if (!t) return;
-  const here = theView();
-  const inTheMiddle = Math.abs(here.centre.x - t.x) <= t.frameUm / 2
-    && Math.abs(here.centre.y - t.y) <= t.frameUm / 2;
-  const atATilesZoom = Math.abs(here.zoom - zoomForATile(t.frameUm)) <= 0.1 * zoomForATile(t.frameUm);
-  if (inTheMiddle && atATilesZoom && layer.next) {
-    layer.next();
-    t = layer.field?.() ?? t;
-  }
   const zoom = zoomForATile(t.frameUm);
   const centre = { x: t.x, y: t.y };
   theCanvas.lookAt({ zoom, centre });
@@ -1215,7 +1208,7 @@ ctx.tileButton?.addEventListener("click", frameTile);
 /**
  * Stand on a tile without framing it: the picture is centred on it at the
  * zoom it has, and the presses take it as where they are. Tile frames it
- * next, and steps on from it; Tile set frames the tileset it lies in, and
+ * next; Tile set frames the tileset it lies in, and
  * steps on from that. Chosen from a list, a tile is where the operator is
  * looking, and the presses should not have to be told twice.
  */
