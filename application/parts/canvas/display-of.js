@@ -69,22 +69,16 @@ export function displayQueryFor(snapshot, acquisition) {
 }
 
 /**
- * One small displayed copy, optionally refusing the legacy plain JPEG.
- *
- * A plain copy predates the live Viewer and assigns the first three channels
- * to red, green and blue. That remains useful as a fallback for old standalone
- * views, but a comparison beside the live Viewer must not briefly show a
- * different, automatic RGB rendering while its real display rows are loading.
+ * One small copy, drawn with the picture's display settings when the panel
+ * has them for this acquisition, and the plain copy as the bridge made it
+ * otherwise. The plain copy wears a scan-wide stretch with the first three
+ * channels as red, green and blue, which is not what the canvas shows; but
+ * it is a picture, where refusing it left the gallery's overview a dark box
+ * whenever the panel had no windows to ask with, and a box that stayed dark
+ * told the operator nothing. The gallery is drawn again when the settings
+ * arrive, and the copy with them takes the plain one's place.
  */
-export function displayedPictureAddress(
-  where,
-  label,
-  snapshot,
-  acquisition,
-  { requireDisplay = false } = {},
-) {
+export function displayedPictureAddress(where, label, snapshot, acquisition) {
   if (!where || !label) return null;
-  const query = displayQueryFor(snapshot, acquisition);
-  if (requireDisplay && !query) return null;
-  return `${where}/${label}.jpg${query}`;
+  return `${where}/${label}.jpg${displayQueryFor(snapshot, acquisition)}`;
 }

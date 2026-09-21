@@ -1,7 +1,7 @@
 # Viewer responsiveness — what was slow, what changed, what was measured
 
 Date: 2026-09-21. Operator branch `codex/operator-named-views-simulator`; companion viewer
-`codex/operator-embedding` at `6791d289` (local, not pushed).
+`codex/operator-embedding` at `6791d289` (pushed).
 
 ## What made loading and browsing slow, ranked
 

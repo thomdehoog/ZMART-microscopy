@@ -39,12 +39,16 @@ function smallPicture(src, draw) {
     const brush = cv.getContext("2d");
     brush.fillStyle = "#05090e";
     brush.fillRect(0, 0, px, px);
-    draw(brush, img, px);
+    /* Only a picture that arrived is drawn: a copy the bridge could not
+       give, or has not given yet, leaves the box dark rather than a broken
+       image thrown at the canvas on every resize. */
+    draw(brush, img?.complete && img.naturalWidth > 0 ? img : null, px);
   };
   paint();
   if (src) {
     img = new Image();
     img.onload = paint;
+    img.onerror = () => { img = null; paint(); };
     img.src = src;
   }
   if (typeof ResizeObserver !== "undefined") {

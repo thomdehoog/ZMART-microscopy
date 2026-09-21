@@ -1268,7 +1268,11 @@ test("Steps 1 to 8 through the operator page on the real bridge, Viewer 0.2 and 
          frame on the zoomed canvas. This proves the canvas hit without
          pretending a distant second frame is on-screen at close-up scale. */
       await rows.last().locator("button").click();
+      /* Choosing a row centres the picture on its tile, so the first tile
+         is brought back under the canvas before it is pressed. */
       const visible = acquiredRun.targetTilePositions[0];
+      await page.evaluate(({ x, y }) => window.__theStageCanvas.lookAt({ centre: { x, y } }), visible);
+      await rest(300);
       const at = await page.evaluate(({ x, y }) => window.__theStageCanvas.project(x, y), { x: visible.x, y: visible.y });
       const [px, py] = Array.isArray(at) ? at : [at.x, at.y];
       const box = await page.locator("#stage-canvas").boundingBox();
