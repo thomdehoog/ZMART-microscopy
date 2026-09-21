@@ -1691,7 +1691,7 @@ function sayWhatThePressesDo() {
   const modes = document.getElementById("view-modes");
   if (modes) {
     modes.hidden = !(panel?.viewModes?.(shown) ?? []).length;
-    modes.value = "max";
+    modes.value = "projection";
   }
 
   if (ctx.acquisitionPick) {

@@ -70,7 +70,7 @@ export const canvasPanel = {
                  other three name what is not built yet, and cannot be chosen.
                  Shown once a picture has a product to draw. -->
             <select id="view-modes" aria-label="Viewing mode" hidden>
-              <option value="max">Projection</option>
+              <option value="projection">Projection</option>
               <option value="zslices-top" disabled>Z-slices (Top view)</option>
               <option value="zslice-absolute" disabled>Z-slice (Absolute)</option>
               <option value="3d" disabled>3D</option>
