@@ -230,17 +230,20 @@ export function targetLayers(theRun) {
          the honest fallback for a target whose shape cannot be had -- a
          field whose label map failed to load, or a target with no label. */
       const gr = Math.max(3, 4.2 * Math.sqrt(scale / 0.03));
-      /* One population, one colour. Step 7 starts with all candidates so the
-         operator can see what there is to gate, then removes everything the
-         gate excluded. Step 8 narrows once more to the targets its ceiling
-         kept. Nothing irrelevant is carried forward under another colour. */
+      /* What is drawn, and in which ink. Step 7 shows every candidate so the
+         operator can see what there is to gate: in the context grey until a
+         gate makes it a target, and green once one does, the way the plot
+         beside it draws them. Step 8 keeps every target on the picture; its
+         ceiling chooses which tiles are placed, never which targets are
+         shown. Step 9 shows what is being acquired. */
       const lit = activeMode === "gate"
-        ? (run.done?.has("select") ? run.restricted
-          : run.gates.length ? run.gated : new Set(run.cells.keys()))
-        : (run.restricted.size ? run.restricted : run.gated);
+        ? (run.gates.length ? run.gated : new Set(run.cells.keys()))
+        : activeMode === "select" ? run.gated
+          : (run.restricted.size ? run.restricted : run.gated);
       if (activeMode !== "detect" && lit.size) {
         const uncovered = new Set((run.tilePlan?.uncovered ?? []).map((one) => one.id ?? one));
-        const inkOf = (id) => css(uncovered.has(id) ? "--warn-ink" : "--mark-selected");
+        const inkOf = (id) => css(uncovered.has(id) ? "--warn-ink"
+          : run.gated.has(id) ? "--mark-selected" : "--mark-context");
         const byField = new Map();
         const strays = [];
         for (const id of lit) {

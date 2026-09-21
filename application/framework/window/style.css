@@ -306,10 +306,19 @@ button.run {
   height: var(--control); padding: 0 14px; cursor: pointer;
 }
 button.run:hover:enabled { border-color: var(--accent); color: var(--accent); }
+/* The viewer's press: the word VIEWER and the way the picture is drawn, in
+   one raised press like the acquisitions'. The select wears no box of its
+   own; the press is its box. */
+.viewer-press {
+  display: inline-flex; align-items: center; gap: 6px; box-sizing: border-box;
+  font: inherit; font-size: 13px; font-weight: 600; line-height: 1;
+  color: var(--accent-deep); border: 1px solid var(--line-strong);
+  height: var(--control); padding: 0 4px 0 8px; user-select: none;
+}
 #view-modes {
-  width: auto; min-width: 112px; height: var(--control); padding: 0 8px;
-  font: inherit; font-size: 13px; color: var(--accent-deep); background: var(--screen);
-  border: 1px solid var(--line-strong); border-radius: 7px;
+  width: auto; min-width: 104px; height: 24px; padding: 0 4px;
+  font: inherit; font-size: 13px; font-weight: 600; color: var(--accent-deep);
+  background: transparent; border: none; cursor: pointer;
 }
 /* Faded, the way every other disabled control here is. A grey slab was the
    heaviest thing on a bar whose point is the field beside it. */
@@ -2105,8 +2114,10 @@ canvas.livecv[hidden] { display: none; }
   position: relative; display: flex; align-items: center; gap: 4px; flex: none;
   height: var(--control); padding: 0 7px; box-sizing: border-box;
   border: 1px solid var(--line-strong); border-radius: 7px;
-  background: var(--screen);
-  box-shadow: inset 0 1px 3px rgba(15, 23, 42, 0.10);
+  /* Raised like the acquisitions' and the viewer's press: the three heads
+     of the row are three things of one kind. */
+  background: linear-gradient(var(--screen), var(--surface-3));
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.8);
 }
 .canvas-masks[hidden] { display: none; }
 .mask-cells { display: flex; align-items: center; gap: 2px; min-width: 0; }

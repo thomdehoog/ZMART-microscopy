@@ -65,16 +65,23 @@ export const canvasPanel = {
                channels as chips, the masks as one of them. A press on a
                chip opens its box. -->
           <span class="canvas-toolbar-right">
-            <!-- How the picture is drawn. One way works: every position is
-                 one flat image, a stack collapsed to its projection. The
-                 other three name what is not built yet, and cannot be chosen.
-                 Shown once a picture has a product to draw. -->
-            <select id="view-modes" aria-label="Viewing mode" hidden>
-              <option value="projection">Projection</option>
-              <option value="zslices-top" disabled>Z-slices (Top view)</option>
-              <option value="zslice-absolute" disabled>Z-slice (Absolute)</option>
-              <option value="3d" disabled>3D</option>
-            </select>
+            <!-- How the picture is drawn, in a press of its own headed
+                 VIEWER, the way the acquisitions' press is headed. One way
+                 works: every position is one flat image, a stack collapsed
+                 to its projection. The other three name what is not built
+                 yet, and cannot be chosen. Shown once a picture has a
+                 product to draw. -->
+            <span class="canvas-strip" id="viewer-pick" hidden>
+              <span class="run strip-first strip-last viewer-press">
+                <span class="bar-word">viewer</span>
+                <select id="view-modes" aria-label="Viewing mode">
+                  <option value="projection">Projection</option>
+                  <option value="zslices-top" disabled>Z-slices (Top view)</option>
+                  <option value="zslice-absolute" disabled>Z-slice (Absolute)</option>
+                  <option value="3d" disabled>3D</option>
+                </select>
+              </span>
+            </span>
             <!-- A joined strip: which acquisition the row is about -- the
                  eye, the ramp chip, its name, a caret that opens the list --
                  and its channels in a box beside it.
