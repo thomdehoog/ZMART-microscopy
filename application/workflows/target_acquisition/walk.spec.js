@@ -604,6 +604,34 @@ test.describe("the target acquisition workflow, walked screen by screen", () => 
         const acquired = await ask(page, PORT, "/api/scan");
         expect(acquired.error).toBeNull();
         expect(acquired.records.filter(record => record.zarr_error)).toEqual([]);
+        /* A tile chosen in the list is where the operator is looking: the
+           picture centres on it at the zoom in hand, Tile then frames it and
+           goes on to the next tile, and Tile set frames the tileset it lies
+           in. Carrier is untouched by any of it. */
+        const rowsOfTargets = page.locator("#target-list .point-row");
+        if (run.targetTilePositions.length > 1) {
+          const [first, second] = run.targetTilePositions;
+          await page.evaluate(() => { const v = window.__theStageCanvas.view(); window.__theStageCanvas.lookAt({ zoom: v.zoom * 4, centre: v.centre }); });
+          await rest(400);
+          const wide = await page.evaluate(() => window.__theStageCanvas.view());
+          await rowsOfTargets.first().locator("button").click();
+          await rest(400);
+          const centred = await page.evaluate(() => window.__theStageCanvas.view());
+          expect(Math.hypot(centred.centre.x - first.x, centred.centre.y - first.y),
+            "choosing a row centres the picture on its tile").toBeLessThan(1);
+          expect(centred.zoom, "at the zoom in hand").toBeCloseTo(wide.zoom, 6);
+          await page.locator("#tile-btn").click();
+          await rest(400);
+          const framed = await page.evaluate(() => window.__theStageCanvas.view());
+          expect(framed.zoom, "Tile frames the chosen tile").toBeLessThan(wide.zoom);
+          expect(Math.hypot(framed.centre.x - first.x, framed.centre.y - first.y)).toBeLessThan(1);
+          await page.locator("#tile-btn").click();
+          await rest(400);
+          const next = await page.evaluate(() => window.__theStageCanvas.view());
+          expect(Math.hypot(next.centre.x - second.x, next.centre.y - second.y),
+            "Tile again goes on to the next tile").toBeLessThan(1);
+          await shot(page, "acquire-tile-from-the-list");
+        }
         await expect.poll(async () => (await ask(page, PORT, "/api/viewer")).error,
           { timeout: 60_000 }).toBeNull();
         await expect.poll(async () => (await ask(page, PORT, "/api/viewer")).publications.targets,

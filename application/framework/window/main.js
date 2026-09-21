@@ -636,29 +636,6 @@ let stageWatch = null;
     }
     host.append(run);
 
-    /* Beside the target step's presses, once there is a pair to look at: one
-       press that dresses the picture -- window, gamma and colour of every
-       channel, the overview and the targets alike -- so the pair reads well
-       without a tour of the display settings. */
-    if (s.mode === "targets" && !running && state.ran.has(s.id)) {
-      const look = document.createElement("button");
-      look.className = "run make-it-look";
-      look.type = "button";
-      look.textContent = "Make it look good";
-      look.title = "Auto window, gamma and colours for every channel, overview and targets alike";
-      look.disabled = !window.__viewerPanel?.makeItLook;
-      look.addEventListener("click", async () => {
-        look.disabled = true;
-        look.textContent = "dressing…";
-        try {
-          await window.__viewerPanel?.makeItLook?.(["overview", "targets"]);
-        } finally {
-          renderActionBar();
-        }
-      });
-      host.append(look);
-    }
-
     /* The focus step says nothing beside its press. What it waits for is the
        box it stands in — points, laid by the row above it — and what it came to
        is the traces below; a greyed button between the two is already the whole
@@ -943,6 +920,12 @@ let stageWatch = null;
          a tile shared by nearby targets may sit between their centres, so the
          stage is driven to the planned tile rather than back to a cell. */
       const picked = targetTiles ?? state.targetTiles;
+      /* The picture follows the run: when the stage moves on to a tile, the
+         pair that just landed stays in view for a moment, then the picture
+         centres on the tile being taken. A row chosen by hand ends the
+         following for this run; the next run follows again. */
+      followTheRun.on = true;
+      followTheRun.done = -1;
       const positionFor = (tile) => {
         const { x, y } = tile;
         const z = surfaceZAt(x, y);
@@ -1017,6 +1000,13 @@ let stageWatch = null;
              tile is the one being taken, so the frame stands where the
              acquisition is rather than where Tile last left it. */
           state.detect.targetTile = next.positionIndex ?? state.targetTiles.indexOf(next);
+          if (followTheRun.on && done !== followTheRun.done && done < picked.length) {
+            followTheRun.done = done;
+            clearTimeout(followTheRun.timer);
+            followTheRun.timer = setTimeout(() => {
+              if (followTheRun.on && state.running === s.id) stage.standOn(next);
+            }, FOLLOW_THE_RUN_AFTER_MS);
+          }
           galleryPanel?.progress?.({
             done, of: picked.length,
             doing: done < picked.length ? `tile ${done + 1} · ${next.targetId ?? next.id}` : "",
@@ -1026,6 +1016,8 @@ let stageWatch = null;
           redrawSoon(); renderAll();
         },
       }).then(({ records, stopped }) => {
+        clearTimeout(followTheRun.timer);
+        followTheRun.on = false;
         /* A stopped run accounts for what it took, and claims nothing more:
            only the cells with a record are acquired. */
         accountFor(records, stopped ? records.length : picked.length);
@@ -1579,14 +1571,11 @@ let stageWatch = null;
           cropX: frame?.x ?? cell.x,
           cropY: frame?.y ?? cell.y,
           cropFrameUm: frame?.frameUm ?? state.targetFrameUm,
-          picture: pictureOf("overview", state.fieldLabels[cell.field], { requireDisplay: true }),
+          picture: pictureOf("overview", state.fieldLabels[cell.field]),
         };
       },
       pictureOf: (id) => {
-        const where = pictureOf(
-          "targets", state.acquiredTiles[id]?.label ?? state.acquiredLabels[id],
-          { requireDisplay: true },
-        );
+        const where = pictureOf("targets", state.acquiredTiles[id]?.label ?? state.acquiredLabels[id]);
         /* Stamped by the capture, so a rerun's frame is a new address and
            the pair on show refreshes rather than keeping the old one. */
         const taken = state.acquiredTiles[id]?.taken;
@@ -1605,7 +1594,15 @@ let stageWatch = null;
   /** Choose an acquired tile: the gallery shows its pair and the canvas
       outlines the physical frame. `quietly` is the gallery choosing for
       itself while it rebuilds, so it is not told what it just did. */
+  /* The picture's following of a target run: on while the run is the one
+     moving the view, off once the operator's hand has. The pause before
+     the picture moves on to the tile being taken gives the pair that just
+     landed a moment in view. */
+  const FOLLOW_THE_RUN_AFTER_MS = 3000;
+  const followTheRun = { on: false, timer: null, done: -1 };
+
   function selectTarget(id, { quietly = false } = {}) {
+    if (!quietly) { followTheRun.on = false; clearTimeout(followTheRun.timer); }
     if (state.selectedTarget === id) return;
     state.selectedTarget = id;
     state.selectedQuietly = quietly;
@@ -1619,6 +1616,16 @@ let stageWatch = null;
        Only an operator's explicit choice changes the stacking order. */
     if (!quietly && label) {
       backend.raiseTarget?.(label)?.catch?.((why) => console.warn("the target was not raised: " + why.message));
+    }
+    /* Chosen by hand, the tile is where the operator is looking: the frame
+       moves onto it and the picture centres on it, so Tile and Tile set go
+       on from there. The gallery's own quiet choice of the newest frame, as
+       a run grows, leaves the view where it is. */
+    const tile = state.acquiredTiles[id]?.tile;
+    if (!quietly && tile) {
+      const index = tile.positionIndex ?? state.targetTiles.findIndex((one) => one.key === id);
+      if (index >= 0) state.detect.targetTile = index;
+      stage.standOn(tile);
     }
     stage.draw();
   }

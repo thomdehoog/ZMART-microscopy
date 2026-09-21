@@ -1212,6 +1212,24 @@ function frameTile() {
 }
 ctx.tileButton?.addEventListener("click", frameTile);
 
+/**
+ * Stand on a tile without framing it: the picture is centred on it at the
+ * zoom it has, and the presses take it as where they are. Tile frames it
+ * next, and steps on from it; Tile set frames the tileset it lies in, and
+ * steps on from that. Chosen from a list, a tile is where the operator is
+ * looking, and the presses should not have to be told twice.
+ */
+function standOn(tile) {
+  if (!tile || !Number.isFinite(tile.x) || !Number.isFinite(tile.y)) return;
+  const holding = theTilesets().find((b) => tile.x >= b.xMin && tile.x <= b.xMax
+    && tile.y >= b.yMin && tile.y <= b.yMax);
+  framedTileset = holding?.key ?? null;
+  const centre = { x: tile.x, y: tile.y };
+  theCanvas.lookAt({ centre });
+  thePicture.followTheStage({ centre });
+  drawStage();
+}
+
 /* ---- the picture's half of the canvas row -------------------------------
    Which acquisition the row is about, its channels as chips, and beside it the masks as
    one of them, and Grayscale. The chips read the picture's own panel and
@@ -1792,6 +1810,8 @@ function legendSettles() {
     /* Restore an exact carrier-local view without depending on the global
        debug handle: the live picture beneath has a second canvas and may be
        the last one that registered itself there. */
+    /** Centre on a tile at the zoom in hand, and let the presses go on from it. */
+    standOn,
     lookAt(where) {
       theCanvas.lookAt(where);
       /* Programmatic view changes do not emit the pointer/wheel callback.

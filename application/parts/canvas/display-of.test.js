@@ -50,16 +50,16 @@ describe("the display the copies are asked with", () => {
       .toEqual([{ c: 0, visible: true, window: [100, 900], color: "#22c55e" }]);
   });
 
-  it("can wait for real display rows instead of falling back to the legacy RGB copy", () => {
-    const ready = displayedPictureAddress("/view/overview", "P0001", snapshot, "overview", {
-      requireDisplay: true,
-    });
-    expect(ready).toContain("/view/overview/P0001.jpg?display=");
-    expect(displayedPictureAddress("/view/targets", "P0002", null, "targets", {
-      requireDisplay: true,
-    })).toBeNull();
+  it("asks with the display rows it has, and for the plain copy when it has none", () => {
+    expect(displayedPictureAddress("/view/overview", "P0001", snapshot, "overview"))
+      .toContain("/view/overview/P0001.jpg?display=");
+    /* No windows to ask with is a picture all the same: a dark box in the
+       gallery, waiting for settings that may never be asked for, said
+       nothing. */
     expect(displayedPictureAddress("/view/targets", "P0002", null, "targets"))
       .toBe("/view/targets/P0002.jpg");
+    expect(displayedPictureAddress("/view/overview", "P0001", { channels: [] }, "overview"))
+      .toBe("/view/overview/P0001.jpg");
   });
 });
 

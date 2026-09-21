@@ -3,7 +3,7 @@
 Feature branch: `codex/operator-named-views-simulator`, based on local
 `codex/operator-relative-z-integration` at `7e0b8f8f`, including its rig fixes.
 Companion viewer branch: `codex/operator-embedding`, version `0.5.0.dev0`.
-Tested viewer commit: `6791d28946a094cdda7fba05bff9c7744562b7e6` (local to the `zmart-viewer-embedding-20260910` worktree; not pushed yet).
+Tested viewer commit: `6791d28946a094cdda7fba05bff9c7744562b7e6` (pushed to `codex/operator-embedding`).
 Neither branch is a microscope deployment.
 
 ## Display and storage
@@ -53,7 +53,7 @@ Distribute the rebuilt page and its matching generated worker together.
 The feature-only requirements/conda pins name the exact published viewer commit.
 The viewer requires its frontend build before wheel creation; a bare Git pip
 install does not perform that build. Use the source-build/wheel instructions in
-`MICROSCOPE_INSTALL_HANDOVER_2026-09-10.md`. Existing rig branches are unchanged.
+`INSTALL_ON_A_MICROSCOPE.md`. Existing rig branches are unchanged.
 
 ## LAS X simulator
 
