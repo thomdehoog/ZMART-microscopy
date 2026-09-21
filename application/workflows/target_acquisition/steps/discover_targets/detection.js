@@ -285,6 +285,47 @@ export default {
       overlay.src = `${maskWhere}?t=${Date.now()}`;
     }
 
+    /* Where the operator is looking in the field: a zoom of one shows it
+       whole; the centre is a fraction of the field across and down. */
+    const look = { zoom: 1, cx: 0.5, cy: 0.5 };
+    const LOOK_ZOOM_MAX = 16;
+    cv.addEventListener("wheel", (event) => {
+      event.preventDefault();
+      const rect = cv.getBoundingClientRect();
+      const px = (event.clientX - rect.left) / (rect.width || 1);
+      const py = (event.clientY - rect.top) / (rect.height || 1);
+      /* The field fraction under the pointer, kept under it through the zoom. */
+      const ux = look.cx + (px - 0.5) / look.zoom, uy = look.cy + (py - 0.5) / look.zoom;
+      look.zoom = Math.min(LOOK_ZOOM_MAX, Math.max(1, look.zoom * Math.exp(-event.deltaY * 0.0015)));
+      look.cx = ux - (px - 0.5) / look.zoom;
+      look.cy = uy - (py - 0.5) / look.zoom;
+      keepTheLookInside();
+      drawTheTile();
+    }, { passive: false });
+    let dragging = null;
+    cv.addEventListener("pointerdown", (event) => {
+      if (look.zoom === 1) return;
+      dragging = { x: event.clientX, y: event.clientY, cx: look.cx, cy: look.cy };
+      cv.setPointerCapture(event.pointerId);
+    });
+    cv.addEventListener("pointermove", (event) => {
+      if (!dragging) return;
+      const rect = cv.getBoundingClientRect();
+      look.cx = dragging.cx - (event.clientX - dragging.x) / (rect.width || 1) / look.zoom;
+      look.cy = dragging.cy - (event.clientY - dragging.y) / (rect.height || 1) / look.zoom;
+      keepTheLookInside();
+      drawTheTile();
+    });
+    cv.addEventListener("pointerup", () => { dragging = null; });
+    cv.addEventListener("dblclick", () => { look.zoom = 1; look.cx = 0.5; look.cy = 0.5; drawTheTile(); });
+    /* The box never shows past the field's edge: zoomed in, the centre
+       stays half a box from the edges. */
+    function keepTheLookInside() {
+      const half = 0.5 / look.zoom;
+      look.cx = Math.min(1 - half, Math.max(half, look.cx));
+      look.cy = Math.min(1 - half, Math.max(half, look.cy));
+    }
+
     /** The field being tried on, drawn larger than life. */
     function drawTheTile() {
       if (!ctx.sizeCanvas(cv)) return;
@@ -296,6 +337,7 @@ export default {
          on the canvas, the step coming up. Drawn-for is tracked so a redraw
          is never a refetch, and a changed tile always is. */
       if (pictureFor !== settings.tile || ctx.pictureOf(ctx.labelOf?.(settings.tile)) !== pictureFrom) {
+        if (pictureFor !== settings.tile) { look.zoom = 1; look.cx = 0.5; look.cy = 0.5; }
         pictureFor = settings.tile;
         showThePictureOf(ctx.labelOf?.(settings.tile));
       }
@@ -310,8 +352,10 @@ export default {
       /* Flush with the card's content: the canvas IS the image now --
          the control line lives below it in the host's own bottom room,
          so nothing inside the frame is margin. */
-      const scale = Math.min(w / frame, h / frame);
-      const ox = 0, oy = 0;
+      /* The field fills the box at a zoom of one; zoomed in, the point the
+         operator is looking at stays in the middle. */
+      const scale = Math.min(w / frame, h / frame) * look.zoom;
+      const ox = w / 2 - look.cx * frame * scale, oy = h / 2 - look.cy * frame * scale;
       const X = (x) => ox + (x - (tile.x - frame / 2)) * scale;
       const Y = (y) => oy + (y - (tile.y - frame / 2)) * scale;
 

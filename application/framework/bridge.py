@@ -549,7 +549,10 @@ def _connect(asked: dict) -> dict:
     # the JPEG copies -- so a viewer that cannot start is a sentence on
     # /api/viewer, never a failed connect.
     viewer_service.stop()
-    viewer_service.start(_run, bake=asked.get("bake_coarse", True) is not False, canvas=info.get("canvas"))
+    # Baked, always: the zoomed-out picture composed on demand from every
+    # position measured seconds a chunk against milliseconds baked, and the
+    # first screen of a scan is zoomed out.
+    viewer_service.start(_run, bake=True, canvas=info.get("canvas"))
     return {"context": _context, "info": info, "run": str(_run)}
 
 
