@@ -40,14 +40,64 @@ describe("model chosen by geometry", () => {
     expect(m.model, "collinear points cannot support a surface").toBe("plane");
   });
 
-  it("a plane fitted to collinear points still tilts along the line", () => {
-    const m = fitSurface(grid([[0, 3000], [3000, 3000], [6000, 3000], [9000, 3000]]));
+  it("a plane fitted to collinear points still tilts along the line, and passes through the points", () => {
+    const pts = grid([[0, 3000], [3000, 3000], [6000, 3000], [9000, 3000]]);
+    const m = fitSurface(pts);
     // the singular direction must not collapse the fit to a constant
     expect(surfaceZ(m, 9000, 3000) - surfaceZ(m, 0, 3000)).toBeCloseTo(0.006 * 9000, 3);
+    // and the height is the measured height, not a fraction of it
+    for (const p of pts) expect(surfaceZ(m, p.x, p.y)).toBeCloseTo(p.z, 6);
   });
 
   it("no points is no surface", () => {
     expect(fitSurface([])).toBeNull();
+  });
+});
+
+/* The same table as `focus_strategy/test_focus_surface.py::test_the_shared_fixture_table`:
+   a tilted carrier at the rig's absolute stage height, points millimetres
+   apart. Every layout that spans the plane must give the plane back exactly,
+   in height as well as in tilt; the layouts that cannot (one point, points on
+   one line) must still give the measured height at the points themselves.
+   Change one file and the other is wrong. */
+const RIG = { z0: 5781.8, dzdx: 0.0002, dzdy: -0.0001 };
+const rigZ = (x, y) => RIG.z0 + RIG.dzdx * x + RIG.dzdy * y;
+const rig = (coords) => coords.map(([x, y]) => ({ x, y, z: rigZ(x, y) }));
+const LAYOUTS = {
+  "2 points":            [[20600, 10500], [56600, 10500]],
+  "3 in a triangle":     [[20600, 10500], [56600, 10500], [38600, 30500]],
+  "3 on one line":       [[0, 0], [14000, 0], [28000, 0]],
+  "4 corners":           [[20600, 10500], [56600, 10500], [20600, 30500], [56600, 30500]],
+  "4 on one line":       [[0, 3000], [3000, 3000], [6000, 3000], [9000, 3000]],
+  "5 spread":            [[20600, 10500], [56600, 10500], [20600, 30500], [56600, 30500], [38600, 20500]],
+};
+const SPANNING = ["3 in a triangle", "4 corners", "5 spread"];
+const PROBES = [[38600, 20500], [0, 0], [70000, 40000]];
+
+describe("the shared fixture table: a tilted carrier at the rig's stage height", () => {
+  for (const [name, coords] of Object.entries(LAYOUTS)) {
+    it(`${name}: the fitted height at every measured point is the measured height`, () => {
+      const pts = rig(coords);
+      const m = fitSurface(pts);
+      for (const p of pts) expect(surfaceZ(m, p.x, p.y), name).toBeCloseTo(p.z, 6);
+    });
+  }
+  for (const name of SPANNING) {
+    it(`${name}: the plane is recovered everywhere, height and tilt`, () => {
+      const m = fitSurface(rig(LAYOUTS[name]));
+      for (const [x, y] of PROBES) expect(surfaceZ(m, x, y), name).toBeCloseTo(rigZ(x, y), 4);
+    });
+  }
+  it("points on one line tilt along the line and are flat across it", () => {
+    const m = fitSurface(rig(LAYOUTS["3 on one line"]));
+    expect(m.model).toBe("plane");
+    expect(surfaceZ(m, 28000, 0) - surfaceZ(m, 0, 0)).toBeCloseTo(RIG.dzdx * 28000, 6);
+    expect(surfaceZ(m, 14000, 9000)).toBeCloseTo(surfaceZ(m, 14000, 0), 6);
+  });
+  it("one point is a constant at that point's height, whatever the carrier's tilt", () => {
+    const m = fitSurface(rig([[20600, 10500]]));
+    expect(m.model).toBe("constant");
+    expect(surfaceZ(m, 0, 0)).toBeCloseTo(rigZ(20600, 10500), 9);
   });
 });
 
