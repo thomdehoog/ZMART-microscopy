@@ -80,8 +80,15 @@ def test_the_optics_procedure_finds_where_the_second_lens_looks(setup, tmp_path)
                                           orientation=orientation)
     answer = procedures.measure_objective_pair(reference, target)
     assert answer["accepted"], answer["why"]
-    assert answer["translation_um"]["x"] == pytest.approx(-18.0, abs=2.0)
-    assert answer["translation_um"]["y"] == pytest.approx(11.0, abs=2.0)
+    # The 40x looks (-18, +11) um from where the 10x looks, and the stage stood
+    # still between the two views...
+    assert answer["looks_um"]["x"] == pytest.approx(-18.0, abs=2.0)
+    assert answer["looks_um"]["y"] == pytest.approx(11.0, abs=2.0)
+    assert answer["stage_shift_um"] == {"x": 0.0, "y": 0.0}
+    # ...so the stage has to read (+18, -11) um more for the 40x to look at the
+    # same place: the translation is a change of reading, not the look.
+    assert answer["translation_um"]["x"] == pytest.approx(18.0, abs=2.0)
+    assert answer["translation_um"]["y"] == pytest.approx(-11.0, abs=2.0)
     assert answer["translation_um"]["z"] == pytest.approx(3.5, abs=0.6)
     assert answer["lenses"] == {
         "reference": {"slot": 0, "name": "10x dry", "pixel_um": 4.0},
@@ -92,6 +99,39 @@ def test_the_optics_procedure_finds_where_the_second_lens_looks(setup, tmp_path)
     held = setup.read("calibration")["document"]["objectives"]
     assert held["0"]["translation_um"] == {"x": 0.0, "y": 0.0, "z": 0.0}
     assert held["2"]["measured_against"] == "0"
+
+
+def test_a_stage_the_firmware_shifts_on_a_lens_change_lands_on_the_same_place(setup, tmp_path):
+    """A real microscope moves its own stage when the lens changes. The
+    translation has to keep that shift: a driver applies it from where the
+    stage read before the change, so standing there plus the translation must
+    put the second lens on the place the first one looked at."""
+    orientation = {"rotation_deg": 0, "reflection": False}
+    _turn_the_camera(setup, 0, False)
+    _change_lens(setup, 0)
+    before = setup.where()
+    reference = procedures.capture_lens_view(setup, into=tmp_path / "lens", name="reference",
+                                             orientation=orientation)
+    _change_lens(setup, 2)
+    setup.move(before["x_um"] - 6.0, before["y_um"] + 9.0, before["z_um"])   # the firmware's own shift
+    target = procedures.capture_lens_view(setup, into=tmp_path / "lens", name="target",
+                                          orientation=orientation)
+    answer = procedures.measure_objective_pair(reference, target)
+    assert answer["accepted"], answer["why"]
+    assert answer["stage_shift_um"] == {"x": pytest.approx(-6.0), "y": pytest.approx(9.0)}
+    # The look now has the shift in it; the translation does not change.
+    assert answer["looks_um"]["x"] == pytest.approx(-24.0, abs=2.0)
+    assert answer["looks_um"]["y"] == pytest.approx(20.0, abs=2.0)
+    assert answer["translation_um"]["x"] == pytest.approx(18.0, abs=2.0)
+    assert answer["translation_um"]["y"] == pytest.approx(-11.0, abs=2.0)
+    # The proof a driver would give: stand where the stage read before the
+    # change, plus the translation, and the two lenses look at one place.
+    setup.move(before["x_um"] + answer["translation_um"]["x"],
+               before["y_um"] + answer["translation_um"]["y"], before["z_um"])
+    landed = procedures.capture_lens_view(setup, into=tmp_path / "lens", name="landed",
+                                          orientation=orientation)
+    left = procedures.measure_objective_pair(reference, landed)["looks_um"]
+    assert left["x"] == pytest.approx(0.0, abs=2.0) and left["y"] == pytest.approx(0.0, abs=2.0)
 
 
 def test_the_boundary_is_read_from_four_markers_and_nothing_else(setup):

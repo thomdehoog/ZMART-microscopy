@@ -198,7 +198,29 @@ def _is_a_stack(record: dict) -> bool:
 
 def measure_objective_pair(reference: dict, target: dict) -> dict:
     """Ask the analysis where and at what height the target lens looks,
-    relative to the reference lens, from the two views captured above."""
+    relative to the reference lens, from the two views captured above, and
+    turn that into what a driver stores: how far the stage reading has to
+    change, from the reference lens to the target one, for the target lens to
+    look at the same place.
+
+    Those are two different things. The analysis sees pictures only, and says
+    where the target lens *looks* from where the stage stood under it
+    (``looks_um``). The stage did not stand still between the two views: a
+    microscope's own firmware shifts it when the lens changes, and the
+    operator may have nudged it (``stage_shift_um``, the target view's
+    position less the reference view's). To look at the same place the stage
+    has to keep that shift and then take the look back out::
+
+        translation_um (x, y) = stage_shift_um - looks_um
+
+    A driver applies the translation from where the stage read *before* the
+    lens changed, so a translation that left the shift out would undo it, and
+    one that kept the look's own sign would double it.
+
+    Z needs no such turning: the sharp heights are read on the focus drive,
+    so their difference already is a change of reading with the firmware's
+    part in it.
+    """
     step = _analysis_step("measure_objective_pair")
     answer = step.run(
         {
@@ -216,11 +238,19 @@ def measure_objective_pair(reference: dict, target: dict) -> dict:
     answer["lenses"] = {"reference": reference["lens"], "target": target["lens"]}
     answer["pipeline"] = str(pipeline_path("measure_objective_pair"))
     into = Path(reference["records"]["frame"]["images"][0]).parent.parent
+    # The overlay is a picture of the look, so it is drawn before the look is
+    # turned into a translation.
     answer["diagnostic"] = step.write_overlay_diagnostic(
         {"image": reference["image"], "pixel_um": reference["pixel_um"]},
         {"image": target["image"], "pixel_um": target["pixel_um"]},
         answer, into / "objective_pair.png",
     )
+    looks = answer["translation_um"]
+    shift = {axis: float(target["position"][f"{axis}_um"]) - float(reference["position"][f"{axis}_um"])
+             for axis in ("x", "y")}
+    answer["looks_um"] = {"x": looks["x"], "y": looks["y"]}
+    answer["stage_shift_um"] = shift
+    answer["translation_um"] = {"x": shift["x"] - looks["x"], "y": shift["y"] - looks["y"], "z": looks["z"]}
     return answer
 
 

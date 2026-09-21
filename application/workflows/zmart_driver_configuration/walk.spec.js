@@ -182,10 +182,13 @@ test.describe("the driver configuration workflow, walked end to end", () => {
       expect(fs.existsSync(path.join(newest("orientation"), "data", "orientation.yaml"))).toBe(true);
       const calibration = JSON.parse(fs.readFileSync(path.join(newest("calibration"), "calibration.json"), "utf8"));
       const [dx, dy, dz] = calibration.objectives["2"].translation_um;
-      /* The mock's 40x looks (-18, +11, +3.5) µm off its 10x; the 10x's
-         pixel is 4 µm, so the answer is expected within that. */
-      expect(Math.abs(dx - -18)).toBeLessThanOrEqual(4);
-      expect(Math.abs(dy - 11)).toBeLessThanOrEqual(4);
+      /* The mock's 40x looks (-18, +11, +3.5) µm off its 10x and its stage
+         stands still on a lens change, so the stage has to read (+18, -11)
+         more for the 40x to look at the same place: the translation is that
+         change of reading, not the look. The 10x's pixel is 4 µm, so the
+         answer is expected within that. */
+      expect(Math.abs(dx - 18)).toBeLessThanOrEqual(4);
+      expect(Math.abs(dy - -11)).toBeLessThanOrEqual(4);
       expect(Math.abs(dz - 3.5)).toBeLessThanOrEqual(0.6);
       expect(fs.existsSync(path.join(newest("calibration"), "data", "0-2-objective_pair.png"))).toBe(true);
 
