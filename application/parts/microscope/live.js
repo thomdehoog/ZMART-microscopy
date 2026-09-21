@@ -303,7 +303,10 @@ export const backend = {
     fields = null, settings = {}, onField, onDoing, onProgress,
   } = {}) {
     await ask("/api/targets/discover", { fields, settings });
-    let shown = 0;
+    /* Each field once, by its number: the bridge lists fields as they land,
+       in the analysis engine's order, and puts the list into the sample's
+       order before it finalizes, so a place in the list is not a field. */
+    const shown = new Set();
     for (;;) {
       const progress = await askedPatiently("/api/targets/discover");
       onDoing?.(progress.running ? progress.doing : null);
@@ -312,7 +315,11 @@ export const backend = {
         objects: progress.objects ?? 0,
         running: !!progress.running,
       });
-      for (; shown < progress.fields.length; shown++) onField?.(progress.fields[shown]);
+      for (const one of progress.fields ?? []) {
+        if (shown.has(one.field)) continue;
+        shown.add(one.field);
+        onField?.(one);
+      }
       if (progress.error) throw new Error(progress.error);
       if (!progress.running) {
         return {

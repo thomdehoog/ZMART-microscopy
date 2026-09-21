@@ -221,10 +221,11 @@ test.describe("the target acquisition workflow, walked screen by screen", () => 
       await expect(viewModes).toHaveValue("projection");
       await expect(viewModes.locator("option")).toHaveText(["Projection", "Z-slices (Top view)", "Z-slice (Absolute)", "3D"]);
       await expect(viewModes.locator("option:disabled")).toHaveCount(3);
-      expect(await viewModes.evaluate((select) => {
-        const strip = select.nextElementSibling;
-        return strip?.id === "acquisition-pick" && select.getBoundingClientRect().right <= strip.getBoundingClientRect().left;
-      }), "the dropdown stands directly left of the acquisitions strip").toBe(true);
+      expect(await page.locator("#viewer-pick").evaluate((press) => {
+        const strip = press.nextElementSibling;
+        return strip?.id === "acquisition-pick" && press.getBoundingClientRect().right <= strip.getBoundingClientRect().left;
+      }), "the viewer's press stands directly left of the acquisitions strip").toBe(true);
+      await expect(page.locator("#viewer-pick .bar-word")).toHaveText("viewer");
       await expect.poll(() => page.evaluate(() => {
         const rows = window.__thePicture.layersForMeasurement();
         const of = (kind) => rows.filter(row => row.name.startsWith(`${kind}/`));

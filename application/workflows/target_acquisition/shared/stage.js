@@ -1688,9 +1688,10 @@ function sayWhatThePressesDo() {
   const shown = theRowsAcquisition(names);
   /* How the picture is drawn: shown once there is a product to draw, and
      always on the projection, the one way that is built. */
+  const viewerPick = document.getElementById("viewer-pick");
   const modes = document.getElementById("view-modes");
-  if (modes) {
-    modes.hidden = !(panel?.viewModes?.(shown) ?? []).length;
+  if (viewerPick && modes) {
+    viewerPick.hidden = !(panel?.viewModes?.(shown) ?? []).length;
     modes.value = "projection";
   }
 
