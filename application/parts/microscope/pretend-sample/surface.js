@@ -27,10 +27,14 @@ export const kernelU = (r) => (r < 1e-9 ? 0 : r * r * Math.log(r));
 export function solve(A, b) {
   const n = b.length;
   const M = A.map((row, i) => [...row, b[i]]);
+  /* Singular means a pivot that is nothing next to the matrix's own entries,
+     not next to an absolute number: the systems here range from order one
+     to squared micrometres. */
+  const largest = Math.max(1e-300, ...A.flat().map(Math.abs));
   for (let i = 0; i < n; i++) {
     let piv = i;
     for (let k = i + 1; k < n; k++) if (Math.abs(M[k][i]) > Math.abs(M[piv][i])) piv = k;
-    if (Math.abs(M[piv][i]) < 1e-12) return null;
+    if (Math.abs(M[piv][i]) < 1e-12 * largest) return null;
     [M[i], M[piv]] = [M[piv], M[i]];
     for (let k = i + 1; k < n; k++) {
       const f = M[k][i] / M[i][i];
@@ -135,27 +139,42 @@ export function fitSurface(points) {
     }
   }
 
-  const design = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
-  const rhs = [0, 0, 0];
+  /* A least-squares plane through centred coordinates. Centring makes the
+     height independent of the tilt: the plane's height at the centroid is
+     the mean height, exactly, whatever the points' layout. Only the two
+     slopes need solving, in coordinates scaled to order one so that the
+     collinearity test below is about geometry rather than about micrometres. */
+  const scale = Math.max(ptp(xc), ptp(yc)) || 1;
+  const u = xc.map((x) => x / scale);
+  const v = yc.map((y) => y / scale);
+  let suu = 0, suv = 0, svv = 0, suz = 0, svz = 0;
+  const zm = meanZ();
   for (let i = 0; i < n; i++) {
-    const row = [xc[i], yc[i], 1];
-    for (let a = 0; a < 3; a++) {
-      for (let b2 = 0; b2 < 3; b2++) design[a][b2] += row[a] * row[b2];
-      rhs[a] += row[a] * zs[i];
-    }
+    suu += u[i] * u[i]; suv += u[i] * v[i]; svv += v[i] * v[i];
+    suz += u[i] * (zs[i] - zm); svz += v[i] * (zs[i] - zm);
   }
-
-  /* Points along one line leave the normal equations singular across that
-     line. numpy answers with a minimum-norm fit — a plane tilted along the
-     line and flat across it — so a ridge stands in for the same thing rather
-     than collapsing to a constant. */
-  let c = solve(design, rhs);
-  if (!c) {
-    const ridge = 1e-9 * (design[0][0] + design[1][1] + design[2][2]) || 1e-12;
-    c = solve(design.map((row, i) => row.map((v, j) => (i === j ? v + ridge : v))), rhs);
+  let a = 0, b = 0;
+  if (nonCollinear(u, v)) {
+    const det = suu * svv - suv * suv;
+    a = (svv * suz - suv * svz) / det;
+    b = (suu * svz - suv * suz) / det;
+  } else if (suu + svv > 0) {
+    /* Points along one line say nothing about the tilt across it. numpy's
+       least squares answers with the minimum-norm fit — tilted along the
+       line, flat across it — and so does this: the slope along the line's
+       direction, and none across. */
+    const tr = suu + svv;
+    const disc = Math.sqrt(Math.max(0, (tr * tr) / 4 - (suu * svv - suv * suv)));
+    const largest = tr / 2 + disc;
+    let dx = suv, dy = largest - suu;
+    if (Math.abs(dx) + Math.abs(dy) < 1e-12 * tr) { dx = largest - svv; dy = suv; }
+    if (Math.abs(dx) + Math.abs(dy) < 1e-12 * tr) { dx = suu >= svv ? 1 : 0; dy = 1 - dx; }
+    const norm = Math.hypot(dx, dy);
+    dx /= norm; dy /= norm;
+    const along = (dx * suz + dy * svz) / (dx * dx * suu + 2 * dx * dy * suv + dy * dy * svv);
+    a = along * dx; b = along * dy;
   }
-  if (!c) return { kind: "constant", model: "constant", c: meanZ() };
-  return { kind: "plane", model: "plane", x0, y0, c0: c[0], c1: c[1], c2: c[2] };
+  return { kind: "plane", model: "plane", x0, y0, c0: a / scale, c1: b / scale, c2: zm };
 }
 
 /**

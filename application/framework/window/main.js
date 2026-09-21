@@ -1062,7 +1062,8 @@ let stageWatch = null;
         f.applied = true;
         stageWatch?.refresh();
         state.notes[s.id] =
-          f.strategy === "plane" ? `${f.surface.model} from ${f.points.length} points · rms ${f.residual.toFixed(1)} µm`
+          f.strategy === "plane" ? (f.surface ? `${f.surface.model} from ${f.points.length} points · ${focusFitWord(f)}`
+            : `no focus map: none of the ${f.points.length} points found the tissue`)
           : f.strategy === "fixed" ? `fixed z ${f.zFixed} µm`
           : f.strategy === "auto" ? `focused at every position · ${METRICS[f.metric].label}`
           : `reusing ${PREVIOUS_SURFACES[f.reuse].label}`;
@@ -1428,7 +1429,7 @@ let stageWatch = null;
       if (frameUm) row("Frame", `${Math.round(frameUm)} µm`);
       const measured = state.focus.applied && state.focus.strategy === "plane";
       row("Focus", measured
-        ? `measured map · rms ${state.focus.residual.toFixed(1)} µm`
+        ? (state.focus.surface ? `measured map · ${focusFitWord(state.focus)}` : "no focus map")
         : "found at every position");
       body.append(summary);
       scanProgress = progressBox("Scan progress");
@@ -2391,6 +2392,16 @@ let stageWatch = null;
       side.append(label);
       host.append(side);
     }
+  }
+
+  /** How well the focus map fits its points, in words an operator can weigh.
+      A constant or a plane through as many points as it has parameters
+      passes through them exactly, so its residual is zero by construction and
+      says nothing; only a fit with points to spare has an rms worth reading. */
+  function focusFitWord(f) {
+    const found = f.points.filter((p) => Number.isFinite(p.z)).length;
+    const parameters = f.surface.model === "constant" ? 1 : f.surface.model === "plane" ? 3 : 0;
+    return parameters && found <= parameters ? "exact fit" : `rms ${f.residual.toFixed(1)} µm`;
   }
 
   const shownPanel = () => (state.tabs.includes(state.tab) ? state.tab : state.tabs[0]);
