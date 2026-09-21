@@ -212,24 +212,12 @@ test.describe("the target acquisition workflow, walked on the Leica driver with 
       await page.evaluate(() => window.__theStageCanvas.fadeTo(0.15));
       await framePlan(page);
       await shot(page, "scan-done-picture");
-      /* Under the picture: the focus stacks give it a depth, so the Z
-         slider stands across its foot; nothing here is a timelapse, so T
-         does not. Moved to the top of the stack and back. */
-      await expect(page.locator("#axis-z")).toBeVisible({ timeout: 30_000 });
-      await expect(page.locator("#axis-t")).toBeHidden();
-      /* Every stack stands on the table, so the picture opens at the bottom
-         plane; and the flat overview stays in view at the top of the stacks,
-         as it lies on the table too. */
-      await expect(page.locator("#plane-readout")).toContainText("plane 1 of");
-      const atTheBottom = fractionLit(await photograph(page, "#picture-host", 1));
-      expect(atTheBottom, "the overview is lit at the bottom").toBeGreaterThan(0.01);
-      await page.locator("#plane").evaluate((s) => { s.value = s.max; s.dispatchEvent(new Event("input", { bubbles: true })); });
-      await rest(1500);
-      await shot(page, "scan-done-z-top");
-      const atTheTop = fractionLit(await photograph(page, "#picture-host", 1));
-      expect(atTheTop, "the overview is still lit at the top of the stacks").toBeGreaterThan(atTheBottom * 0.5);
-      await page.locator("#plane").evaluate((s) => { s.value = s.min; s.dispatchEvent(new Event("input", { bubbles: true })); });
-      await rest(800);
+      /* Under the picture there is no way through a stack: the focus stacks
+         are drawn flat, as their projections; nothing here is a timelapse,
+         so T does not stand either. */
+      await expect(page.locator("#canvas-axes")).toBeHidden();
+      await expect(page.locator("#view-modes")).toHaveValue("max", { timeout: 30_000 });
+      expect(fractionLit(await photograph(page, "#picture-host", 1)), "the overview is lit").toBeGreaterThan(0.01);
       await expect(page.locator("#acquisition-name")).toHaveText("overview");
       await expect.poll(() => page.locator("#canvas-chips .chip").count(), { timeout: 30_000 }).toBeGreaterThan(0);
 

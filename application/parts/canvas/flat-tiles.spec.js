@@ -1,6 +1,6 @@
-/** The original eight-tile rig regression, through the named Top publication.
- * Each tile keeps its specimen Z; one aggregate must show all eight at every
- * display depth. Pixels, rather than the retired metre-thick slab, are the oracle.
+/** The original eight-tile rig regression, through the published projection.
+ * Each tile keeps its specimen Z; one flat aggregate must show all eight.
+ * Pixels, rather than the retired metre-thick slab, are the oracle.
  */
 import { execFileSync, spawn } from "node:child_process";
 import fs from "node:fs";
@@ -14,7 +14,7 @@ import { readPng } from "../../workflows/target_acquisition/steps/scan_the_overv
 const here = path.dirname(fileURLToPath(import.meta.url));
 const heights = [62.99, 62.79, 64.26, 64.01, 61.10, 60.40, 62.20, 61.40];
 for (const bake of [false, true]) for (const together of [false, true]) {
-  test(`eight real-height flats through Top: bake ${bake}, together ${together}`, async ({ page }, info) => {
+  test(`eight real-height flats through the projection: bake ${bake}, together ${together}`, async ({ page }, info) => {
     test.setTimeout(120_000);
     const folder = fs.mkdtempSync(path.join(os.tmpdir(), "flat-top-"));
     const names = execFileSync(pythonForTheBridge(), [
@@ -50,7 +50,8 @@ for (const bake of [false, true]) for (const together of [false, true]) {
           composition: { regions: "complete", order: names.slice(0,count), xy_origin: "corner" } };
         const response = await page.request.post(origin + "/api/" + (first ? "stores/open" : "announce"), {
           data: first ? { ...data, bake, canvas: { x_um:[488,8680], y_um:[1488,2512] },
-            views: { path:path.join(folder,"view"), acquisition:"overview", modes:["top"] } }
+            views: { path:path.join(folder,"view"), acquisition:"overview", modes:[], projections:["max"],
+              projection_path:path.join(folder,"projections") } }
             : { publications:[data] },
         });
         expect(response.ok(), await response.text()).toBe(true);
@@ -70,16 +71,13 @@ for (const bake of [false, true]) for (const together of [false, true]) {
           flatViewer.setView({centre:{x:4584,y:2000},zoom:16});
         }, {origin, rows:config.layers, first});
       }
-      for (const z of [-1000,0,1000]) {
-        await page.evaluate(z => flatViewer.setPlane(z), z);
-        await expect.poll(async () => {
-          const shot = readPng(await page.locator("#flat-proof").screenshot());
-          return Math.max(...heights.map((_,i) => {
-            const at=(80*shot.width+96+i*64)*shot.channels;
-            return Math.max(shot.data[at], shot.data[at+2], Math.abs(shot.data[at+1]-(i+1)*25.5));
-          }));
-        }).toBeLessThanOrEqual(1); // Allow only 8-bit shader quantization.
-      }
+      await expect.poll(async () => {
+        const shot = readPng(await page.locator("#flat-proof").screenshot());
+        return Math.max(...heights.map((_,i) => {
+          const at=(80*shot.width+96+i*64)*shot.channels;
+          return Math.max(shot.data[at], shot.data[at+2], Math.abs(shot.data[at+1]-(i+1)*25.5));
+        }));
+      }).toBeLessThanOrEqual(1); // Allow only 8-bit shader quantization.
       expect(await page.evaluate(() => flatViewer === initialFlatViewer)).toBe(true);
       expect(await page.evaluate(() => flatViewer.layersForMeasurement().map(r=>r.sources.length))).toEqual([1]);
       await page.locator("#flat-proof").screenshot({path:info.outputPath("eight-flat-tiles.png")});

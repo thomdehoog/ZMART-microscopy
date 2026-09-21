@@ -1215,7 +1215,7 @@ ctx.tileButton?.addEventListener("click", frameTile);
 /* ---- the picture's half of the canvas row -------------------------------
    Which acquisition the row is about, its channels as chips, and beside it the masks as
    one of them, and Grayscale. The chips read the picture's own panel and
-   act through it, so the row and Display settings never disagree. */
+   act through it: the panel is the one truth about the picture. */
 
 /* The acquisition the row shows: the operator's choice, else the one the
    step is about -- the focus stacks on the focus step, the targets while
@@ -1574,8 +1574,8 @@ const EYE = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke=
 /* One chip per channel of the acquisition the row shows: a dot in the
    channel's colour and its name, or its number in the dot when the row is
    short of room. The dot shows or hides the channel -- hidden, the chip
-   fades and a line crosses the dot. The name chooses the channel and opens
-   Display settings, where its histogram, window and opacity are. */
+   fades and a line crosses the dot. The triangle beside it opens the
+   channel's box, where its histogram, window and opacity are. */
 /**
  * The small triangle beside a chip's dot or cell: the press that opens the
  * thing's card, where the dot itself shows or hides it. One shape for the
@@ -1686,13 +1686,12 @@ function sayWhatThePressesDo() {
   const acquisitions = panel?.acquisitions?.() ?? [];
   const names = acquisitions.map((one) => one.name);
   const shown = theRowsAcquisition(names);
+  /* How the picture is drawn: shown once there is a product to draw, and
+     always on the projection, the one way that is built. */
   const modes = document.getElementById("view-modes");
   if (modes) {
-    const available = panel?.viewModes?.(shown) ?? [];
-    modes.hidden = !available.length;
-    for (const option of modes.options) option.disabled = !available.includes(option.value);
-    modes.value = panel?.viewMode?.(shown) ?? "top";
-    modes.onchange = () => panel.setViewMode(shown, modes.value).catch(console.error);
+    modes.hidden = !(panel?.viewModes?.(shown) ?? []).length;
+    modes.value = "max";
   }
 
   if (ctx.acquisitionPick) {

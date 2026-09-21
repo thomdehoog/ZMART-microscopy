@@ -1,11 +1,11 @@
 /**
- * The sliders under the picture: there only when the picture has more than
- * one plane, or more than one moment, and driving the engine when moved.
+ * The slider under the picture: there only when the picture has more than
+ * one moment, and driving the engine when moved.
  */
 import { describe, expect, it } from "vitest";
 import { mountTheAxes } from "./axes.js";
 
-/* Enough of an element for the sliders: what is read and written on it. */
+/* Enough of an element for the slider: what is read and written on it. */
 function anElement() {
   const listeners = {};
   return {
@@ -17,179 +17,66 @@ function anElement() {
   };
 }
 function theParts() {
-  return {
-    axes: anElement(), axisZ: anElement(), plane: anElement(), planePlay: anElement(), planeReadout: anElement(),
-    axisT: anElement(), moment: anElement(), momentPlay: anElement(), momentReadout: anElement(),
-  };
+  return { axes: anElement(), axisT: anElement(), moment: anElement(), momentPlay: anElement(), momentReadout: anElement() };
 }
 function pressed(button) { return button.attributes?.["aria-pressed"]; }
 const settle = () => new Promise((resolve) => setTimeout(resolve, 30));
 
-describe("the sliders under the picture", () => {
-  it("Top counts planes from one and Slice returns to physical micrometres", async () => {
-    const parts = theParts(), asks = [];
-    let depth = {lowUm:0, highUm:10, stepUm:1, atUm:2, unit:"plane"};
-    const viewer = {theDepthItCanShow:()=>depth, setPlane:value=>asks.push(value)};
-    const axes = mountTheAxes(parts, {picture:()=>viewer, watchEveryMs:0});
-    axes.refresh();
-    expect(parts.plane.min).toBe("1");
-    expect(parts.plane.max).toBe("11");
-    expect(parts.planeReadout.textContent).toBe("Plane 3 of 11");
-    parts.plane.value = "8";
-    parts.plane.fire("input");
-    await settle();
-    expect(asks).toEqual([7]);
-    depth = {lowUm:100, highUm:120, stepUm:2, atUm:104, unit:"um"};
-    axes.refresh();
-    expect(parts.plane.min).toBe("100");
-    expect(parts.planeReadout.textContent).toBe("104 µm · plane 3 of 11");
-    depth = null;
-    axes.refresh();
-    expect(parts.axisZ.hidden).toBe(true);
-  });
-  it("shows a singleton Slice depth and returns an out-of-range Top selection to it", () => {
-    const parts = theParts();
-    const selected = [];
-    const picture = { theDepthItCanShow: () => ({lowUm:7, highUm:7, stepUm:1, atUm:20}),
-      setPlane: z => selected.push(z) };
-    mountTheAxes(parts, {picture: () => picture, watchEveryMs:0}).refresh();
-    expect(parts.axisZ.hidden).toBe(false);
-    expect(parts.axes.hidden).toBe(false);
-    expect(parts.planeReadout.textContent).toBe("7 µm · plane 1 of 1");
-    expect(parts.plane.disabled).toBe(true);
-    expect(parts.planePlay.disabled).toBe(true);
-    expect(selected).toEqual([7]);
-  });
-  it("show nothing for a flat, single-moment picture, or no picture at all", () => {
+describe("the slider under the picture", () => {
+  it("shows nothing for a single-moment picture, or no picture at all", () => {
     const parts = theParts();
     const axes = mountTheAxes(parts, { picture: () => null, watchEveryMs: 0 });
     axes.refresh();
     expect(parts.axes.hidden).toBe(true);
-    const flat = { theDepthItCanShow: () => null, theMomentsItCanShow: () => null };
-    mountTheAxes(parts, { picture: () => flat, watchEveryMs: 0 }).refresh();
+    const still = { theMomentsItCanShow: () => null };
+    mountTheAxes(parts, { picture: () => still, watchEveryMs: 0 }).refresh();
     expect(parts.axes.hidden).toBe(true);
-    expect(parts.axisZ.hidden).toBe(true);
     expect(parts.axisT.hidden).toBe(true);
-  });
-
-  it("offers Z for a stack, sized in micrometres and starting where the picture is", () => {
-    const parts = theParts();
-    const stack = {
-      theDepthItCanShow: () => ({ lowUm: 0, highUm: 20, stepUm: 1, atUm: 7 }),
-      theMomentsItCanShow: () => null,
-    };
-    mountTheAxes(parts, { picture: () => stack, watchEveryMs: 0 }).refresh();
-    expect(parts.axes.hidden).toBe(false);
-    expect(parts.axisZ.hidden).toBe(false);
-    expect(parts.axisT.hidden).toBe(true);
-    expect([parts.plane.min, parts.plane.max, parts.plane.step, parts.plane.value]).toEqual(["0", "20", "1", "7"]);
-    expect(parts.planeReadout.textContent).toBe("7 µm · plane 8 of 21");
-  });
-
-  it("has the depth of the room: any acquisition shown that is a stack", () => {
-    /* The picture is one room. A flat overview on show beside the focus
-       stacks does not hide the way through them: the overview lies on the
-       table at every depth, and the slider walks the stacks. Hidden
-       acquisitions do not count, and a picture with no stacks shown has no
-       depth to offer. */
-    const depths = { overview: null, focussing: { lowUm: 0, highUm: 60, stepUm: 1, atUm: 0 } };
-    const room = {
-      theDepthItCanShow: (name) => (name === null ? depths.focussing : depths[name]),
-      theMomentsItCanShow: () => null,
-    };
-    let shown = ["overview", "focussing"];
-    const parts = theParts();
-    mountTheAxes(parts, { picture: () => room, acquisitions: () => shown, watchEveryMs: 0 }).refresh();
-    expect(parts.axisZ.hidden).toBe(false);
-    expect(parts.planeReadout.textContent).toBe("0 µm · plane 1 of 61");
-    shown = ["overview"];
-    mountTheAxes(parts, { picture: () => room, acquisitions: () => shown, watchEveryMs: 0 }).refresh();
-    expect(parts.axisZ.hidden).toBe(true);
-    shown = ["focussing"];
-    mountTheAxes(parts, { picture: () => room, acquisitions: () => shown, watchEveryMs: 0 }).refresh();
-    expect(parts.axisZ.hidden).toBe(false);
-  });
-
-  it("unions relative ranges and excludes acquisitions no longer shown", () => {
-    const depths = {
-      a: { lowUm: -5, highUm: 1, stepUm: 1, atUm: 0 },
-      b: { lowUm: -1, highUm: 3, stepUm: 2, atUm: 0 },
-    };
-    const parts = theParts();
-    let shown = ["a", "b"];
-    const axes = mountTheAxes(parts, { picture: () => ({ theDepthItCanShow: name => depths[name] }),
-      acquisitions: () => shown, watchEveryMs: 0 });
-    axes.refresh();
-    expect([parts.plane.min, parts.plane.max, parts.plane.step]).toEqual(["-5", "3", "1"]);
-    shown = ["b"];
-    axes.refresh();
-    expect([parts.plane.min, parts.plane.max, parts.plane.step]).toEqual(["-1", "3", "2"]);
-    shown = [];
-    axes.refresh();
-    expect(parts.axisZ.hidden).toBe(true);
   });
 
   it("offers T for a timelapse, counted in moments from the first", () => {
     const parts = theParts();
-    const timelapse = {
-      theDepthItCanShow: () => null,
-      theMomentsItCanShow: () => ({ many: 12, at: 3 }),
-    };
+    const timelapse = { theMomentsItCanShow: () => ({ many: 12, at: 3 }) };
     mountTheAxes(parts, { picture: () => timelapse, watchEveryMs: 0 }).refresh();
-    expect(parts.axisZ.hidden).toBe(true);
+    expect(parts.axes.hidden).toBe(false);
     expect(parts.axisT.hidden).toBe(false);
     expect([parts.moment.min, parts.moment.max, parts.moment.value]).toEqual(["0", "11", "3"]);
     expect(parts.momentReadout.textContent).toBe("moment 4 of 12");
   });
 
-  it("moves the picture when a slider is moved, and says where it went", async () => {
+  it("moves the picture when the slider is moved, and says where it went", async () => {
     const parts = theParts();
-    const went = { plane: [], moment: [] };
-    const both = {
-      theDepthItCanShow: () => ({ lowUm: 0, highUm: 10, stepUm: 2, atUm: 0 }),
-      theMomentsItCanShow: () => ({ many: 5, at: 0 }),
-      setPlane: (um) => went.plane.push(um),
-      setMoment: (t) => went.moment.push(t),
-    };
-    mountTheAxes(parts, { picture: () => both, watchEveryMs: 0 }).refresh();
-    expect(parts.axes.hidden).toBe(false);
-    parts.plane.value = "6";
-    parts.plane.fire("input");
-    await settle();
-    expect(went.plane).toEqual([6]);
-    expect(parts.planeReadout.textContent).toBe("6 µm · plane 4 of 6");
+    const went = [];
+    const timelapse = { theMomentsItCanShow: () => ({ many: 5, at: 0 }), setMoment: (t) => went.push(t) };
+    mountTheAxes(parts, { picture: () => timelapse, watchEveryMs: 0 }).refresh();
     parts.moment.value = "4";
     parts.moment.fire("input");
     await settle();
-    expect(went.moment).toEqual([4]);
+    expect(went).toEqual([4]);
     expect(parts.momentReadout.textContent).toBe("moment 5 of 5");
   });
 
-  it("notices for itself when the picture learns its depth, without being told", async () => {
+  it("notices for itself when the picture learns its length, without being told", async () => {
     const parts = theParts();
-    let depth = null;
-    const viewer = { theDepthItCanShow: () => depth, theMomentsItCanShow: () => null };
+    let moments = null;
+    const viewer = { theMomentsItCanShow: () => moments };
     const axes = mountTheAxes(parts, { picture: () => viewer, watchEveryMs: 5 });
     axes.refresh();
     expect(parts.axes.hidden).toBe(true);
-    depth = { lowUm: 0, highUm: 68, stepUm: 1, atUm: 34 };
+    moments = { many: 9, at: 2 };
     await settle();
-    expect(parts.axisZ.hidden).toBe(false);
-    expect(parts.planeReadout.textContent).toBe("34 µm · plane 35 of 69");
+    expect(parts.axisT.hidden).toBe(false);
+    expect(parts.momentReadout.textContent).toBe("moment 3 of 9");
     axes.stop();
   });
 
   it("plays through the moments by itself, round to the start, and pauses when pressed again", async () => {
     const parts = theParts();
     const went = [];
-    const timelapse = {
-      theDepthItCanShow: () => null,
-      theMomentsItCanShow: () => ({ many: 3, at: 0 }),
-      setMoment: (t) => went.push(t),
-    };
+    const timelapse = { theMomentsItCanShow: () => ({ many: 3, at: 0 }), setMoment: (t) => went.push(t) };
     /* Slower than a frame, so no step is coalesced away and every moment
        reaches the engine. */
-    const axes = mountTheAxes(parts, { picture: () => timelapse, watchEveryMs: 0, playEveryMs: { plane: 25, moment: 25 } });
+    const axes = mountTheAxes(parts, { picture: () => timelapse, watchEveryMs: 0, playEveryMs: 25 });
     axes.refresh();
     parts.momentPlay.fire("click");
     expect(pressed(parts.momentPlay)).toBe("true");
@@ -203,14 +90,12 @@ describe("the sliders under the picture", () => {
     const shown = went.length;
     await settle();
     expect(went.length, "paused, it walks no further").toBe(shown);
-    /* Z has its own; playing T did not touch it. */
-    expect(pressed(parts.planePlay)).toBe("false");
     axes.stop();
   });
 
-  it("goes away again when the picture closes or flattens", () => {
+  it("goes away again when the picture closes or stands still", () => {
     const parts = theParts();
-    let viewer = { theDepthItCanShow: () => ({ lowUm: 0, highUm: 4, stepUm: 1, atUm: 0 }), theMomentsItCanShow: () => null };
+    let viewer = { theMomentsItCanShow: () => ({ many: 4, at: 0 }) };
     const axes = mountTheAxes(parts, { picture: () => viewer, watchEveryMs: 0 });
     axes.refresh();
     expect(parts.axes.hidden).toBe(false);

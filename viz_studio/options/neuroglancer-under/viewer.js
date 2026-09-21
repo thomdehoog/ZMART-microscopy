@@ -184,8 +184,8 @@ const SLACK_AROUND_THE_IMAGED_GROUND = 64;
  *                   for placing ordinary HTML elements in the same coordinates.
  *   `presentation`  `"2d-overlay"` for sources placed in absolute stage z: the
  *                   picture opens at the lowest plane any stack holds, and a
- *                   flat source is kept in view at every depth
- *                   (named Top views use the shared depth binding). It changes
+ *                   flat source is kept in view at every depth (a published
+ *                   projection through the shared depth binding). It changes
  *                   navigation and how a flat source's depth is read, never
  *                   where a source is placed.
  * @returns {Promise<Viewer>} the handle; see `../contract.md` for what it offers.
@@ -668,40 +668,11 @@ async function loadEmbedding(own, acquisitions) {
   own.embeddingUrl = url;
 }
 
+/** A published projection is flat: it is kept in view at every depth the
+    picture may stand at, rather than sitting on one plane of the shared Z. */
 function bindNamedDepth(own, row, layer) {
-  if (!row.view || (row.view.type !== "top" && row.view.type !== "projection")) return;
-  own.embedding.keepDepthLocal(layer, row.view.type === "top" ? own.viewer : null,
-    value => new WatchableCoordinateSpaceTransform(value));
-}
-
-function cancelPendingDepth(own) {
-  for (const hold of own.depthFrames?.values() ?? []) hold.cancel();
-}
-
-function holdPendingDepth(own) {
-  if (!own.embedding || own.presentation !== "2d-overlay") return;
-  own.depthFrames ??= new Map();
-  if (!own.depthStatus) {
-    own.depthStatus = document.createElement("span");
-    own.depthStatus.setAttribute("role", "status");
-    own.depthStatus.textContent = "Loading Z…";
-    own.depthStatus.style.cssText = "position:absolute;right:8px;bottom:8px;z-index:1;background:white;color:#345;padding:3px 6px;pointer-events:none";
-    own.depthStatus.hidden = true;
-    own.element.append(own.depthStatus);
-    own.viewer.registerDisposer(() => own.depthStatus.remove());
-  }
-  for (const panel of own.viewer.display.panels) {
-    const slice = panel.sliceView;
-    if (!slice) continue;
-    if (!own.depthFrames.has(slice)) {
-      const hold = own.embedding.holdCompleteSlice(slice, () => {
-        own.depthStatus.hidden = ![...own.depthFrames.values()].some(one => one.pending);
-      });
-      own.depthFrames.set(slice, hold);
-      slice.registerDisposer(() => { hold.dispose(); own.depthFrames.delete(slice); });
-    }
-    own.depthFrames.get(slice).request();
-  }
+  if (row.view?.type !== "projection") return;
+  own.embedding.keepDepthLocal(layer, null, value => new WatchableCoordinateSpaceTransform(value));
 }
 
 /** Install only missing rows, keeping existing layers, controls and textures. */
@@ -1185,7 +1156,6 @@ async function rowsFor(acquisitions) {
  * prefix. Removing or replacing a source remains a genuinely different scene.
  */
 async function addSourcesToTheOpenRows(own, acquisitions) {
-  cancelPendingDepth(own);
   await loadEmbedding(own, acquisitions);
   if (own.destroyed) return false;
   if (!own.rows.length) {
@@ -1195,19 +1165,6 @@ async function addSourcesToTheOpenRows(own, acquisitions) {
   const wanted = await rowsFor(acquisitions);
   if (own.destroyed) return false;
   const nextByName = new Map(wanted.map(row => [row.layerName, row]));
-
-  // Named modes replace layers, not the viewer or its navigation state.
-  const retired = own.rows.filter(row => row.view && !nextByName.has(row.layerName));
-  const previousView = retired.length ? readTheView(own) : null;
-  for (const row of retired) {
-    for (const next of wanted.filter(next => next.logicalName === row.logicalName))
-      for (const key of ["visible", "colour", "window", "weight", "gamma"]) next[key] = row[key];
-    if (row.managed) deleteLayer(row.managed);
-    const coverage = own.coverageLayers?.get(row.layerName);
-    if (coverage) deleteLayer(coverage.managed);
-    own.coverageLayers?.delete(row.layerName);
-  }
-  own.rows = own.rows.filter(row => !retired.includes(row));
 
   for (const held of own.rows) {
     const next = nextByName.get(held.layerName);
@@ -1248,17 +1205,11 @@ async function addSourcesToTheOpenRows(own, acquisitions) {
   });
   installRows(own);
   await refreshPublishedRows(own);
-  if (previousView) {
-    await whenTheAxesAreKnown(own.viewer);
-    if (own.destroyed) return false;
-    pinTheAxesThatMeasureDistance(own.viewer);
-    writeTheView(own, previousView);
-  }
   countFromTheCornerOfTheVoxelRatherThanItsMiddle(own);
   return true;
 }
 
-/** Cache revisions belong to the viewer, not to layers retired by a mode switch. */
+/** Cache revisions belong to the viewer, for as long as it is open. */
 async function refreshPublishedRows(own) {
   own.sourceVersions ??= new Map();
   const nextVersions = new Map(), changed = new Set();
@@ -1567,15 +1518,15 @@ function planesDeepIn(own, acquisition) {
   return deepest;
 }
 
-/** Plane centres and spacing of the selected aggregates, in their displayed Z. */
+/** Plane centres and spacing of the stack aggregates, in their displayed Z.
+    A published projection has no depth and is left out. */
 function aggregateDepthIn(own, acquisition) {
   let range = null;
   for (const row of own.rows) {
-    if ((!row.view && row.depth !== "stack") || row.view?.type === "projection"
-        || (acquisition !== null && row.acquisition !== acquisition)) continue;
+    if (row.depth !== "stack" || (acquisition !== null && row.acquisition !== acquisition)) continue;
     for (const source of row.managed?.layer?.dataSources ?? []) {
       const placement = source.loadState?.transform;
-      const space = row.view ? placement?.defaultTransform?.outputSpace : placement?.value?.outputSpace;
+      const space = placement?.value?.outputSpace;
       const z = space?.names.findIndex(name => name === "z" || name === "z'") ?? -1;
       if (z < 0) continue;
       for (const { box, transform } of space.boundingBoxes) {
@@ -1586,16 +1537,15 @@ function aggregateDepthIn(own, acquisition) {
         if (axes.length !== 1) continue;
         const axis = axes[0], scale = transform[axis * space.rank + z];
         const planes = box.upperBounds[axis] - box.lowerBounds[axis];
-        if (!(planes > 0) || (planes === 1 && row.view?.type !== "slice")) continue;
+        if (!(planes > 1)) continue;
         const unit = space.scales[z] * UM_PER_M;
         const shift = transform[box.lowerBounds.length * space.rank + z];
         const stepUm = Math.abs(scale) * unit;
         const lowUm = (shift + Math.min(scale * box.lowerBounds[axis], scale * box.upperBounds[axis])) * unit + stepUm / 2;
         const highUm = lowUm + (planes - 1) * stepUm;
         if (![lowUm, highUm, stepUm].every(Number.isFinite) || !(stepUm > 0)) continue;
-        const unitName = row.view?.type === "top" ? "plane" : "um";
         range = range ? { lowUm: Math.min(range.lowUm, lowUm), highUm: Math.max(range.highUm, highUm),
-          stepUm: Math.min(range.stepUm, stepUm), unit: unitName } : { lowUm, highUm, stepUm, unit: unitName };
+          stepUm: Math.min(range.stepUm, stepUm) } : { lowUm, highUm, stepUm };
       }
     }
   }
@@ -2029,7 +1979,6 @@ function writeTheView(own, asked) {
   const now = readTheView(own);
   const centre = asked.centre || now.centre;
   const zoom = asked.zoom > 0 ? asked.zoom : now.zoom;
-  if (centre.x !== now.centre.x || centre.y !== now.centre.y || zoom !== now.zoom) cancelPendingDepth(own);
   // Remembered before the patch is worked out, because the patch is worked out
   // from where the view is about to be rather than from where it was.
   own.wanted = { centre, zoom };
@@ -2322,6 +2271,7 @@ function handleFor(own) {
       if (depth < 0 || !space?.bounds) return null;
       const umPerVoxel = space.scales[depth] * UM_PER_M;
       if (own.rows.some(row => row.depth || row.view)) {
+        /* Aggregates: the stacks' own planes, and none for a projection. */
         const range = aggregateDepthIn(own, acquisition);
         return range && { ...range,
           atUm: own.viewer.navigationState.position.value[depth] * umPerVoxel };
@@ -2362,7 +2312,6 @@ function handleFor(own) {
       const moved = Float32Array.from(own.viewer.navigationState.position.value);
       moved[depth] = z / umPerVoxel;
       if (moved[depth] === own.viewer.navigationState.position.value[depth]) return;
-      holdPendingDepth(own);
       own.viewer.navigationState.position.value = moved;
     },
 

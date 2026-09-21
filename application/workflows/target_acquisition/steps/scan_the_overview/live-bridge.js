@@ -27,24 +27,39 @@ const BRIDGE = path.join(REPO, "application", "framework", "bridge.py");
 
 export const rest = (ms) => new Promise((done) => setTimeout(done, ms));
 
-/**
- * Bring the picture's display settings on screen, the way an operator does:
- * they stand in the column beside the canvas, a tab away from the step's
- * channel, and until that tab is pressed the panel's eyes and windows are
- * not there to be pressed. Waits for the tab, since the settings arrive with
- * the picture; a page that never offers one (a JPEG copy) is left alone.
- */
+/** The step's channel beside the canvas, on screen. */
 export async function showTheChannel(page) {
-  const tab = page.locator(".side-tab button.tab").first();
-  if (await tab.count() && (await tab.getAttribute("aria-selected")) !== "true") await tab.click();
   await expect(page.locator("#canvas-side")).toBeVisible();
 }
 
-export async function showDisplaySettings(page) {
-  const tab = page.locator(".side-tab button.tab", { hasText: "Display settings" });
-  await expect(tab, "the display settings are offered as a tab").toHaveCount(1, { timeout: 30_000 });
-  if ((await tab.getAttribute("aria-selected")) !== "true") await tab.click();
-  await expect(page.locator("#display-side .viewer-panel")).toBeVisible();
+/**
+ * Show or hide an acquisition the way an operator does: the list of
+ * acquisitions opens from the name in the row over the picture, and each
+ * line carries the acquisition's eye. Waits for the strip, since it arrives
+ * with the picture.
+ */
+export async function setAcquisitionShown(page, name, shown) {
+  const eye = page.locator(`#acquisition-menu button[aria-label="show or hide ${name}"]`);
+  await expect(page.locator("#acquisition-name"), "the acquisitions strip is there").toBeVisible({ timeout: 30_000 });
+  await page.locator("#acquisition-name").click();
+  await expect(page.locator("#acquisition-menu")).toBeVisible();
+  await expect(eye, `the ${name} acquisition has an eye`).toHaveCount(1);
+  if ((await eye.getAttribute("aria-pressed")) !== String(shown)) await eye.click();
+  await expect(eye).toHaveAttribute("aria-pressed", String(shown));
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#acquisition-menu")).toBeHidden();
+}
+
+/**
+ * Open a channel's box under the row over the picture, where its histogram,
+ * Auto and sliders are, the way an operator does: from the triangle beside
+ * the channel's dot.
+ */
+export async function openTheChannelBox(page, channel) {
+  const chip = page.locator(`#canvas-chips .chip[data-channel="${channel}"]`);
+  await expect(chip, `the ${channel} chip is in the row`).toHaveCount(1, { timeout: 30_000 });
+  await chip.locator(".chip-more").click();
+  await expect(page.locator("#channel-pop")).toBeVisible();
 }
 
 /**

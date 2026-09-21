@@ -17,7 +17,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "@playwright/test";
 import {
-  rest, showDisplaySettings, startTheBridge,
+  rest, setAcquisitionShown, startTheBridge,
 } from "./workflows/target_acquisition/steps/scan_the_overview/live-bridge.js";
 import { readPng } from "./workflows/target_acquisition/steps/scan_the_overview/pixels.js";
 
@@ -175,15 +175,7 @@ test("every field the scan took is drawn where the plan put it", async ({ page }
   /* Only the overview, using the same control an operator sees, and nothing
      of the plan over it. Layer order is presentation state; hiding focussing
      must not alter any source's Z anchor or the overview underneath. */
-  await showDisplaySettings(page);
-  const focussingEye = page.locator(
-    '.viewer-panel button[data-acquisition="focussing"]',
-  );
-  await expect(focussingEye).toHaveAttribute("data-on", "1");
-  await focussingEye.click();
-  await expect(focussingEye).toHaveAttribute("data-on", "0");
-  await expect(page.locator('.viewer-panel button[data-acquisition="overview"]'))
-    .toHaveAttribute("data-on", "1");
+  await setAcquisitionShown(page, "focussing", false);
   await expect.poll(() => page.evaluate(() => {
     const rows = window.__thePicture.layersForMeasurement();
     return rows.filter(({ name }) => name.startsWith("focussing"))

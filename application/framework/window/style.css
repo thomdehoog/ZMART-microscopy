@@ -307,7 +307,7 @@ button.run {
 }
 button.run:hover:enabled { border-color: var(--accent); color: var(--accent); }
 #view-modes {
-  width: auto; min-width: 78px; height: var(--control); padding: 0 8px;
+  width: auto; min-width: 112px; height: var(--control); padding: 0 8px;
   font: inherit; font-size: 13px; color: var(--accent-deep); background: var(--screen);
   border: 1px solid var(--line-strong); border-radius: 7px;
 }
@@ -1929,10 +1929,10 @@ canvas.livecv[hidden] { display: none; }
    it rather than taking a strip of its own, which read as a white margin
    above the picture. */
 .plot-column { position: relative; display: grid; grid-template-rows: minmax(0, 1fr) auto; min-height: 0; min-width: 0; }
-/* The sliders under the picture: Z above T, each across the whole width. */
+/* The slider under the picture: T, across the whole width. */
 .canvas-axes { display: grid; gap: 6px; padding: 8px 14px 10px; border-top: 1px solid var(--line); background: var(--screen); }
 .canvas-axes[hidden] { display: none; }
-.canvas-axis { display: grid; grid-template-columns: minmax(36px, max-content) 24px minmax(0, 1fr) auto; align-items: center; gap: 10px; font-size: 11px; color: var(--ink-3); }
+.canvas-axis { display: grid; grid-template-columns: 18px 24px minmax(0, 1fr) auto; align-items: center; gap: 10px; font-size: 11px; color: var(--ink-3); }
 /* Play: a small triangle that becomes two bars while it runs. */
 .canvas-axis-play {
   width: 24px; height: 22px; padding: 0; border: 1px solid var(--line-strong); border-radius: 5px;
