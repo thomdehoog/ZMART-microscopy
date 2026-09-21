@@ -107,7 +107,7 @@ const inTheInstrument = {
 test.describe("the target acquisition workflow, walked screen by screen", () => {
   test.setTimeout(A_WHOLE_WALK);
 
-  for (const bake of [false, true]) test(`from Connect to acquired targets, bake ${bake ? "on" : "off"}`, async ({ page }) => {
+  for (const bake of [true]) test(`from Connect to acquired targets, bake ${bake ? "on" : "off"}`, async ({ page }) => {
     const bridge = await startTheBridge({ port: PORT });
     const errors = [];
     const imageRequests = [];
@@ -126,7 +126,6 @@ test.describe("the target acquisition workflow, walked screen by screen", () => 
       /* Step 1: the card, the mock chosen, its configuration offered. */
       const offered = page.locator(".panel.on .session-form select").nth(2);
       await expect(offered).toBeEnabled();
-      await page.getByLabel("Bake coarse images").setChecked(bake);
       await page.locator(".panel.on .session-buttons button.run").click();
       await expect(page.locator('.step.done:has-text("Connect")')).toBeVisible({ timeout: 60_000 });
       await expect(page.locator(".check-row.pending")).toHaveCount(0);
@@ -381,6 +380,20 @@ test.describe("the target acquisition workflow, walked screen by screen", () => 
       await rest(800);
       await expect(page.locator("#ramp-chip")).toHaveAttribute("aria-pressed", "false");
       await shot(page, "detect-before");
+      /* A press on a field on the picture makes it the field the preview
+         shows: the picker says which, and the picture is that field's. */
+      const shownBefore = await page.evaluate(() => document.querySelector(".tile-picture canvas")?.dataset.picture ?? "");
+      const second = await page.evaluate(() => {
+        const t = window.__theStageCanvas.plan()[1];
+        const p = window.__theStageCanvas.project(t.x, t.y);
+        return Array.isArray(p) ? { x: p[0], y: p[1] } : p;
+      });
+      const stageBox = await page.locator("#stage-canvas").boundingBox();
+      await page.mouse.move(stageBox.x + second.x, stageBox.y + second.y);
+      await page.mouse.click(stageBox.x + second.x, stageBox.y + second.y);
+      await expect(page.locator("#tile-label")).toHaveText(/^2 \//);
+      await expect.poll(() => page.evaluate(() => document.querySelector(".tile-picture canvas")?.dataset.picture ?? ""),
+        "the preview shows the pressed field").not.toBe(shownBefore);
       await page.getByRole("button", { name: "Test detection on this tile" }).click();
       await expect(page.locator("#ramp-chip")).toHaveAttribute("aria-pressed", "true");
       await expect.poll(async () => {

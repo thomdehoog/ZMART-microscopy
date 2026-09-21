@@ -44,7 +44,7 @@ import { activeRecording } from "../../../../parts/microscope/recordings.js";
 export function openTheFocusMap(ctx) {
   const {
     run, backend, stage, el, css, sizeCanvas, step,
-    focusControls, renderActionBar, renderSide,
+    focusControls, renderActionBar, renderSide, tileChosen,
   } = ctx;
 
 const carrierSpan = () => carrierWidget.extentUm(run.carrier);
@@ -723,7 +723,10 @@ function detectPressed(px, py) {
     d.tile = hit.i;
     d.tested = false;
   }
-  detectionShown?.redraw(); stage.draw(); renderActionBar();
+  /* The preview follows the chosen field through the page's own hook: this
+     module has no hand on the detection panel. Reaching for it by name
+     threw, and the press was lost with the field already changed. */
+  tileChosen?.(); stage.draw(); renderActionBar();
   return true;
 }
 

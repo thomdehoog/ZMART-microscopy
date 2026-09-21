@@ -2695,6 +2695,7 @@ let stageWatch = null;
      on the stage and is handed it. */
   const focusMap = openTheFocusMap({
     run: state,
+    tileChosen: () => detectionShown?.redraw(),
     backend: {
       measureFocus: (...a) => backend.measureFocus(...a),
       /* Where a focus stack's slice pictures are fetched from -- the same

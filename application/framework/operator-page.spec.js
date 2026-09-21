@@ -1866,3 +1866,4 @@ test("one walk of the whole run", async ({ page }) => {
   await expect(page.locator(".side-tab"),
     "inspection continues after the run finishes").toContainText("Acquire Targets");
 });
+
