@@ -63,6 +63,9 @@ async function request(route, payload) {
 
 const rest = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+/* The operator's hand on the focus map: read by the loop before each drive. */
+let focusStopAsked = false;
+
 /**
  * Ask again through a rough patch. A poll's dropped fetch is not the run
  * failing: the instrument keeps going whether or not one request lands, and
@@ -262,34 +265,64 @@ export const backend = {
   },
 
   /**
-   * Drive to each point and focus there. The bridge runs the autofocus
-   * procedure per position and reports the heights; the sweep traces the
-   * pretend backend charts are the mock's own knowledge, so live points come
-   * back without them and the chart stays empty until the driver can report
-   * real sweeps.
+   * Measure the focus map, one stack at a time, from here. Every command
+   * is a question the bridge answers before the next is asked: drive to
+   * the point, and the answer comes when the stage is there; take a stack,
+   * and the answer is the record once the instrument has taken it; score
+   * it, and the answer is the height with its curves. Between two answers
+   * the page decides, and a stop is its own decision, made before the next
+   * drive. The bridge runs nothing on its own; it keeps a ledger of the
+   * points scored, for a page that reopens.
+   *
+   * `state` is the focussing recording, applied once before the run so
+   * every stack is taken with the same job. A point whose drive or capture
+   * fails is a LOST point, reported with no height, and the map goes on.
    */
   async measureFocus(points, { metric, state = null, onPoint, onDoing } = {}) {
-    await ask("/api/focus/measure", { points, metric, state });
-    let shown = 0;
-    for (;;) {
-      const progress = await askedPatiently("/api/focus/measure");
-      /* The bridge's own sentence about the phase under way, gone when it is. */
-      onDoing?.(progress.running ? progress.doing : null);
-      for (; shown < progress.points.length; shown++) onPoint?.(progress.points[shown], shown);
-      if (progress.error) throw new Error(progress.error);
-      if (!progress.running) {
-        /* `stopped` is the operator's own hand, never a failure: the points
-           measured before the press stand, and the caller says so. */
-        return { points: progress.points, stopped: !!progress.stopped };
+    void metric; // which curve decides is the page's rule, applied to what comes back
+    focusStopAsked = false;
+    if (state) await ask("/api/state", state);
+    const { labels } = await ask("/api/focus/begin", { of: points.length });
+    const measured = [];
+    let stopped = false;
+    try {
+      for (const [index, point] of points.entries()) {
+        if (focusStopAsked) { stopped = true; break; }
+        const say = (phase) => onDoing?.(`${phase} point ${index + 1} of ${points.length}`);
+        /* `startZ` says where to begin this search; without one the stack
+           is taken around the height the objective stands at. */
+        const { startZ, ...asked } = point;
+        let landed;
+        try {
+          say("driving");
+          const at = await ask("/api/xyz", {
+            x: point.x, y: point.y, ...(Number.isFinite(startZ) ? { z: startZ } : {}),
+          });
+          say("capturing");
+          const record = await ask("/api/acquire", {
+            acquisition_type: "focussing", position_label: labels[index],
+          });
+          say("scoring");
+          landed = await ask("/api/focus/score", { record, centre: at.z.value, point });
+        } catch (why) {
+          console.warn(`focus point ${index + 1} is lost: ${why.message}`);
+          landed = { ...asked, z: null, zAuto: null, lost: true, traces: null, cost_s: {}, slices: [] };
+        }
+        measured.push(landed);
+        onPoint?.(landed, index);
       }
-      await rest(300);
+    } finally {
+      onDoing?.(null);
+      await ask("/api/focus/end", { stopped }).catch(() => {});
     }
+    return { points: measured, stopped };
   },
 
-  /** The operator's Interrupt for the focus run: the bridge stops between
-      two points, and the poll above ends with what was measured. */
+  /** The operator's Interrupt for the focus run: the loop above stops before
+      its next drive, and returns what was measured. */
   async stopFocusMeasure() {
-    return ask("/api/focus/measure/stop", {});
+    focusStopAsked = true;
+    return { stopped: true };
   },
 
   /**

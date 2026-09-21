@@ -44,16 +44,17 @@ The verbs, and what they are made of
 * ``POST /api/acquire`` — capture once where the stage is standing
   (``acquire``), answering with the driver's record: what it wrote, and where.
   The one place a client learns the paths of the files a run made.
-* ``POST /api/focus/measure`` — the autofocus procedure, run at each requested
-  position: drive there, focus, report the height. This is the one place a
-  preset-shaped request *does* something, which is exactly why it is its own
-  verb and not part of the readout above.
+* ``POST /api/focus/begin``, ``POST /api/focus/score`` and ``POST /api/focus/end``
+  — the focus map, driven by the page one stack at a time: begin clears the
+  focussing acquisition and names the stacks; the page drives (``/api/xyz``)
+  and captures (``/api/acquire``) each; score files the stack, scores it and
+  answers the point; end closes the map. ``GET /api/focus/measure`` is the
+  bridge's ledger of the points scored so far.
 * ``POST /api/scan`` — start the overview scan in a background thread: drive
   to each position, acquire, report progress. ``GET /api/scan`` reads the
   progress. The window's live picture watches the run's own store, so nothing
   here needs to push pixels at the browser.
-* ``POST /api/scan/stop``, ``POST /api/focus/measure/stop`` and
-  ``POST /api/targets/discover/stop`` — the
+* ``POST /api/scan/stop`` and ``POST /api/targets/discover/stop`` — the
   operator's Interrupt: ask the run to stop between two fields. What was
   captured stands; the answer is the run as it stood, ``stopped`` set once
   the worker has honoured it.
@@ -112,9 +113,8 @@ from application.parts.analysis import warm  # noqa: E402
 from application.parts.microscope import detection, focus_score  # noqa: E402
 from application.parts.microscope.focus_run import (  # noqa: E402
     FOCUSSING,
-    RunCancelled,
     as_state,
-    measure_focus,
+    measure_one_stack,
 )
 from application.parts.storage import viewer_service  # noqa: E402
 from application.parts.storage.output import (  # noqa: E402
@@ -877,130 +877,91 @@ def _score_a_stack():
     return focus_score.through(warm.the_analysis())
 
 
-def _measure_focus(asked: dict) -> dict:
-    """Drive to each point, capture a stack there, and report what was found.
+def _begin_focus(asked: dict) -> dict:
+    """The page begins a focus map: the focussing acquisition is cleared, the
+    ledger emptied, and the stacks named in order.
 
-    The loop itself is :func:`~application.parts.microscope.focus_run.measure_focus`,
-    which the workflow's step 4 runs too. This is the translation either side of
-    it and nothing more.
-
-    The page calls a point's search centre ``startZ`` — where the objective is
-    driven before the stack is taken around it — and that is the whole of what
-    Rerun and Refine differ by: run again and every stack centres on the height
-    the objective is standing at; refine and each centres on what the map
-    already predicts there. The same focussing settings decide the range and
-    the step either way.
-
-    Every point comes back with its curves as well as its height, because a
-    height alone cannot be argued with: the plot is how the routine shows its
-    work, and it is what lets an operator see that a peak was a speck of dust.
-
-    Answered point by point, each carrying what it was asked with, because the
-    page matches them up by position and draws what it gets back.
+    The page drives every point itself from here -- ``/api/xyz``, then
+    ``/api/acquire`` with the label named here, then ``/api/focus/score`` --
+    and ends the map with ``/api/focus/end``. Between two answers the page
+    decides, and a stop is its own decision; nothing runs here on its own.
+    Refused while a scan or a map has the stage.
     """
-    if _focus["running"]:
-        raise RuntimeError("a focus map is already being measured")
-    asked_points = asked.get("points", [])
-    _stop_asked["focus"] = False
+    if _a_run_has_the_stage():
+        raise RuntimeError("the instrument is driving a run; a focus map cannot begin now")
+    of = int(asked.get("of", 0))
     # Measuring the map again replaces the map: the stacks of the last run
     # would otherwise stand beside the new ones under the same heading.
     _replace_the_acquisition(FOCUSSING)
     _focus.update(
-        running=True, done=0, of=len(asked_points), error=None, stopped=False,
-        points=[], doing=None,
+        running=True, done=0, of=of, error=None, stopped=False, points=[], doing=None,
     )
-    threading.Thread(
-        target=_focus_worker, args=(asked_points, asked.get("state")), daemon=True
-    ).start()
-    return dict(_focus)
+    return {**dict(_focus), "labels": [position_label(index) for index in range(of)]}
 
 
-def _stop_focus() -> dict:
-    """The operator's Interrupt: ask the focus run to stop between two points.
+def _score_focus(asked: dict) -> dict:
+    """One stack the page just captured: file it, score it, answer the point.
 
-    The flag is all this does; the loop reads it before each drive, so the
-    point being measured completes and is kept. Idempotent, and harmless
-    when nothing runs.
+    ``record`` is the driver's own answer to the capture, ``centre`` the
+    height the stack was taken around (the drive's answer), ``point`` what
+    the page asked with. The point comes back as the map reports it -- the
+    height, the curves, the slice copies -- and is kept in the ledger.
+    ``startZ`` said where to begin this search; echoing it back would have
+    the next run silently begin where this one did.
     """
-    _stop_asked["focus"] = True
+    if not _focus["running"]:
+        raise RuntimeError("no focus map has begun")
+    record = asked["record"]
+    point = dict(asked.get("point") or {})
+    index = len(_focus["points"])
+    measurement = measure_one_stack(
+        record, x=float(point["x"]), y=float(point["y"]), centre=float(asked["centre"]),
+        score=_score_a_stack(), index=index,
+        output=prepare_acquisition(_the_run(), FOCUSSING),
+        # Every focus stack also stands as an OME-Zarr position, so the
+        # focussing is a source of its own in the viewer.
+        keep=lambda landed: _keep_position_as_zarr(landed, FOCUSSING),
+        cost=asked.get("cost_s"),
+    )
+    _the_stage_was_sent_to(
+        measurement["x_um"], measurement["y_um"],
+        measurement["z_um"] if measurement.get("z_um") is not None else 0.0,
+    )
+    landed = {
+        **{key: value for key, value in point.items() if key != "startZ"},
+        "zAuto": measurement["z_um"], "z": measurement["z_um"],
+        "lost": measurement["z_um"] is None, "traces": measurement["traces"],
+        "cost_s": measurement.get("cost_s"),
+        "slices": _the_slice_copies_of(measurement.get("planes") or [],
+                                      store=measurement.get("zarr"),
+                                      z_shift_um=measurement.get("z_shift_um", 0.0)),
+    }
+    _focus["points"].append(landed)
+    _focus["done"] = len(_focus["points"])
+    return landed
+
+
+def _end_focus(asked: dict) -> dict:
+    """The page ends the map, stopped by its hand or complete."""
+    _focus.update(running=False, doing=None, stopped=bool(asked.get("stopped")))
     return dict(_focus)
 
 
-#: The focus map under way, polled by the page the way the scan is. Each
-#: point is added the moment it is measured, so the window can show a height
-#: while the stage is still working through the rest.
+#: The focus map under way, the bridge's ledger of what the page has had
+#: scored so far, in the order the page asked. Polled by a page that reopens,
+#: and read by the tests that watch a map fill in.
 _focus = {
     "running": False, "done": 0, "of": 0, "error": None, "stopped": False,
     "points": [],
 }
 
-#: The operator's hand on the brake, one per procedure. Set by the stop
-#: routes, read by the workers between two fields — never mid-capture: the
-#: capture in flight completes and is kept, because a field interrupted
-#: halfway is a file nobody can account for.
-_stop_asked = {"scan": False, "focus": False, "targets": False}
+#: The operator's hand on the brake, one per procedure the bridge runs on
+#: its own. Set by the stop routes, read by the workers between two fields
+#: -- never mid-capture: the capture in flight completes and is kept,
+#: because a field interrupted halfway is a file nobody can account for.
+#: The focus map has no brake here: the page drives it, and stops itself.
+_stop_asked = {"scan": False, "targets": False}
 
-
-def _focus_worker(asked: list, state: dict | None = None) -> None:
-    def landed(index: int, found: dict) -> None:
-        # `startZ` said where to begin this search; echoing it back would have
-        # the next run silently begin where this one did.
-        point = {key: value for key, value in asked[index].items() if key != "startZ"}
-        _focus["points"].append({
-            **point, "zAuto": found["z_um"], "z": found["z_um"],
-            "lost": found["z_um"] is None, "traces": found["traces"],
-            "cost_s": found.get("cost_s"),
-            "slices": _the_slice_copies_of(found.get("planes") or [],
-                                          store=found.get("zarr"),
-                                          z_shift_um=found.get("z_shift_um", 0.0)),
-        })
-        _focus["done"] = index + 1
-
-    try:
-        with _the_instruments_turn:
-            measure_focus(
-                _require_session(),
-                [
-                    {"x": float(point["x"]), "y": float(point["y"]),
-                     **({"z": float(point["startZ"])}
-                        if isinstance(point.get("startZ"), (int, float)) else {})}
-                    for point in asked
-                ],
-                score=_score_a_stack(),
-                state=state,
-                # The status bar's food: one sentence about the phase under way.
-                on_doing=lambda index, phase: _focus.__setitem__(
-                    "doing", f"{phase} point {index + 1} of {len(asked)}"
-                ),
-                output_root=_the_run(),
-                on_point=lambda m, _n=[0]: (
-                    _the_stage_was_sent_to(
-                        m["x_um"],
-                        m["y_um"],
-                        m["z_um"] if m.get("z_um") is not None else 0.0,
-                    ),
-                    landed(_n[0], m),
-                    _n.__setitem__(0, _n[0] + 1),
-                ),
-                cancel=lambda: _stop_asked["focus"],
-                # Every focus stack also stands as an OME-Zarr position, so
-                # the focussing is a source of its own in the viewer.
-                keep=lambda record: _keep_position_as_zarr(record, FOCUSSING),
-            )
-    except RunCancelled:
-        # The operator's own hand, not a failure: the points measured so far
-        # stand, and the row of the one not taken says nothing at all.
-        _focus["stopped"] = True
-    except Exception as why:  # noqa: BLE001 — the window shows the sentence
-        _focus["error"] = str(why)
-    finally:
-        _focus["running"] = False
-        _focus["doing"] = None
-
-
-# ---------------------------------------------------------------------------
-# The scan: a background thread drives the stage; the window watches the run
-# ---------------------------------------------------------------------------
 
 _scan = {
     "running": False, "done": 0, "of": 0, "error": None, "stopped": False,
@@ -1327,6 +1288,8 @@ def _replace_the_acquisition(acquisition_type: str, keeping: set[str] = frozense
 def _start_scan(asked: dict) -> dict:
     if _scan["running"]:
         raise RuntimeError("a scan is already running")
+    if _focus["running"]:
+        raise RuntimeError("a focus map is being measured; the stage is its until it ends")
     positions = asked.get("positions", [])
     acquisition_type = str(asked.get("acquisition_type", "overview"))
     append = bool(asked.get("append"))
@@ -1818,10 +1781,12 @@ class _Bridge(BaseHTTPRequestHandler):
             elif self.path == "/api/acquire":
                 with _the_instruments_turn:
                     self._answer(_capture(asked))
-            elif self.path == "/api/focus/measure":
-                self._answer(_measure_focus(asked))
-            elif self.path == "/api/focus/measure/stop":
-                self._answer(_stop_focus())
+            elif self.path == "/api/focus/begin":
+                self._answer(_begin_focus(asked))
+            elif self.path == "/api/focus/score":
+                self._answer(_score_focus(asked))
+            elif self.path == "/api/focus/end":
+                self._answer(_end_focus(asked))
             elif self.path == "/api/targets/discover/stop":
                 self._answer(_stop_targets())
             elif self.path == "/api/scan":

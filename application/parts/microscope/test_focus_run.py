@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import pytest
+
 from application.workflows.target_acquisition.steps.focus_strategy.focus_run import measure_focus
-from application.workflows.target_acquisition.steps.focus_strategy.focus_surface import fit_focus_surface
+from application.workflows.target_acquisition.steps.focus_strategy.focus_surface import (
+    fit_focus_surface,
+)
 
 
 class _StubSession:
@@ -231,3 +234,29 @@ def test_the_run_says_what_it_is_doing_and_what_each_point_cost(tmp_path):
     cost = measured[0]["cost_s"]
     assert set(cost) == {"drive", "capture", "score"}
     assert all(value >= 0 for value in cost.values())
+
+
+def test_a_stack_in_hand_is_measured_the_same_way_whoever_drove_to_it(tmp_path):
+    """The page measures the map one stack at a time; the loop here does the
+    same per point. One function scores a stack in hand, so a point measured
+    either way is the same record."""
+    from application.parts.microscope import focus_run
+
+    session = _StubSession({(0.0, 0.0): 1.0}, current_z=0.3, staging=tmp_path)
+    stacks = []
+    real = focus_run.measure_one_stack
+
+    def spy(record, **kw):
+        stacks.append(kw["centre"])
+        return real(record, **kw)
+
+    focus_run.measure_one_stack = spy
+    try:
+        by_the_loop = measure_focus(session, [{"x": 0.0, "y": 0.0}], score=_score)
+    finally:
+        focus_run.measure_one_stack = real
+    assert stacks == [0.3]
+    record = session.acquire(acquisition_type="focussing", position_label="P")
+    by_hand = focus_run.measure_one_stack(record, x=0.0, y=0.0, centre=0.3, score=_score)
+    assert by_hand["z_um"] == by_the_loop[0]["z_um"]
+    assert by_hand["traces"] == by_the_loop[0]["traces"]

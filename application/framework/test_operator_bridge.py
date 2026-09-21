@@ -23,7 +23,9 @@ import time
 from pathlib import Path
 
 import pytest
+
 from zmart_drivers.mock import mock_setup
+
 
 def _load_bridge():
     spec = importlib.util.spec_from_file_location(
@@ -196,16 +198,42 @@ def test_a_driver_that_names_no_position_is_asked_where_it_ended_up(monkeypatch)
 
 
 def _measured(asked):
-    """Start a focus map and wait for it, handing back what the page would poll."""
-    import time
-
-    bridge._measure_focus(asked)
-    for _ in range(200):
-        if not bridge._focus["running"]:
-            break
-        time.sleep(0.01)
+    """Measure a focus map the way the page drives it: begin, then per point
+    drive, capture and score, then end. Hands back the bridge's ledger."""
+    points = asked.get("points", [])
+    # The page applies the focussing recording once, before it begins.
+    if asked.get("state"):
+        bridge._apply_state(asked["state"])
+    begun = bridge._begin_focus({"of": len(points)})
+    for index, point in enumerate(points):
+        start = point.get("startZ")
+        at = bridge._drive_to({
+            "x": point["x"], "y": point["y"],
+            **({"z": start} if isinstance(start, (int, float)) else {}),
+        })
+        record = bridge._capture({"acquisition_type": "focussing", "position_label": begun["labels"][index]})
+        bridge._score_focus({"record": record, "centre": at["z"]["value"], "point": point})
+    bridge._end_focus({})
     assert bridge._focus["error"] is None, bridge._focus["error"]
     return dict(bridge._focus)
+
+
+def test_a_scan_cannot_start_while_the_page_is_measuring_a_map(driver):
+    """The stage is the map's until the page ends it."""
+    bridge._begin_focus({"of": 1})
+    try:
+        with pytest.raises(RuntimeError, match="focus map"):
+            bridge._start_scan({"positions": [{"x": 0, "y": 0}]})
+    finally:
+        bridge._end_focus({})
+
+
+def test_the_ledger_answers_what_the_page_had_scored(driver):
+    """A page that reopens reads the map from the bridge, in the order asked."""
+    got = _measured({"points": [{"x": 1, "y": 2}, {"x": 3, "y": 4}]})
+    assert [(p["x"], p["y"]) for p in got["points"]] == [(1, 2), (3, 4)]
+    assert got["done"] == 2 and got["running"] is False
+    assert "startZ" not in got["points"][0]
 
 
 def test_a_focus_map_runs_no_vendor_procedure(driver):
@@ -1235,13 +1263,8 @@ def test_a_measured_point_names_the_slices_of_the_stack_it_kept(monkeypatch):
         handed.append(planes) or [{"z_um": 1.0, "name": "s_Z00000.jpg"}])
     monkeypatch.setitem(sys.modules, "application.parts.storage.jpeg_tiles", stub)
     monkeypatch.setattr(bridge, "_session", _Driver())
-    monkeypatch.setattr(
-        bridge, "_focus",
-        {"running": True, "done": 0, "of": 1, "error": None, "points": []})
 
-    bridge._focus_worker([{"x": 1.0, "y": 2.0}])
-
-    point = bridge._focus["points"][0]
+    point = _measured({"points": [{"x": 1.0, "y": 2.0}]})["points"][0]
     assert point["slices"] == [{"z_um": 1.0, "name": "s_Z00000.jpg"}]
     assert handed and len(handed[0]) > 0, "the record's planes reached the copier"
     assert all("path" in plane and "z_um" in plane for plane in handed[0])
@@ -1311,9 +1334,10 @@ def test_a_scan_that_only_grows_keeps_the_viewer_open(monkeypatch):
 
 @pytest.mark.parametrize("bake", [False, True])
 def test_shorter_rerun_preserves_the_live_aggregate_and_republishes_coverage(monkeypatch, bake):
-    from zmart_storage.canvas import _declare_one
-    from zmart_viewer.published import PublishedAcquisition, STORE
+    from zmart_viewer.published import STORE, PublishedAcquisition
+
     from application.parts.storage.zarr_positions import _describe_mean_pyramid
+    from zmart_storage.canvas import _declare_one
 
     positions = bridge._run / "positions" / "overview"
     names = ["overview_kept.ome.zarr", "overview_retired.ome.zarr"]
@@ -1386,8 +1410,9 @@ def test_a_copy_is_drawn_with_the_display_the_page_asks_with(monkeypatch, tmp_pa
     import io
     import urllib.parse
 
-    import zmart_controller
     from PIL import Image
+
+    import zmart_controller
     from zmart_drivers.mock import mock_driver
 
     mock_driver.register_mock()
