@@ -126,8 +126,8 @@ test("the projection is the one product drawn, for every acquisition, now and la
   mocks.opener.mockResolvedValue(async () => viewer);
   const run = watchTheRun(ctx);
   await vi.dynamicImportSettled(); await settle();
-  expect(element.viewModes("overview")).toEqual(["max"]);
-  expect(element.viewMode("overview")).toBe("max");
+  expect(element.viewModes("overview")).toEqual(["projection"]);
+  expect(element.viewMode("overview")).toBe("projection");
   expect(element.setViewMode).toBeUndefined();
   names.push("targets");
   await run.thePicture.reopenIfTheRunGrew();

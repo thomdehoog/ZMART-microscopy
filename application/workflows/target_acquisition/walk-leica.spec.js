@@ -216,7 +216,7 @@ test.describe("the target acquisition workflow, walked on the Leica driver with 
          are drawn flat, as their projections; nothing here is a timelapse,
          so T does not stand either. */
       await expect(page.locator("#canvas-axes")).toBeHidden();
-      await expect(page.locator("#view-modes")).toHaveValue("max", { timeout: 30_000 });
+      await expect(page.locator("#view-modes")).toHaveValue("projection", { timeout: 30_000 });
       expect(fractionLit(await photograph(page, "#picture-host", 1)), "the overview is lit").toBeGreaterThan(0.01);
       await expect(page.locator("#acquisition-name")).toHaveText("overview");
       await expect.poll(() => page.locator("#canvas-chips .chip").count(), { timeout: 30_000 }).toBeGreaterThan(0);

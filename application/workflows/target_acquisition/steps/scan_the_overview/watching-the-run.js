@@ -107,10 +107,12 @@ export function watchTheRun(ctx) {
     let openedNames = [];
     let inStageFrame = true;
     let panel = null;
-    /* The one product the picture draws of every acquisition: its maximum
-       projection, so a stack lies flat beside the single planes. The shared
-       viewer names it by its method. */
-    const PROJECTION = "max";
+    /* The one way the picture is drawn: every acquisition as its projection,
+       so a stack lies flat beside the single planes. */
+    const PROJECTION = "projection";
+    /* What the shared viewer calls that product: the method it computed,
+       which for the operator is always the maximum over the stack. */
+    const THE_VIEWERS_PRODUCT = "max";
     /* Whether the run has published a product for the picture to draw. */
     let hasProducts = false;
     let embedding = null;
@@ -185,8 +187,8 @@ export function watchTheRun(ctx) {
           const choice = embedding.viewChoices(layers)[0];
           /* An acquisition whose projection is not published yet has nothing
              to draw; it joins the picture when the product lands. */
-          if (!choice.keys.includes(PROJECTION)) return { ...acquisition, channels: [], url: undefined };
-          const selected = embedding.selectedViews(layers, { [choice.id]: PROJECTION });
+          if (!choice.keys.includes(THE_VIEWERS_PRODUCT)) return { ...acquisition, channels: [], url: undefined };
+          const selected = embedding.selectedViews(layers, { [choice.id]: THE_VIEWERS_PRODUCT });
           const channels = layers.filter(row => embedding.inSelectedView(row, selected));
           return { ...acquisition, channels, url: channels[0]?.sources[0] };
         });

@@ -215,10 +215,10 @@ test.describe("the target acquisition workflow, walked screen by screen", () => 
          Every acquisition, the focus stacks included, is one flat product. */
       const viewModes = page.locator("#view-modes");
       await expect.poll(() => page.evaluate(() => window.__viewerPanel?.viewModes?.("overview") ?? []),
-        { timeout: 60_000 }).toEqual(["max"]);
+        { timeout: 60_000 }).toEqual(["projection"]);
       await expect(page.locator("#acquisition-name")).toHaveText("overview");
       await expect(viewModes).toBeVisible();
-      await expect(viewModes).toHaveValue("max");
+      await expect(viewModes).toHaveValue("projection");
       await expect(viewModes.locator("option")).toHaveText(["Projection", "Z-slices (Top view)", "Z-slice (Absolute)", "3D"]);
       await expect(viewModes.locator("option:disabled")).toHaveCount(3);
       expect(await viewModes.evaluate((select) => {
