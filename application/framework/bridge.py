@@ -50,6 +50,15 @@ The verbs, and what they are made of
   and captures (``/api/acquire``) each; score files the stack, scores it and
   answers the point; end closes the map. ``GET /api/focus/measure`` is the
   bridge's ledger of the points scored so far.
+* ``POST /api/targets/acquire/begin``, ``POST /api/targets/acquire/focus``,
+  ``POST /api/targets/acquire/landed`` and ``POST /api/targets/acquire/end``
+  — the target run, driven by the page one tile at a time like the focus
+  map: begin clears the targets acquisition (unless appending) and names the
+  captures; the page drives and captures each, with a focussing stack first
+  when the operator asked for one (``focus`` scores it under its own
+  acquisition and answers the peak); landed files the target's record the
+  way the scan filed its own; end closes the run. ``GET /api/targets/acquire``
+  is the ledger, ``?since=N`` the records after the ones a page holds.
 * ``POST /api/scan`` — start the overview scan in a background thread: drive
   to each position, acquire, report progress. ``GET /api/scan`` reads the
   progress. The window's live picture watches the run's own store, so nothing
@@ -167,14 +176,15 @@ def _where_the_stage_is() -> dict:
 
 
 def _a_run_has_the_stage() -> bool:
-    """Whether a focus map, a scan or a target run is driving the stage.
+    """Whether a focus map, a scan, discovery or a target run is driving the
+    stage.
 
     For as long as one is, its own record of where it sent the stage is the
     answer, even between two sites when the instrument's turn is free: a
     position read right after a move can still report the site before, and
     the mark jumped back and forth on that stale answer.
     """
-    return any(run.get("running") for run in (_focus, _scan, _targets))
+    return any(run.get("running") for run in (_focus, _scan, _targets, _acquired))
 
 
 def _the_stage_was_sent_to(x: float, y: float, z: float) -> None:
@@ -539,6 +549,7 @@ def _connect(asked: dict) -> dict:
         acquisition_type=None, records=[], planned=[],
     )
     _focus.update(running=False, done=0, of=0, error=None, points=[])
+    _acquired.update(running=False, done=0, of=0, error=None, stopped=False, records=[])
     _targets.update(
         running=False, done=0, of=0, error=None, stopped=False, fields=[],
         failed=[], doing=None, phase=None, objects=0,
@@ -1066,6 +1077,139 @@ def _scan_worker(
         _scan["running"] = False
 
 
+# ---------------------------------------------------------------------------
+# The target run: the page drives, the bridge files and keeps the ledger
+# ---------------------------------------------------------------------------
+
+#: The stacks taken before a target when the operator asked for focussing
+#: there: an acquisition of their own, beside the targets they were taken for.
+TARGET_FOCUSSING = "target_focussing"
+
+#: The target run under way, the bridge's ledger of what the page has landed
+#: so far, in the order the page took it. Polled by a page that reopens.
+_acquired = {
+    "running": False, "done": 0, "of": 0, "error": None, "stopped": False,
+    "records": [],
+}
+
+
+def _begin_target_run(asked: dict) -> dict:
+    """The page begins the target run: the targets acquisition is cleared
+    (unless one selected target is being taken again), the ledger emptied,
+    and the captures named in order.
+
+    The page drives every tile itself from here -- ``/api/xyz``, a focussing
+    stack through ``/api/acquire`` and ``/api/targets/acquire/focus`` when the
+    operator asked for one, ``/api/acquire`` for the target, then
+    ``/api/targets/acquire/landed`` -- and ends the run with
+    ``/api/targets/acquire/end``. Between two answers the page decides, and a
+    stop is its own decision; nothing runs here on its own. Refused while a
+    scan, a map or another run has the stage.
+    """
+    if _a_run_has_the_stage():
+        raise RuntimeError("the instrument is driving a run; the targets cannot begin now")
+    positions = asked.get("positions", [])
+    if asked.get("append"):
+        _records.setdefault("targets", [])
+        # The view's ordinary JPEG copies are derived from the records. One
+        # retained label has new pixels now, so rebuild the set rather than
+        # serving the old copy under its stable name.
+        shutil.rmtree(view_of("targets"), ignore_errors=True)
+        with _view_lock:
+            _view_built.pop("targets", None)
+    else:
+        _records["targets"] = []
+        _replace_the_acquisition(
+            "targets",
+            keeping={f"targets_{_label_for(i, p)}.ome.zarr" for i, p in enumerate(positions)},
+        )
+        # The focussing stacks belong to the run they were taken for.
+        _replace_the_acquisition(TARGET_FOCUSSING)
+    for key in [key for key in _displayed_pictures if key[0] == "targets"]:
+        del _displayed_pictures[key]
+    _acquired.update(running=True, done=0, of=len(positions), error=None, stopped=False, records=[])
+    return {**dict(_acquired), "labels": [_label_for(i, p) for i, p in enumerate(positions)]}
+
+
+def _score_target_focus(asked: dict) -> dict:
+    """One focussing stack the page just captured before a target: file it
+    under the target focussing acquisition, score it, answer the height.
+
+    ``record`` is the driver's answer to the capture, ``centre`` the height
+    the stack was taken around. The peak is the page's choice, made on the
+    curves answered here with the same rule the focus map uses; ``z`` is the
+    scorer's own tallest, for a page that wants no more than that.
+    """
+    if not _acquired["running"]:
+        raise RuntimeError("no target run has begun")
+    measurement = measure_one_stack(
+        asked["record"], x=float(asked["x"]), y=float(asked["y"]), centre=float(asked["centre"]),
+        score=_score_a_stack(), index=_acquired["done"],
+        output=prepare_acquisition(_the_run(), TARGET_FOCUSSING),
+        keep=lambda landed: _keep_position_as_zarr(landed, TARGET_FOCUSSING),
+    )
+    return {
+        "z": measurement["z_um"], "lost": measurement["z_um"] is None,
+        "traces": measurement["traces"], "cost_s": measurement.get("cost_s"),
+    }
+
+
+def _target_landed(asked: dict) -> dict:
+    """One target the page just captured: kept the way the scan kept its own.
+
+    ``position`` is where the page drove for it, ``focus`` what the focussing
+    before it found (or None when none was asked): both go on the record, so
+    a later reading knows at which height the target was imaged and why.
+    """
+    if not _acquired["running"]:
+        raise RuntimeError("no target run has begun")
+    record = asked["record"]
+    position = asked.get("position") or {}
+    record["requested_position_um"] = {
+        "x": float(position.get("x", 0.0)), "y": float(position.get("y", 0.0)),
+        "z": float(position.get("z", 0.0)),
+    }
+    # When the frame was taken: a rerun rewrites the same label, and the
+    # page tells the new pixels from the old by this.
+    record["taken"] = time.time()
+    record["focus"] = asked.get("focus")
+    _the_stage_was_sent_to(
+        record["requested_position_um"]["x"], record["requested_position_um"]["y"],
+        record["requested_position_um"]["z"],
+    )
+    with _the_instruments_turn:
+        move_record_images(record, prepare_acquisition(_the_run(), "targets").data)
+    _keep_position_as_zarr(record, "targets")
+    records = _records.setdefault("targets", [])
+    replaced = next(
+        (at for at, old in enumerate(records)
+         if old.get("position_label") == record.get("position_label")),
+        None,
+    )
+    if replaced is None:
+        records.append(record)
+    else:
+        records[replaced] = record
+    _acquired["records"].append(record)
+    _acquired["done"] = len(_acquired["records"])
+    return record
+
+
+def _end_target_run(asked: dict) -> dict:
+    """The page ends the run, stopped by its hand or complete."""
+    _acquired.update(running=False, stopped=bool(asked.get("stopped")))
+    return dict(_acquired)
+
+
+def _the_target_run(since: int | None = None) -> dict:
+    """The target run under way or last finished, with the records landed so
+    far; asked ``since`` the number a page holds, only the ones after."""
+    answer = dict(_acquired)
+    if since is not None:
+        answer["records"] = answer["records"][max(0, since):]
+    return answer
+
+
 def _keep_position_as_zarr(record: dict, acquisition_type: str) -> None:
     """The capture's canonical form: one OME-Zarr 0.5 position in
     ``positions/<acquisition type>/``, converted from the vendor's own files
@@ -1290,25 +1434,15 @@ def _start_scan(asked: dict) -> dict:
         raise RuntimeError("a scan is already running")
     if _focus["running"]:
         raise RuntimeError("a focus map is being measured; the stage is its until it ends")
+    if _acquired["running"]:
+        raise RuntimeError("the targets are being taken; the stage is theirs until the run ends")
     positions = asked.get("positions", [])
     acquisition_type = str(asked.get("acquisition_type", "overview"))
-    append = bool(asked.get("append"))
-    if append and acquisition_type != "targets":
-        raise ValueError("only a selected target can be appended to an acquisition")
-    if not append:
-        _records[acquisition_type] = []
-        _replace_the_acquisition(
-            acquisition_type,
-            keeping={f"{acquisition_type}_{_label_for(i, p)}.ome.zarr" for i, p in enumerate(positions)},
-        )
-    else:
-        _records.setdefault(acquisition_type, [])
-        # The view's ordinary JPEG copies are derived from the records. One
-        # retained label has new pixels now, so rebuild the set rather than
-        # serving the old copy under its stable name.
-        shutil.rmtree(view_of(acquisition_type), ignore_errors=True)
-        with _view_lock:
-            _view_built.pop(acquisition_type, None)
+    _records[acquisition_type] = []
+    _replace_the_acquisition(
+        acquisition_type,
+        keeping={f"{acquisition_type}_{_label_for(i, p)}.ome.zarr" for i, p in enumerate(positions)},
+    )
     for key in [key for key in _displayed_pictures if key[0] == acquisition_type]:
         del _displayed_pictures[key]
     _stop_asked["scan"] = False
@@ -1758,6 +1892,9 @@ class _Bridge(BaseHTTPRequestHandler):
             elif path == "/api/targets/discover":
                 since = urllib.parse.parse_qs(query or "").get("since", [None])[0]
                 self._answer(_the_targets(int(since) if since is not None else None))
+            elif path == "/api/targets/acquire":
+                since = urllib.parse.parse_qs(query or "").get("since", [None])[0]
+                self._answer(_the_target_run(int(since) if since is not None else None))
             elif path == "/api/viewer":
                 status = viewer_service.status()
                 self._answer(status)
@@ -1794,6 +1931,14 @@ class _Bridge(BaseHTTPRequestHandler):
                 self._answer(_score_focus(asked))
             elif self.path == "/api/focus/end":
                 self._answer(_end_focus(asked))
+            elif self.path == "/api/targets/acquire/begin":
+                self._answer(_begin_target_run(asked))
+            elif self.path == "/api/targets/acquire/focus":
+                self._answer(_score_target_focus(asked))
+            elif self.path == "/api/targets/acquire/landed":
+                self._answer(_target_landed(asked))
+            elif self.path == "/api/targets/acquire/end":
+                self._answer(_end_target_run(asked))
             elif self.path == "/api/targets/discover/stop":
                 self._answer(_stop_targets())
             elif self.path == "/api/scan":

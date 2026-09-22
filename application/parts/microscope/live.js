@@ -35,6 +35,7 @@ const WHERE =
     otherwise, and the dev server answers with the page. */
 export const atBridge = (route) => `${WHERE}${route}`;
 
+import { findCandidates, pickPeak } from "./focus-peaks.js";
 import { PENDING, isFailed } from "./connection-status.js";
 
 /** One call to the bridge: JSON in, JSON out, failure as a plain sentence.
@@ -64,6 +65,7 @@ async function request(route, payload) {
 const rest = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /* The operator's hand on the focus map: read by the loop before each drive. */
+let targetsStopAsked = false;
 let focusStopAsked = false;
 
 /**
@@ -413,5 +415,81 @@ export const backend = {
       fields, and the poll above ends with what was captured. */
   async stopScan() {
     return ask("/api/scan/stop", {});
+  },
+
+  /**
+   * Take the targets, one tile at a time, from here -- the focus map's
+   * shape: every command is a question the bridge answers before the next
+   * is asked, the page decides between two answers, and a stop is its own
+   * decision, made before the next drive. The bridge runs nothing on its
+   * own; it files each landed target and keeps a ledger for a page that
+   * reopens.
+   *
+   * `state` is the target acquisition recording, `focus` the focussing the
+   * operator asked for before each target -- `{state, metric}`, its own
+   * recording and the sharpness score that decides -- or null. With it, a
+   * tile is driven to at the map's height, a stack taken under the
+   * focussing job, the peak chosen here by the map's own rule, and the
+   * target taken at that height under the target job. A stack with no peak
+   * leaves the target at the map's height, and the record says so.
+   */
+  async acquireTargets({
+    positions, state = null, append = false, focus = null, onProgress, onDoing,
+  } = {}) {
+    targetsStopAsked = false;
+    const { labels } = await ask("/api/targets/acquire/begin", { positions, append });
+    if (!focus && state) await ask("/api/state", state);
+    const records = [];
+    let stopped = false;
+    try {
+      for (const [index, position] of positions.entries()) {
+        if (targetsStopAsked) { stopped = true; break; }
+        const say = (phase) => onDoing?.(`${phase} target ${index + 1} of ${positions.length}`);
+        const { x, y, z: zMap = null } = position;
+        let at = { x, y, ...(Number.isFinite(zMap) ? { z: zMap } : {}) };
+        let found = null;
+        if (focus) {
+          say("focussing on");
+          if (focus.state) await ask("/api/state", focus.state);
+          const stood = await ask("/api/xyz", at);
+          const stack = await ask("/api/acquire", {
+            acquisition_type: "target_focussing", position_label: labels[index], options: null,
+          });
+          const scored = await ask("/api/targets/acquire/focus", {
+            record: stack, centre: stood.z.value, x, y,
+          });
+          const curve = scored.traces?.[focus.metric];
+          const peak = curve?.samples?.length ? pickPeak(findCandidates(curve.samples)) : null;
+          found = {
+            job: focus.state?.job ?? null, z_map_um: Number.isFinite(zMap) ? zMap : null,
+            z_peak_um: peak ? peak.z : null, found: peak !== null,
+          };
+          if (peak) at = { x, y, z: peak.z };
+          if (state) await ask("/api/state", state);
+        }
+        say("imaging");
+        /* Already standing there after a stack with no peak: no second drive. */
+        const stood = focus && !found.found ? { z: { value: at.z ?? null } } : await ask("/api/xyz", at);
+        const record = await ask("/api/acquire", {
+          acquisition_type: "targets", position_label: labels[index], options: null,
+        });
+        const landed = await ask("/api/targets/acquire/landed", {
+          record, position: { x, y, z: stood.z.value }, focus: found,
+        });
+        records.push(landed);
+        onProgress?.(records.length, positions.length, { x, y, z: stood.z.value }, records);
+      }
+    } finally {
+      onDoing?.(null);
+      await ask("/api/targets/acquire/end", { stopped }).catch(() => {});
+    }
+    return { done: records.length, of: positions.length, records, stopped };
+  },
+
+  /** The operator's Interrupt for the target run: the loop above stops
+      before its next drive, and returns what was taken. */
+  async stopAcquireTargets() {
+    targetsStopAsked = true;
+    return { stopped: true };
   },
 };

@@ -586,6 +586,18 @@ test.describe("the target acquisition workflow, walked screen by screen", () => 
         expect(await overviewInGrey()).toBe(true);
         await walkTo(page, "Acquire Targets");
         await shot(page, "acquire-before");
+        /* Focussing before each target: its own job, imported under the
+           switch, at the targets' magnification. The mock's focussing job
+           is the map's, and the line says so. */
+        await expect(page.locator("#target-type-acquire .side-group-title")).toHaveText("Target acquisition settings");
+        await expect(page.locator("#target-focus-recording")).toBeHidden();
+        await page.locator("#target-focus-on").check();
+        await expect(page.locator("#target-focus-recording")).toBeVisible();
+        inTheInstrument.choose("Focussing");
+        await record(page, "target-focus-recording", "target af");
+        await expect(page.locator("#target-focus-recording .rec-warn").first())
+          .toContainText("Same job as the focus map's");
+        await shot(page, "acquire-focus-on");
         /* The overview went grey for the masks; arriving here the operator
            wants to see the sample again, so it is back in colour. */
         expect(await overviewInGrey()).toBe(false);
@@ -601,11 +613,23 @@ test.describe("the target acquisition workflow, walked screen by screen", () => 
         await expect(tilesCell).toBeVisible();
         await expect(tilesCell.locator(".mask-dot")).toHaveAttribute("aria-pressed", "false");
         await page.locator(".panel.on button.step-run").click();
-        await expect(page.locator(".panel.on button.step-run")).toHaveText("Rerun all", { timeout: 300_000 });
+        try {
+          await expect(page.locator(".panel.on button.step-run")).toHaveText("Rerun all", { timeout: 300_000 });
+        } catch (why) {
+          /* The box's own account of a run that failed, beside the assertion. */
+          console.log(`the acquisition box says: ${await page.locator("#acquire-doing").textContent()}`);
+          throw why;
+        }
         await rest(2000);
         const run = await page.evaluate(() => window.__theRunState());
         expect(run.acquiredTileKeys.length, "one capture per target tile").toBe(run.targetTiles);
         expect(run.targetTiles).toBeGreaterThan(0);
+        /* Every target was focussed first, and its record says at what height. */
+        expect(run.targetFocusOn).toBe(true);
+        const focussed = Object.values(run.acquiredFocus);
+        expect(focussed.length).toBe(run.targetTiles);
+        expect(focussed.every((one) => one && one.found === true && Number.isFinite(one.z_peak_um)),
+          "each target imaged at a peak of its own stack").toBe(true);
         await page.waitForFunction(() => window.__thePicture.layersForMeasurement().some(
           row => row.name.startsWith("targets/") && row.dims?.length,
         ));
@@ -613,9 +637,10 @@ test.describe("the target acquisition workflow, walked screen by screen", () => 
           "target rows keep the same viewer and its existing images").toBe(true);
         await expect(page.locator(".layer-fade input")).toHaveValue("100");
         expect(await page.evaluate(() => window.__theStageCanvas.layerShown("ground"))).toBe(true);
-        const acquired = await ask(page, PORT, "/api/scan");
+        const acquired = await ask(page, PORT, "/api/targets/acquire");
         expect(acquired.error).toBeNull();
         expect(acquired.records.filter(record => record.zarr_error)).toEqual([]);
+        expect(acquired.records.length, "the ledger holds a record a tile").toBe(run.targetTiles);
         /* A tile chosen in the list is where the operator is looking: the
            picture centres on it at the zoom in hand and Tile frames it; Tile
            set frames the tileset it lies in. Carrier is untouched by any of it. */

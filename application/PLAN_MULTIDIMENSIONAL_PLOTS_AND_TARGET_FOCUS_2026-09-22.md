@@ -76,7 +76,11 @@ the bridge, not an analysis worker). PCA needs only scikit-learn, already presen
 
 Any plot other than a 2-D scatter; t-SNE; computing on the analysis workers; a third population choice.
 
-## B. "Target focussing settings" under Target acquisition settings (Step 9)
+## B. "Target focussing settings" under Target acquisition settings (Step 9) — BUILT 2026-09-22
+
+*Built as recommended (the page-driven loop, one path). Routes: `/api/targets/acquire/begin|focus|landed|end`,
+`GET /api/targets/acquire?since=`. The mock's Focussing job now owns its stack whatever the capture is called.
+The walk runs Step 9 with focussing on.*
 
 ### What the operator sees
 

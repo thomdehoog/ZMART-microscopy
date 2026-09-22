@@ -68,10 +68,12 @@ _JOBS: tuple[str, ...] = ("Overview", "Overview stack", "Focussing", "Target", "
 #: It takes one channel, as a focus job does. Everything else is the single
 #: plane an imaging scan takes, in every channel the sample has.
 _ONE_PLANE = {"z_planes": 1, "z_step_um": 0.0, "channels": 3}
-_STACKS: dict[str, dict] = {
-    "focussing": {"z_planes": 61, "z_step_um": 68.0 / 60.0, "channels": 1}
-}
+#: The stack the Focussing job takes, whatever the capture is called: the
+#: focus map's stacks and the stacks taken before a target are both its.
+_FOCUS_STACK = {"z_planes": 61, "z_step_um": 68.0 / 60.0, "channels": 1}
+_STACKS: dict[str, dict] = {"focussing": _FOCUS_STACK}
 _JOB_STACKS = {
+    "Focussing": _FOCUS_STACK,
     "Overview stack": {"z_planes": 7, "z_step_um": 2.0, "channels": 3},
     "Target stack": {"z_planes": 11, "z_step_um": 1.0, "channels": 3},
 }
@@ -501,7 +503,7 @@ def acquire(
     taken = [
         (channel, z_index, height)
         for z_index, height in enumerate(heights)
-        for channel in range(channels_of(acquisition_type))
+        for channel in range(channels_of(handle, acquisition_type))
     ]
     paths = [
         _write_a_frame(
@@ -564,9 +566,10 @@ def stack_heights(handle: MockHandle, acquisition_type: str) -> list[float]:
     return [centre + (index - middle) * stack["z_step_um"] for index in range(stack["z_planes"])]
 
 
-def channels_of(acquisition_type: str) -> int:
-    """How many channels this kind of capture takes, one file per channel."""
-    return _STACKS.get(acquisition_type, _ONE_PLANE)["channels"]
+def channels_of(handle: MockHandle, acquisition_type: str) -> int:
+    """How many channels this capture takes, one file per channel: the job's
+    say first, as on a real instrument, then the kind of capture's."""
+    return _JOB_STACKS.get(handle.job, _STACKS.get(acquisition_type, _ONE_PLANE))["channels"]
 
 
 def _write_a_frame(

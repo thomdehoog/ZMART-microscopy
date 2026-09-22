@@ -236,6 +236,10 @@ let stageWatch = null;
        and a mock that answered with the same one twice would let a plan that
        never switched objectives look right. */
     targetType: emptySlot("acquisition", 1),
+    /* Focussing before each target: off unless the operator asks, and then
+       a focussing job of its own, read at the targets' magnification. */
+    targetFocusOn: false,
+    targetFocus: emptySlot("autofocus", 1),
     carrier: { ...DEFAULT_CARRIER },
     /* Points put on the carrier drawing, in the carrier's own coordinates, to
        be driven to on the microscope. Placed the way focus points are: the
@@ -483,6 +487,7 @@ let stageWatch = null;
       overviewPreset: emptySlot("acquisition"),
       focusPreset: emptySlot("autofocus"),
       targetType: emptySlot("acquisition", 1),
+      targetFocusOn: false, targetFocus: emptySlot("autofocus", 1),
       carrier: { ...DEFAULT_CARRIER }, anchors: [], anchoring: false,
       fields: [], plan: [], checks: [],
       tabs: [], tab: null, tilesShown: 0,
@@ -599,7 +604,7 @@ let stageWatch = null;
     const brake = {
       scan: () => backend.stopScan?.(),
       detect: () => backend.stopTargets?.(),
-      targets: () => backend.stopScan?.(),
+      targets: () => backend.stopAcquireTargets?.(),
       focus: () => backend.stopFocusMeasure?.(),
     }[s.mode];
     const currentFrame = s.mode === "targets"
@@ -955,6 +960,7 @@ let stageWatch = null;
             frameUm: records[i]?.frame_um ?? tile.frameUm ?? state.targetFrameUm,
             label: records[i]?.position_label,
             taken: records[i]?.taken ?? null,
+            focus: records[i]?.focus ?? null,
             positionIndex,
             tile: { ...tile, positionIndex },
           };
@@ -971,18 +977,27 @@ let stageWatch = null;
         galleryPanel?.rebuild();
       }
       galleryPanel?.progress?.({ start: true, of: picked.length, doing: "starting the acquisition…" });
-      backend.scanOverview({
+      /* The page's own loop, tile by tile, with a focussing stack first
+         when the operator asked for one under the target settings. */
+      backend.acquireTargets({
         positions: picked.map(positionFor),
-        planned: state.targetTiles.map(positionFor),
         append,
-        acquisition_type: "targets",
         state: activeRecording(state.targetType)?.changeable ?? null,
+        focus: state.targetFocusOn ? {
+          state: activeRecording(state.targetFocus)?.changeable ?? null,
+          metric: state.focus.metric,
+          extent: carrierWidget.extentUm(state.carrier),
+        } : null,
+        /* Which half of a tile the run is in, in the box and the status bar. */
+        onDoing: (sentence) => {
+          if (state.running !== s.id) return;
+          if (sentence) { status.say(sentence); galleryPanel?.progress?.({ doing: sentence }); }
+        },
         /* Each capture prints itself onto the canvas as it lands, the way the
            overview's tiles do: the records so far name the pictures, and only
            the cells with a record are drawn as acquired. */
         onProgress: (done, of, at, records = []) => {
           if (state.running !== s.id) return;
-          status.say(`acquiring pair ${done} of ${picked.length}`);
           /* The mark keeps up with the stage tile by tile, as it does
              through the overview scan: the watch is asked now rather than
              at its own next poll. The finished record's position is not
@@ -1004,10 +1019,7 @@ let stageWatch = null;
               if (followTheRun.on && state.running === s.id) stage.standOn(next);
             }, FOLLOW_THE_RUN_AFTER_MS);
           }
-          galleryPanel?.progress?.({
-            done, of: picked.length,
-            doing: done < picked.length ? `tile ${done + 1} · ${next.targetId ?? next.id}` : "",
-          });
+          galleryPanel?.progress?.({ done, of: picked.length });
           /* The list beside the canvas grows with the rings on it. */
           galleryPanel?.rebuild();
           redrawSoon(); renderAll();
@@ -1585,6 +1597,24 @@ let stageWatch = null;
       select: (id, opts) => selectTarget(id, opts),
       recordingSlot: (into, opts) => renderRecordingSlot(into, recordingOptions(opts)),
       changed: () => renderActionBar(),
+      /* Focussing before each target: the switch, and the sentence under
+         its own recording when the job read is one another step uses --
+         a job left selected in LAS X from the step before is the usual
+         cause, and it should be seen. A sentence, never a refusal. */
+      focusOf: (key) => state.acquiredTiles[key]?.focus ?? null,
+      focusOn: () => state.targetFocusOn,
+      setFocusOn: (on) => { state.targetFocusOn = !!on; renderActionBar(); },
+      sameJobElsewhere: (record) => {
+        const job = record.changeable?.job;
+        if (!job) return null;
+        const elsewhere = [
+          [state.focusPreset, "Same job as the focus map's"],
+          [state.overviewPreset, "Same job as the overview scan's"],
+          [state.targetType, "Same job as the target acquisition's"],
+        ];
+        const hit = elsewhere.find(([slot]) => activeRecording(slot)?.changeable?.job === job);
+        return hit ? hit[1] : null;
+      },
     });
   };
 
@@ -2669,6 +2699,11 @@ let stageWatch = null;
     /* How wide each acquired frame is, so a test can check the ground is
        opened over exactly the frame the recording describes. */
     targetFrameUm: state.targetFrameUm ?? null,
+    targetFocusOn: state.targetFocusOn,
+    /* What each acquired tile's record said about its focussing, keyed by
+       tile, so a test can read which height a target was imaged at and why. */
+    acquiredFocus: Object.fromEntries(Object.entries(state.acquiredTiles).map(
+      ([key, one]) => [key, one.focus ?? null])),
     /* The chosen acquired tile key, so a test can press on the picture and
        see the choice land. */
     selectedTarget: state.selectedTarget ?? null,
