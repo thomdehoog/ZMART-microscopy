@@ -3,7 +3,12 @@
 Two additions to the operator page, asked for on 2026-09-22 after the 864-field run. Neither is built.
 Both follow the page's rule: the page composes and orchestrates, the bridge executes and answers.
 
-## A. "Multidimensional plots" under Feature gating (Step 7)
+## A. "Multidimensional plots" under Feature gating (Step 7) — BUILT 2026-09-22
+
+*Built through ZMART_analysis, not a child process of the bridge: workflow `population`, pipeline
+`population_plots`, step `plot_population`, environment `ZMART--population--main` (conda-forge). Routes as
+below plus `GET /api/plots/columns?kind=`. Objects a plot was not computed over are left off its pair
+and out of any gate on it. UMAP over the whole 600k population is still unmeasured.*
 
 ### What the operator sees
 
