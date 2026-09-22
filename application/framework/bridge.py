@@ -541,7 +541,7 @@ def _connect(asked: dict) -> dict:
     _focus.update(running=False, done=0, of=0, error=None, points=[])
     _targets.update(
         running=False, done=0, of=0, error=None, stopped=False, fields=[],
-        failed=[], doing=None, phase=None, objects=0, embedding_error=None,
+        failed=[], doing=None, phase=None, objects=0,
     )
     # The picture server, beside the run: the viewer links each acquisition's
     # positions into one live picture and serves it to the page's own engine.
@@ -1359,7 +1359,6 @@ def _the_scan(since: int | None = None) -> dict:
 _targets = {
     "running": False, "done": 0, "of": 0, "error": None, "stopped": False,
     "fields": [], "failed": [], "phase": None, "objects": 0,
-    "embedding_error": None,
 }
 
 
@@ -1390,17 +1389,21 @@ def _discover_targets(asked: dict) -> dict:
     _targets.update(
         running=True, done=0, of=len(fields), error=None, stopped=False,
         fields=[], failed=[], doing=None, phase="objects", objects=0,
-        embedding_error=None,
     )
     threading.Thread(
         target=_targets_worker,
-        args=(fields, dict(asked.get("settings") or {}), chosen is None),
+        args=(fields, dict(asked.get("settings") or {})),
         daemon=True,
     ).start()
     return dict(_targets)
 
 
-def _targets_worker(fields: list, settings: dict, map_population: bool) -> None:
+def _targets_worker(fields: list, settings: dict) -> None:
+    """Every feature is measured inside a field's own pipeline, so discovery
+    is complete when its last field lands: nothing runs over the whole
+    population after them. A map of every cell's features (UMAP) once did,
+    and went -- it grew with the population and gave automation nothing
+    a threshold on a measured column does not."""
     try:
         find = _find_targets()
         records = {field: _records["overview"][field] for field in fields}
@@ -1449,46 +1452,6 @@ def _targets_worker(fields: list, settings: dict, map_population: bool) -> None:
             _targets["stopped"] = True
         # Landed in the engine's order; kept in the sample's.
         _targets["fields"].sort(key=lambda one: one["field"])
-
-        # Finalizing the features is one statement about the whole
-        # population: the map (UMAP) is one of them. Classical features are
-        # already measured inside each field's object_analysis pipeline; only
-        # after every field has supplied those rows can this last phase of
-        # the same object-detection operation be calculated. A one-field
-        # settings test deliberately stops at the field result: an embedding
-        # of it would not be the population's coordinate space.
-        if map_population and not _targets["stopped"]:
-            cells = [cell for result in _targets["fields"] for cell in result["cells"]]
-            if cells:
-                _targets["phase"] = "finalizing"
-                _targets["doing"] = f"finalizing feature extraction: {len(cells)} objects"
-                try:
-                    from application.parts.analysis import embedding
-
-                    if len(cells) < embedding.ENOUGH_CELLS:
-                        raise RuntimeError(
-                            f"only {len(cells)} cells were discovered; a map needs at least "
-                            f"{embedding.ENOUGH_CELLS} to say anything about the population"
-                        )
-                    points = embedding.in_another_process(cells)
-                    for cell in cells:
-                        at = points.get(str(cell["id"]))
-                        if not isinstance(at, (list, tuple)) or len(at) < 2:
-                            continue
-                        cell["features"] = {
-                            **(cell.get("features") or {}),
-                            "umap_1": float(at[0]), "umap_2": float(at[1]),
-                        }
-                    _keep_embedding(points)
-                    # The field files are the durable object tables. Rewrite
-                    # them with the population coordinates so reopening a run
-                    # does not turn UMAP back into browser-only state.
-                    for result in _targets["fields"]:
-                        _keep_targets(
-                            result["cells"], _records["overview"][result["field"]]
-                        )
-                except Exception as why:  # noqa: BLE001 -- targets remain useful
-                    _targets["embedding_error"] = str(why)
     except Exception as why:  # noqa: BLE001 -- the window shows the sentence
         if _stop_asked["targets"]:
             # The hand that stopped the run also put its worker down, and a
@@ -1515,15 +1478,6 @@ def _stop_targets() -> dict:
     if _targets["running"]:
         warm.close()
     return dict(_targets)
-
-
-def _keep_embedding(points: dict) -> None:
-    """Write the map beside the discovery's own outputs, for the same reason
-    the targets are written: without this the only copy is on the operator's
-    screen, and it goes when the window does."""
-    where = _the_run() / "overview" / "analysis"
-    where.mkdir(parents=True, exist_ok=True)
-    (where / "umap.json").write_text(json.dumps(points, indent=2), encoding="utf-8")
 
 
 def _the_mask_view_for(kind: str, label: str):

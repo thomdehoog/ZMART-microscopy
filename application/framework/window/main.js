@@ -887,21 +887,18 @@ let stageWatch = null;
           redrawSoon();
         },
       }).then((out) => {
-        /* Fields first arrive when their per-position analysis completes.
-           They arrive once more here with the population-wide UMAP axes;
-           replacing by id makes Step 7 complete on its first paint. */
+        /* Every field once more, by id: a poll can miss the last one to
+           land, and the answer is the whole list. */
         for (const field of out?.fields ?? []) fieldFound(field);
         const failed = out?.failed ?? [];
         detectionShown?.progress?.({
           ended: true,
-          failed: failed.length > 0 || Boolean(out?.embeddingError),
+          failed: failed.length > 0,
           note: out?.stopped
             ? "stopped by hand"
             : failed.length
               ? `finished — ${failed.length} field(s) failed; the first said: ${failed[0].why}`
-              : out?.embeddingError
-                ? `object detection finished; UMAP unavailable: ${out.embeddingError}`
-                : "object detection finished",
+              : "object detection finished",
         });
         return out?.stopped
           ? stoppedShort(`stopped by hand — ${state.cells.size} targets found`)
