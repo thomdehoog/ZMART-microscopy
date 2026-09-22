@@ -589,7 +589,9 @@ test.describe("the target acquisition workflow, walked screen by screen", () => 
         /* Focussing before each target: its own job, imported under the
            switch, at the targets' magnification. The mock's focussing job
            is the map's, and the line says so. */
-        await expect(page.locator("#target-type-acquire .side-group-title")).toHaveText("Target acquisition settings");
+        /* The target acquisition settings are Step 8's; Step 9 does not
+           show them again. */
+        await expect(page.locator(".panel.on .side-group-title", { hasText: "Target acquisition settings" })).toHaveCount(0);
         await expect(page.locator("#target-focus-recording")).toBeHidden();
         await page.locator("#target-focus-on").check();
         await expect(page.locator("#target-focus-recording")).toBeVisible();
