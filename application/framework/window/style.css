@@ -1483,6 +1483,7 @@ canvas.livecv[hidden] { display: none; }
 /* The focussing job is one line under the switch, in the same box: the
    recording slot's own box and heading are flattened away here. */
 #target-focus-recording { margin-top: 10px; }
+#target-focus-recording[hidden] { display: none; }
 #target-focus-recording .side-group { margin: 0; border: 0; padding: 0; background: none; box-shadow: none; }
 #target-focus-recording .side-group-title { display: none; }
 #target-focus-recording .side-group-body { padding: 0; }

@@ -603,6 +603,15 @@ test.describe("the target acquisition workflow, walked screen by screen", () => 
         inTheInstrument.choose("Target focussing");
         await record(page, "target-focus-recording", "target af");
         await expect(page.locator("#target-focus-recording .rec-warn")).toHaveCount(0);
+        /* Unticked, the box goes back to how it was before the first tick:
+           ticked again, there is no focussing job until one is imported. */
+        await expect(page.locator("#target-focus-recording .rec-row")).toHaveCount(1);
+        await page.locator("#target-focus-on").uncheck();
+        await expect(page.locator("#target-focus-recording")).toBeHidden();
+        await page.locator("#target-focus-on").check();
+        await expect(page.locator("#target-focus-recording .rec-row")).toHaveCount(0);
+        await record(page, "target-focus-recording", "target af");
+        await expect(page.locator("#target-focus-recording .rec-row")).toHaveCount(1);
         await shot(page, "acquire-focus-on");
         /* The overview went grey for the masks; arriving here the operator
            wants to see the sample again, so it is back in colour. */

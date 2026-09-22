@@ -1603,7 +1603,13 @@ let stageWatch = null;
          cause, and it should be seen. A sentence, never a refusal. */
       focusOf: (key) => state.acquiredTiles[key]?.focus ?? null,
       focusOn: () => state.targetFocusOn,
-      setFocusOn: (on) => { state.targetFocusOn = !!on; renderActionBar(); },
+      /* Unticked is as it was before the first tick: the job imported
+         under the switch is forgotten, not kept out of sight. */
+      setFocusOn: (on) => {
+        state.targetFocusOn = !!on;
+        if (!on) state.targetFocus = emptySlot("autofocus", 1);
+        renderActionBar();
+      },
       sameJobElsewhere: (record) => {
         const job = record.changeable?.job;
         if (!job) return null;
