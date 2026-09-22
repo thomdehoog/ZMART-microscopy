@@ -1705,10 +1705,16 @@ def test_targets_are_really_focussed_and_taken_on_the_mock(monkeypatch, tmp_path
     real_keep = bridge._keep_position_as_zarr
     monkeypatch.setattr(bridge, "_keep_position_as_zarr", lambda record, kind: (real_keep(record, kind), kept.append((kind, record))))
     try:
-        bridge._apply_state({"job": "Focussing"})
-        # No height asked: the stack is taken about where the mock's
-        # objective stands, which is where its tissue is.
-        got = _targets_taken([{"x": 0.0, "y": 0.0, "compartment": 1, "group": 1}], focus=True)
+        # The map first, as a run has it: the coarse job finds the tissue
+        # from wherever the objective stands, and the target is driven to
+        # that height before its fine stack -- a short one in fine steps,
+        # which only reaches the tissue from near it.
+        coarse = _measured({"points": [{"x": 0.0, "y": 0.0}], "state": {"job": "Focussing"}})["points"][0]
+        assert coarse["z"] is not None, "the coarse job found no tissue"
+        bridge._apply_state({"job": "Target focussing"})
+        got = _targets_taken(
+            [{"x": 0.0, "y": 0.0, "z": coarse["z"], "compartment": 1, "group": 1}], focus=True,
+        )
     finally:
         session.disconnect()
     assert got["done"] == 1

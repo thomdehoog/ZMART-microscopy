@@ -508,7 +508,7 @@ const stopAsked = { scan: false, focus: false, targets: false, acquire: false };
 /* The jobs this pretend instrument has stored, and which is chosen. The same
    three the controller's mock driver keeps, so the page meets one instrument
    whichever backend it is talking to. */
-const JOBS = ["Overview", "Focussing", "Target"];
+const JOBS = ["Overview", "Focussing", "Target", "Target focussing"];
 let chosenJob = JOBS[0];
 
 /** Where its stage is parked before anything has driven it: the corner, off
