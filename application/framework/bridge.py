@@ -1392,18 +1392,20 @@ def _discover_targets(asked: dict) -> dict:
     )
     threading.Thread(
         target=_targets_worker,
-        args=(fields, dict(asked.get("settings") or {})),
+        args=(fields, dict(asked.get("settings") or {}), chosen is None),
         daemon=True,
     ).start()
     return dict(_targets)
 
 
-def _targets_worker(fields: list, settings: dict) -> None:
+def _targets_worker(fields: list, settings: dict, whole: bool) -> None:
     """Every feature is measured inside a field's own pipeline, so discovery
-    is complete when its last field lands: nothing runs over the whole
-    population after them. A map of every cell's features (UMAP) once did,
-    and went -- it grew with the population and gave automation nothing
-    a threshold on a measured column does not."""
+    is complete when its last field lands: nothing is computed over the
+    whole population after them. A map of every cell's features (UMAP) once
+    was, and went -- it grew with the population and gave automation nothing
+    a threshold on a measured column does not. What the population does get
+    is its one table on disk, when the *whole* overview was run.
+    """
     try:
         find = _find_targets()
         records = {field: _records["overview"][field] for field in fields}
@@ -1452,6 +1454,8 @@ def _targets_worker(fields: list, settings: dict) -> None:
             _targets["stopped"] = True
         # Landed in the engine's order; kept in the sample's.
         _targets["fields"].sort(key=lambda one: one["field"])
+        if whole and _targets["fields"]:
+            _keep_the_population(_targets["fields"])
     except Exception as why:  # noqa: BLE001 -- the window shows the sentence
         if _stop_asked["targets"]:
             # The hand that stopped the run also put its worker down, and a
@@ -1478,6 +1482,40 @@ def _stop_targets() -> dict:
     if _targets["running"]:
         warm.close()
     return dict(_targets)
+
+
+def _keep_the_population(fields: list) -> None:
+    """Every object of the overview in one table, beside the per-field files.
+
+    Gating reads every object's features together, and a script gating
+    without the window needs the same: one row an object, one column a
+    feature, the union of what any field measured, blank where a field did
+    not. Written once, when the whole overview has been run; a settings
+    test on one field is not the population and leaves it alone.
+    """
+    import csv  # noqa: PLC0415 -- the only use in this module
+
+    records = _records["overview"]
+    where = _the_run() / "overview" / "analysis"
+    where.mkdir(parents=True, exist_ok=True)
+    measured = sorted({
+        name for result in fields for cell in result["cells"]
+        for name in (cell.get("features") or {})
+    })
+    columns = ["field", "position_label", "id", "x_um", "y_um", "area", "intensity", "r", *measured]
+    with (where / f"overview_{records[0]['acquisition_hash']}_objects.csv").open(
+        "w", encoding="utf-8", newline=""
+    ) as out:
+        table = csv.DictWriter(out, fieldnames=columns)
+        table.writeheader()
+        for result in fields:
+            for cell in result["cells"]:
+                table.writerow({
+                    "field": result["field"], "position_label": result["position_label"],
+                    "id": cell["id"], "x_um": cell["x"], "y_um": cell["y"],
+                    "area": cell.get("area"), "intensity": cell.get("intensity"), "r": cell.get("r"),
+                    **(cell.get("features") or {}),
+                })
 
 
 def _the_mask_view_for(kind: str, label: str):
