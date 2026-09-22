@@ -117,8 +117,11 @@ export function watchTheRun(ctx) {
     let hasProducts = false;
     let embedding = null;
     let embeddingUrl = null;
+    /* The stacks taken to focus before each target are evidence, not
+       picture: they come in hidden, and their eye shows them. */
+    const HIDDEN_AT_FIRST = ["target-focussing"];
     const requestedPanelState = {
-      acquisitions: new Map(),
+      acquisitions: new Map(HIDDEN_AT_FIRST.map((name) => [name, false])),
       channels: new Map(),
       collapsed: new Map(),
       selectedKey: null,
@@ -385,6 +388,7 @@ export function watchTheRun(ctx) {
       if (forgetVisibility) {
         hasProducts = false;
         requestedPanelState.acquisitions.clear();
+        HIDDEN_AT_FIRST.forEach((name) => requestedPanelState.acquisitions.set(name, false));
         requestedPanelState.channels.clear();
         requestedPanelState.collapsed.clear();
         requestedPanelState.selectedKey = null;

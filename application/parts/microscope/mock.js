@@ -355,7 +355,7 @@ export const backend = {
       let found = null;
       if (focus) {
         say("focussing on");
-        const { points } = await this.measureFocus([{ x: p.x, y: p.y, startZ: z ?? undefined }],
+        const { points } = await this.measureFocus([{ x: (p.focusAt ?? p).x, y: (p.focusAt ?? p).y, startZ: z ?? undefined }],
           { metric: focus.metric, extent: focus.extent ?? [1, 1] });
         const [got] = points;
         found = { job: focus.state?.job ?? null, z_map_um: z, z_peak_um: got?.zAuto ?? null, found: Number.isFinite(got?.zAuto) };
