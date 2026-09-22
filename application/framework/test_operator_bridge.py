@@ -578,7 +578,7 @@ def _targets_taken(positions, *, append=False, focus=None):
         found = None
         if focus:
             stack = bridge._capture({
-                "acquisition_type": "target_focussing", "position_label": begun["labels"][index],
+                "acquisition_type": "target-focussing", "position_label": begun["labels"][index],
             })
             found = bridge._score_target_focus({"record": stack, "centre": at["z"]["value"],
                                                 "x": position["x"], "y": position["y"]})
@@ -648,10 +648,10 @@ def test_a_target_is_focussed_first_when_the_page_asks(driver, monkeypatch):
     driver.at["z"] = 12.0
     _targets_taken([{"x": 10, "y": 20, "z": 12, "position_index": 0}], focus=True)
     assert driver.captured == [
-        ("target_focussing", "K00_M000000_G000000_P000000_V00"),
+        ("target-focussing", "K00_M000000_G000000_P000000_V00"),
         ("targets", "K00_M000000_G000000_P000000_V00"),
     ]
-    assert "target_focussing" in kept and kept[-1] == "targets"
+    assert "target-focussing" in kept and kept[-1] == "targets"
     record = bridge._records["targets"][0]
     assert record["focus"]["found"] is True
     assert record["focus"]["z_peak_um"] == record["requested_position_um"]["z"]
@@ -1720,12 +1720,12 @@ def test_targets_are_really_focussed_and_taken_on_the_mock(monkeypatch, tmp_path
         session.disconnect()
     assert got["done"] == 1
     record = bridge._records["targets"][0]
-    stack = next(one for kind, one in kept if kind == "target_focussing")
+    stack = next(one for kind, one in kept if kind == "target-focussing")
     assert stack.get("zarr_error") is None, stack["zarr_error"]
     assert len(stack["planes"]) > 1, "the Focussing job takes a stack"
     assert record["focus"]["found"] is True
-    assert (bridge._run / "target_focussing" / "data").is_dir()
-    assert list((bridge._run / "positions" / "target_focussing").glob("*.ome.zarr"))
+    assert (bridge._run / "target-focussing" / "data").is_dir()
+    assert list((bridge._run / "positions" / "target-focussing").glob("*.ome.zarr"))
     assert list((bridge._run / "positions" / "targets").glob("*.ome.zarr"))
 
 

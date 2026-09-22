@@ -1087,7 +1087,7 @@ def _scan_worker(
 
 #: The stacks taken before a target when the operator asked for focussing
 #: there: an acquisition of their own, beside the targets they were taken for.
-TARGET_FOCUSSING = "target_focussing"
+TARGET_FOCUSSING = "target-focussing"
 
 #: The target run under way, the bridge's ledger of what the page has landed
 #: so far, in the order the page took it. Polled by a page that reopens.
