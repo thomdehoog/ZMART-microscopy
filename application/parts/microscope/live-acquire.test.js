@@ -107,6 +107,28 @@ describe("the live target run", () => {
     expect(landed.focus).toEqual({ job: "Focussing", z_map_um: 5, z_peak_um: null, found: false });
   });
 
+  it("lands at the height the stage stood at when there is no map and no peak", async () => {
+    /* A tile with no height from the map is driven to at the objective's
+       standing height; a stack there with no peak leaves it there, and the
+       record carries that height, not nothing. */
+    const calls = bridgeTakingTargets({ curve: false });
+    globalThis.fetch = ((inner) => async (url, init) => {
+      if (url.endsWith("/api/xyz")) {
+        const body = JSON.parse(init.body);
+        calls.push(["/api/xyz", body]);
+        return { ok: true, json: async () => ({ x: { value: body.x }, y: { value: body.y }, z: { value: 33 } }) };
+      }
+      return inner(url, init);
+    })(globalThis.fetch);
+    await backend.acquireTargets({
+      positions: [{ x: 10, y: 20, position_index: 0 }], state: { job: "Target" },
+      focus: { state: { job: "Focussing" }, metric: "brenner" },
+    });
+    const landed = calls.find(([route]) => route === "/api/targets/acquire/landed")[1];
+    expect(landed.position.z).toBe(33);
+    expect(landed.focus).toEqual({ job: "Focussing", z_map_um: null, z_peak_um: null, found: false });
+  });
+
   it("stops after the tile in hand, and ends the run as stopped", async () => {
     const calls = bridgeTakingTargets();
     const run = backend.acquireTargets({
