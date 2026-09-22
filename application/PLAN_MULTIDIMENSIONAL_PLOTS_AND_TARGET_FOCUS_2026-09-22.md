@@ -83,9 +83,11 @@ Any plot other than a 2-D scatter; t-SNE; computing on the analysis workers; a t
 - The box now headed **Acquisition settings** is renamed **Target acquisition settings**.
 - Under it, a second white box, **Target focussing settings**, with a checkbox **Focus before each
   target**. Unchecked (the default), the step is as today: every target is imaged at the height the focus
-  map of Step 4 gives for its position. Checked, the box opens the same recording row Step 4 has:
-  choose the focussing job in LAS X, press **Import target focussing settings**, and the row shows the
-  job's optics and stack (planes, step). The Step 4 job is offered as the starting choice.
+  map of Step 4 gives for its position. Checked, one settings line appears under the checkbox, in the
+  shape of Step 9's own "Target acquisition settings" line and not Step 4's box: choose the focussing
+  job in LAS X, press **Import**, and the line reads the job's optics and stack ("20x · 0.75 NA dry ·
+  61 planes, 0.5 µm step"). It is a job of its own, recorded here; Step 4's job is not reused, since the
+  targets are imaged at another magnification and need a focussing job at that one.
 - The progress box during the run says which half it is in: "focussing on target 12 of 96" then "imaging
   target 12 of 96".
 
