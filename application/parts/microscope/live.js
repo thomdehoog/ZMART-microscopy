@@ -445,8 +445,12 @@ export const backend = {
       for (const [index, position] of positions.entries()) {
         if (targetsStopAsked) { stopped = true; break; }
         const say = (phase) => onDoing?.(`${phase} target ${index + 1} of ${positions.length}`);
-        const { x, y, z: zMap = null } = position;
+        const { x, y, z: zMap = null, focusAt = null } = position;
         let at = { x, y, ...(Number.isFinite(zMap) ? { z: zMap } : {}) };
+        /* The stack is taken on the object's centre when the page names it,
+           which need not be the middle of the tile imaged after it. */
+        const focusXY = focusAt ?? { x, y };
+        const focusMoves = focusXY.x !== x || focusXY.y !== y;
         let found = null;
         /* Where the objective stood for the stack: the height the target is
            taken at when the stack shows no peak, map or no map. */
@@ -454,13 +458,13 @@ export const backend = {
         if (focus) {
           say("focussing on");
           if (focus.state) await ask("/api/state", focus.state);
-          const stood = await ask("/api/xyz", at);
+          const stood = await ask("/api/xyz", { ...at, x: focusXY.x, y: focusXY.y });
           standing = stood.z.value;
           const stack = await ask("/api/acquire", {
-            acquisition_type: "target_focussing", position_label: labels[index], options: null,
+            acquisition_type: "target-focussing", position_label: labels[index], options: null,
           });
           const scored = await ask("/api/targets/acquire/focus", {
-            record: stack, centre: standing, x, y,
+            record: stack, centre: standing, x: focusXY.x, y: focusXY.y,
           });
           const curve = scored.traces?.[focus.metric];
           const peak = curve?.samples?.length ? pickPeak(findCandidates(curve.samples)) : null;
@@ -469,11 +473,13 @@ export const backend = {
             z_peak_um: peak ? peak.z : null, found: peak !== null,
           };
           if (peak) at = { x, y, z: peak.z };
+          else if (Number.isFinite(standing)) at = { x, y, z: standing };
           if (state) await ask("/api/state", state);
         }
         say("imaging");
         /* Already standing there after a stack with no peak: no second drive. */
-        const stood = focus && !found.found ? { z: { value: standing } } : await ask("/api/xyz", at);
+        const stood = focus && !found.found && !focusMoves
+          ? { z: { value: standing } } : await ask("/api/xyz", at);
         const record = await ask("/api/acquire", {
           acquisition_type: "targets", position_label: labels[index], options: null,
         });

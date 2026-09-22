@@ -82,7 +82,7 @@ describe("the live target run", () => {
       "/api/targets/acquire/end",
     ]);
     expect(calls[1][1]).toEqual({ job: "Focussing" });
-    expect(calls[3][1]).toEqual({ acquisition_type: "target_focussing", position_label: "L0", options: null });
+    expect(calls[3][1]).toEqual({ acquisition_type: "target-focussing", position_label: "L0", options: null });
     expect(calls[4][1]).toMatchObject({ centre: 5, x: 10, y: 20 });
     /* The target job first, then the drive to the peak the page chose from
        the curve by the map's own rule: a job switch may move the optics,
@@ -92,6 +92,28 @@ describe("the live target run", () => {
     expect(calls[8][1].position.z).toBe(12);
     expect(calls[8][1].focus).toEqual({ job: "Focussing", z_map_um: 5, z_peak_um: 12, found: true });
     expect(said).toEqual(["focussing on target 1 of 1", "imaging target 1 of 1", null]);
+  });
+
+  it("takes the stack on the object's centre, then images the tile", async () => {
+    const calls = bridgeTakingTargets({ peak: 12 });
+    await backend.acquireTargets({
+      positions: [{ ...positions[0], focusAt: { x: 14, y: 23 } }], state: { job: "Target" },
+      focus: { state: { job: "Focussing" }, metric: "brenner" },
+    });
+    const drives = calls.filter(([route]) => route === "/api/xyz").map(([, body]) => body);
+    expect(drives).toEqual([{ x: 14, y: 23, z: 5 }, { x: 10, y: 20, z: 12 }]);
+    const scored = calls.find(([route]) => route === "/api/targets/acquire/focus")[1];
+    expect(scored).toMatchObject({ x: 14, y: 23 });
+  });
+
+  it("drives back to the tile at the stack's height when a stack off-centre shows no peak", async () => {
+    const calls = bridgeTakingTargets({ curve: false });
+    await backend.acquireTargets({
+      positions: [{ ...positions[0], focusAt: { x: 14, y: 23 } }], state: { job: "Target" },
+      focus: { state: { job: "Focussing" }, metric: "brenner" },
+    });
+    const drives = calls.filter(([route]) => route === "/api/xyz").map(([, body]) => body);
+    expect(drives).toEqual([{ x: 14, y: 23, z: 5 }, { x: 10, y: 20, z: 5 }]);
   });
 
   it("images at the map's height when the stack shows no peak, and says so", async () => {

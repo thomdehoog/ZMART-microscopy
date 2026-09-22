@@ -932,10 +932,19 @@ let stageWatch = null;
         const { x, y } = tile;
         const z = surfaceZAt(x, y);
         const positionIndex = tile.positionIndex ?? state.targetTiles.indexOf(tile);
-        return stage.toStage({
-          ...(z === null ? { x, y } : { x, y, z }),
-          position_index: Math.max(0, positionIndex),
-        });
+        /* The focussing stack is taken on the object the tile was placed
+           for, at its centre: a tile nudged to share its frame with
+           neighbours may have its middle on background. */
+        const object = state.cells.get(tile.targetId);
+        const focusAt = object && Number.isFinite(object.x) && Number.isFinite(object.y)
+          ? stage.toStage({ x: object.x, y: object.y }) : null;
+        return {
+          ...stage.toStage({
+            ...(z === null ? { x, y } : { x, y, z }),
+            position_index: Math.max(0, positionIndex),
+          }),
+          ...(focusAt ? { focusAt: { x: focusAt.x, y: focusAt.y } } : {}),
+        };
       };
       const accountFor = (records, n = records.length) => {
         const captures = picked.slice(0, n);
