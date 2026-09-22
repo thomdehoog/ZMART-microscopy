@@ -1406,7 +1406,7 @@ def test_a_scan_started_again_removes_the_stores_it_will_not_rewrite(monkeypatch
     (aggregate / "publication.json").write_text("published", encoding="utf-8")
     note = positions / "notes.txt"
     note.write_text("keep", encoding="utf-8")
-    half_written = bridge._run / "positions" / ".writing-overview" / "x"
+    half_written = bridge._run / "positions" / ".writing" / "x"
     half_written.mkdir(parents=True)
     copies = bridge.view_of("overview")
     copies.mkdir(parents=True)

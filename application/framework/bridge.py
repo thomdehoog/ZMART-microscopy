@@ -1423,7 +1423,12 @@ def _replace_the_acquisition(acquisition_type: str, keeping: set[str] = frozense
         for child in stale:
             shutil.rmtree(child, ignore_errors=True)
         viewer_service.stores_were_retired(acquisition_type, positions)
-    for leftover in (positions.parent / f".writing-{acquisition_type}", view_of(acquisition_type)):
+    # A store half-written when something crashed is in the shared staging
+    # folder beside the positions; swept only while nothing is writing there.
+    leftovers = [view_of(acquisition_type)]
+    if not _a_run_has_the_stage():
+        leftovers.append(positions.parent / ".writing")
+    for leftover in leftovers:
         shutil.rmtree(leftover, ignore_errors=True)
     with _view_lock:
         _view_built.pop(acquisition_type, None)

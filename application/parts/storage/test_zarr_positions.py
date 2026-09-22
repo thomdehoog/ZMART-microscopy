@@ -303,9 +303,22 @@ class TestAStoreIsPublishedWhole:
         assert store == positions / "overview_K00_M000000_G000000_P000007_V00.ome.zarr"
         assert store.is_dir()
         assert sorted(child.name for child in positions.iterdir()) == [store.name]
-        assert not (tmp_path / "positions" / ".writing-overview").exists(), (
+        assert not (tmp_path / "positions" / ".writing").exists(), (
             "the staging folder is removed once the store has moved"
         )
+
+    def test_the_store_is_built_under_a_short_path_whatever_it_is_called(self, tmp_path):
+        """Windows counts a path to 260 characters unless told otherwise. A
+        fine focussing stack's chunk file, with the suffix zarr gives it
+        while writing, ran to 270 under a staging folder named after the
+        store, and the store was never written. The name it is published
+        under is the only long one; while it is built, the path is short."""
+        from application.parts.storage.zarr_positions import _a_place_to_write
+
+        into = tmp_path / "positions" / "target_focussing"
+        built = _a_place_to_write(into, "target_focussing_K00_M000000_G000000_P000005_V00.ome.zarr")
+        assert built.parent.parent == tmp_path / "positions" / ".writing"
+        assert len(str(built)) - len(str(tmp_path)) < 40
 
     def test_every_level_is_filled_before_the_store_appears(self, tmp_path, monkeypatch):
         """Watched the way the viewer watches: the moment the published name
@@ -349,7 +362,7 @@ class TestAStoreIsPublishedWhole:
             for one in translation
         ), "the replaced store carries the new capture's corner"
         assert sorted(child.name for child in positions.iterdir()) == [second.name]
-        assert not (tmp_path / "positions" / ".writing-overview").exists()
+        assert not (tmp_path / "positions" / ".writing").exists()
 
 
 
