@@ -876,6 +876,8 @@ def _an_overview_of_two_fields(monkeypatch):
             "id": f"{record['position_label']}_obj1", "field": field,
             "x": 100.0 * field, "y": 2.0, "area": 50.0, "intensity": 3.0, "r": 4.0,
             "diameter_asked": settings.get("diameter"),
+            "features": {"area": 21.0, "eccentricity": 0.5 + field}
+            if field else {"area": 21.0, "solidity": 0.9},
         }], "device": "pretend-gpu"}),
     )
     return records
@@ -931,6 +933,40 @@ def test_object_detection_ends_with_its_last_field(monkeypatch):
             f"*_{record['position_label']}_T000000_targets.json"
         ))
         assert "umap" not in kept.read_text(encoding="utf-8")
+
+
+def test_the_whole_population_is_one_table_on_disk(monkeypatch):
+    """Gating needs every object's features in one table, and a script
+    needs it without the window: one row an object across every field,
+    one column a feature, the union of what any field measured."""
+    import csv
+
+    records = _an_overview_of_two_fields(monkeypatch)
+    _discovered({"settings": {}})
+    table = bridge._the_run() / "overview" / "analysis" / (
+        f"overview_{records[0]['acquisition_hash']}_objects.csv"
+    )
+    rows = list(csv.DictReader(table.open(encoding="utf-8", newline="")))
+    assert [row["id"] for row in rows] == ["P0_obj1", "P1_obj1"]
+    assert [row["field"] for row in rows] == ["0", "1"]
+    assert [row["position_label"] for row in rows] == ["P0", "P1"]
+    assert [row["x_um"] for row in rows] == ["0.0", "100.0"]
+    assert list(rows[0])[:6] == ["field", "position_label", "id", "x_um", "y_um", "area"]
+    assert rows[0]["eccentricity"] == "" and rows[1]["eccentricity"] == "1.5"
+    assert rows[0]["solidity"] == "0.9" and rows[1]["solidity"] == ""
+
+
+def test_one_field_tried_on_its_own_leaves_the_population_table_alone(monkeypatch):
+    """A settings test on one field is not the population; the table of
+    the last whole run stays."""
+    records = _an_overview_of_two_fields(monkeypatch)
+    _discovered({"settings": {}})
+    table = bridge._the_run() / "overview" / "analysis" / (
+        f"overview_{records[0]['acquisition_hash']}_objects.csv"
+    )
+    before = table.read_text(encoding="utf-8")
+    _discovered({"fields": [1], "settings": {}})
+    assert table.read_text(encoding="utf-8") == before
 
 
 def test_fast_fields_are_found_several_at_once_and_kept_in_the_samples_order(monkeypatch):
