@@ -88,6 +88,11 @@ Any plot other than a 2-D scatter; t-SNE; computing on the analysis workers; a t
   job in LAS X, press **Import**, and the line reads the job's optics and stack ("20x · 0.75 NA dry ·
   61 planes, 0.5 µm step"). It is a job of its own, recorded here; Step 4's job is not reused, since the
   targets are imaged at another magnification and need a focussing job at that one.
+- The line warns, the way "Target acquisition settings" already warns "Same setting as for the overview
+  scan", when the job imported is one already recorded elsewhere in the session: Step 4's focussing job
+  ("Same job as the focus map's"), the overview job, or the target acquisition job ("Same job as the
+  target acquisition's"). A warning, not a refusal: the operator may mean it, but a job left selected in
+  LAS X from the step before is the usual cause, and it should be seen.
 - The progress box during the run says which half it is in: "focussing on target 12 of 96" then "imaging
   target 12 of 96".
 
