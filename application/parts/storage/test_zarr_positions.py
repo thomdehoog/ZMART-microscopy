@@ -315,8 +315,8 @@ class TestAStoreIsPublishedWhole:
         under is the only long one; while it is built, the path is short."""
         from application.parts.storage.zarr_positions import _a_place_to_write
 
-        into = tmp_path / "positions" / "target_focussing"
-        built = _a_place_to_write(into, "target_focussing_K00_M000000_G000000_P000005_V00.ome.zarr")
+        into = tmp_path / "positions" / "target-focussing"
+        built = _a_place_to_write(into, "target-focussing_K00_M000000_G000000_P000005_V00.ome.zarr")
         assert built.parent.parent == tmp_path / "positions" / ".writing"
         assert len(str(built)) - len(str(tmp_path)) < 40
 
