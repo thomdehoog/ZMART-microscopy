@@ -144,7 +144,7 @@ export default {
    *   `fieldOf(tile, cell)` the field it was found in: the plan's position, and
    *                `picture`, where the field's small copy is (or null)
    *   `pictureOf(key)` where that target tile's frame is (or null)
-   *   `recordingSlot(host, opts)`  the shared recorder, for the acquisition type
+   *   `recordingSlot(host, opts)`  the shared recorder, for the target focussing job
    *   `changed()`  say that something the rest of the page shows has changed
    *
    * Returns a handle whose `rebuild()` fills the list in again — what the
@@ -184,22 +184,6 @@ export default {
     pair.id = "pairs";
     pairBox.body.append(pair);
 
-    /* The settings the targets are imaged with, recorded on the step
-       before and shown again here at the head of the step that images
-       with them, so what the press will do is read before the list of
-       what it did. The progress stands under them while a run is on and
-       is put away when it ends; a failed run keeps its box, since the
-       sentence in it is the only account of why. */
-    const recording = document.createElement("div");
-    recording.id = "target-type-acquire";
-    ctx.recordingSlot(recording, {
-      label: "Target acquisition settings", key: "targetType",
-      unnamed: true,
-      takes: "Import target acquisition settings",
-      retakes: "Update",
-      changed: () => ctx.changed?.(),
-    });
-
     /* Focussing before each target: off, and every target is imaged at the
        height the focus map gives; on, a focussing job of its own is read
        here, at the targets' magnification, and each target gets a stack
@@ -236,7 +220,7 @@ export default {
     focusBox.body.append(focusRow, focusRecording);
     showTheFocusLine();
 
-    side.append(recording, focusBox.group, progress.group, listBox.group, pairBox.group, act);
+    side.append(focusBox.group, progress.group, listBox.group, pairBox.group, act);
     host.append(side);
 
     const targetIdOf = (tile) => tile?.targetId ?? tile?.covers?.[0] ?? null;
