@@ -188,5 +188,16 @@ of each.
 
 ## The UMAP timing
 
-Not measured: the run over today's population was stopped before it printed, and Thom set the UMAP aside
-for now (2026-09-22). Plan A is parked behind plan B; measure before building it.
+Partly measured on 2026-09-22 (this desk PC, 24 cores) on today's population table, 597,063 rows,
+122 columns, before Thom set the UMAP aside and the run was stopped:
+
+| Stage | Time | Memory |
+| --- | --- | --- |
+| Read the CSV | 6.7 s | 0.74 GB |
+| Condition 95 numeric columns | 2.6 s | 1.38 GB |
+| PCA to 50 components, all rows | 0.3 s | 1.50 GB |
+| UMAP on the first 50,000 rows (first call, numba compile included) | 62.7 s | 1.83 GB |
+| UMAP on 200,000 and on all rows | not reached | |
+
+So the components are free at any size, and UMAP's time at the whole population is still unmeasured.
+Plan A is parked behind plan B; finish the measurement before building it.
