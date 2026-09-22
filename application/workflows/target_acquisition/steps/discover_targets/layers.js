@@ -186,6 +186,33 @@ export function targetLayers(theRun) {
      no frame; reading `scale` here was a ReferenceError, and every click on
      a cell died on it. */
   let reach = 12 / 0.03;
+  /* What is lit, sorted into its fields: built when the selection changes,
+     not on every paint. Sorting half a million cells on every pan or zoom
+     was the picture's unresponsiveness once a large run had been gated;
+     and a field whose shapes could not be had looked each of its objects
+     up across every cell, so it is indexed by field and label here too. */
+  const sorted = { key: [], byField: null, strays: null };
+  const litSortedIntoFields = (lit, inkOf, whole) => {
+    const key = [whole ? run.cells : lit, run.gated, run.tilePlan, run.cells.size, run.fieldLabels, activeMode];
+    if (sorted.byField && key.every((one, i) => one === sorted.key[i])) return sorted;
+    const byField = new Map();
+    const strays = [];
+    for (const id of lit) {
+      const c = run.cells.get(id);
+      if (!c) continue;
+      const fieldLabel = run.fieldLabels[c.field];
+      if (Number.isFinite(c.label) && fieldLabel) {
+        if (!byField.has(c.field)) byField.set(c.field, { wanted: new Map(), cells: new Map() });
+        const field = byField.get(c.field);
+        field.wanted.set(c.label, inkOf(id));
+        field.cells.set(c.label, c);
+      } else {
+        strays.push(c);
+      }
+    }
+    sorted.key = key; sorted.byField = byField; sorted.strays = strays;
+    return sorted;
+  };
   return {
     cells: {
     key: "cells",
@@ -224,44 +251,37 @@ export function targetLayers(theRun) {
          beside it draws them. Step 8 keeps every target on the picture; its
          ceiling chooses which tiles are placed, never which targets are
          shown. Step 9 shows what is being acquired. */
+      const whole = activeMode === "gate" && !run.gates.length;
       const lit = activeMode === "gate"
-        ? (run.gates.length ? run.gated : new Set(run.cells.keys()))
+        ? (whole ? run.cells.keys() : run.gated)
         : activeMode === "select" ? run.gated
           : (run.restricted.size ? run.restricted : run.gated);
-      if (activeMode !== "detect" && lit.size) {
+      if (activeMode !== "detect" && (whole ? run.cells.size : lit.size)) {
         const uncovered = new Set((run.tilePlan?.uncovered ?? []).map((one) => one.id ?? one));
         const inkOf = (id) => css(uncovered.has(id) ? "--warn-ink"
           : run.gated.has(id) ? "--mark-selected" : "--mark-context");
-        const byField = new Map();
-        const strays = [];
-        for (const id of lit) {
-          const c = run.cells.get(id);
-          if (!c) continue;
-          const fieldLabel = run.fieldLabels[c.field];
-          if (Number.isFinite(c.label) && fieldLabel) {
-            if (!byField.has(c.field)) byField.set(c.field, new Map());
-            byField.get(c.field).set(c.label, inkOf(id));
-          } else {
-            strays.push(c);
-          }
-        }
+        const { byField, strays: lost } = litSortedIntoFields(lit, inkOf, whole);
+        const strays = [...lost];
         const base = run.overviewPictures;
         const dress = run.targetsDress;
         ctx.globalAlpha = dress.alpha;
-        for (const [field, wanted] of byField) {
+        for (const [field, { wanted, cells }] of byField) {
           const t = run.plan[field];
           const fieldLabel = run.fieldLabels[field];
+          /* A field off the screen draws nothing, and asks for nothing. */
+          if (t) {
+            const half = t.frameUm / 2;
+            const [x0, y0] = place(t.x - half, t.y - half);
+            const side = t.frameUm * scale;
+            if (x0 > w || y0 > h || x0 + side < 0 || y0 + side < 0) continue;
+          }
           const over = base && t ? shapeOverlay(base, fieldLabel, wanted, dress, redraw) : { failed: true };
           if (over.shapes) {
             const half = t.frameUm / 2;
             const [x, y] = place(t.x - half, t.y - half);
             ctx.drawImage(over.shapes, x, y, t.frameUm * scale, t.frameUm * scale);
           } else if (over.failed) {
-            for (const label of wanted.keys()) {
-              const c = [...run.cells.values()].find(
-                (one) => one.field === field && one.label === label);
-              if (c) strays.push(c);
-            }
+            strays.push(...cells.values());
           }
         }
         for (const c of strays) {
