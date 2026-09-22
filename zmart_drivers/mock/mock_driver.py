@@ -57,7 +57,9 @@ _DEFAULT_ACTUATORS: dict[str, str] = {"x": "motoric", "y": "motoric", "z": "moto
 _PIXEL_UM = 4.0
 
 #: The jobs this pretend instrument has stored, in the order it lists them.
-_JOBS: tuple[str, ...] = ("Overview", "Overview stack", "Focussing", "Target", "Target stack")
+_JOBS: tuple[str, ...] = (
+    "Overview", "Overview stack", "Focussing", "Target", "Target stack", "Target focussing",
+)
 
 #: What each kind of acquisition captures. On a real instrument this comes from
 #: the settings the operator imported for that kind of scan; here it is how the
@@ -72,8 +74,13 @@ _ONE_PLANE = {"z_planes": 1, "z_step_um": 0.0, "channels": 3}
 #: focus map's stacks and the stacks taken before a target are both its.
 _FOCUS_STACK = {"z_planes": 61, "z_step_um": 68.0 / 60.0, "channels": 1}
 _STACKS: dict[str, dict] = {"focussing": _FOCUS_STACK}
+#: The fine focussing before a target: the target's own frame, a short
+#: stack in fine steps about the map's height -- what a focussing job at
+#: the targets' magnification is on a real instrument.
+_TARGET_FOCUS_STACK = {"z_planes": 41, "z_step_um": 0.5, "channels": 1}
 _JOB_STACKS = {
     "Focussing": _FOCUS_STACK,
+    "Target focussing": _TARGET_FOCUS_STACK,
     "Overview stack": {"z_planes": 7, "z_step_um": 2.0, "channels": 3},
     "Target stack": {"z_planes": 11, "z_step_um": 1.0, "channels": 3},
 }
@@ -672,6 +679,7 @@ _JOB_FRAMES: dict[str, tuple[int, float]] = {
     "Focussing": (256, 1.0),
     "Target": (128, 1.0),
     "Target stack": (128, 1.0),
+    "Target focussing": (128, 1.0),
 }
 
 

@@ -597,6 +597,12 @@ test.describe("the target acquisition workflow, walked screen by screen", () => 
         await record(page, "target-focus-recording", "target af");
         await expect(page.locator("#target-focus-recording .rec-warn").first())
           .toContainText("Same job as the focus map's");
+        await shot(page, "acquire-focus-same-job");
+        /* The fine job at the targets' magnification, imported over it:
+           the warning goes with the job it was about. */
+        inTheInstrument.choose("Target focussing");
+        await record(page, "target-focus-recording", "target af");
+        await expect(page.locator("#target-focus-recording .rec-warn")).toHaveCount(0);
         await shot(page, "acquire-focus-on");
         /* The overview went grey for the masks; arriving here the operator
            wants to see the sample again, so it is back in colour. */
