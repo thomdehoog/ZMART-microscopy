@@ -25,17 +25,17 @@ Nothing is computed unless pressed. Detection never waits on it again (it was re
 
 ### Why on request, and over which cells
 
-UMAP is superlinear in the number of cells and cannot be made to scale to 590,000; PCA is linear and can.
-So the box computes over the population the operator names, with a ceiling that is said, not hidden:
+UMAP scales to the whole population: single-cell atlases run umap-learn over millions of cells on a
+workstation, in minutes, once. What it does not do is come for free at every detection, which is why it
+was taken out of detection on 2026-09-22 and comes back here on a press. No sample, no ceiling: the
+press runs over the whole chosen population, and the sentence under it says how long the last one took.
+Not yet measured on today's run (589,382 objects, 114 columns); see the note at the end.
 
-| Plot | Over | Ceiling |
-| --- | --- | --- |
-| Principal components | all of the chosen population | none needed (linear) |
-| UMAP | a random sample of the chosen population when it is above the ceiling; the rest are placed by the fitted map's `transform` | 50,000 fitted, said in the sentence |
+The default population is the targets in the gates, the set the operator is about to refine; "every
+candidate" is the first look at an ungated population, which is what UMAP is for.
 
-The default population is the targets in the gates: that is the set the operator is about to refine, and
-it is small. "Every candidate" is offered because a first look at an ungated population is what UMAP is
-for; at 590,000 that is the sample plus transform, and the sentence says so.
+The two plots share their conditioning: the components are computed first, UMAP runs on the first 50 of
+them, so a UMAP press yields the components too, and a components press is the cheap half alone.
 
 ### Where it runs
 
@@ -47,12 +47,12 @@ at most 50 components, then UMAP with a pinned seed.
 
 Routes, in the page-drives shape:
 
-- `POST /api/plots/compute {kind: "umap"|"pca", ids: [...] | null, sample: 50000}` starts it; refuses while
-  one runs or while detection runs.
+- `POST /api/plots/compute {kind: "umap"|"pca", ids: [...] | null}` starts it; refuses while one runs or
+  while detection runs.
 - `GET /api/plots/compute` answers `{running, kind, done, of, doing, error}` for the progress line.
 - `POST /api/plots/compute/stop` puts the worker down (as detection's Interrupt does).
-- The answer lands as columns: the bridge writes `overview_<hash>_<kind>.csv` (id, the two columns, and a
-  `fitted` flag for UMAP) beside the population table, and the page fetches it once when `running` turns
+- The answer lands as columns: the bridge writes `overview_<hash>_<kind>.csv` (id and the two columns)
+  beside the population table, and the page fetches it once when `running` turns
   false and merges the two columns into its cells by id.
 
 The page's `live.js` gets one verb, `computePlot({kind, ids, onDoing, onProgress})`, polled like detection;
@@ -65,8 +65,8 @@ the bridge, not an analysis worker). PCA needs only scikit-learn, already presen
 
 ### Tests, first
 
-- Bridge: compute on two fields' cells writes the columns file; `ids` restricts; UMAP above the ceiling
-  samples and marks `fitted`; a second compute while one runs is refused; stop puts the worker down.
+- Bridge: compute on two fields' cells writes the columns file; `ids` restricts; a second compute while
+  one runs is refused; stop puts the worker down; the conditioning is pinned on a fixture without umap.
 - Page unit: `computePlot` polls and hands back the columns; the gate plot's pickers offer `umap_1` after a
   landing (the existing picker test, with the column arriving late).
 - Walk: at Step 7, press Compute for principal components on the mock, see the pickers gain `pc_1`, choose
@@ -147,3 +147,46 @@ and why.
   samples. Offered as a later option in the same box, not built first.
 - Whether the target focussing stack should be kept on disk for every target (it is one stack per target;
   at 96 targets that is 96 stacks) or only its curve.
+
+## Order of work
+
+Plan B first (Thom's order of need), then A. Each in its own commits, tests first, the walk once at the end
+of each.
+
+### B, the target run as the page's own loop with optional focussing
+
+1. `parts/microscope/live.js`: a verb `acquireTargets({tiles, settings, focus, onProgress, onDoing})` that
+   runs the loop: `POST /api/targets/acquire/begin` (clears the targets acquisition unless appending, resets
+   the ledger, refuses while a scan or map has the stage), then per tile `xyz` → (`acquire` focussing →
+   `score` → peak in the page via `focus-peaks.js` → `xyz` to the peak, when `focus`) → `acquire` targets
+   → `POST /api/targets/acquire/landed {record, focus}` (the ledger), then `end`. `stopAcquireTargets()`
+   sets the page's flag; the loop ends after the capture in hand. `mock.js`: the same verb, deterministic.
+2. `framework/bridge.py`: the three routes and the ledger `_acquired = {running, done, of, records}`,
+   `GET /api/targets/acquire` answering it; `_a_run_has_the_stage()` counts it. The targets scan path
+   (`scanOverview` with `acquisition_type: "targets"`) is no longer used by the page and goes.
+3. `framework/window/main.js` Step 9 run (`s.mode === "targets"`, lines ~913–1010 today): calls the new
+   verb; `accountFor` per landed record as now; the record carries `focus: {job, z_map_um, z_peak_um, found}`.
+4. `steps/acquire_targets/gallery.js`: "Target acquisition settings"; the **Target focussing settings**
+   box: checkbox `#target-focus-on`, and when on a settings line through `ctx.recordingSlot` with key
+   `targetFocus` (session slot `emptySlot("focussing", 1)` beside `targetType`), the same-job warning
+   against `focusType`, `overviewType`, `targetType`. Progress says "focussing on target k of n" / "imaging
+   target k of n". A row whose record says `focus.found === false` reads "focus not found, imaged at the
+   map's height".
+5. Tests: `live-targets.test.js` (the loop with and without focus, the fallback, the stop);
+   `test_operator_bridge.py` (ledger, refusals); `walk.spec.js` Step 9 with focussing on the mock.
+
+### A, the multidimensional plots box
+
+1. `parts/analysis/plots.py` (the conditioning and the two computations, the child process), with
+   `test_plots.py` pinning the conditioning without umap installed. `environment.yml`: `umap-learn>=0.5`.
+2. `framework/bridge.py`: `/api/plots/compute` (POST, GET, stop) reading the population CSV, writing the
+   columns file; tests as listed above.
+3. `parts/microscope/live.js` + `mock.js`: `computePlot`.
+4. `steps/refine_targets/gate.js`: the **Multidimensional plots** box under Feature gating; on landing,
+   the columns merged into the cells by id (`ctx.landColumns(kind, rows)` in `main.js`), `redraw()`.
+5. `walk.spec.js` Step 7: press Compute for the components on the mock, pick `pc_1`.
+
+## The UMAP timing
+
+Not measured: the run over today's population was stopped before it printed, and Thom set the UMAP aside
+for now (2026-09-22). Plan A is parked behind plan B; measure before building it.
