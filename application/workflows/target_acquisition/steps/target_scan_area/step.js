@@ -180,7 +180,7 @@ export const selectionPanel = {
 
     const seat = () => { adding.group.hidden = !recording.querySelector(".setting-box.done"); };
     ctx.recordingSlot(recording, {
-      label: "Acquisition settings", key: "targetType",
+      label: "Target acquisition settings", key: "targetType",
       unnamed: true,
       takes: "Import target acquisition settings",
       retakes: "Update",
