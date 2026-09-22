@@ -1452,8 +1452,7 @@ def _targets_worker(fields: list, settings: dict, whole: bool) -> None:
             _targets["doing"] = what_is_being_done()
         if _stop_asked["targets"]:
             _targets["stopped"] = True
-        # Landed in the engine's order; kept in the sample's.
-        _targets["fields"].sort(key=lambda one: one["field"])
+        # Kept in landing order: a page's cursor into the list holds.
         if whole and _targets["fields"]:
             _keep_the_population(_targets["fields"])
     except Exception as why:  # noqa: BLE001 -- the window shows the sentence
@@ -1484,6 +1483,21 @@ def _stop_targets() -> dict:
     return dict(_targets)
 
 
+def _the_targets(since: int | None = None) -> dict:
+    """Discovery under way or last finished, with the fields found so far.
+
+    A page that polls while discovery runs already holds the fields it was
+    given last time; asked ``since`` that many, it gets only the ones that
+    landed after. A poll that carried every field found so far grew with the
+    run -- 900 MB at three hundred fields, 26 s to answer, asked three times
+    a second -- and that was the whole of what looked like a stalled run.
+    """
+    answer = dict(_targets)
+    if since is not None:
+        answer["fields"] = answer["fields"][max(0, since):]
+    return answer
+
+
 def _keep_the_population(fields: list) -> None:
     """Every object of the overview in one table, beside the per-field files.
 
@@ -1508,7 +1522,7 @@ def _keep_the_population(fields: list) -> None:
     ) as out:
         table = csv.DictWriter(out, fieldnames=columns)
         table.writeheader()
-        for result in fields:
+        for result in sorted(fields, key=lambda one: one["field"]):
             for cell in result["cells"]:
                 table.writerow({
                     "field": result["field"], "position_label": result["position_label"],
@@ -1742,7 +1756,8 @@ class _Bridge(BaseHTTPRequestHandler):
             elif path == "/api/focus/measure":
                 self._answer(dict(_focus))
             elif path == "/api/targets/discover":
-                self._answer(dict(_targets))
+                since = urllib.parse.parse_qs(query or "").get("since", [None])[0]
+                self._answer(_the_targets(int(since) if since is not None else None))
             elif path == "/api/viewer":
                 status = viewer_service.status()
                 self._answer(status)

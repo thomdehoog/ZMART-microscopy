@@ -335,12 +335,13 @@ export const backend = {
     fields = null, settings = {}, onField, onDoing, onProgress,
   } = {}) {
     await ask("/api/targets/discover", { fields, settings });
-    /* Each field once, by its number: the bridge lists fields as they land,
-       in the analysis engine's order, and puts the list into the sample's
-       order at the end, so a place in the list is not a field. */
-    const shown = new Set();
+    /* The bridge lists fields in the order they land and keeps that order,
+       so the fields held here are the cursor: each poll asks only for the
+       ones landed since, and a run of hundreds of fields is not carried
+       whole three times a second. */
+    const landed = [];
     for (;;) {
-      const progress = await askedPatiently("/api/targets/discover");
+      const progress = await askedPatiently(`/api/targets/discover?since=${landed.length}`);
       onDoing?.(progress.running ? progress.doing : null);
       onProgress?.(progress.done, progress.of, {
         phase: progress.phase,
@@ -348,14 +349,13 @@ export const backend = {
         running: !!progress.running,
       });
       for (const one of progress.fields ?? []) {
-        if (shown.has(one.field)) continue;
-        shown.add(one.field);
+        landed.push(one);
         onField?.(one);
       }
       if (progress.error) throw new Error(progress.error);
       if (!progress.running) {
         return {
-          fields: progress.fields,
+          fields: landed,
           failed: progress.failed ?? [],
           stopped: !!progress.stopped,
         };
