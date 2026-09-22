@@ -28,7 +28,7 @@ describe("the live multidimensional plot", () => {
   afterEach(() => { vi.useRealTimers(); globalThis.fetch = realFetch; });
 
   it("follows the plot and hands back every column it wrote, by kind", async () => {
-    const pca = { columns: ["pc_1", "pc_2"], ids: ["a", "b"], values: [[1, 2], [3, 4]] };
+    const pca = { columns: ["pca_1", "pca_2"], ids: ["a", "b"], values: [[1, 2], [3, 4]] };
     const umap = { columns: ["umap_1", "umap_2"], ids: ["a", "b"], values: [[5, 6], [7, 8]] };
     const calls = bridgePlotting([
       { running: true, doing: "computing UMAP over 2 objects" },
