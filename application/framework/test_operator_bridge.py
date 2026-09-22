@@ -990,9 +990,30 @@ def test_fast_fields_are_found_several_at_once_and_kept_in_the_samples_order(mon
     assert finder.widths == [bridge.detection.width_of({"method": "fast"})]
     assert finder.widths[0] >= 2
     assert "positions at once" in seen["doing"]
-    assert [field["field"] for field in got["fields"]] == [0, 1]
+    # The list stays in landing order, so a page's cursor into it holds;
+    # the table on disk is in the sample's order.
+    assert [field["field"] for field in got["fields"]] == [1, 0]
     assert got["done"] == 2 and got["objects"] == 2
     assert got["phase"] == "complete"
+    table = next((bridge._run / "overview" / "analysis").glob("overview_*_objects.csv"))
+    assert [line.split(",")[0] for line in table.read_text(encoding="utf-8").splitlines()[1:]] == ["0", "1"]
+
+
+def test_discovery_answers_only_the_fields_since_the_ones_a_page_holds(monkeypatch):
+    """A poll that carried every field found so far grew with the run: at
+    three hundred fields it was 900 MB, took 26 s, and the page asked for
+    it three times a second. Asked ``since`` the number it holds, the page
+    gets only the fields that landed after; nothing else in the answer
+    changes."""
+    _an_overview_of_two_fields(monkeypatch)
+    _discovered({"settings": {}})
+    whole = bridge._the_targets()
+    assert [field["field"] for field in whole["fields"]] == [0, 1]
+    later = bridge._the_targets(since=1)
+    assert [field["field"] for field in later["fields"]] == [1]
+    assert later["done"] == 2 and later["phase"] == "complete"
+    assert bridge._the_targets(since=2)["fields"] == []
+    assert len(bridge._the_targets(since=0)["fields"]) == 2
 
 
 def test_the_robust_way_finds_one_field_at_a_time(monkeypatch):
