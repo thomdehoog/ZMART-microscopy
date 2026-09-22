@@ -112,17 +112,19 @@ committed, so a checkout already carries one, but rebuild after any change to th
 
 ### 5. The analysis environments
 
-Focus scoring and object detection run in their own environments, spawned by the engine on first
+Focus scoring, object detection and the population plots run in their own environments, spawned by the engine on first
 use. From the operator checkout:
 
 ```powershell
 python zmart_analysis/workflows/focus/environments/setup_env.py --step main
 python zmart_analysis/workflows/object_analysis/environments/setup_env.py --step classical
 python zmart_analysis/workflows/object_analysis/environments/setup_env.py --step cellpose   # Robust only
+python zmart_analysis/workflows/population/environments/setup_env.py --step main          # Step 7's plots
 ```
 
-They are named `ZMART--focus--main`, `ZMART--object_analysis--classical` and
-`ZMART--object_analysis--cellpose`. Fast detection runs its fields twelve at a time in the classical
+They are named `ZMART--focus--main`, `ZMART--object_analysis--classical`,
+`ZMART--object_analysis--cellpose` and `ZMART--population--main`, the last for the principal
+components and UMAP of Step 7's Multidimensional plots. Fast detection runs its fields twelve at a time in the classical
 environment; the first press of a session pays the worker spawns, about fifteen seconds on a desk
 PC, once. Check the readers before trusting a run:
 
