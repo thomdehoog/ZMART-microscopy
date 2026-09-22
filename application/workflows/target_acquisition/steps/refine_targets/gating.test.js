@@ -7,7 +7,7 @@
 
 import { describe, expect, it } from "vitest";
 import {
-  cellFeature, cellsInAllGates, featureNames, gateForPair, insidePolygon,
+  cellFeature, cellsInAllGates, featureNames, gateForPair, hasFeature, insidePolygon,
   keptUnderCeiling, sursDraw,
 } from "./gating.js";
 
@@ -19,6 +19,25 @@ const cell = (id, features, more = {}) => ({
 const square = (fx, fy, lo, hi) => ({
   fx, fy,
   vertices: [[lo, lo], [hi, lo], [hi, hi], [lo, hi]],
+});
+
+describe("a feature some objects do not have", () => {
+  /* A plot computed over the targets in the gates gives only them its two
+     columns. The rest were never placed on it, so they are not at zero on
+     it and no gate drawn there can take them. */
+  const placed = { id: "p", features: { pc_1: 0.1, pc_2: 0.1 } };
+  const unplaced = { id: "u", features: { area: 5 } };
+  const box = { fx: "pc_1", fy: "pc_2", vertices: [[-1, -1], [1, -1], [1, 1], [-1, 1]] };
+
+  it("is had only by the objects that carry it", () => {
+    expect(hasFeature(placed, "pc_1")).toBe(true);
+    expect(hasFeature(unplaced, "pc_1")).toBe(false);
+    expect(hasFeature({ id: "d", area: 3 }, "area"), "the detector's own pair counts").toBe(true);
+  });
+
+  it("keeps an object without it out of a gate drawn on it", () => {
+    expect([...cellsInAllGates([placed, unplaced], [box])]).toEqual(["p"]);
+  });
 });
 
 describe("the gating rules", () => {

@@ -561,6 +561,19 @@ test.describe("the target acquisition workflow, walked screen by screen", () => 
         await rest(600);
         await expect(page.locator("#gate-list .gate-row")).toHaveCount(1);
         await shot(page, "discover-gated");
+        /* The principal components of the targets in the gates, computed
+           through the analysis on a press: two more columns an object,
+           offered in the pickers and drawn like any pair. */
+        await expect(page.locator("#plots-over")).toHaveValue("gated");
+        const components = page.locator('#plots .plot-row[data-kind="pca"]');
+        await components.locator("button.run").click();
+        await expect(components.locator(".plot-note")).toContainText("over", { timeout: 300_000 });
+        await expect(components.locator(".plot-note")).not.toContainText("failed");
+        await expect(page.locator('#gate-fx option[value="pc_1"]')).toHaveCount(1);
+        await page.locator("#gate-fx").selectOption("pc_1");
+        await page.locator("#gate-fy").selectOption("pc_2");
+        await rest(600);
+        await shot(page, "discover-components");
 
         /* Step 8: the target job, its optics recorded, a cap per tileset,
            and the scan areas placed. */

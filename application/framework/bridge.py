@@ -59,6 +59,10 @@ The verbs, and what they are made of
   acquisition and answers the peak); landed files the target's record the
   way the scan filed its own; end closes the run. ``GET /api/targets/acquire``
   is the ledger, ``?since=N`` the records after the ones a page holds.
+* ``POST /api/plots/compute`` — a multidimensional plot (``pca`` or ``umap``)
+  over the detected population, or the ids named, through ZMART_analysis;
+  ``GET`` reads its progress, ``POST /api/plots/compute/stop`` puts it down,
+  ``GET /api/plots/columns?kind=`` answers its two columns by id.
 * ``POST /api/scan`` — start the overview scan in a background thread: drive
   to each position, acquire, report progress. ``GET /api/scan`` reads the
   progress. The window's live picture watches the run's own store, so nothing
@@ -1637,6 +1641,113 @@ def _the_targets(since: int | None = None) -> dict:
     return answer
 
 
+def _the_population_table() -> Path:
+    """Where the whole overview's population table is written."""
+    records = _records.get("overview") or []
+    if not records:
+        raise RuntimeError("no overview has been scanned")
+    return _the_run() / "overview" / "analysis" / f"overview_{records[0]['acquisition_hash']}_objects.csv"
+
+
+#: The ZMART_analysis pipeline that draws a multidimensional plot of the
+#: population, and the two plots it draws with the columns each lands as.
+PLOTS_PIPELINE = "population_plots"
+PLOT_KINDS = {"pca": ("pc_1", "pc_2"), "umap": ("umap_1", "umap_2")}
+
+#: The multidimensional plot under way or last finished, polled by the page.
+_plots = {
+    "running": False, "kind": None, "error": None, "stopped": False,
+    "kinds": [], "doing": None, "took_s": None, "of": None, "objects": None,
+}
+_plots_stop = {"asked": False}
+
+
+def _compute_plot(asked: dict) -> dict:
+    """Start a multidimensional plot over the detected population.
+
+    ``kind`` is ``pca`` or ``umap``; ``ids`` narrows the population to the
+    objects the page names (the targets in the gates), or is left out for
+    every candidate. The plot is a ZMART_analysis pipeline, run by the warm
+    analysis detection runs through, in an environment of its own, so the
+    picture server beside it never waits; the page polls, then asks for the
+    columns.
+    """
+    if _plots["running"]:
+        raise RuntimeError("a plot is already being computed")
+    if _targets["running"]:
+        raise RuntimeError("the objects are still being detected; plot them once detection ends")
+    table = _the_population_table()
+    if not table.is_file():
+        raise RuntimeError("detect the whole overview first: a plot is drawn over its population")
+    kind = str(asked.get("kind"))
+    if kind not in PLOT_KINDS:
+        raise ValueError(f"unknown plot {kind!r}; there are {', '.join(PLOT_KINDS)}")
+    ids = asked.get("ids")
+    ids = None if ids is None else [str(one) for one in ids]
+    _plots_stop["asked"] = False
+    what = "UMAP" if kind == "umap" else "principal components"
+    _plots.update(
+        running=True, kind=kind, error=None, stopped=False, kinds=[], took_s=None, objects=None,
+        of=None if ids is None else len(ids),
+        doing=f"computing {what} over {'every candidate' if ids is None else f'{len(ids)} objects'}",
+    )
+    threading.Thread(target=_plot_worker, args=(kind, table, ids), daemon=True).start()
+    return dict(_plots)
+
+
+def _plot_through_the_analysis(kind: str, table: Path, ids: list[str] | None) -> dict:
+    """One plot through the warm analysis: what the step published."""
+    given = {"table": str(table), "kind": kind, "ids": ids}
+    return warm.the_analysis().run(PLOTS_PIPELINE, given)["plot_population"]
+
+
+def _plot_worker(kind: str, table: Path, ids: list[str] | None) -> None:
+    began = time.perf_counter()
+    try:
+        answered = _plot_through_the_analysis(kind, table, ids)
+        _plots.update(kinds=sorted(answered["written"]), objects=answered["objects"])
+    except Exception as why:  # noqa: BLE001 -- the page shows the sentence
+        if _plots_stop["asked"]:
+            # The hand that stopped the plot put its worker down; that death
+            # is the stop, not a failure.
+            _plots["stopped"] = True
+        else:
+            _plots["error"] = str(why)
+    finally:
+        _plots.update(running=False, doing=None, took_s=round(time.perf_counter() - began, 1))
+
+
+def _stop_plot() -> dict:
+    """The operator's Interrupt for a plot: its worker is put down, the only
+    hand that reaches a computation already under way. The workers respawn
+    on the next job."""
+    _plots_stop["asked"] = True
+    if _plots["running"]:
+        warm.close()
+    return dict(_plots)
+
+
+def _plot_columns(kind: str) -> dict:
+    """The last plot of *kind*, as the page merges it into its objects."""
+    import csv  # noqa: PLC0415 -- the population table's writer imports it the same way
+
+    if kind not in PLOT_KINDS:
+        raise ValueError(f"unknown plot {kind!r}")
+    table = _the_population_table()
+    written = table.with_name(table.name.replace("_objects.csv", f"_{kind}.csv"))
+    if not written.is_file():
+        raise RuntimeError(f"no {kind} plot has been computed")
+    with written.open(encoding="utf-8", newline="") as source:
+        rows = csv.reader(source)
+        header = next(rows)
+        ids, first, second = [], [], []
+        for an_id, a, b in rows:
+            ids.append(an_id)
+            first.append(float(a))
+            second.append(float(b))
+    return {"columns": header[1:], "ids": ids, "values": [first, second]}
+
+
 def _keep_the_population(fields: list) -> None:
     """Every object of the overview in one table, beside the per-field files.
 
@@ -1897,6 +2008,11 @@ class _Bridge(BaseHTTPRequestHandler):
             elif path == "/api/targets/discover":
                 since = urllib.parse.parse_qs(query or "").get("since", [None])[0]
                 self._answer(_the_targets(int(since) if since is not None else None))
+            elif path == "/api/plots/compute":
+                self._answer(dict(_plots))
+            elif path == "/api/plots/columns":
+                kind = urllib.parse.parse_qs(query or "").get("kind", [""])[0]
+                self._answer(_plot_columns(kind))
             elif path == "/api/targets/acquire":
                 since = urllib.parse.parse_qs(query or "").get("since", [None])[0]
                 self._answer(_the_target_run(int(since) if since is not None else None))
@@ -1936,6 +2052,10 @@ class _Bridge(BaseHTTPRequestHandler):
                 self._answer(_score_focus(asked))
             elif self.path == "/api/focus/end":
                 self._answer(_end_focus(asked))
+            elif self.path == "/api/plots/compute":
+                self._answer(_compute_plot(asked))
+            elif self.path == "/api/plots/compute/stop":
+                self._answer(_stop_plot())
             elif self.path == "/api/targets/acquire/begin":
                 self._answer(_begin_target_run(asked))
             elif self.path == "/api/targets/acquire/focus":

@@ -1,0 +1,27 @@
+# A multidimensional plot of a discovered population, on the operator's ask.
+#
+# What to submit with each job -- the input changes every time, this file is
+# the recipe:
+#
+#   table   the population table written when a whole overview was detected
+#   ids     the objects to plot, or null for every one in the table
+#   kind    pca (the first two principal components) or umap
+#
+# What comes back, under `plot_population`: `written`, the files beside the
+# table holding the two columns an object, `objects` and `features`.
+
+metadata:
+  purpose: "Principal components or a UMAP of a discovered population"
+  version: "1.0"
+  verbose: 1
+  functions_dir: "../steps"
+
+population_plots:
+  - plot_population:
+      environment: ZMART--population--main
+      components: 50       # UMAP is laid out from this many principal components
+      neighbours: 15
+      min_dist: 0.1
+      seed: 0
+      enough_measured: 0.5 # a feature measured for fewer objects stays out
+      enough_objects: 10

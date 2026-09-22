@@ -380,6 +380,33 @@ export const backend = {
     return { done: records.length, of: positions.length, records, stopped };
   },
 
+  /**
+   * A multidimensional plot, as the bridge answers one: two columns an
+   * object by id, invented from the id so the same objects always land in
+   * the same place. The objects are the ones discovery found.
+   */
+  async computePlot({ kind, ids = null, onDoing } = {}) {
+    stopAsked.plot = false;
+    const over = ids ?? discovered;
+    onDoing?.(`computing ${kind === "umap" ? "UMAP" : "principal components"} over ${over.length} objects`);
+    await wait(kind === "umap" ? 600 : 150);
+    onDoing?.(null);
+    if (stopAsked.plot) return { stopped: true, columns: [] };
+    const place = (id, salt) => makeRng([...String(id)].reduce((a, c) => a + c.charCodeAt(0), salt))() * 10 - 5;
+    const columnsOf = (names, salt) => ({
+      columns: names, ids: [...over], values: [over.map((id) => place(id, salt)), over.map((id) => place(id, salt + 1))],
+    });
+    const columns = [columnsOf(["pc_1", "pc_2"], 11)];
+    if (kind === "umap") columns.push(columnsOf(["umap_1", "umap_2"], 23));
+    return { stopped: false, objects: over.length, seconds: 0.1, columns };
+  },
+
+  /** The operator's Interrupt for a plot, as the bridge offers it. */
+  async stopPlot() {
+    stopAsked.plot = true;
+    return {};
+  },
+
   /** The operator's Interrupt for the target run, as the bridge offers it. */
   async stopAcquireTargets() {
     stopAsked.acquire = true;
@@ -432,6 +459,7 @@ export const backend = {
       onDoing?.(`detecting and measuring objects in position ${one.field + 1}`);
       onField?.(one);
       gave.push(one);
+      if (!fields) discovered = gave.flatMap((field) => field.cells.map((cell) => cell.id));
       onProgress?.(gave.length, found.length, {
         phase: "objects",
         objects: gave.reduce((sum, field) => sum + field.cells.length, 0),
@@ -503,7 +531,10 @@ const scanned = {};
 
 /* The operator's hand on the brake, as the bridge keeps it: set by the stop
    verbs, read by the pretend runs between two fields. */
-const stopAsked = { scan: false, focus: false, targets: false, acquire: false };
+const stopAsked = { scan: false, focus: false, targets: false, acquire: false, plot: false };
+
+/* Every object discovery found, by id: what a plot of every candidate is over. */
+let discovered = [];
 
 /* The jobs this pretend instrument has stored, and which is chosen. The same
    three the controller's mock driver keeps, so the page meets one instrument

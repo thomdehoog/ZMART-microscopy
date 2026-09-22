@@ -1540,6 +1540,22 @@ let stageWatch = null;
         drawStage(); renderTabs(); renderActionBar(); renderRail();
       },
       tilesetOf: tilesetOfField,
+      /* A multidimensional plot, over the targets in the gates or every
+         candidate: its columns land in each object's features by id, which
+         is all the axis pickers need to offer them. */
+      computePlot: async (kind, over, onDoing) => {
+        const ids = over === "gated" ? [...state.gated] : null;
+        const out = await backend.computePlot({ kind, ids, onDoing });
+        for (const { columns, ids: landed, values } of out.columns) {
+          landed.forEach((id, i) => {
+            const cell = state.cells.get(id);
+            if (!cell) return;
+            cell.features = { ...(cell.features ?? {}), [columns[0]]: values[0][i], [columns[1]]: values[1][i] };
+          });
+        }
+        return out;
+      },
+      stopPlot: () => backend.stopPlot?.(),
       /* Whether Restrict has drawn under the ceiling: the plot then marks
          what it kept over what the gates let through. */
       restricted: () => state.restricted,

@@ -490,6 +490,36 @@ export const backend = {
     return { done: records.length, of: positions.length, records, stopped };
   },
 
+  /**
+   * A multidimensional plot of the detected population -- `pca` or `umap`
+   * -- over the objects named by `ids`, or every candidate when left out.
+   * The bridge runs it through the analysis and this follows it until it
+   * lands; then every plot it wrote comes back as columns by id
+   * (`{columns, ids, values}`), a UMAP bringing the components it stood on.
+   */
+  async computePlot({ kind, ids = null, onDoing } = {}) {
+    await ask("/api/plots/compute", { kind, ids });
+    for (;;) {
+      const progress = await askedPatiently("/api/plots/compute");
+      onDoing?.(progress.running ? progress.doing : null);
+      if (!progress.running) {
+        if (progress.error) throw new Error(progress.error);
+        if (progress.stopped) return { stopped: true, columns: [] };
+        const columns = [];
+        for (const one of progress.kinds ?? []) {
+          columns.push(await ask(`/api/plots/columns?kind=${encodeURIComponent(one)}`));
+        }
+        return { stopped: false, objects: progress.objects, seconds: progress.took_s, columns };
+      }
+      await rest(500);
+    }
+  },
+
+  /** The operator's Interrupt for a plot: the bridge puts its worker down. */
+  async stopPlot() {
+    return ask("/api/plots/compute/stop", {});
+  },
+
   /** The operator's Interrupt for the target run: the loop above stops
       before its next drive, and returns what was taken. */
   async stopAcquireTargets() {
