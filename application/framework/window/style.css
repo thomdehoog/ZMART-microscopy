@@ -1479,13 +1479,11 @@ canvas.livecv[hidden] { display: none; }
 /* A slot puts two boxes in the column — the recording and what it recorded —
    and they stand apart like every other pair of boxes there. */
 .setting-slot { display: flex; flex-direction: column; gap: var(--box-gap); }
-/* A plot a row: its name, its press, and under both what it was last
-   computed over or why it failed. */
-.plot-row { display: grid; grid-template-columns: minmax(0, 1fr) max-content; gap: 4px 10px; align-items: center; }
-.plot-name { font-size: 12.5px; color: var(--ink-2); }
-.plot-note { grid-column: 1 / -1; font-size: 12px; color: var(--ink-3); }
-.plot-note:empty { display: none; }
-.plot-note.warn { color: var(--warn-ink); }
+/* A reduction a tick: its name, and while it computes a quiet word after. */
+.reduce-row { display: flex; align-items: center; gap: 8px; min-height: var(--control); font-size: 12.5px; color: var(--ink-2); }
+.reduce-act { display: flex; align-items: center; gap: 10px; margin-top: 2px; }
+.reduce-note { font-size: 12px; color: var(--ink-3); }
+.reduce-note.warn { color: var(--warn-ink); }
 .focus-switch { display: flex; align-items: center; gap: 8px; min-height: var(--control); font-size: 12.5px; color: var(--ink-2); }
 /* The focussing job is one line under the switch, in the same box: the
    recording slot's own box and heading are flattened away here. */

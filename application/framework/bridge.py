@@ -1652,7 +1652,7 @@ def _the_population_table() -> Path:
 #: The ZMART_analysis pipeline that draws a multidimensional plot of the
 #: population, and the two plots it draws with the columns each lands as.
 PLOTS_PIPELINE = "population_plots"
-PLOT_KINDS = {"pca": ("pc_1", "pc_2"), "umap": ("umap_1", "umap_2")}
+PLOT_KINDS = {"pca": ("pca_1", "pca_2"), "umap": ("umap_1", "umap_2")}
 
 #: The multidimensional plot under way or last finished, polled by the page.
 _plots = {

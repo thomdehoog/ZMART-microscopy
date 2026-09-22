@@ -143,97 +143,75 @@ export default {
 
     boxed.body.append(axes, legend, wrap, readout, list);
 
-    /* Two axes folded from every measured feature, computed only when the
-       operator asks: principal components in a moment, a UMAP in minutes
-       over a large population. Over the targets in the gates, or every
-       candidate. What lands is two more columns an object, so the pickers
-       above offer them like any other pair and a gate is drawn on them the
-       same way. */
-    const plotsBox = sideGroup("Multidimensional plots");
-    plotsBox.group.id = "plots";
-    const overRow = document.createElement("div");
-    overRow.className = "detect-params";
-    const overParam = document.createElement("div");
-    overParam.className = "param";
-    const overLabel = document.createElement("label");
-    overLabel.textContent = "Over";
-    overLabel.htmlFor = "plots-over";
-    const overPick = document.createElement("select");
-    overPick.id = "plots-over";
-    for (const [value, text] of [["gated", "gated targets"], ["all", "all candidates"]]) {
-      const option = document.createElement("option");
-      option.value = value;
-      option.textContent = text;
-      overPick.append(option);
-    }
-    overParam.append(overLabel, overPick);
-    overRow.append(overParam);
-    plotsBox.body.append(overRow);
-    let plotting = null;
-    const plotRows = [["pca", "Principal components"], ["umap", "UMAP"]].map(([kind, name]) => {
-      const row = document.createElement("div");
-      row.className = "plot-row";
-      row.dataset.kind = kind;
-      const title = document.createElement("span");
-      title.className = "plot-name";
-      title.textContent = name;
-      const press = document.createElement("button");
-      press.type = "button";
-      press.className = "run";
-      press.textContent = "Compute";
-      const note = document.createElement("div");
-      note.className = "plot-note";
-      row.append(title, press, note);
-      plotsBox.body.append(row);
-      press.addEventListener("click", async () => {
-        if (plotting === kind) { ctx.stopPlot?.(); press.textContent = "stopping…"; press.disabled = true; return; }
-        if (plotting) return;
-        plotting = kind;
-        const over = overPick.value;
-        for (const one of plotRows) one.press.disabled = one.kind !== kind;
-        overPick.disabled = true;
-        press.textContent = "Interrupt";
-        note.className = "plot-note";
-        note.textContent = "starting…";
+    /* Complex feature dimensions: the ticks say which, Compute computes
+       them over every candidate, here where the gating is done, and their
+       columns become axes the pickers above offer like any other pair.
+       Nothing else happens -- the plot stays on the pair it shows. After a
+       Compute the pickers hold exactly what is ticked: an unticked one's
+       columns, and any gate drawn on them, go. Both ticked is one UMAP,
+       which writes the components it stands on. */
+    const reduceBox = sideGroup("Complex feature dimensions");
+    reduceBox.group.id = "reduction";
+    const DIMENSIONS = { pca: ["pca_1", "pca_2"], umap: ["umap_1", "umap_2"] };
+    const ticks = Object.fromEntries([["pca", "PCA"], ["umap", "UMAP"]].map(([kind, name]) => {
+      const row = document.createElement("label");
+      row.className = "reduce-row";
+      const tick = document.createElement("input");
+      tick.type = "checkbox";
+      tick.id = `reduce-${kind}`;
+      row.append(tick, ` ${name}`);
+      reduceBox.body.append(row);
+      return [kind, tick];
+    }));
+    const reduceAct = document.createElement("div");
+    reduceAct.className = "reduce-act";
+    const computePress = document.createElement("button");
+    computePress.type = "button";
+    computePress.className = "run";
+    computePress.id = "reduce-compute";
+    computePress.textContent = "Compute";
+    const reduceNote = document.createElement("span");
+    reduceNote.className = "reduce-note";
+    reduceAct.append(computePress, reduceNote);
+    reduceBox.body.append(reduceAct);
+    let reducing = false;
+    const forget = (columns) => {
+      ctx.forgetColumns?.(columns);
+      if (columns.includes(fx) || columns.includes(fy)) {
+        fx = "intensity_mean"; fy = "eccentricity";
+      }
+      const kept = ctx.gates().filter((gate) => !columns.includes(gate.fx) && !columns.includes(gate.fy));
+      if (kept.length !== ctx.gates().length) commit(kept);
+    };
+    computePress.addEventListener("click", async () => {
+      if (reducing) { ctx.stopPlot?.(); computePress.textContent = "stopping…"; computePress.disabled = true; return; }
+      const wanted = Object.keys(DIMENSIONS).filter((kind) => ticks[kind].checked);
+      for (const kind of Object.keys(DIMENSIONS)) if (!wanted.includes(kind)) forget(DIMENSIONS[kind]);
+      if (wanted.length) {
+        reducing = true;
+        for (const tick of Object.values(ticks)) tick.disabled = true;
+        computePress.textContent = "Interrupt";
+        reduceNote.className = "reduce-note";
+        reduceNote.textContent = "computing…";
         try {
-          const out = await ctx.computePlot(kind, over, (sentence) => { if (sentence) note.textContent = sentence; });
-          note.textContent = out.stopped
-            ? "stopped by hand"
-            : `over ${out.objects} ${over === "gated" ? "gated targets" : "candidates"}`
-              + (Number.isFinite(out.seconds) ? ` · ${out.seconds} s` : "");
-          if (!out.stopped) {
-            generation += 1;
-            refreshPickers();
-            draw();
-          }
+          const out = await ctx.computePlot(wanted.includes("umap") ? "umap" : "pca",
+            wanted.flatMap((kind) => DIMENSIONS[kind]));
+          reduceNote.textContent = out.stopped ? "stopped by hand" : "";
         } catch (why) {
-          note.className = "plot-note warn";
-          note.textContent = `failed — ${why.message}`;
+          reduceNote.className = "reduce-note warn";
+          reduceNote.textContent = `failed — ${why.message}`;
         } finally {
-          plotting = null;
-          for (const one of plotRows) { one.press.disabled = false; one.press.textContent = "Compute"; }
-          overPick.disabled = false;
-          sayWhatThePlotsAreOver();
+          reducing = false;
+          for (const tick of Object.values(ticks)) tick.disabled = false;
+          computePress.textContent = "Compute";
+          computePress.disabled = false;
         }
-      });
-      return { kind, press, note };
+      }
+      generation += 1;
+      refreshPickers(); renderList(); draw(); sayIt();
     });
-    /* Over the targets in the gates when there are gates, and every
-       candidate when there are none to be over. */
-    const sayWhatThePlotsAreOver = () => {
-      const gatedOption = overPick.querySelector('option[value="gated"]');
-      const anyGated = ctx.gated().size > 0;
-      gatedOption.disabled = !anyGated;
-      if (!anyGated) overPick.value = "all";
-    };
-    let overChosen = false;
-    overPick.addEventListener("change", () => { overChosen = true; });
-    const followTheGates = () => {
-      sayWhatThePlotsAreOver();
-      if (!overChosen && ctx.gated().size > 0) overPick.value = "gated";
-    };
 
-    side.append(method.group, boxed.group, plotsBox.group);
+    side.append(method.group, boxed.group, reduceBox.group);
     host.append(side);
 
     const sx = (v, w) => PAD.l + ((v - xLo) / (xHi - xLo)) * (w - PAD.l - PAD.r);
@@ -326,7 +304,6 @@ export default {
     const commit = (gates) => {
       ctx.setGates(gates, cellsInAllGates(theCells(), gates), ctx.cap());
       generation += 1;
-      followTheGates();
       sayIt();
       renderList();
       draw();
@@ -752,10 +729,9 @@ export default {
     refreshPickers();
     renderList();
     sayIt();
-    followTheGates();
     draw();
     return {
-      redraw: () => { generation += 1; refreshPickers(); renderList(); sayIt(); followTheGates(); draw(); },
+      redraw: () => { generation += 1; refreshPickers(); renderList(); sayIt(); draw(); },
     };
   },
 };

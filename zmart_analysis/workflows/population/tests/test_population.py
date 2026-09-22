@@ -68,7 +68,7 @@ def test_the_components_are_written_beside_the_table(tmp_path):
     got = _plotted(table, "pca")
     assert got["written"] == {"pca": str(table.with_name("overview_abc123_pca.csv"))}
     header, ids, values = _columns(got["written"]["pca"])
-    assert header == ["id", "pc_1", "pc_2"] and ids[:3] == ["cell0", "cell1", "cell2"]
+    assert header == ["id", "pca_1", "pca_2"] and ids[:3] == ["cell0", "cell1", "cell2"]
     assert abs(values[0::2, 0].mean() - values[1::2, 0].mean()) > 1.0
 
 

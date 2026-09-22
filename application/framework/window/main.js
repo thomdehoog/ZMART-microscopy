@@ -1540,13 +1540,15 @@ let stageWatch = null;
         drawStage(); renderTabs(); renderActionBar(); renderRail();
       },
       tilesetOf: tilesetOfField,
-      /* A multidimensional plot, over the targets in the gates or every
-         candidate: its columns land in each object's features by id, which
-         is all the axis pickers need to offer them. */
-      computePlot: async (kind, over, onDoing) => {
-        const ids = over === "gated" ? [...state.gated] : null;
-        const out = await backend.computePlot({ kind, ids, onDoing });
+      /* A dimensionality reduction over every candidate: its two columns
+         land in each object's features by id, which is all the axis
+         pickers need to offer them. Only the columns asked for: a UMAP
+         also writes the components it stood on, which have a tick of
+         their own. */
+      computePlot: async (kind, wanted) => {
+        const out = await backend.computePlot({ kind, ids: null });
         for (const { columns, ids: landed, values } of out.columns) {
+          if (!columns.every((name) => wanted.includes(name))) continue;
           landed.forEach((id, i) => {
             const cell = state.cells.get(id);
             if (!cell) return;
@@ -1556,6 +1558,12 @@ let stageWatch = null;
         return out;
       },
       stopPlot: () => backend.stopPlot?.(),
+      forgetColumns: (names) => {
+        for (const cell of state.cells.values()) {
+          if (!cell.features) continue;
+          for (const name of names) delete cell.features[name];
+        }
+      },
       /* Whether Restrict has drawn under the ceiling: the plot then marks
          what it kept over what the gates let through. */
       restricted: () => state.restricted,

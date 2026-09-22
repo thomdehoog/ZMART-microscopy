@@ -1762,7 +1762,7 @@ def test_the_components_are_computed_apart_and_handed_back_as_columns(monkeypatc
     def pretend(kind, table, ids):
         asked.update(kind=kind, table=table, ids=ids)
         out = table.with_name(table.name.replace("_objects.csv", "_pca.csv"))
-        out.write_text("id,pc_1,pc_2\nP0_obj1,1.5,-2.0\nP1_obj1,0.5,3.0\n", encoding="utf-8")
+        out.write_text("id,pca_1,pca_2\nP0_obj1,1.5,-2.0\nP1_obj1,0.5,3.0\n", encoding="utf-8")
         return {"written": {"pca": str(out)}, "objects": 2, "features": ["area"]}
 
     monkeypatch.setattr(bridge, "_plot_through_the_analysis", pretend)
@@ -1772,7 +1772,7 @@ def test_the_components_are_computed_apart_and_handed_back_as_columns(monkeypatc
     assert asked["kind"] == "pca" and asked["ids"] == ["P1_obj1", "P0_obj1"]
     assert asked["table"].name == f"overview_{records[0]['acquisition_hash']}_objects.csv"
     columns = bridge._plot_columns("pca")
-    assert columns == {"columns": ["pc_1", "pc_2"], "ids": ["P0_obj1", "P1_obj1"],
+    assert columns == {"columns": ["pca_1", "pca_2"], "ids": ["P0_obj1", "P1_obj1"],
                        "values": [[1.5, 0.5], [-2.0, 3.0]]}
 
 
@@ -1839,5 +1839,5 @@ def test_the_components_are_really_computed_over_a_detected_population(monkeypat
     got = _plotted({"kind": "pca"})
     assert got["error"] is None, got["error"]
     columns = bridge._plot_columns("pca")
-    assert columns["columns"] == ["pc_1", "pc_2"]
+    assert columns["columns"] == ["pca_1", "pca_2"]
     assert sorted(columns["ids"]) == sorted(f"P{i}_obj1" for i in range(12))

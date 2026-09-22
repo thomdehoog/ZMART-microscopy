@@ -396,7 +396,7 @@ export const backend = {
     const columnsOf = (names, salt) => ({
       columns: names, ids: [...over], values: [over.map((id) => place(id, salt)), over.map((id) => place(id, salt + 1))],
     });
-    const columns = [columnsOf(["pc_1", "pc_2"], 11)];
+    const columns = [columnsOf(["pca_1", "pca_2"], 11)];
     if (kind === "umap") columns.push(columnsOf(["umap_1", "umap_2"], 23));
     return { stopped: false, objects: over.length, seconds: 0.1, columns };
   },

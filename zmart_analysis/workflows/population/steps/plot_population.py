@@ -5,7 +5,7 @@ time; this folds all of them into two axes so the population's own
 structure can be gated on too -- objects that are alike stand together,
 whatever combination of columns makes them alike:
 
-- ``pca``, the first two principal components (``pc_1``, ``pc_2``): linear,
+- ``pca``, the first two principal components (``pca_1``, ``pca_2``): linear,
   and a fraction of a second over half a million objects;
 - ``umap``, a UMAP layout (``umap_1``, ``umap_2``) of the first 50 of those
   components: minutes over half a million, which is why the operator asks
@@ -48,7 +48,7 @@ METADATA = {
 }
 
 #: The two plots there are, and the columns each lands as.
-KINDS = {"pca": ("pc_1", "pc_2"), "umap": ("umap_1", "umap_2")}
+KINDS = {"pca": ("pca_1", "pca_2"), "umap": ("umap_1", "umap_2")}
 
 #: Columns of the population table that are not measurements of the object.
 NOT_MEASURED = {"field", "position_label", "id", "x_um", "y_um", "intensity", "r", "label"}

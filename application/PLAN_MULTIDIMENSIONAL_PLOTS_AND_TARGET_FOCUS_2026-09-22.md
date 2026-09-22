@@ -21,7 +21,7 @@ A second white box under Feature gating, headed **Multidimensional plots**. In i
   a gate exists) or **every candidate**;
 - a progress line while it runs, with Interrupt, like detection's.
 
-When a plot lands, its two columns (`umap_1`/`umap_2`, `pc_1`/`pc_2`) appear in the axis pickers of the
+When a plot lands, its two columns (`umap_1`/`umap_2`, `pca_1`/`pca_2`) appear in the axis pickers of the
 feature plot above, and the plot can be gated on like any pair. The pickers already offer the union of every
 cell's feature columns, so no picker work: the columns arrive on the cells and the pickers follow.
 
@@ -74,7 +74,7 @@ the bridge, not an analysis worker). PCA needs only scikit-learn, already presen
   one runs is refused; stop puts the worker down; the conditioning is pinned on a fixture without umap.
 - Page unit: `computePlot` polls and hands back the columns; the gate plot's pickers offer `umap_1` after a
   landing (the existing picker test, with the column arriving late).
-- Walk: at Step 7, press Compute for principal components on the mock, see the pickers gain `pc_1`, choose
+- Walk: at Step 7, press Compute for principal components on the mock, see the pickers gain `pca_1`, choose
   it, and the plot redraws.
 
 ### Not in this plan
@@ -193,7 +193,7 @@ of each.
 3. `parts/microscope/live.js` + `mock.js`: `computePlot`.
 4. `steps/refine_targets/gate.js`: the **Multidimensional plots** box under Feature gating; on landing,
    the columns merged into the cells by id (`ctx.landColumns(kind, rows)` in `main.js`), `redraw()`.
-5. `walk.spec.js` Step 7: press Compute for the components on the mock, pick `pc_1`.
+5. `walk.spec.js` Step 7: press Compute for the components on the mock, pick `pca_1`.
 
 ## The UMAP timing
 

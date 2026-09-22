@@ -25,13 +25,13 @@ describe("a feature some objects do not have", () => {
   /* A plot computed over the targets in the gates gives only them its two
      columns. The rest were never placed on it, so they are not at zero on
      it and no gate drawn there can take them. */
-  const placed = { id: "p", features: { pc_1: 0.1, pc_2: 0.1 } };
+  const placed = { id: "p", features: { pca_1: 0.1, pca_2: 0.1 } };
   const unplaced = { id: "u", features: { area: 5 } };
-  const box = { fx: "pc_1", fy: "pc_2", vertices: [[-1, -1], [1, -1], [1, 1], [-1, 1]] };
+  const box = { fx: "pca_1", fy: "pca_2", vertices: [[-1, -1], [1, -1], [1, 1], [-1, 1]] };
 
   it("is had only by the objects that carry it", () => {
-    expect(hasFeature(placed, "pc_1")).toBe(true);
-    expect(hasFeature(unplaced, "pc_1")).toBe(false);
+    expect(hasFeature(placed, "pca_1")).toBe(true);
+    expect(hasFeature(unplaced, "pca_1")).toBe(false);
     expect(hasFeature({ id: "d", area: 3 }, "area"), "the detector's own pair counts").toBe(true);
   });
 
