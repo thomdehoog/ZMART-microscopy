@@ -196,10 +196,16 @@ def _a_place_to_write(into: Path, name: str) -> Path:
     It sits next to the watched folder rather than inside it, so nothing the
     viewer lists can ever be half-written. Its name says what it is, so a
     folder left behind by a crash is recognisable and safe to delete.
+
+    Short, on purpose: Windows counts a path to 260 characters unless told
+    otherwise, and a chunk file carries a 40-character suffix while zarr
+    writes it. Under a staging folder named after the store, a fine
+    focussing stack's chunk ran to 270 and the store was never written.
+    The name the store is published under (*name*) is the only long one.
     """
-    staging = into.parent / f".writing-{into.name}"
+    staging = into.parent / ".writing" / uuid.uuid4().hex[:8]
     staging.mkdir(parents=True, exist_ok=True)
-    return staging / f"{name}.{uuid.uuid4().hex[:8]}"
+    return staging / "store.zarr"
 
 
 def _publish(built: Path, published: Path) -> Path:
@@ -216,11 +222,11 @@ def _publish(built: Path, published: Path) -> Path:
     built.rename(published)
     if retired is not None:
         shutil.rmtree(retired, ignore_errors=True)
-    staging = built.parent
-    try:
-        staging.rmdir()  # only succeeds once nothing else is being written
-    except OSError:
-        pass
+    for staging in (built.parent, built.parent.parent):
+        try:
+            staging.rmdir()  # only succeeds once nothing else is being written
+        except OSError:
+            pass
     return published
 
 
