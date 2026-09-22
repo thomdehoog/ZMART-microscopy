@@ -12,6 +12,13 @@
  * is what lets `gating.test.js` pin the rules without one.
  */
 
+/** Whether a cell carries a value for a named feature at all: a plot
+    computed over part of the population gives its columns to that part
+    only. */
+export function hasFeature(cell, name) {
+  return Number.isFinite(cell.features?.[name]) || Number.isFinite(cell[name]);
+}
+
 /** A cell's value for a named feature: its own row first, the two the
     detector always reports -- area, intensity -- as the fallback. */
 export function cellFeature(cell, name) {
@@ -59,7 +66,8 @@ export function cellsInAllGates(cells, gates) {
   if (!gates.length) return taken;
   for (const cell of cells) {
     const inEvery = gates.every((gate) =>
-      insidePolygon(cellFeature(cell, gate.fx), cellFeature(cell, gate.fy), gate.vertices));
+      hasFeature(cell, gate.fx) && hasFeature(cell, gate.fy)
+      && insidePolygon(cellFeature(cell, gate.fx), cellFeature(cell, gate.fy), gate.vertices));
     if (inEvery) taken.add(cell.id);
   }
   return taken;

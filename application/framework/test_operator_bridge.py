@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import sys
 import tempfile
 import time
 from pathlib import Path
@@ -1726,3 +1727,117 @@ def test_targets_are_really_focussed_and_taken_on_the_mock(monkeypatch, tmp_path
     assert (bridge._run / "target_focussing" / "data").is_dir()
     assert list((bridge._run / "positions" / "target_focussing").glob("*.ome.zarr"))
     assert list((bridge._run / "positions" / "targets").glob("*.ome.zarr"))
+
+
+# --- the multidimensional plots ---------------------------------------------
+
+
+def _plotted(asked):
+    """Start a plot and wait for it, handing back what the page would poll."""
+    import time
+
+    bridge._compute_plot(asked)
+    for _ in range(600):
+        if not bridge._plots["running"]:
+            break
+        time.sleep(0.05)
+    return dict(bridge._plots)
+
+
+def test_a_plot_needs_the_population_table(monkeypatch):
+    """Nothing to plot before the whole overview has been detected."""
+    _an_overview_of_two_fields(monkeypatch)
+    with pytest.raises(RuntimeError, match="whole overview"):
+        bridge._compute_plot({"kind": "pca"})
+
+
+def test_the_components_are_computed_apart_and_handed_back_as_columns(monkeypatch):
+    """The page names the kind and the ids; the bridge runs the plot in a
+    process of its own over the population table and answers the two
+    columns an object, by id."""
+    records = _an_overview_of_two_fields(monkeypatch)
+    _discovered({"settings": {}})
+    asked = {}
+
+    def pretend(kind, table, ids):
+        asked.update(kind=kind, table=table, ids=ids)
+        out = table.with_name(table.name.replace("_objects.csv", "_pca.csv"))
+        out.write_text("id,pc_1,pc_2\nP0_obj1,1.5,-2.0\nP1_obj1,0.5,3.0\n", encoding="utf-8")
+        return {"written": {"pca": str(out)}, "objects": 2, "features": ["area"]}
+
+    monkeypatch.setattr(bridge, "_plot_through_the_analysis", pretend)
+    got = _plotted({"kind": "pca", "ids": ["P1_obj1", "P0_obj1"]})
+    assert got["error"] is None and got["kinds"] == ["pca"] and got["running"] is False
+    assert got["objects"] == 2
+    assert asked["kind"] == "pca" and asked["ids"] == ["P1_obj1", "P0_obj1"]
+    assert asked["table"].name == f"overview_{records[0]['acquisition_hash']}_objects.csv"
+    columns = bridge._plot_columns("pca")
+    assert columns == {"columns": ["pc_1", "pc_2"], "ids": ["P0_obj1", "P1_obj1"],
+                       "values": [[1.5, 0.5], [-2.0, 3.0]]}
+
+
+def test_a_plot_is_refused_while_one_runs_or_detection_runs(monkeypatch):
+    _an_overview_of_two_fields(monkeypatch)
+    _discovered({"settings": {}})
+    bridge._plots["running"] = True
+    try:
+        with pytest.raises(RuntimeError, match="already"):
+            bridge._compute_plot({"kind": "pca"})
+    finally:
+        bridge._plots["running"] = False
+    bridge._targets["running"] = True
+    try:
+        with pytest.raises(RuntimeError, match="detect"):
+            bridge._compute_plot({"kind": "pca"})
+    finally:
+        bridge._targets["running"] = False
+
+
+def test_a_stopped_plot_says_so_and_a_failed_one_says_why(monkeypatch):
+    _an_overview_of_two_fields(monkeypatch)
+    _discovered({"settings": {}})
+
+    put_down = []
+    monkeypatch.setattr(bridge.warm, "close", lambda: put_down.append(True))
+
+    def until_stopped(kind, table, ids):
+        # The hand's Interrupt puts the analysis worker down, and the job
+        # in it dies of that: the death is the stop, not a failure.
+        bridge._stop_plot()
+        raise RuntimeError("the worker went away")
+
+    monkeypatch.setattr(bridge, "_plot_through_the_analysis", until_stopped)
+    got = _plotted({"kind": "umap"})
+    assert got["stopped"] is True and got["error"] is None and put_down == [True]
+
+    def failing(kind, table, ids):
+        raise RuntimeError("only 2 objects; a plot needs at least 10")
+
+    monkeypatch.setattr(bridge, "_plot_through_the_analysis", failing)
+    got = _plotted({"kind": "umap"})
+    assert got["error"] == "only 2 objects; a plot needs at least 10"
+
+
+def test_the_components_are_really_computed_over_a_detected_population(monkeypatch):
+    """The whole route through the analysis, on the table discovery wrote:
+    twelve objects, the components landing by id."""
+    if not (Path(sys.prefix).parent / "ZMART--population--main").is_dir():
+        pytest.skip("the population analysis environment is not set up on this machine")
+    records = [
+        _Driver().acquire(acquisition_type="overview", position_label=f"P{i}") for i in range(12)
+    ]
+    monkeypatch.setattr(bridge, "_records", {"overview": records})
+    monkeypatch.setattr(
+        bridge, "_find_targets",
+        lambda: _Serial(lambda record, field, settings: {"cells": [{
+            "id": f"{record['position_label']}_obj1", "field": field, "x": 1.0 * field, "y": 0.0,
+            "area": 10.0 + field, "intensity": 3.0, "r": 4.0,
+            "features": {"area": 10.0 + field, "eccentricity": (field % 3) / 3, "solidity": 1 - field / 20},
+        }], "device": "cpu"}),
+    )
+    _discovered({"settings": {}})
+    got = _plotted({"kind": "pca"})
+    assert got["error"] is None, got["error"]
+    columns = bridge._plot_columns("pca")
+    assert columns["columns"] == ["pc_1", "pc_2"]
+    assert sorted(columns["ids"]) == sorted(f"P{i}_obj1" for i in range(12))

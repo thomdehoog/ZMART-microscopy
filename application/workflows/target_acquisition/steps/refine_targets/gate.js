@@ -16,7 +16,7 @@
 
 import { rgbOf, stampDots } from "./dots.js";
 import {
-  cellFeature, cellsInAllGates, featureNames, gateForPair, insidePolygon,
+  cellFeature, cellsInAllGates, featureNames, gateForPair, hasFeature, insidePolygon,
 } from "./gating.js";
 import { sideGroup } from "../../../../framework/window/panels.js";
 
@@ -143,7 +143,97 @@ export default {
 
     boxed.body.append(axes, legend, wrap, readout, list);
 
-    side.append(method.group, boxed.group);
+    /* Two axes folded from every measured feature, computed only when the
+       operator asks: principal components in a moment, a UMAP in minutes
+       over a large population. Over the targets in the gates, or every
+       candidate. What lands is two more columns an object, so the pickers
+       above offer them like any other pair and a gate is drawn on them the
+       same way. */
+    const plotsBox = sideGroup("Multidimensional plots");
+    plotsBox.group.id = "plots";
+    const overRow = document.createElement("div");
+    overRow.className = "detect-params";
+    const overParam = document.createElement("div");
+    overParam.className = "param";
+    const overLabel = document.createElement("label");
+    overLabel.textContent = "Over";
+    overLabel.htmlFor = "plots-over";
+    const overPick = document.createElement("select");
+    overPick.id = "plots-over";
+    for (const [value, text] of [["gated", "gated targets"], ["all", "all candidates"]]) {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = text;
+      overPick.append(option);
+    }
+    overParam.append(overLabel, overPick);
+    overRow.append(overParam);
+    plotsBox.body.append(overRow);
+    let plotting = null;
+    const plotRows = [["pca", "Principal components"], ["umap", "UMAP"]].map(([kind, name]) => {
+      const row = document.createElement("div");
+      row.className = "plot-row";
+      row.dataset.kind = kind;
+      const title = document.createElement("span");
+      title.className = "plot-name";
+      title.textContent = name;
+      const press = document.createElement("button");
+      press.type = "button";
+      press.className = "run";
+      press.textContent = "Compute";
+      const note = document.createElement("div");
+      note.className = "plot-note";
+      row.append(title, press, note);
+      plotsBox.body.append(row);
+      press.addEventListener("click", async () => {
+        if (plotting === kind) { ctx.stopPlot?.(); press.textContent = "stopping…"; press.disabled = true; return; }
+        if (plotting) return;
+        plotting = kind;
+        const over = overPick.value;
+        for (const one of plotRows) one.press.disabled = one.kind !== kind;
+        overPick.disabled = true;
+        press.textContent = "Interrupt";
+        note.className = "plot-note";
+        note.textContent = "starting…";
+        try {
+          const out = await ctx.computePlot(kind, over, (sentence) => { if (sentence) note.textContent = sentence; });
+          note.textContent = out.stopped
+            ? "stopped by hand"
+            : `over ${out.objects} ${over === "gated" ? "gated targets" : "candidates"}`
+              + (Number.isFinite(out.seconds) ? ` · ${out.seconds} s` : "");
+          if (!out.stopped) {
+            generation += 1;
+            refreshPickers();
+            draw();
+          }
+        } catch (why) {
+          note.className = "plot-note warn";
+          note.textContent = `failed — ${why.message}`;
+        } finally {
+          plotting = null;
+          for (const one of plotRows) { one.press.disabled = false; one.press.textContent = "Compute"; }
+          overPick.disabled = false;
+          sayWhatThePlotsAreOver();
+        }
+      });
+      return { kind, press, note };
+    });
+    /* Over the targets in the gates when there are gates, and every
+       candidate when there are none to be over. */
+    const sayWhatThePlotsAreOver = () => {
+      const gatedOption = overPick.querySelector('option[value="gated"]');
+      const anyGated = ctx.gated().size > 0;
+      gatedOption.disabled = !anyGated;
+      if (!anyGated) overPick.value = "all";
+    };
+    let overChosen = false;
+    overPick.addEventListener("change", () => { overChosen = true; });
+    const followTheGates = () => {
+      sayWhatThePlotsAreOver();
+      if (!overChosen && ctx.gated().size > 0) overPick.value = "gated";
+    };
+
+    side.append(method.group, boxed.group, plotsBox.group);
     host.append(side);
 
     const sx = (v, w) => PAD.l + ((v - xLo) / (xHi - xLo)) * (w - PAD.l - PAD.r);
@@ -211,6 +301,9 @@ export default {
       const faint = ctx.gates().length ? 0.6 : 1;
       const rest = [], taken = [];
       for (const c of cells) {
+        /* Not placed on this pair at all: a plot computed over part of
+           the population gave its columns to that part only. */
+        if (!hasFeature(c, fx) || !hasFeature(c, fy)) continue;
         const at = [sx(cellFeature(c, fx), w) * dpr, sy(cellFeature(c, fy), h) * dpr];
         (marked.has(c.id) ? taken : rest).push(at);
       }
@@ -233,6 +326,7 @@ export default {
     const commit = (gates) => {
       ctx.setGates(gates, cellsInAllGates(theCells(), gates), ctx.cap());
       generation += 1;
+      followTheGates();
       sayIt();
       renderList();
       draw();
@@ -339,6 +433,7 @@ export default {
       const cells = theCells();
       xHi = 1; yHi = 1; xLo = 0; yLo = 0;
       for (const c of cells) {
+        if (!hasFeature(c, fx) || !hasFeature(c, fy)) continue;
         const vx = cellFeature(c, fx), vy = cellFeature(c, fy);
         xHi = Math.max(xHi, vx); yHi = Math.max(yHi, vy);
         xLo = Math.min(xLo, vx); yLo = Math.min(yLo, vy);
@@ -657,9 +752,10 @@ export default {
     refreshPickers();
     renderList();
     sayIt();
+    followTheGates();
     draw();
     return {
-      redraw: () => { generation += 1; refreshPickers(); renderList(); sayIt(); draw(); },
+      redraw: () => { generation += 1; refreshPickers(); renderList(); sayIt(); followTheGates(); draw(); },
     };
   },
 };
