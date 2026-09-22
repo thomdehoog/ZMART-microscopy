@@ -448,15 +448,19 @@ export const backend = {
         const { x, y, z: zMap = null } = position;
         let at = { x, y, ...(Number.isFinite(zMap) ? { z: zMap } : {}) };
         let found = null;
+        /* Where the objective stood for the stack: the height the target is
+           taken at when the stack shows no peak, map or no map. */
+        let standing = null;
         if (focus) {
           say("focussing on");
           if (focus.state) await ask("/api/state", focus.state);
           const stood = await ask("/api/xyz", at);
+          standing = stood.z.value;
           const stack = await ask("/api/acquire", {
             acquisition_type: "target_focussing", position_label: labels[index], options: null,
           });
           const scored = await ask("/api/targets/acquire/focus", {
-            record: stack, centre: stood.z.value, x, y,
+            record: stack, centre: standing, x, y,
           });
           const curve = scored.traces?.[focus.metric];
           const peak = curve?.samples?.length ? pickPeak(findCandidates(curve.samples)) : null;
@@ -469,7 +473,7 @@ export const backend = {
         }
         say("imaging");
         /* Already standing there after a stack with no peak: no second drive. */
-        const stood = focus && !found.found ? { z: { value: at.z ?? null } } : await ask("/api/xyz", at);
+        const stood = focus && !found.found ? { z: { value: standing } } : await ask("/api/xyz", at);
         const record = await ask("/api/acquire", {
           acquisition_type: "targets", position_label: labels[index], options: null,
         });
