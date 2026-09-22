@@ -334,6 +334,59 @@ export const backend = {
   },
 
   /**
+   * Take the targets one tile at a time, as the bridge's page-driven run
+   * does: a record a tile, in the scan's shape, with the height it was taken
+   * at. With `focus` on, the tile is focussed first through the pretend
+   * sweep, and the record says which height and why, as the live one does.
+   */
+  async acquireTargets({
+    positions, state = null, append = false, focus = null, ms = 2600, onProgress, onDoing,
+  } = {}) {
+    void state;
+    void append;
+    stopAsked.acquire = false;
+    scanned.targets = positions;
+    const records = [];
+    let stopped = false;
+    for (const [index, p] of positions.entries()) {
+      if (stopAsked.acquire) { stopped = true; break; }
+      const say = (phase) => onDoing?.(`${phase} target ${index + 1} of ${positions.length}`);
+      let z = p.z ?? null;
+      let found = null;
+      if (focus) {
+        say("focussing on");
+        const { points } = await this.measureFocus([{ x: p.x, y: p.y, startZ: z ?? undefined }],
+          { metric: focus.metric, extent: focus.extent ?? [1, 1] });
+        const [got] = points;
+        found = { job: focus.state?.job ?? null, z_map_um: z, z_peak_um: got?.zAuto ?? null, found: Number.isFinite(got?.zAuto) };
+        if (found.found) z = got.zAuto;
+      }
+      say("imaging");
+      await wait(Math.max(60, ms / Math.max(1, positions.length)));
+      const stableAt = p.position_index ?? index;
+      const path = `targets/targets_pretend_${labelFor(stableAt, p)}_T000000_C00_Z00000.ome.tiff`;
+      records.push({
+        acquisition_type: "targets",
+        position_label: labelFor(stableAt, p),
+        images: [path],
+        planes: [{ t: 0, c: 0, z: 0, path, x_um: p.x, y_um: p.y, z_um: z }],
+        requested_position_um: { x: p.x, y: p.y, z },
+        taken: performance.now(),
+        focus: found,
+      });
+      onProgress?.(records.length, positions.length, { x: p.x, y: p.y, z }, records);
+    }
+    onDoing?.(null);
+    return { done: records.length, of: positions.length, records, stopped };
+  },
+
+  /** The operator's Interrupt for the target run, as the bridge offers it. */
+  async stopAcquireTargets() {
+    stopAsked.acquire = true;
+    return { stopped: true };
+  },
+
+  /**
    * The targets in the overview's fields -- all of them, or the ones named --
    * each field's reaching `onField` as it is looked at. Invented: a handful of
    * cells per field, the same ones every time, laid inside the field the scan
@@ -450,7 +503,7 @@ const scanned = {};
 
 /* The operator's hand on the brake, as the bridge keeps it: set by the stop
    verbs, read by the pretend runs between two fields. */
-const stopAsked = { scan: false, focus: false, targets: false };
+const stopAsked = { scan: false, focus: false, targets: false, acquire: false };
 
 /* The jobs this pretend instrument has stored, and which is chosen. The same
    three the controller's mock driver keeps, so the page meets one instrument

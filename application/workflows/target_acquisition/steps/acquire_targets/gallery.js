@@ -193,13 +193,50 @@ export default {
     const recording = document.createElement("div");
     recording.id = "target-type-acquire";
     ctx.recordingSlot(recording, {
-      label: "Acquisition settings", key: "targetType",
+      label: "Target acquisition settings", key: "targetType",
       unnamed: true,
       takes: "Import target acquisition settings",
       retakes: "Update",
       changed: () => ctx.changed?.(),
     });
-    side.append(recording, progress.group, listBox.group, pairBox.group, act);
+
+    /* Focussing before each target: off, and every target is imaged at the
+       height the focus map gives; on, a focussing job of its own is read
+       here, at the targets' magnification, and each target gets a stack
+       under it before its capture. The switch stands in a box of its own
+       under the target settings; the recording line appears under the
+       switch only when it is on. */
+    const focusBox = sideGroup("Target focussing settings");
+    focusBox.group.id = "target-focus";
+    const focusRow = document.createElement("label");
+    focusRow.className = "focus-switch";
+    const focusOn = document.createElement("input");
+    focusOn.type = "checkbox";
+    focusOn.id = "target-focus-on";
+    focusOn.checked = !!ctx.focusOn?.();
+    focusRow.append(focusOn, " Focus before each target");
+    const focusRecording = document.createElement("div");
+    focusRecording.id = "target-focus-recording";
+    const showTheFocusLine = () => {
+      focusRecording.hidden = !focusOn.checked;
+      if (!focusOn.checked) return;
+      ctx.recordingSlot(focusRecording, {
+        label: "Target focussing job", key: "targetFocus",
+        unnamed: true,
+        takes: "Import target focussing settings",
+        retakes: "Update",
+        warn: ctx.sameJobElsewhere,
+        changed: () => ctx.changed?.(),
+      });
+    };
+    focusOn.addEventListener("change", () => {
+      ctx.setFocusOn?.(focusOn.checked);
+      showTheFocusLine();
+    });
+    focusBox.body.append(focusRow, focusRecording);
+    showTheFocusLine();
+
+    side.append(recording, focusBox.group, progress.group, listBox.group, pairBox.group, act);
     host.append(side);
 
     const targetIdOf = (tile) => tile?.targetId ?? tile?.covers?.[0] ?? null;
@@ -246,6 +283,17 @@ export default {
       meta.className = "meta";
       meta.append(document.createTextNode(
         `${cell.id} · ${(tile.x / 1000).toFixed(2)}, ${(tile.y / 1000).toFixed(2)} mm`));
+      /* Which height the target was imaged at, when it was focussed first:
+         the peak, or the map's height when the stack showed none. */
+      const focus = ctx.tileByKey(key) && ctx.focusOf?.(key);
+      if (focus) {
+        const line = document.createElement("div");
+        line.className = focus.found ? "focus-note" : "focus-note warn";
+        line.textContent = focus.found
+          ? `focussed at ${Number(focus.z_peak_um).toFixed(1)} µm`
+          : "focus not found, imaged at the map's height";
+        meta.append(line);
+      }
 
       card.append(imgs, meta);
       return card;

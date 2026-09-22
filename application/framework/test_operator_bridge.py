@@ -563,34 +563,116 @@ def test_a_scan_keeps_the_record_of_every_capture(monkeypatch):
     assert all(r["images"] for r in scanned["records"])
 
 
-def test_rerunning_one_stable_position_replaces_only_its_record(monkeypatch):
-    """A selected target is reacquired without throwing the other pairs away."""
-    driver = _Capturing()
-    monkeypatch.setattr(bridge, "_session", driver)
+# --- the target run, the page's own loop ------------------------------------
+
+
+def _targets_taken(positions, *, append=False, focus=None):
+    """Acquire the targets the way the page drives it: begin, then per tile
+    drive, capture and land (with a focussing stack scored first when
+    *focus* says so), then end. Hands back the bridge's ledger."""
+    begun = bridge._begin_target_run({"positions": positions, "append": append})
+    for index, position in enumerate(positions):
+        at = bridge._drive_to({"x": position["x"], "y": position["y"],
+                               **({"z": position["z"]} if "z" in position else {})})
+        found = None
+        if focus:
+            stack = bridge._capture({
+                "acquisition_type": "target_focussing", "position_label": begun["labels"][index],
+            })
+            found = bridge._score_target_focus({"record": stack, "centre": at["z"]["value"],
+                                                "x": position["x"], "y": position["y"]})
+            if found["z"] is not None:
+                at = bridge._drive_to({"x": position["x"], "y": position["y"], "z": found["z"]})
+        record = bridge._capture({"acquisition_type": "targets", "position_label": begun["labels"][index]})
+        bridge._target_landed({
+            "record": record,
+            "position": {"x": position["x"], "y": position["y"], "z": at["z"]["value"]},
+            "focus": found and {"z_peak_um": found["z"], "found": found["z"] is not None},
+        })
+    bridge._end_target_run({})
+    assert bridge._acquired["error"] is None, bridge._acquired["error"]
+    return dict(bridge._acquired)
+
+
+def test_the_targets_are_taken_one_by_one_as_the_page_drives_them(driver, monkeypatch):
+    """No procedure in the bridge: the page drives, captures and lands each
+    tile, and the bridge keeps the record the way the scan kept it -- where
+    it was asked for, when it was taken, its OME-Zarr position -- and a
+    ledger a reopened page can read, since the number it holds."""
+    kept = []
+    monkeypatch.setattr(bridge, "move_record_images", lambda record, where: None)
+    monkeypatch.setattr(bridge, "_keep_position_as_zarr", lambda record, kind: kept.append((record["position_label"], kind)))
+    got = _targets_taken([
+        {"x": 10, "y": 20, "z": 5, "position_index": 0},
+        {"x": 30, "y": 40, "z": 6, "position_index": 1},
+    ])
+    labels = [record["position_label"] for record in bridge._records["targets"]]
+    assert labels == ["K00_M000000_G000000_P000000_V00", "K00_M000000_G000000_P000001_V00"]
+    assert kept == [(labels[0], "targets"), (labels[1], "targets")]
+    assert driver.captured == [("targets", labels[0]), ("targets", labels[1])]
+    assert driver.drove_to == [(10.0, 20.0, 5.0), (30.0, 40.0, 6.0)]
+    first = bridge._records["targets"][0]
+    assert first["requested_position_um"] == {"x": 10.0, "y": 20.0, "z": 5.0}
+    assert first["taken"] > 0 and first["focus"] is None
+    assert got["done"] == got["of"] == 2 and got["running"] is False
+    later = bridge._the_target_run(since=1)
+    assert [record["position_label"] for record in later["records"]] == [labels[1]]
+    assert bridge._the_target_run(since=2)["records"] == []
+
+
+def test_rerunning_one_target_keeps_the_other_pairs(driver, monkeypatch):
+    """A selected target is reacquired without throwing the others away."""
     monkeypatch.setattr(bridge, "move_record_images", lambda record, where: None)
     monkeypatch.setattr(bridge, "_keep_position_as_zarr", lambda record, kind: None)
-    bridge._records["targets"] = []
-    bridge._scan.update(running=True, done=0, of=2, error=None, planned=[])
-    bridge._scan_worker(
-        [{"x": 10, "y": 20, "position_index": 0},
-         {"x": 30, "y": 40, "position_index": 1}],
-        acquisition_type="targets",
-    )
+    _targets_taken([
+        {"x": 10, "y": 20, "position_index": 0}, {"x": 30, "y": 40, "position_index": 1},
+    ])
     first = list(bridge._records["targets"])
-
-    bridge._scan.update(running=True, done=0, of=1, error=None, planned=[])
-    bridge._scan_worker(
-        [{"x": 31, "y": 41, "position_index": 1}],
-        acquisition_type="targets",
-    )
-
+    got = _targets_taken([{"x": 31, "y": 41, "position_index": 1}], append=True)
     assert [record["position_label"] for record in bridge._records["targets"]] == [
-        "K00_M000000_G000000_P000000_V00",
-        "K00_M000000_G000000_P000001_V00",
+        "K00_M000000_G000000_P000000_V00", "K00_M000000_G000000_P000001_V00",
     ]
     assert bridge._records["targets"][0] is first[0]
     assert bridge._records["targets"][1]["requested_position_um"]["x"] == 31.0
-    assert len(bridge._scan["records"]) == 1
+    assert len(got["records"]) == 1
+
+
+def test_a_target_is_focussed_first_when_the_page_asks(driver, monkeypatch):
+    """With focussing on, the page takes a stack with the target focussing
+    job, the bridge scores it under its own acquisition, and the target is
+    captured at the peak; the record says which height and why."""
+    monkeypatch.setattr(bridge, "move_record_images", lambda record, where: None)
+    kept = []
+    monkeypatch.setattr(bridge, "_keep_position_as_zarr", lambda record, kind: kept.append(kind))
+    driver.at["z"] = 12.0
+    _targets_taken([{"x": 10, "y": 20, "z": 12, "position_index": 0}], focus=True)
+    assert driver.captured == [
+        ("target_focussing", "K00_M000000_G000000_P000000_V00"),
+        ("targets", "K00_M000000_G000000_P000000_V00"),
+    ]
+    assert "target_focussing" in kept and kept[-1] == "targets"
+    record = bridge._records["targets"][0]
+    assert record["focus"]["found"] is True
+    assert record["focus"]["z_peak_um"] == record["requested_position_um"]["z"]
+
+
+def test_a_scan_cannot_start_while_targets_are_being_taken(driver):
+    """The stage is the target run's until the page ends it, and the other
+    way round."""
+    bridge._begin_target_run({"positions": [{"x": 0, "y": 0}]})
+    try:
+        with pytest.raises(RuntimeError, match="target"):
+            bridge._start_scan({"positions": [{"x": 0, "y": 0}]})
+        with pytest.raises(RuntimeError, match="run"):
+            bridge._begin_focus({"of": 1})
+    finally:
+        bridge._end_target_run({})
+    bridge._scan["running"] = True
+    try:
+        with pytest.raises(RuntimeError, match="run"):
+            bridge._begin_target_run({"positions": [{"x": 0, "y": 0}]})
+    finally:
+        bridge._scan["running"] = False
 
 
 def test_a_scan_captures_under_the_kind_of_scan_it_is(monkeypatch):
@@ -1596,3 +1678,45 @@ def test_a_setup_that_is_not_open_is_a_plain_error(a_mock_rig):
     with pytest.raises(ValueError, match="unknown measurement"):
         bridge._setup_open({"connection": dict(a_mock_rig.CONNECTION)})
         bridge._setup_measure({"what": "colour"})
+
+
+def test_targets_are_really_focussed_and_taken_on_the_mock(monkeypatch, tmp_path):
+    """The target run with focussing on, with nothing stood in for: the
+    mock driver through the controller, the focussing stack filed under its
+    own acquisition and scored, the target taken at the peak."""
+    import zmart_controller
+    from zmart_drivers.mock import mock_driver
+
+    mock_driver.register_mock()
+    instrument = next(i for i in zmart_controller.get_instruments() if i["vendor"] == "mock")
+    instrument["output_root"] = str(tmp_path)
+    instrument["configuration"] = mock_setup.configured()
+    session = zmart_controller.set_instrument(instrument)
+    monkeypatch.setattr(bridge, "_session", session)
+    # A short run folder: under pytest's own, named after this test, the
+    # store's chunk files ran past Windows' 260 characters and the
+    # conversion failed on the path alone.
+    monkeypatch.setattr(bridge, "_run", Path(tempfile.mkdtemp(prefix="zmt-")) / "run")
+    bridge._run.mkdir()
+    # The real scorer, through the warm analysis: this test is about the
+    # whole route, and the fake one reads a height the mock does not write.
+    monkeypatch.setattr(bridge, "_score_a_stack", lambda: bridge.focus_score.through(bridge.warm.the_analysis()))
+    kept = []
+    real_keep = bridge._keep_position_as_zarr
+    monkeypatch.setattr(bridge, "_keep_position_as_zarr", lambda record, kind: (real_keep(record, kind), kept.append((kind, record))))
+    try:
+        bridge._apply_state({"job": "Focussing"})
+        # No height asked: the stack is taken about where the mock's
+        # objective stands, which is where its tissue is.
+        got = _targets_taken([{"x": 0.0, "y": 0.0, "compartment": 1, "group": 1}], focus=True)
+    finally:
+        session.disconnect()
+    assert got["done"] == 1
+    record = bridge._records["targets"][0]
+    stack = next(one for kind, one in kept if kind == "target_focussing")
+    assert stack.get("zarr_error") is None, stack["zarr_error"]
+    assert len(stack["planes"]) > 1, "the Focussing job takes a stack"
+    assert record["focus"]["found"] is True
+    assert (bridge._run / "target_focussing" / "data").is_dir()
+    assert list((bridge._run / "positions" / "target_focussing").glob("*.ome.zarr"))
+    assert list((bridge._run / "positions" / "targets").glob("*.ome.zarr"))
