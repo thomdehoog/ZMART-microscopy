@@ -72,6 +72,40 @@ function labelMap(base, label, redraw) {
    its way is drawn as nothing, since a dot that turns into a shape a
    moment later read as a flash on the picture. */
 const shapeOverlays = new Map();
+
+/* What is lit, sorted into its fields: built when the selection changes,
+   not on every paint. Sorting half a million cells on every pan or zoom,
+   with a style lookup for each, was the picture's unresponsiveness once a
+   large run had been gated -- 150 ms a frame, measured. Kept here at the
+   module, because the layers themselves are made anew on every draw; and
+   a field whose shapes could not be had looked each of its objects up
+   across every cell, so the cells are indexed by field and label too. */
+const sorted = { key: [], byField: null, strays: null };
+function litSortedIntoFields(run, lit, { whole, activeMode, css }) {
+  const key = [whole ? run.cells : lit, run.gated, run.tilePlan, run.cells.size, run.fieldLabels, activeMode];
+  if (sorted.byField && key.every((one, i) => one === sorted.key[i])) return sorted;
+  const uncovered = new Set((run.tilePlan?.uncovered ?? []).map((one) => one.id ?? one));
+  const ink = { warn: css("--warn-ink"), selected: css("--mark-selected"), context: css("--mark-context") };
+  const inkOf = (id) => (uncovered.has(id) ? ink.warn : run.gated.has(id) ? ink.selected : ink.context);
+  const byField = new Map();
+  const strays = [];
+  for (const id of lit) {
+    const c = run.cells.get(id);
+    if (!c) continue;
+    const fieldLabel = run.fieldLabels[c.field];
+    if (Number.isFinite(c.label) && fieldLabel) {
+      if (!byField.has(c.field)) byField.set(c.field, { wanted: new Map(), cells: new Map() });
+      const field = byField.get(c.field);
+      field.wanted.set(c.label, inkOf(id));
+      field.cells.set(c.label, c);
+    } else {
+      strays.push({ cell: c, ink: inkOf(id) });
+    }
+  }
+  sorted.key = key; sorted.byField = byField; sorted.strays = strays;
+  return sorted;
+}
+
 function shapeOverlay(base, fieldLabel, wanted, dress, redraw) {
   const stamp = [...wanted.entries()].map(([l, c]) => `${l}${c}`).sort().join(",")
     + `|${dress.colour}|${dress.show}`;
@@ -186,33 +220,6 @@ export function targetLayers(theRun) {
      no frame; reading `scale` here was a ReferenceError, and every click on
      a cell died on it. */
   let reach = 12 / 0.03;
-  /* What is lit, sorted into its fields: built when the selection changes,
-     not on every paint. Sorting half a million cells on every pan or zoom
-     was the picture's unresponsiveness once a large run had been gated;
-     and a field whose shapes could not be had looked each of its objects
-     up across every cell, so it is indexed by field and label here too. */
-  const sorted = { key: [], byField: null, strays: null };
-  const litSortedIntoFields = (lit, inkOf, whole) => {
-    const key = [whole ? run.cells : lit, run.gated, run.tilePlan, run.cells.size, run.fieldLabels, activeMode];
-    if (sorted.byField && key.every((one, i) => one === sorted.key[i])) return sorted;
-    const byField = new Map();
-    const strays = [];
-    for (const id of lit) {
-      const c = run.cells.get(id);
-      if (!c) continue;
-      const fieldLabel = run.fieldLabels[c.field];
-      if (Number.isFinite(c.label) && fieldLabel) {
-        if (!byField.has(c.field)) byField.set(c.field, { wanted: new Map(), cells: new Map() });
-        const field = byField.get(c.field);
-        field.wanted.set(c.label, inkOf(id));
-        field.cells.set(c.label, c);
-      } else {
-        strays.push(c);
-      }
-    }
-    sorted.key = key; sorted.byField = byField; sorted.strays = strays;
-    return sorted;
-  };
   return {
     cells: {
     key: "cells",
@@ -257,10 +264,7 @@ export function targetLayers(theRun) {
         : activeMode === "select" ? run.gated
           : (run.restricted.size ? run.restricted : run.gated);
       if (activeMode !== "detect" && (whole ? run.cells.size : lit.size)) {
-        const uncovered = new Set((run.tilePlan?.uncovered ?? []).map((one) => one.id ?? one));
-        const inkOf = (id) => css(uncovered.has(id) ? "--warn-ink"
-          : run.gated.has(id) ? "--mark-selected" : "--mark-context");
-        const { byField, strays: lost } = litSortedIntoFields(lit, inkOf, whole);
+        const { byField, strays: lost } = litSortedIntoFields(run, lit, { whole, activeMode, css });
         const strays = [...lost];
         const base = run.overviewPictures;
         const dress = run.targetsDress;
@@ -281,16 +285,17 @@ export function targetLayers(theRun) {
             const [x, y] = place(t.x - half, t.y - half);
             ctx.drawImage(over.shapes, x, y, t.frameUm * scale, t.frameUm * scale);
           } else if (over.failed) {
-            strays.push(...cells.values());
+            for (const cell of cells.values()) strays.push({ cell, ink: wanted.get(cell.label) });
           }
         }
-        for (const c of strays) {
+        const screen = css("--screen");
+        for (const { cell: c, ink } of strays) {
           const [x, y] = place(c.x, c.y);
           if (x < -10 || y < -10 || x > w + 10 || y > h + 10) continue;
           ctx.beginPath(); ctx.arc(x, y, gr, 0, Math.PI * 2);
-          ctx.fillStyle = dress.colour ?? inkOf(c.id);
+          ctx.fillStyle = dress.colour ?? ink;
           ctx.fill();
-          ctx.lineWidth = 1.5; ctx.strokeStyle = css("--screen"); ctx.stroke();
+          ctx.lineWidth = 1.5; ctx.strokeStyle = screen; ctx.stroke();
         }
         ctx.globalAlpha = 1;
       }
