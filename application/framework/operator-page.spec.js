@@ -1613,7 +1613,7 @@ test("one walk of the whole run", async ({ page }) => {
     has: page.locator(".side-group-title", { hasText: "Target tile summary" }),
   });
   await expect(page.locator("#target-type .side-group-title"))
-    .toHaveText("Acquisition settings");
+    .toHaveText("Target acquisition settings");
   await expect(adding, "nothing can be added before acquisition settings exist")
     .toBeHidden();
   await expect(scanAreaSummary, "there is no result to summarise before areas are placed")
