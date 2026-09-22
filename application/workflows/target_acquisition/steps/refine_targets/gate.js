@@ -49,9 +49,8 @@ export default {
     /* Which features the plot spans right now. The detector's two stand-ins
        until the classical features land; then brightness across and shape
        up, intensity_mean by eccentricity, which is the pair an operator
-       gates nuclei on first. The move is made once. A pair the operator chose is
-       kept, and the map (umap_1, umap_2) is in the pickers for that hand
-       only: an embedding is not a default anyone can read a gate off. */
+       gates nuclei on first. The move is made once. A pair the operator
+       chose is kept. */
     let fx = "area";
     let fy = "intensity";
     let chosenByHand = false;

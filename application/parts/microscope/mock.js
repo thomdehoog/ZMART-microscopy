@@ -385,14 +385,6 @@ export const backend = {
         running: true,
       });
     }
-    /* Then the whole population at once, as the bridge does after its
-       fields: the features are finalized over every object found. */
-    if (!fields && gave.length && !stopAsked.targets) {
-      const objects = gave.reduce((sum, field) => sum + field.cells.length, 0);
-      onDoing?.(`finalizing feature extraction: ${objects} objects`);
-      onProgress?.(gave.length, found.length, { phase: "finalizing", objects, running: true });
-      await wait(150);
-    }
     onDoing?.(null);
     return { fields: gave, failed: [], stopped: stopAsked.targets };
   },

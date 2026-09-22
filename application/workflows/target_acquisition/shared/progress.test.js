@@ -73,12 +73,12 @@ describe("a progress box", () => {
     expect(words(b)[1], "its own pace takes over from the first item").toBe("1 of 10 · ≈ 45 s left");
   });
 
-  it("keeps sweeping through a whole-population phase after every field landed", () => {
+  it("stands still once every item landed", () => {
     const b = box();
     b.say({ start: true });
     b.tick(1_000);
-    b.say({ done: 9, of: 9, phase: "finalizing", running: true, objects: 4054 });
-    expect(words(b)[1]).toBe("9 of 9 · 4054 objects");
-    expect(bar(b).classList.contains("busy")).toBe(true);
+    b.say({ done: 9, of: 9 });
+    expect(words(b)[1]).toBe("9 of 9");
+    expect(bar(b).classList.contains("busy")).toBe(false);
   });
 });

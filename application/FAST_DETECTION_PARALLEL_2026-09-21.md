@@ -1,4 +1,9 @@
-# Fast detection runs its fields at once; the last phase is "finalizing feature extraction"
+# Fast detection runs its fields at once
+
+*2026-09-22: the population phase described below (the UMAP over every cell's features) has been
+removed. Discovery is complete when its last field lands; nothing runs over the whole population.
+The map grew with the population and gave automation nothing a threshold on a measured column does
+not. The parallel field loop is as described.*
 
 Date: 2026-09-21. Branch `codex/operator-named-views-simulator`.
 

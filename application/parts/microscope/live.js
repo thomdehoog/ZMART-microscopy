@@ -337,7 +337,7 @@ export const backend = {
     await ask("/api/targets/discover", { fields, settings });
     /* Each field once, by its number: the bridge lists fields as they land,
        in the analysis engine's order, and puts the list into the sample's
-       order before it finalizes, so a place in the list is not a field. */
+       order at the end, so a place in the list is not a field. */
     const shown = new Set();
     for (;;) {
       const progress = await askedPatiently("/api/targets/discover");
@@ -358,7 +358,6 @@ export const backend = {
           fields: progress.fields,
           failed: progress.failed ?? [],
           stopped: !!progress.stopped,
-          embeddingError: progress.embedding_error ?? null,
         };
       }
       await rest(300);
