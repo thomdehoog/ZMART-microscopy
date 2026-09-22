@@ -14,6 +14,7 @@
  * what it changes arrive in `ctx`, and it never reaches for the page.
  */
 
+import { rgbOf, stampDots } from "./dots.js";
 import {
   cellFeature, cellsInAllGates, featureNames, gateForPair, insidePolygon,
 } from "./gating.js";
@@ -185,12 +186,53 @@ export default {
     const theCells = () => [...ctx.cells()];
     const shownGate = () => gateForPair(ctx.gates(), fx, fy);
 
+    /* The population and the chosen, each stamped into a picture once and
+       drawn as a picture after: an arc per cell per frame took seconds at
+       half a million cells, and a drag redraws every frame. Rebuilt when
+       the cells, the axes, the gates or the box change -- `generation`
+       counts those -- never for a hand moving over the plot. */
+    let generation = 0;
+    const stamped = { key: null, crowd: null, chosen: null };
+    const pictureOf = (w, h, dpr, lay) => {
+      const cv = document.createElement("canvas");
+      cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
+      const paint = cv.getContext("2d");
+      const out = paint.createImageData(cv.width, cv.height);
+      lay(out.data, cv.width, cv.height);
+      paint.putImageData(out, 0, 0);
+      return cv;
+    };
+    const stampedPictures = (cells, marked, w, h) => {
+      const dpr = window.devicePixelRatio || 1;
+      const key = `${generation}|${fx}|${fy}|${w}|${h}|${dpr}`;
+      if (stamped.key === key) return stamped;
+      const crowd = cells.length;
+      const dot = crowd > 3000 ? 1.2 : crowd > 800 ? 1.7 : 2;
+      const faint = ctx.gates().length ? 0.6 : 1;
+      const rest = [], taken = [];
+      for (const c of cells) {
+        const at = [sx(cellFeature(c, fx), w) * dpr, sy(cellFeature(c, fy), h) * dpr];
+        (marked.has(c.id) ? taken : rest).push(at);
+      }
+      stamped.key = key;
+      stamped.crowd = pictureOf(w, h, dpr, (data, pw, ph) => stampDots(data, pw, ph, rest, {
+        radius: dot * dpr, rgb: rgbOf(ctx.css("--mark-context")),
+        alpha: (crowd > 3000 ? 0.35 : 0.5) * faint,
+      }));
+      stamped.chosen = pictureOf(w, h, dpr, (data, pw, ph) => stampDots(data, pw, ph, taken, {
+        radius: 3.8 * dpr, rgb: rgbOf(ctx.css("--mark-selected")), alpha: 1,
+        ring: { width: 2 * dpr, rgb: rgbOf(ctx.css("--screen")) },
+      }));
+      return stamped;
+    };
+
     /* Gates changed: the run takes the list, what they let through, and the
        ceiling as typed. The ceiling is not applied here -- the step's own
        press, Restrict, does that -- so what the plot rings is what the
        gates say, until the operator asks for the draw. */
     const commit = (gates) => {
       ctx.setGates(gates, cellsInAllGates(theCells(), gates), ctx.cap());
+      generation += 1;
       sayIt();
       renderList();
       draw();
@@ -363,40 +405,16 @@ export default {
       paint.fillText(fy, 0, 0);
       paint.restore();
 
-      const gated = ctx.gated();
-
-      // Every candidate is the context a gate is drawn and adjusted in, so
-      // the grey population stays under the gate once one exists -- fainter,
-      // so the targets it admits read as the selection. The legend says
-      // which is which; only the green ones go on to the next step.
-      const crowd = cells.length;
-      const dot = crowd > 3000 ? 1.2 : crowd > 800 ? 1.7 : 2;
-      const marked = gated;
-      {
-        const faint = ctx.gates().length ? 0.6 : 1;
-        paint.fillStyle = ctx.css("--mark-context");
-        paint.globalAlpha = (crowd > 3000 ? 0.35 : 0.5) * faint;
-        paint.beginPath();
-        for (const c of cells) {
-          if (marked.has(c.id)) continue;
-          const x = sx(cellFeature(c, fx), w), y = sy(cellFeature(c, fy), h);
-          paint.moveTo(x + dot, y); paint.arc(x, y, dot, 0, Math.PI * 2);
-        }
-        paint.fill();
-        paint.globalAlpha = 1;
-      }
-
-      /* Every target admitted by feature gating has one meaning and one
-         colour. Restriction belongs to tile placement in the next step; it
-         does not recolour this discovery result into another population. */
-      for (const c of cells) {
-        if (!marked.has(c.id)) continue;
-        const x = sx(cellFeature(c, fx), w), y = sy(cellFeature(c, fy), h);
-        paint.beginPath(); paint.arc(x, y, 3.8, 0, Math.PI * 2);
-        paint.fillStyle = ctx.css("--mark-selected");
-        paint.fill();
-        paint.lineWidth = 2; paint.strokeStyle = ctx.css("--screen"); paint.stroke();
-      }
+      /* Every candidate is the context a gate is drawn and adjusted in, so
+         the grey population stays under the gate once one exists -- fainter,
+         so the targets it admits read as the selection. The legend says
+         which is which; only the green ones go on to the next step. Every
+         target admitted by feature gating has one meaning and one colour:
+         restriction belongs to tile placement in the next step, and does
+         not recolour this discovery result into another population. */
+      const pictures = stampedPictures(cells, ctx.gated(), w, h);
+      paint.drawImage(pictures.crowd, 0, 0, w, h);
+      paint.drawImage(pictures.chosen, 0, 0, w, h);
 
       // this pair's own gate, and only its own — with its handles
       const gate = shownGate();
@@ -641,7 +659,7 @@ export default {
     sayIt();
     draw();
     return {
-      redraw: () => { refreshPickers(); renderList(); sayIt(); draw(); },
+      redraw: () => { generation += 1; refreshPickers(); renderList(); sayIt(); draw(); },
     };
   },
 };
