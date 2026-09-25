@@ -11,7 +11,7 @@ import numpy as np
 import tifffile
 from nis_useq.bridge import NisError
 
-IMAGE_SHAPE = (48, 64)
+IMAGE_SHAPE = (48, 64)  # height, width
 
 
 class FakeNisApi:
@@ -30,6 +30,7 @@ class FakeNisApi:
         self.focal_plane_z = 502.0  # where the PFS locks
         self.autofocus_result = 1
         self.calibrated = calibrated
+        self.image_shape = IMAGE_SHAPE
         self.captures = 0
         self.open_images = 0
         self.calls: list[str] = []
@@ -63,8 +64,9 @@ class FakeNisApi:
     def select_optical_configuration(self, name: str) -> None:
         self.calls.append(f"config({name})")
 
-    def set_exposure_ms(self, exposure_ms: float) -> None:
+    def set_exposure_ms(self, exposure_ms: float) -> float:
         self.calls.append(f"exposure({exposure_ms:g})")
+        return max(1.0, round(exposure_ms))  # the camera applies whole milliseconds
 
     # nosepiece
     def nosepiece_present(self) -> bool:
@@ -111,16 +113,13 @@ class FakeNisApi:
         self.open_images += 1
         self.calls.append("capture")
 
-    def image_info(self) -> dict[str, int]:
-        return {"width": IMAGE_SHAPE[1], "height": IMAGE_SHAPE[0], "bits": 16, "planes": 1}
-
     def pixel_size_um(self) -> float:
         return 0.108 if self.calibrated else 0.0
 
     def save_tiff(self, path: str) -> None:
         if not self.open_images:
             raise NisError("ImageSaveAs: no image is open")
-        tifffile.imwrite(path, np.full(IMAGE_SHAPE, self.captures, dtype=np.uint16))
+        tifffile.imwrite(path, np.full(self.image_shape, self.captures, dtype=np.uint16))
 
     def close_document(self) -> None:
         self.open_images = max(0, self.open_images - 1)

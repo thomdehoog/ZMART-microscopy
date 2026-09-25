@@ -34,7 +34,7 @@ pip install -e ".[pymmcore]"
 
 ## Start the bridge in NIS-Elements
 
-1. Write the two macros for this computer (once; they contain this folder's path):
+1. Write the start macro for this computer (once; it contains this folder's path):
 
    ```
    python -m nis_useq.install_macros
@@ -44,7 +44,8 @@ pip install -e ".[pymmcore]"
 3. In NIS: *Macro > Run Macro From File...* and pick `nis_useq/start_bridge.mac`.
    The macro keeps running while the bridge is up. That is intended: camera
    commands crash NIS unless they run on its main thread, and the macro loop
-   is that thread. Press the macro **Stop** button to end it.
+   is that thread. Press the macro **Stop** button to end it. Running the macro
+   again later is safe; it closes whatever an earlier run left behind.
 
 The bridge writes a log to `nis-useq-bridge.log` in the Windows temp folder.
 
@@ -67,10 +68,21 @@ runner.run(sequence, output="run.ome.zarr")
 ```
 
 Positions are NIS stage coordinates in micrometres, exactly as NIS shows them.
-Before anything moves, the engine checks every event: positions against the
-stage limits set in NIS, channel names against its optical configurations,
-and that every property and action is one it supports. A plan with a mistake
-is refused as a whole.
+Before anything moves, the engine checks the whole plan and refuses it as a
+whole if something is wrong:
+
+- every position against the stage limits set in NIS;
+- every channel name against the NIS optical configurations;
+- every property and action, including their values;
+- relative Z plans and grids, which need a stage position with x, y and z to be
+  laid out around (otherwise useq produces offsets around 0 um, and the stage
+  would be sent there);
+- tiling grids, which need `fov_width` and `fov_height` in um (otherwise useq
+  places the tiles 1 um apart). The error message states the camera field.
+
+One check can only happen during the run: after a focus action, later Z moves
+at that position include the focus correction, and a corrected move that would
+leave the stage limits stops the run at that point.
 
 ## What each useq field does
 
@@ -89,6 +101,9 @@ plan focuses at the position's own z, so a Z-stack stays centred on the
 focus. useq v2 (0.9.2) focuses at the first plane of the stack instead, so the
 stack then starts at the focus.
 
+useq v2 (0.9.2) also ignores a channel's `z_offset`, which the classic
+`MDASequence` applies.
+
 Not supported, and refused: camera ROI, SLM images, other custom actions.
 `keep_shutter_open` is ignored because NIS handles the shutter.
 
@@ -96,12 +111,16 @@ Not supported, and refused: camera ROI, SLM images, other custom actions.
 
 - The engine and NIS must run on the same computer: each image is saved by
   NIS as a temporary TIFF and read back.
-- The first run of an engine snaps one extra image with the current settings,
-  so file writers know the image size before the first real frame.
+- Every run starts with one extra snap with the current settings, before the
+  plan is checked, so file writers know the image size and pixel size.
 - NIS cannot report the camera exposure. Frame metadata carries the exposure
-  set in the sequence, or 0 when the sequence set none.
-- A relative Z plan needs a z on every position, otherwise useq produces bare
-  offsets around 0 um. The engine refuses that case.
+  NIS applied when the sequence set one, or 0 when the sequence set none.
+- When a run ends or fails, the PFS is switched back to how the run found it.
+  Other settings (stage position, objective, optical configuration) stay as
+  the run left them.
+- Each request tells the bridge how long the engine will wait. A request NIS
+  has not started by then is dropped, so a late move never happens after the
+  engine gave up (for example when the macro was stopped).
 
 ## Files
 
@@ -110,7 +129,7 @@ Not supported, and refused: camera ROI, SLM images, other custom actions.
 | `nis_useq/engine.py` | `NisEngine`: turns useq events into bridge requests. |
 | `nis_useq/client.py` | `NisClient`: the socket connection to the bridge. |
 | `nis_useq/bridge.py` | The server inside NIS-Elements (standard library only). |
-| `nis_useq/install_macros.py` | Writes `start_bridge.mac` and `stop_bridge.mac`. |
+| `nis_useq/install_macros.py` | Writes `start_bridge.mac`. |
 | `nis_useq/protocol.py` | The message format both sides share. |
 | `tests/` | Offline tests over a fake NIS (`fake_nis.py`), and `test_simulator.py` for a live NIS. |
 
@@ -118,7 +137,7 @@ Not supported, and refused: camera ROI, SLM images, other custom actions.
 
 ```
 pip install -e ".[test]"
-pytest               # offline, about 20 s, no NIS needed
+pytest               # offline, about 5 s, no NIS needed
 pytest -m hardware   # against NIS-Elements with the bridge running
 ```
 

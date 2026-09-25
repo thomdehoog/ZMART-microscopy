@@ -1,23 +1,32 @@
 """Client <-> real bridge server <-> fake NIS: each operation, and each refusal."""
 
+import importlib
+import os
+import subprocess
+import sys
+import tempfile
+import threading
+import time
 from pathlib import Path
 
 import pytest
 import tifffile
+from fake_nis import FakeNisApi
 from nis_useq import bridge, install_macros
 from nis_useq.client import NisClient, NisConnectionError
-from nis_useq.protocol import decode_reply
+from nis_useq.protocol import decode_reply, encode_request
 
 
 def test_ping_reports_versions(client):
-    assert client.info["nis"].startswith("6.10") and client.info["protocol"] == 1
+    assert client.info["nis"].startswith("6.10") and client.info["protocol"] == 2
 
 
 def test_move_only_the_given_axes(client, fake):
     assert client.request("move", z=800) == {"x": 1000.0, "y": -500.0, "z": 800.0}
-    client.request("move", x=10)  # y is kept, z untouched
+    client.request("move", x=10)  # y is kept
+    client.request("move", y=20)  # x is kept
     client.request("move", x=1, y=2, z=3)
-    assert fake.calls == ["move_z(800)", "move_xy(10,-500)", "move_xyz(1,2,3)"]
+    assert fake.calls == ["move_z(800)", "move_xy(10,-500)", "move_xy(10,20)", "move_xyz(1,2,3)"]
 
 
 def test_move_needs_an_axis(client):
@@ -32,7 +41,7 @@ def test_unknown_op_and_bad_json_are_value_errors(client, server):
         decode_reply(server.handle_line("{nope"))
 
 
-def test_optical_configuration_must_exist(client, fake):
+def test_optical_configuration_must_exist(client):
     assert client.request("select_optical_configuration", name="FITC") == {"selected": "FITC"}
     with pytest.raises(ValueError, match="unknown optical configuration"):
         client.request("select_optical_configuration", name="GFP")
@@ -53,23 +62,29 @@ def test_set_objective_checks_and_reports_nis_refusal(client):
         client.request("set_objective", position=9)
 
 
-def test_exposure_must_be_positive(client, fake):
-    client.request("set_exposure", exposure_ms=20)
+def test_exposure_reports_what_nis_applied(client, fake):
+    assert client.request("set_exposure", exposure_ms=20.4) == {"exposure_ms": 20}
     with pytest.raises(ValueError, match="positive"):
         client.request("set_exposure", exposure_ms=0)
-    assert fake.calls == ["exposure(20)"]
+    assert fake.calls == ["exposure(20.4)"]
 
 
 def test_snap_saves_a_tiff_and_closes_the_image(client, fake, tmp_path):
     path = tmp_path / "snap.tif"
-    info = client.request("snap", path=str(path))
-    assert info["width"] == 64 and info["pixel_size_um"] is None
+    assert client.request("snap", path=str(path)) == {"path": str(path), "pixel_size_um": None}
     assert tifffile.imread(path).max() == 1 and fake.open_images == 0
 
 
 def test_snap_reports_the_calibration(client, fake, tmp_path):
     fake.calibrated = True
     assert client.request("snap", path=str(tmp_path / "a.tif"))["pixel_size_um"] == 0.108
+
+
+def test_snap_closes_the_image_even_when_saving_fails(client, fake, tmp_path, monkeypatch):
+    monkeypatch.setattr(fake, "save_tiff", lambda path: None)  # NIS writes nothing
+    with pytest.raises(RuntimeError, match="no file appeared"):
+        client.request("snap", path=str(tmp_path / "a.tif"))
+    assert fake.open_images == 0
 
 
 def test_pfs_on_and_off(client, fake):
@@ -94,41 +109,85 @@ def test_shutdown_asks_the_loop_to_stop(client, server):
     assert server.stop_requested
 
 
-def test_request_times_out_when_the_macro_loop_is_not_running(fake):
-    srv = bridge.serve(fake, "127.0.0.1", 0)  # nobody pumps
-    srv.job_timeout_s = 0.2
-    try:
-        with pytest.raises(RuntimeError, match="start_bridge.mac"):
-            NisClient("127.0.0.1", srv.server_address[1], timeout=5.0)
-    finally:
-        srv.shutdown()
-        srv.server_close()
+def test_requests_from_several_threads_all_get_their_own_reply(client):
+    results = []
+    threads = [
+        threading.Thread(target=lambda: results.append(client.request("get_position")))
+        for _ in range(5)
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    assert len(results) == 5
 
 
-def test_no_bridge_gives_a_plain_hint(unused_port=1):
+# -- when the NIS macro loop is not running -------------------------------------------
+
+
+@pytest.fixture
+def unpumped(fake):
+    """A bridge whose macro loop is not running: requests queue up but nothing runs them."""
+    srv = bridge.serve(fake, "127.0.0.1", 0)
+    yield srv
+    srv.shutdown()
+    srv.server_close()
+
+
+def test_a_request_that_never_started_says_why(unpumped):
+    reply = unpumped.handle_line(encode_request(1, "get_position", {}, 0.2))
+    with pytest.raises(RuntimeError, match="did not start within 0.2 s.*start_bridge.mac"):
+        decode_reply(reply)
+
+
+def test_a_request_the_client_gave_up_on_never_runs_later(unpumped, fake):
+    move = encode_request(1, "move", {"z": 700}, 0.2)
+    assert "did not start" in unpumped.handle_line(move)
+    unpumped.pump()  # the macro loop comes back
+    assert fake.calls == [] and fake.position["z"] == 500.0
+
+
+def test_the_client_hears_why_when_the_loop_is_not_running(unpumped):
+    with pytest.raises(RuntimeError, match="'ping' did not start within 0.3 s.*start_bridge.mac"):
+        NisClient("127.0.0.1", unpumped.server_address[1], timeout=0.3)
+
+
+def test_client_reports_a_bridge_that_never_answers(unpumped, monkeypatch):
+    monkeypatch.setattr("nis_useq.client.REPLY_MARGIN_S", 0.0)
+    monkeypatch.setattr(unpumped, "handle_line", lambda line: time.sleep(5) or "")
+    with pytest.raises(NisConnectionError, match="did not answer 'ping' within 0.3 s"):
+        NisClient("127.0.0.1", unpumped.server_address[1], timeout=0.3)
+
+
+def test_client_refuses_an_old_bridge(port, monkeypatch):
+    monkeypatch.setattr(bridge, "PROTOCOL_VERSION", 1)
+    with pytest.raises(NisConnectionError, match="speaks protocol 1.*Restart start_bridge.mac"):
+        NisClient("127.0.0.1", port, timeout=5.0)
+
+
+def test_no_bridge_gives_a_plain_hint():
     with pytest.raises(NisConnectionError, match="start_bridge.mac"):
-        NisClient("127.0.0.1", unused_port, timeout=1.0)
+        NisClient("127.0.0.1", 1, timeout=1.0)
 
 
-def test_macros_carry_the_path_and_port(tmp_path):
-    start, stop = install_macros.render(Path(r"C:\code\nis_useq"), r"C:\code\b.stop", 5000)
-    assert r"p = r'C:\\code\\nis_useq'" in start and "b.start(port=5000)" in start
-    assert 'ExistFile("C:\\\\code\\\\b.stop")' in start and r"C:\\code\\b.stop" in stop
+# -- the macro and the NIS side --------------------------------------------------------
+
+
+def test_macro_carries_the_path_and_port(tmp_path):
+    text = install_macros.render(Path(r"C:\code\nis_useq"), r"C:\code\b.stop", 5000)
+    assert r"p = r'C:\\code\\nis_useq'" in text and "b.start(port=5000)" in text
+    assert 'ExistFile("C:\\\\code\\\\b.stop")' in text
     # NIS silently refuses macros with comments or string variables
-    assert not any(line.startswith(("//", "char ")) for line in start.splitlines())
+    assert not any(line.startswith(("//", "char ")) for line in text.splitlines())
 
-    start_path, _ = install_macros.install(tmp_path, port=6000)
-    assert b"\r\n" in start_path.read_bytes() and "nis_useq.bridge as b" in start_path.read_text()
+    path = install_macros.install(tmp_path, port=6000)
+    assert b"\r\n" in path.read_bytes() and "nis_useq.bridge as b" in path.read_text()
 
 
-def test_macro_lifecycle_start_reload_stop(monkeypatch):
+def test_macro_lifecycle_start_reload_stop(monkeypatch, tmp_path):
     """What start_bridge.mac does: start, pump, reload the module, stop."""
-    import importlib
-    import os
-
-    from fake_nis import FakeNisApi
-
     monkeypatch.setattr(bridge, "NisApi", FakeNisApi)
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))  # where the bridge log goes
     try:
         assert "listening" in bridge.start(port=0)
         bridge.pump(0)
@@ -142,13 +201,11 @@ def test_macro_lifecycle_start_reload_stop(monkeypatch):
     finally:
         assert importlib.import_module("nis_useq.bridge").stop() == "bridge stopped"
     assert not os.path.exists(bridge.STOP_FILE)
+    assert (tmp_path / "nis-useq-bridge.log").exists() and not bridge.log.handlers
 
 
 def test_bridge_needs_only_the_standard_library():
     """NIS-Elements' Python has numpy and nothing else; the bridge must not need even that."""
-    import subprocess
-    import sys
-
     code = (
         "import sys\n"
         "for name in ('numpy', 'useq', 'tifffile', 'pymmcore_plus'): sys.modules[name] = None\n"
