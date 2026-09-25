@@ -116,3 +116,38 @@ def test_the_window_will_not_close_mid_action(qtbot, open_window, monkeypatch):
     assert window.close() is False and told == ["Still working"]
     window._set_busy(False)
     assert window.close() is True
+
+
+def test_the_limits_row_shows_and_narrows_the_stage_limits(qtbot, open_window, fake):
+    window = open_window(("move_stage", {"z": 700}), "That is outside the limits you set.")
+    assert window.limit_fields["z"].text() == "0 to 10000"  # NIS's own, at start
+
+    window.limit_fields["z"].setText("400 to 600")
+    window.limit_fields["x"].setText("")  # empty: keep NIS's limits
+    window.apply_limits()
+    assert window.limit_fields["z"].text() == "400 to 600"
+    assert window.limit_fields["x"].text() == "-57000 to 57000"
+    assert "Stage limits in use (um)" in window.transcript.toPlainText()
+
+    ask(qtbot, window, "focus up to 700")
+    assert (
+        "LIMIT BREACH: z = 700 um is outside the stage limits [400, 600]" in window.warning.text()
+    )
+    assert moves(fake) == []
+
+    window.use_nis_limits()
+    assert window.limit_fields["z"].text() == "0 to 10000"
+
+
+def test_limits_that_are_not_a_range_are_refused(qtbot, open_window):
+    window = open_window()
+    window.limit_fields["y"].setText("about five mm")
+    window.apply_limits()
+    assert (
+        window.warning.isVisibleTo(window)
+        and "Y limits: write two numbers" in window.warning.text()
+    )
+    window.limit_fields["y"].setText("600 to 400")
+    window.apply_limits()
+    assert "the minimum must be below the maximum" in window.warning.text()
+    assert window.assistant.microscope.engine.user_limits == {}

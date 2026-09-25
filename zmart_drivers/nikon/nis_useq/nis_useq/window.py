@@ -3,15 +3,17 @@
     python -m nis_useq.window --output D:\\runs
 
 Needs the bridge running in NIS-Elements and an Anthropic API key in the
-ANTHROPIC_API_KEY environment variable. Left: the conversation. Right: the
-latest image, the microscope status, and a red banner for anything refused.
-Large moves, objective changes and acquisitions ask for confirmation first.
+ANTHROPIC_API_KEY environment variable. Left: the conversation, and below it
+the stage limits in force, which the operator can narrow. Right: the latest
+image, the microscope status, and a red banner for anything refused. Large
+moves, objective changes and acquisitions ask for confirmation first.
 """
 
 from __future__ import annotations
 
 import argparse
 import html
+import re
 import sys
 import threading
 from collections.abc import Callable
@@ -82,9 +84,22 @@ class AssistantWindow(QMainWindow):
         input_row.addWidget(self.prompt, 1)
         input_row.addWidget(self.send_button)
         input_row.addWidget(self.stop_button)
+        # below: the stage limits in force; the operator can narrow them
+        self.limit_fields = {axis: QLineEdit(placeholderText="min to max") for axis in "xyz"}
+        self.apply_limits_button = QPushButton("Apply limits", clicked=self.apply_limits)
+        self.nis_limits_button = QPushButton("Use NIS limits", clicked=self.use_nis_limits)
+        limits_row = QHBoxLayout()
+        limits_row.addWidget(QLabel("Stage limits (um):"))
+        for axis, edit in self.limit_fields.items():
+            limits_row.addWidget(QLabel(axis.upper()))
+            limits_row.addWidget(edit, 1)
+        limits_row.addWidget(self.apply_limits_button)
+        limits_row.addWidget(self.nis_limits_button)
+
         left = QVBoxLayout()
         left.addWidget(self.transcript, 1)
         left.addLayout(input_row)
+        left.addLayout(limits_row)
 
         # right: warning, image, status
         self.warning = QLabel(wordWrap=True)
@@ -113,6 +128,7 @@ class AssistantWindow(QMainWindow):
 
         self._say("assistant", WELCOME, escape=False)
         self._refresh_status()
+        self._show_limits()
 
     def closeEvent(self, event: QCloseEvent) -> None:
         """Do not close in the middle of an action: the microscope would be left mid-way."""
@@ -179,6 +195,43 @@ class AssistantWindow(QMainWindow):
         self._say("system", text)
         self._set_busy(False)
 
+    # -- stage limits -------------------------------------------------------------------
+
+    def apply_limits(self) -> None:
+        """Use the ranges typed in the limit fields, on top of the limits set in NIS."""
+        ranges = {}
+        for axis, edit in self.limit_fields.items():
+            try:
+                ranges[axis] = _parse_range(edit.text())
+            except ValueError:
+                self._show_warning(
+                    f"{axis.upper()} limits: write two numbers in um, for example -5000 to 5000"
+                )
+                return
+        try:
+            self.assistant.microscope.engine.set_limits(**ranges)
+        except ValueError as exc:
+            self._show_warning(f"limits not applied: {exc}")
+            return
+        self.warning.hide()
+        self._show_limits(announce=True)
+
+    def use_nis_limits(self) -> None:
+        self.assistant.microscope.engine.set_limits()
+        self._show_limits(announce=True)
+
+    def _show_limits(self, announce: bool = False) -> None:
+        """Fill the fields with the limits in force (a wider range typed is cut to NIS's)."""
+        try:
+            limits = self.assistant.microscope.engine.limits()
+        except (RuntimeError, ValueError):
+            return  # the status line already says the microscope is not reachable
+        for axis, edit in self.limit_fields.items():
+            edit.setText(f"{limits[axis]['min']:g} to {limits[axis]['max']:g}")
+        if announce:
+            ranges = ", ".join(f"{a.upper()} {e.text()}" for a, e in self.limit_fields.items())
+            self._say("system", f"Stage limits in use (um): {ranges}.")
+
     # -- the right-hand side ----------------------------------------------------------
 
     def _show_image(self, image: np.ndarray, caption: str) -> None:
@@ -219,7 +272,19 @@ class AssistantWindow(QMainWindow):
     def _set_busy(self, busy: bool) -> None:
         self.send_button.setEnabled(not busy)
         self.prompt.setEnabled(not busy)
+        self.apply_limits_button.setEnabled(not busy)
+        self.nis_limits_button.setEnabled(not busy)
         self.send_button.setText("Working ..." if busy else "Send")
+
+
+def _parse_range(text: str) -> tuple[float, float] | None:
+    """'-5000 to 5000' -> (-5000.0, 5000.0); an empty field -> None (NIS's own limits)."""
+    if not text.strip():
+        return None
+    numbers = re.findall(r"[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?", text)
+    if len(numbers) != 2:
+        raise ValueError(text)
+    return float(numbers[0]), float(numbers[1])
 
 
 def _explain(exc: Exception) -> str:
