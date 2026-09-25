@@ -46,5 +46,9 @@
   {"id": "h-memory-put-back", "category": "memory", "prompts": ["Move x to 1300 micrometres.", "Turn the PFS on.", "Select DAPI.", "Take x back to where it was before I asked you to move it."], "expect": {"state": {"x": 1000, "configuration": "DAPI"}}},
   {"id": "h-greeting", "category": "conversation", "prompt": "Hi there, who are you?", "expect": {"no_mutations": true}},
   {"id": "h-explain-configuration", "category": "conversation", "prompt": "Briefly, what does an optical configuration in NIS-Elements do?", "expect": {"no_mutations": true}},
-  {"id": "h-explain-useq", "category": "conversation", "prompt": "What is useq-schema, and what does it do in this setup?", "expect": {"no_mutations": true, "reply_mentions_any": ["MDASequence", "sequence", "event"]}}
+  {"id": "h-explain-useq", "category": "conversation", "prompt": "What is useq-schema, and what does it do in this setup?", "expect": {"no_mutations": true, "reply_mentions_any": ["MDASequence", "sequence", "event"]}},
+  {"id": "h-useq-file-run", "category": "useq", "prompts": ["Load {useq_file} and acquire it.", "Go ahead, please."], "setup": {"useq_file": {"channels": [{"config": "FITC"}], "time_plan": {"interval": 1, "loops": 2}}}, "expect": {"calls": ["plan_useq_sequence", "run_acquisition"], "state": {"images": 2, "files": 1}}},
+  {"id": "h-useq-tiles", "category": "useq", "prompts": ["Tile a strip of 3 fields side by side, one row, around here in FITC.", "Go ahead, please."], "setup": {"calibrated": true}, "expect": {"calls": ["run_acquisition"], "state": {"images": 3, "files": 1}}},
+  {"id": "h-useq-channel-options", "category": "useq", "prompts": ["At this position: DAPI at every time point and TxRed only at every second one, 4 time points 1 second apart.", "Go ahead, please."], "expect": {"calls": ["run_acquisition"], "state": {"images": 6, "files": 1}}},
+  {"id": "h-useq-show-sequence", "category": "useq", "prompt": "What would the useq MDASequence look like for a FITC Z-stack of 6 micrometres in 2 micrometre steps here? Do not acquire anything.", "expect": {"not_calls": ["run_acquisition"], "reply_mentions_any": ["z_plan", "range", "step"]}}
 ]

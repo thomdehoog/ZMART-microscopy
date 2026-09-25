@@ -113,6 +113,25 @@ class NisEngine:
                 limits[axis]["max"] = min(float(hi), limits[axis]["max"])
         return limits
 
+    def field_of_view(self) -> tuple[float, float]:
+        """The camera field (width, height) in um, from one image and NIS's pixel size.
+
+        Takes one image. Raises ValueError when NIS has no pixel calibration for
+        the objective in use, since the field size is then unknown.
+        """
+        with tempfile.TemporaryDirectory(prefix="nis_useq_fov_") as folder:
+            path = Path(folder) / "fov.tif"
+            reply = self.client.request("snap", path=str(path), timeout=SNAP_TIMEOUT_S)
+            height, width = tifffile.imread(path).shape[:2]
+        pixel_size_um = reply["pixel_size_um"]
+        if pixel_size_um is None:
+            raise ValueError(
+                "NIS reports no pixel calibration for the objective in use, so the size of "
+                "the camera field is unknown. Calibrate the objective in NIS, or give the "
+                "field of view in um."
+            )
+        return width * pixel_size_um, height * pixel_size_um
+
     # -- sequence --------------------------------------------------------------
 
     def check(self, sequence: Any) -> list[MDAEvent]:

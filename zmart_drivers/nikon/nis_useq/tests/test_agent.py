@@ -5,6 +5,9 @@ each test controls exactly what "Claude" asks for and checks what the
 microscope (the real bridge over a fake NIS) and the operator see.
 """
 
+import json
+from pathlib import Path
+
 import numpy as np
 import pytest
 import tifffile
@@ -359,7 +362,7 @@ def test_an_acquisition_starts_only_after_the_operator_saw_the_plan(microscope, 
     run = tool_results(assistant)[-1]
     assert run["images"] == 6 and run["finished"] == "completed"
     assert tifffile.imread(run["saved_to"]).shape == (2, 3, 48, 64)
-    assert list(microscope.output_dir.glob("*.plan.json")) and len(microscope.images) == 6
+    assert list(microscope.output_dir.glob("*.useq.json")) and len(microscope.images) == 6
 
 
 def test_the_plan_comes_back_as_a_useq_sequence(microscope):
@@ -382,7 +385,7 @@ def test_a_far_away_plan_says_so(microscope):
     assistant, _ = talk(microscope, ("plan_acquisition", far), "Shall I? It is far.")
     assistant.send("image over there")
     summary = tool_results(assistant)[0]["summary"]
-    assert "49000 um in XY and 400 um in Z" in summary and "This includes a long move." in summary
+    assert "49000 um in XY and 401 um in Z" in summary and "This includes a long move." in summary
 
 
 def test_the_run_images_exactly_the_planned_positions(microscope, fake):
@@ -399,6 +402,103 @@ def test_the_run_images_exactly_the_planned_positions(microscope, fake):
     assert "here at x 1000, y -500, z 500 um" in tool_results(assistant)[0]["summary"]
     assistant.send("yes")
     assert fake.position["x"] == 1000.0  # imaged at the planned x, not where the stage went
+
+
+def test_a_tiled_plan_measures_the_field_and_makes_a_useq_grid(microscope, fake):
+    fake.calibrated = True  # 0.108 um per pixel, 64 x 48 pixels
+    tiled = {**PLAN, "z_stack": None, "grid": {"rows": 2, "columns": 3, "overlap_percent": 10}}
+    assistant, _ = talk(microscope, ("plan_acquisition", tiled), "Shall I start?")
+    assistant.send("tile around a")
+    plan = tool_results(assistant)[0]
+    grid = plan["useq_sequence"]["grid_plan"]
+    assert (grid["rows"], grid["columns"]) == (2, 3) and grid["fov_width"] == pytest.approx(6.912)
+    assert plan["images"] == 12 and "each as 2 x 3 tiles" in plan["summary"]
+    assert fake.captures == 1 and moves(fake) == []  # one image to measure the field, no move
+
+
+def test_a_run_over_several_positions_is_saved_as_a_folder(microscope, fake):
+    fake.calibrated = True
+    tiled = {**PLAN, "z_stack": None, "grid": {"rows": 1, "columns": 2}}
+    steps = [("plan_acquisition", tiled), "Shall I start?", RUN, "Saved."]
+    assistant, _ = talk(microscope, *steps)
+    assistant.send("two tiles at a")
+    assistant.send("yes")
+    folder = Path(tool_results(assistant)[-1]["saved_to"])
+    assert folder.is_dir() and len(list(folder.glob("*.ome.tiff"))) == 2
+
+
+def test_a_grid_without_a_pixel_calibration_is_refused(microscope):
+    tiled = {**PLAN, "grid": {"rows": 2, "columns": 2}}
+    assistant, _ = talk(microscope, ("plan_acquisition", tiled), "The objective is not calibrated.")
+    assistant.send("tile it")
+    assert "no pixel calibration" in tool_results(assistant)[0]["error"]["message"]
+
+
+def test_channels_can_skip_the_stack_and_time_points(microscope):
+    plan = {
+        **PLAN,
+        "channels": [
+            {"config": "DAPI"},
+            {"config": "Brightfield", "do_stack": False},
+            {"config": "FITC", "acquire_every": 2, "z_offset_um": 1.5},
+        ],
+        "time_points": 2,
+        "interval_s": 5,
+    }
+    assistant, _ = talk(microscope, ("plan_acquisition", plan), "Shall I start?")
+    assistant.send("plan it")
+    result = tool_results(assistant)[0]
+    # per time point: DAPI 3 planes + Brightfield 1; FITC 3 planes at the first only
+    assert result["images"] == 2 * (3 + 1) + 3
+    assert "Brightfield (one plane)" in result["summary"]
+    assert "FITC (every 2 time points, +1.5 um in z)" in result["summary"]
+    assert "2 time points 5 s apart" in result["summary"]
+
+
+SEQUENCE = {  # a classic useq MDASequence, as another useq tool would save it
+    "stage_positions": [{"x": 1200, "y": -500, "z": 500, "name": "cell"}],
+    "channels": [{"config": "DAPI", "exposure": 30}, {"config": "TxRed"}],
+    "z_plan": {"range": 4, "step": 2},
+}
+
+
+def test_a_useq_file_from_elsewhere_is_checked_and_run(microscope, fake, tmp_path):
+    path = tmp_path / "from_widgets.json"
+    path.write_text(json.dumps(SEQUENCE))
+    call = ("plan_useq_sequence", {"name": "widgets", "path": str(path)})
+    run = ("run_acquisition", {"plan_id": "widgets-1"})
+    assistant, _ = talk(microscope, call, "Shall I start?", run, "Saved.")
+    assistant.send(f"run the sequence in {path}")
+    plan = tool_results(assistant)[0]
+    assert plan["images"] == 6 and "cell at x 1200, y -500, z 500 um" in plan["summary"]
+    assert fake.captures == 0  # nothing starts before the operator agrees
+
+    assistant.send("yes")
+    run_result = tool_results(assistant)[-1]
+    assert tifffile.imread(run_result["saved_to"]).shape == (2, 3, 48, 64)
+    (saved,) = microscope.output_dir.glob("*.useq.json")
+    assert useq.MDASequence.from_file(saved) == useq.MDASequence(**SEQUENCE)
+
+
+def test_a_useq_sequence_without_positions_is_imaged_here(microscope):
+    inline = {"channels": [{"config": "FITC"}]}
+    call = ("plan_useq_sequence", {"name": "inline", "sequence": inline})
+    assistant, _ = talk(microscope, call, "Shall I start?")
+    assistant.send("run this sequence")
+    assert "here at x 1000, y -500, z 500 um" in tool_results(assistant)[0]["summary"]
+
+
+@pytest.mark.parametrize(
+    "args",
+    [{"path": "no/such/file.json"}, {"sequence": {"channels": "not a list"}}],
+    ids=["missing file", "not a sequence"],
+)
+def test_an_unreadable_useq_sequence_is_refused(microscope, args):
+    call = ("plan_useq_sequence", {"name": "bad", **args})
+    assistant, _ = talk(microscope, call, "That did not work.")
+    assistant.send("run it")
+    error = tool_results(assistant)[0]["error"]
+    assert error["code"] == "invalid" and "no useq sequence could be read" in error["message"]
 
 
 def test_plan_with_a_problem_is_refused_before_anything_moves(microscope, fake):
