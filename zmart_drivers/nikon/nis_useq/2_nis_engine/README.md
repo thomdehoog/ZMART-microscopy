@@ -2,10 +2,10 @@
 
 Run [useq-schema](https://github.com/pymmcore-plus/useq-schema) acquisitions on
 a Nikon microscope through NIS-Elements. `NisEngine` is an acquisition engine in
-the form [pymmcore-plus](https://github.com/pymmcore-plus/pymmcore-plus) expects,
-so its runner can execute a sequence on the Nikon and pass the images to its
-file writers (OME-TIFF, OME-Zarr) and viewers. Both the classic
-`useq.MDASequence` and the new `useq.v2.MDASequence` work.
+the form [pymmcore-plus](https://github.com/pymmcore-plus/pymmcore-plus) expects:
+the pymmcore-plus runner walks through a useq sequence one image at a time,
+the engine carries out each step on the Nikon (move, set the channel, snap),
+and the runner hands the images to its file writers and viewers.
 
 ```
 your Python                                           NIS-Elements
@@ -13,9 +13,8 @@ MDARunner ──── NisEngine ──── NisClient ── socket ─── 
 pymmcore-plus  this part      part 1 (nis-bridge)
 ```
 
-This is part 2 of three; see the [overview](../README.md). It builds on part 1
-and does nothing with coordinate systems: positions are NIS stage coordinates
-in micrometres, exactly as NIS shows them.
+This is part 2 of three; see the [overview](../README.md). Positions are NIS
+stage coordinates in micrometres (um), exactly as NIS shows them.
 
 ## Install
 
@@ -26,25 +25,40 @@ pip install -e ../1_nis_bridge
 pip install -e .
 ```
 
-Start the bridge in NIS-Elements as part 1's README describes.
+Start the bridge in NIS-Elements as part 1's README describes (or, to try
+things without a microscope, `python -m nis_bridge.fake`).
 
 ## Run a sequence
 
+This takes a 5-plane Z-stack in two channels at the current position and at a
+second one 50 um to the right, and saves it as OME-TIFF:
+
 ```python
-import useq.v2 as v2
+import useq
 from pymmcore_plus.mda import MDARunner
 from nis_engine import NisEngine
 
-sequence = v2.MDASequence(
-    stage_positions=[(1000, -500, 2500), (1200, -500, 2500)],  # x, y, z in um
-    channels=[{"config": "DAPI", "exposure": 20}, "FITC"],
-    z_plan={"range": 4, "step": 1},  # 5 planes around each position's z
+engine = NisEngine()
+here = engine.client.request("get_position")
+channels = engine.client.request("get_optical_configurations")[:2]
+
+sequence = useq.MDASequence(
+    stage_positions=[
+        {"x": here["x"], "y": here["y"], "z": here["z"], "name": "here"},
+        {"x": here["x"] + 50, "y": here["y"], "z": here["z"], "name": "right"},
+    ],
+    channels=[{"config": name, "exposure": 20} for name in channels],
+    z_plan={"range": 4, "step": 1},  # 5 planes, 1 um apart, around each position's z
 )
 
 runner = MDARunner()
-runner.set_engine(NisEngine())
-runner.run(sequence, output="run.ome.zarr")
+runner.set_engine(engine)
+runner.run(sequence, output="run.ome.tiff")
 ```
+
+With two positions the writer makes a folder `run/` with one file per
+position, each holding channels x planes x image. Open them in Fiji (drag the
+file in; Bio-Formats reads OME-TIFF) or napari.
 
 Before anything moves, the engine checks the whole plan and refuses it as a
 whole if something is wrong:
@@ -55,26 +69,48 @@ whole if something is wrong:
 - relative Z plans and grids, which need a stage position with x, y and z to be
   laid out around (otherwise useq produces offsets around 0 um, and the stage
   would be sent there);
-- tiling grids, which need `fov_width` and `fov_height` in um (otherwise useq
-  places the tiles 1 um apart). `engine.field_of_view()` measures the camera
-  field with one image and NIS's pixel calibration.
+- tiling grids, which need the camera field in um (otherwise useq places the
+  tiles 1 um apart).
 
-`engine.check(sequence)` runs the same checks without moving or imaging and
-returns the events, for looking at a plan before running it.
+`engine.check(sequence)` runs the same checks without moving or imaging, and
+returns the steps it would take, so you can look at a plan first.
+
+## Tiles
+
+A grid needs the size of the camera field, which the engine measures with one
+image and NIS's pixel calibration for the objective in use:
+
+```python
+width, height = engine.field_of_view()   # um
+sequence = useq.MDASequence(
+    stage_positions=[(here["x"], here["y"], here["z"])],
+    channels=[channels[0]],
+    grid_plan={"rows": 2, "columns": 2, "overlap": (10, 10),
+               "fov_width": width, "fov_height": height},
+)
+```
+
+## Narrower limits for a session
 
 To stay inside a smaller area than NIS allows, for example for one sample
 holder, narrow the limits for the session:
 
 ```python
-engine = NisEngine()
 engine.set_limits(x=(-5000, 5000), z=(None, 3000))  # um; None or a missing axis: NIS's own
 ```
 
 These come on top of the NIS limits: an axis can get narrower, never wider.
-
 One check can only happen during the run: after a focus action, later Z moves
 at that position include the focus correction, and a corrected move that would
-leave the stage limits stops the run at that point.
+leave the limits stops the run at that point.
+
+## useq v2
+
+The new `useq.v2.MDASequence` runs the same way (`import useq.v2 as v2`, then
+`v2.MDASequence(...)` with the same fields). One caution: the pymmcore-plus
+file writers (0.18) save a v2 sequence as one flat stack of images, without
+its channel and Z axes, so use the classic `useq.MDASequence` when the saved
+file matters.
 
 ## What each useq field does
 
@@ -83,18 +119,15 @@ leave the stage limits stops the run at that point.
 | `x_pos`, `y_pos`, `z_pos` | Absolute stage position (um). Missing means "stay". |
 | `channel.config` | Name of a NIS optical configuration. `group` is ignored. |
 | `exposure` | Camera exposure (ms). |
-| `properties` | `("Nosepiece", "Position", 2)` turns to slot 2. `("PFS", "State", "On")` or `"Off"` switches the Perfect Focus System. |
+| `properties` | `("Nosepiece", "Position", 2)` turns to slot 2. `("PFS", "State", "On")` or `"Off"` switches the Perfect Focus System (PFS). |
 | `action` | `AcquireImage` snaps an image. `HardwareAutofocus` locks focus with the PFS, then switches it off. `CustomAction(name="autofocus", data={"range_um": 50, "speed": 30})` runs the NIS image-based focus sweep. |
 | `min_start_time` | Handled by the runner (time-lapse). |
 
-After a focus action, later events at the same position are shifted in Z by
-the distance the focus moved. With the classic `MDASequence` an autofocus
-plan focuses at the position's own z, so a Z-stack stays centred on the
-focus. useq v2 (0.9.2) focuses at the first plane of the stack instead, so the
-stack then starts at the focus. useq v2 (0.9.2) also ignores a channel's
-`z_offset`, which the classic `MDASequence` applies.
+After a focus action, later steps at the same position are shifted in Z by
+the distance the focus moved.
 
-Not supported, and refused: camera ROI, SLM images, other custom actions.
+Not supported, and refused before the run: camera ROI, SLM images, other
+custom actions, and colour cameras (set the camera to monochrome in NIS).
 `keep_shutter_open` is ignored because NIS handles the shutter.
 
 ## Good to know
@@ -105,18 +138,20 @@ Not supported, and refused: camera ROI, SLM images, other custom actions.
   writers know the image size and pixel size.
 - NIS cannot report the camera exposure. Frame metadata carries the exposure
   NIS applied when the sequence set one, or 0 when it set none.
-- When a run ends or fails, the PFS is switched back to how the run found it.
-  Other settings (stage position, objective, optical configuration) stay as
-  the run left them.
-- The pymmcore-plus OME-TIFF writer (0.18) keeps the channel and Z axes of a
-  classic `MDASequence`, but saves a v2 sequence as one flat stack. With
-  several positions it writes a folder with one file per position.
+- When a run ends or fails, the PFS is switched back to how the run found it,
+  if NIS still answers. Other settings (stage position, objective, optical
+  configuration) stay as the run left them.
+- If the connection to the bridge was lost, `engine.reconnect()` opens a new
+  one once `start_bridge.mac` runs again.
+- useq v2 (0.9.2) differs from the classic form in two details: an autofocus
+  plan focuses at the first plane of a Z-stack (the classic form at the
+  position's own z), and a channel's `z_offset` is ignored.
 
 ## Files
 
 | File | What it is |
 |---|---|
-| `nis_engine/engine.py` | `NisEngine`: checks a useq sequence, then turns each event into bridge requests. |
+| `nis_engine/engine.py` | `NisEngine`: checks a useq sequence, then turns each step into bridge requests. |
 
 ## Tests
 

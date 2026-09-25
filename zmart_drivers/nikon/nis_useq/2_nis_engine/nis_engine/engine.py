@@ -83,6 +83,13 @@ class NisEngine:
     def close(self) -> None:
         self.client.close()
 
+    def reconnect(self) -> None:
+        """Open a new connection to the bridge, for example after a timeout closed the
+        old one, or after start_bridge.mac was restarted. The session limits stay."""
+        old = self.client
+        old.close()
+        self.client = NisClient(old.host, old.port, old.timeout)
+
     # -- stage limits ----------------------------------------------------------
 
     def set_limits(
@@ -168,7 +175,12 @@ class NisEngine:
         self._t0 = time.perf_counter()
 
         probe, self._pixel_size_um = self._snap()
-        self._image_shape = height, width = probe.shape[:2]
+        if probe.ndim != 2:
+            raise ValueError(
+                f"the camera gives colour or multi-plane images (shape {probe.shape}), which this "
+                "engine does not save correctly. Set the camera to monochrome in NIS-Elements."
+            )
+        self._image_shape = height, width = probe.shape
         return {
             "format": "summary-dict",
             "version": "1.0",
@@ -216,9 +228,13 @@ class NisEngine:
         if self._workdir is not None:
             shutil.rmtree(self._workdir, ignore_errors=True)
             self._workdir = None
-        if self._has_pfs:
-            if self.client.request("get_pfs")["on"] != self._pfs_at_start:
+        # Never raise here: the runner would then not finish the run, and whatever
+        # waits for its end (a viewer, the assistant) would wait forever.
+        try:
+            if self._has_pfs and self.client.request("get_pfs")["on"] != self._pfs_at_start:
                 self.client.request("set_pfs", on=self._pfs_at_start)
+        except Exception as exc:  # noqa: BLE001 - reported, and the run still finishes
+            log.warning("could not put the PFS back after the run: %s", exc)
 
     # -- events ----------------------------------------------------------------
 
@@ -238,7 +254,8 @@ class NisEngine:
         if event.channel is not None and event.channel.config != self._channel:
             self.client.request("select_optical_configuration", name=event.channel.config)
             self._channel = event.channel.config
-            self._exposure_requested = None  # a configuration can bring its own exposure
+            # A configuration can bring its own exposure, which NIS cannot report.
+            self._exposure_requested = self._exposure_ms = None
 
         if event.exposure is not None and event.exposure != self._exposure_requested:
             reply = self.client.request("set_exposure", exposure_ms=event.exposure)

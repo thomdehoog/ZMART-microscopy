@@ -9,6 +9,7 @@ pytest.importorskip("pydantic_ai")
 
 from nis_assistant.agent import Assistant, Microscope  # noqa: E402
 from nis_assistant.window import AssistantWindow  # noqa: E402
+from nis_bridge.client import NisConnectionError  # noqa: E402
 from nis_engine import NisEngine  # noqa: E402
 from PySide6.QtWidgets import QMessageBox  # noqa: E402
 from test_agent import Script, moves  # noqa: E402
@@ -187,3 +188,16 @@ def test_limits_that_are_not_numbers_or_not_a_range_are_refused(qtbot, open_wind
     window.apply_limits()
     assert "the minimum must be below the maximum" in window.warning.text()
     assert window.assistant.microscope.engine.user_limits == {}
+
+
+def test_the_limit_buttons_say_so_when_the_microscope_does_not_answer(qtbot, open_window):
+    window = open_window()
+    engine = window.assistant.microscope.engine
+    engine.client.close()
+
+    def no_bridge():
+        raise NisConnectionError("no bridge at 127.0.0.1:54470")
+
+    engine.reconnect = no_bridge
+    window.use_nis_limits()
+    assert "the microscope did not answer" in window.warning.text()

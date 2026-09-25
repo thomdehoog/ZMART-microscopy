@@ -85,8 +85,11 @@ def _check(rc: int, what: str) -> None:
         raise NisError(f"{what}: {DR_CODES.get(rc, 'unknown code')} ({rc})")
 
 
-def _check_count(value: int, what: str) -> int:
-    """Some NIS functions return a count on success and a negative DR code on failure."""
+def _check_negative(value: int, what: str) -> int:
+    """Raise for a negative DR code, which every NIS function uses for failure.
+
+    For functions whose success value is a count, or is not documented.
+    """
     if value < 0:
         _check(value, what)
     return int(value)
@@ -157,7 +160,7 @@ class NisApi:
         return names
 
     def select_optical_configuration(self, name: str) -> None:
-        self._fn("SelectOptConf", [ct.c_wchar_p])(name)
+        _check_negative(self._fn("SelectOptConf", [ct.c_wchar_p])(name), f"SelectOptConf({name})")
 
     def set_exposure_ms(self, exposure_ms: float) -> float:
         """Set the camera exposure; return the value NIS applied (it may round it).
@@ -179,11 +182,11 @@ class NisApi:
 
     def nosepiece_count(self) -> int:
         count = self._fn("Stg_GetNosepiecePositions", [])()
-        return _check_count(count, "Stg_GetNosepiecePositions")
+        return _check_negative(count, "Stg_GetNosepiecePositions")
 
     def nosepiece_position(self) -> int:
         position = self._fn("Stg_GetNosepiecePosition", [])()
-        return _check_count(position, "Stg_GetNosepiecePosition")
+        return _check_negative(position, "Stg_GetNosepiecePosition")
 
     def objective_name(self, position: int) -> str:
         buf = ct.create_unicode_buffer(256)
@@ -203,7 +206,9 @@ class NisApi:
         return int(self._fn("Stg_GetPFSStatus", [])())
 
     def set_pfs(self, on: bool) -> None:
-        self._fn("Stg_SetPFSStatus", [ct.c_int32])(1 if on else 0)
+        _check_negative(
+            self._fn("Stg_SetPFSStatus", [ct.c_int32])(1 if on else 0), "Stg_SetPFSStatus"
+        )
 
     def wait_for_pfs(self, timeout_s: float) -> None:
         self._fn("Stg_WaitForPFS", [ct.c_double])(timeout_s)
@@ -214,7 +219,9 @@ class NisApi:
 
     # images
     def capture(self) -> None:
-        self._fn("Capture", [])()
+        # Checked, so that a failed capture never lets the save and close that follow
+        # act on another image open in NIS, such as the operator's own.
+        _check_negative(self._fn("Capture", [])(), "Capture")
 
     def pixel_size_um(self) -> float:
         """Calibration of the current image in um/px; 0 when uncalibrated."""

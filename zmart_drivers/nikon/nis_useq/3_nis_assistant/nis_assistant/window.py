@@ -2,8 +2,8 @@
 
     nis-assistant --output D:\\runs
 
-Needs the bridge running in NIS-Elements and an Anthropic API key in the
-ANTHROPIC_API_KEY environment variable. Left: the conversation, the buttons,
+Needs the bridge running in NIS-Elements and an API key for the chosen model
+(ANTHROPIC_API_KEY for the default Claude model). Left: the conversation, the buttons,
 and the stage limits in force, which the operator can narrow. Right:
 the latest image, the microscope status, and a red banner for anything refused.
 
@@ -103,6 +103,8 @@ class AssistantWindow(QMainWindow):
         self.limit_fields = {
             (axis, side): QLineEdit(placeholderText="NIS") for axis in "xyz" for side in "-+"
         }
+        for edit in self.limit_fields.values():
+            edit.setMinimumWidth(80)  # room for "-57000" in full: a sign cut off would mislead
         self.apply_limits_button = QPushButton("Apply limits", clicked=self.apply_limits)
         self.nis_limits_button = QPushButton("Use NIS limits", clicked=self.use_nis_limits)
         limits_row = QHBoxLayout()
@@ -243,19 +245,29 @@ class AssistantWindow(QMainWindow):
             except ValueError:
                 self._show_warning(f"{axis.upper()}{side}: write a number in um, not {text!r}")
                 return
-        try:
-            self.assistant.microscope.engine.set_limits(
-                **{axis: (values[axis, "-"], values[axis, "+"]) for axis in "xyz"}
-            )
-        except ValueError as exc:
-            self._show_warning(f"limits not applied: {exc}")
-            return
-        self.warning.hide()
-        self._show_limits(announce=True)
+        limits = {axis: (values[axis, "-"], values[axis, "+"]) for axis in "xyz"}
+        if self._set_limits(**limits):
+            self.warning.hide()
+            self._show_limits(announce=True)
 
     def use_nis_limits(self) -> None:
-        self.assistant.microscope.engine.set_limits()
-        self._show_limits(announce=True)
+        if self._set_limits():
+            self._show_limits(announce=True)
+
+    def _set_limits(self, **limits) -> bool:
+        """Apply limits on the engine; True if they were applied, else a warning."""
+        engine = self.assistant.microscope.engine
+        try:
+            if engine.client.closed:
+                engine.reconnect()
+            engine.set_limits(**limits)
+        except ValueError as exc:
+            self._show_warning(f"limits not applied: {exc}")
+            return False
+        except RuntimeError as exc:  # NIS or the bridge is not reachable
+            self._show_warning(f"limits not applied, the microscope did not answer: {exc}")
+            return False
+        return True
 
     def _show_limits(self, announce: bool = False) -> None:
         """Fill the fields with the limits in force (a value beyond NIS's is cut to NIS's)."""
@@ -344,9 +356,13 @@ def _explain(exc: Exception, model: object) -> str:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Chat with the Nikon microscope assistant.")
-    parser.add_argument("--host", default=DEFAULT_HOST)
-    parser.add_argument("--port", type=int, default=DEFAULT_PORT)
-    parser.add_argument("--output", default=str(Path.home() / "nis_assistant_runs"))
+    parser.add_argument("--host", default=DEFAULT_HOST, help="the computer running NIS-Elements")
+    parser.add_argument("--port", type=int, default=DEFAULT_PORT, help="the bridge's port")
+    parser.add_argument(
+        "--output",
+        default=str(Path.home() / "nis_assistant_runs"),
+        help="folder for the acquisitions (default: nis_assistant_runs in your home folder)",
+    )
     parser.add_argument("--model", default=MODEL, help=f"Pydantic AI model name ({MODEL})")
     args = parser.parse_args(argv)
 

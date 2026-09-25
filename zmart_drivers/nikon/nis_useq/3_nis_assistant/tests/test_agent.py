@@ -27,6 +27,7 @@ from nis_assistant.agent import (  # noqa: E402
     as_png,
     image_statistics,
 )
+from nis_bridge.client import NisConnectionError  # noqa: E402
 from nis_engine import NisEngine  # noqa: E402
 from pydantic_ai.messages import (  # noqa: E402
     ModelResponse,
@@ -517,6 +518,80 @@ def test_plan_with_a_problem_is_refused_before_anything_moves(microscope, fake):
     error = tool_results(assistant)[0]["error"]
     assert error["code"] == "limit" and "outside the stage limits" in error["message"]
     assert microscope.warnings and moves(fake) == [] and fake.captures == 0
+
+
+def test_repeated_position_names_are_refused_when_planning(microscope):
+    twice = {**PLAN, "positions": [{"x": 100, "y": 200, "z": 500, "name": "cell"}] * 2}
+    assistant, _ = talk(microscope, ("plan_acquisition", twice), "Two positions share a name.")
+    assistant.send("plan it")
+    assert "used more than once: cell" in tool_results(assistant)[0]["error"]["message"]
+
+
+def test_a_sequence_whose_positions_have_only_z(microscope):
+    call = ("plan_useq_sequence", {"name": "z_only", "sequence": {"stage_positions": [{"z": 500}]}})
+    assistant, _ = talk(microscope, call, "Planned.")
+    assistant.send("plan it")
+    assert "#1 at z 500 um" in tool_results(assistant)[0]["summary"]
+
+
+def test_a_useq_v2_sequence_as_json_is_refused_clearly(microscope):
+    v2_json = {"axes": [{"axis_key": "c", "values": []}]}
+    call = ("plan_useq_sequence", {"name": "v2", "sequence": v2_json})
+    assistant, _ = talk(microscope, call, "That is a v2 sequence.")
+    assistant.send("run it")
+    assert "useq v2 sequence" in tool_results(assistant)[0]["error"]["message"]
+
+
+def test_a_plan_that_became_invalid_before_its_run_is_refused_with_the_limit(microscope, fake):
+    steps = [("plan_acquisition", PLAN), "Shall I start?", RUN, "The plan is outside the limits."]
+    assistant, _ = talk(microscope, *steps)
+    assistant.send("a stack at a")
+    microscope.engine.set_limits(x=(500, None))  # the operator narrows the limits meanwhile
+    assistant.send("yes")
+    assert tool_results(assistant)[-1]["error"]["code"] == "limit" and microscope.warnings
+    assert fake.captures == 0
+
+
+def test_stop_while_a_run_is_being_prepared_prevents_it(microscope, fake):
+    real_check = microscope.engine.check
+
+    def check_then_stop(sequence):
+        events = real_check(sequence)
+        microscope.stop()  # the operator presses Stop microscope during the check
+        return events
+
+    steps = [("plan_acquisition", PLAN), "Shall I start?", RUN, "Stopped."]
+    assistant, _ = talk(microscope, *steps)
+    assistant.send("a stack at a")
+    microscope.engine.check = check_then_stop
+    assistant.send("yes")
+    assert tool_results(assistant)[-1]["status"] == "cancelled" and fake.captures == 0
+
+
+def test_a_run_that_loses_the_connection_says_what_was_saved(microscope, fake):
+    steps = [("plan_acquisition", PLAN), "Shall I start?", RUN, "The connection was lost."]
+    assistant, _ = talk(microscope, *steps)
+    assistant.send("a stack at a")
+    real_request, snaps = microscope.engine.client.request, []
+
+    def request(op, **args):
+        snaps.extend([op] if op == "snap" else [])
+        if len(snaps) >= 4:  # the size check and two images, then NIS stops answering
+            raise NisConnectionError("connection lost during 'snap'")
+        return real_request(op, **args)
+
+    microscope.engine.client.request = request
+    assistant.send("yes")
+    result = tool_results(assistant)[-1]
+    assert result["finished"] == "failed" and "connection lost" in result["error"]["message"]
+    assert result["images"] == 2 and result["saved_to"]
+
+
+def test_a_closed_connection_is_opened_again_with_the_next_message(microscope):
+    assistant, _ = talk(microscope, "Hello again.")
+    microscope.engine.client.close()
+    assert assistant.send("are you there?") == "Hello again."
+    assert not microscope.engine.client.closed
 
 
 def test_a_plan_with_an_unknown_channel_lists_the_known_ones(microscope):

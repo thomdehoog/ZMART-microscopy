@@ -46,19 +46,34 @@ site-packages.
    is that thread. Press the macro **Stop** button to end it. Running the macro
    again later is safe; it closes whatever an earlier run left behind.
 
+NIS then shows "nis-bridge: running on port 54470". To check from your own
+Python:
+
+```
+python -c "from nis_bridge.client import NisClient; print(NisClient().request('ping'))"
+```
+
 The bridge writes a log to `nis-bridge.log` in the Windows temp folder.
 
 ## Use it
 
 ```python
+from pathlib import Path
 from nis_bridge.client import NisClient
 
-with NisClient() as nis:                      # 127.0.0.1, port 54470
-    print(nis.request("get_position"))        # {"x": ..., "y": ..., "z": ...} in um
-    nis.request("move", x=1000, z=2500)       # absolute; axes left out stay
-    nis.request("select_optical_configuration", name="DAPI")
-    nis.request("snap", path=r"C:\temp\image.tif")
+with NisClient() as nis:                                  # 127.0.0.1, port 54470
+    here = nis.request("get_position")                    # {"x": ..., "y": ..., "z": ...} in um
+    nis.request("move", x=here["x"] + 20)                 # absolute; axes left out stay
+    names = nis.request("get_optical_configurations")
+    nis.request("select_optical_configuration", name=names[0])
+    reply = nis.request("snap", path=str(Path.home() / "snap.tif"))
+    print(reply["path"], reply["pixel_size_um"])
+    nis.request("move", **here)                           # back to where it was
 ```
+
+`move` goes exactly where it is told: this part does not check the stage
+limits itself, and only NIS may refuse. For moves checked against the limits
+(and limits you can narrow), use `NisEngine` from part 2.
 
 A request NIS refuses raises `RuntimeError` with NIS's message; a malformed
 request raises `ValueError`. When the bridge does not answer, the client
@@ -92,9 +107,15 @@ gave up (for example when the macro was stopped).
 ## Testing without a microscope
 
 `nis_bridge.fake` is a fake NIS-Elements whose limits, objectives and
-optical configurations match the Ti2 simulator. `running_bridge` puts the real
-bridge server in front of it, so code built on the client can be tested end
-to end without NIS:
+optical configurations match the Ti2 simulator. To try things by hand, serve
+it on the bridge's usual port, in place of NIS (Ctrl+C stops it):
+
+```
+python -m nis_bridge.fake
+```
+
+In your own tests, `running_bridge` puts the real bridge server in front of it
+on a free port, so code built on the client is tested end to end:
 
 ```python
 from nis_bridge.client import NisClient

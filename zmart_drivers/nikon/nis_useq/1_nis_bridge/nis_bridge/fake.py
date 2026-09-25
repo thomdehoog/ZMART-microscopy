@@ -8,6 +8,9 @@ on the client (an engine, an assistant) can be tested end to end:
     with running_bridge(FakeNisApi()) as server:
         client = NisClient("127.0.0.1", server.server_address[1])
 
+``python -m nis_bridge.fake`` serves it on the bridge's usual port instead, so
+the engine and the assistant can be tried without a microscope.
+
 ``save_tiff`` writes a real 16-bit TIFF whose pixels all equal the capture
 number, so a test can tell which capture ended up in which frame, or the
 picture in ``frame`` when one is set. Needs numpy and tifffile, which the
@@ -25,6 +28,7 @@ import tifffile
 
 from . import bridge
 from .bridge import NisError
+from .protocol import DEFAULT_HOST, DEFAULT_PORT
 
 IMAGE_SHAPE = (48, 64)  # height, width
 
@@ -62,15 +66,24 @@ class FakeNisApi:
     def get_limits(self) -> dict[str, dict[str, float]]:
         return {axis: dict(bounds) for axis, bounds in self.limits.items()}
 
+    def _refuse_beyond_limits(self, **target: float) -> None:
+        """Like a real stage: a target outside the limits set in NIS is refused."""
+        for axis, value in target.items():
+            if not self.limits[axis]["min"] <= value <= self.limits[axis]["max"]:
+                raise NisError(f"StgMove: {axis} = {value:g} is outside the stage limits (-2)")
+
     def move_xyz(self, x: float, y: float, z: float) -> None:
+        self._refuse_beyond_limits(x=x, y=y, z=z)
         self.calls.append(f"move_xyz({x:g},{y:g},{z:g})")
         self.position = {"x": x, "y": y, "z": z}
 
     def move_xy(self, x: float, y: float) -> None:
+        self._refuse_beyond_limits(x=x, y=y)
         self.calls.append(f"move_xy({x:g},{y:g})")
         self.position.update(x=x, y=y)
 
     def move_z(self, z: float) -> None:
+        self._refuse_beyond_limits(z=z)
         self.calls.append(f"move_z({z:g})")
         self.position["z"] = z
 
@@ -167,3 +180,21 @@ def running_bridge(fake: FakeNisApi) -> Iterator[bridge.BridgeServer]:
         thread.join()
         server.shutdown()
         server.server_close()
+
+
+def main() -> None:
+    """Serve a fake NIS on the bridge's usual port until Ctrl+C."""
+    server = bridge.serve(FakeNisApi(calibrated=True), DEFAULT_HOST, DEFAULT_PORT)
+    print(f"A fake NIS-Elements answers on port {DEFAULT_PORT}. Press Ctrl+C to stop it.")
+    try:
+        while True:
+            server.pump(wait_s=0.05)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+if __name__ == "__main__":
+    main()
