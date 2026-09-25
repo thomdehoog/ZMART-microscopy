@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import argparse
 import html
-import re
 import sys
 import threading
 from collections.abc import Callable
@@ -84,14 +83,16 @@ class AssistantWindow(QMainWindow):
         input_row.addWidget(self.prompt, 1)
         input_row.addWidget(self.send_button)
         input_row.addWidget(self.stop_button)
-        # below: the stage limits in force; the operator can narrow them
-        self.limit_fields = {axis: QLineEdit(placeholderText="min to max") for axis in "xyz"}
+        # below: the stage limits in force, one field per side; the operator can narrow them
+        self.limit_fields = {
+            (axis, side): QLineEdit(placeholderText="NIS") for axis in "xyz" for side in "-+"
+        }
         self.apply_limits_button = QPushButton("Apply limits", clicked=self.apply_limits)
         self.nis_limits_button = QPushButton("Use NIS limits", clicked=self.use_nis_limits)
         limits_row = QHBoxLayout()
         limits_row.addWidget(QLabel("Stage limits (um):"))
-        for axis, edit in self.limit_fields.items():
-            limits_row.addWidget(QLabel(axis.upper()))
+        for (axis, side), edit in self.limit_fields.items():
+            limits_row.addWidget(QLabel(f"{axis.upper()}{side}"))
             limits_row.addWidget(edit, 1)
         limits_row.addWidget(self.apply_limits_button)
         limits_row.addWidget(self.nis_limits_button)
@@ -198,18 +199,22 @@ class AssistantWindow(QMainWindow):
     # -- stage limits -------------------------------------------------------------------
 
     def apply_limits(self) -> None:
-        """Use the ranges typed in the limit fields, on top of the limits set in NIS."""
-        ranges = {}
-        for axis, edit in self.limit_fields.items():
+        """Use the numbers typed in the six limit fields, on top of the limits set in NIS.
+
+        An empty field keeps NIS's own limit on that side.
+        """
+        values = {}
+        for (axis, side), edit in self.limit_fields.items():
+            text = edit.text().strip()
             try:
-                ranges[axis] = _parse_range(edit.text())
+                values[axis, side] = float(text) if text else None
             except ValueError:
-                self._show_warning(
-                    f"{axis.upper()} limits: write two numbers in um, for example -5000 to 5000"
-                )
+                self._show_warning(f"{axis.upper()}{side}: write a number in um, not {text!r}")
                 return
         try:
-            self.assistant.microscope.engine.set_limits(**ranges)
+            self.assistant.microscope.engine.set_limits(
+                **{axis: (values[axis, "-"], values[axis, "+"]) for axis in "xyz"}
+            )
         except ValueError as exc:
             self._show_warning(f"limits not applied: {exc}")
             return
@@ -221,15 +226,17 @@ class AssistantWindow(QMainWindow):
         self._show_limits(announce=True)
 
     def _show_limits(self, announce: bool = False) -> None:
-        """Fill the fields with the limits in force (a wider range typed is cut to NIS's)."""
+        """Fill the fields with the limits in force (a value beyond NIS's is cut to NIS's)."""
         try:
             limits = self.assistant.microscope.engine.limits()
         except (RuntimeError, ValueError):
             return  # the status line already says the microscope is not reachable
-        for axis, edit in self.limit_fields.items():
-            edit.setText(f"{limits[axis]['min']:g} to {limits[axis]['max']:g}")
+        for (axis, side), edit in self.limit_fields.items():
+            edit.setText(f"{limits[axis]['min' if side == '-' else 'max']:g}")
         if announce:
-            ranges = ", ".join(f"{a.upper()} {e.text()}" for a, e in self.limit_fields.items())
+            ranges = ", ".join(
+                f"{a.upper()} {limits[a]['min']:g} to {limits[a]['max']:g}" for a in "xyz"
+            )
             self._say("system", f"Stage limits in use (um): {ranges}.")
 
     # -- the right-hand side ----------------------------------------------------------
@@ -275,16 +282,6 @@ class AssistantWindow(QMainWindow):
         self.apply_limits_button.setEnabled(not busy)
         self.nis_limits_button.setEnabled(not busy)
         self.send_button.setText("Working ..." if busy else "Send")
-
-
-def _parse_range(text: str) -> tuple[float, float] | None:
-    """'-5000 to 5000' -> (-5000.0, 5000.0); an empty field -> None (NIS's own limits)."""
-    if not text.strip():
-        return None
-    numbers = re.findall(r"[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?", text)
-    if len(numbers) != 2:
-        raise ValueError(text)
-    return float(numbers[0]), float(numbers[1])
 
 
 def _explain(exc: Exception) -> str:
