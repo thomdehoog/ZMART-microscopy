@@ -7,7 +7,7 @@ describe an acquisition (positions, channels, Z-stacks, time points), so the
 same plan can come from other useq tools.
 
 There are three parts. Each is its own Python package with its own README and
-tests, so you can adopt just the part you need:
+tests, so you can adopt only the part you need:
 
 | Part | Package | What it does | Needs |
 |---|---|---|---|

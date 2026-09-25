@@ -131,6 +131,7 @@ with running_bridge(FakeNisApi()) as server:
 pip install -e ".[test]"
 pytest                    # offline, a few seconds
 pytest -m hardware -s     # on NIS-Elements with the bridge running (step 1 in the overview)
+ruff check . && ruff format --check .   # lint and formatting, rules in pyproject.toml
 ```
 
 ## Files

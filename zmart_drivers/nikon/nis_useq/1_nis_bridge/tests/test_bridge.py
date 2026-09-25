@@ -11,6 +11,7 @@ from pathlib import Path
 
 import pytest
 import tifffile
+
 from nis_bridge import bridge, install_macros
 from nis_bridge.client import NisClient, NisConnectionError
 from nis_bridge.fake import FakeNisApi
@@ -136,7 +137,7 @@ def unpumped(fake):
 
 def test_a_request_that_never_started_says_why(unpumped):
     reply = unpumped.handle_line(encode_request(1, "get_position", {}, 0.2))
-    with pytest.raises(RuntimeError, match="did not start within 0.2 s.*start_bridge.mac"):
+    with pytest.raises(RuntimeError, match=r"did not start within 0\.2 s.*start_bridge\.mac"):
         decode_reply(reply)
 
 
@@ -148,25 +149,26 @@ def test_a_request_the_client_gave_up_on_never_runs_later(unpumped, fake):
 
 
 def test_the_client_hears_why_when_the_loop_is_not_running(unpumped):
-    with pytest.raises(RuntimeError, match="'ping' did not start within 0.3 s.*start_bridge.mac"):
+    message = r"'ping' did not start within 0\.3 s.*start_bridge\.mac"
+    with pytest.raises(RuntimeError, match=message):
         NisClient("127.0.0.1", unpumped.server_address[1], timeout=0.3)
 
 
 def test_client_reports_a_bridge_that_never_answers(unpumped, monkeypatch):
     monkeypatch.setattr("nis_bridge.client.REPLY_MARGIN_S", 0.0)
     monkeypatch.setattr(unpumped, "handle_line", lambda line: time.sleep(5) or "")
-    with pytest.raises(NisConnectionError, match="did not answer 'ping' within 0.3 s"):
+    with pytest.raises(NisConnectionError, match=r"did not answer 'ping' within 0\.3 s"):
         NisClient("127.0.0.1", unpumped.server_address[1], timeout=0.3)
 
 
 def test_client_refuses_an_old_bridge(port, monkeypatch):
     monkeypatch.setattr(bridge, "PROTOCOL_VERSION", 1)
-    with pytest.raises(NisConnectionError, match="speaks protocol 1.*Restart start_bridge.mac"):
+    with pytest.raises(NisConnectionError, match=r"speaks protocol 1.*Restart start_bridge\.mac"):
         NisClient("127.0.0.1", port, timeout=5.0)
 
 
 def test_no_bridge_gives_a_plain_hint():
-    with pytest.raises(NisConnectionError, match="start_bridge.mac"):
+    with pytest.raises(NisConnectionError, match=r"start_bridge\.mac"):
         NisClient("127.0.0.1", 1, timeout=1.0)
 
 

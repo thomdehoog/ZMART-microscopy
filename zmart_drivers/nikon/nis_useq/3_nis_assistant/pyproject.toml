@@ -16,7 +16,7 @@ dependencies = ["nis-engine", "pydantic-ai-slim[anthropic]>=2.50", "PySide6>=6.7
 
 [project.optional-dependencies]
 google = ["pydantic-ai-slim[google]>=2.50"]
-test = ["pytest", "pytest-qt"]
+test = ["pytest", "pytest-qt", "ruff"]
 
 [project.scripts]
 nis-assistant = "nis_assistant.window:main"
@@ -29,3 +29,19 @@ testpaths = ["tests"]
 addopts = "-ra --strict-markers -m 'not hardware'"
 markers = ["hardware: needs NIS-Elements (the simulator is fine) with start_bridge.mac running"]
 qt_api = "pyside6"
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+
+[tool.ruff.lint]
+select = [
+    "E", "F", "W",  # errors, pyflakes, warnings
+    "I",            # import order
+    "UP",           # syntax that is out of date for Python 3.10
+    "B",            # likely bugs
+    "SIM", "C4", "PIE", "RET", "PERF",  # needless complexity
+    "RUF",          # ruff's own checks
+    "PT",           # pytest style
+]
+ignore = ["PT018"]  # one assert may check two related things

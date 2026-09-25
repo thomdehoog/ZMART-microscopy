@@ -13,7 +13,7 @@ requires-python = ">=3.10"
 dependencies = ["numpy", "tifffile"]
 
 [project.optional-dependencies]
-test = ["pytest"]
+test = ["pytest", "ruff"]
 
 [tool.setuptools]
 packages = ["nis_bridge"]
@@ -22,3 +22,19 @@ packages = ["nis_bridge"]
 testpaths = ["tests"]
 addopts = "-ra --strict-markers -m 'not hardware'"
 markers = ["hardware: needs NIS-Elements (the simulator is fine) with start_bridge.mac running"]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+
+[tool.ruff.lint]
+select = [
+    "E", "F", "W",  # errors, pyflakes, warnings
+    "I",            # import order
+    "UP",           # syntax that is out of date for Python 3.10
+    "B",            # likely bugs
+    "SIM", "C4", "PIE", "RET", "PERF",  # needless complexity
+    "RUF",          # ruff's own checks
+    "PT",           # pytest style
+]
+ignore = ["PT018"]  # one assert may check two related things

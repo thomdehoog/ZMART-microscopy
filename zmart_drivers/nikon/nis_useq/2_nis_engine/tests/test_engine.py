@@ -8,9 +8,10 @@ import tifffile
 import useq
 import useq.v2 as v2
 from nis_bridge.client import NisConnectionError
-from nis_engine import NisEngine
 from pymmcore_plus.mda import MDARunner, PMDAEngine
 from useq import Channel, CustomAction, HardwareAutofocus, MDAEvent
+
+from nis_engine import NisEngine
 
 
 class Frames:
@@ -150,7 +151,7 @@ def test_every_run_measures_the_image_first(engine, fake):
 def test_temporary_images_are_removed_even_after_a_failure(engine):
     run(engine, useq.MDASequence(time_plan={"interval": 0, "loops": 1}))
     assert engine._workdir is None
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="outside the stage limits"):
         run(engine, useq.MDASequence(stage_positions=[(0, 0, 20000)]))
     assert engine._workdir is None
 
@@ -160,7 +161,7 @@ def test_temporary_images_are_removed_even_after_a_failure(engine):
 
 def test_position_outside_the_limits_stops_the_run_before_any_move(engine, fake):
     sequence = useq.MDASequence(stage_positions=[(0, 0, 500), (0, 0, 20000)])
-    with pytest.raises(ValueError, match="event p=1: z = 20000.0 um is outside the stage limits"):
+    with pytest.raises(ValueError, match=r"event p=1: z = 20000\.0 um is outside the stage limits"):
         run(engine, sequence)
     assert moves(fake) == []
 
@@ -172,7 +173,7 @@ def test_unknown_optical_configuration(engine, fake):
 
 
 @pytest.mark.parametrize(
-    "event, message",
+    ("event", "message"),
     [
         (MDAEvent(roi=(0, 0, 10, 10)), "ROI"),
         (MDAEvent(properties=[("Camera", "Binning", 2)]), "unsupported property Camera.Binning"),
@@ -233,7 +234,7 @@ def test_grid_needs_a_field_of_view(engine, fake):
     sequence = useq.MDASequence(
         stage_positions=[(100, 200, 500)], grid_plan={"rows": 2, "columns": 2}
     )
-    with pytest.raises(ValueError, match="fov_width.*no pixel calibration"):
+    with pytest.raises(ValueError, match=r"fov_width.*no pixel calibration"):
         run(engine, sequence)
     fake.calibrated = True  # the message then says how large the camera field is
     with pytest.raises(ValueError, match=r"camera field here is 6\.9 x 5\.2 um"):
@@ -255,13 +256,13 @@ def test_the_pfs_is_put_back_after_a_failed_run(engine, fake):
     ]
     fake.focal_plane_z = 9990.0
     events.append(MDAEvent(index={"p": 0}, z_pos=9500))  # fails: past the Z limit after focusing
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="with the focus correction"):
         run(engine, events)
     assert fake.pfs_on is False
 
 
 @pytest.mark.parametrize(
-    "make_sequence, planes",
+    ("make_sequence", "planes"),
     [
         # classic useq focuses at the position (500), so the stack is centred on the focus
         (useq.MDASequence, [501, 502, 503]),
@@ -313,7 +314,7 @@ def test_focus_correction_cannot_push_the_stage_past_its_limits(engine, fake):
     fake.focal_plane_z = 9990.0  # the PFS locks near the top of the Z range
     events = [MDAEvent(index={"p": 0}, z_pos=9000, action=HardwareAutofocus())]
     events.append(MDAEvent(index={"p": 0}, z_pos=9500))  # 9500 + 990 is past 10000
-    with pytest.raises(ValueError, match="with the focus correction.*outside the stage limits"):
+    with pytest.raises(ValueError, match=r"with the focus correction.*outside the stage limits"):
         run(engine, events)
 
 

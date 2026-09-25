@@ -6,9 +6,6 @@ Needs the bridge running in NIS-Elements and an API key for the chosen model
 (ANTHROPIC_API_KEY for the default Claude model). Left: the conversation, the buttons,
 and the stage limits in force, which the operator can narrow. Right:
 the latest image, the microscope status, and a red banner for anything refused.
-
-Cancel prompt stops the assistant: every further tool call in that turn does
-nothing. Stop microscope does that too and ends a running acquisition.
 """
 
 from __future__ import annotations
@@ -45,7 +42,7 @@ from PySide6.QtWidgets import (
 from .agent import MODEL, Assistant, Microscope, as_png
 
 WELCOME = (
-    "Hello! I can move the stage, change the optical settings, focus, look at the "
+    "Hello. I can move the stage, change the optical settings, focus, look at the "
     "sample and run acquisitions. Ask me in your own words, for example "
     "<i>What do you see?</i> or <i>Take a 3-channel Z-stack of 10 um here</i>. "
     "Before a long stage move I ask you here first."
@@ -185,7 +182,7 @@ class AssistantWindow(QMainWindow):
         def work() -> None:
             try:
                 self.signals.reply.emit(turn())
-            except Exception as exc:  # noqa: BLE001 - shown to the operator, not swallowed
+            except Exception as exc:
                 self.signals.error.emit(_explain(exc, self.assistant.model))
 
         threading.Thread(target=work, daemon=True).start()

@@ -9,6 +9,7 @@ stage moves at most 20 um in x and 2 um in z, and is moved back afterwards.
 
 import pytest
 import tifffile
+
 from nis_bridge.client import NisClient, NisConnectionError
 
 pytestmark = pytest.mark.hardware

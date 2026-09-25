@@ -32,7 +32,7 @@ while (ExistFile("{stop_file}") == 0)
 }}
 Python_RunString("import nis_bridge.bridge as b; import nis; nis.log(b.stop())");
 WaitText(2, "nis-bridge: stopped");
-"""
+"""  # noqa: E501 - a NIS macro line cannot be wrapped
 
 
 def _mac_literal(path: Path | str) -> str:

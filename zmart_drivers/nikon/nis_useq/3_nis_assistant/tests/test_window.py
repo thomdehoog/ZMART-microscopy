@@ -7,12 +7,13 @@ import pytest
 pytest.importorskip("pytestqt")
 pytest.importorskip("pydantic_ai")
 
-from nis_assistant.agent import Assistant, Microscope  # noqa: E402
-from nis_assistant.window import AssistantWindow  # noqa: E402
-from nis_bridge.client import NisConnectionError  # noqa: E402
-from nis_engine import NisEngine  # noqa: E402
-from PySide6.QtWidgets import QMessageBox  # noqa: E402
-from test_agent import Script, moves  # noqa: E402
+from nis_bridge.client import NisConnectionError
+from nis_engine import NisEngine
+from PySide6.QtWidgets import QMessageBox
+from test_agent import Script, moves
+
+from nis_assistant.agent import Assistant, Microscope
+from nis_assistant.window import AssistantWindow
 
 
 @pytest.fixture

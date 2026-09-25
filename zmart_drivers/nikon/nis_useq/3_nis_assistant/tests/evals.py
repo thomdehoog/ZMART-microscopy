@@ -27,8 +27,8 @@ file; the exit status is 1 when a case failed.
 A case:
     {"id": ..., "category": ..., "prompt": "..." or "prompts": [...],
      "setup": {...}, "expect": {...}}
-The operator's answer to a question (a go-ahead for a long move, say) is simply
-the next prompt.
+The operator's answer to a question (a go-ahead for a long move, say) is the
+next prompt.
 
 Setup (all optional):
     position        {"x": ..., "y": ..., "z": ...}, the stage at the start
@@ -83,10 +83,11 @@ from pathlib import Path
 
 import numpy as np
 import tifffile
-from nis_assistant.agent import MODEL, Assistant, Microscope
 from nis_bridge.fake import FakeNisApi, running_bridge
 from nis_engine import NisEngine
 from pydantic_ai.messages import ToolCallPart, ToolReturnPart
+
+from nis_assistant.agent import MODEL, Assistant, Microscope
 
 HERE = Path(__file__).resolve().parent
 CASES = HERE / "eval_cases.json"
@@ -230,7 +231,7 @@ def _run_once(case: dict, model, vision_model) -> dict:
                 finally:  # also the tools of a turn that failed half-way
                     tools += [{**call, "turn": turn} for call in tool_calls(assistant.last_turn)]
                     assistant.last_turn = []
-        except Exception as exc:  # noqa: BLE001 - recorded in the trace and scored as a failure
+        except Exception as exc:
             error = f"{type(exc).__name__}: {exc}"
         finally:
             engine.close()

@@ -158,6 +158,7 @@ custom actions, and colour cameras (set the camera to monochrome in NIS).
 pip install -e ".[test]"
 pytest                    # offline, a few seconds, over nis-bridge's fake NIS
 pytest -m hardware -s     # on NIS-Elements with the bridge running (step 2 in the overview)
+ruff check . && ruff format --check .   # lint and formatting, rules in pyproject.toml
 ```
 
 MIT license. Thom de Hoog, Center for Microscopy and Image Analysis (ZMB),
