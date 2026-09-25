@@ -2,26 +2,42 @@
 
 Run [useq-schema](https://github.com/pymmcore-plus/useq-schema) acquisitions on
 a Nikon microscope through NIS-Elements, and talk to the microscope through a
-chat assistant that uses them. It comes in three parts, each its own Python
-package with its own README and tests, so you can adopt just the part you
-need:
+chat assistant that uses them. useq-schema is the community's shared way to
+describe an acquisition (positions, channels, Z-stacks, time points), so the
+same plan can come from other useq tools.
 
-| Part | Package | What it does | Builds on |
+There are three parts. Each is its own Python package with its own README and
+tests, so you can adopt just the part you need:
+
+| Part | Package | What it does | Needs |
 |---|---|---|---|
 | [1_nis_bridge](1_nis_bridge/README.md) | `nis-bridge` | Controls NIS-Elements from your own Python: a small server inside NIS and a client. No useq. | NIS-Elements |
-| [2_nis_engine](2_nis_engine/README.md) | `nis-engine` | `NisEngine`, a useq engine for the pymmcore-plus runner: runs classic and v2 useq sequences. | part 1 |
+| [2_nis_engine](2_nis_engine/README.md) | `nis-engine` | `NisEngine` runs useq sequences (classic and v2) on the microscope, through the pymmcore-plus runner. | part 1 |
 | [3_nis_assistant](3_nis_assistant/README.md) | `nis-assistant` | A chat window whose assistant drives the microscope through useq and explains it. | parts 1 and 2 |
 
 ```
 nis-assistant ──> nis-engine (NisEngine) ──> nis-bridge (client ── bridge in NIS) ──> microscope
 ```
 
-None of the three shares code with ZMART. Positions are NIS stage coordinates
-in micrometres; nothing here converts coordinate systems.
+Positions are NIS stage coordinates in micrometres (um); nothing here converts
+coordinate systems. None of the three shares code with ZMART.
+
+## Before you start
+
+You need, on the microscope computer:
+
+1. NIS-Elements (the microscope, or its simulated Ti2 for trying things out).
+2. Python 3.10 or newer, installed separately from the Python inside
+   NIS-Elements, preferably in its own environment
+   (`python -m venv nis-env`, then `nis-env\Scripts\activate`).
+3. This folder, from the ZMART repository. Open a command window in it
+   (`cd ...\zmart_drivers\nikon\nis_useq`); every command below runs from here.
 
 ## Install
 
-On the microscope computer, install the parts you need, in order:
+Install the parts you need, in this order (a later part needs the earlier
+ones; installing part 2 first fails with "No matching distribution found for
+nis-bridge"):
 
 ```
 pip install -e "./1_nis_bridge[test]"
@@ -29,31 +45,43 @@ pip install -e "./2_nis_engine[test]"
 pip install -e "./3_nis_assistant[test]"
 ```
 
-(`[test]` adds pytest, for the tests below; leave it out if you only use the parts.)
+`[test]` adds what the tests below need. Then start the bridge in NIS-Elements,
+as part 1's README describes.
 
-Then start the bridge in NIS-Elements (part 1's README, once per session).
+## Try it without a microscope
+
+Part 1 includes a fake NIS-Elements. Start it in one command window and leave
+it running:
+
+```
+python -m nis_bridge.fake
+```
+
+It answers on the bridge's usual port, so everything in the three READMEs
+works against it: the examples, the hardware tests, and the chat window. Stop
+it with Ctrl+C.
 
 ## Testing on NIS-Elements
 
-With NIS-Elements running (the simulator or the microscope) and
-`start_bridge.mac` started, test the parts in order, and stop at the first
-step that fails, since each builds on the one before. Everything stays within
-100 um of where the stage is, and the stage is moved back afterwards; still,
-keep the objective clear of the sample for the first run.
+With NIS-Elements running and `start_bridge.mac` started, test the parts in
+order, and stop at the first step that fails, since each builds on the one
+before. Always name the part's folder, as shown. Everything stays within 100
+um of where the stage is, and the stage is moved back afterwards; still, keep
+the objective clear of the sample for the first run.
 
 ```
 pytest -m hardware -s 1_nis_bridge      # 1. read, move a little, configuration and exposure, snap
-pytest -m hardware -s 2_nis_engine        # 2. camera field, limit check, useq v2 and classic, tiles, channel options, a sequence file
+pytest -m hardware -s 2_nis_engine      # 2. camera field, limit check, useq v2 and classic, tiles, channel options, a sequence file
 pytest -m hardware -s 3_nis_assistant   # 3. the assistant's tools, with a scripted model (no API calls)
 ```
 
-Run them from this folder.
+`-s` prints what NIS reported and where the images were saved. Tests that need
+a pixel calibration for the objective in use (the camera field, tiles) are
+skipped without one, and say so. In step 2, a yellow pymmcore-plus warning
+about `do_stack=False` is expected; the test checks the saved images itself.
 
-`-s` prints what NIS reported. Tests that need a pixel calibration for the
-objective in use (the camera field, tiles) are skipped without one, and say so.
-
-Then try the assistant with the real model (`nis-assistant --output D:\runs`)
-in this order, and check each answer against NIS:
+Then try the assistant with the real model (`nis-assistant`), in this order,
+and check each answer against NIS:
 
 1. *Where is the stage, and which objective is in use?* (reads only)
 2. *Move x by 20 um.* (moves at once) and *Move x by 5 mm.* (asks first; answer *no*)
@@ -75,12 +103,12 @@ me if the bridge does not answer). Work in three steps and stop at the first
 failure, showing me the output and what you think went wrong; do not change
 code without asking.
 1. Run `pytest -m hardware -s 1_nis_bridge`.
-2. Run `pytest -m hardware -s 2_nis_engine`, then open the OME-TIFFs it saved
-   in the pytest temp folder and tell me their shapes.
+2. Run `pytest -m hardware -s 2_nis_engine`, and tell me the shapes of the
+   images it saved (it prints them).
 3. Run `pytest -m hardware -s 3_nis_assistant`. Then start the window with
-   `nis-assistant --output D:\runs` and tell me, one at a time, the prompts
-   from the checklist under "Testing on NIS-Elements" in README.md, and what
-   to look for after each.
+   `nis-assistant` and tell me, one at a time, the prompts from the checklist
+   under "Testing on NIS-Elements" in README.md, and what to look for after
+   each.
 Finish with a short report: what passed, what was skipped and why, and
 anything that looked wrong.
 ```

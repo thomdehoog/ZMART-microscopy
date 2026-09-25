@@ -223,3 +223,9 @@ def test_the_start_macro_needs_an_editable_install(monkeypatch, tmp_path):
     with pytest.raises(SystemExit, match="pip install -e"):
         install_macros.install(tmp_path)
     assert not (tmp_path / "start_bridge.mac").exists()
+
+
+def test_the_fake_refuses_a_move_beyond_the_stage_limits(client, fake):
+    with pytest.raises(RuntimeError, match="outside the stage limits"):
+        client.request("move", z=20000)
+    assert fake.position["z"] == 500.0

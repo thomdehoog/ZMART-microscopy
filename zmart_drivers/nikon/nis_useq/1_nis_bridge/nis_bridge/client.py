@@ -87,6 +87,11 @@ class NisClient:
             raise ProtocolError(f"reply {reply_id} does not match request {request_id}")
         return result
 
+    @property
+    def closed(self) -> bool:
+        """True after close(), or after an error that ended the connection."""
+        return self._sock is None
+
     def close(self) -> None:
         sock, self._sock = self._sock, None
         if sock is not None:

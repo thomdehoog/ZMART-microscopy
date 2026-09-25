@@ -1,8 +1,11 @@
 # nis-assistant
 
 A chat window where you ask for things at the Nikon microscope in your own
-words. A language model (Claude `claude-opus-5-5` by default, through
-Pydantic AI) does them with the microscope and explains what it did.
+words. A language model (Claude `claude-opus-5-5` by default) does them with
+the microscope and explains what it did. The model never touches the
+microscope directly: it can only call a small set of tools written here, and
+every tool checks what it is asked before acting. Pydantic AI is the Python
+library that connects the model to those tools.
 
 It is also a demonstration of the other two parts: it runs its acquisitions as
 useq sequences on the nis-engine, explains them in useq terms (the
@@ -22,16 +25,22 @@ pip install -e ../2_nis_engine
 pip install -e .
 ```
 
-Start the bridge in NIS-Elements as part 1's README describes, then:
+The model runs at Anthropic, so it needs an API key: create one at
+[console.anthropic.com](https://console.anthropic.com). Each message costs a
+small amount; the provider's pricing page says how much. Start the bridge in
+NIS-Elements as part 1's README describes, then, in the same command window:
 
 ```
 set ANTHROPIC_API_KEY=...
 nis-assistant --output D:\runs
 ```
 
-(In PowerShell, set the key with `$env:ANTHROPIC_API_KEY="..."`.)
+`set` lasts for this command window only (in PowerShell:
+`$env:ANTHROPIC_API_KEY="..."`). `--output` is where acquisitions are saved;
+without it, they go to `nis_assistant_runs` in your home folder.
 
-Another model works too, for example Gemini:
+Another model works too, for example Gemini (key from
+[aistudio.google.com](https://aistudio.google.com)):
 
 ```
 pip install -e ".[google]"
@@ -58,9 +67,10 @@ sweep), and look at an image and describe it. Acquisitions go through useq:
   each position, time points, and PFS focus locking. For tiles, the camera
   field is measured with one image, so the objective needs a pixel
   calibration in NIS.
-- `plan_useq_sequence` loads a useq sequence made elsewhere (pymmcore-widgets,
-  napari-micromanager, a script) from a `.json` or `.yaml` file, or as JSON,
-  and checks it the same way.
+- `plan_useq_sequence` loads a classic useq sequence made elsewhere
+  (pymmcore-widgets, napari-micromanager, a script) from a `.json` or `.yaml`
+  file, or as JSON, and checks it the same way. (useq-schema cannot yet read a
+  v2 sequence back from a file.)
 - `run_acquisition` runs a checked sequence with the pymmcore-plus runner and
   saves it as OME-TIFF (a folder with one file per position when there are
   several), with the sequence itself next to it as `.useq.json`, which other
@@ -106,22 +116,26 @@ writers (0.18) keep the channel and Z axes only for that form.
 - **Clear context** forgets the conversation; **Show tool calls** lists each
   tool call in the chat as it happens.
 
-To keep long conversations quick, the assistant forgets older messages now
-and then: after 15 of your messages, the oldest are dropped so that the newest
-10 remain. It does this between messages and only now and then, because Claude
-checks that its earlier reasoning belongs to the conversation it is sent back
-with, and frequent rewriting would spoil that check.
+To keep long conversations quick, the assistant forgets older messages: after
+15 of your messages it keeps the newest 10.
 
-If the connection to the bridge times out (for example because the macro was
-stopped), close and reopen the window after restarting the bridge.
+Changing the objective does not ask first, so make sure the objectives can
+turn freely. If the connection to NIS was lost (for example because the macro
+was stopped), restart `start_bridge.mac`; the window reconnects with your next
+message.
 
-## Tests and evaluation
+Not supported: camera ROI and binning, several cameras, colour cameras, and
+pausing a run.
+
+## Tests
 
 ```
 pip install -e ".[test]"
 pytest                    # offline, about 10 s: a scripted model over a fake NIS
 pytest -m hardware -s     # on NIS-Elements with the bridge running (step 3 in the overview)
 ```
+
+## For maintainers: the evaluation
 
 The tests check the code. Whether the assistant does what an operator expects
 (acts when a request is clear, asks when it is not, stops at a limit, ignores

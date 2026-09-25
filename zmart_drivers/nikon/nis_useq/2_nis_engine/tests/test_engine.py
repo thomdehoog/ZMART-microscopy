@@ -1,9 +1,13 @@
 """useq sequences run by the pymmcore-plus runner through NisEngine, the bridge and a fake NIS."""
 
+import threading
+
+import numpy as np
 import pytest
 import tifffile
 import useq
 import useq.v2 as v2
+from nis_bridge.client import NisConnectionError
 from nis_engine import NisEngine
 from pymmcore_plus.mda import MDARunner, PMDAEngine
 from useq import Channel, CustomAction, HardwareAutofocus, MDAEvent
@@ -77,6 +81,7 @@ def test_v2_sequence_positions_channels_and_z(engine, fake):
     assert frames.z == [499, 500, 501] * 2 + [599, 600, 601] * 2
     assert frames.events[0].pos_name == "a"
     assert frames.metas[0]["exposure_ms"] == 20  # what NIS applied, not what was asked
+    assert frames.metas[3]["exposure_ms"] == 0  # FITC set none: its own exposure is unknown
     # the channel and exposure are sent only when they change
     assert [c for c in fake.calls if c.startswith(("config", "exposure"))] == [
         "config(DAPI)", "exposure(20.4)", "config(FITC)",
@@ -360,3 +365,48 @@ def test_limits_that_would_block_everything_are_refused(engine, limits):
     with pytest.raises(ValueError, match="the minimum must be below the maximum"):
         engine.set_limits(**limits)
     assert engine.user_limits == {"x": (-10, 10)}  # the previous limits stay in force
+
+
+def test_a_lost_connection_ends_the_run_instead_of_hanging(engine, fake):
+    """If NIS stops answering mid-run, the run must still finish, so a viewer or
+    the assistant waiting for its end does not wait forever."""
+    real_request = engine.client.request
+    snaps = []
+
+    def request(op, **args):
+        if op == "snap":
+            snaps.append(op)
+        if len(snaps) >= 3:  # the connection is gone from the third snap on
+            raise NisConnectionError("connection lost during 'snap'")
+        return real_request(op, **args)
+
+    engine.client.request = request
+    sequence = useq.MDASequence(stage_positions=[(100, 200, 500)], channels=["DAPI", "FITC"])
+    runner = MDARunner()
+    runner.set_engine(engine)
+    outcome = []
+
+    def run_it():
+        try:
+            runner.run(sequence, output=[Frames()])
+        except NisConnectionError as exc:
+            outcome.append(exc)  # the run ends, and says why
+
+    thread = threading.Thread(target=run_it, daemon=True)
+    thread.start()
+    thread.join(timeout=10)
+    assert not thread.is_alive(), "the run hung after the connection was lost"
+    assert outcome and "connection lost" in str(outcome[0])
+
+
+def test_colour_images_are_refused_before_the_run(engine, fake):
+    fake.frame = np.zeros((48, 64, 3), dtype=np.uint16)
+    with pytest.raises(ValueError, match="Set the camera to monochrome"):
+        engine.setup_sequence(useq.MDASequence(channels=["DAPI"]))
+
+
+def test_reconnect_after_the_connection_closed(engine):
+    engine.client.close()
+    assert engine.client.closed
+    engine.reconnect()
+    assert not engine.client.closed and set(engine.client.request("get_position")) == set("xyz")

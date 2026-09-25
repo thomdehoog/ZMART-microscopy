@@ -27,6 +27,7 @@ Stop microscope also ends a running acquisition.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import dataclasses
 import functools
 import inspect
@@ -149,10 +150,11 @@ Your tools. get_status, move_stage, set_microscope, focus and look act on the \
 microscope directly. The acquisition tools are where useq shows. \
 plan_acquisition turns a plan into a useq MDASequence and lets the engine \
 check every one of its events (stage limits, optical configurations, the PFS) \
-without moving. plan_useq_sequence does the same for a sequence made \
-elsewhere, in any tool that speaks useq (pymmcore-widgets, \
+without moving. plan_useq_sequence does the same for a classic sequence \
+made elsewhere, in any tool that speaks useq (pymmcore-widgets, \
 napari-micromanager, a script), given as a .json or .yaml file or as the JSON \
-itself; this is how the microscope joins the community's tools. Both return \
+itself; this is how the microscope joins the community's tools. A v2 \
+sequence cannot be read from JSON yet. Both return \
 a plan id, a summary and the sequence itself as useq_sequence. \
 run_acquisition gives the sequence to the MDARunner, which runs it on the \
 engine and saves the images as OME-TIFF, with the sequence next to them as a \
@@ -714,22 +716,31 @@ def plan_useq_sequence(
     path: str | None = None,
     sequence: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Load a useq MDASequence made elsewhere and check it, like plan_acquisition.
+    """Load a classic useq MDASequence made elsewhere and check it, like
+    plan_acquisition.
 
     This is how a sequence from another useq tool (pymmcore-widgets,
     napari-micromanager, a script) runs on this microscope. Positions are NIS
     stage coordinates in um; a sequence without positions is imaged where the
-    stage is now. Returns the same as plan_acquisition.
+    stage is now. Returns the same as plan_acquisition. A useq v2 sequence
+    cannot be read from JSON yet (useq-schema 0.9 does not save its axes), so
+    only the classic form works here.
 
     Args:
         name: short name for the saved files: letters, digits, - and _.
-        path: a .json or .yaml file that holds a useq MDASequence.
+        path: a .json or .yaml file that holds a classic useq MDASequence.
         sequence: the MDASequence itself, as the JSON object useq writes.
     """
     if not re.fullmatch(r"[A-Za-z0-9_-]{1,40}", name):
         raise ModelRetry("name may hold only letters, digits, - and _ (at most 40).")
     if (path is None) == (sequence is None):
         raise ModelRetry("Give either path or sequence, not both.")
+    if sequence is not None and "axes" in sequence:
+        message = (
+            "this is a useq v2 sequence, which useq-schema cannot read back from JSON yet; "
+            "save it as a classic MDASequence (stage_positions, channels, z_plan, ...)"
+        )
+        return refusal(ctx, "invalid", message, FAILURE_ADVICE)
     try:
         loaded = useq.MDASequence.from_file(path) if path else useq.MDASequence(**sequence)
     except (OSError, ValueError) as exc:  # a missing file, or not a valid sequence
@@ -743,16 +754,15 @@ def plan_useq_sequence(
 
 def keep_plan(ctx: RunContext[Microscope], name: str, sequence: useq.MDASequence) -> dict:
     """Check a useq sequence event by event and keep it under a new plan id."""
+    names = [p.name for p in sequence.stage_positions if p.name]
+    repeated = sorted({n for n in names if names.count(n) > 1})
+    if repeated:  # the file writers need a different name for each position
+        message = f"each position needs its own name; used more than once: {', '.join(repeated)}"
+        return refusal(ctx, "invalid", message, FAILURE_ADVICE)
     try:
         events = ctx.deps.engine.check(sequence)
     except ValueError as exc:
-        message = f"the plan cannot run as written: {exc}"
-        if "outside the stage limits" in message:
-            return refusal(ctx, "limit", message, LIMIT_ADVICE)
-        if "optical configuration" in message:
-            known = ctx.deps.client.request("get_optical_configurations")
-            return refusal(ctx, "invalid", message, OPTIONS_ADVICE, configured_options=known)
-        return refusal(ctx, "invalid", message, FAILURE_ADVICE)
+        return plan_refusal(ctx, exc)
     plan_id = f"{name}-{len(ctx.deps.plans) + 1}"
     ctx.deps.plans[plan_id] = sequence
     ctx.deps.planned_in[plan_id] = ctx.deps.turn
@@ -762,6 +772,17 @@ def keep_plan(ctx: RunContext[Microscope], name: str, sequence: useq.MDASequence
         "summary": describe(ctx, sequence, events),
         "useq_sequence": sequence.model_dump(mode="json", exclude_defaults=True),
     }
+
+
+def plan_refusal(ctx: RunContext[Microscope], exc: ValueError) -> dict:
+    """The engine's objection to a plan, with the advice that fits it."""
+    message = f"the plan cannot run as written: {exc}"
+    if "outside the stage limits" in message:
+        return refusal(ctx, "limit", message, LIMIT_ADVICE)
+    if "optical configuration" in message:
+        known = ctx.deps.client.request("get_optical_configurations")
+        return refusal(ctx, "invalid", message, OPTIONS_ADVICE, configured_options=known)
+    return refusal(ctx, "invalid", message, FAILURE_ADVICE)
 
 
 @agent.tool(sequential=True)
@@ -783,7 +804,10 @@ def run_acquisition(ctx: RunContext[Microscope], plan_id: str) -> dict[str, Any]
             OPTIONS_ADVICE,
             configured_options=list(ctx.deps.plans),
         )
-    events = ctx.deps.engine.check(sequence)  # the microscope may have changed since planning
+    try:  # the microscope, or the limits, may have changed since planning
+        events = ctx.deps.engine.check(sequence)
+    except ValueError as exc:
+        return plan_refusal(ctx, exc)
     if ctx.deps.planned_in[plan_id] == ctx.deps.turn:  # the operator has not seen the plan yet
         summary = f"start acquisition {plan_id!r}: {describe(ctx, sequence, events)}"
         return {"status": "needs_go_ahead", "not_done_yet": summary, "advice": START_ADVICE}
@@ -800,21 +824,30 @@ def run_acquisition(ctx: RunContext[Microscope], plan_id: str) -> dict[str, Any]
     frames = _FrameCounter(ctx.deps.on_image)
     runner = ctx.deps.runner = MDARunner()
     runner.set_engine(ctx.deps.engine)
-    started = time.perf_counter()
+    if ctx.deps.cancel.is_set():  # Stop was pressed while the run was being prepared
+        ctx.deps.runner = None
+        return {"status": "cancelled", "advice": CANCELLED_ADVICE}
+    started, error = time.perf_counter(), None
     try:
         runner.run(sequence, output=[frames, output])
+    except Exception as exc:  # noqa: BLE001 - reported below, with what was saved
+        error = f"{type(exc).__name__}: {exc}"
     finally:
         ctx.deps.runner = None
+    with contextlib.suppress(Exception):  # the connection may be gone after an error
         ctx.deps.anchor = ctx.deps.client.request("get_position")
     # With several positions (tiles count too) the writer makes a folder of the
     # same name, with one OME-TIFF per position, instead of one file.
     saved_to = output if output.exists() else ctx.deps.output_dir / stem
-    return {
+    result = {
         "images": frames.count,
-        "finished": str(runner.status.finish_reason),  # "completed" or "canceled"
+        "finished": "failed" if error else str(runner.status.finish_reason),
         "duration_s": round(time.perf_counter() - started, 1),
         "saved_to": str(saved_to),
     }
+    if error:
+        result["error"] = {"code": "failed", "message": error, "advice": FAILURE_ADVICE}
+    return result
 
 
 @agent.tool(sequential=True)
@@ -927,11 +960,11 @@ def describe(
     times = ""
     if sizes.get("t", 0) > 1:
         times = f", {sizes['t']} time points {last_start / (sizes['t'] - 1):g} s apart"
-    positions = [
-        f"{p.name or f'#{i + 1}'} at x {p.x:.0f}, y {p.y:.0f}"
-        + (f", z {p.z:.0f} um" if p.z is not None else " um")
-        for i, p in enumerate(sequence.stage_positions)
-    ]
+    positions = []
+    for i, p in enumerate(sequence.stage_positions):
+        axes = ", ".join(f"{a} {getattr(p, a):.0f}" for a in "xyz" if getattr(p, a) is not None)
+        where = f"at {axes} um" if axes else "where the stage is"
+        positions.append(f"{p.name or f'#{i + 1}'} {where}")
     if len(positions) > 6:
         positions = [*positions[:6], f"and {len(positions) - 6} more"]
     tiles = ""
@@ -1027,6 +1060,8 @@ class Assistant:
 
     def send(self, text: str) -> str:
         """One operator message in, the assistant's answer out."""
+        if self.microscope.engine.client.closed:  # after a timeout, or a restarted bridge
+            self.microscope.engine.reconnect()
         self.microscope.cancel.clear()
         state = self.microscope.state()
         self.microscope.anchor = state["position_um"]

@@ -71,7 +71,10 @@ def run(engine, sequence, output=None):
 
 def images_in(folder):
     """How many images the OME-TIFF files under ``folder`` hold."""
-    return sum(int(np.prod(tifffile.imread(f).shape[:-2])) for f in folder.rglob("*.ome.tif*"))
+    files = sorted(folder.rglob("*.ome.tif*"))
+    for f in files:
+        print("saved", f, tifffile.imread(f).shape)
+    return sum(int(np.prod(tifffile.imread(f).shape[:-2])) for f in files)
 
 
 # -- the engine on its own ------------------------------------------------------------
