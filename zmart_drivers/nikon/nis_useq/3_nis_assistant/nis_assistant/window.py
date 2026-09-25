@@ -356,7 +356,6 @@ def _explain(exc: Exception, model: object) -> str:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Chat with the Nikon microscope assistant.")
-    parser.add_argument("--host", default=DEFAULT_HOST, help="the computer running NIS-Elements")
     parser.add_argument("--port", type=int, default=DEFAULT_PORT, help="the bridge's port")
     parser.add_argument(
         "--output",
@@ -368,7 +367,7 @@ def main(argv: list[str] | None = None) -> int:
 
     app = QApplication(sys.argv[:1])
     try:
-        engine = NisEngine(args.host, args.port)
+        engine = NisEngine(DEFAULT_HOST, args.port)
     except NisConnectionError as exc:
         QMessageBox.critical(None, "No connection to NIS-Elements", str(exc))
         return 1

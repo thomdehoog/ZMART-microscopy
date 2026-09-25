@@ -107,10 +107,12 @@ leave the limits stops the run at that point.
 ## useq v2
 
 The new `useq.v2.MDASequence` runs the same way (`import useq.v2 as v2`, then
-`v2.MDASequence(...)` with the same fields). One caution: the pymmcore-plus
-file writers (0.18) save a v2 sequence as one flat stack of images, without
-its channel and Z axes, so use the classic `useq.MDASequence` when the saved
-file matters.
+`v2.MDASequence(...)` with the same fields). Three cautions with useq-schema
+0.9.2: the pymmcore-plus file writers (0.18) save a v2 sequence as one flat
+stack of images, without its channel and Z axes, so use the classic
+`useq.MDASequence` when the saved file matters; an autofocus plan focuses at
+the first plane of a Z-stack, where the classic form focuses at the
+position's own z; and a channel's `z_offset` is ignored.
 
 ## What each useq field does
 
@@ -143,9 +145,6 @@ custom actions, and colour cameras (set the camera to monochrome in NIS).
   configuration) stay as the run left them.
 - If the connection to the bridge was lost, `engine.reconnect()` opens a new
   one once `start_bridge.mac` runs again.
-- useq v2 (0.9.2) differs from the classic form in two details: an autofocus
-  plan focuses at the first plane of a Z-stack (the classic form at the
-  position's own z), and a channel's `z_offset` is ignored.
 
 ## Files
 

@@ -62,7 +62,7 @@ class NisEngine:
 
         runner = MDARunner()
         runner.set_engine(NisEngine())
-        runner.run(sequence, output="run.ome.zarr")
+        runner.run(sequence, output="run.ome.tiff")
     """
 
     def __init__(
@@ -111,7 +111,12 @@ class NisEngine:
             for axis, bounds in {"x": x, "y": y, "z": z}.items()
             if bounds is not None
         }
-        for axis, limit in self.limits().items():
+        try:
+            limits = self.limits()
+        except Exception:  # the bridge did not answer: keep what was in force
+            self.user_limits = previous
+            raise
+        for axis, limit in limits.items():
             if not limit["min"] < limit["max"]:
                 self.user_limits = previous
                 raise ValueError(

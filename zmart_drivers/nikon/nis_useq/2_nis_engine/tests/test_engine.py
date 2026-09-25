@@ -405,6 +405,14 @@ def test_colour_images_are_refused_before_the_run(engine, fake):
         engine.setup_sequence(useq.MDASequence(channels=["DAPI"]))
 
 
+def test_limits_stay_as_they_were_when_nis_does_not_answer(engine):
+    engine.set_limits(z=(100, 900))
+    engine.client.close()
+    with pytest.raises(NisConnectionError):
+        engine.set_limits(z=(200, 800))
+    assert engine.user_limits == {"z": (100, 900)}
+
+
 def test_reconnect_after_the_connection_closed(engine):
     engine.client.close()
     assert engine.client.closed

@@ -46,7 +46,10 @@ pip install -e "./3_nis_assistant[test]"
 ```
 
 `[test]` adds what the tests below need. Then start the bridge in NIS-Elements,
-as part 1's README describes.
+as part 1's README describes. Your first result is one of these: a position
+read and an image snapped from Python (part 1, "Use it"), a Z-stack saved as
+OME-TIFF (part 2, "Run a sequence"), or a conversation in the chat window
+(part 3).
 
 ## Try it without a microscope
 

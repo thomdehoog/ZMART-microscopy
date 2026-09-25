@@ -181,7 +181,9 @@ def test_macro_carries_the_path_and_port(tmp_path):
     assert not any(line.startswith(("//", "char ")) for line in text.splitlines())
 
     path = install_macros.install(tmp_path, port=6000)
-    assert b"\r\n" in path.read_bytes() and "nis_bridge.bridge as b" in path.read_text()
+    text = path.read_text()
+    assert b"\r\n" in path.read_bytes() and "nis_bridge.bridge as b" in text
+    assert "importlib.reload(p)" in text  # the protocol too, or a changed version stays cached
 
 
 def test_macro_lifecycle_start_reload_stop(monkeypatch, tmp_path):
