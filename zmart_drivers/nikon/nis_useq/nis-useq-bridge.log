@@ -1,0 +1,40 @@
+2026-09-25 07:36:14,666 INFO bridge 0.1.0 listening on port 0
+2026-09-25 07:36:15,167 INFO bridge stopped
+2026-09-25 07:36:25,810 ERROR op autofocus failed
+Traceback (most recent call last):
+  File "/home/user/ZMART-microscopy/zmart_drivers/nikon/nis_useq/nis_useq/bridge.py", line 435, in pump
+    job.result = getattr(self.ops, job.op)(job.args)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/user/ZMART-microscopy/zmart_drivers/nikon/nis_useq/nis_useq/bridge.py", line 344, in autofocus
+    raise RuntimeError(f"StgFocusInRangeEx: {reason.get(rc, 'failed')} ({rc})")
+RuntimeError: StgFocusInRangeEx: focus not found (0)
+2026-09-25 07:36:41,023 INFO bridge 0.1.0 listening on port 0
+2026-09-25 07:36:41,524 INFO bridge stopped
+2026-09-25 07:36:52,171 ERROR op autofocus failed
+Traceback (most recent call last):
+  File "/home/user/ZMART-microscopy/zmart_drivers/nikon/nis_useq/nis_useq/bridge.py", line 435, in pump
+    job.result = getattr(self.ops, job.op)(job.args)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/user/ZMART-microscopy/zmart_drivers/nikon/nis_useq/nis_useq/bridge.py", line 344, in autofocus
+    raise RuntimeError(f"StgFocusInRangeEx: {reason.get(rc, 'failed')} ({rc})")
+RuntimeError: StgFocusInRangeEx: focus not found (0)
+2026-09-25 07:38:44,686 INFO bridge 0.1.0 listening on port 0
+2026-09-25 07:38:45,187 INFO bridge stopped
+2026-09-25 07:38:55,914 ERROR op autofocus failed
+Traceback (most recent call last):
+  File "/home/user/ZMART-microscopy/zmart_drivers/nikon/nis_useq/nis_useq/bridge.py", line 435, in pump
+    job.result = getattr(self.ops, job.op)(job.args)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/user/ZMART-microscopy/zmart_drivers/nikon/nis_useq/nis_useq/bridge.py", line 344, in autofocus
+    raise RuntimeError(f"StgFocusInRangeEx: {reason.get(rc, 'failed')} ({rc})")
+RuntimeError: StgFocusInRangeEx: focus not found (0)
+2026-09-25 07:39:38,773 INFO bridge 0.1.0 listening on port 0
+2026-09-25 07:39:39,274 INFO bridge stopped
+2026-09-25 07:39:50,408 ERROR op autofocus failed
+Traceback (most recent call last):
+  File "/home/user/ZMART-microscopy/zmart_drivers/nikon/nis_useq/nis_useq/bridge.py", line 435, in pump
+    job.result = getattr(self.ops, job.op)(job.args)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/user/ZMART-microscopy/zmart_drivers/nikon/nis_useq/nis_useq/bridge.py", line 344, in autofocus
+    raise RuntimeError(f"StgFocusInRangeEx: {reason.get(rc, 'failed')} ({rc})")
+RuntimeError: StgFocusInRangeEx: focus not found (0)
