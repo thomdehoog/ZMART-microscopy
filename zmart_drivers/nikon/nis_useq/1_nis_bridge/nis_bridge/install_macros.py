@@ -23,7 +23,7 @@ PACKAGE_DIR = Path(__file__).resolve().parent
 PROJECT_DIR = PACKAGE_DIR.parent  # the folder that contains the nis_bridge package
 
 TEMPLATE = """WaitText(1, "nis-bridge: starting");
-Python_RunString("import sys; p = r'{project_dir}'; sys.path.insert(0, p) if p not in sys.path else None; import importlib, nis_bridge.bridge as b; importlib.reload(b); import nis; nis.log(b.start(port={port}))");
+Python_RunString("import sys; p = r'{project_dir}'; sys.path.insert(0, p) if p not in sys.path else None; import importlib, nis_bridge.protocol as p, nis_bridge.bridge as b; importlib.reload(p); importlib.reload(b); import nis; nis.log(b.start(port={port}))");
 WaitText(1, "nis-bridge: running on port {port}. Press the macro Stop button to end it.");
 while (ExistFile("{stop_file}") == 0)
 {{

@@ -390,6 +390,40 @@ def test_a_plan_the_operator_declines_is_not_run(microscope, fake):
     assert fake.captures == 0 and not microscope.output_dir.exists()
 
 
+def test_a_plan_from_earlier_in_the_conversation_is_asked_about_again(microscope, fake):
+    steps = [
+        ("plan_acquisition", PLAN),
+        "Shall I start?",
+        "OK, not now.",
+        RUN,
+        "Shall I start it now?",
+    ]
+    assistant, _ = talk(microscope, *steps)
+    assistant.send("plan a stack at a")
+    assistant.send("no, later")
+    assistant.send("run it now")  # the plan is two messages old: a new question, no run
+    assert tool_results(assistant)[-1]["status"] == "needs_go_ahead" and fake.captures == 0
+
+
+def test_the_saved_sequence_is_written_as_utf8(microscope, monkeypatch):
+    """Windows would otherwise write it in its own encoding, which useq cannot read back."""
+    encodings, real_write = [], Path.write_text
+
+    def write_text(self, data, **kwargs):
+        encodings.append(kwargs.get("encoding"))
+        return real_write(self, data, **kwargs)
+
+    monkeypatch.setattr(Path, "write_text", write_text)
+    named = {**PLAN, "positions": [{"x": 100, "y": 200, "z": 500, "name": "Zürich_Δ"}]}
+    steps = [("plan_acquisition", named), "Shall I start?", RUN, "Saved."]
+    assistant, _ = talk(microscope, *steps)
+    assistant.send("a stack")
+    assistant.send("yes")
+    (saved,) = microscope.output_dir.glob("*.useq.json")
+    assert encodings == ["utf-8"]
+    assert useq.MDASequence.from_file(saved).stage_positions[0].name == "Zürich_Δ"
+
+
 def test_a_far_away_plan_says_so(microscope):
     far = {**PLAN, "positions": [{"x": 50000, "y": 30000, "z": 900}]}
     assistant, _ = talk(microscope, ("plan_acquisition", far), "Shall I? It is far.")

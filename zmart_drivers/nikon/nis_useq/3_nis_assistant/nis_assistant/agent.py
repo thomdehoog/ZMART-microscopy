@@ -808,7 +808,11 @@ def run_acquisition(ctx: RunContext[Microscope], plan_id: str) -> dict[str, Any]
         events = ctx.deps.engine.check(sequence)
     except ValueError as exc:
         return plan_refusal(ctx, exc)
-    if ctx.deps.planned_in[plan_id] == ctx.deps.turn:  # the operator has not seen the plan yet
+    # The run goes ahead only in the turn right after the plan (or this question)
+    # was shown, so that the operator's reply to it is the go-ahead. A plan from
+    # earlier in the conversation is asked about again.
+    if ctx.deps.planned_in[plan_id] != ctx.deps.turn - 1:
+        ctx.deps.planned_in[plan_id] = ctx.deps.turn
         summary = f"start acquisition {plan_id!r}: {describe(ctx, sequence, events)}"
         return {"status": "needs_go_ahead", "not_done_yet": summary, "advice": START_ADVICE}
 
@@ -816,7 +820,7 @@ def run_acquisition(ctx: RunContext[Microscope], plan_id: str) -> dict[str, Any]
     ctx.deps.output_dir.mkdir(parents=True, exist_ok=True)
     output = ctx.deps.output_dir / f"{stem}.ome.tiff"
     saved = sequence.model_dump_json(exclude_defaults=True, indent=2)
-    (ctx.deps.output_dir / f"{stem}.useq.json").write_text(saved)
+    (ctx.deps.output_dir / f"{stem}.useq.json").write_text(saved, encoding="utf-8")
 
     # The runner lives on the assistant's thread. Without this, pymmcore-plus
     # would pick Qt signals whenever the chat window is open, which needs qtpy.
