@@ -131,11 +131,13 @@ def test_an_acquisition_runs_from_the_window_and_stop_ends_it(qtbot, open_window
         slow_capture()
 
     fake.capture = capture
+    run = ("run_acquisition", {"plan_id": "run-1"})
     window = open_window(
-        ("plan_acquisition", PLAN), ("run_acquisition", {"plan_id": "run-1"}), "Stopped early."
+        ("plan_acquisition", PLAN), "Shall I start 12 images?", run, "Stopped early."
     )
-    window.prompt.setText("take 12 images")
-    window.send()
+    assert "Shall I start 12 images?" in ask(qtbot, window, "take 12 images")
+    assert fake.captures == 0  # nothing starts before the operator agrees
+    start(window, "yes")
     qtbot.waitUntil(lambda: window.caption.text().startswith("frame 3"), timeout=10000)
     window.stop_button.click()
     qtbot.waitUntil(lambda: not window.busy, timeout=10000)

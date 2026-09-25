@@ -79,6 +79,7 @@ def test_an_acquisition_case_counts_the_saved_files():
     trace = run(
         "acquisition-two-channels",
         ("plan_acquisition", plan),
+        "Two images, DAPI and FITC. Shall I start?",
         ("run_acquisition", {"plan_id": "two-1"}),
         "Two images saved.",
     )
