@@ -15,7 +15,7 @@ Rules that keep it safe:
 * One call at a time: the queue is drained by that single thread.
 
 Standard library only (NIS 6.10 bundles Python 3.12 with numpy and nothing else).
-Tests replace :class:`NisApi` with a fake; see ``tests/fake_nis.py``.
+Tests replace :class:`NisApi` with a fake; see ``nis_bridge/fake.py``.
 """
 
 from __future__ import annotations
@@ -43,7 +43,7 @@ from .protocol import (
 
 BRIDGE_VERSION = "0.2.0"
 
-log = logging.getLogger("nis_useq.bridge")
+log = logging.getLogger("nis_bridge.bridge")
 
 # Return codes of NIS device functions. 1 and 2 mean success.
 DR_CODES = {
@@ -505,7 +505,7 @@ def serve(api: Any, host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> Bridg
 # survives the module reload the macro does to pick up code changes.
 # ---------------------------------------------------------------------------
 
-_running: dict[str, Any] = sys.modules["__main__"].__dict__.setdefault("_nis_useq_bridge", {})
+_running: dict[str, Any] = sys.modules["__main__"].__dict__.setdefault("_nis_bridge", {})
 STOP_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bridge.stop")
 
 
@@ -518,7 +518,7 @@ def start(port: int = DEFAULT_PORT) -> str:
         stop()  # left over from an earlier macro run: free its port
     if os.path.exists(STOP_FILE):
         os.remove(STOP_FILE)
-    log_path = os.path.join(tempfile.gettempdir(), "nis-useq-bridge.log")
+    log_path = os.path.join(tempfile.gettempdir(), "nis-bridge.log")
     handler = logging.FileHandler(log_path, encoding="utf-8")
     handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
     log.handlers[:] = [handler]

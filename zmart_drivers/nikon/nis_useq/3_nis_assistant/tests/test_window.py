@@ -7,9 +7,9 @@ import pytest
 pytest.importorskip("pytestqt")
 pytest.importorskip("pydantic_ai")
 
-from nis_useq.agent import Assistant, Microscope  # noqa: E402
+from nis_assistant.agent import Assistant, Microscope  # noqa: E402
+from nis_assistant.window import AssistantWindow  # noqa: E402
 from nis_useq.engine import NisEngine  # noqa: E402
-from nis_useq.window import AssistantWindow  # noqa: E402
 from PySide6.QtWidgets import QMessageBox  # noqa: E402
 from test_agent import Script, moves  # noqa: E402
 

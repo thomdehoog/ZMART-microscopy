@@ -1,4 +1,4 @@
-"""The real bridge server on a free local port, with a fake NIS behind it."""
+"""The real bridge server on a free local port, with a pretend NIS behind it."""
 
 from __future__ import annotations
 
@@ -7,11 +7,10 @@ from pathlib import Path
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # the project folder
-sys.path.insert(0, str(Path(__file__).resolve().parent))  # fake_nis
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # this part's folder
 
-from fake_nis import FakeNisApi, running_bridge  # noqa: E402
-from nis_useq.client import NisClient  # noqa: E402
+from nis_bridge.client import NisClient  # noqa: E402
+from nis_bridge.fake import FakeNisApi, running_bridge  # noqa: E402
 
 
 @pytest.fixture

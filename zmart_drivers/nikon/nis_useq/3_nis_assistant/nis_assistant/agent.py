@@ -42,9 +42,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal
 
+import nis_bridge
+import nis_useq
 import numpy as np
 import tifffile
 import useq
+from nis_useq.engine import NisEngine
 from PIL import Image
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent, BinaryContent, ModelRetry, RunContext, capture_run_messages
@@ -58,8 +61,6 @@ from pydantic_ai.messages import (
     UserPromptPart,
 )
 from pymmcore_plus.mda import MDARunner
-
-from .engine import NisEngine
 
 MODEL = "anthropic:claude-opus-5-5"
 MODEL_SETTINGS = {
@@ -104,7 +105,12 @@ CANCELLED_ADVICE = (
 
 # The source code the assistant may read to explain how things work: this
 # package and useq-schema as installed, nothing else on the computer.
-SOURCE_ROOTS = {"nis_useq": Path(__file__).resolve().parent, "useq": Path(useq.__file__).parent}
+SOURCE_ROOTS = {
+    "nis_bridge": Path(nis_bridge.__file__).parent,
+    "nis_useq": Path(nis_useq.__file__).parent,
+    "nis_assistant": Path(__file__).parent,
+    "useq": Path(useq.__file__).parent,
+}
 SOURCE_MATCHES = 40  # search results returned at most
 SOURCE_LINES = 200  # lines read at most in one go
 
@@ -120,7 +126,9 @@ new to it. Be helpful and explain briefly what you do and why, in plain words. \
 Write plain text without Markdown; the chat window shows it as is.
 
 What this is. You are the demonstration of nis-useq, which runs useq-schema \
-acquisitions on a Nikon microscope. useq-schema is the community's shared way \
+acquisitions on a Nikon microscope. It comes in three parts that others can \
+adopt one by one: nis-bridge (control NIS-Elements from Python), nis-useq (the \
+useq engine on top of it) and nis-assistant (you). useq-schema is the community's shared way \
 to describe a multi-dimensional acquisition (an MDASequence): positions (axis \
 p), channels (c), Z planes (z) and time points (t), which it expands into one \
 event per image. The pieces, from you down to the hardware: your tools; the \
@@ -169,16 +177,16 @@ keeping the shutter open, resetting the timer). The classic fields \
 (stage_positions, channels, z_plan, grid_plan, time_plan) still work and \
 become these axes. NisEngine runs both forms.
 
-Explaining the code. You can read the source of nis-useq (the engine, the \
-bridge, these tools, the window) and of useq-schema, v2 included, with \
+Explaining the code. You can read the source of the three parts and of \
+useq-schema, v2 included, with \
 search_source and read_source. When the operator asks how something works, \
 look it up there rather than answering from memory, and name the file and \
 line you mean. Start with what it means for their experiment, then show the \
 few lines of code that do it, and explain those in plain words. Where things \
-live: in nis_useq, engine.py is NisEngine (it checks and carries out each \
-event), bridge.py is the server inside NIS-Elements, client.py and \
-protocol.py are the connection to it, agent.py holds your tools, and \
-window.py the chat window. In useq, the classic MDASequence is in \
+live: in nis_bridge, bridge.py is the server inside NIS-Elements and \
+client.py and protocol.py are the connection to it; in nis_useq, engine.py \
+is NisEngine, which checks and carries out each event; in nis_assistant, \
+agent.py holds your tools and window.py the chat window. In useq, the classic MDASequence is in \
 useq/_mda_sequence.py and its events come from useq/_iter_sequence.py; v2 \
 is in useq/v2/, where _mda_sequence.py holds the sequence and its \
 MDAEventBuilder (which makes each MDAEvent from one combination of axis \
@@ -805,7 +813,8 @@ def run_acquisition(ctx: RunContext[Microscope], plan_id: str) -> dict[str, Any]
 @agent.tool(sequential=True)
 @hardware_tool
 def search_source(ctx: RunContext[Microscope], text: str) -> dict[str, Any]:
-    """Search the source code of nis-useq and useq-schema (v2 included) for a word
+    """Search the source code of nis-bridge, nis-useq, nis-assistant and useq-schema
+    (v2 included) for a word
     or phrase, to explain how something works.
 
     Returns matching lines as "file:line: text". When nothing matches, returns
@@ -832,7 +841,7 @@ def search_source(ctx: RunContext[Microscope], text: str) -> dict[str, Any]:
 def read_source(
     ctx: RunContext[Microscope], file: str, start_line: int = 1, lines: int = 80
 ) -> dict[str, Any]:
-    """Read part of a source file of nis-useq or useq-schema, with line numbers.
+    """Read part of a source file of the three parts or of useq-schema, with line numbers.
 
     Args:
         file: a file as search_source names it, for example "nis_useq/engine.py"
@@ -955,7 +964,7 @@ def _distance(event: useq.MDAEvent, here: dict[str, float], *axes: str) -> float
 
 def snap(client) -> np.ndarray:
     """One image with the current settings, outside any acquisition run."""
-    with tempfile.TemporaryDirectory(prefix="nis_useq_look_") as folder:
+    with tempfile.TemporaryDirectory(prefix="nis_assistant_look_") as folder:
         path = Path(folder) / "look.tif"
         client.request("snap", path=str(path), timeout=120)
         return tifffile.imread(path)

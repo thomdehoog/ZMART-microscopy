@@ -84,10 +84,10 @@ import numpy as np
 import tifffile
 
 HERE = Path(__file__).resolve().parent
-sys.path[:0] = [str(HERE.parent), str(HERE)]  # the project and fake_nis, when run as a script
+sys.path[:0] = [str(HERE.parent), str(HERE)]  # this part and its tests, when run as a script
 
-from fake_nis import FakeNisApi, running_bridge  # noqa: E402
-from nis_useq.agent import MODEL, Assistant, Microscope  # noqa: E402
+from nis_assistant.agent import MODEL, Assistant, Microscope  # noqa: E402
+from nis_bridge.fake import FakeNisApi, running_bridge  # noqa: E402
 from nis_useq.engine import NisEngine  # noqa: E402
 from pydantic_ai.messages import ToolCallPart, ToolReturnPart  # noqa: E402
 

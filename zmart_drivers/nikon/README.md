@@ -11,7 +11,7 @@
 > `C:\Program Files\NIS-Elements\Docs\nis\eng_ar\`. The text below is kept as the investigation
 > record that led here; the dated log is in [`FINDINGS.md`](FINDINGS.md).
 >
-> **This folder:** [`nis_elements_6_10/`](nis_elements_6_10/README.md) (the ZMART driver) · [`nis_useq/`](nis_useq/README.md) (a standalone useq-schema engine for pymmcore-plus, sharing no code with ZMART) · [`README.md`](README.md)
+> **This folder:** [`nis_elements_6_10/`](nis_elements_6_10/README.md) (the ZMART driver) · [`nis_useq/`](nis_useq/README.md) (useq-schema on the Nikon in three standalone parts: bridge, useq engine, assistant; sharing no code with ZMART) · [`README.md`](README.md)
 > (this file — investigation reference) · [`FINDINGS.md`](FINDINGS.md) (progress log) ·
 > [`spike/`](spike/) (early NkSocket spike and the probe scripts that mapped the embedded Python).
 >

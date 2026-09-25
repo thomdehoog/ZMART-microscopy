@@ -1,6 +1,6 @@
 """Write the NIS macro that starts the bridge on this computer.
 
-    python -m nis_useq.install_macros
+    python -m nis_bridge.install_macros
 
 A NIS macro cannot find this folder by itself, so the path is written into the
 macro as a literal. NIS silently refuses to run a macro it cannot compile, so
@@ -20,18 +20,18 @@ from .bridge import STOP_FILE
 from .protocol import DEFAULT_PORT
 
 PACKAGE_DIR = Path(__file__).resolve().parent
-PROJECT_DIR = PACKAGE_DIR.parent  # the folder that contains the nis_useq package
+PROJECT_DIR = PACKAGE_DIR.parent  # the folder that contains the nis_bridge package
 
-TEMPLATE = """WaitText(1, "nis_useq bridge: starting");
-Python_RunString("import sys; p = r'{project_dir}'; sys.path.insert(0, p) if p not in sys.path else None; import importlib, nis_useq.bridge as b; importlib.reload(b); import nis; nis.log(b.start(port={port}))");
-WaitText(1, "nis_useq bridge: running on port {port}. Press the macro Stop button to end it.");
+TEMPLATE = """WaitText(1, "nis-bridge: starting");
+Python_RunString("import sys; p = r'{project_dir}'; sys.path.insert(0, p) if p not in sys.path else None; import importlib, nis_bridge.bridge as b; importlib.reload(b); import nis; nis.log(b.start(port={port}))");
+WaitText(1, "nis-bridge: running on port {port}. Press the macro Stop button to end it.");
 while (ExistFile("{stop_file}") == 0)
 {{
-    Python_RunString("import nis_useq.bridge as b; b.pump(0.05)");
+    Python_RunString("import nis_bridge.bridge as b; b.pump(0.05)");
     Wait(0.01);
 }}
-Python_RunString("import nis_useq.bridge as b; import nis; nis.log(b.stop())");
-WaitText(2, "nis_useq bridge: stopped");
+Python_RunString("import nis_bridge.bridge as b; import nis; nis.log(b.stop())");
+WaitText(2, "nis-bridge: stopped");
 """
 
 

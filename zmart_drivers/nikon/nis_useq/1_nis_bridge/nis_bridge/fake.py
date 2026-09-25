@@ -1,10 +1,17 @@
-"""A stand-in for ``bridge.NisApi``: an in-memory microscope, no NIS-Elements needed.
+"""A pretend NIS-Elements, for testing without a microscope.
 
-Limits, objective names and optical configurations match the Ti2 simulator.
+``FakeNisApi`` stands in for ``bridge.NisApi``: an in-memory microscope whose
+limits, objective names and optical configurations match the Ti2 simulator.
+``running_bridge`` puts the real bridge server in front of it, so code built
+on the client (an engine, an assistant) can be tested end to end:
+
+    with running_bridge(FakeNisApi()) as server:
+        client = NisClient("127.0.0.1", server.server_address[1])
+
 ``save_tiff`` writes a real 16-bit TIFF whose pixels all equal the capture
 number, so a test can tell which capture ended up in which frame, or the
-picture in ``frame`` when one is set. ``running_bridge`` puts the real bridge
-server in front of it.
+picture in ``frame`` when one is set. Needs numpy and tifffile, which the
+bridge itself does not.
 """
 
 from __future__ import annotations
@@ -15,8 +22,9 @@ from contextlib import contextmanager
 
 import numpy as np
 import tifffile
-from nis_useq import bridge
-from nis_useq.bridge import NisError
+
+from . import bridge
+from .bridge import NisError
 
 IMAGE_SHAPE = (48, 64)  # height, width
 

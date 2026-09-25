@@ -7,7 +7,7 @@ import pytest
 pytest.importorskip("pydantic_ai")
 
 import evals  # noqa: E402
-from nis_useq.agent import image_statistics  # noqa: E402
+from nis_assistant.agent import image_statistics  # noqa: E402
 from test_agent import Script  # noqa: E402
 
 
