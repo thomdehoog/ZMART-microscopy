@@ -23,7 +23,7 @@ from pathlib import Path
 
 import numpy as np
 from nis_bridge.client import NisConnectionError
-from nis_bridge.protocol import DEFAULT_PORT
+from nis_bridge.protocol import DEFAULT_HOST, DEFAULT_PORT
 from nis_useq.engine import NisEngine
 from pydantic_ai.exceptions import UnexpectedModelBehavior
 from PySide6.QtCore import QObject, Qt, Signal
@@ -184,7 +184,7 @@ class AssistantWindow(QMainWindow):
             try:
                 self.signals.reply.emit(turn())
             except Exception as exc:  # noqa: BLE001 - shown to the operator, not swallowed
-                self.signals.error.emit(_explain(exc))
+                self.signals.error.emit(_explain(exc, self.assistant.model))
 
         threading.Thread(target=work, daemon=True).start()
 
@@ -287,10 +287,10 @@ class AssistantWindow(QMainWindow):
 
     def _show_tool(self, name: str, args: dict) -> None:
         if self.show_tools.isChecked():
-            call = ", ".join(f"{k}={json.dumps(v)}" for k, v in args.items())
-            self.transcript.append(
-                f'<p style="color:#888; margin:0">&#8250; {html.escape(name)}({html.escape(call)})</p>'
+            call = html.escape(
+                f"{name}({', '.join(f'{k}={json.dumps(v)}' for k, v in args.items())})"
             )
+            self.transcript.append(f'<p style="color:#888; margin:0">&#8250; {call}</p>')
 
     def _show_warning(self, text: str) -> None:
         self.warning.setText(f"Refused: {text}")
@@ -325,19 +325,26 @@ class AssistantWindow(QMainWindow):
         self.send_button.setText("Working ..." if busy else "Send")
 
 
-def _explain(exc: Exception) -> str:
+# The environment variable that holds the API key, by model provider.
+KEY_VARIABLES = {"anthropic": "ANTHROPIC_API_KEY", "google": "GOOGLE_API_KEY",
+                 "openai": "OPENAI_API_KEY"}  # fmt: skip
+
+
+def _explain(exc: Exception, model: object) -> str:
     """Turn a failure into a sentence for the operator."""
-    if isinstance(exc, UnexpectedModelBehavior):  # e.g. Claude declined to answer
+    if isinstance(exc, UnexpectedModelBehavior):  # e.g. the model declined to answer
         return f"The assistant could not answer: {exc.message}"
     text = f"{type(exc).__name__}: {exc}"
     if "api_key" in text.lower() or "authentication" in text.lower():
-        return f"The assistant could not reach Claude: set ANTHROPIC_API_KEY. ({text})"
+        provider = str(model).split(":")[0]
+        variable = KEY_VARIABLES.get(provider, "the API key variable of your model provider")
+        return f"The assistant could not reach the model {model}: set {variable}. ({text})"
     return f"Something went wrong: {text}"
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Chat with the Nikon microscope assistant.")
-    parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument("--host", default=DEFAULT_HOST)
     parser.add_argument("--port", type=int, default=DEFAULT_PORT)
     parser.add_argument("--output", default=str(Path.home() / "nis_assistant_runs"))
     parser.add_argument("--model", default=MODEL, help=f"Pydantic AI model name ({MODEL})")

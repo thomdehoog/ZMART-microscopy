@@ -25,9 +25,11 @@ pip install -e .
 Start the bridge in NIS-Elements as part 1's README describes, then:
 
 ```
-set ANTHROPIC_API_KEY=...          (PowerShell: $env:ANTHROPIC_API_KEY="...")
+set ANTHROPIC_API_KEY=...
 nis-assistant --output D:\runs
 ```
+
+(In PowerShell, set the key with `$env:ANTHROPIC_API_KEY="..."`.)
 
 Another model works too, for example Gemini:
 
@@ -104,12 +106,11 @@ writers (0.18) keep the channel and Z axes only for that form.
 - **Clear context** forgets the conversation; **Show tool calls** lists each
   tool call in the chat as it happens.
 
-A long conversation is made smaller now and then, between two messages: after
-15 messages, the oldest are forgotten so that 10 remain, and all but the newest
-three keep only a one-line reading of the microscope. Claude Opus 5.5 checks
-that its earlier reasoning belongs to exactly the conversation it is sent back
-with, so the history otherwise only grows, and at these points the old
-reasoning is left out.
+To keep long conversations quick, the assistant forgets older messages now
+and then: after 15 of your messages, the oldest are dropped so that the newest
+10 remain. It does this between messages and only now and then, because Claude
+checks that its earlier reasoning belongs to the conversation it is sent back
+with, and frequent rewriting would spoil that check.
 
 If the connection to the bridge times out (for example because the macro was
 stopped), close and reopen the window after restarting the bridge.
@@ -118,7 +119,7 @@ stopped), close and reopen the window after restarting the bridge.
 
 ```
 pip install -e ".[test]"
-pytest                    # offline, about 10 s: a scripted model over a pretend NIS
+pytest                    # offline, about 10 s: a scripted model over a fake NIS
 pytest -m hardware -s     # on NIS-Elements with the bridge running (step 3 in the overview)
 ```
 
@@ -126,7 +127,7 @@ The tests check the code. Whether the assistant does what an operator expects
 (acts when a request is clear, asks when it is not, stops at a limit, ignores
 instructions hidden in the data) depends on the model, and is checked by the
 evaluation. It runs every case in `tests/eval_cases.json` through the real
-assistant, with a real model and the pretend NIS, and scores the result. Each
+assistant, with a real model and the fake NIS, and scores the result. Each
 run costs API calls.
 
 ```

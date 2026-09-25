@@ -4,7 +4,7 @@
     from nis_bridge.client import NisClient    # then, with the macro running in NIS
     NisClient().request("get_position")
 
-This file stays empty on purpose: NIS-Elements imports the package when it
+This file imports nothing on purpose: NIS-Elements imports the package when it
 starts the bridge, and its Python has only the standard library and numpy.
 """
 

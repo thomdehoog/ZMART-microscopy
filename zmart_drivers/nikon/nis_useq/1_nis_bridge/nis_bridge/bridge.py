@@ -41,7 +41,7 @@ from .protocol import (
     encode_reply,
 )
 
-BRIDGE_VERSION = "0.2.0"
+BRIDGE_VERSION = "0.2.0"  # of the server inside NIS, reported by ping; not the package
 
 log = logging.getLogger("nis_bridge.bridge")
 

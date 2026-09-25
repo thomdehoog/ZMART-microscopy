@@ -57,7 +57,10 @@ class NisClient:
     def request(self, op: str, *, timeout: float | None = None, **args: Any) -> Any:
         """Send one operation and wait for its reply. ``timeout`` overrides the default."""
         if self._sock is None:
-            raise NisConnectionError("the connection is closed")
+            raise NisConnectionError(
+                "The connection to NIS-Elements was closed after an earlier error. Check that "
+                "start_bridge.mac is running in NIS (restart it if needed), then connect again."
+            )
         timeout = timeout or self.timeout
         with self._lock:
             self._next_id += 1
@@ -80,6 +83,7 @@ class NisClient:
             raise NisConnectionError(f"the bridge closed the connection during {op!r}")
         reply_id, result = decode_reply(line)
         if reply_id != request_id:
+            self.close()  # the replies are out of step with the requests from here on
             raise ProtocolError(f"reply {reply_id} does not match request {request_id}")
         return result
 

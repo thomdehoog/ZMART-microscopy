@@ -1,4 +1,4 @@
-# nis-useq: useq-schema on a Nikon microscope
+# useq-schema on a Nikon microscope
 
 Run [useq-schema](https://github.com/pymmcore-plus/useq-schema) acquisitions on
 a Nikon microscope through NIS-Elements, and talk to the microscope through a

@@ -1,4 +1,4 @@
-"""A pretend NIS-Elements, for testing without a microscope.
+"""A fake NIS-Elements: a microscope in memory, for testing without one.
 
 ``FakeNisApi`` stands in for ``bridge.NisApi``: an in-memory microscope whose
 limits, objective names and optical configurations match the Ti2 simulator.

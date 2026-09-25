@@ -15,8 +15,9 @@ the chat, and the step goes ahead only in a later turn, after the operator
 has read the question and replied. That rule is in this code, not in the
 model's instructions. Moves are measured from where the stage was when the
 operator last wrote, so many small steps add up to a long move that also asks.
-Everything else (small moves, settings, focus, looking, planning) runs at once. Cancel stops the assistant: every further tool call in that turn does
-nothing. Stop microscope also ends a running acquisition.
+Everything else (small moves, settings, focus, looking, planning) runs at once.
+Cancel stops the assistant: every further tool call in that turn does nothing.
+Stop microscope also ends a running acquisition.
 
     microscope = Microscope(NisEngine(), output_dir=Path("runs"))
     assistant = Assistant(microscope)
@@ -47,7 +48,7 @@ import nis_useq
 import numpy as np
 import tifffile
 import useq
-from nis_useq.engine import NisEngine
+from nis_useq.engine import FOCUS_TIMEOUT_S, SNAP_TIMEOUT_S, NisEngine
 from PIL import Image
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent, BinaryContent, ModelRetry, RunContext, capture_run_messages
@@ -73,7 +74,12 @@ MODEL_SETTINGS = {
 # operator last wrote (on any one axis, in um) needs their go-ahead in the chat.
 CONFIRM_XY_UM = 1000.0
 CONFIRM_Z_UM = 100.0
+MAX_SWEEP_UM = 100.0  # the longest image-based focus sweep
 MAX_EXPOSURE_MS = 60000.0
+# For the rough duration in a plan's summary: the time per image besides the
+# exposure (moves, saving), and the exposure assumed when a channel sets none.
+SECONDS_PER_IMAGE = 1.5
+GUESSED_EXPOSURE_MS = 100.0
 
 # What the assistant is told to do next, attached to each refusal or failure. It
 # travels with the tool's answer because that is where the model reads it next.
@@ -103,8 +109,8 @@ CANCELLED_ADVICE = (
     "The operator pressed Cancel. Call no more tools; say in one sentence what was done."
 )
 
-# The source code the assistant may read to explain how things work: this
-# package and useq-schema as installed, nothing else on the computer.
+# The source code the assistant may read to explain how things work: the three
+# parts and useq-schema as installed, nothing else on the computer.
 SOURCE_ROOTS = {
     "nis_bridge": Path(nis_bridge.__file__).parent,
     "nis_useq": Path(nis_useq.__file__).parent,
@@ -125,10 +131,11 @@ You operate a Nikon microscope through NIS-Elements for a biologist who may be \
 new to it. Be helpful and explain briefly what you do and why, in plain words. \
 Write plain text without Markdown; the chat window shows it as is.
 
-What this is. You are the demonstration of nis-useq, which runs useq-schema \
-acquisitions on a Nikon microscope. It comes in three parts that others can \
-adopt one by one: nis-bridge (control NIS-Elements from Python), nis-useq (the \
-useq engine on top of it) and nis-assistant (you). useq-schema is the community's shared way \
+What this is. You are the demonstration of three packages that run \
+useq-schema acquisitions on a Nikon microscope, each of which others can \
+adopt on its own: nis-bridge (control NIS-Elements from Python), nis-useq \
+(the useq engine on top of it) and nis-assistant (you). useq-schema is the \
+community's shared way \
 to describe a multi-dimensional acquisition (an MDASequence): positions (axis \
 p), channels (c), Z planes (z) and time points (t), which it expands into one \
 event per image. The pieces, from you down to the hardware: your tools; the \
@@ -409,7 +416,7 @@ def needs_go_ahead(ctx: RunContext[Microscope], key: str, summary: str) -> dict 
     return {"status": "needs_go_ahead", "not_done_yet": summary, "advice": GO_AHEAD_ADVICE}
 
 
-def hardware_tool(fn: Callable) -> Callable:
+def guarded_tool(fn: Callable) -> Callable:
     """The checks every tool shares, around the tool itself.
 
     Before: after Cancel, nothing runs. The window hears of each call as it
@@ -481,7 +488,7 @@ agent = Agent(
 
 
 @agent.tool(sequential=True)
-@hardware_tool
+@guarded_tool
 def get_status(ctx: RunContext[Microscope]) -> dict[str, Any]:
     """Everything the microscope reports: position, limits, objectives, optical
     configurations and the Perfect Focus System (PFS)."""
@@ -496,7 +503,7 @@ def get_status(ctx: RunContext[Microscope]) -> dict[str, Any]:
 
 
 @agent.tool(sequential=True)
-@hardware_tool
+@guarded_tool
 def move_stage(
     ctx: RunContext[Microscope],
     x: float | None = None,
@@ -544,7 +551,7 @@ def move_stage(
 
 
 @agent.tool(sequential=True)
-@hardware_tool
+@guarded_tool
 def set_microscope(
     ctx: RunContext[Microscope],
     optical_configuration: str | None = None,
@@ -607,7 +614,7 @@ def set_microscope(
 
 
 @agent.tool(sequential=True)
-@hardware_tool
+@guarded_tool
 def focus(
     ctx: RunContext[Microscope],
     method: Literal["pfs", "image_sweep"] = "pfs",
@@ -636,11 +643,11 @@ def focus(
                 "advice": FAILURE_ADVICE,
             }
     else:
-        if not 0 < range_um <= CONFIRM_Z_UM:
+        if not 0 < range_um <= MAX_SWEEP_UM:
             return refusal(
                 ctx,
                 "invalid",
-                f"the focus sweep range must be between 0 and {CONFIRM_Z_UM:g} um",
+                f"the focus sweep range must be between 0 and {MAX_SWEEP_UM:g} um",
                 FAILURE_ADVICE,
             )
         limits = ctx.deps.engine.limits()["z"]
@@ -653,13 +660,13 @@ def focus(
                 f"[{limits['min']:g}, {limits['max']:g}] um. Nothing moved.",
                 LIMIT_ADVICE,
             )
-        client.request("autofocus", range_um=range_um, timeout=300)
+        client.request("autofocus", range_um=range_um, timeout=FOCUS_TIMEOUT_S)
     after = client.request("get_position")["z"]
     return {"focused": True, "z_before_um": before, "z_after_um": after}
 
 
 @agent.tool(sequential=True)
-@hardware_tool
+@guarded_tool
 async def look(ctx: RunContext[Microscope], question: str) -> dict[str, Any]:
     """Take one image with the current settings and answer a question about it.
 
@@ -679,7 +686,7 @@ async def look(ctx: RunContext[Microscope], question: str) -> dict[str, Any]:
 
 
 @agent.tool(sequential=True)
-@hardware_tool
+@guarded_tool
 def plan_acquisition(ctx: RunContext[Microscope], plan: AcquisitionPlan) -> dict[str, Any]:
     """Turn a plan into a useq MDASequence and check it on the microscope, without
     moving. A plan with a grid takes one image to measure the camera field.
@@ -700,7 +707,7 @@ def plan_acquisition(ctx: RunContext[Microscope], plan: AcquisitionPlan) -> dict
 
 
 @agent.tool(sequential=True)
-@hardware_tool
+@guarded_tool
 def plan_useq_sequence(
     ctx: RunContext[Microscope],
     name: str,
@@ -758,7 +765,7 @@ def keep_plan(ctx: RunContext[Microscope], name: str, sequence: useq.MDASequence
 
 
 @agent.tool(sequential=True)
-@hardware_tool
+@guarded_tool
 def run_acquisition(ctx: RunContext[Microscope], plan_id: str) -> dict[str, Any]:
     """Run a plan made by plan_acquisition or plan_useq_sequence. The images are
     saved as OME-TIFF (one file, or a folder with one file per position when
@@ -811,11 +818,10 @@ def run_acquisition(ctx: RunContext[Microscope], plan_id: str) -> dict[str, Any]
 
 
 @agent.tool(sequential=True)
-@hardware_tool
+@guarded_tool
 def search_source(ctx: RunContext[Microscope], text: str) -> dict[str, Any]:
-    """Search the source code of nis-bridge, nis-useq, nis-assistant and useq-schema
-    (v2 included) for a word
-    or phrase, to explain how something works.
+    """Search the source code of the three parts and of useq-schema (v2 included)
+    for a word or phrase, to explain how something works.
 
     Returns matching lines as "file:line: text". When nothing matches, returns
     the list of files that can be read instead.
@@ -837,7 +843,7 @@ def search_source(ctx: RunContext[Microscope], text: str) -> dict[str, Any]:
 
 
 @agent.tool(sequential=True)
-@hardware_tool
+@guarded_tool
 def read_source(
     ctx: RunContext[Microscope], file: str, start_line: int = 1, lines: int = 80
 ) -> dict[str, Any]:
@@ -851,14 +857,8 @@ def read_source(
     """
     files = source_files()
     if file not in files:
-        return {
-            "error": {
-                "code": "not_found",
-                "message": f"{file!r} is not a source file here",
-                "configured_options": list(files),
-                "advice": OPTIONS_ADVICE,
-            }
-        }
+        message = f"{file!r} is not a source file here"
+        return refusal(ctx, "not_found", message, OPTIONS_ADVICE, configured_options=list(files))
     text = _lines(files[file])
     start = max(1, start_line)
     chunk = text[start - 1 : start - 1 + max(1, min(lines, SOURCE_LINES))]
@@ -940,8 +940,9 @@ def describe(
         tiles = f", each as {grid.rows} x {grid.columns} tiles"
     elif grid is not None:
         tiles = f", each as {sizes.get('g', 1)} tiles"
-    exposure_s = max((c.exposure or 100) for c in sequence.channels or [useq.Channel(config="")])
-    seconds = max(images * (1.5 + exposure_s / 1000), last_start)
+    exposures = [c.exposure or GUESSED_EXPOSURE_MS for c in sequence.channels]
+    exposure_ms = max(exposures, default=GUESSED_EXPOSURE_MS)
+    seconds = max(images * (SECONDS_PER_IMAGE + exposure_ms / 1000), last_start)
 
     here = ctx.deps.client.request("get_position")
     xy = max((_distance(e, here, "x", "y") for e in events), default=0.0)
@@ -966,7 +967,7 @@ def snap(client) -> np.ndarray:
     """One image with the current settings, outside any acquisition run."""
     with tempfile.TemporaryDirectory(prefix="nis_assistant_look_") as folder:
         path = Path(folder) / "look.tif"
-        client.request("snap", path=str(path), timeout=120)
+        client.request("snap", path=str(path), timeout=SNAP_TIMEOUT_S)
         return tifffile.imread(path)
 
 

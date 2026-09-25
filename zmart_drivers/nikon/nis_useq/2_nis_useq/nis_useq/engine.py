@@ -13,9 +13,10 @@ What each event field does here:
 - ``properties``: ``("Nosepiece", "Position", n)`` turns the nosepiece to slot n
   (1, 2, ...); ``("PFS", "State", "On")`` or ``"Off"`` switches the Perfect Focus System.
 - ``action``: ``AcquireImage`` snaps one image. ``HardwareAutofocus`` locks focus
-  with the PFS. ``CustomAction(name="autofocus", data={"range_um": 50, "speed": 30})``
-  runs the NIS image-based focus sweep. A focus action shifts later Z moves at the
-  same position by the distance it moved.
+  with the PFS, then switches it off.
+  ``CustomAction(name="autofocus", data={"range_um": 50, "speed": 30})`` runs the
+  NIS image-based focus sweep. A focus action shifts later Z moves at the same
+  position by the distance it moved.
 
 Anything else (camera ROI, SLM images, other custom actions) is refused before
 the run starts. ``keep_shutter_open`` is ignored; NIS handles the shutter.
@@ -68,8 +69,16 @@ class NisEngine:
         self, host: str = DEFAULT_HOST, port: int = DEFAULT_PORT, timeout: float = DEFAULT_TIMEOUT_S
     ):
         self.client = NisClient(host, port, timeout)
-        self._workdir: Path | None = None  # temporary TIFFs of the current run
         self.user_limits: dict[str, tuple[float, float]] = {}  # see set_limits
+        self._workdir: Path | None = None  # temporary TIFFs of the current run
+        # What the microscope offers, read by check() and setup_sequence().
+        self._limits: dict[str, dict[str, float]] = {}
+        self._configurations: list[str] = []
+        self._objectives: list[int] = []
+        self._has_pfs = False
+        self._pfs_at_start = False  # restored by teardown_sequence
+        self._pixel_size_um: float | None = None  # measured by the run's first snap
+        self._image_shape: tuple[int, int] | None = None
 
     def close(self) -> None:
         self.client.close()
@@ -207,7 +216,7 @@ class NisEngine:
         if self._workdir is not None:
             shutil.rmtree(self._workdir, ignore_errors=True)
             self._workdir = None
-        if getattr(self, "_has_pfs", False):
+        if self._has_pfs:
             if self.client.request("get_pfs")["on"] != self._pfs_at_start:
                 self.client.request("set_pfs", on=self._pfs_at_start)
 

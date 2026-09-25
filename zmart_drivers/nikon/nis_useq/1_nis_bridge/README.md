@@ -15,9 +15,9 @@ This is part 1 of three; see the [overview](../README.md). It has no useq in
 it, so it is useful on its own for any Python that needs to drive a Nikon
 microscope.
 
-Status: the NIS calls are the ones validated on NIS-Elements AR 6.10.02 with
-the Ti2 simulator. Tested offline against a pretend NIS; the hardware tests
-below are the first run on a real NIS.
+Status: the NIS functions it calls were validated on NIS-Elements AR 6.10.02
+with the Ti2 simulator. The package itself is tested offline, against a fake
+NIS behind the real bridge server; its hardware tests are for NIS-Elements.
 
 ## Install
 
@@ -26,6 +26,10 @@ In the Python environment you work from, on the microscope computer:
 ```
 pip install -e .
 ```
+
+Install it editable (`-e`), as shown: the start macro points NIS-Elements at
+this folder, so the bridge must run from here, not from a copy in
+site-packages.
 
 ## Start the bridge in NIS-Elements
 
@@ -87,7 +91,7 @@ gave up (for example when the macro was stopped).
 
 ## Testing without a microscope
 
-`nis_bridge.fake` is a pretend NIS-Elements whose limits, objectives and
+`nis_bridge.fake` is a fake NIS-Elements whose limits, objectives and
 optical configurations match the Ti2 simulator. `running_bridge` puts the real
 bridge server in front of it, so code built on the client can be tested end
 to end without NIS:
@@ -116,7 +120,7 @@ pytest -m hardware -s     # on NIS-Elements with the bridge running (step 1 in t
 | `nis_bridge/client.py` | `NisClient`: the connection from your Python. |
 | `nis_bridge/protocol.py` | The message format both sides share. |
 | `nis_bridge/install_macros.py` | Writes `start_bridge.mac`. |
-| `nis_bridge/fake.py` | A pretend NIS for tests. |
+| `nis_bridge/fake.py` | A fake NIS for tests. |
 
 ## Where the NIS function names come from
 

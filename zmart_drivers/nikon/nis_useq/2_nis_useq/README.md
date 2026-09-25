@@ -112,11 +112,17 @@ Not supported, and refused: camera ROI, SLM images, other custom actions.
   classic `MDASequence`, but saves a v2 sequence as one flat stack. With
   several positions it writes a folder with one file per position.
 
+## Files
+
+| File | What it is |
+|---|---|
+| `nis_useq/engine.py` | `NisEngine`: checks a useq sequence, then turns each event into bridge requests. |
+
 ## Tests
 
 ```
 pip install -e ".[test]"
-pytest                    # offline, a few seconds, over nis-bridge's pretend NIS
+pytest                    # offline, a few seconds, over nis-bridge's fake NIS
 pytest -m hardware -s     # on NIS-Elements with the bridge running (step 2 in the overview)
 ```
 
