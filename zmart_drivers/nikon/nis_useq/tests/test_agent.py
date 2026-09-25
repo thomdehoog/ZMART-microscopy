@@ -529,6 +529,31 @@ def test_a_malformed_plan_goes_back_to_the_model(microscope):
     assert tool_results(assistant)[0]["plan_id"] == "stack_test-1"
 
 
+# -- reading the source ----------------------------------------------------------------------
+
+
+def test_the_source_of_both_packages_can_be_searched_and_read(microscope):
+    steps = [
+        ("search_source", {"text": "def setup_event"}),
+        ("read_source", {"file": "useq/v2/_mda_sequence.py", "start_line": 1, "lines": 3}),
+        "Here is how it works.",
+    ]
+    assistant, _ = talk(microscope, *steps)
+    assistant.send("how does the engine move the stage?")
+    found, read = tool_results(assistant)
+    assert any(m.startswith("nis_useq/engine.py:") for m in found["matches"])
+    assert read["lines"].startswith("1 to 3 of") and read["text"].startswith("1: ")
+
+
+def test_only_the_two_packages_can_be_read(microscope):
+    assistant, _ = talk(microscope, ("read_source", {"file": "../../etc/passwd"}), "No.")
+    assistant.send("read that file")
+    error = tool_results(assistant)[0]["error"]
+    assert error["code"] == "not_found" and "nis_useq/engine.py" in error["configured_options"]
+    assert all(f.startswith(("nis_useq/", "useq/")) for f in error["configured_options"])
+    assert microscope.warnings == []  # not a fault at the microscope: no red banner
+
+
 # -- memory ----------------------------------------------------------------------------------
 
 

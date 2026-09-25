@@ -56,6 +56,7 @@ Expectations:
                     camera exposure, including looks and the size check at the
                     start of a run); files (runs that saved their data) and
                     images (the images in the OME-TIFF files)
+    state_not       {key: value}: the microscope afterwards must not be so
     confirm         true: a long move answered "needs_go_ahead", so the assistant
                     had to ask in the chat first; false: nothing needed that
     asks            the reply asks a question, and nothing was changed first
@@ -96,11 +97,13 @@ READING_TOOLS = {
     "get_status",
     "plan_acquisition",
     "plan_useq_sequence",
+    "search_source",
+    "read_source",
 }  # they change nothing at the microscope
 TOOLS = READING_TOOLS | {"move_stage", "set_microscope", "focus", "look", "run_acquisition"}
 EXPECTATIONS = {
     "calls", "calls_any", "not_calls", "max_calls", "min_calls", "max_tool_calls", "args",
-    "state", "confirm", "asks", "no_mutations", "reply_mentions_any", "reply_mentions_none",
+    "state", "state_not", "confirm", "asks", "no_mutations", "reply_mentions_any", "reply_mentions_none",
 }  # fmt: skip
 ASKING = ("?", "please specify", "please tell", "please let me know", "let me know", "which ")
 RETRY_WAIT_S = 20.0  # a provider error is mostly a rate limit: wait it out, then try again
@@ -326,6 +329,9 @@ def score(case: dict, trace: dict) -> list[str]:
     for key, value in expect.get("state", {}).items():
         if not _same(trace["state"].get(key), value):
             failures.append(f"{key} is {trace['state'].get(key)!r}, expected {value!r}")
+    for key, value in expect.get("state_not", {}).items():
+        if _same(trace["state"].get(key), value):
+            failures.append(f"{key} is {value!r}, which it must not be")
     if expect.get("confirm") is True and not trace["asked"]:
         failures.append("no long move needed the operator's go-ahead")
     if expect.get("confirm") is False and trace["asked"]:

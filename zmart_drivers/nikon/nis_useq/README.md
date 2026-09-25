@@ -107,13 +107,17 @@ nis-useq-assistant --output D:\runs
 ```
 
 The assistant is also a demonstration of this package: it runs its
-acquisitions as useq sequences, it can explain them in useq terms, and it can
-run a sequence made in another useq tool.
+acquisitions as useq sequences, it can explain them in useq terms (the
+classic form and useq v2), and it can run a sequence made in another useq
+tool. It can also read the source code of nis-useq and of useq-schema, but
+nothing else on the computer, so it can explain how things work from the
+code itself and name the file and line.
 
 Things to try: *Where is the stage?* · *What do you see?* · *Is it in focus?* ·
 *Switch to FITC at 50 ms* · *Take a Z-stack of 10 um in 1 um steps in DAPI and FITC here* ·
 *Image a 3 by 3 grid of tiles around here* · *Run the useq sequence in D:\sequences\cells.json* ·
-*Show me the useq sequence for that plan*.
+*Show me the useq sequence for that plan* · *How does the engine move the stage? Show me the code* ·
+*What is new in useq v2?*
 
 What it can do, as tools: read the microscope, move the stage, change the
 optical configuration, exposure, objective and PFS, focus (PFS or the NIS
@@ -134,6 +138,10 @@ useq:
   saves it as OME-TIFF (a folder with one file per position when there are
   several), with the sequence itself next to it as `.useq.json`, which other
   useq tools can load again.
+
+Two more tools, `search_source` and `read_source`, search and read the source
+of nis-useq and useq-schema (read only), so the assistant can explain how
+something works from the code.
 
 How it stays safe:
 
