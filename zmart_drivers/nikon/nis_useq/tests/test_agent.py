@@ -13,7 +13,7 @@ pytest.importorskip("pydantic_ai")
 pytest.importorskip("pymmcore_plus")
 
 from nis_useq.agent import (  # noqa: E402
-    DECLINED_ADVICE,
+    GO_AHEAD_ADVICE,
     HISTORY_KEEP_TURNS,
     LIMIT_ADVICE,
     MODEL_SETTINGS,
@@ -67,9 +67,7 @@ class Script:
 def microscope(port, tmp_path):
     engine = NisEngine("127.0.0.1", port, timeout=5.0)
     scope = Microscope(engine, output_dir=tmp_path / "runs")
-    scope.images, scope.warnings, scope.asked, scope.tools = [], [], [], []
-    scope.answer = True  # what the operator presses: Run (True) or Cancel (False)
-    scope.confirm = lambda summary: scope.asked.append(summary) or scope.answer
+    scope.images, scope.warnings, scope.tools = [], [], []
     scope.on_image = lambda image, caption: scope.images.append((image, caption))
     scope.on_warning = scope.warnings.append
     scope.on_tool = lambda name, args: scope.tools.append((name, args))
@@ -127,7 +125,7 @@ def test_the_window_hears_of_each_tool_call(microscope):
 def test_small_move_runs_at_once(microscope, fake):
     assistant, _ = talk(microscope, ("move_stage", {"x": 1100, "z": 510}), "Moved.")
     assistant.send("move a little")
-    assert microscope.asked == [] and moves(fake) == ["move_xyz(1100,-500,510)"]
+    assert moves(fake) == ["move_xyz(1100,-500,510)"]
 
 
 def test_limit_breach_is_refused_with_advice_and_shown_in_the_window(microscope, fake):
@@ -139,45 +137,50 @@ def test_limit_breach_is_refused_with_advice_and_shown_in_the_window(microscope,
     assert microscope.warnings == [error["message"]] and moves(fake) == []
 
 
-# -- long moves wait for Run ------------------------------------------------------------
+# -- long moves are asked about in the chat first ------------------------------------------
+
+LONG = ("move_stage", {"x": 20000})
 
 
-def test_a_long_move_waits_for_run(microscope, fake):
-    assistant, _ = talk(microscope, ("move_stage", {"x": 20000}), "Done, we are there.")
-    assert assistant.send("go to x 20 mm") == "Done, we are there."
-    (summary,) = microscope.asked
-    assert "19000 um in XY" in summary and moves(fake) == ["move_xy(20000,-500)"]
+def test_a_long_move_is_asked_about_in_the_chat_first(microscope, fake):
+    assistant, _ = talk(microscope, LONG, "Shall I move 19 mm to x = 20 mm?", LONG, "We are there.")
+    assert assistant.send("go to x 20 mm") == "Shall I move 19 mm to x = 20 mm?"
+    question = tool_results(assistant)[0]
+    assert question["status"] == "needs_go_ahead" and question["advice"] == GO_AHEAD_ADVICE
+    assert "19000 um in XY" in question["not_done_yet"] and moves(fake) == []
+
+    assert assistant.send("yes, go ahead") == "We are there."
+    assert moves(fake) == ["move_xy(20000,-500)"]
 
 
-def test_small_steps_that_add_up_also_wait_for_run(microscope, fake):
-    microscope.answer = False
+def test_when_the_operator_says_no_nothing_moves(microscope, fake):
+    assistant, _ = talk(microscope, LONG, "Shall I?", "OK, we stay here.")
+    assistant.send("go to x 20 mm")
+    assert assistant.send("no, stay") == "OK, we stay here." and moves(fake) == []
+
+
+def test_asking_twice_in_one_turn_is_not_a_go_ahead(microscope, fake):
+    assistant, _ = talk(microscope, LONG, LONG, "Shall I?")
+    assistant.send("go to x 20 mm")
+    assert [r["status"] for r in tool_results(assistant)] == ["needs_go_ahead"] * 2
+    assert moves(fake) == []
+
+
+def test_a_go_ahead_counts_only_for_the_next_message(microscope, fake):
+    assistant, _ = talk(microscope, LONG, "Shall I?", "Sure.", LONG, "Shall I?")
+    assistant.send("go to x 20 mm")
+    assistant.send("hmm, tell me something else first")
+    assistant.send("do it")  # two messages later: asked again, not moved
+    assert tool_results(assistant)[-1]["status"] == "needs_go_ahead" and moves(fake) == []
+
+
+def test_small_steps_that_add_up_are_asked_about_too(microscope, fake):
     steps = [("move_stage", {"z": 500 + 60 * n}) for n in (1, 2)]
-    assistant, _ = talk(microscope, *steps, "Done.")
+    assistant, _ = talk(microscope, *steps, "Shall I go on?")
     assistant.send("walk the focus up")
     # 560 ran (60 um from where the stage was); 620 is 120 um from there, so it asks
-    assert moves(fake) == ["move_z(560)"] and "120 um in Z" in microscope.asked[0]
-
-
-def test_a_move_the_operator_cancels_does_not_happen(microscope, fake):
-    microscope.answer = False
-    assistant, _ = talk(microscope, ("move_stage", {"z": 900}), "Understood, I stayed.")
-    assert assistant.send("focus up") == "Understood, I stayed."
-    error = tool_results(assistant)[0]["error"]
-    assert error["code"] == "declined" and error["advice"] == DECLINED_ADVICE
-    assert moves(fake) == [] and microscope.warnings == []  # a choice, not a fault
-
-
-def test_with_nobody_to_press_run_a_long_move_does_not_happen(port, tmp_path, fake):
-    engine = NisEngine("127.0.0.1", port, timeout=5.0)
-    try:
-        assistant = Assistant(
-            Microscope(engine, output_dir=tmp_path),
-            model=Script(("move_stage", {"x": 20000}), "No.").model(),
-        )
-        assistant.send("go far")
-    finally:
-        engine.close()
-    assert moves(fake) == []
+    assert moves(fake) == ["move_z(560)"]
+    assert "120 um in Z" in tool_results(assistant)[1]["not_done_yet"]
 
 
 # -- settings ------------------------------------------------------------------------------
@@ -192,7 +195,7 @@ def test_settings_change_without_asking(microscope, fake):
         "objective_slot": 4,
         "exposure_ms": 20,
     }
-    assert microscope.asked == [] and fake.nosepiece == 4
+    assert fake.nosepiece == 4
 
 
 @pytest.mark.parametrize(
@@ -255,12 +258,13 @@ def test_after_cancel_no_tool_does_anything(microscope, fake):
 
 def test_the_conversation_survives_a_model_failure_after_a_move(microscope, fake):
     overloaded = RuntimeError("API overloaded (529)")
-    assistant, _ = talk(microscope, ("move_stage", {"x": 20000}), overloaded, "We are at x 20 mm.")
+    step = ("move_stage", {"x": 1500})
+    assistant, _ = talk(microscope, step, overloaded, "We are at x 1.5 mm.")
     with pytest.raises(RuntimeError, match="overloaded"):
-        assistant.send("go to x 20 mm")
-    assert moves(fake) == ["move_xy(20000,-500)"]  # the move did happen
-    assert assistant.send("are we there?") == "We are at x 20 mm."  # and the talk goes on
-    assert tool_results(assistant)[0]["x"] == 20000  # the model got the move's result
+        assistant.send("go to x 1.5 mm")
+    assert moves(fake) == ["move_xy(1500,-500)"]  # the move did happen
+    assert assistant.send("are we there?") == "We are at x 1.5 mm."  # and the talk goes on
+    assert tool_results(assistant)[0]["x"] == 1500  # the model got the move's result
 
 
 # -- focus and vision -----------------------------------------------------------------
@@ -346,21 +350,22 @@ def test_plan_then_run_without_asking(microscope, fake):
     plan, run = tool_results(assistant)
     assert plan["plan_id"] == "stack_test-1" and plan["images"] == 6
     assert "a at x 100, y 200, z 500 um" in plan["summary"] and "900 um in XY" in plan["summary"]
-    assert microscope.asked == []  # 900 um is not a long move
+    assert "status" not in run  # 900 um is not a long move: it ran at once
     assert run["images"] == 6 and run["finished"] == "completed"
     assert tifffile.imread(run["saved_to"]).shape == (2, 3, 48, 64)
     assert list(microscope.output_dir.glob("*.plan.json")) and len(microscope.images) == 6
 
 
-def test_a_far_away_run_waits_for_run(microscope, fake):
-    microscope.answer = False
+def test_a_far_away_run_is_asked_about_in_the_chat_first(microscope, fake):
     far = {**PLAN, "positions": [{"x": 50000, "y": 30000, "z": 900}]}
-    assistant, _ = talk(microscope, ("plan_acquisition", far), RUN, "OK, not now.")
+    steps = [("plan_acquisition", far), RUN, "Shall I? It is far.", RUN, "Done."]
+    assistant, _ = talk(microscope, *steps)
     assistant.send("image over there")
-    (summary,) = microscope.asked
-    assert "49000 um in XY and 400 um in Z" in summary and "This includes a long move." in summary
-    assert tool_results(assistant)[1]["error"]["code"] == "declined"
+    question = tool_results(assistant)[1]
+    assert "49000 um in XY and 400 um in Z" in question["not_done_yet"]
     assert fake.captures == 0 and moves(fake) == [] and not microscope.output_dir.exists()
+    assistant.send("yes")
+    assert tool_results(assistant)[-1]["images"] == 6
 
 
 def test_the_run_images_exactly_the_planned_positions(microscope, fake):

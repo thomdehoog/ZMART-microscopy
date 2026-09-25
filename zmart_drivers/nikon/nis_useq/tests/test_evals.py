@@ -48,9 +48,10 @@ def test_a_model_that_does_not_fails_with_reasons():
     assert "expected a call to move_stage" in failures and "x is 1000.0, expected 1200" in failures
 
 
-def test_the_operator_answer_is_played_per_case():
-    trace = run("move-long-cancelled", ("move_stage", {"x": 20000}), "OK, I did not move.")
-    assert len(trace["asked"]) == 1 and trace["state"]["x"] == 1000
+def test_a_long_move_is_asked_about_and_the_answer_is_the_next_prompt():
+    long = ("move_stage", {"x": 20000})
+    trace = run("move-long-cancelled", long, "Shall I move 19 mm to x = 20 mm?", "OK, we stay.")
+    assert trace["asked"] == ["move_stage"] and trace["state"]["x"] == 1000
     assert evals.score(case("move-long-cancelled"), trace) == []
 
 

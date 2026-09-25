@@ -56,36 +56,30 @@ def start(window, text):
     window.send()
 
 
-def test_a_long_move_waits_for_run_in_the_bar(qtbot, open_window, fake):
-    window = open_window(("move_stage", {"x": 20000}), "We are at x 20 mm.")
-    start(window, "go to x 20 mm")
-    qtbot.waitUntil(lambda: window.confirm_bar.isVisibleTo(window), timeout=10000)
-    assert "19000 um in XY" in window.confirm_label.text() and moves(fake) == []
-    window.run_button.click()
-    qtbot.waitUntil(lambda: not window.busy, timeout=10000)
-    transcript = window.transcript.toPlainText()
-    assert "You pressed Run: Move the stage to x = 20000 um" in transcript
-    assert "We are at x 20 mm." in transcript and moves(fake) == ["move_xy(20000,-500)"]
-    assert "Stage x 20000.0" in window.status.text() and window.confirm_bar.isHidden()
-
-
-def test_cancel_in_the_bar_keeps_the_stage_where_it_is(qtbot, open_window, fake):
-    window = open_window(("move_stage", {"x": 20000}), "I stayed where we are.")
-    start(window, "go to x 20 mm")
-    qtbot.waitUntil(lambda: window.confirm_bar.isVisibleTo(window), timeout=10000)
-    window.cancel_move_button.click()
-    qtbot.waitUntil(lambda: not window.busy, timeout=10000)
-    assert "You pressed Cancel" in window.transcript.toPlainText() and moves(fake) == []
+def test_a_long_move_is_asked_about_in_the_chat(qtbot, open_window, fake):
+    long = ("move_stage", {"x": 20000})
+    window = open_window(long, "Shall I move 19 mm to x = 20 mm?", long, "We are at x 20 mm.")
+    transcript = ask(qtbot, window, "go to x 20 mm")
+    assert "Shall I move 19 mm to x = 20 mm?" in transcript and moves(fake) == []
+    assert "We are at x 20 mm." in ask(qtbot, window, "yes")
+    assert moves(fake) == ["move_xy(20000,-500)"] and "Stage x 20000.0" in window.status.text()
 
 
 def test_cancel_prompt_stops_the_assistant(qtbot, open_window, fake):
-    steps = [("move_stage", {"x": 20000}), ("move_stage", {"x": 1100}), "Stopped."]
-    window = open_window(*steps)
-    start(window, "go far, then back")
-    qtbot.waitUntil(lambda: window.confirm_bar.isVisibleTo(window), timeout=10000)
-    window.cancel_button.click()  # answers the open question with Cancel, and more
+    slow_move = fake.move_xy
+
+    def move_xy(x, y):  # a slower stage, so there is time to press Cancel prompt
+        time.sleep(0.3)
+        slow_move(x, y)
+
+    fake.move_xy = move_xy
+    window = open_window(("move_stage", {"x": 1100}), ("move_stage", {"x": 1200}), "Stopped.")
+    window.show_tools.setChecked(True)
+    start(window, "move twice")
+    qtbot.waitUntil(lambda: "move_stage" in window.transcript.toPlainText(), timeout=10000)
+    window.cancel_button.click()
     qtbot.waitUntil(lambda: not window.busy, timeout=10000)
-    assert moves(fake) == []  # neither the long move nor the next one ran
+    assert moves(fake) == ["move_xy(1100,-500)"]  # the second move did not run
     assert "Cancelled." in window.transcript.toPlainText()
 
 
@@ -99,9 +93,9 @@ def test_tool_calls_show_when_asked(qtbot, open_window):
 
 def test_clear_context_empties_the_chat_and_the_memory(qtbot, open_window):
     window = open_window("One.", "Two.")
-    ask(qtbot, window, "first")
+    ask(qtbot, window, "good morning")
     window.clear_context()
-    assert "first" not in window.transcript.toPlainText() and window.assistant.history == []
+    assert "good morning" not in window.transcript.toPlainText() and window.assistant.history == []
 
 
 def test_a_limit_breach_shows_the_red_banner(qtbot, open_window, fake):

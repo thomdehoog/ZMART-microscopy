@@ -26,7 +26,9 @@ file; the exit status is 1 when a case failed.
 
 A case:
     {"id": ..., "category": ..., "prompt": "..." or "prompts": [...],
-     "setup": {...}, "answer": true or false (Run or Cancel), "expect": {...}}
+     "setup": {...}, "expect": {...}}
+The operator's answer to a question (a go-ahead for a long move, say) is simply
+the next prompt.
 
 Setup (all optional):
     position        {"x": ..., "y": ..., "z": ...}, the stage at the start
@@ -51,7 +53,8 @@ Expectations:
                     camera exposure, including looks and the size check at the
                     start of a run); files and images (OME-TIFF files saved, and
                     the images in them)
-    confirm         true: the operator was asked to press Run; false: never
+    confirm         true: a long move answered "needs_go_ahead", so the assistant
+                    had to ask in the chat first; false: nothing needed that
     asks            the reply asks a question, and nothing was changed first
     no_mutations    only reading tools were called
     reply_mentions_any, reply_mentions_none   words the replies must (one of
@@ -197,7 +200,6 @@ def _run_once(case: dict, model, vision_model) -> dict:
     if "frame" in setup:
         fake.frame = synthetic_frame(setup["frame"])
 
-    asked: list[str] = []
     tools: list[dict] = []
     replies: list[str] = []
     error = None
@@ -207,12 +209,7 @@ def _run_once(case: dict, model, vision_model) -> dict:
         try:
             if "limits" in setup:
                 engine.set_limits(**{axis: tuple(v) for axis, v in setup["limits"].items()})
-            microscope = Microscope(
-                engine,
-                output_dir=Path(output),
-                vision_model=vision_model,
-                confirm=lambda summary: asked.append(summary) or case.get("answer", True),
-            )
+            microscope = Microscope(engine, output_dir=Path(output), vision_model=vision_model)
             assistant = Assistant(microscope, model=model)
             for turn, prompt in enumerate(prompts_of(case), start=1):
                 try:
@@ -239,7 +236,7 @@ def _run_once(case: dict, model, vision_model) -> dict:
         "model": str(model),
         "prompts": prompts_of(case),
         "tools": tools,
-        "asked": asked,
+        "asked": [t["tool"] for t in tools if '"needs_go_ahead"' in t["result"]],
         "state": state,
         "replies": replies,
         "error": error,
@@ -317,9 +314,9 @@ def score(case: dict, trace: dict) -> list[str]:
         if not _same(trace["state"].get(key), value):
             failures.append(f"{key} is {trace['state'].get(key)!r}, expected {value!r}")
     if expect.get("confirm") is True and not trace["asked"]:
-        failures.append("the operator was never asked to press Run")
+        failures.append("no long move needed the operator's go-ahead")
     if expect.get("confirm") is False and trace["asked"]:
-        failures.append(f"the operator was asked, and should not have been: {trace['asked']}")
+        failures.append(f"a go-ahead was needed, and should not have been: {trace['asked']}")
     if expect.get("asks"):
         if not any(phrase in replies for phrase in ASKING):
             failures.append("expected a question back")
