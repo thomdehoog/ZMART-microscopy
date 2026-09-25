@@ -76,17 +76,22 @@ class NisEngine:
 
     # -- sequence --------------------------------------------------------------
 
+    def check(self, sequence: Any) -> list[MDAEvent]:
+        """Check a whole sequence against the microscope without moving or imaging.
+
+        Returns the checked events. Raises ValueError, naming the first problem.
+        """
+        self._read_microscope()
+        self._pixel_size_um = self._image_shape = None  # not measured by a check
+        return list(self.event_iterator(sequence))
+
     def setup_sequence(self, sequence: Any) -> dict:
         """Read what the microscope offers, and return summary metadata for writers.
 
         Snaps one image with the current settings, so that file writers know the
         image size and pixel size before the first frame of the run.
         """
-        self._limits = self.client.request("get_limits")
-        self._configurations = self.client.request("get_optical_configurations")
-        self._objectives = [int(p) for p in self.client.request("get_objectives")["objectives"]]
-        pfs = self.client.request("get_pfs")
-        self._has_pfs, self._pfs_at_start = pfs["present"], pfs["on"]
+        self._read_microscope()
         self._channel: str | None = None  # unknown until the first event sets it
         self._exposure_requested: float | None = None
         self._exposure_ms: float | None = None  # as NIS applied it; NIS cannot report it
@@ -131,6 +136,14 @@ class NisEngine:
         for event in events:
             self._check(event)
         yield from events
+
+    def _read_microscope(self) -> None:
+        """What every check needs: stage limits, configurations, objectives, PFS."""
+        self._limits = self.client.request("get_limits")
+        self._configurations = self.client.request("get_optical_configurations")
+        self._objectives = [int(p) for p in self.client.request("get_objectives")["objectives"]]
+        pfs = self.client.request("get_pfs")
+        self._has_pfs, self._pfs_at_start = pfs["present"], pfs["on"]
 
     def teardown_sequence(self, sequence: Any) -> None:
         """Remove the temporary images, and put the PFS back the way the run found it."""
@@ -323,6 +336,8 @@ class NisEngine:
 
     def _field_of_view(self) -> str:
         """One sentence on the current camera field, for error messages."""
+        if self._image_shape is None:
+            return ""  # nothing measured yet (a check takes no image)
         if self._pixel_size_um is None:
             return "NIS reports no pixel calibration for this objective."
         height, width = self._image_shape
