@@ -25,9 +25,8 @@ packages = ["nis_useq"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-ra --strict-markers -m 'not hardware and not live'"
+addopts = "-ra --strict-markers -m 'not hardware'"
 markers = [
     "hardware: needs NIS-Elements (the simulator is fine) with start_bridge.mac running",
-    "live: calls the real Claude model; needs ANTHROPIC_API_KEY and costs API credits",
 ]
 qt_api = "pyside6"

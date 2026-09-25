@@ -3,16 +3,20 @@
     python -m nis_useq.window --output D:\\runs
 
 Needs the bridge running in NIS-Elements and an Anthropic API key in the
-ANTHROPIC_API_KEY environment variable. Left: the conversation, and below it
-the stage limits in force, which the operator can narrow. Right: the latest
-image, the microscope status, and a red banner for anything refused. Large
-moves, objective changes and acquisitions ask for confirmation first.
+ANTHROPIC_API_KEY environment variable. Left: the conversation, a Run / Cancel
+bar that appears when the assistant wants to make a long stage move, the
+buttons, and the stage limits in force, which the operator can narrow. Right:
+the latest image, the microscope status, and a red banner for anything refused.
+
+Cancel prompt stops the assistant: every further tool call in that turn does
+nothing. Stop microscope does that too and ends a running acquisition.
 """
 
 from __future__ import annotations
 
 import argparse
 import html
+import json
 import sys
 import threading
 from collections.abc import Callable
@@ -24,6 +28,7 @@ from PySide6.QtCore import QObject, Qt, Signal
 from PySide6.QtGui import QCloseEvent, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
+    QCheckBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -35,7 +40,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .agent import MODEL, Assistant, Microscope, Reply, as_png
+from .agent import MODEL, Assistant, Microscope, as_png
 from .client import NisConnectionError
 from .engine import NisEngine
 from .protocol import DEFAULT_PORT
@@ -44,17 +49,19 @@ WELCOME = (
     "Hello! I can move the stage, change the optical settings, focus, look at the "
     "sample and run acquisitions. Ask me in your own words, for example "
     "<i>What do you see?</i> or <i>Take a 3-channel Z-stack of 10 um here</i>. "
-    "Large moves, objective changes and acquisitions wait for your confirmation."
+    "Long stage moves wait for you to press Run."
 )
 
 
 class _Signals(QObject):
     """Carries results from the assistant's thread to the window's thread."""
 
-    reply = Signal(object)
+    reply = Signal(str)
     error = Signal(str)
     image = Signal(object, str)
     warning = Signal(str)
+    tool = Signal(str, dict)
+    confirm = Signal(str)
 
 
 class AssistantWindow(QMainWindow):
@@ -69,20 +76,50 @@ class AssistantWindow(QMainWindow):
         self.signals.error.connect(self._show_error)
         self.signals.image.connect(self._show_image)
         self.signals.warning.connect(self._show_warning)
+        self.signals.tool.connect(self._show_tool)
+        self.signals.confirm.connect(self._show_confirmation)
         microscope = assistant.microscope
         microscope.on_image = self.signals.image.emit
         microscope.on_warning = self.signals.warning.emit
+        microscope.on_tool = self.signals.tool.emit
+        microscope.confirm = self._ask_operator
+        self._answered = threading.Event()
+        self._answer = False
 
         # left: the conversation
         self.transcript = QTextBrowser()
+        # the Run / Cancel bar, hidden until the assistant wants to make a long move
+        self.confirm_label = QLabel(wordWrap=True)
+        self.confirm_label.setStyleSheet("font-weight:bold")
+        self.run_button = QPushButton("Run", clicked=lambda: self._answer_confirmation(True))
+        self.cancel_move_button = QPushButton(
+            "Cancel", clicked=lambda: self._answer_confirmation(False)
+        )
+        self.confirm_bar = QWidget()
+        confirm_row = QHBoxLayout(self.confirm_bar)
+        confirm_row.setContentsMargins(0, 0, 0, 0)
+        confirm_row.addWidget(self.confirm_label, 1)
+        confirm_row.addWidget(self.run_button)
+        confirm_row.addWidget(self.cancel_move_button)
+        self.confirm_bar.hide()
+
         self.prompt = QLineEdit(placeholderText="Ask the microscope assistant ...")
         self.prompt.returnPressed.connect(self.send)
         self.send_button = QPushButton("Send", clicked=self.send)
-        self.stop_button = QPushButton("Stop acquisition", clicked=microscope.stop_run)
+        self.stop_button = QPushButton("Stop microscope", clicked=self.stop_microscope)
+        self.stop_button.setStyleSheet("color:#b00020; font-weight:bold")
         input_row = QHBoxLayout()
         input_row.addWidget(self.prompt, 1)
         input_row.addWidget(self.send_button)
         input_row.addWidget(self.stop_button)
+        self.cancel_button = QPushButton("Cancel prompt", clicked=self.cancel_prompt)
+        self.clear_button = QPushButton("Clear context", clicked=self.clear_context)
+        self.show_tools = QCheckBox("Show tool calls")
+        buttons_row = QHBoxLayout()
+        buttons_row.addWidget(self.cancel_button)
+        buttons_row.addWidget(self.clear_button)
+        buttons_row.addWidget(self.show_tools)
+        buttons_row.addStretch(1)
         # below: the stage limits in force, one field per side; the operator can narrow them
         self.limit_fields = {
             (axis, side): QLineEdit(placeholderText="NIS") for axis in "xyz" for side in "-+"
@@ -99,7 +136,9 @@ class AssistantWindow(QMainWindow):
 
         left = QVBoxLayout()
         left.addWidget(self.transcript, 1)
+        left.addWidget(self.confirm_bar)
         left.addLayout(input_row)
+        left.addLayout(buttons_row)
         left.addLayout(limits_row)
 
         # right: warning, image, status
@@ -138,7 +177,7 @@ class AssistantWindow(QMainWindow):
                 self,
                 "Still working",
                 "The assistant is still working on the microscope. Wait until it is done, "
-                "or press Stop acquisition to end a running acquisition, then close.",
+                "or press Stop microscope, then close.",
             )
             event.ignore()
             return
@@ -159,7 +198,7 @@ class AssistantWindow(QMainWindow):
     def busy(self) -> bool:
         return not self.send_button.isEnabled()
 
-    def _in_background(self, turn: Callable[[], Reply]) -> None:
+    def _in_background(self, turn: Callable[[], str]) -> None:
         """Run one assistant turn off the window's thread, so the window stays responsive."""
         self._set_busy(True)
 
@@ -171,30 +210,72 @@ class AssistantWindow(QMainWindow):
 
         threading.Thread(target=work, daemon=True).start()
 
-    def _show_reply(self, reply: Reply) -> None:
-        if reply.text:
-            self._say("assistant", reply.text)
-        if reply.approvals:
-            decisions = {a.id: self._confirm(a.summary) for a in reply.approvals}
-            for approval in reply.approvals:
-                verdict = "confirmed" if decisions[approval.id] else "declined"
-                self._say("system", f"You {verdict}: {approval.summary}")
-            self._in_background(lambda: self.assistant.decide(decisions))
-            return
+    def _show_reply(self, text: str) -> None:
+        self._say("assistant", text)
         self._set_busy(False)
         self._refresh_status()
-
-    def _confirm(self, summary: str) -> bool:
-        answer = QMessageBox.question(
-            self, "Confirm on the microscope", f"{summary}\n\nGo ahead?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,
-        )  # fmt: skip
-        return answer == QMessageBox.StandardButton.Yes
 
     def _show_error(self, text: str) -> None:
         self._say("system", text)
         self._set_busy(False)
+
+    # -- the operator's say: Run / Cancel, Cancel prompt, Stop, Clear -----------------
+
+    def _ask_operator(self, summary: str) -> bool:
+        """Called from the assistant's thread: show the Run / Cancel bar and wait.
+
+        Nothing waits at Claude or on the microscope meanwhile, so the question can
+        stay open as long as the operator needs.
+        """
+        self._answered.clear()
+        self._answer = False
+        self.signals.confirm.emit(summary)
+        self._answered.wait()
+        return self._answer
+
+    def _show_confirmation(self, summary: str) -> None:
+        self.confirm_label.setText(f"{summary} Run it?")
+        self.confirm_bar.show()
+
+    def _answer_confirmation(self, run: bool) -> None:
+        if not self.confirm_bar.isHidden():  # a question is open
+            self._say(
+                "system", f"You pressed {'Run' if run else 'Cancel'}: {self.confirm_label.text()}"
+            )
+        self.confirm_bar.hide()
+        self._answer = run
+        self._answered.set()
+
+    def cancel_prompt(self) -> None:
+        """Stop the assistant, not the microscope: further tool calls in this turn do nothing.
+
+        What the assistant already started (a move, an acquisition) runs on; Stop
+        microscope ends an acquisition.
+        """
+        if not self.busy:
+            return
+        self.assistant.microscope.cancel.set()
+        self._answer_confirmation(False)
+        self._say("system", "Cancelled. The assistant stops after its current step.")
+
+    def stop_microscope(self) -> None:
+        """Cancel the assistant and end a running acquisition after the current image."""
+        self.assistant.microscope.stop()
+        self._answer_confirmation(False)
+        self._say(
+            "system",
+            "Stop: the assistant is cancelled and a running acquisition ends after the "
+            "current image. A single stage move already under way finishes; use the joystick "
+            "or NIS-Elements to stop it sooner.",
+        )
+
+    def clear_context(self) -> None:
+        """Forget the conversation, in the window and in the assistant's memory."""
+        if self.busy:
+            return
+        self.assistant.clear()
+        self.transcript.clear()
+        self._say("assistant", WELCOME, escape=False)
 
     # -- stage limits -------------------------------------------------------------------
 
@@ -253,6 +334,13 @@ class AssistantWindow(QMainWindow):
         )
         self.caption.setText(caption)
 
+    def _show_tool(self, name: str, args: dict) -> None:
+        if self.show_tools.isChecked():
+            call = ", ".join(f"{k}={json.dumps(v)}" for k, v in args.items())
+            self.transcript.append(
+                f'<p style="color:#888; margin:0">&#8250; {html.escape(name)}({html.escape(call)})</p>'
+            )
+
     def _show_warning(self, text: str) -> None:
         self.warning.setText(f"Refused: {text}")
         self.warning.show()
@@ -281,6 +369,8 @@ class AssistantWindow(QMainWindow):
         self.prompt.setEnabled(not busy)
         self.apply_limits_button.setEnabled(not busy)
         self.nis_limits_button.setEnabled(not busy)
+        self.clear_button.setEnabled(not busy)
+        self.cancel_button.setEnabled(busy)
         self.send_button.setText("Working ..." if busy else "Send")
 
 

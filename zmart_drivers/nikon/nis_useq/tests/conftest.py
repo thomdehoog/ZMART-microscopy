@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import sys
-import threading
 from pathlib import Path
 
 import pytest
@@ -11,8 +10,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # the project folder
 sys.path.insert(0, str(Path(__file__).resolve().parent))  # fake_nis
 
-from fake_nis import FakeNisApi  # noqa: E402
-from nis_useq import bridge  # noqa: E402
+from fake_nis import FakeNisApi, running_bridge  # noqa: E402
 from nis_useq.client import NisClient  # noqa: E402
 
 
@@ -23,21 +21,8 @@ def fake() -> FakeNisApi:
 
 @pytest.fixture
 def server(fake):
-    """The bridge, with a background thread standing in for the NIS macro loop."""
-    srv = bridge.serve(fake, "127.0.0.1", 0)
-    stop = threading.Event()
-
-    def macro_loop() -> None:
-        while not stop.is_set():
-            srv.pump(wait_s=0.01)
-
-    thread = threading.Thread(target=macro_loop, daemon=True)
-    thread.start()
-    yield srv
-    stop.set()
-    thread.join()
-    srv.shutdown()
-    srv.server_close()
+    with running_bridge(fake) as server:
+        yield server
 
 
 @pytest.fixture

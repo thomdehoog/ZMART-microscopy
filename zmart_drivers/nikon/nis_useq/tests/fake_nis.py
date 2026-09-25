@@ -2,13 +2,20 @@
 
 Limits, objective names and optical configurations match the Ti2 simulator.
 ``save_tiff`` writes a real 16-bit TIFF whose pixels all equal the capture
-number, so a test can tell which capture ended up in which frame.
+number, so a test can tell which capture ended up in which frame, or the
+picture in ``frame`` when one is set. ``running_bridge`` puts the real bridge
+server in front of it.
 """
 
 from __future__ import annotations
 
+import threading
+from collections.abc import Iterator
+from contextlib import contextmanager
+
 import numpy as np
 import tifffile
+from nis_useq import bridge
 from nis_useq.bridge import NisError
 
 IMAGE_SHAPE = (48, 64)  # height, width
@@ -31,6 +38,8 @@ class FakeNisApi:
         self.autofocus_result = 1
         self.calibrated = calibrated
         self.image_shape = IMAGE_SHAPE
+        self.frame: np.ndarray | None = None  # a picture to save instead of the plain one
+        self.camera_fails = False
         self.captures = 0
         self.open_images = 0
         self.calls: list[str] = []
@@ -109,6 +118,8 @@ class FakeNisApi:
 
     # images
     def capture(self) -> None:
+        if self.camera_fails:
+            raise NisError("Capture: the camera did not answer (-8)")
         self.captures += 1
         self.open_images += 1
         self.calls.append("capture")
@@ -119,7 +130,32 @@ class FakeNisApi:
     def save_tiff(self, path: str) -> None:
         if not self.open_images:
             raise NisError("ImageSaveAs: no image is open")
-        tifffile.imwrite(path, np.full(self.image_shape, self.captures, dtype=np.uint16))
+        image = self.frame if self.frame is not None else np.full(self.image_shape, self.captures)
+        tifffile.imwrite(path, image.astype(np.uint16))
 
     def close_document(self) -> None:
         self.open_images = max(0, self.open_images - 1)
+
+
+@contextmanager
+def running_bridge(fake: FakeNisApi) -> Iterator[bridge.BridgeServer]:
+    """The real bridge server on a free local port, with ``fake`` behind it.
+
+    A background thread stands in for the NIS macro loop that runs the requests.
+    """
+    server = bridge.serve(fake, "127.0.0.1", 0)
+    stop = threading.Event()
+
+    def macro_loop() -> None:
+        while not stop.is_set():
+            server.pump(wait_s=0.01)
+
+    thread = threading.Thread(target=macro_loop, daemon=True)
+    thread.start()
+    try:
+        yield server
+    finally:
+        stop.set()
+        thread.join()
+        server.shutdown()
+        server.server_close()
