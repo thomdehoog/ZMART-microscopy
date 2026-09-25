@@ -37,7 +37,7 @@ zmart_drivers/nikon/spike/*.report.txt
 zmart_drivers/nikon/spike/*_heartbeat.txt
 
 # nis_useq bridge: the machine-specific macros and the stop flag they exchange.
-zmart_drivers/nikon/nis_useq/nis_useq/*.mac
-zmart_drivers/nikon/nis_useq/nis_useq/bridge.stop
-nis-useq-bridge.log
-zmart_drivers/nikon/nis_useq/evals-*.jsonl
+zmart_drivers/nikon/nis_useq/1_nis_bridge/nis_bridge/*.mac
+zmart_drivers/nikon/nis_useq/1_nis_bridge/nis_bridge/bridge.stop
+nis-bridge.log
+zmart_drivers/nikon/nis_useq/**/evals-*.jsonl

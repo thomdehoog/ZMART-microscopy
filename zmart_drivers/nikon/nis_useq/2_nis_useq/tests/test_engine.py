@@ -5,10 +5,8 @@ import tifffile
 import useq
 import useq.v2 as v2
 from nis_useq.engine import NisEngine
+from pymmcore_plus.mda import MDARunner, PMDAEngine
 from useq import Channel, CustomAction, HardwareAutofocus, MDAEvent
-
-pymmcore_plus = pytest.importorskip("pymmcore_plus")
-from pymmcore_plus.mda import MDARunner, PMDAEngine  # noqa: E402
 
 
 class Frames:

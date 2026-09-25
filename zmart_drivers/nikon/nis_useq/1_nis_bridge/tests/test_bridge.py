@@ -11,10 +11,10 @@ from pathlib import Path
 
 import pytest
 import tifffile
-from fake_nis import FakeNisApi
-from nis_useq import bridge, install_macros
-from nis_useq.client import NisClient, NisConnectionError
-from nis_useq.protocol import decode_reply, encode_request
+from nis_bridge import bridge, install_macros
+from nis_bridge.client import NisClient, NisConnectionError
+from nis_bridge.fake import FakeNisApi
+from nis_bridge.protocol import decode_reply, encode_request
 
 
 def test_ping_reports_versions(client):
@@ -153,7 +153,7 @@ def test_the_client_hears_why_when_the_loop_is_not_running(unpumped):
 
 
 def test_client_reports_a_bridge_that_never_answers(unpumped, monkeypatch):
-    monkeypatch.setattr("nis_useq.client.REPLY_MARGIN_S", 0.0)
+    monkeypatch.setattr("nis_bridge.client.REPLY_MARGIN_S", 0.0)
     monkeypatch.setattr(unpumped, "handle_line", lambda line: time.sleep(5) or "")
     with pytest.raises(NisConnectionError, match="did not answer 'ping' within 0.3 s"):
         NisClient("127.0.0.1", unpumped.server_address[1], timeout=0.3)
@@ -174,14 +174,14 @@ def test_no_bridge_gives_a_plain_hint():
 
 
 def test_macro_carries_the_path_and_port(tmp_path):
-    text = install_macros.render(Path(r"C:\code\nis_useq"), r"C:\code\b.stop", 5000)
-    assert r"p = r'C:\\code\\nis_useq'" in text and "b.start(port=5000)" in text
+    text = install_macros.render(Path(r"C:\code\nis_bridge"), r"C:\code\b.stop", 5000)
+    assert r"p = r'C:\\code\\nis_bridge'" in text and "b.start(port=5000)" in text
     assert 'ExistFile("C:\\\\code\\\\b.stop")' in text
     # NIS silently refuses macros with comments or string variables
     assert not any(line.startswith(("//", "char ")) for line in text.splitlines())
 
     path = install_macros.install(tmp_path, port=6000)
-    assert b"\r\n" in path.read_bytes() and "nis_useq.bridge as b" in path.read_text()
+    assert b"\r\n" in path.read_bytes() and "nis_bridge.bridge as b" in path.read_text()
 
 
 def test_macro_lifecycle_start_reload_stop(monkeypatch, tmp_path):
@@ -199,9 +199,9 @@ def test_macro_lifecycle_start_reload_stop(monkeypatch, tmp_path):
         reloaded.pump(0)
         assert os.path.exists(reloaded.STOP_FILE)  # this ends the macro loop
     finally:
-        assert importlib.import_module("nis_useq.bridge").stop() == "bridge stopped"
+        assert importlib.import_module("nis_bridge.bridge").stop() == "bridge stopped"
     assert not os.path.exists(bridge.STOP_FILE)
-    assert (tmp_path / "nis-useq-bridge.log").exists() and not bridge.log.handlers
+    assert (tmp_path / "nis-bridge.log").exists() and not bridge.log.handlers
 
 
 def test_bridge_needs_only_the_standard_library():
@@ -209,7 +209,7 @@ def test_bridge_needs_only_the_standard_library():
     code = (
         "import sys\n"
         "for name in ('numpy', 'useq', 'tifffile', 'pymmcore_plus'): sys.modules[name] = None\n"
-        "import nis_useq.bridge, nis_useq.install_macros\n"
+        "import nis_bridge.bridge, nis_bridge.install_macros\n"
     )
     project = Path(__file__).resolve().parents[1]
     result = subprocess.run(

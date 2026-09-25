@@ -1,6 +1,6 @@
 """A chat window for the microscope assistant.
 
-    python -m nis_useq.window --output D:\\runs
+    nis-assistant --output D:\\runs
 
 Needs the bridge running in NIS-Elements and an Anthropic API key in the
 ANTHROPIC_API_KEY environment variable. Left: the conversation, the buttons,
@@ -22,6 +22,9 @@ from collections.abc import Callable
 from pathlib import Path
 
 import numpy as np
+from nis_bridge.client import NisConnectionError
+from nis_bridge.protocol import DEFAULT_PORT
+from nis_useq.engine import NisEngine
 from pydantic_ai.exceptions import UnexpectedModelBehavior
 from PySide6.QtCore import QObject, Qt, Signal
 from PySide6.QtGui import QCloseEvent, QPixmap
@@ -40,9 +43,6 @@ from PySide6.QtWidgets import (
 )
 
 from .agent import MODEL, Assistant, Microscope, as_png
-from .client import NisConnectionError
-from .engine import NisEngine
-from .protocol import DEFAULT_PORT
 
 WELCOME = (
     "Hello! I can move the stage, change the optical settings, focus, look at the "
@@ -339,7 +339,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Chat with the Nikon microscope assistant.")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=DEFAULT_PORT)
-    parser.add_argument("--output", default=str(Path.home() / "nis_useq_runs"))
+    parser.add_argument("--output", default=str(Path.home() / "nis_assistant_runs"))
     parser.add_argument("--model", default=MODEL, help=f"Pydantic AI model name ({MODEL})")
     args = parser.parse_args(argv)
 

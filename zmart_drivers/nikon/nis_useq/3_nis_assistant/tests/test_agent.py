@@ -16,7 +16,7 @@ import useq
 pytest.importorskip("pydantic_ai")
 pytest.importorskip("pymmcore_plus")
 
-from nis_useq.agent import (  # noqa: E402
+from nis_assistant.agent import (  # noqa: E402
     GO_AHEAD_ADVICE,
     HISTORY_KEEP_TURNS,
     LIMIT_ADVICE,
@@ -559,7 +559,8 @@ def test_only_the_two_packages_can_be_read(microscope):
     assistant.send("read that file")
     error = tool_results(assistant)[0]["error"]
     assert error["code"] == "not_found" and "nis_useq/engine.py" in error["configured_options"]
-    assert all(f.startswith(("nis_useq/", "useq/")) for f in error["configured_options"])
+    parts = ("nis_bridge/", "nis_useq/", "nis_assistant/", "useq/")
+    assert all(f.startswith(parts) for f in error["configured_options"])
     assert microscope.warnings == []  # not a fault at the microscope: no red banner
 
 

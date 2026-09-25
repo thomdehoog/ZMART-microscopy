@@ -38,10 +38,9 @@ from typing import Any
 
 import numpy as np
 import tifffile
+from nis_bridge.client import NisClient, NisConnectionError
+from nis_bridge.protocol import DEFAULT_HOST, DEFAULT_PORT, DEFAULT_TIMEOUT_S
 from useq import AcquireImage, CustomAction, HardwareAutofocus, MDAEvent
-
-from .client import NisClient, NisConnectionError
-from .protocol import DEFAULT_HOST, DEFAULT_PORT, DEFAULT_TIMEOUT_S
 
 log = logging.getLogger("nis_useq")
 

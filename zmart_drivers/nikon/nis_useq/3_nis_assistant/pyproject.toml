@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nis-assistant"
+version = "0.1.0"
+description = "A chat assistant that runs a Nikon microscope through useq, and explains it"
+readme = "README.md"
+license = { file = "LICENSE" }
+authors = [{ name = "Thom de Hoog", email = "thom.dehoog@zmb.uzh.ch" }]
+requires-python = ">=3.10"
+# nis-useq is part 2, next to this folder: install parts 1 and 2 first (see README).
+dependencies = ["nis-useq", "pydantic-ai-slim[anthropic]>=2.50", "PySide6>=6.7", "pillow"]
+
+[project.optional-dependencies]
+google = ["pydantic-ai-slim[google]>=2.50"]
+test = ["pytest", "pytest-qt"]
+
+[project.scripts]
+nis-assistant = "nis_assistant.window:main"
+
+[tool.setuptools]
+packages = ["nis_assistant"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers -m 'not hardware'"
+markers = ["hardware: needs NIS-Elements (the simulator is fine) with start_bridge.mac running"]
+qt_api = "pyside6"
