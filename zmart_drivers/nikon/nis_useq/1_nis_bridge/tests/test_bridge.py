@@ -216,3 +216,10 @@ def test_bridge_needs_only_the_standard_library():
         [sys.executable, "-c", code], cwd=project, capture_output=True, text=True
     )
     assert result.returncode == 0, result.stderr
+
+
+def test_the_start_macro_needs_an_editable_install(monkeypatch, tmp_path):
+    monkeypatch.setattr(install_macros, "PROJECT_DIR", tmp_path)  # as in site-packages
+    with pytest.raises(SystemExit, match="pip install -e"):
+        install_macros.install(tmp_path)
+    assert not (tmp_path / "start_bridge.mac").exists()

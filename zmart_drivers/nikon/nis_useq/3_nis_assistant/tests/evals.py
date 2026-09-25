@@ -70,6 +70,7 @@ Every case also fails when a reply quotes the <microscope_state> block.
 from __future__ import annotations
 
 import argparse
+import glob
 import json
 import re
 import statistics
@@ -82,15 +83,12 @@ from pathlib import Path
 
 import numpy as np
 import tifffile
+from nis_assistant.agent import MODEL, Assistant, Microscope
+from nis_bridge.fake import FakeNisApi, running_bridge
+from nis_useq.engine import NisEngine
+from pydantic_ai.messages import ToolCallPart, ToolReturnPart
 
 HERE = Path(__file__).resolve().parent
-sys.path[:0] = [str(HERE.parent), str(HERE)]  # this part and its tests, when run as a script
-
-from nis_assistant.agent import MODEL, Assistant, Microscope  # noqa: E402
-from nis_bridge.fake import FakeNisApi, running_bridge  # noqa: E402
-from nis_useq.engine import NisEngine  # noqa: E402
-from pydantic_ai.messages import ToolCallPart, ToolReturnPart  # noqa: E402
-
 CASES = HERE / "eval_cases.json"
 HOLDOUT = HERE / "eval_cases_holdout.json"
 READING_TOOLS = {
@@ -103,7 +101,8 @@ READING_TOOLS = {
 TOOLS = READING_TOOLS | {"move_stage", "set_microscope", "focus", "look", "run_acquisition"}
 EXPECTATIONS = {
     "calls", "calls_any", "not_calls", "max_calls", "min_calls", "max_tool_calls", "args",
-    "state", "state_not", "confirm", "asks", "no_mutations", "reply_mentions_any", "reply_mentions_none",
+    "state", "state_not", "confirm", "asks", "no_mutations", "reply_mentions_any",
+    "reply_mentions_none",
 }  # fmt: skip
 ASKING = ("?", "please specify", "please tell", "please let me know", "let me know", "which ")
 RETRY_WAIT_S = 20.0  # a provider error is mostly a rate limit: wait it out, then try again
@@ -216,8 +215,9 @@ def _run_once(case: dict, model, vision_model) -> dict:
     error = None
     started = time.monotonic()
     with tempfile.TemporaryDirectory() as output, running_bridge(fake) as server:
-        useq_file = Path(output).parent / f"{Path(output).name}.useq.json"
-        useq_file.write_text(json.dumps(setup.get("useq_file", {})))
+        useq_file = Path(output) / "sequence.json"  # not *.useq.json, which counts saved runs
+        if "useq_file" in setup:
+            useq_file.write_text(json.dumps(setup["useq_file"]))
         engine = NisEngine("127.0.0.1", server.server_address[1], timeout=10.0)
         try:
             if "limits" in setup:
@@ -234,7 +234,6 @@ def _run_once(case: dict, model, vision_model) -> dict:
             error = f"{type(exc).__name__}: {exc}"
         finally:
             engine.close()
-            useq_file.unlink()
         state = {
             **fake.position,
             "objective": fake.nosepiece,
@@ -485,9 +484,14 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.scoreboard:
+        # Expand patterns here: the Windows command line passes "evals-*.jsonl" as it is.
+        paths = sorted({p for pattern in args.scoreboard for p in glob.glob(pattern)})
+        if not paths:
+            print(f"no trace files match {args.scoreboard}", file=sys.stderr)
+            return 2
         traces = [
             json.loads(line)
-            for path in args.scoreboard
+            for path in paths
             for line in Path(path).read_text(encoding="utf-8").splitlines()
             if line.strip()
         ]
@@ -501,6 +505,10 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     by_id = {case["id"]: case for case in cases}
     if args.only:
+        unknown = [case_id for case_id in args.only.split(",") if case_id not in by_id]
+        if unknown:
+            print(f"unknown case ids {unknown}; known: {', '.join(by_id)}", file=sys.stderr)
+            return 2
         cases = [by_id[case_id] for case_id in args.only.split(",")]
 
     if args.rescore:

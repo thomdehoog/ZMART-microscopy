@@ -541,7 +541,7 @@ def test_a_malformed_plan_goes_back_to_the_model(microscope):
 # -- reading the source ----------------------------------------------------------------------
 
 
-def test_the_source_of_both_packages_can_be_searched_and_read(microscope):
+def test_the_source_of_the_three_parts_and_useq_can_be_read(microscope):
     steps = [
         ("search_source", {"text": "def setup_event"}),
         ("read_source", {"file": "useq/v2/_mda_sequence.py", "start_line": 1, "lines": 3}),
@@ -554,7 +554,7 @@ def test_the_source_of_both_packages_can_be_searched_and_read(microscope):
     assert read["lines"].startswith("1 to 3 of") and read["text"].startswith("1: ")
 
 
-def test_only_the_two_packages_can_be_read(microscope):
+def test_nothing_outside_those_sources_can_be_read(microscope):
     assistant, _ = talk(microscope, ("read_source", {"file": "../../etc/passwd"}), "No.")
     assistant.send("read that file")
     error = tool_results(assistant)[0]["error"]

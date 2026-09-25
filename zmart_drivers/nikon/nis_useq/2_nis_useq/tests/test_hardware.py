@@ -130,6 +130,7 @@ def test_classic_sequence_keeps_its_axes(engine, here, two_configurations, tmp_p
 
 
 def test_tiles_spaced_by_the_camera_field(engine, here, configuration, field, tmp_path):
+    field = (min(field[0], 100.0), min(field[1], 100.0))  # keeps the tiles within 50 um of here
     grid = {"rows": 1, "columns": 2, "overlap": (10, 10), "fov_width": field[0],
             "fov_height": field[1]}  # fmt: skip
     sequence = useq.MDASequence(

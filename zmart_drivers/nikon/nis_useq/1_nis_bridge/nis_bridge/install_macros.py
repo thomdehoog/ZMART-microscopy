@@ -47,7 +47,18 @@ def render(project_dir: Path | str, stop_file: Path | str, port: int) -> str:
 
 
 def install(target_dir: Path | None = None, port: int = DEFAULT_PORT) -> Path:
-    """Write ``start_bridge.mac`` (in the package folder by default); return its path."""
+    """Write ``start_bridge.mac`` (in the package folder by default); return its path.
+
+    The macro adds this project's folder to NIS's Python. That only works with
+    an editable install (``pip install -e``): after a normal install the folder
+    would be site-packages, and NIS's Python would then import packages built
+    for another Python.
+    """
+    if not (PROJECT_DIR / "pyproject.toml").exists():
+        raise SystemExit(
+            f"nis-bridge is installed in {PROJECT_DIR}, not from its project folder. "
+            "Install it with 'pip install -e <the 1_nis_bridge folder>' and run this again."
+        )
     path = Path(target_dir or PACKAGE_DIR) / "start_bridge.mac"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(render(PROJECT_DIR, STOP_FILE, port), encoding="utf-8", newline="\r\n")
