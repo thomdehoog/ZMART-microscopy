@@ -250,7 +250,7 @@ Not supported, and refused: camera ROI, SLM images, other custom actions.
 | `nis_useq/bridge.py` | The server inside NIS-Elements (standard library only). |
 | `nis_useq/install_macros.py` | Writes `start_bridge.mac`. |
 | `nis_useq/protocol.py` | The message format both sides share. |
-| `tests/` | Offline tests over a fake NIS (`fake_nis.py`); the assistant is tested with a scripted model in place of Claude. `test_simulator.py` needs a live NIS. |
+| `tests/` | Offline tests over a fake NIS (`fake_nis.py`); the assistant is tested with a scripted model in place of Claude. `test_hardware.py` needs a live NIS (see *Testing on NIS-Elements*). |
 | `tests/evals.py` | The behavioural evaluation with a real model: `eval_cases.json`, and `eval_cases_holdout.json` to check a change on cases it was not tuned on. |
 
 ## Tests
@@ -258,7 +258,7 @@ Not supported, and refused: camera ROI, SLM images, other custom actions.
 ```
 pip install -e ".[test]"
 pytest               # offline, about 10 to 20 s: no NIS and no API key needed
-pytest -m hardware   # against NIS-Elements with the bridge running
+pytest -m hardware   # against NIS-Elements with the bridge running (next section)
 ```
 
 The unit tests check the code. Whether the assistant does what an operator
@@ -273,6 +273,57 @@ python tests/evals.py --model anthropic:claude-opus-5-5        # needs ANTHROPIC
 python tests/evals.py --model google:gemini-3.5-flash-lite     # needs GOOGLE_API_KEY and pydantic-ai-slim[google]
 python tests/evals.py --holdout --repeat 3                     # other wording; shows cases that pass only sometimes
 python tests/evals.py --scoreboard evals-*.jsonl               # pass rates per model and per category
+```
+
+## Testing on NIS-Elements
+
+With NIS-Elements running (the simulator or the microscope) and
+`start_bridge.mac` started, test in three steps. Each step builds on the one
+before, so stop at the first that fails. Everything stays within 100 um of
+where the stage is, and the stage is moved back afterwards; still, keep the
+objective clear of the sample for the first run.
+
+```
+pytest -m hardware -k engine -s   # 1. the engine: read, move a little, settings, camera field, limit check
+pytest -m hardware -k useq -s     # 2. useq: v2 and classic sequences, tiles, channel options, a sequence file
+pytest -m hardware -k agent -s    # 3. the assistant's tools, driven by a scripted model (no API calls)
+```
+
+`-s` prints what NIS reported (configurations, objectives, exposure, camera
+field). Tests that need a pixel calibration for the objective in use (the
+camera field, tiles) are skipped without one, and say so.
+
+Then try the assistant with the real model in the window, in this order, and
+check each answer against NIS:
+
+1. *Where is the stage, and which objective is in use?* (reads only)
+2. *Move x by 20 um.* (moves at once) and *Move x by 5 mm.* (asks first; answer *no*)
+3. *Move z to 20000 um.* (refused: red banner, nothing moves)
+4. *Switch to* a configuration NIS has, *at 50 ms.*
+5. *What do you see?* (the image appears on the right)
+6. *Take a Z-stack of 4 um in 2 um steps here in* a configuration. (shows the
+   plan and asks; answer *yes*; the files appear in the output folder)
+7. *Image a 2 by 2 grid of tiles around here.* (needs a pixel calibration)
+8. *Show me the useq sequence for that plan*, *What is new in useq v2?*, and
+   *How does the engine move the stage? Show me the code.*
+
+To let Claude Code on the microscope computer do all of this, give it this prompt:
+
+```
+In zmart_drivers/nikon/nis_useq, test nis-useq on this NIS-Elements computer.
+NIS-Elements is running and start_bridge.mac has been started (ask me if the
+bridge does not answer). Work in three steps and stop at the first failure,
+showing me the output and what you think went wrong; do not change code
+without asking.
+1. Engine: run `pytest -m hardware -k engine -s`.
+2. useq: run `pytest -m hardware -k useq -s`, then open the saved OME-TIFFs
+   in the pytest temp folder and tell me their shapes.
+3. Assistant: run `pytest -m hardware -k agent -s`. Then start the window with
+   `nis-useq-assistant --output D:\runs` and tell me, one at a time, the
+   prompts from the checklist under "Testing on NIS-Elements" in README.md,
+   and what to look for after each.
+Finish with a short report: what passed, what was skipped and why, and
+anything that looked wrong.
 ```
 
 ## Where the NIS function names come from
