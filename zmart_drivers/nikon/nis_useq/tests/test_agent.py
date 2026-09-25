@@ -107,6 +107,15 @@ def test_every_message_carries_the_microscope_state(microscope):
     assert prompt.startswith("hi") and "<microscope_state>" in prompt and "position_um" in prompt
 
 
+def test_a_quoted_state_block_is_taken_out_of_the_reply(microscope):
+    quoted = 'Exposure set.\n\n<microscope_state>{"position_um": {"x": 1}}</microscope_state>'
+    cut_off = 'Done. <microscope_state>{"position_um": {"x": 1'  # a block the model did not close
+    assistant, _ = talk(microscope, quoted, cut_off)
+    assert assistant.send("50 ms please") == "Exposure set."
+    assert assistant.send("thanks") == "Done."
+    assert "<microscope_state>" in assistant.history[1].parts[0].content  # its own copy stays
+
+
 def test_the_model_acts_one_step_at_a_time():
     assert MODEL_SETTINGS["parallel_tool_calls"] is False
     assert MODEL_SETTINGS["max_tokens"] >= 16000
