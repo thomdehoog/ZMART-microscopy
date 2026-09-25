@@ -133,16 +133,19 @@ How it stays safe:
   own names, so the assistant can propose the right one as a question.
 - **A red banner for refusals.** A limit breach or an invalid value is also
   shown in the window directly, whatever the assistant says.
-- **You press Run for long moves.** A stage move of more than 1 mm in XY or
-  100 um in Z shows a *Run / Cancel* bar above the input, and waits there as
-  long as you need. This includes an acquisition whose positions are that far
-  away. Moves are measured from where the stage was when you last sent a
-  message or pressed Run, so small steps that add up also ask. This rule is in
-  the code, not in the model's instructions. Other actions (settings, the
-  objective, acquisitions nearby) run without asking; the assistant tells you
-  its plan first and asks only when something looks off.
+- **Long moves are agreed in the chat first.** A stage move of more than 1 mm
+  in XY or 100 um in Z is not carried out when the assistant first asks for
+  it. The assistant asks you in the chat ("Shall I move 19 mm to x = 20 mm?"),
+  and the stage goes only if your next message agrees and the assistant asks
+  for exactly the same move again. This includes an acquisition whose
+  positions are that far away. Moves are measured from where the stage was
+  when you last wrote, so small steps that add up also ask. That the question
+  comes before the move is in the code, not only in the model's instructions.
+  Other actions (settings, the objective, acquisitions nearby) run without
+  asking; the assistant tells you its plan first and asks only when something
+  looks off.
 - **One action at a time.** The assistant makes one tool call at a time, so
-  nothing else happens while a question is waiting.
+  each result is seen before the next action.
 - **Plans are checked before they run.** An acquisition is planned first and
   checked against the microscope (stage limits, channels) without moving or
   imaging, and the run images exactly the positions that were planned.
@@ -150,8 +153,7 @@ How it stays safe:
   request with a few measured numbers (brightness, saturation, sharpness), so
   the conversation stays small.
 - **Cancel prompt** stops the assistant: every further tool call in that turn
-  does nothing, and an open Run / Cancel question is answered with Cancel.
-  What already started runs on.
+  does nothing. What already started runs on.
 - **Stop microscope** does the same and also ends a running acquisition after
   the image being taken. A single stage move that NIS has already started runs
   to its end; the joystick or NIS-Elements stops it sooner. The window does not
@@ -216,7 +218,7 @@ Not supported, and refused: camera ROI, SLM images, other custom actions.
 | File | What it is |
 |---|---|
 | `nis_useq/engine.py` | `NisEngine`: turns useq events into bridge requests. |
-| `nis_useq/agent.py` | The assistant: its tools, the plan format, the Run rule, and its memory. |
+| `nis_useq/agent.py` | The assistant: its tools, the plan format, the go-ahead rule, and its memory. |
 | `nis_useq/window.py` | The chat window (`nis-useq-assistant`). |
 | `nis_useq/client.py` | `NisClient`: the socket connection to the bridge. |
 | `nis_useq/bridge.py` | The server inside NIS-Elements (standard library only). |

@@ -8,15 +8,17 @@ action comes back to the assistant as data, together with advice on what to
 do next, and a refusal is also shown in the window directly as a warning,
 whatever the model says about it.
 
-The operator stays in charge in three ways. Stage moves that travel far wait
-for the operator's Run in the window. That rule is in this code, not in the
-model's instructions, and it also covers acquisitions that travel far. Moves
-are measured from where the stage was when the operator last spoke or pressed
-Run, so many small steps add up to a long move that also asks. Cancel stops
-the assistant: every further tool call in that turn does nothing. Stop
-microscope also ends a running acquisition.
+The operator stays in charge. A stage move that travels far, also inside an
+acquisition, is not carried out when the model first asks for it. The tool
+answers that the operator's go-ahead is needed, the assistant asks in the
+chat, and only if the operator's next message agrees and the model asks for
+exactly the same move again does the stage go. That rule is in this code, not
+in the model's instructions. Moves are measured from where the stage was when
+the operator last wrote, so many small steps add up to a long move that also
+asks. Cancel stops the assistant: every further tool call in that turn does
+nothing. Stop microscope also ends a running acquisition.
 
-    microscope = Microscope(NisEngine(), output_dir=Path("runs"), confirm=ask_the_operator)
+    microscope = Microscope(NisEngine(), output_dir=Path("runs"))
     assistant = Assistant(microscope)
     print(assistant.send("Take a 3-channel Z-stack here"))
 """
@@ -67,7 +69,7 @@ MODEL_SETTINGS = {
 }
 
 # A stage move that travels further than this from where the stage was when the
-# operator last spoke or pressed Run (on any one axis, in um) waits for Run.
+# operator last wrote (on any one axis, in um) needs their go-ahead in the chat.
 CONFIRM_XY_UM = 1000.0
 CONFIRM_Z_UM = 100.0
 MAX_EXPOSURE_MS = 60000.0
@@ -87,8 +89,10 @@ OPTIONS_ADVICE = (
     'is the same thing spelled differently ("fitc" for "FITC"). A different option, '
     "even a close one, is the operator's choice: propose it as a question."
 )
-DECLINED_ADVICE = (
-    "The operator chose not to do this. Accept it and ask what they would like instead."
+GO_AHEAD_ADVICE = (
+    "Nothing has moved yet. Ask the operator in the chat whether to go ahead, saying where "
+    "the stage will go and how far. Only if their next message agrees, call this tool again "
+    "with exactly the same values; otherwise leave it."
 )
 CANCELLED_ADVICE = (
     "The operator pressed Cancel. Call no more tools; say in one sentence what was done."
@@ -117,9 +121,10 @@ ask one short question before changing anything.
 Safety comes first. A tool answer with an "error" was not carried out. Follow \
 its "advice", tell the operator plainly what was refused and why, and never \
 try to get around a refusal, for example with a nearby value or in smaller \
-steps. Long stage moves, also inside an acquisition, wait for the operator's \
-Run in the window; the tools ask for it themselves. If the operator does not \
-confirm, accept it. If a tool answers "cancelled", the operator pressed \
+steps. A long stage move, also inside an acquisition, first answers \
+"needs_go_ahead": then ask the operator in one short question, and repeat \
+the call unchanged only when their reply agrees. If they say no, \
+accept it. If a tool answers "cancelled", the operator pressed \
 Cancel: stop at once.
 
 For an acquisition: first call plan_acquisition, tell the operator the plan \
@@ -196,21 +201,12 @@ def plan_to_sequence(plan: AcquisitionPlan) -> useq.MDASequence:
 # -- the microscope, as the tools see it ---------------------------------------------
 
 
-def _nobody_to_ask(summary: str) -> bool:
-    return False  # with no operator to press Run, the answer is no
-
-
 @dataclass
 class Microscope:
-    """The engine plus the window's side of the conversation.
-
-    ``confirm`` is called from the assistant's thread with a sentence describing
-    a long move. It returns True only when the operator pressed Run.
-    """
+    """The engine plus the window's side of the conversation."""
 
     engine: NisEngine
     output_dir: Path
-    confirm: Callable[[str], bool] = _nobody_to_ask
     on_image: Callable[[np.ndarray, str], None] = lambda image, caption: None
     on_warning: Callable[[str], None] = lambda text: None
     on_tool: Callable[[str, dict], None] = lambda name, args: None  # each tool call, as it starts
@@ -219,9 +215,12 @@ class Microscope:
     runner: MDARunner | None = None  # set while an acquisition runs, so it can be stopped
     # Set by Cancel: every further tool call in this turn does nothing.
     cancel: threading.Event = field(default_factory=threading.Event)
-    # Where the stage was when the operator last spoke or pressed Run; moves are
-    # measured from here, so small steps cannot add up to a long move unasked.
+    # Where the stage was when the operator last wrote; moves are measured from
+    # here, so small steps cannot add up to a long move unasked.
     anchor: dict[str, float] | None = None
+    turn: int = 0  # the operator's messages so far
+    # Long moves the assistant asked the operator about, and in which turn.
+    go_ahead_asked: dict[str, int] = field(default_factory=dict)
 
     @property
     def client(self):
@@ -262,8 +261,19 @@ def refusal(
     return {"error": {"code": code, "message": message, **details, "advice": advice}}
 
 
-def _confirmed(ctx: RunContext[Microscope], summary: str) -> bool:
-    return not ctx.deps.cancel.is_set() and ctx.deps.confirm(summary)
+def needs_go_ahead(ctx: RunContext[Microscope], key: str, summary: str) -> dict | None:
+    """None if the operator has had the chance to agree to this action; else the
+    answer that tells the assistant to ask first.
+
+    The first request for a long move is only noted. The same request in the
+    operator's next turn (after they read the question and replied) goes ahead.
+    Whether the reply was a yes is for the model to read; that the operator saw
+    the question before anything moved is guaranteed here.
+    """
+    if ctx.deps.go_ahead_asked.pop(key, None) == ctx.deps.turn - 1:
+        return None
+    ctx.deps.go_ahead_asked[key] = ctx.deps.turn
+    return {"status": "needs_go_ahead", "not_done_yet": summary, "advice": GO_AHEAD_ADVICE}
 
 
 def hardware_tool(fn: Callable) -> Callable:
@@ -390,15 +400,13 @@ def move_stage(
         return client.request("move", **target)
     where = ", ".join(f"{a} = {v:g} um" for a, v in target.items())
     summary = (
-        f"Move the stage to {where}: {xy_step:.0f} um in XY and {z_step:.0f} um in Z "
-        "from where it was when you last spoke or pressed Run."
+        f"move the stage to {where}: {xy_step:.0f} um in XY and {z_step:.0f} um in Z "
+        "from where it was when the operator last wrote"
     )
-    if not _confirmed(ctx, summary):
-        return refusal(
-            ctx, "declined", f"the operator did not press Run for: {summary}", DECLINED_ADVICE
-        )
+    if (question := needs_go_ahead(ctx, f"move {sorted(target.items())}", summary)) is not None:
+        return question
     moved = client.request("move", **target)
-    ctx.deps.anchor = moved  # the operator confirmed this position
+    ctx.deps.anchor = moved  # the operator agreed to this position
     return moved
 
 
@@ -587,11 +595,9 @@ def run_acquisition(ctx: RunContext[Microscope], plan_id: str) -> dict[str, Any]
     events = ctx.deps.engine.check(sequence)  # the microscope may have changed since planning
     xy, z = _travel(ctx, plan)
     if xy > CONFIRM_XY_UM or z > CONFIRM_Z_UM:
-        summary = f"Run acquisition {plan_id!r}. {describe(ctx, plan, events)}"
-        if not _confirmed(ctx, summary):
-            return refusal(
-                ctx, "declined", f"the operator did not press Run for: {summary}", DECLINED_ADVICE
-            )
+        summary = f"run acquisition {plan_id!r}. {describe(ctx, plan, events)}"
+        if (question := needs_go_ahead(ctx, f"run {plan_id}", summary)) is not None:
+            return question
 
     stem = f"{datetime.now():%Y%m%d_%H%M%S}_{plan.name}"
     ctx.deps.output_dir.mkdir(parents=True, exist_ok=True)
@@ -745,6 +751,7 @@ class Assistant:
         self.microscope.cancel.clear()
         state = self.microscope.state()
         self.microscope.anchor = state["position_um"]
+        self.microscope.turn += 1
         prompt = f"{text}\n\n<microscope_state>{json.dumps(state)}</microscope_state>"
         with capture_run_messages() as messages:
             try:
@@ -771,6 +778,7 @@ class Assistant:
         """Forget the conversation; the next message starts a new one."""
         self.history, self.last_turn = [], []
         self.microscope.plans.clear()
+        self.microscope.go_ahead_asked.clear()
 
 
 def compact(messages: list[ModelMessage]) -> list[ModelMessage]:
