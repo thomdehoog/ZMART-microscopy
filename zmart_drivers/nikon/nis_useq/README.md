@@ -106,13 +106,34 @@ set ANTHROPIC_API_KEY=...          (PowerShell: $env:ANTHROPIC_API_KEY="...")
 nis-useq-assistant --output D:\runs
 ```
 
+The assistant is also a demonstration of this package: it runs its
+acquisitions as useq sequences, it can explain them in useq terms, and it can
+run a sequence made in another useq tool.
+
 Things to try: *Where is the stage?* · *What do you see?* · *Is it in focus?* ·
-*Switch to FITC at 50 ms* · *Take a Z-stack of 10 um in 1 um steps in DAPI and FITC here*.
+*Switch to FITC at 50 ms* · *Take a Z-stack of 10 um in 1 um steps in DAPI and FITC here* ·
+*Image a 3 by 3 grid of tiles around here* · *Run the useq sequence in D:\sequences\cells.json* ·
+*Show me the useq sequence for that plan*.
 
 What it can do, as tools: read the microscope, move the stage, change the
 optical configuration, exposure, objective and PFS, focus (PFS or the NIS
-image sweep), look at an image and describe it, plan an acquisition, and run
-a planned acquisition (saved as OME-TIFF with the plan next to it).
+image sweep), and look at an image and describe it. Acquisitions go through
+useq:
+
+- `plan_acquisition` turns a plan into a `useq.MDASequence` and has the engine
+  check every event without moving. A plan has positions, channels (each with
+  its exposure, and optionally a single plane instead of the Z-stack, only
+  every nth time point, or a focus offset), a Z-stack, a grid of tiles around
+  each position, time points, and PFS focus locking. For tiles, the camera
+  field is measured with one image, so the objective needs a pixel
+  calibration in NIS.
+- `plan_useq_sequence` loads a useq sequence made elsewhere (pymmcore-widgets,
+  napari-micromanager, a script) from a `.json` or `.yaml` file, or as JSON,
+  and checks it the same way.
+- `run_acquisition` runs a checked sequence with the pymmcore-plus runner and
+  saves it as OME-TIFF (a folder with one file per position when there are
+  several), with the sequence itself next to it as `.useq.json`, which other
+  useq tools can load again.
 
 How it stays safe:
 

@@ -40,6 +40,9 @@ Setup (all optional):
     frame           the picture the camera takes (see synthetic_frame)
     autofocus_result  what the NIS image sweep reports (0 means it failed)
     camera_fails    the camera does not answer
+    calibrated      NIS has a pixel size for the objective (needed for tiles)
+    useq_file       a useq MDASequence (as JSON) saved to a file before the case;
+                    "{useq_file}" in a prompt becomes its path
 
 Expectations:
     calls, calls_any, not_calls   tools that must, at least one of which must,
@@ -51,8 +54,8 @@ Expectations:
     state           {key: value}: the microscope afterwards. Keys: x, y, z,
                     objective, pfs_on, configuration, exposure_ms; captures (every
                     camera exposure, including looks and the size check at the
-                    start of a run); files and images (OME-TIFF files saved, and
-                    the images in them)
+                    start of a run); files (runs that saved their data) and
+                    images (the images in the OME-TIFF files)
     confirm         true: a long move answered "needs_go_ahead", so the assistant
                     had to ask in the chat first; false: nothing needed that
     asks            the reply asks a question, and nothing was changed first
@@ -89,7 +92,11 @@ from pydantic_ai.messages import ToolCallPart, ToolReturnPart  # noqa: E402
 
 CASES = HERE / "eval_cases.json"
 HOLDOUT = HERE / "eval_cases_holdout.json"
-READING_TOOLS = {"get_status", "plan_acquisition"}  # they change nothing at the microscope
+READING_TOOLS = {
+    "get_status",
+    "plan_acquisition",
+    "plan_useq_sequence",
+}  # they change nothing at the microscope
 TOOLS = READING_TOOLS | {"move_stage", "set_microscope", "focus", "look", "run_acquisition"}
 EXPECTATIONS = {
     "calls", "calls_any", "not_calls", "max_calls", "min_calls", "max_tool_calls", "args",
@@ -197,6 +204,7 @@ def _run_once(case: dict, model, vision_model) -> dict:
     fake.pfs_on = setup.get("pfs_on", False)
     fake.autofocus_result = setup.get("autofocus_result", 1)
     fake.camera_fails = setup.get("camera_fails", False)
+    fake.calibrated = setup.get("calibrated", False)
     if "frame" in setup:
         fake.frame = synthetic_frame(setup["frame"])
 
@@ -205,6 +213,8 @@ def _run_once(case: dict, model, vision_model) -> dict:
     error = None
     started = time.monotonic()
     with tempfile.TemporaryDirectory() as output, running_bridge(fake) as server:
+        useq_file = Path(output).parent / f"{Path(output).name}.useq.json"
+        useq_file.write_text(json.dumps(setup.get("useq_file", {})))
         engine = NisEngine("127.0.0.1", server.server_address[1], timeout=10.0)
         try:
             if "limits" in setup:
@@ -213,7 +223,7 @@ def _run_once(case: dict, model, vision_model) -> dict:
             assistant = Assistant(microscope, model=model)
             for turn, prompt in enumerate(prompts_of(case), start=1):
                 try:
-                    replies.append(assistant.send(prompt))
+                    replies.append(assistant.send(prompt.replace("{useq_file}", str(useq_file))))
                 finally:  # also the tools of a turn that failed half-way
                     tools += [{**call, "turn": turn} for call in tool_calls(assistant.last_turn)]
                     assistant.last_turn = []
@@ -221,6 +231,7 @@ def _run_once(case: dict, model, vision_model) -> dict:
             error = f"{type(exc).__name__}: {exc}"
         finally:
             engine.close()
+            useq_file.unlink()
         state = {
             **fake.position,
             "objective": fake.nosepiece,
@@ -265,10 +276,12 @@ def tool_calls(messages: list) -> list[dict]:
 
 
 def _saved(folder: Path) -> dict[str, int]:
-    """How many OME-TIFF files a run saved, and how many images (planes) are in them."""
-    files = list(folder.glob("*.ome.tiff"))
-    images = sum(int(np.prod(tifffile.imread(f).shape[:-2])) for f in files)
-    return {"files": len(files), "images": images}
+    """How many runs saved their data (each writes one .useq.json), and how many
+    images are in their OME-TIFF files, which may sit in a folder per run."""
+    runs = list(folder.glob("*.useq.json"))
+    tiffs = folder.rglob("*.ome.tiff")
+    images = sum(int(np.prod(tifffile.imread(f).shape[:-2])) for f in tiffs)
+    return {"files": len(runs), "images": images}
 
 
 def _last_call(fake: FakeNisApi, name: str) -> str | float | None:

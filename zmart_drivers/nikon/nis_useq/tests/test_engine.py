@@ -95,6 +95,15 @@ def test_classic_sequence(engine):
     assert run(engine, sequence).z == [500, 505, 510]
 
 
+def test_field_of_view_from_one_image_and_the_pixel_size(engine, fake):
+    fake.calibrated = True  # 0.108 um per pixel, 64 x 48 pixels
+    assert engine.field_of_view() == pytest.approx((64 * 0.108, 48 * 0.108))
+    assert fake.captures == 1 and fake.open_images == 0
+    fake.calibrated = False
+    with pytest.raises(ValueError, match="no pixel calibration"):
+        engine.field_of_view()
+
+
 def test_grid_around_a_position(engine):
     grid = {"rows": 1, "columns": 2, "fov_width": 10, "fov_height": 8}
     sequence = v2.MDASequence(stage_positions=[(100, 200, 500)], grid_plan=grid)

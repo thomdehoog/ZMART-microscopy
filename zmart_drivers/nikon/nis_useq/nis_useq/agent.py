@@ -125,19 +125,29 @@ running inside NIS-Elements; and the microscope. The engine does nothing with \
 coordinate systems: positions are the raw NIS stage coordinates.
 
 Your tools. get_status, move_stage, set_microscope, focus and look act on the \
-microscope directly. The acquisition tools are where useq shows: \
+microscope directly. The acquisition tools are where useq shows. \
 plan_acquisition turns a plan into a useq MDASequence and lets the engine \
 check every one of its events (stage limits, optical configurations, the PFS) \
-without moving or imaging. It returns the sequence itself as useq_sequence. \
-run_acquisition gives that sequence to the MDARunner, which runs it on the \
-engine and saves the images as OME-TIFF, with the plan next to it. The plan \
-maps onto useq like this: positions are stage_positions, channels are \
-channels (config is the name of a NIS optical configuration, exposure in \
-ms), z_stack is a z_plan of range and step around each position's z, \
-time_points and interval_s are a time_plan, and focus_with_pfs is an \
+without moving. plan_useq_sequence does the same for a sequence made \
+elsewhere, in any tool that speaks useq (pymmcore-widgets, \
+napari-micromanager, a script), given as a .json or .yaml file or as the JSON \
+itself; this is how the microscope joins the community's tools. Both return \
+a plan id, a summary and the sequence itself as useq_sequence. \
+run_acquisition gives the sequence to the MDARunner, which runs it on the \
+engine and saves the images as OME-TIFF, with the sequence next to them as a \
+.useq.json file that other useq tools can load again.
+
+A plan maps onto useq like this: positions are stage_positions; channels are \
+channels (config is the name of a NIS optical configuration, exposure in ms, \
+and per channel do_stack false for a single plane, acquire_every n for every \
+nth time point, z_offset for a focus offset); z_stack is a z_plan of range and \
+step around each position's z; grid is a grid_plan of rows x columns of tiles \
+around each position, spaced from the camera field, which is measured with \
+one image when not given (the objective needs a pixel calibration in NIS); \
+time_points and interval_s are a time_plan; and focus_with_pfs is an \
 autofocus_plan that locks the Perfect Focus System at each time point and \
-position. The axis order is t, p, c, z. The engine also runs sequences in the \
-new useq v2 form (useq.v2.MDASequence); your plans run as a classic \
+position. The axis order is t, p, g, c, z. The engine also runs sequences in \
+the new useq v2 form (useq.v2.MDASequence); plans run as a classic \
 MDASequence because the pymmcore-plus file writers keep the channel and Z \
 axes only for that form. When the operator asks how something works, or what \
 will happen, explain it in these useq terms, and show the useq sequence when \
@@ -190,6 +200,15 @@ class ChannelSpec(BaseModel):
     exposure_ms: float | None = Field(
         None, gt=0, le=MAX_EXPOSURE_MS, description="camera exposure; omit to keep"
     )
+    do_stack: bool = Field(
+        True,
+        description="false: one plane at the position's z in this channel, even when the "
+        "plan has a Z-stack (for example brightfield)",
+    )
+    acquire_every: int = Field(1, ge=1, description="image this channel every nth time point")
+    z_offset_um: float = Field(
+        0.0, description="focus offset of this channel from the planned z, in um"
+    )
 
 
 class ZStack(BaseModel):
@@ -197,8 +216,21 @@ class ZStack(BaseModel):
     step_um: float = Field(gt=0, description="distance between planes")
 
 
+class Grid(BaseModel):
+    """Tiles around each position, rows x columns, centred on it."""
+
+    rows: int = Field(ge=1, le=20)
+    columns: int = Field(ge=1, le=20)
+    overlap_percent: float = Field(10.0, ge=0, lt=100, description="overlap of neighbouring tiles")
+    fov_um: tuple[float, float] | None = Field(
+        None,
+        description="camera field (width, height) in um; leave out to measure it with one image",
+    )
+
+
 class AcquisitionPlan(BaseModel):
-    """One acquisition: positions x channels x Z planes, optionally repeated in time."""
+    """One acquisition: positions (optionally tiled) x channels x Z planes, optionally
+    repeated in time."""
 
     name: str = Field(pattern=r"^[A-Za-z0-9_-]{1,40}$", description="short name for the file")
     positions: list[PositionSpec] = Field(
@@ -206,25 +238,50 @@ class AcquisitionPlan(BaseModel):
     )
     channels: list[ChannelSpec] = Field(min_length=1)
     z_stack: ZStack | None = None
+    grid: Grid | None = Field(None, description="tile an area around each position")
     time_points: int = Field(1, ge=1, le=1000)
     interval_s: float = Field(0.0, ge=0, description="time between time points")
     focus_with_pfs: bool = Field(False, description="lock focus with the PFS at each position")
 
 
-def plan_to_sequence(plan: AcquisitionPlan) -> useq.MDASequence:
+def plan_to_sequence(
+    plan: AcquisitionPlan, fov_um: tuple[float, float] | None = None
+) -> useq.MDASequence:
     """The useq sequence for a plan whose positions are filled in.
 
-    A classic ``useq.MDASequence``, not a v2 one: the pymmcore-plus file writers
-    (0.18) read the channels and Z planes from a classic sequence, but save a v2
-    sequence as one flat stack of images.
+    ``fov_um`` is the camera field (width, height), which a grid needs to space
+    its tiles. The result is a classic ``useq.MDASequence``, not a v2 one: the
+    pymmcore-plus file writers (0.18) read the channels and Z planes from a
+    classic sequence, but save a v2 sequence as one flat stack of images.
     """
+    channels = [
+        {
+            "config": c.config,
+            "exposure": c.exposure_ms,
+            "do_stack": c.do_stack,
+            "acquire_every": c.acquire_every,
+            "z_offset": c.z_offset_um,
+        }
+        for c in plan.channels
+    ]
     kwargs: dict[str, Any] = {
         "stage_positions": [p.model_dump(exclude_none=True) for p in plan.positions],
-        "channels": [{"config": c.config, "exposure": c.exposure_ms} for c in plan.channels],
-        "axis_order": "tpcz",
+        "channels": channels,
+        "axis_order": "tpgcz",
     }
     if plan.z_stack:
         kwargs["z_plan"] = {"range": plan.z_stack.range_um, "step": plan.z_stack.step_um}
+    if plan.grid:
+        if fov_um is None:
+            raise ValueError("a grid needs the camera field of view to space its tiles")
+        overlap = plan.grid.overlap_percent
+        kwargs["grid_plan"] = {
+            "rows": plan.grid.rows,
+            "columns": plan.grid.columns,
+            "overlap": (overlap, overlap),
+            "fov_width": fov_um[0],
+            "fov_height": fov_um[1],
+        }
     if plan.time_points > 1:
         kwargs["time_plan"] = {"interval": plan.interval_s, "loops": plan.time_points}
     if plan.focus_with_pfs:
@@ -245,7 +302,7 @@ class Microscope:
     on_warning: Callable[[str], None] = lambda text: None
     on_tool: Callable[[str, dict], None] = lambda name, args: None  # each tool call, as it starts
     vision_model: Any = MODEL  # a model name, or a test model
-    plans: dict[str, AcquisitionPlan] = field(default_factory=dict)
+    plans: dict[str, useq.MDASequence] = field(default_factory=dict)  # plan id -> sequence
     planned_in: dict[str, int] = field(default_factory=dict)  # plan id -> turn it was made
     runner: MDARunner | None = None  # set while an acquisition runs, so it can be stopped
     # Set by Cancel: every further tool call in this turn does nothing.
@@ -584,7 +641,7 @@ async def look(ctx: RunContext[Microscope], question: str) -> dict[str, Any]:
 @hardware_tool
 def plan_acquisition(ctx: RunContext[Microscope], plan: AcquisitionPlan) -> dict[str, Any]:
     """Turn a plan into a useq MDASequence and check it on the microscope, without
-    moving or imaging.
+    moving. A plan with a grid takes one image to measure the camera field.
 
     Returns a plan id, a summary to tell the operator before starting it, and
     the useq sequence itself.
@@ -592,8 +649,53 @@ def plan_acquisition(ctx: RunContext[Microscope], plan: AcquisitionPlan) -> dict
     if not plan.positions:  # fix "here" now, so the run images exactly what was checked
         here = ctx.deps.client.request("get_position")
         plan = plan.model_copy(update={"positions": [PositionSpec(**here, name="here")]})
+    fov_um = None
+    if plan.grid is not None:
+        try:
+            fov_um = plan.grid.fov_um or ctx.deps.engine.field_of_view()
+        except ValueError as exc:
+            return refusal(ctx, "invalid", str(exc), FAILURE_ADVICE)
+    return keep_plan(ctx, plan.name, plan_to_sequence(plan, fov_um))
+
+
+@agent.tool(sequential=True)
+@hardware_tool
+def plan_useq_sequence(
+    ctx: RunContext[Microscope],
+    name: str,
+    path: str | None = None,
+    sequence: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Load a useq MDASequence made elsewhere and check it, like plan_acquisition.
+
+    This is how a sequence from another useq tool (pymmcore-widgets,
+    napari-micromanager, a script) runs on this microscope. Positions are NIS
+    stage coordinates in um; a sequence without positions is imaged where the
+    stage is now. Returns the same as plan_acquisition.
+
+    Args:
+        name: short name for the saved files: letters, digits, - and _.
+        path: a .json or .yaml file that holds a useq MDASequence.
+        sequence: the MDASequence itself, as the JSON object useq writes.
+    """
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,40}", name):
+        raise ModelRetry("name may hold only letters, digits, - and _ (at most 40).")
+    if (path is None) == (sequence is None):
+        raise ModelRetry("Give either path or sequence, not both.")
     try:
-        sequence = plan_to_sequence(plan)
+        loaded = useq.MDASequence.from_file(path) if path else useq.MDASequence(**sequence)
+    except (OSError, ValueError) as exc:  # a missing file, or not a valid sequence
+        message = f"no useq sequence could be read: {str(exc)[:500]}"
+        return refusal(ctx, "invalid", message, FAILURE_ADVICE)
+    if not loaded.stage_positions:  # fix "here" now, as plan_acquisition does
+        here = ctx.deps.client.request("get_position")
+        loaded = loaded.replace(stage_positions=[useq.Position(**here, name="here")])
+    return keep_plan(ctx, name, loaded)
+
+
+def keep_plan(ctx: RunContext[Microscope], name: str, sequence: useq.MDASequence) -> dict:
+    """Check a useq sequence event by event and keep it under a new plan id."""
+    try:
         events = ctx.deps.engine.check(sequence)
     except ValueError as exc:
         message = f"the plan cannot run as written: {exc}"
@@ -603,13 +705,13 @@ def plan_acquisition(ctx: RunContext[Microscope], plan: AcquisitionPlan) -> dict
             known = ctx.deps.client.request("get_optical_configurations")
             return refusal(ctx, "invalid", message, OPTIONS_ADVICE, configured_options=known)
         return refusal(ctx, "invalid", message, FAILURE_ADVICE)
-    plan_id = f"{plan.name}-{len(ctx.deps.plans) + 1}"
-    ctx.deps.plans[plan_id] = plan
+    plan_id = f"{name}-{len(ctx.deps.plans) + 1}"
+    ctx.deps.plans[plan_id] = sequence
     ctx.deps.planned_in[plan_id] = ctx.deps.turn
     return {
         "plan_id": plan_id,
         "images": _count_images(events),
-        "summary": describe(ctx, plan, events),
+        "summary": describe(ctx, sequence, events),
         "useq_sequence": sequence.model_dump(mode="json", exclude_defaults=True),
     }
 
@@ -617,13 +719,15 @@ def plan_acquisition(ctx: RunContext[Microscope], plan: AcquisitionPlan) -> dict
 @agent.tool(sequential=True)
 @hardware_tool
 def run_acquisition(ctx: RunContext[Microscope], plan_id: str) -> dict[str, Any]:
-    """Run a plan made by plan_acquisition. The images are saved as OME-TIFF.
+    """Run a plan made by plan_acquisition or plan_useq_sequence. The images are
+    saved as OME-TIFF (one file, or a folder with one file per position when
+    there are several), with the useq sequence next to them as .useq.json.
 
     Args:
-        plan_id: the id plan_acquisition returned.
+        plan_id: the id the planning tool returned.
     """
-    plan = ctx.deps.plans.get(plan_id)
-    if plan is None:
+    sequence = ctx.deps.plans.get(plan_id)
+    if sequence is None:
         return refusal(
             ctx,
             "invalid",
@@ -631,16 +735,16 @@ def run_acquisition(ctx: RunContext[Microscope], plan_id: str) -> dict[str, Any]
             OPTIONS_ADVICE,
             configured_options=list(ctx.deps.plans),
         )
-    sequence = plan_to_sequence(plan)
     events = ctx.deps.engine.check(sequence)  # the microscope may have changed since planning
     if ctx.deps.planned_in[plan_id] == ctx.deps.turn:  # the operator has not seen the plan yet
-        summary = f"start acquisition {plan_id!r}: {describe(ctx, plan, events)}"
+        summary = f"start acquisition {plan_id!r}: {describe(ctx, sequence, events)}"
         return {"status": "needs_go_ahead", "not_done_yet": summary, "advice": START_ADVICE}
 
-    stem = f"{datetime.now():%Y%m%d_%H%M%S}_{plan.name}"
+    stem = f"{datetime.now():%Y%m%d_%H%M%S}_{plan_id}"
     ctx.deps.output_dir.mkdir(parents=True, exist_ok=True)
     output = ctx.deps.output_dir / f"{stem}.ome.tiff"
-    (ctx.deps.output_dir / f"{stem}.plan.json").write_text(plan.model_dump_json(indent=2))
+    saved = sequence.model_dump_json(exclude_defaults=True, indent=2)
+    (ctx.deps.output_dir / f"{stem}.useq.json").write_text(saved)
 
     # The runner lives on the assistant's thread. Without this, pymmcore-plus
     # would pick Qt signals whenever the chat window is open, which needs qtpy.
@@ -654,11 +758,14 @@ def run_acquisition(ctx: RunContext[Microscope], plan_id: str) -> dict[str, Any]
     finally:
         ctx.deps.runner = None
         ctx.deps.anchor = ctx.deps.client.request("get_position")
+    # With several positions (tiles count too) the writer makes a folder of the
+    # same name, with one OME-TIFF per position, instead of one file.
+    saved_to = output if output.exists() else ctx.deps.output_dir / stem
     return {
         "images": frames.count,
         "finished": str(runner.status.finish_reason),  # "completed" or "canceled"
         "duration_s": round(time.perf_counter() - started, 1),
-        "saved_to": str(output),
+        "saved_to": str(saved_to),
     }
 
 
@@ -682,44 +789,64 @@ def _count_images(events: list[useq.MDAEvent]) -> int:
 
 
 def describe(
-    ctx: RunContext[Microscope], plan: AcquisitionPlan, events: list[useq.MDAEvent]
+    ctx: RunContext[Microscope], sequence: useq.MDASequence, events: list[useq.MDAEvent]
 ) -> str:
-    """The plan in plain sentences, including how far the stage will travel."""
+    """A useq sequence in plain sentences, including how far the stage will travel."""
     images = _count_images(events)
-    seconds = images * (1.5 + max(c.exposure_ms or 100 for c in plan.channels) / 1000)
-    seconds = max(seconds, (plan.time_points - 1) * plan.interval_s)
-    channels = ", ".join(c.config for c in plan.channels)
-    planes = (
-        "one plane"
-        if not plan.z_stack
-        else f"a Z-stack of {plan.z_stack.range_um:g} um in {plan.z_stack.step_um:g} um steps"
-    )
-    times = (
-        ""
-        if plan.time_points == 1
-        else (f", {plan.time_points} time points {plan.interval_s:g} s apart")
-    )
-    positions = "; ".join(
-        f"{p.name or f'#{i + 1}'} at x {p.x:.0f}, y {p.y:.0f}, z {p.z:.0f} um"
-        for i, p in enumerate(plan.positions)
-    )
-    xy, z = _travel(ctx, plan)
+    sizes = sequence.sizes
+    z_plan = sequence.z_plan
+    channels = []
+    for c in sequence.channels:
+        extras = [
+            "one plane" if z_plan and not c.do_stack else "",
+            f"every {c.acquire_every} time points" if c.acquire_every > 1 else "",
+            f"{c.z_offset:+g} um in z" if c.z_offset else "",
+        ]
+        extras = [e for e in extras if e]
+        channels.append(f"{c.config} ({', '.join(extras)})" if extras else c.config)
+    if z_plan is None:
+        planes = "one plane"
+    elif isinstance(z_plan, useq.ZRangeAround):
+        planes = f"a Z-stack of {z_plan.range:g} um in {z_plan.step:g} um steps"
+    else:
+        planes = f"{sizes.get('z', 1)} Z planes"
+    last_start = max((e.min_start_time or 0.0) for e in events) if events else 0.0
+    times = ""
+    if sizes.get("t", 0) > 1:
+        times = f", {sizes['t']} time points {last_start / (sizes['t'] - 1):g} s apart"
+    positions = [
+        f"{p.name or f'#{i + 1}'} at x {p.x:.0f}, y {p.y:.0f}"
+        + (f", z {p.z:.0f} um" if p.z is not None else " um")
+        for i, p in enumerate(sequence.stage_positions)
+    ]
+    if len(positions) > 6:
+        positions = [*positions[:6], f"and {len(positions) - 6} more"]
+    tiles = ""
+    grid = sequence.grid_plan
+    if isinstance(grid, useq.GridRowsColumns):
+        tiles = f", each as {grid.rows} x {grid.columns} tiles"
+    elif grid is not None:
+        tiles = f", each as {sizes.get('g', 1)} tiles"
+    exposure_s = max((c.exposure or 100) for c in sequence.channels or [useq.Channel(config="")])
+    seconds = max(images * (1.5 + exposure_s / 1000), last_start)
+
+    here = ctx.deps.client.request("get_position")
+    xy = max((_distance(e, here, "x", "y") for e in events), default=0.0)
+    z = max((_distance(e, here, "z") for e in events), default=0.0)
     travel = f"The stage travels up to {xy:.0f} um in XY and {z:.0f} um in Z from where it is now."
     if xy > CONFIRM_XY_UM or z > CONFIRM_Z_UM:
         travel += " This includes a long move."
     return (
-        f"{images} images: channels {channels}, {planes}{times}, at "
-        f"{len(plan.positions)} position(s) ({positions}). "
+        f"{images} images: channels {', '.join(channels) or 'as set now'}, {planes}{times}, "
+        f"at {len(sequence.stage_positions)} position(s) ({'; '.join(positions)}){tiles}. "
         f"About {max(seconds / 60, 0.1):.1f} minutes. {travel}"
     )
 
 
-def _travel(ctx: RunContext[Microscope], plan: AcquisitionPlan) -> tuple[float, float]:
-    """How far a plan takes the stage from where it is now: (XY, Z) in um."""
-    here = ctx.deps.client.request("get_position")
-    xy = max(max(abs(p.x - here["x"]), abs(p.y - here["y"])) for p in plan.positions)
-    z = max(abs(p.z - here["z"]) for p in plan.positions)
-    return xy, z
+def _distance(event: useq.MDAEvent, here: dict[str, float], *axes: str) -> float:
+    """The largest distance, over ``axes``, from ``here`` to where the event goes."""
+    targets = {"x": event.x_pos, "y": event.y_pos, "z": event.z_pos}
+    return max((abs(targets[a] - here[a]) for a in axes if targets[a] is not None), default=0.0)
 
 
 def snap(client) -> np.ndarray:
