@@ -118,16 +118,18 @@ def test_the_window_will_not_close_mid_action(qtbot, open_window, monkeypatch):
     assert window.close() is True
 
 
-def test_the_limits_row_shows_and_narrows_the_stage_limits(qtbot, open_window, fake):
+def test_six_limit_fields_show_and_narrow_the_stage_limits(qtbot, open_window, fake):
     window = open_window(("move_stage", {"z": 700}), "That is outside the limits you set.")
-    assert window.limit_fields["z"].text() == "0 to 10000"  # NIS's own, at start
+    fields = window.limit_fields
+    assert fields["z", "-"].text() == "0" and fields["z", "+"].text() == "10000"  # NIS's own
 
-    window.limit_fields["z"].setText("400 to 600")
-    window.limit_fields["x"].setText("")  # empty: keep NIS's limits
+    fields["z", "-"].setText("400")
+    fields["z", "+"].setText("600")
+    fields["x", "+"].setText("")  # empty: keep NIS's limit on that side
     window.apply_limits()
-    assert window.limit_fields["z"].text() == "400 to 600"
-    assert window.limit_fields["x"].text() == "-57000 to 57000"
-    assert "Stage limits in use (um)" in window.transcript.toPlainText()
+    assert fields["z", "-"].text() == "400" and fields["z", "+"].text() == "600"
+    assert fields["x", "+"].text() == "57000"
+    assert "Z 400 to 600" in window.transcript.toPlainText()
 
     ask(qtbot, window, "focus up to 700")
     assert (
@@ -136,18 +138,16 @@ def test_the_limits_row_shows_and_narrows_the_stage_limits(qtbot, open_window, f
     assert moves(fake) == []
 
     window.use_nis_limits()
-    assert window.limit_fields["z"].text() == "0 to 10000"
+    assert fields["z", "+"].text() == "10000"
 
 
-def test_limits_that_are_not_a_range_are_refused(qtbot, open_window):
+def test_limits_that_are_not_numbers_or_not_a_range_are_refused(qtbot, open_window):
     window = open_window()
-    window.limit_fields["y"].setText("about five mm")
+    window.limit_fields["y", "-"].setText("five mm")
     window.apply_limits()
-    assert (
-        window.warning.isVisibleTo(window)
-        and "Y limits: write two numbers" in window.warning.text()
-    )
-    window.limit_fields["y"].setText("600 to 400")
+    assert window.warning.isVisibleTo(window) and "Y-: write a number" in window.warning.text()
+    window.limit_fields["y", "-"].setText("600")
+    window.limit_fields["y", "+"].setText("400")
     window.apply_limits()
     assert "the minimum must be below the maximum" in window.warning.text()
     assert window.assistant.microscope.engine.user_limits == {}

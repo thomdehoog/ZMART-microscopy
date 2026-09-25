@@ -86,7 +86,7 @@ holder, narrow the limits for the session:
 
 ```python
 engine = NisEngine()
-engine.set_limits(x=(-5000, 5000), z=(0, 3000))  # um; y keeps NIS's own limits
+engine.set_limits(x=(-5000, 5000), z=(None, 3000))  # um; None or a missing axis: NIS's own
 ```
 
 These come on top of the NIS limits: an axis can get narrower, never wider.
@@ -116,11 +116,12 @@ a planned acquisition (saved as OME-TIFF with the plan next to it).
 
 How it stays safe:
 
-- **Stage limits you can see and narrow.** Below the chat, the X, Y and Z
-  fields show the limits in force, as ranges in um. Type a smaller range (for
-  example `0 to 3000` for Z) and press *Apply limits*; *Use NIS limits* goes
-  back to NIS's own. A range wider than NIS allows is cut back to NIS's, and
-  the assistant is told the limits in force with every message.
+- **Stage limits you can see and narrow.** Below the chat, six fields (X-, X+,
+  Y-, Y+, Z-, Z+) show the limits in force in um. Type a tighter value (for
+  example 3000 in Z+) and press *Apply limits*; an empty field keeps NIS's own
+  limit on that side, and *Use NIS limits* goes back to NIS's limits
+  everywhere. A value beyond NIS's limit is cut back to NIS's, and the
+  assistant is told the limits in force with every message.
 - **Checks before acting.** Moves are checked against the stage limits, and
   settings against the NIS configuration lists. The image-based focus sweep is
   limited to 100 um and must stay inside the Z limits. A refused action comes

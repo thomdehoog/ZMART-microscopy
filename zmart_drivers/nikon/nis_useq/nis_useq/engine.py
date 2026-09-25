@@ -79,33 +79,38 @@ class NisEngine:
 
     def set_limits(
         self,
-        x: tuple[float, float] | None = None,
-        y: tuple[float, float] | None = None,
-        z: tuple[float, float] | None = None,
+        x: tuple[float | None, float | None] | None = None,
+        y: tuple[float | None, float | None] | None = None,
+        z: tuple[float | None, float | None] | None = None,
     ) -> None:
         """Narrow the stage limits for this session, each axis as (min, max) in um.
 
         These come on top of the limits set in NIS-Elements: an axis can only get
-        narrower, never wider. None leaves an axis at NIS's own limits.
+        narrower, never wider. None, for an axis or for one side of it, keeps
+        NIS's own limit there. Raises ValueError, changing nothing, when a
+        minimum is not below its maximum or a range lies outside NIS's limits.
         """
-        ranges = {"x": x, "y": y, "z": z}
-        for axis, bounds in ranges.items():
-            if bounds is not None and not float(bounds[0]) < float(bounds[1]):
-                raise ValueError(f"{axis}: the minimum must be below the maximum")
+        previous = self.user_limits
         self.user_limits = {
-            axis: (float(bounds[0]), float(bounds[1]))
-            for axis, bounds in ranges.items()
+            axis: (bounds[0], bounds[1])
+            for axis, bounds in {"x": x, "y": y, "z": z}.items()
             if bounds is not None
         }
+        for axis, limit in self.limits().items():
+            if not limit["min"] < limit["max"]:
+                self.user_limits = previous
+                raise ValueError(
+                    f"{axis}: the minimum must be below the maximum, inside NIS's own limits"
+                )
 
     def limits(self) -> dict[str, dict[str, float]]:
         """The stage limits in force (um): NIS's own, narrowed by set_limits."""
         limits = self.client.request("get_limits")
         for axis, (lo, hi) in self.user_limits.items():
-            limits[axis] = {
-                "min": max(lo, limits[axis]["min"]),
-                "max": min(hi, limits[axis]["max"]),
-            }
+            if lo is not None:
+                limits[axis]["min"] = max(float(lo), limits[axis]["min"])
+            if hi is not None:
+                limits[axis]["max"] = min(float(hi), limits[axis]["max"])
         return limits
 
     # -- sequence --------------------------------------------------------------

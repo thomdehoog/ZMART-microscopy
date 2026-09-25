@@ -325,10 +325,10 @@ def test_engine_can_be_driven_by_hand(engine):
 
 
 def test_operator_limits_narrow_but_never_widen_the_nis_limits(engine):
-    engine.set_limits(x=(-100, 100), z=(-50000, 50000))
+    engine.set_limits(x=(-100, 100), y=(None, 2000), z=(-50000, 50000))
     limits = engine.limits()
     assert limits["x"] == {"min": -100, "max": 100}
-    assert limits["y"] == {"min": -37500, "max": 37500}  # untouched: NIS's own
+    assert limits["y"] == {"min": -37500, "max": 2000}  # one side narrowed, the other NIS's
     assert limits["z"] == {"min": 0, "max": 10000}  # wider than NIS: NIS wins
     engine.set_limits()
     assert engine.limits()["x"] == {"min": -57000, "max": 57000}
@@ -343,6 +343,13 @@ def test_a_plan_outside_the_operator_limits_is_refused(engine, fake):
     assert moves(fake) == []
 
 
-def test_operator_limits_must_be_ranges(engine):
-    with pytest.raises(ValueError, match="x: the minimum must be below the maximum"):
-        engine.set_limits(x=(100, -100))
+@pytest.mark.parametrize(
+    "limits",
+    [{"x": (100, -100)}, {"z": (20000, None)}],  # reversed; entirely above NIS's Z range
+    ids=["reversed", "outside NIS"],
+)
+def test_limits_that_would_block_everything_are_refused(engine, limits):
+    engine.set_limits(x=(-10, 10))
+    with pytest.raises(ValueError, match="the minimum must be below the maximum"):
+        engine.set_limits(**limits)
+    assert engine.user_limits == {"x": (-10, 10)}  # the previous limits stay in force
