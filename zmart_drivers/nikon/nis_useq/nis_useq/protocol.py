@@ -1,9 +1,11 @@
 """Messages between the client and the bridge: one JSON object per line.
 
-Request:  {"id": 7, "op": "get_position", "args": {}}
+Request:  {"id": 7, "op": "get_position", "args": {}, "timeout": 30.0}
 Success:  {"id": 7, "ok": true, "result": {"x": 100.0, "y": -20.0, "z": 500.0}}
 Failure:  {"id": 7, "ok": false, "kind": "RuntimeError", "error": "StgMove: DR_NOTINITIALIZED (-7)"}
 
+``timeout`` is how long the client waits; the bridge drops a request that has
+not started by then, so a request the client gave up on never runs later.
 ``kind`` is ValueError for a bad request and RuntimeError when NIS refused or
 failed; the client raises the same type. Standard library only, because the
 bridge imports this file inside NIS-Elements.
@@ -14,8 +16,10 @@ from __future__ import annotations
 import json
 from typing import Any
 
-ENCODING = "utf-8"
-PROTOCOL_VERSION = 1
+PROTOCOL_VERSION = 2
+DEFAULT_HOST = "127.0.0.1"  # the bridge only ever listens on this computer
+DEFAULT_PORT = 54470
+DEFAULT_TIMEOUT_S = 30.0
 
 _ERRORS = {"ValueError": ValueError, "RuntimeError": RuntimeError}
 
@@ -24,11 +28,11 @@ class ProtocolError(ValueError):
     """A line that is not a well-formed request or reply."""
 
 
-def encode_request(request_id: int, op: str, args: dict[str, Any] | None = None) -> str:
-    return json.dumps({"id": request_id, "op": op, "args": args or {}}) + "\n"
+def encode_request(request_id: int, op: str, args: dict[str, Any], timeout: float) -> str:
+    return json.dumps({"id": request_id, "op": op, "args": args, "timeout": timeout}) + "\n"
 
 
-def decode_request(line: str) -> tuple[int | None, str, dict[str, Any]]:
+def decode_request(line: str) -> tuple[int | None, str, dict[str, Any], float]:
     try:
         msg = json.loads(line)
     except json.JSONDecodeError as exc:
@@ -39,7 +43,10 @@ def decode_request(line: str) -> tuple[int | None, str, dict[str, Any]]:
     if not isinstance(args, dict):
         raise ProtocolError("'args' must be a JSON object")
     request_id = msg.get("id")
-    return (request_id if isinstance(request_id, int) else None), msg["op"], args
+    timeout = msg.get("timeout")
+    if not isinstance(timeout, (int, float)) or timeout <= 0:
+        timeout = DEFAULT_TIMEOUT_S
+    return (request_id if isinstance(request_id, int) else None), msg["op"], args, float(timeout)
 
 
 def encode_reply(request_id: int | None, result: Any) -> str:

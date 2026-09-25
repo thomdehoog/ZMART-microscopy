@@ -6,10 +6,19 @@ import socket
 import threading
 from typing import Any
 
-from .protocol import ProtocolError, decode_reply, encode_request
+from .protocol import (
+    DEFAULT_HOST,
+    DEFAULT_PORT,
+    DEFAULT_TIMEOUT_S,
+    PROTOCOL_VERSION,
+    ProtocolError,
+    decode_reply,
+    encode_request,
+)
 
-DEFAULT_HOST = "127.0.0.1"
-DEFAULT_PORT = 54470
+# The client waits a little longer than the bridge, so that the bridge's own
+# explanation ("did not start within ...") arrives before the socket gives up.
+REPLY_MARGIN_S = 5.0
 
 
 class NisConnectionError(RuntimeError):
@@ -23,7 +32,9 @@ class NisClient:
     RuntimeError (NIS refused or failed).
     """
 
-    def __init__(self, host: str = DEFAULT_HOST, port: int = DEFAULT_PORT, timeout: float = 30.0):
+    def __init__(
+        self, host: str = DEFAULT_HOST, port: int = DEFAULT_PORT, timeout: float = DEFAULT_TIMEOUT_S
+    ):
         self.host, self.port, self.timeout = host, int(port), float(timeout)
         self._lock = threading.Lock()
         self._next_id = 0
@@ -36,18 +47,31 @@ class NisClient:
             ) from None
         self._reader = self._sock.makefile("r", encoding="utf-8", newline="\n")
         self.info = self.request("ping")
+        if self.info.get("protocol") != PROTOCOL_VERSION:
+            self.close()
+            raise NisConnectionError(
+                f"the bridge speaks protocol {self.info.get('protocol')}, this client "
+                f"{PROTOCOL_VERSION}. Restart start_bridge.mac so NIS loads the current bridge."
+            )
 
     def request(self, op: str, *, timeout: float | None = None, **args: Any) -> Any:
         """Send one operation and wait for its reply. ``timeout`` overrides the default."""
         if self._sock is None:
             raise NisConnectionError("the connection is closed")
+        timeout = timeout or self.timeout
         with self._lock:
             self._next_id += 1
             request_id = self._next_id
             try:
-                self._sock.settimeout(timeout or self.timeout)
-                self._sock.sendall(encode_request(request_id, op, args).encode("utf-8"))
+                self._sock.settimeout(timeout + REPLY_MARGIN_S)
+                self._sock.sendall(encode_request(request_id, op, args, timeout).encode("utf-8"))
                 line = self._reader.readline()
+            except TimeoutError:
+                self.close()
+                raise NisConnectionError(
+                    f"NIS-Elements did not answer {op!r} within {timeout:g} s. "
+                    "Is start_bridge.mac still running?"
+                ) from None
             except OSError as exc:
                 self.close()
                 raise NisConnectionError(f"connection lost during {op!r}: {exc}") from None

@@ -26,15 +26,22 @@ import os
 import queue
 import socketserver
 import sys
+import tempfile
 import threading
 import time
 from typing import Any
 
-from .protocol import PROTOCOL_VERSION, ProtocolError, decode_request, encode_error, encode_reply
+from .protocol import (
+    DEFAULT_HOST,
+    DEFAULT_PORT,
+    PROTOCOL_VERSION,
+    ProtocolError,
+    decode_request,
+    encode_error,
+    encode_reply,
+)
 
-BRIDGE_VERSION = "0.1.0"
-DEFAULT_HOST = "127.0.0.1"
-DEFAULT_PORT = 54470
+BRIDGE_VERSION = "0.2.0"
 
 log = logging.getLogger("nis_useq.bridge")
 
@@ -76,6 +83,13 @@ class NisError(RuntimeError):
 def _check(rc: int, what: str) -> None:
     if rc not in (1, 2):
         raise NisError(f"{what}: {DR_CODES.get(rc, 'unknown code')} ({rc})")
+
+
+def _check_count(value: int, what: str) -> int:
+    """Some NIS functions return a count on success and a negative DR code on failure."""
+    if value < 0:
+        _check(value, what)
+    return int(value)
 
 
 # ---------------------------------------------------------------------------
@@ -145,23 +159,31 @@ class NisApi:
     def select_optical_configuration(self, name: str) -> None:
         self._fn("SelectOptConf", [ct.c_wchar_p])(name)
 
-    def set_exposure_ms(self, exposure_ms: float) -> None:
-        # Not exported by the DLL; NIS registers it internally and ``nis.call_proc``
-        # reaches it by name. (Reading the exposure back that way opens a blocking
-        # dialog in NIS, so the bridge never reads it.)
+    def set_exposure_ms(self, exposure_ms: float) -> float:
+        """Set the camera exposure; return the value NIS applied (it may round it).
+
+        Not exported by the DLL; NIS registers it internally and ``nis.call_proc``
+        reaches it by name. It answers with a list: the return value, then each
+        argument as it is after the call. (Reading the exposure with
+        ``Camera_ExposureGet`` opens a blocking dialog in NIS, so it is never used.)
+        """
         import nis  # exists only inside NIS-Elements
 
-        nis.call_proc("Camera_ExposureSet", float(exposure_ms))
+        out = nis.call_proc("Camera_ExposureSet", float(exposure_ms))
+        out = list(out) if isinstance(out, (list, tuple)) else [out]
+        return float(out[1]) if len(out) > 1 else float(exposure_ms)
 
     # nosepiece
     def nosepiece_present(self) -> bool:
         return bool(self._fn("Stg_IsNosepiecePresent", [])())
 
     def nosepiece_count(self) -> int:
-        return int(self._fn("Stg_GetNosepiecePositions", [])())
+        count = self._fn("Stg_GetNosepiecePositions", [])()
+        return _check_count(count, "Stg_GetNosepiecePositions")
 
     def nosepiece_position(self) -> int:
-        return int(self._fn("Stg_GetNosepiecePosition", [])())
+        position = self._fn("Stg_GetNosepiecePosition", [])()
+        return _check_count(position, "Stg_GetNosepiecePosition")
 
     def objective_name(self, position: int) -> str:
         buf = ct.create_unicode_buffer(256)
@@ -193,12 +215,6 @@ class NisApi:
     # images
     def capture(self) -> None:
         self._fn("Capture", [])()
-
-    def image_info(self) -> dict[str, int]:
-        w, h, bits, planes = (ct.c_int32() for _ in range(4))
-        fn = self._fn("Get_ImageInfo", [ct.c_wchar_p] + [ct.POINTER(ct.c_int32)] * 4)
-        fn("", ct.byref(w), ct.byref(h), ct.byref(bits), ct.byref(planes))
-        return {"width": w.value, "height": h.value, "bits": bits.value, "planes": planes.value}
 
     def pixel_size_um(self) -> float:
         """Calibration of the current image in um/px; 0 when uncalibrated."""
@@ -250,7 +266,6 @@ class Operations:
             "bridge": BRIDGE_VERSION,
             "protocol": PROTOCOL_VERSION,
             "nis": self.api.version(),
-            "pid": os.getpid(),
         }
 
     def get_position(self, args: dict) -> dict:
@@ -291,8 +306,7 @@ class Operations:
         exposure_ms = _number(args, "exposure_ms")
         if exposure_ms <= 0:
             raise ValueError("'exposure_ms' must be positive")
-        self.api.set_exposure_ms(exposure_ms)
-        return {"exposure_ms": exposure_ms}
+        return {"exposure_ms": self.api.set_exposure_ms(exposure_ms)}
 
     def get_objectives(self, args: dict) -> dict:
         if not self.api.nosepiece_present():
@@ -352,20 +366,15 @@ class Operations:
         path = args.get("path")
         if not isinstance(path, str) or not path:
             raise ValueError("'path' must be a file path")
-        started = time.perf_counter()
         self.api.capture()
-        info = self.api.image_info()
-        pixel_size_um = self.api.pixel_size_um()  # read while the image is still open
-        self.api.save_tiff(path)
-        self.api.close_document()
+        try:
+            pixel_size_um = self.api.pixel_size_um()  # read while the image is still open
+            self.api.save_tiff(path)
+        finally:
+            self.api.close_document()  # never leave capture windows piling up in NIS
         if not os.path.exists(path):
             raise RuntimeError(f"ImageSaveAs returned but no file appeared at {path}")
-        return {
-            **info,
-            "pixel_size_um": pixel_size_um if pixel_size_um > 0 else None,
-            "path": path,
-            "duration_s": round(time.perf_counter() - started, 3),
-        }
+        return {"path": path, "pixel_size_um": pixel_size_um if pixel_size_um > 0 else None}
 
     def shutdown(self, args: dict) -> dict:
         self._request_stop()
@@ -398,6 +407,8 @@ OPS = (
 class _Job:
     def __init__(self, op: str, args: dict) -> None:
         self.op, self.args = op, args
+        self.lock = threading.Lock()  # decides between "started" and "cancelled"
+        self.started = self.cancelled = False
         self.done = threading.Event()
         self.result: Any = None
         self.error: BaseException | None = None
@@ -406,7 +417,6 @@ class _Job:
 class BridgeServer(socketserver.ThreadingTCPServer):
     allow_reuse_address = False  # never let a second bridge share the port on Windows
     daemon_threads = True
-    job_timeout_s = 300.0  # how long a request waits for the main thread
 
     def __init__(self, address: tuple[str, int], api: Any) -> None:
         super().__init__(address, _Handler)
@@ -431,6 +441,10 @@ class BridgeServer(socketserver.ThreadingTCPServer):
                 )
             except queue.Empty:
                 return ran
+            with job.lock:
+                if job.cancelled:  # the client stopped waiting; never run it late
+                    continue
+                job.started = True
             try:
                 job.result = getattr(self.ops, job.op)(job.args)
             except BaseException as exc:  # noqa: BLE001 - every failure becomes a reply
@@ -443,16 +457,20 @@ class BridgeServer(socketserver.ThreadingTCPServer):
         """Queue one request, wait for the main thread to run it, return the reply line."""
         request_id = None
         try:
-            request_id, op, args = decode_request(line)
+            request_id, op, args, timeout = decode_request(line)
             if op not in OPS:
                 raise ValueError(f"unknown op {op!r}; known: {', '.join(OPS)}")
             job = _Job(op, args)
             self.jobs.put(job)
-            if not job.done.wait(self.job_timeout_s):
-                raise RuntimeError(
-                    f"{op!r} did not run within {self.job_timeout_s:.0f} s: "
-                    "is start_bridge.mac still running in NIS-Elements?"
-                )
+            if not job.done.wait(timeout):
+                with job.lock:
+                    job.cancelled = not job.started
+                if job.cancelled:
+                    raise RuntimeError(
+                        f"{op!r} did not start within {timeout:g} s: "
+                        "is start_bridge.mac still running in NIS-Elements?"
+                    )
+                raise RuntimeError(f"{op!r} is still running in NIS after {timeout:g} s")
             if job.error is not None:
                 raise job.error
             return encode_reply(request_id, job.result)
@@ -475,7 +493,10 @@ class _Handler(socketserver.StreamRequestHandler):
 def serve(api: Any, host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> BridgeServer:
     """Listen in a background thread. The caller must call ``server.pump()`` regularly."""
     server = BridgeServer((host, port), api)
-    threading.Thread(target=server.serve_forever, name="nis-useq-bridge", daemon=True).start()
+    thread = threading.Thread(
+        target=server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True
+    )
+    thread.start()
     return server
 
 
@@ -497,7 +518,7 @@ def start(port: int = DEFAULT_PORT) -> str:
         stop()  # left over from an earlier macro run: free its port
     if os.path.exists(STOP_FILE):
         os.remove(STOP_FILE)
-    log_path = os.path.join(os.environ.get("TEMP", "."), "nis-useq-bridge.log")
+    log_path = os.path.join(tempfile.gettempdir(), "nis-useq-bridge.log")
     handler = logging.FileHandler(log_path, encoding="utf-8")
     handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
     log.handlers[:] = [handler]
@@ -531,4 +552,7 @@ def stop() -> str:
     server.shutdown()
     server.server_close()
     log.info("bridge stopped")
+    for handler in log.handlers[:]:
+        log.removeHandler(handler)
+        handler.close()
     return "bridge stopped"

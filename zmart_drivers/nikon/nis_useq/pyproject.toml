@@ -7,7 +7,7 @@ name = "nis-useq"
 version = "0.1.0"
 description = "Run useq-schema acquisitions on a Nikon microscope through NIS-Elements"
 readme = "README.md"
-license = { text = "MIT" }
+license = { file = "LICENSE" }
 authors = [{ name = "Thom de Hoog", email = "thom.dehoog@zmb.uzh.ch" }]
 requires-python = ">=3.10"
 dependencies = ["numpy", "tifffile", "useq-schema>=0.9.2"]

@@ -11,7 +11,7 @@ import pytest
 import tifffile
 import useq
 import useq.v2 as v2
-from nis_useq.client import NisClient, NisConnectionError
+from nis_useq.client import NisConnectionError
 from nis_useq.engine import NisEngine
 
 pytestmark = pytest.mark.hardware
@@ -31,12 +31,13 @@ def engine():
     engine.close()
 
 
-def test_read_the_microscope():
-    with NisClient() as client:
-        print(client.info)
-        print(client.request("get_position"), client.request("get_limits"))
-        print(client.request("get_optical_configurations"), client.request("get_objectives"))
-        print(client.request("get_pfs"))
+def test_read_the_microscope(engine):
+    client = engine.client
+    print(client.info)
+    assert set(client.request("get_position")) == {"x", "y", "z"}
+    assert set(client.request("get_limits")) == {"x", "y", "z"}
+    assert client.request("get_optical_configurations"), "NIS lists no optical configurations"
+    print(client.request("get_objectives"), client.request("get_pfs"))
 
 
 def test_v2_sequence_with_the_pymmcore_plus_runner(engine, tmp_path):
