@@ -43,7 +43,7 @@ from nis_bridge.client import NisClient, NisConnectionError
 from nis_bridge.protocol import DEFAULT_HOST, DEFAULT_PORT, DEFAULT_TIMEOUT_S
 from useq import AcquireImage, CustomAction, HardwareAutofocus, MDAEvent
 
-log = logging.getLogger("nis_useq")
+log = logging.getLogger("nis_engine")
 
 SNAP_TIMEOUT_S = 120.0
 FOCUS_TIMEOUT_S = 300.0
@@ -127,7 +127,7 @@ class NisEngine:
         Takes one image. Raises ValueError when NIS has no pixel calibration for
         the objective in use, since the field size is then unknown.
         """
-        with tempfile.TemporaryDirectory(prefix="nis_useq_fov_") as folder:
+        with tempfile.TemporaryDirectory(prefix="nis_engine_fov_") as folder:
             path = Path(folder) / "fov.tif"
             reply = self.client.request("snap", path=str(path), timeout=SNAP_TIMEOUT_S)
             height, width = tifffile.imread(path).shape[:2]
@@ -163,7 +163,7 @@ class NisEngine:
         self._exposure_requested: float | None = None
         self._exposure_ms: float | None = None  # as NIS applied it; NIS cannot report it
         self._z_offset: dict[int | None, float] = {}  # focus found per position index
-        self._workdir = self._workdir or Path(tempfile.mkdtemp(prefix="nis_useq_"))
+        self._workdir = self._workdir or Path(tempfile.mkdtemp(prefix="nis_engine_"))
         self._frames = 0
         self._t0 = time.perf_counter()
 

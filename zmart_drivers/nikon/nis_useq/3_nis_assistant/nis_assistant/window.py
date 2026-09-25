@@ -24,7 +24,7 @@ from pathlib import Path
 import numpy as np
 from nis_bridge.client import NisConnectionError
 from nis_bridge.protocol import DEFAULT_HOST, DEFAULT_PORT
-from nis_useq.engine import NisEngine
+from nis_engine import NisEngine
 from pydantic_ai.exceptions import UnexpectedModelBehavior
 from PySide6.QtCore import QObject, Qt, Signal
 from PySide6.QtGui import QCloseEvent, QPixmap

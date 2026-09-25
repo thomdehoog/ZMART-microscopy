@@ -9,11 +9,11 @@ need:
 | Part | Package | What it does | Builds on |
 |---|---|---|---|
 | [1_nis_bridge](1_nis_bridge/README.md) | `nis-bridge` | Controls NIS-Elements from your own Python: a small server inside NIS and a client. No useq. | NIS-Elements |
-| [2_nis_useq](2_nis_useq/README.md) | `nis-useq` | `NisEngine`, a useq engine for the pymmcore-plus runner: runs classic and v2 useq sequences. | part 1 |
+| [2_nis_engine](2_nis_engine/README.md) | `nis-engine` | `NisEngine`, a useq engine for the pymmcore-plus runner: runs classic and v2 useq sequences. | part 1 |
 | [3_nis_assistant](3_nis_assistant/README.md) | `nis-assistant` | A chat window whose assistant drives the microscope through useq and explains it. | parts 1 and 2 |
 
 ```
-nis-assistant ──> nis-useq (NisEngine) ──> nis-bridge (client ── bridge in NIS) ──> microscope
+nis-assistant ──> nis-engine (NisEngine) ──> nis-bridge (client ── bridge in NIS) ──> microscope
 ```
 
 None of the three shares code with ZMART. Positions are NIS stage coordinates
@@ -25,7 +25,7 @@ On the microscope computer, install the parts you need, in order:
 
 ```
 pip install -e "./1_nis_bridge[test]"
-pip install -e "./2_nis_useq[test]"
+pip install -e "./2_nis_engine[test]"
 pip install -e "./3_nis_assistant[test]"
 ```
 
@@ -43,7 +43,7 @@ keep the objective clear of the sample for the first run.
 
 ```
 pytest -m hardware -s 1_nis_bridge      # 1. read, move a little, configuration and exposure, snap
-pytest -m hardware -s 2_nis_useq        # 2. camera field, limit check, useq v2 and classic, tiles, channel options, a sequence file
+pytest -m hardware -s 2_nis_engine        # 2. camera field, limit check, useq v2 and classic, tiles, channel options, a sequence file
 pytest -m hardware -s 3_nis_assistant   # 3. the assistant's tools, with a scripted model (no API calls)
 ```
 
@@ -75,7 +75,7 @@ me if the bridge does not answer). Work in three steps and stop at the first
 failure, showing me the output and what you think went wrong; do not change
 code without asking.
 1. Run `pytest -m hardware -s 1_nis_bridge`.
-2. Run `pytest -m hardware -s 2_nis_useq`, then open the OME-TIFFs it saved
+2. Run `pytest -m hardware -s 2_nis_engine`, then open the OME-TIFFs it saved
    in the pytest temp folder and tell me their shapes.
 3. Run `pytest -m hardware -s 3_nis_assistant`. Then start the window with
    `nis-assistant --output D:\runs` and tell me, one at a time, the prompts
