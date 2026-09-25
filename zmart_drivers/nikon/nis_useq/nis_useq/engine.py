@@ -70,9 +70,43 @@ class NisEngine:
     ):
         self.client = NisClient(host, port, timeout)
         self._workdir: Path | None = None  # temporary TIFFs of the current run
+        self.user_limits: dict[str, tuple[float, float]] = {}  # see set_limits
 
     def close(self) -> None:
         self.client.close()
+
+    # -- stage limits ----------------------------------------------------------
+
+    def set_limits(
+        self,
+        x: tuple[float, float] | None = None,
+        y: tuple[float, float] | None = None,
+        z: tuple[float, float] | None = None,
+    ) -> None:
+        """Narrow the stage limits for this session, each axis as (min, max) in um.
+
+        These come on top of the limits set in NIS-Elements: an axis can only get
+        narrower, never wider. None leaves an axis at NIS's own limits.
+        """
+        ranges = {"x": x, "y": y, "z": z}
+        for axis, bounds in ranges.items():
+            if bounds is not None and not float(bounds[0]) < float(bounds[1]):
+                raise ValueError(f"{axis}: the minimum must be below the maximum")
+        self.user_limits = {
+            axis: (float(bounds[0]), float(bounds[1]))
+            for axis, bounds in ranges.items()
+            if bounds is not None
+        }
+
+    def limits(self) -> dict[str, dict[str, float]]:
+        """The stage limits in force (um): NIS's own, narrowed by set_limits."""
+        limits = self.client.request("get_limits")
+        for axis, (lo, hi) in self.user_limits.items():
+            limits[axis] = {
+                "min": max(lo, limits[axis]["min"]),
+                "max": min(hi, limits[axis]["max"]),
+            }
+        return limits
 
     # -- sequence --------------------------------------------------------------
 
@@ -140,7 +174,7 @@ class NisEngine:
 
     def _read_microscope(self) -> None:
         """What every check needs: stage limits, configurations, objectives, PFS."""
-        self._limits = self.client.request("get_limits")
+        self._limits = self.limits()
         self._configurations = self.client.request("get_optical_configurations")
         self._objectives = [int(p) for p in self.client.request("get_objectives")["objectives"]]
         self._has_pfs = self.client.request("get_pfs")["present"]

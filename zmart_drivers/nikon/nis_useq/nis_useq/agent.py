@@ -180,7 +180,7 @@ class Microscope:
         current = objectives["current"]
         return {
             "position_um": self.client.request("get_position"),
-            "stage_limits_um": self.client.request("get_limits"),
+            "stage_limits_um": self.engine.limits(),
             "objective": {"slot": current, "name": objectives["objectives"].get(str(current))},
             "pfs": self.client.request("get_pfs")["meaning"],
         }
@@ -250,7 +250,7 @@ def get_status(ctx: RunContext[Microscope]) -> dict[str, Any]:
     client = ctx.deps.client
     return {
         "position_um": client.request("get_position"),
-        "stage_limits_um": client.request("get_limits"),
+        "stage_limits_um": ctx.deps.engine.limits(),
         "objectives": client.request("get_objectives"),
         "optical_configurations": client.request("get_optical_configurations"),
         "pfs": client.request("get_pfs"),
@@ -276,7 +276,7 @@ def move_stage(
     target = {axis: v for axis, v in (("x", x), ("y", y), ("z", z)) if v is not None}
     if not target:
         return "Nothing to do: give at least one of x, y, z."
-    limits = client.request("get_limits")
+    limits = ctx.deps.engine.limits()
     for axis, value in target.items():
         lo, hi = limits[axis]["min"], limits[axis]["max"]
         if not lo <= value <= hi:
@@ -385,7 +385,7 @@ def focus(
     else:
         if not 0 < range_um <= CONFIRM_Z_UM:
             return _refuse(ctx, f"the focus sweep range must be between 0 and {CONFIRM_Z_UM:g} um")
-        limits = client.request("get_limits")["z"]
+        limits = ctx.deps.engine.limits()["z"]
         low, high = before - range_um / 2, before + range_um / 2
         if low < limits["min"] or high > limits["max"]:
             return _refuse(

@@ -319,3 +319,30 @@ def test_engine_can_be_driven_by_hand(engine):
         engine.teardown_event(event)
     engine.teardown_sequence(sequence)
     assert len(images) == 1 and images[0].dtype == "uint16"
+
+
+# -- limits set by the operator ------------------------------------------------------
+
+
+def test_operator_limits_narrow_but_never_widen_the_nis_limits(engine):
+    engine.set_limits(x=(-100, 100), z=(-50000, 50000))
+    limits = engine.limits()
+    assert limits["x"] == {"min": -100, "max": 100}
+    assert limits["y"] == {"min": -37500, "max": 37500}  # untouched: NIS's own
+    assert limits["z"] == {"min": 0, "max": 10000}  # wider than NIS: NIS wins
+    engine.set_limits()
+    assert engine.limits()["x"] == {"min": -57000, "max": 57000}
+
+
+def test_a_plan_outside_the_operator_limits_is_refused(engine, fake):
+    engine.set_limits(z=(400, 600))
+    with pytest.raises(
+        ValueError, match=r"z = 700.0 um is outside the stage limits \[400.0, 600.0\]"
+    ):
+        run(engine, useq.MDASequence(stage_positions=[(0, 0, 500), (0, 0, 700)]))
+    assert moves(fake) == []
+
+
+def test_operator_limits_must_be_ranges(engine):
+    with pytest.raises(ValueError, match="x: the minimum must be below the maximum"):
+        engine.set_limits(x=(100, -100))

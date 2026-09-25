@@ -81,6 +81,16 @@ whole if something is wrong:
 - tiling grids, which need `fov_width` and `fov_height` in um (otherwise useq
   places the tiles 1 um apart). The error message states the camera field.
 
+To stay inside a smaller area than NIS allows, for example for one sample
+holder, narrow the limits for the session:
+
+```python
+engine = NisEngine()
+engine.set_limits(x=(-5000, 5000), z=(0, 3000))  # um; y keeps NIS's own limits
+```
+
+These come on top of the NIS limits: an axis can get narrower, never wider.
+
 One check can only happen during the run: after a focus action, later Z moves
 at that position include the focus correction, and a corrected move that would
 leave the stage limits stops the run at that point.
@@ -106,6 +116,11 @@ a planned acquisition (saved as OME-TIFF with the plan next to it).
 
 How it stays safe:
 
+- **Stage limits you can see and narrow.** Below the chat, the X, Y and Z
+  fields show the limits in force, as ranges in um. Type a smaller range (for
+  example `0 to 3000` for Z) and press *Apply limits*; *Use NIS limits* goes
+  back to NIS's own. A range wider than NIS allows is cut back to NIS's, and
+  the assistant is told the limits in force with every message.
 - **Checks before acting.** Moves are checked against the stage limits, and
   settings against the NIS configuration lists. The image-based focus sweep is
   limited to 100 um and must stay inside the Z limits. A refused action comes
