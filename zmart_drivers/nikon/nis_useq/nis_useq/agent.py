@@ -1041,7 +1041,7 @@ class Assistant:
                 raise
         self.last_turn = result.new_messages()
         self.history = compact(result.all_messages())
-        return result.output
+        return without_state_block(result.output)
 
     def clear(self) -> None:
         """Forget the conversation; the next message starts a new one."""
@@ -1049,6 +1049,22 @@ class Assistant:
         self.microscope.plans.clear()
         self.microscope.planned_in.clear()
         self.microscope.go_ahead_asked.clear()
+
+
+STATE_BLOCK = re.compile(
+    r"\s*<microscope_state(_then)?>.*?(</microscope_state(_then)?>|\Z)", re.DOTALL
+)
+
+
+def without_state_block(reply: str) -> str:
+    """The reply without a copy of the <microscope_state> block.
+
+    Some models paste the state reading they were sent back into their answer,
+    although told not to. The operator should not see it, so it is taken out
+    here. The model's own copy in the history stays as it was, since editing
+    an earlier answer would spoil Claude's check on its earlier reasoning.
+    """
+    return STATE_BLOCK.sub("", reply).strip() or "(The assistant gave no answer in words.)"
 
 
 def compact(messages: list[ModelMessage]) -> list[ModelMessage]:
