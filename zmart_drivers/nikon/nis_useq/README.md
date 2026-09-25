@@ -29,7 +29,8 @@ own Python environment on the same computer.
 In the Python environment you acquire from, on the microscope computer:
 
 ```
-pip install -e ".[pymmcore]"
+pip install -e ".[pymmcore]"     # the engine
+pip install -e ".[assistant]"    # the engine and the chat assistant
 ```
 
 ## Start the bridge in NIS-Elements
@@ -84,6 +85,48 @@ One check can only happen during the run: after a focus action, later Z moves
 at that position include the focus correction, and a corrected move that would
 leave the stage limits stops the run at that point.
 
+## The assistant
+
+A chat window where you ask for things in your own words, and Claude (model
+`claude-opus-5-5`, through Pydantic AI) does them with the microscope and
+explains what it did.
+
+```
+set ANTHROPIC_API_KEY=...          (PowerShell: $env:ANTHROPIC_API_KEY="...")
+nis-useq-assistant --output D:\runs
+```
+
+Things to try: *Where is the stage?* · *What do you see?* · *Is it in focus?* ·
+*Switch to FITC at 50 ms* · *Take a Z-stack of 10 um in 1 um steps in DAPI and FITC here*.
+
+What it can do, as tools: read the microscope, move the stage, change the
+optical configuration, exposure, objective and PFS, focus (PFS or the NIS
+image sweep), look at an image and describe it, plan an acquisition, and run
+a planned acquisition (saved as OME-TIFF with the plan next to it).
+
+How it stays safe:
+
+- **The same checks as a script.** Every tool goes through the stage limits and
+  the NIS configuration lists. A refused action comes back to the assistant as a
+  plain explanation.
+- **A red banner for refusals.** A limit breach or other refusal is also shown
+  in the window directly, whatever the assistant says.
+- **You confirm the big steps.** Moves of more than 1 mm in XY or 100 um in Z,
+  objective changes, and every acquisition run wait for Confirm. This rule is in
+  the code, not in the model's instructions, so the model cannot talk its way
+  past it.
+- **Plans are checked before they run.** An acquisition is planned first, and
+  the plan is checked against the microscope (limits, channels, grids) without
+  moving or imaging.
+- **Looking stays out of the chat.** The image goes to Claude in a separate
+  request with a few measured numbers (brightness, saturation, sharpness), so
+  the conversation stays small.
+- **Stopping.** *Stop acquisition* ends a running acquisition at the next image.
+
+The assistant runs its plans as classic `useq.MDASequence` objects: the
+pymmcore-plus file writers (0.18) keep the channel and Z axes of a classic
+sequence, but save a v2 sequence as one flat stack of images.
+
 ## What each useq field does
 
 | Field | On the Nikon |
@@ -127,18 +170,21 @@ Not supported, and refused: camera ROI, SLM images, other custom actions.
 | File | What it is |
 |---|---|
 | `nis_useq/engine.py` | `NisEngine`: turns useq events into bridge requests. |
+| `nis_useq/agent.py` | The assistant: its tools, the plan format, and the confirmation rules. |
+| `nis_useq/window.py` | The chat window (`nis-useq-assistant`). |
 | `nis_useq/client.py` | `NisClient`: the socket connection to the bridge. |
 | `nis_useq/bridge.py` | The server inside NIS-Elements (standard library only). |
 | `nis_useq/install_macros.py` | Writes `start_bridge.mac`. |
 | `nis_useq/protocol.py` | The message format both sides share. |
-| `tests/` | Offline tests over a fake NIS (`fake_nis.py`), and `test_simulator.py` for a live NIS. |
+| `tests/` | Offline tests over a fake NIS (`fake_nis.py`); the assistant is tested with a scripted model in place of Claude. `test_simulator.py` needs a live NIS; `test_agent_live.py` needs Claude. |
 
 ## Tests
 
 ```
 pip install -e ".[test]"
-pytest               # offline, about 5 s, no NIS needed
+pytest               # offline, about 8 s: no NIS and no API key needed
 pytest -m hardware   # against NIS-Elements with the bridge running
+pytest -m live       # the assistant with the real Claude model (needs ANTHROPIC_API_KEY)
 ```
 
 ## Where the NIS function names come from

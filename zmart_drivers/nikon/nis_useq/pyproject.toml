@@ -14,14 +14,20 @@ dependencies = ["numpy", "tifffile", "useq-schema>=0.9.2"]
 
 [project.optional-dependencies]
 pymmcore = ["pymmcore-plus>=0.18"]
-test = ["pytest", "pymmcore-plus>=0.18"]
+assistant = ["pymmcore-plus>=0.18", "pydantic-ai-slim[anthropic]>=2.50", "PySide6>=6.7", "pillow"]
+test = ["nis-useq[assistant]", "pytest", "pytest-qt"]
+
+[project.scripts]
+nis-useq-assistant = "nis_useq.window:main"
 
 [tool.setuptools]
 packages = ["nis_useq"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-ra --strict-markers -m 'not hardware'"
+addopts = "-ra --strict-markers -m 'not hardware and not live'"
 markers = [
     "hardware: needs NIS-Elements (the simulator is fine) with start_bridge.mac running",
+    "live: calls the real Claude model; needs ANTHROPIC_API_KEY and costs API credits",
 ]
+qt_api = "pyside6"
