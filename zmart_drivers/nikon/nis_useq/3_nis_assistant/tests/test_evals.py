@@ -6,9 +6,10 @@ import pytest
 
 pytest.importorskip("pydantic_ai")
 
-import evals  # noqa: E402
-from nis_assistant.agent import image_statistics  # noqa: E402
-from test_agent import Script  # noqa: E402
+import evals
+from test_agent import Script
+
+from nis_assistant.agent import image_statistics
 
 
 def case(case_id, path=evals.CASES):

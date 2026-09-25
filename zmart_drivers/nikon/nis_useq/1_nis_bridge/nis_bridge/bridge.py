@@ -88,7 +88,7 @@ def _check(rc: int, what: str) -> None:
 def _check_negative(value: int, what: str) -> int:
     """Raise for a negative DR code, which every NIS function uses for failure.
 
-    For functions whose success value is a count, or is not documented.
+    This is for functions whose success value is a count, or is not documented.
     """
     if value < 0:
         _check(value, what)
@@ -454,7 +454,7 @@ class BridgeServer(socketserver.ThreadingTCPServer):
                 job.started = True
             try:
                 job.result = getattr(self.ops, job.op)(job.args)
-            except BaseException as exc:  # noqa: BLE001 - every failure becomes a reply
+            except BaseException as exc:
                 log.exception("op %s failed", job.op)
                 job.error = exc
             job.done.set()
@@ -483,7 +483,7 @@ class BridgeServer(socketserver.ThreadingTCPServer):
             return encode_reply(request_id, job.result)
         except ProtocolError as exc:
             return encode_error(request_id, ValueError(str(exc)))
-        except BaseException as exc:  # noqa: BLE001
+        except BaseException as exc:
             return encode_error(request_id, exc)
 
 

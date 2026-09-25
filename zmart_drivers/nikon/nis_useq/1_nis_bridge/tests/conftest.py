@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+
 from nis_bridge.client import NisClient
 from nis_bridge.fake import FakeNisApi, running_bridge
 

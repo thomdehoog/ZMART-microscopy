@@ -84,8 +84,11 @@ class NisEngine:
         self.client.close()
 
     def reconnect(self) -> None:
-        """Open a new connection to the bridge, for example after a timeout closed the
-        old one, or after start_bridge.mac was restarted. The session limits stay."""
+        """Open a new connection to the bridge; the session limits stay.
+
+        Use it after a timeout closed the old connection, or after
+        start_bridge.mac was restarted.
+        """
         old = self.client
         old.close()
         self.client = NisClient(old.host, old.port, old.timeout)
@@ -238,7 +241,7 @@ class NisEngine:
         try:
             if self._has_pfs and self.client.request("get_pfs")["on"] != self._pfs_at_start:
                 self.client.request("set_pfs", on=self._pfs_at_start)
-        except Exception as exc:  # noqa: BLE001 - reported, and the run still finishes
+        except Exception as exc:
             log.warning("could not put the PFS back after the run: %s", exc)
 
     # -- events ----------------------------------------------------------------

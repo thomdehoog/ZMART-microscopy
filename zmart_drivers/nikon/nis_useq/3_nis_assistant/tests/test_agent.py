@@ -16,7 +16,19 @@ import useq
 pytest.importorskip("pydantic_ai")
 pytest.importorskip("pymmcore_plus")
 
-from nis_assistant.agent import (  # noqa: E402
+from nis_bridge.client import NisConnectionError
+from nis_engine import NisEngine
+from pydantic_ai.messages import (
+    ModelResponse,
+    TextPart,
+    ThinkingPart,
+    ToolCallPart,
+    ToolReturnPart,
+    UserPromptPart,
+)
+from pydantic_ai.models.function import FunctionModel
+
+from nis_assistant.agent import (
     GO_AHEAD_ADVICE,
     HISTORY_KEEP_TURNS,
     LIMIT_ADVICE,
@@ -27,17 +39,6 @@ from nis_assistant.agent import (  # noqa: E402
     as_png,
     image_statistics,
 )
-from nis_bridge.client import NisConnectionError  # noqa: E402
-from nis_engine import NisEngine  # noqa: E402
-from pydantic_ai.messages import (  # noqa: E402
-    ModelResponse,
-    TextPart,
-    ThinkingPart,
-    ToolCallPart,
-    ToolReturnPart,
-    UserPromptPart,
-)
-from pydantic_ai.models.function import FunctionModel  # noqa: E402
 
 
 class Script:
@@ -213,7 +214,7 @@ def test_settings_change_without_asking(microscope, fake):
 
 
 @pytest.mark.parametrize(
-    "call, message, options",
+    ("call", "message", "options"),
     [
         (
             {"optical_configuration": "GFP"},
@@ -296,7 +297,7 @@ def test_pfs_focus_leaves_the_pfs_as_it_was(microscope, fake):
 
 
 @pytest.mark.parametrize(
-    "z, range_um, code, message",
+    ("z", "range_um", "code", "message"),
     [
         (500, 500, "invalid", "between 0 and 100 um"),
         (9980, 100, "limit", "a 100 um sweep around z = 9980 um would leave the Z limits"),

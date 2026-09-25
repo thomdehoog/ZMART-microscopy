@@ -11,10 +11,11 @@ stage is, and the stage is moved back afterwards.
 
 import pytest
 import tifffile
-from nis_assistant.agent import Assistant, Microscope
 from nis_bridge.client import NisConnectionError
 from nis_engine import NisEngine
 from test_agent import Script, tool_results
+
+from nis_assistant.agent import Assistant, Microscope
 
 pytestmark = pytest.mark.hardware
 

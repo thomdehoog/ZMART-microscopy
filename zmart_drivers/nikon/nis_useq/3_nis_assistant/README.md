@@ -119,7 +119,7 @@ writers (0.18) keep the channel and Z axes only for that form.
 To keep long conversations quick, the assistant forgets older messages: after
 15 of your messages it keeps the newest 10.
 
-Changing the objective does not ask first, so make sure the objectives can
+Changing the objective does not ask first, so check that the objectives can
 turn freely. If the connection to NIS was lost (for example because the macro
 was stopped), restart `start_bridge.mac`; the window reconnects with your next
 message.
@@ -133,6 +133,7 @@ pausing a run.
 pip install -e ".[test]"
 pytest                    # offline, about 10 s: a scripted model over a fake NIS
 pytest -m hardware -s     # on NIS-Elements with the bridge running (step 3 in the overview)
+ruff check . && ruff format --check .   # lint and formatting, rules in pyproject.toml
 ```
 
 ## For maintainers: the evaluation

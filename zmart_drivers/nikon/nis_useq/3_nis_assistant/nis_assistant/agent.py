@@ -9,15 +9,10 @@ do next, and a refusal is also shown in the window directly as a warning,
 whatever the model says about it.
 
 The operator stays in charge of the big steps: starting an acquisition and
-moving the stage far. Neither happens in the turn the model first asks for it.
-The tool answers that the operator's go-ahead is needed, the assistant asks in
-the chat, and the step goes ahead only in a later turn, after the operator
-has read the question and replied. That rule is in this code, not in the
-model's instructions. Moves are measured from where the stage was when the
-operator last wrote, so many small steps add up to a long move that also asks.
-Everything else (small moves, settings, focus, looking, planning) runs at once.
-Cancel stops the assistant: every further tool call in that turn does nothing.
-Stop microscope also ends a running acquisition.
+moving the stage far. The tool answers that a go-ahead is needed, the
+assistant asks in the chat, and the step runs only in the next turn, after
+the operator has replied (see ``needs_go_ahead``). That rule is in this code,
+not in the model's instructions. Everything else runs at once.
 
     microscope = Microscope(NisEngine(), output_dir=Path("runs"))
     assistant = Assistant(microscope)
@@ -353,12 +348,13 @@ class Microscope:
     on_tool: Callable[[str, dict], None] = lambda name, args: None  # each tool call, as it starts
     vision_model: Any = MODEL  # a model name, or a test model
     plans: dict[str, useq.MDASequence] = field(default_factory=dict)  # plan id -> sequence
-    planned_in: dict[str, int] = field(default_factory=dict)  # plan id -> turn it was made
+    planned_in: dict[str, int] = field(default_factory=dict)  # plan id -> turn it was last shown
     runner: MDARunner | None = None  # set while an acquisition runs, so it can be stopped
     # Set by Cancel: every further tool call in this turn does nothing.
     cancel: threading.Event = field(default_factory=threading.Event)
-    # Where the stage was when the operator last wrote; moves are measured from
-    # here, so small steps cannot add up to a long move unasked.
+    # Where the stage was when the operator last wrote, or where they last agreed
+    # to go. Moves are measured from here, so small steps cannot add up to a long
+    # move unasked.
     anchor: dict[str, float] | None = None
     turn: int = 0  # the operator's messages so far
     # Long moves the assistant asked the operator about, and in which turn.
@@ -369,7 +365,7 @@ class Microscope:
         return self.engine.client
 
     def state(self) -> dict[str, Any]:
-        """A compact picture of the microscope, sent with every user message."""
+        """A compact picture of the microscope, sent with every message from the operator."""
         objectives = self.client.request("get_objectives")
         current = objectives["current"]
         return {
@@ -421,11 +417,11 @@ def needs_go_ahead(ctx: RunContext[Microscope], key: str, summary: str) -> dict 
 def guarded_tool(fn: Callable) -> Callable:
     """The checks every tool shares, around the tool itself.
 
-    Before: after Cancel, nothing runs. The window hears of each call as it
-    starts. After: any error (a refusal from NIS, a full disk) becomes a failure
-    the assistant can explain, instead of ending the turn with a crash. Pydantic
-    AI's ModelRetry, which hands a malformed call back to the model, passes
-    through unchanged.
+    Before the tool runs: nothing runs after Cancel, and the window hears of
+    each call as it starts. Afterwards: any error (a refusal from NIS, a full
+    disk) becomes a failure the assistant can explain, instead of ending the
+    turn with a crash. Pydantic AI's ModelRetry, which hands a malformed call
+    back to the model, passes through unchanged.
     """
 
     def before(ctx: RunContext[Microscope], kwargs: dict) -> dict | None:
@@ -458,7 +454,7 @@ def guarded_tool(fn: Callable) -> Callable:
                 return await fn(ctx, *args, **kwargs)
             except ModelRetry:
                 raise
-            except Exception as exc:  # noqa: BLE001 - reported to the model, not swallowed
+            except Exception as exc:
                 return failed(exc)
 
         return async_wrapper
@@ -471,7 +467,7 @@ def guarded_tool(fn: Callable) -> Callable:
             return fn(ctx, *args, **kwargs)
         except ModelRetry:
             raise
-        except Exception as exc:  # noqa: BLE001 - reported to the model, not swallowed
+        except Exception as exc:
             return failed(exc)
 
     return wrapper
@@ -834,7 +830,7 @@ def run_acquisition(ctx: RunContext[Microscope], plan_id: str) -> dict[str, Any]
     started, error = time.perf_counter(), None
     try:
         runner.run(sequence, output=[frames, output])
-    except Exception as exc:  # noqa: BLE001 - reported below, with what was saved
+    except Exception as exc:
         error = f"{type(exc).__name__}: {exc}"
     finally:
         ctx.deps.runner = None
