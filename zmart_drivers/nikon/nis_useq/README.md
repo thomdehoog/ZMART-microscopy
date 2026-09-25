@@ -124,26 +124,47 @@ How it stays safe:
   assistant is told the limits in force with every message.
 - **Checks before acting.** Moves are checked against the stage limits, and
   settings against the NIS configuration lists. The image-based focus sweep is
-  limited to 100 um and must stay inside the Z limits. A refused action comes
-  back to the assistant as a plain explanation.
-- **A red banner for refusals.** A limit breach or other refusal is also shown
-  in the window directly, whatever the assistant says.
-- **You confirm the big steps.** Objective changes, every acquisition run, and
-  moves of more than 1 mm in XY or 100 um in Z wait for Confirm. Moves are
-  measured from where the stage was when you last sent a message or confirmed,
-  so small steps that add up also ask. This rule is in the code, not in the
-  model's instructions.
+  limited to 100 um and must stay inside the Z limits.
+- **Refusals come with advice.** A refused or failed action comes back to the
+  assistant as data: what was refused, why, and what to do next. After a limit
+  breach, for example, it is told to stop and leave the next number to you,
+  rather than try a nearby value. When a name is not known (an optical
+  configuration, an empty nosepiece slot), the refusal lists the microscope's
+  own names, so the assistant can propose the right one as a question.
+- **A red banner for refusals.** A limit breach or an invalid value is also
+  shown in the window directly, whatever the assistant says.
+- **You press Run for long moves.** A stage move of more than 1 mm in XY or
+  100 um in Z shows a *Run / Cancel* bar above the input, and waits there as
+  long as you need. This includes an acquisition whose positions are that far
+  away. Moves are measured from where the stage was when you last sent a
+  message or pressed Run, so small steps that add up also ask. This rule is in
+  the code, not in the model's instructions. Other actions (settings, the
+  objective, acquisitions nearby) run without asking; the assistant tells you
+  its plan first and asks only when something looks off.
 - **One action at a time.** The assistant makes one tool call at a time, so
-  nothing else happens while a confirmation is waiting.
+  nothing else happens while a question is waiting.
 - **Plans are checked before they run.** An acquisition is planned first and
   checked against the microscope (stage limits, channels) without moving or
-  imaging. The confirmation lists every position and how far the stage will
-  travel, and the run images exactly the positions you confirmed.
-- **Looking stays out of the chat.** The image goes to Claude in a separate
+  imaging, and the run images exactly the positions that were planned.
+- **Looking stays out of the chat.** The image goes to the model in a separate
   request with a few measured numbers (brightness, saturation, sharpness), so
   the conversation stays small.
-- **Stopping.** *Stop acquisition* ends a running acquisition after the image
-  being taken. The window does not close while the assistant is still working.
+- **Cancel prompt** stops the assistant: every further tool call in that turn
+  does nothing, and an open Run / Cancel question is answered with Cancel.
+  What already started runs on.
+- **Stop microscope** does the same and also ends a running acquisition after
+  the image being taken. A single stage move that NIS has already started runs
+  to its end; the joystick or NIS-Elements stops it sooner. The window does not
+  close while the assistant is still working.
+- **Clear context** forgets the conversation, and *Show tool calls* lists each
+  tool call in the chat as it happens.
+
+A long conversation is made smaller now and then, between two messages: after
+15 messages, the oldest are forgotten so that 10 remain, and all but the newest
+three keep only a one-line reading of the microscope. Claude Opus 5.5 checks
+that its earlier reasoning belongs to exactly the conversation it is sent back
+with, so the history otherwise only grows, and at these points the old
+reasoning is left out.
 
 If the connection to the bridge times out (for example because the macro was
 stopped), close and reopen the window after restarting the bridge.
@@ -195,13 +216,14 @@ Not supported, and refused: camera ROI, SLM images, other custom actions.
 | File | What it is |
 |---|---|
 | `nis_useq/engine.py` | `NisEngine`: turns useq events into bridge requests. |
-| `nis_useq/agent.py` | The assistant: its tools, the plan format, and the confirmation rules. |
+| `nis_useq/agent.py` | The assistant: its tools, the plan format, the Run rule, and its memory. |
 | `nis_useq/window.py` | The chat window (`nis-useq-assistant`). |
 | `nis_useq/client.py` | `NisClient`: the socket connection to the bridge. |
 | `nis_useq/bridge.py` | The server inside NIS-Elements (standard library only). |
 | `nis_useq/install_macros.py` | Writes `start_bridge.mac`. |
 | `nis_useq/protocol.py` | The message format both sides share. |
-| `tests/` | Offline tests over a fake NIS (`fake_nis.py`); the assistant is tested with a scripted model in place of Claude. `test_simulator.py` needs a live NIS; `test_agent_live.py` needs Claude. |
+| `tests/` | Offline tests over a fake NIS (`fake_nis.py`); the assistant is tested with a scripted model in place of Claude. `test_simulator.py` needs a live NIS. |
+| `tests/evals.py` | The behavioural evaluation with a real model: `eval_cases.json`, and `eval_cases_holdout.json` to check a change on cases it was not tuned on. |
 
 ## Tests
 
@@ -209,7 +231,20 @@ Not supported, and refused: camera ROI, SLM images, other custom actions.
 pip install -e ".[test]"
 pytest               # offline, about 10 to 20 s: no NIS and no API key needed
 pytest -m hardware   # against NIS-Elements with the bridge running
-pytest -m live       # the assistant with the real Claude model (needs ANTHROPIC_API_KEY)
+```
+
+The unit tests check the code. Whether the assistant does what an operator
+expects (acts when a request is clear, asks when it is not, stops at a limit,
+ignores instructions hidden in the data) depends on the model, and is checked
+by the evaluation. It runs every case in `tests/eval_cases.json` through the
+real assistant, with a real model and the fake NIS, and scores the result.
+Each run costs API calls.
+
+```
+python tests/evals.py --model anthropic:claude-opus-5-5        # needs ANTHROPIC_API_KEY
+python tests/evals.py --model google:gemini-3.5-flash-lite     # needs GOOGLE_API_KEY and pydantic-ai-slim[google]
+python tests/evals.py --holdout --repeat 3                     # other wording; shows cases that pass only sometimes
+python tests/evals.py --scoreboard evals-*.jsonl               # pass rates per model and per category
 ```
 
 ## Where the NIS function names come from

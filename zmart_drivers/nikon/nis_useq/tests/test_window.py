@@ -16,7 +16,7 @@ from test_agent import Script, moves  # noqa: E402
 
 @pytest.fixture
 def open_window(qtbot, port, tmp_path):
-    engines = []
+    engines, windows = [], []
 
     def make(*steps, vision=None):
         engine = NisEngine("127.0.0.1", port, timeout=5.0)
@@ -26,9 +26,13 @@ def open_window(qtbot, port, tmp_path):
             microscope.vision_model = Script(vision).model()
         window = AssistantWindow(Assistant(microscope, model=Script(*steps).model()))
         qtbot.addWidget(window)
+        windows.append(window)
         return window
 
     yield make
+    for window in windows:  # a failed test may leave a turn waiting: end it first
+        window.stop_microscope()
+        qtbot.waitUntil(lambda w=window: not w.busy, timeout=10000)
     for engine in engines:
         engine.close()
 
@@ -47,24 +51,65 @@ def test_a_question_and_its_answer(qtbot, open_window):
     assert "where is the stage?" in transcript and "The stage is at x 1000 um." in transcript
 
 
-def test_a_large_move_asks_for_confirmation(qtbot, open_window, fake, monkeypatch):
-    asked = []
-    monkeypatch.setattr(
-        QMessageBox,
-        "question",
-        lambda *a, **k: asked.append(a[2]) or QMessageBox.StandardButton.Yes,
-    )
+def start(window, text):
+    window.prompt.setText(text)
+    window.send()
+
+
+def test_a_long_move_waits_for_run_in_the_bar(qtbot, open_window, fake):
     window = open_window(("move_stage", {"x": 20000}), "We are at x 20 mm.")
-    transcript = ask(qtbot, window, "go to x 20 mm")
-    assert "19000 um in XY" in asked[0] and moves(fake) == ["move_xy(20000,-500)"]
-    assert "You confirmed" in transcript and "We are at x 20 mm." in transcript
-    assert "Stage x 20000.0" in window.status.text()
+    start(window, "go to x 20 mm")
+    qtbot.waitUntil(lambda: window.confirm_bar.isVisibleTo(window), timeout=10000)
+    assert "19000 um in XY" in window.confirm_label.text() and moves(fake) == []
+    window.run_button.click()
+    qtbot.waitUntil(lambda: not window.busy, timeout=10000)
+    transcript = window.transcript.toPlainText()
+    assert "You pressed Run: Move the stage to x = 20000 um" in transcript
+    assert "We are at x 20 mm." in transcript and moves(fake) == ["move_xy(20000,-500)"]
+    assert "Stage x 20000.0" in window.status.text() and window.confirm_bar.isHidden()
+
+
+def test_cancel_in_the_bar_keeps_the_stage_where_it_is(qtbot, open_window, fake):
+    window = open_window(("move_stage", {"x": 20000}), "I stayed where we are.")
+    start(window, "go to x 20 mm")
+    qtbot.waitUntil(lambda: window.confirm_bar.isVisibleTo(window), timeout=10000)
+    window.cancel_move_button.click()
+    qtbot.waitUntil(lambda: not window.busy, timeout=10000)
+    assert "You pressed Cancel" in window.transcript.toPlainText() and moves(fake) == []
+
+
+def test_cancel_prompt_stops_the_assistant(qtbot, open_window, fake):
+    steps = [("move_stage", {"x": 20000}), ("move_stage", {"x": 1100}), "Stopped."]
+    window = open_window(*steps)
+    start(window, "go far, then back")
+    qtbot.waitUntil(lambda: window.confirm_bar.isVisibleTo(window), timeout=10000)
+    window.cancel_button.click()  # answers the open question with Cancel, and more
+    qtbot.waitUntil(lambda: not window.busy, timeout=10000)
+    assert moves(fake) == []  # neither the long move nor the next one ran
+    assert "Cancelled." in window.transcript.toPlainText()
+
+
+def test_tool_calls_show_when_asked(qtbot, open_window):
+    window = open_window(("move_stage", {"x": 1100}), "Moved.", ("get_status", {}), "Here.")
+    ask(qtbot, window, "move a little")
+    assert "move_stage" not in window.transcript.toPlainText()
+    window.show_tools.setChecked(True)
+    assert "get_status()" in ask(qtbot, window, "status?")
+
+
+def test_clear_context_empties_the_chat_and_the_memory(qtbot, open_window):
+    window = open_window("One.", "Two.")
+    ask(qtbot, window, "first")
+    window.clear_context()
+    assert "first" not in window.transcript.toPlainText() and window.assistant.history == []
 
 
 def test_a_limit_breach_shows_the_red_banner(qtbot, open_window, fake):
     window = open_window(("move_stage", {"z": 20000}), "That is outside the limits.")
     ask(qtbot, window, "go to z 20 mm")
-    assert window.warning.isVisibleTo(window) and "LIMIT BREACH" in window.warning.text()
+    assert (
+        window.warning.isVisibleTo(window) and "outside the stage limits" in window.warning.text()
+    )
     assert moves(fake) == []
 
 
@@ -84,10 +129,7 @@ def test_an_error_is_shown_and_the_window_stays_usable(qtbot, open_window):
 PLAN = {"name": "run", "channels": [{"config": "DAPI"}], "time_points": 12}
 
 
-def test_an_acquisition_runs_from_the_window_and_stop_ends_it(
-    qtbot, open_window, fake, monkeypatch
-):
-    monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: QMessageBox.StandardButton.Yes)
+def test_an_acquisition_runs_from_the_window_and_stop_ends_it(qtbot, open_window, fake):
     slow_capture = fake.capture
 
     def capture():  # a slower camera, so there is time to press Stop
@@ -104,7 +146,7 @@ def test_an_acquisition_runs_from_the_window_and_stop_ends_it(
     window.stop_button.click()
     qtbot.waitUntil(lambda: not window.busy, timeout=10000)
     transcript = window.transcript.toPlainText()
-    assert "You confirmed: Run acquisition 'run-1'" in transcript and "Stopped early." in transcript
+    assert "Stop: the assistant is cancelled" in transcript and "Stopped early." in transcript
     assert 3 <= fake.captures < 12
 
 
@@ -132,9 +174,7 @@ def test_six_limit_fields_show_and_narrow_the_stage_limits(qtbot, open_window, f
     assert "Z 400 to 600" in window.transcript.toPlainText()
 
     ask(qtbot, window, "focus up to 700")
-    assert (
-        "LIMIT BREACH: z = 700 um is outside the stage limits [400, 600]" in window.warning.text()
-    )
+    assert "z = 700 um is outside the stage limits [400, 600]" in window.warning.text()
     assert moves(fake) == []
 
     window.use_nis_limits()
