@@ -2,7 +2,7 @@
 
     pytest -m hardware -s
 
-Needs start_bridge.mac running in NIS, and steps 1 and 2 (nis-bridge, nis-useq)
+Needs start_bridge.mac running in NIS, and steps 1 and 2 (nis-bridge, nis-engine)
 passing; skipped when no bridge answers. The assistant is driven by a scripted
 model, not a real one, so this costs no API calls; the real model is tried by
 hand in the window (see README). Everything stays within 100 um of where the
@@ -13,7 +13,7 @@ import pytest
 import tifffile
 from nis_assistant.agent import Assistant, Microscope
 from nis_bridge.client import NisConnectionError
-from nis_useq.engine import NisEngine
+from nis_engine import NisEngine
 from test_agent import Script, tool_results
 
 pytestmark = pytest.mark.hardware

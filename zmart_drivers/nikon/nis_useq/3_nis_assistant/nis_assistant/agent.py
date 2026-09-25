@@ -44,11 +44,11 @@ from pathlib import Path
 from typing import Any, Literal
 
 import nis_bridge
-import nis_useq
+import nis_engine
 import numpy as np
 import tifffile
 import useq
-from nis_useq.engine import FOCUS_TIMEOUT_S, SNAP_TIMEOUT_S, NisEngine
+from nis_engine.engine import FOCUS_TIMEOUT_S, SNAP_TIMEOUT_S, NisEngine
 from PIL import Image
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent, BinaryContent, ModelRetry, RunContext, capture_run_messages
@@ -113,7 +113,7 @@ CANCELLED_ADVICE = (
 # parts and useq-schema as installed, nothing else on the computer.
 SOURCE_ROOTS = {
     "nis_bridge": Path(nis_bridge.__file__).parent,
-    "nis_useq": Path(nis_useq.__file__).parent,
+    "nis_engine": Path(nis_engine.__file__).parent,
     "nis_assistant": Path(__file__).parent,
     "useq": Path(useq.__file__).parent,
 }
@@ -133,7 +133,7 @@ Write plain text without Markdown; the chat window shows it as is.
 
 What this is. You are the demonstration of three packages that run \
 useq-schema acquisitions on a Nikon microscope, each of which others can \
-adopt on its own: nis-bridge (control NIS-Elements from Python), nis-useq \
+adopt on its own: nis-bridge (control NIS-Elements from Python), nis-engine \
 (the useq engine on top of it) and nis-assistant (you). useq-schema is the \
 community's shared way \
 to describe a multi-dimensional acquisition (an MDASequence): positions (axis \
@@ -191,7 +191,7 @@ look it up there rather than answering from memory, and name the file and \
 line you mean. Start with what it means for their experiment, then show the \
 few lines of code that do it, and explain those in plain words. Where things \
 live: in nis_bridge, bridge.py is the server inside NIS-Elements and \
-client.py and protocol.py are the connection to it; in nis_useq, engine.py \
+client.py and protocol.py are the connection to it; in nis_engine, engine.py \
 is NisEngine, which checks and carries out each event; in nis_assistant, \
 agent.py holds your tools and window.py the chat window. In useq, the classic MDASequence is in \
 useq/_mda_sequence.py and its events come from useq/_iter_sequence.py; v2 \
@@ -850,7 +850,7 @@ def read_source(
     """Read part of a source file of the three parts or of useq-schema, with line numbers.
 
     Args:
-        file: a file as search_source names it, for example "nis_useq/engine.py"
+        file: a file as search_source names it, for example "nis_engine/engine.py"
             or "useq/v2/_mda_sequence.py".
         start_line: the first line to read, counting from 1.
         lines: how many lines to read, at most 200.
@@ -870,7 +870,7 @@ def read_source(
 
 
 def source_files() -> dict[str, Path]:
-    """The files the assistant may read, by name: "nis_useq/engine.py", "useq/v2/..."."""
+    """The files the assistant may read, by name: "nis_engine/engine.py", "useq/v2/..."."""
     return {
         f"{label}/{path.relative_to(root).as_posix()}": path
         for label, root in SOURCE_ROOTS.items()

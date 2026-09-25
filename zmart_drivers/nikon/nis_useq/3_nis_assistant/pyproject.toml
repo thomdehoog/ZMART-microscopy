@@ -10,9 +10,9 @@ readme = "README.md"
 license = { file = "LICENSE" }
 authors = [{ name = "Thom de Hoog", email = "thom.dehoog@zmb.uzh.ch" }]
 requires-python = ">=3.10"
-# nis-useq is part 2, next to this folder: install parts 1 and 2 first (see README).
+# nis-engine is part 2, next to this folder: install parts 1 and 2 first (see README).
 # pyyaml: useq reads .yaml sequence files with it.
-dependencies = ["nis-useq", "pydantic-ai-slim[anthropic]>=2.50", "PySide6>=6.7", "pillow", "pyyaml"]
+dependencies = ["nis-engine", "pydantic-ai-slim[anthropic]>=2.50", "PySide6>=6.7", "pillow", "pyyaml"]
 
 [project.optional-dependencies]
 google = ["pydantic-ai-slim[google]>=2.50"]

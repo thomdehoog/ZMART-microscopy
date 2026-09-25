@@ -85,7 +85,7 @@ import numpy as np
 import tifffile
 from nis_assistant.agent import MODEL, Assistant, Microscope
 from nis_bridge.fake import FakeNisApi, running_bridge
-from nis_useq.engine import NisEngine
+from nis_engine import NisEngine
 from pydantic_ai.messages import ToolCallPart, ToolReturnPart
 
 HERE = Path(__file__).resolve().parent

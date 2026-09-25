@@ -27,7 +27,7 @@ from nis_assistant.agent import (  # noqa: E402
     as_png,
     image_statistics,
 )
-from nis_useq.engine import NisEngine  # noqa: E402
+from nis_engine import NisEngine  # noqa: E402
 from pydantic_ai.messages import (  # noqa: E402
     ModelResponse,
     TextPart,
@@ -550,7 +550,7 @@ def test_the_source_of_the_three_parts_and_useq_can_be_read(microscope):
     assistant, _ = talk(microscope, *steps)
     assistant.send("how does the engine move the stage?")
     found, read = tool_results(assistant)
-    assert any(m.startswith("nis_useq/engine.py:") for m in found["matches"])
+    assert any(m.startswith("nis_engine/engine.py:") for m in found["matches"])
     assert read["lines"].startswith("1 to 3 of") and read["text"].startswith("1: ")
 
 
@@ -558,8 +558,8 @@ def test_nothing_outside_those_sources_can_be_read(microscope):
     assistant, _ = talk(microscope, ("read_source", {"file": "../../etc/passwd"}), "No.")
     assistant.send("read that file")
     error = tool_results(assistant)[0]["error"]
-    assert error["code"] == "not_found" and "nis_useq/engine.py" in error["configured_options"]
-    parts = ("nis_bridge/", "nis_useq/", "nis_assistant/", "useq/")
+    assert error["code"] == "not_found" and "nis_engine/engine.py" in error["configured_options"]
+    parts = ("nis_bridge/", "nis_engine/", "nis_assistant/", "useq/")
     assert all(f.startswith(parts) for f in error["configured_options"])
     assert microscope.warnings == []  # not a fault at the microscope: no red banner
 

@@ -16,7 +16,7 @@ import tifffile
 import useq
 import useq.v2 as v2
 from nis_bridge.client import NisConnectionError
-from nis_useq.engine import NisEngine
+from nis_engine import NisEngine
 from pymmcore_plus.mda import MDARunner
 
 pytestmark = pytest.mark.hardware

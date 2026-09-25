@@ -5,7 +5,7 @@ words. A language model (Claude `claude-opus-5-5` by default, through
 Pydantic AI) does them with the microscope and explains what it did.
 
 It is also a demonstration of the other two parts: it runs its acquisitions as
-useq sequences on the nis-useq engine, explains them in useq terms (the
+useq sequences on the nis-engine, explains them in useq terms (the
 classic form and useq v2), runs sequences made in other useq tools, and can
 read the source code of all three parts and of useq-schema to explain how
 things work.
@@ -18,7 +18,7 @@ On the microscope computer, parts 1 and 2 first, then this part:
 
 ```
 pip install -e ../1_nis_bridge
-pip install -e ../2_nis_useq
+pip install -e ../2_nis_engine
 pip install -e .
 ```
 

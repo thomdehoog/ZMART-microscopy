@@ -1,4 +1,4 @@
-# nis-useq
+# nis-engine
 
 Run [useq-schema](https://github.com/pymmcore-plus/useq-schema) acquisitions on
 a Nikon microscope through NIS-Elements. `NisEngine` is an acquisition engine in
@@ -33,7 +33,7 @@ Start the bridge in NIS-Elements as part 1's README describes.
 ```python
 import useq.v2 as v2
 from pymmcore_plus.mda import MDARunner
-from nis_useq.engine import NisEngine
+from nis_engine import NisEngine
 
 sequence = v2.MDASequence(
     stage_positions=[(1000, -500, 2500), (1200, -500, 2500)],  # x, y, z in um
@@ -116,7 +116,7 @@ Not supported, and refused: camera ROI, SLM images, other custom actions.
 
 | File | What it is |
 |---|---|
-| `nis_useq/engine.py` | `NisEngine`: checks a useq sequence, then turns each event into bridge requests. |
+| `nis_engine/engine.py` | `NisEngine`: checks a useq sequence, then turns each event into bridge requests. |
 
 ## Tests
 
