@@ -133,17 +133,14 @@ How it stays safe:
   own names, so the assistant can propose the right one as a question.
 - **A red banner for refusals.** A limit breach or an invalid value is also
   shown in the window directly, whatever the assistant says.
-- **Long moves are agreed in the chat first.** A stage move of more than 1 mm
-  in XY or 100 um in Z is not carried out when the assistant first asks for
-  it. The assistant asks you in the chat ("Shall I move 19 mm to x = 20 mm?"),
-  and the stage goes only if your next message agrees and the assistant asks
-  for exactly the same move again. This includes an acquisition whose
-  positions are that far away. Moves are measured from where the stage was
-  when you last wrote, so small steps that add up also ask. That the question
-  comes before the move is in the code, not only in the model's instructions.
-  Other actions (settings, the objective, acquisitions nearby) run without
-  asking; the assistant tells you its plan first and asks only when something
-  looks off.
+- **Big steps are agreed in the chat first.** Starting an acquisition always
+  waits for you: the assistant shows the plan and asks, and the run can start
+  only after your reply. A stage move of more than 1 mm in XY or 100 um in Z
+  works the same way ("Shall I move 19 mm to x = 20 mm?"). Moves are measured
+  from where the stage was when you last wrote, so small steps that add up
+  also ask. That the question comes first is in the code, not only in the
+  model's instructions. Everything else (small moves, settings, the
+  objective, focus, looking, planning) runs at once.
 - **One action at a time.** The assistant makes one tool call at a time, so
   each result is seen before the next action.
 - **Plans are checked before they run.** An acquisition is planned first and

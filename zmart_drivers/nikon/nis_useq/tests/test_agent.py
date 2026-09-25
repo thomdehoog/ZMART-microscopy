@@ -8,6 +8,7 @@ microscope (the real bridge over a fake NIS) and the operator see.
 import numpy as np
 import pytest
 import tifffile
+import useq
 
 pytest.importorskip("pydantic_ai")
 pytest.importorskip("pymmcore_plus")
@@ -344,36 +345,59 @@ PLAN = {  # the flat form, as Claude sends it
 RUN = ("run_acquisition", {"plan_id": "stack_test-1"})
 
 
-def test_plan_then_run_without_asking(microscope, fake):
-    assistant, _ = talk(microscope, ("plan_acquisition", PLAN), RUN, "All six images are saved.")
-    assert assistant.send("take a two-channel stack at a") == "All six images are saved."
-    plan, run = tool_results(assistant)
+def test_an_acquisition_starts_only_after_the_operator_saw_the_plan(microscope, fake):
+    steps = [("plan_acquisition", PLAN), RUN, "Shall I start these 6 images?", RUN, "Saved."]
+    assistant, _ = talk(microscope, *steps)
+    assert assistant.send("take a two-channel stack at a") == "Shall I start these 6 images?"
+    plan, question = tool_results(assistant)
     assert plan["plan_id"] == "stack_test-1" and plan["images"] == 6
     assert "a at x 100, y 200, z 500 um" in plan["summary"] and "900 um in XY" in plan["summary"]
-    assert "status" not in run  # 900 um is not a long move: it ran at once
+    assert question["status"] == "needs_go_ahead" and "6 images" in question["not_done_yet"]
+    assert fake.captures == 0 and moves(fake) == []  # nothing happened yet
+
+    assert assistant.send("yes, start") == "Saved."
+    run = tool_results(assistant)[-1]
     assert run["images"] == 6 and run["finished"] == "completed"
     assert tifffile.imread(run["saved_to"]).shape == (2, 3, 48, 64)
     assert list(microscope.output_dir.glob("*.plan.json")) and len(microscope.images) == 6
 
 
-def test_a_far_away_run_is_asked_about_in_the_chat_first(microscope, fake):
-    far = {**PLAN, "positions": [{"x": 50000, "y": 30000, "z": 900}]}
-    steps = [("plan_acquisition", far), RUN, "Shall I? It is far.", RUN, "Done."]
+def test_the_plan_comes_back_as_a_useq_sequence(microscope):
+    assistant, _ = talk(microscope, ("plan_acquisition", PLAN), "Here is the plan.")
+    assistant.send("plan a stack at a")
+    sequence = useq.MDASequence(**tool_results(assistant)[0]["useq_sequence"])
+    assert len(list(sequence)) == 6 and sequence.channels[0].config == "DAPI"
+
+
+def test_a_plan_the_operator_declines_is_not_run(microscope, fake):
+    steps = [("plan_acquisition", PLAN), RUN, "Shall I start?", "OK, not now."]
     assistant, _ = talk(microscope, *steps)
+    assistant.send("take a stack")
+    assistant.send("no")
+    assert fake.captures == 0 and not microscope.output_dir.exists()
+
+
+def test_a_far_away_plan_says_so(microscope):
+    far = {**PLAN, "positions": [{"x": 50000, "y": 30000, "z": 900}]}
+    assistant, _ = talk(microscope, ("plan_acquisition", far), "Shall I? It is far.")
     assistant.send("image over there")
-    question = tool_results(assistant)[1]
-    assert "49000 um in XY and 400 um in Z" in question["not_done_yet"]
-    assert fake.captures == 0 and moves(fake) == [] and not microscope.output_dir.exists()
-    assistant.send("yes")
-    assert tool_results(assistant)[-1]["images"] == 6
+    summary = tool_results(assistant)[0]["summary"]
+    assert "49000 um in XY and 400 um in Z" in summary and "This includes a long move." in summary
 
 
 def test_the_run_images_exactly_the_planned_positions(microscope, fake):
     here = {**PLAN, "positions": []}  # "here" is fixed when the plan is made
-    steps = [("plan_acquisition", here), ("move_stage", {"x": 1100}), RUN, "Done."]
+    steps = [
+        ("plan_acquisition", here),
+        ("move_stage", {"x": 1100}),
+        "Shall I start?",
+        RUN,
+        "Done.",
+    ]
     assistant, _ = talk(microscope, *steps)
     assistant.send("stack here")
     assert "here at x 1000, y -500, z 500 um" in tool_results(assistant)[0]["summary"]
+    assistant.send("yes")
     assert fake.position["x"] == 1000.0  # imaged at the planned x, not where the stage went
 
 
