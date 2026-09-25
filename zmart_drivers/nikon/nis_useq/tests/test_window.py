@@ -1,5 +1,7 @@
 """The chat window, offscreen, with a scripted model and the fake NIS behind the bridge."""
 
+import time
+
 import pytest
 
 pytest.importorskip("pytestqt")
@@ -77,3 +79,40 @@ def test_an_error_is_shown_and_the_window_stays_usable(qtbot, open_window):
     window = open_window()  # the script is empty: the "model" fails on the first call
     transcript = ask(qtbot, window, "hello")
     assert "Something went wrong" in transcript and window.prompt.isEnabled()
+
+
+PLAN = {"name": "run", "channels": [{"config": "DAPI"}], "time_points": 12}
+
+
+def test_an_acquisition_runs_from_the_window_and_stop_ends_it(
+    qtbot, open_window, fake, monkeypatch
+):
+    monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: QMessageBox.StandardButton.Yes)
+    slow_capture = fake.capture
+
+    def capture():  # a slower camera, so there is time to press Stop
+        time.sleep(0.1)
+        slow_capture()
+
+    fake.capture = capture
+    window = open_window(
+        ("plan_acquisition", PLAN), ("run_acquisition", {"plan_id": "run-1"}), "Stopped early."
+    )
+    window.prompt.setText("take 12 images")
+    window.send()
+    qtbot.waitUntil(lambda: window.caption.text().startswith("frame 3"), timeout=10000)
+    window.stop_button.click()
+    qtbot.waitUntil(lambda: not window.busy, timeout=10000)
+    transcript = window.transcript.toPlainText()
+    assert "You confirmed: Run acquisition 'run-1'" in transcript and "Stopped early." in transcript
+    assert 3 <= fake.captures < 12
+
+
+def test_the_window_will_not_close_mid_action(qtbot, open_window, monkeypatch):
+    told = []
+    monkeypatch.setattr(QMessageBox, "information", lambda *a, **k: told.append(a[1]))
+    window = open_window("Hi.")
+    window._set_busy(True)
+    assert window.close() is False and told == ["Still working"]
+    window._set_busy(False)
+    assert window.close() is True

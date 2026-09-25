@@ -92,6 +92,7 @@ class NisEngine:
         image size and pixel size before the first frame of the run.
         """
         self._read_microscope()
+        self._pfs_at_start = self.client.request("get_pfs")["on"]  # restored by teardown
         self._channel: str | None = None  # unknown until the first event sets it
         self._exposure_requested: float | None = None
         self._exposure_ms: float | None = None  # as NIS applied it; NIS cannot report it
@@ -142,8 +143,7 @@ class NisEngine:
         self._limits = self.client.request("get_limits")
         self._configurations = self.client.request("get_optical_configurations")
         self._objectives = [int(p) for p in self.client.request("get_objectives")["objectives"]]
-        pfs = self.client.request("get_pfs")
-        self._has_pfs, self._pfs_at_start = pfs["present"], pfs["on"]
+        self._has_pfs = self.client.request("get_pfs")["present"]
 
     def teardown_sequence(self, sequence: Any) -> None:
         """Remove the temporary images, and put the PFS back the way the run found it."""

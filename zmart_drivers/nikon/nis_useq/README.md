@@ -106,22 +106,31 @@ a planned acquisition (saved as OME-TIFF with the plan next to it).
 
 How it stays safe:
 
-- **The same checks as a script.** Every tool goes through the stage limits and
-  the NIS configuration lists. A refused action comes back to the assistant as a
-  plain explanation.
+- **Checks before acting.** Moves are checked against the stage limits, and
+  settings against the NIS configuration lists. The image-based focus sweep is
+  limited to 100 um and must stay inside the Z limits. A refused action comes
+  back to the assistant as a plain explanation.
 - **A red banner for refusals.** A limit breach or other refusal is also shown
   in the window directly, whatever the assistant says.
-- **You confirm the big steps.** Moves of more than 1 mm in XY or 100 um in Z,
-  objective changes, and every acquisition run wait for Confirm. This rule is in
-  the code, not in the model's instructions, so the model cannot talk its way
-  past it.
-- **Plans are checked before they run.** An acquisition is planned first, and
-  the plan is checked against the microscope (limits, channels, grids) without
-  moving or imaging.
+- **You confirm the big steps.** Objective changes, every acquisition run, and
+  moves of more than 1 mm in XY or 100 um in Z wait for Confirm. Moves are
+  measured from where the stage was when you last sent a message or confirmed,
+  so small steps that add up also ask. This rule is in the code, not in the
+  model's instructions.
+- **One action at a time.** The assistant makes one tool call at a time, so
+  nothing else happens while a confirmation is waiting.
+- **Plans are checked before they run.** An acquisition is planned first and
+  checked against the microscope (stage limits, channels) without moving or
+  imaging. The confirmation lists every position and how far the stage will
+  travel, and the run images exactly the positions you confirmed.
 - **Looking stays out of the chat.** The image goes to Claude in a separate
   request with a few measured numbers (brightness, saturation, sharpness), so
   the conversation stays small.
-- **Stopping.** *Stop acquisition* ends a running acquisition at the next image.
+- **Stopping.** *Stop acquisition* ends a running acquisition after the image
+  being taken. The window does not close while the assistant is still working.
+
+If the connection to the bridge times out (for example because the macro was
+stopped), close and reopen the window after restarting the bridge.
 
 The assistant runs its plans as classic `useq.MDASequence` objects: the
 pymmcore-plus file writers (0.18) keep the channel and Z axes of a classic
@@ -182,7 +191,7 @@ Not supported, and refused: camera ROI, SLM images, other custom actions.
 
 ```
 pip install -e ".[test]"
-pytest               # offline, about 8 s: no NIS and no API key needed
+pytest               # offline, about 10 to 20 s: no NIS and no API key needed
 pytest -m hardware   # against NIS-Elements with the bridge running
 pytest -m live       # the assistant with the real Claude model (needs ANTHROPIC_API_KEY)
 ```

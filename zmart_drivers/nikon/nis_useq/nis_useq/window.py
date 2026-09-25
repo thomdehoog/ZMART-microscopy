@@ -18,8 +18,9 @@ from collections.abc import Callable
 from pathlib import Path
 
 import numpy as np
+from pydantic_ai.exceptions import UnexpectedModelBehavior
 from PySide6.QtCore import QObject, Qt, Signal
-from PySide6.QtGui import QPixmap
+from PySide6.QtGui import QCloseEvent, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
     QHBoxLayout,
@@ -73,7 +74,6 @@ class AssistantWindow(QMainWindow):
 
         # left: the conversation
         self.transcript = QTextBrowser()
-        self.transcript.setOpenExternalLinks(True)
         self.prompt = QLineEdit(placeholderText="Ask the microscope assistant ...")
         self.prompt.returnPressed.connect(self.send)
         self.send_button = QPushButton("Send", clicked=self.send)
@@ -113,6 +113,19 @@ class AssistantWindow(QMainWindow):
 
         self._say("assistant", WELCOME, escape=False)
         self._refresh_status()
+
+    def closeEvent(self, event: QCloseEvent) -> None:
+        """Do not close in the middle of an action: the microscope would be left mid-way."""
+        if self.busy:
+            QMessageBox.information(
+                self,
+                "Still working",
+                "The assistant is still working on the microscope. Wait until it is done, "
+                "or press Stop acquisition to end a running acquisition, then close.",
+            )
+            event.ignore()
+            return
+        event.accept()
 
     # -- one turn of the conversation ----------------------------------------------
 
@@ -211,6 +224,8 @@ class AssistantWindow(QMainWindow):
 
 def _explain(exc: Exception) -> str:
     """Turn a failure into a sentence for the operator."""
+    if isinstance(exc, UnexpectedModelBehavior):  # e.g. Claude declined to answer
+        return f"The assistant could not answer: {exc.message}"
     text = f"{type(exc).__name__}: {exc}"
     if "api_key" in text.lower() or "authentication" in text.lower():
         return f"The assistant could not reach Claude: set ANTHROPIC_API_KEY. ({text})"
