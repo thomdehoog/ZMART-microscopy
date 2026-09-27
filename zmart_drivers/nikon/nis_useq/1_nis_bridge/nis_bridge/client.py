@@ -6,19 +6,8 @@ import socket
 import threading
 from typing import Any
 
-from .protocol import (
-    DEFAULT_HOST,
-    DEFAULT_PORT,
-    DEFAULT_TIMEOUT_S,
-    PROTOCOL_VERSION,
-    ProtocolError,
-    decode_reply,
-    encode_request,
-)
-
-# The client waits a little longer than the bridge, so that the bridge's own
-# explanation ("did not start within ...") arrives before the socket gives up.
-REPLY_MARGIN_S = 5.0
+from .protocol import PROTOCOL_VERSION, ProtocolError, decode_reply, encode_request
+from .settings import HOST, PORT, REPLY_MARGIN_S, REQUEST_TIMEOUT_S
 
 
 class NisConnectionError(RuntimeError):
@@ -32,9 +21,7 @@ class NisClient:
     RuntimeError (NIS refused or failed).
     """
 
-    def __init__(
-        self, host: str = DEFAULT_HOST, port: int = DEFAULT_PORT, timeout: float = DEFAULT_TIMEOUT_S
-    ):
+    def __init__(self, host: str = HOST, port: int = PORT, timeout: float = REQUEST_TIMEOUT_S):
         self.host, self.port, self.timeout = host, int(port), float(timeout)
         self._lock = threading.Lock()
         self._next_id = 0
@@ -66,6 +53,7 @@ class NisClient:
             self._next_id += 1
             request_id = self._next_id
             try:
+                # A little longer than the bridge, so its own explanation arrives first.
                 self._sock.settimeout(timeout + REPLY_MARGIN_S)
                 self._sock.sendall(encode_request(request_id, op, args, timeout).encode("utf-8"))
                 line = self._reader.readline()

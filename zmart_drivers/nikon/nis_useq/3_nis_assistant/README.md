@@ -162,6 +162,7 @@ only fitted it to the cases.
 |---|---|
 | `nis_assistant/agent.py` | The assistant: its instructions, tools, plan format, go-ahead rule and memory. |
 | `nis_assistant/window.py` | The chat window (`nis-assistant`). |
+| `nis_assistant/settings.py` | Every constant: model, go-ahead distances, memory sizes. |
 | `tests/evals.py` | The evaluation with a real model; `eval_cases.json` and `eval_cases_holdout.json`. |
 
 MIT license. Thom de Hoog, Center for Microscopy and Image Analysis (ZMB),

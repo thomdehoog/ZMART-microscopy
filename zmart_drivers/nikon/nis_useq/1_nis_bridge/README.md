@@ -7,7 +7,7 @@ same computer.
 
 ```
 your Python                     NIS-Elements
-NisClient ── socket ─────────── bridge.py ── g5_regprocs.dll
+NisClient ── socket ─────────── dispatch ── commands ── nis_api ── g5_regprocs.dll
              127.0.0.1 only     (Python inside NIS, started by a macro)
 ```
 
@@ -138,11 +138,19 @@ ruff check . && ruff format --check .   # lint and formatting, rules in pyprojec
 
 | File | What it is |
 |---|---|
-| `nis_bridge/bridge.py` | The server inside NIS-Elements (standard library only). |
-| `nis_bridge/client.py` | `NisClient`: the connection from your Python. |
+| `nis_bridge/commands.py` | The command vocabulary: one method per request, all in the same shape. The place to look up or add a command. |
+| `nis_bridge/nis_api.py` | The raw NIS functions, one thin wrapper each. |
+| `nis_bridge/dispatch.py` | The server inside NIS: the queue, the main-thread pump, the timeouts. |
+| `nis_bridge/bridge.py` | What `start_bridge.mac` calls: start, pump, stop. |
+| `nis_bridge/settings.py` | Every constant: ports, timeouts, defaults. |
 | `nis_bridge/protocol.py` | The message format both sides share. |
+| `nis_bridge/client.py` | `NisClient`: the connection from your Python. |
 | `nis_bridge/install_macros.py` | Writes `start_bridge.mac`. |
 | `nis_bridge/fake.py` | A fake NIS for tests. |
+
+The bridge side (`commands`, `nis_api`, `dispatch`, `bridge`, `settings`,
+`protocol`) uses the standard library only, because it runs inside
+NIS-Elements' own Python.
 
 ## Where the NIS function names come from
 
