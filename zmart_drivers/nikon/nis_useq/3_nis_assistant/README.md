@@ -160,9 +160,14 @@ only fitted it to the cases.
 
 | File | What it is |
 |---|---|
-| `nis_assistant/agent.py` | The assistant: its instructions, tools, plan format, go-ahead rule and memory. |
-| `nis_assistant/window.py` | The chat window (`nis-assistant`). |
+| `nis_assistant/tools.py` | The tools: everything the model can ask for, one function each, with the go-ahead rule and the refusals. The place to look up or add a tool. |
+| `nis_assistant/instructions.py` | The prose the model reads: its instructions and the advice given with a refusal. |
+| `nis_assistant/plans.py` | The plan format, plan to useq sequence, and the plan summary. |
+| `nis_assistant/images.py` | One snap, its statistics, and the PNG for the model. |
+| `nis_assistant/memory.py` | The conversation made smaller now and then. |
+| `nis_assistant/agent.py` | The assembly: the Agent with the tools, and `Assistant`, one conversation. |
 | `nis_assistant/settings.py` | Every constant: model, go-ahead distances, memory sizes. |
+| `nis_assistant/window.py` | The chat window (`nis-assistant`). |
 | `tests/evals.py` | The evaluation with a real model; `eval_cases.json` and `eval_cases_holdout.json`. |
 
 MIT license. Thom de Hoog, Center for Microscopy and Image Analysis (ZMB),

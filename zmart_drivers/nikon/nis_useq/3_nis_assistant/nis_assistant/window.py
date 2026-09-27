@@ -39,8 +39,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .agent import Assistant, Microscope, as_png
+from .agent import Assistant
+from .images import as_png
 from .settings import KEY_VARIABLES, MODEL, OUTPUT_FOLDER
+from .tools import Microscope
 
 WELCOME = (
     "Hello. I can move the stage, change the optical settings, focus, look at the "

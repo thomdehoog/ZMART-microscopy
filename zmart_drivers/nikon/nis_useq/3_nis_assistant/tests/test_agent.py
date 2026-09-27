@@ -28,17 +28,11 @@ from pydantic_ai.messages import (
 )
 from pydantic_ai.models.function import FunctionModel
 
-from nis_assistant.agent import (
-    GO_AHEAD_ADVICE,
-    HISTORY_KEEP_TURNS,
-    LIMIT_ADVICE,
-    MODEL_SETTINGS,
-    OPTIONS_ADVICE,
-    Assistant,
-    Microscope,
-    as_png,
-    image_statistics,
-)
+from nis_assistant.agent import Assistant
+from nis_assistant.images import as_png, image_statistics
+from nis_assistant.instructions import GO_AHEAD_ADVICE, LIMIT_ADVICE, OPTIONS_ADVICE
+from nis_assistant.settings import HISTORY_KEEP_TURNS, MODEL_SETTINGS
+from nis_assistant.tools import Microscope
 
 
 class Script:
