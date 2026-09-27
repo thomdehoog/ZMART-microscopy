@@ -40,13 +40,11 @@ from typing import Any
 import numpy as np
 import tifffile
 from nis_bridge.client import NisClient, NisConnectionError
-from nis_bridge.protocol import DEFAULT_HOST, DEFAULT_PORT, DEFAULT_TIMEOUT_S
+from nis_bridge.settings import FOCUS_TIMEOUT_S, HOST, PORT, REQUEST_TIMEOUT_S, SNAP_TIMEOUT_S
 from useq import AcquireImage, CustomAction, HardwareAutofocus, MDAEvent
 
 log = logging.getLogger("nis_engine")
 
-SNAP_TIMEOUT_S = 120.0
-FOCUS_TIMEOUT_S = 300.0
 
 # The (device, property) pairs an event may set, with the values each accepts.
 PROPERTIES = {
@@ -65,9 +63,7 @@ class NisEngine:
         runner.run(sequence, output="run.ome.tiff")
     """
 
-    def __init__(
-        self, host: str = DEFAULT_HOST, port: int = DEFAULT_PORT, timeout: float = DEFAULT_TIMEOUT_S
-    ):
+    def __init__(self, host: str = HOST, port: int = PORT, timeout: float = REQUEST_TIMEOUT_S):
         self.client = NisClient(host, port, timeout)
         self.user_limits: dict[str, tuple[float, float]] = {}  # see set_limits
         self._workdir: Path | None = None  # temporary TIFFs of the current run

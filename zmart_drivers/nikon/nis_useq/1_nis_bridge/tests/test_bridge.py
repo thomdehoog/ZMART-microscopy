@@ -162,7 +162,7 @@ def test_client_reports_a_bridge_that_never_answers(unpumped, monkeypatch):
 
 
 def test_client_refuses_an_old_bridge(port, monkeypatch):
-    monkeypatch.setattr(bridge, "PROTOCOL_VERSION", 1)
+    monkeypatch.setattr("nis_bridge.commands.PROTOCOL_VERSION", 1)
     with pytest.raises(NisConnectionError, match=r"speaks protocol 1.*Restart start_bridge\.mac"):
         NisClient("127.0.0.1", port, timeout=5.0)
 
@@ -185,7 +185,8 @@ def test_macro_carries_the_path_and_port(tmp_path):
     path = install_macros.install(tmp_path, port=6000)
     text = path.read_text()
     assert b"\r\n" in path.read_bytes() and "nis_bridge.bridge as b" in text
-    assert "importlib.reload(p)" in text  # the protocol too, or a changed version stays cached
+    # every module is reloaded, or old code stays cached in NIS
+    assert "nis_bridge.settings" in text and "nis_bridge.protocol" in text
 
 
 def test_macro_lifecycle_start_reload_stop(monkeypatch, tmp_path):

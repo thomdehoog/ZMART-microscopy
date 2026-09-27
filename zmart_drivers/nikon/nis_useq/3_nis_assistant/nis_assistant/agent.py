@@ -44,7 +44,8 @@ import nis_engine
 import numpy as np
 import tifffile
 import useq
-from nis_engine.engine import FOCUS_TIMEOUT_S, SNAP_TIMEOUT_S, NisEngine
+from nis_bridge.settings import FOCUS_TIMEOUT_S, SNAP_TIMEOUT_S
+from nis_engine import NisEngine
 from PIL import Image
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent, BinaryContent, ModelRetry, RunContext, capture_run_messages
@@ -59,23 +60,22 @@ from pydantic_ai.messages import (
 )
 from pymmcore_plus.mda import MDARunner
 
-MODEL = "anthropic:claude-opus-5-5"
-MODEL_SETTINGS = {
-    "anthropic_effort": "high",  # Opus 5.5 defaults to "medium"
-    "max_tokens": 16000,  # room for thinking plus a full acquisition plan
-    "parallel_tool_calls": False,  # one action at a time, so each is seen before the next
-}
-
-# A stage move that travels further than this from where the stage was when the
-# operator last wrote (on any one axis, in um) needs their go-ahead in the chat.
-CONFIRM_XY_UM = 1000.0
-CONFIRM_Z_UM = 100.0
-MAX_SWEEP_UM = 100.0  # the longest image-based focus sweep
-MAX_EXPOSURE_MS = 60000.0
-# For the rough duration in a plan's summary: the time per image besides the
-# exposure (moves, saving), and the exposure assumed when a channel sets none.
-SECONDS_PER_IMAGE = 1.5
-GUESSED_EXPOSURE_MS = 100.0
+from .settings import (
+    CONFIRM_XY_UM,
+    CONFIRM_Z_UM,
+    GUESSED_EXPOSURE_MS,
+    HISTORY_COMPACT_AFTER,
+    HISTORY_FULL_TURNS,
+    HISTORY_KEEP_TURNS,
+    HISTORY_RESULT_CHARS,
+    MAX_EXPOSURE_MS,
+    MAX_SWEEP_UM,
+    MODEL,
+    MODEL_SETTINGS,
+    SECONDS_PER_IMAGE,
+    SOURCE_LINES,
+    SOURCE_MATCHES,
+)
 
 # What the assistant is told to do next, attached to each refusal or failure. It
 # travels with the tool's answer because that is where the model reads it next.
@@ -113,15 +113,6 @@ SOURCE_ROOTS = {
     "nis_assistant": Path(__file__).parent,
     "useq": Path(useq.__file__).parent,
 }
-SOURCE_MATCHES = 40  # search results returned at most
-SOURCE_LINES = 200  # lines read at most in one go
-
-# The conversation is made smaller now and then, between turns (see compact()).
-HISTORY_COMPACT_AFTER = 15  # operator turns before the history is made smaller
-HISTORY_KEEP_TURNS = 10  # turns kept when it is; older ones are forgotten
-HISTORY_FULL_TURNS = 3  # the newest turns keep their state readout and tool results in full
-HISTORY_RESULT_CHARS = 300  # an older tool result is cut to this many characters
-
 INSTRUCTIONS = """\
 You operate a Nikon microscope through NIS-Elements for a biologist who may be \
 new to it. Be helpful and explain briefly what you do and why, in plain words. \
@@ -187,10 +178,13 @@ search_source and read_source. When the operator asks how something works, \
 look it up there rather than answering from memory, and name the file and \
 line you mean. Start with what it means for their experiment, then show the \
 few lines of code that do it, and explain those in plain words. Where things \
-live: in nis_bridge, bridge.py is the server inside NIS-Elements and \
-client.py and protocol.py are the connection to it; in nis_engine, engine.py \
-is NisEngine, which checks and carries out each event; in nis_assistant, \
-agent.py holds your tools and window.py the chat window. In useq, the classic MDASequence is in \
+live: in nis_bridge, commands.py is the command vocabulary (one method per \
+request), nis_api.py the raw NIS functions, dispatch.py the server inside \
+NIS-Elements, client.py and protocol.py the connection to it, and settings.py \
+every constant; in nis_engine, engine.py is NisEngine, which checks and \
+carries out each event; in nis_assistant, agent.py holds your tools, \
+settings.py the constants and window.py the chat window. In useq, the \
+classic MDASequence is in \
 useq/_mda_sequence.py and its events come from useq/_iter_sequence.py; v2 \
 is in useq/v2/, where _mda_sequence.py holds the sequence and its \
 MDAEventBuilder (which makes each MDAEvent from one combination of axis \

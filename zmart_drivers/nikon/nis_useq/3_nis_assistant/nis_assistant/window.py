@@ -20,7 +20,7 @@ from pathlib import Path
 
 import numpy as np
 from nis_bridge.client import NisConnectionError
-from nis_bridge.protocol import DEFAULT_HOST, DEFAULT_PORT
+from nis_bridge.settings import HOST, PORT
 from nis_engine import NisEngine
 from pydantic_ai.exceptions import UnexpectedModelBehavior
 from PySide6.QtCore import QObject, Qt, Signal
@@ -39,7 +39,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .agent import MODEL, Assistant, Microscope, as_png
+from .agent import Assistant, Microscope, as_png
+from .settings import KEY_VARIABLES, MODEL, OUTPUT_FOLDER
 
 WELCOME = (
     "Hello. I can move the stage, change the optical settings, focus, look at the "
@@ -334,11 +335,6 @@ class AssistantWindow(QMainWindow):
         self.send_button.setText("Working ..." if busy else "Send")
 
 
-# The environment variable that holds the API key, by model provider.
-KEY_VARIABLES = {"anthropic": "ANTHROPIC_API_KEY", "google": "GOOGLE_API_KEY",
-                 "openai": "OPENAI_API_KEY"}  # fmt: skip
-
-
 def _explain(exc: Exception, model: object) -> str:
     """Turn a failure into a sentence for the operator."""
     if isinstance(exc, UnexpectedModelBehavior):  # e.g. the model declined to answer
@@ -353,10 +349,10 @@ def _explain(exc: Exception, model: object) -> str:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Chat with the Nikon microscope assistant.")
-    parser.add_argument("--port", type=int, default=DEFAULT_PORT, help="the bridge's port")
+    parser.add_argument("--port", type=int, default=PORT, help="the bridge's port")
     parser.add_argument(
         "--output",
-        default=str(Path.home() / "nis_assistant_runs"),
+        default=str(Path.home() / OUTPUT_FOLDER),
         help="folder for the acquisitions (default: nis_assistant_runs in your home folder)",
     )
     parser.add_argument("--model", default=MODEL, help=f"Pydantic AI model name ({MODEL})")
@@ -364,7 +360,7 @@ def main(argv: list[str] | None = None) -> int:
 
     app = QApplication(sys.argv[:1])
     try:
-        engine = NisEngine(DEFAULT_HOST, args.port)
+        engine = NisEngine(HOST, args.port)
     except NisConnectionError as exc:
         QMessageBox.critical(None, "No connection to NIS-Elements", str(exc))
         return 1
