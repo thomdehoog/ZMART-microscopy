@@ -162,7 +162,7 @@ def test_client_reports_a_bridge_that_never_answers(unpumped, monkeypatch):
 
 
 def test_client_refuses_an_old_bridge(port, monkeypatch):
-    monkeypatch.setattr("nis_bridge.readers.PROTOCOL_VERSION", 1)
+    monkeypatch.setattr("nis_bridge.dispatch.PROTOCOL_VERSION", 1)
     with pytest.raises(NisConnectionError, match=r"speaks protocol 1.*Restart start_bridge\.mac"):
         NisClient("127.0.0.1", port, timeout=5.0)
 
@@ -200,7 +200,7 @@ def test_macro_lifecycle_start_reload_stop(monkeypatch, tmp_path):
         server = bridge._running["server"]
         reloaded = importlib.reload(bridge)  # the macro reloads to pick up code changes
         assert reloaded._running["server"] is server
-        server.request_stop()  # what a client's "shutdown" request does
+        server._request_shutdown({})  # what a client's "shutdown" request does
         reloaded.pump(0)
         assert os.path.exists(reloaded.STOP_FILE)  # this ends the macro loop
     finally:

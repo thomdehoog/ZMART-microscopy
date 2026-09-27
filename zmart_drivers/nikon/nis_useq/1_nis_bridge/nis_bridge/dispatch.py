@@ -18,13 +18,15 @@ import time
 from typing import Any
 
 from .commands import COMMANDS, Commands
-from .protocol import ProtocolError, decode_request, encode_error, encode_reply
+from .protocol import PROTOCOL_VERSION, ProtocolError, decode_request, encode_error, encode_reply
 from .readers import READS, Readers
 from .settings import HOST, PORT, SERVE_POLL_S
 
 log = logging.getLogger("nis_bridge")
 
-OPS = READS + COMMANDS  # every request a client may send
+BRIDGE_VERSION = "0.2.0"  # of this server, reported by ping; not the package version
+SERVER = ("ping", "shutdown")  # the requests about the bridge itself, answered here
+OPS = SERVER + READS + COMMANDS  # every request a client may send
 
 
 class _Job:
@@ -43,16 +45,31 @@ class BridgeServer(socketserver.ThreadingTCPServer):
 
     def __init__(self, address: tuple[str, int], api: Any) -> None:
         super().__init__(address, _Handler)
-        readers = Readers(api)
-        commands = Commands(api, readers, self.request_stop)
-        # which object answers each request
-        self.ops = {**dict.fromkeys(READS, readers), **dict.fromkeys(COMMANDS, commands)}
+        self.readers = Readers(api)
+        commands = Commands(api, self.readers)
+        # what answers each request: a method of the readers, the commands, or this server
+        self.ops = {
+            "ping": self._ping,
+            "shutdown": self._request_shutdown,
+            **{op: getattr(self.readers, op) for op in READS},
+            **{op: getattr(commands, op) for op in COMMANDS},
+        }
         self.jobs: queue.Queue[_Job] = queue.Queue()
         self.stop_requested = False
         self.last_pump = 0.0
 
-    def request_stop(self) -> None:
+    def _ping(self, args: dict) -> dict:
+        """Who answers: the bridge and protocol versions, and NIS's own version."""
+        return {
+            "bridge": BRIDGE_VERSION,
+            "protocol": PROTOCOL_VERSION,
+            "nis": self.readers.get_version({}),
+        }
+
+    def _request_shutdown(self, args: dict) -> dict:
+        """Ask the macro loop to end; the server closes when it does."""
         self.stop_requested = True
+        return {"stopping": True}
 
     def pump(self, wait_s: float = 0.0) -> int:
         """Run queued requests on the calling thread; wait up to ``wait_s`` for the first."""
@@ -72,7 +89,7 @@ class BridgeServer(socketserver.ThreadingTCPServer):
                     continue
                 job.started = True
             try:
-                job.result = getattr(self.ops[job.op], job.op)(job.args)
+                job.result = self.ops[job.op](job.args)
             except BaseException as exc:
                 log.exception("op %s failed", job.op)
                 job.error = exc

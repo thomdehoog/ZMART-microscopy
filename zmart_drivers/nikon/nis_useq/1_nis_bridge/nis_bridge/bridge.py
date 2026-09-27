@@ -25,9 +25,8 @@ import tempfile
 import time
 from typing import Any
 
-from .dispatch import serve
+from .dispatch import BRIDGE_VERSION, serve
 from .nis_dll import NisDll
-from .readers import BRIDGE_VERSION
 from .settings import HOST, LOG_FILE, PORT, PUMP_WAIT_S, STALE_SERVER_S
 
 log = logging.getLogger("nis_bridge")

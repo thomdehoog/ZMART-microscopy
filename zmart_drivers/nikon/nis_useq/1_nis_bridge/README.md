@@ -81,12 +81,15 @@ raises `NisConnectionError` and says what to check.
 
 ## What the bridge answers
 
-Only these requests exist; the bridge never runs macro text sent to it. The
-first six only read (`readers.py`); the rest change something (`commands.py`).
+Only these requests exist; the bridge never runs macro text sent to it. Two are
+about the bridge itself (`dispatch.py`), six only read (`readers.py`), and the
+rest change something (`commands.py`).
 
 | Request | Arguments | Returns |
 |---|---|---|
-| `ping` | | bridge and protocol version |
+| `ping` | | the bridge and protocol versions, and NIS's version |
+| `shutdown` | | stops the bridge |
+| `get_version` | | the NIS-Elements version |
 | `get_position` | | `x`, `y`, `z` in um |
 | `get_limits` | | the stage limits set in NIS, per axis `min` and `max` in um |
 | `move` | any of `x`, `y`, `z` (um, absolute) | the position after the move |
@@ -99,7 +102,6 @@ first six only read (`readers.py`); the rest change something (`commands.py`).
 | `set_pfs` | `on`, optionally `timeout_s` | the PFS state after switching |
 | `autofocus` | `range_um`, `speed` | the position after NIS's image-based focus sweep |
 | `snap` | `path` | the path of the saved TIFF and the pixel size in um (None when not calibrated) |
-| `shutdown` | | stops the bridge |
 
 Every request carries how long the client will wait. A request NIS has not
 started by then is dropped, so a late move never happens after the client
