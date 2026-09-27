@@ -13,6 +13,11 @@ else changes: the client sends the name, and the dispatcher runs it. A request
 that only reads belongs in ``readers.py`` instead.
 
 Standard library only: this runs inside NIS-Elements.
+
+Author: Thom de Hoog, Center for Microscopy and Image Analysis (ZMB), University of Zurich
+        thom.dehoog@zmb.uzh.ch . thomdehoog@gmail.com
+Date: 2026-09-27
+License: MIT
 """
 
 from __future__ import annotations

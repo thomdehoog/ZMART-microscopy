@@ -17,6 +17,11 @@ What an event may hold, on the Nikon:
 
 Anything else (a camera ROI, an SLM image, another custom action) is refused.
 This is the place to look up or extend what the engine accepts.
+
+Author: Thom de Hoog, Center for Microscopy and Image Analysis (ZMB), University of Zurich
+        thom.dehoog@zmb.uzh.ch . thomdehoog@gmail.com
+Date: 2026-09-27
+License: MIT
 """
 
 from __future__ import annotations

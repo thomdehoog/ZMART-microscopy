@@ -3,6 +3,11 @@
 Nothing else in this package holds a number or a name that one might want to
 change; they are all here, so a test or a slow instrument can be met by editing
 one file. Times are seconds, distances micrometres.
+
+Author: Thom de Hoog, Center for Microscopy and Image Analysis (ZMB), University of Zurich
+        thom.dehoog@zmb.uzh.ch . thomdehoog@gmail.com
+Date: 2026-09-27
+License: MIT
 """
 
 # -- the connection ----------------------------------------------------------------

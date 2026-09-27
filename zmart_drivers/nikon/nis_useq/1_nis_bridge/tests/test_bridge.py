@@ -1,4 +1,10 @@
-"""Client <-> real bridge server <-> fake NIS: each operation, and each refusal."""
+"""Client <-> real bridge server <-> fake NIS: each operation, and each refusal.
+
+Author: Thom de Hoog, Center for Microscopy and Image Analysis (ZMB), University of Zurich
+        thom.dehoog@zmb.uzh.ch . thomdehoog@gmail.com
+Date: 2026-09-27
+License: MIT
+"""
 
 import importlib
 import os

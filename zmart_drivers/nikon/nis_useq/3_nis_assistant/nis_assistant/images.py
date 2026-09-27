@@ -1,4 +1,10 @@
-"""Pictures for the model and the window: one snap, its statistics, and a PNG."""
+"""Pictures for the model and the window: one snap, its statistics, and a PNG.
+
+Author: Thom de Hoog, Center for Microscopy and Image Analysis (ZMB), University of Zurich
+        thom.dehoog@zmb.uzh.ch . thomdehoog@gmail.com
+Date: 2026-09-27
+License: MIT
+"""
 
 from __future__ import annotations
 

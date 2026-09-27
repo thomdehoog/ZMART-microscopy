@@ -1,7 +1,7 @@
 """Behavioural evaluation of the microscope assistant with a real model.
 
     python tests/evals.py --model google:gemini-3.5-flash-lite
-    python tests/evals.py --model anthropic:claude-opus-5-5 --holdout --repeat 3
+    python tests/evals.py --model anthropic:claude-opus-5-5 --holdout --repeat 3  # another model
     python tests/evals.py --rescore evals-2026-09-25-gemini-3.5-flash-lite.jsonl
     python tests/evals.py --scoreboard evals-*.jsonl
 
@@ -21,7 +21,7 @@ eval_cases.json only, then check with --holdout. That shows whether a change
 made the assistant better, or only fitted it to the cases.
 
 The API key comes from the provider's usual environment variable
-(ANTHROPIC_API_KEY, GOOGLE_API_KEY, ...). Each trace goes into a JSON-lines
+(GOOGLE_API_KEY, ANTHROPIC_API_KEY, ...). Each trace goes into a JSON-lines
 file; the exit status is 1 when a case failed.
 
 A case:
@@ -65,6 +65,11 @@ Expectations:
                     them) or must not contain; case does not matter, and a
                     word right after "not" or "no" does not count
 Every case also fails when a reply quotes the <microscope_state> block.
+
+Author: Thom de Hoog, Center for Microscopy and Image Analysis (ZMB), University of Zurich
+        thom.dehoog@zmb.uzh.ch . thomdehoog@gmail.com
+Date: 2026-09-27
+License: MIT
 """
 
 from __future__ import annotations

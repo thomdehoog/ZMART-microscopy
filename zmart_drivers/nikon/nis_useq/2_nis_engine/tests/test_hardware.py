@@ -6,6 +6,11 @@ Needs start_bridge.mac running in NIS and step 1 (nis-bridge) passing; skipped
 when no bridge answers. Everything stays within 100 um of where the stage is,
 and the stage is moved back afterwards. Tests that need a pixel calibration for
 the objective in use (the camera field, tiles) are skipped without one.
+
+Author: Thom de Hoog, Center for Microscopy and Image Analysis (ZMB), University of Zurich
+        thom.dehoog@zmb.uzh.ch . thomdehoog@gmail.com
+Date: 2026-09-27
+License: MIT
 """
 
 import json

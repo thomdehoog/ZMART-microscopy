@@ -1,4 +1,10 @@
-"""useq sequences run by the pymmcore-plus runner through NisEngine, the bridge and a fake NIS."""
+"""useq sequences run by the pymmcore-plus runner through NisEngine, the bridge and a fake NIS.
+
+Author: Thom de Hoog, Center for Microscopy and Image Analysis (ZMB), University of Zurich
+        thom.dehoog@zmb.uzh.ch . thomdehoog@gmail.com
+Date: 2026-09-27
+License: MIT
+"""
 
 import threading
 

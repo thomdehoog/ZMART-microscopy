@@ -4,6 +4,11 @@
 a Z-stack, tiles, time points). ``plan_to_sequence`` turns it into a classic
 ``useq.MDASequence``, and ``describe`` puts a sequence into plain sentences for
 the operator.
+
+Author: Thom de Hoog, Center for Microscopy and Image Analysis (ZMB), University of Zurich
+        thom.dehoog@zmb.uzh.ch . thomdehoog@gmail.com
+Date: 2026-09-27
+License: MIT
 """
 
 from __future__ import annotations

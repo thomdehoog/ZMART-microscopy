@@ -9,6 +9,11 @@ not started by then, so a request the client gave up on never runs later.
 ``kind`` is ValueError for a bad request and RuntimeError when NIS refused or
 failed; the client raises the same type. Standard library only, because the
 bridge imports this file inside NIS-Elements.
+
+Author: Thom de Hoog, Center for Microscopy and Image Analysis (ZMB), University of Zurich
+        thom.dehoog@zmb.uzh.ch . thomdehoog@gmail.com
+Date: 2026-09-27
+License: MIT
 """
 
 from __future__ import annotations

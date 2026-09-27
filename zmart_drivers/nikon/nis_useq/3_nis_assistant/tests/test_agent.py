@@ -1,8 +1,13 @@
-"""The assistant's tools and approvals, with a scripted model in place of Claude.
+"""The assistant's tools and approvals, with a scripted model in place of the real one.
 
 ``Script`` plays the model: it makes the tool calls it is given, in order, so
-each test controls exactly what "Claude" asks for and checks what the
+each test controls exactly what "the model" asks for and checks what the
 microscope (the real bridge over a fake NIS) and the operator see.
+
+Author: Thom de Hoog, Center for Microscopy and Image Analysis (ZMB), University of Zurich
+        thom.dehoog@zmb.uzh.ch . thomdehoog@gmail.com
+Date: 2026-09-27
+License: MIT
 """
 
 import json
@@ -344,7 +349,7 @@ def test_image_statistics_and_png(shape):
 # -- planning and running an acquisition ----------------------------------------------
 
 
-PLAN = {  # the flat form, as Claude sends it
+PLAN = {  # the flat form, as the model sends it
     "name": "stack_test",
     "positions": [{"x": 100, "y": 200, "z": 500, "name": "a"}],
     "channels": [{"config": "DAPI", "exposure_ms": 20}, {"config": "FITC"}],
@@ -672,7 +677,7 @@ def test_nothing_outside_those_sources_can_be_read(microscope):
 
 
 def answer(n):
-    """A model answer with reasoning attached, as Claude Opus 5.5 sends it."""
+    """A model answer with its reasoning attached, as some models send it."""
     return ModelResponse(parts=[ThinkingPart("thinking", signature=f"sig{n}"), TextPart(f"{n}")])
 
 
@@ -706,7 +711,7 @@ def test_a_long_conversation_is_made_smaller_between_turns(microscope):
     # the newest three turns keep the full state; older ones keep a one-line reading
     assert ["<microscope_state>" in p for p in prompts] == [False] * 7 + [True] * 3
     assert "<microscope_state_then>" in prompts[0] and "position_um" in prompts[0]
-    # the old reasoning is left out, all of it, so what remains is valid for Claude
+    # the old reasoning is left out, all of it, so what remains passes the model's check
     parts = [part for message in assistant.history for part in message.parts]
     assert not any(isinstance(part, ThinkingPart) for part in parts)
     assert any(isinstance(part, TextPart) and part.content == "16" for part in parts)

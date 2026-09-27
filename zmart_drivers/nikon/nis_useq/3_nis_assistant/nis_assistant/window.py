@@ -3,9 +3,14 @@
     nis-assistant --output D:\\runs
 
 Needs the bridge running in NIS-Elements and an API key for the chosen model
-(ANTHROPIC_API_KEY for the default Claude model). Left: the conversation, the buttons,
+(GOOGLE_API_KEY for the default). Left: the conversation, the buttons,
 and the stage limits in force, which the operator can narrow. Right:
 the latest image, the microscope status, and a red banner for anything refused.
+
+Author: Thom de Hoog, Center for Microscopy and Image Analysis (ZMB), University of Zurich
+        thom.dehoog@zmb.uzh.ch . thomdehoog@gmail.com
+Date: 2026-09-27
+License: MIT
 """
 
 from __future__ import annotations

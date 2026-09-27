@@ -1,4 +1,10 @@
-"""The real bridge server on a free local port, with a fake NIS behind it."""
+"""The real bridge server on a free local port, with a fake NIS behind it.
+
+Author: Thom de Hoog, Center for Microscopy and Image Analysis (ZMB), University of Zurich
+        thom.dehoog@zmb.uzh.ch . thomdehoog@gmail.com
+Date: 2026-09-27
+License: MIT
+"""
 
 from __future__ import annotations
 

@@ -4,6 +4,11 @@ Each public method of ``Readers`` is one read-only request. They are safe to
 call at any time, and the commands use them to read back what they did.
 
 Standard library only: this runs inside NIS-Elements.
+
+Author: Thom de Hoog, Center for Microscopy and Image Analysis (ZMB), University of Zurich
+        thom.dehoog@zmb.uzh.ch . thomdehoog@gmail.com
+Date: 2026-09-27
+License: MIT
 """
 
 from __future__ import annotations
