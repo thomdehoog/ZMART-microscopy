@@ -15,7 +15,8 @@ from nis_bridge.client import NisConnectionError
 from nis_engine import NisEngine
 from test_agent import Script, tool_results
 
-from nis_assistant.agent import Assistant, Microscope
+from nis_assistant.agent import Assistant
+from nis_assistant.tools import Microscope
 
 pytestmark = pytest.mark.hardware
 

@@ -87,7 +87,9 @@ from nis_bridge.fake import FakeNisApi, running_bridge
 from nis_engine import NisEngine
 from pydantic_ai.messages import ToolCallPart, ToolReturnPart
 
-from nis_assistant.agent import MODEL, Assistant, Microscope
+from nis_assistant.agent import Assistant
+from nis_assistant.settings import MODEL
+from nis_assistant.tools import Microscope
 
 HERE = Path(__file__).resolve().parent
 CASES = HERE / "eval_cases.json"

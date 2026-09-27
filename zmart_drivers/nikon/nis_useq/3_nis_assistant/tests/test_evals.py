@@ -9,7 +9,7 @@ pytest.importorskip("pydantic_ai")
 import evals
 from test_agent import Script
 
-from nis_assistant.agent import image_statistics
+from nis_assistant.images import image_statistics
 
 
 def case(case_id, path=evals.CASES):

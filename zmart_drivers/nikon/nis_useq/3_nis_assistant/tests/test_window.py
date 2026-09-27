@@ -12,7 +12,8 @@ from nis_engine import NisEngine
 from PySide6.QtWidgets import QMessageBox
 from test_agent import Script, moves
 
-from nis_assistant.agent import Assistant, Microscope
+from nis_assistant.agent import Assistant
+from nis_assistant.tools import Microscope
 from nis_assistant.window import AssistantWindow
 
 
