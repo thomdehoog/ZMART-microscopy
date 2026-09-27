@@ -32,7 +32,16 @@ from nis_bridge.client import NisClient, NisConnectionError
 from nis_bridge.settings import FOCUS_TIMEOUT_S, HOST, PORT, REQUEST_TIMEOUT_S, SNAP_TIMEOUT_S
 from useq import CustomAction, HardwareAutofocus, MDAEvent
 
-from .checks import Offered, check_event, check_limits, check_plans, on_off, where_in_sequence
+from .checks import (
+    Offered,
+    check_event,
+    check_image,
+    check_limits,
+    check_limits_are_ranges,
+    check_plans,
+    on_off,
+    where_in_sequence,
+)
 
 log = logging.getLogger("nis_engine")
 
@@ -96,12 +105,11 @@ class NisEngine:
         except Exception:  # the bridge did not answer: keep what was in force
             self.user_limits = previous
             raise
-        for axis, limit in limits.items():
-            if not limit["min"] < limit["max"]:
-                self.user_limits = previous
-                raise ValueError(
-                    f"{axis}: the minimum must be below the maximum, inside NIS's own limits"
-                )
+        try:
+            check_limits_are_ranges(limits)
+        except ValueError:
+            self.user_limits = previous
+            raise
 
     def limits(self) -> dict[str, dict[str, float]]:
         """The stage limits in force (um): NIS's own, narrowed by set_limits."""
@@ -160,11 +168,7 @@ class NisEngine:
         self._t0 = time.perf_counter()
 
         probe, self._pixel_size_um = self._snap()
-        if probe.ndim != 2:
-            raise ValueError(
-                f"the camera gives colour or multi-plane images (shape {probe.shape}), which this "
-                "engine does not save correctly. Set the camera to monochrome in NIS-Elements."
-            )
+        check_image(probe)
         self._image_shape = height, width = probe.shape
         return {
             "format": "summary-dict",
