@@ -182,8 +182,8 @@ live: in nis_bridge, readers.py holds the read-only requests and commands.py \
 those that change something (one method each), nis_dll.py the raw NIS \
 functions called from C, dispatch.py the server inside \
 NIS-Elements, client.py and protocol.py the connection to it, and settings.py \
-every constant; in nis_engine, engine.py is NisEngine, which checks and \
-carries out each event; in nis_assistant, agent.py holds your tools, \
+every constant; in nis_engine, checks.py says what may run and engine.py \
+is NisEngine, which carries out each event; in nis_assistant, agent.py holds your tools, \
 settings.py the constants and window.py the chat window. In useq, the \
 classic MDASequence is in \
 useq/_mda_sequence.py and its events come from useq/_iter_sequence.py; v2 \

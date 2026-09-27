@@ -5,22 +5,11 @@ so the pymmcore-plus runner can execute useq sequences (the classic
 ``useq.MDASequence`` and the new ``useq.v2.MDASequence``) on a Nikon microscope
 and hand the images to any of its writers or viewers.
 
-What each event field does here:
-
-- ``x_pos``, ``y_pos``, ``z_pos``: absolute NIS stage position in um; None = stay.
-- ``channel.config``: the name of a NIS optical configuration (``group`` is ignored).
-- ``exposure``: camera exposure in ms.
-- ``properties``: ``("Nosepiece", "Position", n)`` turns the nosepiece to slot n
-  (1, 2, ...); ``("PFS", "State", "On")`` or ``"Off"`` switches the Perfect Focus System.
-- ``action``: ``AcquireImage`` snaps one image. ``HardwareAutofocus`` locks focus
-  with the PFS, then switches it off.
-  ``CustomAction(name="autofocus", data={"range_um": 50, "speed": 30})`` runs the
-  NIS image-based focus sweep. A focus action shifts later Z moves at the same
-  position by the distance it moved.
-
-Anything else (camera ROI, SLM images, other custom actions) is refused before
-the run starts. ``keep_shutter_open`` is ignored; NIS handles the shutter.
-Waiting for ``min_start_time`` is the runner's job.
+Before anything moves, every event and the sequence's plans are checked in
+``checks.py``, which also says what an event may hold on the Nikon. During the
+run, a focus action shifts later Z moves at the same position by the distance
+it moved. ``keep_shutter_open`` is ignored (NIS handles the shutter), and
+waiting for ``min_start_time`` is the runner's job.
 
 The bridge and this engine must run on the same computer: each image travels
 as a temporary TIFF file.
@@ -41,16 +30,11 @@ import numpy as np
 import tifffile
 from nis_bridge.client import NisClient, NisConnectionError
 from nis_bridge.settings import FOCUS_TIMEOUT_S, HOST, PORT, REQUEST_TIMEOUT_S, SNAP_TIMEOUT_S
-from useq import AcquireImage, CustomAction, HardwareAutofocus, MDAEvent
+from useq import CustomAction, HardwareAutofocus, MDAEvent
+
+from .checks import Offered, check_event, check_limits, check_plans, on_off, where_in_sequence
 
 log = logging.getLogger("nis_engine")
-
-
-# The (device, property) pairs an event may set, with the values each accepts.
-PROPERTIES = {
-    ("Nosepiece", "Position"): "a nosepiece slot number (1, 2, ...)",
-    ("PFS", "State"): '"On" or "Off"',
-}
 
 
 class NisEngine:
@@ -68,10 +52,7 @@ class NisEngine:
         self.user_limits: dict[str, tuple[float, float]] = {}  # see set_limits
         self._workdir: Path | None = None  # temporary TIFFs of the current run
         # What the microscope offers, read by check() and setup_sequence().
-        self._limits: dict[str, dict[str, float]] = {}
-        self._configurations: list[str] = []
-        self._objectives: list[int] = []
-        self._has_pfs = False
+        self._offered = Offered({}, [], [], False)
         self._pfs_at_start = False  # restored by teardown_sequence
         self._pixel_size_um: float | None = None  # measured by the run's first snap
         self._image_shape: tuple[int, int] | None = None
@@ -214,18 +195,20 @@ class NisEngine:
 
     def event_iterator(self, events: Iterable[MDAEvent]) -> Iterator[MDAEvent]:
         """Check the whole plan before anything moves, then hand out the events."""
-        self._check_plans(events)
+        check_plans(events, self._field_of_view())
         events = list(events)
         for event in events:
-            self._check(event)
+            check_event(event, self._offered)
         yield from events
 
     def _read_microscope(self) -> None:
         """What every check needs: stage limits, configurations, objectives, PFS."""
-        self._limits = self.limits()
-        self._configurations = self.client.request("get_optical_configurations")
-        self._objectives = [int(p) for p in self.client.request("get_objectives")["objectives"]]
-        self._has_pfs = self.client.request("get_pfs")["present"]
+        self._offered = Offered(
+            limits=self.limits(),
+            configurations=self.client.request("get_optical_configurations"),
+            objectives=[int(p) for p in self.client.request("get_objectives")["objectives"]],
+            has_pfs=self.client.request("get_pfs")["present"],
+        )
 
     def teardown_sequence(self, sequence: Any) -> None:
         """Remove the temporary images, and put the PFS back the way the run found it."""
@@ -235,7 +218,7 @@ class NisEngine:
         # Never raise here: the runner would then not finish the run, and whatever
         # waits for its end (a viewer, the assistant) would wait forever.
         try:
-            if self._has_pfs and self.client.request("get_pfs")["on"] != self._pfs_at_start:
+            if self._offered.has_pfs and self.client.request("get_pfs")["on"] != self._pfs_at_start:
                 self.client.request("set_pfs", on=self._pfs_at_start)
         except Exception as exc:
             log.warning("could not put the PFS back after the run: %s", exc)
@@ -246,13 +229,17 @@ class NisEngine:
         """Move the stage, then apply channel, exposure and properties."""
         # Checked again here because the runner skips event_iterator when it is
         # given a plain iterator of events.
-        self._check(event)
+        check_event(event, self._offered)
         target = {"x": event.x_pos, "y": event.y_pos, "z": event.z_pos}
         if target["z"] is not None:
             target["z"] += self._z_offset.get(event.index.get("p"), 0.0)
         target = {axis: value for axis, value in target.items() if value is not None}
         if target:
-            self._check_limits(f"{_where(event)} (with the focus correction)", target)
+            check_limits(
+                f"{where_in_sequence(event)} (with the focus correction)",
+                target,
+                self._offered.limits,
+            )
             self.client.request("move", **target)
 
         if event.channel is not None and event.channel.config != self._channel:
@@ -268,8 +255,8 @@ class NisEngine:
         for device, prop, value in event.properties or ():
             if (device, prop) == ("Nosepiece", "Position"):
                 self.client.request("set_objective", position=int(value))
-            else:  # ("PFS", "State"), checked in _check
-                self.client.request("set_pfs", on=_on_off(value))
+            else:  # ("PFS", "State"), checked in checks.py
+                self.client.request("set_pfs", on=on_off(value))
 
     def exec_event(self, event: MDAEvent) -> Iterator[tuple[np.ndarray, MDAEvent, dict]]:
         """Snap an image, or run a focus action (which yields no image)."""
@@ -281,7 +268,7 @@ class NisEngine:
                 # Off again, so the PFS does not fight the Z moves that follow.
                 self.client.request("set_pfs", on=False)
             return
-        if isinstance(action, CustomAction):  # "autofocus", checked in _check
+        if isinstance(action, CustomAction):  # "autofocus", checked in checks.py
             self._focus(event, "autofocus", **action.data)
             return
 
@@ -330,96 +317,16 @@ class NisEngine:
         except NisConnectionError:
             raise  # a lost connection must stop the run (it is also a RuntimeError)
         except RuntimeError as exc:
-            log.warning("focus failed at %s; continuing without it: %s", _where(event), exc)
+            log.warning(
+                "focus failed at %s; continuing without it: %s", where_in_sequence(event), exc
+            )
             return
         if op == "set_pfs" and result["status"] != 1:
-            log.warning("PFS did not lock at %s: %s", _where(event), result["meaning"])
+            log.warning("PFS did not lock at %s: %s", where_in_sequence(event), result["meaning"])
             return
         after = self.client.request("get_position")["z"]
         p = event.index.get("p")
         self._z_offset[p] = self._z_offset.get(p, 0.0) + after - before
-
-    def _check(self, event: MDAEvent) -> None:
-        """Raise ValueError if this engine cannot run the event as written."""
-        where = _where(event)
-        if event.roi is not None or event.slm_image is not None:
-            raise ValueError(f"{where}: camera ROI and SLM images are not supported")
-
-        position = {"x": event.x_pos, "y": event.y_pos, "z": event.z_pos}
-        self._check_limits(where, {k: v for k, v in position.items() if v is not None})
-
-        if event.channel is not None and event.channel.config not in self._configurations:
-            raise ValueError(
-                f"{where}: {event.channel.config!r} is not an optical configuration in "
-                f"NIS-Elements; known: {', '.join(self._configurations)}"
-            )
-
-        for device, prop, value in event.properties or ():
-            if (device, prop) not in PROPERTIES:
-                known = "; ".join(f"{d}.{p}: {v}" for (d, p), v in PROPERTIES.items())
-                raise ValueError(f"{where}: unsupported property {device}.{prop}; known: {known}")
-            if device == "Nosepiece" and _slot(value) not in self._objectives:
-                raise ValueError(f"{where}: no objective in nosepiece slot {value}")
-            if device == "PFS":
-                _on_off(value)
-
-        action = event.action
-        uses_pfs = isinstance(action, HardwareAutofocus) or any(
-            device == "PFS" for device, _, _ in event.properties or ()
-        )
-        if uses_pfs and not self._has_pfs:
-            raise ValueError(f"{where}: needs a Perfect Focus System, and NIS reports none")
-        if isinstance(action, HardwareAutofocus) and action.autofocus_motor_offset is not None:
-            raise ValueError(f"{where}: setting a PFS offset is not supported")
-        if isinstance(action, CustomAction):
-            _check_autofocus_action(where, action)
-        elif not isinstance(action, (AcquireImage, HardwareAutofocus)):
-            raise ValueError(f"{where}: unsupported action {action!r}")
-
-    def _check_limits(self, where: str, target: dict[str, float]) -> None:
-        for axis, value in target.items():
-            lo, hi = self._limits[axis]["min"], self._limits[axis]["max"]
-            if not lo <= value <= hi:
-                raise ValueError(
-                    f"{where}: {axis} = {value} um is outside the stage limits [{lo}, {hi}] um"
-                )
-
-    def _check_plans(self, sequence: Any) -> None:
-        """Refuse Z and grid plans that useq would turn into wrong absolute positions.
-
-        A relative Z plan or grid is laid out around a stage position; without
-        one, useq produces bare offsets around 0 um, and an engine would send the
-        stage there. A tiling grid also needs the field of view, or useq places
-        the tiles 1 um apart. Nested per-position sequences are checked as well.
-        """
-        top_z = getattr(sequence, "z_plan", None)
-        top_grid = getattr(sequence, "grid_plan", None)
-        positions = list(getattr(sequence, "stage_positions", None) or ()) or [None]
-        for p in positions:
-            # classic: Position(sequence=...); v2: a nested sequence with its Position in .value
-            sub = p if hasattr(p, "axes") else getattr(p, "sequence", None)
-            pos = getattr(p, "value", p)
-            z_plan = getattr(sub, "z_plan", None) or top_z
-            grid = getattr(sub, "grid_plan", None) or top_grid
-
-            if z_plan is not None and z_plan.is_relative and getattr(pos, "z", None) is None:
-                raise ValueError(
-                    "the Z plan is relative (a range around each position), but a stage "
-                    "position has no z. Give each position a z, or use an absolute Z plan "
-                    "such as ZTopBottom."
-                )
-            if grid is None:
-                continue
-            if grid.is_relative and None in (getattr(pos, "x", None), getattr(pos, "y", None)):
-                raise ValueError(
-                    "the grid is relative (tiles around each position), but a stage position "
-                    "has no x and y. Give each position x and y, or use GridFromEdges."
-                )
-            if hasattr(grid, "overlap") and None in (grid.fov_width, grid.fov_height):
-                raise ValueError(
-                    "the grid needs the field of view to space its tiles: set fov_width and "
-                    f"fov_height (um) on the grid plan. {self._field_of_view()}"
-                )
 
     def _field_of_view(self) -> str:
         """One sentence on the current camera field, for error messages."""
@@ -430,41 +337,3 @@ class NisEngine:
         height, width = self._image_shape
         field = (width * self._pixel_size_um, height * self._pixel_size_um)
         return "The camera field here is {:.1f} x {:.1f} um.".format(*field)
-
-
-def _where(event: MDAEvent) -> str:
-    """The event's place in the sequence, for messages: 'event p=0, z=2'."""
-    index = ", ".join(f"{getattr(k, 'value', k)}={v}" for k, v in event.index.items())
-    return f"event {index}" if index else "event"
-
-
-def _slot(value: Any) -> int:
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        raise ValueError(
-            f"Nosepiece Position must be a slot number (1, 2, ...), not {value!r}"
-        ) from None
-
-
-def _on_off(value: Any) -> bool:
-    if isinstance(value, bool):
-        return value
-    if str(value).lower() in ("on", "1", "true"):
-        return True
-    if str(value).lower() in ("off", "0", "false"):
-        return False
-    raise ValueError(f'PFS State must be "On" or "Off", not {value!r}')
-
-
-def _check_autofocus_action(where: str, action: CustomAction) -> None:
-    usage = 'CustomAction(name="autofocus", data={"range_um": 50, "speed": 30})'
-    if action.name != "autofocus" or not set(action.data) <= {"range_um", "speed"}:
-        raise ValueError(f"{where}: the only custom action is {usage}")
-    try:
-        range_um = float(action.data.get("range_um", 50))
-        speed = float(action.data.get("speed", 30))
-    except (TypeError, ValueError):
-        raise ValueError(f"{where}: range_um and speed must be numbers: {usage}") from None
-    if range_um <= 0 or not 0 <= speed <= 90:
-        raise ValueError(f"{where}: range_um must be positive and speed between 0 and 90")
