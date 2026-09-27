@@ -17,11 +17,14 @@ import threading
 import time
 from typing import Any
 
-from .commands import OPS, Operations
+from .commands import COMMANDS, Commands
 from .protocol import ProtocolError, decode_request, encode_error, encode_reply
+from .readers import READS, Readers
 from .settings import HOST, PORT, SERVE_POLL_S
 
 log = logging.getLogger("nis_bridge")
+
+OPS = READS + COMMANDS  # every request a client may send
 
 
 class _Job:
@@ -40,7 +43,10 @@ class BridgeServer(socketserver.ThreadingTCPServer):
 
     def __init__(self, address: tuple[str, int], api: Any) -> None:
         super().__init__(address, _Handler)
-        self.ops = Operations(api, self.request_stop)
+        readers = Readers(api)
+        commands = Commands(api, readers, self.request_stop)
+        # which object answers each request
+        self.ops = {**dict.fromkeys(READS, readers), **dict.fromkeys(COMMANDS, commands)}
         self.jobs: queue.Queue[_Job] = queue.Queue()
         self.stop_requested = False
         self.last_pump = 0.0
@@ -66,7 +72,7 @@ class BridgeServer(socketserver.ThreadingTCPServer):
                     continue
                 job.started = True
             try:
-                job.result = getattr(self.ops, job.op)(job.args)
+                job.result = getattr(self.ops[job.op], job.op)(job.args)
             except BaseException as exc:
                 log.exception("op %s failed", job.op)
                 job.error = exc

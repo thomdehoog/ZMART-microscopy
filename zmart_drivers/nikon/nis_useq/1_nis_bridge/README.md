@@ -7,7 +7,7 @@ same computer.
 
 ```
 your Python                     NIS-Elements
-NisClient ── socket ─────────── dispatch ── commands ── nis_api ── g5_regprocs.dll
+NisClient ── socket ─────────── dispatch ── readers, commands ── nis_dll ── g5_regprocs.dll
              127.0.0.1 only     (Python inside NIS, started by a macro)
 ```
 
@@ -81,7 +81,8 @@ raises `NisConnectionError` and says what to check.
 
 ## What the bridge answers
 
-Only these requests exist; the bridge never runs macro text sent to it.
+Only these requests exist; the bridge never runs macro text sent to it. The
+first six only read (`readers.py`); the rest change something (`commands.py`).
 
 | Request | Arguments | Returns |
 |---|---|---|
@@ -138,8 +139,9 @@ ruff check . && ruff format --check .   # lint and formatting, rules in pyprojec
 
 | File | What it is |
 |---|---|
-| `nis_bridge/commands.py` | The command vocabulary: one method per request, all in the same shape. The place to look up or add a command. |
-| `nis_bridge/nis_api.py` | The raw NIS functions, one thin wrapper each. |
+| `nis_bridge/readers.py` | The read-only requests, one method each: they observe NIS and change nothing. |
+| `nis_bridge/commands.py` | The requests that change something, one method each, all in the same shape (check, call NIS, read back). The place to look up or add a command. |
+| `nis_bridge/nis_dll.py` | C to Python: the raw NIS functions of `g5_regprocs.dll`, one thin wrapper each. |
 | `nis_bridge/dispatch.py` | The server inside NIS: the queue, the main-thread pump, the timeouts. |
 | `nis_bridge/bridge.py` | What `start_bridge.mac` calls: start, pump, stop. |
 | `nis_bridge/settings.py` | Every constant: ports, timeouts, defaults. |
@@ -148,7 +150,7 @@ ruff check . && ruff format --check .   # lint and formatting, rules in pyprojec
 | `nis_bridge/install_macros.py` | Writes `start_bridge.mac`. |
 | `nis_bridge/fake.py` | A fake NIS for tests. |
 
-The bridge side (`commands`, `nis_api`, `dispatch`, `bridge`, `settings`,
+The bridge side (`readers`, `commands`, `nis_dll`, `dispatch`, `bridge`, `settings`,
 `protocol`) uses the standard library only, because it runs inside
 NIS-Elements' own Python.
 

@@ -178,8 +178,9 @@ search_source and read_source. When the operator asks how something works, \
 look it up there rather than answering from memory, and name the file and \
 line you mean. Start with what it means for their experiment, then show the \
 few lines of code that do it, and explain those in plain words. Where things \
-live: in nis_bridge, commands.py is the command vocabulary (one method per \
-request), nis_api.py the raw NIS functions, dispatch.py the server inside \
+live: in nis_bridge, readers.py holds the read-only requests and commands.py \
+those that change something (one method each), nis_dll.py the raw NIS \
+functions called from C, dispatch.py the server inside \
 NIS-Elements, client.py and protocol.py the connection to it, and settings.py \
 every constant; in nis_engine, engine.py is NisEngine, which checks and \
 carries out each event; in nis_assistant, agent.py holds your tools, \

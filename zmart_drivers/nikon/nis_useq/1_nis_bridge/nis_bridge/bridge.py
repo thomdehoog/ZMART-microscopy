@@ -3,13 +3,14 @@
 ``start`` opens the server, ``pump`` runs queued requests on the NIS main
 thread (the macro loop calls it), and ``stop`` closes the server. The pieces:
 
-* ``nis_api.py``: the raw NIS functions, one wrapper each;
-* ``commands.py``: the command vocabulary, one method per command;
+* ``nis_dll.py``: the raw NIS functions, one wrapper each;
+* ``readers.py``: the read-only requests, one method each;
+* ``commands.py``: the requests that change something, one method each;
 * ``dispatch.py``: the server, the queue and the timeouts;
 * ``profile.py``: every timing constant;
 * ``protocol.py``: the message format the client shares.
 
-Rules that keep it safe: only the commands in ``commands.OPS`` can be called,
+Rules that keep it safe: only the requests in ``dispatch.OPS`` can be called,
 no macro text is executed, and every NIS call runs on the NIS main thread,
 one at a time. Standard library only (NIS 6.10 bundles Python 3.12 with numpy
 and nothing else).
@@ -24,9 +25,9 @@ import tempfile
 import time
 from typing import Any
 
-from .commands import BRIDGE_VERSION
 from .dispatch import serve
-from .nis_api import NisApi
+from .nis_dll import NisDll
+from .readers import BRIDGE_VERSION
 from .settings import HOST, LOG_FILE, PORT, PUMP_WAIT_S, STALE_SERVER_S
 
 log = logging.getLogger("nis_bridge")
@@ -52,7 +53,7 @@ def start(port: int = PORT) -> str:
     log.handlers[:] = [handler]
     log.setLevel(logging.INFO)
     try:
-        _running["server"] = serve(NisApi(), HOST, port)
+        _running["server"] = serve(NisDll(), HOST, port)
     except OSError as exc:
         log.error("could not start: %s", exc)
         return f"bridge failed to start on port {port}: {exc}"

@@ -162,7 +162,7 @@ def test_client_reports_a_bridge_that_never_answers(unpumped, monkeypatch):
 
 
 def test_client_refuses_an_old_bridge(port, monkeypatch):
-    monkeypatch.setattr("nis_bridge.commands.PROTOCOL_VERSION", 1)
+    monkeypatch.setattr("nis_bridge.readers.PROTOCOL_VERSION", 1)
     with pytest.raises(NisConnectionError, match=r"speaks protocol 1.*Restart start_bridge\.mac"):
         NisClient("127.0.0.1", port, timeout=5.0)
 
@@ -191,7 +191,7 @@ def test_macro_carries_the_path_and_port(tmp_path):
 
 def test_macro_lifecycle_start_reload_stop(monkeypatch, tmp_path):
     """What start_bridge.mac does: start, pump, reload the module, stop."""
-    monkeypatch.setattr(bridge, "NisApi", FakeNisApi)
+    monkeypatch.setattr(bridge, "NisDll", FakeNisApi)
     monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))  # where the bridge log goes
     try:
         assert "listening" in bridge.start(port=0)
