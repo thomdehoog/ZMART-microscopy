@@ -163,4 +163,4 @@ ruff check . && ruff format --check .   # lint and formatting, rules in pyprojec
 ```
 
 MIT license. Thom de Hoog, Center for Microscopy and Image Analysis (ZMB),
-University of Zurich.
+University of Zurich. thom.dehoog@zmb.uzh.ch, thomdehoog@gmail.com. 2026-09-27.

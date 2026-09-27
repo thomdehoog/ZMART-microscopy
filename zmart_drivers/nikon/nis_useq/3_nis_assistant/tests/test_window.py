@@ -1,4 +1,10 @@
-"""The chat window, offscreen, with a scripted model and the fake NIS behind the bridge."""
+"""The chat window, offscreen, with a scripted model and the fake NIS behind the bridge.
+
+Author: Thom de Hoog, Center for Microscopy and Image Analysis (ZMB), University of Zurich
+        thom.dehoog@zmb.uzh.ch . thomdehoog@gmail.com
+Date: 2026-09-27
+License: MIT
+"""
 
 import time
 

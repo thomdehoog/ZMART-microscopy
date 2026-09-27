@@ -14,6 +14,11 @@ Rules that keep it safe: only the requests in ``dispatch.OPS`` can be called,
 no macro text is executed, and every NIS call runs on the NIS main thread,
 one at a time. Standard library only (NIS 6.10 bundles Python 3.12 with numpy
 and nothing else).
+
+Author: Thom de Hoog, Center for Microscopy and Image Analysis (ZMB), University of Zurich
+        thom.dehoog@zmb.uzh.ch . thomdehoog@gmail.com
+Date: 2026-09-27
+License: MIT
 """
 
 from __future__ import annotations

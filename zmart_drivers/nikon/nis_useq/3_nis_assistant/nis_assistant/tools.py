@@ -11,6 +11,11 @@ model's instructions.
 
 ``TOOLS`` lists them; ``agent.py`` registers them on the Agent. This is the
 place to look up or add a tool.
+
+Author: Thom de Hoog, Center for Microscopy and Image Analysis (ZMB), University of Zurich
+        thom.dehoog@zmb.uzh.ch . thomdehoog@gmail.com
+Date: 2026-09-27
+License: MIT
 """
 
 from __future__ import annotations

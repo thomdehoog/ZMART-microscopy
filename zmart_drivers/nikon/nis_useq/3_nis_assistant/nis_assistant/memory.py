@@ -1,5 +1,11 @@
 """The assistant's memory: the conversation made smaller now and then, and a
-quoted state block taken out of a reply."""
+quoted state block taken out of a reply.
+
+Author: Thom de Hoog, Center for Microscopy and Image Analysis (ZMB), University of Zurich
+        thom.dehoog@zmb.uzh.ch . thomdehoog@gmail.com
+Date: 2026-09-27
+License: MIT
+"""
 
 from __future__ import annotations
 
@@ -36,7 +42,7 @@ def without_state_block(reply: str) -> str:
     Some models paste the state reading they were sent back into their answer,
     although told not to. The operator should not see it, so it is taken out
     here. The model's own copy in the history stays as it was, since editing
-    an earlier answer would spoil Claude's check on its earlier reasoning.
+    an earlier answer would spoil the model's check on its earlier reasoning.
     """
     return STATE_BLOCK.sub("", reply).strip() or "(The assistant gave no answer in words.)"
 
@@ -50,8 +56,8 @@ def compact(messages: list[ModelMessage]) -> list[ModelMessage]:
     whole state block, and long tool results are cut short. What the model and
     the operator said, and which tools were called, stays.
 
-    Why only now and then, and between turns: Claude Opus 5.5 checks that its
-    earlier reasoning (its "thinking") was written for exactly the conversation
+    Why only now and then, and between turns: some models check that their
+    earlier reasoning (their "thinking") was written for exactly the conversation
     it is sent back with. Rewriting old turns on every message would make that
     check fail each time. So the history only ever grows, except at these
     compaction points, and there the old reasoning is left out altogether,

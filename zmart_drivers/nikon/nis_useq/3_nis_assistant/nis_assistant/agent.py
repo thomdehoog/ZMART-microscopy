@@ -1,6 +1,6 @@
 """The assistant, assembled: the Agent with its tools, and one conversation.
 
-Built on Pydantic AI with Claude. The tools (``tools.py``) are what the model
+Built on Pydantic AI. The tools (``tools.py``) are what the model
 can ask the microscope to do; the instructions (``instructions.py``) are what
 it is told; the memory (``memory.py``) keeps a long conversation small.
 ``Assistant`` is one conversation: a message in, the answer out.
@@ -8,6 +8,11 @@ it is told; the memory (``memory.py``) keeps a long conversation small.
     microscope = Microscope(NisEngine(), output_dir=Path("runs"))
     assistant = Assistant(microscope)
     print(assistant.send("Take a 3-channel Z-stack here"))
+
+Author: Thom de Hoog, Center for Microscopy and Image Analysis (ZMB), University of Zurich
+        thom.dehoog@zmb.uzh.ch . thomdehoog@gmail.com
+Date: 2026-09-27
+License: MIT
 """
 
 from __future__ import annotations
@@ -20,7 +25,7 @@ from pydantic_ai.messages import ModelMessage, ModelRequest
 
 from .instructions import INSTRUCTIONS
 from .memory import compact, without_state_block
-from .settings import MODEL, MODEL_SETTINGS
+from .settings import MODEL, MODEL_SETTINGS, PROVIDER_SETTINGS
 from .tools import TOOLS, Microscope
 
 agent = Agent(
@@ -59,7 +64,7 @@ class Assistant:
                     message_history=self.history,
                     deps=self.microscope,
                     model=self.model,
-                    model_settings=MODEL_SETTINGS,
+                    model_settings=model_settings(self.model),
                 )
             except Exception:
                 # When the model call fails after tools already ran (for example an
@@ -79,3 +84,9 @@ class Assistant:
         self.microscope.plans.clear()
         self.microscope.planned_in.clear()
         self.microscope.go_ahead_asked.clear()
+
+
+def model_settings(model: Any) -> dict:
+    """The settings for this model: the shared ones, plus its provider's own."""
+    provider = str(model).split(":")[0]
+    return {**MODEL_SETTINGS, **PROVIDER_SETTINGS.get(provider, {})}

@@ -2,6 +2,11 @@
 
 Nothing here is code. Change the wording here to change how the assistant
 behaves, then check with the evaluation (tests/evals.py) that it still does.
+
+Author: Thom de Hoog, Center for Microscopy and Image Analysis (ZMB), University of Zurich
+        thom.dehoog@zmb.uzh.ch . thomdehoog@gmail.com
+Date: 2026-09-27
+License: MIT
 """
 
 # What the assistant is told to do next, attached to each refusal or failure. It

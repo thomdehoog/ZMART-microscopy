@@ -13,6 +13,11 @@ waiting for ``min_start_time`` is the runner's job.
 
 The bridge and this engine must run on the same computer: each image travels
 as a temporary TIFF file.
+
+Author: Thom de Hoog, Center for Microscopy and Image Analysis (ZMB), University of Zurich
+        thom.dehoog@zmb.uzh.ch . thomdehoog@gmail.com
+Date: 2026-09-27
+License: MIT
 """
 
 from __future__ import annotations

@@ -10,6 +10,11 @@ come from the macro reference installed with NIS (Docs/nis/eng_ar). Units are
 micrometres. Tests replace this class with ``fake.FakeNisApi``.
 
 Standard library only: this runs inside NIS-Elements.
+
+Author: Thom de Hoog, Center for Microscopy and Image Analysis (ZMB), University of Zurich
+        thom.dehoog@zmb.uzh.ch . thomdehoog@gmail.com
+Date: 2026-09-27
+License: MIT
 """
 
 from __future__ import annotations

@@ -97,7 +97,7 @@ and check each answer against NIS:
 8. *Show me the useq sequence for that plan*, *What is new in useq v2?*, and
    *How does the engine move the stage? Show me the code.*
 
-To let Claude Code on the microscope computer do all of this, give it this prompt:
+To let a coding assistant on the microscope computer do all of this, give it this prompt:
 
 ```
 In zmart_drivers/nikon/nis_useq, test the three parts on this NIS-Elements
@@ -117,4 +117,4 @@ anything that looked wrong.
 ```
 
 MIT license. Thom de Hoog, Center for Microscopy and Image Analysis (ZMB),
-University of Zurich.
+University of Zurich. thom.dehoog@zmb.uzh.ch, thomdehoog@gmail.com. 2026-09-27.

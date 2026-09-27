@@ -1,6 +1,12 @@
 """The evaluation harness itself, offline: the case files are sound, a scripted
 model that does what a case expects passes, and one that does not fails with
-reasons. No real model is called here."""
+reasons. No real model is called here.
+
+Author: Thom de Hoog, Center for Microscopy and Image Analysis (ZMB), University of Zurich
+        thom.dehoog@zmb.uzh.ch . thomdehoog@gmail.com
+Date: 2026-09-27
+License: MIT
+"""
 
 import pytest
 

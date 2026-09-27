@@ -5,6 +5,11 @@
 Needs start_bridge.mac running in NIS; skipped when no bridge answers. The
 stage moves at most 20 um in x and 2 um in z, and is moved back afterwards.
 ``-s`` prints what NIS reported.
+
+Author: Thom de Hoog, Center for Microscopy and Image Analysis (ZMB), University of Zurich
+        thom.dehoog@zmb.uzh.ch . thomdehoog@gmail.com
+Date: 2026-09-27
+License: MIT
 """
 
 import pytest

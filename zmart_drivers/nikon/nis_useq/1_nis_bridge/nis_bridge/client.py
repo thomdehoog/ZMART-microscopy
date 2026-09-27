@@ -1,4 +1,10 @@
-"""Socket client for the bridge running inside NIS-Elements."""
+"""Socket client for the bridge running inside NIS-Elements.
+
+Author: Thom de Hoog, Center for Microscopy and Image Analysis (ZMB), University of Zurich
+        thom.dehoog@zmb.uzh.ch . thomdehoog@gmail.com
+Date: 2026-09-27
+License: MIT
+"""
 
 from __future__ import annotations
 

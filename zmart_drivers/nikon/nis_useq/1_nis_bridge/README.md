@@ -165,4 +165,4 @@ its arguments. `g5_regprocs.dll` exports them, and the bridge calls them with
 NIS's own `nis.call_proc`.
 
 MIT license. Thom de Hoog, Center for Microscopy and Image Analysis (ZMB),
-University of Zurich.
+University of Zurich. thom.dehoog@zmb.uzh.ch, thomdehoog@gmail.com. 2026-09-27.

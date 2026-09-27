@@ -1,7 +1,7 @@
 # nis-assistant
 
 A chat window where you ask for things at the Nikon microscope in your own
-words. A language model (Claude `claude-opus-5-5` by default) does them with
+words. A language model (`gemini-3.5-flash-lite` by default) does them with
 the microscope and explains what it did. The model never touches the
 microscope directly: it can only call a small set of tools written here, and
 every tool checks what it is asked before acting. Pydantic AI is the Python
@@ -25,27 +25,27 @@ pip install -e ../2_nis_engine
 pip install -e .
 ```
 
-The model runs at Anthropic, so it needs an API key: create one at
-[console.anthropic.com](https://console.anthropic.com). Each message costs a
-small amount; the provider's pricing page says how much. Start the bridge in
-NIS-Elements as part 1's README describes, then, in the same command window:
+The model runs at its provider, so it needs an API key: for the default
+model, create one at [aistudio.google.com](https://aistudio.google.com). Each
+message costs a small amount; the provider's pricing page says how much. Start
+the bridge in NIS-Elements as part 1's README describes, then, in the same
+command window:
 
 ```
-set ANTHROPIC_API_KEY=...
+set GOOGLE_API_KEY=...
 nis-assistant --output D:\runs
 ```
 
 `set` lasts for this command window only (in PowerShell:
-`$env:ANTHROPIC_API_KEY="..."`). `--output` is where acquisitions are saved;
+`$env:GOOGLE_API_KEY="..."`). `--output` is where acquisitions are saved;
 without it, they go to `nis_assistant_runs` in your home folder.
 
-Another model works too, for example Gemini (key from
-[aistudio.google.com](https://aistudio.google.com)):
+Any model Pydantic AI knows works, for example `anthropic:claude-opus-5-5`:
 
 ```
-pip install -e ".[google]"
-set GOOGLE_API_KEY=...
-nis-assistant --output D:\runs --model google:gemini-3.5-flash-lite
+pip install -e ".[anthropic]"
+set ANTHROPIC_API_KEY=...
+nis-assistant --output D:\runs --model anthropic:claude-opus-5-5
 ```
 
 Things to try: *Where is the stage?* · *What do you see?* · *Is it in focus?* ·
@@ -146,8 +146,8 @@ assistant, with a real model and the fake NIS, and scores the result. Each
 run costs API calls.
 
 ```
-python tests/evals.py --model anthropic:claude-opus-5-5        # needs ANTHROPIC_API_KEY
-python tests/evals.py --model google:gemini-3.5-flash-lite     # needs GOOGLE_API_KEY and the [google] extra
+python tests/evals.py                                          # the default model; needs GOOGLE_API_KEY
+python tests/evals.py --model anthropic:claude-opus-5-5        # another model; needs its key and the [anthropic] extra
 python tests/evals.py --holdout --repeat 3                     # other wording; shows cases that pass only sometimes
 python tests/evals.py --scoreboard evals-*.jsonl               # pass rates per model and per category
 ```
@@ -171,4 +171,4 @@ only fitted it to the cases.
 | `tests/evals.py` | The evaluation with a real model; `eval_cases.json` and `eval_cases_holdout.json`. |
 
 MIT license. Thom de Hoog, Center for Microscopy and Image Analysis (ZMB),
-University of Zurich.
+University of Zurich. thom.dehoog@zmb.uzh.ch, thomdehoog@gmail.com. 2026-09-27.

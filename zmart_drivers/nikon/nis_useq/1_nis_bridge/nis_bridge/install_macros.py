@@ -9,6 +9,11 @@ the template holds plain calls and literals only: no comments, no variables.
 To end the bridge, press the macro Stop button in NIS, or send the bridge a
 ``shutdown`` request. (A separate stop macro cannot work: NIS runs one macro
 at a time, and the bridge loop is that macro.)
+
+Author: Thom de Hoog, Center for Microscopy and Image Analysis (ZMB), University of Zurich
+        thom.dehoog@zmb.uzh.ch . thomdehoog@gmail.com
+Date: 2026-09-27
+License: MIT
 """
 
 from __future__ import annotations

@@ -3,14 +3,20 @@
 The model's instructions and the advice it is given with a refusal are prose
 and stay in ``agent.py``; the numbers and names that one might want to change
 are all here. Times are seconds, distances micrometres.
+
+Author: Thom de Hoog, Center for Microscopy and Image Analysis (ZMB), University of Zurich
+        thom.dehoog@zmb.uzh.ch . thomdehoog@gmail.com
+Date: 2026-09-27
+License: MIT
 """
 
-MODEL = "anthropic:claude-opus-5-5"
+MODEL = "google:gemini-3.5-flash-lite"  # any Pydantic AI model name; --model overrides it
 MODEL_SETTINGS = {
-    "anthropic_effort": "high",  # Opus 5.5 defaults to "medium"
-    "max_tokens": 16000,  # room for thinking plus a full acquisition plan
+    "max_tokens": 16000,  # room for reasoning plus a full acquisition plan
     "parallel_tool_calls": False,  # one action at a time, so each is seen before the next
 }
+# Extra settings for one provider, added when the model name starts with it.
+PROVIDER_SETTINGS = {"anthropic": {"anthropic_effort": "high"}}  # that model defaults to medium
 
 # A stage move that travels further than this from where the stage was when the
 # operator last wrote (on any one axis, in um) needs their go-ahead in the chat.

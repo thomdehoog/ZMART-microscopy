@@ -15,6 +15,11 @@ the engine and the assistant can be tried without a microscope.
 number, so a test can tell which capture ended up in which frame, or the
 picture in ``frame`` when one is set. Needs numpy and tifffile, which the
 bridge itself does not.
+
+Author: Thom de Hoog, Center for Microscopy and Image Analysis (ZMB), University of Zurich
+        thom.dehoog@zmb.uzh.ch . thomdehoog@gmail.com
+Date: 2026-09-27
+License: MIT
 """
 
 from __future__ import annotations

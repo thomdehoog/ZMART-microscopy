@@ -7,6 +7,11 @@ passing; skipped when no bridge answers. The assistant is driven by a scripted
 model, not a real one, so this costs no API calls; the real model is tried by
 hand in the window (see README). Everything stays within 100 um of where the
 stage is, and the stage is moved back afterwards.
+
+Author: Thom de Hoog, Center for Microscopy and Image Analysis (ZMB), University of Zurich
+        thom.dehoog@zmb.uzh.ch . thomdehoog@gmail.com
+Date: 2026-09-27
+License: MIT
 """
 
 import pytest
