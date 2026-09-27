@@ -39,10 +39,9 @@ def _number(args: dict, key: str) -> float:
 
 
 class Commands:
-    def __init__(self, api: Any, read: Readers, request_stop: Any) -> None:
+    def __init__(self, api: Any, read: Readers) -> None:
         self.api = api
         self.read = read
-        self._request_stop = request_stop
 
     def move(self, args: dict) -> dict:
         """Absolute move of any of x, y, z (um); axes left out stay where they are."""
@@ -125,28 +124,6 @@ class Commands:
             raise RuntimeError(f"ImageSaveAs returned but no file appeared at {path}")
         return {"path": path, "pixel_size_um": pixel_size_um if pixel_size_um > 0 else None}
 
-    def shutdown(self, args: dict) -> dict:
-        self._request_stop()
-        return {"stopping": True}
-
-
-OPS = (
-    "ping",
-    "get_position",
-    "get_limits",
-    "move",
-    "get_optical_configurations",
-    "select_optical_configuration",
-    "set_exposure",
-    "get_objectives",
-    "set_objective",
-    "get_pfs",
-    "set_pfs",
-    "autofocus",
-    "snap",
-    "shutdown",
-)
-
 
 COMMANDS = (
     "move",
@@ -156,5 +133,4 @@ COMMANDS = (
     "set_pfs",
     "autofocus",
     "snap",
-    "shutdown",
 )

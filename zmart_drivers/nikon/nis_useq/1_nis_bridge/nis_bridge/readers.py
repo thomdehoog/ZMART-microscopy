@@ -11,22 +11,16 @@ from __future__ import annotations
 from typing import Any
 
 from .nis_dll import PFS_STATUS
-from .protocol import PROTOCOL_VERSION
 from .settings import PFS_ON_STATUSES
-
-BRIDGE_VERSION = "0.2.0"  # of the server inside NIS, reported by ping; not the package
 
 
 class Readers:
     def __init__(self, api: Any) -> None:
         self.api = api
 
-    def ping(self, args: dict) -> dict:
-        return {
-            "bridge": BRIDGE_VERSION,
-            "protocol": PROTOCOL_VERSION,
-            "nis": self.api.version(),
-        }
+    def get_version(self, args: dict) -> str:
+        """The NIS-Elements version, as NIS reports it."""
+        return self.api.version()
 
     def get_position(self, args: dict) -> dict:
         return self.api.get_position()
@@ -59,7 +53,7 @@ class Readers:
 
 
 READS = (
-    "ping",
+    "get_version",
     "get_position",
     "get_limits",
     "get_optical_configurations",
