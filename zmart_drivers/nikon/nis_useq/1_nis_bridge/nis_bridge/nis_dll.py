@@ -1,9 +1,11 @@
-"""The NIS-Elements functions the bridge calls, one thin wrapper each.
+"""C to Python: the NIS-Elements functions the bridge calls, one thin wrapper each.
 
 NIS-Elements ships its own Python, and every NIS macro function (``StgMoveXY``,
-``Capture``, ``ImageSaveAs`` ...) is also exported by ``g5_regprocs.dll``.
-``NisApi`` calls them through ``ctypes``, checks their return codes, and does
-nothing else: the meaning of a command lives in ``commands.py``. Signatures
+``Capture``, ``ImageSaveAs`` ...) is also exported by ``g5_regprocs.dll``, a C
+library. ``NisDll`` calls them through ``ctypes``, turns their return codes
+into Python exceptions and their output values into plain Python, and does
+nothing else: the meaning of a request lives in ``readers.py`` and
+``commands.py``. Signatures
 come from the macro reference installed with NIS (Docs/nis/eng_ar). Units are
 micrometres. Tests replace this class with ``fake.FakeNisApi``.
 
@@ -69,7 +71,7 @@ def _check_negative(value: int, what: str) -> int:
 # ---------------------------------------------------------------------------
 
 
-class NisApi:
+class NisDll:
     def __init__(self) -> None:
         self._dll = ct.cdll.g5_regprocs
         self._functions: dict[str, Any] = {}

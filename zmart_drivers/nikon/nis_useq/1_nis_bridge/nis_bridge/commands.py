@@ -1,14 +1,16 @@
-"""The commands a client may ask for: the bridge's whole vocabulary.
+"""The commands a client may ask for: everything that changes NIS-Elements.
 
-Each public method of ``Operations`` is one command, in the same shape:
+Each public method of ``Commands`` is one command, in the same shape:
 
 1. check the arguments, and refuse bad ones with ``ValueError``;
-2. call NIS through ``self.api`` (see ``nis_api.py``), which raises
+2. call NIS through ``self.api`` (see ``nis_dll.py``), which raises
    ``RuntimeError`` when NIS refuses;
-3. read the state back and return that, not what was asked for.
+3. read the state back through ``self.read`` (see ``readers.py``) and return
+   that, not what was asked for.
 
-To add a command, add a method here and its name to ``OPS``. Nothing else
-changes: the client sends any name in ``OPS``, and the dispatcher runs it.
+To add a command, add a method here and its name to ``COMMANDS``. Nothing
+else changes: the client sends the name, and the dispatcher runs it. A request
+that only reads belongs in ``readers.py`` instead.
 
 Standard library only: this runs inside NIS-Elements.
 """
@@ -18,17 +20,13 @@ from __future__ import annotations
 import os
 from typing import Any
 
-from .nis_api import PFS_STATUS
-from .protocol import PROTOCOL_VERSION
+from .readers import Readers
 from .settings import (
     AUTOFOCUS_MAX_SPEED,
     AUTOFOCUS_RANGE_UM,
     AUTOFOCUS_SPEED,
-    PFS_ON_STATUSES,
     PFS_SETTLE_S,
 )
-
-BRIDGE_VERSION = "0.2.0"  # of the server inside NIS, reported by ping; not the package
 
 
 def _number(args: dict, key: str) -> float:
@@ -40,25 +38,11 @@ def _number(args: dict, key: str) -> float:
         raise ValueError(f"argument {key!r} must be a number") from None
 
 
-class Operations:
-    """Each public method is one request. Arguments are checked here."""
-
-    def __init__(self, api: Any, request_stop: Any) -> None:
+class Commands:
+    def __init__(self, api: Any, read: Readers, request_stop: Any) -> None:
         self.api = api
+        self.read = read
         self._request_stop = request_stop
-
-    def ping(self, args: dict) -> dict:
-        return {
-            "bridge": BRIDGE_VERSION,
-            "protocol": PROTOCOL_VERSION,
-            "nis": self.api.version(),
-        }
-
-    def get_position(self, args: dict) -> dict:
-        return self.api.get_position()
-
-    def get_limits(self, args: dict) -> dict:
-        return self.api.get_limits()
 
     def move(self, args: dict) -> dict:
         """Absolute move of any of x, y, z (um); axes left out stay where they are."""
@@ -68,7 +52,7 @@ class Operations:
         if not target:
             raise ValueError("move needs at least one of 'x', 'y', 'z'")
         if "x" in target or "y" in target:
-            here = self.api.get_position()
+            here = self.read.get_position({})
             x, y = target.get("x", here["x"]), target.get("y", here["y"])
             if "z" in target:
                 self.api.move_xyz(x, y, target["z"])
@@ -76,10 +60,7 @@ class Operations:
                 self.api.move_xy(x, y)
         else:
             self.api.move_z(target["z"])
-        return self.api.get_position()
-
-    def get_optical_configurations(self, args: dict) -> list:
-        return self.api.optical_configurations()
+        return self.read.get_position({})
 
     def select_optical_configuration(self, args: dict) -> dict:
         name = args.get("name")
@@ -94,32 +75,12 @@ class Operations:
             raise ValueError("'exposure_ms' must be positive")
         return {"exposure_ms": self.api.set_exposure_ms(exposure_ms)}
 
-    def get_objectives(self, args: dict) -> dict:
-        if not self.api.nosepiece_present():
-            return {"current": None, "objectives": {}}
-        names = {p: self.api.objective_name(p) for p in range(1, self.api.nosepiece_count() + 1)}
-        return {
-            "current": self.api.nosepiece_position(),
-            "objectives": {p: name for p, name in names.items() if name},
-        }
-
     def set_objective(self, args: dict) -> dict:
         position = args.get("position")
         if not isinstance(position, int) or isinstance(position, bool) or position < 1:
             raise ValueError("'position' must be a nosepiece position (1, 2, ...)")
         self.api.set_nosepiece_position(position)
         return {"current": self.api.nosepiece_position()}
-
-    def get_pfs(self, args: dict) -> dict:
-        if not self.api.pfs_present():
-            return {"present": False, "on": False, "status": None, "meaning": "no PFS"}
-        status = self.api.pfs_status()
-        return {
-            "present": True,
-            "on": status in PFS_ON_STATUSES,
-            "status": status,
-            "meaning": PFS_STATUS.get(status, "unknown"),
-        }
 
     def set_pfs(self, args: dict) -> dict:
         """Switch the Perfect Focus System on (waiting up to ``timeout_s`` to lock) or off."""
@@ -131,7 +92,7 @@ class Operations:
         self.api.set_pfs(on)
         if on:
             self.api.wait_for_pfs(float(args.get("timeout_s", PFS_SETTLE_S)))
-        return self.get_pfs({})
+        return self.read.get_pfs({})
 
     def autofocus(self, args: dict) -> dict:
         range_um = float(args.get("range_um", AUTOFOCUS_RANGE_UM))
@@ -144,7 +105,7 @@ class Operations:
         if rc != 1:
             reason = {0: "focus not found", -3: "image is all black or all white"}
             raise RuntimeError(f"StgFocusInRangeEx: {reason.get(rc, 'failed')} ({rc})")
-        return self.api.get_position()
+        return self.read.get_position({})
 
     def snap(self, args: dict) -> dict:
         """Capture one image, save it as TIFF at ``path``, close its window in NIS.
@@ -180,6 +141,18 @@ OPS = (
     "get_objectives",
     "set_objective",
     "get_pfs",
+    "set_pfs",
+    "autofocus",
+    "snap",
+    "shutdown",
+)
+
+
+COMMANDS = (
+    "move",
+    "select_optical_configuration",
+    "set_exposure",
+    "set_objective",
     "set_pfs",
     "autofocus",
     "snap",

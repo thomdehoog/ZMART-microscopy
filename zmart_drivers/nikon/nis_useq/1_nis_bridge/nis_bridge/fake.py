@@ -1,6 +1,6 @@
 """A fake NIS-Elements: a microscope in memory, for testing without one.
 
-``FakeNisApi`` stands in for ``nis_api.NisApi``: an in-memory microscope whose
+``FakeNisApi`` stands in for ``nis_dll.NisDll``: an in-memory microscope whose
 limits, objective names and optical configurations match the Ti2 simulator.
 ``running_bridge`` puts the real bridge server in front of it, so code built
 on the client (an engine, an assistant) can be tested end to end:
@@ -27,7 +27,7 @@ import numpy as np
 import tifffile
 
 from . import dispatch
-from .nis_api import NisError
+from .nis_dll import NisError
 from .settings import HOST, PORT
 
 IMAGE_SHAPE = (48, 64)  # height, width
