@@ -92,6 +92,24 @@ def check_limits(where: str, target: dict[str, float], limits: dict) -> None:
             )
 
 
+def check_limits_are_ranges(limits: dict[str, dict[str, float]]) -> None:
+    """Raise ValueError when an axis's minimum is not below its maximum."""
+    for axis, limit in limits.items():
+        if not limit["min"] < limit["max"]:
+            raise ValueError(
+                f"{axis}: the minimum must be below the maximum, inside NIS's own limits"
+            )
+
+
+def check_image(image: Any) -> None:
+    """Raise ValueError when the camera gives images this engine cannot save."""
+    if image.ndim != 2:
+        raise ValueError(
+            f"the camera gives colour or multi-plane images (shape {image.shape}), which this "
+            "engine does not save correctly. Set the camera to monochrome in NIS-Elements."
+        )
+
+
 def check_plans(sequence: Any, field_note: str = "") -> None:
     """Refuse Z and grid plans that useq would turn into wrong absolute positions.
 
