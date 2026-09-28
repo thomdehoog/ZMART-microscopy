@@ -59,6 +59,7 @@ the picture to that vendor.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import xml.etree.ElementTree as ET
@@ -568,13 +569,21 @@ def make_slice_copies(
         depth, count = sizes["z"], sizes.get("c", 1)
         origin = float(metadata["origin"]["z"])
         spacing = float(metadata["pixel_size"]["z"])
-        slices, pictures = [], []
+        pictures = []
         for z in range(depth):
             channels = {c: first if z == 0 and c == 0 else load_plane(store, t=0, c=c, z=z)[0]
                         for c in range(count)}
             pictures.append(_shrink_to(_colour_channels(channels), budget_px))
-            slices.append({"z_um": origin + z * spacing + z_shift_um,
-                           "name": f"{Path(store).name}_Z{z:05d}.jpg"})
+        # Refocussing a point rewrites the same store, so its name alone would
+        # hand the new slices the old slices' file names -- and the page, which
+        # keeps each picture it has loaded by name, would go on showing the old
+        # run. A short fingerprint of these very pictures makes the names
+        # change whenever the pictures do, as the per-acquisition hash does for
+        # copies made from the vendor's files below.
+        stamp = _fingerprint(pictures)
+        slices = [{"z_um": origin + z * spacing + z_shift_um,
+                   "name": f"{Path(store).name}_{stamp}_Z{z:05d}.jpg"}
+                  for z in range(depth)]
         low, high = _one_brightening_for_the_whole_scan(pictures)
         for entry, picture in zip(slices, pictures):
             (into / entry["name"]).write_bytes(_as_jpeg(_stretch(picture, low, high), quality))
@@ -598,6 +607,15 @@ def make_slice_copies(
     for entry, picture in zip(slices, pictures):
         (into / entry["name"]).write_bytes(_as_jpeg(_stretch(picture, low, high), quality))
     return slices
+
+
+def _fingerprint(pictures: list) -> str:
+    """Six hex characters that change whenever any of these pictures changes."""
+    digest = hashlib.sha1()
+    for picture in pictures:
+        digest.update(str(picture.shape).encode())
+        digest.update(picture.tobytes())
+    return digest.hexdigest()[:6]
 
 
 def _planes_among(paths: list[Path | str]) -> list[Plane]:

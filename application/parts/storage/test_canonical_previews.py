@@ -99,3 +99,28 @@ def test_focus_slices_are_generated_and_served_at_physical_heights(
     assert pixels[0].max() == 0
     assert pixels[1].max() > 200
     assert pixels[2].max() == 0
+
+
+def test_refocussing_a_point_gives_its_slices_new_names(canonical_store, tmp_path):
+    """The page keeps a slice it has loaded by its name, so a refocussed point
+    whose store was rewritten in place must not reuse the old run's names --
+    or the side view shows the old run's cells beside (or instead of) the new."""
+    into = tmp_path / "slices"
+    before = make_slice_copies(into, [], store=canonical_store)
+    same = make_slice_copies(into, [], store=canonical_store)
+    assert [s["name"] for s in same] == [s["name"] for s in before]
+
+    arrays = _declare_one(
+        canonical_store, canvas_shape=(3, 32, 32), frames=1, channels=2,
+        dtype="uint16", chunk=32, levels=1,
+        voxel_size_um=(2, 1, 1), origin_um=(10, 20, 30),
+        channel_blocks=[
+            {"label": label, "color": color,
+             "window": {"start": 0, "end": 2000, "min": 0, "max": 65535}}
+            for label, color in (("green", "00FF00"), ("magenta", "FF00FF"))
+        ],
+        ome_zarr_version="0.5",
+    )
+    arrays[0][0, 0, 2, :, :] = 1000   # the layer now sits in the top plane
+    after = make_slice_copies(into, [], store=canonical_store)
+    assert not {s["name"] for s in after} & {s["name"] for s in before}
