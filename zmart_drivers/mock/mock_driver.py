@@ -983,6 +983,12 @@ def configurations(connection: dict | None = None) -> list:
     return mock_setup.list_configurations(connection)
 
 
+def output_root(connection: dict | None = None) -> str:
+    """Where this rig's runs go, before any session: the root it was told,
+    or its default -- the same answer ``get_info`` gives once connected."""
+    return str(Path((connection or {}).get("output_root") or "mock-output"))
+
+
 def register_mock() -> None:
     """Register this mock driver into the controller's registry.
 
@@ -1007,5 +1013,6 @@ def register_mock() -> None:
             "run_procedure": run_procedure,
             "get_info": get_info,
             "configurations": configurations,
+            "output_root": output_root,
         },
     )

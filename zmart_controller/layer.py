@@ -216,6 +216,22 @@ def get_configurations(instrument: dict[str, Any]) -> list[dict]:
     return [] if lister is None else list(lister(connection))
 
 
+def get_output_root(instrument: dict[str, Any]) -> str | None:
+    """Where this machine keeps its runs, without connecting, or ``None``.
+
+    A driver answers from what it can read before a session -- the
+    connection's own ``output_root``, or where its vendor software saves.
+    A driver that cannot say answers ``None``, and the page learns the root
+    when the session opens.
+    """
+    ops, connection = resolve(instrument)
+    finder = ops.get("output_root")
+    if finder is None:
+        return None
+    root = finder(connection)
+    return None if root is None else str(root)
+
+
 def set_instrument(instrument: dict[str, Any]) -> Session:
     """Select an instrument and open the session.
 

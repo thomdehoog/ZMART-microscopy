@@ -25,6 +25,8 @@
   --bad: #b91c1c;
   --warn-bg: #fffbeb;
   --warn-ink: #c2410c;
+  /* an unconfirmed step: amber, darker than a warning's orange and never red */
+  --confirm-ink: #d97706;
   /* a height the operator moved by hand — kept apart from the warning's
      orange, because a point somebody edited is not a point in trouble */
   --edit-ink: #eab308;
@@ -86,6 +88,7 @@
     --bad: #f87171;
     --warn-bg: #221a08;
     --warn-ink: #fb923c;
+    --confirm-ink: #f59e0b;
   --edit-ink: #fde047;
     --warn-line: #57430f;
     --mark-context: #64748b;
@@ -268,7 +271,20 @@ button.danger:disabled { opacity: 0.4; cursor: default; }
    step shows its result underneath, which says it ran. So this comes first
    and the active rule wins on the step that is both. */
 .step.done .step-n { background: var(--good); color: #ffffff; }
+/* Done, but made under settings that have since changed above it: the
+   badge goes orange and stays so until the step is confirmed or run again. */
+.step.stale .step-n { background: var(--confirm-ink); color: #ffffff; }
 .step.active .step-n { background: var(--accent); color: #ffffff; }
+/* The word an orange step carries at its right on the rail: small, in the
+   badge's amber, and not a press. */
+.review-tag {
+  margin-left: auto; flex: none; font-size: 11px; font-weight: 600; line-height: 1;
+  color: var(--confirm-ink); border: 1px solid var(--confirm-ink); border-radius: 999px;
+  padding: 3px 8px; pointer-events: none; user-select: none;
+}
+/* Confirm all settings, in Step 10's box, wears the badges' amber. */
+button.run.confirm { border-color: var(--confirm-ink); color: var(--confirm-ink); }
+button.run.confirm:hover:enabled { background: var(--warn-bg); }
 :root[data-theme="dark"] .step.done .step-n,
 :root[data-theme="dark"] .step.active .step-n { color: #04121d; }
 @media (prefers-color-scheme: dark) {
@@ -2395,3 +2411,31 @@ canvas.livecv[hidden] { display: none; }
 .scan-summary .v { color: var(--ink-1); }
 .side-act:empty { display: none; }
 .side-act .action-hint { font-size: 12px; }
+
+/* A box greyed out for now: what it holds is on screen, and says so, but
+   nothing in it can be pressed. */
+.side-group.parked .side-group-body { opacity: 0.55; }
+
+/* Step 10's finish: the run's numbers as a small table, and the burst
+   over them. The burst is drawn on a canvas the height of the box's
+   head, never outside it. */
+.protocol-stats { display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; font-size: 12.5px; color: var(--ink-2); margin: 6px 0 2px; }
+.protocol-stats .v { font-family: var(--mono); color: var(--ink-1); text-align: right; }
+.protocol-box { position: relative; }
+.protocol-burst { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+
+/* The name a protocol is saved under, joined to its press, as Step 4's
+   count is joined to Per tileset. */
+.protocol-save { display: grid; grid-template-columns: minmax(0, 1fr) auto; height: var(--control); margin-bottom: 8px; }
+.protocol-save input {
+  width: 100%; height: 100%; padding: 0 8px; font: inherit; font-size: 12.5px; color: var(--ink);
+  background: var(--surface-2); border: 1px solid var(--line-strong); border-right: none; border-radius: 6px 0 0 6px;
+}
+.protocol-save input:focus { outline: none; }
+.protocol-save .sf-flat { height: 100%; border-radius: 0 6px 6px 0; padding: 0 12px; }
+
+/* Step 5's test tiles: the count joined to its press, as Step 4's pairs
+   are, and Clear all beside it. */
+.test-tiles-row { display: flex; gap: 8px; align-items: stretch; }
+.test-tiles-row .fp-lay { grid-template-columns: 42px auto; flex: none; }
+.test-tiles-row > .sf-flat { flex: none; width: auto; height: var(--control); padding: 0 10px; }

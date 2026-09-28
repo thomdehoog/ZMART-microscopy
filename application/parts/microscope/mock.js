@@ -35,6 +35,7 @@ import { makeRng } from "./pretend-sample/rng.js";
 import { METRICS, METRIC_KEYS, sweep } from "./pretend-sample/sweep.js";
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const writtenProtocols = [];
 
 /** How long a pretend tile test segments for: a moment a hand can reach. */
 const TILE_TEST_MS = 1200;
@@ -340,8 +341,8 @@ export const backend = {
    * sweep, and the record says which height and why, as the live one does.
    */
   async acquireTargets({
-    positions, state = null, append = false, focus = null, ms = 2600, onProgress, onDoing,
-  } = {}) {
+    positions, state = null, append = false, focus = null, ms = 2600, onProgress, onDoing, zOffsetUm = 0,
+} = {}) {
     void state;
     void append;
     stopAsked.acquire = false;
@@ -361,6 +362,7 @@ export const backend = {
         found = { job: focus.state?.job ?? null, z_map_um: z, z_peak_um: got?.zAuto ?? null, found: Number.isFinite(got?.zAuto) };
         if (found.found) z = got.zAuto;
       }
+      if (Number.isFinite(z)) z += zOffsetUm;
       say("imaging");
       await wait(Math.max(60, ms / Math.max(1, positions.length)));
       const stableAt = p.position_index ?? index;
@@ -385,6 +387,27 @@ export const backend = {
    * object by id, invented from the id so the same objects always land in
    * the same place. The objects are the ones discovery found.
    */
+  /* Protocols kept for the page's lifetime, the way this backend keeps
+     everything: written by a finished run, listed newest first. */
+  async protocols() {
+    return [...writtenProtocols].reverse();
+  },
+  async saveProtocol(protocol) {
+    writtenProtocols.push({
+      id: `target-acquisition_${(writtenProtocols.length + 1).toString(16).padStart(6, "0")}`,
+      written: Date.now() / 1000,
+      protocol: JSON.parse(JSON.stringify(protocol)),
+    });
+    return { written: writtenProtocols[writtenProtocols.length - 1].id };
+  },
+  async saveProtocolAs(protocol, name) {
+    writtenProtocols.push({
+      id: (name || `saved ${writtenProtocols.length + 1}`), written: Date.now() / 1000, saved: true,
+      protocol: JSON.parse(JSON.stringify(protocol)),
+    });
+    return { written: name, id: name };
+  },
+
   async computePlot({ kind, ids = null, onDoing } = {}) {
     stopAsked.plot = false;
     const over = ids ?? discovered;

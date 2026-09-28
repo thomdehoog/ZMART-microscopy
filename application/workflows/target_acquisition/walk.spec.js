@@ -9,11 +9,14 @@
  * through the mock instrument window's own method, the same code its
  * buttons run.
  *
- * All nine steps are walked: connect, the carrier, the overview plan, the
- * focus map measured through the analysis, the overview scanned onto the
- * picture, objects detected on it with the page's fast method, a gate drawn
- * on the feature plot, scan areas placed under a cap, and the targets
- * acquired. Where detection cannot run on the machine the walk keeps the
+ * All ten steps are walked: connect, the carrier, the overview plan, the
+ * focus map measured through the analysis, three test tiles of the overview
+ * scanned onto the picture, objects detected on them with the page's fast
+ * method, a gate drawn on the feature plot, scan areas placed under a cap,
+ * the targets acquired -- and then the protocol: a setting edited turns the
+ * steps below it orange, Accept all turns them green, Run protocol walks
+ * every step again over the whole plan and writes the protocol, and a
+ * fresh session opens on it with every step orange. Where detection cannot run on the machine the walk keeps the
  * page's own reason on screen and stops there, since the last three steps
  * stand on what detection finds. Set `OPERATOR_EVIDENCE_DIR` to keep a
  * screenshot of every screen the operator sees.
@@ -48,7 +51,7 @@ function chromaOf({ data, channels }) {
 }
 
 const PORT = Number(process.env.ACQUISITION_BRIDGE_PORT ?? 8833);
-const A_WHOLE_WALK = 900_000;
+const A_WHOLE_WALK = 2_400_000;
 
 /* The mock keeps its instrument state in a file named by the environment. A
    folder of its own, so the walk starts from a machine nobody has touched
@@ -56,6 +59,8 @@ const A_WHOLE_WALK = 900_000;
    the mock's default: the bridge connects on the configuration it holds. */
 const home = fs.mkdtempSync(path.join(os.tmpdir(), "zmart-acquisition-"));
 process.env.ZMART_MOCK_STATE = path.join(home, "instrument.json");
+/* The saved protocols go into a library of the walk's own, not the machine's. */
+process.env.ZMART_PROTOCOL_LIBRARY = path.join(home, "protocols");
 
 let shots = 0;
 async function shot(page, name) {
@@ -192,12 +197,47 @@ test.describe("the target acquisition workflow, walked screen by screen", () => 
       await rest(1500);
       await shot(page, "scan-before");
       await showTheChannel(page);
+      /* Three test tiles drawn at random: the rehearsal scans only these,
+         and the box and the summary say so. */
+      await expect(page.locator("#test-tiles-count")).toHaveAttribute("data-green", "0");
+      /* Shift-drag over the first two tiles turns them green; the same drag
+         again turns them back. */
+      await framePlan(page);
+      {
+        const box = await page.locator("#stage-canvas").boundingBox();
+        const onScreen = ([x, y]) => { const p = window.__theStageCanvas.project(x, y); return Array.isArray(p) ? { x: p[0], y: p[1] } : p; };
+        const a = await page.evaluate(onScreen, [plan[0].x, plan[0].y]);
+        const b = await page.evaluate(onScreen, [plan[1].x, plan[1].y]);
+        const drag = async () => {
+          await page.keyboard.down("Shift");
+          await page.mouse.move(box.x + a.x - 60, box.y + a.y - 60);
+          await page.mouse.down();
+          await page.mouse.move(box.x + b.x + 40, box.y + b.y + 40, { steps: 24 });
+          await page.mouse.up();
+          await page.keyboard.up("Shift");
+          await rest(300);
+        };
+        await drag();
+        expect((await page.evaluate(() => window.__theRunState())).testTiles.sort()).toEqual([0, 1]);
+        await shot(page, "scan-shift-drag");
+        await drag();
+        expect((await page.evaluate(() => window.__theRunState())).testTiles).toEqual([]);
+      }
+      await page.locator("#test-n").fill("3");
+      await page.locator("#test-random").click();
+      await rest(400);
+      await expect(page.locator("#test-tiles-count")).toHaveAttribute("data-green", "3");
+      expect((await page.evaluate(() => window.__theRunState())).testTiles).toHaveLength(3);
+      await shot(page, "scan-test-tiles");
+      const TEST_TILES = 3;
       await page.locator(".panel.on button.step-run").click();
-      await expect.poll(async () => (await ask(page, PORT, "/api/scan")).done, { timeout: 400_000 }).toBe(plan.length);
+      await expect.poll(async () => (await ask(page, PORT, "/api/scan")).done, { timeout: 400_000 }).toBe(TEST_TILES);
       await expect.poll(async () => !(await ask(page, PORT, "/api/scan")).running, { timeout: 400_000 }).toBe(true);
       const overview = await ask(page, PORT, "/api/scan");
-      expect(overview).toMatchObject({ error: null, stopped: false, done: plan.length, of: plan.length });
-      expect(overview.records).toHaveLength(plan.length);
+      expect(overview).toMatchObject({ error: null, stopped: false, done: TEST_TILES, of: TEST_TILES });
+      expect(overview.records).toHaveLength(TEST_TILES);
+      expect((await page.evaluate(() => window.__theRunState())).scannedFields, "the fields are the test tiles")
+        .toHaveLength(TEST_TILES);
       expect(overview.records.filter(record => record.zarr_error)).toEqual([]);
       await expect(page.locator(".panel.on button.step-run")).toHaveText("Run again", { timeout: 60_000 });
       await rest(3000);
@@ -370,7 +410,9 @@ test.describe("the target acquisition workflow, walked screen by screen", () => 
       /* Proved on the pixels, not the button: in grey the three channels of
          a pixel agree; in colour they do not. */
       const colourPicture = await photograph(page, "#picture-host", 0.6);
-      expect(chromaOf(greyPicture), "grey means grey").toBeLessThan(4);
+      /* Against each other, not against zero: the plan's blue stands on
+         the six tiles the test scan did not take, in both pictures alike. */
+      expect(chromaOf(colourPicture) - chromaOf(greyPicture), "grey means grey").toBeGreaterThan(15);
       expect(chromaOf(colourPicture), "colour came back").toBeGreaterThan(20);
 
       /* Step 6: one tile through the real detection. Running it draws the
@@ -561,27 +603,14 @@ test.describe("the target acquisition workflow, walked screen by screen", () => 
         await rest(600);
         await expect(page.locator("#gate-list .gate-row")).toHaveCount(1);
         await shot(page, "discover-gated");
-        /* Complex feature dimensions: PCA ticked and Compute pressed, it is
-           computed over every candidate through the analysis, and pca_1 and
-           pca_2 become axes like any other pair. */
-        await expect(page.locator('#gate-fx option[value="pca_1"]')).toHaveCount(0);
-        await page.locator("#reduce-pca").check();
-        await expect(page.locator('#gate-fx option[value="pca_1"]'), "a tick alone computes nothing").toHaveCount(0);
-        await page.locator("#reduce-compute").click();
-        await expect(page.locator('#gate-fx option[value="pca_1"]')).toHaveCount(1, { timeout: 300_000 });
-        await expect(page.locator("#reduction .reduce-note.warn")).toHaveCount(0);
-        await expect(page.locator('#gate-fx option[value="umap_1"]')).toHaveCount(0);
-        await page.locator("#gate-fx").selectOption("pca_1");
-        await page.locator("#gate-fy").selectOption("pca_2");
-        await rest(600);
-        await shot(page, "discover-components");
+        /* Complex feature dimensions: on screen, greyed out, saying so. A
+           gate on those axes could not be carried by a protocol. */
         await expect(page.locator("#reduction .side-group-title")).toHaveText("Complex feature dimensions");
-        /* Unticked and computed again, the two columns go and the plot is
-           back on a measured pair. */
-        await page.locator("#reduce-pca").uncheck();
-        await page.locator("#reduce-compute").click();
+        await expect(page.locator("#reduce-pca")).toBeDisabled();
+        await expect(page.locator("#reduce-umap")).toBeDisabled();
+        await expect(page.locator("#reduce-compute")).toBeDisabled();
+        await expect(page.locator("#reduction .reduce-note")).toHaveText("not available yet");
         await expect(page.locator('#gate-fx option[value="pca_1"]')).toHaveCount(0);
-        await expect(page.locator("#gate-fx")).toHaveValue("intensity_mean");
         await expect(page.locator("#gate-list .gate-row")).toHaveCount(1);
 
         /* Step 8: the target job, its optics recorded, a cap per tileset,
@@ -636,6 +665,11 @@ test.describe("the target acquisition workflow, walked screen by screen", () => 
         await expect(page.locator("#target-focus-recording .rec-row")).toHaveCount(0);
         await record(page, "target-focus-recording", "target af");
         await expect(page.locator("#target-focus-recording .rec-row")).toHaveCount(1);
+        /* The Z offset, in its own box: every target is taken that much
+           above the peak its stack found. */
+        await expect(page.locator("#target-offset .side-group-title")).toHaveText("Target Z offset");
+        await page.locator("#target-z-offset").fill("2");
+        await page.locator("#target-z-offset").dispatchEvent("input");
         await shot(page, "acquire-focus-on");
         /* The overview went grey for the masks; arriving here the operator
            wants to see the sample again, so it is back in colour. */
@@ -680,6 +714,9 @@ test.describe("the target acquisition workflow, walked screen by screen", () => 
         expect(acquired.error).toBeNull();
         expect(acquired.records.filter(record => record.zarr_error)).toEqual([]);
         expect(acquired.records.length, "the ledger holds a record a tile").toBe(run.targetTiles);
+        for (const one of acquired.records) {
+          expect(one.requested_position_um.z - one.focus.z_peak_um, "taken 2 µm above the peak").toBeCloseTo(2, 6);
+        }
         /* A tile chosen in the list is where the operator is looking: the
            picture centres on it at the zoom in hand and Tile frames it; Tile
            set frames the tileset it lies in. Carrier is untouched by any of it. */
@@ -733,6 +770,187 @@ test.describe("the target acquisition workflow, walked screen by screen", () => 
         await rest(3200);
         expect(imageRequests.length, "idle publication polling does not refetch images").toBe(beforeIdle);
         console.log({ bake, aggregateImageRequests: beforeIdle, idleImageRequests: 0 });
+      }
+
+      /* Step 10. Nothing is orange after a run done in order, so the press
+         is live. A setting edited above -- the detection threshold -- turns
+         every done step below it orange and the press waits on them by
+         name; Accept all turns them green again. */
+      if (await page.locator('.step.done:has-text("Acquire Targets")').count()) {
+        await walkTo(page, "Run protocol");
+        await expect(page.locator(".panel.on button.step-run")).toBeEnabled();
+        /* The settings can be written as the protocol without a run. */
+        await page.locator("#protocol-export").click();
+        await expect(page.locator("#protocol-export-note")).toHaveText("protocol written");
+        expect((await ask(page, PORT, "/api/protocols")).protocols).toHaveLength(1);
+        /* And saved by name into the machine's library: listed with the run's. */
+        await page.locator("#protocol-save-name").fill("walk kidney");
+        await page.locator("#protocol-save").click();
+        await expect(page.locator("#protocol-export-note")).toHaveText("saved as walk kidney");
+        expect((await ask(page, PORT, "/api/protocols")).protocols.map((one) => one.id)).toContain("walk kidney");
+        await shot(page, "protocol-before");
+        await walkTo(page, "Detect objects");
+        await page.locator("#detect-threshold").fill("120");
+        await page.locator("#detect-threshold").dispatchEvent("input");
+        await rest(300);
+        await expect(page.locator(".step.stale")).toHaveCount(3);
+        await expect(page.locator('.step.stale:has-text("Detect objects")')).toHaveCount(0);
+        await expect(page.locator('.step.stale:has-text("Acquire Targets")')).toHaveCount(1);
+        await shot(page, "protocol-orange");
+        /* No pill on the rail; Step 10 is never orange itself, its press
+           waits greyed, and one press in its box confirms everything. */
+        await expect(page.locator(".confirm-mini")).toHaveCount(0);
+        await expect(page.locator(".step.stale .review-tag")).toHaveCount(3);
+        await expect(page.locator('.step.stale:has-text("Run protocol")')).toHaveCount(0);
+        await walkTo(page, "Run protocol");
+        await expect(page.locator(".panel.on button.step-run")).toBeDisabled();
+        await expect(page.locator("#protocol-accept")).toHaveText("Confirm all settings");
+        await page.locator("#protocol-accept").click();
+        await expect(page.locator(".step.stale")).toHaveCount(0);
+        await expect(page.locator("#protocol-accept")).toHaveCount(0);
+        await expect(page.locator(".panel.on button.step-run")).toBeEnabled();
+        /* The run: the rail follows it step by step, the canvas answers a
+           pan while it runs, and it ends green with the protocol written. */
+        await page.locator(".panel.on button.step-run").click();
+        await expect(page.locator('.step:has(.step-name:text-is("Scan the overview")) .spin')).toBeVisible({ timeout: 600_000 });
+        await expect(page.locator(".panel.on button.step-run")).toHaveText("Interrupt");
+        /* The focus map stands, so the run has four steps; the ones not
+           reached yet are not done; the bar under Step 10 says where it is. */
+        await expect(page.locator("#protocol-progress-line")).toContainText("step 1 of 4 · Scan the overview");
+        await expect(page.locator('.step.done:has-text("Detect objects")')).toHaveCount(0);
+        await expect(page.locator('.step.done:has-text("Acquire Targets")')).toHaveCount(0);
+        await expect(page.locator('.step.done:has-text("Focus strategy")')).toHaveCount(1);
+        await shot(page, "protocol-running-scan");
+        const before = await page.evaluate(() => window.__theStageCanvas.view());
+        await page.evaluate(() => { const v = window.__theStageCanvas.view();
+          window.__theStageCanvas.lookAt({ zoom: v.zoom, centre: { x: v.centre.x + 500, y: v.centre.y } }); });
+        await rest(300);
+        const moved = await page.evaluate(() => window.__theStageCanvas.view());
+        expect(moved.centre.x - before.centre.x, "the canvas answers the hand mid-run").toBeGreaterThan(400);
+        await expect(page.locator('.step.done:has-text("Run protocol")')).toBeVisible({ timeout: 1_500_000 });
+        await expect(page.locator(".step.stale")).toHaveCount(0);
+        /* The numbers, Rerun protocol, and Rerun confetti at its right. */
+        await expect(page.locator("#protocol-stats")).toContainText("Targets acquired");
+        await expect(page.locator(".panel.on button.step-run")).toHaveText("Rerun protocol");
+        await expect(page.locator("#protocol-again")).toHaveText("Rerun confetti");
+        /* The burst is on a canvas that has its size, and paints something. */
+        await rest(400);
+        expect(await page.evaluate(() => {
+          const cv = document.querySelector("canvas.protocol-burst");
+          if (!cv || !cv.width || !cv.height) return 0;
+          const data = cv.getContext("2d").getImageData(0, 0, cv.width, cv.height).data;
+          let lit = 0;
+          for (let at = 3; at < data.length; at += 4) if (data[at]) lit += 1;
+          return lit;
+        }), "confetti on the canvas").toBeGreaterThan(20);
+        await shot(page, "protocol-confetti");
+        await rest(1800);
+        const whole = await ask(page, PORT, "/api/scan");
+        expect(whole.done, "the protocol scanned the whole plan").toBe(plan.length);
+        const written = await ask(page, PORT, "/api/protocols");
+        /* The run's own, and the one saved by name earlier. */
+        expect(written.protocols.map((one) => one.id).sort()).toEqual(
+          [...written.protocols.filter((one) => one.id.startsWith("target-acquisition_")).map((one) => one.id), "walk kidney"].sort());
+        const ofTheRun = written.protocols.find((one) => one.id.startsWith("target-acquisition_"));
+        expect(ofTheRun.protocol.testTiles.tiles).toHaveLength(3);
+        expect(ofTheRun.protocol.detect.threshold).toBe(120);
+        expect(ofTheRun.protocol.targetZOffsetUm).toBe(2);
+        await shot(page, "protocol-done");
+
+        /* A fresh session opened on it: every step's settings are back, and
+           every step but Connect is orange, to be confirmed on this sample. */
+        await walkTo(page, "Connect");
+        await page.locator(".panel.on .session-buttons button.danger").click();
+        await rest(1500);
+        /* The protocol is chosen before the session opens, from the list
+           the machine gives without one, and locks with the row after. */
+        /* New, the run's, the saved one, and Load from file. */
+        await expect(page.locator("#protocol-pick option")).toHaveCount(4, { timeout: 30_000 });
+        await expect(page.locator("#protocol-pick")).toBeEnabled();
+        /* A file of the operator's own: the saved protocol written to disk
+           and picked through the file input. */
+        const fromDisk = path.join(home, "mine.json");
+        fs.writeFileSync(fromDisk, JSON.stringify(ofTheRun.protocol));
+        await page.locator("#protocol-file").setInputFiles(fromDisk);
+        await rest(600);
+        await expect(page.locator("#protocol-pick")).toHaveValue("mine");
+        await page.locator("#protocol-pick").selectOption(ofTheRun.id);
+        await rest(500);
+        await page.locator(".panel.on .session-buttons button.run").click();
+        await expect(page.locator('.step.done:has-text("Connect")')).toBeVisible({ timeout: 60_000 });
+        await expect(page.locator("#protocol-pick")).toBeDisabled();
+        await rest(800);
+        await expect(page.locator("#protocol-note")).toBeHidden();
+        /* Only Connect is green; 2, 3 and 4 remember the file and turn green
+           as they are stepped onto; settling the focus strategy brings 5-10
+           back, orange. */
+        await expect(page.locator(".step.done")).toHaveCount(1);
+        await expect(page.locator(".step.stale")).toHaveCount(0);
+        const reopened = await page.evaluate(() => window.__theRunState());
+        expect(reopened.testTiles).toHaveLength(3);
+        expect(reopened.focus.points).toBeGreaterThan(0);
+        await shot(page, "protocol-reopened");
+        await walkTo(page, "Define Carrier");
+        await expect(page.locator(".step.done")).toHaveCount(2);
+        await walkTo(page, "Overview scan area");
+        /* No reading comes back from the file: the optical configuration
+           is imported afresh, and only then is the area's plan laid. */
+        await expect(page.locator("#sf-preset .setting-box.done")).toHaveCount(0);
+        await expect(page.locator(".step.done")).toHaveCount(2);
+        inTheInstrument.choose("Overview");
+        await record(page, "sf-preset", "overview");
+        await expect(page.locator(".step.done")).toHaveCount(3);
+        await expect(page.locator(".step.stale")).toHaveCount(0);
+        await walkTo(page, "Focus strategy");
+        await expect(page.locator("#focus-preset .setting-box.done")).toHaveCount(0);
+        inTheInstrument.choose("Focussing");
+        await record(page, "focus-preset", "af");
+        /* Green only once the map has been run: Scan the overview waits. */
+        await expect(page.locator(".step.done")).toHaveCount(3);
+        await expect(page.locator('.step:has-text("Scan the overview")')).toBeDisabled();
+        await expect(page.locator(".step.stale")).toHaveCount(0);
+        /* Only a focus map measured on this sample brings the rest back. */
+        await page.locator(".panel.on button.step-run").click();
+        await expect(page.locator(".panel.on button.step-run")).toHaveText("Run again", { timeout: 600_000 });
+        await expect(page.locator(".step.done")).toHaveCount(10);
+        await expect(page.locator(".step.stale")).toHaveCount(6);
+        await expect(page.locator('.step.stale:has-text("Scan the overview")')).toHaveCount(1);
+        /* The loaded gate is on view without a single object on this sample. */
+        await walkTo(page, "Discover Targets");
+        await expect(page.locator("#gate-list .gate-row")).toHaveCount(1);
+        await page.locator("#gate-list .gate-open").first().click();
+        await expect(page.locator("#gate-fx")).toHaveValue("intensity_mean");
+        await expect(page.locator("#gate-fy")).toHaveValue("eccentricity");
+        await shot(page, "protocol-reopened-gate");
+        await shot(page, "protocol-reopened-rest-orange");
+        await walkTo(page, "Scan the overview");
+        await expect(page.locator("#test-tiles-count")).toHaveAttribute("data-green", "3");
+        await shot(page, "protocol-reopened-test-tiles");
+        /* Run on this sample from the loaded settings: the target frame
+           comes from the loaded recording, so scan areas are placed. */
+        await walkTo(page, "Scan the overview");
+        /* Nothing green, nothing to scan: the press waits for tiles. */
+        await page.locator("#test-clear").click();
+        await expect(page.locator(".panel.on button.step-run")).toBeDisabled();
+        await page.locator("#test-n").fill("3");
+        await page.locator("#test-random").click();
+        await rest(300);
+        await page.locator(".panel.on button.step-run").click();
+        await expect(page.locator(".panel.on button.step-run")).toHaveText("Run again", { timeout: 400_000 });
+        await walkTo(page, "Detect objects");
+        await page.locator(".panel.on button.step-run").click();
+        await expect(page.locator(".panel.on button.step-run")).toHaveText("Run again", { timeout: 600_000 });
+        await walkTo(page, "Discover Targets");
+        await expect(page.locator('.step.stale:has-text("Discover Targets")')).toHaveCount(0);
+        await walkTo(page, "Target scan area");
+        await expect(page.locator(".panel.on button.step-run")).toBeDisabled();
+        inTheInstrument.choose("Target");
+        await record(page, "target-type", "target");
+        await page.locator(".panel.on button.step-run").click();
+        await expect(page.locator(".panel.on button.step-run")).toHaveText("Run again", { timeout: 60_000 });
+        await rest(800);
+        expect((await page.evaluate(() => window.__theRunState())).targetTiles, "tiles placed from loaded settings").toBeGreaterThan(0);
+        await shot(page, "protocol-reopened-placed");
       }
 
       await walkTo(page, "Connect");

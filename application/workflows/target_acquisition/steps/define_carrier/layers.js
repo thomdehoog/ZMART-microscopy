@@ -9,7 +9,7 @@
 export function carrierLayers(theRun) {
   const {
     run, css, drawnIn, carrierWidget, activeMode, crosshair,
-    redraw, anchorsChanged,
+    redraw, anchorsChanged, indexOfStep,
   } = theRun;
 
   /* How near a press has to be to take hold of an anchor: a few pixels,
@@ -30,7 +30,10 @@ export function carrierLayers(theRun) {
     label: "Carrier",
     explains: "The plate the sample is mounted in — its outline and its wells. The "
       + "room the run happens in.",
-    shown: run.done.has("carrier"),
+    /* Not before the step that says what the sample is mounted in: a run
+       opened on a protocol knows its carrier from the file, and drawing it
+       under Connect showed a plate nobody had placed yet. */
+    shown: run.done.has("carrier") && run.activeIdx >= indexOfStep("carrier"),
     paint: (frame) => {
       const ctx = frame.context;
       const { place, scale } = drawnIn(frame);
@@ -83,7 +86,7 @@ export function carrierLayers(theRun) {
            its stage reading, so dragging it re-states where the carrier is and
            the drawing follows. */
         redraw();
-        anchorsChanged?.();
+        anchorsChanged?.(true);
         return true;
       }
       run.anchorHeld = -1;

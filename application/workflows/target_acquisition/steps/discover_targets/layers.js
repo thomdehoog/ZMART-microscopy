@@ -157,6 +157,12 @@ function dressedMask(label, img, layer) {
 /** The masks are forgotten when a discovery begins: a field's mask from a
     tile test would otherwise stand in for the run's own until the page was
     reopened. */
+/* The tiles a field index names: the plan as it was scanned, which is how
+   the bridge numbered the fields it answered with; the plan itself before
+   any scan. Read this and never `run.plan` for a result, so a picture stays
+   where it was taken when the plan is edited afterwards. */
+const fieldsOf = (run) => run.scanned?.plan ?? run.plan;
+
 export function forgetTheMasks() {
   maskImages.clear();
   dressedMasks.clear();
@@ -169,7 +175,8 @@ export function forgetTheMasks() {
 }
 
 export function targetLayers(theRun) {
-  const { run, css, drawnIn, activeMode, redraw, whereTheStageIs, toCarrier } = theRun;
+  const { run, css, drawnIn, activeMode, redraw, whereTheStageIs, toCarrier, indexOfStep,
+  } = theRun;
   /* Before a scan has taken anything, the current field is the one the
      stage stands over: its position, in the overview's frame. */
   const beforeTheScan = () => activeMode === "scan" && !(run.tilesShown > 0);
@@ -202,7 +209,7 @@ export function targetLayers(theRun) {
   const theCurrentField = () => {
     const focus = theFocusFrame();
     if (focus) return focus;
-    if (beforeTheScan()) return theFieldUnderTheStage(run.plan[0]?.frameUm);
+    if (beforeTheScan()) return theFieldUnderTheStage(fieldsOf(run)[0]?.frameUm);
     if (activeMode === "select" || activeMode === "targets") {
       const tiles = theTargetTiles();
       if (!tiles.length) return theFieldUnderTheStage(run.targetFrameUm);
@@ -213,7 +220,7 @@ export function targetLayers(theRun) {
       const t = tiles[Math.min(run.detect.targetTile ?? 0, tiles.length - 1)];
       return { x: t.x, y: t.y, frameUm: t.frameUm ?? run.targetFrameUm };
     }
-    return run.plan[run.detect.tile];
+    return fieldsOf(run)[run.detect.tile];
   };
   /* How far a press reaches, in world units. Taken from the last paint --
      which always precedes a press -- because `reaches` is handed a place and
@@ -270,7 +277,7 @@ export function targetLayers(theRun) {
         const dress = run.targetsDress;
         ctx.globalAlpha = dress.alpha;
         for (const [field, { wanted, cells }] of byField) {
-          const t = run.plan[field];
+          const t = fieldsOf(run)[field];
           const fieldLabel = run.fieldLabels[field];
           /* A field off the screen draws nothing, and asks for nothing. */
           if (t) {
@@ -340,13 +347,13 @@ export function targetLayers(theRun) {
       if (!base) return;
       const layers = (run.masks ?? []).filter((one) => one.kind === "overview" && one.shown);
       if (!layers.length) return;
-      for (let i = 0; i < run.plan.length; i++) {
+      for (let i = 0; i < fieldsOf(run).length; i++) {
         const label = run.fieldLabels[i];
         /* Only fields the run has examined: a mask file a tile test left
            beside a field's picture is the test's, and stood in for the
            run's the moment Detect objects was pressed. */
         if (!label || !run.examined.has(i)) continue;
-        const t = run.plan[i];
+        const t = fieldsOf(run)[i];
         const half = t.frameUm / 2;
         const [x, y] = place(t.x - half, t.y - half);
         const size = t.frameUm * scale;
@@ -376,6 +383,10 @@ export function targetLayers(theRun) {
        view in on it. */
     field: theCurrentField,
     paint: (frame) => {
+      /* Drawn from the scan step on: the frame is what a press on Tile
+         brings in on every step, but a run opened on a protocol has a plan
+         before the operator has walked to it, and it drew on Connect. */
+      if (run.activeIdx < indexOfStep("scan")) return;
       /* While the focus frame stands, the focus layer draws it on the
          point; drawn here too, two frames stood for one position. The
          field stays the layer's, so Tile still has somewhere to go. */
@@ -398,7 +409,7 @@ export function targetLayers(theRun) {
 
       /* And the one under the pointer, lightly: the press it invites picks
          it as the test position. */
-      const over = run.plan[run.detect.hovered];
+      const over = fieldsOf(run)[run.detect.hovered];
       if (over && run.detect.hovered !== run.detect.tile) {
         const oh = over.frameUm / 2;
         const [hx, hy] = place(over.x - oh, over.y - oh);

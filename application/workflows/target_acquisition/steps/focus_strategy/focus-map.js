@@ -44,7 +44,7 @@ import { activeRecording } from "../../../../parts/microscope/recordings.js";
 export function openTheFocusMap(ctx) {
   const {
     run, backend, stage, el, css, sizeCanvas, step,
-    focusControls, renderActionBar, renderSide, tileChosen,
+    focusControls, renderActionBar, renderSide, tileChosen, edited, focusRan,
   } = ctx;
 
 const carrierSpan = () => carrierWidget.extentUm(run.carrier);
@@ -684,6 +684,7 @@ function focusPressed(px, py) {
 
   const [x, y] = pointerInCarrier(px, py);
   f.points.push({ x, y, z: null });
+  edited?.();
   /* The one just put down is the one being worked on: it is what the hand is
      pointing at, and the next thing said — a drag, Delete — is about it
      rather than about whatever was picked before. */
@@ -955,6 +956,7 @@ function renderPointList() {
       f.points.splice(i, 1);
       f.selected = Math.max(0, Math.min(f.selected, f.points.length - 1));
       refitSurface();
+      edited?.();
       renderPointList(); drawTrace(); stage.draw(); renderActionBar();
     });
 
@@ -1608,6 +1610,7 @@ traceCv.addEventListener("pointerdown", (e) => {
       f.metric = hit.key;
       f.points = f.points.map((p) => settled(p));
       refitSurface();
+      edited?.();
       drawTrace(); renderPointList(); stage.draw(); renderActionBar();
     }
     return;
@@ -1654,12 +1657,14 @@ el("fp-count-all").addEventListener("input", () => {
   const v = parseInt(el("fp-count-all").value, 10);
   if (Number.isNaN(v)) return;
   run.focus.perCarrier = Math.min(99, Math.max(1, v));
+  edited?.();
 });
 el("fp-count-all").addEventListener("blur", () => { renderFocusBar(); });
 el("fp-count").addEventListener("input", () => {
   const v = parseInt(el("fp-count").value, 10);
   if (Number.isNaN(v)) return;
   run.focus.perField = Math.min(99, Math.max(1, v));
+  edited?.();
   renderFocusBar();
 });
 el("fp-count").addEventListener("blur", () => { renderFocusBar(); });
@@ -1681,6 +1686,7 @@ const layPoints = (over) => {
   f.points = visitOrder(patternFocusPoints(over));
   picked().clear();
   f.selected = 0;
+  edited?.();
   stage.draw(); renderPointList(); drawTrace(); renderActionBar();
 };
 el("fp-place").addEventListener("click", () => layPoints("tileset"));
@@ -1704,6 +1710,7 @@ window.addEventListener("keydown", (e) => {
   f.selected = Math.max(0, Math.min(f.selected, f.points.length - 1));
   f.hovered = -1;
   refitSurface();
+  edited?.();
   stage.draw(); renderPointList(); drawTrace(); renderActionBar();
 });
 
@@ -1720,6 +1727,7 @@ el("fp-clear").addEventListener("click", () => {
   f.selected = 0;
   f.applied = false;
   picked().clear();
+  edited?.();
   /* The step is not done any more either: with the map thrown away, the
      press at the foot of the panel makes one for the first time again. */
   run.done.delete(step(run.activeIdx).id);
@@ -1749,6 +1757,7 @@ const runAgain = async (from, button) => {
     status.quiet();
   }
   f.selected = Math.max(0, Math.min(f.selected, f.points.length - 1));
+  focusRan?.();
   stage.draw(); renderPointList(); drawTrace(); renderFocusBar(); renderActionBar(); renderSide();
 };
 
@@ -1810,6 +1819,7 @@ el("fp-runnew").addEventListener("click", async (e) => {
   }
   refitSurface();
   f.selected = Math.max(0, Math.min(f.selected, f.points.length - 1));
+  focusRan?.();
   stage.draw(); renderPointList(); drawTrace(); renderFocusBar(); renderActionBar(); renderSide();
 });
 
@@ -1992,6 +2002,7 @@ function refitSurface() {
          hand lets go, and the rows renumber to match. */
       if (held?.moved) {
         settleTheRoute();
+        edited?.();
         stage.draw(); renderPointList(); drawTrace(); renderActionBar();
       }
       return held ?? {};

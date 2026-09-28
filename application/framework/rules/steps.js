@@ -56,6 +56,30 @@ export function firstIncomplete(steps, done) {
   return i === -1 ? steps.length - 1 : i;
 }
 
+/**
+ * The stale set after the step `id` was edited.
+ *
+ * A done step stands on what the steps before it settled: the focus points
+ * sit on the scan area, the gates on the detection. Change one and everything
+ * after it was made under settings that no longer hold — done, but asking to
+ * be confirmed or run again, which the rail shows in orange. The edited step
+ * itself is not stale: the operator just settled it. Steps that are not done
+ * have nothing to be stale about and are left alone.
+ */
+export function editedAt(steps, done, stale, id) {
+  const at = steps.findIndex((s) => s.id === id);
+  const next = new Set(stale);
+  next.delete(id);
+  steps.forEach((s, i) => {
+    if (i > at && done.has(s.id)) next.add(s.id);
+  });
+  return next;
+}
+
+/** The stale steps in rail order — a step not done is never stale. */
+export const staleSteps = (steps, done, stale) =>
+  steps.filter((s) => done.has(s.id) && stale.has(s.id));
+
 /** A step is reachable once everything before it is done. */
 export const isReachable = (steps, done, index) =>
   index <= firstIncomplete(steps, done);

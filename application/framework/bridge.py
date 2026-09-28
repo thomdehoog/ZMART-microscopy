@@ -106,6 +106,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import sys
 import threading
@@ -1387,6 +1388,90 @@ def _the_middle_of(record: dict) -> tuple:
     return float(first["x_um"]), float(first["y_um"])
 
 
+#: What a finished run leaves beside its pictures: the settings it ran with,
+#: as the page wrote them. The next session lists these and opens on one.
+PROTOCOL_FILE = "protocol.json"
+
+#: And the protocols saved on purpose, by name, for this machine: under
+#: ProgramData, where the driver configurations live, so a saved protocol
+#: outlives any one run's folder (Thom, 2026-09-28).
+PROTOCOL_LIBRARY = Path(os.environ.get("ZMART_PROTOCOL_LIBRARY")
+                        or Path(os.environ.get("ProgramData", str(Path.home()))) / "ZMART-microscopy" / "protocols")
+
+
+def _library_protocols() -> list:
+    if not PROTOCOL_LIBRARY.is_dir():
+        return []
+    found = []
+    for path in PROTOCOL_LIBRARY.glob("*.json"):
+        try:
+            protocol = json.loads(path.read_text(encoding="utf-8"))
+            written = path.stat().st_mtime
+        except (OSError, ValueError):
+            continue
+        found.append({"id": path.stem, "written": written, "protocol": protocol, "saved": True})
+    return found
+
+
+def _save_protocol_to_library(asked: dict) -> dict:
+    """Write the settings into the library under the name given, or the time."""
+    protocol = asked.get("protocol")
+    if not isinstance(protocol, dict):
+        raise ValueError("the protocol must be the run's settings, as an object")
+    name = str(asked.get("name") or "").strip()
+    safe = "".join(ch if ch.isalnum() or ch in "-_ ." else "_" for ch in name).strip() or time.strftime("%Y-%m-%d_%H-%M-%S")
+    PROTOCOL_LIBRARY.mkdir(parents=True, exist_ok=True)
+    path = PROTOCOL_LIBRARY / f"{safe}.json"
+    path.write_text(json.dumps(protocol, indent=2), encoding="utf-8")
+    return {"written": str(path), "id": path.stem}
+
+
+def _protocols(connection: dict | None = None) -> dict:
+    """Every protocol under the machine's output root, newest first, settings inline.
+
+    With a session open the root is the run folder's parent. Before one,
+    the root the bridge was started with, or what the driver can say for
+    the connection without opening it (the mock's default, the folder beside
+    LAS X's AutoSave); a driver that cannot say gives an empty list, and the
+    page asks again once connected. A file that does not parse is left out
+    rather than failing the list -- one damaged run must not hide the others.
+    """
+    if _run is not None:
+        root = _run.parent
+    elif _output_root is not None:
+        root = Path(_output_root)
+    elif connection:
+        said = zmart_controller.get_output_root(connection)
+        root = Path(said) if said else None
+    else:
+        root = None
+    found = _library_protocols()
+    if root is None or not root.is_dir():
+        found.sort(key=lambda one: one["written"], reverse=True)
+        return {"protocols": found}
+    for path in root.glob(f"{EXPERIMENT}_*/{PROTOCOL_FILE}"):
+        try:
+            protocol = json.loads(path.read_text(encoding="utf-8"))
+            written = path.stat().st_mtime
+        except (OSError, ValueError):
+            continue
+        found.append({"id": path.parent.name, "written": written, "protocol": protocol})
+    found.sort(key=lambda one: one["written"], reverse=True)
+    return {"protocols": found}
+
+
+def _save_protocol(asked: dict) -> dict:
+    """Write the run's settings into the run folder, replacing an earlier write."""
+    if _run is None:
+        raise RuntimeError("no session is open, so there is no run folder to write the protocol into")
+    protocol = asked.get("protocol")
+    if not isinstance(protocol, dict):
+        raise ValueError("the protocol must be the run's settings, as an object")
+    path = _run / PROTOCOL_FILE
+    path.write_text(json.dumps(protocol, indent=2), encoding="utf-8")
+    return {"written": str(path)}
+
+
 def _label_for(index: int, position: dict) -> str:
     """Where on the sample this capture is, in the workflow's own label.
 
@@ -2010,6 +2095,8 @@ class _Bridge(BaseHTTPRequestHandler):
                 self._answer(_the_targets(int(since) if since is not None else None))
             elif path == "/api/plots/compute":
                 self._answer(dict(_plots))
+            elif path == "/api/protocols":
+                self._answer(_protocols())
             elif path == "/api/plots/columns":
                 kind = urllib.parse.parse_qs(query or "").get("kind", [""])[0]
                 self._answer(_plot_columns(kind))
@@ -2056,6 +2143,13 @@ class _Bridge(BaseHTTPRequestHandler):
                 self._answer(_compute_plot(asked))
             elif self.path == "/api/plots/compute/stop":
                 self._answer(_stop_plot())
+            elif self.path == "/api/protocol":
+                self._answer(_save_protocol(asked))
+            elif self.path == "/api/protocol/save":
+                self._answer(_save_protocol_to_library(asked))
+            elif self.path == "/api/protocols":
+                # Before connecting: what the driver can say about the root.
+                self._answer(_protocols(asked.get("connection")))
             elif self.path == "/api/targets/acquire/begin":
                 self._answer(_begin_target_run(asked))
             elif self.path == "/api/targets/acquire/focus":

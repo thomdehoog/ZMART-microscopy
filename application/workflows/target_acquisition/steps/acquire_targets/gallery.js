@@ -220,7 +220,23 @@ export default {
     focusBox.body.append(focusRow, focusRecording);
     showTheFocusLine();
 
-    side.append(focusBox.group, progress.group, listBox.group, pairBox.group, act);
+    /* A height added to every target on top of where it would be taken --
+       the map's height, or the peak of its own stack when focussing is on.
+       One number, in its own box, so it is seen (Thom, 2026-09-28). */
+    const offsetBox = sideGroup("Target Z offset");
+    offsetBox.group.id = "target-offset";
+    const offsetRow = document.createElement("div");
+    offsetRow.className = "param";
+    offsetRow.innerHTML = '<label>Z offset</label><input type="number" step="0.5" id="target-z-offset"><span class="hint">µm</span>';
+    const offsetInput = offsetRow.querySelector("input");
+    offsetInput.value = String(ctx.zOffsetUm?.() ?? 0);
+    offsetInput.addEventListener("input", () => {
+      const v = Number(offsetInput.value);
+      if (Number.isFinite(v)) ctx.setZOffsetUm?.(v);
+    });
+    offsetBox.body.append(offsetRow);
+
+    side.append(focusBox.group, offsetBox.group, progress.group, listBox.group, pairBox.group, act);
     host.append(side);
 
     const targetIdOf = (tile) => tile?.targetId ?? tile?.covers?.[0] ?? null;

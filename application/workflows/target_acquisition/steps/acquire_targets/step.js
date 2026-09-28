@@ -17,7 +17,8 @@ export const acquireAndCurate = {
   mode: "targets",
   /* Acquiring needs to know what with: the type is a reading taken off the
      instrument in this step's own channel, the way an optics preset is. */
-  ready: ({ targetTiles, targetType }) =>
+  ready: ({ targetTiles, targetType, targetFocusOn, targetFocus }) =>
     (!targetTiles?.length ? "add the tiles first"
-      : hasRecording(targetType) ? null : "record the acquisition type first"),
+      : !hasRecording(targetType) ? "record the acquisition type first"
+        : targetFocusOn && !hasRecording(targetFocus) ? "import the focussing settings first" : null),
 };

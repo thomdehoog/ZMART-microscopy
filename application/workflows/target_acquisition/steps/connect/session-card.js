@@ -102,7 +102,7 @@ export function renderSessionCard(host, ctx) {
       const listed = ctx.configurations();
       const conf = document.createElement("label");
       conf.className = "field";
-      conf.innerHTML = "<span>Configuration</span><select></select>";
+      conf.innerHTML = "<span>Driver config</span><select></select>";
       const confSel = conf.querySelector("select");
       const when = (iso) => (iso ? new Date(iso).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }) : "");
       if (ctx.offersNewConfiguration?.()) {
@@ -117,7 +117,7 @@ export function renderSessionCard(host, ctx) {
       for (const c of listed) {
         const o = document.createElement("option");
         o.value = c.id;
-        o.textContent = `Configuration · ${when(c.created_at)}` + (c.has?.limits ? "" : " · no limits");
+        o.textContent = `Driver config · ${when(c.created_at)}` + (c.has?.limits ? "" : " · no limits");
         confSel.append(o);
       }
       confSel.value = session.configuration ?? "";
@@ -127,6 +127,69 @@ export function renderSessionCard(host, ctx) {
         ctx.changed();
       });
       form.append(conf);
+    }
+    /* The protocol to open on, under the driver configuration: a new one,
+       or one a finished run wrote on this machine. The list is the
+       machine's, known only through the session, so the row says so until
+       the session is open and then fills -- and stays live while the rows
+       above it lock, since choosing is applying every step's settings. */
+    if (ctx.protocols) {
+      const listed = ctx.protocols();
+      const chosen = ctx.protocolChosen?.() ?? null;
+      const row = document.createElement("label");
+      row.className = "field";
+      row.innerHTML = "<span>Protocol</span><select></select>";
+      const pick = row.querySelector("select");
+      pick.id = "protocol-pick";
+      const when = (seconds) => new Date(seconds * 1000)
+        .toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+      const fresh = document.createElement("option");
+      fresh.value = "";
+      fresh.textContent = listed.length ? "New protocol" : "New protocol — none written on this machine yet";
+      pick.append(fresh);
+      /* The most recent few, saved ones by name and runs by their time;
+         the chosen one stays listed however old; and a file of the
+         operator's own, picked through the system's dialog. */
+      const recent = listed.slice(0, 8);
+      if (chosen && !recent.some((one) => one.id === chosen)) {
+        const held = listed.find((one) => one.id === chosen);
+        if (held) recent.push(held);
+      }
+      for (const one of recent) {
+        const o = document.createElement("option");
+        o.value = one.id;
+        o.textContent = one.saved || one.fromFile ? `${one.id} · ${when(one.written)}` : `run · ${when(one.written)} · ${one.id.slice(-6)}`;
+        pick.append(o);
+      }
+      const fromFile = document.createElement("option");
+      fromFile.value = "__file__";
+      fromFile.textContent = "Load from file…";
+      pick.append(fromFile);
+      const fileInput = document.createElement("input");
+      fileInput.type = "file";
+      fileInput.accept = ".json,application/json";
+      fileInput.id = "protocol-file";
+      fileInput.hidden = true;
+      fileInput.addEventListener("change", () => {
+        const file = fileInput.files?.[0];
+        if (file) ctx.chooseProtocolFromFile?.(file);
+        pick.value = chosen ?? "";
+      });
+      pick.value = chosen ?? "";
+      /* Chosen before the session opens and locked with the rest of the
+         row once it has: a run is opened on one protocol. */
+      pick.disabled = locked;
+      pick.addEventListener("change", () => {
+        if (pick.value === "__file__") { fileInput.click(); return; }
+        ctx.chooseProtocol(pick.value || null);
+      });
+      form.append(row, fileInput);
+      const note = document.createElement("p");
+      note.className = "setup-note";
+      note.id = "protocol-note";
+      note.textContent = ctx.protocolNote?.() ?? "";
+      note.hidden = !note.textContent;
+      form.append(note);
     }
     card.append(form);
   }

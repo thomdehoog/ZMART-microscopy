@@ -13,7 +13,7 @@
 
 import { describe, it, expect } from "vitest";
 import {
-  numbered, firstIncomplete, isReachable, blockedBecause, panelsFor,
+  numbered, firstIncomplete, isReachable, blockedBecause, panelsFor, editedAt, staleSteps,
 } from "../../framework/rules/steps.js";
 import { assembleWorkflows } from "../../framework/rules/finding-workflows.js";
 import { connect } from "../../workflows/target_acquisition/steps/connect/step.js";
@@ -40,9 +40,48 @@ describe("numbering is derived, so reordering costs nothing", () => {
     expect(out.map((s) => s.n)).toEqual(["1", "2a", "2b", "3"]);
   });
 
-  it("numbers target acquisition straight through, one to nine", () => {
+  it("numbers target acquisition straight through, one to ten", () => {
     expect(WORKFLOWS.target_acquisition.steps.map((s) => s.n))
-      .toEqual(["1", "2", "3", "4", "5", "6", "7", "8", "9"]);
+      .toEqual(["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"]);
+  });
+});
+
+/* A step that was settled once and then had something before it changed is
+   done but stale: orange on the rail, asking to be confirmed or run again.
+   Editing a step stales every done step after it and leaves the edited step
+   green — the operator just settled it. */
+describe("editing a step stales the ones after it", () => {
+  const steps = WORKFLOWS.target_acquisition.steps;
+  const all = new Set(steps.map((s) => s.id));
+
+  it("stales every done step after the edited one, not the edited one", () => {
+    const stale = editedAt(steps, all, new Set(), "scanfields");
+    expect([...stale]).toEqual(["focus", "scan", "detect", "gate", "select", "acquire", "protocol"]);
+  });
+
+  it("leaves steps that are not done alone", () => {
+    const done = new Set(["connect", "carrier", "scanfields", "focus"]);
+    expect([...editedAt(steps, done, new Set(), "carrier")]).toEqual(["scanfields", "focus"]);
+  });
+
+  it("keeps what was already stale", () => {
+    const stale = editedAt(steps, all, new Set(["acquire"]), "gate");
+    expect([...stale].sort()).toEqual(["acquire", "protocol", "select"]);
+  });
+
+  it("editing the edited step again unstales it", () => {
+    const stale = editedAt(steps, all, new Set(["focus", "scan"]), "focus");
+    expect(stale.has("focus")).toBe(false);
+    expect(stale.has("scan")).toBe(true);
+  });
+
+  it("names the stale steps in rail order", () => {
+    const stale = new Set(["acquire", "focus", "connect"]);
+    expect(staleSteps(steps, all, stale).map((s) => s.id)).toEqual(["connect", "focus", "acquire"]);
+  });
+
+  it("a step that is not done is never stale, whatever the set says", () => {
+    expect(staleSteps(steps, new Set(["connect"]), new Set(["focus"]))).toEqual([]);
   });
 });
 
@@ -129,7 +168,10 @@ describe("readiness belongs to the step, not the frame", () => {
   });
 
   it("restriction wants something gated; acquisition wants the tiles laid", () => {
-    expect(blockedBecause(byId("select"), run())).toMatch(/nothing gated/);
+    /* Two different answers: no objects on this sample at all, and objects
+       that no gate lets through. */
+    expect(blockedBecause(byId("select"), run())).toMatch(/detect objects/);
+    expect(blockedBecause(byId("select"), run({ cells: new Map([[1, {}]]) }))).toMatch(/nothing gated/);
     expect(blockedBecause(byId("acquire"), run())).toMatch(/add the tiles/);
     expect(blockedBecause(byId("acquire"), run({ gated: new Set([1]) }))).toMatch(/add the tiles/);
     expect(blockedBecause(byId("acquire"), run({ targetTiles: [{ id: 1 }] }))).toBeNull();
@@ -168,6 +210,7 @@ describe("panels follow the step", () => {
       gate: ["canvas"],
       select: ["canvas"],
       acquire: ["canvas"],
+      protocol: ["canvas"],
     });
   });
 
@@ -244,7 +287,7 @@ describe("workflows compose the catalogue rather than restating it", () => {
   it("walks target acquisition in this order", () => {
     expect(ids("target_acquisition")).toEqual([
       "connect", "carrier", "scanfields", "focus",
-      "scan", "detect", "gate", "select", "acquire",
+      "scan", "detect", "gate", "select", "acquire", "protocol",
     ]);
   });
 
@@ -281,7 +324,7 @@ describe("workflows compose the catalogue rather than restating it", () => {
      the step still completes, and nothing happens in between. */
   it("every step names work the page knows how to do, or none", () => {
     const known = new Set([
-      "carrier", "scanfields", "focus", "scan", "detect", "gate", "select", "targets"]);
+      "carrier", "scanfields", "focus", "scan", "detect", "gate", "select", "targets", "protocol"]);
     for (const wf of Object.keys(WORKFLOWS)) {
       for (const s of WORKFLOWS[wf].steps) {
         if (s.mode) expect(known.has(s.mode), `${s.id} -> ${s.mode}`).toBe(true);

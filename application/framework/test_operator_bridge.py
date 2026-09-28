@@ -1841,3 +1841,72 @@ def test_the_components_are_really_computed_over_a_detected_population(monkeypat
     columns = bridge._plot_columns("pca")
     assert columns["columns"] == ["pca_1", "pca_2"]
     assert sorted(columns["ids"]) == sorted(f"P{i}_obj1" for i in range(12))
+
+
+# ---- the protocol: the run's settings, written beside its pictures
+
+def test_a_finished_run_writes_its_protocol_where_the_next_session_lists_it(monkeypatch):
+    with tempfile.TemporaryDirectory() as root:
+        run = Path(root) / "target-acquisition_a1b2c3"
+        run.mkdir()
+        monkeypatch.setattr(bridge, "_run", run)
+        written = bridge._save_protocol({"protocol": {"version": 1, "carrier": {"rows": 2}}})
+        assert Path(written["written"]) == run / "protocol.json"
+        assert json.loads((run / "protocol.json").read_text(encoding="utf-8")) == {
+            "version": 1, "carrier": {"rows": 2}}
+
+        older = Path(root) / "target-acquisition_000000"
+        older.mkdir()
+        (older / "protocol.json").write_text('{"version": 1, "carrier": {"rows": 1}}', encoding="utf-8")
+        # an earlier run, written earlier
+        import os
+        stamp = time.time() - 3600
+        os.utime(older / "protocol.json", (stamp, stamp))
+        broken = Path(root) / "target-acquisition_ffffff"
+        broken.mkdir()
+        (broken / "protocol.json").write_text("{not json", encoding="utf-8")
+
+        listed = bridge._protocols()["protocols"]
+        assert [one["id"] for one in listed] == ["target-acquisition_a1b2c3", "target-acquisition_000000"]
+        assert listed[1]["protocol"] == {"version": 1, "carrier": {"rows": 1}}
+
+
+def test_a_saved_protocol_lives_in_the_library_and_is_listed_with_the_runs(monkeypatch):
+    with tempfile.TemporaryDirectory() as root:
+        monkeypatch.setattr(bridge, "PROTOCOL_LIBRARY", Path(root) / "protocols")
+        monkeypatch.setattr(bridge, "_run", None)
+        monkeypatch.setattr(bridge, "_output_root", None)
+        written = bridge._save_protocol_to_library({"protocol": {"version": 1}, "name": "kidney / 20x"})
+        assert Path(written["written"]).name == "kidney _ 20x.json"
+        listed = bridge._protocols()["protocols"]
+        assert [one["id"] for one in listed] == ["kidney _ 20x"]
+        assert listed[0]["saved"] is True
+        unnamed = bridge._save_protocol_to_library({"protocol": {"version": 1}})
+        assert Path(unnamed["written"]).suffix == ".json"
+        assert len(bridge._protocols()["protocols"]) == 2
+
+
+def test_without_a_session_there_is_no_protocol_to_list_or_write(monkeypatch):
+    monkeypatch.setattr(bridge, "_run", None)
+    monkeypatch.setattr(bridge, "_output_root", None)
+    assert bridge._protocols() == {"protocols": []}
+    with pytest.raises(RuntimeError, match="no session"):
+        bridge._save_protocol({"protocol": {}})
+
+
+def test_before_a_session_the_list_comes_from_the_root_the_driver_can_name(monkeypatch):
+    with tempfile.TemporaryDirectory() as root:
+        run = Path(root) / "target-acquisition_a1b2c3"
+        run.mkdir()
+        (run / "protocol.json").write_text('{"version": 1}', encoding="utf-8")
+        monkeypatch.setattr(bridge, "_run", None)
+        monkeypatch.setattr(bridge, "_output_root", None)
+        connection = {**mock_setup.mock_connection(), "output_root": root} if hasattr(mock_setup, "mock_connection") else None
+        if connection is None:
+            from zmart_drivers.mock import mock_driver
+            connection = {"vendor": "mock", "microscope": "mock-scope", "api": "mock-api", "output_root": root}
+            monkeypatch.setattr(bridge.zmart_controller, "get_output_root",
+                                lambda c: mock_driver.output_root(c))
+        listed = bridge._protocols(connection)["protocols"]
+        assert [one["id"] for one in listed] == ["target-acquisition_a1b2c3"]
+        assert listed[0]["protocol"] == {"version": 1}
