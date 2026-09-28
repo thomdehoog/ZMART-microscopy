@@ -17,6 +17,7 @@ import { detectCells } from "./steps/discover_targets/step.js";
 import { selectCells } from "./steps/refine_targets/step.js";
 import { targetScanArea } from "./steps/target_scan_area/step.js";
 import { acquireAndCurate } from "./steps/acquire_targets/step.js";
+import { runProtocol } from "./steps/run_protocol/step.js";
 
 /* Every run that drives the microscope starts the same way: open the session,
    say what the sample is mounted in, and say where on it to look. Written once
@@ -37,4 +38,5 @@ export const steps = [
   selectCells,
   targetScanArea,
   acquireAndCurate,
+  runProtocol,
 ];

@@ -10,6 +10,7 @@
  */
 
 import { sideGroup } from "../../../../framework/window/panels.js";
+import { hasRecording } from "../../../../parts/microscope/recordings.js";
 
 export const targetScanArea = {
   id: "select",
@@ -19,7 +20,11 @@ export const targetScanArea = {
   panels: [],
   ms: 600,
   mode: "select",
-  ready: ({ gated }) => (gated.size ? null : "nothing gated yet"),
+  /* Said for what is missing: no objects on this sample is a different
+     answer from objects that no gate lets through. */
+  ready: ({ gated, cells, targetType }) => (!hasRecording(targetType) ? "import the target settings first"
+    : gated.size ? null
+      : cells?.size ? "nothing gated yet" : "detect objects on this sample first"),
 };
 
 /**

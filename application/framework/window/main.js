@@ -10,7 +10,9 @@ import { watchTheRun }
 import { openTheStage } from "../../workflows/target_acquisition/shared/stage.js";
 import { openTheFocusMap }
   from "../../workflows/target_acquisition/steps/focus_strategy/focus-map.js";
-import { blockedBecause, isReachable, panelsFor } from "../rules/steps.js";
+import { blockedBecause, editedAt, isReachable, panelsFor, staleSteps } from "../rules/steps.js";
+import { applyProtocol, protocolFits, protocolFrom } from "./protocol.js";
+import { burst } from "./confetti.js";
 import { assembleWorkflows } from "../rules/finding-workflows.js";
 import { watchStagePosition } from "../../workflows/target_acquisition/shared/stage-position.js";
 import {
@@ -36,6 +38,7 @@ import { planScanAreas }
 import { backend as pretendBackend } from "../../parts/microscope/mock.js";
 import { backend as liveBackend } from "../../parts/microscope/live.js";
 import { centres, DEFAULT_CARRIER, describeCarrier } from "../../workflows/target_acquisition/shared/carriers.js";
+import { sharePoints } from "../../workflows/target_acquisition/shared/scanfields.js";
 import {
   emptySlot, hasRecording, withRecording, withoutRecording, withActive,
   activeRecording, nextReadingIndex,
@@ -240,6 +243,8 @@ let stageWatch = null;
        a focussing job of its own, read at the targets' magnification. */
     targetFocusOn: false,
     targetFocus: emptySlot("autofocus", 1),
+    /* Added to every target's height on top of where it would be taken. */
+    targetZOffsetUm: 0,
     carrier: { ...DEFAULT_CARRIER },
     /* Points put on the carrier drawing, in the carrier's own coordinates, to
        be driven to on the microscope. Placed the way focus points are: the
@@ -257,12 +262,35 @@ let stageWatch = null;
     wf: WORKFLOWS[WORKFLOW_ASKED_FOR] ? WORKFLOW_ASKED_FOR : DEFAULT_WORKFLOW,
     activeIdx: 0,
     done: new Set(),
+    /* Done, but made under settings that have since changed above it:
+       orange on the rail, asking to be confirmed or run again. A step is
+       here only while it is also done. */
+    stale: new Set(),
     /* Which steps have actually been run, as against settled by doing the
        thing they are about. Only a step that ran can be run *again*, and a
        button offering that on a step nobody has pressed is a button lying
        about what happened. */
     ran: new Set(),
     running: null,
+    /* The protocol run -- Step 10 walking the steps in turn -- and the
+       operator's Interrupt of it, latched so a step without a brake of its
+       own ends the walk at its next look. */
+    protocol: { running: false, interrupted: false, at: 0, of: 0, within: null, summary: null },
+    /* The tiles the overview is rehearsed on: plan indices pressed green in
+       Step 5. Empty means the whole plan. */
+    testTiles: new Set(),
+    /* The protocols this machine has written, listed after connecting; the
+       one this run was opened on, or null for a run from scratch; and the
+       sentence the Protocol box shows about it. */
+    protocols: [],
+    protocolChosen: null,
+    protocolNote: "",
+    /* The plan as it was scanned -- the tiles sent, in the order sent -- and
+       which plan index each was. Every result is read through this and not
+       through `plan`, so a field's picture stays where it was taken when the
+       plan is edited afterwards, and a scan of a few tiles numbers its
+       fields the way the bridge does: by their place in what was sent. */
+    scanned: null,
     notes: {},
     tabs: [],             // worked out from the step, before anything is drawn
     tab: null,
@@ -403,6 +431,7 @@ let stageWatch = null;
       renderSetup(); renderActionBar();
       return Promise.resolve();
     }
+    listProtocols();
     return backend.configurations(connection).then((list) => {
       state.configurations = list ?? [];
       const offersNew = Boolean(backend.offersNewConfiguration);
@@ -483,11 +512,14 @@ let stageWatch = null;
     }
     state.sideMounted = null;
     Object.assign(state, {
-      activeIdx: 0, done: new Set(), ran: new Set(), running: null, notes: {},
+      activeIdx: 0, done: new Set(), stale: new Set(), ran: new Set(), running: null, notes: {},
+      protocol: { running: false, interrupted: false, at: 0, of: 0, within: null, summary: null },
+      testTiles: new Set(), scanned: null,
+      protocols: [], protocolChosen: null, protocolNote: "", protocolPending: false,
       overviewPreset: emptySlot("acquisition"),
       focusPreset: emptySlot("autofocus"),
       targetType: emptySlot("acquisition", 1),
-      targetFocusOn: false, targetFocus: emptySlot("autofocus", 1),
+      targetFocusOn: false, targetFocus: emptySlot("autofocus", 1), targetZOffsetUm: 0,
       carrier: { ...DEFAULT_CARRIER }, anchors: [], anchoring: false,
       fields: [], plan: [], checks: [],
       tabs: [], tab: null, tilesShown: 0,
@@ -515,12 +547,14 @@ let stageWatch = null;
 
     steps().forEach((s, i) => {
       const done = state.done.has(s.id);
+      const stale = done && state.stale.has(s.id);
       const active = i === state.activeIdx;
-      const running = state.running === s.id;
+      const running = state.running === s.id || (s.mode === "protocol" && state.protocol.running);
       const reachable = isReachable(steps(), state.done, i);
 
       const b = document.createElement("button");
-      b.className = "step" + (active ? " active" : "") + (done ? " done" : "") + (reachable ? "" : " locked");
+      b.className = "step" + (active ? " active" : "") + (done ? " done" : "")
+        + (stale ? " stale" : "") + (reachable ? "" : " locked");
       b.type = "button";
       if (!reachable) b.disabled = true;
 
@@ -530,18 +564,31 @@ let stageWatch = null;
         `<span class="step-n">${s.n}</span><span class="step-name"></span>`;
       head.querySelector(".step-name").textContent = s.title;
       if (running) head.insertAdjacentHTML("beforeend", '<span class="spin"></span>');
+      /* An orange step says what it asks for, at its right: a look. A word,
+         not a press -- confirming is one press for all of them, in Step 10
+         (Thom, 2026-09-28). */
+      if (stale) head.insertAdjacentHTML("beforeend", '<span class="review-tag">review</span>');
       b.append(head);
-
       /* Number and title, nothing else: the rail is navigation, the green
          badge already says done, and what a step produced is on the canvas
          and in the action bar. A note under every finished step read as a
          second, worse copy of the run. */
 
       b.addEventListener("click", () => {
-        if (state.running || !reachable) return;
+        if (state.running || state.protocol.running || !reachable) return;
         state.activeIdx = i;
         if (step(i).id === "carrier") carrierSettled();
         if (step(i).id === "scanfields") scanfieldsSettled();
+        /* The gates have no press: looking at them applies them to the
+           objects found on this sample, and that is the step settled. With
+           no objects yet there is nothing to apply and it stays orange. */
+        const anOrangeStepBefore = steps().slice(0, i).some((s) => state.done.has(s.id) && state.stale.has(s.id));
+        if (step(i).id === "gate" && state.cells.size && state.gates.length && !anOrangeStepBefore) {
+          state.gated = cellsInAllGates([...state.cells.values()], state.gates);
+          state.done.add("gate");
+          state.stale.delete("gate");
+          gatingShown?.redraw();
+        }
         focusPanelsFor(i);
         renderAll();
       });
@@ -556,6 +603,37 @@ let stageWatch = null;
      condition here. The server would enforce the same list. */
   const readiness = (s) => blockedBecause(s, state);
 
+  /* The steps standing orange, in rail order, for the step that asks: Run
+     protocol waits on every one of them. Kept on the state so a step's own
+     `ready` rule can read it without knowing the list of steps. */
+  state.staleSteps = () => staleSteps(steps(), state.done, state.stale);
+
+  /**
+   * The operator edited a step: its settings, or its result by running it
+   * again. It is green -- just settled -- and every done step after it is
+   * orange, made under what this step was before. The one hook every edit
+   * goes through; navigation never calls it, and neither does a step run
+   * by the protocol, whose whole point is to make everything afresh.
+   */
+  function stateEdited(id) {
+    if (state.protocol.running) return;
+    state.stale = editedAt(steps(), state.done, state.stale, id);
+    /* Step 10 has no settings to confirm: an edit above it means it has
+       not run on what stands now, which is what its press is for. */
+    state.stale.delete("protocol");
+    state.done.delete("protocol");
+    renderRail(); renderActionBar();
+  }
+
+  /** The operator looked at every orange step and agrees with them as they
+      stand: one press, in Step 10's box, there only while something is
+      orange (Thom, 2026-09-28). */
+  function confirmAllSettings() {
+    state.stale.clear();
+    state.sideMounted = null;
+    renderAll();
+  }
+
   /* A step's action lives with the panel it operates, at the end of it — the
      way Connect's button has always sat inside its form. There is no bar above
      the panel any more: a button that runs the thing you are looking at should
@@ -569,7 +647,7 @@ let stageWatch = null;
     }
     for (const slot of document.querySelectorAll(
       ".carrier-action, .scan-action, .focus-action, "
-      + ".detect-action, .select-action, .acquire-action",
+      + ".detect-action, .select-action, .acquire-action, .protocol-action",
     )) {
       slot.textContent = "";
     }
@@ -578,7 +656,8 @@ let stageWatch = null;
     /* A step with controls of its own puts its action at the end of them; the
        rest fall back to the bar under the panel they are looking at. */
     const host = document.querySelector(`.${s.id}-action`) ?? el(`foot-${shown}`);
-    if (!host || s.ownButton || !s.btn) return;
+    if (!host) return;
+    if (s.ownButton || !s.btn) return;
     /* Some steps have nothing to run under the state they are in — a focus
        step is finished by the recording itself until a map is made to measure.
        A step says so for itself; the framework only asks. */
@@ -587,6 +666,23 @@ let stageWatch = null;
     const done = state.done.has(s.id);
     const running = state.running === s.id;
     const blocked = readiness(s);
+    /* The protocol run's own Interrupt: shown in whichever step's box the
+       walk is standing in, latching the walk to end after the step in
+       hand, and stopping that step where it has a brake. */
+    if (state.protocol.running) {
+      const stop = document.createElement("button");
+      stop.className = "run step-run running";
+      stop.type = "button";
+      stop.textContent = state.protocol.interrupted ? "stopping…" : "Interrupt";
+      stop.disabled = state.protocol.interrupted;
+      stop.addEventListener("click", () => interruptProtocol());
+      host.append(stop);
+      const hint = document.createElement("span");
+      hint.className = "action-hint";
+      hint.textContent = "running the protocol";
+      host.append(hint);
+      return;
+    }
 
     const run = document.createElement("button");
     /* marked as the step's own, because where it sits depends on the step —
@@ -601,12 +697,7 @@ let stageWatch = null;
        for minutes are exactly the ones a hand must be able to reach. Each
        brake matches the machinery its run drives: acquiring the targets is a
        scan under the hood, and discovery is the analysis run. */
-    const brake = {
-      scan: () => backend.stopScan?.(),
-      detect: () => backend.stopTargets?.(),
-      targets: () => backend.stopAcquireTargets?.(),
-      focus: () => backend.stopFocusMeasure?.(),
-    }[s.mode];
+    const brake = brakeFor(s.mode);
     const currentFrame = s.mode === "targets"
       ? state.acquiredTiles[state.selectedTarget] : null;
     if (!running && !blocked && state.ran.has(s.id) && currentFrame?.tile) {
@@ -635,18 +726,28 @@ let stageWatch = null;
     } else {
       run.textContent = running
         ? "working…"
-        : (state.ran.has(s.id) ? (s.mode === "targets" ? "Rerun all" : "Run again") : s.btn);
+        : (state.ran.has(s.id) ? (s.mode === "targets" ? "Rerun all" : s.mode === "protocol" ? "Rerun protocol" : "Run again") : s.btn);
       run.disabled = !!state.running || !!blocked;
-      run.addEventListener("click", () => runStep(i));
+      run.addEventListener("click", () => (s.mode === "protocol" ? runProtocol() : runStep(i)));
     }
     host.append(run);
+    /* After a run that finished, the burst can be brought back, at the
+       right of the press (Thom, 2026-09-28). */
+    if (s.mode === "protocol" && state.protocol.summary?.ended === "finished" && state.protocol.playBurst) {
+      const again = document.createElement("button");
+      again.type = "button"; again.className = "run"; again.id = "protocol-again";
+      again.textContent = "Rerun confetti";
+      again.addEventListener("click", () => state.protocol.playBurst());
+      host.append(again);
+    }
 
     /* The focus step says nothing beside its press. What it waits for is the
        box it stands in — points, laid by the row above it — and what it came to
        is the traces below; a greyed button between the two is already the whole
        sentence. */
     const hint = document.createElement("span");
-    if (s.mode === "focus") { host.append(hint); return; }
+    /* The protocol's box says what the run came to in its own line. */
+    if (s.mode === "focus" || s.mode === "protocol") { host.append(hint); return; }
     if (blocked) { hint.className = "action-hint"; hint.textContent = blocked; }
     /* Only when the button itself says Interrupt: a hint repeating the
        button's own "working…" said the same thing twice, side by side. */
@@ -668,12 +769,29 @@ let stageWatch = null;
      operator rather than the step declaring where to put it. */
   const renderActionBar = () => renderStepAction(shownPanel());
 
+  /* Each brake matches the machinery its run drives: acquiring the targets
+     is a scan under the hood, and discovery is the analysis run. A step
+     with none stops at its own end. */
+  const brakeFor = (mode) => ({
+    scan: () => backend.stopScan?.(),
+    detect: () => backend.stopTargets?.(),
+    targets: () => backend.stopAcquireTargets?.(),
+    focus: () => backend.stopFocusMeasure?.(),
+  })[mode];
+
   /* ============================================================
      running a step — fake work with real state changes
      ============================================================ */
+  /**
+   * Runs the step and answers when it is over, with how: `finished`,
+   * `stopped` by the operator's hand, or `failed`. What a press does when
+   * pressed by hand, and what the protocol run awaits step by step.
+   */
   function runStep(i, { targetTiles = null, append = false } = {}) {
     const s = step(i);
-    if (state.running) return;
+    if (state.running) return Promise.resolve({ outcome: "busy" });
+    let settle;
+    const outcome = new Promise((resolve) => { settle = resolve; });
     /* A fresh run is a fresh run. The failure of the last one was cleared
        only when a run finished -- which a failed connect never did -- so the
        next press re-checked everything and then refused to finish, leaving
@@ -687,8 +805,8 @@ let stageWatch = null;
     const started = performance.now();
     let raf = null;
 
-    /** How far through the plan the scan is, worded once. */
-    const scanNote = () => `${state.tilesShown} / ${state.plan.length} tiles`;
+    /** How far through the scanned plan the scan is, worded once. */
+    const scanNote = () => `${state.tilesShown} / ${state.scanned?.plan.length ?? state.plan.length} tiles`;
 
     /* Connecting is a handful of questions, not one action. Each answer lands
        as it arrives, so a session that fails does so at a named check rather
@@ -736,6 +854,7 @@ let stageWatch = null;
         });
         await stageWatch.refresh();
         finish();
+        listProtocols();
       }).catch((why) => {
         /* The instrument's side said no — the bridge is not there, the
            driver it needs is not, or a check failed. The sentence lands where
@@ -753,18 +872,27 @@ let stageWatch = null;
         }
         renderSetup();
         renderAll();
+        settle({ outcome: "failed", why });
       });
-      return;
+      return outcome;
     }
 
     if (s.mode === "scan") {
       state.tilesShown = 0;
-      scanProgress?.say({ start: true, of: state.plan.length, doing: "starting the scan…" });
+      /* The tiles this scan takes: the ones pressed green in the box, when
+         any are, and the whole plan otherwise -- always the whole plan under
+         the protocol, whose run is the real one. Kept as the plan that was
+         scanned, so every result is read against these tiles in this order,
+         which is how the bridge numbers the fields it sends back. */
+      const chosen = !state.protocol.running && state.testTiles.size
+        ? [...state.testTiles].sort((a, b) => a - b) : state.plan.map((_, i) => i);
+      state.scanned = { plan: chosen.map((i) => state.plan[i]), fields: chosen };
+      scanProgress?.say({ start: true, of: chosen.length, doing: "starting the scan…" });
       backend.scanOverview({
         /* Each position at the measured focus height for that place. One
            with no surface to read carries no height, and the bridge images
            it where the objective stands -- never at an invented zero. */
-        positions: state.plan.map((p) => {
+        positions: state.scanned.plan.map((p) => {
           const z = surfaceZAt(p.x, p.y);
           return stage.toStage(z === null ? p : { ...p, z });
         }),
@@ -780,14 +908,16 @@ let stageWatch = null;
              leaves the page and the picture alone. */
           if (done === state.tilesShown) return;
           state.tilesShown = done;
-          status.say(`scanning field ${done} of ${state.plan.length}`);
+          const total = state.scanned.plan.length;
+          protocolWithin(done, total);
+          status.say(`scanning field ${done} of ${total}`);
           scanProgress?.say({
-            done, of: state.plan.length,
-            doing: done < state.plan.length ? `field ${done + 1} of ${state.plan.length}` : "",
+            done, of: total,
+            doing: done < total ? `field ${done + 1} of ${total}` : "",
           });
           /* The lit frame follows the scan, as it follows the segmentation:
              on the field being taken now, not the one just finished. */
-          state.detect.tile = Math.min(done, state.plan.length - 1);
+          state.detect.tile = Math.min(done, total - 1);
           /* The mark keeps up with the stage field by field, not every few
              seconds: the watch is asked now, and the bridge answers where
              the run sent the stage. The finished record's own position is
@@ -816,7 +946,7 @@ let stageWatch = null;
            stage is; detection's test picker opens there too. */
         scanProgress?.say({
           ended: true,
-          note: outcome?.stopped ? "stopped by hand" : `${outcome?.records?.length ?? state.plan.length} fields scanned`,
+          note: outcome?.stopped ? "stopped by hand" : `${outcome?.records?.length ?? state.scanned.plan.length} fields scanned`,
         });
         /* Put away once the scan is done: the picture is the whole answer,
            and the press's own note says how many fields it took. */
@@ -825,7 +955,7 @@ let stageWatch = null;
           ? stoppedShort(`stopped by hand — ${scanNote()}`)
           : finish();
       }, (why) => { scanProgress?.say({ ended: true, note: why.message }); itFailed(why); });
-      return;
+      return outcome;
     }
 
     if (s.mode === "focus" && state.focus.strategy === "plane") {
@@ -842,16 +972,17 @@ let stageWatch = null;
         return stoppedShort(
           `stopped by hand — ${measured} of ${f.points.length} points measured`);
       }, itFailed);
-      return;
+      return outcome;
     }
 
     if (s.mode === "detect") {
       overviewGoesGreyForTheMasks();
       state.cells = new Map();
-      /* A fresh discovery invalidates everything named by the old ids: the
-         gate and the acquired pairs -- a stale id crashed
-         the draw and the gallery alike. */
-      state.gates = [];
+      /* A fresh discovery invalidates everything named by the old ids: what
+         the gates let through and the acquired pairs -- a stale id crashed
+         the draw and the gallery alike. The gates themselves are kept: they
+         are drawn on the features, not on the objects, and are applied to
+         the new population when the discovery finishes. */
       state.gated = new Set();
       state.restricted = new Set();
       state.targetTiles = [];
@@ -879,6 +1010,7 @@ let stageWatch = null;
         },
         onProgress: (done, of, detail = {}) => {
           detectionShown?.progress?.({ done, of, ...detail });
+          protocolWithin(done, of);
           /* A field's masks land on the canvas as its object detection does. */
           redrawSoon();
         },
@@ -912,7 +1044,7 @@ let stageWatch = null;
         detectionShown?.progress?.({ ended: true, failed: true, note: why.message });
         return itFailed(why);
       });
-      return;
+      return outcome;
     }
 
     if (s.mode === "targets") {
@@ -990,6 +1122,8 @@ let stageWatch = null;
          when the operator asked for one under the target settings. */
       backend.acquireTargets({
         positions: picked.map(positionFor),
+        /* On top of the height each target would be taken at, map or peak. */
+        zOffsetUm: state.targetZOffsetUm || 0,
         append,
         state: activeRecording(state.targetType)?.changeable ?? null,
         focus: state.targetFocusOn ? {
@@ -1014,6 +1148,7 @@ let stageWatch = null;
           stageWatch?.refresh();
           accountFor(records);
           state.notes[s.id] = `${done} / ${picked.length} pairs`;
+          protocolWithin(done, picked.length);
           /* The tile under the objective now, by its target's id: what is
              being taken, beside how far along the run is. */
           const next = picked[Math.min(done, picked.length - 1)];
@@ -1055,7 +1190,7 @@ let stageWatch = null;
         galleryPanel?.progress?.({ ended: true, failed: true, note: `failed — ${why.message}` });
         return itFailed(why);
       });
-      return;
+      return outcome;
     }
 
     /* Finishing a step: the connect step finishes when its backend resolves,
@@ -1071,10 +1206,16 @@ let stageWatch = null;
       state.done.add(s.id);
       state.ran.add(s.id);
       if (s.note) state.notes[s.id] = s.note;
+      /* Run afresh, the step is green -- and everything after it was made
+         from what it was before, so that goes orange. Not under the
+         protocol, which makes every step afresh in turn. */
+      state.stale.delete(s.id);
+      if (!state.protocol.running) state.stale = editedAt(steps(), state.done, state.stale, s.id);
 
       if (s.mode === "focus") {
         const f = state.focus;
         f.applied = true;
+        theRestOfTheProtocolAppears();
         stageWatch?.refresh();
         state.notes[s.id] =
           f.strategy === "plane" ? (f.surface ? `${f.surface.model} from ${f.points.length} points · ${focusFitWord(f)}`
@@ -1088,12 +1229,20 @@ let stageWatch = null;
          before it was cancelled. The tiles and the sentence about them come
          from one place, or a run that scanned everything reports one short. */
       if (s.mode === "scan") {
-        state.tilesShown = state.plan.length;
+        state.tilesShown = state.scanned.plan.length;
         state.notes[s.id] = scanNote();
         stageWatch?.refresh();
       }
       if (s.mode === "detect") {
         state.notes[s.id] = discoveryNote();
+        /* The gates are definitions on the features and outlive the
+           objects: what they let through of the new population is worked
+           out again, so the gating step stands done -- orange by hand,
+           green under the protocol -- and the step after it has its
+           selection. */
+        state.gated = cellsInAllGates([...state.cells.values()], state.gates);
+        if (state.gates.length) state.done.add("gate");
+        gatingShown?.redraw();
       }
       if (s.mode === "select") {
         /* The press samples, then places: a systematic uniform random
@@ -1116,20 +1265,25 @@ let stageWatch = null;
          the page to the next one takes that away. Advancing is a click. */
       focusPanelsFor(state.activeIdx);
       renderAll();
+      settle({ outcome: "finished", failed: state.notes[s.id]?.startsWith("finished —") ? 1 : 0 });
     }
     setTimeout(() => finish().catch(itFailed), s.ms);
+    return outcome;
 
     /** The operator's own Interrupt: not a failure, and not a finish either.
-        What the run measured stands; the step is not marked done, so the
-        press that stopped a run leaves a step that can simply be run again. */
+        What the run measured stands, and the step is done but orange: it did
+        part of its work and asks to be confirmed as it is or run again. */
     function stoppedShort(note) {
       status.quiet();
       state.running = null;
       state.interrupting = null;
+      state.done.add(s.id);
+      state.stale.add(s.id);
       state.ran.add(s.id);
       state.notes[s.id] = note;
       focusPanelsFor(state.activeIdx);
       renderAll();
+      settle({ outcome: "stopped" });
     }
 
     /** The step stops, marked as the failure it is, saying what went wrong. */
@@ -1143,6 +1297,7 @@ let stageWatch = null;
       state.interrupting = null;
       state.notes[s.id] = `failed — ${why.message}`;
       renderAll();
+      settle({ outcome: "failed", why });
     }
   }
 
@@ -1242,10 +1397,15 @@ let stageWatch = null;
     const overview = activeRecording(state.overviewPreset)?.changeable?.job;
     return job && overview && job === overview ? "Same setting as for the overview scan" : null;
   };
+  /* Which step each recording is a setting of: the one whose box it is
+     recorded in. */
+  const STEP_OF_SLOT = {
+    overviewPreset: "scanfields", focusPreset: "focus", targetType: "select", targetFocus: "acquire",
+  };
   const recordingOptions = (opts) => ({
     ...opts,
     slot: () => state[opts.key],
-    setSlot: (next) => { state[opts.key] = next; },
+    setSlot: (next) => { state[opts.key] = next; stateEdited(STEP_OF_SLOT[opts.key]); },
     running: () => state.running,
     readSetting: (type, how) => backend.readSetting(type, how),
     warn: opts.warn ?? (opts.key === "overviewPreset" ? undefined : sameSettingAsTheOverview),
@@ -1318,30 +1478,15 @@ let stageWatch = null;
       drawTrace();
       return;
     }
-    state.done.add("focus");
-    if (state.focus.applied) return;
+    /* Done by running the map, not by recording the preset: the scan
+       stands on the heights the map measured on this sample, so the step
+       after waits for the press (Thom, 2026-09-28). */
+    if (state.focus.applied) { state.done.add("focus"); return; }
+    state.done.delete("focus");
     state.notes.focus = kind === "hardware"
       ? "held by the stand"
       : "focused at every position";
   }
-
-  /* The focus preset is forgettable until a step after it has run, which
-     is the rule the acquisition preset follows. Locking it on the strategy
-     being applied took the cross away while the operator was still standing on
-     the step, with nothing yet depending on the reading. */
-  const focusLocked = () => {
-    const i = indexOfStep("focus");
-    return !!state.running || steps().slice(i + 1).some((s) => state.done.has(s.id));
-  };
-
-  /* Only while the stage is actually moving. Finishing a later step used to
-     freeze the carrier as well, on the argument that what came after was
-     measured against it — but going back to say the plate is a different plate
-     is a thing operators do, and the answer to it is that the alignment goes
-     and the picture is drawn again, both of which already happen. A step
-     standing there greyed said "no" to a question that has a perfectly good
-     answer. */
-  const carrierLocked = () => !!state.running;
 
   /* The channel belongs to the step standing in it.
 
@@ -1383,6 +1528,8 @@ let stageWatch = null;
       const showTheRest = () => {
         focusControls.hidden = !activeRecording(state.focusPreset);
         focusSettled();
+        /* Settling is what makes the step done: the rail says so at once. */
+        renderRail();
         renderPointList();
         drawTrace();
       };
@@ -1393,12 +1540,12 @@ let stageWatch = null;
         unnamed: true,
         takes: "Import focussing configuration",
         retakes: "Update",
-        locked: focusLocked(),
+        locked: !!state.running,
         changed: () => {
-          focusFollowsPreset(); showTheRest(); renderRail(); renderActionBar(); drawStage();
+          focusFollowsPreset(); showTheRest(); stateEdited("focus"); renderRail(); renderActionBar(); drawStage();
         },
         activated: () => {
-          focusFollowsPreset(); showTheRest(); renderRail(); renderActionBar(); drawStage();
+          focusFollowsPreset(); showTheRest(); stateEdited("focus"); renderRail(); renderActionBar(); drawStage();
         },
       }));
       showTheRest();
@@ -1407,6 +1554,43 @@ let stageWatch = null;
       drawTrace();
     },
   };
+
+  /* So many tiles in each tileset, spread over it the way Step 4 spreads its
+     focus points: the ground is shared out by `sharePoints`, and each share
+     takes the nearest tile not yet taken. Not a random draw -- the same
+     press gives the same tiles (Thom, 2026-09-28). */
+  function testTilesPerTileset(n) {
+    const groups = new Map();
+    state.plan.forEach((t, i) => {
+      const key = t.tileset ?? t.fieldId ?? "plan";
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(i);
+    });
+    const chosen = [];
+    for (const held of groups.values()) {
+      const taken = new Set();
+      for (const p of sharePoints(held.map((i) => state.plan[i]), n)) {
+        let best = null;
+        for (const i of held) {
+          if (taken.has(i)) continue;
+          const d = Math.hypot(state.plan[i].x - p.x, state.plan[i].y - p.y);
+          if (!best || d < best.d) best = { i, d };
+        }
+        if (best) { taken.add(best.i); chosen.push(best.i); }
+      }
+    }
+    return chosen;
+  }
+
+  /* The test tiles changed, on the picture or in the box: Step 5's own
+     setting edited, so the steps after it are orange and the box says the
+     new count. */
+  function testTilesChanged() {
+    stateEdited("scan");
+    state.sideMounted = null;
+    drawStage();
+    renderAll();
+  }
 
   /* The scan consults nothing: it takes the run's one recorded preset, and it
      keeps focus with the map the focus step generated — or at every position,
@@ -1439,7 +1623,10 @@ let stageWatch = null;
         val.textContent = value;
         summary.append(key, val);
       };
-      row("Positions", String(state.plan.length));
+      /* The protocol takes the whole plan whatever is green. */
+      const testing = state.testTiles.size && !state.protocol.running;
+      row("Positions", testing
+        ? `${state.testTiles.size} of ${state.plan.length} (test tiles)` : String(state.plan.length));
       const frameUm = state.plan[0]?.frameUm;
       if (frameUm) row("Frame", `${Math.round(frameUm)} µm`);
       const measured = state.focus.applied && state.focus.strategy === "plane";
@@ -1447,10 +1634,47 @@ let stageWatch = null;
         ? (state.focus.surface ? `measured map · ${focusFitWord(state.focus)}` : "no focus map")
         : "found at every position");
       body.append(summary);
+
+      /* The test tiles: a few of the plan pressed green, on the picture or
+         drawn at random, so the protocol is rehearsed on them before the
+         whole area is scanned. The scan takes only the green tiles while
+         any are green; the protocol run takes the whole plan regardless. */
+      const test = sideGroup("Test tiles");
+      test.group.id = "test-tiles";
+      const draw = document.createElement("div");
+      draw.className = "test-tiles-row";
+      draw.id = "test-tiles-count";
+      draw.dataset.green = String(state.testTiles.size);
+      const lay = document.createElement("div");
+      lay.className = "fp-lay";
+      const n = document.createElement("input");
+      n.type = "number"; n.min = "1"; n.max = String(Math.max(1, state.plan.length)); n.step = "1";
+      n.id = "test-n";
+      n.title = "How many tiles to select in each tileset, spread over it as the focus points are";
+      n.value = String(Math.min(state.plan.length, state.testN ?? 3));
+      n.addEventListener("input", () => { state.testN = Number(n.value); });
+      const random = document.createElement("button");
+      random.type = "button"; random.className = "sf-flat sf-doing"; random.id = "test-random";
+      random.textContent = "Select tiles";
+      random.disabled = !!state.running || state.protocol.running || !state.plan.length;
+      random.addEventListener("click", () => {
+        const asked = Math.max(1, Number(n.value) || 1);
+        state.testTiles = new Set(testTilesPerTileset(asked));
+        testTilesChanged();
+      });
+      const clear = document.createElement("button");
+      clear.type = "button"; clear.className = "sf-flat"; clear.id = "test-clear";
+      clear.textContent = "Clear all";
+      clear.disabled = !!state.running || state.protocol.running || !state.testTiles.size;
+      clear.addEventListener("click", () => { state.testTiles = new Set(); testTilesChanged(); });
+      lay.append(n, random);
+      draw.append(lay, clear);
+      test.body.append(draw);
+
       scanProgress = progressBox("Scan progress");
       scanProgress.doing.id = "scan-doing";
       scanProgress.count.id = "scan-count";
-      pad.append(group, scanProgress.group);
+      pad.append(group, test.group, scanProgress.group);
 
       // and the press that starts it, at the end of what it acts on
       const action = document.createElement("div");
@@ -1479,7 +1703,7 @@ let stageWatch = null;
          the same switch. */
       inGrey: () => Boolean(window.__viewerPanel?.acquisitionGrey?.("overview")),
       setGrey: (grey) => window.__viewerPanel?.drawInGrey?.("overview", grey),
-      plan: () => state.plan,
+      plan: () => scannedPlan(),
       tryOn: (field, settings) => {
         overviewGoesGreyForTheMasks();
         return backend.discoverTargets({ fields: [field], settings }).then(({ fields, failed, stopped }) => {
@@ -1512,6 +1736,7 @@ let stageWatch = null;
       status,
       sizeCanvas, css, drawScaleBar,
       changed: () => { renderActionBar(); drawStage(); },
+      edited: () => stateEdited("detect"),
     });
   };
 
@@ -1521,9 +1746,12 @@ let stageWatch = null;
      handed what to draw and what a gate means for the run; the handle it
      gives back is how the page asks it to draw again. */
   let gatingShown = null;
+  /* The tiles a field index names: the plan as it was scanned, which is how
+     the bridge numbered the fields, and the plan itself before any scan. */
+  const scannedPlan = () => state.scanned?.plan ?? state.plan;
   /** Which compartment a field belongs to, for the per-tileset ceiling. */
   const tilesetOfField = (field) => {
-    const t = state.plan[field];
+    const t = scannedPlan()[field];
     return t ? (t.tileset ?? t.fieldId ?? field) : field;
   };
   const gatingMount = (host) => {
@@ -1546,6 +1774,7 @@ let stageWatch = null;
         state.targetTiles = [];
         state.done.delete("select");
         state.ran.delete("select");
+        stateEdited("gate");
         drawStage(); renderTabs(); renderActionBar(); renderRail();
       },
       tilesetOf: tilesetOfField,
@@ -1609,7 +1838,7 @@ let stageWatch = null;
       fieldOf: (tile, cell) => {
         const frame = state.acquiredTiles[tile.key];
         return {
-          ...state.plan[cell.field],
+          ...scannedPlan()[cell.field],
           cropX: frame?.x ?? cell.x,
           cropY: frame?.y ?? cell.y,
           cropFrameUm: frame?.frameUm ?? state.targetFrameUm,
@@ -1641,8 +1870,11 @@ let stageWatch = null;
       setFocusOn: (on) => {
         state.targetFocusOn = !!on;
         if (!on) state.targetFocus = emptySlot("autofocus", 1);
+        stateEdited("acquire");
         renderActionBar();
       },
+      zOffsetUm: () => state.targetZOffsetUm,
+      setZOffsetUm: (v) => { state.targetZOffsetUm = v; stateEdited("acquire"); },
       sameJobElsewhere: (record) => {
         const job = record.changeable?.job;
         if (!job) return null;
@@ -1727,6 +1959,10 @@ let stageWatch = null;
      the margin is measured in. */
   function placeTheScanAreas() {
     const p = state.placing;
+    /* The frame is the recording's, read here rather than remembered from
+       the moment it was recorded: settings opened from a protocol were
+       never recorded in this session and placed no tiles. */
+    state.targetFrameUm = activeRecording(state.targetType)?.frameUm ?? null;
     const targets = [...state.restricted].flatMap((id) => (state.cells.has(id) ? [state.cells.get(id)] : []));
     const byTileset = new Map();
     for (const target of targets) {
@@ -1777,6 +2013,7 @@ let stageWatch = null;
       state.tilePlan = null;
       state.done.delete("select");
       state.ran.delete("select");
+      stateEdited("select");
     },
     plan: () => state.tilePlan,
     changed: () => {
@@ -1793,7 +2030,290 @@ let stageWatch = null;
     gate: { id: gatingPanel.id, label: gatingPanel.label, mount: gatingMount },
     select: { id: selectionPanel.id, label: selectionPanel.label, mount: selectionMount },
     acquire: { id: galleryWidget.id, label: galleryWidget.label, mount: galleryMount },
+    protocol: { id: "protocol", label: "Run protocol", mount: (host) => protocolMount(host) },
   };
+
+  /* Step 10's box: the press that accepts every orange step at once, and
+     the step's own press under it. What the run will do is the rail above;
+     the box only says what stands in its way, which the press's hint does. */
+  function protocolMount(host) {
+    host.textContent = "";
+    const pad = document.createElement("div");
+    pad.className = "side-pad-around";
+    const { group, body } = sideGroup("Run protocol");
+    const stale = state.staleSteps();
+    if (stale.length && !state.running && !state.protocol.running) {
+      const accept = document.createElement("button");
+      accept.type = "button";
+      accept.className = "run confirm";
+      accept.id = "protocol-accept";
+      accept.textContent = "Confirm all settings";
+      accept.addEventListener("click", confirmAllSettings);
+      body.append(accept);
+    }
+    /* What the run came to, once it has: the numbers, and for a run that
+       finished, a small burst over them -- once, and again on the press. */
+    const summary = state.protocol.summary;
+    if (summary && !state.protocol.running) {
+      const stats = document.createElement("div");
+      stats.className = "protocol-stats";
+      stats.id = "protocol-stats";
+      const rows = [
+        ["Tiles scanned", summary.tiles], ["Objects found", summary.objects],
+        ["Objects gated", summary.gated], ["Targets acquired", summary.targets],
+        ["Time", summary.seconds >= 90
+          ? `${Math.floor(summary.seconds / 60)} min ${String(Math.round(summary.seconds % 60)).padStart(2, "0")} s`
+          : `${Math.round(summary.seconds)} s`],
+      ];
+      if (summary.stoppedAt) rows.unshift(["Stopped at", summary.stoppedAt]);
+      for (const [k, v] of rows) {
+        const key = document.createElement("div"); key.textContent = k;
+        const val = document.createElement("div"); val.className = "v"; val.textContent = String(v);
+        stats.append(key, val);
+      }
+      body.append(stats);
+      if (summary.ended === "finished") {
+        /* The burst covers the whole white box, over the numbers, and is
+           gone after three seconds; the press below brings it back. */
+        body.classList.add("protocol-box");
+        const cv = document.createElement("canvas");
+        cv.className = "protocol-burst";
+        body.append(cv);
+        const colours = ["--accent", "--good", "--confirm-ink", "--mark-selected"].map((t) => css(t));
+        let stop = () => {};
+        /* Only on a canvas that has its size: the box is mounted before the
+           page has laid it out, and a burst on a 0 x 0 canvas is no burst. */
+        const play = () => {
+          if (!cv.clientWidth || !cv.clientHeight) return false;
+          stop();
+          stop = burst(cv, colours);
+          return true;
+        };
+        state.protocol.playBurst = play;
+        /* The box is built again more than once in the moments after the
+           run ends; the burst belongs to those three seconds, on whichever
+           canvas is on screen then. */
+        if (performance.now() - summary.endedAt < 3000) {
+          requestAnimationFrame(() => requestAnimationFrame(play));
+        }
+      }
+    }
+    const action = document.createElement("div");
+    action.className = "protocol-action side-act";
+    body.append(action);
+    pad.append(group);
+    /* The settings as they stand, kept without a run, in a box of their
+       own: saved by name into the machine's library, or exported into this
+       run's folder beside the acquisition types (Thom, 2026-09-28). */
+    const keep = sideGroup("Save protocol");
+    keep.group.id = "protocol-keep";
+    const saveRow = document.createElement("div");
+    saveRow.className = "protocol-save";
+    const saveName = document.createElement("input");
+    saveName.type = "text";
+    saveName.id = "protocol-save-name";
+    saveName.placeholder = "name";
+    const savePress = document.createElement("button");
+    savePress.type = "button";
+    savePress.className = "sf-flat sf-doing";
+    savePress.id = "protocol-save";
+    savePress.textContent = "Save";
+    savePress.disabled = !!state.running || state.protocol.running || !backend.saveProtocolAs;
+    saveRow.append(saveName, savePress);
+    const exportRow = document.createElement("div");
+    exportRow.className = "side-act";
+    const exportPress = document.createElement("button");
+    exportPress.type = "button";
+    exportPress.className = "run";
+    exportPress.id = "protocol-export";
+    exportPress.textContent = "Export to run folder";
+    exportPress.disabled = !state.done.has("connect") || !!state.running || state.protocol.running || !backend.saveProtocol;
+    const exportNote = document.createElement("span");
+    exportNote.className = "action-hint";
+    exportNote.id = "protocol-export-note";
+    exportRow.append(exportPress, exportNote);
+    const said = (ok, text) => { exportNote.className = ok ? "action-hint ok" : "action-hint"; exportNote.textContent = text; };
+    savePress.addEventListener("click", async () => {
+      savePress.disabled = true;
+      try {
+        const { id } = await backend.saveProtocolAs(protocolFrom(state), saveName.value.trim());
+        said(true, `saved as ${id}`);
+        listProtocols();
+      } catch (why) {
+        said(false, `not saved — ${why.message}`);
+      } finally {
+        savePress.disabled = false;
+      }
+    });
+    exportPress.addEventListener("click", async () => {
+      exportPress.disabled = true;
+      try {
+        await backend.saveProtocol(protocolFrom(state));
+        said(true, "protocol written");
+        listProtocols();
+      } catch (why) {
+        said(false, `not written — ${why.message}`);
+      } finally {
+        exportPress.disabled = false;
+      }
+    });
+    keep.body.append(saveRow, exportRow);
+    pad.append(keep.group);
+    host.append(pad);
+    renderActionBar();
+  }
+
+  /**
+   * The run without presses: the steps from the focus map to the targets,
+   * in turn, each awaited, over the whole scan area. Stops at the first
+   * step that does not finish -- stopped by hand, failed, or not ready --
+   * and leaves the steps after it as they were. Finishing writes the
+   * protocol.
+   */
+  const PROTOCOL_STEPS = ["focus", "scan", "detect", "gate", "select", "acquire"];
+  async function runProtocol() {
+    if (state.running || state.protocol.running) return;
+    /* Which steps the run will take: the focus map only when there is none
+       measured on this sample yet; the gate is applied by the discovery. */
+    const walk = PROTOCOL_STEPS.filter((id) => !(id === "focus" && state.focus.applied) && id !== "gate");
+    state.protocol = {
+      running: true, interrupted: false, at: 0, of: walk.length, within: null, summary: null,
+    };
+    state.failed = null;
+    /* Grey until reached: the rail says what the run has done, not what
+       the rehearsal did. Each step turns green as its own finish puts it
+       back. */
+    for (const id of [...walk, "gate", "protocol"]) { state.done.delete(id); state.stale.delete(id); }
+    const startedAt = performance.now();
+    let ended = "finished";
+    for (const id of PROTOCOL_STEPS) {
+      if (state.protocol.interrupted) { ended = "stopped"; break; }
+      const i = indexOfStep(id);
+      if (walk.includes(id)) { state.protocol.at += 1; state.protocol.within = null; }
+      state.activeIdx = i;
+      focusPanelsFor(i);
+      renderAll();
+      /* The gates are applied when the discovery finishes; here the step
+         is only marked as the run's own. */
+      if (id === "gate") {
+        state.done.add("gate"); state.stale.delete("gate");
+        continue;
+      }
+      /* A focus map already measured on this sample stands: the run keeps
+         it and starts at the scan. Measured only when there is none yet,
+         which is how a run opened on a protocol begins (Thom, 2026-09-28). */
+      if (id === "focus" && state.focus.applied) {
+        state.stale.delete("focus");
+        continue;
+      }
+      const why = readiness(step(i));
+      if (why) {
+        state.notes[id] = why;
+        ended = "failed";
+        break;
+      }
+      const { outcome } = await runStep(i);
+      if (outcome !== "finished") { ended = outcome; break; }
+    }
+    state.protocol.running = false;
+    state.protocol.summary = {
+      ended,
+      tiles: state.scanned?.plan.length ?? 0,
+      objects: state.cells.size,
+      gated: state.gated.size,
+      targets: state.acquired.length,
+      seconds: (performance.now() - startedAt) / 1000,
+      stoppedAt: ended === "finished" ? null : step(state.activeIdx).title,
+      endedAt: performance.now(),
+    };
+    const at = indexOfStep("protocol");
+    if (ended === "finished") {
+      state.done.add("protocol"); state.ran.add("protocol"); state.stale.delete("protocol");
+      try {
+        await backend.saveProtocol?.(protocolFrom(state));
+        state.notes.protocol = "run finished · protocol written";
+      } catch (why) {
+        state.notes.protocol = `run finished · protocol not written — ${why.message}`;
+      }
+    } else {
+      state.notes.protocol = ended === "stopped"
+        ? "stopped by hand" : `stopped at ${step(state.activeIdx).title} — ${state.notes[step(state.activeIdx).id] ?? "failed"}`;
+    }
+    state.activeIdx = at;
+    state.sideMounted = null;
+    focusPanelsFor(at);
+    renderAll();
+  }
+
+  /** A step's own progress, handed to the protocol's bar while it runs. */
+  function protocolWithin(done, of) {
+    if (!state.protocol.running) return;
+    state.protocol.within = { done, of };
+    renderProtocolProgress();
+  }
+
+  /* The protocol's progress, at the top of the column beside the canvas,
+     over whichever step's box the run is standing in: which step of how
+     many, and how far that step is. Put there when the box mounts and
+     brought up to date in place as the run reports. */
+  function renderProtocolProgress() {
+    const host = thePanels[shownPanel()]?.channel;
+    if (!host) return;
+    let box = host.querySelector("#protocol-progress-box");
+    if (!state.protocol.running) { box?.remove(); return; }
+    if (!box) {
+      const made = sideGroup("Protocol progress");
+      box = made.group;
+      box.id = "protocol-progress-box";
+      const bar = document.createElement("div");
+      bar.className = "progress-bar";
+      bar.id = "protocol-progress";
+      const fill = document.createElement("div");
+      fill.className = "progress-fill";
+      bar.append(fill);
+      const line = document.createElement("div");
+      line.className = "progress-line";
+      line.id = "protocol-progress-line";
+      made.body.append(bar, line);
+      const pad = document.createElement("div");
+      pad.className = "side-pad-around";
+      pad.append(box);
+      host.prepend(pad);
+    }
+    const p = state.protocol;
+    const within = p.within && p.within.of ? p.within.done / p.within.of : 0;
+    const filled = p.of ? ((p.at - 1) + within) / p.of : 0;
+    box.querySelector(".progress-fill").style.width = `${Math.round(Math.min(1, Math.max(0, filled)) * 100)}%`;
+    const doing = step(state.activeIdx);
+    box.querySelector("#protocol-progress-line").textContent =
+      `step ${p.at} of ${p.of} · ${doing.title}` + (p.within && p.within.of ? ` · ${p.within.done} of ${p.within.of}` : "");
+  }
+
+  /* What would stop the protocol before it finished, said before it
+     starts: the settings a later step needs and does not make for itself.
+     The steps' own `ready` rules cannot be asked here for what an earlier
+     step of the run produces (gated objects, target tiles), so this asks
+     for the settings only. */
+  state.protocolBlockers = () => {
+    const blockers = [];
+    const focus = step(indexOfStep("focus"));
+    if (!state.focus.applied && focus.ready?.(state)) blockers.push(`Focus strategy: ${focus.ready(state)}`);
+    if (!hasRecording(state.overviewPreset)) blockers.push("Overview scan area: import the optical configuration first");
+    if (!state.plan.length) blockers.push("Overview scan area: nothing to scan yet");
+    if (!state.gates.length) blockers.push("Discover Targets: draw a gate first");
+    if (!hasRecording(state.targetType)) blockers.push("Target scan area: import the target settings first");
+    if (state.targetFocusOn && !hasRecording(state.targetFocus)) blockers.push("Acquire Targets: import the focussing settings first");
+    return blockers;
+  };
+
+  /** The operator's hand on the protocol run: the step in hand is braked
+      where it can be, and the walk ends after it either way. */
+  function interruptProtocol() {
+    state.protocol.interrupted = true;
+    const s = step(state.activeIdx);
+    if (state.running === s.id) { state.interrupting = s.id; brakeFor(s.mode)?.(); }
+    renderActionBar();
+  }
 
   /* A step's channel: one the page knows by the step's id, or one the step
      brought with it. The second is how a workflow adds steps without adding
@@ -1993,23 +2513,6 @@ let stageWatch = null;
     };
   }
 
-  /* The plan stops being editable when something has been imaged against it —
-     not when a later step has merely been done.
-
-     The focus map is the one in between, and it does not depend on the plan: a
-     fitted surface is a statement about the plate, measured at points that stay
-     where they were put whatever the scan fields do. So walking back past it
-     and moving a field is safe, and needs no ceremony to make it safe.
-
-     The overview is where that stops being true. Its tiles are pictures taken
-     at those positions, and a field moved afterwards would leave images
-     claiming a place they were not taken from — which nothing downstream could
-     detect, because a tile does not know where it should have been. Everything
-     after the scan depends on the scan, so anchoring here covers all of it. */
-  const scanfieldsLocked = () => {
-    const i = indexOfStep("scan");
-    return !!state.running || (i >= 0 && steps().slice(i).some((s) => state.done.has(s.id)));
-  };
 
   /* Held rather than looked up: emptying the channel takes these out of the
      document, and getElementById cannot find what is not in it. */
@@ -2041,6 +2544,7 @@ let stageWatch = null;
     state.anchorLit = -1;
     redrawAnchors();
     drawStage();
+    stateEdited("carrier");
   });
 
   function renderSide(show) {
@@ -2071,7 +2575,10 @@ let stageWatch = null;
       fold.setAttribute("aria-label", fold.title);
       fold.setAttribute("aria-expanded", String(!folded));
     }
-    const locked = widget?.id === "carrier" ? carrierLocked() : scanfieldsLocked();
+    /* Only while something runs. Settings used to lock once a later step had
+       imaged against them; now they stay editable and the later steps go
+       orange, since every result is read against the plan as it was scanned. */
+    const locked = !!state.running || state.protocol.running;
     const key = widget && `${widget.id}:${locked}`;
     // the setup cards rebuild on every render, the way their panel used to;
     // the working widgets keep their state and mount once per key
@@ -2083,7 +2590,7 @@ let stageWatch = null;
     if (!widget) return;
 
     // a widget with a mount owns parked markup that moves into the channel
-    if (widget.mount) { widget.mount(host); return; }
+    if (widget.mount) { widget.mount(host); renderProtocolProgress(); return; }
 
     if (widget.id === "carrier") {
       /* The anchor points belong to the run, not to the panel: the canvas
@@ -2114,6 +2621,7 @@ let stageWatch = null;
             state.anchors = places.map((p) => ({ x: p.x, y: p.y, at: p.at }));
             state.anchorPicked = -1;
             redrawAnchors(); drawStage();
+            stateEdited("carrier");
           },
           /* Which mark the keyboard is talking to: chosen by pressing it on the
              picture, and drawn as the current row in the list, so an operator
@@ -2136,6 +2644,7 @@ let stageWatch = null;
             state.anchorPicked = -1;
             state.anchorLit = -1;
             redrawAnchors(); drawStage();
+            stateEdited("carrier");
           },
           /* Where the microscope is standing now, kept against this point on
              the carrier: the pair is the registration — this place on the
@@ -2174,6 +2683,7 @@ let stageWatch = null;
               }
             }
             redrawAnchors(); drawStage();
+            stateEdited("carrier");
           },
           onChange: (fn) => { redrawAnchors = fn; },
         },
@@ -2188,6 +2698,7 @@ let stageWatch = null;
           redrawAnchors();
           // the note in the rail says what the carrier now is
           carrierSettled();
+          stateEdited("carrier");
           // the tissue is spread over the plate, so a different plate is a
           // different sample even before the plan moves
           rebuildPlan();
@@ -2239,11 +2750,13 @@ let stageWatch = null;
         if (!hasRecording(state.overviewPreset)) state.fields = [];
         state.sideMounted = null;
         scanfieldsSettled();
+        stateEdited("scanfields");
         renderAll();
       },
       activated: () => {
         state.editor?.setPreset(activePreset());
         scanfieldsSettled();
+        stateEdited("scanfields");
         drawStage();
         renderRail();
       },
@@ -2277,6 +2790,9 @@ let stageWatch = null;
       onChange: (next) => {
         state.fields = next;
         scanfieldsSettled();
+        /* A plan redrawn is a plan the test tiles no longer index. */
+        state.testTiles = new Set();
+        stateEdited("scanfields");
         drawStage();
         renderRail();
       },
@@ -2399,9 +2915,118 @@ let stageWatch = null;
           listConfigurations();
         },
         changed: () => { renderSetup(); renderActionBar(); listConfigurations(); },
+        /* The protocols this machine has written, and the one this run is
+           opened on. Only a backend that keeps protocols offers the box. */
+        protocols: backend.protocols ? () => state.protocols : null,
+        protocolChosen: () => state.protocolChosen,
+        protocolNote: () => state.protocolNote,
+        chooseProtocol: (id) => chooseProtocol(id),
+        chooseProtocolFromFile: (file) => chooseProtocolFromFile(file),
       });
     },
   };
+
+  /* A run opened on a protocol: once the focus map has been measured on
+     this sample, the steps after it come back from the file -- done, and
+     orange, each to be confirmed or run here (Thom, 2026-09-28). */
+  function theRestOfTheProtocolAppears() {
+    if (!state.protocolPending) return;
+    state.protocolPending = false;
+    const from = indexOfStep("focus");
+    steps().forEach((s, i) => {
+      if (i <= from) return;
+      state.done.add(s.id);
+      state.stale.add(s.id);
+    });
+    renderRail();
+  }
+
+  /** The protocols under the machine's output root: asked for the chosen
+      connection before connecting, and again once the session knows the
+      root for certain. */
+  async function listProtocols() {
+    if (!backend.protocols) return;
+    try {
+      state.protocols = await backend.protocols(state.done.has("connect") ? null : chosenConnection());
+    } catch (why) {
+      console.warn(`listing protocols: ${why.message}`);
+      state.protocols = [];
+    }
+    renderSetup();
+  }
+
+  /**
+   * Open this run on a written protocol, or on none.
+   *
+   * The settings of every step are filled from the file and the steps they
+   * belong to are done -- and orange, all of them: the carrier's corners are
+   * last mount's, the area sits on the carrier, and the rest was settled on
+   * another sample. Each is confirmed or run here before the protocol may
+   * run. Choosing "new" again puts the settings back to the fresh session's.
+   */
+  /** A protocol read from a file the operator picked: opened on like a listed one. */
+  function chooseProtocolFromFile(file) {
+    file.text().then((text) => {
+      let protocol;
+      try {
+        protocol = JSON.parse(text);
+      } catch {
+        state.protocolNote = `cannot read ${file.name}: not a protocol file`;
+        renderSetup();
+        return;
+      }
+      state.protocols = [{ id: file.name.replace(/\.json$/i, ""), written: Date.now() / 1000, protocol, fromFile: true },
+        ...state.protocols.filter((one) => !one.fromFile)];
+      chooseProtocol(state.protocols[0].id);
+    });
+  }
+
+  function chooseProtocol(id) {
+    const fresh = () => {
+      Object.assign(state, {
+        overviewPreset: emptySlot("acquisition"), focusPreset: emptySlot("autofocus"),
+        targetType: emptySlot("acquisition", 1), targetFocusOn: false, targetFocus: emptySlot("autofocus", 1),
+        targetZOffsetUm: 0,
+        carrier: { ...DEFAULT_CARRIER }, anchors: [], fields: [], plan: [],
+        focus: newFocus(), focusMaps: {}, focusFor: null, detect: newDetect(),
+        gates: [], gated: new Set(), placing: { margin: 1, objectsMax: 50, minimise: true, overlapMin: 0.2 },
+        testTiles: new Set(), stale: new Set(), notes: { connect: state.notes.connect }, protocolPending: false,
+        done: new Set(state.done.has("connect") ? ["connect"] : []), ran: new Set(state.ran.has("connect") ? ["connect"] : []),
+      });
+      rebuildPlan();
+    };
+    state.protocolNote = "";
+    if (id === null) {
+      if (state.protocolChosen !== null) fresh();
+      state.protocolChosen = null;
+    } else {
+      const found = state.protocols.find((one) => one.id === id);
+      const refused = found ? protocolFits(state, found.protocol) : "not in the list";
+      if (refused) {
+        state.protocolNote = `cannot open this protocol: ${refused}`;
+        state.protocolChosen = null;
+      } else {
+        fresh();
+        applyProtocol(state, found.protocol);
+        state.focusFor = activeRecording(state.focusPreset)?.id ?? null;
+        rebuildPlan();
+        /* Steps 2, 3 and 4 remember their settings and are walked one by
+           one, each green as the operator steps onto it; the steps after
+           the focus map appear orange the moment it is settled (Thom,
+           2026-09-28). */
+        state.protocolPending = true;
+        state.protocolChosen = id;
+        /* Nothing said under the row: the rail says it, step by step. */
+        state.protocolNote = "";
+      }
+    }
+    state.sideMounted = null;
+    view.fitted = false;
+    gatingShown?.redraw();
+    renderPointList();
+    drawStage();
+    renderAll();
+  }
 
   /* The setup cards render into the channel like every other step's controls:
      cleared and rebuilt on every call, which is how their panel behaved, so
@@ -2640,7 +3265,10 @@ let stageWatch = null;
     anchorPressed: (...a) => anchorPressed(...a),
     /* The list of anchors is drawn by the carrier panel, so a mark dragged on
        the picture has to tell it the numbers moved. */
-    anchorsChanged: () => redrawAnchors(),
+    /* A mark dragged on the picture is the carrier edited; a mark merely
+       pressed is not, and the layer says which. */
+    anchorsChanged: (moved = false) => { redrawAnchors(); if (moved) stateEdited("carrier"); },
+    testTilesChanged: () => testTilesChanged(),
     /* A tile chosen on the canvas appears in the test box at once. */
     tileChosen: () => detectionShown?.redraw(),
     detectPressed: (...a) => detectPressed(...a),
@@ -2733,6 +3361,8 @@ let stageWatch = null;
   window.__theRunState = () => JSON.parse(JSON.stringify({
     running: state.running, failed: state.failed, notes: state.notes,
     activeIdx: state.activeIdx, done: [...state.done], ran: [...state.ran],
+    stale: [...state.stale], protocol: state.protocol,
+    testTiles: [...state.testTiles], scannedFields: state.scanned?.fields ?? null,
     focus: { strategy: state.focus.strategy, applied: state.focus.applied,
              points: state.focus.points.length, selected: state.focus.selected },
     /* How wide each acquired frame is, so a test can check the ground is
@@ -2780,6 +3410,17 @@ let stageWatch = null;
     focusControls: el("focus-controls"),
     renderActionBar: () => renderActionBar(),
     renderSide: (...a) => renderSide(...a),
+    edited: () => stateEdited("focus"),
+    /* The panel's own Rerun and Run new points are the step run again:
+       green, and the steps after it orange, as the step's press leaves
+       them. */
+    focusRan: () => {
+      state.done.add("focus"); state.ran.add("focus");
+      state.stale.delete("focus");
+      state.stale = editedAt(steps(), state.done, state.stale, "focus");
+      theRestOfTheProtocolAppears();
+      renderRail();
+    },
   });
 
   /* The page's own names for what it asks of the focus map. */

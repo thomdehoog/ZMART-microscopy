@@ -103,6 +103,7 @@ export default {
       settings.algo = methodPick.value;
       settings.tested = false;
       refresh();
+      ctx.edited?.();
     });
     methodParam.append(methodPick);
     methodRow.append(methodParam);
@@ -445,12 +446,14 @@ export default {
           + `<input type="number" min="${min}" max="${max}" step="${step}">`
           + (unit ? `<span class="hint">${unit}</span>` : "");
         const input = wrap.querySelector("input");
+        input.id = `detect-${key}`;
         input.value = settings[key];
         input.addEventListener("input", () => {
           settings[key] = Number(input.value);
           // a setting changed is a test undone: what was tried is not this
           settings.tested = false;
           refresh();
+          ctx.edited?.();
         });
         params.append(wrap);
       };

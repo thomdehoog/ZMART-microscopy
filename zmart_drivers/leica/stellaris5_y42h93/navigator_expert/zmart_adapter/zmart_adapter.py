@@ -1549,6 +1549,20 @@ def configurations(connection: dict | None = None) -> list:
     return [machine.describe_configuration(path) for path in reversed(machine.configurations())]
 
 
+def output_root(connection: dict | None = None) -> str | None:
+    """Where this microscope's runs go, before any session: the root the
+    connection names, or the ``ZMART-microscopy`` folder beside LAS X's
+    native AutoSave base folder -- the same place the session settles on.
+    ``None`` when LAS X's AutoSave cannot be read yet."""
+    named = (connection or {}).get("output_root")
+    if named:
+        return str(Path(named).expanduser().resolve())
+    try:
+        return str(_save.save_source_root().parent / "ZMART-microscopy")
+    except Exception:  # noqa: BLE001 -- not readable before LAS X is up
+        return None
+
+
 def register() -> None:
     """Register this instrument's ops table with the controller registry."""
     _registry.register(
@@ -1567,6 +1581,7 @@ def register() -> None:
             "run_procedure": run_procedure,
             "get_info": get_info,
             "configurations": configurations,
+            "output_root": output_root,
         },
     )
 

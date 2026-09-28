@@ -596,7 +596,7 @@ function drawnIn(frame) {
  * `parts/canvas/layers-above.js`.
  */
 const THE_STACK = [
-  "ground", "limits", "carrier", "focus", "plan",
+  "ground", "limits", "carrier", "focus", "plan", "testTiles",
   "picture",
   "tiles", "segmentation", "frames", "cells", "targets",
   "focusFrame", "focusPoints", "detect", "editing", "anchors", "stage", "scale",
@@ -693,6 +693,7 @@ function theStageLayers({ shown, editing }) {
        knowing anything about the page it is drawn on. */
     asAPress, renderRail, renderActionBar, editorTook,
     redraw: drawStage, anchorsChanged: ctx.anchorsChanged,
+    testTilesChanged: ctx.testTilesChanged, drawStage,
     pictureShows: ctx.pictureShows,
     focusGrabbed, marqueeing, focusMarqueeTo, focusMarqueeTook,
     focusDragging, focusDraggedTo, endFocusDrag, focusPressed,
@@ -951,7 +952,21 @@ function theRunWasPressed({ screen }) {
   anchorPressed(screen.x, screen.y)
     || focusPressed(screen.x, screen.y)
     || detectPressed(screen.x, screen.y)
+    || testTilePressed()
     || targetPressed?.(screen.x, screen.y);
+}
+
+/* On the scan step a press on a tile turns it green, or back: the test
+   tiles are pressed on the picture as much as drawn in the box. The hover
+   already says which tile is under the pointer. A Shift-drag over several
+   is the layer's own gesture. */
+function testTilePressed() {
+  if (step(run.activeIdx).mode !== "scan" || run.running || run.protocol?.running) return false;
+  const over = run.testHovered ?? -1;
+  if (over < 0) return false;
+  if (run.testTiles.has(over)) run.testTiles.delete(over); else run.testTiles.add(over);
+  ctx.testTilesChanged?.();
+  return true;
 }
 
 /* Hovering claims nothing, so it is watched here rather than routed: what is
@@ -979,12 +994,35 @@ stageBox.addEventListener("pointermove", (e) => {
   // hover the nearest visible cell
   const world = theCanvas.unproject(e.offsetX, e.offsetY);
 
+  /* A tile under the pointer on the scan step is one press from being a
+     test tile, or from ceasing to be one: the hand says so. */
+  if (step(run.activeIdx).mode === "scan" && !run.running && !run.protocol?.running) {
+    let overTile = -1;
+    for (let i = 0; i < run.plan.length; i++) {
+      const t = run.plan[i];
+      const half = t.frameUm / 2;
+      if (Math.abs(world.x - t.x) <= half
+        && Math.abs(world.y - t.y) <= half) { overTile = i; break; }
+    }
+    if (run.testHovered !== overTile) {
+      run.testHovered = overTile;
+      drawStage();
+    }
+    stageBox.style.cursor = overTile >= 0 ? "pointer" : "";
+  } else if (run.testHovered !== undefined && run.testHovered !== -1) {
+    run.testHovered = -1;
+    stageBox.style.cursor = "";
+    drawStage();
+  }
+
   /* A tile under the pointer on the discover step is one press from being
      the test position: the hand and a lit frame both say so. */
   if (step(run.activeIdx).mode === "detect" && !run.running) {
     let overTile = -1;
-    for (let i = 0; i < run.plan.length; i++) {
-      const t = run.plan[i];
+    /* The fields as scanned: a test tile is a field the run has a picture of. */
+    const fields = run.scanned?.plan ?? run.plan;
+    for (let i = 0; i < fields.length; i++) {
+      const t = fields[i];
       const half = t.frameUm / 2;
       if (Math.abs(world.x - t.x) <= half
         && Math.abs(world.y - t.y) <= half) { overTile = i; break; }

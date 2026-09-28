@@ -434,7 +434,7 @@ export const backend = {
    * leaves the target at the map's height, and the record says so.
    */
   async acquireTargets({
-    positions, state = null, append = false, focus = null, onProgress, onDoing,
+    positions, state = null, append = false, focus = null, zOffsetUm = 0, onProgress, onDoing,
   } = {}) {
     targetsStopAsked = false;
     const { labels } = await ask("/api/targets/acquire/begin", { positions, append });
@@ -446,7 +446,10 @@ export const backend = {
         if (targetsStopAsked) { stopped = true; break; }
         const say = (phase) => onDoing?.(`${phase} target ${index + 1} of ${positions.length}`);
         const { x, y, z: zMap = null, focusAt = null } = position;
-        let at = { x, y, ...(Number.isFinite(zMap) ? { z: zMap } : {}) };
+        /* The operator's offset rides on whatever height is chosen below:
+           the map's, the peak's, or where the objective stood. */
+        const lifted = (z) => z + zOffsetUm;
+        let at = { x, y, ...(Number.isFinite(zMap) ? { z: lifted(zMap) } : {}) };
         /* The stack is taken on the object's centre when the page names it,
            which need not be the middle of the tile imaged after it. */
         const focusXY = focusAt ?? { x, y };
@@ -472,13 +475,13 @@ export const backend = {
             job: focus.state?.job ?? null, z_map_um: Number.isFinite(zMap) ? zMap : null,
             z_peak_um: peak ? peak.z : null, found: peak !== null,
           };
-          if (peak) at = { x, y, z: peak.z };
-          else if (Number.isFinite(standing)) at = { x, y, z: standing };
+          if (peak) at = { x, y, z: lifted(peak.z) };
+          else if (Number.isFinite(standing)) at = { x, y, z: lifted(standing) };
           if (state) await ask("/api/state", state);
         }
         say("imaging");
         /* Already standing there after a stack with no peak: no second drive. */
-        const stood = focus && !found.found && !focusMoves
+        const stood = focus && !found.found && !focusMoves && !zOffsetUm
           ? { z: { value: standing } } : await ask("/api/xyz", at);
         const record = await ask("/api/acquire", {
           acquisition_type: "targets", position_label: labels[index], options: null,
@@ -503,6 +506,26 @@ export const backend = {
    * lands; then every plot it wrote comes back as columns by id
    * (`{columns, ids, values}`), a UMAP bringing the components it stood on.
    */
+  /**
+   * The protocols written under this session's output root, newest first,
+   * each with its settings inline: the list is short and the files small,
+   * so there is nothing to fetch a second time.
+   */
+  async protocols(connection = null) {
+    const { protocols } = await ask("/api/protocols", connection ? { connection } : undefined);
+    return protocols ?? [];
+  },
+
+  /** The run's settings, written as `protocol.json` into the run folder. */
+  async saveProtocol(protocol) {
+    return ask("/api/protocol", { protocol });
+  },
+
+  /** The settings saved by name into this machine's library, under ProgramData. */
+  async saveProtocolAs(protocol, name) {
+    return ask("/api/protocol/save", { protocol, name });
+  },
+
   async computePlot({ kind, ids = null, onDoing } = {}) {
     await ask("/api/plots/compute", { kind, ids });
     for (;;) {

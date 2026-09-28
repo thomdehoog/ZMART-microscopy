@@ -9,6 +9,8 @@
  * is kept up to date.
  */
 
+import { hasRecording } from "../../../../parts/microscope/recordings.js";
+
 export const scanOverview = {
   id: "scan",
   title: "Scan the overview",
@@ -17,4 +19,10 @@ export const scanOverview = {
   panels: [],
   ms: 0,
   mode: "scan",
+  /* A scan by hand is the rehearsal, on the tiles pressed green; with none
+     green there is nothing it was asked to take (Thom, 2026-09-28). The
+     protocol run takes the whole plan and never asks this. */
+  ready: ({ testTiles, protocol, overviewPreset }) =>
+    (!hasRecording(overviewPreset) ? "import the optical configuration first"
+      : protocol?.running || testTiles?.size ? null : "select the tiles to scan first"),
 };

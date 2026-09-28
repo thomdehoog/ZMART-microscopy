@@ -174,6 +174,14 @@ export default {
     reduceNote.className = "reduce-note";
     reduceAct.append(computePress, reduceNote);
     reduceBox.body.append(reduceAct);
+    /* Greyed out for now (Thom, 2026-09-28): a gate drawn on these axes
+       cannot be reapplied -- the components are fitted to the population at
+       hand and a UMAP is drawn anew each run -- so a protocol cannot carry
+       one. The box stays where it is, saying so, until that has an answer. */
+    for (const tick of Object.values(ticks)) tick.disabled = true;
+    computePress.disabled = true;
+    reduceNote.textContent = "not available yet";
+    reduceBox.group.classList.add("parked");
     let reducing = false;
     const forget = (columns) => {
       ctx.forgetColumns?.(columns);
@@ -370,7 +378,10 @@ export default {
 
     /** The pickers offer every feature the cells carry; the pair in use wins. */
     function refreshPickers() {
-      const names = featureNames(theCells());
+      /* And the axes the gates stand on: a gate opened from a protocol is
+         drawn on features no object carries yet on this sample. */
+      const names = [...new Set([...featureNames(theCells()),
+        ...ctx.gates().flatMap((g) => [g.fx, g.fy])])].sort();
       if (!chosenByHand && !movedToMeasured
         && names.includes("eccentricity") && names.includes("intensity_mean")) {
         fx = "intensity_mean"; fy = "eccentricity";
@@ -414,6 +425,12 @@ export default {
         const vx = cellFeature(c, fx), vy = cellFeature(c, fy);
         xHi = Math.max(xHi, vx); yHi = Math.max(yHi, vy);
         xLo = Math.min(xLo, vx); yLo = Math.min(yLo, vy);
+      }
+      /* The gate on this pair stays in view whatever the objects span --
+         all of it, when there are no objects yet to span anything. */
+      for (const [gx, gy] of shownGate()?.vertices ?? []) {
+        xHi = Math.max(xHi, gx); yHi = Math.max(yHi, gy);
+        xLo = Math.min(xLo, gx); yLo = Math.min(yLo, gy);
       }
       /* A little headroom, so the outermost cells sit inside the plot
          instead of on its axis line -- at the bottom too, when the feature
