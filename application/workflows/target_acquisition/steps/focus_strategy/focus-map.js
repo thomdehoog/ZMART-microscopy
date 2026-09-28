@@ -1891,6 +1891,18 @@ async function remeasure({ from = null } = {}) {
     const startZ = beginsAt(p);
     return Number.isFinite(startZ) ? { ...p, startZ } : p;
   });
+  /* Each search begins at the height just found at the point before it, so
+     the stack follows the tissue as it tilts across the plate instead of
+     every point being taken around one height. Refining is the exception:
+     there the map's own prediction at each point is the better guess. A
+     point that found nothing hands on the last height that was found. */
+  const lastFoundBefore = (index) => {
+    for (let j = index - 1; j >= 0; j -= 1) {
+      const p = f.points[j];
+      if (!p.lost && Number.isFinite(p.z)) return p.z;
+    }
+    return undefined;
+  };
   /* A backend that reports a height and nothing else is reporting its
      autofocus's answer, which is what `zAuto` means: the height the instrument
      chose, fixed, against which a height the operator moved is a departure.
@@ -1902,6 +1914,7 @@ async function remeasure({ from = null } = {}) {
   const { points, stopped } = await backend.measureFocus(asked.map(stage.toStage), {
     metric: f.metric,
     extent: carrierSpan(),
+    beginAt: from === "map" ? undefined : lastFoundBefore,
     /* The status bar and the box read the bridge's own sentence about the run. */
     onDoing: (sentence) => { status.say(sentence); if (sentence) focusProgress.say({ doing: sentence }); },
     /* The recorded focussing configuration, applied once before the run: the

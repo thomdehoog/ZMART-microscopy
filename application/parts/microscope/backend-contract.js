@@ -226,6 +226,25 @@ export function promisesOfABackend(expect) {
       },
     },
     {
+      what: "asks where each search begins only once the point before it has landed",
+      async keep(backend) {
+        /* The page starts each point's stack at the height just found at the
+           point before, so it has to be asked after that point is reported,
+           never all at once up front. */
+        const canvas = await theCanvasOf(backend);
+        const asked = [across(canvas, 0.2, 0.2), across(canvas, 0.3, 0.3), across(canvas, 0.4, 0.4)];
+        const happened = [];
+        await backend.measureFocus(asked, {
+          metric: "brenner", extent: spanOf(canvas),
+          beginAt: (index) => { happened.push(`begin ${index}`); return undefined; },
+          onPoint: (_, index) => happened.push(`landed ${index}`),
+        });
+        expect(happened).toEqual([
+          "begin 0", "landed 0", "begin 1", "landed 1", "begin 2", "landed 2",
+        ]);
+      },
+    },
+    {
       what: "says how far the stage can go, and what the session stands on",
       async keep(backend) {
         const checks = [];

@@ -222,7 +222,7 @@ export const backend = {
    * is a fraction of the plate, so the mock needs to know how big the plate
    * is. The live backend ignores it — a real sample has its own tilt.
    */
-  async measureFocus(points, { metric, extent, onPoint, state } = {}) {
+  async measureFocus(points, { metric, extent, onPoint, state, beginAt } = {}) {
     void state; // the pretend instrument has no configuration to reapply
     stopAsked.focus = false;
     await wait(200);
@@ -247,7 +247,9 @@ export const backend = {
          second starts every search a micrometre or two from the tissue and the
          first has no idea. Said nothing, the objective arrives near the tissue
          by luck, which is the best a first run can claim. */
-      const startZ = Number.isFinite(p.startZ) ? p.startZ : undefined;
+      const chosen = beginAt?.(index);
+      const startZ = Number.isFinite(chosen) ? chosen
+        : Number.isFinite(p.startZ) ? p.startZ : undefined;
       const traces = Object.fromEntries(METRIC_KEYS.map((key) => {
         const sw = sweep({ focusZ, index, metric: key, startZ });
         return [key, { samples: sw.samples }];
