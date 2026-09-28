@@ -42,7 +42,7 @@ review range: origin/main...HEAD
 External analysis contract:
 
 ```
-https://github.com/thomdehoog/smart-analysis/tree/v4-engine
+https://github.com/thomdehoog/ZMART-analysis/tree/v4-engine
 ```
 
 Read the external repository at the `v4-engine` branch. In particular, inspect:
