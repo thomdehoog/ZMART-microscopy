@@ -29,7 +29,7 @@ sequence are recorded in [MEMORY.md](MEMORY.md) and the
 [webapp README](workflow/webapp/README.md#on-the-microscope-pc).
 
 The setup cell expects a checkout of
-[smart analysis](https://github.com/thomdehoog/smart-analysis) on its `v4-engine`
+[ZMART Analysis](https://github.com/thomdehoog/ZMART-analysis) on its `v4-engine`
 branch in a repository next to ZMART. Before connecting to LAS X it registers the external
 target-acquisition pipeline and runs a 64x64 blank tile through its Cellpose
 worker. This fails early when the analysis repository, declared worker conda
