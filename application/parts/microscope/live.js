@@ -279,8 +279,14 @@ export const backend = {
    * `state` is the focussing recording, applied once before the run so
    * every stack is taken with the same job. A point whose drive or capture
    * fails is a LOST point, reported with no height, and the map goes on.
+   *
+   * `beginAt(index)`, when given, is asked just before each drive where that
+   * point's search should begin. It is asked late on purpose: by then the
+   * page has read the previous point, so a search can start at the height
+   * just found there. A height it gives wins over the point's own `startZ`;
+   * no answer leaves `startZ` as it was.
    */
-  async measureFocus(points, { metric, state = null, onPoint, onDoing } = {}) {
+  async measureFocus(points, { metric, state = null, onPoint, onDoing, beginAt } = {}) {
     void metric; // which curve decides is the page's rule, applied to what comes back
     focusStopAsked = false;
     if (state) await ask("/api/state", state);
@@ -293,7 +299,9 @@ export const backend = {
         const say = (phase) => onDoing?.(`${phase} point ${index + 1} of ${points.length}`);
         /* `startZ` says where to begin this search; without one the stack
            is taken around the height the objective stands at. */
-        const { startZ, ...asked } = point;
+        const { startZ: given, ...asked } = point;
+        const chosen = beginAt?.(index);
+        const startZ = Number.isFinite(chosen) ? chosen : given;
         let landed;
         try {
           say("driving");
