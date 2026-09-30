@@ -5,58 +5,43 @@
 [![dependencies](https://img.shields.io/badge/dependencies-none-brightgreen)](pyproject.toml)
 [![tests](https://img.shields.io/badge/tests-pytest-blue)](#testing)
 
+<img src="docs/zmart-controller-logo.png" align="left" width="110" alt="ZMART Controller">
 
-The **ZMART Controller** provides a small universal schema for driving a microscope from Python. 
-You build you workflow on this schema and it runs on any microscope that has a ZMART-driver plugged into it. 
-The is part of the **ZMART** (ZMB`s Microscopy-Agnostic Research Toolkit) tools we use for smart microscopy
-at the Center for Microscopy and Image Analysis (ZMB), University of Zurich.  
+The **ZMART Controller** provides a small, universal schema for driving a microscope from Python.
+You build your workflow on this schema, and it runs on any microscope that has a ZMART driver plugged into it.
+It is part of **ZMART** (ZMB's Microscopy-Agnostic Research Toolkit), the tools we use for smart microscopy
+at the Center for Microscopy and Image Analysis (ZMB), University of Zurich.
 
+<br clear="left"/>
 
 ## The Problem
 
-Every microscope comes with its own programming interface, so workflow that is build for one microscope
-does not work on another. 
+Every microscope comes with its own programming interface, so a workflow that is built for one microscope
+does not work on another.
 
-This provide a real obstacle sharing our workflows and deploying them one all the microscopes we want.
+This is a real obstacle to sharing our workflows and deploying them on all the microscopes we want.
 
 
 ## The Solution
 
 The ZMART controller lives between your workflow and the microscope:
 
-1. **One universal interface.** A short list of plain commands to move xyz,
-    get and set a state of the microscope, and acquire an images.
+1. **One universal interface.** A short list of plain commands to move in xyz,
+   get and set the state of the microscope, and acquire an image.
 
-2. **A schema, not a driver.** It provide consistent interoperable vocabulary
-   that ZMART-driver plugin to. The drivers take care of interacting with the microscope, enforcing limits
-and provide a single absolute coordinate systems that corresponds to the space in which you observer the specimen
-
-
-```
-  ┌──────────────────────────────────────────────────────────────┐
-  │  your notebook, script or AI agent      (the workflow)       │
-  └──────────────────────────────┬───────────────────────────────┘
-                     commands    │    answers and refusals, unchanged
-  ┌──────────────────────────────┴───────────────────────────────┐
-  │  ZMART Controller                        (this package)      │
-  │                                                              │
-  │  simple vocabolary interoperable vocabulary                  │
-  └───────┬──────────────────────┬──────────────────────┬────────┘
-          │                      │                      │
-  ┌───────┴───────┐      ┌───────┴───────┐      ┌───────┴───────┐
-  │   driver A    │      │   driver B    │      │  your driver  │
-  └───────┬───────┘      └───────┬───────┘      └───────┬───────┘
-          │                      │                      │
-  ┌───────┴───────┐      ┌───────┴───────┐      ┌───────┴───────┐
-  │ microscope A  │      │ microscope B  │      │      ...      │
-  │ own software  │      │ own software  │      │               │
-  └───────────────┘      └───────────────┘      └───────────────┘
-```
-
-Note: we are aware of the useq schema from micro managar and the model hardware standart of antropic. We might switch because both have real upsides, but currently the useq-schema is not interoperable enough for our needs and the model hardware standaard is not released to the public yet.
+2. **A schema, not a driver.** It provides a consistent, interoperable vocabulary
+   that ZMART drivers plug into. The drivers take care of interacting with the microscope, enforcing limits,
+   and providing a single absolute coordinate system that corresponds to the space in which you observe the specimen.
 
 
-### What now no longer is your problem
+<p align="center">
+  <img src="docs/how-it-works.png" width="70%" alt="A script, an interface and an AI agent all speak to the ZMART Controller, one universal command vocabulary; drivers 1, 2 and 3 plug into it, each connected to its own microscope">
+</p>
+
+Note: we are aware of the [useq-schema](https://github.com/pymmcore-plus/useq-schema) from the Micro-Manager community and of Anthropic's [Model Hardware Standard](https://www.anthropic.com/news/model-hardware-standard-research-preview). We might switch, because both have real upsides, but currently the useq-schema is not interoperable enough for our needs and the Model Hardware Standard is not released to the public yet.
+
+
+### What is no longer your problem
 
 Because the controller is this simple, a whole class of problems stops being
 yours as soon as you write against it:
@@ -65,7 +50,7 @@ yours as soon as you write against it:
   or safety limits. If a move is unsafe, the driver refuses and you see why.
   
 - **In a driver**, you never think about workflows, other microscopes or the
-  controller's internals. You implement one function per command the controller ask for.
+  controller's internals. You implement one function per command the controller asks for.
   
 - **In the controller**, there is nothing to maintain. It keeps no state,
   caches nothing and refuses nothing of its own, so it cannot drift out of step
@@ -115,24 +100,31 @@ Every command answers with the same two things:
 
 `success` says whether the driver did what you asked. `report` is whatever the
 driver has to say about it: a position, a saved-file record, a state. When
-something goes unexpected the answer is `success: False` and further details can be read in "report". 
+something unexpected happens, the answer is `success: False`, and the details are in `report`.
 We have not defined a vocabulary for error messages at this point.
 
 
 ## Try it yourself 
 
- < here should be links to tutorials >
- - install and test it with a mock driver
- - build your own workflow with the controller
- - build driver functions that plug into the ZMART-controller
- 
-### Status
-This is version 0.1. We are currently using this in workflows for smart microscopy at the ZMB for Leica and Evident.
-We are considering exapanding this to Nikon, Zeiss and the MesoSPIM platform.
+ - [Install it and run a first experiment on the mock driver](examples/example_experiment.ipynb)
+ - [Build your own workflow with the controller](examples/example_experiment.ipynb): the same notebook, cell by cell, is the template
+ - [Build driver functions that plug into the ZMART-controller](zmart_controller/mock.py): the mock driver is a complete, readable example, and [the tests](tests/) show what a driver must do
 
-## Status and Author
+### Status
+This is version 0.1. We are currently using it in workflows for smart microscopy at the ZMB, on Leica and Evident microscopes.
+We are considering expanding it to Nikon, ZEISS and the mesoSPIM platform.
+
+## Author
 Thom de Hoog, Center for Microscopy and Image Analysis (ZMB), University of
 Zurich (thom.dehoog@zmb.uzh.ch, thomdehoog@gmail.com).
 
 ## License
 MIT License. See LICENSE file for details.
+
+## Links
+
+- [ZMART Microscopy](https://github.com/thomdehoog/ZMART-microscopy): the main repository, with the workflows and the drivers
+- [ZMART drivers](https://github.com/thomdehoog/ZMART-microscopy/tree/main/zmart_drivers): the drivers that plug into this controller
+- [Smart Analysis](https://github.com/thomdehoog/smart-analysis): the analysis engine that runs between acquisitions
+- [ZMART viewer](https://github.com/thomdehoog/ZMART-viewer): the viewer
+- [Center for Microscopy and Image Analysis (ZMB)](https://www.zmb.uzh.ch), University of Zurich
