@@ -32,8 +32,9 @@ microscope API root::
 
 The newest timestamp in each subsystem wins independently. Publishing limits
 does not duplicate calibration or orientation, and every origin change keeps
-its own immutable record. The frame origin remains session-scoped: the driver
-does not restore it at connect.
+its own immutable record. The newest frame origin is loaded when the driver
+connects, just like the other subsystems; with none saved, positions are plain
+stage coordinates.
 
 Operator-published runtime values live in ProgramData. Bundled defaults stay
 inside the installed code and are used directly only when no machine limits
@@ -464,8 +465,9 @@ class MachineProfile:
 
     # --- origin: the operator-set frame zero point -----------------------
     #
-    # Origin records have their own timestamp tree but remain session-scoped:
-    # connect never reapplies the newest record automatically.
+    # Origin records have their own timestamp tree. The operator captures one
+    # with the adapter's set_origin setup step, and the adapter's connect loads
+    # the newest record, so every session starts in the same frame.
 
     def origin_dir(self) -> Path:
         """Root containing this microscope's frame-origin history."""
@@ -478,10 +480,12 @@ class MachineProfile:
         return (latest / ORIGIN_FILENAME) if latest else (self.origin_dir() / ORIGIN_FILENAME)
 
     def read_origin(self) -> dict | None:
-        """The last persisted frame origin, or None when never set.
+        """The newest saved frame origin, or None when none has been saved.
 
-        Not called at connect (the frame is session-scoped and starts
-        absolute); provided for tools and explicit ``get``-style callers.
+        The adapter's ``connect`` calls this to load the origin. A file that
+        exists but cannot be read raises ``OSError``, and one that is not
+        valid JSON raises ``ValueError``; the adapter turns both into a clear
+        error rather than quietly using a zero origin.
         """
         path = self.origin_path()
         if not path.exists():

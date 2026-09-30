@@ -3,7 +3,10 @@
 Drives the Navigator Expert ``zmart_adapter`` through the **real
 ``zmart_controller`` surface** (``get_instruments`` / ``set_instrument`` /
 ``Session``), not the adapter functions directly -- so it validates the exact
-path a workflow takes. The adapter's own unit tests patch the driver internals
+path a workflow takes. The one exception is ``set_origin``: capturing the
+frame origin is a driver setup step, not a controller command, so the move
+phase calls the adapter's ``set_origin`` on the session's driver handle, just
+as an operator would during setup. The adapter's own unit tests patch the driver internals
 and pass ``object()`` as the client; this validator instead runs the adapter
 against a live CAM (LAS X simulator or a real scope) or the in-process mock.
 
@@ -15,7 +18,9 @@ Safe by default:
   - ``--enforce-ci-default-position`` moves to the rig's four-axis CI
     baseline before any other write phase
   - ``--allow-move`` (set_origin + set_xyz round-trip, incl. the z-focus
-    additive sub-check) restores the original XY / both z drives in a finally
+    additive sub-check) restores the original XY / both z drives in a finally.
+    It also removes the origin record its own ``set_origin`` saved, so the
+    microscope's saved origin is left exactly as it was.
   - ``--allow-acquire`` runs one real capture+save into the controller run root
   - interactive 'yes' prompt before live writes unless --yes or --mock
 
@@ -37,6 +42,7 @@ from __future__ import annotations
 
 import argparse
 import math
+import shutil
 import sys
 import tempfile
 import time
@@ -173,12 +179,11 @@ def phase_readonly(v: vh.Validator, sess: Any, args: argparse.Namespace) -> None
             hw = xyz.get("hardware") or {}
             needed = {"x_um", "y_um", "z_wide_um", "z_galvo_um", "objective", "job"}
             v.compare("get_xyz: hardware block complete", needed.issubset(hw), True)
-            # The origin is session-scoped and never restored at connect, so on
-            # this fresh session frame == hardware holds here (origin is all
-            # zero until set_origin runs). The origin arithmetic itself is
+            # Connect loads the microscope's saved origin (or none), so the
+            # frame values here depend on the rig's setup and are not checked
+            # against the hardware values. The origin arithmetic itself is
             # verified in phase_move, right after set_origin, via the
-            # "origin: frame -> 0" checks below, which also cover a non-zero
-            # origin.
+            # "origin: frame -> 0" checks below.
             v.compare(
                 "get_xyz: objective has a name",
                 bool((hw.get("objective") or {}).get("name")),
@@ -369,8 +374,39 @@ def _restore(
     )
 
 
-def phase_move(v: vh.Validator, sess: Any, drv: Any, args: argparse.Namespace) -> None:
+def _forget_validator_origin(v: vh.Validator, sess: Any, record: dict | None, saved: dict) -> None:
+    """Undo the validator's own set_origin, on disk and in the session.
+
+    ``set_origin`` saves a new origin record, and the newest record is what
+    every later connect loads. Left in place, this test's temporary zero
+    point would silently become the microscope's origin. Removing the folder
+    it wrote makes the operator's previous origin the newest again, and the
+    session goes back to the origin it was connected with.
+    """
+    handle = sess._handle
+    if record is not None and record.get("origin_file"):
+        folder = Path(record["origin_file"]).parent
+
+        def remove() -> bool:
+            shutil.rmtree(folder)
+            return True
+
+        v.callable(
+            "origin: remove the validator's origin record",
+            remove,
+            context={"folder": str(folder)},
+        )
+    handle.origin = saved
+
+
+def phase_move(
+    v: vh.Validator, sess: Any, drv: Any, adapter: Any, args: argparse.Namespace
+) -> None:
     """set_origin + set_xyz round-trip, incl. the z-focus additive sub-check.
+
+    ``set_origin`` is the driver's own setup step (the controller has no such
+    command), so it is called on the adapter with the session's driver
+    handle. Its saved record is removed again afterwards.
 
     The z model claims frame z = z-wide + z-galvo (additive, same sign). The
     focus is driven via z-galvo (baseline 0, symmetric envelope) so it works on
@@ -385,10 +421,14 @@ def phase_move(v: vh.Validator, sess: Any, drv: Any, args: argparse.Namespace) -
     dzw = args.z_wide_delta_um
     dzg = args.z_galvo_delta_um
     restore_zwide = False
+    saved_origin = dict(sess._handle.origin)
+    record = None
 
     with v.phase("move (set_origin + set_xyz)"):
         try:
-            v.callable("set_origin", sess.set_origin, mutating=True)
+            record = v.callable(
+                "set_origin", lambda: adapter.set_origin(sess._handle), mutating=True
+            )
             f = v.callable("get_xyz after set_origin", sess.get_xyz)
             if f is not None:
                 v.compare("origin: frame x -> 0", f["x"]["value"], 0.0, tolerance=XY_TOL_UM)
@@ -471,7 +511,10 @@ def phase_move(v: vh.Validator, sess: Any, drv: Any, args: argparse.Namespace) -
                     f"envelope [{zw_lo}, {zw_hi}] (simulator artifact; validates on a scope)",
                 )
         finally:
-            _restore(v, sess, drv, orig, job, restore_zwide)
+            try:
+                _restore(v, sess, drv, orig, job, restore_zwide)
+            finally:
+                _forget_validator_origin(v, sess, record, saved_origin)
 
 
 def _get_state_settled(sess: Any, attempts: int = 6, delay_s: float = 0.5) -> dict:
@@ -656,9 +699,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--z-galvo-delta-um", type=float, default=2.0)
 
     # acquire
-    p.add_argument(
-        "--output-root", default=None, help="where acquire/set_origin write (default: temp)"
-    )
+    p.add_argument("--output-root", default=None, help="where acquire writes (default: temp)")
 
     # output + gating
     p.add_argument("--output", default=None, help="JSONL output path; '-' for stdout")
@@ -741,7 +782,7 @@ def main(argv: list[str] | None = None) -> int:
                     "CI default position could not be enforced; refusing remaining writes",
                 )
             elif args.allow_move:
-                phase_move(v, sess, drv, args)
+                phase_move(v, sess, drv, adapter, args)
             else:
                 v.skip("phase: move", "use --allow-move to enable")
             if baseline_ready and args.allow_state:

@@ -114,6 +114,14 @@ class TestRegistration(unittest.TestCase):
             self.assertIn(op, entry["ops"])
         self.assertIn("disconnect", entry["ops"])
 
+    def test_set_origin_is_a_driver_step_not_a_controller_op(self):
+        """The origin is driver configuration: the controller cannot set it."""
+        from zmart_controller import registry
+
+        entry = registry.REGISTRY.get(("leica", "stellaris5-y42h93", "navigator-expert"))
+        self.assertNotIn("set_origin", entry["ops"])
+        self.assertTrue(callable(adapter.set_origin))
+
 
 class TestCalibrationSelection(unittest.TestCase):
     def test_named_connection_calibration_is_used_for_objective_translations(self):
@@ -235,29 +243,126 @@ class TestFrame(unittest.TestCase):
             self.assertEqual(saved["origin"]["objective"]["magnification"], 63)
             self.assertEqual(saved["job"], "Overview")
 
-    def test_connect_does_not_restore_origin(self):
-        """Origin is session-scoped: a fresh connection is an absolute frame."""
+    def _connect_with_profile(self, profile, connection=None):
+        """Connect against a throwaway machine configuration and a stand-in client."""
+        with (
+            patch.object(adapter._machine, "MACHINE", profile),
+            patch.object(adapter._session, "connect_python_client", return_value=object()),
+        ):
+            return adapter.connect(connection or dict(adapter.CONNECTION))
+
+    def test_connect_restores_the_saved_origin(self):
+        """The newest saved origin, objective included, becomes the session's frame."""
+        import tempfile
+
+        from navigator_expert.config.machine import MachineProfile
+
+        objective = {"slotIndex": 2, "magnification": 63, "name": "HC PL APO 63x"}
+        with tempfile.TemporaryDirectory() as tmp:
+            profile = MachineProfile(programdata_root=Path(tmp))
+            profile.write_origin({"origin": _origin(x_um=1.0), "captured_at": 1.0})
+            saved = _origin(
+                x_um=1000.0,
+                y_um=2000.0,
+                z_wide_um=30.0,
+                z_galvo_um=2.0,
+                z_focus_um=32.0,
+                objective=objective,
+            )
+            profile.write_origin({"origin": saved, "captured_at": 2.0})
+            h = self._connect_with_profile(profile)
+        self.assertEqual(h.origin, saved)
+        # The loaded origin keeps its objective, so a move under another
+        # objective without calibration is still refused.
+        h.translations = None
+        with self.assertRaisesRegex(RuntimeError, "objective changed"):
+            adapter._objective_delta_um(h, {"slotIndex": 3})
+
+    def test_set_origin_then_connect_round_trips(self):
+        """What set_origin captures is exactly what the next connect loads."""
         import tempfile
 
         from navigator_expert.config.machine import MachineProfile
 
         with tempfile.TemporaryDirectory() as tmp:
             profile = MachineProfile(programdata_root=Path(tmp))
-            # An origin file exists on disk from a previous session...
-            profile.write_origin(
-                {
-                    "origin": _origin(x_um=1000.0, y_um=2000.0, z_wide_um=30.0, z_focus_um=30.0),
-                    "captured_at": 123.0,
-                }
-            )
+            h = _handle()
+            patches = _patch_position(x_um=1000.0, y_um=2000.0, z_wide_um=30.0, z_galvo_um=2.0)
             with (
                 patch.object(adapter._machine, "MACHINE", profile),
-                patch.object(adapter._session, "connect_python_client", return_value=object()),
+                patches[0],
+                patches[1],
+                patches[2],
+                patches[3],
             ):
-                h = adapter.connect(dict(adapter.CONNECTION))
-            # ...but connect does NOT adopt it — the frame starts absolute.
-            self.assertEqual(h.origin["x_um"], 0.0)
-            self.assertEqual(h.origin["z_focus_um"], 0.0)
+                adapter.set_origin(h)
+            fresh = self._connect_with_profile(profile)
+        self.assertEqual(fresh.origin, h.origin)
+
+    def test_connect_without_a_saved_origin_uses_stage_coordinates(self):
+        """No origin saved yet: the frame is the absolute stage, with a warning."""
+        import tempfile
+
+        from navigator_expert.config.machine import MachineProfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            profile = MachineProfile(programdata_root=Path(tmp))
+            with self.assertLogs(adapter.log, level="WARNING") as logs:
+                h = self._connect_with_profile(profile)
+        self.assertEqual(h.origin, _origin())
+        self.assertIn("no frame origin has been saved", "\n".join(logs.output))
+
+    def test_connect_refuses_a_corrupt_origin_file(self):
+        """A damaged origin file stops connect before LAS X is contacted."""
+        import tempfile
+
+        from navigator_expert.config.machine import MachineProfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            profile = MachineProfile(programdata_root=Path(tmp))
+            path = profile.write_origin({"origin": _origin(x_um=5.0)})
+            path.write_text("{not json", encoding="utf-8")
+            with (
+                patch.object(adapter._machine, "MACHINE", profile),
+                patch.object(adapter._session, "connect_microscope") as connect_microscope,
+            ):
+                with self.assertRaisesRegex(RuntimeError, "could not be read"):
+                    adapter.connect(dict(adapter.CONNECTION))
+            connect_microscope.assert_not_called()
+
+    def test_connect_refuses_an_incomplete_origin_file(self):
+        """An origin missing a value or its objective is refused, not zero-filled."""
+        import tempfile
+
+        from navigator_expert.config.machine import MachineProfile
+
+        broken = [
+            ({"origin": {"x_um": 5}}, "'y_um'"),
+            ({"origin": {**_origin(), "z_focus_um": "nan"}}, "'z_focus_um'"),
+            ({"origin": {**_origin(), "x_um": float("inf")}}, "'x_um'"),
+            ({"origin": {k: v for k, v in _origin().items() if k != "objective"}}, "objective"),
+            ({"origin": {**_origin(), "objective": "63x"}}, "objective"),
+            ({"job": "Overview"}, "no 'origin' section"),
+        ]
+        for payload, message in broken:
+            with self.subTest(payload=payload), tempfile.TemporaryDirectory() as tmp:
+                profile = MachineProfile(programdata_root=Path(tmp))
+                profile.write_origin(payload)
+                with self.assertRaisesRegex(RuntimeError, message):
+                    self._connect_with_profile(profile)
+
+    def test_connect_can_skip_the_saved_origin(self):
+        """load_origin=False starts in stage coordinates, even over a damaged file."""
+        import tempfile
+
+        from navigator_expert.config.machine import MachineProfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            profile = MachineProfile(programdata_root=Path(tmp))
+            path = profile.write_origin({"origin": _origin(x_um=5.0)})
+            path.write_text("{not json", encoding="utf-8")
+            h = self._connect_with_profile(profile, {**adapter.CONNECTION, "load_origin": False})
+        self.assertEqual(h.origin, _origin())
 
     def test_get_xyz_is_origin_relative(self):
         h = _handle(origin=_origin(x_um=1000.0, y_um=2000.0, z_focus_um=30.0))
@@ -1836,7 +1941,9 @@ class TestLifecycle(unittest.TestCase):
             )
             session = zmart_controller.set_instrument(instrument)
             try:
-                session.set_origin()
+                # Capturing the origin is a driver setup step, not a controller
+                # command, so it is called on the adapter with the driver handle.
+                adapter.set_origin(session._handle)
                 record = session.set_xyz(10, 20, 5, with_actuators={"z": "z-galvo"})
                 self.assertEqual(record["position"], {"x": 10, "y": 20, "z": 5})
                 self.assertEqual(session.get_xyz()["x"]["value"], 0.0)  # mocked readback

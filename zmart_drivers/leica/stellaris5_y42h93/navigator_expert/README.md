@@ -80,8 +80,9 @@ runtime where possible. Override via the profile, not at call sites.
   machine-local ProgramData. Directly below `navigator_expert`, each subsystem owns an independent
   timestamp tree: `limits/<datetime>/`, `calibration/<datetime>/`,
   `orientation/<datetime>/`, and `origin/<datetime>/`. The newest timestamp in each tree wins.
-  Limits, calibration, and orientation seed their own repo defaults when empty. Origin remains
-  session-scoped and is not restored at connect. Setup notebooks append only to their owning tree,
+  Limits, calibration, and orientation seed their own repo defaults when empty. The origin has no
+  repo default: it exists only once an operator saves one, and the adapter loads the newest one at
+  connect. Setup notebooks append only to their owning tree,
   so publishing one subsystem never duplicates another. The single `limits.json` is
   flat: four typed stage-axis `range` entries, `objective_slot` with `allowed` values,
   and either a typed constraint or explicit `[]` for each setter. Backlash remains a
@@ -184,11 +185,30 @@ cross-objective moves rather than computing uncompensated ones. Normal image sav
 `IMAGE_SAVE.apply_orientation=True` profile default. Only orientation measurement passes an explicit
 identity orientation to obtain raw camera pixels.
 
-**The origin is session-scoped.** `set_origin` makes the current position the frame zero — from then
-until it is set again or the session ends. It appends `origin/<datetime>/origin.json` as a record,
-but the driver does **not** restore it at connect: a fresh connection is an absolute frame
-until `set_origin` runs. (An earlier version restored the last origin across sessions; it no longer
-does.)
+**The origin is part of the microscope's configuration.** The frame origin is the stage position
+that the ZMART controller calls (0, 0, 0). Like the limits, orientation, and calibration, it is set
+once in a setup step and then reused by every session. During that step the operator works with
+the driver directly and calls the adapter's `set_origin`:
+
+```python
+from navigator_expert.zmart_adapter import zmart_adapter as adapter
+
+handle = adapter.connect(adapter.CONNECTION)
+adapter.set_origin(handle)  # the current position becomes (0, 0, 0)
+```
+
+`set_origin` saves stage XY, both z drives, and the current objective to a new
+`origin/<datetime>/origin.json`. Every later `connect` loads the newest one, so all sessions share the
+same frame until the origin is captured again. The controller itself cannot change the origin; it
+only forwards commands. Because the objective is saved too, a later objective change is still
+compensated with the calibration, or refused when no calibration covers it.
+
+If no origin has been saved yet, positions are plain stage coordinates and connect logs a warning.
+If an origin file exists but is damaged or incomplete, connect stops with a clear error rather than
+quietly using a zero origin, which would shift every position in the experiment. To recover, fix or
+remove that file, or connect with `load_origin=False` in the connection dict and run `set_origin`
+again. (Earlier versions treated the origin as belonging to one session only and did not load it at
+connect; that is no longer the case.)
 
 **Live vs. file.** `set_zoom(...)` talks to the running scope and confirms by reading hardware back;
 `lrp_set_zoom(...)` edits a `.lrp` template *file* (nothing happens on the scope until LAS X reloads
@@ -537,9 +557,10 @@ These **silently misbehave** instead of failing loudly — respect them or resul
     fails to load/validate at connect, the session falls back to the bundled **default** envelope
     (loudly warned) rather than refusing everything; the connect-time warning names what happened
     (see §3). Out-of-envelope moves still refuse at the commands layer, below the adapter.
-12. **The origin is session-scoped, not restored at connect** — after connecting, the frame is
-    absolute stage coordinates until `set_origin` runs. It persists to the machine-local `origin/`
-    folder only as a record (see §5).
+12. **The origin is loaded at connect** — `connect` loads the newest origin saved by the adapter's
+    `set_origin` setup step, so the controller never sets it. With none saved, positions are plain
+    stage coordinates (with a warning); a damaged origin file stops connect with a clear error
+    (see §5).
 
 ## 11. Extending the driver
 

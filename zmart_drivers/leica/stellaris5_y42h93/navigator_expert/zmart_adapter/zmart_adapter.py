@@ -15,8 +15,8 @@ instrument::
     zmart_controller.set_instrument(instrument)
 
 Frame math lives here: the driver speaks absolute stage micrometres, the
-controller speaks micrometres relative to the origin set by
-``set_origin``. The controller's single ``z`` axis is the *focus*
+controller speaks micrometres relative to the saved frame origin. The
+controller's single ``z`` axis is the *focus*
 displacement — the sum of the two physical drives (z-wide + z-galvo)
 relative to the origin's focus sum — so it reads the same regardless of
 which drive realized a move. An objective change is compensated with the
@@ -29,12 +29,15 @@ unavailable; reads warn and return uncompensated. The driver package
 itself is untouched. Full design: ``docs/design/objective-aware-frame.md``.
 
 Scope of v1 (grow as needed):
-    - ``set_origin`` captures stage XY, both z drives, and the current
-      objective as the zero point. The origin is SESSION-scoped: it applies
-      until set again or the session ends, and it is written to the
-      machine-local ``origin/`` folder (next to the dated snapshots) only
-      as a record of the last origin captured. ``connect`` does NOT restore
-      it — a fresh connection is an absolute frame until ``set_origin`` runs.
+    - The frame origin is part of this microscope's configuration, like the
+      limits, the orientation and the calibration. It is set once, in a
+      separate setup step where the operator works with the driver directly:
+      :func:`set_origin` captures stage XY, both z drives and the current
+      objective as the zero point and saves it to the machine-local
+      ``origin/`` folder. Every :func:`connect` then loads the newest saved
+      origin, so each session starts in the same frame. The controller does
+      not set the origin; it only forwards commands. When no origin has been
+      saved yet, the frame is plain absolute stage coordinates.
     - ``get_xyz`` returns both frames: controller-relative values plus
       the raw hardware readings under ``"hardware"``.
     - ``get_state``/``set_state`` round-trip the selected job (the job
@@ -108,6 +111,10 @@ CONNECTION = {
     # explicitly saves raw pixels.
     "load_limits": True,
     "load_calibration": True,
+    # The saved frame origin is loaded at connect. Set this to False only to
+    # start in plain stage coordinates, for example to re-capture the origin
+    # when the saved origin file is damaged and connect refuses to read it.
+    "load_origin": True,
 }
 
 _ACTUATORS = {"x": ("motoric",), "y": ("motoric",), "z": ("z-wide", "z-galvo")}
@@ -148,10 +155,11 @@ class ZmartHandle:
         hash6: SESSION hash, minted at connect. Travels in lineage /
             ``session_hash6`` provenance only — each :func:`acquire` mints
             its own acquired-position hash for the output Naming.
-        origin: The frame zero point captured by :func:`set_origin` —
-            stage XY, both z drives, their focus sum, and the objective
-            it was captured under. Defaults to all-zero (frame ==
-            absolute stage coordinates) until ``set_origin`` runs.
+        origin: The frame zero point: stage XY, both z drives, their focus
+            sum, and the objective it was captured under. :func:`connect`
+            fills it from the newest origin saved by :func:`set_origin`.
+            When no origin has been saved, it stays all-zero, which means
+            the frame is simply the absolute stage coordinates.
         position_counter: Next per-session position index handed to an
             unlabeled :func:`acquire` (formatted 6-digit zero-padded). An
             explicit ``position_label`` does not consume a counter value.
@@ -207,7 +215,8 @@ def connect(connection: dict) -> ZmartHandle:
         connection: The instrument dict from ``get_instruments()``.
             ``client`` and ``api_delay_ms`` feed the CAM connection;
             ``output_root`` (edited in by the caller) is where
-            :func:`acquire` saves and :func:`set_origin` persists.
+            :func:`acquire` saves; ``load_origin`` (default True) decides
+            whether the saved frame origin is loaded.
 
     Delegates to the driver's own connection entry point
     (:func:`navigator_expert.connect_microscope`), which loads this microscope's
@@ -223,12 +232,26 @@ def connect(connection: dict) -> ZmartHandle:
     leaving the session unable to move; the hardcoded physical backstop bounds
     every move regardless.
 
-    The frame origin is NOT restored here — it is session-scoped. A fresh
-    connection is an absolute frame until :func:`set_origin` runs.
+    The frame origin is loaded here as well, from the newest ``origin.json``
+    that :func:`set_origin` saved on this computer. Every session therefore
+    starts in the same frame, and the origin keeps the objective it was
+    captured under, so objective changes are handled exactly as they would
+    be right after ``set_origin``. When no origin has been saved yet, the
+    frame is the plain absolute stage coordinates and a warning is logged.
+    Setting ``load_origin`` to False in the connection dict skips the saved
+    origin on purpose and starts in stage coordinates.
 
-    Raises whatever :func:`connect_microscope` raises when LAS X is
-    unreachable — the controller surfaces that to the caller unchanged.
+    Raises:
+        RuntimeError: when a saved origin exists but cannot be read or does
+            not contain the expected values. The frame would otherwise
+            silently fall back to stage coordinates and every move would
+            land somewhere other than intended, so connect stops instead.
+            The origin is checked before LAS X is contacted, so nothing is
+            left half-connected.
+        Whatever :func:`connect_microscope` raises when LAS X is
+        unreachable; the controller passes that to the caller unchanged.
     """
+    saved_origin = _load_saved_origin() if connection.get("load_origin", True) else None
     client = _session.connect_microscope(
         client_name=connection.get("client", "PythonClient"),
         api_delay_ms=connection.get("api_delay_ms"),
@@ -239,7 +262,88 @@ def connect(connection: dict) -> ZmartHandle:
     handle = ZmartHandle(client=client, connection=dict(connection), hash6=run_hash())
     loaded = _session_state.get(client)
     handle.translations = loaded.translations if loaded is not None else None
+    if saved_origin is not None:
+        handle.origin = saved_origin
     return handle
+
+
+# The values a frame origin must carry. They match what set_origin captures,
+# so an origin loaded at connect behaves exactly like a freshly captured one.
+_ORIGIN_NUMBER_KEYS = ("x_um", "y_um", "z_wide_um", "z_galvo_um", "z_focus_um")
+
+
+def _load_saved_origin() -> dict | None:
+    """Read the newest saved frame origin, or return None when none exists.
+
+    The origin lives in this microscope's ``origin/<datetime>/origin.json``
+    (see ``config/machine.py``); the newest folder wins, just as for the
+    limits, orientation and calibration.
+
+    Returns:
+        The origin with the same fields :func:`set_origin` captures
+        (``x_um``, ``y_um``, ``z_wide_um``, ``z_galvo_um``, ``z_focus_um``
+        and ``objective``), or None when no origin has ever been saved. In
+        that case a warning explains that the frame is the plain stage
+        coordinates.
+
+    Raises:
+        RuntimeError: when the file exists but cannot be read, is not valid
+            JSON, or is missing one of the values above. Guessing a zero
+            origin here would quietly shift every position in the
+            experiment, so the connection stops and says how to fix it.
+    """
+    path = _machine.MACHINE.origin_path()
+    fix = (
+        "Fix or remove that file, or connect with load_origin=False and capture "
+        "the origin again with the driver's set_origin step."
+    )
+    try:
+        payload = _machine.MACHINE.read_origin()
+    except (OSError, ValueError) as exc:
+        raise RuntimeError(
+            f"the saved frame origin at {path} could not be read ({exc}). {fix}"
+        ) from exc
+    if payload is None:
+        log.warning(
+            "no frame origin has been saved on this microscope yet, so positions "
+            "are plain stage coordinates. Run the driver's set_origin step once "
+            "to choose a zero point; it will then be loaded at every connect."
+        )
+        return None
+    stored = payload.get("origin") if isinstance(payload, dict) else None
+    if not isinstance(stored, dict):
+        raise RuntimeError(f"the saved frame origin at {path} has no 'origin' section. {fix}")
+    origin: dict[str, Any] = {}
+    for key in _ORIGIN_NUMBER_KEYS:
+        value = stored.get(key)
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(value)
+        ):
+            raise RuntimeError(
+                f"the saved frame origin at {path} has no usable value for {key!r} "
+                f"(found {value!r}). {fix}"
+            )
+        origin[key] = float(value)
+    # The objective is what lets the driver refuse a move under a different
+    # objective when no calibration can translate between the two, so a
+    # file that does not say which objective it was captured under is
+    # refused rather than treated as "no objective recorded".
+    if "objective" not in stored:
+        raise RuntimeError(
+            f"the saved frame origin at {path} does not record which objective it "
+            f"was captured under. {fix}"
+        )
+    objective = stored["objective"]
+    if objective is not None and not isinstance(objective, dict):
+        raise RuntimeError(
+            f"the saved frame origin at {path} records its objective in an unexpected "
+            f"form ({objective!r}). {fix}"
+        )
+    origin["objective"] = dict(objective) if objective is not None else None
+    log.info("loaded the saved frame origin from %s", path)
+    return origin
 
 
 def _loaded_orientation(handle: ZmartHandle):
@@ -277,9 +381,9 @@ def _objective_delta_um(handle: ZmartHandle, current_objective: dict | None) -> 
         return (0.0, 0.0, 0.0)
     if current_slot is None:
         raise RuntimeError(
-            f"objective changed since set_origin (slot {origin_slot} -> "
-            f"unidentified) so the frame cannot be mapped; re-set the origin "
-            f"under the current objective"
+            f"objective changed since the origin was captured (slot {origin_slot} -> "
+            f"unidentified) so the frame cannot be mapped; capture the origin "
+            f"again under the current objective"
         )
     # The delta math and the missing-pair policy live in ONE place —
     # calibration/core/model.py — shared with the driver's swap-time
@@ -291,8 +395,8 @@ def _objective_delta_um(handle: ZmartHandle, current_objective: dict | None) -> 
         return _cal_model.translation_delta_um(handle.translations, origin_slot, current_slot)
     except RuntimeError as exc:
         raise RuntimeError(
-            f"objective changed since set_origin but {exc} — or re-set the "
-            f"origin under the current objective"
+            f"objective changed since the origin was captured but {exc} — or "
+            f"capture the origin again under the current objective"
         ) from exc
 
 
@@ -421,8 +525,8 @@ def _setup_readiness(
     if calibration.get("loaded"):
         if origin_slot is None:
             issues.append(
-                "the run origin has no recorded objective; run set_origin under "
-                "the current objective"
+                "the saved frame origin does not record an objective; capture the "
+                "origin again with the driver's set_origin step under the current objective"
             )
         elif origin_slot not in known_slots:
             issues.append(
@@ -458,25 +562,40 @@ def _job_catalog(handle: ZmartHandle) -> tuple[list[dict], list[dict]]:
 
 
 def set_origin(handle: ZmartHandle) -> dict:
-    """The current position becomes (0, 0, 0) of the controller frame.
+    """Make the current stage position the (0, 0, 0) of the frame and save it.
 
-    Captures stage XY, both z drives, their focus sum, and the current
-    objective as the zero point, and sets this session's frame to it. The
-    origin is **session-scoped**: it applies from now until it is set again or
-    the session ends. It is also written to the machine-local ``origin/``
-    folder (next to the snapshots) as a record of the last origin captured, but
-    the driver does NOT restore it at connect — a fresh connection starts as an
-    absolute frame until ``set_origin`` runs again.
+    This is a setup step for the driver, not a controller command. The
+    operator runs it once, working with the driver directly, for example::
 
-    If writing that on-disk record fails, this op raises — but the session's
-    frame HAS already been set to the captured zero (only the record is
-    missing). Re-run ``set_origin`` after fixing the cause to refresh it.
+        from navigator_expert.zmart_adapter import zmart_adapter as adapter
+        handle = adapter.connect(adapter.CONNECTION)
+        adapter.set_origin(handle)
 
-    Not limits-gated: this op fires no native command — it reads the current
-    position and writes a small reference file. (The commands-layer gate
-    governs everything that commands hardware; ``set_origin`` stays in the
-    ``limits.json`` ``functions`` vocabulary so machine files remain explicit
-    about it.)
+    It reads stage XY, both z drives (z-wide and z-galvo), their sum (the
+    focus) and the current objective, and records them as the zero point.
+    The record is saved to this microscope's configuration as a new
+    ``origin/<datetime>/origin.json``, and every later :func:`connect` loads
+    the newest one, so all sessions share the same frame until the origin
+    is captured again. The objective is saved with it so that a later
+    objective change can be compensated with the calibration, or refused
+    when no calibration can translate between the two objectives.
+
+    The handle passed in starts using the new origin straight away.
+
+    Returns:
+        ``{"origin": {"x": 0, "y": 0, "z": 0}, "reference": <the captured
+        stage values>, "origin_file": <path of the saved origin.json>}``.
+
+    Raises:
+        RuntimeError: when the position cannot be read, or when the file
+            cannot be saved. In the second case this handle already uses the
+            new origin, but the next connect would not, so fix the cause and
+            run ``set_origin`` again.
+
+    It is not checked against the limits, because it moves nothing: it only
+    reads the current position and writes a small file. (``set_origin``
+    stays in the ``limits.json`` ``functions`` list so machine files remain
+    explicit about it.)
     """
     _require_open(handle)
     snap = _hardware_snapshot(handle)
@@ -497,13 +616,13 @@ def set_origin(handle: ZmartHandle) -> dict:
     try:
         path = _machine.MACHINE.write_origin(payload)
     except OSError as exc:
-        # The in-memory origin is already set; failing to persist the
-        # record must be loud (re-running set_origin after fixing the
-        # cause is cheap), not a silent divergence discovered later.
+        # This handle already uses the new origin, but the next connect will
+        # load the previous saved one. Say so clearly, because otherwise the
+        # two would disagree without anyone noticing.
         raise RuntimeError(
-            f"could not persist the origin record: {exc} — the session frame WAS "
-            f"set to the captured zero; only the on-disk record failed. Re-run "
-            f"set_origin after fixing the cause to refresh it."
+            f"could not save the origin: {exc}. This connection already uses the "
+            f"new zero point, but the next connect will load the previously saved "
+            f"origin. Fix the cause and run set_origin again."
         ) from exc
     return {
         "origin": {"x": 0.0, "y": 0.0, "z": 0.0},
@@ -1373,7 +1492,6 @@ def register() -> None:
             "connect": connect,
             "disconnect": disconnect,
             "get_acquisition_options": get_acquisition_options,
-            "set_origin": set_origin,
             "get_actuators": get_actuators,
             "get_xyz": get_xyz,
             "set_xyz": set_xyz,
