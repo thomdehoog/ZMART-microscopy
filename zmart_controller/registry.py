@@ -35,8 +35,12 @@ University of Zurich (thom.dehoog@zmb.uzh.ch, thomdehoog@gmail.com).
 
 from __future__ import annotations
 
+import importlib
+import importlib.util
 import logging
+import sys
 from importlib.metadata import entry_points
+from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -93,6 +97,70 @@ def register(connection: dict[str, Any], *, ops: dict[str, Any]) -> None:
     if key in REGISTRY:
         logger.warning("driver %s already registered; overwriting", key)
     REGISTRY[key] = {"connection": dict(connection), "ops": ops}
+
+
+def register_driver(driver: str | Path) -> list[dict[str, Any]]:
+    """Plug a driver in, and return the instruments it provides.
+
+    ``driver`` is where the driver lives: a folder holding the driver package,
+    a single ``.py`` file, or a module name that Python can already import
+    (for example ``"zmart_drivers.nikon.nis_elements_6_10"``). The driver is
+    imported, which registers its instruments the way drivers always do.
+
+    Put this one line at the top of a notebook, before
+    :func:`get_instruments`. Calling it again for the same driver is
+    harmless. Raises ``ValueError`` if nothing can be found at ``driver`` or if
+    it registers no instrument.
+    """
+    before = set(REGISTRY)
+    module, fresh = _import_driver(driver)
+    if fresh and set(REGISTRY) == before:
+        # Some drivers register only when asked, through a register() function.
+        hook = getattr(module, "register", None)
+        if callable(hook):
+            hook()
+        if set(REGISTRY) == before:
+            raise ValueError(f"{driver!s} was imported but registered no instrument")
+    added = sorted(set(REGISTRY) - before)
+    return [dict(REGISTRY[key]["connection"]) for key in added]
+
+
+def _import_driver(driver: str | Path):
+    """Import a driver from a folder, a file, or a module name.
+
+    Returns the module and whether this call imported it for the first time.
+    """
+    path = Path(driver)
+    if path.suffix == ".py" and path.is_file():
+        name = path.stem
+        if name in sys.modules:
+            return sys.modules[name], False
+        spec = importlib.util.spec_from_file_location(name, path)
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[name] = module
+        try:
+            spec.loader.exec_module(module)
+        except BaseException:
+            del sys.modules[name]
+            raise
+        return module, True
+    if path.is_dir():
+        if not (path / "__init__.py").is_file():
+            raise ValueError(f"{path} is a folder but not a Python package (no __init__.py)")
+        parent = str(path.resolve().parent)
+        if parent not in sys.path:
+            sys.path.insert(0, parent)
+        name = path.resolve().name
+    else:
+        name = str(driver)
+    fresh = name not in sys.modules
+    try:
+        module = importlib.import_module(name)
+    except ModuleNotFoundError as exc:
+        if exc.name and name.startswith(exc.name):
+            raise ValueError(f"no driver found at {driver!s}") from None
+        raise
+    return module, fresh
 
 
 ENTRY_POINT_GROUP = "zmart_controller.drivers"
