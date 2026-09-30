@@ -1,21 +1,17 @@
-"""The mock microscope: a pretend instrument that lives entirely in memory.
+"""The mock microscope: a pretend instrument that lives in memory.
 
-Use it to try every command without hardware, and read it as a complete,
-working example of a driver::
+Use it to try every command without hardware, and read it as a complete
+example of a driver::
 
     from zmart_controller import mock
     mock.register()
 
-It exercises the full controller contract so the package can be tested offline.
-It also shows the shape a real driver implements. It receives the connection
-dict, loads its origin as configuration (positions are micrometers from it),
-and does all the work and all the checks the controller does not: refusing a
-closed connection, validating options, settling before capture, saving, and
-keeping the changeable and observed parts of the state apart.
+It does everything a real driver does and the controller does not: it loads
+its origin at connect, refuses a closed connection, checks options, and keeps
+the changeable and observed parts of the state apart.
 
-Driver contract used by the registry: ``connect(connection) -> handle`` opens a
-session and returns an opaque handle; every other operation takes that handle as
-its first argument and returns ``{"success": bool, "report": ...}``.
+Every function except ``connect`` and ``disconnect`` takes the handle first
+and returns ``{"success": bool, "report": ...}``.
 
 Author: Thom de Hoog, Center for Microscopy and Image Analysis (ZMB),
 University of Zurich (thom.dehoog@zmb.uzh.ch, thomdehoog@gmail.com).
@@ -26,60 +22,56 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
-# Per-axis actuator options this instrument exposes (driver-defined).
+# The motors that can move each axis.
 _ACTUATORS: dict[str, list[str]] = {
     "x": ["motoric"],
     "y": ["motoric"],
     "z": ["motoric", "galvo", "piezo"],
 }
 
-# Fixed defaults for axes omitted from ``with_actuators`` (the reference
-# actuator per axis) — never sticky: a previous call's choice is not state.
+# The motor used when a call does not name one. A choice never carries over
+# to the next call.
 _DEFAULT_ACTUATORS: dict[str, str] = {"x": "motoric", "y": "motoric", "z": "motoric"}
 
 
 @dataclass
 class MockHandle:
-    """In-memory instrument state standing in for a live connection.
+    """The pretend instrument's state, standing in for a live connection.
 
-    Stores the raw motoric position (um) and the origin; user coordinates are raw
-    minus origin. The driver owns that arithmetic.
+    Positions the user sees are the raw stage position minus the origin.
     """
 
-    # raw motoric position, micrometers
+    # raw stage position, in micrometers
     x: float = 0.0
     y: float = 0.0
     z: float = 0.0
 
-    # frame origin (the raw position that reads as zero)
+    # the raw position that reads as (0, 0, 0)
     origin_x: float = 0.0
     origin_y: float = 0.0
     origin_z: float = 0.0
 
-    # mutable instrument settings
+    # settings that set_state can change
     laser_power: float = 5.0
     gain: float = 1.0
 
-    # immutable identity, plus connection info filled at connect
+    # identity and what connect was given
     serial: str = "MOCK-0001"
     client: str | None = None
     connection: dict = field(default_factory=dict)
     tile_positions: list[dict] = field(default_factory=list)
 
-    # set by disconnect(); every other op refuses a closed handle
+    # set by disconnect; every other function then refuses
     closed: bool = False
 
 
 def connect(connection: dict):
-    """Open a session with a small vendor-authored tile setup.
+    """Open a session.
 
-    Receives the whole variable connection dict; a real driver would validate the
-    api and authenticate with e.g. ``connection["client"]`` / credentials.
-
-    The origin is driver configuration. A real driver loads it from the file
-    its own setup step saved; the mock stands in for that file with an optional
-    ``"origin"`` entry in the connection dict (``{"x": ..., "y": ..., "z": ...}``,
-    raw micrometers). Without one, the origin is the raw zero.
+    A real driver would log in here with what the connection dict holds, and
+    load its saved origin. The mock takes an optional ``"origin"`` entry in
+    the dict instead, ``{"x": ..., "y": ..., "z": ...}`` in raw micrometers.
+    Without one the origin is zero.
     """
     handle = MockHandle()
     origin = connection.get("origin") or {}
@@ -97,40 +89,33 @@ def connect(connection: dict):
 
 
 def disconnect(handle: MockHandle) -> None:
-    """Close the session; every subsequent op on the handle raises.
-
-    A real driver would release its client connection here.
-    """
+    """Close the session. Every later call on this handle raises."""
     handle.closed = True
 
 
 def _answer(report, *, success: bool = True) -> dict:
-    """Wrap a driver's report in the shape every command returns.
+    """Wrap a report in the shape every command returns.
 
-    ``success`` says whether the command did what was asked; ``report`` is
-    whatever this driver has to say about it. A failure that would make it
-    unsafe to carry on is never reported this way: the driver raises instead.
+    Only outcomes that are safe to carry on from use ``success=False``.
+    Anything unsafe is raised instead.
     """
     return {"success": success, "report": report}
 
 
 def _require_open(handle: MockHandle) -> None:
-    """Refuse to drive a disconnected handle -- a real connection would be dead."""
+    """Refuse a closed handle."""
     if handle.closed:
         raise RuntimeError("session is disconnected")
 
 
 def get_actuators(handle: MockHandle) -> dict:
-    """The actuator options each axis offers (driver-defined)."""
+    """The motors that can move each axis."""
     _require_open(handle)
     return _answer({axis: list(opts) for axis, opts in _ACTUATORS.items()})
 
 
 def get_acquisition_options(handle: MockHandle) -> dict:
-    """The acquisition + saving options this instrument offers (options + active).
-
-    Driver-owned and answered on demand; the controller caches nothing.
-    """
+    """The choices for capturing and saving, with allowed values and the active one."""
     _require_open(handle)
     return _answer(_menu())
 
@@ -144,7 +129,7 @@ def _menu() -> dict:
 
 
 def _with_defaults(handle: MockHandle, options: dict | None) -> dict:
-    """Validate options against the menu, filling omissions from the active defaults."""
+    """Check the options against the menu and fill in the ones left out."""
     menu = _menu()
     resolved = {name: spec["active"] for name, spec in menu.items()}
     if options:
@@ -158,11 +143,7 @@ def _with_defaults(handle: MockHandle, options: dict | None) -> dict:
 
 
 def _resolve_actuators(with_actuators: dict | None) -> dict[str, str]:
-    """Per-axis actuator choice, validated, over the fixed reference defaults.
-
-    Never sticky: a previous call's selection is not state — omitted axes
-    always resolve to the reference actuator.
-    """
+    """The motor to use per axis: the one named, or the default."""
     chosen = dict(_DEFAULT_ACTUATORS)
     if with_actuators:
         for axis, actuator in with_actuators.items():
@@ -173,7 +154,7 @@ def _resolve_actuators(with_actuators: dict | None) -> dict[str, str]:
 
 
 def _user_position(handle: MockHandle) -> dict[str, float]:
-    """Raw position minus origin -- the coordinates the workflow sees."""
+    """The position as the user sees it: raw minus origin."""
     return {
         "x": handle.x - handle.origin_x,
         "y": handle.y - handle.origin_y,
@@ -182,7 +163,7 @@ def _user_position(handle: MockHandle) -> dict[str, float]:
 
 
 def get_xyz(handle: MockHandle, *, with_actuators: dict | None = None) -> dict:
-    """Report the position per axis (um, relative to origin) with its actuator."""
+    """The position of each axis, in micrometers from the origin."""
     _require_open(handle)
     chosen = _resolve_actuators(with_actuators)
     user = _user_position(handle)
@@ -197,12 +178,9 @@ def get_xyz(handle: MockHandle, *, with_actuators: dict | None = None) -> dict:
 def set_xyz(
     handle: MockHandle, x: float, y: float, z: float, *, with_actuators: dict | None = None
 ) -> dict:
-    """Move to an absolute target (um, relative to origin); return a move record.
+    """Move to a position, in micrometers from the origin.
 
-    The chosen actuators realize this move only — the selection is never
-    remembered (omitted axes always default to the reference actuator).
-    Mapping user coordinates to the raw position via the origin is the driver's
-    arithmetic, not the controller's.
+    Adding the origin back is the driver's arithmetic, never the controller's.
     """
     _require_open(handle)
     chosen = _resolve_actuators(with_actuators)
@@ -215,11 +193,9 @@ def set_xyz(
 def acquire(
     handle: MockHandle, *, acquisition_type: str, position_label: str, options: dict | None = None
 ) -> dict:
-    """Capture a frame and save it, returning the record.
+    """Capture one image and save it, in one step.
 
-    ``acquisition_type`` is the scan kind; ``position_label`` names the output.
-    The driver fills omitted options (acquisition + saving) from its active
-    defaults. Captures and saves in one step -- there is no separate export.
+    Options left out keep their active value.
     """
     _require_open(handle)
     options = _with_defaults(handle, options)
@@ -237,8 +213,7 @@ def acquire(
 
 
 def get_state(handle: MockHandle) -> dict:
-    """Return the opaque state: the changeable settings first, then the
-    observed report (identity and condition, read-only)."""
+    """The settings that can be changed, and a read-only description of the instrument."""
     _require_open(handle)
     return _answer(
         {
@@ -253,12 +228,11 @@ def get_state(handle: MockHandle) -> dict:
 
 
 def set_state(handle: MockHandle, state: dict) -> dict:
-    """Apply the changeable settings; report what stuck.
+    """Apply the ``changeable`` settings and report which ones were applied.
 
-    ``observed`` is a report, never an instruction, so it is not read here.
-    If none of the settings in ``changeable`` is one this microscope knows,
-    nothing changes and ``success`` is False: a soft outcome, safe to carry on
-    from, so it is reported rather than raised.
+    ``observed`` is never read. If no setting is one this microscope knows,
+    nothing changes and ``success`` is False. That is safe to carry on from,
+    so it is reported, not raised.
     """
     _require_open(handle)
     changeable = state.get("changeable", {})
@@ -273,7 +247,7 @@ def set_state(handle: MockHandle, state: dict) -> dict:
 
 
 def get_procedures(handle: MockHandle) -> dict:
-    """Return the named procedures this instrument offers."""
+    """The routines this microscope offers."""
     _require_open(handle)
     return _answer(
         {
@@ -284,23 +258,21 @@ def get_procedures(handle: MockHandle) -> dict:
 
 
 def run_procedure(handle: MockHandle, procedure: dict) -> dict:
-    """Run a procedure and report what ran; an unknown name is refused."""
+    """Run one routine by name. An unknown name is refused."""
     _require_open(handle)
     name = procedure.get("name")
     if name not in ("autofocus", "find_sample"):
         raise ValueError(f"unknown procedure {name!r}")
     if name == "autofocus":
-        # Mirror the real drivers' contract: report the sharp z in frame
-        # terms (``frame_z_um``). The mock's "sharp" z is simply wherever
-        # the stage currently sits, which is deterministic and lets the
-        # workflow's focus step run end-to-end offline.
+        # Report the sharp z in the user's frame, as real drivers do. For the
+        # mock, "sharp" is wherever the stage is now.
         frame_z = handle.z - handle.origin_z
         return _answer({"ran": name, "focus_um": handle.z, "frame_z_um": frame_z})
     return _answer({"ran": name})
 
 
 def get_info(handle: MockHandle) -> dict:
-    """Return the live vendor-authored setup and resolved output root."""
+    """Describe the setup: where images go, plus this mock's extras."""
     _require_open(handle)
     root = Path(handle.connection.get("output_root") or "mock-output")
     return _answer(
@@ -316,10 +288,9 @@ def get_info(handle: MockHandle) -> dict:
 
 
 def register() -> None:
-    """Make the mock microscope appear in :func:`zmart_controller.get_instruments`.
+    """Plug the mock in, so :func:`zmart_controller.get_instruments` lists it.
 
-    Call it once before connecting. A real driver registers itself in the same
-    way, usually when its module is imported.
+    A real driver does the same, usually when its module is imported.
     """
     from zmart_controller.registry import register
 

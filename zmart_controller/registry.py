@@ -1,33 +1,18 @@
-"""Driver registry: the one place that points the controller at drivers.
+"""The registry: where drivers plug in.
 
-A driver registers an ops table - a mapping of operation name to driver callable
-- under a ``connection`` dict. ``get_instruments()`` lists what is registered
-(without connecting) as the connection dicts themselves; ``resolve()`` looks one
-up for ``set_instrument()``.
+A driver registers a table of functions, one per command, under a
+``connection`` dict. Three keys in that dict name the instrument: ``vendor``,
+``microscope`` and ``api``. Any other keys are the driver's own, and go to its
+``connect`` unchanged.
 
-The registry keys on the ``(vendor, microscope, api)`` identity carried inside
-the connection dict; everything else in that dict is free for the driver to use
-(client name, api delay, host, credentials, ...) and is forwarded untouched to
-``connect``.
+The registry checks only that a driver fits: every required function is
+there, and the three identity keys are present. Everything else is the
+driver's job.
 
-Return contract for ops: every op except ``connect`` and ``disconnect``
-returns ``{"success": bool, "report": ...}``, with the report's content the
-driver's own. A failure that makes carrying on unsafe is raised instead
-(``ValueError`` for a mistake in the request, ``RuntimeError`` for a failure or
-refusal on the microscope); the controller forwards return values uninspected
-and propagates exceptions unchanged. Error text must be credential-safe:
-connection dicts may carry credentials, so messages name keys, never values
-(as :func:`_identity` does).
-
-The registry is the plug: it checks only that a driver fits (every required
-operation is present, and the identity keys are there). Everything else,
-including every refusal about the microscope itself, is the driver's job.
-Drivers register themselves, usually when their module is imported; the mock
-microscope registers with ``zmart_controller.mock.register()``. A driver that
-is installed as its own package can also announce itself, so that it is found
-without anyone importing it: it names a function in its ``pyproject.toml``
-under the entry-point group ``"zmart_controller.drivers"``, and
-:func:`get_instruments` calls that function the first time it runs.
+Drivers register themselves when imported. :func:`register_driver` imports
+one from a folder, a file or a module name. A driver installed as a package
+can also announce itself through an entry point; see
+:func:`discover_installed_drivers`.
 
 Author: Thom de Hoog, Center for Microscopy and Image Analysis (ZMB),
 University of Zurich (thom.dehoog@zmb.uzh.ch, thomdehoog@gmail.com).
@@ -45,8 +30,7 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-# Every driver ops table must provide a callable for each of these operations.
-# disconnect is optional.
+# Every driver must provide a function for each of these. disconnect is optional.
 OPS: tuple[str, ...] = (
     "connect",
     "get_acquisition_options",
@@ -61,8 +45,7 @@ OPS: tuple[str, ...] = (
     "get_info",
 )
 
-# The keys the registry indexes on. Everything else in a connection dict is
-# variable and driver-defined (client name, api delay, host, credentials, ...).
+# The keys that name an instrument. Any other key in a connection dict is the driver's own.
 IDENTITY: tuple[str, ...] = ("vendor", "microscope", "api")
 
 # (vendor, microscope, api) -> {"connection", "ops"}
@@ -70,10 +53,10 @@ REGISTRY: dict[tuple[str, ...], dict[str, Any]] = {}
 
 
 def _identity(connection: dict[str, Any]) -> tuple[str, ...]:
-    """Pull the (vendor, microscope, api) identity out of a connection dict."""
+    """The (vendor, microscope, api) triple of a connection dict."""
     missing = [key for key in IDENTITY if key not in connection]
     if missing:
-        # List only the keys, never the values -- connection dicts may carry credentials.
+        # Name keys only, never values: a connection dict may hold a password.
         raise ValueError(
             f"connection missing identity keys {missing}; has keys {sorted(connection)}"
         )
@@ -81,14 +64,13 @@ def _identity(connection: dict[str, Any]) -> tuple[str, ...]:
 
 
 def register(connection: dict[str, Any], *, ops: dict[str, Any]) -> None:
-    """Wire a driver into the registry under its ``connection`` identity.
+    """Register a driver for one instrument.
 
-    ``connection`` is the variable dict forwarded to ``connect`` at session open.
-    It must carry the ``vendor`` / ``microscope`` / ``api`` identity the registry
-    keys on, and may carry any driver-specific extras. ``ops`` must cover every
-    name in :data:`OPS` (``disconnect`` is optional). Raises ``ValueError`` if an
-    op is missing or the connection identity is incomplete. Registering the same
-    identity twice logs a warning and overwrites the earlier entry (last wins).
+    ``connection`` names the instrument and holds whatever the driver needs to
+    connect. ``ops`` maps every name in :data:`OPS` to a function;
+    ``disconnect`` is optional. Raises ``ValueError`` if a function or an
+    identity key is missing. Registering the same instrument twice replaces
+    the earlier entry, with a warning.
     """
     missing = [name for name in OPS if name not in ops]
     if missing:
@@ -100,22 +82,17 @@ def register(connection: dict[str, Any], *, ops: dict[str, Any]) -> None:
 
 
 def register_driver(driver: str | Path) -> list[dict[str, Any]]:
-    """Plug a driver in, and return the instruments it provides.
+    """Plug a driver in, and return the instruments it added.
 
-    ``driver`` is where the driver lives: a folder holding the driver package,
-    a single ``.py`` file, or a module name that Python can already import
-    (for example ``"my_driver_package"``). The driver is
-    imported, which registers its instruments the way drivers always do.
-
-    Put this one line at the top of a notebook, before
-    :func:`get_instruments`. Calling it again for the same driver is
-    harmless. Raises ``ValueError`` if nothing can be found at ``driver`` or if
-    it registers no instrument.
+    ``driver`` is a package folder, a single ``.py`` file, or a module name.
+    Importing it registers its instruments. Put this line at the top of a
+    notebook, before :func:`get_instruments`. Calling it twice is harmless.
+    Raises ``ValueError`` if nothing is found there, or nothing registers.
     """
     before = set(REGISTRY)
     module, fresh = _import_driver(driver)
     if set(REGISTRY) == before:
-        # Some drivers register only when asked, through a register() function.
+        # Some drivers register only when asked, through their own register().
         hook = getattr(module, "register", None)
         if callable(hook) and getattr(hook, "__module__", None) == module.__name__:
             hook()
@@ -126,9 +103,9 @@ def register_driver(driver: str | Path) -> list[dict[str, Any]]:
 
 
 def _import_driver(driver: str | Path):
-    """Import a driver from a folder, a file, or a module name.
+    """Import a driver from a folder, a file or a module name.
 
-    Returns the module and whether this call imported it for the first time.
+    Returns the module, and whether this call was the first to import it.
     """
     path = Path(driver)
     if path.suffix == ".py" and path.is_file():
@@ -165,21 +142,20 @@ def _import_driver(driver: str | Path):
 
 ENTRY_POINT_GROUP = "zmart_controller.drivers"
 
-# Set once the installed drivers have been asked to register themselves.
+# True once installed drivers have been asked to register.
 _discovered = False
 
 
 def discover_installed_drivers() -> None:
     """Ask every installed driver package to register itself, once.
 
-    A driver package announces itself with one line in its ``pyproject.toml``::
+    A package announces itself with one line in its ``pyproject.toml``::
 
         [project.entry-points."zmart_controller.drivers"]
         acme = "zmart_drivers.acme:register"
 
-    The named function is called here. A driver that fails to load is
-    reported in the log and skipped, so one broken driver never hides the
-    others.
+    A driver that fails to load is logged and skipped, so one broken driver
+    never hides the others.
     """
     global _discovered
     if _discovered:
@@ -197,21 +173,18 @@ def discover_installed_drivers() -> None:
 def get_instruments() -> list[dict[str, Any]]:
     """List the available instruments, without connecting to anything.
 
-    Each entry is the connection dict you pass straight to :func:`set_instrument`.
-    You may edit it first (e.g. drop in a credential); it is forwarded to the
-    driver's ``connect`` untouched. Drivers installed as packages are found
-    here automatically; see :func:`discover_installed_drivers`.
+    Each entry is a dict you can pass to :func:`set_instrument`. You may edit
+    it first, for example to add a password. Installed driver packages are
+    found here automatically.
     """
     discover_installed_drivers()
     return [dict(entry["connection"]) for _key, entry in sorted(REGISTRY.items())]
 
 
 def resolve(instrument: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
-    """Look up the ops table for a connection dict and return ``(ops, connection)``.
+    """Find the driver for an instrument; return ``(ops, connection)``.
 
-    ``instrument`` is one of the connection dicts from :func:`get_instruments`;
-    its identity selects the driver and the whole dict is forwarded to
-    ``connect``. Raises ``ValueError`` if no driver matches the identity.
+    Raises ``ValueError`` if no driver matches.
     """
     key = _identity(instrument)
     try:

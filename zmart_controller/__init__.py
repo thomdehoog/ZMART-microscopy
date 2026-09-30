@@ -1,32 +1,28 @@
-"""ZMART Controller: one small, consistent way to drive any microscope.
+"""ZMART Controller: one small, universal way to drive any microscope.
 
-A small, consistent interface for driving a microscope from a workflow. Two ways
-to use it, both giving ``zmart_controller.<call>()``:
+The shortest way drives one microscope through the module itself::
 
-    # the module IS the active microscope (one at a time) - shortest
     import zmart_controller
 
+    zmart_controller.register_driver("path/to/driver")
     instruments = zmart_controller.get_instruments()
     zmart_controller.set_instrument(instruments[0])
     zmart_controller.set_xyz(10, 20, 5)
     zmart_controller.acquire(acquisition_type="prescan", position_label="A1")
     zmart_controller.disconnect()
 
-    # or hold session objects explicitly (needed for >1 microscope at once).
-    # Use layer.set_instrument here: the module-level set_instrument above
-    # manages a single active microscope and disconnects the previous one.
+To drive several microscopes at once, hold a session for each::
+
     from zmart_controller.layer import set_instrument
+
     mic_a = set_instrument(instrument_a)
     mic_b = set_instrument(instrument_b)
     mic_a.acquire(acquisition_type="prescan", position_label="A1")
 
-Two caveats on the module-level surface:
-
-- Call through the module attribute (``zmart_controller.set_xyz(...)``); do not
-  capture a call into a variable across ``set_instrument`` calls — the captured
-  method stays bound to the previous, now-disconnected session.
-- The module-level surface (and registry mutation) assumes a single thread.
-  From multiple threads, hold explicit ``Session`` handles owned by one thread.
+Two cautions for the short way. Call through the module each time, as in
+``zmart_controller.set_xyz(...)``; a command saved in a variable keeps pointing
+at the old microscope after a switch. And it assumes one thread; from several
+threads, hold a session each.
 
 Author: Thom de Hoog, Center for Microscopy and Image Analysis (ZMB),
 University of Zurich (thom.dehoog@zmb.uzh.ch, thomdehoog@gmail.com).
@@ -43,24 +39,22 @@ from .registry import get_instruments, register_driver
 
 __all__ = ["Session", "disconnect", "get_instruments", "register_driver", "set_instrument"]
 
-# The module-level active microscope, so ``import zmart_controller; zmart_controller.acquire()`` works.
+# The one active microscope that the module-level commands go to.
 _active: Session | None = None
 
 
 def set_instrument(instrument) -> Session:
-    """Select an instrument, set the module's active microscope, return the session.
+    """Connect to an instrument and make it the active microscope.
 
-    The returned :class:`Session` is the explicit handle. The module also
-    delegates calls (``zmart_controller.acquire()``, …) to it, so a notebook can drive
-    one microscope without holding the object. The previous active session, if
-    any, is disconnected; to drive several microscopes at once, use
-    :func:`zmart_controller.layer.set_instrument` and hold each session.
+    Module-level commands then go to it. The previously active microscope is
+    disconnected. Returns the :class:`Session` as well, for those who want to
+    hold it.
     """
     global _active
     new = _set_instrument(instrument)
-    # Resolve the new session first; only then tear down the previous active one,
-    # so a failed set_instrument never disconnects a working session. Track the
-    # new session before the teardown, so it never leaks if teardown raises.
+    # Connect the new one first, so a failed connect never loses a working
+    # session. Record it before closing the old one, so it is never lost if
+    # closing raises.
     previous, _active = _active, new
     if previous is not None and previous is not new:
         previous.disconnect()
@@ -68,10 +62,10 @@ def set_instrument(instrument) -> Session:
 
 
 def disconnect() -> None:
-    """Disconnect the module's active microscope and clear it.
+    """Disconnect the active microscope.
 
-    After this, module-level calls raise until :func:`set_instrument` selects a
-    new instrument. Calling it when no microscope is active does nothing.
+    Module-level commands then raise until :func:`set_instrument` picks a new
+    one. With no active microscope this does nothing.
     """
     global _active
     previous, _active = _active, None
@@ -80,7 +74,7 @@ def disconnect() -> None:
 
 
 def __getattr__(name: str):
-    # Delegate unknown attributes (acquire, set_xyz, …) to the active microscope.
+    # Send commands such as acquire or set_xyz to the active microscope.
     if _active is not None and hasattr(_active, name):
         return getattr(_active, name)
     if _active is None and not name.startswith("_"):

@@ -1,35 +1,20 @@
-"""Microscope Agnostic Controller: the single workflow-facing surface.
+"""The Session: one method per command, each calling the driver.
 
-The one aim of this controller is to provide a simplified abstraction over
-microscope drivers, with no unnecessary complication, that workflows can build
-on. It earns its keep by being boring: it forwards intent and context to the
-driver and returns whatever the driver hands back; the driver does the work.
+The controller does no microscope work. Each method hands the call to the
+driver and returns the driver's answer unchanged. Every check belongs to the
+driver, including whether the connection is still open.
 
-Each concern is discover-then-apply: read the available options with a ``get_*``
-call, then pass your choice back to the matching call. Omitted options fall back
-to the driver's active default, filled by the driver.
+Every call is synchronous. It returns when the driver has finished.
 
-Every call is synchronous: the controller calls the driver, the driver does
-the work on the microscope, and only then does the call return with the
-driver's answer. Nothing runs in the background, and there is no "live" mode
-yet. (A future live view, where you change settings while watching and then
-snap, would need a different kind of call; it is deliberately not part of
-this contract.)
+Every command answers with ``{"success": bool, "report": ...}``. ``success``
+says whether the driver did what was asked. ``report`` is the driver's own
+content. A soft outcome, one that is safe to carry on from, comes back as
+``success: False``. Anything unsafe to carry on from is raised instead:
+``ValueError`` for a mistake in the request, ``RuntimeError`` for a failure on
+the microscope.
 
-The controller keeps no configuration of its own. Where (0, 0, 0) is, the
-travel limits and the calibration are the driver's configuration: set up
-once in a separate step with the driver, saved to a file, and loaded by the
-driver when it connects.
-
-Every command answers with the same two things: ``{"success": bool, "report":
-...}``. ``success`` says whether the driver did what was asked, and ``report``
-is whatever the driver has to say about it; its content is the driver's own.
-A soft outcome, one it is safe to carry on from, comes back as ``success:
-False``. A failure that would make carrying on unsafe (the move did not
-happen, the connection is lost, the request itself is wrong) is raised instead:
-``ValueError`` for a mistake in the request, ``RuntimeError`` for a failure or
-refusal on the microscope. The controller catches nothing and passes driver
-exceptions to the caller unchanged.
+Configuration lives in the driver. The origin, the travel limits and the
+calibration are saved by the driver's own setup step and loaded at connect.
 
 Author: Thom de Hoog, Center for Microscopy and Image Analysis (ZMB),
 University of Zurich (thom.dehoog@zmb.uzh.ch, thomdehoog@gmail.com).
@@ -45,11 +30,10 @@ from .registry import IDENTITY, resolve
 class Session:
     """A connected microscope, returned by :func:`set_instrument`.
 
-    Each method calls the matching driver function and returns what it returns.
-    The session keeps no state of its own and refuses nothing: every check,
-    including whether the connection is still open, belongs to the driver. The
-    only public attribute is ``context`` -- how the driver was selected:
-    ``vendor``, ``microscope``, ``api``.
+    Each method calls the matching driver function and returns its answer.
+    The session keeps no state and refuses nothing. Its one public attribute,
+    ``context``, says which driver was chosen: ``vendor``, ``microscope``,
+    ``api``.
     """
 
     def __init__(
@@ -58,84 +42,70 @@ class Session:
         handle: Any,
         context: dict[str, str],
     ) -> None:
-        # operation name -> bound driver callable
-        self._ops = ops
-
-        # opaque driver connection/state
-        self._handle = handle
+        self._ops = ops  # command name -> driver function
+        self._handle = handle  # the driver's own connection object
 
         self.context = context
 
-    # --- state and procedures: opaque dicts the driver owns -----------------
+    # --- state and procedures ------------------------------------------------
 
     def get_state(self) -> dict:
-        """Capture instrument state as an opaque dict.
+        """Capture the instrument's settings so they can be applied again later.
 
-        The ``report`` carries a ``"changeable"`` part (the settings
-        ``set_state`` reapplies) and an ``"observed"`` part (a read-only
-        report: instrument identity and current condition). The controller
-        does not interpret it; the driver owns the boundary.
+        The ``report`` has two parts. ``"changeable"`` holds the settings that
+        :meth:`set_state` applies. ``"observed"`` is a read-only description of
+        the instrument. The controller does not look inside either.
         """
         return self._ops["get_state"](self._handle)
 
     def set_state(self, state: dict) -> dict:
-        """Reapply a captured state (the ``report`` of :meth:`get_state`).
+        """Apply a state captured with :meth:`get_state` (pass its ``report``).
 
-        The driver acts on the ``"changeable"`` part only; ``"observed"`` is
-        a report, never an instruction.
+        The driver applies the ``"changeable"`` part only. ``"observed"`` is
+        never an instruction.
         """
         return self._ops["set_state"](self._handle, state)
 
     def get_procedures(self) -> dict:
-        """The named procedures the driver offers (e.g. hardware autofocus)."""
+        """The routines this microscope offers, such as autofocus."""
         return self._ops["get_procedures"](self._handle)
 
     def run_procedure(self, procedure: dict) -> dict:
-        """Run a procedure; return whatever the driver reports.
-
-        Its meaning is encoded in the dict and run by the driver.
-        """
+        """Run one routine from :meth:`get_procedures`, chosen by ``{"name": ...}``."""
         return self._ops["run_procedure"](self._handle, procedure)
 
     # --- movement -----------------------------------------------------------
 
     def get_actuators(self) -> dict:
-        """The actuator options each axis offers, e.g. ``{"z": ["motoric", "piezo"]}``.
+        """The motors that can move each axis, e.g. ``{"z": ["motoric", "piezo"]}``.
 
-        Pass a choice back as ``with_actuators`` on :meth:`get_xyz` / :meth:`set_xyz`.
+        Pick one per axis with ``with_actuators`` on :meth:`get_xyz` and
+        :meth:`set_xyz`.
         """
         return self._ops["get_actuators"](self._handle)
 
     def get_xyz(self, with_actuators: dict | None = None) -> dict:
-        """Read the current position per axis, in micrometers from the driver's origin.
+        """Read the position of each axis, in micrometers from the origin.
 
-        ``with_actuators`` optionally names an actuator per axis (e.g.
-        ``{"z": "piezo"}``; names must come from :meth:`get_actuators`). The
-        driver validates the choice and echoes it in the reading; whether the
-        value differs per actuator is up to the driver.
+        ``with_actuators`` names a motor per axis, e.g. ``{"z": "piezo"}``.
+        The names come from :meth:`get_actuators`; the driver checks them.
         """
         return self._ops["get_xyz"](self._handle, with_actuators=with_actuators)
 
     def set_xyz(self, x: float, y: float, z: float, with_actuators: dict | None = None) -> dict:
-        """Move to an absolute target, in micrometers from the driver's origin.
+        """Move to a position, in micrometers from the origin.
 
-        Returns whatever the driver reports (e.g. a move record / confirmation).
-        ``with_actuators`` selects the actuator
-        that realizes the move per axis (``None`` -> the reference one). The driver
-        applies the objective offset and the actuator transform -- that
-        calibration is never the controller's job.
+        ``with_actuators`` names the motor to use per axis. Left out, the
+        driver uses its default. Any calibration is the driver's job.
         """
         return self._ops["set_xyz"](self._handle, x, y, z, with_actuators=with_actuators)
 
-    # --- acquire (captures and saves) ---------------------------------------
+    # --- acquire ---------------------------------------------------------------
 
     def get_acquisition_options(self) -> dict:
-        """The acquisition + saving options the driver offers (options + active).
+        """The choices for capturing and saving, with allowed values and the active one.
 
-        Forwarded live to the driver on every call -- the controller caches
-        nothing. Includes both acquisition settings (e.g. ``backlash_correction``)
-        and saving settings (e.g. ``format``, ``procedure``), since :meth:`acquire`
-        captures and saves in one step.
+        Asked of the driver afresh on every call.
         """
         return self._ops["get_acquisition_options"](self._handle)
 
@@ -145,14 +115,12 @@ class Session:
         position_label: str,
         options: dict | None = None,
     ) -> dict:
-        """Capture one dataset and save it, returning the driver's record.
+        """Capture one image and save it, in one step.
 
-        ``acquisition_type`` is the kind of scan (e.g. ``"prescan"`` /
-        ``"targetscan"``); ``position_label`` labels the position in the
-        driver's output records — how it appears (filename slot, lineage) is
-        driver-defined. ``options`` carries the acquisition and saving settings from
-        :meth:`get_acquisition_options`; pass it through untouched -- the driver
-        fills any omitted option from its active default.
+        ``acquisition_type`` says what kind of scan this is, e.g. ``"prescan"``.
+        ``position_label`` names the position in the saved files. ``options``
+        holds choices from :meth:`get_acquisition_options`; any left out keep
+        their active value.
         """
         return self._ops["acquire"](
             self._handle,
@@ -161,43 +129,30 @@ class Session:
             options=options,
         )
 
-    # --- information and lifecycle ------------------------------------------
+    # --- information and lifecycle --------------------------------------------
 
     def get_info(self) -> dict:
-        """Read the connected setup information live.
+        """Describe the connected setup.
 
         Every driver reports ``output_root``, the folder where images are
-        saved. Any other key is an extra of that particular driver (for
-        example, tile positions drawn in the vendor's own software), so a
-        workflow meant to run on any microscope should not rely on it. The
-        controller does not cache this snapshot. A driver may write working
-        files and pause briefly while it gathers the information.
+        saved. Anything else is an extra of that driver, and a workflow meant
+        for any microscope should not rely on it.
         """
         return self._ops["get_info"](self._handle)
 
     def disconnect(self) -> None:
-        """Close the connection, if the driver provides a way to close it.
-
-        The driver decides what a second call does; a well-behaved driver
-        makes it harmless.
-        """
+        """Close the connection, if the driver has a way to close it."""
         disconnect = self._ops.get("disconnect")
         if disconnect is not None:
             disconnect(self._handle)
 
 
 def set_instrument(instrument: dict[str, Any]) -> Session:
-    """Select an instrument and open the session.
+    """Connect to an instrument and return its :class:`Session`.
 
-    ``instrument`` is one of the connection dicts from :func:`get_instruments`.
-    This is the connector: it resolves the driver and forwards the connection
-    dict to the driver's ``connect`` untouched. The driver loads its own
-    configuration as it connects, including the origin that positions are
-    measured from, so there is nothing to declare here. Option menus are not
-    cached here -- ``get_*`` calls forward live.
-
-    Returns a connected :class:`Session`. Raises ``ValueError`` if the instrument
-    identity matches no registered driver.
+    ``instrument`` is one of the dicts from :func:`get_instruments`. It is
+    handed to the driver's ``connect`` unchanged. The driver loads its own
+    configuration as it connects. Raises ``ValueError`` if no driver matches.
     """
     ops, connection = resolve(instrument)
     handle = ops["connect"](connection)
