@@ -91,10 +91,12 @@ Decisions by the maintainer:
 
 Still open:
 
-- **A common return shape.** The maintainer is considering one simple
-  envelope for every command: whether it worked, plus a report whose content
-  is free for each driver. This would replace today's rule that failure is
-  reported by raising an error. See "Open design questions" below.
+- **A common return shape (direction agreed, not yet built).** Every command
+  will return `{"success": ..., "report": ...}`: whether it worked, plus a
+  report whose content is free for each driver. Drivers keep raising an error
+  when carrying on would be unsafe (the move did not happen, the connection is
+  lost), and use `success: False` for softer outcomes such as "saved, but the
+  copy to the output folder failed". No driver returns this shape yet.
 - **How drivers are registered.** See section 2, point 3.
 
 ## 2. Packaging for a standalone repository
@@ -164,7 +166,7 @@ drivers.
 
 ## Open design questions
 
-**A common return shape.** The idea is that every command returns the same
+**A common return shape (option 1 chosen, see above).** The idea is that every command returns the same
 two things: whether it worked (`success`), and a `report`, whose content is
 free for each driver. This is simple and uniform, and it matches the
 `success` / `confirmed` records the drivers already use internally. The one

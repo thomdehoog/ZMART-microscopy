@@ -177,3 +177,7 @@ pins that the two deltas agree for the same lens pair.
 - **Every call is synchronous.** A command returns only when the driver has
   finished the work. A live mode (adjust settings while watching, then snap)
   may come later, but it is not part of the controller now.
+- **One return shape, planned.** Every command is to return
+  `{"success": ..., "report": ...}`, with a free-form report. Drivers still
+  raise when carrying on would be unsafe, and use `success: False` for softer
+  outcomes. This is the agreed direction; the drivers do not return it yet.
