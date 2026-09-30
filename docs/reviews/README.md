@@ -3,7 +3,7 @@
 This folder holds the written record of code reviews done on this
 repository.
 
-Three documents live at the top level:
+Four documents live at the top level:
 
 - `MAINTAINER_DECISIONS.md` — decisions the maintainer has made about how
   the code should behave. Code and tests cite these decisions by section
@@ -14,6 +14,9 @@ Three documents live at the top level:
 - `2026-07-19-leica-driver-review.md` — the Leica driver review: how the
   driver is organized, the limits model, the reorganization that followed,
   and the quirk catalog with what is resolved and what remains.
+- `2026-09-30-controller-release-review.md` — the review of the controller
+  before its release as a separate repository: the unwritten contract and
+  where the drivers disagree, the packaging steps, and small code findings.
 
 Everything in `archive/` is history: earlier review rounds, the prompts
 that were used to run them, and progress snapshots from along the way.
