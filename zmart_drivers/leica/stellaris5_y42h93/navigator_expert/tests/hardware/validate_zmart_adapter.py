@@ -92,6 +92,54 @@ def _register_adapter() -> Any:
     return adapter
 
 
+class _ReportingSession:
+    """A controller Session that checks each answer, then hands back its report.
+
+    Every command answers ``{"success": ..., "report": ...}`` through the
+    controller. This wrapper reads each answer the way the controller
+    documents it, so the validator exercises that exact shape: a missing
+    key, or ``success`` that is not ``True``, fails the step with a clear
+    message instead of passing unnoticed. Everything else on the session,
+    such as ``disconnect`` and ``_handle``, is passed through unchanged.
+    """
+
+    _COMMANDS = frozenset(
+        {
+            "get_acquisition_options",
+            "get_actuators",
+            "get_xyz",
+            "set_xyz",
+            "acquire",
+            "get_state",
+            "set_state",
+            "get_procedures",
+            "run_procedure",
+            "get_info",
+        }
+    )
+
+    def __init__(self, session: Any) -> None:
+        self._session = session
+
+    def __getattr__(self, name: str) -> Any:
+        attribute = getattr(self._session, name)
+        if name not in self._COMMANDS:
+            return attribute
+
+        def command(*args: Any, **kwargs: Any) -> Any:
+            answer = attribute(*args, **kwargs)
+            if not isinstance(answer, dict) or not {"success", "report"} <= answer.keys():
+                raise RuntimeError(
+                    f"{name} did not answer in the controller's shape "
+                    f"{{'success': ..., 'report': ...}}; it returned {answer!r}"
+                )
+            if answer["success"] is not True:
+                raise RuntimeError(f"{name} reported success={answer['success']!r}: {answer!r}")
+            return answer["report"]
+
+        return command
+
+
 def _connect_session(args: argparse.Namespace, adapter: Any, output_root: str | None) -> Any:
     """Open a controller Session for the leica instrument.
 
@@ -127,7 +175,7 @@ def _connect_session(args: argparse.Namespace, adapter: Any, output_root: str | 
         # (same pinning as validate_hardware --mock).
         profiles.STATE_READERS = replace(profiles.STATE_READERS, selected_job_confirm_source="api")
 
-    return zmart_controller.set_instrument(inst)
+    return _ReportingSession(zmart_controller.set_instrument(inst))
 
 
 def _confirm_live_write(args: argparse.Namespace) -> bool:

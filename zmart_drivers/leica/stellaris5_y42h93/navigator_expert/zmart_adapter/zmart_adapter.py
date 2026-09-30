@@ -14,6 +14,12 @@ instrument::
     )
     zmart_controller.set_instrument(instrument)
 
+Answers: through the controller, every command answers
+``{"success": True, "report": ...}``, the shape the controller documents for
+every driver. The functions in this module return the report alone, and
+:func:`ops_table` wraps them for the controller. Failures are always raised,
+never reported as ``success: False``.
+
 Frame math lives here: the driver speaks absolute stage micrometres, the
 controller speaks micrometres relative to the saved frame origin. The
 controller's single ``z`` axis is the *focus*
@@ -65,6 +71,7 @@ Dependency direction:
 
 from __future__ import annotations
 
+import functools
 import logging
 import math
 import time
@@ -1484,25 +1491,70 @@ def _connection_status(handle: ZmartHandle, root: Path) -> dict:
     }
 
 
+# The commands that answer in the controller's shape. connect returns the
+# handle and disconnect returns nothing, so those two are handed over as they are.
+_ANSWERING_OPS = (
+    "get_acquisition_options",
+    "get_actuators",
+    "get_xyz",
+    "set_xyz",
+    "acquire",
+    "get_state",
+    "set_state",
+    "get_procedures",
+    "run_procedure",
+    "get_info",
+)
+
+
+def _answered(function):
+    """Wrap a command so it answers the way the controller documents.
+
+    The controller promises every workflow the same answer from every
+    microscope: ``{"success": ..., "report": ...}``. The functions in this
+    module return only the report. Each of them raises when something goes
+    wrong, so an answer that comes back at all is a success, and the report
+    is exactly what the function returned.
+    """
+
+    @functools.wraps(function)
+    def command(*args, **kwargs):
+        return {"success": True, "report": function(*args, **kwargs)}
+
+    return command
+
+
+def ops_table() -> dict[str, Any]:
+    """The functions this driver hands to the controller, one per command.
+
+    ``connect`` and ``disconnect`` are handed over unchanged. Every other
+    command is wrapped so that, called through the controller, it answers
+    ``{"success": True, "report": ...}``. Called directly from this module,
+    the same functions return the report alone.
+    """
+    functions = {
+        "connect": connect,
+        "disconnect": disconnect,
+        "get_acquisition_options": get_acquisition_options,
+        "get_actuators": get_actuators,
+        "get_xyz": get_xyz,
+        "set_xyz": set_xyz,
+        "acquire": acquire,
+        "get_state": get_state,
+        "set_state": set_state,
+        "get_procedures": get_procedures,
+        "run_procedure": run_procedure,
+        "get_info": get_info,
+    }
+    return {
+        name: _answered(function) if name in _ANSWERING_OPS else function
+        for name, function in functions.items()
+    }
+
+
 def register() -> None:
     """Register this instrument's ops table with the controller registry."""
-    _registry.register(
-        CONNECTION,
-        ops={
-            "connect": connect,
-            "disconnect": disconnect,
-            "get_acquisition_options": get_acquisition_options,
-            "get_actuators": get_actuators,
-            "get_xyz": get_xyz,
-            "set_xyz": set_xyz,
-            "acquire": acquire,
-            "get_state": get_state,
-            "set_state": set_state,
-            "get_procedures": get_procedures,
-            "run_procedure": run_procedure,
-            "get_info": get_info,
-        },
-    )
+    _registry.register(CONNECTION, ops=ops_table())
 
 
 # Import-time registration IS the opt-in: nothing in the driver imports

@@ -1944,11 +1944,47 @@ class TestLifecycle(unittest.TestCase):
                 # Capturing the origin is a driver setup step, not a controller
                 # command, so it is called on the adapter with the driver handle.
                 adapter.set_origin(session._handle)
-                record = session.set_xyz(10, 20, 5, with_actuators={"z": "z-galvo"})
-                self.assertEqual(record["position"], {"x": 10, "y": 20, "z": 5})
-                self.assertEqual(session.get_xyz()["x"]["value"], 0.0)  # mocked readback
+                answer = session.set_xyz(10, 20, 5, with_actuators={"z": "z-galvo"})
+                self.assertIs(answer["success"], True)
+                self.assertEqual(answer["report"]["position"], {"x": 10, "y": 20, "z": 5})
+                xyz = session.get_xyz()
+                self.assertEqual(xyz["report"]["x"]["value"], 0.0)  # mocked readback
             finally:
                 session.disconnect()
+
+    def test_every_command_answers_in_the_controller_shape(self):
+        """Read through the controller, every answer is {"success", "report"}.
+
+        The controller documents this shape for every driver, and a workflow
+        reads ``answer["report"]``. Each command here is called through a real
+        controller Session and checked against the adapter function it wraps.
+        """
+        import zmart_controller
+
+        patches = _patch_position(x_um=1000.0, y_um=2000.0, z_wide_um=30.0)
+        with patches[0], patches[1], patches[2], patches[3]:
+            handle = _handle()
+            session = zmart_controller.Session(adapter.ops_table(), handle, {})
+            for name in ("get_actuators", "get_xyz"):
+                with self.subTest(command=name):
+                    answer = getattr(session, name)()
+                    self.assertEqual(set(answer), {"success", "report"})
+                    self.assertIs(answer["success"], True)
+                    self.assertEqual(answer["report"], getattr(adapter, name)(handle))
+
+    def test_the_ops_table_wraps_every_answering_command(self):
+        """connect and disconnect are handed over as they are; the rest are wrapped."""
+        from zmart_controller.registry import OPS
+
+        table = adapter.ops_table()
+        self.assertIs(table["connect"], adapter.connect)
+        self.assertIs(table["disconnect"], adapter.disconnect)
+        for name in OPS:
+            if name == "connect":
+                continue
+            with self.subTest(command=name):
+                self.assertIsNot(table[name], getattr(adapter, name))
+                self.assertIs(table[name].__wrapped__, getattr(adapter, name))
 
 
 class TestFunctionLimits(unittest.TestCase):
