@@ -14,7 +14,9 @@ at the Center for Microscopy and Image Analysis (ZMB), University of Zurich.
 ## The Problem
 
 Every microscope vendor ships its own programming interface, so workflow that is build for one microscope
-does not work on another. This provide a real obstacle sharing our workflows and deploying them one all the microscopes we want.
+does not work on another. 
+
+This provide a real obstacle sharing our workflows and deploying them one all the microscopes we want.
 
 ## The Solution
 
