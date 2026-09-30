@@ -111,8 +111,9 @@ We have not defined a vocabulary for error messages at this point.
  - [Build driver functions that plug into the ZMART-controller](zmart_controller/mock.py): the mock driver is a complete, readable example, and [the tests](tests/) show what a driver must do
 
 ### Status
-This is version 0.1. We are currently using it in workflows for smart microscopy at the ZMB, on Leica and Evident microscopes.
-We are considering expanding it to Nikon, ZEISS and the mesoSPIM platform.
+This is version 0.1. At the ZMB we use it in our smart-microscopy workflows on a Leica STELLARIS.
+Drivers for Nikon (NIS-Elements), ZEISS (ZEN) and the mesoSPIM light-sheet exist and pass their tests
+against the vendors' simulators; they are waiting for validation on real hardware. An Evident driver is being investigated.
 
 ## Author
 Thom de Hoog, Center for Microscopy and Image Analysis (ZMB), University of
