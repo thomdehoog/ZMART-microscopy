@@ -1,6 +1,6 @@
 # Your first experiment
 
-This folder holds one notebook, `example_experiment.ipynb`. It runs a complete
+This folder holds one notebook, `example_experiment.ipynb`, next to this page. It runs a complete
 smart-microscopy experiment on the **mock microscope**, a pretend instrument
 that lives entirely in memory, so you need no hardware at all. Once it runs,
 the same notebook is the template for your own workflow: keep the structure,
@@ -22,14 +22,14 @@ Jupyter, skip it.
 
 ## 2. Open the notebook
 
-Download `example_experiment.ipynb` from this folder (or clone the
+Download `example_experiment.ipynb`, next to this page from this folder (or clone the
 repository), then start Jupyter in the folder that holds it:
 
 ```bash
 jupyter lab
 ```
 
-Your browser opens. Click `example_experiment.ipynb`.
+Your browser opens. Click `example_experiment.ipynb`, next to this page.
 
 ## 3. Run it, cell by cell
 
