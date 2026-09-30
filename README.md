@@ -20,7 +20,7 @@ This provide a real obstacle sharing our workflows and deploying them one all th
 
 ## The Solution
 
-The ZMART.controller lives between your workflow and the microscope:
+The ZMART controller lives between your workflow and the microscope:
 
 1. **One universal interface.** A short list of plain commands to move xyz,
     get and set a state of the microscope, and acquire an images.
