@@ -247,9 +247,11 @@ zmart_controller.run_procedure({"name": "autofocus"})
 ### Learn about the setup
 
 `get_info()` returns a fresh description of the connected setup. Every driver
-reports `output_root`, the folder where images are saved. Other entries depend
-on the instrument; for example, the Leica driver also reports the tile
-positions you drew in its own software.
+reports `output_root`, the folder where images are saved. Anything else in it
+is an *extra* of that particular driver. For example, the Leica driver also
+reports the tile positions you drew in LAS X. Extras are handy at one
+microscope, but an experiment that depends on them will not run on the others,
+so keep your positions and plans in your own code.
 
 ### Finish
 
@@ -266,38 +268,43 @@ It passes each command to the driver and passes the answer back. Everything
 that needs knowledge of a specific instrument lives in that instrument's
 driver, where the people who understand it can maintain it.
 
-**2. Ask first, then act.** Most commands come as a pair: a `get_*` that shows
+**2. Interoperable first.** The contract contains only what every microscope
+can honestly provide. A driver may add extras to its answers, but an extra is
+never part of the contract, and an experiment written against the contract
+alone runs on every microscope that has a driver.
+
+**3. Ask first, then act.** Most commands come as a pair: a `get_*` that shows
 what the microscope can do, with the allowed values and the current one, and a
 matching call that does it. You never have to guess names from documentation,
 and a script can adapt itself to whichever microscope it finds.
 
-**3. The driver owns the physics.** Where zero is, how a piezo step relates to
+**4. The driver owns the physics.** Where zero is, how a piezo step relates to
 a motor step, how a different objective shifts the image, what the safe travel
 limits are — all of this is calibration, and calibration belongs to the driver.
 Your experiment speaks only in micrometers from an origin you chose.
 
-**4. Only change what you mention.** Any option you leave out keeps the
+**5. Only change what you mention.** Any option you leave out keeps the
 microscope's current value. A short call does a small thing.
 
-**5. Settings are a snapshot, not a schema.** Microscopes differ too much for a
+**6. Settings are a snapshot, not a schema.** Microscopes differ too much for a
 single list of settings to fit them all honestly. A state is a snapshot you can
 capture and reapply, split into what you may change and what is only reported.
 
-**6. Fail loudly and clearly.** When something goes wrong, the driver raises an
+**7. Fail loudly and clearly.** When something goes wrong, the driver raises an
 error; it never hides a failure inside a normal-looking answer. Mistakes in
 your request raise `ValueError`; problems on the microscope raise
 `RuntimeError`. Error messages never repeat passwords or other secrets from the
 connection settings.
 
-**7. Nothing hidden, nothing cached.** Every `get_*` asks the microscope
+**8. Nothing hidden, nothing cached.** Every `get_*` asks the microscope
 afresh, so what you see is what the microscope reports now, not what it
 reported ten minutes ago.
 
-**8. Plug in, don't patch.** Adding a microscope never means changing the
+**9. Plug in, don't patch.** Adding a microscope never means changing the
 controller. A driver registers itself, and the controller never imports any
 vendor code. That is also why the controller itself has no dependencies.
 
-**9. Readable by people and by AI agents.** The whole surface is twelve
+**10. Readable by people and by AI agents.** The whole surface is twelve
 commands with plain names and plain dictionaries. That makes it easy to learn
 at the microscope, and equally easy for an AI coding assistant to drive
 correctly.

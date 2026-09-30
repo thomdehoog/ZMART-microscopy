@@ -37,7 +37,7 @@ over:
 
 | Where | What differs | Why it matters |
 |---|---|---|
-| `get_info()["tile_positions"]` | Present on the mock and Leica; absent on Nikon, ZEISS and mesoSPIM. | The example notebook reads it, so the flagship example only runs on two of the five. |
+| `get_info()["tile_positions"]` | Present on the mock and Leica; absent on Nikon, ZEISS and mesoSPIM. | The example notebook read it, so it ran on only two of the five. Now resolved: it is an extra (see below). |
 | Autofocus result | Mock, Leica, Nikon and ZEISS return `frame_z_um`. mesoSPIM returns `{"ran", "data"}` with no z. | A focus step written for one microscope fails on mesoSPIM. |
 | Autofocus name | ZEISS has no procedure called `autofocus`, only `software_autofocus`, `find_surface` and `recall_focus`. | The same call raises on ZEISS. |
 | Saved files in the `acquire` record | `filename` (mock), `images` + `planes` (Leica), `image_files` (Nikon, ZEISS, mesoSPIM). `planes` is a list on Leica and a count elsewhere. | Nothing downstream can find the data without knowing the vendor. |
@@ -59,11 +59,22 @@ is what makes the controller usable by outsiders, because it tells a driver
 author exactly when they are done. It also catches the drift above
 automatically.
 
-Two contract decisions need the maintainer rather than a code change:
+Decisions by the maintainer:
 
-- **Is `tile_positions` part of the contract, or a Leica extra?** If
-  target acquisition is the flagship workflow, it should be part of it, with
-  an empty list allowed. If not, the example notebook should not depend on it.
+- **`tile_positions` (and `focus_positions`) are driver extras, not part of
+  the contract.** The contract holds only what every microscope can provide,
+  so that it stays interoperable. The example notebook now defines its own
+  positions and no longer asks for a piezo, which Leica does not have. The
+  `get_info` docstring and the README say that extras must not be relied on.
+  One consequence remains open: the target-acquisition workflow
+  (`workflows/target_acquisition`, both notebooks and the web app) reads
+  `get_info()["tile_positions"]`, so today it runs only on Leica and the
+  mock. To make it portable, it needs its own way to get positions, such as a
+  list, a file or a picker, with the vendor tiles used only when a driver
+  happens to offer them.
+
+Still open:
+
 - **One origin policy.** Either every driver restores the saved origin at
   connect, or none does. "Always call `set_origin()` first" is the simplest
   rule to teach, and the README now says so.
