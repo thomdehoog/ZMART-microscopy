@@ -5,7 +5,7 @@
 [![dependencies](https://img.shields.io/badge/dependencies-none-brightgreen)](pyproject.toml)
 [![tests](https://img.shields.io/badge/tests-pytest-blue)](#testing)
 
-<img src="docs/zmart-controller-logo.png" align="left" width="170" alt="ZMART Controller">
+<img src="docs/zmart-controller-icon.png" align="left" width="170" alt="ZMART Controller">
 
 The **ZMART Controller** provides a small, universal schema for driving a microscope from Python.
 You build your workflow on this schema, and it runs on any microscope that has a ZMART driver plugged into it.
@@ -34,7 +34,7 @@ The ZMART controller lives between your workflow and the microscope:
 
 
 <p align="center">
-  <img src="docs/how-it-works.png" width="100%" alt="Three microscopes, each with its own driver plugged in, connect through the ZMART Controller, one universal command vocabulary, to a script, an interface and an AI agent">
+  <img src="docs/zmart-controller-overview.png" width="100%" alt="Three microscopes, each with its own driver plugged in, connect through the ZMART Controller, one universal command vocabulary, to a script, an interface and an AI agent">
 </p>
 
 Note: we are aware of the [useq-schema](https://github.com/pymmcore-plus/useq-schema) from the Micro-Manager community and of Anthropic's [Model Hardware Standard](https://www.anthropic.com/news/model-hardware-standard-research-preview). We might switch, because both have real upsides, but currently the useq-schema is not interoperable enough for our needs and the Model Hardware Standard is not released to the public yet.
