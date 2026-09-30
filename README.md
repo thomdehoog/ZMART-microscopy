@@ -5,7 +5,7 @@
 [![dependencies](https://img.shields.io/badge/dependencies-none-brightgreen)](pyproject.toml)
 [![tests](https://img.shields.io/badge/tests-pytest-blue)](#testing)
 
-<img src="docs/zmart-controller-icon.png" align="left" width="150" hspace="16" alt="ZMART Controller">
+<img src="docs/zmart-controller-icon.png" align="left" width="140" hspace="16" alt="ZMART Controller">
 
 The **ZMART Controller** provides a small, universal schema for driving a microscope from Python.
 You build your workflow on this schema, and it runs on any microscope that has a ZMART driver plugged into it.
@@ -33,12 +33,11 @@ The ZMART controller lives between your workflow and the microscope:
    that ZMART drivers plug into. The drivers take care of interacting with the microscope, enforcing limits,
    and providing a single absolute coordinate system that corresponds to the space in which you observe the specimen.
 
+Note: we are aware of the [useq-schema](https://github.com/pymmcore-plus/useq-schema) from the Micro-Manager community and of Anthropic's [Model Hardware Standard](https://www.anthropic.com/news/model-hardware-standard-research-preview). We might switch, because both have real upsides, but currently the useq-schema is not interoperable enough for our needs and the Model Hardware Standard is not released to the public yet.
 
 <p align="center">
   <img src="docs/zmart-controller-overview-2.png" width="100%" alt="Three microscopes, each with its own driver plugged in, connect through the ZMART Controller, one universal command vocabulary, to a script, an interface and an AI agent">
 </p>
-
-Note: we are aware of the [useq-schema](https://github.com/pymmcore-plus/useq-schema) from the Micro-Manager community and of Anthropic's [Model Hardware Standard](https://www.anthropic.com/news/model-hardware-standard-research-preview). We might switch, because both have real upsides, but currently the useq-schema is not interoperable enough for our needs and the Model Hardware Standard is not released to the public yet.
 
 
 ### The vocabulary
