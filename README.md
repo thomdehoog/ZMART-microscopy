@@ -89,6 +89,12 @@ We have not defined a vocabulary for error messages at this point.
 
  - [Install it and run your first experiment on the mock driver](examples/)
  - [Build driver functions that plug into the ZMART-controller](zmart_controller/mock.py)
+ - Ship your driver as its own package and it is found without an import: one line in its `pyproject.toml` names the function to call, and the controller calls it the first time `get_instruments()` runs.
+
+   ```toml
+   [project.entry-points."zmart_controller.drivers"]
+   acme = "zmart_drivers.acme:register"
+   ```
 
 ### Status
 This is version 0.1. At the ZMB we use it in our smart-microscopy workflows on a Leica STELLARIS.
