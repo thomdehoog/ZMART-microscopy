@@ -51,11 +51,6 @@ and provide a single absolute coordinate systems that corresponds to the space i
   └───────────────┘      └───────────────┘      └───────────────┘
 ```
 
-Every call is currently **synchronous**: the controller calls the driver, the driver
-does the work on the microscope, and the command returns only when that work
-is finished. A live view, where you adjust settings while watching the image and then snap,
-in not part of the controller yet.
-
 Note: we are aware of the useq schema from micro managar and the model hardware standart of antropic. We might switch because both have real upsides, but currently the useq-schema is not interoperable enough for our needs and the model hardware standaard is not released to the public yet.
 
 ### The vocabulary
