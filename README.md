@@ -56,6 +56,22 @@ and provide a single absolute coordinate systems that corresponds to the space i
 Note: we are aware of the useq schema from micro managar and the model hardware standart of antropic. We might switch because both have real upsides, but currently the useq-schema is not interoperable enough for our needs and the model hardware standaard is not released to the public yet.
 
 
+### What now no longer is your problem
+
+Because the controller is this simple, a whole class of problems stops being
+yours as soon as you write against it:
+
+- **In an experiment**, you never touch vendor code, units, stage conventions
+  or safety limits. If a move is unsafe, the driver refuses and you see why.
+  
+- **In a driver**, you never think about workflows, other microscopes or the
+  controller's internals. You implement one function per command the controller ask for.
+  
+- **In the controller**, there is nothing to maintain. It keeps no state,
+  caches nothing and refuses nothing of its own, so it cannot drift out of step
+  with a microscope.
+
+
 ### The vocabulary
 
 Everything you can say to a microscope:
@@ -102,21 +118,6 @@ driver has to say about it: a position, a saved-file record, a state. When
 something goes unexpected the answer is `success: False` and further details can be read in "report". 
 We have not defined a vocabulary for error messages at this point.
 
-
-### What is no longer your problem
-
-Because the controller is this simple, a whole class of problems stops being
-yours as soon as you write against it:
-
-- **In an experiment**, you never touch vendor code, units, stage conventions
-  or safety limits. If a move is unsafe, the driver refuses and you see why.
-  
-- **In a driver**, you never think about workflows, other microscopes or the
-  controller's internals. You implement one function per command the controller ask for.
-  
-- **In the controller**, there is nothing to maintain. It keeps no state,
-  caches nothing and refuses nothing of its own, so it cannot drift out of step
-  with a microscope.
 
 ## Try it yourself 
 
