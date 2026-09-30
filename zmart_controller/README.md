@@ -6,7 +6,7 @@
 
 **One small, consistent way to drive any microscope from Python.**
 
-The ZMART Controller gives you twelve plain commands — move here, capture an
+The ZMART Controller gives you a short list of plain commands — move here, capture an
 image, remember these settings, run the autofocus — that mean the same thing on
 a Leica, a Nikon, a ZEISS or an open-source light-sheet. You write your
 experiment once, against these commands. A small *driver* for each microscope
@@ -47,7 +47,7 @@ flowchart TB
     end
 
     subgraph ctrl["ZMART Controller  (this package)"]
-        API["12 commands<br/>get_xyz · set_xyz · acquire · get_state · …"]
+        API["plain commands<br/>get_xyz · set_xyz · acquire · get_state · …"]
         REG["Registry<br/><i>which drivers are available</i>"]
     end
 
@@ -101,14 +101,11 @@ mock_driver.register_mock()
 instruments = zmart_controller.get_instruments()
 zmart_controller.set_instrument(instruments[0])
 
-# 2. Decide where (0, 0, 0) is. From now on, positions are micrometers from here.
-zmart_controller.set_origin()
-
-# 3. Move 100 µm along x, and take a picture.
+# 2. Move 100 µm along x, and take a picture.
 zmart_controller.set_xyz(100, 0, 0)
 record = zmart_controller.acquire(acquisition_type="prescan", position_label="A1")
 
-# 4. Close the connection when you are done.
+# 3. Close the connection when you are done.
 zmart_controller.disconnect()
 ```
 
@@ -117,7 +114,7 @@ through a complete overview-then-detail experiment on the mock, cell by cell.
 
 ## Everything you can call
 
-There are twelve commands, grouped by what they are for. Most of them come in
+There are thirteen commands, grouped by what they are for. Most of them come in
 pairs: a `get_*` that tells you what is possible, and a matching call that
 does it.
 
@@ -125,7 +122,6 @@ does it.
 |---|---|---|
 | Choose a microscope | `get_instruments()` | `set_instrument(instrument)` |
 | Learn about the setup | `get_info()` | — |
-| Fix the coordinate frame | — | `set_origin()` |
 | Move the stage or focus | `get_actuators()`, `get_xyz()` | `set_xyz(x, y, z, with_actuators=...)` |
 | Save and restore settings | `get_state()` | `set_state(state)` |
 | Capture and save an image | `get_acquisition_options()` | `acquire(acquisition_type, position_label, options=...)` |
@@ -150,17 +146,16 @@ You may edit an entry before connecting, for example to fill in a password.
 `set_instrument()` hands the whole dictionary to the driver unchanged and opens
 the connection.
 
-### Fix the coordinate frame
+### Where positions are measured from
 
-A position only means something if you know where it is measured from.
-`set_origin()` tells the microscope: "where you are right now is (0, 0, 0)".
-After that, every position you read or give is in micrometers from that point.
-This is what lets the same list of positions work on different microscopes,
-whose own stage coordinates may start from quite different places.
-
-Call `set_origin()` at the start of each session. Some drivers remember the
-origin from the previous session and some start fresh, so setting it yourself
-is the safe habit.
+Every position you read or give is in micrometers from the microscope's
+*origin*, its (0, 0, 0) point. You do not set the origin in your experiment.
+It is part of the driver's configuration: you set it once, in a separate setup
+step with the driver, the driver saves it to a file, and it loads it every time
+it connects. This is the same way the travel limits and the calibration are
+handled. Because of this, the same list of positions means the same places on
+the sample every time you connect, and your experiment code stays free of
+microscope-specific setup.
 
 ### Move
 
@@ -264,47 +259,59 @@ small while the microscopes underneath it are very different.
 
 **1. Boring on purpose.** The controller does no microscope work of its own. It
 does not convert units, correct positions, remember options or check settings.
-It passes each command to the driver and passes the answer back. Everything
-that needs knowledge of a specific instrument lives in that instrument's
-driver, where the people who understand it can maintain it.
+It passes each command to the driver and passes the answer back. Every check
+lives in the driver too: whether the connection is still open, whether an
+option exists, whether a move is safe. Everything that needs knowledge of a
+specific instrument lives in that instrument's driver, where the people who
+understand it can maintain it. Inside, the controller is one small class
+whose methods each call the matching driver function.
 
-**2. Interoperable first.** The contract contains only what every microscope
+**2. One call, one finished action.** Every command is synchronous: the
+controller calls the driver, the driver does the work on the microscope, and
+the command returns only when that work is done. Nothing keeps running in the
+background after a command returns. A live view, where you adjust settings
+while watching the image and then snap, is a natural future addition, but it
+needs a different kind of command and is deliberately not part of the
+controller yet.
+
+**3. Interoperable first.** The contract contains only what every microscope
 can honestly provide. A driver may add extras to its answers, but an extra is
 never part of the contract, and an experiment written against the contract
 alone runs on every microscope that has a driver.
 
-**3. Ask first, then act.** Most commands come as a pair: a `get_*` that shows
+**4. Ask first, then act.** Most commands come as a pair: a `get_*` that shows
 what the microscope can do, with the allowed values and the current one, and a
 matching call that does it. You never have to guess names from documentation,
 and a script can adapt itself to whichever microscope it finds.
 
-**4. The driver owns the physics.** Where zero is, how a piezo step relates to
+**5. The driver owns the physics.** Where zero is, how a piezo step relates to
 a motor step, how a different objective shifts the image, what the safe travel
 limits are — all of this is calibration, and calibration belongs to the driver.
-Your experiment speaks only in micrometers from an origin you chose.
+Each driver sets this up once, saves it as configuration and loads it when it
+connects. Your experiment speaks only in micrometers from that origin.
 
-**5. Only change what you mention.** Any option you leave out keeps the
+**6. Only change what you mention.** Any option you leave out keeps the
 microscope's current value. A short call does a small thing.
 
-**6. Settings are a snapshot, not a schema.** Microscopes differ too much for a
+**7. Settings are a snapshot, not a schema.** Microscopes differ too much for a
 single list of settings to fit them all honestly. A state is a snapshot you can
 capture and reapply, split into what you may change and what is only reported.
 
-**7. Fail loudly and clearly.** When something goes wrong, the driver raises an
+**8. Fail loudly and clearly.** When something goes wrong, the driver raises an
 error; it never hides a failure inside a normal-looking answer. Mistakes in
 your request raise `ValueError`; problems on the microscope raise
 `RuntimeError`. Error messages never repeat passwords or other secrets from the
 connection settings.
 
-**8. Nothing hidden, nothing cached.** Every `get_*` asks the microscope
+**9. Nothing hidden, nothing cached.** Every `get_*` asks the microscope
 afresh, so what you see is what the microscope reports now, not what it
 reported ten minutes ago.
 
-**9. Plug in, don't patch.** Adding a microscope never means changing the
+**10. Plug in, don't patch.** Adding a microscope never means changing the
 controller. A driver registers itself, and the controller never imports any
 vendor code. That is also why the controller itself has no dependencies.
 
-**10. Readable by people and by AI agents.** The whole surface is twelve
+**11. Readable by people and by AI agents.** The whole surface is a few
 commands with plain names and plain dictionaries. That makes it easy to learn
 at the microscope, and equally easy for an AI coding assistant to drive
 correctly.
@@ -335,7 +342,9 @@ from zmart_controller.registry import register
 
 def connect(connection):
     client = MyVendorClient(host=connection["host"])
-    return {"client": client, "origin": client.read_position()}
+    # The origin is this driver's configuration: saved once by its own setup
+    # step, and loaded here every time the microscope connects.
+    return {"client": client, "origin": load_saved_origin()}
 
 def get_xyz(handle, *, with_actuators=None):
     raw = handle["client"].read_position()
@@ -352,7 +361,6 @@ register(
         "connect": connect,
         "disconnect": disconnect,          # optional
         "get_info": get_info,
-        "set_origin": set_origin,
         "get_actuators": get_actuators,
         "get_xyz": get_xyz,
         "set_xyz": set_xyz,
@@ -382,7 +390,6 @@ answer; it should not leave out the ones listed here.
 | `connect` | the connection dictionary | a handle (anything) |
 | `disconnect` *(optional)* | handle | nothing; afterwards, every other call should raise `RuntimeError` |
 | `get_info` | handle | a dictionary containing `output_root` |
-| `set_origin` | handle | a dictionary containing `origin` |
 | `get_actuators` | handle | `{axis: [actuator names]}` for `x`, `y`, `z` |
 | `get_xyz` | handle, `with_actuators=` | `{axis: {"value", "actuator", "unit"}}` for `x`, `y`, `z`, in micrometers from the origin |
 | `set_xyz` | handle, `x`, `y`, `z`, `with_actuators=` | a dictionary containing `position` and `actuators`; raise if the move cannot be confirmed |
@@ -451,7 +458,7 @@ repository, each with its own README describing the instrument's quirks.
 
 ## Status
 
-This is version 0.1. The twelve commands are stable in spirit, but the exact
+This is version 0.1. The commands are stable in spirit, but the exact
 contents of each answer are still being aligned across drivers, and small
 changes may happen before 1.0. If you write a driver, please open an issue so
 we can keep the contract honest together.

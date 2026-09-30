@@ -158,3 +158,22 @@ The delta math and the missing-pair policy are single-sourced in
 distinct moments (stationary correctness at swap time; coordinate mapping at
 move time) but can no longer drift apart in sign or policy. A property test
 pins that the two deltas agree for the same lens pair.
+
+## 9. The controller is a plain pass-through; the origin is driver configuration (decided 2026-09-30)
+
+- **The controller does nothing but forward.** It is one class whose methods
+  each call the matching driver function and return what the driver returns.
+  It keeps no state, caches nothing and checks nothing; all checks, including
+  "is the connection still open", belong to the driver.
+- **The origin is driver configuration.** `set_origin` is not a controller
+  command. The origin is set once in a separate setup step with the driver,
+  saved to the driver's configuration file, and loaded by the driver when it
+  connects, like the limits and the calibration. This replaces the earlier
+  Leica behaviour, where the origin lasted only for one session.
+- **Driver extras are not part of the contract.** Keys such as
+  `tile_positions` may appear in a driver's answers, but the contract holds
+  only what every microscope can provide, so that workflows stay
+  interoperable.
+- **Every call is synchronous.** A command returns only when the driver has
+  finished the work. A live mode (adjust settings while watching, then snap)
+  may come later, but it is not part of the controller now.

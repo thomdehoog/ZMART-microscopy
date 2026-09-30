@@ -1,10 +1,11 @@
 """Mock microscope integration: a reference driver with no hardware.
 
 It exercises the full controller contract so the package can be tested offline,
-and it shows the shape a real driver implements: it receives the connection dict,
-owns the frame origin (user coordinates are micrometers from it), and does the
-work the controller does not -- settling before capture, saving, and
-owning the changeable/observed state boundary.
+and it shows the shape a real driver implements. It receives the connection
+dict, loads its origin as configuration (positions are micrometers from it),
+and does all the work and all the checks the controller does not: refusing a
+closed connection, validating options, settling before capture, saving, and
+keeping the changeable and observed parts of the state apart.
 
 Driver contract used by the registry: ``connect(connection) -> handle`` opens a
 session and returns an opaque handle; every other operation takes that handle as
@@ -67,10 +68,18 @@ def connect(connection: dict):
     """Open a session with a small vendor-authored tile setup.
 
     Receives the whole variable connection dict; a real driver would validate the
-    api and authenticate with e.g. ``connection["client"]`` / credentials. The
-    origin defaults to the current position (zero), so ``set_xyz`` works at once.
+    api and authenticate with e.g. ``connection["client"]`` / credentials.
+
+    The origin is driver configuration. A real driver loads it from the file
+    its own setup step saved; the mock stands in for that file with an optional
+    ``"origin"`` entry in the connection dict (``{"x": ..., "y": ..., "z": ...}``,
+    raw micrometers). Without one, the origin is the raw zero.
     """
     handle = MockHandle()
+    origin = connection.get("origin") or {}
+    handle.origin_x = float(origin.get("x", 0.0))
+    handle.origin_y = float(origin.get("y", 0.0))
+    handle.origin_z = float(origin.get("z", 0.0))
     handle.client = connection.get("client")
     handle.connection = dict(connection)
     handle.tile_positions = [
@@ -93,15 +102,6 @@ def _require_open(handle: MockHandle) -> None:
     """Refuse to drive a disconnected handle -- a real connection would be dead."""
     if handle.closed:
         raise RuntimeError("session is disconnected")
-
-
-def set_origin(handle: MockHandle) -> dict:
-    """Mark the current position as the origin -- it now reads (0, 0, 0)."""
-    _require_open(handle)
-    handle.origin_x = handle.x
-    handle.origin_y = handle.y
-    handle.origin_z = handle.z
-    return {"origin": {"x": handle.origin_x, "y": handle.origin_y, "z": handle.origin_z}}
 
 
 def get_actuators(handle: MockHandle) -> dict:
@@ -299,7 +299,6 @@ def register_mock() -> None:
             "connect": connect,
             "disconnect": disconnect,
             "get_acquisition_options": get_acquisition_options,
-            "set_origin": set_origin,
             "get_actuators": get_actuators,
             "get_xyz": get_xyz,
             "set_xyz": set_xyz,

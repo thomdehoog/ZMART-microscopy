@@ -9,6 +9,18 @@ Each concern is discover-then-apply: read the available options with a ``get_*``
 call, then pass your choice back to the matching call. Omitted options fall back
 to the driver's active default, filled by the driver.
 
+Every call is synchronous: the controller calls the driver, the driver does
+the work on the microscope, and only then does the call return with the
+driver's answer. Nothing runs in the background, and there is no "live" mode
+yet. (A future live view, where you change settings while watching and then
+snap, would need a different kind of call; it is deliberately not part of
+this contract.)
+
+The controller keeps no configuration of its own. Where (0, 0, 0) is, the
+travel limits and the calibration are the driver's configuration: set up
+once in a separate step with the driver, saved to a file, and loaded by the
+driver when it connects.
+
 Failure is reported by raising: driver ops raise exceptions (``ValueError`` for
 caller mistakes, ``RuntimeError`` for instrument failures or refusals) and never
 encode failure in a returned dict; the controller catches nothing and propagates
@@ -62,18 +74,6 @@ class Session:
         """
         return self._closed
 
-    # --- the frame (its origin) ---------------------------------------------
-
-    def set_origin(self) -> dict:
-        """Set the frame origin: the current position is now (0, 0, 0).
-
-        A command to the driver that, for our purposes, here is zero -- every
-        position is then micrometers from this point. The driver owns the origin
-        (just another driver-side offset), so the controller never does the math.
-        Returns whatever the driver reports.
-        """
-        return self._ops["set_origin"](self._handle)
-
     # --- state and procedures: opaque dicts the driver owns -----------------
 
     def get_state(self) -> dict:
@@ -115,7 +115,7 @@ class Session:
         return self._ops["get_actuators"](self._handle)
 
     def get_xyz(self, with_actuators: dict | None = None) -> dict:
-        """Read the current position per axis, in the frame (micrometers).
+        """Read the current position per axis, in micrometers from the driver's origin.
 
         ``with_actuators`` optionally names an actuator per axis (e.g.
         ``{"z": "piezo"}``; names must come from :meth:`get_actuators`). The
@@ -126,7 +126,7 @@ class Session:
         return self._ops["get_xyz"](self._handle, with_actuators=with_actuators)
 
     def set_xyz(self, x: float, y: float, z: float, with_actuators: dict | None = None) -> dict:
-        """Move to an absolute target in the frame (micrometers from the origin).
+        """Move to an absolute target, in micrometers from the driver's origin.
 
         Returns whatever the driver reports (e.g. a move record / confirmation).
         ``with_actuators`` selects the actuator
@@ -204,13 +204,10 @@ def set_instrument(instrument: dict[str, Any]) -> Session:
 
     ``instrument`` is one of the connection dicts from :func:`get_instruments`.
     This is the connector: it resolves the driver and forwards the connection
-    dict to the driver's ``connect`` untouched. There is no reference to declare
-    up front; the frame is just micrometers from an origin you set with
-    :meth:`Session.set_origin`. The origin policy at connect is driver-defined:
-    drivers may restore an origin persisted by a previous session, or use an
-    absolute frame until one is set -- call ``set_origin()`` at session start
-    if you need a fresh frame. Option menus are not cached here -- ``get_*``
-    calls forward live.
+    dict to the driver's ``connect`` untouched. The driver loads its own
+    configuration as it connects, including the origin that positions are
+    measured from, so there is nothing to declare here. Option menus are not
+    cached here -- ``get_*`` calls forward live.
 
     Returns a connected :class:`Session`. Raises ``ValueError`` if the instrument
     identity matches no registered driver.

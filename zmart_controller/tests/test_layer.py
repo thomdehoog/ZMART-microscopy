@@ -52,11 +52,18 @@ class TestFrame:
         assert (pos["x"]["value"], pos["y"]["value"], pos["z"]["value"]) == (10, 20, 5)
         assert pos["x"]["unit"] == "um"
 
-    def test_set_origin_zeros_here(self, mic):
-        mic.set_xyz(10, 20, 5)
-        mic.set_origin()  # current position becomes (0, 0, 0)
-        pos = mic.get_xyz()
-        assert (pos["x"]["value"], pos["y"]["value"], pos["z"]["value"]) == (0, 0, 0)
+    def test_origin_is_driver_configuration(self):
+        # The origin is loaded by the driver at connect, never set through the controller.
+        from zmart_controller.layer import set_instrument as open_session
+
+        session = open_session({**_mock_instrument(), "origin": {"x": 100.0, "y": 0.0, "z": 0.0}})
+        try:
+            assert not hasattr(session, "set_origin")
+            session.set_xyz(10, 0, 0)
+            assert session.get_xyz()["x"]["value"] == 10
+            assert session._handle.x == 110.0  # raw position = configured origin + frame value
+        finally:
+            session.disconnect()
 
     def test_get_actuators_lists_options(self, mic):
         assert mic.get_actuators()["z"] == ["motoric", "galvo", "piezo"]

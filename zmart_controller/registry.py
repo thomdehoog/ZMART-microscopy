@@ -39,7 +39,6 @@ logger = logging.getLogger(__name__)
 OPS: tuple[str, ...] = (
     "connect",
     "get_acquisition_options",
-    "set_origin",
     "get_actuators",
     "get_xyz",
     "set_xyz",

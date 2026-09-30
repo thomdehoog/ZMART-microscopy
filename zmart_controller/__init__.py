@@ -8,7 +8,6 @@ to use it, both giving ``zmart_controller.<call>()``:
 
     instruments = zmart_controller.get_instruments()
     zmart_controller.set_instrument(instruments[0])
-    zmart_controller.set_origin()                # (0, 0, 0) is here now
     zmart_controller.set_xyz(10, 20, 5)
     zmart_controller.acquire(acquisition_type="prescan", position_label="A1")
     zmart_controller.disconnect()
@@ -19,7 +18,6 @@ to use it, both giving ``zmart_controller.<call>()``:
     from zmart_controller.layer import set_instrument
     mic_a = set_instrument(instrument_a)
     mic_b = set_instrument(instrument_b)
-    mic_a.set_origin()
     mic_a.acquire(acquisition_type="prescan", position_label="A1")
 
 Two caveats on the module-level surface:
