@@ -1,5 +1,10 @@
 # ZMART Controller
 
+[![python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/downloads/)
+[![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![dependencies](https://img.shields.io/badge/dependencies-none-brightgreen)](pyproject.toml)
+[![tests](https://img.shields.io/badge/tests-pytest-blue)](#testing)
+
 The ZMART Controller is the controller part of **ZMART**, ZMB's
 Microscopy-Agnostic Research Toolkit for smart microscopy, developed at the
 Center for Microscopy and Image Analysis (ZMB), University of Zurich. It is one
