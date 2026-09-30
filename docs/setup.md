@@ -31,12 +31,5 @@ one line in every notebook.
    No microscope at hand? The same line works on the bundled mock, so you can
    try the whole flow first: `zmart_controller.register_driver("zmart_controller.mock")`.
 
-A driver shipped as its own package can skip step 3: one line in its
-`pyproject.toml` names the function to call, and the controller calls it the
-first time `get_instruments()` runs.
-
-```toml
-[project.entry-points."zmart_controller.drivers"]
-acme = "zmart_drivers.acme:register"
-```
-
+A driver shipped as its own package can skip step 3; see
+[Plug in your own driver functions](driver.md).
