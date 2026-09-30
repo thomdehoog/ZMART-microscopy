@@ -79,6 +79,18 @@ The pattern is always **ask first, then act**. A `get_*` call shows what the
 microscope can do, with the allowed values and the one currently in use. The
 matching call then does it. Any option you leave out keeps its current value.
 
+Every command answers with the same two things:
+
+```python
+{"success": True, "report": {...}}
+```
+
+`success` says whether the driver did what you asked. `report` is whatever the
+driver has to say about it: a position, a saved-file record, a state. When
+something goes wrong in a way that is safe to carry on from, the answer is
+`success: False`. When carrying on would be unsafe, the driver raises an error
+instead, and your script stops.
+
 ## How It Works
 
 Your notebook talks only to the controller. The controller looks up the driver
@@ -167,7 +179,9 @@ zmart_controller.set_instrument(instruments[0])
 
 # 2. Move 100 µm along x, and take a picture.
 zmart_controller.set_xyz(100, 0, 0)
-record = zmart_controller.acquire(acquisition_type="prescan", position_label="A1")
+answer = zmart_controller.acquire(acquisition_type="prescan", position_label="A1")
+answer["success"]              # True
+answer["report"]["filename"]   # "A1.tiff"
 
 # 3. Close the connection when you are done.
 zmart_controller.disconnect()
@@ -201,10 +215,11 @@ def connect(connection):
 
 def get_xyz(handle, *, with_actuators=None):
     raw = handle["client"].read_position()
-    return {
+    position = {
         axis: {"value": raw[axis] - handle["origin"][axis], "actuator": "motoric", "unit": "um"}
         for axis in ("x", "y", "z")
     }
+    return {"success": True, "report": position}
 
 # ... one function for each command in the table below ...
 
@@ -235,23 +250,25 @@ driver of about 300 lines; it is the best place to start.
 ### The contract
 
 These are the parts every driver must provide, so that an experiment written
-for one microscope keeps working on another. A driver may add extra keys to any
-answer; it should not leave out the ones listed here.
+for one microscope keeps working on another. Every function except `connect`
+and `disconnect` returns `{"success": bool, "report": ...}`; the table gives
+what the `report` must contain. A driver may add extra keys to any report; it
+should not leave out the ones listed here.
 
-| Function | Receives | Must return |
+| Function | Receives | The `report` must contain |
 |---|---|---|
-| `connect` | the connection dictionary | a handle (anything) |
-| `disconnect` *(optional)* | handle | nothing; afterwards every other call raises `RuntimeError`, and a second `disconnect` is harmless |
-| `get_info` | handle | a dictionary containing `output_root`, the folder where images are saved |
+| `connect` | the connection dictionary | *(returns a handle: anything)* |
+| `disconnect` *(optional)* | handle | *(returns nothing; afterwards every other call raises `RuntimeError`, and a second `disconnect` is harmless)* |
+| `get_info` | handle | `output_root`, the folder where images are saved |
 | `get_actuators` | handle | `{axis: [actuator names]}` for `x`, `y`, `z` |
 | `get_xyz` | handle, `with_actuators=` | `{axis: {"value", "actuator", "unit"}}` for `x`, `y`, `z`, in micrometers from the origin |
-| `set_xyz` | handle, `x`, `y`, `z`, `with_actuators=` | a dictionary containing `position` and `actuators`; raise if the move cannot be confirmed |
+| `set_xyz` | handle, `x`, `y`, `z`, `with_actuators=` | `position` and `actuators`; raise if the move cannot be confirmed |
 | `get_state` | handle | `{"changeable": {...}, "observed": {...}}` |
-| `set_state` | handle, state | a dictionary reporting what was applied; act on `changeable` only |
+| `set_state` | handle, state | what was applied; act on `changeable` only |
 | `get_acquisition_options` | handle | `{name: {"options": [...], "active": value}}` |
-| `acquire` | handle, `acquisition_type=`, `position_label=`, `options=` | a record containing `acquisition_type`, `position_label` and the saved file paths |
+| `acquire` | handle, `acquisition_type=`, `position_label=`, `options=` | `acquisition_type`, `position_label` and the saved file paths |
 | `get_procedures` | handle | `{name: {"description", ...}}` |
-| `run_procedure` | handle, `{"name": ..., ...}` | a dictionary containing `ran`; raise `ValueError` for an unknown name |
+| `run_procedure` | handle, `{"name": ..., ...}` | `ran`, the name of the procedure; raise `ValueError` for an unknown name |
 
 A *state* has two parts. `"changeable"` holds the settings that `set_state`
 applies. `"observed"` is a read-only report, such as which objective is in
@@ -263,11 +280,13 @@ experiment that depends on an extra will not run on other microscopes.
 
 ### Rules for drivers
 
-- **Refuse by raising.** Use `ValueError` when the request itself is wrong (an
-  unknown option, a position outside the limits) and `RuntimeError` when the
-  microscope fails or refuses. Never return a normal-looking answer that
-  quietly means "this did not work". The controller passes your error to the
-  user unchanged.
+- **Refuse by raising; report soft outcomes.** When carrying on would be
+  unsafe, raise: `ValueError` when the request itself is wrong (an unknown
+  option, a position outside the limits) and `RuntimeError` when the
+  microscope fails or refuses. The controller passes your error to the user
+  unchanged. Use `success: False` only for outcomes it is safe to carry on
+  from, such as "saved, but the copy to the shared folder failed", and say
+  what happened in the `report`.
 - **Reject what you do not understand.** An unknown option name or procedure
   raises `ValueError`. A typo that is silently ignored can cost someone an
   entire experiment.
@@ -311,12 +330,9 @@ second.
 
 ## Status
 
-This is version 0.1. The commands are stable in spirit, and small changes may
-happen before 1.0. One is already planned: every command will return the same
-two things, whether it worked (`success`) and a free-form `report` from the
-driver. Drivers will still raise an error whenever carrying on would be unsafe.
-If you write a driver, please open an issue so we can keep the contract honest
-together.
+This is version 0.1. The commands and the `success` / `report` answer are
+stable in spirit, and small changes may happen before 1.0. If you write a
+driver, please open an issue so we can keep the contract honest together.
 
 ## Requirements
 

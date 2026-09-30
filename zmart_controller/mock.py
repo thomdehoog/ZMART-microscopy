@@ -15,7 +15,7 @@ keeping the changeable and observed parts of the state apart.
 
 Driver contract used by the registry: ``connect(connection) -> handle`` opens a
 session and returns an opaque handle; every other operation takes that handle as
-its first argument.
+its first argument and returns ``{"success": bool, "report": ...}``.
 
 Author: Thom de Hoog, Center for Microscopy and Image Analysis (ZMB),
 University of Zurich (thom.dehoog@zmb.uzh.ch, thomdehoog@gmail.com).
@@ -104,6 +104,16 @@ def disconnect(handle: MockHandle) -> None:
     handle.closed = True
 
 
+def _answer(report, *, success: bool = True) -> dict:
+    """Wrap a driver's report in the shape every command returns.
+
+    ``success`` says whether the command did what was asked; ``report`` is
+    whatever this driver has to say about it. A failure that would make it
+    unsafe to carry on is never reported this way: the driver raises instead.
+    """
+    return {"success": success, "report": report}
+
+
 def _require_open(handle: MockHandle) -> None:
     """Refuse to drive a disconnected handle -- a real connection would be dead."""
     if handle.closed:
@@ -113,7 +123,7 @@ def _require_open(handle: MockHandle) -> None:
 def get_actuators(handle: MockHandle) -> dict:
     """The actuator options each axis offers (driver-defined)."""
     _require_open(handle)
-    return {axis: list(opts) for axis, opts in _ACTUATORS.items()}
+    return _answer({axis: list(opts) for axis, opts in _ACTUATORS.items()})
 
 
 def get_acquisition_options(handle: MockHandle) -> dict:
@@ -122,6 +132,10 @@ def get_acquisition_options(handle: MockHandle) -> dict:
     Driver-owned and answered on demand; the controller caches nothing.
     """
     _require_open(handle)
+    return _answer(_menu())
+
+
+def _menu() -> dict:
     return {
         "backlash_correction": {"options": [True, False], "active": True},
         "format": {"options": ["ome-tiff", "ome-zarr"], "active": "ome-tiff"},
@@ -131,7 +145,7 @@ def get_acquisition_options(handle: MockHandle) -> dict:
 
 def _with_defaults(handle: MockHandle, options: dict | None) -> dict:
     """Validate options against the menu, filling omissions from the active defaults."""
-    menu = get_acquisition_options(handle)
+    menu = _menu()
     resolved = {name: spec["active"] for name, spec in menu.items()}
     if options:
         for name, value in options.items():
@@ -172,10 +186,12 @@ def get_xyz(handle: MockHandle, *, with_actuators: dict | None = None) -> dict:
     _require_open(handle)
     chosen = _resolve_actuators(with_actuators)
     user = _user_position(handle)
-    return {
-        axis: {"value": user[axis], "actuator": chosen[axis], "unit": "um"}
-        for axis in ("x", "y", "z")
-    }
+    return _answer(
+        {
+            axis: {"value": user[axis], "actuator": chosen[axis], "unit": "um"}
+            for axis in ("x", "y", "z")
+        }
+    )
 
 
 def set_xyz(
@@ -193,7 +209,7 @@ def set_xyz(
     handle.x = handle.origin_x + x
     handle.y = handle.origin_y + y
     handle.z = handle.origin_z + z
-    return {"position": {"x": x, "y": y, "z": z}, "actuators": chosen}
+    return _answer({"position": {"x": x, "y": y, "z": z}, "actuators": chosen})
 
 
 def acquire(
@@ -217,29 +233,32 @@ def acquire(
         "settle": settle,
         "position": _user_position(handle),
     }
-    return record
+    return _answer(record)
 
 
 def get_state(handle: MockHandle) -> dict:
     """Return the opaque state: the changeable settings first, then the
     observed report (identity and condition, read-only)."""
     _require_open(handle)
-    return {
-        "changeable": {"laser_power": handle.laser_power, "gain": handle.gain},
-        "observed": {
-            "serial": handle.serial,
-            "pixel_size": {"x": 1.0, "y": 1.0, "unit": "um"},
-            "frame_size": {"x": 1024.0, "y": 1024.0, "unit": "um"},
-        },
-    }
+    return _answer(
+        {
+            "changeable": {"laser_power": handle.laser_power, "gain": handle.gain},
+            "observed": {
+                "serial": handle.serial,
+                "pixel_size": {"x": 1.0, "y": 1.0, "unit": "um"},
+                "frame_size": {"x": 1024.0, "y": 1024.0, "unit": "um"},
+            },
+        }
+    )
 
 
 def set_state(handle: MockHandle, state: dict) -> dict:
     """Apply the changeable settings; report what stuck.
 
-    ``observed`` is a report, never an instruction — it is not read here
-    (operator decision: the identity gate returns only if the changeable
-    part ever grows beyond low-risk settings).
+    ``observed`` is a report, never an instruction, so it is not read here.
+    If none of the settings in ``changeable`` is one this microscope knows,
+    nothing changes and ``success`` is False: a soft outcome, safe to carry on
+    from, so it is reported rather than raised.
     """
     _require_open(handle)
     changeable = state.get("changeable", {})
@@ -250,44 +269,50 @@ def set_state(handle: MockHandle, state: dict) -> dict:
     if "gain" in changeable:
         handle.gain = changeable["gain"]
         applied["gain"] = handle.gain
-    return {"applied": applied}
+    return _answer({"applied": applied}, success=bool(applied))
 
 
 def get_procedures(handle: MockHandle) -> dict:
     """Return the named procedures this instrument offers."""
     _require_open(handle)
-    return {
-        "autofocus": {"description": "hardware autofocus"},
-        "find_sample": {"description": "locate the sample"},
-    }
+    return _answer(
+        {
+            "autofocus": {"description": "hardware autofocus"},
+            "find_sample": {"description": "locate the sample"},
+        }
+    )
 
 
 def run_procedure(handle: MockHandle, procedure: dict) -> dict:
-    """Run a procedure and report what ran."""
+    """Run a procedure and report what ran; an unknown name is refused."""
     _require_open(handle)
     name = procedure.get("name")
+    if name not in ("autofocus", "find_sample"):
+        raise ValueError(f"unknown procedure {name!r}")
     if name == "autofocus":
         # Mirror the real drivers' contract: report the sharp z in frame
         # terms (``frame_z_um``). The mock's "sharp" z is simply wherever
         # the stage currently sits, which is deterministic and lets the
         # workflow's focus step run end-to-end offline.
         frame_z = handle.z - handle.origin_z
-        return {"ran": dict(procedure), "focus_um": handle.z, "frame_z_um": frame_z}
-    return {"ran": dict(procedure)}
+        return _answer({"ran": name, "focus_um": handle.z, "frame_z_um": frame_z})
+    return _answer({"ran": name})
 
 
 def get_info(handle: MockHandle) -> dict:
     """Return the live vendor-authored setup and resolved output root."""
     _require_open(handle)
     root = Path(handle.connection.get("output_root") or "mock-output")
-    return {
-        "tile_positions": [dict(pos) for pos in handle.tile_positions],
-        "focus_positions": [
-            {"x": pos["x"], "y": pos["y"], "z": pos["z"]} for pos in handle.tile_positions
-        ],
-        "client": handle.client,
-        "output_root": str(root),
-    }
+    return _answer(
+        {
+            "tile_positions": [dict(pos) for pos in handle.tile_positions],
+            "focus_positions": [
+                {"x": pos["x"], "y": pos["y"], "z": pos["z"]} for pos in handle.tile_positions
+            ],
+            "client": handle.client,
+            "output_root": str(root),
+        }
+    )
 
 
 def register() -> None:
