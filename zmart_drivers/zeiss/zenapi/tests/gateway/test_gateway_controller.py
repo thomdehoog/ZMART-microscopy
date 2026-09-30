@@ -1,7 +1,9 @@
 """The ZMART controller session over the real wheel and the fake gateway.
 
-This is what a workflow does: pick the instrument, set the origin, move,
-acquire. Nothing here imports the driver's internals.
+This is what a workflow does: pick the instrument, move, acquire. Setting the
+origin is not a controller command; it is a one-time setup step done with the
+driver itself, so the one place this file reaches past the controller is to call
+the adapter's ``set_origin`` on the session's driver handle.
 """
 
 import pytest
@@ -34,7 +36,10 @@ def test_full_round_trip(session, gateway, tmp_path):
     assert info["server"]["zen_api_version"]
     assert info["experiment"] == "ZMART_Snap"
 
-    session.set_origin()
+    from zenapi import zen_zmart_adapter as adapter
+
+    assert not hasattr(session, "set_origin")  # the controller does not offer it
+    adapter.set_origin(session._handle)  # driver setup step, done on the handle
     assert session.get_xyz()["x"]["value"] == 0.0
     rec = session.set_xyz(250, -250, 12.5)
     assert rec["confirmed"] == pytest.approx({"x": 250.0, "y": -250.0, "z": 12.5})

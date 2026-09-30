@@ -216,8 +216,9 @@ the acquisition PC, the server is off by default and started by an operator. See
   driver) gate every mutating controller op, with the stage envelope overlaid onto their `stage.*`
   constraints and completeness enforced at load: every mutating op needs an entry (`null` =
   reviewed-and-unlimited), so a new op can't ship silently unlimited. Which file governed the session is
-  reported under `get_state()["observed"]["limits"]`. The **frame origin** set by `set_origin` persists to
-  `origin.json` and is restored at `connect`, so the zero point survives reconnects.
+  reported under `get_state()["observed"]["limits"]`. The **frame origin** is set once with the driver's
+  `set_origin` setup step (not through the controller; see "Setting the origin" in §4). It is saved to
+  `origin.json` and loaded again at every `connect`, so the zero point survives reconnects.
 - **Hardware model / acquisition defaults** — `HARDWARE` (laser lines, filters, zoom→pixel-size table, camera
   size) and `ACQUISITION` (save format, defaults, `acquire_timeout_s`) in `config/profiles.py`. The live
   instrument's values are authoritative and read back via `get_config`; the profile is the offline default and
@@ -264,11 +265,28 @@ import mesospim  # importing the driver registers it (vendor=mesospim, api=remot
 # Add "token": "…" if the server requires one; host/port default to 127.0.0.1:42000.
 sess = zmart_controller.set_instrument({"vendor": "mesospim", "microscope": "mesospim-01",
                                         "api": "remote-scripting", "host": "127.0.0.1", "port": 42000})
-sess.set_origin()
-sess.set_xyz(10, 20, 5)                             # µm from origin
+sess.set_xyz(10, 20, 5)                             # µm from the saved origin
 sess.acquire("prescan", "A1", options={"format": "ome-tiff"})
 sess.disconnect()
 ```
+
+**Setting the origin (a one-time driver setup step).** The origin is the point that reads as (0, 0, 0),
+and every position you give the controller is measured from it. It belongs to the microscope's
+configuration, not to a single experiment, so the controller does not offer a `set_origin` command. You
+set it once with the driver directly: move the stage to the point you want as zero, then run
+
+```python
+from mesospim import mesospim_zmart_adapter as adapter
+
+handle = adapter.connect({**mesospim.CONNECTION, "host": "127.0.0.1", "port": 42000})
+adapter.set_origin(handle)                          # the current position is (0, 0, 0) from now on
+adapter.disconnect(handle)
+```
+
+The origin is saved to `origin.json` in this microscope's configuration folder (see §3), and the driver
+loads it every time it connects, including every controller session. Like every command that changes the
+microscope, `set_origin` is refused if the safety limits file (`function_limits.json`) could not be loaded.
+Run these lines again whenever you want a new origin.
 
 The controller surface is x/y/z-centric: focus and rotation are exposed as **procedures**
 (`move_focus`, `move_rotation`), and laser/filter/zoom/intensity/shutter/ETL as the capturable **mutable

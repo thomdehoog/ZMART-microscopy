@@ -17,6 +17,8 @@ def test_ops_table_is_complete():
     from zmart_controller.registry import OPS
 
     assert set(OPS) <= set(adapter.OPS)
+    # The origin is a driver setup step, so it is not offered to the controller.
+    assert "set_origin" not in adapter.OPS
 
 
 def test_connect_reads_limits_and_identity(handle):
