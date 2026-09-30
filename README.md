@@ -122,8 +122,8 @@ yours as soon as you write against it:
 
  < here should be links to tutorials >
  - install and test it with a mock driver
- - build your own workflow on top of the driver
- - build driver functions the plug in the the ZMART-controller
+ - build your own workflow with the controller
+ - build driver functions that plug into the ZMART-controller
  
 ### Status
 This is version 0.1. We are currently using this in workflows for smart microscopy at the ZMB for Leica and Evident.
