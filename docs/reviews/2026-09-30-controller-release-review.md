@@ -73,11 +73,29 @@ Decisions by the maintainer:
   list, a file or a picker, with the vendor tiles used only when a driver
   happens to offer them.
 
+- **The origin is driver configuration, not a controller command.**
+  `set_origin` has been removed from the controller. The origin is set once
+  in a separate setup step with the driver, saved to the driver's
+  configuration file, and loaded by the driver every time it connects, in the
+  same way as the limits and the calibration. Each driver keeps its own
+  `set_origin` function for that setup step. The "origin at connect" row in
+  the table above is therefore settled: every driver restores its saved
+  origin. (Recorded as maintainer decision 9.)
+- **Every call is synchronous.** A command calls the driver function, the
+  driver does its work, and the command returns when that work is finished.
+  A live mode (change settings while watching, then snap) is a possible
+  future addition but is not part of the controller now.
+- **The controller stays a plain pass-through.** It is one class whose
+  methods each call the matching driver function. All checks, including
+  "is the connection still open", belong to the driver.
+
 Still open:
 
-- **One origin policy.** Either every driver restores the saved origin at
-  connect, or none does. "Always call `set_origin()` first" is the simplest
-  rule to teach, and the README now says so.
+- **A common return shape.** The maintainer is considering one simple
+  envelope for every command: whether it worked, plus a report whose content
+  is free for each driver. This would replace today's rule that failure is
+  reported by raising an error. See "Open design questions" below.
+- **How drivers are registered.** See section 2, point 3.
 
 ## 2. Packaging for a standalone repository
 
@@ -110,21 +128,24 @@ separate repository.
 
 ## 3. Findings in the controller code
 
-All of these are small. Each was confirmed by running it.
+All of these are small, and each was confirmed by running it. After the
+maintainer's decision that the controller stays a plain pass-through, the
+first two are no longer changes to the controller: they are rules for the
+drivers.
 
-1. **`Session` does not refuse calls after `disconnect()`.** It relies on each
-   driver to do so, and mesoSPIM does not. A three-line check at the top of
-   each `Session` method (or one shared helper) would make the behaviour the
-   same for every driver.
+1. **Calls after `disconnect()` are refused only if the driver refuses them.**
+   This is the driver's job, and every driver except mesoSPIM already does it.
+   The fix belongs in the mesoSPIM driver.
 2. **`register()` accepts entries that are not functions.** Registering
    `{"get_xyz": None}` succeeds, and the mistake only shows up later as a
-   confusing `TypeError` at the microscope. Checking `callable()` at
-   registration gives the driver author the error straight away.
+   confusing error at the microscope. Whether registration should check this
+   is part of the open registration question.
 3. **`get_instruments()` copies only the top level.** If a connection
    dictionary holds a nested dictionary, for example credentials, editing the
-   returned copy changes the registry's own entry. `copy.deepcopy` fixes it.
-   Similarly, `resolve()` hands the caller's own dictionary to the driver, so a
-   driver that edits it changes the user's variable.
+   returned copy changes the registry's own entry. Similarly, `resolve()`
+   hands the caller's own dictionary to the driver, so a driver that edits it
+   changes the user's variable. Using a full copy fixes both without adding
+   any checks.
 4. **The module-level shortcut exposes private attributes.**
    `zmart_controller._ops` and `zmart_controller._handle` resolve to the
    active session's internals. Delegation should skip names that start with an
@@ -139,12 +160,26 @@ All of these are small. Each was confirmed by running it.
    programs refuses a second simultaneous client, because re-running a cell is
    the most common thing people do in a notebook.
 7. **`from zmart_controller import acquire` captures the current microscope.**
-   This is already documented as a caution. A small forwarding function per
-   command would remove the trap entirely, at the cost of a few more lines.
-8. **Every answer is typed as a plain `dict`.** Once the contract is written
-   down, small typed descriptions of each answer (Python `TypedDict`s) would let
-   editors and AI assistants check workflows as they are written. This is
-   optional.
+   This is already documented as a caution.
+
+## Open design questions
+
+**A common return shape.** The idea is that every command returns the same
+two things: whether it worked (`success`), and a `report`, whose content is
+free for each driver. This is simple and uniform, and it matches the
+`success` / `confirmed` records the drivers already use internally. The one
+thing to decide with it is what happens when a script does not look at
+`success`. Today a failed move raises an error and the script stops. With a
+returned `success: False`, a script that forgets to check would carry on and
+image the wrong place. Two ways to keep that safe are: the driver still raises
+for failures that make continuing unsafe and uses `success: False` only for
+soft outcomes, or the notebooks always check `success` through one small
+helper. Either choice keeps the controller a plain pass-through.
+
+**Registration.** Today a driver registers by calling `register(connection,
+ops=...)` when its module is imported. That is simple and works inside one
+repository. For drivers installed separately, the lightest addition is an
+entry point (see section 2), which leaves `register` unchanged.
 
 ## 4. What is already good
 
@@ -163,9 +198,9 @@ These are worth keeping exactly as they are:
 
 ## Suggested order of work
 
-1. Decide the two contract questions in section 1 and the package name.
+1. Decide the return shape, the registration route and the package name.
 2. Write the conformance check, and fix the mock so it passes it first.
-3. Fix the code findings 1 to 4 in section 3 (each is a few lines, with a test).
+3. Fix code findings 3 and 4 in section 3 (each is a few lines, with a test).
 4. Add packaging: `[project]`, a public mock and entry-point discovery.
 5. Bring each driver up to the conformance check, starting with mesoSPIM, which
    has the most gaps.
