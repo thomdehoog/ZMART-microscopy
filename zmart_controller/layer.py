@@ -175,12 +175,12 @@ class Session:
     def get_info(self) -> dict:
         """Read the connected setup information live.
 
-        Target-acquisition-capable drivers expose operator-authored
-        ``tile_positions`` (not the physical stage position; use
-        :meth:`get_xyz` for that), optional ``focus_positions``, and the
-        resolved ``output_root``. Other keys remain driver-defined. The
-        controller does not cache this snapshot. A driver may persist working
-        files and block briefly while gathering truthful vendor information.
+        Every driver reports ``output_root``, the folder where images are
+        saved. Any other key is an extra of that particular driver (the Leica
+        driver, for example, adds the tile positions drawn in LAS X), so a
+        workflow meant to run on any microscope should not rely on it. The
+        controller does not cache this snapshot. A driver may write working
+        files and pause briefly while it gathers the information.
         """
         return self._ops["get_info"](self._handle)
 
