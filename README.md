@@ -10,7 +10,7 @@ Center for Microscopy and Image Analysis (ZMB), University of Zurich.
 <br/>
 
 <p align="center">
-  <img src="docs/zmart-overview.png" alt="The ZMART toolkit: zmart-interface and zmart-ai-agent above the waterline; zmart-viewer, zmart-controller, zmart-analysis and zmart-drivers below, around ZMART microscopy" width="60%">
+  <img src="docs/zmart-overview.png" alt="The ZMART toolkit: zmart-interface, zmart-ai-agent, zmart-controller, zmart-drivers, zmart-analysis and zmart-viewer in a ring around ZMART microscopy" width="60%">
 </p>
 
 <br/>
