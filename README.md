@@ -5,13 +5,19 @@
 [![dependencies](https://img.shields.io/badge/dependencies-none-brightgreen)](pyproject.toml)
 [![tests](https://img.shields.io/badge/tests-pytest-blue)](#testing)
 
-<img src="docs/zmart-controller-icon.png" align="left" width="170" alt="ZMART Controller">
+<table border="0">
+<tr>
+<td width="180" valign="middle"><img src="docs/zmart-controller-icon.png" width="160" alt="ZMART Controller"></td>
+<td valign="middle">
 
 The **ZMART Controller** provides a small, universal schema for driving a microscope from Python.
 You build your workflow on this schema, and it runs on any microscope that has a ZMART driver plugged into it.
 It is part of **ZMART** (ZMB's Microscopy-Agnostic Research Toolkit), the tools we use for smart microscopy
 at the Center for Microscopy and Image Analysis (ZMB), University of Zurich.
-<br clear="left"/>
+
+</td>
+</tr>
+</table>
 
 ## The Problem
 
