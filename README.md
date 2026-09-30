@@ -121,8 +121,7 @@ yours as soon as you write against it:
 ## Try it yourself 
 
  < here should be links to tutorials >
- - intall it
- - test is with a mock driver
+ - install and test it with a mock driver
  - build your own workflow on top of the driver
  - build driver functions the plug in the the ZMART-controller
  
