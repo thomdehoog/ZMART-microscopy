@@ -7,7 +7,7 @@ Start it and open the printed address — no Jupyter needed:
     python run_webapp.py --analysis-repo C:/code/smart-analysis
 
 The page walks the exact steps of ``zmart_microscopy_v4_react.ipynb``
-(connect → origin → jobs → focus → overview → discover →
+(connect → jobs → focus → overview → discover →
 acquire/curate → save → disconnect) and embeds the SAME six React widgets
 the notebook uses, talking the protocol documented in
 ``workflow/react/PROTOCOL.md``. The operator sees buttons, pictures and

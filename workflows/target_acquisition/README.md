@@ -2,14 +2,13 @@
 
 Pick cells from a low-magnification overview, re-image each at the high-magnification objective. The operator notebook drives the microscope through `zmart_controller`.
 
-1. **Setup and connect** — connect through the controller, discover the output root, and let the workflow create the experiment folder.
-2. **Set origin** — set the current microscope position as `(0, 0, 0)`.
-3. **Jobs** — capture the overview and target states.
-4. **Initial positions** — ask the microscope for scan-field positions.
-5. **Focus** — pick focus points in an interactive figure (points already placed in LAS X are pre-filled), press **Measure focus** to autofocus at each one, and inspect the fitted z surface as a heatmap in the same figure.
-6. **Overview** — acquire one image per position, then browse them as one zoomable map with every tile at its real stage position and per-channel colour / brightness / contrast controls.
-7. **Discover targets** — segment the overviews, then gate interactively: put any measured feature on the plot axes, threshold with sliders or draw a lasso, and hover a point to see that cell's image crop.
-8. **Acquire targets + summary** — type how many to acquire; a random sample of the gate is re-imaged and reviewed as overview/target image pairs at the same physical scale, then the run report is written.
+1. **Setup and connect** — connect through the controller, discover the output root, and let the workflow create the experiment folder. Connecting also loads the stage's coordinate frame. Where `(0, 0, 0)` sits on the stage is chosen once, when the microscope's driver is set up, and saved in the driver's configuration file, so there is no origin to set during a run. Every position in the run is in micrometers, measured from that same fixed point.
+2. **Jobs** — capture the overview and target states.
+3. **Initial positions** — ask the microscope for scan-field positions.
+4. **Focus** — pick focus points in an interactive figure (points already placed in LAS X are pre-filled), press **Measure focus** to autofocus at each one, and inspect the fitted z surface as a heatmap in the same figure.
+5. **Overview** — acquire one image per position, then browse them as one zoomable map with every tile at its real stage position and per-channel colour / brightness / contrast controls.
+6. **Discover targets** — segment the overviews, then gate interactively: put any measured feature on the plot axes, threshold with sliders or draw a lasso, and hover a point to see that cell's image crop.
+7. **Acquire targets + summary** — type how many to acquire; a random sample of the gate is re-imaged and reviewed as overview/target image pairs at the same physical scale, then the run report is written.
 
 ## Entry Point
 

@@ -1,6 +1,6 @@
 """Interactive focus-point picking with an in-figure focus-map heatmap.
 
-This is the notebook's Focus step (step 5) as one figure the operator works
+This is the notebook's Focus step (step 4) as one figure the operator works
 in directly. The figure shows the overview positions for context; the operator
 clicks where the microscope should autofocus, then presses the **Measure
 focus** button. The stage visits each picked point, runs the autofocus job

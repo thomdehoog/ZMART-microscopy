@@ -136,7 +136,6 @@ def test_notebook_is_thin_orchestration_and_teaches_the_session_lifecycle():
     joined = "\n".join(_code_sources(_load()))
     for call in (
         'workflow.connect("leica")',
-        "zmart_controller.set_origin()",
         "zmart_controller.get_state()",
         "zmart_controller.set_state(overview_state)",
         "setup_info = zmart_controller.get_info()",
@@ -144,6 +143,9 @@ def test_notebook_is_thin_orchestration_and_teaches_the_session_lifecycle():
         "zmart_controller.disconnect()",
     ):
         assert call in joined, f"notebook no longer demonstrates {call}"
+    # The origin is part of the driver's saved configuration and is loaded
+    # when it connects, so an operator notebook must never set it.
+    assert "set_origin" not in joined, "the notebook must not set the origin"
 
 
 def test_capture_cells_enforce_the_driver_preflight_verdict():

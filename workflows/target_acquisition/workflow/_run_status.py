@@ -70,7 +70,7 @@ def run_status_rows(ns: dict[str, Any]) -> list[dict]:
 
     overview_state = ns.get("overview_state")
     if overview_state is None:
-        rows.append(_row("Overview job", TODO, "capture it in step 3a"))
+        rows.append(_row("Overview job", TODO, "capture it in step 2a"))
     else:
         setup = (overview_state.get("observed") or {}).get("setup")
         job = (overview_state.get("changeable") or {}).get("job")
@@ -89,7 +89,7 @@ def run_status_rows(ns: dict[str, Any]) -> list[dict]:
             )
     target_state = ns.get("target_state")
     if target_state is None:
-        rows.append(_row("Target job", TODO, "capture it in step 3b"))
+        rows.append(_row("Target job", TODO, "capture it in step 2b"))
     else:
         t_job = (target_state.get("changeable") or {}).get("job")
         o_job = ((overview_state or {}).get("changeable") or {}).get("job")
@@ -113,12 +113,12 @@ def run_status_rows(ns: dict[str, Any]) -> list[dict]:
     rows.append(
         _row("Positions", OK, f"{len(positions)} scan-field position(s)")
         if positions
-        else _row("Positions", TODO, "ask the microscope in step 4")
+        else _row("Positions", TODO, "ask the microscope in step 3")
     )
 
     focus = ns.get("focus")
     if focus is None:
-        rows.append(_row("Focus surface", TODO, "pick and measure points in step 5"))
+        rows.append(_row("Focus surface", TODO, "pick and measure points in step 4"))
     else:
         n = len(getattr(focus, "measured", []) or [])
         rows.append(_row("Focus surface", OK, f"{getattr(focus, 'model', '?')} fit, {n} point(s)"))
@@ -127,13 +127,13 @@ def run_status_rows(ns: dict[str, Any]) -> list[dict]:
     rows.append(
         _row("Overview scan", OK, f"{len(records)} tile(s) acquired")
         if records
-        else _row("Overview scan", TODO, "acquire in step 6")
+        else _row("Overview scan", TODO, "acquire in step 5")
     )
     targets = ns.get("targets")
     rows.append(
         _row("Targets", OK, f"{len(targets)} discovered")
         if targets
-        else _row("Targets", TODO, "discover in step 7")
+        else _row("Targets", TODO, "discover in step 6")
     )
 
     gallery = ns.get("gallery")
@@ -141,7 +141,7 @@ def run_status_rows(ns: dict[str, Any]) -> list[dict]:
     rows.append(
         _row("Target images", OK, f"{len(acquired)} acquired and committed")
         if acquired
-        else _row("Target images", TODO, "acquire in step 8")
+        else _row("Target images", TODO, "acquire in step 7")
     )
     return rows
 

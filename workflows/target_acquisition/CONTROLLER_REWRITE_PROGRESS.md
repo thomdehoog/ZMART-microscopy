@@ -131,6 +131,12 @@ Still open (needs the bench / real cells):
 
 ## Controller surface (reference)
 
-`get_instruments · set_instrument · disconnect · set_origin · get_xyz/set_xyz · get_actuators ·
+`get_instruments · set_instrument · disconnect · get_xyz/set_xyz · get_actuators ·
 get_state/set_state · get_procedures/run_procedure · get_acquisition_options · acquire · get_info`.
 The Leica adapter (`zmart_adapter.py`) registers all of them and was live-validated on the sim.
+
+Note: `set_origin` has since been removed from the controller. The frame
+origin is now driver configuration: it is set once in a separate setup step
+with the driver, saved in the driver's configuration file, and loaded when
+the driver connects. The workflow therefore never sets an origin; positions
+are micrometers in the frame the driver was configured with.

@@ -36,7 +36,6 @@ from workflow.webapp import RunFlow, WidgetHub, make_server  # noqa: E402
 
 _ORDERED_STEPS = [
     "connect",
-    "set_origin",
     "capture_overview_job",
     "capture_target_job",
     "load_positions",
@@ -51,12 +50,12 @@ def _run_demo_flow(tmp_path: Path) -> tuple[WidgetHub, RunFlow]:
     """Drive the full demo run the way the buttons would, and return it."""
     hub = WidgetHub()
     flow = RunFlow(hub, demo=True, demo_root=tmp_path / "run")
-    for step in _ORDERED_STEPS[:5]:
+    for step in _ORDERED_STEPS[:4]:
         assert flow.run_step(step)
     hub.drain()
     # The operator presses Measure in the focus panel...
     hub.dispatch_message("focus", {"type": "measure"})
-    for step in _ORDERED_STEPS[5:7]:
+    for step in _ORDERED_STEPS[4:6]:
         flow.run_step(step)
     hub.drain(120)
     # ...acquires two cells, and judges the first pair good.
@@ -75,7 +74,7 @@ def test_demo_flow_runs_the_whole_notebook_order(tmp_path):
     # The same assertions the notebook end-to-end test makes about a run.
     assert len(flow.viewer.overviews) == 4
     assert len(flow.targets) >= 4
-    assert flow.viewer.marks == []  # step 6 never rewrites the step 5 overview
+    assert flow.viewer.marks == []  # step 5 never rewrites the step 4 overview
     assert len(flow.gallery.records) == 2 == len(flow.gallery.picked)
     assert flow.gallery._verdicts[0] == "good"
     root = flow.root
@@ -136,31 +135,47 @@ def test_steps_refuse_out_of_order_with_plain_sentences(tmp_path):
     assert "Traceback" not in failed[0]["message"]
 
 
-def test_origin_must_precede_every_coordinate_dependent_step(tmp_path):
+def test_the_origin_is_driver_configuration_not_a_workflow_step(tmp_path):
+    """The run never sets an origin; capturing jobs follows Connect directly.
+
+    Where (0, 0, 0) sits on the stage is saved in the driver's configuration
+    and loaded when it connects, so the page offers no "Set origin" action
+    and the simulated session has no such call either.
+    """
     hub = WidgetHub()
     flow = RunFlow(hub, demo=True, demo_root=tmp_path / "run")
-    flow.run_step("connect")
-    flow.run_step("capture_overview_job")  # deliberately skip Set origin
+    assert not flow.has_step("set_origin")
+    assert flow.run_step("set_origin") is False
+
+    flow.run_step("capture_overview_job")  # deliberately before Connect
     hub.drain()
-    assert flow.completed == ["connect"]
+    assert flow.completed == []
     assert flow.overview_state is None
 
-    # Once positions exist, Set origin cannot be repeated and silently change
-    # the frame underneath their cached coordinates.
-    for step in ("set_origin", "capture_overview_job", "capture_target_job", "load_positions"):
+    flow.run_step("connect")
+    flow.run_step("capture_overview_job")
+    hub.drain()
+    assert flow.completed == ["connect", "capture_overview_job"]
+    assert not hasattr(flow.session, "set_origin")
+
+    # Once positions exist, the coordinate steps cannot be repeated and
+    # silently replace the positions the focus map was built from.
+    for step in ("capture_target_job", "load_positions"):
         flow.run_step(step)
     hub.drain()
     positions = list(flow.positions)
-    flow.run_step("set_origin")
+    for step in ("capture_overview_job", "load_positions"):
+        flow.run_step(step)
     hub.drain()
     assert flow.positions == positions
-    assert flow.completed.count("set_origin") == 1
+    assert flow.completed.count("load_positions") == 1
+    assert flow.completed.count("capture_overview_job") == 1
 
 
 def test_positions_are_loaded_only_after_restoring_overview_controller_state(tmp_path):
     hub = WidgetHub()
     flow = RunFlow(hub, demo=True, demo_root=tmp_path / "run")
-    for step in _ORDERED_STEPS[:4]:
+    for step in _ORDERED_STEPS[:3]:
         flow.run_step(step)
     hub.drain()
     assert flow.session.job == flow.session.TARGET_JOB
@@ -192,7 +207,7 @@ def test_positions_are_loaded_only_after_restoring_overview_controller_state(tmp
 def test_duplicate_overview_requests_coalesce_before_hardware(tmp_path):
     hub = WidgetHub()
     flow = RunFlow(hub, demo=True, demo_root=tmp_path / "run")
-    for step in _ORDERED_STEPS[:5]:
+    for step in _ORDERED_STEPS[:4]:
         flow.run_step(step)
     hub.drain()
     hub.dispatch_message("focus", {"type": "measure"})
@@ -267,7 +282,7 @@ def test_stale_hardware_message_is_dropped_with_feedback(tmp_path, monkeypatch):
 
     hub = WidgetHub()
     flow = RunFlow(hub, demo=True, demo_root=tmp_path / "run")
-    for step in _ORDERED_STEPS[:5]:
+    for step in _ORDERED_STEPS[:4]:
         flow.run_step(step)
     hub.drain()
     focus = flow.picker
@@ -319,7 +334,7 @@ def test_cancel_is_applied_immediately_not_queued(tmp_path):
     """The concurrent-host promise: cancel does not wait behind the worker."""
     hub = WidgetHub()
     flow = RunFlow(hub, demo=True, demo_root=tmp_path / "run")
-    for step in _ORDERED_STEPS[:5]:
+    for step in _ORDERED_STEPS[:4]:
         flow.run_step(step)
     hub.drain()
     hub.dispatch_message("focus", {"type": "measure"})
@@ -398,7 +413,8 @@ def test_http_surface_serves_page_modules_state_and_actions(demo_server):
     assert ".step-btn.running { padding: 8px 2px 8px 34px; }" in page
     assert ".step.done .step-btn { background: #16a34a" in page
     assert 'connect: "Reconnect"' in page
-    assert 'set_origin: "Change Origin"' in page
+    assert "set_origin" not in page
+    assert "Set origin" not in page
     assert 'capture_overview_job: "Recapture Overview Job"' in page
     assert "label.textContent = completedLabels[step]" in page
     assert 'section.dataset.opened === "true"' in page
@@ -489,7 +505,7 @@ def test_streamed_tiles_reach_a_tab_as_events_and_binary_buffers(demo_server):
     listener.start()
     assert ready.wait(10)
 
-    for step in _ORDERED_STEPS[:5]:
+    for step in _ORDERED_STEPS[:4]:
         _post(base, "/action", {"step": step})
     hub.drain(60)
     _post(base, "/msg", {"widget": "focus", "content": {"type": "measure"}})
@@ -597,7 +613,7 @@ def test_forged_traits_and_messages_cannot_move_python_truth(demo_server):
     widgets' healing must hold across it, because this is the very
     'website host' PROTOCOL.md promises the same safety for."""
     base, hub, flow = demo_server
-    for step in _ORDERED_STEPS[:5]:
+    for step in _ORDERED_STEPS[:4]:
         _post(base, "/action", {"step": step})
     hub.drain(60)
     _post(base, "/msg", {"widget": "focus", "content": {"type": "measure"}})
