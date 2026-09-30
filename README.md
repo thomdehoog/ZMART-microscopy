@@ -92,7 +92,7 @@ We have not defined a vocabulary for error messages at this point.
 
  - [Install it and run your first experiment on the mock driver](examples/)
  - [Install it and register your microscopes](docs/setup.md)
- - [Build driver functions that plug into the ZMART-controller](zmart_controller/mock.py)
+ - [Plug in your own driver functions](docs/driver.md)
 
 ### Status
 This is version 0.1. At the ZMB we use it daily in our smart-microscopy workflows. Drivers exist
