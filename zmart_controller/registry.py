@@ -23,7 +23,11 @@ The registry is the plug: it checks only that a driver fits (every required
 operation is present, and the identity keys are there). Everything else,
 including every refusal about the microscope itself, is the driver's job.
 Drivers register themselves, usually when their module is imported; the mock
-microscope registers with ``zmart_controller.mock.register()``.
+microscope registers with ``zmart_controller.mock.register()``. A driver that
+is installed as its own package can also announce itself, so that it is found
+without anyone importing it: it names a function in its ``pyproject.toml``
+under the entry-point group ``"zmart_controller.drivers"``, and
+:func:`get_instruments` calls that function the first time it runs.
 
 Author: Thom de Hoog, Center for Microscopy and Image Analysis (ZMB),
 University of Zurich (thom.dehoog@zmb.uzh.ch, thomdehoog@gmail.com).
@@ -32,6 +36,7 @@ University of Zurich (thom.dehoog@zmb.uzh.ch, thomdehoog@gmail.com).
 from __future__ import annotations
 
 import logging
+from importlib.metadata import entry_points
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -90,13 +95,46 @@ def register(connection: dict[str, Any], *, ops: dict[str, Any]) -> None:
     REGISTRY[key] = {"connection": dict(connection), "ops": ops}
 
 
+ENTRY_POINT_GROUP = "zmart_controller.drivers"
+
+# Set once the installed drivers have been asked to register themselves.
+_discovered = False
+
+
+def discover_installed_drivers() -> None:
+    """Ask every installed driver package to register itself, once.
+
+    A driver package announces itself with one line in its ``pyproject.toml``::
+
+        [project.entry-points."zmart_controller.drivers"]
+        acme = "zmart_drivers.acme:register"
+
+    The named function is called here. A driver that fails to load is
+    reported in the log and skipped, so one broken driver never hides the
+    others.
+    """
+    global _discovered
+    if _discovered:
+        return
+    _discovered = True
+    for entry_point in entry_points(group=ENTRY_POINT_GROUP):
+        try:
+            hook = entry_point.load()
+            if callable(hook):
+                hook()
+        except Exception:
+            logger.exception("driver %r could not be loaded; skipping it", entry_point.name)
+
+
 def get_instruments() -> list[dict[str, Any]]:
     """List the available instruments, without connecting to anything.
 
     Each entry is the connection dict you pass straight to :func:`set_instrument`.
     You may edit it first (e.g. drop in a credential); it is forwarded to the
-    driver's ``connect`` untouched.
+    driver's ``connect`` untouched. Drivers installed as packages are found
+    here automatically; see :func:`discover_installed_drivers`.
     """
+    discover_installed_drivers()
     return [dict(entry["connection"]) for _key, entry in sorted(REGISTRY.items())]
 
 
