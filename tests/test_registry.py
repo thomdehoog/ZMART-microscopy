@@ -156,3 +156,9 @@ class TestRegisterDriver:
         empty.write_text("x = 1\n")
         with pytest.raises(ValueError, match="registered no instrument"):
             registry.register_driver(empty)
+
+    def test_the_setup_guide_works_on_the_mock(self):
+        # docs/setup.md, step 3, with the mock in place of a real driver.
+        registry.REGISTRY.pop(("mock", "mock-scope", "mock-api"), None)
+        added = registry.register_driver("zmart_controller.mock")
+        assert [i["vendor"] for i in added] == ["mock"]

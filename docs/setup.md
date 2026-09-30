@@ -28,6 +28,9 @@ one line in every notebook.
 
    The driver loads its saved configuration every time it connects.
 
+   No microscope at hand? The same line works on the bundled mock, so you can
+   try the whole flow first: `zmart_controller.register_driver("zmart_controller.mock")`.
+
 A driver shipped as its own package can skip step 3: one line in its
 `pyproject.toml` names the function to call, and the controller calls it the
 first time `get_instruments()` runs.
