@@ -114,12 +114,12 @@ def register_driver(driver: str | Path) -> list[dict[str, Any]]:
     """
     before = set(REGISTRY)
     module, fresh = _import_driver(driver)
-    if fresh and set(REGISTRY) == before:
+    if set(REGISTRY) == before:
         # Some drivers register only when asked, through a register() function.
         hook = getattr(module, "register", None)
-        if callable(hook):
+        if callable(hook) and getattr(hook, "__module__", None) == module.__name__:
             hook()
-        if set(REGISTRY) == before:
+        if fresh and set(REGISTRY) == before:
             raise ValueError(f"{driver!s} was imported but registered no instrument")
     added = sorted(set(REGISTRY) - before)
     return [dict(REGISTRY[key]["connection"]) for key in added]
