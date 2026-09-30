@@ -61,3 +61,30 @@ class TestGetInstruments:
 
     def test_mock_is_registered(self):
         assert any(i["vendor"] == "mock" for i in registry.get_instruments())
+
+
+class TestDiscovery:
+    def test_installed_driver_is_found_without_an_import(self, monkeypatch):
+        # Pretend a package is installed that announces the mock as a driver.
+        from importlib.metadata import EntryPoint
+
+        fake = EntryPoint("fake", "zmart_controller.mock:register", registry.ENTRY_POINT_GROUP)
+        monkeypatch.setattr(
+            registry,
+            "entry_points",
+            lambda group: [fake] if group == registry.ENTRY_POINT_GROUP else [],
+        )
+        monkeypatch.setattr(registry, "_discovered", False)
+        registry.REGISTRY.pop(("mock", "mock-scope", "mock-api"), None)
+
+        assert any(i["vendor"] == "mock" for i in registry.get_instruments())
+
+    def test_a_broken_driver_does_not_hide_the_others(self, monkeypatch, caplog):
+        from importlib.metadata import EntryPoint
+
+        broken = EntryPoint("broken", "no_such_package_xyz:register", registry.ENTRY_POINT_GROUP)
+        monkeypatch.setattr(registry, "entry_points", lambda group: [broken])
+        monkeypatch.setattr(registry, "_discovered", False)
+        with caplog.at_level("ERROR"):
+            registry.get_instruments()  # must not raise
+        assert "broken" in caplog.text
