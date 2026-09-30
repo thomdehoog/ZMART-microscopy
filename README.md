@@ -11,12 +11,14 @@ You build you workflow on this schema and it runs on any microscope that has a Z
 The is part of the **ZMART** (ZMB`s Microscopy-Agnostic Research Toolkit) tools we use for smart microscopy
 at the Center for Microscopy and Image Analysis (ZMB), University of Zurich.  
 
+
 ## The Problem
 
 Every microscope vendor ships its own programming interface, so workflow that is build for one microscope
 does not work on another. 
 
 This provide a real obstacle sharing our workflows and deploying them one all the microscopes we want.
+
 
 ## The Solution
 
@@ -52,6 +54,7 @@ and provide a single absolute coordinate systems that corresponds to the space i
 ```
 
 Note: we are aware of the useq schema from micro managar and the model hardware standart of antropic. We might switch because both have real upsides, but currently the useq-schema is not interoperable enough for our needs and the model hardware standaard is not released to the public yet.
+
 
 ### The vocabulary
 
@@ -96,11 +99,8 @@ Every command answers with the same two things:
 
 `success` says whether the driver did what you asked. `report` is whatever the
 driver has to say about it: a position, a saved-file record, a state. When
-something goes wrong in a way that is safe to carry on from, the answer is
-`success: False`. When carrying on would be unsafe, the driver raises an error
-instead, and your script stops.
-
-
+something goes unexpected the answer is `success: False` and further details can be read in "report". 
+We have not defined a vocabulary for error messages at this point.
 
 
 ### What is no longer your problem
