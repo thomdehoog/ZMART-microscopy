@@ -1,6 +1,6 @@
 # ZMART Controller
 
-[![python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/downloads/)
+[![python](https://img.shields.io/badge/python-3.12%2B-blue)](https://www.python.org/downloads/)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![dependencies](https://img.shields.io/badge/dependencies-none-brightgreen)](pyproject.toml)
 [![tests](https://img.shields.io/badge/tests-pytest-blue)](#testing)
@@ -159,7 +159,7 @@ yours as soon as you write against it:
 
 ### Install
 
-The controller needs Python 3.10 or newer and nothing else:
+The controller needs Python 3.12 or newer and nothing else:
 
 ```bash
 pip install "git+https://github.com/thomdehoog/ZMART-microscopy@release-candidate-zmart-controller"
@@ -341,7 +341,7 @@ driver, please open an issue so we can keep the contract honest together.
 
 ## Requirements
 
-- Python 3.10+
+- Python 3.12+
 - Nothing else. Drivers bring their own dependencies.
 
 ## Author
