@@ -103,8 +103,9 @@ sess.get_xyz()                 # {'x': {'value','actuator','unit'}, ...} — µm
 sess.get_state()               # {'changeable': {laser,intensity,filter,zoom,shutter,etl_*}, 'observed': {...}}
 sess.get_acquisition_options() # {format, planes, z_step, zoom, shutterconfig, backlash_correction}
 
-# Frame origin: set the current stage position as (0,0,0), then move in µm from it.
-sess.set_origin()              # persisted machine-locally; restored on reconnect
+# Positions are in µm from the frame origin. The origin is not set here: it is a
+# one-time driver setup step (see "Setting the origin" below), saved to the
+# machine configuration and loaded again at every connect.
 sess.set_xyz(50, 0, 10)        # move to x=50 µm, y=0, z=10 (relative to origin)
 
 # Change light-path settings (the 'changeable' block):
@@ -120,6 +121,27 @@ r = sess.acquire("snap", "A1", options={"format": "ome-tiff"})
 
 sess.disconnect()
 ```
+
+### Setting the origin (a one-time driver setup step)
+
+The origin is the point that reads as (0, 0, 0), and every position you give
+the controller is measured from it. It belongs to the microscope's
+configuration, not to a single experiment, so the controller does not offer a
+`set_origin` command. You set it once with the driver directly: move the stage
+to the point you want as zero, then run
+
+```python
+import mesospim
+from mesospim import mesospim_zmart_adapter as adapter
+
+handle = adapter.connect({**mesospim.CONNECTION, "host": "127.0.0.1", "port": 42000})
+adapter.set_origin(handle)     # the current position is (0, 0, 0) from now on
+adapter.disconnect(handle)
+```
+
+The origin is saved to `origin.json` in this microscope's configuration folder
+and loaded again every time the driver connects, including every controller
+session. Run these lines again whenever you want a new origin.
 
 ## 4b. Drive it — flat driver (mesoSPIM-specific)
 

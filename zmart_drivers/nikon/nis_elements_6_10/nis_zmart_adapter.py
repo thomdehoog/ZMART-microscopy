@@ -176,10 +176,24 @@ def _require_open(handle: NisHandle) -> None:
 
 
 def set_origin(handle: NisHandle) -> dict:
-    """Mark the current position as the origin -- it now reads (0, 0, 0).
+    """Mark the current position as the origin, so that it reads (0, 0, 0) from now on.
 
-    Persisted in the machine folder and restored by :func:`connect`, so the zero
-    point survives reconnects until it is set again.
+    This is a one-time setup step that you run with the driver directly, not
+    through the ``zmart_controller`` Session. The controller does not offer
+    ``set_origin``, because the origin belongs to the microscope's configuration
+    rather than to any single experiment. Move the stage to the point you want
+    as zero, then run::
+
+        handle = nis_zmart_adapter.connect(connection)
+        nis_zmart_adapter.set_origin(handle)
+        nis_zmart_adapter.disconnect(handle)
+
+    The origin is saved to ``origin.json`` in this microscope's configuration
+    folder, and :func:`connect` loads it every time it opens a session. It stays
+    in use until you set it again. The return value holds the new origin (in raw
+    stage micrometres) and the path of the file it was saved to. If the file
+    cannot be written, a ``RuntimeError`` is raised so that you know the origin
+    will not survive the next connect.
     """
     _require_open(handle)
     pos = _readers.get_position(handle.client)
@@ -547,7 +561,6 @@ OPS = {
     "connect": connect,
     "disconnect": disconnect,
     "get_acquisition_options": get_acquisition_options,
-    "set_origin": set_origin,
     "get_actuators": get_actuators,
     "get_xyz": get_xyz,
     "set_xyz": set_xyz,

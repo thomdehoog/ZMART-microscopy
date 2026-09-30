@@ -200,6 +200,10 @@ The shipped macros are comment-free and use literals only.
   ProgramData) → `set_xyz(100, -100, 5)` confirmed → **`acquire` → 2048×2048 16-bit TIFF, 8.6 MB,
   written and closed** → home → `get_state`. Reads ~25 ms, moves ~0.24 s, capture ~1.4 s.
 - Out-of-limits move refused before reaching NIS with a readable message.
+- Note added later: `set_origin` has since been moved out of the controller. It is now a one-time
+  setup step run with the driver directly (`nis_zmart_adapter.set_origin(handle)`), which saves the
+  origin to ProgramData; every later connect, including a controller session, loads it. The
+  simulator run above predates that change and called it through the Session.
 
 ### Next
 

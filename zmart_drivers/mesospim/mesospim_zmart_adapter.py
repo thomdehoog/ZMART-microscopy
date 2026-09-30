@@ -122,9 +122,9 @@ def connect(connection: dict) -> MesospimHandle:
     fail-open: ``check_axis`` rejects an unconfigured axis, so a move can only
     run once limits exist. The function-keyed limits (``function_limits.json``,
     machine copy else bundled) load here too, with the stage envelope overlaid
-    onto their ``stage.*`` constraints; a frame origin persisted by a previous
-    session's :func:`set_origin` is restored, so the zero point survives
-    reconnects.
+    onto their ``stage.*`` constraints. The frame origin that was saved earlier
+    with the driver's :func:`set_origin` setup step is loaded as well, so the
+    zero point survives reconnects.
     """
     client = _connect(connection)
     output_root = Path(connection.get("output_root") or tempfile.mkdtemp(prefix="mesospim_run_"))
@@ -260,13 +260,30 @@ def disconnect(handle: MesospimHandle) -> None:
 
 
 def set_origin(handle: MesospimHandle) -> dict:
-    """Mark the current position as the origin -- it now reads (0, 0, 0).
+    """Mark the current position as the origin, so that it reads (0, 0, 0) from now on.
 
-    Persisted machine-locally (``origin.json`` in the machine dir) and restored
-    by :func:`connect`, so the zero point stays the frame truth across sessions
-    until set again. Failing to persist is loud: the in-memory origin is
-    already set, and a silent divergence discovered later is worse than
-    re-running set_origin after fixing the cause.
+    This is a one-time setup step that you run with the driver directly, not
+    through the ``zmart_controller`` Session. The controller does not offer
+    ``set_origin``, because the origin belongs to the microscope's configuration
+    rather than to any single experiment. Move the stage to the point you want
+    as zero, then run::
+
+        handle = mesospim_zmart_adapter.connect(connection)
+        mesospim_zmart_adapter.set_origin(handle)
+        mesospim_zmart_adapter.disconnect(handle)
+
+    The origin is saved to ``origin.json`` in this microscope's configuration
+    folder, and :func:`connect` loads it every time it opens a session. It stays
+    in use until you set it again. Like every command that changes the
+    microscope, this one is refused if ``connect`` could not load the safety
+    limits file (``function_limits.json``); the warning printed at connect
+    tells you why.
+
+    The return value holds the new origin (in raw stage micrometres) and the
+    path of the file it was saved to. If the file cannot be written, a
+    ``RuntimeError`` is raised. The new origin is already in use for this
+    session at that point, but it would be lost at the next connect, so it is
+    better to fix the cause and run ``set_origin`` again than to carry on.
     """
     _check_limits(handle, "set_origin", {})
     pos = _readers.get_positions(handle.client)
@@ -601,7 +618,6 @@ OPS = {
     "connect": connect,
     "disconnect": disconnect,
     "get_acquisition_options": get_acquisition_options,
-    "set_origin": set_origin,
     "get_actuators": get_actuators,
     "get_xyz": get_xyz,
     "set_xyz": set_xyz,

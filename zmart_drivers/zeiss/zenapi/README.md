@@ -136,8 +136,7 @@ s = set_instrument(
         "experiment": "ZMART_Snap",
     }
 )
-s.set_origin()                       # here is (0, 0, 0) from now on
-s.set_xyz(100, -100, 5)              # micrometres from the origin
+s.set_xyz(100, -100, 5)              # micrometres from the origin (see "Setting the origin")
 s.acquire(acquisition_type="snap", position_label="tile_01")
 s.run_procedure({"name": "software_autofocus"})
 s.disconnect()
@@ -163,12 +162,32 @@ Every command returns a small dict: `success` (the call went through),
 `confirmed` (a readback showed the requested result), a `message`, timing and
 a log trace. Limit violations return `success=False` without contacting ZEN.
 
+## Setting the origin (a one-time driver setup step)
+
+The origin is the point that reads as (0, 0, 0), and every position you give
+the controller is measured from it. It belongs to the microscope's
+configuration, not to a single experiment, so the controller does not offer a
+`set_origin` command. Instead you set it once with the driver directly: move
+the stage to the point you want as zero, then run
+
+```python
+from zenapi import zen_zmart_adapter as adapter
+
+handle = adapter.connect({**zenapi.CONNECTION, "config": r"C:\zen\config.ini"})
+adapter.set_origin(handle)  # the current position is (0, 0, 0) from now on
+adapter.disconnect(handle)
+```
+
+The origin is saved to
+`C:\ProgramData\zmart-microscopy\zeiss\<microscope>\origin.json`, and the
+driver loads it every time it connects, including every controller session.
+Run these lines again whenever you want a new origin.
+
 ## What the driver offers today
 
 | Neutral surface | ZEN meaning |
 |---|---|
 | `get_xyz` / `set_xyz` | The XY stage and the focus drive, µm, absolute from the origin. Every target is checked against this microscope's stage limits before ZEN is asked to move (XY first, then Z). One motor per axis, so `get_actuators` lists `motoric` only. |
-| `set_origin` | Marks the current position as (0, 0, 0). Saved to `C:\ProgramData\zmart-microscopy\zeiss\<microscope>\origin.json`, restored on the next connect. |
 | `acquire` | Runs the loaded ZEN experiment: a **snap** (one image with the active channels) by default, the **whole experiment** (Z-stack, tiles, time series) when `mode="experiment"` or the acquisition type mentions a stack, tiles or a time lapse. ZEN writes `<type>_<label>.czi` into its image folder; the file is copied to `<output_root>/data/` when that folder is reachable, otherwise the record says where ZEN left it. |
 | `get_state` / `set_state` | Changeable: `objective_position` (position on the objective changer), `experiment` (the loaded ZEN experiment, which carries the imaging settings). Observed: objectives (name, magnification, NA), the experiments ZEN can load, ZEN's image folder, the limits, whether ZEN is busy. |
 | `get_procedures` / `run_procedure` | `software_autofocus` (ZEN's focus search with the settings of the loaded experiment; reports `frame_z_um`), `find_surface` / `store_focus` / `recall_focus` (Definite Focus, on systems that have it), `live`, `stop`. |

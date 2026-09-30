@@ -69,8 +69,7 @@ needed. The bridge is a file in this repository that NIS runs from a macro.
    from zmart_controller.layer import set_instrument
 
    s = set_instrument({**nis_elements_6_10.CONNECTION, "output_root": r"D:\runs\today"})
-   s.set_origin()  # here is (0, 0, 0) from now on
-   s.set_xyz(100, -100, 5)  # micrometres from the origin
+   s.set_xyz(100, -100, 5)  # micrometres from the origin (see "Setting the origin")
    s.acquire(acquisition_type="snap", position_label="tile_01")
    s.disconnect()
    ```
@@ -108,12 +107,33 @@ answers a position read in about 13 ms. While it runs, NIS shows a macro as
 "running". Reading the position or moving the stage works either way; capture
 needs the loop.
 
+## Setting the origin (a one-time driver setup step)
+
+The origin is the point that reads as (0, 0, 0), and every position you give
+the controller is measured from it. It belongs to the microscope's
+configuration, not to a single experiment, so the controller does not offer a
+`set_origin` command. Instead you set it once with the driver directly: move
+the stage to the point you want as zero, then run
+
+```python
+from nis_elements_6_10 import nis_zmart_adapter as adapter
+
+handle = adapter.connect(nis_elements_6_10.CONNECTION)
+adapter.set_origin(handle)  # the current position is (0, 0, 0) from now on
+adapter.disconnect(handle)
+```
+
+The origin is saved to
+`C:\ProgramData\zmart-microscopy\nikon\<microscope>\origin.json`, and the
+driver loads it every time it connects, including every controller session.
+When z is driven by a piezo insert, the piezo's zero is saved with it. Run
+these lines again whenever you want a new origin.
+
 ## What the driver offers today
 
 | Neutral surface | Nikon meaning |
 |---|---|
 | `get_xyz` / `set_xyz` | XY stage and the main Z (focus) drive, µm, absolute. Every move is checked against the limits NIS-Elements reports (*Devices ▸ Stage limits*) before it is sent. When NIS reports a piezo Z insert, `with_actuators={"z": "piezo"}` drives it instead of the focus drive. |
-| `set_origin` | Marks the current position as (0, 0, 0). Saved to `C:\ProgramData\zmart-microscopy\nikon\<microscope>\origin.json`, restored on the next connect. |
 | `acquire` | A snapshot (`Capture()`), or a **Z-stack** through NIS's ND acquisition when the acquisition type contains "stack" (`z_start`, `z_end`, `z_step` in µm from the origin). Saved as TIFF, ND2 or OME-TIFF to `<output_root>/data/<type>_<label>.<ext>`, then the NIS window is closed. Options may also select an optical configuration and set the exposure first. |
 | `get_state` / `set_state` | Changeable: `objective_position` (nosepiece slot, 1-based), `optical_configuration` (by name), `exposure_ms`, `pfs` (on/off, when a PFS is present). Observed: NIS version, objectives, optical configurations, Z drives, PFS status, limits. |
 | `get_procedures` / `run_procedure` | `autofocus` (NIS's image-based focus sweep over `range_um`; reports `frame_z_um`), `live` / `freeze`, `pfs_on` / `pfs_off`. |

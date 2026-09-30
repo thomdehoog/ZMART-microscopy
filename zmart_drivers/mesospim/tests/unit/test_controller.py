@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import mesospim
 import pytest
+from mesospim import mesospim_zmart_adapter as adapter
 from mesospim.limits import checks as limits
 
 
@@ -70,13 +71,20 @@ def test_get_instruments_lists_mesospim(session):
 
 def test_actuators_and_origin(session):
     assert session.get_actuators() == {"x": ["motoric"], "y": ["motoric"], "z": ["motoric"]}
-    out = session.set_origin()
+    # The origin is driver setup, so it is set on the driver handle directly.
+    out = adapter.set_origin(session._handle)
     assert "origin" in out
+
+
+def test_controller_session_does_not_offer_set_origin(session):
+    # Setting the origin is a one-time driver setup step, not a controller command.
+    assert not hasattr(session, "set_origin")
+    assert "set_origin" not in adapter.OPS
 
 
 def test_set_and_get_xyz_relative_to_origin(session):
     session.set_xyz(10, 20, 5)
-    session.set_origin()  # current position becomes (0,0,0)
+    adapter.set_origin(session._handle)  # current position becomes (0,0,0)
     pos = session.get_xyz()
     assert pos["x"]["value"] == 0.0
     session.set_xyz(3, 0, 0)
@@ -117,7 +125,7 @@ def test_acquire_stack_z_bounds_use_origin(session, monkeypatch):
     monkeypatch.setattr(ctl._acq, "acquire", spy)
 
     session.set_xyz(0, 0, 100)
-    session.set_origin()  # raw z=100 now reads as user z=0
+    adapter.set_origin(session._handle)  # raw z=100 now reads as user z=0
     session.acquire("stack", "C3", options={"z_start": 0, "z_end": 4, "z_step": 1})
 
     assert captured["options"]["z_start"] == 100.0  # 0 (user) + 100 (origin)
@@ -217,7 +225,6 @@ def test_bundled_function_limits_cover_every_mutating_op():
     """THE completeness guard: adding a mutating op without a limits entry fails here."""
     from mesospim import mesospim_zmart_adapter as controller
     from mesospim.calibration import machine
-
     from mesospim.limits import function_limits as shared_limits
 
     path = machine._bundled_default(machine.FUNCTION_LIMITS_FILENAME)
@@ -225,28 +232,30 @@ def test_bundled_function_limits_cover_every_mutating_op():
     assert loaded.source == "defaults"
 
 
-def test_origin_persists_across_sessions(server, tmp_path):
+def test_origin_set_with_driver_is_loaded_by_controller_session(server, tmp_path):
+    """The origin is set once with the driver, saved, and used by later controller sessions."""
     import zmart_controller
 
     connection = _connection(server, tmp_path)
-    mesospim.register(connection)
 
-    first = zmart_controller.set_instrument(connection)
+    # Setup step, done with the driver directly (not through the controller).
+    handle = adapter.connect(connection)
     try:
-        first.set_xyz(100, 200, 50)  # move somewhere first (origin still 0)
-        out = first.set_origin()
-        assert out["origin_file"]  # persisted machine-locally
-        assert first.get_xyz()["x"]["value"] == 0.0
+        adapter.set_xyz(handle, 100, 200, 50)  # move somewhere first (origin still 0)
+        out = adapter.set_origin(handle)
+        assert out["origin_file"]  # saved to the machine configuration folder
+        assert adapter.get_xyz(handle)["x"]["value"] == 0.0
     finally:
-        first.disconnect()
+        adapter.disconnect(handle)
 
-    second = zmart_controller.set_instrument(connection)
+    mesospim.register(connection)
+    session = zmart_controller.set_instrument(connection)
     try:
-        # The restored origin makes the same physical spot read (0, 0, 0).
-        pos = second.get_xyz()
+        # The saved origin is loaded at connect, so the same spot reads (0, 0, 0).
+        pos = session.get_xyz()
         assert (pos["x"]["value"], pos["y"]["value"], pos["z"]["value"]) == (0.0, 0.0, 0.0)
     finally:
-        second.disconnect()
+        session.disconnect()
 
 
 def test_machine_stage_envelope_overrides_bundled(server, tmp_path):
@@ -297,7 +306,7 @@ def test_mutating_ops_refuse_without_function_limits(session):
     """Fail-closed: no loaded limits means no mutations — reads still work."""
     session._handle.function_limits = None
     for call in (
-        lambda: session.set_origin(),
+        lambda: adapter.set_origin(session._handle),
         lambda: session.set_xyz(1, 1, 1),
         lambda: session.set_state({"changeable": {}}),
         lambda: session.run_procedure({"name": "zero_stage"}),
