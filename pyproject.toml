@@ -7,7 +7,7 @@ name = "zmart-controller"
 version = "0.1.0"
 description = "One small, consistent way to drive any microscope from Python."
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 license = { text = "MIT" }
 authors = [{ name = "Thom de Hoog", email = "thom.dehoog@zmb.uzh.ch" }]
 # The controller only forwards calls to a driver, so it needs nothing beyond
@@ -30,7 +30,7 @@ packages = ["zmart_controller"]
 testpaths = ["tests"]
 
 [tool.ruff]
-target-version = "py310"
+target-version = "py312"
 line-length = 100
 
 [tool.ruff.lint]
