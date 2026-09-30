@@ -89,8 +89,7 @@ We have not defined a vocabulary for error messages at this point.
 
 ## Try it yourself 
 
- - [Install it and run a first experiment on the mock driver](examples/example_experiment.ipynb)
- - [Build your own workflow with the controller](examples/example_experiment.ipynb): the same notebook, cell by cell, is the template
+ - [Install it and run your first experiment on the mock driver](examples/): one notebook, with a short guide on installing, running it, and turning it into your own workflow
  - [Build driver functions that plug into the ZMART-controller](zmart_controller/mock.py): the mock driver is a complete, readable example, and [the tests](tests/) show what a driver must do
 
 ### Status
