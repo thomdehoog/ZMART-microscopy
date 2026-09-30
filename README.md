@@ -90,7 +90,7 @@ We have not defined a vocabulary for error messages at this point.
 
 ## Try it yourself
 
- - [Install it and run your first experiment on the mock driver](examples/)
+ - [Install it and run your first experiment on the mock driver](docs/first-experiment.md)
  - [Install it and register your microscopes](docs/setup.md)
  - [Plug in your own driver functions](docs/driver.md)
 
