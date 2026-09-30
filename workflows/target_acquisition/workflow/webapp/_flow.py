@@ -2,10 +2,15 @@
 
 Each method here is one numbered section of ``zmart_microscopy_v4_react
 .ipynb``, in the same order and calling the same public workflow and
-``zmart_controller`` functions — connect, set the origin, capture the two
-jobs, measure focus, scan the overview, discover targets, acquire and curate, save, disconnect. The notebook stays the
-reference; this class only replaces the *cells* (the orchestration), never
-the science.
+``zmart_controller`` functions — connect, capture the two jobs, measure
+focus, scan the overview, discover targets, acquire and curate, save,
+disconnect. The notebook stays the reference; this class only replaces the
+*cells* (the orchestration), never the science.
+
+There is no "set origin" step. Where ``(0, 0, 0)`` sits on the stage is part
+of the microscope driver's own configuration: it is chosen once, in a
+separate setup step, and the driver loads it every time it connects. All
+positions in this run are micrometers in that saved frame.
 
 Every step runs on the hub's single worker thread, so the widgets see the
 same one-thing-at-a-time world they see under a notebook kernel. A step
@@ -93,7 +98,6 @@ class RunFlow:
 
         self._steps: dict[str, Callable[[], str]] = {
             "connect": self._connect,
-            "set_origin": self._set_origin,
             "capture_overview_job": self._capture_overview_job,
             "capture_target_job": self._capture_target_job,
             "load_positions": self._load_positions,
@@ -103,8 +107,7 @@ class RunFlow:
             "disconnect": self._disconnect,
         }
         self._prerequisite = {
-            "set_origin": "connect",
-            "capture_overview_job": "set_origin",
+            "capture_overview_job": "connect",
             "capture_target_job": "capture_overview_job",
             "load_positions": "capture_target_job",
             "run_overview": "load_positions",
@@ -261,11 +264,6 @@ class RunFlow:
         self.ns.update(zmart_controller=session, engine=engine, ROOT=root)
         mode = "the simulated microscope" if self.demo else f"the {self.vendor} session"
         return f"connected to {mode} — this run saves under {root}"
-
-    def _set_origin(self) -> str:
-        self._require(self.session is not None, "connect first")
-        self.session.set_origin()
-        return "origin set — positions now count from where the stage is right now"
 
     def _capture_overview_job(self) -> str:
         self._require(self.session is not None, "connect first")

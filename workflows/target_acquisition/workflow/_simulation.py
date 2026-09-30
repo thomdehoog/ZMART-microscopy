@@ -13,8 +13,11 @@ The pieces mirror the real boundary exactly:
   shots, and calibration pairs all agree about where things are — like a
   real (if suspiciously tidy) piece of tissue.
 - :class:`SimulatedSession` answers the same calls a
-  ``zmart_controller.Session`` does (``set_origin``, ``get_state``,
-  ``run_procedure``, ``acquire``, ...). Its two "jobs" stand in for the
+  ``zmart_controller.Session`` does (``get_state``, ``run_procedure``,
+  ``acquire``, ...). Like a real driver, its coordinate frame is part of
+  its own configuration: positions are simply micrometers in the simulated
+  stage's fixed frame, and there is no origin for the workflow to set.
+  Its two "jobs" stand in for the
   two objectives, and the target job is deliberately mis-aimed by
   :data:`INJECTED_ERROR_UM` — the small calibration error the notebooks'
   calibration check exists to measure.
@@ -126,9 +129,6 @@ class SimulatedSession:
         return self.disconnected
 
     # -- the Session ops the notebooks (and the web interface) call ---------
-    def set_origin(self) -> dict:
-        return {"origin": {"x": 0.0, "y": 0.0, "z": 0.0}}
-
     def get_state(self) -> dict:
         pixel_um = self._JOBS[self.job]["pixel_um"]
         return {

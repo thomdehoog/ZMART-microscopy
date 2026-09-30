@@ -68,7 +68,7 @@ public `zmart_controller.Session` surface. The website does not call driver
 functions directly.
 
 Two things the notebook also asks of you still apply: select the overview
-job in LAS X before step 3a and the target job before step 3b (the page
+job in LAS X before step 2a and the target job before step 2b (the page
 reminds you), and end the session with the Disconnect step.
 
 **Restart workflow** sits beside Connect in step 1 and becomes available after
@@ -90,9 +90,13 @@ restart.
   processes a Cancel click the moment it arrives, and the run stops
   cleanly before its next stage move.
 - Hardware steps are ordered and one-shot: the server refuses a later
-  step until its prerequisite completed, requires Set origin before any
-  coordinates are cached, and coalesces duplicate clicks instead of
-  queuing a second scan.
+  step until its prerequisite completed, and coalesces duplicate clicks
+  instead of queuing a second scan.
+- There is no Set origin step. Where `(0, 0, 0)` sits on the stage is
+  part of the microscope driver's own configuration: it is chosen once in
+  a separate setup step, saved with the driver, and loaded every time the
+  driver connects. Every position the page shows or stores is in
+  micrometers in that fixed frame.
 - Everything is offline: the page loads no fonts, scripts, or styles from
   the internet, exactly like the notebooks.
 

@@ -31,7 +31,6 @@ from workflow.webapp import make_server  # noqa: E402
 
 _STEP_ORDER = [
     "connect",
-    "set_origin",
     "capture_overview_job",
     "capture_target_job",
     "load_positions",
@@ -104,6 +103,9 @@ def test_an_operator_can_click_through_the_whole_demo_run(demo_server, tmp_path)
         # The page is operator language, not code.
         assert "ZMART-microscopy: Target acquisition" in page.content()
         playwright_api.expect(page.locator("#demo-banner")).to_be_visible(timeout=10_000)
+        # The origin comes from the driver's configuration, so there is no
+        # button for it: capturing the jobs follows Connect directly.
+        assert page.locator('button[data-step="set_origin"]').count() == 0
 
         for step in _STEP_ORDER:
             page.click(f'button[data-step="{step}"]')
