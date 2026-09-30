@@ -4,11 +4,20 @@ The shortest way drives one microscope through the module itself::
 
     import zmart_controller
 
-    added = zmart_controller.register_driver("path/to/driver")
-    zmart_controller.set_instrument(added[0])
+    zmart_controller.register_driver("path/to/driver")
+    instrument = next(
+        i for i in zmart_controller.get_instruments() if i["microscope"] == "my-scope"
+    )
+    zmart_controller.set_instrument(instrument)
     zmart_controller.set_xyz(10, 20, 5)
     zmart_controller.acquire(acquisition_type="prescan", position_label="A1")
     zmart_controller.disconnect()
+
+Pick the instrument by its name, as above, rather than by its place in a
+list. Drivers installed on the computer are listed too, so the first entry
+may be a different microscope. And ``register_driver`` lists only what it
+registered during that call, so running the cell a second time can give an
+empty list.
 
 To drive several microscopes at once, hold a session for each::
 
