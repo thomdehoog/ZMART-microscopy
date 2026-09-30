@@ -69,6 +69,11 @@ commands a negative Z-wide target and restores it to 0 um.
 - Stage: the adapter validator first enforces the fixed four-axis CI baseline,
   then does `set_origin` + small frame moves and restores to that baseline. The
   later XY pattern and z-galvo round-trips restore to the same captured start.
+- Frame origin: `set_origin` is a driver setup step, so the validator calls the
+  adapter's `set_origin` on the session's driver handle rather than through the
+  controller. Because connect loads the newest saved origin, the validator then
+  deletes the `origin/<datetime>/` record its own `set_origin` wrote. The
+  microscope's saved origin is left exactly as it was before the run.
 - Acquisition: the adapter validator reads the notebook-critical live
   `get_info()` snapshot (output root, tile positions, focus positions) and one
   acquire+save smoke through LAS X native AutoSave. Each end-to-end reader route
