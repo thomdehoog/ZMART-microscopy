@@ -40,22 +40,6 @@ The ZMART controller lives between your workflow and the microscope:
 Note: we are aware of the [useq-schema](https://github.com/pymmcore-plus/useq-schema) from the Micro-Manager community and of Anthropic's [Model Hardware Standard](https://www.anthropic.com/news/model-hardware-standard-research-preview). We might switch, because both have real upsides, but currently the useq-schema is not interoperable enough for our needs and the Model Hardware Standard is not released to the public yet.
 
 
-### What is no longer your problem
-
-Because the controller is this simple, a whole class of problems stops being
-yours as soon as you write against it:
-
-- **In an experiment**, you never touch vendor code, units, stage conventions
-  or safety limits. If a move is unsafe, the driver refuses and you see why.
-  
-- **In a driver**, you never think about workflows, other microscopes or the
-  controller's internals. You implement one function per command the controller asks for.
-  
-- **In the controller**, there is nothing to maintain. It keeps no state,
-  caches nothing and refuses nothing of its own, so it cannot drift out of step
-  with a microscope.
-
-
 ### The vocabulary
 
 Everything you can say to a microscope:
