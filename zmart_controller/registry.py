@@ -104,7 +104,7 @@ def register_driver(driver: str | Path) -> list[dict[str, Any]]:
 
     ``driver`` is where the driver lives: a folder holding the driver package,
     a single ``.py`` file, or a module name that Python can already import
-    (for example ``"zmart_drivers.nikon.nis_elements_6_10"``). The driver is
+    (for example ``"my_driver_package"``). The driver is
     imported, which registers its instruments the way drivers always do.
 
     Put this one line at the top of a notebook, before
