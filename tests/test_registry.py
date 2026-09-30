@@ -162,3 +162,99 @@ class TestRegisterDriver:
         registry.REGISTRY.pop(("mock", "mock-scope", "mock-api"), None)
         added = registry.register_driver("zmart_controller.mock")
         assert [i["vendor"] for i in added] == ["mock"]
+
+
+class TestRegisterDriverEdgeCases:
+    """Cases from the release candidate review that the tests above miss."""
+
+    def test_two_files_with_the_same_name_both_load(self, tmp_path, forget_acme):
+        # Two microscopes may each keep their driver in a file called driver.py.
+        # The second must load its own file, not reuse the first.
+        import sys
+
+        first = tmp_path / "first" / "acme_same_name.py"
+        second = tmp_path / "second" / "acme_same_name.py"
+        first.parent.mkdir()
+        second.parent.mkdir()
+        first.write_text(DRIVER_SOURCE % "first-scope")
+        second.write_text(DRIVER_SOURCE % "second-scope")
+        try:
+            assert [i["microscope"] for i in registry.register_driver(first)] == ["first-scope"]
+            assert [i["microscope"] for i in registry.register_driver(second)] == ["second-scope"]
+            # Calling it again for either file reuses that file's module.
+            assert registry.register_driver(first) == []
+            assert registry.register_driver(second) == []
+        finally:
+            for name in [n for n in sys.modules if n.startswith("acme_same_name")]:
+                del sys.modules[name]
+
+    def test_a_different_package_with_a_taken_name_is_refused(self, tmp_path, forget_acme):
+        import sys
+
+        first = tmp_path / "first" / "acme_same_pkg"
+        second = tmp_path / "second" / "acme_same_pkg"
+        for folder, scope in ((first, "pkg-first"), (second, "pkg-second")):
+            folder.mkdir(parents=True)
+            (folder / "__init__.py").write_text(DRIVER_SOURCE % scope)
+        try:
+            registry.register_driver(first)
+            with pytest.raises(ValueError, match="already loaded"):
+                registry.register_driver(second)
+        finally:
+            sys.modules.pop("acme_same_pkg", None)
+            for folder in (first.parent, second.parent):
+                if str(folder) in sys.path:
+                    sys.path.remove(str(folder))
+
+    def test_a_replacement_is_reported_not_refused(self, tmp_path, forget_acme):
+        registry.register(
+            {"vendor": "acme", "microscope": "replaced", "api": "acme-sdk"}, ops=_full_ops()
+        )
+        driver = tmp_path / "acme_replacing_driver.py"
+        driver.write_text(DRIVER_SOURCE % "replaced")
+        added = registry.register_driver(driver)
+        assert [i["microscope"] for i in added] == ["replaced"]
+        # The new driver's functions are the ones in use.
+        from zmart_controller import mock
+
+        ops = registry.REGISTRY[("acme", "replaced", "acme-sdk")]["ops"]
+        assert ops["connect"] is mock.connect
+
+    def test_a_register_function_from_a_submodule_is_called(self, tmp_path, forget_acme):
+        import sys
+
+        package = tmp_path / "acme_split_driver"
+        package.mkdir()
+        (package / "__init__.py").write_text("from .adapter import register\n")
+        (package / "adapter.py").write_text(
+            "def register():\n"
+            + "\n".join("    " + line for line in (DRIVER_SOURCE % "split").splitlines())
+        )
+        try:
+            for _ in range(2):  # the second call must give the same answer
+                added = registry.register_driver(package)
+                assert [i["microscope"] for i in added] == ["split"]
+        finally:
+            for name in [n for n in sys.modules if n.startswith("acme_split_driver")]:
+                del sys.modules[name]
+            sys.path.remove(str(tmp_path))
+
+
+class TestNestedSettingsAreCopied:
+    def test_editing_a_listed_instrument_changes_nothing_stored(self, scratch_identity):
+        given = dict(scratch_identity, origin={"x": 0.0, "y": 0.0, "z": 0.0})
+        registry.register(given, ops=_full_ops())
+
+        listed = next(i for i in registry.get_instruments() if i["microscope"] == "scratch")
+        listed["origin"]["x"] = 500.0
+
+        again = next(i for i in registry.get_instruments() if i["microscope"] == "scratch")
+        assert again["origin"]["x"] == 0.0
+        assert given["origin"]["x"] == 0.0
+
+    def test_editing_the_input_later_changes_nothing_stored(self, scratch_identity):
+        given = dict(scratch_identity, origin={"x": 0.0})
+        registry.register(given, ops=_full_ops())
+        given["origin"]["x"] = 500.0
+        stored = next(i for i in registry.get_instruments() if i["microscope"] == "scratch")
+        assert stored["origin"]["x"] == 0.0
