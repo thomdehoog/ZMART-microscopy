@@ -21,10 +21,15 @@ travel limits and the calibration are the driver's configuration: set up
 once in a separate step with the driver, saved to a file, and loaded by the
 driver when it connects.
 
-Failure is reported by raising: driver ops raise exceptions (``ValueError`` for
-caller mistakes, ``RuntimeError`` for instrument failures or refusals) and never
-encode failure in a returned dict; the controller catches nothing and propagates
-driver exceptions to the caller unchanged.
+Every command answers with the same two things: ``{"success": bool, "report":
+...}``. ``success`` says whether the driver did what was asked, and ``report``
+is whatever the driver has to say about it; its content is the driver's own.
+A soft outcome, one it is safe to carry on from, comes back as ``success:
+False``. A failure that would make carrying on unsafe (the move did not
+happen, the connection is lost, the request itself is wrong) is raised instead:
+``ValueError`` for a mistake in the request, ``RuntimeError`` for a failure or
+refusal on the microscope. The controller catches nothing and passes driver
+exceptions to the caller unchanged.
 
 Author: Thom de Hoog, Center for Microscopy and Image Analysis (ZMB),
 University of Zurich (thom.dehoog@zmb.uzh.ch, thomdehoog@gmail.com).
@@ -66,15 +71,15 @@ class Session:
     def get_state(self) -> dict:
         """Capture instrument state as an opaque dict.
 
-        Carries a ``"changeable"`` part (the settings ``set_state``
-        reapplies) and an ``"observed"`` part (a read-only report:
-        instrument identity and current condition). The controller does not
-        interpret it; the driver owns the boundary.
+        The ``report`` carries a ``"changeable"`` part (the settings
+        ``set_state`` reapplies) and an ``"observed"`` part (a read-only
+        report: instrument identity and current condition). The controller
+        does not interpret it; the driver owns the boundary.
         """
         return self._ops["get_state"](self._handle)
 
     def set_state(self, state: dict) -> dict:
-        """Reapply captured state; return whatever the driver reports.
+        """Reapply a captured state (the ``report`` of :meth:`get_state`).
 
         The driver acts on the ``"changeable"`` part only; ``"observed"`` is
         a report, never an instruction.

@@ -10,12 +10,14 @@ the connection dict; everything else in that dict is free for the driver to use
 (client name, api delay, host, credentials, ...) and is forwarded untouched to
 ``connect``.
 
-Error contract for ops: report failure by raising (``ValueError`` for caller
-mistakes, ``RuntimeError`` for instrument failures or driver refusals), never by
-encoding it in the returned dict — the controller forwards return values
-uninspected and propagates exceptions unchanged. Error text must be
-credential-safe: connection dicts may carry credentials, so messages name keys,
-never values (as :func:`_identity` does).
+Return contract for ops: every op except ``connect`` and ``disconnect``
+returns ``{"success": bool, "report": ...}``, with the report's content the
+driver's own. A failure that makes carrying on unsafe is raised instead
+(``ValueError`` for a mistake in the request, ``RuntimeError`` for a failure or
+refusal on the microscope); the controller forwards return values uninspected
+and propagates exceptions unchanged. Error text must be credential-safe:
+connection dicts may carry credentials, so messages name keys, never values
+(as :func:`_identity` does).
 
 The registry is the plug: it checks only that a driver fits (every required
 operation is present, and the identity keys are there). Everything else,
