@@ -50,8 +50,9 @@ driver has to say). The notebook shows how to read both.
 ## 4. Make it yours
 
 - **Use a real microscope.** In the setup cell, replace the two mock lines with
-  the import of your microscope's driver. Everything else stays the same; that
-  is the point of the controller.
+  one line that plugs in your microscope's driver:
+  `zmart_controller.register_driver("path/to/driver")`. Everything else stays
+  the same; that is the point of the controller.
 - **Change the positions.** Edit the list in step 3, or build it from your own
   overview image.
 - **Change the settings.** In step 2, set whatever your driver's state

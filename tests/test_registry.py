@@ -88,3 +88,71 @@ class TestDiscovery:
         with caplog.at_level("ERROR"):
             registry.get_instruments()  # must not raise
         assert "broken" in caplog.text
+
+
+DRIVER_SOURCE = """
+from zmart_controller import mock
+from zmart_controller.registry import OPS, register
+
+ops = {name: getattr(mock, name) for name in OPS}
+register({"vendor": "acme", "microscope": "%s", "api": "acme-sdk"}, ops=ops)
+"""
+
+
+@pytest.fixture
+def forget_acme():
+    yield
+    for key in [k for k in registry.REGISTRY if k[0] == "acme"]:
+        registry.REGISTRY.pop(key)
+    import sys
+
+    for name in [n for n in sys.modules if n.startswith("acme_")]:
+        del sys.modules[name]
+
+
+class TestRegisterDriver:
+    def test_from_a_file(self, tmp_path, forget_acme):
+        driver = tmp_path / "acme_file_driver.py"
+        driver.write_text(DRIVER_SOURCE % "from-file")
+        added = registry.register_driver(driver)
+        assert [i["microscope"] for i in added] == ["from-file"]
+        assert any(i["microscope"] == "from-file" for i in registry.get_instruments())
+
+    def test_from_a_package_folder(self, tmp_path, forget_acme):
+        package = tmp_path / "acme_pkg_driver"
+        package.mkdir()
+        (package / "__init__.py").write_text(DRIVER_SOURCE % "from-folder")
+        added = registry.register_driver(package)
+        assert [i["microscope"] for i in added] == ["from-folder"]
+
+    def test_from_a_module_name(self, tmp_path, forget_acme, monkeypatch):
+        (tmp_path / "acme_named_driver.py").write_text(DRIVER_SOURCE % "from-name")
+        monkeypatch.syspath_prepend(str(tmp_path))
+        added = registry.register_driver("acme_named_driver")
+        assert [i["microscope"] for i in added] == ["from-name"]
+
+    def test_calling_it_twice_is_harmless(self, tmp_path, forget_acme):
+        driver = tmp_path / "acme_twice_driver.py"
+        driver.write_text(DRIVER_SOURCE % "twice")
+        registry.register_driver(driver)
+        assert registry.register_driver(driver) == []  # already plugged in
+        assert sum(i["microscope"] == "twice" for i in registry.get_instruments()) == 1
+
+    def test_a_register_function_is_called_when_import_alone_does_nothing(
+        self, tmp_path, forget_acme
+    ):
+        driver = tmp_path / "acme_lazy_driver.py"
+        driver.write_text(
+            "def register():\n"
+            + "\n".join("    " + line for line in (DRIVER_SOURCE % "lazy").splitlines())
+        )
+        added = registry.register_driver(driver)
+        assert [i["microscope"] for i in added] == ["lazy"]
+
+    def test_nothing_there_is_refused(self, tmp_path):
+        with pytest.raises(ValueError, match="no driver found"):
+            registry.register_driver("acme_does_not_exist_anywhere")
+        empty = tmp_path / "acme_empty_driver.py"
+        empty.write_text("x = 1\n")
+        with pytest.raises(ValueError, match="registered no instrument"):
+            registry.register_driver(empty)
