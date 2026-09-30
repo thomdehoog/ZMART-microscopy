@@ -100,9 +100,9 @@ We have not defined a vocabulary for error messages at this point.
    ```
 
 ### Status
-This is version 0.1. At the ZMB we use it in our smart-microscopy workflows on a Leica STELLARIS.
-Drivers for Nikon (NIS-Elements), ZEISS (ZEN) and the mesoSPIM light-sheet exist and pass their tests
-against the vendors' simulators; they are waiting for validation on real hardware. An Evident driver is being investigated.
+This is version 0.1. At the ZMB we use it daily in our smart-microscopy workflows. Drivers exist
+for several commercial and open-source microscopes; each lives in its own repository and says
+there how far it has been validated.
 
 ## Author
 Thom de Hoog, Center for Microscopy and Image Analysis (ZMB), University of
@@ -114,7 +114,7 @@ MIT License. See LICENSE file for details.
 ## Links
 
 - [ZMART Microscopy](https://github.com/thomdehoog/ZMART-microscopy): the main repository, with the workflows and the drivers
-- [ZMART drivers](https://github.com/thomdehoog/ZMART-microscopy/tree/main/zmart_drivers): the drivers that plug into this controller
+- [ZMART drivers](https://github.com/thomdehoog/ZMART-microscopy/tree/main/zmart_drivers): the drivers that plug into this controller, one per microscope
 - [Smart Analysis](https://github.com/thomdehoog/smart-analysis): the analysis engine that runs between acquisitions
 - [ZMART viewer](https://github.com/thomdehoog/ZMART-viewer): the viewer
 - [Center for Microscopy and Image Analysis (ZMB)](https://www.zmb.uzh.ch), University of Zurich
