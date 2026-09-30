@@ -1,0 +1,10 @@
+{
+  "schema_version": 3,
+  "measured": false,
+  "rotation_deg": 0,
+  "reflection": false,
+  "sign_convention": {
+    "stage_x_from_image": "+X",
+    "stage_y_from_image": "+Y"
+  }
+}

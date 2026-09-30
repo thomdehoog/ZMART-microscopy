@@ -1,0 +1,26 @@
+# Coverage configuration for the Navigator Expert driver.
+#
+# Pinned by run_ci.py via --cov-config (absolute path) so it applies regardless
+# of the working directory CI launches from. Keeps the coverage denominator to
+# *product* code: the test code and the CI runner itself are not under test.
+[run]
+branch = True
+omit =
+    */tests/*
+    */run_ci.py
+
+[report]
+# Coverage floor (LT-04). The full offline suite (tests/unit + calibration/tests)
+# measured 70% total branch coverage on 2026-07-05 (after the scanfields/files,
+# strip_restore, readers/router, and lrp pan-edit test additions); the floor is
+# set ~2 points below that so it locks in today's level without flaking.
+# run_ci.py still runs without coverage when pytest-cov is missing — this floor
+# bites whenever coverage actually runs.
+fail_under = 68
+
+# Lines that are unreachable-by-design or trivial should not count against us.
+exclude_also =
+    if __name__ == .__main__.:
+    if TYPE_CHECKING:
+    raise NotImplementedError
+    @(abc\.)?abstractmethod

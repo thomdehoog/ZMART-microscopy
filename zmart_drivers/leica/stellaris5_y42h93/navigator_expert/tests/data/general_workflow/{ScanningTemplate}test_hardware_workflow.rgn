@@ -1,0 +1,69 @@
+<StageOverviewRegions>
+  <Regions>
+    <ShapeList>
+      <Items>
+        <Item0>
+          <Number>1</Number>
+          <Name>{"JN":null,"ID":0,"AM":0,"OV":0,"T":0,"U":0,"V":0,"X":0,"Y":0,"P":0,"C":0,"M":null,"W":0,"D":0}</Name>
+          <Tag>R1 (15)</Tag>
+          <Identifier>017aa632-82ae-4147-0ba0-13b3007071f1</Identifier>
+          <Type>Rectangle</Type>
+          <Fill>R:1 ,G: 0,B: 0,A: 0</Fill>
+          <Font />
+          <Verticies>
+            <Items>
+              <Item0>
+                <X>0.05983333333</X>
+                <Y>0.03910701754</Y>
+              </Item0>
+              <Item1>
+                <X>0.06415614035</X>
+                <Y>0.03910701754</Y>
+              </Item1>
+              <Item2>
+                <X>0.05983333333</X>
+                <Y>0.04177017544</Y>
+              </Item2>
+              <Item3>
+                <X>0.06415614035</X>
+                <Y>0.04177017544</Y>
+              </Item3>
+              <Item4>
+                <X>0.06199473684</X>
+                <Y>0.03910701754</Y>
+              </Item4>
+              <Item5>
+                <X>0.05983333333</X>
+                <Y>0.04043859649</Y>
+              </Item5>
+              <Item6>
+                <X>0.06415614035</X>
+                <Y>0.04043859649</Y>
+              </Item6>
+              <Item7>
+                <X>0.06199473684</X>
+                <Y>0.04177017544</Y>
+              </Item7>
+              <Item8>
+                <X>0.06199473684</X>
+                <Y>0.03833508772</Y>
+              </Item8>
+            </Items>
+          </Verticies>
+          <DecoratorColors>
+            <Items />
+          </DecoratorColors>
+          <ExtendedProperties>
+            <Items />
+          </ExtendedProperties>
+        </Item0>
+      </Items>
+      <FillMaskMode>None</FillMaskMode>
+      <VertexUnitMode>Pixels</VertexUnitMode>
+    </ShapeList>
+  </Regions>
+  <FocusMap ZMode="1" />
+  <StackList>
+    <Entry Identifier="017aa632-82ae-4147-0ba0-13b3007071f1" Begin="0.0000000000" End="0.0000000000" SectionCount="0" ReferenceX="0.0000000000" ReferenceY="0.0000000000" FocusStabilizerOffset="0.0000000000" FocusStabilizerOffsetFixed="false" StackValid="false" Marked="false" />
+  </StackList>
+</StageOverviewRegions>
