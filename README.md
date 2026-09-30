@@ -1,5 +1,7 @@
 # ZMART Microscopy
 
+<img src="docs/zmart-overview.png" align="right" width="360" alt="The ZMART toolkit: zmart-interface, zmart-ai-agent, zmart-controller, zmart-drivers, zmart-analysis and zmart-viewer in a ring around ZMART microscopy">
+
 **ZMB's Microscopy-Agnostic Research Toolkit (ZMART).**
 
 This toolkit gives you programmatic control of a wide range of microscopes
@@ -7,13 +9,13 @@ through a simple, unified scripting philosophy, so you can quickly build
 interoperable, adaptive feedback microscopy workflows. It is developed at the
 Center for Microscopy and Image Analysis (ZMB), University of Zurich.
 
-<br/>
+ZMART is a family of small, separate pieces that fit together: a controller
+that speaks one language to every microscope, drivers that plug each vendor
+into it, an analysis engine that runs between acquisitions, a viewer, an
+interface, and an AI agent that can drive the whole loop. Each piece is its
+own repository and can be used on its own.
 
-<p align="center">
-  <img src="docs/zmart-overview.png" alt="The ZMART toolkit: zmart-interface, zmart-ai-agent, zmart-controller, zmart-drivers, zmart-analysis and zmart-viewer in a ring around ZMART microscopy" width="60%">
-</p>
-
-<br/>
+<br clear="right"/>
 
 <p align="center">
   <img src="docs/zmart-architecture.png" alt="ZMART sits between Jupyter notebooks and an AI coding agent above, and vendor drivers - each bound to a microscope - below" width="100%">
