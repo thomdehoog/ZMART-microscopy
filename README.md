@@ -29,7 +29,34 @@ The ZMART controller lives between your workflow and the microscope:
    that ZMART-driver plugin to. The drivers take care of interacting with the microscope, enforcing limits
 and provide a single absolute coordinate systems that corresponds to the space in which you observer the specimen
 
-Note: we are aware of the useq schema from micro managar and the model hardware standart of antropic. These might have real upside if the are able to provide simular vocabulary. For now these two tool either do not do that or are not released yet.
+
+```
+  ┌──────────────────────────────────────────────────────────────┐
+  │  your notebook, script or AI agent      (the workflow)       │
+  └──────────────────────────────┬───────────────────────────────┘
+                     commands    │    answers and refusals, unchanged
+  ┌──────────────────────────────┴───────────────────────────────┐
+  │  ZMART Controller                        (this package)      │
+  │                                                              │
+  │  simple vocabolary interoperable vocabulary                  │
+  └───────┬──────────────────────┬──────────────────────┬────────┘
+          │                      │                      │
+  ┌───────┴───────┐      ┌───────┴───────┐      ┌───────┴───────┐
+  │   driver A    │      │   driver B    │      │  your driver  │
+  └───────┬───────┘      └───────┬───────┘      └───────┬───────┘
+          │                      │                      │
+  ┌───────┴───────┐      ┌───────┴───────┐      ┌───────┴───────┐
+  │ microscope A  │      │ microscope B  │      │      ...      │
+  │ own software  │      │ own software  │      │               │
+  └───────────────┘      └───────────────┘      └───────────────┘
+```
+
+Every call is currently **synchronous**: the controller calls the driver, the driver
+does the work on the microscope, and the command returns only when that work
+is finished. A live view, where you adjust settings while watching the image and then snap,
+in not part of the controller yet.
+
+Note: we are aware of the useq schema from micro managar and the model hardware standart of antropic. We might switch because both have real upsides, but currently the useq-schema is not interoperable enough for our needs and the model hardware standaard is not released to the public yet.
 
 ### The vocabulary
 
@@ -78,39 +105,8 @@ something goes wrong in a way that is safe to carry on from, the answer is
 `success: False`. When carrying on would be unsafe, the driver raises an error
 instead, and your script stops.
 
-## How It Works
 
-Your notebook talks only to the controller. The controller looks up the driver
-of the microscope you picked and passes each command straight through. The
-driver does the work and answers, and the controller passes the answer, or the
-refusal, straight back to you.
 
-```
-  ┌──────────────────────────────────────────────────────────────┐
-  │  your notebook, script or AI agent      (the workflow)       │
-  └──────────────────────────────┬───────────────────────────────┘
-                     commands    │    answers and refusals, unchanged
-  ┌──────────────────────────────┴───────────────────────────────┐
-  │  ZMART Controller                        (this package)      │
-  │                                                              │
-  │  get_xyz · set_xyz · acquire · get_state · set_state · ...   │
-  │  registry: which drivers are plugged in                      │
-  └───────┬──────────────────────┬──────────────────────┬────────┘
-          │                      │                      │
-  ┌───────┴───────┐      ┌───────┴───────┐      ┌───────┴───────┐
-  │   driver A    │      │   driver B    │      │  your driver  │
-  └───────┬───────┘      └───────┬───────┘      └───────┬───────┘
-          │                      │                      │
-  ┌───────┴───────┐      ┌───────┴───────┐      ┌───────┴───────┐
-  │ microscope A  │      │ microscope B  │      │      ...      │
-  │ own software  │      │ own software  │      │               │
-  └───────────────┘      └───────────────┘      └───────────────┘
-```
-
-Every call is currently **synchronous**: the controller calls the driver, the driver
-does the work on the microscope, and the command returns only when that work
-is finished. A live view, where you adjust settings while watching the image and then snap,
-in not part of the controller yet.
 
 ### What is no longer your problem
 
