@@ -5,7 +5,7 @@
 [![dependencies](https://img.shields.io/badge/dependencies-none-brightgreen)](pyproject.toml)
 [![tests](https://img.shields.io/badge/tests-pytest-blue)](#testing)
 
-<img src="docs/zmart-controller-logo.png" align="left" width="110" alt="ZMART Controller">
+<img src="docs/zmart-controller-logo.png" align="left" width="170" alt="ZMART Controller">
 
 The **ZMART Controller** provides a small, universal schema for driving a microscope from Python.
 You build your workflow on this schema, and it runs on any microscope that has a ZMART driver plugged into it.
