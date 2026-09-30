@@ -5,41 +5,30 @@
 [![dependencies](https://img.shields.io/badge/dependencies-none-brightgreen)](pyproject.toml)
 [![tests](https://img.shields.io/badge/tests-pytest-blue)](#testing)
 
-The ZMART Controller is the controller part of **ZMART**, ZMB's
-Microscopy-Agnostic Research Toolkit for smart microscopy, developed at the
-Center for Microscopy and Image Analysis (ZMB), University of Zurich. It is one
-small, universal interface for driving a microscope from Python. You write your
-experiment once, against a handful of plain commands, and it runs on any
-microscope that has a driver.
+
+The ZMART Controller provides a small universal schema for driving a microscope from Python. 
+You build you workflow on this schema and it runs on any microscope that has a ZMART-driver plugged into it.
+
+The ZMART Controller is part of the ZMART (ZMB`s Microscopy-Agnostic Research Toolkit) 
+tools we use for smart microscopy at the Center for Microscopy and Image Analysis (ZMB), University of Zurich.  
 
 ## The Problem
 
-Every microscope vendor ships its own programming interface. Each one names
-things differently, counts positions from a different corner, uses different
-units, and reports errors in its own way. A script written for one microscope
-does not run on another.
-
-For smart microscopy this is a real obstacle. A feedback experiment, where you
-look at an overview, decide what is interesting, and go back to image it in
-detail, has to be rewritten for every instrument, usually by someone who mostly
-wanted to do biology. The knowledge of how to drive each microscope ends up
-tangled into every experiment, and no two labs can share their workflows.
+Every microscope vendor ships its own programming interface, so workflow that is build for one microscope
+does not work on another. For sharing our workflow and employing them one all the microscope we want, for smart microscopy this is a real obstacle.
 
 ## The Solution
 
-The controller separates the experiment from the microscope with three ideas:
+The controller separates the workflow from the microscope with three ideas:
 
-1. **One universal interface.** A short list of plain commands: move here,
-   capture an image, remember these settings, run the autofocus. They mean the
-   same thing on every microscope, and your experiment speaks only this
-   language.
+1. **One universal interface.** A short list of plain commands to move,
+    get and set a state of the microscope, and acquire an image.
 
-2. **Drivers that plug in.** Each microscope gets a small driver that
-   translates the commands into that microscope's own software. Everything
-   specific to an instrument lives inside its driver: its configuration, its
-   safety limits, its calibration, and every refusal.
-
-3. **A schema, not a program.** The controller does no microscope work of its
+2. **A schema, not a orchestrator.** It provide consistent interoperable  voc
+3.
+4.
+5. abulara e
+ 3.4. The controller does no microscope work of its
    own. It hands each command to the driver and hands the answer back,
    unchanged. It is an agreement about what each command means and what it
    gives back, and that agreement is what lets workflows travel between
