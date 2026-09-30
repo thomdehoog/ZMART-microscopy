@@ -4,9 +4,8 @@ The shortest way drives one microscope through the module itself::
 
     import zmart_controller
 
-    zmart_controller.register_driver("path/to/driver")
-    instruments = zmart_controller.get_instruments()
-    zmart_controller.set_instrument(instruments[0])
+    added = zmart_controller.register_driver("path/to/driver")
+    zmart_controller.set_instrument(added[0])
     zmart_controller.set_xyz(10, 20, 5)
     zmart_controller.acquire(acquisition_type="prescan", position_label="A1")
     zmart_controller.disconnect()

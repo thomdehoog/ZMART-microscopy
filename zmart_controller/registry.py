@@ -20,6 +20,8 @@ University of Zurich (thom.dehoog@zmb.uzh.ch, thomdehoog@gmail.com).
 
 from __future__ import annotations
 
+import copy
+import hashlib
 import importlib
 import importlib.util
 import logging
@@ -51,6 +53,10 @@ IDENTITY: tuple[str, ...] = ("vendor", "microscope", "api")
 # (vendor, microscope, api) -> {"connection", "ops"}
 REGISTRY: dict[tuple[str, ...], dict[str, Any]] = {}
 
+# Every identity passed to register(), in order, including replacements.
+# register_driver reads it to see what a driver registered during its call.
+_REGISTRATIONS: list[tuple[str, ...]] = []
+
 
 def _identity(connection: dict[str, Any]) -> tuple[str, ...]:
     """The (vendor, microscope, api) triple of a connection dict."""
@@ -78,58 +84,89 @@ def register(connection: dict[str, Any], *, ops: dict[str, Any]) -> None:
     key = _identity(connection)
     if key in REGISTRY:
         logger.warning("driver %s already registered; overwriting", key)
-    REGISTRY[key] = {"connection": dict(connection), "ops": ops}
+    # A full copy, nested settings included: later edits to the caller's dict,
+    # or to a dict from get_instruments(), must never change what is stored.
+    REGISTRY[key] = {"connection": copy.deepcopy(connection), "ops": ops}
+    _REGISTRATIONS.append(key)
 
 
 def register_driver(driver: str | Path) -> list[dict[str, Any]]:
-    """Plug a driver in, and return the instruments it added.
+    """Plug a driver in, and return the instruments it registered.
 
     ``driver`` is a package folder, a single ``.py`` file, or a module name.
     Importing it registers its instruments. Put this line at the top of a
     notebook, before :func:`get_instruments`. Calling it twice is harmless.
-    Raises ``ValueError`` if nothing is found there, or nothing registers.
+
+    The answer lists the instruments the driver registered during this call,
+    including one that replaced an earlier entry with the same identity.
+    Raises ``ValueError`` if nothing is found there, if a different driver
+    package with the same name is already loaded, or if a newly imported
+    driver registers nothing.
     """
-    before = set(REGISTRY)
+    start = len(_REGISTRATIONS)
     module, fresh = _import_driver(driver)
-    if set(REGISTRY) == before:
+    if len(_REGISTRATIONS) == start:
         # Some drivers register only when asked, through their own register().
+        # That function may be written in a submodule and brought into the
+        # package with an import, so it is called wherever it was defined.
+        # The one function never called here is this registry's own
+        # register, which drivers often import under the same name.
         hook = getattr(module, "register", None)
-        if callable(hook) and getattr(hook, "__module__", None) == module.__name__:
+        if callable(hook) and hook is not register:
             hook()
-        if fresh and set(REGISTRY) == before:
+        if fresh and len(_REGISTRATIONS) == start:
             raise ValueError(f"{driver!s} was imported but registered no instrument")
-    added = sorted(set(REGISTRY) - before)
-    return [dict(REGISTRY[key]["connection"]) for key in added]
+    touched = sorted(set(_REGISTRATIONS[start:]))
+    return [copy.deepcopy(REGISTRY[key]["connection"]) for key in touched if key in REGISTRY]
+
+
+def _is_loaded_from(module, path: Path) -> bool:
+    """Whether an already imported module was read from this very file."""
+    loaded = getattr(module, "__file__", None)
+    return loaded is not None and Path(loaded).resolve() == path.resolve()
 
 
 def _import_driver(driver: str | Path):
     """Import a driver from a folder, a file or a module name.
 
     Returns the module, and whether this call was the first to import it.
+
+    Python remembers an imported module by its name alone, so two different
+    files that are both called ``driver.py`` could be mistaken for one. A
+    module is therefore reused only when it came from the very same file.
     """
     path = Path(driver)
     if path.suffix == ".py" and path.is_file():
-        name = path.stem
-        if name in sys.modules:
-            return sys.modules[name], False
-        spec = importlib.util.spec_from_file_location(name, path)
-        module = importlib.util.module_from_spec(spec)
-        sys.modules[name] = module
-        try:
-            spec.loader.exec_module(module)
-        except BaseException:
-            del sys.modules[name]
-            raise
-        return module, True
+        return _import_file(path)
     if path.is_dir():
-        if not (path / "__init__.py").is_file():
+        init = path / "__init__.py"
+        if not init.is_file():
             raise ValueError(f"{path} is a folder but not a Python package (no __init__.py)")
+        name = path.resolve().name
+        known = sys.modules.get(name)
+        if known is not None:
+            if _is_loaded_from(known, init):
+                return known, False
+            raise ValueError(
+                f"a different driver package called {name!r} is already loaded, from "
+                f"{getattr(known, '__file__', 'an unknown place')}. Two packages cannot "
+                f"share a name in one Python session, so rename one of the folders or "
+                f"restart the notebook kernel."
+            )
         parent = str(path.resolve().parent)
         if parent not in sys.path:
             sys.path.insert(0, parent)
-        name = path.resolve().name
-    else:
-        name = str(driver)
+        module = importlib.import_module(name)
+        if not _is_loaded_from(module, init):
+            # Another folder, earlier on Python's search path, holds a package
+            # with the same name, and Python imported that one instead.
+            del sys.modules[name]
+            raise ValueError(
+                f"importing {name!r} found {module.__file__} instead of {init}. "
+                f"Rename the folder so that its name is unique."
+            )
+        return module, True
+    name = str(driver)
     fresh = name not in sys.modules
     try:
         module = importlib.import_module(name)
@@ -138,6 +175,29 @@ def _import_driver(driver: str | Path):
             raise ValueError(f"no driver found at {driver!s}") from None
         raise
     return module, fresh
+
+
+def _import_file(path: Path):
+    """Import a single-file driver, keeping files that share a name apart."""
+    name = path.stem
+    known = sys.modules.get(name)
+    if known is not None and not _is_loaded_from(known, path):
+        # The plain name is taken by another file. Give this file a name of
+        # its own, based on where it lives, so that both drivers can load.
+        digest = hashlib.sha1(str(path.resolve()).encode()).hexdigest()[:8]
+        name = f"{path.stem}_{digest}"
+        known = sys.modules.get(name)
+    if known is not None:
+        return known, False
+    spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    try:
+        spec.loader.exec_module(module)
+    except BaseException:
+        del sys.modules[name]
+        raise
+    return module, True
 
 
 ENTRY_POINT_GROUP = "zmart_controller.drivers"
@@ -178,7 +238,7 @@ def get_instruments() -> list[dict[str, Any]]:
     found here automatically.
     """
     discover_installed_drivers()
-    return [dict(entry["connection"]) for _key, entry in sorted(REGISTRY.items())]
+    return [copy.deepcopy(entry["connection"]) for _key, entry in sorted(REGISTRY.items())]
 
 
 def resolve(instrument: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
