@@ -1,0 +1,5 @@
+{
+  "serial": "MOCK-0001",
+  "software": "MockScope Control",
+  "tested_versions": ["2.4.1"]
+}
