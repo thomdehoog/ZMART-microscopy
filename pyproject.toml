@@ -28,9 +28,21 @@ packages = [
     "zmart_controller",
     "zmart_driver_mock",
     "zmart_driver_mock.zmart_controller",
+    "zmart_driver_mock.vendor_interface",
+    "zmart_driver_mock.error_handling",
+    "zmart_driver_mock.get_commands",
+    "zmart_driver_mock.set_commands",
+    "zmart_driver_mock.procedures",
+    "zmart_driver_mock.data_handling",
+    "zmart_driver_mock.configuration",
     "zmart_driver_mock.testing",
     "zmart_driver_mock.testing.mock_api",
 ]
+
+[tool.setuptools.package-data]
+"zmart_driver_mock.zmart_controller" = ["zmart.json"]
+"zmart_driver_mock.configuration" = ["defaults/*.json"]
+"zmart_driver_mock.testing.mock_api" = ["README.md"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

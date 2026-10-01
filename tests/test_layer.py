@@ -6,6 +6,8 @@ University of Zurich (thom.dehoog@zmb.uzh.ch, thomdehoog@gmail.com).
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from zmart_controller import get_instruments, set_instrument
@@ -54,20 +56,24 @@ class TestFrame:
         assert pos["x"]["unit"] == "um"
 
     def test_origin_is_driver_configuration(self):
-        # The origin is loaded by the driver at connect, never set through the controller.
+        # The origin is saved by the driver's own setup step and loaded at
+        # connect, never set through the controller.
         from zmart_controller.layer import set_instrument as open_session
+        from zmart_driver_mock.configuration import save
 
-        session = open_session({**_mock_instrument(), "origin": {"x": 100.0, "y": 0.0, "z": 0.0}})
+        save("origin", {"x": 50_100.0, "y": 37_500.0, "z": 5_000.0})
+        session = open_session(_mock_instrument())
         try:
             assert not hasattr(session, "set_origin")
             session.set_xyz(10, 0, 0)
             assert session.get_xyz()["report"]["x"]["value"] == 10
-            assert session._handle.x == 110.0  # raw position = configured origin + frame value
+            stage = session._handle.scope.send("GetStagePosition")["result"]
+            assert stage["x"] == 50_110.0  # raw position = saved origin + frame value
         finally:
             session.disconnect()
 
     def test_get_actuators_lists_options(self, mic):
-        assert mic.get_actuators()["report"]["z"] == ["motoric", "galvo", "piezo"]
+        assert mic.get_actuators()["report"]["z"] == ["motoric", "piezo"]
 
     def test_actuator_selector_reported_back(self, mic):
         pos = mic.get_xyz(with_actuators={"z": "piezo"})["report"]
@@ -88,7 +94,10 @@ class TestAcquire:
         assert rec["position_label"] == "A1"
         assert rec["settle"] == "backlash-corrected"  # active default
         assert rec["format"] == "ome-tiff"  # active default
-        assert rec["filename"] == "A1.tiff"
+        assert rec["confirmed"] is True
+        assert [Path(f).name for f in rec["files"]] == ["A1.ome.tif"]
+        assert all(Path(f).is_file() for f in rec["files"])
+        assert Path(rec["command_log"]).is_file()
 
     def test_acquire_options_override(self, mic):
         rec = mic.acquire(
@@ -98,7 +107,8 @@ class TestAcquire:
         )["report"]
         assert rec["settle"] == "direct"
         assert rec["format"] == "ome-zarr"
-        assert rec["filename"] == "B2.zarr"
+        assert [Path(f).name for f in rec["files"]] == ["B2.ome.zarr"]
+        assert (Path(rec["files"][0]) / ".zattrs").is_file()
 
     def test_acquisition_options_discovered(self, mic):
         opts = mic.get_acquisition_options()["report"]
@@ -115,8 +125,8 @@ class TestState:
 
     def test_capture_and_reapply(self, mic):
         original = mic.get_state()["report"]
-        mic.set_state({"changeable": {"laser_power": 99.0}})
-        assert mic.get_state()["report"]["changeable"]["laser_power"] == 99.0
+        mic.set_state({"changeable": {"laser_power": 40.0}})
+        assert mic.get_state()["report"]["changeable"]["laser_power"] == 40.0
         mic.set_state(original)
         laser = mic.get_state()["report"]["changeable"]["laser_power"]
         assert laser == original["changeable"]["laser_power"]
@@ -157,13 +167,10 @@ class TestProcedures:
 class TestInfo:
     def test_get_info_passthrough(self, mic):
         info = mic.get_info()["report"]
-        assert len(info["tile_positions"]) == 3
-        assert info["tile_positions"][0] == {
-            "x": 0.0,
-            "y": 0.0,
-            "z": 0.0,
-            "tile_size": {"x": 100.0, "y": 100.0},
-        }
+        assert Path(info["output_root"]).is_dir()
+        assert info["serial"] == "MOCK-0001"
+        # Nothing has been set up yet, so every configuration item is a shipped default.
+        assert all("defaults" in source for source in info["configuration"].values())
 
 
 class TestDisconnect:
@@ -238,8 +245,10 @@ class TestModuleStyle:
 class TestTravelRange:
     def test_range_is_reported_in_the_users_frame(self):
         from zmart_controller.layer import set_instrument as open_session
+        from zmart_driver_mock.configuration import save
 
-        session = open_session({**_mock_instrument(), "origin": {"x": 1000.0, "y": 0.0, "z": 0.0}})
+        save("origin", {"x": 51_000.0, "y": 37_500.0, "z": 5_000.0})
+        session = open_session(_mock_instrument())
         try:
             assert session.get_xyz()["report"]["x"]["range"] == [-6000.0, 4000.0]
         finally:
