@@ -1,0 +1,6 @@
+{
+  "contract": 1,
+  "instruments": [
+    {"vendor": "mock", "microscope": "mock-scope", "api": "mock-api", "client": "mock-client"}
+  ]
+}

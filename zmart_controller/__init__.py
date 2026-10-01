@@ -41,12 +41,14 @@ __author__ = "Thom de Hoog"
 __email__ = "thom.dehoog@zmb.uzh.ch, thomdehoog@gmail.com"
 __affiliation__ = "Center for Microscopy and Image Analysis (ZMB), University of Zurich"
 
+from .check import check_driver
 from .layer import Session
 from .layer import set_instrument as _set_instrument
 from .registry import forget_driver, get_instruments, register_driver
 
 __all__ = [
     "Session",
+    "check_driver",
     "disconnect",
     "forget_driver",
     "get_instruments",

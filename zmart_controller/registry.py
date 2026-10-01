@@ -9,11 +9,12 @@ The registry checks only that a driver fits: every required function is
 there, and the three identity keys are present. Everything else is the
 driver's job.
 
-Drivers register themselves when imported. :func:`register_driver` imports
-one from a folder, a file or a module name, and remembers it in this
-computer's configuration folder, so later sessions plug it in by themselves.
-A driver installed as a package can instead announce itself through an entry
-point; see :func:`discover_installed_drivers`.
+A driver is a folder with a ``zmart.json`` naming its instruments and a
+module holding its functions. :func:`register_driver` reads the file, checks
+it, picks the functions by name and registers each instrument. It remembers
+the driver in this computer's configuration folder, so later sessions plug it
+in by themselves. A driver installed as a package can instead announce itself
+through an entry point; see :func:`discover_installed_drivers`.
 
 Author: Thom de Hoog, Center for Microscopy and Image Analysis (ZMB),
 University of Zurich (thom.dehoog@zmb.uzh.ch, thomdehoog@gmail.com).
@@ -22,7 +23,6 @@ University of Zurich (thom.dehoog@zmb.uzh.ch, thomdehoog@gmail.com).
 from __future__ import annotations
 
 import copy
-import hashlib
 import importlib
 import importlib.util
 import json
@@ -57,10 +57,6 @@ IDENTITY: tuple[str, ...] = ("vendor", "microscope", "api")
 # (vendor, microscope, api) -> {"connection", "ops"}
 REGISTRY: dict[tuple[str, ...], dict[str, Any]] = {}
 
-# Every identity passed to register(), in order, including replacements.
-# register_driver reads it to see what a driver registered during its call.
-_REGISTRATIONS: list[tuple[str, ...]] = []
-
 
 def _identity(connection: dict[str, Any]) -> tuple[str, ...]:
     """The (vendor, microscope, api) triple of a connection dict."""
@@ -91,7 +87,6 @@ def register(connection: dict[str, Any], *, ops: dict[str, Any]) -> None:
     # A full copy, nested settings included: later edits to the caller's dict,
     # or to a dict from get_instruments(), must never change what is stored.
     REGISTRY[key] = {"connection": copy.deepcopy(connection), "ops": ops}
-    _REGISTRATIONS.append(key)
 
 
 # The folder with the driver's controller-facing functions, inside a driver.
@@ -168,13 +163,18 @@ def _driver_key(driver: str | Path) -> str:
     return str(driver)
 
 
-def register_driver(driver: str | Path, *, remember: bool = True) -> list[dict[str, Any]]:
-    """Plug a driver in, and return the instruments it registered.
+CONTRACT = 1
+MANIFEST = "zmart.json"
 
-    ``driver`` is a driver folder, a single ``.py`` file, or a module name. A
-    driver folder may keep its controller-facing functions in a
-    ``zmart_plugin/`` subfolder; that is what gets imported then. Importing
-    registers the instruments.
+
+def register_driver(driver: str | Path, *, remember: bool = True) -> list[dict[str, Any]]:
+    """Plug a driver in, and return the instruments it provides.
+
+    ``driver`` is the driver's folder, or the name of an installed module.
+    The controller looks there for ``zmart_plugin/zmart.json`` (or
+    ``zmart.json`` directly). That file names the instruments; the functions
+    are found by name in the module next to it. See ``docs/driver.md`` for
+    the contract.
 
     Run this once per driver on each microscope computer. The driver is
     remembered in this computer's configuration folder, and every later
@@ -182,106 +182,78 @@ def register_driver(driver: str | Path, *, remember: bool = True) -> list[dict[s
     ``remember=False`` to plug it in for this session only. Calling it twice
     is harmless.
 
-    The answer lists the instruments the driver registered during this call,
-    including one that replaced an earlier entry with the same identity.
-    Raises ``ValueError`` if nothing is found there, if a different driver
-    package with the same name is already loaded, or if a newly imported
-    driver registers nothing.
+    Raises ``ValueError`` when nothing is found, the file is wrong, or a
+    function is missing, and says which.
     """
-    start = len(_REGISTRATIONS)
-    module, fresh = _import_driver(driver)
-    if len(_REGISTRATIONS) == start:
-        # Some drivers register only when asked, through their own register().
-        # That function may be written in a submodule and brought into the
-        # package with an import, so it is called wherever it was defined.
-        # The one function never called here is this registry's own
-        # register, which drivers often import under the same name.
-        hook = getattr(module, "register", None)
-        if callable(hook) and hook is not register:
-            hook()
-        if fresh and len(_REGISTRATIONS) == start:
-            raise ValueError(f"{driver!s} was imported but registered no instrument")
-    touched = sorted(set(_REGISTRATIONS[start:]))
+    plugin_dir, module = _locate_plugin(driver)
+    manifest = _read_manifest(plugin_dir / MANIFEST)
+    if module is None:
+        module = _import_plugin(plugin_dir)
+    ops = _collect_ops(module, plugin_dir)
+    added = []
+    for instrument in manifest["instruments"]:
+        register(instrument, ops=ops)
+        added.append(copy.deepcopy(instrument))
     if remember:
         key = _driver_key(driver)
         entries = remembered_drivers()
         if key not in entries:
             _save_remembered(entries + [key])
-    return [copy.deepcopy(REGISTRY[key]["connection"]) for key in touched if key in REGISTRY]
+    return added
 
 
-def _is_loaded_from(module, path: Path) -> bool:
-    """Whether an already imported module was read from this very file."""
-    loaded = getattr(module, "__file__", None)
-    return loaded is not None and Path(loaded).resolve() == path.resolve()
-
-
-def _import_driver(driver: str | Path):
-    """Import a driver from a folder, a file or a module name.
-
-    Returns the module, and whether this call was the first to import it.
-
-    Python remembers an imported module by its name alone, so two different
-    files that are both called ``driver.py`` could be mistaken for one. A
-    module is therefore reused only when it came from the very same file.
-    """
+def _locate_plugin(driver: str | Path):
+    """Find the folder holding ``zmart.json``; import first if given a module name."""
     path = Path(driver)
-    if path.is_dir() and (path / PLUGIN_FOLDER / "__init__.py").is_file():
-        path = path / PLUGIN_FOLDER
-    if path.suffix == ".py" and path.is_file():
-        return _import_file(path)
     if path.is_dir():
-        init = path / "__init__.py"
-        if not init.is_file():
-            raise ValueError(f"{path} is a folder but not a Python package (no __init__.py)")
-        name = path.resolve().name
-        known = sys.modules.get(name)
-        if known is not None:
-            if _is_loaded_from(known, init):
-                return known, False
-            raise ValueError(
-                f"a different driver package called {name!r} is already loaded, from "
-                f"{getattr(known, '__file__', 'an unknown place')}. Two packages cannot "
-                f"share a name in one Python session, so rename one of the folders or "
-                f"restart the notebook kernel."
-            )
-        parent = str(path.resolve().parent)
-        if parent not in sys.path:
-            sys.path.insert(0, parent)
-        module = importlib.import_module(name)
-        if not _is_loaded_from(module, init):
-            # Another folder, earlier on Python's search path, holds a package
-            # with the same name, and Python imported that one instead.
-            del sys.modules[name]
-            raise ValueError(
-                f"importing {name!r} found {module.__file__} instead of {init}. "
-                f"Rename the folder so that its name is unique."
-            )
-        return module, True
-    name = str(driver)
-    fresh = name not in sys.modules
+        for candidate in (path / PLUGIN_FOLDER, path):
+            if (candidate / MANIFEST).is_file():
+                return candidate, None
+        raise ValueError(f"no {PLUGIN_FOLDER}/{MANIFEST} found under {path}")
+    if path.exists():
+        raise ValueError(f"{path} is a file; give the driver's folder instead")
     try:
-        module = importlib.import_module(name)
+        module = importlib.import_module(str(driver))
     except ModuleNotFoundError as exc:
-        if exc.name and name.startswith(exc.name):
+        if exc.name and str(driver).startswith(exc.name):
             raise ValueError(f"no driver found at {driver!s}") from None
         raise
-    return module, fresh
+    plugin_dir = Path(module.__file__).parent
+    if not (plugin_dir / MANIFEST).is_file():
+        raise ValueError(f"module {driver!s} has no {MANIFEST} next to it")
+    return plugin_dir, module
 
 
-def _import_file(path: Path):
-    """Import a single-file driver, keeping files that share a name apart."""
-    name = path.stem
-    known = sys.modules.get(name)
-    if known is not None and not _is_loaded_from(known, path):
-        # The plain name is taken by another file. Give this file a name of
-        # its own, based on where it lives, so that both drivers can load.
-        digest = hashlib.sha1(str(path.resolve()).encode()).hexdigest()[:8]
-        name = f"{path.stem}_{digest}"
-        known = sys.modules.get(name)
-    if known is not None:
-        return known, False
-    spec = importlib.util.spec_from_file_location(name, path)
+def _read_manifest(path: Path) -> dict[str, Any]:
+    """Read and check a driver's ``zmart.json``."""
+    try:
+        manifest = json.loads(path.read_text())
+    except ValueError as exc:
+        raise ValueError(f"{path} is not valid JSON: {exc}") from None
+    if not isinstance(manifest, dict) or manifest.get("contract") != CONTRACT:
+        raise ValueError(
+            f'{path} must say "contract": {CONTRACT}; this controller knows no other version'
+        )
+    instruments = manifest.get("instruments")
+    if not isinstance(instruments, list) or not instruments:
+        raise ValueError(f'{path} must list at least one instrument under "instruments"')
+    for instrument in instruments:
+        if not isinstance(instrument, dict):
+            raise ValueError(f"{path}: every instrument must be an object")
+        _identity(instrument)  # raises ValueError naming any missing identity key
+    return manifest
+
+
+def _import_plugin(plugin_dir: Path):
+    """Import the plugin folder under a name of its own, so two drivers never clash."""
+    name = f"zmart_plugin__{plugin_dir.parent.name}_{abs(hash(str(plugin_dir.resolve()))):x}"
+    if name in sys.modules:
+        return sys.modules[name]
+    spec = importlib.util.spec_from_file_location(
+        name, plugin_dir / "__init__.py", submodule_search_locations=[str(plugin_dir)]
+    )
+    if spec is None:
+        raise ValueError(f"{plugin_dir} has no __init__.py beside its {MANIFEST}")
     module = importlib.util.module_from_spec(spec)
     sys.modules[name] = module
     try:
@@ -289,7 +261,22 @@ def _import_file(path: Path):
     except BaseException:
         del sys.modules[name]
         raise
-    return module, True
+    return module
+
+
+def _collect_ops(module, plugin_dir: Path) -> dict[str, Any]:
+    """Pick the driver's functions out of its module, by name."""
+    ops = {}
+    missing = []
+    for name in OPS + ("disconnect",):
+        func = getattr(module, name, None)
+        if callable(func):
+            ops[name] = func
+        elif name != "disconnect":
+            missing.append(name)
+    if missing:
+        raise ValueError(f"{plugin_dir} is missing these functions: {missing}")
+    return ops
 
 
 ENTRY_POINT_GROUP = "zmart_controller.drivers"
@@ -321,9 +308,7 @@ def discover_installed_drivers() -> None:
             logger.exception("remembered driver %r could not be loaded; skipping it", entry)
     for entry_point in entry_points(group=ENTRY_POINT_GROUP):
         try:
-            hook = entry_point.load()
-            if callable(hook):
-                hook()
+            register_driver(entry_point.value.split(":")[0], remember=False)
         except Exception:
             logger.exception("driver %r could not be loaded; skipping it", entry_point.name)
 

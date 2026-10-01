@@ -29,6 +29,14 @@ _ACTUATORS: dict[str, list[str]] = {
     "z": ["motoric", "galvo", "piezo"],
 }
 
+# How far each axis can travel, in raw micrometers. Reported in user
+# coordinates (minus the origin) as the "range" of every reading.
+_TRAVEL: dict[str, tuple[float, float]] = {
+    "x": (-5000.0, 5000.0),
+    "y": (-5000.0, 5000.0),
+    "z": (-500.0, 500.0),
+}
+
 # The motor used when a call does not name one. A choice never carries over
 # to the next call.
 _DEFAULT_ACTUATORS: dict[str, str] = {"x": "motoric", "y": "motoric", "z": "motoric"}
@@ -163,14 +171,20 @@ def _user_position(handle: MockHandle) -> dict[str, float]:
 
 
 def get_xyz(handle: MockHandle, *, with_actuators: dict | None = None) -> dict:
-    """The position of each axis, in micrometers from the origin."""
+    """The position of each axis, in micrometers from the origin, and how far it can travel."""
     _require_open(handle)
     chosen = _resolve_actuators(with_actuators)
     user = _user_position(handle)
+    origin = {"x": handle.origin_x, "y": handle.origin_y, "z": handle.origin_z}
     return _answer(
         {
-            axis: {"value": user[axis], "actuator": chosen[axis], "unit": "um"}
-            for axis in ("x", "y", "z")
+            axis: {
+                "value": user[axis],
+                "actuator": chosen[axis],
+                "unit": "um",
+                "range": [lo - origin[axis], hi - origin[axis]],
+            }
+            for axis, (lo, hi) in _TRAVEL.items()
         }
     )
 
@@ -290,24 +304,8 @@ def get_info(handle: MockHandle) -> dict:
 def register() -> None:
     """Plug the mock in, so :func:`zmart_controller.get_instruments` lists it.
 
-    A real driver does the same, usually when its module is imported.
+    The same as ``register_driver("zmart_controller.mock")``.
     """
-    from zmart_controller.registry import register
+    from zmart_controller.registry import register_driver
 
-    register(
-        {"vendor": "mock", "microscope": "mock-scope", "api": "mock-api", "client": "mock-client"},
-        ops={
-            "connect": connect,
-            "disconnect": disconnect,
-            "get_acquisition_options": get_acquisition_options,
-            "get_actuators": get_actuators,
-            "get_xyz": get_xyz,
-            "set_xyz": set_xyz,
-            "acquire": acquire,
-            "get_state": get_state,
-            "set_state": set_state,
-            "get_procedures": get_procedures,
-            "run_procedure": run_procedure,
-            "get_info": get_info,
-        },
-    )
+    register_driver("zmart_controller.mock", remember=False)

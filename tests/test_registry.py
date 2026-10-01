@@ -6,6 +6,8 @@ University of Zurich (thom.dehoog@zmb.uzh.ch, thomdehoog@gmail.com).
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from zmart_controller import registry
@@ -68,7 +70,7 @@ class TestDiscovery:
         # Pretend a package is installed that announces the mock as a driver.
         from importlib.metadata import EntryPoint
 
-        fake = EntryPoint("fake", "zmart_controller.mock:register", registry.ENTRY_POINT_GROUP)
+        fake = EntryPoint("fake", "zmart_controller.mock", registry.ENTRY_POINT_GROUP)
         monkeypatch.setattr(
             registry,
             "entry_points",
@@ -82,7 +84,7 @@ class TestDiscovery:
     def test_a_broken_driver_does_not_hide_the_others(self, monkeypatch, caplog):
         from importlib.metadata import EntryPoint
 
-        broken = EntryPoint("broken", "no_such_package_xyz:register", registry.ENTRY_POINT_GROUP)
+        broken = EntryPoint("broken", "no_such_package_xyz", registry.ENTRY_POINT_GROUP)
         monkeypatch.setattr(registry, "entry_points", lambda group: [broken])
         monkeypatch.setattr(registry, "_discovered", False)
         with caplog.at_level("ERROR"):
@@ -90,13 +92,28 @@ class TestDiscovery:
         assert "broken" in caplog.text
 
 
-DRIVER_SOURCE = """
-from zmart_controller import mock
-from zmart_controller.registry import OPS, register
-
-ops = {name: getattr(mock, name) for name in OPS}
-register({"vendor": "acme", "microscope": "%s", "api": "acme-sdk"}, ops=ops)
+FUNCTIONS = """
+from zmart_controller.mock import (
+    connect, disconnect, get_info, get_actuators, get_xyz, set_xyz, get_state,
+    set_state, get_acquisition_options, acquire, get_procedures, run_procedure,
+)
 """
+
+
+def make_driver(root, microscope, *, functions=FUNCTIONS, manifest=None, plugin=True):
+    """Write a driver folder: zmart_plugin/zmart.json + __init__.py with the mock's functions."""
+    folder = root / "zmart_plugin" if plugin else root
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "__init__.py").write_text(functions)
+    if manifest is None:
+        manifest = {
+            "contract": 1,
+            "instruments": [{"vendor": "acme", "microscope": microscope, "api": "acme-sdk"}],
+        }
+    (folder / "zmart.json").write_text(
+        manifest if isinstance(manifest, str) else json.dumps(manifest)
+    )
+    return root
 
 
 @pytest.fixture
@@ -104,140 +121,101 @@ def forget_acme():
     yield
     for key in [k for k in registry.REGISTRY if k[0] == "acme"]:
         registry.REGISTRY.pop(key)
-    import sys
-
-    for name in [n for n in sys.modules if n.startswith("acme_")]:
-        del sys.modules[name]
 
 
 class TestRegisterDriver:
-    def test_from_a_file(self, tmp_path, forget_acme):
-        driver = tmp_path / "acme_file_driver.py"
-        driver.write_text(DRIVER_SOURCE % "from-file")
+    def test_from_a_driver_folder(self, tmp_path, forget_acme):
+        driver = make_driver(tmp_path / "acme", "from-folder")
         added = registry.register_driver(driver)
-        assert [i["microscope"] for i in added] == ["from-file"]
-        assert any(i["microscope"] == "from-file" for i in registry.get_instruments())
-
-    def test_from_a_package_folder(self, tmp_path, forget_acme):
-        package = tmp_path / "acme_pkg_driver"
-        package.mkdir()
-        (package / "__init__.py").write_text(DRIVER_SOURCE % "from-folder")
-        added = registry.register_driver(package)
         assert [i["microscope"] for i in added] == ["from-folder"]
+        assert any(i["microscope"] == "from-folder" for i in registry.get_instruments())
 
-    def test_from_a_module_name(self, tmp_path, forget_acme, monkeypatch):
-        (tmp_path / "acme_named_driver.py").write_text(DRIVER_SOURCE % "from-name")
-        monkeypatch.syspath_prepend(str(tmp_path))
-        added = registry.register_driver("acme_named_driver")
-        assert [i["microscope"] for i in added] == ["from-name"]
+    def test_manifest_directly_in_the_folder(self, tmp_path, forget_acme):
+        driver = make_driver(tmp_path / "acme", "flat", plugin=False)
+        assert [i["microscope"] for i in registry.register_driver(driver)] == ["flat"]
 
-    def test_calling_it_twice_is_harmless(self, tmp_path, forget_acme):
-        driver = tmp_path / "acme_twice_driver.py"
-        driver.write_text(DRIVER_SOURCE % "twice")
-        registry.register_driver(driver)
-        assert registry.register_driver(driver) == []  # already plugged in
-        assert sum(i["microscope"] == "twice" for i in registry.get_instruments()) == 1
-
-    def test_a_register_function_is_called_when_import_alone_does_nothing(
-        self, tmp_path, forget_acme
-    ):
-        driver = tmp_path / "acme_lazy_driver.py"
-        driver.write_text(
-            "def register():\n"
-            + "\n".join("    " + line for line in (DRIVER_SOURCE % "lazy").splitlines())
-        )
-        added = registry.register_driver(driver)
-        assert [i["microscope"] for i in added] == ["lazy"]
-
-    def test_nothing_there_is_refused(self, tmp_path):
-        with pytest.raises(ValueError, match="no driver found"):
-            registry.register_driver("acme_does_not_exist_anywhere")
-        empty = tmp_path / "acme_empty_driver.py"
-        empty.write_text("x = 1\n")
-        with pytest.raises(ValueError, match="registered no instrument"):
-            registry.register_driver(empty)
-
-    def test_the_setup_guide_works_on_the_mock(self):
-        # docs/setup.md, step 3, with the mock in place of a real driver.
+    def test_from_a_module_name(self):
         registry.REGISTRY.pop(("mock", "mock-scope", "mock-api"), None)
-        added = registry.register_driver("zmart_controller.mock")
+        added = registry.register_driver("zmart_controller.mock", remember=False)
         assert [i["vendor"] for i in added] == ["mock"]
 
+    def test_calling_it_twice_is_harmless(self, tmp_path, forget_acme):
+        driver = make_driver(tmp_path / "acme", "twice")
+        registry.register_driver(driver)
+        registry.register_driver(driver)
+        assert sum(i["microscope"] == "twice" for i in registry.get_instruments()) == 1
 
-class TestRegisterDriverEdgeCases:
-    """Cases from the release candidate review that the tests above miss."""
+    def test_two_drivers_both_called_zmart_plugin_load_side_by_side(self, tmp_path, forget_acme):
+        first = make_driver(tmp_path / "first", "scope-1")
+        second = make_driver(tmp_path / "second", "scope-2")
+        registry.register_driver(first)
+        registry.register_driver(second)
+        names = {i["microscope"] for i in registry.get_instruments() if i["vendor"] == "acme"}
+        assert names == {"scope-1", "scope-2"}
 
-    def test_two_files_with_the_same_name_both_load(self, tmp_path, forget_acme):
-        # Two microscopes may each keep their driver in a file called driver.py.
-        # The second must load its own file, not reuse the first.
-        import sys
-
-        first = tmp_path / "first" / "acme_same_name.py"
-        second = tmp_path / "second" / "acme_same_name.py"
-        first.parent.mkdir()
-        second.parent.mkdir()
-        first.write_text(DRIVER_SOURCE % "first-scope")
-        second.write_text(DRIVER_SOURCE % "second-scope")
-        try:
-            assert [i["microscope"] for i in registry.register_driver(first)] == ["first-scope"]
-            assert [i["microscope"] for i in registry.register_driver(second)] == ["second-scope"]
-            # Calling it again for either file reuses that file's module.
-            assert registry.register_driver(first) == []
-            assert registry.register_driver(second) == []
-        finally:
-            for name in [n for n in sys.modules if n.startswith("acme_same_name")]:
-                del sys.modules[name]
-
-    def test_a_different_package_with_a_taken_name_is_refused(self, tmp_path, forget_acme):
-        import sys
-
-        first = tmp_path / "first" / "acme_same_pkg"
-        second = tmp_path / "second" / "acme_same_pkg"
-        for folder, scope in ((first, "pkg-first"), (second, "pkg-second")):
-            folder.mkdir(parents=True)
-            (folder / "__init__.py").write_text(DRIVER_SOURCE % scope)
-        try:
-            registry.register_driver(first)
-            with pytest.raises(ValueError, match="already loaded"):
-                registry.register_driver(second)
-        finally:
-            sys.modules.pop("acme_same_pkg", None)
-            for folder in (first.parent, second.parent):
-                if str(folder) in sys.path:
-                    sys.path.remove(str(folder))
-
-    def test_a_replacement_is_reported_not_refused(self, tmp_path, forget_acme):
-        registry.register(
-            {"vendor": "acme", "microscope": "replaced", "api": "acme-sdk"}, ops=_full_ops()
-        )
-        driver = tmp_path / "acme_replacing_driver.py"
-        driver.write_text(DRIVER_SOURCE % "replaced")
+    def test_several_instruments_in_one_driver(self, tmp_path, forget_acme):
+        manifest = {
+            "contract": 1,
+            "instruments": [
+                {"vendor": "acme", "microscope": "left", "api": "acme-sdk"},
+                {"vendor": "acme", "microscope": "right", "api": "acme-sdk", "host": "10.0.0.2"},
+            ],
+        }
+        driver = make_driver(tmp_path / "acme", "", manifest=manifest)
         added = registry.register_driver(driver)
-        assert [i["microscope"] for i in added] == ["replaced"]
-        # The new driver's functions are the ones in use.
-        from zmart_controller import mock
+        assert [i["microscope"] for i in added] == ["left", "right"]
+        assert added[1]["host"] == "10.0.0.2"
 
-        ops = registry.REGISTRY[("acme", "replaced", "acme-sdk")]["ops"]
-        assert ops["connect"] is mock.connect
+    def test_the_setup_guide_works_on_the_mock(self):
+        registry.REGISTRY.pop(("mock", "mock-scope", "mock-api"), None)
+        added = registry.register_driver("zmart_controller.mock", remember=False)
+        assert [i["vendor"] for i in added] == ["mock"]
+        assert registry.remembered_drivers() == []
 
-    def test_a_register_function_from_a_submodule_is_called(self, tmp_path, forget_acme):
-        import sys
 
-        package = tmp_path / "acme_split_driver"
-        package.mkdir()
-        (package / "__init__.py").write_text("from .adapter import register\n")
-        (package / "adapter.py").write_text(
-            "def register():\n"
-            + "\n".join("    " + line for line in (DRIVER_SOURCE % "split").splitlines())
-        )
-        try:
-            for _ in range(2):  # the second call must give the same answer
-                added = registry.register_driver(package)
-                assert [i["microscope"] for i in added] == ["split"]
-        finally:
-            for name in [n for n in sys.modules if n.startswith("acme_split_driver")]:
-                del sys.modules[name]
-            sys.path.remove(str(tmp_path))
+class TestRegisterDriverRefusals:
+    def test_nothing_there(self, tmp_path):
+        with pytest.raises(ValueError, match="no driver found"):
+            registry.register_driver("acme_does_not_exist_anywhere")
+        (tmp_path / "empty").mkdir()
+        with pytest.raises(ValueError, match="no zmart_plugin/zmart.json"):
+            registry.register_driver(tmp_path / "empty")
+
+    def test_a_missing_function_is_named(self, tmp_path):
+        functions = FUNCTIONS.replace("get_xyz, ", "")
+        driver = make_driver(tmp_path / "acme", "incomplete", functions=functions)
+        with pytest.raises(ValueError, match=r"missing these functions: \['get_xyz'\]"):
+            registry.register_driver(driver)
+
+    def test_unknown_contract_version(self, tmp_path):
+        manifest = {"contract": 99, "instruments": [{"vendor": "a", "microscope": "b", "api": "c"}]}
+        driver = make_driver(tmp_path / "acme", "", manifest=manifest)
+        with pytest.raises(ValueError, match='"contract": 1'):
+            registry.register_driver(driver)
+
+    def test_no_instruments(self, tmp_path):
+        driver = make_driver(tmp_path / "acme", "", manifest={"contract": 1, "instruments": []})
+        with pytest.raises(ValueError, match="at least one instrument"):
+            registry.register_driver(driver)
+
+    def test_instrument_missing_identity(self, tmp_path):
+        manifest = {"contract": 1, "instruments": [{"vendor": "acme", "password": "hunter2"}]}
+        driver = make_driver(tmp_path / "acme", "", manifest=manifest)
+        with pytest.raises(ValueError) as err:
+            registry.register_driver(driver)
+        assert "microscope" in str(err.value) and "hunter2" not in str(err.value)
+
+    def test_broken_json(self, tmp_path):
+        driver = make_driver(tmp_path / "acme", "", manifest="{not json")
+        with pytest.raises(ValueError, match="not valid JSON"):
+            registry.register_driver(driver)
+
+    def test_nothing_is_registered_when_a_function_is_missing(self, tmp_path):
+        functions = FUNCTIONS.replace("acquire, ", "")
+        driver = make_driver(tmp_path / "acme", "half", functions=functions)
+        with pytest.raises(ValueError):
+            registry.register_driver(driver)
+        assert not any(i["vendor"] == "acme" for i in registry.get_instruments())
 
 
 class TestNestedSettingsAreCopied:
@@ -264,54 +242,32 @@ class TestRememberedDrivers:
     def test_a_registered_driver_is_remembered_and_plugged_in_next_session(
         self, tmp_path, forget_acme, monkeypatch
     ):
-        driver = tmp_path / "acme_kept_driver.py"
-        driver.write_text(DRIVER_SOURCE % "kept")
+        driver = make_driver(tmp_path / "acme", "kept")
         registry.register_driver(driver)
         assert registry.remembered_drivers() == [str(driver.resolve())]
 
-        # A new session: nothing imported, nothing registered, nothing discovered yet.
-        import sys
-
-        sys.modules.pop("acme_kept_driver", None)
+        # A new session: nothing registered, nothing discovered yet.
         registry.REGISTRY.pop(("acme", "kept", "acme-sdk"))
         monkeypatch.setattr(registry, "_discovered", False)
         assert any(i["microscope"] == "kept" for i in registry.get_instruments())
 
     def test_remember_false_leaves_no_trace(self, tmp_path, forget_acme):
-        driver = tmp_path / "acme_once_driver.py"
-        driver.write_text(DRIVER_SOURCE % "once")
-        registry.register_driver(driver, remember=False)
+        registry.register_driver(make_driver(tmp_path / "acme", "once"), remember=False)
         assert registry.remembered_drivers() == []
 
     def test_forget_driver(self, tmp_path, forget_acme):
-        driver = tmp_path / "acme_forgot_driver.py"
-        driver.write_text(DRIVER_SOURCE % "forgot")
+        driver = make_driver(tmp_path / "acme", "forgot")
         registry.register_driver(driver)
         assert registry.forget_driver(driver) is True
         assert registry.remembered_drivers() == []
         assert registry.forget_driver(driver) is False
 
     def test_a_remembered_driver_that_vanished_is_skipped(self, monkeypatch, caplog):
-        registry._save_remembered(["/no/such/place/acme_gone_driver.py"])
+        registry._save_remembered(["/no/such/place/acme_gone_driver"])
         monkeypatch.setattr(registry, "_discovered", False)
         with caplog.at_level("ERROR"):
             registry.get_instruments()  # must not raise
         assert "acme_gone_driver" in caplog.text
-
-    def test_a_driver_folder_with_a_plugin_subfolder(self, tmp_path, forget_acme):
-        import sys
-
-        root = tmp_path / "acme_whole_driver"
-        (root / "zmart_plugin").mkdir(parents=True)
-        (root / "vendor_stuff.py").write_text("x = 1\n")
-        (root / "zmart_plugin" / "__init__.py").write_text(DRIVER_SOURCE % "plugin-folder")
-        try:
-            added = registry.register_driver(root, remember=False)
-            assert [i["microscope"] for i in added] == ["plugin-folder"]
-        finally:
-            sys.modules.pop("zmart_plugin", None)
-            if str(root) in sys.path:
-                sys.path.remove(str(root))
 
 
 class TestConfigRoot:

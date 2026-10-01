@@ -85,10 +85,11 @@ class Session:
         return self._ops["get_actuators"](self._handle)
 
     def get_xyz(self, with_actuators: dict | None = None) -> dict:
-        """Read the position of each axis, in micrometers from the origin.
+        """Read each axis: its position, and how far it can travel.
 
-        ``with_actuators`` names a motor per axis, e.g. ``{"z": "piezo"}``.
-        The names come from :meth:`get_actuators`; the driver checks them.
+        Both in micrometers from the origin. ``with_actuators`` names a motor
+        per axis, e.g. ``{"z": "piezo"}``. The names come from
+        :meth:`get_actuators`; the driver checks them.
         """
         return self._ops["get_xyz"](self._handle, with_actuators=with_actuators)
 
