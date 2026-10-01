@@ -343,6 +343,93 @@ class TestDataHandling:
         assert len(_sent(mic, "StartAcquisition")) == 1
 
 
+class TestReviewFindings:
+    """Regression tests for problems found in review."""
+
+    def test_lost_acquisition_reply_still_saves_the_image(self, mic):
+        mic._handle.scope.faults.add("StartAcquisition", "timeout")
+        answer = mic.acquire(
+            acquisition_type="t", position_label="lost", options={"backlash_correction": False}
+        )
+        assert answer["success"] is True
+        assert Path(answer["report"]["files"][0]).is_file()
+
+    def test_an_ignored_acquisition_is_never_confirmed_by_an_older_one(self, mic):
+        options = {"backlash_correction": False}
+        first = mic.acquire(acquisition_type="t", position_label="same", options=options)
+        assert first["success"] is True
+        mic._handle.scope.faults.add("StartAcquisition", "ignore")
+        second = mic.acquire(acquisition_type="t", position_label="same", options=options)
+        assert second["success"] is False
+        assert second["report"]["files"] == []
+        assert "not running" in second["report"]["reason"]
+
+    def test_acquire_near_the_lower_limit(self, mic):
+        mic.set_xyz(-4980, -5000, 0)  # 20 µm from the x limit, right at the y limit
+        answer = mic.acquire(acquisition_type="t", position_label="edge")
+        assert answer["success"] is True
+        assert mic.get_xyz()["report"]["x"]["value"] == -4980
+
+    def test_lost_stage_reply_still_moves_the_focus_at_once(self, mic):
+        import time
+
+        mic._handle.scope.faults.add("MoveStage", "timeout")
+        started = time.monotonic()
+        mic.set_xyz(10, 10, 20)
+        assert time.monotonic() - started < 0.5
+        position = mic.get_xyz()["report"]
+        assert [position[a]["value"] for a in ("x", "y", "z")] == [10, 10, 20]
+
+
+@pytest.mark.parametrize(
+    "orientation",
+    [
+        ((1, 0), (0, 1)),
+        ((-1, 0), (0, 1)),
+        ((1, 0), (0, -1)),
+        ((-1, 0), (0, -1)),
+        ((0, 1), (1, 0)),
+        ((0, -1), (1, 0)),
+        ((0, 1), (-1, 0)),
+        ((0, -1), (-1, 0)),
+    ],
+)
+def test_alignment_undoes_every_camera_orientation(orientation):
+    # Draw the same slide twice, 5 µm apart in x and 3 µm apart in y, with a
+    # non-square camera, and check that after alignment the picture moved
+    # left by 5 pixels and up by 3, whatever way the camera sits.
+    from zmart_driver_mock.data_handling import align_to_stage
+    from zmart_driver_mock.testing.mock_api.sample import render
+
+    width, height = 40, 24
+
+    def picture(x, y):
+        plane = render(
+            seed=0,
+            width=width,
+            height=height,
+            pixel_size_um=1.0,
+            centre_x=50_000.0 + x,
+            centre_y=37_500.0 + y,
+            defocus_um=0.0,
+            orientation=orientation,
+            signal=2000.0,
+            noise=None,
+        )
+        [aligned], out_width, out_height = align_to_stage(
+            [plane], width, height, [list(row) for row in orientation]
+        )
+        return aligned, out_width, out_height
+
+    before, out_width, out_height = picture(0, 0)
+    after, _, _ = picture(5, 3)
+    for row in range(out_height - 3):
+        for col in range(out_width - 5):
+            here = after[row * out_width + col]
+            there = before[(row + 3) * out_width + col + 5]
+            assert abs(here - there) <= 1
+
+
 def read_mraw_free_tiff(path: str) -> list[int]:
     """The pixels of a TIFF written by the driver, as a flat list."""
     raw = Path(path).read_bytes()

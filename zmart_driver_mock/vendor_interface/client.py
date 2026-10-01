@@ -67,6 +67,7 @@ class MockScopeConnection:
         try:
             connection._call("Login", token=token)
         except VendorError as exc:
+            scope.shutdown()
             raise RuntimeError(
                 f"the microscope software refused the login ({exc.message}); "
                 f"check the 'token' entry of the connection"

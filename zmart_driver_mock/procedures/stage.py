@@ -27,19 +27,30 @@ def backlash_takeup(ctx) -> dict[str, Any]:
     A stage's screws have a little play. Arriving from the same side every
     time takes that play up in the same direction, so a position visited
     twice is visited exactly.
+
+    Close to the lower edge of the travel range, the step back is shortened
+    so that it stays inside the limits; right at the edge, that axis is not
+    stepped back at all. The report says how far each axis stepped back.
     """
     here = get.raw_position(ctx).value_or_raise("the current position")
-    back = setter.move(
-        ctx,
-        x=here["x"] - BACKLASH_STEP_UM,
-        y=here["y"] - BACKLASH_STEP_UM,
-        focus=here["focus"],
-        piezo=here["piezo"],
-    )
-    _require(back, "stepping back")
-    forward = setter.move(ctx, x=here["x"], y=here["y"], focus=here["focus"], piezo=here["piezo"])
-    _require(forward, "the approach")
-    return {"approach": "+x +y", "step_um": BACKLASH_STEP_UM}
+    stage = ctx.config.limits["stage_um"]
+    step = {
+        axis: max(0.0, min(BACKLASH_STEP_UM, here[axis] - stage[axis][0])) for axis in ("x", "y")
+    }
+    if step["x"] > 0 or step["y"] > 0:
+        back = setter.move(
+            ctx,
+            x=here["x"] - step["x"],
+            y=here["y"] - step["y"],
+            focus=here["focus"],
+            piezo=here["piezo"],
+        )
+        _require(back, "stepping back")
+        forward = setter.move(
+            ctx, x=here["x"], y=here["y"], focus=here["focus"], piezo=here["piezo"]
+        )
+        _require(forward, "the approach")
+    return {"approach": "+x +y", "step_um": step}
 
 
 def zero_piezo(ctx) -> dict[str, Any]:

@@ -39,8 +39,17 @@ def move(ctx, *, x: float, y: float, focus: float, piezo: float) -> Outcome:
     """Move every drive to a raw stage position. The limits check x, y and focus plus piezo."""
 
     def send():
-        ctx.vendor.move_stage(x=x, y=y)
+        # When the stage's reply is lost, the stage may well be moving, so
+        # still send the focus move before reporting the lost reply.
+        # Otherwise the focus would only follow one whole confirmation later.
+        lost = None
+        try:
+            ctx.vendor.move_stage(x=x, y=y)
+        except TimeoutError as error:
+            lost = error
         ctx.vendor.move_focus(focus=focus, piezo=piezo)
+        if lost is not None:
+            raise lost
 
     def confirm(_result) -> bool:
         xy, z = get.stage(ctx), get.focus(ctx)
@@ -144,6 +153,12 @@ def acquire(ctx, *, name: str, z_planes: int = 1, z_step_um: float = 1.0) -> Out
     """
     here = get.raw_position(ctx).value_or_raise("the current position")
     z_top = here["z"] + (z_planes - 1) * z_step_um
+    # The file of the acquisition before this one. When the reply naming our
+    # file is lost, an acquisition only counts as ours if it is a new one:
+    # an older image with the same name must never be taken for this one.
+    before = get.status(ctx).value_or_raise("the status")["last_acquisition"]
+    previous_file = before["file"] if before is not None else None
+    found: dict[str, str] = {}
 
     def confirm(file) -> bool:
         reading = get.status(ctx)
@@ -152,9 +167,10 @@ def acquire(ctx, *, name: str, z_planes: int = 1, z_step_um: float = 1.0) -> Out
         last = reading.value["last_acquisition"]
         if file is not None:
             ours = last is not None and last["file"] == file
-        else:  # the reply was lost, so recognise it by its name
-            ours = last is not None and last["name"] == name
+        else:  # the reply was lost: recognise it as a new acquisition with our name
+            ours = last is not None and last["file"] != previous_file and last["name"] == name
         if ours and last["state"] == "done":
+            found["file"] = last["file"]
             return True
         if ours and last["state"] == "aborted":
             raise NeverConfirmed("the acquisition was stopped before it finished")
@@ -162,7 +178,7 @@ def acquire(ctx, *, name: str, z_planes: int = 1, z_step_um: float = 1.0) -> Out
             raise NeverConfirmed("the microscope is idle, but our acquisition is not running")
         return False
 
-    return ctx.set.run(
+    outcome = ctx.set.run(
         SetCommand(
             name=f"acquire {name}",
             send=lambda: ctx.vendor.start_acquisition(name, z_planes=z_planes, z_step_um=z_step_um),
@@ -172,6 +188,9 @@ def acquire(ctx, *, name: str, z_planes: int = 1, z_step_um: float = 1.0) -> Out
             tuning=ACQUIRE_TUNING,
         )
     )
+    if outcome.confirmed and outcome.result is None:
+        outcome.result = found["file"]  # learned from the readback after a lost reply
+    return outcome
 
 
 def stop(ctx) -> Outcome:
