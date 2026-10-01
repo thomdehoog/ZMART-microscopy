@@ -24,7 +24,13 @@ classifiers = [
 test = ["pytest"]
 
 [tool.setuptools]
-packages = ["zmart_controller", "zmart_driver_mock", "zmart_driver_mock.zmart_controller"]
+packages = [
+    "zmart_controller",
+    "zmart_driver_mock",
+    "zmart_driver_mock.zmart_controller",
+    "zmart_driver_mock.testing",
+    "zmart_driver_mock.testing.mock_api",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
