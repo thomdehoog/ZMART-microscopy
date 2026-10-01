@@ -2,11 +2,18 @@
 
 import pytest
 
-from zmart_controller import check_driver, mock
+from zmart_controller import check_driver, registry
+
+MOCK = ("mock", "mock-scope", "mock-api")
 
 
 def _mock_instrument():
     return {"vendor": "mock", "microscope": "mock-scope", "api": "mock-api"}
+
+
+def _break(monkeypatch, name, func):
+    """Swap one of the mock's functions in the table the registry uses."""
+    monkeypatch.setitem(registry.REGISTRY[MOCK]["ops"], name, func)
 
 
 def test_the_mock_fits():
@@ -14,16 +21,9 @@ def test_the_mock_fits():
 
 
 def test_problems_are_named(monkeypatch):
-    # Break two answers and expect two plain sentences, nothing else broken.
-    monkeypatch.setattr(
-        mock, "get_xyz", lambda handle, **kw: {"success": True, "report": {"x": {}}}
-    )
-    monkeypatch.setattr(mock, "get_info", lambda handle: {"success": True, "report": {}})
-    from zmart_controller import registry
-
-    registry.register_driver(
-        "zmart_controller.mock", remember=False
-    )  # pick up the patched functions
+    # Break two answers and expect plain sentences about those two, nothing else.
+    _break(monkeypatch, "get_xyz", lambda handle, **kw: {"success": True, "report": {"x": {}}})
+    _break(monkeypatch, "get_info", lambda handle: {"success": True, "report": {}})
     problems = check_driver(_mock_instrument())
     assert "get_info: the report must contain output_root" in problems
     assert any(p.startswith("get_xyz: axis 'x' is missing") for p in problems)
@@ -32,17 +32,12 @@ def test_problems_are_named(monkeypatch):
 
 
 def test_a_bare_answer_without_the_envelope_is_reported(monkeypatch):
-    monkeypatch.setattr(mock, "get_procedures", lambda handle: {"autofocus": {}})
-    from zmart_controller import registry
-
-    registry.register_driver("zmart_controller.mock", remember=False)
+    _break(monkeypatch, "get_procedures", lambda handle: {"autofocus": {}})
     problems = check_driver(_mock_instrument())
     assert any('get_procedures must return {"success"' in p for p in problems)
 
 
 @pytest.fixture(autouse=True)
-def _restore_mock():
-    yield
-    from zmart_controller import registry
-
-    registry.register_driver("zmart_controller.mock", remember=False)
+def _mock_present():
+    if MOCK not in registry.REGISTRY:
+        registry.register_driver("zmart_driver_mock", remember=False)

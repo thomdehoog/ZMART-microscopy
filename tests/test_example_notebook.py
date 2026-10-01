@@ -13,7 +13,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from zmart_controller import mock, registry
+from zmart_controller import register_driver, registry
 
 NOTEBOOK = Path(__file__).resolve().parent.parent / "docs" / "example_experiment.ipynb"
 
@@ -66,10 +66,6 @@ def test_the_notebook_works_with_a_driver_that_names_its_files_differently(monke
             },
         }
 
-    monkeypatch.setattr(mock, "acquire", acquire)
-    mock.register()
-    try:
-        _run_notebook()
-    finally:
-        monkeypatch.undo()
-        mock.register()
+    key = ("mock", "mock-scope", "mock-api")
+    monkeypatch.setitem(registry.REGISTRY[key]["ops"], "acquire", acquire)
+    _run_notebook()

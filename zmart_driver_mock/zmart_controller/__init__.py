@@ -1,10 +1,10 @@
 """The mock microscope: a pretend instrument that lives in memory.
 
 Use it to try every command without hardware, and read it as a complete
-example of a driver::
+example of a driver. It is laid out like every driver, a ``zmart_controller``
+folder with ``zmart.json`` and this file, and plugged in the same way::
 
-    from zmart_controller import mock
-    mock.register()
+    zmart_controller.register_driver("zmart_driver_mock")
 
 It does everything a real driver does and the controller does not: it loads
 its origin at connect, refuses a closed connection, checks options, and keeps
@@ -308,13 +308,3 @@ def get_info(handle: MockHandle) -> dict:
             "output_root": str(root),
         }
     )
-
-
-def register() -> None:
-    """Plug the mock in, so :func:`zmart_controller.get_instruments` lists it.
-
-    The same as ``register_driver("zmart_controller.mock")``.
-    """
-    from zmart_controller.registry import register_driver
-
-    register_driver("zmart_controller.mock", remember=False)
