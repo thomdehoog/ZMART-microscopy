@@ -90,7 +90,7 @@ def register(connection: dict[str, Any], *, ops: dict[str, Any]) -> None:
 
 
 # The folder with the driver's controller-facing functions, inside a driver.
-PLUGIN_FOLDER = "zmart_plugin"
+PLUGIN_FOLDER = "zmart_controller"
 
 
 def config_root() -> Path:
@@ -171,7 +171,7 @@ def register_driver(driver: str | Path, *, remember: bool = True) -> list[dict[s
     """Plug a driver in, and return the instruments it provides.
 
     ``driver`` is the driver's folder, or the name of an installed module.
-    The controller looks there for ``zmart_plugin/zmart.json`` (or
+    The controller looks there for ``zmart_controller/zmart.json`` (or
     ``zmart.json`` directly). That file names the instruments; the functions
     are found by name in the module next to it. See ``docs/driver.md`` for
     the contract.
@@ -218,10 +218,12 @@ def _locate_plugin(driver: str | Path):
         if exc.name and str(driver).startswith(exc.name):
             raise ValueError(f"no driver found at {driver!s}") from None
         raise
-    plugin_dir = Path(module.__file__).parent
-    if not (plugin_dir / MANIFEST).is_file():
-        raise ValueError(f"module {driver!s} has no {MANIFEST} next to it")
-    return plugin_dir, module
+    folder = Path(module.__file__).parent
+    if (folder / MANIFEST).is_file():
+        return folder, module
+    if (folder / PLUGIN_FOLDER / MANIFEST).is_file():
+        return folder / PLUGIN_FOLDER, importlib.import_module(f"{driver}.{PLUGIN_FOLDER}")
+    raise ValueError(f"module {driver!s} has no {PLUGIN_FOLDER}/{MANIFEST}")
 
 
 def _read_manifest(path: Path) -> dict[str, Any]:
@@ -246,7 +248,7 @@ def _read_manifest(path: Path) -> dict[str, Any]:
 
 def _import_plugin(plugin_dir: Path):
     """Import the plugin folder under a name of its own, so two drivers never clash."""
-    name = f"zmart_plugin__{plugin_dir.parent.name}_{abs(hash(str(plugin_dir.resolve()))):x}"
+    name = f"zmart_controller__{plugin_dir.parent.name}_{abs(hash(str(plugin_dir.resolve()))):x}"
     if name in sys.modules:
         return sys.modules[name]
     spec = importlib.util.spec_from_file_location(

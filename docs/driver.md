@@ -2,7 +2,7 @@
 
 A driver is one Python function per command, collected in a dictionary and
 handed to the controller's registry. There is no base class to inherit from.
-The mock microscope in [`zmart_controller/mock.py`](../zmart_controller/mock.py)
+The mock microscope in [`zmart_driver_mock/`](../zmart_driver_mock/)
 is a complete, readable driver of about 300 lines; read it alongside this
 page.
 
@@ -22,11 +22,11 @@ looks inside the handle or any answer.
 
 ## A minimal driver
 
-Two files in a folder called `zmart_plugin/`:
+Two files in a folder called `zmart_controller/`:
 
 ```
 my_driver/
-    zmart_plugin/
+    zmart_controller/
         zmart.json         # which instruments this driver serves
         __init__.py        # one function per command
     ...                    # the rest of the driver: vendor API, limits, calibration

@@ -70,7 +70,7 @@ class TestDiscovery:
         # Pretend a package is installed that announces the mock as a driver.
         from importlib.metadata import EntryPoint
 
-        fake = EntryPoint("fake", "zmart_controller.mock", registry.ENTRY_POINT_GROUP)
+        fake = EntryPoint("fake", "zmart_driver_mock", registry.ENTRY_POINT_GROUP)
         monkeypatch.setattr(
             registry,
             "entry_points",
@@ -93,7 +93,7 @@ class TestDiscovery:
 
 
 FUNCTIONS = """
-from zmart_controller.mock import (
+from zmart_driver_mock.zmart_controller import (
     connect, disconnect, get_info, get_actuators, get_xyz, set_xyz, get_state,
     set_state, get_acquisition_options, acquire, get_procedures, run_procedure,
 )
@@ -101,8 +101,8 @@ from zmart_controller.mock import (
 
 
 def make_driver(root, microscope, *, functions=FUNCTIONS, manifest=None, plugin=True):
-    """Write a driver folder: zmart_plugin/zmart.json + __init__.py with the mock's functions."""
-    folder = root / "zmart_plugin" if plugin else root
+    """Write a driver folder: zmart_controller/zmart.json + __init__.py with the mock's functions."""
+    folder = root / "zmart_controller" if plugin else root
     folder.mkdir(parents=True, exist_ok=True)
     (folder / "__init__.py").write_text(functions)
     if manifest is None:
@@ -136,7 +136,7 @@ class TestRegisterDriver:
 
     def test_from_a_module_name(self):
         registry.REGISTRY.pop(("mock", "mock-scope", "mock-api"), None)
-        added = registry.register_driver("zmart_controller.mock", remember=False)
+        added = registry.register_driver("zmart_driver_mock", remember=False)
         assert [i["vendor"] for i in added] == ["mock"]
 
     def test_calling_it_twice_is_harmless(self, tmp_path, forget_acme):
@@ -145,7 +145,9 @@ class TestRegisterDriver:
         registry.register_driver(driver)
         assert sum(i["microscope"] == "twice" for i in registry.get_instruments()) == 1
 
-    def test_two_drivers_both_called_zmart_plugin_load_side_by_side(self, tmp_path, forget_acme):
+    def test_two_drivers_both_called_zmart_controller_load_side_by_side(
+        self, tmp_path, forget_acme
+    ):
         first = make_driver(tmp_path / "first", "scope-1")
         second = make_driver(tmp_path / "second", "scope-2")
         registry.register_driver(first)
@@ -168,7 +170,7 @@ class TestRegisterDriver:
 
     def test_the_setup_guide_works_on_the_mock(self):
         registry.REGISTRY.pop(("mock", "mock-scope", "mock-api"), None)
-        added = registry.register_driver("zmart_controller.mock", remember=False)
+        added = registry.register_driver("zmart_driver_mock", remember=False)
         assert [i["vendor"] for i in added] == ["mock"]
         assert registry.remembered_drivers() == []
 
@@ -178,7 +180,7 @@ class TestRegisterDriverRefusals:
         with pytest.raises(ValueError, match="no driver found"):
             registry.register_driver("acme_does_not_exist_anywhere")
         (tmp_path / "empty").mkdir()
-        with pytest.raises(ValueError, match="no zmart_plugin/zmart.json"):
+        with pytest.raises(ValueError, match="no zmart_controller/zmart.json"):
             registry.register_driver(tmp_path / "empty")
 
     def test_a_missing_function_is_named(self, tmp_path):
