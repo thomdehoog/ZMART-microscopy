@@ -15,6 +15,12 @@ mock.register()
 
 
 @pytest.fixture(autouse=True)
+def _config_in_a_temporary_folder(tmp_path, monkeypatch):
+    """Never let a test write to the real configuration folder."""
+    monkeypatch.setenv("ZMART_MICROSCOPY_ROOT", str(tmp_path / "config"))
+
+
+@pytest.fixture(autouse=True)
 def _reset_active_session():
     """Clear the module-level active session after every test.
 

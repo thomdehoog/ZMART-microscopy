@@ -258,3 +258,75 @@ class TestNestedSettingsAreCopied:
         given["origin"]["x"] = 500.0
         stored = next(i for i in registry.get_instruments() if i["microscope"] == "scratch")
         assert stored["origin"]["x"] == 0.0
+
+
+class TestRememberedDrivers:
+    def test_a_registered_driver_is_remembered_and_plugged_in_next_session(
+        self, tmp_path, forget_acme, monkeypatch
+    ):
+        driver = tmp_path / "acme_kept_driver.py"
+        driver.write_text(DRIVER_SOURCE % "kept")
+        registry.register_driver(driver)
+        assert registry.remembered_drivers() == [str(driver.resolve())]
+
+        # A new session: nothing imported, nothing registered, nothing discovered yet.
+        import sys
+
+        sys.modules.pop("acme_kept_driver", None)
+        registry.REGISTRY.pop(("acme", "kept", "acme-sdk"))
+        monkeypatch.setattr(registry, "_discovered", False)
+        assert any(i["microscope"] == "kept" for i in registry.get_instruments())
+
+    def test_remember_false_leaves_no_trace(self, tmp_path, forget_acme):
+        driver = tmp_path / "acme_once_driver.py"
+        driver.write_text(DRIVER_SOURCE % "once")
+        registry.register_driver(driver, remember=False)
+        assert registry.remembered_drivers() == []
+
+    def test_forget_driver(self, tmp_path, forget_acme):
+        driver = tmp_path / "acme_forgot_driver.py"
+        driver.write_text(DRIVER_SOURCE % "forgot")
+        registry.register_driver(driver)
+        assert registry.forget_driver(driver) is True
+        assert registry.remembered_drivers() == []
+        assert registry.forget_driver(driver) is False
+
+    def test_a_remembered_driver_that_vanished_is_skipped(self, monkeypatch, caplog):
+        registry._save_remembered(["/no/such/place/acme_gone_driver.py"])
+        monkeypatch.setattr(registry, "_discovered", False)
+        with caplog.at_level("ERROR"):
+            registry.get_instruments()  # must not raise
+        assert "acme_gone_driver" in caplog.text
+
+    def test_a_driver_folder_with_a_plugin_subfolder(self, tmp_path, forget_acme):
+        import sys
+
+        root = tmp_path / "acme_whole_driver"
+        (root / "zmart_plugin").mkdir(parents=True)
+        (root / "vendor_stuff.py").write_text("x = 1\n")
+        (root / "zmart_plugin" / "__init__.py").write_text(DRIVER_SOURCE % "plugin-folder")
+        try:
+            added = registry.register_driver(root, remember=False)
+            assert [i["microscope"] for i in added] == ["plugin-folder"]
+        finally:
+            sys.modules.pop("zmart_plugin", None)
+            if str(root) in sys.path:
+                sys.path.remove(str(root))
+
+
+class TestConfigRoot:
+    def test_override_wins(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("ZMART_MICROSCOPY_ROOT", str(tmp_path))
+        assert registry.config_root() == tmp_path
+
+    def test_per_os_default(self, monkeypatch):
+        monkeypatch.delenv("ZMART_MICROSCOPY_ROOT", raising=False)
+        monkeypatch.setattr(registry.platform, "system", lambda: "Windows")
+        monkeypatch.setenv("PROGRAMDATA", r"C:\\ProgramData")
+        assert str(registry.config_root()).endswith("zmart-microscopy")
+        monkeypatch.setattr(registry.platform, "system", lambda: "Darwin")
+        assert registry.config_root() == registry.Path(
+            "/Library/Application Support/zmart-microscopy"
+        )
+        monkeypatch.setattr(registry.platform, "system", lambda: "Linux")
+        assert registry.config_root() == registry.Path("/etc/zmart-microscopy")

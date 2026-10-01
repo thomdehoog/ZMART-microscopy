@@ -60,9 +60,21 @@ register(
 )
 ```
 
-Put this in a file or a package, and plug it in from a notebook with
-`zmart_controller.register_driver("path/to/it")`. The `register(...)` call runs,
-and your microscope appears in `get_instruments()`.
+Keep the functions and the `register(...)` call in a folder named
+`zmart_plugin/` inside your driver. Everything else in the driver, the vendor
+API, limits, calibration, stays private to it:
+
+```
+my_driver/
+    zmart_plugin/
+        __init__.py        # the functions above and register(...)
+    ...                    # the rest of the driver
+```
+
+Plug it in once on the microscope computer with
+`zmart_controller.register_driver("path/to/my_driver")`. The controller
+imports `zmart_plugin`, your `register(...)` runs, and the driver is
+remembered for later sessions.
 
 ## The contract
 
