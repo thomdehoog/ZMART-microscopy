@@ -96,8 +96,8 @@ def _check_xyz(answer, problems):
 def _check_state(answer, problems):
     if not isinstance(answer, dict) or not isinstance(answer.get("changeable"), dict):
         problems.append('get_state: the answer must contain a "changeable" dict')
-    if not isinstance(answer, dict) or not isinstance(answer.get("observed"), dict):
-        problems.append('get_state: the answer must contain an "observed" dict')
+    if not isinstance(answer, dict) or not isinstance(answer.get("read_only"), dict):
+        problems.append('get_state: the answer must contain a "read_only" dict')
 
 
 def _check_acquisition_options(answer, problems):

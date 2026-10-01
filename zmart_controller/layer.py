@@ -53,15 +53,17 @@ class Session:
         """Capture the instrument's settings so they can be applied again later.
 
         The ``answer`` has two parts. ``"changeable"`` holds the settings that
-        :meth:`set_state` applies. ``"observed"`` is a read-only description of
-        the instrument. The controller does not look inside either.
+        :meth:`set_state` applies. ``"read_only"`` describes the instrument:
+        you can read it, but :meth:`set_state` never changes it. Its values can
+        still change by other means, such as the pixel size after an objective
+        change. The controller does not look inside either.
         """
         return self._ops["get_state"](self._handle)
 
     def set_state(self, state: dict) -> dict:
         """Apply a state captured with :meth:`get_state` (pass its ``answer``).
 
-        The driver applies the ``"changeable"`` part only. ``"observed"`` is
+        The driver applies the ``"changeable"`` part only. ``"read_only"`` is
         never an instruction.
         """
         return self._ops["set_state"](self._handle, state)

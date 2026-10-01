@@ -117,11 +117,11 @@ class TestAcquire:
 
 
 class TestState:
-    def test_state_split_into_changeable_observed(self, mic):
+    def test_state_split_into_changeable_and_read_only(self, mic):
         state = mic.get_state()["answer"]
-        assert list(state) == ["changeable", "observed"]  # changeable first
+        assert list(state) == ["changeable", "read_only"]  # changeable first
         assert "laser_power" in state["changeable"]
-        assert "serial" in state["observed"]
+        assert "serial" in state["read_only"]
 
     def test_capture_and_reapply(self, mic):
         original = mic.get_state()["answer"]
@@ -143,10 +143,10 @@ class TestState:
         assert rec["success"] is False
         assert rec["answer"]["applied"] == {}
 
-    def test_observed_is_a_report_never_an_instruction(self, mic):
-        # A mismatching observed part does not block applying the changeable
+    def test_read_only_is_never_an_instruction(self, mic):
+        # A mismatching read_only part does not block applying the changeable
         # part (operator decision: set_state acts on changeable only).
-        rec = mic.set_state({"changeable": {"laser_power": 5.0}, "observed": {"serial": "OTHER"}})
+        rec = mic.set_state({"changeable": {"laser_power": 5.0}, "read_only": {"serial": "OTHER"}})
         assert rec["answer"]["applied"]["laser_power"] == 5.0
 
 
