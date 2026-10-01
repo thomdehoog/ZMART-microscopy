@@ -110,7 +110,7 @@ ones listed here.
 | `get_actuators` | handle | `{axis: [actuator names]}` for `x`, `y`, `z` |
 | `get_xyz` | handle, `with_actuators=` | `{axis: {"value", "actuator", "unit", "range"}}` for `x`, `y`, `z`; `value` and `range` (`[min, max]`, how far the axis can travel) in micrometers from the origin |
 | `set_xyz` | handle, `x`, `y`, `z`, `with_actuators=` | `position` and `actuators`; raise if the move cannot be confirmed |
-| `get_state` | handle | `{"changeable": {...}, "observed": {...}}` |
+| `get_state` | handle | `{"changeable": {...}, "read_only": {...}}` |
 | `set_state` | handle, state | what was applied; act on `changeable` only |
 | `get_acquisition_options` | handle | `{name: {"options": [...], "active": value}}` |
 | `acquire` | handle, `acquisition_type=`, `position_label=`, `options=` | `acquisition_type`, `position_label` and the saved file paths |
@@ -118,8 +118,10 @@ ones listed here.
 | `run_procedure` | handle, `{"name": ..., ...}` | `ran`, the name of the procedure; raise `ValueError` for an unknown name |
 
 A *state* has two parts. `"changeable"` holds the settings that `set_state`
-applies. `"observed"` is a read-only description, such as which objective is in
-place and the pixel size; it is never used as an instruction. When the allowed
+applies. `"read_only"` describes the instrument, such as which objective is in
+place and the pixel size. You can read it, but `set_state` never changes it and
+never uses it as an instruction; its values can still change by other means,
+such as the pixel size after an objective change. When the allowed
 values of an option cannot be listed, `"options"` may be a short description
 such as `"float > 0"`. Anything in `get_info` beyond `output_root` is an extra
 of your driver; an experiment that depends on it will not run elsewhere.

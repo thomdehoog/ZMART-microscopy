@@ -262,7 +262,7 @@ def get_state(handle: MockHandle) -> dict:
     return _reply(
         {
             "changeable": changeable,
-            "observed": {
+            "read_only": {
                 "serial": hardware["serial"],
                 "objective": hardware["objectives"][int(slot)]["name"],
                 "pixel_size": {"x": pixel, "y": pixel, "unit": "um"},
@@ -280,7 +280,7 @@ def get_state(handle: MockHandle) -> dict:
 def set_state(handle: MockHandle, state: dict) -> dict:
     """Apply the ``changeable`` settings, confirm each one, and report what happened.
 
-    ``observed`` is never read. Settings this microscope does not know are
+    ``read_only`` is never read. Settings this microscope does not know are
     listed under ``ignored``. ``success`` is False when nothing was applied,
     or when a setting was sent but could not be confirmed; both are safe to
     carry on from, so they are reported, not raised.
