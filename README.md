@@ -70,16 +70,20 @@ zmart_controller.run_procedure(Dict)
 zmart_controller.disconnect()
 ```
 
-Every command answers with the same two things:
+Every command replies with the same two things:
 
 ```python
-{"success": True, "report": {...}}
+{"success": True, "answer": {...}}
 ```
 
-`success` says whether the driver did what you asked. `report` is whatever the
-driver has to say about it: a position, a saved-file record, a state. When
-something unexpected happens, the answer is `success: False`, and the details are in `report`.
-We have not defined a vocabulary for error messages at this point.
+`success` says whether the driver did what you asked. `answer` is whatever the
+driver has to say about it: a position, a saved-file record, a state.
+
+When carrying on would be unsafe, the command raises an error instead of
+replying. `ValueError` means the request itself was wrong, such as a position
+outside the limits. `RuntimeError` means the microscope failed. `success: False`
+is kept for outcomes that are safe to carry on from, such as a setting that was
+sent but could not be confirmed; the `answer` then says what happened.
 
 
 ## Try it yourself

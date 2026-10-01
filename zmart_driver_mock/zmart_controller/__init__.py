@@ -28,7 +28,7 @@ saved), ``token`` (the vendor login, default ``"mock-token"``) and
 take time, ``"instant"`` makes them finish at once.
 
 Every function except ``connect`` and ``disconnect`` takes the handle first
-and returns ``{"success": bool, "report": ...}``.
+and replies with ``{"success": bool, "answer": ...}``.
 
 Author: Thom de Hoog, Center for Microscopy and Image Analysis (ZMB),
 University of Zurich (thom.dehoog@zmb.uzh.ch, thomdehoog@gmail.com).
@@ -92,9 +92,9 @@ class MockHandle:
         return self.vendor.scope
 
 
-def _answer(report: Any, *, success: bool = True) -> dict:
-    """Wrap a report in the shape every command returns."""
-    return {"success": success, "report": report}
+def _reply(answer: Any, *, success: bool = True) -> dict:
+    """Wrap an answer in the shape every command replies with."""
+    return {"success": success, "answer": answer}
 
 
 def _require_open(handle: MockHandle) -> None:
@@ -180,7 +180,7 @@ def disconnect(handle: MockHandle) -> None:
 def get_info(handle: MockHandle) -> dict:
     """Where images go, plus which configuration files are in use."""
     _require_open(handle)
-    return _answer(
+    return _reply(
         {
             "output_root": str(handle.output_root),
             "client": handle.client,
@@ -194,7 +194,7 @@ def get_info(handle: MockHandle) -> dict:
 def get_actuators(handle: MockHandle) -> dict:
     """The motors that can move each axis."""
     _require_open(handle)
-    return _answer({axis: list(names) for axis, names in get.ACTUATORS.items()})
+    return _reply({axis: list(names) for axis, names in get.ACTUATORS.items()})
 
 
 def _actuators(with_actuators: dict | None) -> dict[str, str]:
@@ -217,7 +217,7 @@ def get_xyz(handle: MockHandle, *, with_actuators: dict | None = None) -> dict:
     raw = get.raw_position(handle).value_or_raise("the position")
     user = get.user_position(handle).value_or_raise("the position")
     ranges = user_range(handle.config, raw["objective"])
-    return _answer(
+    return _reply(
         {
             axis: {
                 "value": user[axis],
@@ -245,7 +245,7 @@ def set_xyz(
     if not outcome.confirmed:
         raise RuntimeError(f"the move to ({x}, {y}, {z}) could not be confirmed: {outcome.reason}")
     reached = get.user_position(handle).value_or_raise("the position")
-    return _answer({"position": {"x": x, "y": y, "z": z}, "readback": reached, "actuators": chosen})
+    return _reply({"position": {"x": x, "y": y, "z": z}, "readback": reached, "actuators": chosen})
 
 
 # --- state --------------------------------------------------------------------
@@ -259,10 +259,10 @@ def get_state(handle: MockHandle) -> dict:
     hardware = get.hardware(handle).value_or_raise("the hardware description")
     pixel = float(handle.config.image_stage_registration["pixel_size_um"].get(slot, 0.0))
     camera = hardware["camera"]
-    return _answer(
+    return _reply(
         {
             "changeable": changeable,
-            "observed": {
+            "read_only": {
                 "serial": hardware["serial"],
                 "objective": hardware["objectives"][int(slot)]["name"],
                 "pixel_size": {"x": pixel, "y": pixel, "unit": "um"},
@@ -280,7 +280,7 @@ def get_state(handle: MockHandle) -> dict:
 def set_state(handle: MockHandle, state: dict) -> dict:
     """Apply the ``changeable`` settings, confirm each one, and report what happened.
 
-    ``observed`` is never read. Settings this microscope does not know are
+    ``read_only`` is never read. Settings this microscope does not know are
     listed under ``ignored``. ``success`` is False when nothing was applied,
     or when a setting was sent but could not be confirmed; both are safe to
     carry on from, so they are reported, not raised.
@@ -303,8 +303,8 @@ def set_state(handle: MockHandle, state: dict) -> dict:
             unconfirmed[name] = outcome.reason
     ignored = sorted(set(changeable) - set(_STATE_ORDER))
     success = bool(applied) and not unconfirmed
-    report = {"applied": applied, "unconfirmed": unconfirmed, "ignored": ignored}
-    return _answer(report, success=success)
+    answer = {"applied": applied, "unconfirmed": unconfirmed, "ignored": ignored}
+    return _reply(answer, success=success)
 
 
 # --- acquiring ----------------------------------------------------------------
@@ -322,7 +322,7 @@ def _menu() -> dict:
 def get_acquisition_options(handle: MockHandle) -> dict:
     """The choices for capturing and saving, with allowed values and the active one."""
     _require_open(handle)
-    return _answer(_menu())
+    return _reply(_menu())
 
 
 def _with_defaults(options: dict | None) -> dict:
@@ -350,7 +350,7 @@ def acquire(
 ) -> dict:
     """Capture an image (or a z-stack) here and save it, in one step.
 
-    Options left out keep their active value. The report lists the saved
+    Options left out keep their active value. The answer lists the saved
     ``files`` and the ``command_log`` that records how they were made. When
     the acquisition cannot be confirmed, ``success`` is False and no files
     are listed.
@@ -365,7 +365,7 @@ def acquire(
     outcome = setter.acquire(
         handle, name=vendor_name, z_planes=options["z_planes"], z_step_um=options["z_step_um"]
     )
-    report: dict[str, Any] = {
+    answer: dict[str, Any] = {
         "acquisition_type": acquisition_type,
         "position_label": position_label,
         "format": options["format"],
@@ -374,7 +374,7 @@ def acquire(
         "confirmed": outcome.confirmed,
     }
     if not outcome.confirmed:
-        return _answer({**report, "files": [], "reason": outcome.reason}, success=False)
+        return _reply({**answer, "files": [], "reason": outcome.reason}, success=False)
     saved = save_acquisition(
         handle,
         vendor_file=outcome.result,
@@ -384,7 +384,7 @@ def acquire(
         position_um=position,
         log_mark=mark,
     )
-    return _answer({**report, **saved, "vendor_file": outcome.result})
+    return _reply({**answer, **saved, "vendor_file": outcome.result})
 
 
 # --- procedures ---------------------------------------------------------------
@@ -393,9 +393,7 @@ def acquire(
 def get_procedures(handle: MockHandle) -> dict:
     """The routines this microscope offers, each with a plain description."""
     _require_open(handle)
-    return _answer(
-        {name: {"description": spec["description"]} for name, spec in PROCEDURES.items()}
-    )
+    return _reply({name: {"description": spec["description"]} for name, spec in PROCEDURES.items()})
 
 
 def run_procedure(handle: MockHandle, procedure: dict) -> dict:
@@ -410,4 +408,4 @@ def run_procedure(handle: MockHandle, procedure: dict) -> dict:
         inspect.signature(run).bind(handle, **entries)
     except TypeError as exc:
         raise ValueError(f"procedure {name!r} does not take these entries: {exc}") from None
-    return _answer({"ran": name, **run(handle, **entries)})
+    return _reply({"ran": name, **run(handle, **entries)})

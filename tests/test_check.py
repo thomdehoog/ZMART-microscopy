@@ -22,10 +22,10 @@ def test_the_mock_fits():
 
 def test_problems_are_named(monkeypatch):
     # Break two answers and expect plain sentences about those two, nothing else.
-    _break(monkeypatch, "get_xyz", lambda handle, **kw: {"success": True, "report": {"x": {}}})
-    _break(monkeypatch, "get_info", lambda handle: {"success": True, "report": {}})
+    _break(monkeypatch, "get_xyz", lambda handle, **kw: {"success": True, "answer": {"x": {}}})
+    _break(monkeypatch, "get_info", lambda handle: {"success": True, "answer": {}})
     problems = check_driver(_mock_instrument())
-    assert "get_info: the report must contain output_root" in problems
+    assert "get_info: the answer must contain output_root" in problems
     assert any(p.startswith("get_xyz: axis 'x' is missing") for p in problems)
     assert any(p.startswith("get_xyz: axis 'y' is missing") for p in problems)
     assert not any(p.startswith("get_state") for p in problems)

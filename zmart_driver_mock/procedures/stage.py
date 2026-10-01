@@ -30,7 +30,7 @@ def backlash_takeup(ctx) -> dict[str, Any]:
 
     Close to the lower edge of the travel range, the step back is shortened
     so that it stays inside the limits; right at the edge, that axis is not
-    stepped back at all. The report says how far each axis stepped back.
+    stepped back at all. The answer says how far each axis stepped back.
     """
     here = get.raw_position(ctx).value_or_raise("the current position")
     stage = ctx.config.limits["stage_um"]
