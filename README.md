@@ -11,15 +11,12 @@ The **ZMART Controller** provides a small, universal schema for driving a micros
 You build your workflow on this schema, and it runs on any microscope that has a ZMART driver plugged into it.
 It is part of **ZMART** (ZMB's Microscopy-Agnostic Research Toolkit), the tools we use for smart microscopy
 at the Center for Microscopy and Image Analysis (ZMB), University of Zurich.
-
 <br clear="left"/>
 
 ## The Problem
 
 Every microscope comes with its own programming interface, so a workflow that is built for one microscope
-does not work on another.
-
-This is a real obstacle to sharing our workflows and deploying them on all the microscopes we want.
+does not work on another. This is a real obstacle to sharing our workflows and deploying them on all the microscopes we want.
 
 
 ## The Solution
