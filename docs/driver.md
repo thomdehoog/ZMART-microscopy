@@ -3,8 +3,9 @@
 A driver is one Python function per command, collected in a dictionary and
 handed to the controller's registry. There is no base class to inherit from.
 The mock microscope in [`zmart_driver_mock/`](../zmart_driver_mock/)
-is a complete, readable driver of about 300 lines; read it alongside this
-page.
+is a complete driver, built the way every ZMART driver is built inside; its
+[README](../zmart_driver_mock/README.md) walks through the parts. Read it
+alongside this page, and copy its layout when you start a new driver.
 
 ## The shape
 
@@ -131,6 +132,17 @@ of your driver; an experiment that depends on it will not run elsewhere.
   fails or refuses. The controller passes your error to the user unchanged.
   Use `success: False` only for outcomes it is safe to carry on from, and say
   what happened in the `report`.
+- **Say when a change could not be confirmed.** Microscope software often
+  accepts a command before it has happened, so read back to check. When a
+  setting or an acquisition was sent but the readback never showed it, answer
+  `success: False` with `"confirmed": False` and the reason in the `report`.
+  A move is the exception: `set_xyz` raises `RuntimeError`, because carrying
+  on at an unknown position is never safe.
+- **Use full import paths in the plugin folder.** The controller loads
+  `zmart_controller/__init__.py` under a name of its own, so that two drivers
+  can never clash. A relative import such as `from .. import commands` then
+  cannot find the rest of your driver; write `from my_driver import commands`
+  instead.
 - **Reject what you do not understand.** An unknown option name or procedure
   raises `ValueError`. A typo that is silently ignored can cost someone an
   entire experiment.

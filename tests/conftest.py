@@ -21,6 +21,15 @@ def _config_in_a_temporary_folder(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _images_in_a_temporary_folder(tmp_path, monkeypatch):
+    """Save the mock's images in the test's own folder, never in a shared one."""
+    from zmart_controller import registry
+
+    connect = registry.REGISTRY[("mock", "mock-scope", "mock-api")]["ops"]["connect"]
+    monkeypatch.setitem(connect.__globals__, "DEFAULT_OUTPUT_ROOT", tmp_path / "images")
+
+
+@pytest.fixture(autouse=True)
 def _reset_active_session():
     """Clear the module-level active session after every test.
 
