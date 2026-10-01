@@ -116,6 +116,7 @@ class SetDispatcher:
         tuning = command.tuning
         sends = 0
         result: Any = None
+        reason = "the microscope accepted the command, but the readback never showed the target"
         for window in range(1, tuning.max_confirm_attempts + 1):
             if window == 1 or tuning.send_again_if_unconfirmed:
                 result = self._send(command)
@@ -125,6 +126,7 @@ class SetDispatcher:
                 confirmed = self._confirm(command, confirm_with)
             except NeverConfirmed as never:
                 self._record("warning", f"{command.name} will not be confirmed: {never}")
+                reason = str(never)
                 if tuning.send_again_if_unconfirmed:
                     continue
                 return Outcome(False, confirm_with, sends, window, str(never))
@@ -141,7 +143,7 @@ class SetDispatcher:
             None if result is REPLY_LOST else result,
             sends,
             tuning.max_confirm_attempts,
-            "the microscope accepted the command, but the readback never showed the target",
+            reason,
         )
 
     def _wait_until_ready(self, command: SetCommand) -> None:
