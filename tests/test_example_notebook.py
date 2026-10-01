@@ -41,7 +41,7 @@ def test_the_notebook_drives_the_mock_even_when_another_driver_sorts_first(capsy
     def record(name):
         def op(*args, **kwargs):
             calls.append(name)
-            return {"success": True, "report": {}}
+            return {"success": True, "answer": {}}
 
         return op
 
@@ -59,7 +59,7 @@ def test_the_notebook_works_with_a_driver_that_names_its_files_differently(monke
     def acquire(handle, *, acquisition_type, position_label, options=None):
         return {
             "success": True,
-            "report": {
+            "answer": {
                 "acquisition_type": acquisition_type,
                 "position_label": position_label,
                 "image_files": [f"{position_label}.ome.tiff"],
