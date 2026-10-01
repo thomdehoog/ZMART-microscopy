@@ -13,7 +13,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from zmart_controller import register_driver, registry
+from zmart_controller import registry
 
 NOTEBOOK = Path(__file__).resolve().parent.parent / "docs" / "example_experiment.ipynb"
 
