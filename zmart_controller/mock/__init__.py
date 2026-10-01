@@ -194,10 +194,19 @@ def set_xyz(
 ) -> dict:
     """Move to a position, in micrometers from the origin.
 
+    A target outside the travel range is refused before anything moves.
     Adding the origin back is the driver's arithmetic, never the controller's.
     """
     _require_open(handle)
     chosen = _resolve_actuators(with_actuators)
+    origin = {"x": handle.origin_x, "y": handle.origin_y, "z": handle.origin_z}
+    for axis, target in (("x", x), ("y", y), ("z", z)):
+        lo, hi = _TRAVEL[axis]
+        if not lo - origin[axis] <= target <= hi - origin[axis]:
+            raise ValueError(
+                f"{axis} = {target} is outside the travel range "
+                f"[{lo - origin[axis]}, {hi - origin[axis]}]"
+            )
     handle.x = handle.origin_x + x
     handle.y = handle.origin_y + y
     handle.z = handle.origin_z + z

@@ -233,3 +233,20 @@ class TestModuleStyle:
         missing = "definitely_not_a_method"
         with pytest.raises(AttributeError):
             getattr(m, missing)
+
+
+class TestTravelRange:
+    def test_range_is_reported_in_the_users_frame(self):
+        from zmart_controller.layer import set_instrument as open_session
+
+        session = open_session({**_mock_instrument(), "origin": {"x": 1000.0, "y": 0.0, "z": 0.0}})
+        try:
+            assert session.get_xyz()["report"]["x"]["range"] == [-6000.0, 4000.0]
+        finally:
+            session.disconnect()
+
+    def test_a_move_outside_the_range_is_refused_before_moving(self, mic):
+        mic.set_xyz(10, 0, 0)
+        with pytest.raises(ValueError, match="outside the travel range"):
+            mic.set_xyz(9999, 0, 0)
+        assert mic.get_xyz()["report"]["x"]["value"] == 10  # did not move
