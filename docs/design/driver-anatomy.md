@@ -31,10 +31,10 @@ uses the parts below it.
   experiments and workflows
   ───────────────────────────────────────────────────────────────
   8  ZMART controller plugin    the 11 functions every microscope offers
-  5  Procedures                 recipes built from get and set commands
-  4  Set commands  ─────────┐   change the microscope, then confirm it
+  5  Procedures                 recipes built from get and set actions
+  4  Set actions  ──────────┐   change the microscope, then confirm it
      + set dispatcher        │   (limits gate, retry, confirm, give up softly)
-  3  Get commands  ◀────────┘   ask the microscope something
+  3  Get actions  ◀─────────┘   ask the microscope something
      + get dispatcher            (one read at a time, time limit, "unknown")
   2  Error handling             sort every problem into a kind, then follow the rule
   1  Vendor interface           the only part that is completely microscope-specific
@@ -50,8 +50,8 @@ Suggested folder layout inside a driver:
 my_driver/
     vendor_interface/
     error_handling/
-    get_commands/
-    set_commands/
+    get_actions/
+    set_actions/
     procedures/
     data_handling/
     configuration/
@@ -70,7 +70,7 @@ my_driver/
     experimental/              # ideas that are not yet trusted on hardware
 ```
 
-The folder names `get_commands/` and `set_commands/` are written out in full
+The folder names `get_actions/` and `set_actions/` are written out in full
 on purpose. A folder called plain `set/` would clash with Python's built-in
 `set`, and code that uses `set()` could quietly break.
 
@@ -79,19 +79,20 @@ on purpose. A folder called plain `set/` would clash with Python's built-in
 A few words have a precise meaning in this document. Using them consistently
 avoids a lot of confusion.
 
-- **Command**: anything you can ask a driver to do. A command is either a
-  *get* or a *set*.
-- **Get command**: asks the microscope something, such as the stage position
+- **Action**: anything the driver asks the microscope to do. An action is
+  either a *get* or a *set*. (A *command* is what a workflow sends the
+  controller, such as `set_xyz`; the driver carries it out with actions.)
+- **Get action**: asks the microscope something, such as the stage position
   or the selected objective. It never changes anything.
-- **Set command**: changes the microscope. "Set" is meant broadly here: moving
+- **Set action**: changes the microscope. "Set" is meant broadly here: moving
   the stage, changing a laser power, selecting a job, and acquiring an image
-  are all set commands, because each one changes the state of the instrument.
+  are all set actions, because each one changes the state of the instrument.
 - **Primitive**: one plain Python function offered by the vendor interface,
-  such as `read_position()` or `move_xy(x, y)`. Get and set commands are built
+  such as `read_position()` or `move_xy(x, y)`. Get and set actions are built
   on primitives.
-- **Dispatcher**: the general engine that runs a command safely. There is one
+- **Dispatcher**: the general engine that runs an action safely. There is one
   for gets and one for sets.
-- **Procedure**: a recipe that combines several get and set commands, such as
+- **Procedure**: a recipe that combines several get and set actions, such as
   autofocus.
 - **Raw stage coordinates**: positions in micrometers exactly as the vendor
   software reports them.
@@ -136,7 +137,7 @@ At its top edge it keeps three promises:
 The list of primitives is not the same for every microscope. Leica thinks in
 *jobs*, ZEISS in *experiments*, Nikon in *optical configurations*, and
 mesoSPIM has none of these. Forcing one fixed list on all of them would either
-be too small to be useful or push the awkward fit up into the commands. The
+be too small to be useful or push the awkward fit up into the actions. The
 list that must be the same everywhere lives higher up, in the ZMART controller
 plugin (part 8).
 
@@ -148,14 +149,14 @@ rule decides where each one goes:
   selecting a job first), it belongs in the vendor interface.
 - If it is about **what a value means** (for example, Leica's focus position
   is the sum of the z-wide and z-galvo drives), it belongs in a get or set
-  command.
-- If it is **a recipe of several get and set commands**, it is a procedure.
+  action.
+- If it is **a recipe of several get and set actions**, it is a procedure.
 
 ## 2. Error handling
 
 **Purpose.** To decide, in one place, what happens when something goes wrong.
-Without this, every command grows its own if-else rules about error messages,
-and two commands end up treating the same problem differently.
+Without this, every action grows its own if-else rules about error messages,
+and two actions end up treating the same problem differently.
 
 Error handling has two pieces:
 
@@ -177,7 +178,7 @@ classifier what kind of problem this is, and then follow the rule.
 | Temporary | The software is busy; a short timeout | Reads again | Sends again, up to a set number of times | `RuntimeError`, only if every retry fails |
 | Permanent | The vendor reports a failure; a hardware fault | Raises | Does not retry | `RuntimeError` |
 | Unknown reading | A stale log entry; a read that timed out | Returns "unknown" with the reason | Counts as "not confirmed yet" | – |
-| Unconfirmed | The command was accepted, but the readback never matched | – | Sends again, then gives up softly | `success: False` with `confirmed: False`, and the experiment carries on |
+| Unconfirmed | The action was accepted, but the readback never matched | – | Sends again, then gives up softly | `success: False` with `confirmed: False`, and the experiment carries on |
 | Connection lost | The vendor software was closed | Raises | Raises | `RuntimeError` |
 | Stopped by user | See "Stop" under open questions | – | Stops waiting | To be decided |
 
@@ -191,9 +192,9 @@ classifier what kind of problem this is, and then follow the rule.
   contain passwords, so a message may say "the key `password` is missing" but
   never print what a key holds.
 - **How many times** to retry and **how long** to wait may be tuned per
-  command. **What to do** for each kind of error is fixed by the table.
+  action. **What to do** for each kind of error is fixed by the table.
 
-## 3. Get commands and the get dispatcher
+## 3. Get actions and the get dispatcher
 
 **Purpose.** To give one honest reading of the microscope: the value, where it
 came from, and how old it is, or "unknown" when the driver cannot be sure.
@@ -210,41 +211,41 @@ came from, and how old it is, or "unknown" when the driver cannot be sure.
 
 In the Leica driver this engine exists today as `readers/router.py`.
 
-**Get commands** are short definitions that use the dispatcher: which
+**Get actions** are short definitions that use the dispatcher: which
 primitive to call, and what the value means.
 
 **Rules.**
 
-- A get command never changes the microscope.
-- A get command never knows a target. It does not know what value anyone is
+- A get action never changes the microscope.
+- A get action never knows a target. It does not know what value anyone is
   hoping for.
 - The get dispatcher retries **the read**, never the hardware.
 
-## 4. Set commands and the set dispatcher
+## 4. Set actions and the set dispatcher
 
 **Purpose.** To change the microscope safely, and to know afterwards whether
 the change really happened.
 
-**The set dispatcher** runs every set command through the same steps:
+**The set dispatcher** runs every set action through the same steps:
 
 1. **Limits gate.** Check the request against the limits from the
    configuration. If it is outside, refuse before anything is sent.
 2. **Pre-check.** Ask the get dispatcher whether the microscope is ready, for
    example whether the scanner is idle.
-3. **Send** the command through a primitive.
+3. **Send** the action through a primitive.
 4. **Error check.** Classify any error and follow the rule: retry a temporary
    error, stop on anything else.
 5. **Confirm.** Ask the get dispatcher, again and again within a time window,
    whether the value has reached the target.
 6. **Send again** if the confirmation did not succeed, up to a set number of
    attempts.
-7. **Give up softly** if it is still not confirmed: report the command as
+7. **Give up softly** if it is still not confirmed: report the action as
    unconfirmed and let the experiment carry on.
 
 In the Leica driver this engine exists today as `confirm_and_fire` in
 `commands/dispatch.py`.
 
-**Set commands** are short definitions that use the dispatcher. Each one says
+**Set actions** are short definitions that use the dispatcher. Each one says
 which primitive to call and how to confirm it: which reading to check, the
 target, the tolerance, and how long to wait. Most confirmations follow that
 simple pattern and can be written as a single row of data, the way Leica's
@@ -253,8 +254,8 @@ change or a z-stack, need their own code, and that is fine.
 
 **Rules.**
 
-- **Every set command goes through the set dispatcher**, and the limits gate
-  is inside the dispatcher. No set command can skip the gate, because there is
+- **Every set action goes through the set dispatcher**, and the limits gate
+  is inside the dispatcher. No set action can skip the gate, because there is
   no other way to reach the hardware. (In Leica today each wrapper calls the
   gate itself; moving it into the dispatcher removes the chance of forgetting
   it.)
@@ -267,7 +268,7 @@ change or a z-stack, need their own code, and that is fine.
 - **One read at a time is managed per read, not per confirmation.** When Leica
   held that rule around a whole confirmation, the confirmation's own reads
   were blocked (finding CF-01). Only the get dispatcher manages it.
-- **One writer at a time.** Set commands assume a single caller. A workflow
+- **One writer at a time.** Set actions assume a single caller. A workflow
   that sends commands from several threads at once can mix up the results.
 - **Tuning numbers** (retries, time windows, time limits) live in one named
   file next to the dispatchers. The driver author sets them; the operator
@@ -281,7 +282,7 @@ positions repeat), or parking the z-galvo at zero while keeping the focus.
 
 **Rules.**
 
-- **A procedure uses only get and set commands**, never the vendor interface
+- **A procedure uses only get and set actions**, never the vendor interface
   directly. Every step then passes the limits gate and the error rules
   without any extra effort.
 - **Each procedure describes itself** with a name and a plain-language
@@ -296,7 +297,7 @@ say exactly where it was saved. "Data" here means the image data and the
 metadata that travels with it. Configuration is not data in this sense; it
 has its own part.
 
-Acquiring the image is a set command (part 4): it starts the capture and
+Acquiring the image is a set action (part 4): it starts the capture and
 confirms that the capture finished. Data handling starts after that.
 
 **Responsibilities.**
@@ -355,17 +356,17 @@ on the limits gate.
 **The coordinate system.** The arithmetic between raw stage coordinates and
 user coordinates (subtracting the origin, applying the registration, adding
 the objective offsets) lives once, as a pair of plain functions next to this
-configuration. The get and set commands for position use these functions.
+configuration. The get and set actions for position use these functions.
 That way:
 
-- everything above the commands (procedures, the plugin, experiments) speaks
+- everything above the actions (procedures, the plugin, experiments) speaks
   one coordinate system, the user's;
 - the limits gate checks raw stage coordinates, so recording a new origin can
   never move the safe travel range;
 - the plugin does no arithmetic of its own.
 
 Today the Leica driver does this arithmetic inside its controller adapter.
-Moving it down into the commands means procedures and setup notebooks can no
+Moving it down into the actions means procedures and setup notebooks can no
 longer accidentally use a different coordinate system from the experiments.
 
 ## 8. ZMART controller plugin
@@ -385,12 +386,12 @@ The full contract is described in the ZMART Controller's `docs/driver.md`.
 
 **Rules.**
 
-- The plugin **only maps** the driver's get commands, set commands and
+- The plugin **only maps** the driver's get actions, set actions and
   procedures onto the 11 functions. It does no coordinate arithmetic and no
   safety checks of its own; those already happened further down.
 - The controller finds it with `register_driver("path/to/driver")`, and
-  `check_driver(instrument)` checks that every answer has the right shape.
-- An unconfirmed set command reaches the experiment as `success: False` with
+  `validate_driver(instrument)` checks that every answer has the right shape.
+- An unconfirmed set action reaches the experiment as `success: False` with
   `confirmed: False` and a reason in the report. Anything unsafe is raised.
 
 ## 9. Testing
@@ -475,12 +476,12 @@ What is the same in every driver, and what differs:
 |---|---|---|
 | Vendor interface | The three promises | Everything inside |
 | Error handling | The rules | The classifier |
-| Get commands | The get dispatcher | Which primitive, and what the value means |
-| Set commands | The set dispatcher and limits gate | Which primitive, the target, the confirmation |
-| Procedures | The "get and set commands only" rule; the algorithms | The recipes |
+| Get actions | The get dispatcher | Which primitive, and what the value means |
+| Set actions | The set dispatcher and limits gate | Which primitive, the target, the confirmation |
+| Procedures | The "get and set actions only" rule; the algorithms | The recipes |
 | Data handling | OME-TIFF and OME-Zarr writing, naming, the command log | Finding and reading the vendor's raw output |
 | Configuration | Load, check and save; the notebook pattern | Default values; the machine description |
-| ZMART controller plugin | The 11-function contract and `check_driver` | Mapping commands onto those 11 |
+| ZMART controller plugin | The 11-function contract and `validate_driver` | Mapping actions onto those 11 |
 | Testing | `run_ci.py`; the dispatcher and error-rule tests; offline before hardware | The mock API; the hardware checks |
 
 ## Experimental code
@@ -505,7 +506,7 @@ by any other part of the driver. The Leica driver already works this way.
   already works in raw coordinates; we still need to confirm how its
   `limits.json` is interpreted today before we write this down as settled.
 - **Unconfirmed results in the controller contract.** The Leica driver
-  currently reports an unconfirmed command as `success: True` with
+  currently reports an unconfirmed action as `success: True` with
   `confirmed: False`, and its adapter never returns `success: False`. This
   document proposes `success: False` with `confirmed: False`, which matches
   the controller's idea of a soft outcome. The controller's `docs/driver.md`
@@ -514,7 +515,7 @@ by any other part of the driver. The Leica driver already works this way.
 ## How we get there
 
 1. **The mock driver first.** Rebuild the controller's mock driver
-   (`zmart_driver_mock/`) in exactly this layout, small and readable, running
+   (`tests/mock_zmart_driver/`) in exactly this layout, small and readable, running
    on a small mock API. It becomes the template a new driver author copies,
    and the first user of the shared package.
 2. **Write the contract additions** into the controller's `docs/driver.md`:
