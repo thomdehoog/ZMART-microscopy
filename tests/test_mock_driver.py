@@ -89,7 +89,7 @@ class TestFaultsThroughTheDriver:
     def test_busy_is_sent_again_and_confirmed(self, mic):
         mic._handle.scope.faults.add("MoveStage", "busy", times=2)
         mic.set_xyz(10, 0, 0)
-        assert mic.get_xyz()["report"]["x"]["value"] == 10
+        assert mic.get_xyz()["answer"]["x"]["value"] == 10
         assert [e["code"] for e in _sent(mic, "MoveStage")][-3:] == [100, 100, None]
 
     def test_busy_too_often_becomes_a_runtime_error(self, mic):
@@ -102,7 +102,7 @@ class TestFaultsThroughTheDriver:
         before = len(_sent(mic, "MoveStage"))
         mic.set_xyz(10, 0, 0)
         assert len(_sent(mic, "MoveStage")) == before + 1
-        assert mic.get_xyz()["report"]["x"]["value"] == 10
+        assert mic.get_xyz()["answer"]["x"]["value"] == 10
 
     def test_ignored_setting_is_sent_again(self, mic):
         mic._handle.scope.faults.add("SetSetting", "ignore")
@@ -114,8 +114,8 @@ class TestFaultsThroughTheDriver:
         mic._handle.scope.faults.add("SetSetting", "ignore", times=None)
         answer = mic.set_state({"changeable": {"gain": 3.0}})
         assert answer["success"] is False
-        assert "gain" in answer["report"]["unconfirmed"]
-        assert answer["report"]["applied"] == {}
+        assert "gain" in answer["answer"]["unconfirmed"]
+        assert answer["answer"]["applied"] == {}
 
     def test_an_unconfirmed_move_is_raised(self, mic):
         mic._handle.scope.faults.add("MoveStage", "ignore", times=None)
@@ -126,7 +126,7 @@ class TestFaultsThroughTheDriver:
         mic.get_xyz()  # gives the stale fault an old answer to repeat
         mic._handle.scope.faults.add("GetStagePosition", "stale")
         mic.set_xyz(25, 0, 0)
-        assert mic.get_xyz()["report"]["x"]["value"] == 25
+        assert mic.get_xyz()["answer"]["x"]["value"] == 25
 
     @pytest.mark.parametrize("fault", ["hardware_fault", "unknown_error"])
     def test_permanent_problems_are_raised_at_once(self, mic, fault):
@@ -191,7 +191,7 @@ class TestLimitsGate:
         save("origin", {"x": 54_000.0, "y": 37_500.0, "z": 5_000.0})
         session = _open(tmp_path, mock_timing="instant")
         try:
-            assert session.get_xyz()["report"]["x"]["range"] == [-9000.0, 1000.0]
+            assert session.get_xyz()["answer"]["x"]["range"] == [-9000.0, 1000.0]
             with pytest.raises(ValueError):
                 session.set_xyz(1500, 0, 0)
         finally:
@@ -206,7 +206,7 @@ class TestActuators:
         mic.set_xyz(0, 0, 30, with_actuators={"z": "piezo"})
         focus = mic._handle.scope.send("GetFocus")["result"]
         assert focus == {"focus": 5000.0, "piezo": 30.0}
-        assert mic.get_xyz()["report"]["z"]["value"] == 30
+        assert mic.get_xyz()["answer"]["z"]["value"] == 30
 
     def test_beyond_the_piezo_reach(self, mic):
         with pytest.raises(ValueError, match="beyond its reach"):
@@ -220,8 +220,8 @@ class TestProcedures:
     def test_autofocus_finds_the_sharp_height(self, mic):
         mic.set_xyz(0, 0, 6)
         answer = mic.run_procedure({"name": "autofocus", "range_um": 20, "step_um": 2})
-        assert abs(answer["report"]["frame_z_um"]) <= 2
-        assert abs(mic.get_xyz()["report"]["z"]["value"]) <= 2
+        assert abs(answer["answer"]["frame_z_um"]) <= 2
+        assert abs(mic.get_xyz()["answer"]["z"]["value"]) <= 2
 
     def test_unknown_entries_are_refused(self, mic):
         with pytest.raises(ValueError, match="does not take"):
@@ -243,7 +243,7 @@ class TestProcedures:
         try:
             # A fresh pretend microscope starts at the slide's centre, which is
             # now (-100, 50) from the recorded origin.
-            position = again.get_xyz()["report"]
+            position = again.get_xyz()["answer"]
             assert (position["x"]["value"], position["y"]["value"]) == (-100.0, 50.0)
         finally:
             again.disconnect()
@@ -269,7 +269,7 @@ class TestDataHandling:
     def test_a_z_stack_is_one_file_per_plane(self, mic):
         answer = mic.acquire(
             acquisition_type="stack", position_label="cell 1", options={"z_planes": 3}
-        )["report"]
+        )["answer"]
         names = [Path(f).name for f in answer["files"]]
         assert names == ["cell_1_z000.ome.tif", "cell_1_z001.ome.tif", "cell_1_z002.ome.tif"]
         description = _tiff_description(Path(answer["files"][1]))
@@ -277,14 +277,14 @@ class TestDataHandling:
         assert 'PositionZ="1.0"' in description
 
     def test_never_overwrites(self, mic):
-        first = mic.acquire(acquisition_type="t", position_label="A1")["report"]["files"]
-        second = mic.acquire(acquisition_type="t", position_label="A1")["report"]["files"]
+        first = mic.acquire(acquisition_type="t", position_label="A1")["answer"]["files"]
+        second = mic.acquire(acquisition_type="t", position_label="A1")["answer"]["files"]
         assert Path(first[0]).name == "A1.ome.tif"
         assert Path(second[0]).name == "A1_001.ome.tif"
 
     def test_the_command_log_is_saved(self, mic):
         mic._handle.scope.faults.add("MoveStage", "busy")
-        answer = mic.acquire(acquisition_type="t", position_label="log")["report"]
+        answer = mic.acquire(acquisition_type="t", position_label="log")["answer"]
         lines = json.loads(Path(answer["command_log"]).read_text())
         messages = " ".join(line["message"] for line in lines)
         assert "sending again" in messages
@@ -295,7 +295,7 @@ class TestDataHandling:
             acquisition_type="t",
             position_label="z",
             options={"format": "ome-zarr", "z_planes": 4, "z_step_um": 2.0},
-        )["report"]
+        )["answer"]
         root = Path(answer["files"][0])
         array = json.loads((root / "0" / ".zarray").read_text())
         assert array["shape"] == [4, 64, 64]
@@ -323,8 +323,8 @@ class TestDataHandling:
             before = session.acquire(acquisition_type="r", position_label="a", options=options)
             session.set_xyz(5, 0, 0)
             after = session.acquire(acquisition_type="r", position_label="b", options=options)
-            first = read_mraw_free_tiff(before["report"]["files"][0])
-            second = read_mraw_free_tiff(after["report"]["files"][0])
+            first = read_mraw_free_tiff(before["answer"]["files"][0])
+            second = read_mraw_free_tiff(after["answer"]["files"][0])
             width = 64
             for row in range(64):
                 for col in range(64 - 5):
@@ -338,7 +338,7 @@ class TestDataHandling:
             acquisition_type="t", position_label="lost", options={"backlash_correction": False}
         )
         assert answer["success"] is False
-        assert answer["report"]["files"] == []
+        assert answer["answer"]["files"] == []
         # An acquisition is never sent twice by itself.
         assert len(_sent(mic, "StartAcquisition")) == 1
 
@@ -352,7 +352,7 @@ class TestReviewFindings:
             acquisition_type="t", position_label="lost", options={"backlash_correction": False}
         )
         assert answer["success"] is True
-        assert Path(answer["report"]["files"][0]).is_file()
+        assert Path(answer["answer"]["files"][0]).is_file()
 
     def test_an_ignored_acquisition_is_never_confirmed_by_an_older_one(self, mic):
         options = {"backlash_correction": False}
@@ -361,14 +361,14 @@ class TestReviewFindings:
         mic._handle.scope.faults.add("StartAcquisition", "ignore")
         second = mic.acquire(acquisition_type="t", position_label="same", options=options)
         assert second["success"] is False
-        assert second["report"]["files"] == []
-        assert "not running" in second["report"]["reason"]
+        assert second["answer"]["files"] == []
+        assert "not running" in second["answer"]["reason"]
 
     def test_acquire_near_the_lower_limit(self, mic):
         mic.set_xyz(-4980, -5000, 0)  # 20 µm from the x limit, right at the y limit
         answer = mic.acquire(acquisition_type="t", position_label="edge")
         assert answer["success"] is True
-        assert mic.get_xyz()["report"]["x"]["value"] == -4980
+        assert mic.get_xyz()["answer"]["x"]["value"] == -4980
 
     def test_lost_stage_reply_still_moves_the_focus_at_once(self, mic):
         import time
@@ -377,7 +377,7 @@ class TestReviewFindings:
         started = time.monotonic()
         mic.set_xyz(10, 10, 20)
         assert time.monotonic() - started < 0.5
-        position = mic.get_xyz()["report"]
+        position = mic.get_xyz()["answer"]
         assert [position[a]["value"] for a in ("x", "y", "z")] == [10, 10, 20]
 
 
@@ -493,7 +493,7 @@ class TestConfiguration:
 class TestRealisticTiming:
     def test_moves_are_confirmed_after_they_settle(self, slow_mic):
         slow_mic.set_xyz(1000, 500, 0)
-        assert slow_mic.get_xyz()["report"]["x"]["value"] == 1000
+        assert slow_mic.get_xyz()["answer"]["x"]["value"] == 1000
         reads = _sent(slow_mic, "GetStagePosition")
         assert len(reads) > 1  # it had to read back more than once
 

@@ -22,8 +22,8 @@ instrument = next(i for i in zmart_controller.get_instruments() if i["vendor"] =
 zmart_controller.set_instrument(instrument)
 
 zmart_controller.set_xyz(100, 50, 0)
-answer = zmart_controller.acquire(acquisition_type="overview", position_label="A1")
-answer["report"]["files"]   # real OME-TIFF files you can open in Fiji or napari
+reply = zmart_controller.acquire(acquisition_type="overview", position_label="A1")
+reply["answer"]["files"]   # real OME-TIFF files you can open in Fiji or napari
 ```
 
 The pictures show a slide of small bright spots, like fluorescent beads.

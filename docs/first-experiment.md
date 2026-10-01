@@ -28,7 +28,7 @@ Each cell has a short note above it.
   in; pick it by name in step 1.
 - **Your positions.** Edit the list in step 3. Stay inside the range that
   `get_xyz()` reports.
-- **Your settings.** `get_state()["report"]["changeable"]` shows what your
+- **Your settings.** `get_state()["answer"]["changeable"]` shows what your
   driver lets you change.
 - **The smart part.** Between the overview and the detailed scan, add your own
   analysis that decides which positions to revisit.
