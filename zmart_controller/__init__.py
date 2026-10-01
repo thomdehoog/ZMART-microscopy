@@ -43,9 +43,16 @@ __affiliation__ = "Center for Microscopy and Image Analysis (ZMB), University of
 
 from .layer import Session
 from .layer import set_instrument as _set_instrument
-from .registry import get_instruments, register_driver
+from .registry import forget_driver, get_instruments, register_driver
 
-__all__ = ["Session", "disconnect", "get_instruments", "register_driver", "set_instrument"]
+__all__ = [
+    "Session",
+    "disconnect",
+    "forget_driver",
+    "get_instruments",
+    "register_driver",
+    "set_instrument",
+]
 
 # The one active microscope that the module-level commands go to.
 _active: Session | None = None
