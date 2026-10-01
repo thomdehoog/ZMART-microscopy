@@ -22,8 +22,32 @@ looks inside the handle or any answer.
 
 ## A minimal driver
 
+Two files in a folder called `zmart_plugin/`:
+
+```
+my_driver/
+    zmart_plugin/
+        zmart.json         # which instruments this driver serves
+        __init__.py        # one function per command
+    ...                    # the rest of the driver: vendor API, limits, calibration
+```
+
+`zmart.json` names the instruments. Three keys say which microscope;
+anything else is handed to `connect` as it is:
+
+```json
+{
+  "contract": 1,
+  "instruments": [
+    {"vendor": "acme", "microscope": "acme-5000", "api": "acme-sdk", "host": "localhost"}
+  ]
+}
+```
+
+`__init__.py` holds the functions, found by name:
+
 ```python
-from zmart_controller.registry import register
+TRAVEL = {"x": (-5000.0, 5000.0), "y": (-5000.0, 5000.0), "z": (-500.0, 500.0)}
 
 def connect(connection):
     client = MyVendorClient(host=connection["host"])
@@ -34,47 +58,40 @@ def connect(connection):
 def get_xyz(handle, *, with_actuators=None):
     raw = handle["client"].read_position()
     position = {
-        axis: {"value": raw[axis] - handle["origin"][axis], "actuator": "motoric", "unit": "um"}
-        for axis in ("x", "y", "z")
+        axis: {
+            "value": raw[axis] - handle["origin"][axis],
+            "actuator": "motoric",
+            "unit": "um",
+            "range": [lo - handle["origin"][axis], hi - handle["origin"][axis]],
+        }
+        for axis, (lo, hi) in TRAVEL.items()
     }
     return {"success": True, "report": position}
 
-# ... one function for each command in the table below ...
-
-register(
-    {"vendor": "acme", "microscope": "acme-5000", "api": "acme-sdk", "host": "localhost"},
-    ops={
-        "connect": connect,
-        "disconnect": disconnect,          # optional
-        "get_info": get_info,
-        "get_actuators": get_actuators,
-        "get_xyz": get_xyz,
-        "set_xyz": set_xyz,
-        "get_state": get_state,
-        "set_state": set_state,
-        "get_acquisition_options": get_acquisition_options,
-        "acquire": acquire,
-        "get_procedures": get_procedures,
-        "run_procedure": run_procedure,
-    },
-)
-```
-
-Keep the functions and the `register(...)` call in a folder named
-`zmart_plugin/` inside your driver. Everything else in the driver, the vendor
-API, limits, calibration, stays private to it:
-
-```
-my_driver/
-    zmart_plugin/
-        __init__.py        # the functions above and register(...)
-    ...                    # the rest of the driver
+# ... and get_info, get_actuators, set_xyz, get_state, set_state,
+#     get_acquisition_options, acquire, get_procedures, run_procedure.
+#     disconnect is optional.
 ```
 
 Plug it in once on the microscope computer with
-`zmart_controller.register_driver("path/to/my_driver")`. The controller
-imports `zmart_plugin`, your `register(...)` runs, and the driver is
-remembered for later sessions.
+`zmart_controller.register_driver("path/to/my_driver")`. The controller reads
+`zmart.json`, picks the functions by name, registers each instrument, and
+remembers the driver for later sessions. A missing function or a wrong file is
+refused at once, by name.
+
+## Does it fit?
+
+Once the driver connects, let the controller check the answers:
+
+```python
+import zmart_controller
+
+problems = zmart_controller.check_driver(instrument)
+```
+
+It calls every `get_*` function and compares each report with the contract
+below. The answer is a list of problems in plain words; an empty list means
+the driver fits. It moves nothing and acquires nothing.
 
 ## The contract
 
@@ -90,7 +107,7 @@ ones listed here.
 | `disconnect` *(optional)* | handle | *(returns nothing; afterwards every other call raises `RuntimeError`, and a second `disconnect` is harmless)* |
 | `get_info` | handle | `output_root`, the folder where images are saved |
 | `get_actuators` | handle | `{axis: [actuator names]}` for `x`, `y`, `z` |
-| `get_xyz` | handle, `with_actuators=` | `{axis: {"value", "actuator", "unit"}}` for `x`, `y`, `z`, in micrometers from the origin |
+| `get_xyz` | handle, `with_actuators=` | `{axis: {"value", "actuator", "unit", "range"}}` for `x`, `y`, `z`; `value` and `range` (`[min, max]`, how far the axis can travel) in micrometers from the origin |
 | `set_xyz` | handle, `x`, `y`, `z`, `with_actuators=` | `position` and `actuators`; raise if the move cannot be confirmed |
 | `get_state` | handle | `{"changeable": {...}, "observed": {...}}` |
 | `set_state` | handle, state | what was applied; act on `changeable` only |

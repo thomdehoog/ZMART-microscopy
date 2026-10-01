@@ -49,7 +49,7 @@ zmart_controller.set_instrument(instrument=Dict)
 # 2) Learn about the connected setup
 zmart_controller.get_info()
 
-# 3) Discover the motors, then read or move the position (micrometers)
+# 3) Discover the motors, then read the position and travel range, or move (micrometers)
 zmart_controller.get_actuators()
 zmart_controller.get_xyz()
 zmart_controller.set_xyz(x, y, z, with_actuators=Dict)
