@@ -26,19 +26,29 @@ break another.
 
 ZMART is six building blocks, each in its own repository, each usable on its own:
 
-<p align="center">
-  <img src="docs/zmart-hexagon.png" width="520" alt="The six ZMART building blocks around ZMART Microscopy: interface, AI agent, controller, drivers, analysis and viewer">
-</p>
+<table>
+<tr>
+<td width="46%" valign="middle">
+<img src="docs/zmart-hexagon.png" width="100%" alt="The six ZMART building blocks around ZMART Microscopy: interface, AI agent, controller, drivers, analysis and viewer">
+</td>
+<td valign="middle">
 
+<p><a href="https://github.com/thomdehoog/ZMART-drivers"><b>ZMART drivers</b></a><br>
+One driver per microscope (Leica, Nikon, ZEISS, mesoSPIM), each translating the controller's commands into what that microscope understands</p>
+<p><a href="https://github.com/thomdehoog/ZMART-controller"><b>ZMART Controller</b></a><br>
+A short list of plain commands (move, read the state, acquire) that works the same on every microscope with a driver</p>
+<p><a href="https://github.com/thomdehoog/ZMART-interface"><b>ZMART interface</b></a><br>
+The operator window: scan an overview, find targets, image them again</p>
+<p><a href="https://github.com/thomdehoog/ZMART-analysis"><b>ZMART analysis</b></a><br>
+The analysis engine that runs between acquisitions (focus, object detection), each step in its own environment</p>
+<p><a href="https://github.com/thomdehoog/ZMART-viewer"><b>ZMART viewer</b></a><br>
+Shows a run as OME-Zarr while it is still being acquired</p>
+<p><a href="https://github.com/thomdehoog/ZMART-ai-agent"><b>ZMART AI agent</b></a><br>
+Drives a microscope when you ask in your own words</p>
 
-| Block | What it does |
-|---|---|
-| [ZMART drivers](https://github.com/thomdehoog/ZMART-drivers) | One driver per microscope (Leica, Nikon, ZEISS, mesoSPIM), each translating the controller's commands into what that microscope understands |
-| [ZMART Controller](https://github.com/thomdehoog/ZMART-controller) | A short list of plain commands (move, read the state, acquire) that works the same on every microscope with a driver |
-| [ZMART interface](https://github.com/thomdehoog/ZMART-interface) | The operator window: scan an overview, find targets, image them again |
-| [ZMART analysis](https://github.com/thomdehoog/ZMART-analysis) | The analysis engine that runs between acquisitions (focus, object detection), each step in its own environment |
-| [ZMART viewer](https://github.com/thomdehoog/ZMART-viewer) | Shows a run as OME-Zarr while it is still being acquired |
-| [ZMART AI agent](https://github.com/thomdehoog/ZMART-ai-agent) | Drives a microscope when you ask in your own words |
+</td>
+</tr>
+</table>
 
 They plug together like this:
 
