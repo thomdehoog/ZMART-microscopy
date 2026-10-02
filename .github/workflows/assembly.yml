@@ -1,0 +1,103 @@
+# Every night, and whenever started by hand: assemble ZMART. Install the five
+# blocks (controller, drivers, viewer, analysis, interface) fresh from GitHub
+# into one environment and check that they plug into each other.
+#
+# Two jobs:
+#
+# - "plug-in checks" runs the pytest checks in tests/ on Linux and Windows. It
+#   makes only the focus environment of ZMART-analysis, the one the checks use,
+#   and skips the Node.js tools (so the one check that asks the walk how it
+#   starts the bridge is skipped there; the walk job makes the same check
+#   before it starts).
+# - "walk" runs the interface's browser walk, all ten steps on the mock
+#   microscope, on Linux only. It needs the focus and detection environments,
+#   Node.js tools and Chromium, and a pretend screen (xvfb) for the mock's own
+#   window. A Windows runner would add a second copy of all that for little
+#   more information, so the walk is run on Windows by hand (see the README).
+#
+# Nothing here is cached on purpose: the point is to install what a new user
+# would get today.
+name: assembly
+
+on:
+  schedule:
+    - cron: "17 2 * * *"   # every night at 02:17 UTC
+  workflow_dispatch:
+
+defaults:
+  run:
+    # A login shell, so the conda environment set up below is active in every step.
+    shell: bash -el {0}
+
+jobs:
+  plug-in-checks:
+    name: plug-in checks (${{ matrix.os }}, Python 3.12)
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: The environment, from conda-forge only
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          miniforge-version: latest
+          environment-file: environment.yml
+          activate-environment: zmart-integration
+          conda-remove-defaults: true
+
+      - name: Install the five blocks from GitHub, and the focus environment
+        run: python install.py --no-walk-tools --analysis-steps focus:main
+
+      - name: The plug-in checks
+        run: python -m pytest tests
+
+      - name: Keep the reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reports-${{ matrix.os }}
+          path: |
+            work/reports/
+            work/install-record.json
+          if-no-files-found: ignore
+
+  walk:
+    name: the operator window, walked end to end (Ubuntu)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: The environment, from conda-forge only
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          miniforge-version: latest
+          environment-file: environment.yml
+          activate-environment: zmart-integration
+          conda-remove-defaults: true
+
+      - name: Install the five blocks, the analysis environments, Node.js tools and Chromium
+        run: python install.py
+
+      - name: The system libraries Chromium needs, and a pretend screen
+        run: |
+          cd work/ZMART-interface
+          sudo env "PATH=$PATH" npx playwright install-deps chromium
+          sudo apt-get install -y xvfb
+
+      - name: The walk
+        run: xvfb-run --auto-servernum python run_walk.py --output work/walk/ci
+
+      - name: Keep the screenshots, traces and log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: walk
+          path: |
+            work/walk/ci/
+            work/install-record.json
+          if-no-files-found: ignore

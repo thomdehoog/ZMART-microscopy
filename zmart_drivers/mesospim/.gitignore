@@ -1,5 +1,0 @@
-# Generated test/CI artifacts
-tests/_report/
-# Python caches
-__pycache__/
-*.pyc
