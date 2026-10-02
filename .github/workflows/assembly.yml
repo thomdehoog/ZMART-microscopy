@@ -23,6 +23,10 @@ on:
   schedule:
     - cron: "17 2 * * *"   # every night at 02:17 UTC
   workflow_dispatch:
+  # GitHub runs the schedule and the button only from the default branch, so
+  # until this branch becomes main, every push to it starts the checks too.
+  push:
+    branches: [release-candidate]
 
 defaults:
   run:
