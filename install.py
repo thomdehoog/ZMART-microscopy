@@ -68,9 +68,9 @@ BLOCKS = {
     "zmart-drivers": f"zmart-drivers[leica,zeiss] @ git+{GITHUB}/ZMART-drivers",
     "zmart-viewer": f"zmart-viewer @ git+{GITHUB}/ZMART-viewer",
     "zmart-analysis": f"zmart-analysis @ git+{GITHUB}/ZMART-analysis",
-    # The test extra brings pytest and the OME reader the interface's own
+    # The dev extra brings pytest and the OME reader the interface's own
     # in-process analysis uses.
-    "zmart-interface": f"zmart-interface[test] @ git+{GITHUB}/ZMART-interface",
+    "zmart-interface": f"zmart-interface[dev] @ git+{GITHUB}/ZMART-interface",
 }
 
 #: The repositories cloned into work/, and what each is needed for.
