@@ -7,7 +7,9 @@ saved file under ``files``, and under ``planes`` the file, channel, depth,
 moment and stage position of each picture. The interface moves the files into
 the run and writes them as one OME-Zarr position, reading nothing but
 ``files`` and ``planes``. The viewer, started beside the run the way the
-interface's bridge starts it, opens that position and lists it in
+interface's bridge starts it -- laid out over the reach the controller's
+``get_xyz`` reports per axis, everywhere a picture can show -- opens that
+position and lists it in
 ``/api/config``, which is where any drawing engine learns what there is to
 draw.
 
@@ -52,6 +54,8 @@ CAPTURE_KEEP_AND_SERVE = """
     session = zmart_controller.session.set_instrument(connection)
     try:
         info = session.get_info()["report"]
+        standing = session.get_xyz()["report"]
+        area = {f"{axis}_um": standing[axis]["reach"] for axis in ("x", "y", "z")}
         run = prepare_experiment(info["output_root"], "assembly")
         answer = session.acquire(acquisition_type="overview", position_label=position_label(0))
         problems = check_acquire_answer(answer)
@@ -64,7 +68,7 @@ CAPTURE_KEEP_AND_SERVE = """
     finally:
         session.disconnect()
 
-    viewer_service.start(run, bake=True, canvas=info.get("canvas"))
+    viewer_service.start(run, bake=True, canvas=area)
     viewer_service.a_position_landed("overview", folder, store=store)
     deadline = time.monotonic() + 120
     while time.monotonic() < deadline:
