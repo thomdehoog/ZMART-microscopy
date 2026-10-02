@@ -26,6 +26,11 @@ break another.
 
 ZMART is six building blocks, each in its own repository, each usable on its own:
 
+<p align="center">
+  <img src="docs/zmart-hexagon.png" width="520" alt="The six ZMART building blocks around ZMART Microscopy: interface, AI agent, controller, drivers, analysis and viewer">
+</p>
+
+
 | Block | What it does |
 |---|---|
 | [ZMART drivers](https://github.com/thomdehoog/ZMART-drivers) | One driver per microscope (Leica, Nikon, ZEISS, mesoSPIM), each translating the controller's commands into what that microscope understands |
