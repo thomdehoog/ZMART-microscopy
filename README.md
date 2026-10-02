@@ -6,11 +6,11 @@
 [![ci](https://img.shields.io/badge/ci-nightly-blue)](.github/workflows/assembly.yml)
 [![status](https://img.shields.io/badge/status-release%20candidate-orange)](#status)
 
-<img src="docs/zmart-microscopy-icon.png" align="left" width="150" alt="ZMART microscopy">
+<img src="docs/zmart-microscopy-icon.png" align="left" width="240" alt="ZMART microscopy">
 
-ZMART (ZMB's Microscopy-Agnostic Research Toolkit) is the set of tools we use for smart microscopy
+**ZMART** (ZMB's Microscopy-Agnostic Research Toolkit) is the set of tools we use for smart microscopy
 at the Center for Microscopy and Image Analysis (ZMB), University of Zurich.
-This repository puts the tools together: it installs them, checks that they fit, and is where workflows are composed from them.
+This repository puts them together.
 <br clear="left"/>
 
 ## The Problem
