@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-09-01T17:22:27Z",
+  "scope": "Smart Viewer 0.2 UX reference; not Step 5 pixel evidence",
+  "provenance": {
+    "repository": "thomdehoog/ZMART-viewer",
+    "version": "0.2.0",
+    "commit": "9ff10b04e803fbe2a71a1735a8065a845ea803dd",
+    "server": "local production frontend and real Viewer API"
+  },
+  "sourceSummary": {
+    "acquisitions": 1,
+    "channels": ["structure", "marker-a", "marker-b"],
+    "sourcesPerChannel": 1,
+    "landedPositions": null,
+    "landedPositionsReason": "The reference demo is a standalone OME-Zarr volume, not a live Operator acquisition."
+  },
+  "visibleState": {
+    "selected": "marker-b",
+    "selectedRequestedVisible": false,
+    "logarithmicCounts": true,
+    "window": {"low": 780, "high": 20800},
+    "axis": {"low": 0, "high": 25090},
+    "opacity": 1
+  },
+  "measurement": {
+    "authority": "Smart Viewer /api/config and /api/measure",
+    "histogramBins": 64
+  },
+  "pixelCheck": {
+    "applicable": false,
+    "reason": "This capture establishes the reference panel UX; the linked canonical Step 5 records establish microscopy pixel placement."
+  },
+  "network": {
+    "unexpectedErrors": [],
+    "allowedFormatProbes": ["GET /data/0/demo.zarr/.zarray -> 404 before Zarr v2 group discovery"]
+  },
+  "artifact": {
+    "file": "smart-viewer-0.2-reference.png",
+    "width": 1440,
+    "height": 900,
+    "sha256": "eb126ac910ffd21e2b42cddd9a34a6f4ac95b16bf49e3c9559278f2e1903c2fa"
+  }
+}

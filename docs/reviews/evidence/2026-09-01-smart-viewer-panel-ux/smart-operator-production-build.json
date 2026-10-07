@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-09-01T17:22:27Z",
+  "scope": "Rebuilt Smart Operator production entry page browser gate",
+  "provenance": {
+    "repository": "thomdehoog/ZMART-microscopy",
+    "branch": "codex/smart-viewer-integration-cleanup",
+    "behaviorCommit": "cd88f5b79bbf1711ec5af03dc27f5d00c378306b",
+    "viewerAuthorityCommit": "9ff10b04e803fbe2a71a1735a8065a845ea803dd",
+    "bundle": "application/framework/window/static/index.html"
+  },
+  "sourceSummary": {
+    "landedPositions": 0,
+    "reason": "The production-build gate captures the initial Connect page before acquisition."
+  },
+  "visibleState": {"workflowStep": "Connect", "viewerMounted": false},
+  "buildCheck": {
+    "builtAndDevelopmentInk": "rgb(15, 23, 42)",
+    "browserExceptions": [],
+    "result": "passed"
+  },
+  "coordinateSafety": {
+    "applicable": false,
+    "reason": "No acquisition sources exist on the captured Connect page."
+  },
+  "pixelCheck": {
+    "applicable": false,
+    "canonicalEvidence": "../2026-09-01-smart-viewer-step-five/whole-plate.json"
+  },
+  "network": {"unexpectedErrors": [], "allowedFormatProbes": []},
+  "artifact": {
+    "file": "smart-operator-production-build.png",
+    "width": 1440,
+    "height": 900,
+    "sha256": "a7474ad93fd4a13796005f4a623bd99cafa887e33ca4a2810e912d96f8d64bcc"
+  }
+}

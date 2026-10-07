@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-09-01T17:22:27Z",
+  "scope": "Smart Operator requested/observed overview-only panel state",
+  "provenance": {
+    "repository": "thomdehoog/ZMART-microscopy",
+    "branch": "codex/smart-viewer-integration-cleanup",
+    "behaviorCommit": "cd88f5b79bbf1711ec5af03dc27f5d00c378306b",
+    "viewerAuthorityCommit": "9ff10b04e803fbe2a71a1735a8065a845ea803dd"
+  },
+  "sourceSummary": {
+    "acquisitions": ["overview", "focussing", "target"],
+    "channelCounts": {"overview": 3, "focussing": 1, "target": 1},
+    "boundsPerFixtureSource": {"lower": [0, 0, 0], "upper": [1, 64, 64]},
+    "landedPositions": null,
+    "landedPositionsReason": "This isolated UI gate uses engine-adapter rows; real overview position coverage remains in canonical Step 5 evidence."
+  },
+  "visibleState": {
+    "groups": {"overview": true, "focussing": false, "target": false},
+    "overviewRequestedAndObserved": [true, true, false],
+    "overviewIndividualChoicePreserved": true,
+    "focussingChannelRequestedVisible": true,
+    "focussingEffectiveAndObservedVisible": false,
+    "selected": "focussing/marker-a",
+    "logarithmicCounts": true
+  },
+  "measurement": {
+    "authority": "real Smart Viewer 0.2 /api/measure response proxied without rewriting values",
+    "state": "ready",
+    "histogramBins": 64
+  },
+  "coordinateSafety": {
+    "sourceMatrices": "all five immutable identity matrices exactly equal before and after group hiding",
+    "zPlacementChanged": false,
+    "physical3dRegistrationClaimed": false
+  },
+  "pixelCheck": {
+    "applicableToThisUiFixture": false,
+    "canonicalEvidence": "../2026-09-01-smart-viewer-step-five/overview-only.json"
+  },
+  "network": {"unexpectedErrors": [], "allowedFormatProbes": []},
+  "artifact": {
+    "file": "smart-operator-overview-only.png",
+    "width": 1440,
+    "height": 900,
+    "sha256": "b5094a9dd3ea2f47fa760c4cb998783ef4429858c05a525566f70954b49d5810"
+  }
+}

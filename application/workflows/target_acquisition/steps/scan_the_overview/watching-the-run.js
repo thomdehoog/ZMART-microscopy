@@ -94,11 +94,31 @@ export function watchTheRun(ctx) {
     const host = ctx.pictureHost;
     let viewer = null;
     let opening = false;
+    let checkingForGrowth = false;
     /* What the open viewer was opened on, so a change — the run growing a
        second kind of scan — is noticed and the viewer reopened over it. */
     let openedOn = null;
     let inStageFrame = true;
     let panel = null;
+    const requestedPanelState = {
+      acquisitions: new Map(),
+      channels: new Map(),
+      collapsed: new Map(),
+      selectedKey: null,
+      lastMismatch: null,
+    };
+
+    /* Every address that materially shapes a Viewer acquisition.  Smart
+       Viewer puts the position stores on the channel rows, not beside the
+       acquisition.  Leaving those addresses out made a growing run look
+       unchanged after its first field, so the engine never received fields
+       two through nine. */
+    const addressesIn = (acquisitions) => acquisitions.flatMap((acquisition) => {
+      const channelSources = (acquisition.channels ?? []).flatMap(
+        (channel) => channel.sources ?? [],
+      );
+      return channelSources.length ? channelSources : [acquisition.url];
+    }).filter(Boolean);
 
     /**
      * What there is to draw, asked fresh each time.
@@ -122,10 +142,19 @@ export function watchTheRun(ctx) {
       }
       const sources = await ctx.viewerSources?.();
       if (sources?.length) {
+        /* The engine draws acquisitions in the order supplied, first at the
+           bottom. The overview is the base map and focussing is the local
+           diagnostic overlay whose eye must make pixels appear and disappear,
+           so keep that overlay last without changing any Viewer acquisition,
+           channel, or source. */
+        const drawOrder = [
+          ...sources.filter(({ name }) => name !== "focussing"),
+          ...sources.filter(({ name }) => name === "focussing"),
+        ];
         return {
           engine: search.get("engine") ?? "neuroglancer-under",
-          acquisitions: sources,
-          signature: `sources:${sources.map((s) => s.url).join("|")}`,
+          acquisitions: drawOrder,
+          signature: `sources:${addressesIn(drawOrder).join("|")}`,
           inStageFrame: true,
         };
       }
@@ -150,6 +179,7 @@ export function watchTheRun(ctx) {
         const openViewer = await openerFor(wanted.engine);
         viewer = await openViewer(host, {
           acquisitions: wanted.acquisitions,
+          presentation: "2d-overlay",
           /* The same colour the page paints, so the seam between the scan's own
              background and the ground above it never shows. */
           background: ctx.css("--screen"),
@@ -172,6 +202,7 @@ export function watchTheRun(ctx) {
           const { mountViewerPanel } = await import("../../../../parts/canvas/viewer-panel.js");
           panel = await mountViewerPanel(host.parentElement ?? host, {
             viewer, acquisitions: wanted.acquisitions, css: ctx.css,
+            requestedState: requestedPanelState,
           });
         }
       } catch (e) {
@@ -199,24 +230,46 @@ export function watchTheRun(ctx) {
       viewer.setView(v);
     }
 
-    /** A run that grew — a new acquisition type, a store that moved — wants
-        the viewer opened over the new whole, not nudged. Asked cheaply on the
-        clock below; nothing happens while the answer is the one already open. */
+    /** Add positions of the stable acquisition to its existing layers.
+
+        A new acquisition type or a replaced source list is a different scene
+        and still takes the reopen path. Merely growing the watched positions
+        folder must not: closing it revokes `/data/N/` while chunks belonging
+        to that same picture may still be in flight. */
     async function reopenIfTheRunGrew() {
-      if (!viewer || opening) return;
-      const wanted = await whatToOpen();
-      if (!wanted || wanted.signature === openedOn) return;
-      reset();
-      await open();
+      if (!viewer || opening || checkingForGrowth) return;
+      checkingForGrowth = true;
+      try {
+        const wanted = await whatToOpen();
+        if (!wanted || wanted.signature === openedOn) return;
+        if (wanted.signature.startsWith("sources:")
+            && openedOn?.startsWith("sources:")
+            && await viewer.addSources?.(wanted.acquisitions)) {
+          openedOn = wanted.signature;
+          await panel?.sourcesChanged?.(wanted.acquisitions);
+          return;
+        }
+        closePicture();
+        await open();
+      } finally {
+        checkingForGrowth = false;
+      }
     }
 
-    function reset() {
+    function closePicture({ forgetVisibility = false } = {}) {
       panel?.destroy?.();
       panel = null;
       viewer?.destroy?.();
       viewer = null;
       openedOn = null;
       window.__thePicture = null;
+      if (forgetVisibility) {
+        requestedPanelState.acquisitions.clear();
+        requestedPanelState.channels.clear();
+        requestedPanelState.collapsed.clear();
+        requestedPanelState.selectedKey = null;
+        requestedPanelState.lastMismatch = null;
+      }
     }
 
     return {
@@ -233,7 +286,7 @@ export function watchTheRun(ctx) {
       /** The session is over, and what was opened belongs to it. A reconnect
           is a fresh session: its run starts with nothing scanned, and the
           picture of the last one must not stand in for it. */
-      reset,
+      reset() { closePicture({ forgetVisibility: true }); },
     };
   })();
 

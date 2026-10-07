@@ -34,6 +34,8 @@ License: MIT
 
 from __future__ import annotations
 
+import json
+import math
 import re
 from pathlib import Path
 
@@ -65,8 +67,14 @@ def position_store_from_record(record: dict, into: Path | str) -> Path:
 
     volume, pixel_size_um = _the_volume_of(planes)
     frames, channels, nz, ny, nx = volume.shape
-    dz = _the_z_step_of(planes)
-    corner_um = _the_corner_of(planes, (ny, nx), pixel_size_um)
+    z_model = _the_z_model(record, planes)
+    dz = z_model["source_local"]["spacing_um"]
+    corner_um = _the_corner_of(
+        planes,
+        (ny, nx),
+        pixel_size_um,
+        z_origin_um=-z_model["display_anchor"]["voxel_index"] * dz,
+    )
 
     into = Path(into)
     into.mkdir(parents=True, exist_ok=True)
@@ -103,6 +111,12 @@ def position_store_from_record(record: dict, into: Path | str) -> Path:
         ],
         ome_zarr_version="0.5",
     )
+    description_path = store / "zarr.json"
+    description = json.loads(description_path.read_text(encoding="utf-8"))
+    description.setdefault("attributes", {})["zmart_microscopy"] = {
+        "z_coordinate": z_model,
+    }
+    description_path.write_text(json.dumps(description, indent=2), encoding="utf-8")
 
     # Fill the levels from the finest down, keeping every second voxel along
     # y and x — the run stores' own convention, declared in their description.
@@ -210,28 +224,108 @@ def _the_pixel_size_of(ome_xml: str) -> tuple[float, float]:
     return one("Y"), one("X")
 
 
-def _the_z_step_of(planes: list[dict]) -> float:
-    """The µm between two z planes, from the recorded heights; 1 µm when flat."""
-    heights = sorted({float(p.get("z_um") or 0.0) for p in planes if p.get("z_um") is not None})
-    if len(heights) < 2:
-        return 1.0
-    steps = np.diff(heights)
-    return float(np.median(steps))
+def _the_z_model(record: dict, planes: list[dict]) -> dict:
+    """The reversible 2-D display anchor and untouched acquisition-Z evidence.
+
+    Array order comes from the record's z indices. Its signed spacing is kept:
+    a stack acquired downwards remains a downward stack. The one placement
+    operation maps an explicitly resolved source-local voxel centre to display
+    z=0; raw stage/focus Z is provenance, never asserted to be specimen Z.
+    """
+    numbered = sorted({int(plane.get("z", 0)) for plane in planes})
+    centres: list[float | None] = []
+    for number in numbered:
+        found = [
+            float(plane["z_um"])
+            for plane in planes
+            if int(plane.get("z", 0)) == number
+            and plane.get("z_um") is not None
+            and math.isfinite(float(plane["z_um"]))
+        ]
+        centres.append(float(np.median(found)) if found else None)
+
+    known = [(index, value) for index, value in enumerate(centres) if value is not None]
+    adjacent_steps = [
+        centres[index + 1] - centres[index]
+        for index in range(len(centres) - 1)
+        if centres[index] is not None and centres[index + 1] is not None
+    ]
+    spacing = float(np.median(adjacent_steps)) if adjacent_steps else 1.0
+    if not math.isfinite(spacing) or spacing == 0:
+        spacing = 1.0
+
+    requested = record.get("requested_position_um") or record.get("position") or {}
+    requested_z = requested.get("z") if isinstance(requested, dict) else None
+    if requested_z is not None:
+        requested_z = float(requested_z)
+        if not math.isfinite(requested_z):
+            requested_z = None
+
+    if len(numbered) == 1:
+        anchor = 0
+        resolved_by = "only-voxel-center"
+        legacy_fallback = False
+    elif requested_z is not None and known:
+        anchor = min(known, key=lambda item: abs(item[1] - requested_z))[0]
+        resolved_by = "requested-stage-focus-z"
+        legacy_fallback = False
+    else:
+        # Old records do not state which stack plane was the reference. Resolve
+        # their historical middle-plane convention once, write that decision
+        # into the store, and never let Viewer source arrival order choose it.
+        anchor = len(numbered) // 2
+        resolved_by = "legacy-middle-plane"
+        legacy_fallback = True
+
+    return {
+        "model": "zmart-microscopy-2d-display-anchor-v1",
+        "presentation": "2d-overlay",
+        "display_anchor": {
+            "axis": "z",
+            "voxel_index": anchor,
+            "coordinate_um": 0.0,
+            "resolved_by": resolved_by,
+            "legacy_fallback": legacy_fallback,
+        },
+        "source_local": {
+            "plane_order": numbered,
+            "spacing_um": spacing,
+            "unit": "micrometer",
+            "axis_direction": (
+                "single-plane" if len(numbered) == 1
+                else "increasing" if spacing > 0
+                else "decreasing"
+            ),
+        },
+        "acquisition_provenance": {
+            "raw_stage_plane_centres_um": centres,
+            "requested_stage_focus_z_um": requested_z,
+            "unit": "micrometer",
+            "registered_specimen_z": False,
+        },
+    }
 
 
 def _the_corner_of(
-    planes: list[dict], frame_yx: tuple[int, int], pixel_size_um: tuple[float, float]
+    planes: list[dict],
+    frame_yx: tuple[int, int],
+    pixel_size_um: tuple[float, float],
+    *,
+    z_origin_um: float,
 ) -> tuple[float, float, float]:
     """Where the store's first voxel sits on the stage, in (z, y, x) µm.
 
     The record's stage point is the centre of the frame; the store's
-    convention is the corner of the first voxel.
+    convention is the corner of the first voxel along the sample.
+
+    The z origin was resolved once by :func:`_the_z_model`: it maps the chosen
+    source-local anchor centre to the shared 2-D display plane without treating
+    raw stage/focus Z as registered specimen geometry.
     """
     x_um = float(planes[0].get("x_um") or 0.0)
     y_um = float(planes[0].get("y_um") or 0.0)
-    z_um = min(float(p.get("z_um") or 0.0) for p in planes)
     return (
-        z_um,
+        z_origin_um,
         y_um - frame_yx[0] * pixel_size_um[0] / 2.0,
         x_um - frame_yx[1] * pixel_size_um[1] / 2.0,
     )

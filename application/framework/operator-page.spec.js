@@ -117,6 +117,39 @@ async function placeFocusPoints(page) {
   await page.waitForTimeout(300);
 }
 
+const targetsOnCanvas = (page) =>
+  page.evaluate(() => window.__theStageCanvas.targets());
+
+const physicalTargetPositions = (targets) => targets.map(({ id, field, x, y }) =>
+  ({ id, field, x, y }));
+
+async function expectTargetLayerOnCanvas(page, layer, reason) {
+  const canvas = page.locator("#stage-canvas");
+  await page.mouse.move(2, 2);
+  await page.waitForTimeout(120);
+  const shown = await canvas.screenshot();
+  await page.evaluate((key) => window.__theStageCanvas.showLayer(key, false), layer);
+  await page.waitForTimeout(120);
+  const hidden = await canvas.screenshot();
+  expect(Buffer.compare(shown, hidden), reason).not.toBe(0);
+  await page.evaluate((key) => window.__theStageCanvas.showLayer(key, true), layer);
+  await page.waitForTimeout(120);
+}
+
+async function expectTargetAtItsProjection(page, target, stepName) {
+  const box = await page.locator("#stage-canvas").boundingBox();
+  expect(box, `${stepName}: the canvas has a box`).not.toBeNull();
+  expect(target.screen.x, `${stepName}: target x is on the canvas`)
+    .toBeGreaterThanOrEqual(0);
+  expect(target.screen.x, `${stepName}: target x is on the canvas`).toBeLessThan(box.width);
+  expect(target.screen.y, `${stepName}: target y is on the canvas`)
+    .toBeGreaterThanOrEqual(0);
+  expect(target.screen.y, `${stepName}: target y is on the canvas`).toBeLessThan(box.height);
+  await page.mouse.move(box.x + target.screen.x, box.y + target.screen.y);
+  await expect(page.locator("#stage-tip"), `${stepName}: projected target is hoverable`)
+    .toContainText(target.id);
+}
+
 test.beforeEach(async ({ page }) => {
   const errors = [];
   page.on("pageerror", (e) => errors.push(String(e)));
@@ -1328,7 +1361,32 @@ test("one walk of the whole run", async ({ page }) => {
      reports 864 fields in a few seconds. */
   await runStep(page, 6000);
 
+  const discovered = await targetsOnCanvas(page);
+  expect(discovered.length, "Step 6 placed discovered targets on the canvas")
+    .toBeGreaterThan(0);
+  expect(discovered.every((target) => !target.selected && !target.acquired),
+    "newly discovered targets are candidates, not silently selected").toBe(true);
+  const plan = await page.evaluate(() => window.__theStageCanvas.plan());
+  expect(discovered.every((target) => {
+    const field = plan[target.field];
+    return field
+      && Math.abs(target.x - field.x) <= field.frameUm / 2
+      && Math.abs(target.y - field.y) <= field.frameUm / 2;
+  }), "every target is inside the overview field that discovered it").toBe(true);
+  await expectTargetLayerOnCanvas(
+    page, "cells", "Step 6 candidate markers materially change the canvas");
+  await expectTargetAtItsProjection(page, discovered[0], "Step 6");
+
   await gotoStep(page, "Refine Targets");
+  const beforeGate = await targetsOnCanvas(page);
+  expect(physicalTargetPositions(beforeGate),
+    "Step 7 keeps every discovered target at its carrier-local position")
+    .toEqual(physicalTargetPositions(discovered));
+  expect(beforeGate.every((target) => !target.selected),
+    "Step 7 begins with candidates visible but no implicit gate").toBe(true);
+  await expectTargetLayerOnCanvas(
+    page, "cells", "Step 7 keeps candidate markers on the canvas before gating");
+  await expectTargetAtItsProjection(page, beforeGate[0], "Step 7 before gating");
   const sc = await page.locator("#scatter-canvas").boundingBox();
   /* A polygon gate on the largest, brightest corner — laid point by point
      and closed on its first vertex, the way the scan-area polygon is. */
@@ -1341,6 +1399,12 @@ test("one walk of the whole run", async ({ page }) => {
   await page.waitForTimeout(300);
   await expect(page.locator("#gate-readout")).toContainText("selected");
   await expect(page.locator("#gate-list .gate-row")).toHaveCount(1);
+  const refined = await targetsOnCanvas(page);
+  expect(refined.some((target) => target.selected),
+    "the gate marks selected targets on the shared canvas").toBe(true);
+  expect(physicalTargetPositions(refined)).toEqual(physicalTargetPositions(discovered));
+  await expectTargetLayerOnCanvas(
+    page, "cells", "Step 7 selected and context targets materially change the canvas");
 
   // the gate belongs to the run, not to the panel that drew it
   await page.locator('.tab:has-text("Canvas")').click();
@@ -1351,6 +1415,15 @@ test("one walk of the whole run", async ({ page }) => {
 
   await runStep(page, 1000);
   await gotoStep(page, "Acquire Targets");
+  const readyToAcquire = await targetsOnCanvas(page);
+  expect(physicalTargetPositions(readyToAcquire),
+    "Step 8 keeps the same targets at the same physical positions")
+    .toEqual(physicalTargetPositions(discovered));
+  expect(readyToAcquire.filter((target) => target.selected).length,
+    "Step 8 receives the refined selection").toBeGreaterThan(0);
+  await expectTargetLayerOnCanvas(
+    page, "cells", "Step 8 keeps target candidates and the selection on the canvas");
+  await expectTargetAtItsProjection(page, readyToAcquire[0], "Step 8 before acquisition");
   /* Nothing is imaged until the run knows what with: the acquisition type is
      recorded off the instrument in this step's own channel, and the button
      waits for it. */
@@ -1362,6 +1435,15 @@ test("one walk of the whole run", async ({ page }) => {
   await page.waitForTimeout(650);
   await expect(page.locator("#target-type .setting-box.done")).toHaveCount(1);
   await runStep(page, 3000);
+  const acquired = await targetsOnCanvas(page);
+  expect(physicalTargetPositions(acquired),
+    "acquisition changes target state, never target placement")
+    .toEqual(physicalTargetPositions(discovered));
+  expect(acquired.filter((target) => target.acquired).length,
+    "every selected target acquires a canvas state")
+    .toBe(acquired.filter((target) => target.selected).length);
+  await expectTargetLayerOnCanvas(
+    page, "targets", "Step 8 acquired-target rings materially change the canvas");
   await page.locator(".pair").first().locator("button.pick-good").click();
   await expect(page.locator("#gallery-readout")).toContainText("1 marked");
   await expect(page.locator(".side-tab"),

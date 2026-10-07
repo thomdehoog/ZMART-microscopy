@@ -1428,6 +1428,9 @@ async function openTheStoresAgain(own) {
 
 function handleFor(own) {
   return {
+    /* This option cannot extend its deck.gl image descriptions in place. */
+    async addSources() { return false; },
+
     /** Move the view. `centre` is in micrometres, `zoom` in µm per screen pixel. */
     setView(view) {
       writeTheView(own, view);

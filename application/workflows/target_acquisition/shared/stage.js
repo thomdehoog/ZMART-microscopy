@@ -743,6 +743,31 @@ function openTheGroundThatHasBeenScanned(howMuch = 1) {
 }
 
 /**
+ * The discovered targets in the canvas's carrier-local frame.
+ *
+ * This is a read-only evidence surface, like `plan()` and `project()` below:
+ * browser checks can prove that the same physical targets stay at the same
+ * canvas positions while the workflow changes their candidate, selected, and
+ * acquired presentation. It does not become another coordinate authority;
+ * every screen point is read from the canvas's existing projection.
+ */
+function targetSnapshot() {
+  const acquired = new Set(run.acquired);
+  return [...run.cells.values()].map((cell) => {
+    const at = theCanvas.project(cell.x, cell.y);
+    return {
+      id: cell.id,
+      field: cell.field,
+      x: cell.x,
+      y: cell.y,
+      screen: { x: at.x, y: at.y },
+      selected: run.gated.has(cell.id),
+      acquired: acquired.has(cell.id),
+    };
+  });
+}
+
+/**
  * What the canvas will answer to, from outside it.
  *
  * The scan is drawn beneath this canvas, and the run opens the ground over
@@ -788,6 +813,8 @@ window.__theStageCanvas = {
    * rehearsal gets them from — exactly as the real thing will.
    */
   plan: () => run.plan.map(({ x, y, frameUm }) => ({ x, y, frameUm })),
+  /** Candidate, selected, and acquired target positions on this same canvas. */
+  targets: targetSnapshot,
   /**
    * Where a place on the sample lands on screen, as the plan itself works it
    * out.
@@ -1099,6 +1126,7 @@ ctx.fitButton.addEventListener("click", () => {
        matters: the two are drawn by different code on different surfaces,
        and the only thing making them one picture is that they agree. */
     plan: () => run.plan.map(({ x, y, frameUm }) => ({ x, y, frameUm })),
+    targets: targetSnapshot,
     toStage, toCarrier,
     project: (x, y) => {
       const [ox, oy] = carrierOriginUm();

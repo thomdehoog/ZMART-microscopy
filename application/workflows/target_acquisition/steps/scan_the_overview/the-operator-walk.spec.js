@@ -136,7 +136,10 @@ test("an operator walks from Connect to a scanned overview", async ({ page }) =>
      that the instrument really captured stacks and something really scored
      them -- a page that drew a heatmap over nothing would satisfy any check
      made through the page itself. */
-  const stacks = await capturedUnder(path.join(bridge.folder, "focussing", "data"), 300_000);
+  const stacks = await capturedUnder(
+    path.join(bridge.currentRun(), "focussing", "data"),
+    300_000,
+  );
   expect(stacks, "no focussing stack was captured").toBeGreaterThan(0);
 
   /* The stage was driven in its own frame, not the carrier's. The map lays
@@ -229,6 +232,23 @@ test("an operator walks from Connect to a scanned overview", async ({ page }) =>
   // 5. Scan. Nothing tells the page where the pictures will be: it asks its
   //    own backend, which is the join this walk exists to prove.
   await gotoStep(page, "Scan the overview");
+  /* Focussing is a real acquisition too, and the preceding step has already
+     written it. It is therefore legitimate for those fields to be visible
+     before the overview starts. Hide that acquisition through the operator's
+     own control so the pixel rise below belongs specifically to overview;
+     acquisition order and shared display Z must not be used as visibility. */
+  const focussingEye = page.locator(
+    '.viewer-panel button[data-acquisition="focussing"]',
+  );
+  await expect(focussingEye).toHaveAttribute("data-on", "1", { timeout: 30_000 });
+  await focussingEye.click();
+  await expect(focussingEye).toHaveAttribute("data-on", "0");
+  await expect.poll(() => page.evaluate(() => window.__thePicture
+    .layersForMeasurement()
+    .filter(({ name }) => name.startsWith("focussing"))
+    .every(({ visible }) => !visible)), {
+    message: "the panel did not hide the focussing acquisition",
+  }).toBe(true);
   await page.addStyleTag({ content: ".stagecv { visibility: hidden !important; }" });
   const empty = await fullestOf(page, "1-before-the-scan", { seconds: 4 });
   expect(empty.covered, `something was drawn before the scan ran: ${empty.covered}px`)

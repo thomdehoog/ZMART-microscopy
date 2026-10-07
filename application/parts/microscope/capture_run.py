@@ -114,6 +114,9 @@ def capture_positions(
             position_label=label_value,
             options=options,
         )
+        record["requested_position_um"] = {
+            axis: float(pos[axis]) for axis in ("x", "y", "z")
+        }
         if output is not None:
             move_record_images(record, output.data)
             record["acquisition_root"] = str(output.root)
