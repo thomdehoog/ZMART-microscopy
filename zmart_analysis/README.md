@@ -1,9 +1,62 @@
 # ZMART Analysis
 
-The party that reads pixels and returns numbers. ZMART has three: the
-instrument moves and captures, this measures what was captured, and the page
-decides what to do about it. Nothing here moves a stage. See
-`docs/design/what-runs-where.md` for where the line falls.
+Image analysis for smart microscopy. Steps run in separate conda environments,
+pipelines are defined in YAML, and results come in while the microscope is
+still acquiring.
+
+It reads pixels and returns numbers. It never moves the stage: the instrument
+captures, ZMART Analysis measures, the operator page decides. See
+`docs/design/what-runs-where.md`.
+
+## Why use it
+
+Three problems in image analysis for smart microscopy, and how the pipeline
+engine solves them.
+
+### The problems
+
+**1. Dependency conflicts.** Image analysis is done in steps. Each step needs
+an environment with the right dependencies, and often there is no single
+environment in which all steps can run.
+
+**2. Reproducibility.** Image analysis pipelines are complex and fitted to one
+use case. They chain many algorithms, each with its own parameters. Making
+sure these pipelines are reproducible and easy to share is a challenge on its
+own.
+
+**3. Analysis over scopes, on the fly.** Depending on the experiment, analysis
+is done over a single image, a group of images, a compartment, a carrier, or
+the whole experiment. In smart microscopy the images do not always arrive when
+you need them, yet they must be analysed as soon as they come in. A step over
+a larger scope can only start once the right set of images is in. This makes
+extracting insights from your data, and deciding the next steps during
+microscopy, challenging.
+
+### The solutions
+
+The pipeline engine addresses all three.
+
+**1. Every step in its own environment.** Each step says which conda
+environment it needs. The pipeline engine runs each step in that environment
+and pieces the steps together into one pipeline. Dependency conflicts are
+isolated where needed.
+
+**2. Pipelines are YAML files.** Which steps are pieced together, in which
+order, with which parameters, is defined in a YAML file. An analysis is always
+started from this file, so it is reproducible and easy to share and document.
+
+**3. Steps declare a scope.** Each step says over which scope its analysis
+runs: a single image, a group, a compartment, a carrier, or the experiment.
+When all the data for a scope is in, the step starts. Steps within one pipeline
+can differ in scope, so per-image steps run as each image comes in while a
+per-carrier step waits for the whole carrier. The analysis environments stay
+active between images, so each image is processed the moment it comes in. A
+queue routes incoming work to the right environment and lets urgent jobs go
+first, and a step can run several workers at once, so images are analysed in
+parallel and the analysis keeps up with the microscope.
+
+    engine.submit("overview", tile, scope={"group": "R3"})                    # per tile, now
+    engine.submit("overview", tile, scope={"group": "R3"}, complete="group")  # last tile: group steps run
 
 ## The workflows
 
