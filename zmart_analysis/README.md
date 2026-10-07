@@ -10,8 +10,8 @@ captures, ZMART Analysis measures, the operator page decides. See
 
 ## Why use it
 
-Three problems in image analysis for smart microscopy, and how the pipeline
-engine solves them.
+When building smart microscopy workflows, you are likely to run into four
+problems with image analysis. The pipeline engine solves each of them.
 
 ### The problems
 
@@ -19,22 +19,25 @@ engine solves them.
 an environment with the right dependencies, and often there is no single
 environment in which all steps can run.
 
-**2. Reproducibility.** Image analysis pipelines are complex and fitted to one
-use case. They chain many algorithms, each with its own parameters. Making
-sure these pipelines are reproducible and easy to share is a challenge on its
-own.
+**2. Reproducibility.** Image analysis pipelines can be complex and are often
+fitted to one use case. They chain many algorithms, each with its own
+parameters. Making sure that these pipelines are reproducible, properly
+documented, and easy to share is a challenge on its own.
 
-**3. Analysis over scopes, on the fly.** Depending on the experiment, analysis
-is done over a single image, a group of images, a compartment, a carrier, or
-the whole experiment. In smart microscopy the images do not always arrive when
-you need them, yet they must be analysed as soon as they come in. A step over
-a larger scope can only start once the right set of images is in. This makes
-extracting insights from your data, and deciding the next steps during
-microscopy, challenging.
+**3. Analysis over scopes.** Depending on the experiment, analysis is done over
+a single image, a group of images, a compartment, a carrier, or the whole
+experiment. During acquisition the images do not always arrive when you need
+them. A step over a larger scope can only start once the right set of images is
+in. This makes extracting insights from your data, and deciding the next steps
+during microscopy, challenging.
+
+**4. Time.** The analysis is time sensitive. The microscope waits for the
+answer, so images must be analysed as soon as they come in and the analysis
+must keep up with the acquisition.
 
 ### The solutions
 
-The pipeline engine addresses all three.
+The pipeline engine addresses all four.
 
 **1. Every step in its own environment.** Each step says which conda
 environment it needs. The pipeline engine runs each step in that environment
@@ -49,11 +52,13 @@ started from this file, so it is reproducible and easy to share and document.
 runs: a single image, a group, a compartment, a carrier, or the experiment.
 When all the data for a scope is in, the step starts. Steps within one pipeline
 can differ in scope, so per-image steps run as each image comes in while a
-per-carrier step waits for the whole carrier. The analysis environments stay
-active between images, so each image is processed the moment it comes in. A
-queue routes incoming work to the right environment and lets urgent jobs go
-first, and a step can run several workers at once, so images are analysed in
-parallel and the analysis keeps up with the microscope.
+per-carrier step waits for the whole carrier.
+
+**4. Environments stay active and run concurrently.** The analysis environments
+(workers) stay active between images, so each image is processed the moment it
+comes in. For one step, several workers can be spawned to analyse images
+concurrently. A queue routes incoming work to the right worker and lets urgent
+jobs go first.
 
     engine.submit("overview", tile, scope={"group": "R3"})                    # per tile, now
     engine.submit("overview", tile, scope={"group": "R3"}, complete="group")  # last tile: group steps run
