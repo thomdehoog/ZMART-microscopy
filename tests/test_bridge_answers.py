@@ -28,7 +28,7 @@ from pathlib import Path
 
 import pytest
 
-from conftest import KIDNEY_MOCK, REPO, checkout, identity_of, write_report
+from conftest import KIDNEY_MOCK, REPO, checkout, write_report
 
 
 def _a_free_port() -> int:
@@ -53,11 +53,13 @@ def _post(url: str, payload: dict) -> dict:
 def a_bridge(tmp_path):
     """The installed bridge, on a free port, writing into this check's folder.
 
-    The kidney mock opens a small window of its own when a session connects
-    to it, unless one is open already. The window is not what is checked
-    here, and on a computer without a screen it cannot open, so this check
-    holds the window's place itself (its lock names this Python) and no
-    window is started.
+    It is started the way the operator window starts it, with the
+    interface's own mock offered first (``zmart_interface.serving``). The
+    kidney mock opens a small window of its own when a session connects to
+    it, unless one is open already. The window is not what is checked here,
+    and on a computer without a screen it cannot open, so this check holds
+    the window's place itself (its lock names this Python) and no window is
+    started.
     """
     from zmart_interface.mock_microscope import driver
 
@@ -66,7 +68,7 @@ def a_bridge(tmp_path):
     port = _a_free_port()
     log = (tmp_path / "bridge.log").open("w", encoding="utf-8")
     process = subprocess.Popen(
-        [sys.executable, "-m", "zmart_interface.framework.bridge", "--port", str(port),
+        [sys.executable, "-m", "zmart_interface.serving", "--port", str(port),
          "--output-root", str(tmp_path / "runs")],
         cwd=tmp_path, stdout=log, stderr=subprocess.STDOUT,
         env={**os.environ, driver.STATE_FILE_ENV: str(state_file)},
@@ -89,18 +91,18 @@ def a_bridge(tmp_path):
     log.close()
 
 
-def test_the_bridge_lists_the_kidney_mock_by_its_whole_name(a_bridge):
-    """``/api/instruments`` is the controller's own list, and it includes the kidney mock.
+def test_the_bridge_lists_the_kidney_mock_first(a_bridge):
+    """``/api/instruments`` offers the kidney mock first, then the controller's own list.
 
-    The page picks the mock by its whole name (vendor, microscope and api),
-    never by the vendor alone, so that another driver calling itself a mock
-    cannot stand in for it.
+    First, so that a page opened by accident drives nothing real; and the
+    controller's list after it, which always holds the controller's mock.
     """
     status, _, body = _get(a_bridge + "/api/instruments")
     instruments = json.loads(body)["instruments"]
     write_report("bridge-instruments", {"instruments": instruments})
     assert status == 200
-    assert KIDNEY_MOCK in [identity_of(one) for one in instruments], instruments
+    assert instruments[0] == KIDNEY_MOCK, instruments
+    assert "mock" in instruments, instruments
 
 
 def test_the_bridge_serves_the_built_operator_page(a_bridge):
@@ -112,17 +114,21 @@ def test_the_bridge_serves_the_built_operator_page(a_bridge):
 
 
 def test_the_bridge_answers_the_questions_asked_before_connect(a_bridge):
-    """The viewer's status and the saved protocols answer before any microscope is connected."""
+    """The viewer's status and the installed workflows answer before any microscope is connected.
+
+    The page asks for the workflows installed on the computer as it opens;
+    here none are, so the list is empty.
+    """
     status, _, body = _get(a_bridge + "/api/viewer")
     viewer = json.loads(body)
     assert status == 200 and viewer["running"] is False, viewer
-    status, _, body = _get(a_bridge + "/api/protocols")
+    status, _, body = _get(a_bridge + "/api/workflows")
     assert status == 200, body
-    json.loads(body)
+    assert json.loads(body) == {"workflows": []}, body
 
 
 def test_a_capture_through_the_bridge_is_the_controllers_answer(a_bridge):
-    """Connected to the kidney mock, ``/api/acquire`` answers ``{success, report}`` as the controller does.
+    """Connected to the kidney mock, ``/api/acquire`` answers ``{success, content}`` as the controller does.
 
     The bridge passes the controller's answer on untouched, so the page reads
     a capture the way a script does. The answer must fit the controller's
@@ -131,20 +137,57 @@ def test_a_capture_through_the_bridge_is_the_controllers_answer(a_bridge):
     ``planes`` the file, channel, depth, moment and stage position of every
     picture.
     """
-    from zmart_controller.utils import check_acquire_answer
+    from zmart_controller import check_acquire_answer
 
-    _, _, body = _get(a_bridge + "/api/instruments")
-    kidney = next(one for one in json.loads(body)["instruments"]
-                  if identity_of(one) == KIDNEY_MOCK)
-    connected = _post(a_bridge + "/api/connect", {"connection": kidney})
-    answer = _post(a_bridge + "/api/acquire", {"acquisition_type": "overview",
+    connected = _post(a_bridge + "/api/connect", {"instrument": KIDNEY_MOCK})
+    answer = _post(a_bridge + "/api/acquire", {"folder": "overview",
                                               "position_label": "assembly-check"})
     _post(a_bridge + "/api/disconnect", {})
     write_report("bridge-acquire", {"connected": connected, "answer": answer})
-    assert set(answer) == {"success", "report"}, answer
+    assert set(answer) == {"success", "content"}, answer
     assert answer["success"] is True, answer
     assert check_acquire_answer(answer) == [], answer
-    assert answer["report"]["planes"], answer
+    assert answer["content"]["planes"], answer
+
+
+@pytest.fixture
+def a_driver_installed_under_the_kidneys_name(a_clean_configuration_folder, tmp_path):
+    """A driver installed on this computer as ``interface-mock``, before the bridge starts.
+
+    Its ``get_info`` says who it is, so a session connected to it is
+    recognised at once.
+    """
+    import zmart_controller
+
+    impostor = tmp_path / "impostor"
+    impostor.mkdir()
+    (impostor / "zmart_driver.json").write_text(
+        json.dumps({"name": KIDNEY_MOCK}), encoding="utf-8")
+    (impostor / "zmart_driver.py").write_text(
+        "class ZmartDriver:\n"
+        "    def __init__(self, connection):\n"
+        "        pass\n"
+        "    def get_info(self):\n"
+        "        return True, ('the impostor', 'C:/nowhere', {})\n",
+        encoding="utf-8")
+    zmart_controller.register_driver(impostor)
+
+
+def test_the_bridges_mock_is_the_interfaces_own(a_driver_installed_under_the_kidneys_name,
+                                                 a_bridge):
+    """With another driver installed as ``interface-mock``, the page still connects to the kidney.
+
+    The bridge offers the interface's own mock under that name, plugged in
+    directly, and lists the name once. Were the installed driver used
+    instead, choosing the mock on the page would drive whatever that driver
+    drives.
+    """
+    _, _, body = _get(a_bridge + "/api/instruments")
+    instruments = json.loads(body)["instruments"]
+    assert instruments.count(KIDNEY_MOCK) == 1, instruments
+    connected = _post(a_bridge + "/api/connect", {"instrument": KIDNEY_MOCK})
+    _post(a_bridge + "/api/disconnect", {})
+    assert connected["info"]["description"] != "the impostor", connected
 
 
 def test_the_walks_bridge_runs_the_installed_interface():

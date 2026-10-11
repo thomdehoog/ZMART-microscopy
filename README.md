@@ -87,6 +87,12 @@ python -m pytest tests               # the plug-in checks, a few minutes
 python run_walk.py                   # the operator window, end to end, 10 to 30 minutes
 ```
 
+To check the blocks together before they are promoted to `main`, install a branch of each:
+`--branch release-candidate` takes that branch of every block, and `--branch zmart-analysis=main`
+(given as well) keeps one block on another branch. The blocks are then installed at those
+branches without their requirements first, and their requirements afterwards, because each block
+names the others by their plain GitHub address and pip refuses one package asked for at two.
+
 `install.py` creates the environment `zmart-integration` from [`environment.yml`](environment.yml)
 (conda-forge only), installs the five blocks with pip straight from GitHub, clones the controller,
 the analysis and the interface into `work/` (for their mock driver, workflows and browser walk,
@@ -102,22 +108,27 @@ which writes a small script to the temporary folder and runs it.
 
 ### Status
 
-This is a release candidate, checked against the `main` branch of each block. The latest run on
-a Windows 11 workstation (2 October 2026; controller 0.1.0, drivers 0.1.0rc1, viewer 0.5.0rc1,
-analysis 1.0.0rc1, interface 0.1.0rc1) is summarised here:
+This is a release candidate. The latest run, on a Windows 11 workstation on 11 October 2026,
+checked the blocks together before their promotion to `main`: the `release-candidate` branch of
+the controller (0.2.0, `4b9ac5c`), the drivers (0.1.0rc1, `6710a7b`), the viewer (0.5.0rc4,
+`5a291df`) and the interface (0.1.0rc1, `24a0a0f`), with the analysis engine from `main`
+(1.0.0rc1, `80ab373`), whose `release-candidate` branch is older than its `main`:
+
+```bash
+python install.py --branch release-candidate --branch zmart-analysis=main
+```
 
 | What was checked | Result |
 |---|---|
 | The install, and `pip check` | passes |
-| The plug-in checks (`tests/`) | 32 of 33 pass; the one that does not is below |
-| The walk: all ten steps of the operator window on the kidney mock, against the installed blocks | passes (about 3.5 minutes) |
+| The plug-in checks (`tests/`) | all 30 pass |
+| The walk: all ten steps of the operator window on the kidney mock, against the installed blocks | passes (about 3 minutes) |
 
-The one check that does not pass yet is left failing on purpose: it turns green when the block is
-fixed, not when the check is loosened.
-
-| Check | What does not fit | What needs to change |
-|---|---|---|
-| A capture from the controller's mock is served by the viewer | The capture fits the controller's contract and the interface writes it as OME-Zarr, but the viewer refuses to show it: "A live baked folder needs its full specimen canvas bounds". The interface always asks the viewer for a baked picture, with the canvas taken from `get_info`'s `canvas`, which is not part of the controller's contract. Only the kidney mock and the Leica driver declare one, so on any other microscope the operator's canvas stays empty. | Interface (`parts/storage/viewer_service.py`, `framework/bridge.py` `_connect`): take the canvas from what every driver reports, the travel range `get_xyz` gives for x and y, when `get_info` names none. Or the viewer (`zmart_viewer/views/publishing.py`, `_open`): build a baked picture without bounds given in advance. |
+On Windows, pip can fail to build the drivers with "could not create ... No such file or
+directory": some of the drivers' file paths are long, and pip builds them inside the temporary
+folder, so together they can pass Windows' limit of 260 characters. Point `TMP` and `TEMP` at a
+short folder (such as `D:\t`) while installing, or turn on Windows' long paths. The analysis
+environments still need `TMPDIR` in an approved folder when the checks run (see above).
 
 The Nikon, ZEISS and mesoSPIM drivers still report their `planes` as a count rather than one
 entry per picture, so their captures do not yet fit the controller's contract. That driver work is
@@ -131,10 +142,10 @@ The plug-in checks are in [`tests/`](tests), one file per place where blocks mee
 | File | What it asks |
 |---|---|
 | `test_installed_versions.py` | `pip check` passes; every block came from its GitHub repository; each clone is at the installed commit; the interface accepts the installed viewer; the versions are written down |
-| `test_drivers_plug_in.py` | every driver registers with the controller by module and by folder and is listed; both mock microscopes pass the controller's `validate_driver`; the two mocks stand side by side, and no other driver can take the kidney mock's name |
+| `test_drivers_plug_in.py` | every driver plugs into the controller the way its shape asks: the Leica driver installs from its `zmart_driver.json` and is listed, and the Nikon, ZEISS and mesoSPIM modules have a function for every command; both mock microscopes pass the controller's `validate_driver`; the two mocks stand side by side, and no driver can take the name of the controller's mock |
 | `test_analysis_runs.py` | the engine finds the sharp plane of a focus stack in its own environment, directly and through the interface |
-| `test_viewer_serves.py` | a capture from either mock fits the controller's contract, is kept by the interface's writer, and is served by the viewer |
-| `test_bridge_answers.py` | the interface's bridge lists the kidney mock, serves the page, answers before Connect, passes a capture on as the controller's answer, and the walk's bridge runs the installed interface |
+| `test_viewer_serves.py` | a capture from either mock fits the controller's contract, is kept by the interface the way its bridge keeps a scan's field (the driver's own OME-Zarr store, or one written from its files), and is served by the viewer |
+| `test_bridge_answers.py` | the interface's bridge lists the kidney mock first, serves the page, answers before Connect, passes a capture on as the controller's answer, keeps its own mock when another driver is installed under that name, and the walk's bridge runs the installed interface |
 
 Every check gets an empty ZMART configuration folder of its own, and each driver is plugged in in
 a fresh Python, so nothing on the computer changes the answer and nothing is left behind.

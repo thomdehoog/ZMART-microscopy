@@ -4,14 +4,18 @@ This is the path every picture on the operator's canvas takes. A mock
 microscope captures a field through the controller, and its answer must fit
 the controller's contract for an acquisition (``check_acquire_answer``): every
 saved file under ``files``, and under ``planes`` the file, channel, depth,
-moment and stage position of each picture. The interface moves the files into
-the run and writes them as one OME-Zarr position, reading nothing but
-``files`` and ``planes``. The viewer, started beside the run the way the
-interface's bridge starts it -- laid out over the reach the controller's
+moment and stage position of each picture. The interface files the capture
+in the run and keeps it as one OME-Zarr position, reading nothing but
+``files`` and ``planes``: the driver's own OME-Zarr store when it saved one,
+or a store written from its files. The viewer, started beside the run the way
+the interface's bridge starts it -- laid out over the canvas the controller's
 ``get_xyz`` reports per axis, everywhere a picture can show -- opens that
-position and lists it in
-``/api/config``, which is where any drawing engine learns what there is to
-draw.
+position and lists it in ``/api/config``, which is where any drawing engine
+learns what there is to draw.
+
+Each step is the one the interface's bridge takes on Connect and for every
+field of a scan, in the same order, so a capture that passes here is one the
+operator's canvas shows.
 
 The same is asked of both mocks: the interface's own (the kidney) and the
 controller's (the beads). The interface promises to work with any microscope
@@ -25,51 +29,47 @@ University of Zurich (thom.dehoog@zmb.uzh.ch, thomdehoog@gmail.com).
 
 from __future__ import annotations
 
-import pytest
+from conftest import write_report
 
-from conftest import checkout, write_report
-
-#: Capture one field on a mock, keep it the way the bridge keeps a scan's
-#: field, publish it to the viewer, and ask the viewer what it serves.
+#: Connect to a mock, capture one field, keep it the way the bridge keeps a
+#: scan's field, and ask the viewer what it serves.
 CAPTURE_KEEP_AND_SERVE = """
     import json, sys, time, urllib.request
     from pathlib import Path
-    import zmart_controller
-    import zmart_controller.session
+    from zmart_controller import ZmartController, check_acquire_answer
+    from zmart_interface.framework.bridge import pictures, state
+    from zmart_interface.framework.bridge.connecting import the_viewers_area
+    from zmart_interface.parts.microscope.instrument import Instrument
     from zmart_interface.parts.storage import viewer_service
     from zmart_interface.parts.storage.output import (
         move_record_images, position_label, prepare_acquisition, prepare_experiment)
-    from zmart_controller.utils import check_acquire_answer
-    from zmart_interface.parts.storage.zarr_positions import position_store_from_record
 
-    which, output_root, driver = sys.argv[1], Path(sys.argv[2]), sys.argv[3]
+    which, output_root = sys.argv[1], sys.argv[2]
     if which == "interface":
-        from zmart_interface import mock_microscope
-        added = mock_microscope.register()
+        from zmart_interface import mock_microscope as driver
+        connection = {**driver.CONNECTION, "output_root": output_root}
     else:
-        added = zmart_controller.register_driver(driver, remember=False)
-    connection = {**added[0], "output_root": str(output_root)}
-    if which == "controller":
-        connection["mock_timing"] = "instant"
-    session = zmart_controller.session.set_instrument(connection)
+        driver = "mock"
+        connection = {"output_root": output_root, "mock_timing": "instant"}
+    session = Instrument(ZmartController(driver, connection))
     try:
-        info = session.get_info()["report"]
-        standing = session.get_xyz()["report"]
-        area = {f"{axis}_um": standing[axis]["reach"] for axis in ("x", "y", "z")}
-        run = prepare_experiment(info["output_root"], "assembly")
-        answer = session.acquire(acquisition_type="overview", position_label=position_label(0))
+        info = session.get_info()
+        area = the_viewers_area(session.get_xyz())
+        state.run = prepare_experiment(info["output_root"], "assembly")
+        viewer_service.start(state.run, bake=True, canvas=area)
+        answer = session.acquire_answer(position_label=position_label(0), folder="overview")
         problems = check_acquire_answer(answer)
         if not answer["success"] or problems:
             raise SystemExit(f"the capture does not fit the contract: {problems} {answer}")
-        record = answer["report"]
-        move_record_images(record, prepare_acquisition(run, "overview").data)
-        folder = run / "positions" / "overview"
-        store = position_store_from_record(record, folder)
+        record = answer["content"]
+        move_record_images(record, prepare_acquisition(state.run, "overview").data)
+        pictures.keep_position_as_zarr(record, "overview")
+        if record.get("zarr_error"):
+            raise SystemExit(f"the interface could not keep the capture: {record['zarr_error']}")
+        store = record["zarr"]
     finally:
         session.disconnect()
 
-    viewer_service.start(run, bake=True, canvas=area)
-    viewer_service.a_position_landed("overview", folder, store=store)
     deadline = time.monotonic() + 120
     while time.monotonic() < deadline:
         status = viewer_service.status()
@@ -117,7 +117,7 @@ def test_a_capture_from_the_interfaces_mock_is_served_by_the_viewer(fresh_python
     The field is taken before anything is moved, which is the first place an
     operator may press Acquire.
     """
-    said = fresh_python(CAPTURE_KEEP_AND_SERVE, "interface", str(tmp_path / "runs"), "",
+    said = fresh_python(CAPTURE_KEEP_AND_SERVE, "interface", str(tmp_path / "runs"),
                         env={"ZMART_MOCK_STATE": str(tmp_path / "instrument.json")})
     write_report("viewer-serves-interface-mock", said)
     _check_served(said)
@@ -125,7 +125,6 @@ def test_a_capture_from_the_interfaces_mock_is_served_by_the_viewer(fresh_python
 
 def test_a_capture_from_the_controllers_mock_is_served_by_the_viewer(fresh_python, tmp_path):
     """The controller's mock (beads) fits the contract, so the interface keeps its capture and the viewer serves it."""
-    driver = checkout("ZMART-controller") / "tests" / "mock_zmart_driver"
-    said = fresh_python(CAPTURE_KEEP_AND_SERVE, "controller", str(tmp_path / "runs"), str(driver))
+    said = fresh_python(CAPTURE_KEEP_AND_SERVE, "controller", str(tmp_path / "runs"))
     write_report("viewer-serves-controller-mock", said)
     _check_served(said)

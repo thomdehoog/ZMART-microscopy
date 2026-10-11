@@ -34,6 +34,13 @@ Options:
     --no-walk-tools        skip ``npm ci`` and the browser (no walk possible)
     --analysis-steps LIST  which analysis environments to make, as
                            ``workflow:step`` separated by commas
+    --branch NAME          install and clone this branch of every block
+                           instead of ``main``, for example
+                           ``release-candidate``, to check the blocks
+                           together before they are promoted
+    --branch BLOCK=NAME    this branch for one block only, for example
+                           ``zmart-analysis=main``; may be given again for
+                           other blocks, and wins over a plain ``--branch``
 
 Author: Thom de Hoog, Center for Microscopy and Image Analysis (ZMB),
 University of Zurich (thom.dehoog@zmb.uzh.ch, thomdehoog@gmail.com).
@@ -155,21 +162,99 @@ def environment_for(prefix: Path, conda: str) -> dict:
     return env
 
 
-def install_blocks(python: Path, env: dict) -> None:
-    """pip-install the five blocks from GitHub, upgrading whatever is there already."""
-    run([python, "-m", "pip", "install", "--upgrade", *BLOCKS.values()], env=env)
+#: Asked in the environment's own Python after the blocks are installed
+#: without their requirements: what the blocks need besides each other, with
+#: the extras asked for in BLOCKS. Prints one requirement per line.
+REQUIREMENTS_BESIDE_THE_BLOCKS = """
+import sys
+from importlib.metadata import distribution
+from packaging.requirements import Requirement
+
+asked = [Requirement(line) for line in sys.argv[1:]]
+blocks = {one.name for one in asked}
+needed = set()
+for block in asked:
+    for line in distribution(block.name).requires or []:
+        one = Requirement(line)
+        if one.name in blocks:
+            continue
+        if one.marker and not any(one.marker.evaluate({"extra": extra})
+                                  for extra in sorted(block.extras) or [""]):
+            continue
+        one.marker = None
+        needed.add(str(one))
+print("\\n".join(sorted(needed)))
+"""
 
 
-def clone(work: Path, env: dict) -> None:
-    """Clone (or bring up to date) the repositories whose parts are not installed."""
+def on_branch(address: str, branch: str) -> str:
+    """A block's pip address, pinned to *branch* of its repository."""
+    return f"{address}@{branch}"
+
+
+def branches_of(asked: list[str]) -> dict[str, str]:
+    """Which branch of each block to install, from the ``--branch`` options.
+
+    A plain name applies to every block; ``block=name`` to that block alone,
+    and wins. Without any, every block is installed from ``main``.
+    """
+    everyone = "main"
+    one_by_one = {}
+    for option in asked:
+        block, _, name = option.rpartition("=")
+        if not block:
+            everyone = name
+        elif block in BLOCKS:
+            one_by_one[block] = name
+        else:
+            sys.exit(f"--branch {option}: {block} is not one of the blocks {list(BLOCKS)}")
+    return {block: one_by_one.get(block, everyone) for block in BLOCKS}
+
+
+def install_blocks(python: Path, env: dict, branches: dict[str, str]) -> None:
+    """pip-install the five blocks from GitHub, upgrading whatever is there already.
+
+    With every block on ``main``, pip installs each repository's default
+    branch and fetches what each block needs on the way.
+
+    With another branch, the blocks cannot simply be asked for at it: the
+    interface and the drivers name the controller (and the interface the
+    viewer and the analysis) by their plain addresses, and pip refuses one
+    package asked for at two addresses. So the five blocks are installed at
+    the branch without their requirements first, and then everything they
+    need besides each other is installed, as each block declares it.
+    """
+    if set(branches.values()) == {"main"}:
+        run([python, "-m", "pip", "install", "--upgrade", *BLOCKS.values()], env=env)
+        return
+    addresses = [on_branch(address, branches[block]) for block, address in BLOCKS.items()]
+    run([python, "-m", "pip", "install", "--upgrade", "--force-reinstall", "--no-deps",
+         *addresses], env=env)
+    said = subprocess.run([str(python), "-c", REQUIREMENTS_BESIDE_THE_BLOCKS, *BLOCKS.values()],
+                          capture_output=True, text=True, env=env, check=True)
+    needed = [line for line in said.stdout.splitlines() if line.strip()]
+    if needed:
+        run([python, "-m", "pip", "install", "--upgrade", *needed], env=env)
+
+
+def clone(work: Path, env: dict, branches: dict[str, str]) -> None:
+    """Clone (or bring up to date) the repositories whose parts are not installed.
+
+    A clone made earlier is moved to the block's branch and brought up to
+    date, so that it holds the same code as the package installed from it.
+    """
     work.mkdir(exist_ok=True)
     for name, why in CHECKOUTS.items():
         target = work / name
-        print(f"{name}: {why}")
+        branch = next(branches[block] for block, address in BLOCKS.items()
+                      if address.endswith(f"/{name}"))
+        print(f"{name} ({branch}): {why}")
         if (target / ".git").is_dir():
-            run(["git", "-C", target, "pull", "--ff-only"], env=env)
+            run(["git", "-C", target, "fetch", "origin", branch], env=env)
+            run(["git", "-C", target, "checkout", branch], env=env)
+            run(["git", "-C", target, "pull", "--ff-only", "origin", branch], env=env)
         else:
-            run(["git", "clone", "--branch", "main", f"{GITHUB}/{name}", target], env=env)
+            run(["git", "clone", "--branch", branch, f"{GITHUB}/{name}", target], env=env)
 
 
 def analysis_environments(python: Path, work: Path, steps: str, env: dict) -> list[dict]:
@@ -243,6 +328,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--no-analysis-envs", action="store_true")
     parser.add_argument("--no-walk-tools", action="store_true")
     parser.add_argument("--analysis-steps", default=ANALYSIS_STEPS)
+    parser.add_argument("--branch", action="append", default=[])
     args = parser.parse_args(argv)
     work = HERE / "work"
 
@@ -252,11 +338,13 @@ def main(argv: list[str] | None = None) -> int:
     python = python_of(prefix)
     env = environment_for(prefix, conda)
 
-    say("the five blocks, from GitHub")
-    install_blocks(python, env)
+    branches = branches_of(args.branch)
+    say("the five blocks, from GitHub: "
+        + ", ".join(f"{block} ({branch})" for block, branch in branches.items()))
+    install_blocks(python, env, branches)
 
     say("the repositories with the parts that are not installed")
-    clone(work, env)
+    clone(work, env, branches)
 
     analysis = []
     if not args.no_analysis_envs:
@@ -270,6 +358,7 @@ def main(argv: list[str] | None = None) -> int:
     record = {
         "environment": str(prefix),
         "python": str(python),
+        "branches": branches,
         "installed": installed_record(python, env),
         "cloned": {name: commit_of(work / name, env) for name in CHECKOUTS},
         "analysis_environments": analysis,

@@ -1,6 +1,6 @@
 """The analysis engine runs a real pipeline in its own environment, and the interface reaches it.
 
-ZMART-analysis is installed as the ``engine`` package, but the pipelines it
+ZMART-analysis is installed as the ``zmart_analysis`` package, but the pipelines it
 runs (recipes in YAML, and the steps they name) stay in a clone of its
 repository, and each step runs in a conda environment of its own. Three
 blocks have to agree for one focus score to come back: the installed engine,
@@ -54,7 +54,7 @@ def a_stack_sharp_at_108_um(tmp_path):
 @pytest.fixture
 def the_focus_environment():
     """The step's own environment exists; if not, the failure says how to make it."""
-    from engine.conda_utils import env_exists, get_conda_info
+    from zmart_analysis.conda import env_exists, get_conda_info
 
     if not env_exists(get_conda_info(), "ZMART--focus--main"):
         pytest.fail("the conda environment ZMART--focus--main is missing; "
@@ -65,7 +65,7 @@ def test_the_engine_scores_a_focus_stack_in_the_focus_environment(
     a_stack_sharp_at_108_um, the_focus_environment
 ):
     """The installed engine runs the focus recipe from the clone and finds the sharp plane."""
-    from engine import Engine
+    from zmart_analysis import Engine
 
     recipe = checkout("ZMART-analysis") / "workflows" / "focus" / "pipelines" / "focus.yaml"
     engine = Engine()

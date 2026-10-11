@@ -48,20 +48,9 @@ BLOCKS = {
 }
 
 
-#: The three keys an instrument is known by. Two drivers never share all three.
-IDENTITY = ("vendor", "microscope", "api")
-
-#: The interface's mock microscope, a section of a mouse kidney: the one the
-#: operator window offers as "Mock" and the walk drives.
-KIDNEY_MOCK = ("mock", "kidney-mock", "zmart-interface")
-
-#: The controller's mock microscope, a slide of beads, kept with its tests.
-BEADS_MOCK = ("mock", "mock-scope", "mock-api")
-
-
-def identity_of(entry: dict) -> tuple:
-    """An instrument's whole name, the way the controller tells instruments apart."""
-    return tuple(entry[key] for key in IDENTITY)
+#: The interface's mock microscope, a section of a mouse kidney, by the name
+#: the operator window offers it under first, and the walk drives.
+KIDNEY_MOCK = "interface-mock"
 
 
 def checkout(name: str) -> Path:
