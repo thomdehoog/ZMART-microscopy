@@ -53,9 +53,10 @@ CAPTURE_KEEP_AND_SERVE = """
         connection = {"output_root": output_root, "mock_timing": "instant"}
     session = Instrument(ZmartController(driver, connection))
     try:
-        info = session.get_info()
         area = the_viewers_area(session.get_xyz())
-        state.run = prepare_experiment(info["output_root"], "assembly")
+        # The run goes where the bridge would put it: under the interface's own
+        # output folder, never one a driver names.
+        state.run = session.run = prepare_experiment(output_root, "assembly")
         viewer_service.start(state.run, bake=True, canvas=area)
         answer = session.acquire_answer(position_label=position_label(0), folder="overview")
         problems = check_acquire_answer(answer)
