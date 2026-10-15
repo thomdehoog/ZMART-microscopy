@@ -31,8 +31,7 @@ device verbs are pinned.
   "decisive find" is accurate.
 - **Coverage:** an exhaustive read of every macro (all 48 `SampleAPI_*.mac` + `autorun.mac` +
   `NkWindowDemo.mac`, the interface/library `.mac` files, and the extracted demos).
-- **DLLs:** native C/C++ (no `mscoree` reference → not .NET). No `dumpbin`/`objdump`/`strings`/`7z`
-  on this machine, so no formal decompilation — **and none needed**: every utility DLL's full
+- **DLLs:** native C/C++ (no `mscoree` reference → not .NET). Every utility DLL's full
   callable surface is declared in its paired `.mac` file. The three image DLLs (no `.mac`) were
   characterized by a string scan (see below).
 
