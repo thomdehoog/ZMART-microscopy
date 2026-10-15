@@ -71,18 +71,20 @@ def test_the_engine_scores_a_focus_stack_in_the_focus_environment(
     engine = Engine()
     try:
         engine.register("focus", str(recipe))
-        engine.submit("focus", {"image_path": str(a_stack_sharp_at_108_um), "z_um": HEIGHTS_UM})
+        job = engine.submit(
+            pipeline="focus",
+            data={"image_path": str(a_stack_sharp_at_108_um), "z_um": HEIGHTS_UM},
+        )
         deadline = time.monotonic() + PATIENCE_S
-        results = []
-        while not results and time.monotonic() < deadline:
-            results = engine.results("focus")
-            failures = engine.status("focus").get("failures")
-            assert not failures, failures
+        entry = engine.status("focus")[job]
+        while entry["state"] != "done" and time.monotonic() < deadline:
+            assert entry["state"] != "failed", entry
             time.sleep(0.2)
+            entry = engine.status("focus")[job]
     finally:
         engine.shutdown()
-    assert results, f"no focus score came back within {PATIENCE_S} s"
-    found = results[0]["score_focus"]
+    assert entry["state"] == "done", f"no focus score came back within {PATIENCE_S} s"
+    found = entry["output"]["score_focus"]
     assert found["n_planes"] == 9
     assert found["peak_z_um"] == pytest.approx(108.0)
 
