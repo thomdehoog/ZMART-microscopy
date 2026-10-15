@@ -43,7 +43,7 @@
 > Verified 2026-07-01 by an exhaustive read of every macro in the bundle (48 `SampleAPI_*.mac`, the
 > interface/library `.mac` files, and the socket/serial/process demos extracted from **inside**
 > `NkMacroLibs_6.20.00.exe` — a plain zip, not loose files). DLLs are native C/C++ (no .NET); each
-> utility DLL's full callable surface is declared in its paired `.mac`, so no decompilation was needed.
+> utility DLL's full callable surface is declared in its paired `.mac`.
 
 ### ✅ Can do
 - **Drive NIS from an external process over TCP.** `NkSocket.dll` is a full client/server;
