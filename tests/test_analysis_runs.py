@@ -67,10 +67,10 @@ def test_the_engine_scores_a_focus_stack_in_the_focus_environment(
     """The installed engine runs the focus recipe from the clone and finds the sharp plane."""
     from zmart_analysis import Engine
 
-    recipe = checkout("ZMART-analysis") / "workflows" / "focus" / "pipelines" / "focus.yaml"
+    pipeline = checkout("ZMART-analysis") / "workflows" / "focus" / "pipelines" / "focus.yaml"
     engine = Engine()
     try:
-        engine.register("focus", str(recipe))
+        engine.register("focus", str(pipeline), str(a_stack_sharp_at_108_um.parent))
         job = engine.submit(
             pipeline="focus",
             data={"image_path": str(a_stack_sharp_at_108_um), "z_um": HEIGHTS_UM},
@@ -103,7 +103,7 @@ def test_the_interface_reaches_the_engine_the_way_its_focus_map_does(
     from zmart_interface.parts.analysis.workflows import workflows_root
 
     assert workflows_root() == (checkout("ZMART-analysis") / "workflows").resolve()
-    analysis = Analysis()
+    analysis = Analysis(output=str(a_stack_sharp_at_108_um.parent))
     try:
         found = analysis.run("focus", {"image_path": str(a_stack_sharp_at_108_um),
                                        "z_um": HEIGHTS_UM})["score_focus"]
