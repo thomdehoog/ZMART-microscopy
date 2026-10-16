@@ -1,0 +1,7 @@
+# The clones, the walk's output and the reports that install.py and the checks make
+work/
+__pycache__/
+*.pyc
+.pytest_cache/
+Thumbs.db
+.DS_Store

@@ -1,0 +1,17 @@
+# The one environment every ZMART block is installed into, to assemble them and
+# check that they fit. Everything here comes from conda-forge: "nodefaults" keeps Anaconda's
+# own channel out, even on a computer where it is configured.
+#
+# Python runs the five blocks and the checks. Node.js runs the interface's
+# browser walk (Playwright, and the page's development server). git lets pip
+# fetch the blocks from GitHub, and install.py clone the parts that are not
+# installed as packages.
+name: zmart-integration
+channels:
+  - conda-forge
+  - nodefaults
+dependencies:
+  - python=3.12
+  - nodejs>=22.12
+  - pip
+  - git
