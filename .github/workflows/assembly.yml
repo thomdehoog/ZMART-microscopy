@@ -5,12 +5,12 @@
 # Two jobs:
 #
 # - "plug-in checks" runs the pytest checks in tests/ on Linux and Windows. It
-#   makes only the focus environment of ZMART-analysis, the one the checks use,
+#   makes only the alignment environment of ZMART-analysis, the one the checks use,
 #   and skips the Node.js tools (so the one check that asks the walk how it
 #   starts the bridge is skipped there; the walk job makes the same check
 #   before it starts).
 # - "walk" runs the interface's browser walk, all ten steps on the mock
-#   microscope, on Linux only. It needs the focus and detection environments,
+#   microscope, on Linux only. It needs the alignment and detection environments,
 #   Node.js tools and Chromium, and a pretend screen (xvfb) for the mock's own
 #   window. A Windows runner would add a second copy of all that for little
 #   more information, so the walk is run on Windows by hand (see the README).
@@ -53,8 +53,8 @@ jobs:
           activate-environment: zmart-integration
           conda-remove-defaults: true
 
-      - name: Install the five blocks from GitHub, and the focus environment
-        run: python install.py --no-walk-tools --analysis-steps focus:main
+      - name: Install the five blocks from GitHub, and the alignment environment
+        run: python install.py --no-walk-tools --analysis-steps alignment:main
 
       - name: The plug-in checks
         run: python -m pytest tests

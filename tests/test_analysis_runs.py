@@ -4,7 +4,7 @@ ZMART-analysis is installed as the ``zmart_analysis`` package, but the pipelines
 runs (recipes in YAML, and the steps they name) stay in a clone of its
 repository, and each step runs in a conda environment of its own. Three
 blocks have to agree for one focus score to come back: the installed engine,
-the workflows in the clone, and the step's environment (``ZMART--focus--main``,
+the workflows in the clone, and the step's environment (``ZMART--alignment--main``,
 made or reused by install.py).
 
 The stack scored here is synthetic and simple, so the right answer is known:
@@ -56,18 +56,18 @@ def the_focus_environment():
     """The step's own environment exists; if not, the failure says how to make it."""
     from zmart_analysis.conda import env_exists, get_conda_info
 
-    if not env_exists(get_conda_info(), "ZMART--focus--main"):
-        pytest.fail("the conda environment ZMART--focus--main is missing; "
-                    "install.py makes it (or setup_env.py in the focus workflow)")
+    if not env_exists(get_conda_info(), "ZMART--alignment--main"):
+        pytest.fail("the conda environment ZMART--alignment--main is missing; "
+                    "install.py makes it (or setup_env.py in the alignment workflow)")
 
 
-def test_the_engine_scores_a_focus_stack_in_the_focus_environment(
+def test_the_engine_scores_a_focus_stack_in_the_alignment_environment(
     a_stack_sharp_at_108_um, the_focus_environment
 ):
     """The installed engine runs the focus recipe from the clone and finds the sharp plane."""
     from zmart_analysis import Engine
 
-    pipeline = checkout("ZMART-analysis") / "workflows" / "focus" / "pipelines" / "focus.yaml"
+    pipeline = checkout("ZMART-analysis") / "workflows" / "alignment" / "pipelines" / "focus.yaml"
     engine = Engine()
     try:
         engine.register("focus", str(pipeline), str(a_stack_sharp_at_108_um.parent))
