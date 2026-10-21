@@ -87,9 +87,9 @@ CHECKOUTS = {
     "ZMART-interface": "the browser walk and the Node.js tools it runs with",
 }
 
-#: The analysis environments the walk needs: alignment for the focus map, and the fast
+#: The analysis environments the walk needs: focus for the focus map, and the fast
 #: object detection with its measurements.
-ANALYSIS_STEPS = "alignment:main,object_analysis:classical"
+ANALYSIS_STEPS = "focus:main,object_analysis:classical"
 
 
 def say(text: str) -> None:
