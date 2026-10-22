@@ -47,7 +47,7 @@ Each tool has its own repository and can be used on its own.
 <p><a href="https://github.com/ZMB-UZH/ZMART-drivers"><b>ZMART drivers</b></a><br>
 Provides an abstraction to interact with the microscope in a reproducible, robust and straightforward way</p>
 <p><a href="https://github.com/ZMB-UZH/ZMART-controller"><b>ZMART Controller</b></a><br>
-A short list of plain commands (move, read the state, acquire) that works the same on every microscope with a driver</p>
+Distills talking to the microscope down to a uniform language, so the workflows you build with it become interoperable</p>
 <p><a href="https://github.com/ZMB-UZH/ZMART-interface"><b>ZMART interface</b></a><br>
 Scan an overview, find targets, image them again</p>
 <p><a href="https://github.com/ZMB-UZH/ZMART-analysis"><b>ZMART analysis</b></a><br>
