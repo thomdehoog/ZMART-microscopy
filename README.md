@@ -45,7 +45,7 @@ Each tool has its own repository and can be used on its own.
 <td valign="middle">
 
 <p><a href="https://github.com/ZMB-UZH/ZMART-drivers"><b>ZMART drivers</b></a><br>
-One driver per microscope (Leica, Nikon, ZEISS, mesoSPIM), each translating the controller's commands into what that microscope understands</p>
+Provides an abstraction to interact with the microscope in a reproducible, robust and straightforward way</p>
 <p><a href="https://github.com/ZMB-UZH/ZMART-controller"><b>ZMART Controller</b></a><br>
 A short list of plain commands (move, read the state, acquire) that works the same on every microscope with a driver</p>
 <p><a href="https://github.com/ZMB-UZH/ZMART-interface"><b>ZMART interface</b></a><br>
