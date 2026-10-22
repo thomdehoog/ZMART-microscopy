@@ -29,7 +29,7 @@ It also contains an overview of the individual tools of the ZMART toolkit.
 
 ### For coders
 
-- [Target acquisition workflow for coders](workflows/for-coders/target_acquisition.ipynb) with the Leica STELLARIS using a Jupyter notebook
+- [Target acquisition workflow for coders](workflows/for-coders/) with the Leica STELLARIS using a Jupyter notebook
 
 <br>
 
