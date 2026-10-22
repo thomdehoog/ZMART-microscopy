@@ -44,16 +44,16 @@ Each tool has its own repository and can be used on its own.
 </td>
 <td valign="middle">
 
-<p><a href="https://github.com/ZMB-UZH/ZMART-drivers"><b>ZMART drivers</b></a><br>
-Provides an abstraction to interact with the microscope in a reproducible, robust and straightforward way</p>
-<p><a href="https://github.com/ZMB-UZH/ZMART-controller"><b>ZMART Controller</b></a><br>
-Distills talking to the microscope down to a uniform language, so the workflows you build with it become interoperable</p>
-<p><a href="https://github.com/ZMB-UZH/ZMART-analysis"><b>ZMART analysis</b></a><br>
-Allows you to generate image analysis pipelines that are optimized for live feedback on local computers, that are documented, reproducible and that you can share</p>
-<p><a href="https://github.com/ZMB-UZH/ZMART-viewer"><b>ZMART viewer</b></a><br>
-Allows you to view all the data of your entire experiment in the space of your canvas</p>
 <p><a href="https://github.com/ZMB-UZH/ZMART-interface"><b>ZMART interface</b></a><br>
 Provides the framework for creating intuitive user interfaces, so workflows can be simulated and optimized in a straightforward way for non-coders</p>
+<p><a href="https://github.com/ZMB-UZH/ZMART-viewer"><b>ZMART viewer</b></a><br>
+Allows you to view all the data of your entire experiment in the space of your canvas</p>
+<p><a href="https://github.com/ZMB-UZH/ZMART-analysis"><b>ZMART analysis</b></a><br>
+Allows you to generate image analysis pipelines that are optimized for live feedback on local computers, that are documented, reproducible and that you can share</p>
+<p><a href="https://github.com/ZMB-UZH/ZMART-controller"><b>ZMART Controller</b></a><br>
+Distills talking to the microscope down to a uniform language, so the workflows you build with it become interoperable</p>
+<p><a href="https://github.com/ZMB-UZH/ZMART-drivers"><b>ZMART drivers</b></a><br>
+Provides an abstraction to interact with the microscope in a reproducible, robust and straightforward way</p>
 
 </td>
 </tr>
