@@ -52,10 +52,10 @@ Distills talking to the microscope down to a uniform language, so the workflows 
 Allows you to generate image analysis pipelines that are optimized for live feedback on local computers, that are documented, reproducible and that you can share</p>
 <p><a href="https://github.com/ZMB-UZH/ZMART-viewer"><b>ZMART viewer</b></a><br>
 Allows you to view all the data of your entire experiment in the space of your canvas</p>
-<p><a href="https://github.com/ZMB-UZH/ZMART-interface"><b>ZMART interface</b></a><br>
-Scan an overview, find targets, image them again</p>
 <p><a href="https://github.com/thomdehoog/ZMART-ai-agent"><b>ZMART AI agent</b></a><br>
 Drives a microscope when you ask in your own words</p>
+<p><a href="https://github.com/ZMB-UZH/ZMART-interface"><b>ZMART interface</b></a><br>
+Provides the framework for creating intuitive user interfaces, so workflows can be simulated and optimized in a straightforward way for non-coders</p>
 
 </td>
 </tr>
