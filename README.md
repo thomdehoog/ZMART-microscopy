@@ -19,7 +19,6 @@ It also contains an overview of the individual tools of the ZMART toolkit.
 </td>
 </tr>
 </table>
-
 <br>
 
 ## Example workflows
@@ -31,6 +30,8 @@ It also contains an overview of the individual tools of the ZMART toolkit.
 ### For non-coders
 
 - [Target acquisition workflow for the Leica STELLARIS](workflows/for-non-coders/) using an intuitive interface
+
+<br>
 
 ## Build your own workflow using the tools of ZMART
 
@@ -59,10 +60,13 @@ Drives a microscope when you ask in your own words</p>
 </td>
 </tr>
 </table>
+<br>
 
 ## Author
 Thom de Hoog, Center for Microscopy and Image Analysis (ZMB), University of
 Zurich (thom.dehoog@zmb.uzh.ch, thomdehoog@gmail.com).
+
+<br>
 
 ## License
 MIT License. See LICENSE file for details.
