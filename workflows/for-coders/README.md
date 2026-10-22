@@ -4,7 +4,17 @@ The [target acquisition notebook](target_acquisition_template.ipynb) drives the 
 
 ## 1. Install
 
-In a clone of this repository.
+Get this repository:
+
+```bash
+git clone -b example-workflows https://github.com/ZMB-UZH/ZMART-microscopy
+```
+
+Go into it:
+
+```bash
+cd ZMART-microscopy
+```
 
 Get ZMART analysis:
 
