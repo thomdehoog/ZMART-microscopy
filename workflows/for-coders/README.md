@@ -20,7 +20,7 @@ conda env create -f workflows/for-coders/environment.yml
 conda activate zmart-coders
 ```
 
-Create the conda environment for the image analysis. The analysis runs in an environment of its own, so its tools never clash with the notebook's:
+Create the conda environment for the image analysis. ZMART analysis is optional, but this example needs it; it runs in an environment of its own, so its tools never clash with the notebook's:
 
 ```bash
 python -m zmart_analysis.environments object_analysis --step classical
