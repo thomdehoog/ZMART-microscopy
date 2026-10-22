@@ -8,6 +8,8 @@
 
 **ZMART** (ZMB's Microscopy-Agnostic Research Toolkit) is the set of tools we use for smart microscopy
 at the Center for Microscopy and Image Analysis (ZMB), University of Zurich.
+This repository contains example workflows that you can implement on our microscopes.
+It also contains an overview of the individual tools of the ZMART toolkit.
 <br clear="left"/>
 
 ## Example workflows
