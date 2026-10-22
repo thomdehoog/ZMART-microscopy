@@ -4,13 +4,21 @@
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 ![status](https://img.shields.io/badge/status-early%20alpha-red)
 
-<img src="docs/zmart-microscopy-icon.png" align="left" width="240" alt="ZMART microscopy">
+<table>
+<tr>
+<td width="30%" valign="middle">
+<img src="docs/zmart-microscopy-icon.png" width="100%" alt="ZMART microscopy">
+</td>
+<td valign="middle">
 
 **ZMART** (ZMB's Microscopy-Agnostic Research Toolkit) is the set of tools we use for smart microscopy
 at the Center for Microscopy and Image Analysis (ZMB), University of Zurich.
 This repository contains example workflows that you can implement on our microscopes.
 It also contains an overview of the individual tools of the ZMART toolkit.
-<br clear="left"/>
+
+</td>
+</tr>
+</table>
 
 <br>
 
