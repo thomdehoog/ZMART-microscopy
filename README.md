@@ -29,7 +29,7 @@ Each tool has its own repository and can be used on its own.
 <table>
 <tr>
 <td width="46%" valign="middle">
-<img src="docs/zmart-iceberg.png" width="100%" alt="The ZMART toolkit: interface and AI agent above the water; viewer, controller, analysis and drivers below">
+<img src="docs/zmart-iceberg.png" width="100%" alt="The ZMART toolkit: the interface above the water, for non-coders; viewer, controller, analysis and drivers below, for coders">
 </td>
 <td valign="middle">
 
