@@ -20,7 +20,7 @@ conda activate zmart-for-coders
 
 ## 2. Install the ZMART driver for your microscope, and configure it
 
-Install the driver:
+Install the driver for the Leica STELLARIS:
 
 ```bash
 pip install "zmart-drivers[leica] @ git+https://github.com/ZMB-UZH/ZMART-drivers@v0.7.0b3"
