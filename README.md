@@ -16,7 +16,7 @@ It also contains an overview of the individual tools of the ZMART toolkit.
 
 ### For coders
 
-A [Jupyter notebook](workflows/for-coders/) that drives the microscope with a few lines of Python.
+- [Target acquisition workflow](workflows/for-coders/) (Jupyter notebook)
 
 ### For non-coders
 
