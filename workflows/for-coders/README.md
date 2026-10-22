@@ -4,12 +4,29 @@ The [target acquisition notebook](target_acquisition_template.ipynb) drives the 
 
 ## 1. Install
 
-In a clone of this repository:
+In a clone of this repository.
+
+Get ZMART analysis:
 
 ```bash
 git clone -b release-candidate https://github.com/ZMB-UZH/ZMART-analysis work/ZMART-analysis
+```
+
+Make the environment:
+
+```bash
 conda env create -f workflows/for-coders/environment.yml
+```
+
+Activate it:
+
+```bash
 conda activate zmart-coders
+```
+
+Make the environment the object analysis runs in:
+
+```bash
 python work/ZMART-analysis/workflows/object_analysis/environments/setup_env.py --step classical
 ```
 
