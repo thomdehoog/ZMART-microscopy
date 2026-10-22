@@ -44,7 +44,7 @@ Register the driver with it once: [how](https://github.com/ZMB-UZH/ZMART-control
 
 ## 4. Install ZMART analysis for the target acquisition template
 
-To benefit from ZMART analysis in the template, install it: the engine, and the environment its [`analysis`](analysis/) runs in, so its tools never clash with the notebook's.
+To run the analysis in the target acquisition template, install the ZMART analysis engine and the environment its [`analysis`](analysis/) runs in:
 
 ```bash
 pip install "zmart-analysis @ git+https://github.com/ZMB-UZH/ZMART-analysis@v0.6.0rc3"
