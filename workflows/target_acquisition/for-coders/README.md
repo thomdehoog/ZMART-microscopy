@@ -32,7 +32,7 @@ Install the driver for your microscope, and configure it once:
 
 | Microscope | Connection | Install the driver | Configure it | Manual |
 |---|---|---|---|---|
-| Leica STELLARIS | LAS X Navigator Expert | `pip install "zmart-drivers[leica] @ git+https://github.com/ZMB-UZH/ZMART-drivers@v0.7.0b3"` | [how](https://github.com/ZMB-UZH/ZMART-drivers/blob/v0.7.0b3/zmart_drivers/leica/stellaris/navigator_expert/README.md#3-configuration) | [Navigator Expert](https://github.com/ZMB-UZH/ZMART-drivers/blob/v0.7.0b3/zmart_drivers/leica/stellaris/navigator_expert/README.md) |
+| Leica STELLARIS | LAS X Navigator Expert | `pip install "zmart-drivers[leica] @ git+https://github.com/ZMB-UZH/ZMART-drivers@v0.7.0b3"` | [how](https://github.com/ZMB-UZH/ZMART-drivers/blob/v0.7.0b3/zmart_drivers/leica/stellaris/navigator_expert/README.md#3-configuration) | [manual](https://github.com/ZMB-UZH/ZMART-drivers/blob/v0.7.0b3/zmart_drivers/leica/stellaris/navigator_expert/README.md) |
 
 You can stop here if you want just the driver: it works on its own, as its manual describes.
 
