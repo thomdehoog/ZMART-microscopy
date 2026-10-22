@@ -28,23 +28,23 @@ Each tool has its own repository and can be used on its own.
 
 <table>
 <tr>
-<td width="50%" valign="middle">
+<td width="46%" valign="middle">
 <img src="docs/zmart-iceberg.png" width="100%" alt="The ZMART toolkit: interface and AI agent above the water; viewer, controller, analysis and drivers below">
 </td>
 <td valign="middle">
 
+<p><a href="https://github.com/ZMB-UZH/ZMART-drivers"><b>ZMART drivers</b></a><br>
+One driver per microscope (Leica, Nikon, ZEISS, mesoSPIM), each translating the controller's commands into what that microscope understands</p>
+<p><a href="https://github.com/ZMB-UZH/ZMART-controller"><b>ZMART Controller</b></a><br>
+A short list of plain commands (move, read the state, acquire) that works the same on every microscope with a driver</p>
 <p><a href="https://github.com/ZMB-UZH/ZMART-interface"><b>ZMART interface</b></a><br>
 Scan an overview, find targets, image them again</p>
+<p><a href="https://github.com/ZMB-UZH/ZMART-analysis"><b>ZMART analysis</b></a><br>
+The analysis engine that runs between acquisitions (focus, object detection), each step in its own environment</p>
+<p><a href="https://github.com/ZMB-UZH/ZMART-viewer"><b>ZMART viewer</b></a><br>
+Shows a run as OME-Zarr while it is still being acquired</p>
 <p><a href="https://github.com/thomdehoog/ZMART-ai-agent"><b>ZMART AI agent</b></a><br>
 Drives a microscope when you ask in your own words</p>
-<p><a href="https://github.com/ZMB-UZH/ZMART-viewer"><b>ZMART viewer</b></a><br>
-Shows a run while it is still being acquired</p>
-<p><a href="https://github.com/ZMB-UZH/ZMART-controller"><b>ZMART controller</b></a><br>
-A short list of plain commands that works the same on every microscope</p>
-<p><a href="https://github.com/ZMB-UZH/ZMART-analysis"><b>ZMART analysis</b></a><br>
-Runs the analysis between acquisitions</p>
-<p><a href="https://github.com/ZMB-UZH/ZMART-drivers"><b>ZMART drivers</b></a><br>
-One driver per microscope: Leica, Nikon, ZEISS, mesoSPIM</p>
 
 </td>
 </tr>
