@@ -1,8 +1,10 @@
 # Target acquisition workflow for coders
 
-The [target acquisition template](target_acquisition_template.ipynb) drives the microscope with the [ZMART Controller](https://github.com/ZMB-UZH/ZMART-controller): image overview positions, find dividing cells, and image them again.
+Image overview positions, find dividing cells, and image them again, from a [Jupyter notebook](target_acquisition_template.ipynb).
 
-## 1. Install
+**You need:** conda, git, access to [ZMB-UZH](https://github.com/ZMB-UZH) on GitHub, and LAS X on the microscope PC.
+
+## 1. Install (once per computer)
 
 Get this repository:
 
@@ -28,21 +30,27 @@ Activate it:
 conda activate zmart-coders
 ```
 
-Make the environment the object analysis runs in:
+Make the environment the analysis runs in:
 
 ```bash
 python -m zmart_analysis.environments object_analysis --step classical
 ```
 
-## 2. Configure the driver
+## 2. Set up the microscope (once per microscope)
 
-Set up the travel limits, image orientation, objective calibration and zero point once, with the notebooks in the [Leica driver's](https://github.com/ZMB-UZH/ZMART-drivers/blob/v0.7.0b2/zmart_drivers/leica/stellaris/navigator_expert/README.md) `driver_setup` folder.
+Configure the driver: set the travel limits, image orientation, objective calibration and zero point with the notebooks in the [Leica driver's](https://github.com/ZMB-UZH/ZMART-drivers/blob/v0.7.0b2/zmart_drivers/leica/stellaris/navigator_expert/README.md) `driver_setup` folder.
 
-## 3. Register the driver
+Register the driver with the ZMART Controller: [how](https://github.com/ZMB-UZH/ZMART-controller/blob/v0.4.0rc4/docs/plug_in_a_driver/README.md).
 
-Register it once with the ZMART Controller: [how](https://github.com/ZMB-UZH/ZMART-controller/blob/v0.4.0rc4/docs/plug_in_a_driver/README.md).
+## 3. Run (every time)
 
-## 4. Open the notebook
+Activate the environment:
+
+```bash
+conda activate zmart-coders
+```
+
+Open the notebook:
 
 ```bash
 jupyter lab workflows/for-coders/target_acquisition_template.ipynb
