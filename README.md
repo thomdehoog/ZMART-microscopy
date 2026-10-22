@@ -13,8 +13,13 @@ This repository puts them together.
 
 ## Example workflows
 
-- [For coders](workflows/for-coders/): a Jupyter notebook that drives the microscope with a few lines of Python.
-- [For non-coders](workflows/for-non-coders/): the operator window, no code.
+### For coders
+
+A [Jupyter notebook](workflows/for-coders/) that drives the microscope with a few lines of Python.
+
+### For non-coders
+
+The [operator window](workflows/for-non-coders/), no code.
 
 ## Author
 Thom de Hoog, Center for Microscopy and Image Analysis (ZMB), University of
