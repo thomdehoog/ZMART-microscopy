@@ -48,10 +48,10 @@ Each tool has its own repository and can be used on its own.
 Provides an abstraction to interact with the microscope in a reproducible, robust and straightforward way</p>
 <p><a href="https://github.com/ZMB-UZH/ZMART-controller"><b>ZMART Controller</b></a><br>
 Distills talking to the microscope down to a uniform language, so the workflows you build with it become interoperable</p>
+<p><a href="https://github.com/ZMB-UZH/ZMART-analysis"><b>ZMART analysis</b></a><br>
+Allows you to generate image analysis pipelines that are optimized for live feedback on local computers, that are documented, reproducible and that you can share</p>
 <p><a href="https://github.com/ZMB-UZH/ZMART-interface"><b>ZMART interface</b></a><br>
 Scan an overview, find targets, image them again</p>
-<p><a href="https://github.com/ZMB-UZH/ZMART-analysis"><b>ZMART analysis</b></a><br>
-The analysis engine that runs between acquisitions (focus, object detection), each step in its own environment</p>
 <p><a href="https://github.com/ZMB-UZH/ZMART-viewer"><b>ZMART viewer</b></a><br>
 Shows a run as OME-Zarr while it is still being acquired</p>
 <p><a href="https://github.com/thomdehoog/ZMART-ai-agent"><b>ZMART AI agent</b></a><br>
