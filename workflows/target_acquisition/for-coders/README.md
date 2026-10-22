@@ -20,15 +20,13 @@ conda activate zmart-for-coders
 
 ## 2. Install the ZMART driver for your microscope, and configure it
 
-Install the driver for the Leica STELLARIS:
+Install the driver for your microscope, and configure it once:
 
-```bash
-pip install "zmart-drivers[leica] @ git+https://github.com/ZMB-UZH/ZMART-drivers@v0.7.0b3"
-```
+| Microscope | Install the driver | Configure it | Manual |
+|---|---|---|---|
+| Leica STELLARIS | `pip install "zmart-drivers[leica] @ git+https://github.com/ZMB-UZH/ZMART-drivers@v0.7.0b3"` | [how](https://github.com/ZMB-UZH/ZMART-drivers/blob/v0.7.0b3/zmart_drivers/leica/stellaris/navigator_expert/README.md#3-configuration) | [Navigator Expert](https://github.com/ZMB-UZH/ZMART-drivers/blob/v0.7.0b3/zmart_drivers/leica/stellaris/navigator_expert/README.md) |
 
-Configure it once per microscope: [how](https://github.com/ZMB-UZH/ZMART-drivers/blob/v0.7.0b3/zmart_drivers/leica/stellaris/navigator_expert/README.md#3-configuration).
-
-You can stop here if you want just the driver: it works on its own. See the [ZMART driver's manual for the Leica STELLARIS through Navigator Expert](https://github.com/ZMB-UZH/ZMART-drivers/blob/v0.7.0b3/zmart_drivers/leica/stellaris/navigator_expert/README.md).
+You can stop here if you want just the driver: it works on its own, as its manual describes.
 
 However, we do not provide a template target acquisition workflow for this. For the target acquisition workflow, follow through to step 4.
 
@@ -47,7 +45,7 @@ Register the driver with it once: [how](https://github.com/ZMB-UZH/ZMART-control
 To run the analysis in the target acquisition template, install the ZMART analysis engine and the environment its [`analysis`](analysis/) runs in:
 
 ```bash
-pip install "zmart-analysis @ git+https://github.com/ZMB-UZH/ZMART-analysis@v0.6.0rc3"
+pip install "zmart-analysis @ git+https://github.com/ZMB-UZH/ZMART-analysis@v0.6.0rc4"
 conda env create -f analysis/environments/classical.yml
 ```
 

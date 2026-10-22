@@ -58,7 +58,7 @@ def the_focus_environment():
 
     if not env_exists(get_conda_info(), "ZMART--focus--main"):
         pytest.fail("the conda environment ZMART--focus--main is missing; "
-                    "install.py makes it (or setup_env.py in the focus workflow)")
+                    "install.py makes it (or conda env create -f focus/environments/main.yml)")
 
 
 def test_the_engine_scores_a_focus_stack_in_the_focus_environment(
