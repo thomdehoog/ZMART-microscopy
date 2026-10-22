@@ -24,7 +24,7 @@ It also contains an overview of the individual tools of the ZMART toolkit.
 
 <br>
 
-### Build your own workflow with ZMART
+## Build your own workflow with ZMART
 
 Each tool has its own repository and can be used on its own.
 
