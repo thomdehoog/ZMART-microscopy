@@ -1,7 +1,6 @@
-# What the target acquisition notebook needs, and nothing more: Jupyter, the
-# Leica driver (it brings the ZMART Controller) and the ZMART analysis engine.
-# Each at a released version. conda-forge only. The analysis itself is in
-# analysis/, next to this file.
+# The base environment of the target acquisition workflow for coders: Python
+# and Jupyter, from conda-forge only. The ZMART parts are added one by one,
+# each at a released version (see README.md).
 name: zmart-coders
 channels:
   - conda-forge
@@ -11,6 +10,3 @@ dependencies:
   - pip
   - git
   - jupyterlab
-  - pip:
-      - zmart-drivers[leica] @ git+https://github.com/ZMB-UZH/ZMART-drivers@v0.7.0b2
-      - zmart-analysis @ git+https://github.com/ZMB-UZH/ZMART-analysis@v0.6.0rc3
