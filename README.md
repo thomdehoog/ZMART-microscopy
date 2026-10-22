@@ -24,7 +24,7 @@ It also contains an overview of the individual tools of the ZMART toolkit.
 
 - [Target acquisition workflow for the Leica STELLARIS](workflows/for-non-coders/) using an intuitive interface
 
-## Build your own workflow with ZMART
+## Build your own workflow using the tools of ZMART
 
 Each tool has its own repository and can be used on its own.
 
