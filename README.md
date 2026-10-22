@@ -20,7 +20,7 @@ It also contains an overview of the individual tools of the ZMART toolkit.
 
 ### For non-coders
 
-- [Target acquisition workflow](workflows/for-non-coders/) using an intuitive interface
+- [Target acquisition workflow for the Leica STELLARIS](workflows/for-non-coders/) using an intuitive interface
 
 ### Build your own workflow with ZMART
 
