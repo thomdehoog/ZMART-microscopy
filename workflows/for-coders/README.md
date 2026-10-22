@@ -1,6 +1,6 @@
 # Target acquisition workflow for coders
 
-Image overview positions, find dividing cells, and image them again, from a [Jupyter notebook](target_acquisition_template.ipynb).
+Image overview positions, find targets, and image them again, from a [Jupyter notebook](target_acquisition_template.ipynb). The targets here are dividing cells, as an example; choose your own in the notebook.
 
 **You need:** conda, git, access to [ZMB-UZH](https://github.com/ZMB-UZH) on GitHub, and LAS X on the microscope PC.
 
