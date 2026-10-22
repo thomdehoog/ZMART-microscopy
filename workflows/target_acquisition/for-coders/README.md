@@ -28,7 +28,7 @@ pip install "zmart-drivers[leica] @ git+https://github.com/ZMB-UZH/ZMART-drivers
 
 Configure it once per microscope: [how](https://github.com/ZMB-UZH/ZMART-drivers/blob/v0.7.0b3/zmart_drivers/leica/stellaris/navigator_expert/README.md#3-configuration).
 
-You can stop here if you want just the driver: it works on its own. See the [ZMART driver's manual for the Leica STELLARIS through Navigator Expert](https://github.com/ZMB-UZH/ZMART-drivers/blob/v0.7.0b3/zmart_drivers/leica/stellaris/navigator_expert/README.md); we do not provide a full workflow for this. For the target acquisition workflow, follow through to step 4.
+You can stop here if you want just the driver: it works on its own. See the [ZMART driver's manual for the Leica STELLARIS through Navigator Expert](https://github.com/ZMB-UZH/ZMART-drivers/blob/v0.7.0b3/zmart_drivers/leica/stellaris/navigator_expert/README.md). However, we do not provide a template target acquisition workflow for this. For the target acquisition workflow, follow through to step 4.
 
 ## 3. Install the ZMART Controller, and register the driver
 
