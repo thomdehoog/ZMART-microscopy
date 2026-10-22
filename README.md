@@ -22,7 +22,7 @@ It also contains an overview of the individual tools of the ZMART toolkit.
 
 - [Target acquisition workflow](workflows/for-non-coders/) using an intuitive interface
 
-## Build your own workflow using the individual components of the ZMART toolkit
+### Build your own workflow using the individual components of the ZMART toolkit
 
 Each tool has its own repository and can be used on its own.
 
