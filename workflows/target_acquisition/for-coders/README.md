@@ -32,7 +32,7 @@ You can stop here if you want just the driver: it works on its own. See the [ZMA
 
 However, we do not provide a template target acquisition workflow for this. For the target acquisition workflow, follow through to step 4.
 
-## 3. Install the ZMART Controller, and register the driver
+## 3. Install the ZMART Controller, and register the driver of interest
 
 We provide a template workflow for target acquisition through the vocabulary of the ZMART Controller. The controller provides one unified language for every microscope with a ZMART driver, so workflows built on it are interoperable, and easier to test and share.
 
