@@ -1,8 +1,14 @@
 # Target acquisition workflow for coders
 
-Image overview positions, find targets, and image them again, from a [Jupyter notebook](target_acquisition_template.ipynb). The targets here are dividing cells, found with [ZMART analysis](https://github.com/ZMB-UZH/ZMART-analysis), as an example; choose your own targets, or bring your own analysis, in the notebook.
+## The workflow
 
-## 1. Install the base environment
+A [Jupyter notebook](target_acquisition_template.ipynb) that images overview positions, finds targets in them, and images the targets.
+
+As an example, the targets are dividing cells, found with [ZMART analysis](https://github.com/ZMB-UZH/ZMART-analysis). You can choose your own targets or use your own analysis.
+
+## Install
+
+### 1. Install the base environment
 
 Clone the repository:
 
@@ -18,7 +24,7 @@ conda env create -f environment.yml
 conda activate zmart-for-coders
 ```
 
-## 2. Install the ZMART driver for your microscope, and configure it
+### 2. Install the ZMART driver for your microscope, and configure it
 
 Install the driver for your microscope, and configure it once:
 
@@ -30,7 +36,7 @@ You can stop here if you want just the driver: it works on its own, as its manua
 
 However, we do not provide a template target acquisition workflow for this. For the target acquisition workflow, follow through to step 4.
 
-## 3. Install the ZMART Controller, and register the ZMART driver of interest
+### 3. Install the ZMART Controller, and register the ZMART driver of interest
 
 We provide a template workflow for target acquisition through the vocabulary of the ZMART Controller. The controller provides one unified language for every microscope with a ZMART driver, so workflows built on it are interoperable, and easier to test and share.
 
@@ -40,7 +46,7 @@ pip install "zmart-controller @ git+https://github.com/ZMB-UZH/ZMART-controller@
 
 Register the driver with it once: [how](https://github.com/ZMB-UZH/ZMART-controller/blob/v0.4.0rc4/docs/plug_in_a_driver/README.md).
 
-## 4. Install ZMART analysis for the target acquisition template
+### 4. Install ZMART analysis for the target acquisition template
 
 To run the analysis in the target acquisition template, install the ZMART analysis engine and the environment its [`analysis`](analysis/) runs in:
 
@@ -49,7 +55,7 @@ pip install "zmart-analysis @ git+https://github.com/ZMB-UZH/ZMART-analysis@v0.6
 conda env create -f analysis/environments/classical.yml
 ```
 
-## 5. Run
+## Run
 
 ```bash
 conda activate zmart-for-coders
