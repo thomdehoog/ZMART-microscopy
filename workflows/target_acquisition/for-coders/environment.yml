@@ -1,7 +1,7 @@
 # The base environment of the target acquisition workflow for coders: Python
 # and Jupyter, from conda-forge only. The ZMART parts are added one by one,
 # each at a released version (see README.md).
-name: zmart-coders
+name: zmart-for-coders
 channels:
   - conda-forge
   - nodefaults

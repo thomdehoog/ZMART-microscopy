@@ -15,7 +15,7 @@ Create the base environment, and activate it:
 
 ```bash
 conda env create -f environment.yml
-conda activate zmart-coders
+conda activate zmart-for-coders
 ```
 
 ## 2. Install the ZMART driver for your microscope, and configure it
@@ -52,7 +52,7 @@ python analysis/environments/setup_env.py --step classical
 ## 5. Run
 
 ```bash
-conda activate zmart-coders
+conda activate zmart-for-coders
 cd ZMART-microscopy/workflows/target_acquisition/for-coders
 jupyter lab target_acquisition_template.ipynb
 ```
