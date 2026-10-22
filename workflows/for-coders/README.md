@@ -1,6 +1,6 @@
 # For coders
 
-[`example_workflow.ipynb`](example_workflow.ipynb) drives a microscope with the
+[`target_acquisition.ipynb`](target_acquisition.ipynb) surveys a sample, finds objects, and images the most interesting ones again, with the
 [ZMART Controller](https://github.com/ZMB-UZH/ZMART-controller).
 
-Install the controller and the [driver](https://github.com/ZMB-UZH/ZMART-drivers) for your microscope, then open the notebook.
+Run `python install.py` in this repository first, then open the notebook. It runs on the mock microscope.
