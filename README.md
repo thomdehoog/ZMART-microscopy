@@ -20,7 +20,7 @@ It also contains an overview of the individual tools of the ZMART toolkit.
 
 ### For non-coders
 
-- [Target acquisition workflow](workflows/for-non-coders/) using the ZMART interface, no code
+- [Target acquisition workflow](workflows/for-non-coders/) using an intuitive interface
 
 ## Author
 Thom de Hoog, Center for Microscopy and Image Analysis (ZMB), University of
