@@ -11,5 +11,5 @@ dependencies:
   - git
   - jupyterlab
   - pip:
-      - zmart-drivers[leica] @ git+https://github.com/ZMB-UZH/ZMART-drivers@v0.7.0b1
+      - zmart-drivers[leica] @ git+https://github.com/ZMB-UZH/ZMART-drivers@v0.7.0b2
       - zmart-analysis @ git+https://github.com/ZMB-UZH/ZMART-analysis@v0.6.0rc2

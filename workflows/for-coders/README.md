@@ -36,7 +36,7 @@ python -m zmart_analysis.environments object_analysis --step classical
 
 ## 2. Configure the driver
 
-Set up the travel limits, image orientation, objective calibration and zero point once, with the notebooks in the [Leica driver's](https://github.com/ZMB-UZH/ZMART-drivers/blob/v0.7.0b1/zmart_drivers/leica/stellaris_y42h93/navigator_expert/README.md) `driver_setup` folder.
+Set up the travel limits, image orientation, objective calibration and zero point once, with the notebooks in the [Leica driver's](https://github.com/ZMB-UZH/ZMART-drivers/blob/v0.7.0b2/zmart_drivers/leica/stellaris/navigator_expert/README.md) `driver_setup` folder.
 
 ## 3. Register the driver
 
