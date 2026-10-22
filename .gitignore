@@ -7,5 +7,5 @@ Thumbs.db
 .DS_Store
 
 # What the target acquisition notebook makes when it runs
-/workflows/for-coders/images/
-/workflows/for-coders/analysis_output/
+/workflows/target_acquisition/for-coders/images/
+/workflows/target_acquisition/for-coders/analysis_output/

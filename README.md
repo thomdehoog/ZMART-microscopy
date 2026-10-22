@@ -25,11 +25,15 @@ It also contains an overview of the individual tools of the ZMART toolkit.
 
 ### For non-coders
 
-- [Target acquisition workflow for non-coders](workflows/for-non-coders/) with the Leica STELLARIS using an intuitive interface
+- [Target acquisition workflow for non-coders](workflows/target_acquisition/for-non-coders/) using an intuitive interface
+  - Supported systems:
+    - Leica STELLARIS
 
 ### For coders
 
-- [Target acquisition workflow for coders](workflows/for-coders/) with the Leica STELLARIS using a Jupyter notebook
+- [Target acquisition workflow for coders](workflows/target_acquisition/for-coders/) using a Jupyter notebook
+  - Supported systems:
+    - Leica STELLARIS
 
 <br>
 

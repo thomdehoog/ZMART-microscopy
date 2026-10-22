@@ -10,20 +10,20 @@ Clone the repository:
 
 ```bash
 git clone -b example-workflows https://github.com/ZMB-UZH/ZMART-microscopy
-cd ZMART-microscopy
+cd ZMART-microscopy/workflows/target_acquisition/for-coders
 ```
 
 Create the conda environment for the notebook, and activate it:
 
 ```bash
-conda env create -f workflows/for-coders/environment.yml
+conda env create -f environment.yml
 conda activate zmart-coders
 ```
 
-Create the conda environment for the image analysis. ZMART analysis is optional, but this example needs it; it runs in an environment of its own, so its tools never clash with the notebook's:
+Create the conda environment for the image analysis in [`analysis`](analysis/). ZMART analysis is optional, but this example needs it; it runs in an environment of its own, so its tools never clash with the notebook's:
 
 ```bash
-python -m zmart_analysis.environments object_analysis --step classical
+python analysis/environments/setup_env.py --step classical
 ```
 
 ## 2. Set up the microscope (once per microscope)
@@ -40,8 +40,9 @@ Activate the environment:
 conda activate zmart-coders
 ```
 
-Open the notebook:
+Go to the workflow and open the notebook:
 
 ```bash
-jupyter lab workflows/for-coders/target_acquisition_template.ipynb
+cd ZMART-microscopy/workflows/target_acquisition/for-coders
+jupyter lab target_acquisition_template.ipynb
 ```
