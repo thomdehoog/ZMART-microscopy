@@ -2,9 +2,7 @@
 
 ## The workflow
 
-This workflow consists of a template [Jupyter notebook](target_acquisition_template.ipynb) that runs a target acquisition workflow: it images overview positions, finds targets in them, and images the targets.
-
-It is intentionally a simplified example, meant to be expanded upon.
+This workflow consists of a template [Jupyter notebook](target_acquisition_template.ipynb) that runs a target acquisition workflow: it images overview positions, finds targets in them, and images the targets. It is intentionally a simplified example, meant to be expanded upon, and not an end-to-end solution.
 
 As an example, we filter out dividing cells with a simple metric, using analysis done with the [ZMART analysis](https://github.com/ZMB-UZH/ZMART-analysis) pipeline. You can choose your own targets or use your own analysis.
 
