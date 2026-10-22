@@ -1,6 +1,6 @@
 # Target acquisition workflow for coders
 
-Image overview positions, find targets, and image them again, from a [Jupyter notebook](target_acquisition_template.ipynb). The targets here are dividing cells, as an example; choose your own in the notebook.
+Image overview positions, find targets, and image them again, from a [Jupyter notebook](target_acquisition_template.ipynb). The targets here are dividing cells, found with [ZMART analysis](https://github.com/ZMB-UZH/ZMART-analysis), as an example; choose your own targets, or bring your own analysis, in the notebook.
 
 **You need:** conda, git, access to [ZMB-UZH](https://github.com/ZMB-UZH) on GitHub, and LAS X on the microscope PC.
 
