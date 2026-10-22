@@ -22,7 +22,7 @@ It also contains an overview of the individual tools of the ZMART toolkit.
 
 - [Target acquisition workflow](workflows/for-non-coders/) using an intuitive interface
 
-## Using the individual components of the ZMART toolkit
+## Build your own workflow using the individual components of the ZMART toolkit
 
 <img src="docs/zmart-iceberg.png" width="600" alt="The ZMART toolkit: interface and AI agent above the water; viewer, controller, analysis and drivers below">
 
