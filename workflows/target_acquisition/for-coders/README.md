@@ -42,7 +42,7 @@ pip install "zmart-controller @ git+https://github.com/ZMB-UZH/ZMART-controller@
 
 Register the driver with it once: [how](https://github.com/ZMB-UZH/ZMART-controller/blob/v0.4.0rc4/docs/plug_in_a_driver/README.md).
 
-## 4. Install ZMART analysis for the example
+## 4. Install ZMART analysis for the target acquisition template
 
 To benefit from ZMART analysis in the template, install it: the engine, and the environment its [`analysis`](analysis/) runs in, so its tools never clash with the notebook's.
 
