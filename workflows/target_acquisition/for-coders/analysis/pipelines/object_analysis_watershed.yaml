@@ -22,7 +22,7 @@ metadata:
   purpose: "Object-centered image analysis with a watershed"
   version: "1.0"
   verbose: 1
-  functions_dir: "steps"
+  functions_dir: "../steps"
 
 # The watershed is single-threaded work of about a second a field, and fields
 # are independent: this pipeline runs its steps twelve wide. The Cellpose
